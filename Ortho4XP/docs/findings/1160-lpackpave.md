@@ -83,3 +83,45 @@ read, the one place they exist). Nothing downstream re-derives it.
 Build-time impact: one shapely union of the pack's sources and the Global
 union per load, only when stage 1 borrowed (KATL: ~0.1 s) — under the 1 %
 review floor.
+
+## Measured (lane lpackpave, 2026-10-26)
+
+Captures (registered, `frames.py list KATL`): control
+`lpackpave/KATL_base.pkl` (main ec307265a), lane `lpackpave/KATL.pkl`.
+Closing builds through `build_airport.py`: lane `lpackpave_KATL` (branch
+merged with main 2cc289364; body 5fc910dd7671) and control `lpackpave_base`
+(`--base-arm` at 2cc289364, a ledger miss, built; body 5ef38fe4e910).
+
+* Load line: "the pack's apt.dat carries 0 pavement(s) covering 0.0 % of
+  Global Airports' 20, but its scenery's 223 draped pavement(s) bring it to
+  85.3 % (>= 25 %): the pack's own pavement stands, nothing BORROWED".
+* Taxiway + apron + junction faces by source: control 99.0 % Global `pav*`
+  (4.95 km²), 1.0 % pack `.pol`; lane **100 % pack `.pol`** (4.36 km²).
+  Airside (runway included) 5.97 → 5.14 km²: the 0.83 km² gone is the
+  Global-only pavement the pack does not draw (20az).
+* The #1139/#1158 wall site: pavement over `muro_concreto`'s footprint
+  1,039 → 120 m² (Global `pav14` 917 m² gone; the pack's own `dsf:pol43`
+  reaches 117 m² into it), `muro_concreto5` 1,011 → 398 m²
+  (`dsf:pol22` 392 m²); the 8.13 m `strip_seam_tear` at 33.63717,
+  -84.41709 is GONE. The pack's own residual is #1158's (20ax).
+* Census (`tools/harness/census.py`), control → lane: CRITICAL motion
+  0 → 0; ADJUDICATED 5,461 → 3,889 (airside_for_acceptance 4,882 →
+  3,366); actionable sites 197 → 183; CRITICAL visual 1,223 → 1,618
+  (cliff rows 153 → 544).
+* NOT MET — "zero new adjudicated violations": 23 actionable sites have
+  no same-family control site within 50 m (53 control sites are gone).
+  The large ones sit SOUTH OF RUNWAY 10/28 between 33.6198,-84.4324 and
+  33.6208,-84.4282: `adjacent_ground_step` 8.53 m, `strip_seam_tear`
+  6.97 m, `mid_edge_step` 2.74 m, and the 116-row `strip_transverse` site
+  (worst 20.16 m over 51.5 m at 33.61983,-84.43218). There the Global
+  block's `pav17` carried two ~25 m-wide strips (15,240 + 15,111 m²)
+  beside the runway that the pack does not draw; graded as apron at runway
+  level they hid the runway's ~20 m embankment. Without them the runway
+  strip (adjacent ground zones 1–2) meets the real slope — the same
+  strip-over-embankment class the control carries along other runways
+  (worst control row 19.1 m at 33.63414,-84.40886). Smaller new sites:
+  `mid_edge_step` 1.21 m at the 10 end (33.62138,-84.44656), `strip_arc`
+  1.45 m (33.64609,-84.42454), `transverse` 0.99 m junction (33.64523,
+  -84.41675), `within_shape` 0.69 / 0.59 m cross_connector|runway.
+  Whether the 10/28 embankment strip is graded or left as the cliff is
+  the strip law's question, not this rule's — named for the owner.

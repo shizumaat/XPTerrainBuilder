@@ -296,13 +296,17 @@ def skirted_placements(airport, law, cache: _obj8.ResourceCache | None = None
     if not (sk.drops_pad or sk.seat_low_side):
         return out, cache
     from .basin_witness import basin_member_ids
+    from .pack_work import read_skirts_ahead
     basins = basin_member_ids(airport, law, cache)
-    for o in getattr(airport, "dsf_objects", ()):
-        resolved = getattr(o, "resolved_path", None)
-        if not resolved or not str(o.path).lower().endswith(".obj"):
-            continue
-        if o.id in basins:
-            continue                      # a facility, not a foundation
+    asked = [o for o in getattr(airport, "dsf_objects", ())
+             if getattr(o, "resolved_path", None)
+             and str(o.path).lower().endswith(".obj")
+             and o.id not in basins]      # a basin member: a facility, not a foundation
+    # the plan unions are the cost and a pure function of each resource:
+    # a work pool reads them ahead, the loop takes them in its own order
+    read_skirts_ahead(cache, law, (o.resolved_path for o in asked))
+    for o in asked:
+        resolved = o.resolved_path
         r = reading(cache, resolved, law)
         if r.skirt and r.depth_m is not None:
             out[o.id] = r.depth_m

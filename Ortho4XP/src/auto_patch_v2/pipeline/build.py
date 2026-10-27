@@ -38,6 +38,7 @@ from .emit_stage import (  # noqa: F401
     displacement_by_role,
     post_solve,
     with_join_yield,
+    with_threshold_yield,
 )
 from .planar_report import shore_decision_lines  # noqa: F401  (read here)
 from .prefix import Deriver, PackRead, run_prefix
@@ -337,6 +338,14 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # issue #516: the sunken ramps' ground, beside the clusters it trims
     from ..airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law, ocache)
+    # THE FLAT-PACK WITNESS (owner direction 2026-10-20, answers 59-66; spec
+    # ``flat-pack-terracing-spec.md`` §1): read once the partition is, a
+    # REPORT in phase 1 (``law/flat_pack.toml`` ``terrace = false``).
+    from ..airport import flat_pack as _flat_pack
+    _fpv = _flat_pack.detect(airport, law)
+    airport = _dc.replace(airport, flat_pack=_fpv)
+    lrep.flat_pack = _flat_pack.record(_fpv)
+    _say("  " + _flat_pack.log_line(icao, _fpv), out)
     # §16g (8)/(9) (owner RULINGS 2026-09-14w): the cluster count, SAID.
     # HECA's round-5 build priced 0 cluster cross-links while
     # ``plan_clusters`` on the same plan returned 2, and nothing in the
@@ -432,6 +441,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # §44 (4) THE PAVEMENT BORROW (owner RULINGS 2026-09-15f): ONE line,
     # only when the pack's own pavement did not stand.
     for _line in lrep.cifp_coordinate_joins:     # #119: named, every one
+        _say(f"  [load] {_line}", out)
+    # THE RUNWAY-END PIN RULE (#1342 / #1358, RULINGS 2026-10-25a): every
+    # flagged runway and every moved pin, named
+    for _line in lrep.end_pin_lines:
         _say(f"  [load] {_line}", out)
     if lrep.pavement_borrow_line:
         _say(f"[load] {lrep.pavement_borrow_line}", out)
@@ -653,6 +666,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                         "wall_s": _late["wall_s"]}
     # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS (``emit_stage``)
     pm = with_join_yield(icao, pm, law, airport, sol, _pin_yield, out)
+    # OWNER RULINGS 2026-10-26b: THE TILE SEAM OUTRANKS A CIFP THRESHOLD
+    pm = with_threshold_yield(icao, pm, law, airport, sol, _pin_yield, out)
     # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
     # nothing is re-solved on a built step
     # THE SEAM PASSES ARE DELETED (§38 (1); owner RULINGS 2026-09-13ah,
@@ -672,13 +687,27 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                        seam_yielded, out)
     moved, _envelope, off_ground = _post["moved"], _post["envelope"], _post["off_ground"]
     report_seam, road_agree = _post["seam"], _post["road_agree"]
+    # THE RUNWAY-END PINS (#1342 / #1394): every end the DEM decided, named
+    from ..constraints import runway_end_report as _end_report
+    _end_recs = _end_report.records(pm, law, airport)
+    for _line in _end_report.lines(icao, _end_recs):
+        _say(f"  [runway] {_line}", out)
     report: dict[str, _t.Any] = {
         "icao": icao, "ruleset": law.ruleset_key,
         "load": _dc.asdict(lrep), "planar": _dc.asdict(pstats),
+        # owner RULINGS 2026-10-25a / 26e: one record per runway end (the
+        # sidecar's ``runway_end_pins``)
+        "runway_end_pins": _end_recs,
         # §50.4: the OVER-GRADE runways, one record each (§50.1 (4)'s
         # shape) — yielded runways only; EVERY runway's cap is in the
         # sidecar's ``runway_caps``
         "runway_cap_yield": _yield_records,
+        # owner RULINGS 2026-10-26b: the CIFP thresholds the tile seam
+        # outranked, one record each (the sidecar's ``threshold_seam_yield``)
+        "threshold_seam_yield": [
+            {"vertex": v, "end": end, "cifp_m": round(c, 4), "built_m": round(zb, 4),
+             "yield_m": round(zb - c, 4), "seam_distance_m": round(d, 2)}
+            for v, (c, zb, d, end) in sorted(pm.threshold_seam_yield.items())],
         "basins": [_dc.asdict(b) for b in pm.basins],
         "constraints": {"by_generator": counts, "by_kind": cs.counts(),
                         "wall_s": {k: round(v, 4) for k, v in gwalls.items()}},

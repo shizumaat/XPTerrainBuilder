@@ -19,6 +19,12 @@ from pathlib import Path
 # 1,000-line file law; RULINGS 2026-09-05k-2) and are re-exported here.
 from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # noqa: F401
                                ReliefFloor, check_flat_site as _check_flat_site)
+# flat_pack.toml's schema likewise (owner direction 2026-10-20, answers 59-66)
+from .flat_pack_schema import (FlatPack, FlatPackDetector,  # noqa: F401
+                               check_flat_pack as _check_flat_pack)
+# runway_ends.toml's schema likewise (owner RULINGS 2026-10-25a / 26a / 26e)
+from .runway_ends_schema import (ByDemClass, RunwayEnds,  # noqa: F401
+                                 check_runway_ends as _check_runway_ends)
 # the [rebake] schema (06g: the contact-cluster law's keys) likewise
 from .rebake_schema import Deck, Placement, Rebake, Scatter  # noqa: F401
 # the [cutout] schema (06b (1), 09-08a; the door / sunken-road ramp laws 09-08b/c)
@@ -57,11 +63,14 @@ __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "
     "Law", "TABLE_FILES", "load_tables",
     "COCKPIT_CLASSES"]
 
-#: The seven files a law directory must contain (owner amendment
-#: 2026-09-03; ``flat_site.toml`` per RULINGS 2026-09-05k-2).  None names
+#: The eight files a law directory must contain (owner amendment
+#: 2026-09-03; ``flat_site.toml`` per RULINGS 2026-09-05k-2;
+#: ``flat_pack.toml`` per the owner's 2026-10-20 flat-pack direction;
+#: ``runway_ends.toml`` per RULINGS 2026-10-25a / 26a / 26e).  None names
 #: an airport (RULINGS 2026-10-05e; ``tests/test_no_airport_specific_code``).
 TABLE_FILES: tuple[str, ...] = ("rulesets.toml", "zones.toml", "structures.toml", "emit.toml",
-                                "precedence.toml", "families.toml", "flat_site.toml")
+                                "precedence.toml", "families.toml", "flat_site.toml",
+                                "flat_pack.toml", "runway_ends.toml")
 
 
 class LawError(ValueError):
@@ -926,7 +935,7 @@ class Family:
 
 @_dc.dataclass(frozen=True)
 class LawTables:
-    """Everything the seven files hold, validated."""
+    """Everything the eight files hold, validated."""
 
     resolution: Resolution
     common: CommonLaw
@@ -937,6 +946,9 @@ class LawTables:
     precedence: Precedence
     families: _t.Mapping[str, Family]
     flat_site: FlatSite
+    flat_pack: FlatPack
+    #: THE RUNWAY-END PIN RULE (RULINGS 2026-10-25a / 26a / 26e)
+    runway_ends: RunwayEnds
 
 
 # ── the loader ───────────────────────────────────────────────────────────
@@ -1197,6 +1209,8 @@ def _check_cross_refs(t: LawTables) -> None:
         raise LawError(f"rulesets.resolution.default {t.resolution.default!r}"
                        " is not a ruleset")
     _check_flat_site(t.flat_site, LawError)
+    _check_flat_pack(t.flat_pack, LawError)
+    _check_runway_ends(t.runway_ends, LawError)
     role_words = roles | {"all", "airside", "groundside", "taxi_family",
                           "runway_family"}
     for key, fam in t.families.items():
@@ -1240,7 +1254,7 @@ def _walk(obj: object, parts: list[str]) -> bool:
 
 
 def load_tables(law_dir: str | Path) -> LawTables:
-    """Load and validate the seven tables under ``law_dir``."""
+    """Load and validate the eight tables under ``law_dir``."""
     d = Path(law_dir)
     rs_raw = _read(d, "rulesets.toml")
     known = {"resolution", "common"}
@@ -1269,7 +1283,9 @@ def load_tables(law_dir: str | Path) -> LawTables:
         precedence=_build(Precedence, _read(d, "precedence.toml"),
                           "precedence"),
         families=families,
-        flat_site=_build(FlatSite, _read(d, "flat_site.toml"), "flat_site"))
+        flat_site=_build(FlatSite, _read(d, "flat_site.toml"), "flat_site"),
+        flat_pack=_build(FlatPack, _read(d, "flat_pack.toml"), "flat_pack"),
+        runway_ends=_build(RunwayEnds, _read(d, "runway_ends.toml"), "runway_ends"))
     _check_cross_refs(tables)
     return tables
 

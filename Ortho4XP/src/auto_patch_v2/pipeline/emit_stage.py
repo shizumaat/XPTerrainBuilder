@@ -42,6 +42,7 @@ from ..emit.osm_adapter import (
     write_rendered,
 )
 from ..emit.terrain_edge import with_terrain_edges
+from ..geom.water_level import shore_edge_records
 from ..law import Law
 from ..model import pulse as _pulse
 from ..model.planar import PlanarMap
@@ -52,6 +53,7 @@ from .rebake_inputs import _rebake_inputs
 from .seam_report import seam_yield_block
 
 __all__ = ["MOVED_M", "borrowed_apt_dat_stamp", "displacement_by_role", "with_join_yield",
+           "with_threshold_yield",
            "post_solve", "patch_header", "Rebaked", "Emitted", "emit", "say_joint_steps",
            "render", "install"]
 
@@ -134,6 +136,25 @@ def with_join_yield(icao: str, pm, law: Law, airport, sol, pin_yield,
              f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m; "
              f"the core ribbon takes the patch level beyond its budget)")
     return pm
+
+
+def with_threshold_yield(icao: str, pm, law: Law, airport, sol, pin_yield,
+                         out: _t.Callable[[str], None]):
+    """``pm`` with the CIFP thresholds the solve released to the tile seam
+    recorded (owner RULINGS 2026-10-26b; ``constraints/threshold_seam``),
+    each one said in one loud line — a threshold never moves silently."""
+    from ..constraints.threshold_seam import yield_records
+    recs = yield_records(pm, law, airport, pin_yield, sol.z or None,
+                         float(law.tables.emit.materiality.elevation_m))
+    if not recs:
+        return pm
+    _to_ll = airport.frame.transformers()[1]
+    for v, (cifp, zb, d, end) in sorted(recs.items()):
+        lat, lon = _to_ll(*pm.vertices[v].xy)
+        out(f"[{icao}] THRESHOLD YIELDS TO THE TILE SEAM (RULINGS 2026-10-26b): "
+            f"{end} v{v} at {lat:.8f},{lon:.8f} CIFP {cifp:.3f} -> built "
+            f"{zb:.3f} m ({zb - cifp:+.3f} m), {d:.1f} m from the seam")
+    return _dc.replace(pm, threshold_seam_yield=recs)
 
 
 def post_solve(icao: str, pm, law: Law, airport, sol, cs, design_rep, tt_rep, fv, lrep,
@@ -434,8 +455,17 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
     # weld, whose projection can itself bring two vertices together.
     surf_out = merge_sub_spacing(surf_out, law, wrep)
     out(wrep.line(icao))
+    # THE EMITTED RING IS SIMPLE (issue #1275): the mesh drops a closed way
+    # that is not a valid polygon, so a folded ring is read HERE, on the
+    # rings as written; the verify stage fails the airport on one
+    from ..emit.ring_fold import ring_folds
+    report["ring_folds"] = ring_folds(surf_out)
+    if report["ring_folds"]:
+        out(f"[{icao}] emit: {len(report['ring_folds'])} emitted ring(s) NOT "
+            "simple — the mesh would drop them: " + "; ".join(
+                r["way_a"] for r in report["ring_folds"][:10]))
     report["shore_weld"] = _dc.asdict(wrep)
-    pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
+    pub["shore_edges"] = shore_edge_records(airport.dem, shore)
     # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is
     # withdrawn under (road cap governs) — the census reads the same set
     from ..law.tables import airside_stage_roles as _asr

@@ -367,24 +367,41 @@ def test_the_datum_is_a_hard_pin_and_the_solve_holds_it(law):
         assert sol.z[v] == pytest.approx(z, abs=1e-3), (v, sol.z[v], z)
 
 
-def test_one_cifp_pin_keeps_its_value_and_the_other_end_takes_the_datum(law):
-    """ONE CIFP pin: that end keeps the CIFP value; the missing end takes
-    the datum line's value, pulled toward the pin until their chord sits
-    within the cap (the datum yields to the specific witness)."""
-    from auto_patch_v2.constraints.runway_profile import (_datum_slope_cap,
-                                                          threshold_pins)
-    airport, pm = _datum_airport(law, _PlaneDem(), 740.0, thresholds=(700.0, None))
+def test_one_cifp_pin_keeps_its_value_and_the_other_end_follows_the_dem(law):
+    """ONE CIFP pin (AMENDED, issue #1238, owner RULINGS 2026-10-22a: "I
+    would have expected it to move toward DEM, not 0"): that end keeps the
+    CIFP value; the end the CIFP did not match FOLLOWS THE DEM — never the
+    apt.dat header, however wrong the header (740 m and 0 m here, against
+    ground at ~700 m; CYYJ's header pinned its 32 end 12 m under ground)."""
+    from auto_patch_v2.constraints.runway_profile import threshold_pins
+    got = {}
+    for header in (740.0, 0.0):
+        airport, pm = _datum_airport(law, _PlaneDem(), header, thresholds=(700.0, None))
+        pins, _L = _end_pins(pm, law, airport)
+        assert set(pins) == {"27"}
+        v27, z27, _s27 = pins["27"]
+        thr = threshold_pins(pm, law, airport)
+        (v09,) = [v for v in thr if v != v27]
+        assert thr[v09] == 700.0 and thr[v27] == z27
+        assert z27 == pytest.approx(pm.vertices[v27].dem_z, abs=0.05), (header, z27)
+        got[header] = z27
+    assert got[740.0] == pytest.approx(got[0.0], abs=1e-9)    # the header plays no part
+
+
+def test_the_dem_end_still_yields_to_the_cifp_pin_within_the_cap(law):
+    """The DEM end is pulled toward the CIFP pin until their chord sits
+    within the runway's straight-line cap (the specific witness rules)."""
+    from auto_patch_v2.constraints.runway_profile import _datum_slope_cap
+    airport, pm = _datum_airport(law, _SteepPlaneDem(), 0.0, thresholds=(700.0, None))
     pins, _L = _end_pins(pm, law, airport)
-    assert set(pins) == {"27"}
-    thr = threshold_pins(pm, law, airport)
-    v27, z27, s27 = pins["27"]
-    (v09,) = [v for v in thr if v != v27]
-    assert thr[v09] == 700.0 and thr[v27] == z27
+    v27, z27, _s27 = pins["27"]
     vw = view(pm, law)
+    v09 = min((v for v in vw.xy if v != v27),
+              key=lambda v: math.dist(vw.xy[v], airport.runways[0].ends[0].xy))
     lim = _datum_slope_cap(law, airport.runways[0])
-    import math as _m
-    d = _m.dist(vw.xy[v09], vw.xy[v27])
-    assert abs(z27 - 700.0) == pytest.approx(lim * d, rel=1e-6)   # clamped
+    d = math.dist(vw.xy[v09], vw.xy[v27])
+    assert pm.vertices[v27].dem_z - 700.0 > lim * d            # the ground is steeper
+    assert z27 - 700.0 == pytest.approx(lim * d, rel=1e-3)      # clamped toward the pin
 
 
 class _SideFallDem(_PlaneDem):

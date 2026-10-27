@@ -13,6 +13,11 @@ drive it waits for, and removes ONE link at the user's request.
 * :class:`UnmountedLink` — the tile-ending exception for a tile OUTPUT
   folder behind such a link (catalogue code ``output_link_unmounted``,
   :mod:`O4_Tile_Failures`).
+* :class:`ElevationLinkBroken` / :func:`check_elevation_folder` — the
+  same for the tile's ``Elevation_data/<bucket>`` folder (#1167): a
+  dangling bucket link made every ``os.makedirs`` under it raise.  The
+  link is the user's and is never removed; the tile stops with one
+  message naming it (``elevation_link_broken``).
 * :func:`unmounted_packs` — the airports of a tile whose previous patch
   was graded from a pack that now dangles (the patch's own ``o4_apt_dat``
   stamp is the witness).  The tile still builds; the airport is graded
@@ -37,12 +42,14 @@ from typing import Optional
 # the ONE link test and removal (symlink or Windows junction)
 from O4_Scenery_Links import _is_link, _remove_link
 
-__all__ = ["UnmountedLink", "dangling_link", "volume_of", "clean_target",
+__all__ = ["UnmountedLink", "ElevationLinkBroken", "check_elevation_folder",
+           "dangling_link", "volume_of", "clean_target",
            "check_output", "unmounted_packs", "remove_link", "FAILURE_CODE",
            "READ_FAILURE_CODE"]
 
 FAILURE_CODE = "output_link_unmounted"
 READ_FAILURE_CODE = "airport_pack_unmounted"
+ELEVATION_FAILURE_CODE = "elevation_link_broken"
 _CUSTOM_SCENERY = "Custom Scenery"
 _APT_DAT_RE = re.compile(r"""o4_apt_dat=['"]([^'"]*)['"]""")
 _ICAO_RE = re.compile(r"""o4_icao=['"]([^'"]*)['"]""")
@@ -133,6 +140,21 @@ def check_output(build_dir: str) -> None:
     found = dangling_link(build_dir)
     if found:
         raise UnmountedLink(found)
+
+
+class ElevationLinkBroken(UnmountedLink):
+    """The tile's elevation bucket folder (``Elevation_data/<bucket>``, or
+    a folder above it) is a link whose target is missing (#1167)."""
+
+    failure_code = ELEVATION_FAILURE_CODE
+
+
+def check_elevation_folder(path: str) -> None:
+    """Raise :class:`ElevationLinkBroken` when the elevation folder
+    ``path`` lies behind a dangling link.  Read-only: the link stays."""
+    found = dangling_link(path)
+    if found:
+        raise ElevationLinkBroken(found)
 
 
 def _pack_root(apt_dat: str) -> Optional[str]:

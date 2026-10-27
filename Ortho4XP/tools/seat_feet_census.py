@@ -37,10 +37,13 @@ from __future__ import annotations
 # other import because a tool's own ``--help`` carries the house spelling
 # (``Δ``, ``ε``, ``≥``, ``→``) and a Windows console RAISES on those
 # rather than mangling them.  Twin: ``tests/test_console_encoding.py``.
-import os as _o4os, sys as _o4sys                                    # noqa: E402
+import os as _o4os  # noqa: E402
+import sys as _o4sys
+
 _o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
     _o4os.path.abspath(__file__))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
+import O4_Console_Encoding as _o4console  # noqa: E402
+
 _o4console.configure_console_streams()
 
 import argparse
@@ -54,7 +57,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
 
 import numpy as np  # noqa: E402
-
 from auto_patch.mesh_sampler import MeshElevationSampler  # noqa: E402
 from auto_patch_v2.airport import obj8  # noqa: E402
 
@@ -458,7 +460,59 @@ def _census_placement_plan(ap, args) -> int:
         big = [r for r in meas if abs(r["dmax"]) > 3.0]
         print(f"   rows with a foot > 0.3 m: {len(over)}; > 3 m: {len(big)}")
     _print_elevated(plan, sampler)
+    if args.rebake_plan:
+        bad = _print_coherence(plan, args.rebake_plan, args.rows_dump, sampler)
+        return 1 if bad else 0
     return 0
+
+
+def _print_coherence(plan: dict, rebake_path: str, rows_dump: str,
+                     sampler) -> int:
+    """owner RULINGS 2026-10-22b..f (#1214): the three COHERENCE bars
+    (``placement_coherence``), printed after every other block; returns
+    how many bars are violated (the exit code is 1 then)."""
+    from auto_patch_v2.airport import placement_coherence as PCo
+    from auto_patch_v2.airport.placement_family import frame_is_bridge
+    from auto_patch_v2.airport.placement_plan import _OPEN_KINDS
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.rebake import RebakePlan
+    with open(rebake_path) as fh:
+        reb = RebakePlan.from_json(fh.read())
+    def surface(la, lo):
+        return sampler.elevation_at_or_none(la, lo)
+    if getattr(sampler, "water", None) is not None:
+        surface.water = sampler.water
+    open_res = {m.resource for u in reb.units
+                if u.members and all((m.deck_kind or "") in _OPEN_KINDS
+                                     for m in u.members)
+                for m in u.members}
+    decks = [(u, m) for u in reb.units if frame_is_bridge(u) for m in u.members]
+    br = Law.load().tables.structures.bridge
+    g = PCo.census_group_offsets(plan.get("splits", ()), open_res)
+    b = PCo.census_bridge_ends(plan.get("splits", ()), decks, surface,
+                               step_m=br.abutment_sample_step_m,
+                               walk_max_m=br.abutment_walk_max_m)
+    r = None
+    if rows_dump:
+        from auto_patch_v2.airport.dsf import read_dump
+        dump = read_dump(rows_dump, accept_polygon=lambda _p: False)
+        r = PCo.census_frame_riders(dump, plan.get("splits", ()),
+                                    plan.get("msl_seats", ()), surface)
+    for line in PCo.coherence_lines(g, b, r):
+        print(line)
+    # #1214 round 3, R1: every body file the plan names is a file in the pack
+    pack = plan.get("pack_root") or ""
+    names = sorted({str(bd["new_resource"]) for sp in plan.get("splits", ())
+                    for bd in sp.get("bodies", ()) if bd.get("new_resource")})
+    missing = [n for n in names if pack and not os.path.isfile(
+        os.path.join(pack, *n.replace("\\", "/").split("/")))]
+    print(f"   body files the plan names that are not in the pack: {len(missing)} "
+          f"of {len(names)} (bar 0)" + ("   *** VIOLATED ***" if missing else ""))
+    for n in missing[:8]:
+        print(f"      {n}")
+    return (int(bool(g["apart"])) + int(bool(b["ends_off"] or b["spans_under"]))
+            + int(bool(r and (r["off_frame"] or r["under_floor"])))
+            + int(bool(missing)))
 
 
 #: §13's threshold when the plan carries no law digest of its own: the
@@ -615,16 +669,76 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--thickness", type=float, default=0.5,
                     help="a ground component's minimum y-extent in metres")
     ap.add_argument("--json", default="", help="write the per-placement rows here")
+    ap.add_argument("--rebake-plan", default="",
+                    help="--placement-plan: the build's o4_v2_rebake_<ICAO>.json — "
+                         "arms the COHERENCE bars (group offsets, bridge ends and "
+                         "spans; #1214)")
+    ap.add_argument("--surface", default="mesh", choices=("mesh", "graded"),
+                    help="the written census (--rebake-plan --dsf-dump): read the "
+                         "ground off the built mesh or the patch's --graded surface")
+    ap.add_argument("--rows-dump", default="",
+                    help="--placement-plan with --rebake-plan: the PRISTINE DSF "
+                         "text dump, for the frame-rider bar")
     args = ap.parse_args(argv)
 
     if not args.mesh and not args.graded:
         ap.error("pass --mesh (the built mesh) or --graded (the design surface)")
+    if args.dsf_dump and args.rebake_plan and not args.placement_plan:
+        return _census_written(ap, args)
     if args.dsf_dump:
         return _census_dump(ap, args)
     if not args.placement_plan:
         ap.error("pass --placement-plan (the plan's rows) or --dsf-dump (the "
                  "pristine rows)")
     return _census_placement_plan(ap, args)
+
+
+def _census_written(ap, args) -> int:
+    """#1214 round 3: THE SEAT AS WRITTEN — ``--rebake-plan R --dsf-dump
+    WRITTEN.text --rows-dump PRISTINE.text --mesh M --pack ROOT [--graded
+    G]`` reads the DSF the owner loads and the mesh, never the plan
+    (``airport/written_seat_census``): (i) missing OBJECT_DEF files, (ii)
+    airside hard decks at their end lines, (iii) road overpasses, (iv)
+    lifted footed frames.  Exit 1 on a bar violated."""
+    from auto_patch_v2.airport import written_seat_census as WS
+    from auto_patch_v2.airport.dsf import read_dump
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.rebake import RebakePlan
+    if not args.rows_dump or not args.pack or not args.mesh:
+        ap.error("the written census needs --rows-dump PRISTINE.text, --pack ROOT "
+                 "and --mesh")
+    with open(args.rebake_plan) as fh:
+        reb = RebakePlan.from_json(fh.read())
+    written = read_dump(args.dsf_dump, accept_polygon=lambda _p: False)
+    pristine = read_dump(args.rows_dump, accept_polygon=lambda _p: False)
+    lons = [float(u.anchor[1]) for u in reb.units]
+    lats = [float(u.anchor[0]) for u in reb.units]
+    if args.surface == "graded" and args.graded:
+        # #1214 round 4: the PATCH's own design surface (the mesh may not
+        # carry it) — the same seat read against what the patch states
+        sampler = _GradedSampler(args.graded)
+    else:
+        sampler = MeshElevationSampler(args.mesh, (min(lons) - 0.01, min(lats) - 0.01,
+                                                   max(lons) + 0.01, max(lats) + 0.01))
+
+    def surface(la, lo):
+        return sampler.elevation_at_or_none(la, lo)
+    if args.graded:
+        from auto_patch_v2.airport import placement_boxes as _pb
+        from auto_patch_v2.law import tables as _T
+        law = Law.load()
+        with open(args.graded) as fh:
+            surface.roles = _pb.graded_roles_from_doc(
+                json.load(fh), rank=lambda r: _T.authority_rank(law, r))
+    step = Law.load().tables.structures.bridge.abutment_sample_step_m
+    missing = WS.missing_defs(written, pristine, args.pack)
+    decks = WS.deck_rows(written, reb, surface, args.pack, step)
+    frames = WS.frame_rows(written, reb, surface, args.pack)
+    lines = WS.written_lines(missing, decks, frames)
+    lines += WS.feet_lines(WS.member_feet(written, reb, surface, args.pack))
+    for ln in lines:
+        print(ln)
+    return 1 if any("VIOLATED" in ln for ln in lines) else 0
 
 
 def _census_dump(ap, args) -> int:

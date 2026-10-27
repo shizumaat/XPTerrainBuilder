@@ -173,6 +173,7 @@ def describe_auto_patch_failures(failures: list) -> str:
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Tile_Failures as _FAIL
+import O4_Machine_Slots as _SLOTS
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
 import O4_Scenery_Packs as _scenery_packs
 from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
@@ -343,6 +344,7 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
     """
     from . import provenance as _prov
     from . import provenance_code as _prov_code
+    from . import provenance_tools as _prov_tools
     return {
         "o4_fresh_v": _prov.FRESHNESS_SCHEMA_VERSION,
         "o4_cfg": _prov.config_digest(),
@@ -353,7 +355,10 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
         "o4_cifp": _prov.identity_list(
             _cifp_files_for(cifp_file, xp_root, icao)),
         "o4_pack": _scenery_pack_state(apt_dat_path),
-        "o4_engine": _prov.engine_version(),
+        "o4_engine": _prov.engine_version(),      # written, not compared
+        # The toolchain the code runs on (owner Q158): the native tools,
+        # the third-party library versions, Python.
+        "o4_tools": _prov_tools.toolchain_fingerprint(),
         # ... and the CODE the patch is built by (#346): the version moves
         # only when the engine is frozen, an edited checkout keeps it.  The
         # patch build's import closure (#880); the whole tree with
@@ -503,7 +508,12 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
        (``o4_cifp``).
     6. **scenery-pack enablement** — the pack that supplied the apt.dat being
        switched off (or back on) in ``scenery_packs.ini`` (``o4_pack``).
-    7. **engine version** — the running ``O4_Version.version`` (``o4_engine``).
+    7. **toolchain** — the bundled native tools by content, the version of
+       every third-party library the patch build imports, and Python
+       (``o4_tools``, ``provenance_tools``; owner Q158, 2026-10-26).  The
+       engine VERSION (``o4_engine``) is still stamped but not compared:
+       a release that leaves the patch code and the toolchain alone keeps
+       every patch.
     7b. **engine code** — one digest of the code the patch build imports
        (its static import closure from ``auto_patch.driver`` and every
        ``.toml`` table, #880), taken from the files in a checkout and
@@ -905,14 +915,24 @@ def _set_worker_dem(dem) -> None:
     _WORKER_DEM = dem
 
 
-def _init_worker(dem, progress_queue, siblings: int = 1) -> None:
+#: True in an airport worker whose machine slot its PARENT holds (#1225:
+#: the slot is granted before the process is started, never after)
+_SLOT_HELD_BY_PARENT = False
+
+
+def _init_worker(dem, progress_queue, siblings: int = 1,
+                 slot_held: bool = False) -> None:
     """ProcessPool initializer: set the shared tile DEM AND route this worker's
     per-phase build progress to the shared queue the main process drains, so the
     Ortho4XP window keeps updating live while airports build in the background.
 
     ``siblings`` is this pool's worker count: the v2 build's own work pool
     (``auto_patch_v2/airport/pool.py``, issue #362) takes ``cores //
-    siblings`` so N airports in one tile do not each claim every core."""
+    siblings`` so N airports in one tile do not each claim every core.
+    ``slot_held``: the parent took this worker's machine slot before it
+    started the process (:func:`_run_slot_gated`)."""
+    global _SLOT_HELD_BY_PARENT
+    _SLOT_HELD_BY_PARENT = bool(slot_held)
     _v2_pool.exit_with_parent()            # an engine that is killed takes its builds
     _set_worker_dem(dem)
     from . import progress as _progress
@@ -928,12 +948,6 @@ def _start_manager(ctx):
     mgr = SyncManager(ctx=ctx)
     mgr.start(_v2_pool.exit_with_parent)
     return mgr
-
-
-#: A pack whose pristine ``.obj`` bytes exceed this makes the pool release
-#: each worker after its airport (spec §B.5): TNCM/TFFG's worker pinned
-#: 12.8 GB idle in ``sem_wait`` for 20 min after returning (issue #27).
-POOL_RELEASE_PACK_BYTES = 1 << 30
 
 
 def _seed_pack_walks(tasks: list) -> dict:
@@ -963,20 +977,6 @@ def _seed_pack_walks(tasks: list) -> dict:
     return walks
 
 
-def _pool_releases_workers(n_tasks: int, n_workers: int, walks: dict) -> bool:
-    """``max_tasks_per_child=1`` (spec §B.5): armed when the tile has more
-    airports than workers (a worker would otherwise be REUSED holding the
-    last airport's peak) or any pack's pristine ``.obj`` bytes exceed
-    :data:`POOL_RELEASE_PACK_BYTES`; a tile of a few small airports keeps
-    reuse (one interpreter start each is its whole cost)."""
-    if n_tasks > n_workers:
-        return True
-    for stamps in walks.values():
-        if stamps and sum(int(e[1]) for e in stamps) > POOL_RELEASE_PACK_BYTES:
-            return True
-    return False
-
-
 def _build_write_verify_one(task: dict) -> dict:
     """Build ONE airport, write its ``*_auto.patch.osm``, and verify it.
 
@@ -1004,7 +1004,13 @@ def _build_write_verify_one(task: dict) -> dict:
     # — still escapes Python and is handled as a dead future in
     # ``_run_build_tasks``.)
     try:
-        return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
+        # ONE machine slot for the whole build (issue #1225): taken by the
+        # parent before this worker process was started, or here on the
+        # serial path, where the tile's own process waits for it.
+        if _SLOT_HELD_BY_PARENT:
+            return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
+        with _SLOTS.take(1):
+            return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
     except Exception as _e:
         return {"icao": icao, "ok": False, "stage": "build",
                 "engine": _engine_v2.ENGINE_V2, "error": f"[v2] {_e}",
@@ -1187,70 +1193,24 @@ def _swallow(fn) -> None:
         pass
 
 
-def _run_build_tasks(tasks: list, tile, auto_patched: list,
-                     verify_debug_path: str) -> None:
-    """Run the collected per-airport build tasks — in parallel across airports
-    when ``O4_PARALLEL_AIRPORTS`` is set and there is more than one, otherwise
-    serially (behaviourally identical to the old inline loop).  All console
-    logging + the verify-log concatenation happen HERE (main process) so
-    parallel workers never race or interleave.  Appends built ICAOs to
-    ``auto_patched`` in task order for stable output."""
-    if not tasks:
-        return
-    import time as _time
+def _run_airport_builds(tasks: list, dem, _report_terminal) -> list:
+    """Build every airport of the tile — in parallel, one slot-granted
+    worker each, or serially — and return their status records."""
     from . import config as _cfg
-    # The manifest verification's freshness datum (H1).  Filesystem mtimes
-    # have ~1 s granularity on some filesystems, so back it off a second:
-    # the check must never call a patch this pass DID write "stale".
-    _pass_started_at = _time.time() - 1.0
-    dem = getattr(tile, "dem", None)
-    # Truncate the shared verify debug log once per build pass.
-    try:
-        open(verify_debug_path, "w", encoding="utf-8", newline="\n").close()
-    except OSError:
-        pass
-    _set_worker_dem(dem)            # the serial path reads this module global too
-    _pack_walks = _seed_pack_walks(tasks)
-
-    # Open/refresh the auto-patch progress window with a row per airport (a
-    # no-op on the command line / in tests). Phase updates below fill each row.
-    UI.auto_patch_begin([t["icao"] for t in tasks])
-
+    from . import slot_gated_pool as _GATED
     results: list[dict] = []
-    # Airports whose done/fail row state was already sent as their build
-    # finished (the ordered results loop below must not send a second
-    # terminal event — update_airport would recreate the row a finished
-    # airport already vacated).
-    _progress_reported: set[str] = set()
-
-    def _report_terminal(r: dict) -> None:
-        # Send an airport's done/fail row state the moment its build
-        # ends — the ordered results loop only runs after EVERY airport
-        # finishes, and a completed row must not sit at its last phase
-        # until the slowest airport in the tile completes.
-        _ricao = r.get("icao")
-        if not _ricao:
-            return
-        _progress_reported.add(_ricao)
-        if r.get("ok"):
-            UI.auto_patch_progress(
-                _ricao, 1, 1,
-                "Done ({:.1f}s)".format(r.get("build_s", 0.0)),
-                status="done")
-        else:
-            UI.auto_patch_progress(
-                _ricao, 1, 1,
-                "FAILED ({})".format(r.get("stage", "?")),
-                status="fail")
-
     if _cfg.PARALLEL_AIRPORTS and len(tasks) > 1:
         import concurrent.futures as _cf
         import multiprocessing as _mp
         import queue as _queue
-        n = _cfg.parallel_airports_worker_count(len(tasks))
+        # The machine budget is shared with every tile of the session
+        # (issue #1225): opened BEFORE any worker so they inherit it.
+        _slots_cap = _SLOTS.ensure_session()[1]
+        n = min(_cfg.parallel_airports_worker_count(len(tasks)), _slots_cap)
         UI.lvprint(0, "   Auto-patch: building", len(tasks), "airports (" +
                    ", ".join(t["icao"] for t in tasks) +
-                   ") in parallel across", n, "workers.")
+                   ") in parallel across", n, "workers (machine budget:",
+                   _slots_cap, "slots shared by every tile of the session).")
         mgr = None
         try:
             ctx = _mp.get_context("spawn")
@@ -1273,50 +1233,42 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                     UI.auto_patch_progress(_icao, _step, _tot, _lab,
                                            eta_total_s=_eta)
 
-            # NOT a ``with`` block: ``__exit__`` is ``shutdown(wait=True)``,
-            # an UNBOUNDED join of every worker process.  A worker that
-            # finished its airport but cannot exit (2026-09-03, tile
-            # +40-004: LEMD's patch and sidecar were on disk at 13:58:32 and
-            # the tile never reached the results loop) wedges the tile
-            # forever with every collected result in hand.  The pool is
-            # torn down by ``_teardown_pool`` on a deadline instead.
-            _release = _pool_releases_workers(len(tasks), n, _pack_walks)
-            _pool_kw = {"max_tasks_per_child": 1} if _release else {}
-            if _release:
-                UI.lvprint(1, "   Auto-patch: each worker exits after its airport "
-                              "(large pack or more airports than workers).")
-            ex = _cf.ProcessPoolExecutor(
-                max_workers=n, mp_context=ctx,
-                initializer=_init_worker, initargs=(dem, pq, n), **_pool_kw)
-            futs, pending = {}, set()
-            try:
-                # THE DEAD FUTURE MUST KEEP ITS AIRPORT'S NAME (H1).  A
-                # hard worker death (SIGKILL / OOM / segfault) escapes
-                # Python, so ``_build_write_verify_one``'s own catch never
-                # runs and the result carries no icao — and a result with
-                # ``icao: None`` drops straight out of the ``by_icao`` map
-                # below, leaving the airport to be reported as an
-                # anonymous "missing".  Submitting through a fut→icao map
-                # keeps the attribution: the airport that died is named.
-                futs = {ex.submit(_build_write_verify_one, t): t["icao"]
-                        for t in tasks}
-                pending = set(futs)
-                while pending:
-                    done, pending = _cf.wait(
-                        pending, timeout=0.5,
-                        return_when=_cf.FIRST_COMPLETED)
-                    _drain_progress()
-                    for fut in done:
-                        try:
-                            r = fut.result()
-                        except Exception as _e:         # a worker died hard
-                            r = {"icao": futs.get(fut), "ok": False,
-                                 "stage": "worker", "error": str(_e)}
-                        results.append(r)
-                        _report_terminal(r)
-                _drain_progress()                        # flush trailing events
-            finally:
-                _teardown_pool(ex, results, futs, pending)
+            # ONE single-use worker per airport, started only once its
+            # machine slot is granted (``slot_gated_pool``; issue #1225:
+            # an executor of ``n`` workers spawned them all up front and
+            # each queued for a slot already resident).  Each executor is
+            # torn down by ``_teardown_pool`` on a deadline, never by the
+            # unbounded ``shutdown(wait=True)`` of a ``with`` block (tile
+            # +40-004, 2026-09-03: a worker that could not exit wedged the
+            # tile with every result in hand).
+            def _start(t):
+                ex = _cf.ProcessPoolExecutor(
+                    max_workers=1, mp_context=ctx, initializer=_init_worker,
+                    initargs=(dem, pq, n, True))
+                return ex, ex.submit(_build_write_verify_one, t)
+
+            def _done(t, fut):
+                # THE DEAD FUTURE KEEPS ITS AIRPORT'S NAME (H1): a hard
+                # worker death (SIGKILL / OOM / segfault) escapes Python
+                # and its result would carry no icao.
+                try:
+                    r = fut.result()
+                except Exception as _e:         # a worker died hard
+                    r = {"icao": t["icao"], "ok": False,
+                         "stage": "worker", "error": str(_e)}
+                results.append(r)
+                _report_terminal(r)
+
+            def _teardown(ex, fut, t):
+                _teardown_pool(ex, results, {fut: t["icao"]},
+                               set() if fut.done() else {fut})
+
+            _GATED.run(tasks, width=n, start=_start, on_done=_done,
+                       teardown=_teardown, on_tick=_drain_progress,
+                       on_wait=lambda: UI.lvprint(
+                           0, "   Auto-patch: waiting for a machine slot "
+                              "(the session's budget is in use)."))
+            _drain_progress()                        # flush trailing events
         except Exception as _e:      # pool/manager setup failed → serial fallback
             if results:
                 # NOT a setup failure: the pool broke (or its shutdown
@@ -1346,6 +1298,68 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
             r = _build_write_verify_one(t)
             results.append(r)
             _report_terminal(r)
+
+    return results
+
+
+def _run_build_tasks(tasks: list, tile, auto_patched: list,
+                     verify_debug_path: str) -> None:
+    """Run the collected per-airport build tasks — in parallel across airports
+    when ``O4_PARALLEL_AIRPORTS`` is set and there is more than one, otherwise
+    serially (behaviourally identical to the old inline loop).  All console
+    logging + the verify-log concatenation happen HERE (main process) so
+    parallel workers never race or interleave.  Appends built ICAOs to
+    ``auto_patched`` in task order for stable output."""
+    if not tasks:
+        return
+    import time as _time
+    # The manifest verification's freshness datum (H1).  Filesystem mtimes
+    # have ~1 s granularity on some filesystems, so back it off a second:
+    # the check must never call a patch this pass DID write "stale".
+    _pass_started_at = _time.time() - 1.0
+    dem = getattr(tile, "dem", None)
+    # Truncate the shared verify debug log once per build pass.
+    try:
+        open(verify_debug_path, "w", encoding="utf-8", newline="\n").close()
+    except OSError:
+        pass
+    _set_worker_dem(dem)            # the serial path reads this module global too
+    _seed_pack_walks(tasks)
+
+    # Open/refresh the auto-patch progress window with a row per airport (a
+    # no-op on the command line / in tests). Phase updates below fill each row.
+    UI.auto_patch_begin([t["icao"] for t in tasks])
+
+    # Airports whose done/fail row state was already sent as their build
+    # finished (the ordered results loop below must not send a second
+    # terminal event — update_airport would recreate the row a finished
+    # airport already vacated).
+    _progress_reported: set[str] = set()
+
+    def _report_terminal(r: dict) -> None:
+        # Send an airport's done/fail row state the moment its build
+        # ends — the ordered results loop only runs after EVERY airport
+        # finishes, and a completed row must not sit at its last phase
+        # until the slowest airport in the tile completes.
+        _ricao = r.get("icao")
+        if not _ricao:
+            return
+        _progress_reported.add(_ricao)
+        if r.get("ok"):
+            UI.auto_patch_progress(
+                _ricao, 1, 1,
+                "Done ({:.1f}s)".format(r.get("build_s", 0.0)),
+                status="done")
+        else:
+            UI.auto_patch_progress(
+                _ricao, 1, 1,
+                "FAILED ({})".format(r.get("stage", "?")),
+                status="fail")
+
+    # The tile's step slot is LENT while this process only waits on the
+    # airport workers it starts — each holds its own (issue #1225).
+    with _SLOTS.lend():
+        results = _run_airport_builds(tasks, dem, _report_terminal)
 
     # Process results in TASK order (stable logs / auto_patched ordering).
     by_icao = {r.get("icao"): r for r in results if r.get("icao")}
@@ -1707,6 +1721,10 @@ def generate_auto_patches(tile, cifp_path: str,
                 "no enabled scenery pack defines it) — skipped, not built.")
             skipped_no_apt_dat.append(icao)
             continue
+        if candidate.disposition == "apt_dat_elsewhere":
+            UI.lvprint(0, "   Auto-patch:", icao, candidate.reason)
+            skipped_no_apt_dat.append(icao)
+            continue
         if candidate.disposition == "boundary_skipped":
             # Spec §C.3 "skip": the same place the no-apt.dat skip lives,
             # so H1's fatal path is not armed for it either.
@@ -1942,8 +1960,8 @@ def generate_auto_patches(tile, cifp_path: str,
     if skipped_no_apt_dat:
         UI.vprint(
             0,
-            "   Auto-patch: Skipped {} CIFP airport(s) with no apt.dat in "
-            "this install: {}.".format(len(skipped_no_apt_dat),
+            "   Auto-patch: Skipped {} CIFP airport(s) with no apt.dat for "
+            "them in this install: {}.".format(len(skipped_no_apt_dat),
                                        ", ".join(skipped_no_apt_dat)))
     if skipped_boundary:
         UI.vprint(

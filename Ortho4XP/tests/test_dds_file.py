@@ -349,6 +349,40 @@ def test_a_texture_neither_encoder_converts_fails_the_tile_unactivated(
     assert failure["remedy"].startswith("Build the tile again.")
 
 
+
+@pytest.mark.parametrize("switch", ["skip_downloads", "skip_converts"])
+def test_a_build_asked_not_to_make_textures_still_activates(
+        tmp_path, monkeypatch, switch):
+    """#901's guard judges only a build asked to make its textures: with
+    skip_downloads / skip_converts the textures are the person's to supply
+    (the release smoke's DSF-only tile), so the scenery file is activated."""
+    import O4_Tile_Staging as STAGING
+    import O4_UI_Utils as UI
+    from test_dsf_activation import _dsf_path, _read, _Recorder, _stub_step, _write
+
+    holder = []
+    name = FNAMES.dds_file_name_from_attributes(*ATTRIBUTES)
+
+    def encoder(dsf):
+        with open(os.path.join(STAGING.terrain_dir(holder[0]),
+                               name[:-4] + ".ter"), "w", encoding="utf-8",
+                  newline="") as handle:
+            handle.write("A\n800\nTERRAIN\n\nBASE_TEX_NOWRAP ../textures/"
+                         + name + "\n")
+        _write(dsf + ".tmp", b"finished")
+        return 1
+
+    tile = _stub_step(tmp_path, monkeypatch, encoder)
+    holder.append(tile)
+    monkeypatch.setattr(TILE, switch, True)
+    dsf = _dsf_path(tile.build_dir)
+    _write(dsf, b"previous")
+    monkeypatch.setattr(UI, "engine_session", _Recorder())
+
+    assert TILE.build_tile(tile) == 1
+    assert UI.engine_session.named == []
+    assert _read(dsf) == b"finished"
+
 # ── the "already on disk" test ──────────────────────────────────────────
 @_DSFTOOL
 def test_a_truncated_texture_is_queued_again_and_a_whole_one_is_kept(

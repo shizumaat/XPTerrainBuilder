@@ -40,7 +40,7 @@ from .footprint_connector import (CONNECTOR_BOXES_MAX, ClusterTopology,
                                   cluster_topology, connectors_of_cluster,
                                   contact_graph)
 from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
-                               member_is_deck,
+                               member_is_bridge_deck, member_is_deck,
                                _clusters, _contacts_of, _median,
                                bodies_of_plan, cluster_plane, pad_plurality,
                                union_area_m2)
@@ -210,7 +210,9 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
         for ci, cc in sorted(per.items()):
             c = cands[ci]
             st = by_mi[c.member]
-            if src != "ground" and _far_below(cc, zero, visual_m):
+            if (src != "ground" and _far_below(cc, zero, visual_m)
+                    and not _rests_on_unit(cands[ci], cc, _others(cands, per, ci),
+                                           zero, touch_m, visual_m)):
                 # owner RULINGS 2026-10-19aq (#721): it leaves the unit
                 counts["unit_members_left_far_below"] = \
                     counts.get("unit_members_left_far_below", 0) + 1
@@ -288,25 +290,32 @@ def seat_viaducts(cands: list, staged: _t.Sequence[_t.Any],
     so whatever rides the deck rides it at the unit's level."""
     if not viaducts or not cands:
         return []
-    from .bridge_family import body_bridge, frame_of
+    from .bridge_family import body_bridge, frame_of, viaduct_of
     by_mi = {st.mi: st for st in staged}
-    mine = {(v.unit, v.member): v for v in viaducts.values()}
+    # issue #1179: a deck resource may be SEVERAL connected structures,
+    # each claimed (or not) on its own — a body is the viaduct's only
+    # where it stands in a claimed piece (``bridge_family.viaduct_of``)
+    mine: dict[tuple, list] = {}
+    by_res: dict[str, list] = {}
+    for _k, w in sorted(viaducts.items()):
+        mine.setdefault((w.unit, w.member), []).append(w)
+        by_res.setdefault(w.resource or w.deck, []).append(w)
     per_v: dict[str, dict[int, list]] = {}
     for ci, c in enumerate(cands):
         st = by_mi.get(c.member)
         if st is None or c.body_class == _ar.BASIN:
             continue
-        v = mine.get((unit_index, c.member))
+        grp = (st.groups[c.group]
+               if 0 <= c.group < len(st.groups) else ())
+        parts = [q for i in grp for q in st.raw[i][0]]
+        v = viaduct_of(mine.get((unit_index, c.member)), parts)
         if v is None:
             if getattr(c.anchor, "unit_seat", False):
                 continue
-            grp = (st.groups[c.group]
-                   if 0 <= c.group < len(st.groups) else ())
             key = body_bridge(getattr(st, "bridge", ()) or (), grp)
-            v = viaducts.get(key) if key else None
+            v = viaduct_of(by_res.get(key), parts) if key else None
             if v is None and beside is not None:
                 fr = frame_of(getattr(st, "m", None))
-                parts = [q for i in grp for q in st.raw[i][0]]
                 v = next((w for _k, w in sorted(viaducts.items())
                           if fr is not None and w.frame == fr
                           and beside(w.deck, parts)), None)
@@ -678,7 +687,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                        default=0.0)
             walled = (chain_min_height_m <= 0.0 or not any_height
                       or (tall >= chain_min_height_m
-                          and not member_is_deck(plan.units[ui].members[mi])))
+                          and not member_is_bridge_deck(       # 10-22b
+                              plan.units[ui], plan.units[ui].members[mi])))
             shims.append(_PShim(len(shims), key, bx, frozenset(pids),
                                 plan.units[ui].members[mi].resource,
                                 tuple(r for q in live
@@ -713,10 +723,12 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
         _ml, _mo = m_per_deg_exact(shims[walled_ix[0]].box[0])
         links = sheet_links(
             shims, walled_ix, leaves, sheet_chain_min_fraction,
-            is_deck=lambda i: member_is_deck(
+            is_deck=lambda i: member_is_bridge_deck(           # 10-22b
+                plan.units[shims[i].key[0]],
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
             is_footed=lambda i: shims[i].footed,
-            ml=_ml, mo=_mo, counts=counts, prefix="unit_", pool=pool)
+            ml=_ml, mo=_mo, counts=counts, prefix="unit_", pool=pool,
+            top_y=lambda i, _s=shims, _p=parts_of: _top_y(_s[i].pids, _p))
         if links:
             clusters = [cl for cl in merge_by_sheets(clusters, links)
                         if len(cl) >= 2]
@@ -746,9 +758,12 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
         contents, singles = attach_contents(
             shims, clusters, walled_ix, leaves, touch_m,
             contents_min_fraction, counts,
-            is_deck=lambda i: member_is_deck(
+            is_deck=lambda i: member_is_bridge_deck(           # 10-22b
+                plan.units[shims[i].key[0]],
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
-            base_y=lambda i: shims[i].base_y, ml=ml, mo=mo)
+            base_y=lambda i: shims[i].base_y, ml=ml, mo=mo,
+            deck_verdict=lambda i: member_is_deck(
+                plan.units[shims[i].key[0]].members[shims[i].key[1]]))
     held: dict[int, list[int]] = {}
     for i, k in sorted(contents.items()):
         held.setdefault(k, []).append(i)
@@ -777,6 +792,17 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
         conns.extend(connectors_of_cluster(cl, uid, shims, touch_m,
                                            connector_span_m, index, pool))
     return out, conns
+
+
+def _top_y(pids: _t.AbstractSet[int], parts_of: _t.Mapping[int, _t.Any]
+           ) -> "float | None":
+    """A body's highest authored y over its solid parts (``base_y +
+    height_m``) — the reading ``sheet_chain`` refuses a below-grade sheet
+    on (issue #1172); ``None`` where no part is known."""
+    tops = [float(parts_of[q].base_y)
+            + float(getattr(parts_of[q], "height_m", 0.0) or 0.0)
+            for q in pids if q in parts_of and not parts_of[q].line]
+    return max(tops) if tops else None
 
 
 def _centres(boxes: _t.Sequence[tuple[float, float, float, float]],
@@ -818,8 +844,14 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
             by_key[(ui, mi)] = m
     out: dict[str, tuple[float, str, str]] = {}
     parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
+    #: R5 (#1214 round 3): part id -> its frame's (anchor, authored lift)
+    frame_of = {p.pid: (tuple(round(float(q), 9) for q in getattr(u, "anchor", ())),
+                        float(getattr(u, "agl_m", 0.0) or 0.0))
+                for u in plan.units for m in u.members for p in m.parts}
     #: 19u: unit id -> (highest pavement its pieces imply, its walled files)
     pav: dict[str, tuple[float, frozenset]] = {}
+    #: 22b: unit root id -> its walls' median authored base, read once
+    frame_base: dict[str, float] = {}
     for un in units:
         zero: float | None = None
         where = src = ""
@@ -836,6 +868,10 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
             if not cc:
                 continue
             p = pad_plurality(cc, pads)
+            # owner RULINGS 2026-10-22b (#1214): the WALLS seat the unit —
+            # its zero stands where its perimeter walls' feet meet the pad
+            # (or the ground), not where its authored y = 0 would
+            base = _wall_base(un, units, parts, wall_min_m, frame_base, frame_of)
             if p is not None and p.z:
                 # §16g (10) (9) (2) AMENDED — ONE PAD DATUM RULE, THE
                 # MEDIAN (owner RULINGS 2026-09-17t: "Pad datum: median,
@@ -852,11 +888,11 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                 # datum below never took the low side (17s).  The MEDIAN,
                 # over EVERY face of the ref (fix C, :func:`pad_plurality`
                 # folds them), is now the one rule both seats take.
-                zero, where, src = _median(list(p.z)), p.ref, "pad"
+                zero, where, src = _median(list(p.z)) - base, p.ref, "pad"
                 if cluster_min_m2 > 0.0 and un.area_m2 >= cluster_min_m2:
                     src = "cluster_pad"
             else:
-                zero, where, src = _median([q[3] for q in cc]), "", "ground"
+                zero, where, src = _median([q[3] for q in cc]) - base, "", "ground"
             # owner RULINGS 2026-10-19u (#798 (a)): a unit standing on
             # rolled-on pavement is read for ``one_building``, here in the
             # plan, so the unit-carried pieces and the bind read one zero
@@ -868,6 +904,97 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         out[un.id] = (zero, where, src)
     from .one_building import one_building_groups
     return one_building_groups(units, out, pav, piece_reach_m, span_max_m)
+
+
+def _unit_root(uid: str) -> str:
+    """The id of the unit a pad-level or block piece was cut from
+    (``fu:16:6938/p2/b1`` -> ``fu:16:6938``)."""
+    return str(uid).split("/", 1)[0]
+
+
+def _wall_base(un: _t.Any, units: _t.Sequence[_t.Any],
+               parts: _t.Mapping[int, _t.Any], wall_min_m: float,
+               memo: dict,
+               frame_of: "_t.Mapping[int, tuple] | None" = None) -> float:
+    """Owner RULINGS 2026-10-22b (#1214): "for any closed object group,
+    like a building with solid walls, we only need to check the
+    perimeter/wall objects to determine the seat".  The authored ``y`` the
+    unit's WALLS stand on, which the datum subtracts so the walls' feet
+    meet the pad or the ground.  Read over every piece of the UNIT the
+    pad-level and block passes cut (one root id), so the pieces of one
+    building still take one zero.
+
+    #1214 round 3, R5: A LIFTED FRAME STANDS ON THE AUTHOR'S GROUND.  The
+    unit's DOMINANT frame (one anchor spelling: the frame most of its walls'
+    feet belong to) with an authored ``OBJECT_AGL`` lift > 0 has its author's
+    ground plane at ``y_g = -lift`` — his correction for the stock terrain
+    under that frame — and it is the base, when the LOWEST plane of that
+    frame's walls' feet (:data:`PLANE_SHARE` of them or more) lies within
+    :data:`AUTHOR_GROUND_M` of it (the cross-check).  The other frames chained
+    to it stand on the same ground by their own lift
+    (``open_frame_seat.group_zero``).  KMCI's
+    terminal (148 members at one anchor, ``OBJECT_AGL +8.499``): its walls
+    stand on two floors, y -8.5 and y -1.1, and the median (-1.10) put the
+    concourse on the apron and the lower floor 7.4 m under it.
+
+    The lift may be NEGATIVE (the author's ground above the object's
+    origin), and a unit with no walled FEET reads its walled parts' BASES
+    for the cross-check (#1214 round 6: KMCI's building at y +5.09 under
+    ``OBJECT_AGL -5.502`` floated 5 m standing its y = 0 on the ground).
+
+    Else the median authored ``y`` of the ground-contact FEET of its walled
+    parts (solid height >= ``wall_min_m``); 0.0 (the zero on the pad) where
+    the unit names no walled part, or ``wall_min_m`` is 0."""
+    if wall_min_m <= 0.0 or not getattr(un, "pids", None):
+        return 0.0
+    root = _unit_root(un.id)
+    if root not in memo:
+        pids = set()
+        for v in units:
+            if _unit_root(v.id) == root:
+                pids |= set(v.pids)
+        # the walls' FEET — the ground contacts of the walled parts, never a
+        # part's base (a tower's cab is walled too, 70 m up)
+        ys = sorted(float(f[2]) for q in pids
+                    if q in parts and not getattr(parts[q], "line", False)
+                    and float(getattr(parts[q], "height_m", 0.0) or 0.0) >= wall_min_m
+                    for f in (getattr(parts[q], "feet", ()) or ()))
+        memo[root] = ys[len(ys) // 2] if ys else 0.0
+        if frame_of:
+            # the DOMINANT frame: the one standing on most of the walls' feet
+            by: dict[tuple, list[float]] = {}
+            for q in pids:
+                if (q in parts and q in frame_of and not getattr(parts[q], "line", False)
+                        and float(getattr(parts[q], "height_m", 0.0) or 0.0) >= wall_min_m):
+                    by.setdefault(frame_of[q], []).extend(
+                        float(f[2]) for f in (getattr(parts[q], "feet", ()) or ()))
+            by = {k: v for k, v in by.items() if v}
+            if not by:
+                # #1214 round 6: a FOOTLESS unit's walls stand on their own
+                # bases (KMCI 39.294747, -94.724552: a building authored at
+                # y +5.09 under OBJECT_AGL -5.50 floated 5 m on y = 0)
+                for q in pids:
+                    if (q in parts and q in frame_of and not getattr(parts[q], "line", False)
+                            and float(getattr(parts[q], "height_m", 0.0) or 0.0) >= wall_min_m):
+                        by.setdefault(frame_of[q], []).append(float(parts[q].base_y))
+            if by:
+                fr, yd = max(sorted(by.items()), key=lambda kv: len(kv[1]))
+                lift = fr[1]
+                near = sum(1 for y in yd if abs(y + lift) <= AUTHOR_GROUND_M)
+                below = sum(1 for y in yd if y < -lift - AUTHOR_GROUND_M)
+                # a NEGATIVE lift is the author's ground as well: y = -lift
+                if (lift != 0.0 and near >= PLANE_SHARE * len(yd)
+                        and below < PLANE_SHARE * len(yd)):
+                    memo[root] = -lift
+    return memo[root]
+
+
+#: R5's cross-check: the lowest wall-foot plane lies this close to the
+#: author's ground ``-lift`` (22o: "come within a meter")
+AUTHOR_GROUND_M = 1.0
+#: ...and a PLANE of the walls' feet is at least this share of them (the
+#: few feet of a sump or a stair well under the floor are no plane)
+PLANE_SHARE = 0.1
 
 
 def _airside_floor(cc: _t.Sequence[tuple[float, float, float, float]],
@@ -987,6 +1114,7 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     info: dict[str, tuple[float, str, str]] = {}
     conn: dict[int, tuple[str, str]] = {}
     left: dict[str, dict[int, list]] = {}
+    far: list[tuple[int, _t.Any, str, list]] = []
     for ci, c in enumerate(cands):
         if c.body_class in (_ar.LINE_SEGMENT, _ar.BASIN):
             continue
@@ -1053,14 +1181,34 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             # seat §16c gave it on its own ground.  A body the §16c (7)
             # bind put on a senior still follows that senior
             # (``placement_atom.follow_seniors``), so a rigid cluster never
-            # splits here: only a senior or an unbound body leaves.
-            counts["unit_members_left_far_below"] = \
-                counts.get("unit_members_left_far_below", 0) + 1
-            _leave(cands, ci, st, uid)
-            left.setdefault(uid, {})[ci] = cc
-            continue
+            # splits here: only a senior or an unbound body leaves.  The
+            # verdict waits for the unit's other contacts (#1140,
+            # :func:`_rests_on_unit`).
+            far.append((ci, st, uid, cc))
         per_uid.setdefault(uid, {})[ci] = cc
         info[uid] = (z, where, src)
+    resting: set[int] = set()
+    grew = True
+    while grew:          # a deck on a deck that rests on the unit rests on it
+        grew = False
+        for ci, _st, uid, cc in far:
+            if ci not in resting and _rests_on_unit(
+                    cands[ci], cc, _others(cands, per_uid[uid], ci, resting),
+                    info[uid][0], touch_m, visual_m):
+                resting.add(ci)
+                grew = True
+    for ci, st, uid, cc in far:
+        if ci in resting:
+            counts["unit_members_kept_resting_on_unit"] = \
+                counts.get("unit_members_kept_resting_on_unit", 0) + 1
+            continue
+        counts["unit_members_left_far_below"] = \
+            counts.get("unit_members_left_far_below", 0) + 1
+        _leave(cands, ci, st, uid)
+        del per_uid[uid][ci]
+        left.setdefault(uid, {})[ci] = cc
+    for uid in [k for k, per in per_uid.items() if not per]:
+        del per_uid[uid]
     out: list[Family] = []
     for uid, per in sorted(per_uid.items()):
         zero, where, src = info[uid]
@@ -1169,6 +1317,62 @@ def _far_below(cc: _t.Sequence[tuple], zero: float, visual_m: float) -> bool:
     :func:`_seat` reports a member off the plane by; no threshold of its
     own.  ``visual_m`` 0 disarms."""
     return visual_m > 0.0 and bool(cc) and zero - _own_zero(cc) > visual_m
+
+
+def _rests_on_unit(c: _t.Any, cc: _t.Sequence[tuple],
+                   others: _t.Iterable[tuple[_t.Any, _t.Sequence[tuple], bool]],
+                   zero: float, touch_m: float, visual_m: float) -> bool:
+    """#1140: does this body REST ON ITS UNIT rather than on the ground? Its
+    lowest vertices are no ground contact where another body of its unit
+    stands UNDER it -- that body's feet inside this one's part boxes, or
+    this one's feet inside that body's part boxes (each closed by
+    ``touch_m``) -- authored more than ``visual_m`` lower, AND that lower
+    body's feet stand on their ground at the unit's datum ``zero`` (median
+    ``|ground - (zero + y)|`` within ``visual_m``) or itself rests on the
+    unit (``rests``: a deck on a deck, read to a fixed point by the
+    caller). Then the unit's own floor there IS on the ground and this
+    body is a deck of the structure standing on it: its "own ground" is
+    not far below the datum -- it has none -- so it never leaves the unit
+    (2026-10-19aq reads a body that stands ON the ground). A unit seated
+    above the ground under it (#721, HECA ``T3_14``: its foundation 1.6 m
+    under the leaver, on ground 8 m under the datum) witnesses nothing and
+    its body still leaves. MEASURED KATL ``terminal_F``: five garage and
+    roadway decks (feet y -0.89 ... -10.21 over the unit's floor at
+    -13.03, on its lower level) left the cluster-pad unit and were seated
+    by their own feet, 1.55-10.87 m under the terminal. The candidates of
+    one bind are one anchor family (one authored frame), so their authored
+    heights compare."""
+    if not cc or visual_m <= 0.0:
+        return False
+    mine = tuple(c.part_boxes or ((c.box,) if c.box else ()))
+    if not mine:
+        return False
+    y_min = min(q[2] for q in cc)
+    ky, kx = m_per_deg_exact(0.5 * (mine[0][0] + mine[0][2]))
+    dla, dlo = touch_m / ky, touch_m / kx
+
+    def inside(q, boxes) -> bool:
+        return any(b[0] - dla <= q[0] <= b[2] + dla
+                   and b[1] - dlo <= q[1] <= b[3] + dlo for b in boxes)
+
+    for o, occ, rests in others:
+        low = [q for q in occ if q[2] < y_min - visual_m]
+        if not low or (not rests and _median([abs(q[3] - zero - q[2])
+                                              for q in low]) > visual_m):
+            continue
+        theirs = tuple(o.part_boxes or ((o.box,) if o.box else ()))
+        if (any(inside(q, mine) for q in low)
+                or any(inside(q, theirs) for q in cc)):
+            return True
+    return False
+
+
+def _others(cands: _t.Sequence[_t.Any], per: _t.Mapping[int, _t.Sequence[tuple]],
+            ci: int, resting: _t.AbstractSet[int] = frozenset()
+            ) -> list[tuple[_t.Any, _t.Sequence[tuple], bool]]:
+    """``(candidate, its contacts, does it already rest on the unit)`` of
+    the unit's candidates in ``per`` but ``ci``."""
+    return [(cands[cj], occ, cj in resting) for cj, occ in per.items() if cj != ci]
 
 
 def _leave(cands: list, ci: int, st: _t.Any, uid: str) -> None:

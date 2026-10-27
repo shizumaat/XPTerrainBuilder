@@ -94,6 +94,7 @@ min_len_m = 10.0               # a surviving part shorter than this is noise
 # pedestrian — and NOT track (an owner question, default excluded).
 ribbon_highways   = ["motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link", "unclassified", "residential", "living_street", "road", "service"]
 road_gap_bridge_m = 250.0         # 30e (2): an out-of-patch GAP between two in-patch stretches of the SAME way is ribboned up to this length (NLWF's terminal stretch of way -3: 219 m); never the way's whole span. Owner may veto.
+boundary_reach_m  = 50.0          # owner RULINGS 2026-10-22g (supersedes 30e (2)'s EXTENT, issue #1246): every mapped road inside the AERODROME BOUNDARY (apt.dat 130) and within this distance OUTSIDE it is ribboned and graded, so it meets the unpatched terrain smoothly at the reach's edge; an airport with no boundary keeps the 30e (2) extent (the pavement and the airside bands' zone-2 envelopes).
 
 [lot]                          # owner 2026-09-04j: roads and PARKING LOTS are classes of their own, cut at the road-to-lot mouths
 min_road_fraction      = 0.2   # a polygon CARRIES a road only when the road centreline inside it is at least this fraction of its half-perimeter (CYXY pav4: 41 m of road clipping a 464 m hangar-side strip is not a road strip)

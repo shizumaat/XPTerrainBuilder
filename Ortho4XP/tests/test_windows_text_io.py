@@ -84,7 +84,6 @@ ENGINE_SOURCES = ("src", "Ortho4XP.py", "Ortho4XP_Qt.py")
 NOT_SHIPPED = "src/Unused/"
 
 RECORDED_UNNAMED = {
-    "Ortho4XP_Qt.py": 1,
     "src/O4_Airport_Elevation_Insets.py": 18,
     "src/O4_Bathymetry_Band.py": 3,
     "src/O4_Coral_Atlas.py": 2,

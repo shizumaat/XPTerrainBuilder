@@ -176,15 +176,6 @@ def test_t5_the_profiler_calls_the_builds_own_pack_stage():
     assert s["max_rss_gb_max"] == 3.0
 
 
-def test_s4_the_release_rule():
-    from auto_patch import driver as D
-    big = {"r": [("a.obj", D.POOL_RELEASE_PACK_BYTES + 1, 0.0, "a")]}
-    small = {"r": [("a.obj", 10, 0.0, "a")]}
-    assert D._pool_releases_workers(2, 2, small) is False     # few small airports keep reuse
-    assert D._pool_releases_workers(3, 2, small) is True      # more airports than workers
-    assert D._pool_releases_workers(2, 2, big) is True        # a large pack
-
-
 def _pid(_x):
     return os.getpid()
 

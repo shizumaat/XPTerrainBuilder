@@ -8,6 +8,10 @@
 # The XYZ carries no CRS of its own, so the warp assigns EPSG:25832.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=DEU
 access_strategy=tile_grid_http
 
 tile_url_template=/vsizip//vsicurl/https://gdi2.geo.bremen.de/inspire/download/DGM/data/Gitternetz_DGM1_2017_HB_ASCII_XYZ.zip/Gitternetz_DGM1_2017/dgm1_32{easting_km}_{northing_km}_1_hb.xyz

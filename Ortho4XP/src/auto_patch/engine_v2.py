@@ -58,6 +58,8 @@ _DEFECT_LAW = {
                     "crown drop",
     "runway_vertical_curve": "the built runway ridge breaks the vertical-"
                              "curve law",
+    "ring_fold": "an emitted face ring is not a simple ring, so the mesh "
+                 "would drop it and leave the raw DEM inside (issue #1275)",
     "stacked_nodes": "two emitted nodes share one identity at different "
                      "elevations",
     "sentinel_elevation": "an emitted vertex stands outside the ground "

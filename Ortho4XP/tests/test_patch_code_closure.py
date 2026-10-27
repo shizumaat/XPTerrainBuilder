@@ -250,3 +250,34 @@ def test_both_specs_write_and_bundle_the_patch_digest():
         assert ('os.path.join("src", "auto_patch", "provenance_code.py")\n)'
                 '["write_patch_freeze_digest"]("src"') in text, spec
         assert '(_patch_digest_file, "auto_patch")' in text, spec
+
+
+def test_every_third_party_library_the_patch_build_imports_is_in_o4_tools():
+    """Owner Q158: ``o4_tools`` replaces the engine version in the patch
+    key, so a library the patch build imports and
+    ``provenance_tools.PATCH_LIBRARIES`` omits would be a STALE REUSE
+    after that library's upgrade — and a listed one the build no longer
+    imports is noise in the key."""
+    import ast
+
+    from auto_patch import provenance_tools as TOOLS
+
+    local = {p.stem if p.suffix == ".py" else p.name for p in SRC.iterdir()}
+    imported = set()
+    for name in CODE.PATCH_CODE_MODULES:
+        tree = ast.parse(Path(CLOSURE.source_path(str(SRC), name)).read_text(
+            encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and not node.level \
+                    and node.module:
+                names = [node.module]
+            else:
+                continue
+            for top in (n.split(".")[0] for n in names):
+                if (top not in sys.stdlib_module_names and top not in local
+                        and not top.startswith("O4_")):
+                    imported.add(top)
+    assert sorted(imported) == list(TOOLS.PATCH_LIBRARIES), (
+        "set provenance_tools.PATCH_LIBRARIES to " + repr(sorted(imported)))

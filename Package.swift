@@ -28,5 +28,11 @@ let package = Package(
             dependencies: ["SceneryKit"],
             resources: [.copy("Fixtures")]
         ),
+        // App-model tests (the map controller's publish paths): @testable
+        // import of the executable target.
+        .testTarget(
+            name: "XPTerrainBuilderTests",
+            dependencies: ["XPTerrainBuilder", "SceneryKit"]
+        ),
     ]
 )

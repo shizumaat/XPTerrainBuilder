@@ -34,17 +34,17 @@ measurement in this repo, and every one of them exits 0 without the check:
    frame the shipped tile is built in.  (This closes the inset-coverage
    frame gap ``tools/full_airport_build.py`` carried unstated.)
 3b. **A hand-seeded lane input.**  A fresh lane build dir has no per-tile
-   ``Ortho4XP_+XX+YYY.cfg``; ``Tile.read_from_config`` then falls back to the
+   ``XPTerrainBuilder_+XX+YYY.cfg``; ``Tile.read_from_config`` then falls back to the
    GLOBAL config, which carries no ``default_website`` at all, and the build
    refuses at the provider check.  Two lanes improvised two DIFFERENT cfg
    sources to get past that on 2026-08-12 — the census-wrapper defect at one
    remove.  ``--tile`` now PROVISIONS it: a byte copy from the ritual's own
    canonical source (``<main engine tree>/Tiles/zOrtho4XP_+XX+YYY/``, where
-   ``lane_worktree.sh`` clones ``Ortho4XP.cfg`` and ``Patches/`` from),
+   ``lane_worktree.sh`` clones ``XPTerrainBuilder.cfg`` and ``Patches/`` from),
    recorded with its sha256 in ``<tag>.frame.json`` under
    ``tile_cfg_provenance``.  An existing lane cfg is never overwritten.  A
    MISSING canonical source no longer refuses: it DERIVES the per-tile cfg
-   from the canonical GLOBAL ``Ortho4XP.cfg`` — a file with zero override
+   from the canonical GLOBAL ``XPTerrainBuilder.cfg`` — a file with zero override
    lines, which is what "the global defaults" IS in the engine's own reader
    — recorded as ``derived-from-global-defaults`` with the global source's
    sha256 and printed loudly (owner ruling 2026-08-14, a tile without a
@@ -306,22 +306,49 @@ MOD_CACHE_DIR_NAME = "Airport_mod_cache"
 #: ``auto_patch_v2.airport.dsf.find_text_dump`` writes and finds it).
 DSF_TEXT_DUMP_SUFFIX = ".text"
 
+def _config_names():
+    """``src/O4_Config_Names`` — THE config file names (#1229, owner RULINGS
+    2026-10-26c), imported lazily like every engine module here."""
+    if str(ROOT / "src") not in sys.path:
+        sys.path.append(str(ROOT / "src"))
+    import O4_Config_Names as CN
+    return CN
+
+
+def global_cfg_in(root) -> Path:
+    """THE global cfg of an engine tree or data root: ``XPTerrainBuilder.cfg``
+    after the root's one-time hand-over from ``Ortho4XP.cfg`` (the engine
+    makes the same copy on its first import there; RULINGS 2026-10-26c)."""
+    CN = _config_names()
+    CN.adopt_global_cfg(str(root))
+    return Path(root) / CN.GLOBAL_CFG_NAME
+
+
+def _owner_app_cfg(data_repo) -> Path:
+    """The owner's app cfg, READ-ONLY: ``XPTerrainBuilder.cfg`` once the app
+    has handed it over, else the ``Ortho4XP.cfg`` it still runs on.  The
+    harness never writes into the data repo, so it never adopts here."""
+    data_repo = Path(data_repo)
+    ours = data_repo / "XPTerrainBuilder.cfg"
+    return ours if ours.is_file() else data_repo / "Ortho4XP.cfg"
+
+
 #: The owner's production app config — the one the shipped app runs with.
 #: It lives IN the shared data repo, which is the point: the config and the
 #: corpus it describes travel together.
-OWNER_APP_CFG = DATA_REPO / "Ortho4XP.cfg"
+OWNER_APP_CFG = _owner_app_cfg(DATA_REPO)
 
 #: THE MAIN ENGINE TREE — where a lane's build INPUTS are cloned FROM.
 #:
 #: This is not a new hierarchy: it is the ritual's own
 #: (``lane_worktree.sh``: ``MAIN_REPO="${O4_MAIN_REPO:-...}"``,
-#: ``MAIN_ENGINE="$MAIN_REPO/Ortho4XP"``, ``CLONE_FILES="Ortho4XP.cfg"``),
+#: ``MAIN_ENGINE="$MAIN_REPO/Ortho4XP"``, ``CLONE_FILES="XPTerrainBuilder.cfg"``),
 #: spelled with the same environment override so one setting moves both.
 #: The division of labour is deliberate and already law: the SHARED DATA
 #: REPO holds the corpus and the owner's production app config
 #: (:data:`OWNER_APP_CFG`, the FRAME every lane's cfg is validated
 #: against); the MAIN TREE holds the build INPUTS a lane starts from
-#: (``Ortho4XP.cfg``, ``Patches/``, and now the per-tile cfg).
+#: (``XPTerrainBuilder.cfg``, ``Patches/``, and now the per-tile cfg).
 MAIN_ENGINE_TREE = Path(os.environ.get(
     "O4_MAIN_REPO", "/Users/noah/XPTerrainBuilder")) / "Ortho4XP"
 
@@ -482,7 +509,7 @@ def cfg_frame_diff(root, owner_cfg=OWNER_APP_CFG) -> dict:
     app installed cannot be held to it, and the env snapshot records that
     fact rather than pretending the frames matched.
     """
-    ours = read_cfg(Path(root) / "Ortho4XP.cfg")
+    ours = read_cfg(global_cfg_in(root))
     theirs = read_cfg(owner_cfg)
     if not theirs:
         return {}
@@ -530,7 +557,7 @@ def frame_surface_keys(root, owner_cfg=OWNER_APP_CFG) -> dict:
     build graded against" is a question later readers ask about numbers
     that are already in a report, and the answer has to be IN the artifact.
     """
-    ours = read_cfg(Path(root) / "Ortho4XP.cfg")
+    ours = read_cfg(global_cfg_in(root))
     theirs = read_cfg(owner_cfg)
     return {k: effective_frame_value(k, ours, theirs) for k in DEM_FRAME_KEYS}
 
@@ -545,7 +572,7 @@ def require_cfg_frame(root, *, allow_degraded: bool = False,
             f"REFUSING: {len(diff)} DEM-frame config key(s) diverge from the "
             f"owner's production app config ({owner_cfg}):\n  {lines}\n"
             f"The surface this build grades against would not be the surface "
-            f"the shipped tile is built on.  Align Ortho4XP.cfg, or pass "
+            f"the shipped tile is built on.  Align XPTerrainBuilder.cfg, or pass "
             f"--allow-degraded-dem to measure in the divergent frame "
             f"KNOWINGLY (it is recorded in the env snapshot either way).")
     return diff
@@ -679,7 +706,8 @@ def approach_ring_summary(lat, lon):
 
 def require_dem_frame(state: dict, *, allow_degraded: bool = False,
                      requested=(), inset_problem=None,
-                     ring_problem=None) -> None:
+                     ring_problem=None, inset_dir_expected: bool = True
+                     ) -> None:
     """The zero-DEM and cold-cache refusals.
 
     * NO base raster ⇒ the loader either downloads mid-measurement or hands
@@ -688,7 +716,9 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False,
       measured 85 m below the runway end before the mechanism was found).
     * NO cached airports layer ⇒ no smoothing masks, so the surface stays
       unsmoothed and diverges from production.
-    * NO cached insets ⇒ the base surface only, when production insets here.
+    * NO cached insets ⇒ the base surface only, when production insets here
+      (``inset_dir_expected``: not when the inset selection admits no
+      airport this build grades — §A.6, :func:`insets_expected`).
 
     AN AUTHORISED REFRESH OF THE NAMING SCOPE IS NOT A REFUSAL (measured
     2026-09-15: ``build_airport.py KDFW --tile 32 -97 --refresh-data
@@ -721,7 +751,7 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False,
             f"(production smooths at apt_smoothing_pix=8), and the build "
             f"would run an overpass QUERY to fill it.  Deliberate fetch: "
             f"--refresh-data osm_layers")
-    if not state["airport_insets"]:
+    if not state["airport_insets"] and inset_dir_expected:
         _name("dem",
             f"NO cached airport elevation insets for {state['tile_stem']} — "
             f"the build would grade against the BASE surface while "
@@ -850,7 +880,7 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
         out.append(("dem", f"Elevation_data/**/{state['tile_stem']}.hgt",
                     "the base DEM raster — the loader would DOWNLOAD it "
                     "mid-build, or hand back an all-zero surface"))
-    if not state["airport_insets"]:
+    if not state["airport_insets"] and insets_expected(state, lat, lon, icao):
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/",
                     "the airport elevation insets — the build would fetch "
@@ -880,6 +910,31 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
     out.extend(schema_stale_osm_layers(root, lat, lon))
     out.extend(missing_pack_dsf_dumps(root, lat, lon, icao))
     return out
+
+
+def insets_expected(state, lat, lon, icao) -> bool:
+    """Does this build need an ``_airport_insets`` directory at all?
+
+    §A.6 (issue #1352): an airport outside the tile's inset selection is
+    patched on the base raster, and a tile whose selection admits none of
+    its aerodromes never gets the directory — the engine logs "nothing
+    to fetch".  Missing, it is then not a cold frame.  Asked of the
+    cached airports layer only (no layer is refused on its own); any
+    doubt answers yes, the refusal as before."""
+    try:
+        if icao:
+            return bool(IPF.inset_selection_admits(lat, lon, icao))
+        if not state["airports_layer"]:
+            return True
+        # A PRE-FLIGHT NEVER REACHES THE NETWORK (#583): the layer the
+        # engine reads must be on disk under the exact name it reads, or
+        # OSM_queries_to_OSM_layer downloads it.  Any doubt answers yes.
+        if not IPF.airports_layer_is_cached(lat, lon):
+            return True
+        return bool(IPF.required_boxes(lat, lon, selected_only=True))
+    except Exception as exc:
+        print(f"  [harness] inset selection check skipped ({exc!r})")
+        return True
 
 
 def this_airports_inset_problem(state, lat, lon, icao):
@@ -929,6 +984,8 @@ def this_airports_inset_problem(state, lat, lon, icao):
         # in the owner's scenery_packs.ini).  The paths come from the
         # same owner config the frame check validates against; a
         # machine without one keeps today's empty-root answer.
+        if not IPF.inset_selection_admits(lat, lon, icao):
+            return None     # §A.6: patched, not inset — the base raster
         apply_xplane_install_paths_for_preflight()
         boxes = IPF.required_boxes(lat, lon, selected_only=False)
         required = next((box for key, box in boxes.items()
@@ -2055,6 +2112,8 @@ def warm_airport_insets(icaos, root, lat, lon, prog, *,
     INSETS.ensure_airport_insets(lat, lon, wanted, definitions,
                                  resolution_m, refresh=refresh,
                                  fetch_counter=fetch_counter,
+                                 airport_countries=INSETS._airport_countries(
+                                     dico_airports),
                                  **({"airport_polygons": polygons}
                                     if polygons else {}))
     summary = {"airports": sorted(wanted), "fetch_attempts": fetch_counter[0],
@@ -2417,6 +2476,29 @@ def refresh_shore_feed(root, lat, lon, prog) -> dict:
               f"{'RECYCLED (schema-current)' if was else 'FILLED'} — "
               f"{ways} shore-structure way(s) at {path}")
     return summary
+
+
+def refresh_runway_refs(root, prog) -> dict:
+    """Fill the runway-end cross-check cache (owner RULINGS 2026-10-25a /
+    26a, #1342): every provider with a module
+    (``airport/runway_refs.PROVIDERS``) downloads into
+    ``Airport_mod_cache/_runway_refs/<source>/`` through its own
+    ``refresh`` — the ONLY caller of it; a build only reads the cache.  The
+    caller owns the law: the scope lock, the snapshot and the armed guard."""
+    for p in (Path(root) / "src", Path(root)):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    from auto_patch_v2.airport import runway_refs as REFS  # noqa: E402
+    mod_root = str(DATA_REPO / MOD_CACHE_DIR_NAME)
+    out = {}
+    # every provider with a module, whatever ``crosscheck_order`` reads: the
+    # law decides whether a build USES a source, not whether it is cached
+    for mod in REFS.PROVIDERS.values():
+        stamp = mod.refresh(mod_root)
+        out[mod.NAME] = stamp
+        prog.note(f"runway refs [{mod.NAME}]: {stamp['bytes']:,} bytes, "
+                  f"sha256 {stamp['sha256'][:12]} -> {mod.cache_path(mod_root)}")
+    return out
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -2837,9 +2919,11 @@ def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
     """
     missing = missing_shared_artifacts(root, lat, lon, icao)
     if not refresh_only:
-        require_dem_frame(dem_cache_state(root, lat, lon),
-                          allow_degraded=allow_degraded,
-                          ring_problem=approach_ring_problem(lat, lon, icao))
+        state = dem_cache_state(root, lat, lon)
+        require_dem_frame(state, allow_degraded=allow_degraded,
+                          ring_problem=approach_ring_problem(lat, lon, icao),
+                          inset_dir_expected=insets_expected(
+                              state, lat, lon, icao))
         require_no_implicit_refresh(missing, requested)
         return
     requested = set(requested or ())
@@ -3126,10 +3210,12 @@ def tile_cfg_stem(lat: int, lon: int) -> str:
 def canonical_tile_cfg(lat: int, lon: int, source_root=None) -> Path:
     """THE per-tile cfg a lane's build dir is provisioned FROM.
 
-    ``<main engine tree>/Tiles/zOrtho4XP_+XX+YYY/Ortho4XP_+XX+YYY.cfg`` —
-    the ritual's own canonical source (:data:`MAIN_ENGINE_TREE`), the same
-    place ``lane_worktree.sh`` clones ``Ortho4XP.cfg`` and ``Patches/``
-    from.  Deliberately NOT the shared data repo and NOT the owner's app
+    ``<main engine tree>/Tiles/zOrtho4XP_+XX+YYY/XPTerrainBuilder_+XX+YYY.cfg``
+    — the ritual's own canonical source (:data:`MAIN_ENGINE_TREE`), the
+    same place ``lane_worktree.sh`` clones ``XPTerrainBuilder.cfg`` and
+    ``Patches/`` from.  The tile's one-time hand-over runs first, so a
+    stamped ``Ortho4XP_+XX+YYY.cfg`` the main tree still holds takes this
+    app's name (RULINGS 2026-10-26c).  Deliberately NOT the shared data repo and NOT the owner's app
     config: ``default_website`` / ``default_zl`` / ``zone_list`` are
     PER-TILE variables and ``O4_Cfg_Vars`` excludes them from the global
     config by construction, so the owner's app cfg has no such keys to
@@ -3138,26 +3224,29 @@ def canonical_tile_cfg(lat: int, lon: int, source_root=None) -> Path:
     """
     root = Path(source_root) if source_root is not None else MAIN_ENGINE_TREE
     stem = tile_cfg_stem(lat, lon)
-    return root / "Tiles" / f"zOrtho4XP_{stem}" / f"Ortho4XP_{stem}.cfg"
+    build_dir = root / "Tiles" / f"zOrtho4XP_{stem}"
+    CN = _config_names()
+    CN.adopt_tile_cfg(str(build_dir), lat, lon)
+    return build_dir / CN.tile_cfg_name(lat, lon)
 
 
 def canonical_global_cfg(source_root=None) -> Path:
-    """THE global ``Ortho4XP.cfg`` a DERIVED per-tile cfg comes from.
+    """THE global ``XPTerrainBuilder.cfg`` a DERIVED per-tile cfg comes from.
 
     Same tree as :func:`canonical_tile_cfg` — the one ``lane_worktree.sh``
     clones into every lane — so "the global defaults" names ONE file for
     every lane, not whatever each lane's cwd happens to resolve
-    (``FNAMES.data_path("Ortho4XP.cfg")``) at import time.
+    (``O4_Config_Names.global_cfg_path()``) at import time.
     """
     root = Path(source_root) if source_root is not None else MAIN_ENGINE_TREE
-    return root / "Ortho4XP.cfg"
+    return global_cfg_in(root)
 
 
 def engine_global_cfg() -> Path:
     """The global cfg THIS PROCESS's engine actually reads.
 
-    ``O4_Config_Utils.global_cfg_file`` is ``FNAMES.data_path(
-    "Ortho4XP.cfg")``, which in a source checkout resolves against the
+    ``O4_Config_Utils.global_cfg_file`` is ``O4_Config_Names.
+    global_cfg_path()``, which in a source checkout resolves against the
     CWD — so it is the LANE's clone, not the canonical main-tree file the
     derivation is recorded against.  The ritual clones one from the other,
     so they normally agree; when they do not, a derived cfg would be
@@ -3165,10 +3254,7 @@ def engine_global_cfg() -> Path:
     two-instruments-one-population defect in a single line of provenance.
     Both are recorded, and a divergence is said out loud.
     """
-    if str(ROOT / "src") not in sys.path:
-        sys.path.append(str(ROOT / "src"))
-    import O4_File_Names as FNAMES
-    return Path(FNAMES.data_path("Ortho4XP.cfg"))
+    return Path(_config_names().global_cfg_path())
 
 
 #: What a DERIVED per-tile cfg contains: NOTHING but a comment header.
@@ -3177,7 +3263,7 @@ def engine_global_cfg() -> Path:
 #: (``O4_Config_Utils``):
 #:
 #: * module import sets every tile var to its registry default and then
-#:   applies the GLOBAL ``Ortho4XP.cfg`` over it;
+#:   applies the GLOBAL ``XPTerrainBuilder.cfg`` over it;
 #: * ``Tile.__init__`` seeds ``self.<var>`` for every ``list_tile_vars``
 #:   entry FROM those module globals;
 #: * ``read_from_config`` then applies only the keys the per-tile file
@@ -3226,7 +3312,7 @@ def imagery_capability(tile, cfg_provenance) -> dict:
     the ONE place RULINGS 2026-08-31d is expressed.
 
     THE RULING: *a tile entry finding no per-tile cfg DEFAULTS TO THE
-    USER'S GLOBAL SETTINGS (Ortho4XP.cfg) — it does not refuse.  Refusal
+    USER'S GLOBAL SETTINGS (XPTerrainBuilder.cfg) — it does not refuse.  Refusal
     is reserved for a global config that itself lacks the required key.*
 
     What "required" means is per STEP, and that is the whole content of
@@ -3365,8 +3451,8 @@ def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
 
     OWNER RULING 2026-08-12b — "LANE INPUTS ARE PROVISIONED BY THE RITUAL,
     NEVER HAND-SEEDED".  A fresh lane build dir has no
-    ``Ortho4XP_+XX+YYY.cfg``; ``Tile.read_from_config`` then falls back to
-    the GLOBAL config, which by construction carries no provider — and
+    ``XPTerrainBuilder_+XX+YYY.cfg``; ``Tile.read_from_config`` then falls
+    back to the GLOBAL config, which by construction carries no provider — and
     the tile build used to refuse there (superseded by RULINGS
     2026-08-31d: the imagery half stands down instead, see
     :func:`imagery_capability`).  On 2026-08-12 two lanes each improvised
@@ -3378,7 +3464,7 @@ def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
     * ``provisioned`` — a byte copy of the canonical cfg, with its sha256;
     * ``derived-from-global-defaults`` — there is NO canonical per-tile
       cfg for this tile, so one is derived from the canonical GLOBAL
-      ``Ortho4XP.cfg`` (OWNER RULING 2026-08-14, "A TILE WITHOUT A
+      ``XPTerrainBuilder.cfg`` (OWNER RULING 2026-08-14, "A TILE WITHOUT A
       PER-TILE CFG USES GLOBAL DEFAULTS", amending the refusal this
       function used to raise).  The derived file carries zero override
       lines — see :data:`DERIVED_CFG_HEADER` for why that IS the global
@@ -3411,37 +3497,10 @@ def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
     from, only invention.
     """
     stem = tile_cfg_stem(lat, lon)
-    dest = Path(build_dir) / f"Ortho4XP_{stem}.cfg"
+    dest = Path(build_dir) / _config_names().tile_cfg_name(lat, lon)
     src = canonical_tile_cfg(lat, lon, source_root)
     rec = {"cfg": str(dest), "canonical_source": str(src),
            "action": None, "sha256": None}
-
-    # THE STAMP, ON THE CANONICAL SOURCE (owner RULINGS 2026-09-18c (2)).
-    # An UNSTAMPED tile cfg is a pre-1.0.352 file, which the engine MOVES
-    # to ``*.pre352.bak`` on first read: a canonical cfg written before
-    # the stamp existed would be retired MID-BUILD and the tile would
-    # fall back to the global defaults, losing default_website /
-    # default_zl / zone_list from the frame.  Stamped HERE, once, on the
-    # source — so the copy below stays a BYTE copy (the invariant is
-    # about never re-RENDERING the settings; a provenance line changes no
-    # value), a ``present`` lane cfg is still never touched, and a
-    # DERIVED cfg still carries zero override lines.  Idempotent; it does
-    # change the recorded cfg sha256 against pre-18c frames.
-    if src.is_file():
-        try:
-            _src_text = src.read_text(errors="ignore")
-            if _src_text.strip() and not any(
-                    line.strip().startswith("cfg_written_by=")
-                    for line in _src_text.splitlines()):
-                _tmp = src.with_suffix(src.suffix + ".stamp.tmp")
-                _tmp.write_text(
-                    _src_text
-                    + ("" if _src_text.endswith("\n") else "\n")
-                    + "cfg_written_by=harness\n")
-                os.replace(_tmp, src)
-                rec["canonical_source_stamped"] = True
-        except OSError:                                # pragma: no cover
-            pass
 
     is_source = (dest.is_file() and src.is_file()
                  and dest.resolve() == src.resolve())
@@ -3475,7 +3534,7 @@ def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
                 f"  With no globals there are no DEFAULTS to derive from "
                 f"— only invention, and a synthesized provider and ZL "
                 f"build a tile nobody asked for and exit 0.\n"
-                f"  Fix: restore the main tree's Ortho4XP.cfg (the ritual "
+                f"  Fix: restore the main tree's XPTerrainBuilder.cfg (the ritual "
                 f"clones it into every lane: tools/harness/"
                 f"lane_worktree.sh up NAME) — owner rulings 2026-08-12b "
                 f"(inputs are provisioned, never hand-seeded) and "
@@ -5053,7 +5112,10 @@ def main(argv=None) -> int:
             require_dem_frame(state, allow_degraded=args.allow_degraded_dem,
                               requested=requested,
                               inset_problem=inset_problem,
-                              ring_problem=ring_problem)
+                              ring_problem=ring_problem,
+                              inset_dir_expected=insets_expected(
+                                  state, lat, lon,
+                                  None if args.tile else args.icao))
         else:
             prog.note("constant-DEM oracle build: the real DEM frame is "
                       "SUBSTITUTED, so its cache warmth cannot confound "
@@ -5209,6 +5271,7 @@ def main(argv=None) -> int:
     seed_summary = None
     osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
     shore_refresh_summary = rings_refresh_summary = None
+    runway_refs_summary = None
     mod_cache_refresh_summary = None
     t0 = time.time()
     # EVERYTHING FROM HERE IS INSIDE THE AUDIT'S ``finally`` (2026-09-15,
@@ -5271,6 +5334,11 @@ def main(argv=None) -> int:
             with guard:
                 shore_refresh_summary = refresh_shore_feed(
                     root, lat, lon, prog)
+        # THE RUNWAY-END CROSS-CHECK CACHE (#1342): global, not per tile —
+        # independent of every pass around it
+        if "runway_refs" in requested:
+            with guard:
+                runway_refs_summary = refresh_runway_refs(root, prog)
         # THE DEM REFRESH runs SECOND, deliberately: the inset bounding
         # boxes come from the tile's airports layer, which the pass above
         # derives when it is absent (the cold-neighbour case, +32-097).
@@ -5337,6 +5405,7 @@ def main(argv=None) -> int:
                       "refresh_osm_layers": osm_refresh_summary,
                       "refresh_dem": dem_refresh_summary,
                       "refresh_shore": shore_refresh_summary,
+                      "refresh_runway_refs": runway_refs_summary,
                       "refresh_rings": rings_refresh_summary,
                       "refresh_airport_mod_cache": mod_cache_refresh_summary,
                       "wall_seconds": round(time.time() - t0, 1)}

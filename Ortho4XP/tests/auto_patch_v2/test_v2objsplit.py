@@ -4350,10 +4350,12 @@ def test_the_deck_end_line_datum_walks_landward_to_the_graded_ground():
                  ends=ends, step_m=5.0, walk_max_m=60.0, level_tol_m=0.3)
     a = AR.anchor_for(AR.DECK, _geom_at(-1e-4, 1e-5, 9.0), surface,
                       tol_m=0.3, datum=d)
-    assert a.datum is True and a.y_zero == 3.575
-    # the deck top lands ON the graded road, not on the bank
-    assert abs(a.surface_z - 3.96) < 1e-6
-    assert "landward walk 15 m / 15 m" in a.reason
+    assert a.datum is True
+    # the deck top lands ON the graded road, not on the bank: an end line
+    # touching water is no road overpass (#1214 round 3, R4 reads a road
+    # bridge's end lines), and §16e (6)'s landward walk reads it
+    assert abs((a.surface_z - a.y_zero) - (3.96 - 3.575)) < 1e-6
+    assert "landward walk" in a.reason
     # ...and with the walk DISARMED (no ends, no step) the pooled median
     # of the end lines stands, which is §16e (2) exactly
     d0 = AR.Datum(3.575, tuple(p for e in ends for p in e), "deck top")

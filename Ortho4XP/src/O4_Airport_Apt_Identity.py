@@ -30,13 +30,18 @@ Two passes around ``O4_Airport_Utils.attach_surfaces_to_airports``:
 * :func:`drop_unclaimed_seeds` (after): a seed no OSM surface attached to
   is removed -- apt.dat alone never adds smoothing to ground OSM maps
   nothing on (the dictionary's population stays what OSM shows).
+* :func:`assign_synthetic_ids` (last): every aerodrome still without a
+  code (keyed by its OSM name, or by a representative-node tuple) is
+  re-keyed to :func:`synthetic_airport_id`, a stable code derived from
+  its position (owner ruling 2026-10-26, #1353: an airport in the list
+  always has an identifier, so no pass skips it).
 
 No index and no X-Plane install to build one from: both passes are no-ops
 and the dictionary is the OSM-only one, said once.
 """
 from __future__ import annotations
 
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Set
 
 from shapely import geometry
 
@@ -55,9 +60,14 @@ __all__ = [
     "tile_apt_dat_airports",
     "adopt_apt_dat_identities",
     "drop_unclaimed_seeds",
+    "SYNTHETIC_KEY_TYPE",
+    "synthetic_airport_id",
+    "assign_synthetic_ids",
     "is_closed",
     "custom_pack_serves",
     "CLOSED_PREFIX",
+    "COUNTRY_KEY",
+    "iso_country",
 ]
 
 #: apt.dat categories that name a land airport (heliports and seaplane
@@ -71,6 +81,24 @@ _KEY_TYPE = {"icao_airport": "icao", "airport": "local_ref"}
 #: apt.dat's name prefix for a CLOSED field.
 CLOSED_PREFIX = "[X]"
 
+#: The record key holding the airport's ISO 3166-1 alpha-3 country, read
+#: by the elevation-inset country rule (RULINGS 2026-10-20bc).
+COUNTRY_KEY = "country"
+
+
+def iso_country(text: str) -> str:
+    """The ISO alpha-3 code apt.dat's ``1302 country`` value leads with
+    (``"CAN"``, ``"USA United States"``), or ``""`` when it has none."""
+    token = (str(text or "").split() or [""])[0]
+    return token.upper() if len(token) == 3 and token.isalpha() else ""
+
+
+def _stamp_country(record: dict, entry) -> None:
+    country = iso_country(getattr(entry, "country", ""))
+    if country:
+        record[COUNTRY_KEY] = country
+
+
 #: Marks an entry seeded from apt.dat until a surface claims it.
 SEED_FLAG = "apt_dat_seed"
 
@@ -79,9 +107,14 @@ _SURFACE_LISTS = ("runway", "runway_as_rel", "taxiway", "apron", "hangar")
 
 def tile_apt_dat_airports(lat: int, lon: int,
                           cache_file: Optional[str] = None,
-                          xplane_root: Optional[str] = None) -> list:
+                          xplane_root: Optional[str] = None,
+                          known_codes: Optional[Set[str]] = None) -> list:
     """The index's land airports whose extent (or datum) meets the tile's
     1 degree box, or ``[]`` when there is no index to read.
+
+    ``known_codes``, when a set, is FILLED with every code of the index
+    (all categories, the whole globe): the codes a synthetic identifier
+    must never take (:func:`assign_synthetic_ids`).
 
     The index is the one the map window builds (``O4_File_Names.
     airport_index_cache``); when it is missing or older than the X-Plane
@@ -98,6 +131,8 @@ def tile_apt_dat_airports(lat: int, lon: int,
         UI.vprint(1, "   INFO: no offline airport index (apt.dat) at",
                   cache_file, "- airport codes come from OSM alone.")
         return []
+    if known_codes is not None:
+        known_codes.update(entry.code.upper() for entry in entries)
     return [entry for entry in entries
             if entry.category in IDENTITY_CATEGORIES
             and _meets_tile(_extent(entry), lat, lon)]
@@ -250,6 +285,7 @@ def adopt_apt_dat_identities(dico_airports: dict, entries: Iterable,
         if dico_airports[key].get("key_type") != "icao":
             dico_airports[key]["key_type"] = _KEY_TYPE[entry.category]
         _mark_closed(dico_airports[key], entry.code, excluded)
+        _stamp_country(dico_airports[key], entry)
         adopted.add(key)
     others = [k for k in dico_airports if k not in adopted]
     for (key, entry) in _matches_by_overlap(
@@ -267,6 +303,7 @@ def adopt_apt_dat_identities(dico_airports: dict, entries: Iterable,
                   "in apt.dat (" + entry.name + ").")
         record = dico_airports.pop(key)
         _mark_closed(record, entry.code, excluded)
+        _stamp_country(record, entry)
         record["key_type"] = _KEY_TYPE[entry.category]
         if record.get("name", "****") == "****":
             record["name"] = entry.name
@@ -287,6 +324,7 @@ def adopt_apt_dat_identities(dico_airports: dict, entries: Iterable,
             "apron": [], "hangar": [],
             SEED_FLAG: True,
         }
+        _stamp_country(dico_airports[entry.code], entry)
         seeds += 1
     return seeds
 
@@ -317,3 +355,110 @@ def drop_unclaimed_seeds(dico_airports: dict) -> List[str]:
         UI.vprint(1, "   Airport(s) with no OSM aerodrome, identified from "
                   "apt.dat by their surfaces:", ", ".join(sorted(kept)))
     return kept
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Synthetic identifiers (#1353)
+# ──────────────────────────────────────────────────────────────────────
+#: key_type of an aerodrome re-keyed to its synthetic identifier.  Not
+#: "icao", so the ICAO-only consumers (the "ICAO" inset mode, the "ICAO"
+#: high-res cover, flat-site prep) never admit one.
+SYNTHETIC_KEY_TYPE = "synthetic"
+
+#: key_types :func:`assign_synthetic_ids` re-keys: no code, only a name or
+#: a representative node (``O4_Airport_Utils`` discovery).
+_UNCODED_KEY_TYPES = ("name", "repr_node")
+
+#: The identifier's position cell, in degrees: 0.001 is 111 m north-south
+#: and 111 m x cos(latitude) east-west, centred on each 0.001 multiple, so
+#: an OSM edit that moves the aerodrome's centroid by metres keeps its
+#: identifier (a centroid within metres of a cell edge can still cross
+#: it: any rounding has an edge).
+SYNTHETIC_CELL_DEG = 0.001
+
+#: "X" + 7 base-36 digits: 8 characters, longer than any apt.dat code in
+#: the global index (3 to 7 measured, 38,854 rows, 2026-10-26).
+_SYNTHETIC_PREFIX = "X"
+_SYNTHETIC_DIGITS = 7
+_BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_LAT_CELLS = 180000
+_LON_CELLS = 360000
+
+
+def synthetic_airport_id(lon: float, lat: float) -> str:
+    """The stable identifier of an aerodrome without a code at (lon, lat):
+    ``X`` + the base-36 index of its :data:`SYNTHETIC_CELL_DEG` cell,
+    zero-padded to 7 digits.  Pure: the same on every build and machine."""
+    row = int(round(float(lat) / SYNTHETIC_CELL_DEG)) + _LAT_CELLS // 2
+    col = (int(round(float(lon) / SYNTHETIC_CELL_DEG))
+           + _LON_CELLS // 2) % _LON_CELLS
+    number = min(max(row, 0), _LAT_CELLS) * _LON_CELLS + col
+    digits = ""
+    for _ in range(_SYNTHETIC_DIGITS):
+        number, digit = divmod(number, 36)
+        digits = _BASE36[digit] + digits
+    return _SYNTHETIC_PREFIX + digits
+
+
+def _record_position(record: dict) -> tuple:
+    """(lon, lat) the identifier is derived from: the area centroid of the
+    OSM aerodrome boundary (absolute degrees at this stage), which a node
+    added or nudged barely moves; else the representative node."""
+    boundary = record.get("boundary")
+    if boundary is not None and not boundary.is_empty:
+        centroid = boundary.centroid
+        return (float(centroid.x), float(centroid.y))
+    (lon, lat) = record["repr_node"]
+    return (float(lon), float(lat))
+
+
+def _free_identifier(base: str, taken: set) -> str:
+    """``base``, else ``base`` + the first free 1, 2, ... (a code apt.dat
+    uses, or a second uncoded aerodrome in the same cell)."""
+    if base not in taken:
+        return base
+    suffix = 1
+    while base + str(suffix) in taken:
+        suffix += 1
+    return base + str(suffix)
+
+
+def assign_synthetic_ids(dico_airports: dict,
+                         known_codes: Iterable[str] = ()) -> List[str]:
+    """Re-key every aerodrome of ``dico_airports`` without a code (key_type
+    ``name`` / ``repr_node``) to its :func:`synthetic_airport_id`, never
+    one of ``known_codes`` (the global airport index) or a key already on
+    the tile.  An unnamed aerodrome is named "Unnamed airstrip (LAT, LON)";
+    an OSM name is kept.  Returns the identifiers given, in order.
+
+    Runs on the dictionary as :func:`drop_unclaimed_seeds` leaves it
+    (absolute degrees).  Records are taken in position order, so the
+    suffix of a shared cell does not depend on OSM's element order."""
+    uncoded = sorted(
+        ((_record_position(record), str(key), key)
+         for (key, record) in dico_airports.items()
+         if record.get("key_type") in _UNCODED_KEY_TYPES),
+        key=lambda item: (item[0], item[1]))
+    if not uncoded:
+        return []
+    taken = {str(code).upper() for code in known_codes}
+    taken.update(str(key).upper() for key in dico_airports
+                 if isinstance(key, str)
+                 and dico_airports[key].get("key_type")
+                 not in _UNCODED_KEY_TYPES)
+    given = []
+    for ((lon, lat), _order, key) in uncoded:
+        identifier = _free_identifier(synthetic_airport_id(lon, lat), taken)
+        taken.add(identifier)
+        record = dico_airports.pop(key)
+        record["key_type"] = SYNTHETIC_KEY_TYPE
+        if record.get("name", "****") == "****":
+            record["name"] = "Unnamed airstrip (%s)" % _position(lon, lat)
+        dico_airports[identifier] = record
+        given.append(identifier)
+    return given
+
+
+def _position(lon: float, lat: float) -> str:
+    import O4_Airport_Utils as APT  # leaf use: keeps this module's load light
+    return APT.position_label((lon, lat))

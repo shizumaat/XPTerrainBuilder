@@ -412,6 +412,19 @@ def _nested_arm(workers: int, work: str) -> list:
 
 # ── the parent, hard-killed mid-map ──────────────────────────────────────
 
+def _own_slots() -> None:
+    """The self-check proves the pool's mechanics, not the machine budget
+    (``O4_Machine_Slots``, issue #1225): it runs in a slot session of its
+    own, wide enough for every arm whatever the machine has free — the
+    live memory gate does not shrink it either (a small CI runner is always
+    "under pressure" against the 8 GB headroom)."""
+    import O4_Machine_Slots as S
+    os.environ.pop(S.ENV_DIR, None)
+    os.environ[S.ENV_CAPACITY] = str(max(64, 4 * (os.cpu_count() or 1)))
+    os.environ[S.ENV_UNGATED] = "1"
+    S.ensure_session()
+
+
 def _victim_body(workers: int, out: str, above: dict | None = None) -> None:
     """THE PROCESS THE KILL ARM KILLS: a pool whose workers hold the shared
     DEM (their state) and a shared array (their task).  Once every worker
@@ -422,6 +435,7 @@ def _victim_body(workers: int, out: str, above: dict | None = None) -> None:
     from multiprocessing import resource_tracker as _rt
     from auto_patch_v2.airport import pool as P
     from auto_patch_v2.airport import dem_shared as DS
+    _own_slots()
     P.configure(None)
     rng = np.random.default_rng(362)
     dem, xs, ys = _dem(rng)
@@ -745,6 +759,7 @@ def run(workers: int, work: str, say=print) -> dict:
     """The whole self-check; the returned record is what ``--out`` writes."""
     from auto_patch_v2.airport import pool as P
     t0 = time.perf_counter()
+    _own_slots()
     P.configure(workers if workers == 1 else None)
     write_pack(os.path.join(work, "pack"))
     record = _core(workers, work, say)

@@ -52,9 +52,10 @@ struct MapCamera: Equatable {
                                Double(size.height) / (2 * Self.yLimit))
             scale = max(scale, minScale)
         }
-        // Deep-inspection zoom: far past imagery resolution (ZL22-native),
-        // so the user can always zoom in to judge what a source offers.
-        scale = min(scale, 3_000_000)
+        // Deep-inspection zoom, independent of the imagery source (#1315):
+        // past its ceiling the map overzooms its finest tiles, so nodes can
+        // be edited at fine scale.
+        scale = min(scale, MapOverzoom.scale(forZL: MapOverzoom.maxViewZL))
         if size.width > 0 {
             let halfW = Double(size.width) / 2 / scale
             centerLon = min(max(centerLon, -180 + halfW), 180 - halfW)
@@ -288,8 +289,13 @@ struct MapOverlays: Sendable {
     var markers: [Marker] = []
     var regions: [SceneryRegion] = []
     /// Every tile an installed ORTHO region covers — the tiles whose
-    /// imagery label reads `imagery ?` when we did not build them (#817).
+    /// imagery label comes from `orthoImagery` when we did not build them
+    /// (#817, #1227).
     var orthoTileKeys: Set<Int32> = []
+    /// Imagery read from those packs' own file names (#1227), per tile;
+    /// where packs overlap, the one X-Plane loads first (lowest ini index)
+    /// wins, as it does in the sim. A tile missing here reads `imagery ?`.
+    var orthoImagery: [Int32: PackImagery] = [:]
     /// Packs with no geographic footprint (libraries, plugin-only packs)
     /// plus Laminar packs (excluded from map DRAWING, but still part of the
     /// load order): they belong to every viewport — hiding them made the
@@ -300,6 +306,7 @@ struct MapOverlays: Sendable {
 
     init(packs: [SceneryPack]) {
         var kinds: [Int: PackKind] = [:] // (lat+90)*1000 + lon+180
+        var imageryPacks: [(iniIndex: Int?, imagery: PackImagery, tileKeys: Set<Int32>)] = []
         func rank(_ kind: PackKind) -> Int {
             switch kind { case .ortho: return 3; case .mesh: return 2; default: return 1 }
         }
@@ -353,6 +360,9 @@ struct MapOverlays: Sendable {
                 if pack.isInstalled, pack.kind == .ortho || pack.kind == .mesh,
                    !tileKeys.isEmpty {
                     regions.append(Self.makeRegion(pack: pack, tileKeys: tileKeys))
+                    if pack.kind == .ortho, let imagery = pack.imagery {
+                        imageryPacks.append((pack.iniIndex, imagery, tileKeys))
+                    }
                 }
                 // Landmark-style packs with a footprint of a tile or two get
                 // a point mark; airports already have their own marks, and
@@ -373,6 +383,11 @@ struct MapOverlays: Sendable {
 
         orthoTileKeys = regions.filter(\.isOrtho)
             .reduce(into: Set<Int32>()) { $0.formUnion($1.tileKeys) }
+        for entry in imageryPacks.sorted(by: { ($0.iniIndex ?? .max) < ($1.iniIndex ?? .max) }) {
+            for key in entry.tileKeys where orthoImagery[key] == nil {
+                orthoImagery[key] = entry.imagery
+            }
+        }
         tintTiles = kinds.map { hash, kind in
             TintTile(lat: hash / 1000 - 90, lon: hash % 1000 - 180, kind: kind)
         }

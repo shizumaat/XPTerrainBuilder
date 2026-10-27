@@ -131,3 +131,41 @@ def test_kclt_renumbered_parallels_carry_two_pins_each():
         assert by[rw] is not None, (rw, missing)
     assert {by[r].designator for r in ("18R", "36L", "18C", "36C")} == {"19R", "01L", "19L", "01R"}
     assert missing == [] and len(joins) == 4
+
+
+# ── #1238: THE THRESHOLD IS WHATEVER THE AIRPORT DATA SAYS ─────────────
+# (owner RULINGS 2026-10-22a.)  A synthetic 2,000 m runway along +x in
+# metres (``to_xy`` is the identity): end "09" at x = 0, "27" at x = 2000,
+# the apt.dat carrying NO displacement on either end.
+
+class _Rw:
+    ends = (("09", 0.0, 0.0, 0.0, 0.0), ("27", 0.0, 2000.0, 0.0, 0.0))
+
+
+def _join(x09: float, y09: float = 0.0):
+    cifp = {"09": C.CifpRunway("09", y09, x09, 12.0, x09, "fixture"),
+            "27": C.CifpRunway("27", 0.0, 2000.0, 15.0, 0.0, "fixture")}
+    return join_cifp("ZZZZ", [_Rw()], cifp, lambda lon, lat: (lon, lat), 30.0)
+
+
+@pytest.mark.parametrize("x09", [0.0, 32.5, 119.0, 400.0, 990.0])
+def test_a_long_displaced_cifp_threshold_joins_its_end(x09):
+    """A CIFP landing threshold any distance down its own half of the
+    runway joins by designator — no displaced-length cap (CYYJ 32: CIFP
+    390 ft against the apt.dat's 35 m was refused at 32.5 m, radius 30 m)."""
+    recs, missing, joins = _join(x09)
+    assert recs[(0, 0)] is not None and recs[(0, 0)].elevation_m == 12.0
+    assert missing == [] and joins == []
+
+
+@pytest.mark.parametrize("x09, y09, word", [(400.0, 45.0, "centreline"),
+                                             (1200.0, 0.0, "own half"),
+                                             (-80.0, 0.0, "own half")])
+def test_a_cifp_point_off_its_runway_end_is_refused(x09, y09, word):
+    """Still refused: a point off the centreline, past the midpoint (the
+    reciprocal end's half), or short of the end — and the refused end is
+    MISSING (no pin), never a 0 m pin."""
+    recs, missing, joins = _join(x09, y09)
+    assert recs[(0, 0)] is None and missing == ["09"]
+    assert len(joins) == 1 and "designator join refused (#994)" in joins[0]
+    assert word in joins[0]

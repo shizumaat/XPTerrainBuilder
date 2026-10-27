@@ -495,83 +495,93 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
 
     from auto_patch_v2.law.tables import law_tables_digest
     digest = str(law_tables_digest().get("sha256") or "")
-    plan, files, ss = _pw.build_plan(
-        plan_, dump, _surface, icao=plan_.icao, pack_name=pack_name,
-        pack_root=plan_.pack_root, dsf_path=dsf_path,
-        split_tol_m=law.tables.structures.placement.split_tol_m,
-        elevated_base_m=law.tables.structures.rebake.elevated_base_m,
-        line_segment_m=law.tables.structures.placement.line_segment_m,
-        line_stations_max=law.tables.structures.rebake.line_object_stations_max,
-        line_ratio=law.tables.structures.rebake.line_object_ratio,
-        line_max_h=law.tables.structures.rebake.line_object_max_h,
-        foot_band_m=law.tables.structures.basin.contact_band_m,
-        coarsen_reach_m=law.tables.structures.placement.coarsen_reach_m,
-        contact_eps_m=law.tables.structures.placement.contact_eps_m,
-        rigid_reach_m=law.tables.structures.placement.rigid_reach_m,
-        # (A), owner RULINGS 2026-09-12ap: the height a cross-member
-        # §16c (7) bind may move a body off its OWN ground.
-        bind_ground_m=law.tables.emit.cockpit.visual_m,
-        # #610/#625: a body under ONE roof with the cluster is bound past
-        # that test while the step at its feet is under the terrace floor
-        # (a weld, RULINGS 2026-09-30i); a terrace-sized step is the
-        # terrain's to adapt and is reported, not seated
-        roof_bind_m=law.tables.emit.terrace.pad_terrace_floor_m,
-        # §16f (7) (owner RULINGS 2026-09-13bj item 1): the footprint-union
-        # area above which a family is a CLUSTER and seats as one unit.
-        cluster_min_m2=law.tables.structures.placement.cluster_pad_min_m2,
-        # §16g (owner RULINGS 2026-09-13bo): the FOOTPRINT UNIT and the
-        # only cut (the HECA elevated-rail connector class).
-        touch_m=law.tables.structures.placement.footprint_touch_m,
-        connector_span_m=law.tables.structures.placement.connector_span_m,
-        # §16g (10) (4) (owner RULINGS 2026-09-14ah): only a WALLED body
-        # links a unit — a floor slab, a plate, a deck or a canopy is a
-        # LEAF, seated on its own ground and never a link.
-        chain_min_height_m=law.tables.structures.placement.chain_min_height_m,
-        # RULINGS 2026-10-14p (3) (#709): a building's small pieces ride its walls
-        piece_reach_m=law.tables.structures.placement.piece_reach_m,
-        # S6 CONTENTS (issue #30 / #10): a leaf inside a walled host is the
-        # host's CONTENTS and rides the host's unit (never decomposed apart)
-        contents_min_fraction=(law.tables.structures.placement
-                               .contents_min_fraction),
-        # §16g (10) (4) AMENDED (owner RULINGS 2026-09-27a (1), #69): a
-        # roof/floor SHEET overlapping two walled bodies links them
-        sheet_chain_min_fraction=(law.tables.structures.placement
-                                  .sheet_chain_min_fraction),
-        # §16g (10) (9) (2) (owner RULINGS 2026-09-14az): the unit seated
-        # on a pad takes the pad's LOW side, not its median
-        low_side=bool(getattr(law.tables.structures.placement,
-                              'pad_between_aprons', False)),
-        # §16g (5) (owner RULINGS 2026-09-13cb): "on ground" is only where
-        # the terrain at the anchor already IS the unit's datum
-        hard_tol_m=law.tables.emit.design.hard_tol_m,
-        # §16e (6): the deck end line's LANDWARD WALK to the graded face
-        # the deck connects to (RULINGS 2026-09-13v).
-        abutment_step_m=law.tables.structures.bridge.abutment_sample_step_m,
-        abutment_walk_max_m=law.tables.structures.bridge.abutment_walk_max_m,
-        pads=pads, rims=rims,
-        # §49: the emitted deck faces are a datum for the bodies on them
-        decks=decks,
-        deck_on_fraction=law.tables.structures.deck.on_fraction,
-        deck_edge_m=law.tables.structures.deck.edge_m,
-        deck_under_m=law.tables.structures.deck.under_m,
-        # 10-01k Q1 (#162): a FEET-verdict post base over a graded apron
-        # is seated by baking its own TILT, capped by this
-        seat_tilt_max_deg=float(
-            law.tables.structures.placement.seat_tilt_max_deg),
-        # RULINGS 2026-10-14p (1) (#708): a shared frame tilts as one, gently
-        frame_tilt_max_deg=float(
-            law.tables.structures.placement.frame_tilt_max_deg),
-        # 14g (2)/(3): an authored placement our ground asks nothing of
-        # is kept (an AGL row stays AGL; a split that moves nothing is not made)
-        authored_keep_tol_m=float(
-            law.tables.structures.placement.authored_keep_tol_m),
-        # jetway-strip spec §4 (C17): the riders' population and strips
-        jetway_strips=jetway_strips,
-        # a CLAMPED GATE is a clamp within D of the rider (#31)
-        jetway_strip_m=float(law.tables.emit.design.jetway_strip_m),
-        drape=drape, drape_law=drape_law,
-        engine_version=_engine_version(), law_digest=digest,
-        write_cuts=bool(write_enabled and not measure_only))
+    # issue #1213: the plan below ran 25+ min at KMCI with no line at all —
+    # the ONE time-gated heartbeat reads the stages' pulse (``units 12/41``)
+    from auto_patch_v2.model import pulse as _pulse
+    from . import progress as _progress
+    _pulse.clear()
+    _hb = _progress.Heartbeat(
+        lambda t, _i=plan_.icao: UI.vprint(1, f"  [v2 placement] {_i}: {t}"),
+        lambda: (1, "placement plan"), _pulse.describe)
+    with _hb:
+        plan, files, ss = _pw.build_plan(
+            plan_, dump, _surface, icao=plan_.icao, pack_name=pack_name,
+            pack_root=plan_.pack_root, dsf_path=dsf_path,
+            split_tol_m=law.tables.structures.placement.split_tol_m,
+            elevated_base_m=law.tables.structures.rebake.elevated_base_m,
+            line_segment_m=law.tables.structures.placement.line_segment_m,
+            line_stations_max=law.tables.structures.rebake.line_object_stations_max,
+            line_ratio=law.tables.structures.rebake.line_object_ratio,
+            line_max_h=law.tables.structures.rebake.line_object_max_h,
+            foot_band_m=law.tables.structures.basin.contact_band_m,
+            coarsen_reach_m=law.tables.structures.placement.coarsen_reach_m,
+            contact_eps_m=law.tables.structures.placement.contact_eps_m,
+            rigid_reach_m=law.tables.structures.placement.rigid_reach_m,
+            # (A), owner RULINGS 2026-09-12ap: the height a cross-member
+            # §16c (7) bind may move a body off its OWN ground.
+            bind_ground_m=law.tables.emit.cockpit.visual_m,
+            # #610/#625: a body under ONE roof with the cluster is bound past
+            # that test while the step at its feet is under the terrace floor
+            # (a weld, RULINGS 2026-09-30i); a terrace-sized step is the
+            # terrain's to adapt and is reported, not seated
+            roof_bind_m=law.tables.emit.terrace.pad_terrace_floor_m,
+            # §16f (7) (owner RULINGS 2026-09-13bj item 1): the footprint-union
+            # area above which a family is a CLUSTER and seats as one unit.
+            cluster_min_m2=law.tables.structures.placement.cluster_pad_min_m2,
+            # §16g (owner RULINGS 2026-09-13bo): the FOOTPRINT UNIT and the
+            # only cut (the HECA elevated-rail connector class).
+            touch_m=law.tables.structures.placement.footprint_touch_m,
+            connector_span_m=law.tables.structures.placement.connector_span_m,
+            # §16g (10) (4) (owner RULINGS 2026-09-14ah): only a WALLED body
+            # links a unit — a floor slab, a plate, a deck or a canopy is a
+            # LEAF, seated on its own ground and never a link.
+            chain_min_height_m=law.tables.structures.placement.chain_min_height_m,
+            # RULINGS 2026-10-14p (3) (#709): a building's small pieces ride its walls
+            piece_reach_m=law.tables.structures.placement.piece_reach_m,
+            # S6 CONTENTS (issue #30 / #10): a leaf inside a walled host is the
+            # host's CONTENTS and rides the host's unit (never decomposed apart)
+            contents_min_fraction=(law.tables.structures.placement
+                                   .contents_min_fraction),
+            # §16g (10) (4) AMENDED (owner RULINGS 2026-09-27a (1), #69): a
+            # roof/floor SHEET overlapping two walled bodies links them
+            sheet_chain_min_fraction=(law.tables.structures.placement
+                                      .sheet_chain_min_fraction),
+            # §16g (10) (9) (2) (owner RULINGS 2026-09-14az): the unit seated
+            # on a pad takes the pad's LOW side, not its median
+            low_side=bool(getattr(law.tables.structures.placement,
+                                  'pad_between_aprons', False)),
+            # §16g (5) (owner RULINGS 2026-09-13cb): "on ground" is only where
+            # the terrain at the anchor already IS the unit's datum
+            hard_tol_m=law.tables.emit.design.hard_tol_m,
+            # §16e (6): the deck end line's LANDWARD WALK to the graded face
+            # the deck connects to (RULINGS 2026-09-13v).
+            abutment_step_m=law.tables.structures.bridge.abutment_sample_step_m,
+            abutment_walk_max_m=law.tables.structures.bridge.abutment_walk_max_m,
+            pads=pads, rims=rims,
+            # §49: the emitted deck faces are a datum for the bodies on them
+            decks=decks,
+            deck_on_fraction=law.tables.structures.deck.on_fraction,
+            deck_edge_m=law.tables.structures.deck.edge_m,
+            deck_under_m=law.tables.structures.deck.under_m,
+            # 10-01k Q1 (#162): a FEET-verdict post base over a graded apron
+            # is seated by baking its own TILT, capped by this
+            seat_tilt_max_deg=float(
+                law.tables.structures.placement.seat_tilt_max_deg),
+            # RULINGS 2026-10-14p (1) (#708): a shared frame tilts as one, gently
+            frame_tilt_max_deg=float(
+                law.tables.structures.placement.frame_tilt_max_deg),
+            # 14g (2)/(3): an authored placement our ground asks nothing of
+            # is kept (an AGL row stays AGL; a split that moves nothing is not made)
+            authored_keep_tol_m=float(
+                law.tables.structures.placement.authored_keep_tol_m),
+            # jetway-strip spec §4 (C17): the riders' population and strips
+            jetway_strips=jetway_strips,
+            # a CLAMPED GATE is a clamp within D of the rider (#31)
+            jetway_strip_m=float(law.tables.emit.design.jetway_strip_m),
+            drape=drape, drape_law=drape_law,
+            engine_version=_engine_version(), law_digest=digest,
+            write_cuts=bool(write_enabled and not measure_only))
+    _pulse.clear()
     c = dict(plan.counts())
     # §6's CLASSES ride out with the counts (lane v2planfix): they are the
     # only reading that says whether the pads and rims above were seen at
@@ -936,7 +946,7 @@ def rebake_after_mesh(tile) -> dict:
                         ran_packs.add(plan_.pack_root)
             except Exception as exc:
                 counts["airports_failed"] += 1
-                UI.vprint(1, f"  [v2 rebake] {icao}: placement failed ({exc}); continuing")
+                UI.vprint(0, f"  [v2 rebake] {icao}: placement failed ({exc}); continuing")
                 UI.vprint(2, traceback.format_exc())
         counts["packs_written"] = len(written_packs)
         if reuse is not None:

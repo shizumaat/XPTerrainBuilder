@@ -52,14 +52,18 @@ import time
 import typing as _t
 import zlib
 
+from ..geom import grid_pickle as _grid_pickle  # noqa: F401  (#1092: records carry the grid)
+
 __all__ = ["CACHE_VERSION", "CAP_BYTES", "MAGIC", "digest_of", "canonical_digest",
            "content_digest", "key_of", "entry_path", "encode", "write", "read_header", "read",
            "touch", "touch_many", "sweep", "peek", "first_difference", "why_miss", "Refused"]
 
 #: Bump when the SHAPE of a record changes (the code digests cover a change
 #: in what a stage produces).
-CACHE_VERSION = 3   # v3: the header carries ``payload_sha256`` beside
-                    # ``output_digest`` (the back-half records, #843 step 9;
+CACHE_VERSION = 4   # v4: gridded geometry carries its precision grid
+                    # (#1092, ``geom/grid_pickle``); v3: the header
+                    # carries ``payload_sha256`` beside ``output_digest``
+                    # (the back-half records, #843 step 9;
                     # v2: the classify record carries its side state)
 
 #: RULINGS 2026-10-17a Q1 / 18c (1): the starting cap per mod-cache root.

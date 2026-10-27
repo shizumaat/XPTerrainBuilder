@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import unary_union
 
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
@@ -85,6 +85,27 @@ def _shoulder_line(rw, depth_m: float) -> tuple[Polygon | None, float]:
     return LineString([a, b]).buffer(half, cap_style="flat"), half
 
 
+def _shoulder_sides(rw):
+    """The apt.dat shoulder band's two LONG SIDES (20n) — the shoulder
+    line each side of the slab, without the band's flat ends."""
+    (ax, ay), (bx, by) = _axis(rw)
+    L = math.hypot(bx - ax, by - ay)
+    nx, ny = -(by - ay) / L, (bx - ax) / L
+    h = rw.width_m / 2.0 + float(rw.shoulder_m)
+    return MultiLineString([[(ax + k * h * nx, ay + k * h * ny),
+                             (bx + k * h * nx, by + k * h * ny)] for k in (1.0, -1.0)])
+
+
+def _reaches(p, sides, tol: float) -> bool:
+    """True when the body of ``p`` — what is at least ``tol`` wide, its
+    morphological opening at that width — runs out to within ``tol`` of the
+    shoulder line ``sides``.  A spur narrower than the touch tolerance along
+    an abutting pavement's end is that pavement's edge noise, and never
+    carries a seam out to the line."""
+    body = p.buffer(-0.5 * tol, **_MITRE).buffer(0.5 * tol, **_MITRE)
+    return not body.is_empty and body.distance(sides) <= tol
+
+
 def taxiway_entrances(inside, rw, taxi_parts, taxi_tree, rules: Rules,
                       depth_m: float = 0.0) -> list[Polygon]:
     """The TAXIWAY ENTRANCES inside a §40 shoulder candidate's band part
@@ -131,7 +152,15 @@ def _mouth(comp, rw, line, half: float, inside, rules: Rules):
     """THE ENTRANCE'S MOUTH: the part of ``inside`` between the runway's
     centreline and its shoulder line over the stations ``comp`` meets the
     shoulder line at, on ``comp``'s side — the taxiway carried straight
-    across the shoulder to the runway edge, so it welds to the runway."""
+    across the shoulder to the runway edge, so it welds to the runway.
+
+    The touch tolerance FINDS the seam; it never WIDENS it: the stations
+    are clamped to ``comp``'s own station extent.  MEASURED (EDTK, #1135):
+    the 1 m mitred buffer carried the mouth 0.68 m past the entrance's
+    edge where it abuts a parallel runway's end, carving a sliver off the
+    shoulder there and minting a vertex 0.68 m from that runway's corner —
+    the corner left the shoulder's datum and dropped 1.66 m under it, a
+    ``runway_step`` cliff between the two runways."""
     seam = comp.buffer(rules.cells.on_tol_m, **_MITRE).intersection(line)
     if seam.is_empty:
         return None
@@ -144,7 +173,11 @@ def _mouth(comp, rw, line, half: float, inside, rules: Rules):
     st = [((x - ax) * ux + (y - ay) * uy) for x, y in pts]
     side = sum(-(x - ax) * uy + (y - ay) * ux for x, y in pts)
     t = (1.0 if side >= 0.0 else -1.0) * half
-    s0, s1 = min(st), max(st)
+    own = [((x - ax) * ux + (y - ay) * uy) for g in polygon_parts(comp)
+           for x, y in g.exterior.coords]
+    s0, s1 = max(min(st), min(own)), min(max(st), max(own))
+    if s1 <= s0:
+        return None
     rect = Polygon([(ax + ux * s - uy * tt, ay + uy * s + ux * tt)
                     for s, tt in ((s0, 0.0), (s1, 0.0), (s1, t), (s0, t))])
     m = rect.intersection(inside)
@@ -163,7 +196,21 @@ def mint_apt_shoulders(airport, cells: list, law: Law, rules: Rules,
     kept only when it lies along its runway — within ``cells.on_tol_m`` of
     the slab or of the runway's own shoulder — and is somewhere wider than
     that same tolerance: a strip narrower than the touch tolerance is the
-    pavement edge's own noise, not ground.  Returns the stats."""
+    pavement edge's own noise, not ground.
+
+    AND IT REACHES THE SHOULDER LINE (20n, 20o): a piece of the band is
+    the band's ground only when its body (what is at least the tolerance
+    wide, :func:`_reaches`) runs out to the band's own long side
+    (:func:`_shoulder_sides`, within the same tolerance).  A piece that
+    pavement closes off before the line is the SEAM between the runway and
+    a pavement that abuts it (20o: they weld directly), not shoulder
+    ground: minted as a runway cell, its outer ring is the abutting
+    pavement's edge, which that pavement's own law pulls off the runway's
+    level, and the runway family reads a cliff across it.  MEASURED (HECA
+    on its WED pack, apron ``dsf:pol198`` 0.4–1.8 m off 05C/23C's edge):
+    two such seams minted 15 ``runway_step`` DEFECT rows (0.15–0.63 m over
+    0.2–1.0 m); the seam left to the adjacent ground reads none.  Returns
+    the stats."""
     bands = [(rw, b) for rw in getattr(airport, "runways", ())
              for b in (apt_shoulder_band(rw),) if b is not None]
     stats = {"apt_shoulders": 0, "apt_shoulder_m2": 0.0}
@@ -184,10 +231,11 @@ def mint_apt_shoulders(airport, cells: list, law: Law, rules: Rules,
         host = unary_union([Polygon(rw.slab_corners)]
                            + [Polygon(c.ring, c.holes) for c in cells
                               if c.role == "runway" and c.ref == rw.id])
+        sides = _shoulder_sides(rw)
         minted = []
         for p in polygon_parts(fixed_difference(band, taken_u)):
             if p.area < rules.cells.min_area_m2 or is_hairline(p, tol) \
-                    or p.distance(host) > tol:
+                    or p.distance(host) > tol or not _reaches(p, sides, tol):
                 continue
             add("runway", rw.id, p, kind, rw.code_number, rw.code_letter,
                 {"area_m2": p.area, "kind": kind, "shoulder_of": rw.id,

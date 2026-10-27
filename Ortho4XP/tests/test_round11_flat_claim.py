@@ -395,7 +395,8 @@ def _write_inset(directory, name, valid_fraction, *, project="TEST_PROJECT"):
     values = np.full((rows, columns), -32768.0, dtype=np.float32)
     valid_rows = int(round(rows * valid_fraction))
     if valid_rows:
-        values[:valid_rows, :] = 100.0
+        # A metre of relief: a flat fill is not elevation data (#1171).
+        values[:valid_rows, :] = 100.0 + np.linspace(0.0, 1.0, columns)
     driver = gdal.GetDriverByName("GTiff")
     dataset = driver.Create(path, columns, rows, 1, gdal.GDT_Float32)
     dataset.SetGeoTransform((0.0, 1.0 / columns, 0.0,
@@ -482,7 +483,8 @@ def test_an_inset_with_no_nodata_value_declared_is_fully_valid(tmp_path):
     path = os.path.join(str(tmp_path), "KNOD_usgs3dep.tif")
     driver = gdal.GetDriverByName("GTiff")
     dataset = driver.Create(path, 8, 8, 1, gdal.GDT_Float32)
-    dataset.GetRasterBand(1).WriteArray(np.zeros((8, 8), dtype=np.float32))
+    dataset.GetRasterBand(1).WriteArray(
+        np.tile(np.linspace(0.0, 1.0, 8, dtype=np.float32), (8, 1)))
     dataset.FlushCache()
     dataset = None
     ea_warp._inset_valid_fraction_cache.clear()

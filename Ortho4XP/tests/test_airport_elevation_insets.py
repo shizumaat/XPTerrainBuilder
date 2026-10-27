@@ -22,6 +22,7 @@ import os
 import types
 
 import numpy
+from inset_relief import with_relief  # noqa: E402
 import pytest
 
 import O4_File_Names as FNAMES
@@ -77,7 +78,8 @@ def _write_constant_geotiff(
     dataset.SetProjection(spatial_reference.ExportToWkt())
     band = dataset.GetRasterBand(1)
     band.SetNoDataValue(-32768.0)
-    band.WriteArray(numpy.full((rows, columns), value, dtype=numpy.float32))
+    band.WriteArray(with_relief(
+        numpy.full((rows, columns), value, dtype=numpy.float32), -32768.0))
     band.FlushCache()
     dataset = None
     return path
@@ -502,7 +504,8 @@ def test_legacy_caches_without_recorded_box_are_reused(
                 "BOXLEGACY": INSETS.NO_COVERAGE,
                 "capabilities": {"BOXLEGACY": {
                     "engine": INSETS.engine_version(),
-                    "capabilities": []}}}}
+                    "capabilities": [],
+                    "negative_law": INSETS.NEGATIVE_LAW}}}}
         )
 
         index = INSETS.ensure_airport_insets(
@@ -687,8 +690,8 @@ def test_alt_bake_applies_inset_with_feather(tmp_path, monkeypatch):
     # Interior of the inset -> full inset value.
     assert cell(0.50, 0.50) == pytest.approx(100.0, abs=0.5)
     # Well outside the inset -> untouched base.
-    assert cell(0.10, 0.10) == pytest.approx(0.0, abs=0.001)
-    assert cell(0.90, 0.90) == pytest.approx(0.0, abs=0.001)
+    assert cell(0.10, 0.10) == pytest.approx(0.0, abs=0.03)
+    assert cell(0.90, 0.90) == pytest.approx(0.0, abs=0.03)
     # A cell just inside the inset edge sits in the feather ramp:
     # strictly between base and inset value.
     ramp_value = cell(0.355, 0.50)
@@ -696,7 +699,7 @@ def test_alt_bake_applies_inset_with_feather(tmp_path, monkeypatch):
 
     # The whole raster stays within [base, inset] -- no overshoot / cliff.
     assert written.min() >= -0.001
-    assert written.max() <= 100.001
+    assert written.max() <= 100.03
 
 
 def _bake_tile_with_insets(tmp_path, monkeypatch, insets):
@@ -1282,7 +1285,7 @@ def test_composite_with_empty_base_token_resolves_default_base(
     # The composite the step hooks assemble when custom_dem is "".
     dem = DEM.DEM(0, 0, ";" + inset_path, fill_nodata=False)
     # The BASE grid must be the resolved default, not zeros.
-    assert dem.alt_dem.max() == pytest.approx(42.0)
+    assert dem.alt_dem.max() == pytest.approx(42.0, abs=0.03)
     assert dem.alt_dem.min() == pytest.approx(42.0)
     # And the composite query path overlays the inset.
     assert dem.alt((0.5, 0.5)) == pytest.approx(100.0, abs=0.5)
@@ -1393,7 +1396,8 @@ def test_ensure_insets_for_tile_reads_airport_elevation_level(monkeypatch):
 
     def _fake_ensure_airport_insets(lat, lon, boxes, defs, resolution_m,
                                     refresh=False, fetch_counter=None,
-                                    fetch_failures=None):
+                                    fetch_failures=None,
+                                    airport_countries=None):
         recorded.append(resolution_m)
         if fetch_counter is not None:
             fetch_counter[0] += 2
@@ -1617,7 +1621,7 @@ def _write_geotiff_with_nodata_band(path, west, south, east, north,
     array = numpy.full((rows, columns), value, dtype=numpy.float32)
     latitudes = north + (numpy.arange(rows) + 0.5) * (south - north) / rows
     array[latitudes > nodata_north_of, :] = -32768.0
-    band.WriteArray(array)
+    band.WriteArray(with_relief(array, -32768.0))
     band.FlushCache()
     dataset = None
     return path
@@ -1636,12 +1640,12 @@ def test_windowed_samples_return_nan_over_nodata(tmp_path):
             [0.5010, 0.5010], [0.5005, 0.5015])  # south=valid, north=nodata
     # Nodata-aware: the sentinel never blends into a returned elevation.
     aware = INSETS._windowed_bilinear_samples(*args, nodata=-32768.0)
-    assert aware[0] == pytest.approx(250.0)
+    assert aware[0] == pytest.approx(250.0, abs=0.03)
     assert numpy.isnan(aware[1])
     # Omitted, the historic raw blend is unchanged (the bug, pinned so a
     # caller that has no nodata value still behaves as before).
     raw = INSETS._windowed_bilinear_samples(*args)
-    assert raw[0] == pytest.approx(250.0)
+    assert raw[0] == pytest.approx(250.0, abs=0.03)
     assert raw[1] < -1000.0
 
 
@@ -5021,6 +5025,43 @@ def test_wcs_kvp_requests_target_resolution_pixels():
     assert fine_url == native_url
 
 
+def test_france1m_is_the_rge_alti_fallback_getmap():
+    """#1217: RGE ALTI 1 m backs FRANCE50CM up in France, as a WMS
+    GetMap tiled to the server's 5010 px MaxWidth (no network)."""
+    pytest.importorskip("osgeo.gdal")  # the warp needs GDAL; CI's mac/linux legs drop it
+    import re
+    from elevation_access.strategies.wcs_kvp import WcsKvpStrategy
+
+    parsed = INSETS.initialize_elevation_providers_dict(
+        _SHIPPED_PROVIDERS_DIR
+    )
+    rge, lidar = parsed["FRANCE1M"], parsed["FRANCE50CM"]
+    assert rge["country"] == lidar["country"] == "FRA"
+    assert float(rge["priority"]) < float(lidar["priority"])
+    box = (2.50, 48.98, 2.62, 49.03)  # ~9 x 5.5 km
+    assert ea_definitions._coverage_bbox_intersects(rge, box)
+    urls = WcsKvpStrategy()._request_urls(rge, box)
+    assert all("REQUEST=GetMap" in u and "FORMAT=image/geotiff" in u
+               for u in urls)
+    def size(url):
+        return tuple(int(re.search(key + r"=(\d+)", url).group(1))
+                     for key in ("WIDTH", "HEIGHT"))
+    def bbox(url):
+        return [float(v) for v in
+                re.search(r"BBOX=([^&]+)", url).group(1).split(",")]
+    # Tiled at the native 1 m, every request within MaxWidth/MaxHeight,
+    # pixels exactly 1 m: nothing is silently coarsened.
+    assert len(urls) > 1
+    for url in urls:
+        (w, h), (x0, y0, x1, y1) = size(url), bbox(url)
+        assert 0 < w <= 5010 and 0 < h <= 5010
+        assert abs((x1 - x0) / w - 1.0) < 1e-3
+        assert abs((y1 - y0) / h - 1.0) < 1e-3
+    # A 4 m target needs one request.
+    assert len(WcsKvpStrategy()._request_urls(
+        rge, box, target_resolution_m=4.0)) == 1
+
+
 @requires_gdal
 def test_zero_byte_cached_inset_is_swept_and_refetched(tmp_path, monkeypatch):
     """A hard-killed fetch's 0-byte relic (2026-07-23: LSZC_italy10m.tif)
@@ -5098,9 +5139,16 @@ def test_discovery_json_payload_classifies_every_shape():
     for status in (500, 503, 504, 429):
         with pytest.raises(ea_base.TransientFetchError):
             payload(_fake_response(status), "probe")
-    # 4xx other than 429 -> durable no-coverage.
-    for status in (400, 403, 404):
+    # 404 / 410 -> durable no-coverage.
+    for status in (404, 410):
         assert payload(_fake_response(status), "probe") is None
+    # Any other 4xx is a REFUSED query (#1328): a provider error, never
+    # no-coverage.
+    for status in (400, 401, 403, 405):
+        with pytest.raises(ea_base.ProviderQueryError) as raised:
+            payload(_fake_response(status), "probe")
+        assert raised.value.status == status
+        assert isinstance(raised.value, ea_base.ProviderUnavailable)
     # An error page served with a 200 is an outage artefact, not a catalog.
     with pytest.raises(ea_base.TransientFetchError):
         payload(_fake_response(200, body_is_json=False), "probe")
@@ -5601,7 +5649,8 @@ def test_a_legacy_lerc_negative_is_re_probed_exactly_once(
         record = index["NZQN"]
         assert record["LERCPROVIDER"] == INSETS.NO_COVERAGE
         assert record["capabilities"]["LERCPROVIDER"] == {
-            "engine": "1.50.1772", "capabilities": ["lerc"]}
+            "engine": "1.50.1772", "capabilities": ["lerc"],
+            "negative_law": INSETS.NEGATIVE_LAW}
         # EXACTLY ONCE: the stamp is what makes the negative verified.
         assert INSETS.unverified_capability_negatives(
             -45, 168, [_LERC_DEFINITION]) == []
@@ -5628,8 +5677,9 @@ def test_a_genuine_recorded_negative_is_never_re_probed(tmp_path, monkeypatch):
             "LERCPROVIDER": INSETS.NO_COVERAGE,
             "checked": "2026-09-13",
             "bounding_box": [168.70, -45.05, 168.79, -44.99],
-            "capabilities": {"LERCPROVIDER": {"engine": "1.50.1772",
-                                              "capabilities": ["lerc"]}},
+            "capabilities": {"LERCPROVIDER": {
+                "engine": "1.50.1772", "capabilities": ["lerc"],
+                "negative_law": INSETS.NEGATIVE_LAW}},
         }}, handle)
     calls = _capability_strategy(lambda: None)
     try:
@@ -5725,8 +5775,9 @@ def test_a_stamp_that_records_the_MISSING_capability_verifies_nothing():
     record = {
         "LERCPROVIDER": INSETS.NO_COVERAGE,
         "bounding_box": [168.70, -45.05, 168.79, -44.99],
-        "capabilities": {"LERCPROVIDER": {"engine": "1.50.1771",
-                                          "capabilities": []}},
+        "capabilities": {"LERCPROVIDER": {
+            "engine": "1.50.1771", "capabilities": [],
+            "negative_law": INSETS.NEGATIVE_LAW}},
     }
     assert INSETS.negative_is_unverified(record, "LERCPROVIDER",
                                          _LERC_DEFINITION)
@@ -5765,7 +5816,8 @@ def _write_phoenix_negative(engine=None):
               "bounding_box": [-112.05, 33.41, -111.98, 33.45]}
     if engine is not None:
         record["capabilities"] = {
-            "PLAINPROVIDER": {"engine": engine, "capabilities": []}}
+            "PLAINPROVIDER": {"engine": engine, "capabilities": [],
+                              "negative_law": INSETS.NEGATIVE_LAW}}
     index_path = FNAMES.airport_inset_index(33, -112)
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
     with open(index_path, "w", encoding="utf-8", newline="") as handle:
@@ -5795,7 +5847,8 @@ def test_a_capability_free_negative_is_re_probed_once_per_version(
         # version that heard it.
         assert record["PLAINPROVIDER"] == INSETS.NO_COVERAGE
         assert record["capabilities"]["PLAINPROVIDER"] == {
-            "engine": "1.0.341", "capabilities": []}
+            "engine": "1.0.341", "capabilities": [],
+            "negative_law": INSETS.NEGATIVE_LAW}
         # EXACTLY ONCE.
         assert INSETS.version_stale_capability_free_negatives(
             33, -112, [_PLAIN_DEFINITION]) == []
@@ -5837,8 +5890,9 @@ def test_the_two_reprobe_doors_never_read_each_others_records():
                  coverage_bbox=(-180.0, -90.0, 180.0, 90.0))
     record = {"LERCPROVIDER": INSETS.NO_COVERAGE,
               "bounding_box": [168.70, -45.05, 168.79, -44.99],
-              "capabilities": {"LERCPROVIDER": {"engine": "1.50.1772",
-                                                "capabilities": ["lerc"]}}}
+              "capabilities": {"LERCPROVIDER": {
+                  "engine": "1.50.1772", "capabilities": ["lerc"],
+                  "negative_law": INSETS.NEGATIVE_LAW}}}
     assert not INSETS.negative_is_unverified(record, "LERCPROVIDER", gated)
     assert not INSETS.negative_is_version_stale(record, "LERCPROVIDER", gated)
     # And an UNSTAMPED capability-free negative is 15aq's door only.

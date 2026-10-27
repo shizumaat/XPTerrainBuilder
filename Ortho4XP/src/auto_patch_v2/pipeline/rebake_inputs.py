@@ -172,6 +172,25 @@ def _basin_polygon(b):
         return None
 
 
+def _stamp_cut_rings(seats: dict, pm, airport) -> None:
+    """Owner RULINGS 2026-10-26d (#1331): each pack OBJECT cut's footprint
+    ring, ``[[lat, lon], ...]``, on the seat record of every placement it
+    was read from (``airport/cut_deck_seat.CUT_RING``) — the witness the
+    object stage reads to seat a pack deck over the pack's own cut."""
+    from ..airport.cut_deck_seat import CUT_RING
+    to_ll = airport.frame.transformers()[1]
+    for tn in getattr(pm, "structures", ()):
+        if getattr(tn, "source", "") != "object":
+            continue
+        ring = tuple(getattr(tn, "footprint", ()) or ()) or tuple(tn.wall_path or ())
+        if len(ring) < 3:
+            continue
+        ll = [[round(q[0], 9), round(q[1], 9)] for q in (to_ll(x, y) for x, y in ring)]
+        for oid in tn.objects:
+            if oid in seats:
+                seats[oid][CUT_RING] = ll
+
+
 def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
     """THE PLANAR AND SOLVED FACTS the rebake plan reads beyond the pack
     partition — ``tunnel_objects`` (the plate seats) / ``exclude`` /
@@ -195,6 +214,7 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
     # no plate seat and no other seat either
     seats = _authored_seats.seat_records(pm, law)
     excluded |= _authored_seats.kept_ids(seats)
+    _stamp_cut_rings(seats, pm, airport)
     return {
         "tunnel_objects": _plate_seats(pm, law, seats),
         "authored_seats": tuple(seats[k] for k in sorted(seats)),

@@ -301,7 +301,7 @@ def main(argv=None) -> int:
     ap.add_argument("--near-m", type=float, default=300.0,
                     help="shoreline denominator band (default 300 m)")
     ap.add_argument("--build-dir", default="",
-                    help="tile build dir holding Ortho4XP_+LL+LLL.cfg — read "
+                    help="tile build dir holding XPTerrainBuilder_+LL+LLL.cfg — read "
                          "so the tool builds the tile's own frame")
     ap.add_argument("--flat-site-inset", action="store_true",
                     help="R17b-2: also admit the COASTLINE inside the "

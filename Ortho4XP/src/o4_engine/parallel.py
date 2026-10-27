@@ -53,6 +53,7 @@ lifecycle bookkeeping; this module reports back through
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import json
 import os
 import subprocess
@@ -63,6 +64,8 @@ from collections import deque
 from typing import Optional
 
 import O4_Console_Encoding
+import O4_Edit_Cache as EDITCACHE
+import O4_Machine_Slots
 import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 
@@ -284,6 +287,13 @@ FETCH_CLASSES = ("osm", "imagery")
 # if they have all their data downloaded").
 CACHED_STEP_CLASS = "compute"
 
+# How many queued tiles, from the head, the dispatcher considers for an
+# idle child and the OpenStreetMap warmer downloads ahead (#1225: the
+# queue may hold every tile of the planet).
+QUEUE_SCAN_WINDOW = 64
+# How often a warmer that has warmed the whole head looks again.
+WARM_AHEAD_POLL_SECONDS = 1.0
+
 OSM_CLASS_LIMIT = 4
 IMAGERY_CLASS_LIMIT = 4
 # The pre-2026-07-30 caps, restored when the admission gate below is off
@@ -353,7 +363,10 @@ def compute_class_limit(slots):
         return slots
     import O4_Parallel_Utils as PARALLEL_UTILS
 
-    return max(1, PARALLEL_UTILS.machine_core_count())
+    # ... and never above the session's machine budget (#1225: cores - 2
+    # and the memory headroom), which every heavy process shares.
+    return max(1, min(PARALLEL_UTILS.machine_core_count(),
+                      O4_Machine_Slots.session_capacity()))
 
 
 def class_limits(slots):
@@ -622,7 +635,8 @@ def _rebuild_event(payload):
 
     Additive-protocol rules: unknown event types and unknown fields are
     dropped silently.  ``seq``/``ts`` are discarded — the parent session
-    re-stamps both at re-emission.
+    re-stamps both at re-emission — and so is ``attempt``: a child numbers
+    its own per-step commands, the tile's attempt is the parent's (#1326).
     """
     event_name = payload.get("event")
     event_class = _EVENT_CLASSES.get(event_name)
@@ -630,7 +644,7 @@ def _rebuild_event(payload):
         return None
     field_names = {
         f.name for f in dataclasses.fields(event_class)
-    } - {"seq", "ts"}
+    } - {"seq", "ts", "attempt"}
     kwargs = {k: v for k, v in payload.items() if k in field_names}
     # JSON turns tuples into lists; the tuple-typed forwarded field is
     # normalized back so in-process and merged streams look alike.
@@ -676,6 +690,9 @@ class _WorkerChild:
         self.live_remaining = None
         self.step_failed = False       # current tile had a failing step
         self.cancelling = False        # a mid-step cancel is in flight
+        # The child's own "stopped" TileState, held until the parent has
+        # released the tile (#1326, ``_child_step_done``).
+        self.held_stopped = None
         self.retired = False
         self.hello = threading.Event()
         self._stdin_lock = threading.Lock()
@@ -697,6 +714,9 @@ class _WorkerChild:
             # (jsonl owns_process mode), so a front end that dies without
             # collapsing the stdin pipe still takes its workers with it.
             child_environment["O4_PARENT_PROCESS_ID"] = str(os.getpid())
+            # The child lists its tiles' edit caches in THIS front end's
+            # session and never clears it (O4_Edit_Cache, #1323).
+            child_environment[EDITCACHE.LIST_ENV] = EDITCACHE.begin_session()
             # No ``cwd=`` and ``close_fds=False``: both force CPython off
             # posix_spawn onto fork+exec, and a fork in a pyproj-loaded
             # parent segfaults in the proj.db sqlite atfork handler
@@ -707,6 +727,8 @@ class _WorkerChild:
             # (Ortho4XP.py --engine-jsonl); leaving close_fds off is safe
             # since PEP 446 makes descriptors non-inheritable by default.
             self.process = subprocess.Popen(
+                # Normal QoS (RULINGS 2026-10-22k): no utility clamp, so
+                # workers reach the performance cores; nice 10 is inherited.
                 tile_worker_command(),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -817,7 +839,14 @@ class ParallelBuildRun:
         self._session = session
         self._queue = deque()
         self._total = 0
-        self._slots = slots
+        # THE MACHINE BUDGET (issue #1225): one slot pool for the engine
+        # session, published in os.environ so every tile child — and every
+        # airport process and work pool under it — shares it.  No more
+        # tile children than it has slots: a queued tile is a queue entry,
+        # never a process (the whole planet may be queued).
+        self._slots = max(1, min(int(slots),
+                                 O4_Machine_Slots.session_capacity()))
+        slots = self._slots
         # Per-tile build state: a batch enqueued into a LIVE run may
         # carry different build arguments (imagery source, zoom level,
         # output folder, step selection) than the batch that started it,
@@ -918,13 +947,34 @@ class ParallelBuildRun:
         program = [key for (key, _base, _width) in full_plan]
         if not program:
             return []
+        with tile_time_model.batch_reads():
+            admitted = self._admit_tiles_locked(
+                tiles, full_plan, program, provider, zoomlevel,
+                custom_build_dir, boundary_policy, missing_art)
+        self._total += len(admitted)
+        return admitted
+
+    def _admit_tiles_locked(self, tiles, full_plan, program, provider,
+                            zoomlevel, custom_build_dir, boundary_policy,
+                            missing_art):
         admitted = []
+        queued = set(self._queue)              # a planet queue: O(1) checks
+        # ONE list for the whole batch, shared by its tiles: a copy per
+        # tile was quadratic (3,000 queued tiles held ~0.8 GB, #1225).
+        boundary_batch = [[int(t[0]), int(t[1])] for t in tiles]
+        carried = {child.tile for child in self._children}
         for tile in tiles:
-            if (tile in self._queue or tile in self._next_step_index
-                    or any(child.tile == tile
-                           for child in self._children)):
+            if (tile in queued or tile in self._next_step_index
+                    or tile in carried):
                 continue
+            queued.add(tile)
             admitted.append(tile)
+            # A new attempt (#1326), with a clock that starts at zero: a
+            # stopped or finished tile queued again must not inherit the
+            # previous attempt's wall clock.
+            self._start_attempt(tile)
+            self._tile_first_started.pop(tile, None)
+            self._tile_final_elapsed.pop(tile, None)
             self._tile_arguments[tile] = {
                 "provider": provider,
                 "zoomlevel": zoomlevel,
@@ -936,7 +986,7 @@ class ParallelBuildRun:
                 # THE PRESS'S OWN TILE SET (issue #51): the child builds
                 # one tile per command, so without this every sibling of
                 # the batch reads as "a tile this build is not building".
-                "boundary_batch": [[int(t[0]), int(t[1])] for t in tiles],
+                "boundary_batch": boundary_batch,
                 # #433: the batch's missing-art answer, per batch likewise
                 "missing_art": missing_art,
             }
@@ -968,7 +1018,6 @@ class ParallelBuildRun:
             self._percent_high_water.pop(tile, None)
             self._forget_cache_state_locked(tile)
             self._queue.append(tile)
-        self._total += len(admitted)
         return admitted
 
     # -- lifecycle -----------------------------------------------------
@@ -1436,7 +1485,10 @@ class ParallelBuildRun:
         than queueing behind them (spec §A.2).
         """
         tile = None
-        for candidate in self._queue:
+        # Only the head of the queue is considered: a planet-sized queue
+        # must cost nothing per queued tile (#1225), and the cache
+        # predicates build a tile's configuration on first ask.
+        for candidate in itertools.islice(self._queue, QUEUE_SCAN_WINDOW):
             if candidate == self._warming_tile:
                 continue
             first_step = self._programs[candidate][0]
@@ -1463,18 +1515,42 @@ class ParallelBuildRun:
             return False
         return True
 
+    # -- attempts (#1326) ------------------------------------------------
+    def _start_attempt(self, tile):
+        """Number the tile's new attempt in the session (a bare test
+        session without attempts numbers nothing)."""
+        new_attempt = getattr(self._session, "new_tile_attempt", None)
+        if new_attempt is not None:
+            new_attempt(tile)
+
+    def _attempt(self, tile):
+        """The tile's current attempt number, 0 when unknown."""
+        current = getattr(self._session, "tile_attempt", None)
+        return current(tile) if current is not None else 0
+
+    def _freeze_tile_clock_locked(self, tile):
+        """A stopped tile's clock stops with it: TileClocks reports the
+        elapsed so far as final instead of counting on (#1326)."""
+        started = self._tile_first_started.get(tile)
+        if started is not None:
+            self._tile_final_elapsed.setdefault(
+                tile, max(0.0, time.time() - started))
+
     # -- cancellation ----------------------------------------------------
-    def _stopped_state(self, tile):
+    def _stopped_state(self, tile, attempt=0):
         """The stopped ``TileState`` of ``tile``, its scenery packs put
-        back first (#598) — for a tile no child is working on any more."""
+        back first (#598) — for a tile no child is working on any more.
+        ``attempt`` is the stopped attempt, taken under the lock where the
+        stop was decided: a re-queue may start the next one meanwhile."""
         build_dir = (self._tile_arguments.get(tile)
                      or {}).get("custom_build_dir", "")
-        return stopped_tile_state(tile[0], tile[1], build_dir)
+        return stopped_tile_state(tile[0], tile[1], build_dir, attempt)
 
     def cancel_tile(self, tile):
         emit_stopped = False
         cancelling = None
         with self._lock:
+            attempt = self._attempt(tile)
             if tile in self._queue:
                 self._queue.remove(tile)
                 emit_stopped = True
@@ -1499,13 +1575,15 @@ class ParallelBuildRun:
                         accepted = child.send({"cmd": "cancel"})
                         cancelling = child
                     break
+            if accepted:
+                self._freeze_tile_clock_locked(tile)
         if cancelling is not None:
             # Same bounded clock as cancel_all: a per-tile Stop on a
             # child wedged in an operation that never polls its red
             # flag must not hang the run.
             self._arm_cancel_escalation(cancelling)
         if emit_stopped:
-            self._session._emit(self._stopped_state(tile))
+            self._session._emit(self._stopped_state(tile, attempt))
             self._maybe_finish()
         return accepted
 
@@ -1526,8 +1604,10 @@ class ParallelBuildRun:
                     child.cancelling = True
                     child.send({"cmd": "cancel"})
                     cancelling.append(child)
+            attempts = {tile: self._attempt(tile)
+                        for tile in drained + waiting}
         for tile in drained + waiting:
-            self._session._emit(self._stopped_state(tile))
+            self._session._emit(self._stopped_state(tile, attempts[tile]))
         for child in cancelling:
             self._arm_cancel_escalation(child)
         self._maybe_finish()
@@ -1671,6 +1751,13 @@ class ParallelBuildRun:
         elif event_name == "TileState":
             if event.state == "done" and not last_step:
                 return
+            if event.label == "stopped" and child.cancelling:
+                # The stop is reported once the tile is RELEASED (#1326):
+                # a front end re-queues it on this notice, and a re-queue
+                # arriving while the child still carries the tile would be
+                # refused as a duplicate.
+                child.held_stopped = event
+                return
             if tile is not None and event.state in ("active", "indeterminate"):
                 # In-run TileState percents are step-local like
                 # StepProgress (a child's run IS one step) and include
@@ -1743,8 +1830,16 @@ class ParallelBuildRun:
         respawn = False
         with self._lock:
             self._release_step_resources_locked(child)
+            stopped = None
             if child.cancelling:
                 # Spec §3.4: never reuse a red-flagged interpreter.
+                last_step = (self._next_step_index.get(child.tile, 0)
+                             >= len(self._programs.get(child.tile, ())) - 1)
+                if child.tile is not None:
+                    stopped = (child.tile, self._attempt(child.tile),
+                               getattr(child, "held_stopped", None),
+                               last_step)
+                child.held_stopped = None
                 self._next_step_index.pop(child.tile, None)
                 self._percent_high_water.pop(child.tile, None)
                 self._tile_step_seconds.pop(child.tile, None)
@@ -1785,6 +1880,8 @@ class ParallelBuildRun:
                     self._percent_high_water.pop(child.tile, None)
                     child.tile = None
             self._dispatch_locked()
+        if stopped is not None:
+            self._report_released_stop(*stopped)
         if respawn:
             replacement = self._spawn_child()
             if replacement is not None:
@@ -1792,6 +1889,19 @@ class ParallelBuildRun:
                     self._dispatch_locked()
         self._broadcast_sibling_count()
         self._maybe_finish()
+
+    def _report_released_stop(self, tile, attempt, held, last_step):
+        """A cancelled child let go of its tile: report it stopped NOW
+        (#1326) — the child's own notice (it carries what the tile is left
+        with, #598), else a bare one.  A child that ran its LAST step to
+        the end before noticing the cancel already forwarded the tile's
+        terminal, and that is the truth: no stop follows it."""
+        if held is not None:
+            self._session._emit(dataclasses.replace(held, attempt=attempt))
+        elif not last_step:
+            self._session._emit(TileState(
+                lat=tile[0], lon=tile[1], state="queued", label="stopped",
+                attempt=attempt))
 
     def _broadcast_sibling_count(self):
         """Tell surviving children how many siblings still hold work.
@@ -1838,6 +1948,8 @@ class ParallelBuildRun:
             # child's Stop was reported as "failed").
             if child.tile is not None and child.cancelling:
                 stopped_tile = child.tile
+                stopped_attempt = self._attempt(stopped_tile)
+                self._freeze_tile_clock_locked(stopped_tile)
                 self._next_step_index.pop(child.tile, None)
                 self._percent_high_water.pop(child.tile, None)
                 self._tile_step_seconds.pop(child.tile, None)
@@ -1854,7 +1966,8 @@ class ParallelBuildRun:
             self._dispatch_locked()
         if stopped_tile is not None:
             lat, lon = stopped_tile
-            self._session._emit(self._stopped_state(stopped_tile))
+            self._session._emit(
+                self._stopped_state(stopped_tile, stopped_attempt))
             print("Build worker for", _short_latlon(stopped_tile),
                   "exited while being stopped; its tile is marked stopped.")
         if crashed_tile is not None:
@@ -1956,13 +2069,22 @@ class ParallelBuildRun:
             with self._lock:
                 if self._finished or self._cancel_all:
                     return
+                # Only the head of the queue (#1225): a planet-sized
+                # queue must not be downloaded ahead of its builds.
                 tile = next(
-                    (t for t in self._queue if t not in self._warmed_tiles),
+                    (t for t in itertools.islice(self._queue,
+                                                 QUEUE_SCAN_WINDOW)
+                     if t not in self._warmed_tiles),
                     None,
                 )
-                if tile is None:
+                behind = len(self._queue) > QUEUE_SCAN_WINDOW
+                if tile is not None:
+                    self._warming_tile = tile
+            if tile is None:
+                if not behind:
                     return
-                self._warming_tile = tile
+                time.sleep(WARM_AHEAD_POLL_SECONDS)   # the head moves on
+                continue
             # The warmer exists to spare the OVERPASS servers.  A tile
             # fully covered by locally stored regional extracts never
             # touches Overpass — and warming it would run country-sized

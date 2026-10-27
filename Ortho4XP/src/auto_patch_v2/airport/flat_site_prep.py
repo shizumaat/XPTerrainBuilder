@@ -95,7 +95,10 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
     dilated, water-cut rings the datum covers), ``gate`` (the margin-0 gate
     extent, water-cut — the ground the plateau must cover) and
     ``region_ll`` (the region's rings in ``(lon, lat)``, for the bake's
-    rectangle).  The bake adds ``plateau``."""
+    rectangle) and ``gate_ll`` (the gate's, for the bake's off-site relief
+    rule, ``auto_patch/flat_site_relief.py``) and ``footprint_ll`` (the
+    region before its water cut — the plateau's footprint, #1144).  The
+    bake adds ``plateau``."""
     dem = ProductionDem.over_prep(site.frame, site.icao, tile_dem, tile_lat,
                                   tile_lon, water, out=out)
     site = _dc.replace(site, dem=dem)
@@ -115,11 +118,23 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
                  [[list(reversed(to_ll(x, y))) for x, y in h] for h in holes]]
                 for outer, holes in rings]
 
+    gate_rings = (_flat._rings(gate) if gate is not None
+                  and not gate.is_empty else ())
+    # #1144: the plateau's FOOTPRINT — the same (pavement ∪ runways ∪
+    # boundary) ⊕ margin as ``region``, but NOT water-cut: the bake cuts
+    # its own water (``flat_site_mode.water_beside_site``), and the
+    # detector's coastline would drop reclaimed land inside the boundary.
+    footprint = _flat.region_polygon(site, _flat.flat_site(law).detector.margin_m)
+    footprint_rings = (_flat._rings(footprint) if footprint is not None
+                       and not footprint.is_empty else ())
     rec.update(origin=list(site.frame.origin),
                region=[[list(map(list, o)), [list(map(list, h)) for h in hs]]
                        for o, hs in fv.region],
                gate=[[list(map(list, o)), [list(map(list, h)) for h in hs]]
-                     for o, hs in (_flat._rings(gate) if gate is not None
-                                   and not gate.is_empty else ())],
-               region_ll=_ll(fv.region))
+                     for o, hs in gate_rings],
+               region_ll=_ll(fv.region),
+               # #1137: the airport's OWN surfaces in (lon, lat) — the
+               # ground the bake keeps at Z0 whatever the DEM says there.
+               gate_ll=_ll(gate_rings),
+               footprint_ll=_ll(footprint_rings))
     return rec

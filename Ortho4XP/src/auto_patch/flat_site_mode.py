@@ -46,6 +46,7 @@ import os
 import O4_UI_Utils as UI
 
 from . import config as _config
+from . import flat_site_relief as _relief
 
 __all__ = [
     "flat_site_mode_enabled",
@@ -55,6 +56,7 @@ __all__ = [
     "substituting_verdicts",
     "tile_icao_candidates",
     "extent_bounds_tile_degrees",
+    "footprint_tile_degrees",
     # R8-1 — the claimed-object-placement cluster extents.
     "claimed_placements_by_icao",
     "cluster_placements_m",
@@ -221,45 +223,50 @@ def _resolve_xplane_root() -> str | None:
 # ──────────────────────────────────────────────────────────────────────
 # The extent, in the frame the inset bake speaks
 # ──────────────────────────────────────────────────────────────────────
-def extent_bounds_tile_degrees(extent_m, anchor, tile_lat: int,
-                               tile_lon: int):
-    """The extent's bounding box as ``(x0, y0, x1, y1)`` TILE-RELATIVE degrees.
+def footprint_tile_degrees(extent_m, anchor, tile_lat: int, tile_lon: int):
+    """The extent itself — not its box — as a TILE-RELATIVE degree geometry.
 
     The inverse of the projection ``layout._projection(anchor)`` applies,
     expressed in the frame ``O4_DEM_Utils.DEM``'s ``x0..x1`` / ``y0..y1``
-    use — degrees measured from the tile's SW corner.  That is the frame
-    the inset bake's window arithmetic reads, so the synthetic inset can
-    be handed to it exactly as a fetched GeoTIFF is.
-
-    The BOUNDING BOX, not the polygon, is deliberate (spec §2, §2.4): a
-    fetched inset is a rectangle and the bake feathers from its
-    RECTANGULAR data edge.  Handing the machinery a polygon-shaped
-    footprint would need a distance transform it does not have — new
-    machinery the spec forbids — and would leave a cliff at the polygon
-    edge where the rectangular ramp reads full weight.  The detector's
-    extent already carries ``FLAT_SITE_MARGIN_M`` of margin, and a real
-    airport inset is fetched over the boundary bbox plus
-    ``airport_elevation_inset_margin_m`` (2 km by default), so this
-    footprint is the tighter of the two.
+    use — degrees measured from the tile's SW corner, the frame the inset
+    bake's window arithmetic reads.  Owner RULINGS 2026-10-20ag (#1144):
+    the plateau follows the airport's boundary, never a box, so the bake
+    takes this polygon and feathers from its own edge.
 
     Returns ``None`` when the extent is empty.
     """
     if extent_m is None or extent_m.is_empty:
         return None
-    xmin, ymin, xmax, ymax = extent_m.bounds
+    from shapely.ops import transform
+
     lat0, lon0 = float(anchor[0]), float(anchor[1])
     cos0 = math.cos(math.radians(lat0))
     if abs(cos0) < 1e-9:                             # pragma: no cover
         return None
 
-    def _to_ll(x_m, y_m):
-        return (lat0 + math.degrees(y_m / _R_EARTH),
-                lon0 + math.degrees(x_m / (_R_EARTH * cos0)))
+    def _to_tile(x_m, y_m, z=None):
+        import numpy
 
-    lat_lo, lon_lo = _to_ll(xmin, ymin)
-    lat_hi, lon_hi = _to_ll(xmax, ymax)
-    return (lon_lo - tile_lon, lat_lo - tile_lat,
-            lon_hi - tile_lon, lat_hi - tile_lat)
+        x_m = numpy.asarray(x_m, dtype=float)
+        y_m = numpy.asarray(y_m, dtype=float)
+        return (lon0 + numpy.degrees(x_m / (_R_EARTH * cos0)) - tile_lon,
+                lat0 + numpy.degrees(y_m / _R_EARTH) - tile_lat)
+
+    out = transform(_to_tile, extent_m)
+    return None if out.is_empty else out
+
+
+def extent_bounds_tile_degrees(extent_m, anchor, tile_lat: int,
+                               tile_lon: int):
+    """The extent's bounding box as ``(x0, y0, x1, y1)`` TILE-RELATIVE degrees
+    — :func:`footprint_tile_degrees`'s bounds (the projection is separable,
+    so the box of the projected polygon is the projected box).  The box is
+    what the provenance stamps and the bake's window reads; the plateau
+    itself is the footprint (#1144).  ``None`` when the extent is empty.
+    """
+    footprint = footprint_tile_degrees(extent_m, anchor, tile_lat, tile_lon)
+    return None if footprint is None else tuple(
+        float(v) for v in footprint.bounds)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -622,10 +629,12 @@ def claimed_placement_cluster_bounds(placements_ll, anchor, tile_lat: int,
                         "extent_area_km2": round(hull.area / 1e6, 4),
                     })
                 continue
-        bounds = extent_bounds_tile_degrees(hull, anchor, tile_lat, tile_lon)
-        if bounds is not None:
+        footprint = footprint_tile_degrees(hull, anchor, tile_lat, tile_lon)
+        if footprint is not None:
             out.append({
-                "extent_deg": bounds,
+                "extent_deg": tuple(float(v) for v in footprint.bounds),
+                # #1144: the hull itself — the plateau the bake stamps.
+                "footprint_deg": footprint,
                 "placements": len(cluster),
                 "fallback_placements": from_fallback,
                 "extent_area_km2": round(hull.area / 1e6, 4),
@@ -722,11 +731,15 @@ def flat_site_substitutions(tile, dico_airports=None,
     ``flat_declared`` (:func:`substituting_verdicts`)::
 
         {"icao", "verdict", "z0_m", "extent_deg": (x0, y0, x1, y1),
+         "footprint_deg",
          "extent_area_km2", "object_clusters", "cluster_findings",
          "record": <the decision record>}
 
     ``extent_deg`` is the tile-relative bounding box of the record's
-    region (pavement ∪ runways ∪ boundary ⊕ margin, minus water).
+    region (pavement ∪ runways ∪ boundary ⊕ margin, minus water);
+    ``footprint_deg`` is the plateau itself (#1144): the record's
+    ``footprint_ll`` (that union ⊕ margin, before the water cut — the bake
+    cuts its own), and each cluster carries its hull's.
     ``decisions_out`` (optional) is filled with ``{ICAO: record}`` for
     EVERY airport decided — substituting or not — the ONE decision the
     build reads (issue #932).  Returns ``[]`` — and reads nothing beyond
@@ -791,6 +804,13 @@ def flat_site_substitutions(tile, dico_airports=None,
             "verdict": record.get("verdict"),
             "z0_m": float(record["z0_m"]),
             "extent_deg": bounds,
+            # #1144 (RULINGS 2026-10-20ag): pavement ∪ runways ∪ boundary
+            # ⊕ margin is the plateau's footprint (the bake cuts the
+            # water); ``extent_deg`` is only the region's box.
+            "footprint_deg": _relief.site_geometry_tile_degrees(
+                record, tile_lat, tile_lon, key="footprint_ll")
+            or _relief.site_geometry_tile_degrees(
+                record, tile_lat, tile_lon, key="region_ll"),
             "extent_area_km2": round(
                 float((record.get("signals") or {}).get("region_area_m2")
                       or 0.0) / 1e6, 4),
@@ -871,21 +891,11 @@ def water_beside_site(water, record, tile_lat: int, tile_lon: int):
     """
     if water is None or water.is_empty:
         return water
-    from shapely.geometry import MultiPolygon, Polygon
-
-    def _ring(points):
-        return [(float(lo) - tile_lon, float(la) - tile_lat)
-                for lo, la in points]
-
-    polys = [Polygon(_ring(outer), [_ring(h) for h in holes if len(h) >= 3])
-             for outer, holes in (record.get("region_ll") or ())
-             if len(outer) >= 3]
-    if not polys:
+    region = _relief.site_geometry_tile_degrees(record, tile_lat, tile_lon,
+                                                key="region_ll")
+    if region is None:
         return water
     try:
-        region = MultiPolygon(polys) if len(polys) > 1 else polys[0]
-        if not region.is_valid:
-            region = region.buffer(0)
         return water.difference(region)
     except Exception:                                    # pragma: no cover
         return water

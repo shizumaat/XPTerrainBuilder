@@ -140,6 +140,7 @@ from . import authored_landing as _al
 from . import backup_state as _bs
 from . import dsf_commands as _cmds
 from . import pack_art as _pa
+from . import split_guard as _sg
 from .backup_state import BackupUnproven, State
 from .file_hash import sha256_file
 
@@ -276,8 +277,10 @@ def conversions_for_dump(dump_obj: _t.Any, pack_root: str | None = None,
     ``OBJECT`` or ``OBJECT_AGL`` is not listed at all — except the AGL
     rows the caller names in ``convert_agl`` (a §18 RE-SEATED row, whose
     seat is the law's and not the author's: "§18 walls/pits stay as they
-    are", 14g) and a SINK (``authored_landing.is_sink``: a negative
-    column is not a lift, and converts as before pending the owner).
+    are", 14g).  A SINK (``authored_landing.is_sink``, a negative column)
+    is NOT converted either (#1214 round 3, R2): stripping it without a
+    seat lifted LFPG's hard deck H17 from AGL -2.30 to the ground, +2.3 m;
+    the split seats a sink, and an unsplit one keeps the author's row.
 
     An ``OBJECT_MSL`` that is a genuine flying object is not
     distinguishable from the DSF; the law is on-ground for every
@@ -286,8 +289,7 @@ def conversions_for_dump(dump_obj: _t.Any, pack_root: str | None = None,
     conversions: list = []
     kept: list = []
     for i, p in enumerate(dump_obj.placements):
-        if p.kind != KIND_MSL and not (p.kind == KIND_AGL and (
-                i in convert_agl or _al.is_sink(p))):
+        if p.kind != KIND_MSL and not (p.kind == KIND_AGL and i in convert_agl):
             continue
         conversions.append(Conversion(i, p.def_path, p.lon, p.lat,
                                       p.heading_deg, p.kind,
@@ -1146,6 +1148,9 @@ class WriteResult:
     #: #678: the definitions the edit left with no row, dropped
     #: (``pack_art.omit_definitions``'s counts: ``{"object_defs": n}``)
     unused_dropped: _t.Mapping[str, int] = _dc.field(default_factory=dict)
+    #: #1246: the plan as written — a split DSFTool could not place is
+    #: undone there (its placement ``Kept``, written whole)
+    plan: PlacementPlan | None = None
 
 
 def remove_cut_files(paths: _t.Iterable[str]) -> tuple[str, ...]:
@@ -1258,6 +1263,22 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, dump_sha: str,
     return plans, keep
 
 
+def missing_body_files(pack_root: str, plan: _t.Any) -> list[str]:
+    """Every ``new_resource`` the plan writes an ``OBJECT_DEF`` for that is
+    not a file in the pack — the DSF would reference art nothing wrote
+    (#1214 round 3, R1: the owner's 1.0.417 LFPG and KMCI DSFs named 21)."""
+    return [r for r in plan.new_resources()
+            if not os.path.isfile(os.path.join(pack_root, *r.replace("\\", "/").split("/")))]
+
+
+def _refuse_missing_bodies(pack_root: str, plan: _t.Any) -> None:
+    missing = missing_body_files(pack_root, plan)
+    if missing:
+        raise ValueError(
+            f"REFUSING to write a DSF naming {len(missing)} body file(s) that do "
+            f"not exist in the pack (#1214 R1): {missing[:4]}")
+
+
 def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                allow_live_install: bool = False,
                work_dir: str | None = None,
@@ -1368,22 +1389,31 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     dump_sha = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
     prior_entry = _bs.dsf_entry(_bs.read_record(dsf_path), base)
     siblings, sibling_rows = _sibling_plans(prior_entry, plan, dump_sha, drop)
-    composed = plan.compose(siblings)
-    edited = edit_dump(text, composed,
-                       engine_version or plan.provenance.engine_version)
-    omitted: dict[str, int] = {}
-    if omit:
-        edited, omitted = _pa.omit_definitions(edited, omit)
-    # #678: a definition the edit left with no row (a split's original)
-    # is not declared — X-Plane would load it for nothing.  One the
-    # AUTHOR declared unused is the pack's own and stays.
-    edited, unused = _pa.omit_definitions(edited, _pa.unused_definitions(
-        edited, keep={m.path for m in _pa.unused_definitions(text)}))
-    with open(edited_text, "w", encoding="utf-8",
-              errors="surrogateescape", newline="\n") as fh:
-        fh.write(edited)
-
-    encode(edited_text, out_dsf, tool)
+    # #1246: a split DSFTool cannot place (a body off the tile) is undone
+    # — the placement is written whole — and never fails the pack.
+    undone: dict[int, str] = dict.fromkeys(
+        _sg.off_tile_splits(plan, _sg.tile_box(text)), "a body falls off the tile")
+    asked = set(plan.new_resources())
+    while True:
+        plan = _sg.without_splits(plan, undone, "split undone: " + "; ".join(
+            sorted(set(undone.values()))))
+        composed = plan.compose(siblings)
+        _refuse_missing_bodies(pack_root, composed)          # #1214 R1
+        edited, omitted, unused = _edited_text(text, composed, omit, engine_version
+                                               or plan.provenance.engine_version)
+        with open(edited_text, "w", encoding="utf-8",
+                  errors="surrogateescape", newline="\n") as fh:
+            fh.write(edited)
+        try:
+            encode(edited_text, out_dsf, tool)
+            break
+        except (DsfToolError, RuntimeError) as exc:
+            pt = _sg.refused_point(str(exc))
+            idx = _sg.split_at(plan, *pt) if pt else None
+            if idx is None:
+                raise
+            undone[idx] = "DSFTool could not place a body"
+    _undone_notes(plan, undone, notes)
     report = verify_roundtrip(out_dsf, edited, tool)
     if not report.ok:
         raise RuntimeError("DSF round-trip verification failed: "
@@ -1394,13 +1424,15 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         os.path.relpath(os.path.abspath(f), os.path.abspath(pack_root)
                         ).replace(os.sep, "/")
         for f in body_files)
+    live_res = set(composed.new_resources())
+    undone_res = asked - set(plan.new_resources())       # #1246
+    orphaned: list[str] = [b for b in own_bodies if b in undone_res]
+    own_bodies = [b for b in own_bodies if b not in undone_res]
     # #25: the record keeps ONE row per airport — its compact edit set
     # (what ``edit_dump`` reads), its bodies and the dump it was built
     # against.  A sibling's bodies survive only where the composed edit
     # still names them; the rest (and every body of a sibling row that
     # was dropped as stale) are orphans.
-    live_res = set(composed.new_resources())
-    orphaned: list[str] = []
     airports: dict[str, dict] = {}
     for icao, row in sibling_rows.items():
         names = [b for b in (row.get("body_files") or []) if isinstance(b, str)]
@@ -1500,7 +1532,31 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                        report, counts, verdict.state.value,
                        superseded, preserved, tuple(notes),
                        tuple(sorted(sibling_rows)), removed, omitted,
-                       dict(unused))
+                       dict(unused), plan)
+
+
+def _edited_text(text: str, composed: PlacementPlan, omit: _t.Sequence,
+                 engine_version: str) -> tuple[str, dict, dict]:
+    """The pristine dump edited by ``composed``, the accepted omission
+    (#433) and the dropped unused definitions (#678): a definition the
+    edit left with no row (a split's original) is not declared; one the
+    AUTHOR declared unused is the pack's own and stays."""
+    edited = edit_dump(text, composed, engine_version)
+    omitted: dict[str, int] = {}
+    if omit:
+        edited, omitted = _pa.omit_definitions(edited, omit)
+    edited, unused = _pa.omit_definitions(edited, _pa.unused_definitions(
+        edited, keep={m.path for m in _pa.unused_definitions(text)}))
+    return edited, omitted, unused
+
+
+def _undone_notes(plan: PlacementPlan, undone: _t.Mapping[int, str],
+                  notes: list[str]) -> None:
+    """#1246 (c): one note per undone split — printed at verbosity 0."""
+    res = {k.index: k.resource for k in plan.kept}
+    for idx, why in sorted(undone.items()):
+        notes.append(f"{plan.icao or 'airport'}: {res.get(idx, '?')} "
+                     f"(placement {idx}) written whole, not split — {why}")
 
 
 def _stand_down_line(v) -> str:

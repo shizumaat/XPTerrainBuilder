@@ -13,6 +13,7 @@ import O4_DEM_Utils as DEM
 import O4_UI_Utils as UI
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
+import O4_ZProv as ZPROV
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Proj_Runtime as PROJRT
@@ -20,6 +21,7 @@ import O4_Airport_Utils as APT
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
 import O4_Unpatched_Airports as UNPATCHED
+import O4_Coastline_Vetting as COAST_VET
 from auto_patch import driver as AUTOPATCH
 from auto_patch import selection as _SELECTION
 from auto_patch import osm_aeroway as OSMAERO
@@ -1370,12 +1372,6 @@ def build_poly_file(tile):
     # apron.  Purely additive (see ``seed_interp_alt_subcells``).
     seed_interp_alt_subcells(vector_map)
 
-    # R18-1c: every INTERP_ALT seed must be ENCLOSED by INTERP_ALT edges
-    # before the plague ever runs — the last point at which the seeds and
-    # the marked edges are both in hand.  Loud refusal, never a silent
-    # clip (see :func:`audit_interp_alt_seed_sealing`).
-    audit_interp_alt_seed_sealing(vector_map)
-
     # Buildings
     # include_buildings(vector_map)
     # if UI.red_flag: UI.exit_message_and_bottom_line(); return 0
@@ -1507,7 +1503,20 @@ def build_poly_file(tile):
     # never disagree about where the annulus is.  Purely additive: a seed
     # that gets no area is written exactly as before.
     size_bank_annulus_regions(vector_map, tile)
+    # R18-1c: every INTERP_ALT seed must be ENCLOSED by INTERP_ALT edges
+    # before the plague ever runs.  Loud refusal, never a silent clip (see
+    # :func:`audit_interp_alt_seed_sealing`).  Judged HERE, on the
+    # arrangement Triangle4XP reads — after the 1e-9 snap, the noding and
+    # the hairline weld, the last moves any node makes.  Issue #1199
+    # (+59-136): judged before the snap, a patch ring whose vertex two
+    # producers spelled 2.7e-15 apart (0.45534709999999734 / 0.4553471)
+    # read as an open ring and refused a tile whose written .poly is
+    # sealed; the snap welds those two nodes into one.
+    audit_interp_alt_seed_sealing(vector_map)
     vector_map.write_node_file(node_file)
+    # #1323: every z a patch ``alt_abs`` reached, so a height-only patch
+    # edit can rewrite them without this step (``O4_Patch_Fast_Path``).
+    vector_map.zprov.write(ZPROV.zprov_file(node_file))
     vector_map.write_poly_file(poly_file)
 
     UI.vprint(
@@ -2823,6 +2832,13 @@ def cached_coastline_multilinestring(tile):
         coastline = OSM.OSM_to_MultiLineString(sea_layer, tile.lat, tile.lon)
     except Exception:                                      # pragma: no cover
         return (None, False)
+    if coastline is not None and not coastline.is_empty and not custom_source:
+        # #1354: the same vetting ``include_sea`` applies, so DEM prep and
+        # the mesh read one sea.  The base DEM is read (from disk only)
+        # just when a tiny in-tile fragment needs its witness.
+        coastline, _dropped = COAST_VET.vet_coastline(
+            coastline, tile.lat, tile.lon,
+            lambda: COAST_VET.tile_sea_witness(tile))
     if coastline is None or coastline.is_empty:
         return (None, custom_source)
     return (coastline, custom_source)
@@ -3058,6 +3074,13 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
         ):
             return 0
     coastline = OSM.OSM_to_MultiLineString(sea_layer, tile.lat, tile.lon)
+    witness = COAST_VET.dem_sampler(getattr(tile, "dem", None))
+    if not custom_source and not coastline.is_empty:
+        # #1354: a tiny in-tile fragment no DEM witness agrees with is a
+        # tagging error, not a shore (the user's custom coastline is
+        # theirs and is never second-guessed).
+        coastline, _dropped = COAST_VET.vet_coastline(
+            coastline, tile.lat, tile.lon, lambda: witness)
     if not coastline.is_empty:
         # 1) encoding the coastline
         UI.vprint(1, "    * Encoding coastline.")
@@ -3096,6 +3119,12 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
         seed_area = sea_seed_areas(
             sea_area, tidal_water, patch_pavement_area=patches_area
         )
+        # #1354 rules 2 and 3: no seed in ground far above sea level, and
+        # a tile still mostly sea on high ground fails instead of writing.
+        seed_area, _withheld = COAST_VET.withhold_highland_seeds(
+            seed_area, witness, tile.lat, tile.lon)
+        COAST_VET.refuse_mostly_sea_highland(
+            seed_area, getattr(tile, "dem", None), tile.lat, tile.lon)
         for polygon in seed_area.geoms:
             seed = numpy.array(polygon.representative_point().coords[0])
             if "SEA" in vector_map.seeds:
@@ -3810,6 +3839,28 @@ def audit_interp_alt_seed_sealing(vector_map):
 
 
 ################################################################################
+def _say_dropped_patch_ring(pfile_name, wayid, dt, why):
+    """A patch ring the mesh cannot take is NEVER dropped silently (issue
+    #1275): its interior gets no INTERP_ALT seed and keeps the raw DEM, so
+    the drop is an ERROR at verbosity 0, naming the patch and the way."""
+    tags = dt["w"].get(wayid, {})
+    UI.loud_warning(
+        f"     ERROR: patch {pfile_name} way {wayid} "
+        f"(role={tags.get('role', '?')} ref={tags.get('ref', '?')}) is "
+        f"{why}; the ring is DROPPED and its interior keeps the raw DEM.")
+
+
+def _alt_abs_sources(pfile_name, node_ids, node_tags, dtype):
+    """#1323 (``O4_ZProv``): per node of a patch way, the patch node whose
+    ``alt_abs`` became its z — ``(patch file, node id, the dtype of the
+    way's altitude array that held it)`` — or ``None``; ``None`` for a way
+    with no ``alt_abs`` at all."""
+    sources = [(pfile_name, nid, dtype.str)
+               if "alt_abs" in node_tags.get(nid, ()) else None
+               for nid in node_ids]
+    return sources if any(src is not None for src in sources) else None
+
+
 def include_patches(vector_map, tile):
     def tanh_profile(alpha, x):
         return (numpy.tanh((x - 0.5) * alpha) / numpy.tanh(0.5 * alpha) + 1) / 2
@@ -3869,6 +3920,25 @@ def include_patches(vector_map, tile):
         for candidate in (getattr(tile, "auto_patch_selection", None) or ())
         if candidate.disposition == "boundary_skipped"
     }
+    # SAID AT VERBOSITY 0, ONCE PER AIRPORT, whether or not an auto patch
+    # file exists (#1229; lane ``othhjunction``, #13/#15): the owner's
+    # build-350 OTHH read was on a JOSM-saved ``OTHH.patch.osm`` that
+    # silently replaced the auto patch.  A custom patch is always honoured
+    # — this line is how the user learns the airport is not auto-patched.
+    # A5 (spec patch-editor-20261015 §1.3): a file the patch editor wrote
+    # is LABELLED (user-edited).
+    for icao in sorted(i for i in manual_icao_codes if i):
+        manual = [
+            f + (" (user-edited)" if _is_user_edited_patch(
+                os.path.join(patch_dir, f)) else "")
+            for f in _SELECTION.manual_patch_files_for(patch_dir, icao)]
+        UI.vprint(
+            0,
+            "   %s: using the CUSTOM patch %s — the airport is not "
+            "auto-patched. To use the auto patch, choose \"Use auto "
+            "patch\" in the tile info (it sets the custom file aside, "
+            "never deletes it)." % (icao, ", ".join(manual) or "(custom)"),
+        )
     # Process manual patches first, then auto patches
     ordered_patch_files = manual_patches + auto_patches
     for pfile_name in ordered_patch_files:
@@ -3896,26 +3966,9 @@ def include_patches(vector_map, tile):
                     "(boundary choice: skipped).")
                 continue
             if auto_icao in manual_icao_codes:
-                # SAID AT VERBOSITY 0 (lane ``othhjunction``, #13/#15):
-                # the owner's build-350 OTHH read was on a JOSM-saved
-                # ``OTHH.patch.osm`` that silently replaced the auto patch
-                # (and the selector never built OTHH at all) — the only
-                # trace was this line at verbosity 1.
-                # A5 (spec patch-editor-20261015 §1.3): a file the patch
-                # editor wrote is LABELLED — its grade law is not checked
-                # (A3) and nothing fails on it.  One root-line read.
-                manual = [
-                    f + (" (user-edited)" if _is_user_edited_patch(
-                        os.path.join(patch_dir, f)) else "")
-                    for f in _SELECTION.manual_patch_files_for(patch_dir, auto_icao)]
-                UI.vprint(
-                    0,
-                    "   %s: using the MANUAL patch %s — %s is NOT applied "
-                    "and the airport is not auto-patched. Remove or rename "
-                    "the manual file to use the auto patch." % (
-                        auto_icao, ", ".join(manual) or "(manual)",
-                        pfile_name),
-                )
+                # Said once per airport, above, at verbosity 0.
+                UI.vprint(1, "   Skipping auto-patch", pfile_name,
+                          "(custom patch in use).")
                 continue
         UI.vprint(1, "   Patching", pfile_name)
         patch_layer = OSM.OSM_layer()
@@ -4086,6 +4139,7 @@ def include_patches(vector_map, tile):
                     alti_way = alti_way_orig
             else:
                 alti_way = alti_way_orig
+            zsrc = None
             if not cplx_way:
                 for i in range(len(way)):
                     nodeid = dw[wayid][i]
@@ -4097,6 +4151,8 @@ def include_patches(vector_map, tile):
                             alti_way[i] = alti_way_orig[i] + float(
                                 ntags["alt_rel"]
                             )
+                zsrc = _alt_abs_sources(pfile_name, dw[wayid], dt["n"],
+                                        alti_way.dtype)
             alti_way = alti_way.reshape((len(alti_way), 1))
             if (way[0] == way[-1]).all():
                 try:
@@ -4116,6 +4172,7 @@ def include_patches(vector_map, tile):
                             numpy.hstack([way, alti_way]),
                             PATCH_RING_MARKER,
                             check=True,
+                            zsrc=zsrc,
                         )
                         interp_alt_patch_polygons.append(pol)
                         if cplx_way and cuts_long:
@@ -4128,9 +4185,11 @@ def include_patches(vector_map, tile):
                                     vector_map.dico_attributes["DUMMY"],
                                 )
                     else:
-                        UI.vprint(2, "     Skipping invalid patch polygon.")
-                except:
-                    UI.vprint(2, "     Skipping invalid patch polygon.")
+                        _say_dropped_patch_ring(pfile_name, wayid, dt,
+                                                "not a valid polygon")
+                except Exception as exc:
+                    _say_dropped_patch_ring(pfile_name, wayid, dt,
+                                            f"{type(exc).__name__}: {exc}")
             else:
                 # RULINGS 2026-09-13cp: an OPEN load-bearing run is a
                 # BREAKLINE (see OPEN_BREAKLINE_FEATURES above) — the
@@ -4140,13 +4199,12 @@ def include_patches(vector_map, tile):
                         in OPEN_BREAKLINE_FEATURES):
                     vector_map.insert_way(
                         numpy.hstack([way, alti_way]),
-                        PATCH_RING_MARKER,
-                        check=True,
-                    )
+                        PATCH_RING_MARKER, check=True, zsrc=zsrc)
                     open_breaklines += 1
                 else:
                     vector_map.insert_way(
-                        numpy.hstack([way, alti_way]), "DUMMY", check=True
+                        numpy.hstack([way, alti_way]), "DUMMY", check=True,
+                        zsrc=zsrc,
                     )
     if open_breaklines:
         UI.vprint(

@@ -44,11 +44,14 @@ from __future__ import annotations
 
 import math
 
-from ..constraints.geometry import principal_axis
+from ..constraints.geometry import principal_axis, project_to_chain
 from ..constraints.runway_profile import curve_stations
-from ..law.tables import (cliff_grade, runway_shoulder_cap,
-                          runway_transverse_bound,
-                          runway_vertical_curve_bound)
+from ..law.tables import (
+    cliff_grade,
+    runway_shoulder_cap,
+    runway_transverse_bound,
+    runway_vertical_curve_bound,
+)
 from .frame import Patch, Row, noise_m, row
 from .steps import _edges, _step_rows
 from .within import crown_by_vertex
@@ -185,6 +188,7 @@ def runway_transverse(p: Patch) -> list[Row]:
     half_of = {str(r[0]): float(r[5])
                for r in (p.publication.get("runway_axes") or []) if len(r) >= 6}
     crossed = crossed_shoulder_caps_of(p)       # RULINGS 2026-10-16a (i)
+    owner = _transverse_owners(p, own, spines, half_of)
     for sh in p.shapes:
         if sh.role != "runway":
             continue
@@ -193,7 +197,7 @@ def runway_transverse(p: Patch) -> list[Row]:
         ridge = own.get(sh.ref, spines)
         # outer AND hole rings — the generator's population (``rwyholes``)
         for v in sh.vertex_ids:
-            if v in xing or v in seen:
+            if v in xing or v in seen or owner.get(v, sh.ref) != sh.ref:
                 continue
             seen.add(v)
             x, y = p.xy[v]
@@ -216,6 +220,40 @@ def runway_transverse(p: Patch) -> list[Row]:
                       "direction": "fall" if fall > 0.0 else "rise"})
             out.append(r)
     return out
+
+
+def _transverse_owners(p: Patch, own: dict, spines, half_of: dict
+                       ) -> dict[int, str]:
+    """The generator's ownership (``constraints.runway_profile.
+    _transverse_owners``, #1149): a vertex on the rings of TWO runways is
+    read against the runway whose own edge it lies on — the one it lies
+    least far beyond the half-width of.
+
+    The distance is the GENERATOR's — the nearest point of the ridge chain,
+    clamped at its ends (``geometry.project_to_chain``, the generator's
+    ``_foot``) — never the reading's interior-only foot.  A runway's END
+    corner has no interior foot on its own ridge; read that way the corner
+    lost its own runway and fell to the neighbour's shoulder face, whose
+    cross-fall the generator never states on it (#1363, PAAQ: 16S/34S's
+    end corners read against 16/34's crown 21.5 m away, 5.03 %).  Owned by
+    its own runway, the corner is then skipped by the reading — it is the
+    longitudinal / end-zone readers' business (RULINGS 2026-09-10au)."""
+    best: dict[int, tuple[float, str]] = {}
+    refs: dict[int, set[str]] = {}
+    for sh in p.shapes:
+        if sh.role != "runway":
+            continue
+        chains = [[(x, y) for x, y, _z in pts] for pts in own.get(sh.ref, spines)]
+        half = half_of.get(sh.ref, 0.0)
+        for v in sh.vertex_ids:
+            dist = min((project_to_chain(p.xy[v], ch)[0] for ch in chains
+                        if len(ch) >= 2), default=None)
+            if dist is None:
+                continue
+            refs.setdefault(v, set()).add(sh.ref)
+            if v not in best or dist - half < best[v][0]:
+                best[v] = (dist - half, sh.ref)
+    return {v: best[v][1] for v, r in refs.items() if len(r) > 1}
 
 
 def crossed_shoulder_caps_of(p: Patch) -> dict[int, float]:

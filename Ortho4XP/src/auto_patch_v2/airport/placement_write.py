@@ -248,7 +248,11 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     conversions, _kept = _dw.conversions_for_dump(
         dump, pack_root, convert_agl=_seat.reseated_rows(_records))
     kept_idx = _seat.kept_rows(_records)
-    settled = frozenset(s.placement.index for s in splits) | kept_idx
+    # owner RULINGS 2026-10-20aq (#1169): a terrain feature's origin set
+    # keeps its authored row — never converted, never re-seated
+    from . import terrain_feature as _tf
+    features = _tf.feature_rows(dump, pack_root)
+    settled = frozenset(s.placement.index for s in splits) | kept_idx | features
     _rows = list(getattr(dump, "placements", ()) or ())
     authored_rows = sum(1 for i in kept_idx if 0 <= i < len(_rows)
                         and _rows[i].kind in _dw.CONVERTIBLE_KINDS)
@@ -274,11 +278,18 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
                                        ss.unit_seats, tol_m=feet_tol_m,
                                        drape_tol_m=tol_m, counts=msl_counts)
     msl = tuple(msl) + feet
+    # owner RULINGS 2026-10-22f (#1214): a lifted row inside a re-seated
+    # frame moves with the frame (KMCI's 614 terminal seats)
+    from .frame_riders import frame_rider_seats
+    _taken = (settled | frozenset(m.index for m in msl)
+              | frozenset(c.index for c in conversions))
+    msl = msl + frame_rider_seats(dump, splits, surface, _taken, msl_counts)
     from . import riders as _riders
     counts: dict[str, int] = {"conversions": len(conversions),
                               "authored_rows_kept": authored_rows,
                               "msl_seats": len(msl),
-                              "agl_rows_kept_unchanged": agl_kept}
+                              "agl_rows_kept_unchanged": agl_kept,
+                              "terrain_feature_rows_kept": len(features)}
     counts.update(msl_counts)
     counts.update(_riders.rider_census(riders))
     counts.update(_fu.multi_anchor_census(dump, rebake_plan, msl, settled,
@@ -530,6 +541,8 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                          work_dir=work_dir, engine_version=engine_version,
                          law_digest=law_digest, body_files=written,
                          omit=omit)
+    if getattr(dsf, "plan", None) is not None:
+        plan = dsf.plan          # #1246: a split the DSF refused is undone
     refreshed = None
     if refresh_dump is not None:
         # §3.6: the READ path keys its text dump on the DSF's mtime, which

@@ -7,6 +7,10 @@
 # (verified live 2026-07-16 at Prague).
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=CZE
 access_strategy=wcs_kvp
 
 wcs_getcoverage_template=https://ags.cuzk.gov.cz/arcgis/rest/services/3D/dmr5g_wm/ImageServer/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=3857&imageSR=3857&format=tiff&pixelType=F32&noData={nodata}&size={width},{height}&f=image

@@ -259,12 +259,12 @@ def test_real_pack_roundtrip_and_idempotent_write(tmp_path):
     assert all(pl.elevation is None for pl in after.placements
                if pl.kind == "OBJECT")
     # 14g (1): the AGL rows that are lifts are not converted and read back
-    # as authored (a sink — a negative column — converts as before)
+    # as authored, and so does a sink (#1214 round 3, R2: never stripped
+    # without a seat)
     assert sum(1 for pl in after.placements if pl.kind not in ("OBJECT", "OBJECT_AGL")) \
         == len(kept)
     assert sum(1 for pl in after.placements if pl.kind == "OBJECT_AGL") \
-        == sum(1 for pl in dump.placements if pl.kind == "OBJECT_AGL"
-               and (pl.elevation or 0.0) >= 0.0)
+        == sum(1 for pl in dump.placements if pl.kind == "OBJECT_AGL")
 
     prov = json.loads(Path(res.provenance_path).read_text(encoding="utf-8"))
     assert prov["counts"]["conversions"] == len(conv)

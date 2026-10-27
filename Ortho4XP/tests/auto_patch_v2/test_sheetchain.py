@@ -21,14 +21,14 @@ FRAC = 0.3
 
 
 def _terminal(with_canopy=False, sheet_lat=(20, 80), deck=False,
-              footed=False):
+              footed=False, sheet_y=12.0):
     """Two walled boxes 20 m apart (lat 0-40 and 60-100 m) — clear space
     between them — and a thin sheet over ``sheet_lat``."""
     a = _PMember("objects/a.obj", [_part(1, _lat(0), _lat(40), height=8.0)])
     b = _PMember("objects/b.obj", [_part(3, _lat(60), _lat(100), height=9.0)])
     sheet = _PMember("objects/roof.obj",
                      [_part(2, _lat(sheet_lat[0]), _lat(sheet_lat[1]),
-                            height=0.3, base_y=0.0 if footed else 12.0,
+                            height=0.3, base_y=0.0 if footed else sheet_y,
                             footed=footed)])
     if deck:
         sheet.deck_kind = "signature"
@@ -112,6 +112,27 @@ def test_27a_a_GROUND_slab_under_two_bodies_links_nothing():
                                        chain_min_height_m=2.5,
                                        sheet_chain_min_fraction=FRAC)
     assert un == [] and c["unit_sheet_refused_footed"] == 1
+
+
+def test_1172_a_sheet_WHOLLY_BELOW_GRADE_links_nothing():
+    """Issue #1172 (LEMD): a converted 1.4 km quad authored 50 m under its
+    zero chained a runway-end localizer array into a terminal unit 600 m
+    off.  A sheet whose top is below ``CONTENTS_BELOW_M`` is no roof or
+    floor of anything at grade — both chain sites refuse it; a sheet just
+    above that line still links."""
+    plan = _terminal(sheet_y=-50.0)
+    c: dict = {}
+    got = plan_clusters(plan, TOUCH, chain_min_height_m=2.5,
+                        sheet_chain_min_fraction=FRAC)
+    assert _sizes(got) == [1, 1, 1], [(q.id, q.bodies) for q in got]
+    un, _c = plan_units_and_connectors(plan, TOUCH, 0.0, c,
+                                       chain_min_height_m=2.5,
+                                       sheet_chain_min_fraction=FRAC)
+    assert un == [] and c["unit_sheet_refused_below_grade"] == 1
+    near = plan_clusters(_terminal(sheet_y=-2.0), TOUCH,
+                         chain_min_height_m=2.5,
+                         sheet_chain_min_fraction=FRAC)
+    assert _sizes(near) == [3], [(q.id, q.bodies) for q in near]
 
 
 def test_27a_the_object_stage_UNIT_reads_the_same_link():

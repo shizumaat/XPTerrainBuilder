@@ -18,6 +18,7 @@ import O4_Held_File as HELD
 import O4_Tile_Failures as FAILURES
 import O4_Tile_Staging as STAGING
 import O4_Imagery_Progress as IMGPROGRESS
+import O4_Machine_Slots as MACHINE_SLOTS
 # Unused since #838 (records commit per step); kept: O4_Step_Code keys on it.
 import O4_Step_Reuse as REUSE  # noqa: F401
 import O4_Stopped_Build as STOPPED
@@ -52,6 +53,9 @@ def download_textures(
         1, workers or effective_download_slots(max_download_slots)
     )
     UI.vprint(1, f"-> Opening download queue with {worker_count} worker(s).")
+    # the per-process request count that sizes each server's session-wide
+    # budget (#1236, IMG.host_request_limit)
+    IMG.textures_in_parallel = worker_count
 
     progress_lock = threading.Lock()
     progress_state = {"done": 0, "pending": 0, "failed": 0}
@@ -499,8 +503,15 @@ def build_tile(tile):
 
     convert_workers = []
 
+    convert_slots = []
+
     def _launch_convert_workers():
-        worker_count = effective_convert_slots(max_convert_slots)
+        # The step's own slot covers one converter; every extra one is a
+        # machine slot of its own, given back after the join (#1225).
+        extra = MACHINE_SLOTS.try_take(
+            effective_convert_slots(max_convert_slots) - 1)
+        convert_slots.append(extra)
+        worker_count = 1 + extra.count
         UI.vprint(
             1,
             "-> Opening convert queue and",
@@ -546,6 +557,8 @@ def build_tile(tile):
             for _ in range(len(convert_workers)):
                 convert_queue.put("quit")
             parallel_join(convert_workers)
+            for held in convert_slots:
+                held.release()
             if UI.red_flag:
                 UI.vprint(1, "DDS conversion process interrupted.")
             elif dico_conv_progress["done"] >= 1:
@@ -582,9 +595,13 @@ def build_tile(tile):
         )
         UI.exit_message_and_bottom_line("", code="imagery_download_failed")
         return 0
-    missing = STAGING.missing_textures(tile)
+    # #901: X-Plane stops on a terrain file whose texture is missing.  The
+    # guard judges a build that was asked to MAKE its textures; with
+    # skip_downloads / skip_converts the person (or the release smoke)
+    # supplies them, and the build stays DSF-only as it always was.
+    missing = (STAGING.missing_textures(tile)
+               if not (skip_downloads or skip_converts) else [])
     if missing:
-        # #901: X-Plane stops on a terrain file whose texture is missing.
         UI.lvprint(
             0,
             "ERROR: %d texture(s) named by the new terrain files are missing "

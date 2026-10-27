@@ -9,6 +9,10 @@
 
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=CHE,LIE
+
 access_strategy=stac
 
 # The STAC API search endpoint (v1; the older /api/stac/v0.9 item

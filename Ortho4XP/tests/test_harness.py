@@ -76,7 +76,7 @@ if sys.platform == "win32":                                # pragma: no cover
         allow_module_level=True)
 
 #: A BARE CHECKOUT IS NOT A BUILD TREE.  ``venv`` and ``OSM_data`` are
-#: symlinks the lane ritual mounts, and ``Ortho4XP.cfg`` is untracked and
+#: symlinks the lane ritual mounts, and ``XPTerrainBuilder.cfg`` is untracked and
 #: cloned by the ritual — a CI runner's checkout has none of the three,
 #: and the twins that exercise the real tree have nothing to exercise.
 #: They SKIP with that named cause rather than asserting against a tree
@@ -87,8 +87,9 @@ requires_lane_tree = pytest.mark.skipif(
     reason="needs a lane-provisioned tree (venv + OSM_data mounts from "
            "tools/harness/lane_worktree.sh); a bare CI checkout has none")
 requires_global_cfg = pytest.mark.skipif(
-    not (ROOT / "Ortho4XP.cfg").is_file(),
-    reason="needs this tree's own Ortho4XP.cfg — untracked in git and "
+    not ((ROOT / "XPTerrainBuilder.cfg").is_file()
+         or (ROOT / "Ortho4XP.cfg").is_file()),
+    reason="needs this tree's own XPTerrainBuilder.cfg — untracked in git and "
            "cloned by tools/harness/lane_worktree.sh; a bare CI checkout "
            "has none, so there is no engine-global frame to diverge from")
 
@@ -869,7 +870,7 @@ def test_the_canonical_tile_cfg_is_the_RITUALS_OWN_source(build_mod):
     owner app config has no per-tile keys to give)."""
     src = build_mod.canonical_tile_cfg(30, 31)
     assert src == build_mod.MAIN_ENGINE_TREE / "Tiles" / \
-        "zOrtho4XP_+30+031" / "Ortho4XP_+30+031.cfg"
+        "zOrtho4XP_+30+031" / "XPTerrainBuilder_+30+031.cfg"
     assert str(build_mod.MAIN_ENGINE_TREE).endswith("/Ortho4XP")
     assert build_mod.DATA_REPO not in src.parents, (
         "the per-tile cfg is a build INPUT from the main tree, not corpus "
@@ -886,14 +887,14 @@ def test_the_per_tile_cfg_is_PROVISIONED_when_absent(build_mod, tmp_path):
     """Byte-equal to the canonical source, with the provenance recorded."""
     source_root = tmp_path / "main"
     canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
-        "Ortho4XP_+30+031.cfg"
+        "XPTerrainBuilder_+30+031.cfg"
     canon.parent.mkdir(parents=True)
     canon.write_text("default_website=Arc\ndefault_zl=16\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
 
     rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
 
-    dest = lane / "Ortho4XP_+30+031.cfg"
+    dest = lane / "XPTerrainBuilder_+30+031.cfg"
     assert rec["action"] == "provisioned"
     assert dest.read_bytes() == canon.read_bytes(), "a BYTE copy, not a render"
     assert not dest.is_symlink(), (
@@ -919,7 +920,7 @@ def test_a_MISSING_canonical_tile_cfg_DERIVES_from_global_defaults(
     """
     source_root = tmp_path / "main"
     source_root.mkdir()
-    gcfg = source_root / "Ortho4XP.cfg"
+    gcfg = source_root / "XPTerrainBuilder.cfg"
     gcfg.write_text("mesh_zl=19\nroad_level=1\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
 
@@ -932,7 +933,7 @@ def test_a_MISSING_canonical_tile_cfg_DERIVES_from_global_defaults(
     rec = build_mod.provision_tile_cfg(30, 31, lane, _Prog(),
                                        source_root=source_root)
 
-    dest = lane / "Ortho4XP_+30+031.cfg"
+    dest = lane / "XPTerrainBuilder_+30+031.cfg"
     assert rec["action"] == "derived-from-global-defaults"
     assert dest.is_file(), "the ritual PROVISIONS one instead of refusing"
     assert rec["global_source"] == str(gcfg)
@@ -982,11 +983,11 @@ def test_a_MISSING_global_cfg_TOO_still_REFUSES(build_mod, tmp_path):
         build_mod.provision_tile_cfg(30, 31, lane,
                                      source_root=tmp_path / "empty_main")
     msg = str(exc.value)
-    assert "REFUSING" in msg and "Ortho4XP_+30+031.cfg" in msg
+    assert "REFUSING" in msg and "XPTerrainBuilder_+30+031.cfg" in msg
     assert "2026-08-12b" in msg and "2026-08-14" in msg, (
         "the refusal cites both the ruling it enforces and the one that "
         "amended it")
-    assert not (lane / "Ortho4XP_+30+031.cfg").exists(), (
+    assert not (lane / "XPTerrainBuilder_+30+031.cfg").exists(), (
         "the refusal wrote NOTHING — a defaults file left behind would be "
         "the next lane's canonical source")
 
@@ -1008,7 +1009,7 @@ def test_a_DERIVED_cfg_reads_IDENTICALLY_to_the_global_config(build_mod,
     source_root.mkdir()
     # The REAL global config this tree runs on — same file the engine
     # loaded at import, so "global defaults" means one thing here.
-    gcfg = source_root / "Ortho4XP.cfg"
+    gcfg = source_root / "XPTerrainBuilder.cfg"
     gcfg.write_bytes(Path(CFG.global_cfg_file).read_bytes())
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
     rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
@@ -1032,12 +1033,12 @@ def test_an_EXISTING_lane_tile_cfg_is_NEVER_overwritten(build_mod, tmp_path):
     replacing it would be a frame change with no log line."""
     source_root = tmp_path / "main"
     canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
-        "Ortho4XP_+30+031.cfg"
+        "XPTerrainBuilder_+30+031.cfg"
     canon.parent.mkdir(parents=True)
     canon.write_text("default_website=Arc\ndefault_zl=16\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
     lane.mkdir(parents=True)
-    mine = lane / "Ortho4XP_+30+031.cfg"
+    mine = lane / "XPTerrainBuilder_+30+031.cfg"
     mine.write_text("default_website=BI\ndefault_zl=17\n", encoding="utf-8", newline="")
 
     rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
@@ -1059,7 +1060,7 @@ def test_provisioning_INTO_the_canonical_location_copies_nothing(build_mod,
     copy a file onto itself, and it still records what it ran on."""
     source_root = tmp_path / "main"
     canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
-        "Ortho4XP_+30+031.cfg"
+        "XPTerrainBuilder_+30+031.cfg"
     canon.parent.mkdir(parents=True)
     canon.write_text("default_website=Arc\ndefault_zl=16\n", encoding="utf-8", newline="")
     rec = build_mod.provision_tile_cfg(30, 31, canon.parent,
@@ -1217,8 +1218,8 @@ def test_the_ritual_keeps_patches_lane_local_with_its_reason():
     assert "WRITES" in src and "Patches" in src, (
         "the file must say WHY Patches is lane-local")
     files = re.search(r'^CLONE_FILES="([^"]*)"', src, re.M)
-    assert files and "Ortho4XP.cfg" in files.group(1), (
-        "Ortho4XP.cfg must be CLONED into a lane worktree: it is untracked, "
+    assert files and "XPTerrainBuilder.cfg" in files.group(1), (
+        "XPTerrainBuilder.cfg must be CLONED into a lane worktree: it is untracked, "
         "so a fresh worktree has none, and Tile.read_from_config() then "
         "falls back to constructor defaults — a surface production never "
         "builds, announced by one log line")
@@ -1284,7 +1285,8 @@ def _tiny_repo(tmp_path):
     # output; without that the ritual's own untracked audit would flag the
     # tree it just prepared, and this twin would be testing the fixture.
     (main / ".gitignore").write_text(
-        "Ortho4XP/Ortho4XP.cfg\nOrtho4XP/Patches/\nOrtho4XP/venv\n", encoding="utf-8", newline="")
+        "Ortho4XP/Ortho4XP.cfg\nOrtho4XP/XPTerrainBuilder.cfg\n"
+        "Ortho4XP/Patches/\nOrtho4XP/venv\n", encoding="utf-8", newline="")
     data = tmp_path / "data"
     for d in ("OSM_data", "Elevation_data", "Airport_mod_cache"):
         (data / d).mkdir(parents=True)
@@ -9980,6 +9982,33 @@ def test_a_patch_with_no_shore_key_prices_no_water_row(cg, tmp_path):
     assert fo["hairline_pair"] == []
 
 
+def test_a_one_cell_lattice_segment_is_not_short(cg):
+    """ISSUE #1278 (owner RULINGS 2026-10-23a): the spacing is read in the
+    engine's transverse-Mercator metres, less the identity's rounding —
+    the emit merge's own reading.  Two vertices exactly one 0.5 m lattice
+    cell apart, written at the identity's 11 dp, are NOT a short segment
+    (the cos(lat) frame read 0.4985 m at HECA's 30 N and flagged every
+    one); a 0.45 m segment still is."""
+    from auto_patch_v2.verify.frame import metric_frame
+    lat0, lon0 = 30.11, 31.40
+    _to_m, to_ll = metric_frame(lat0, lon0)
+
+    def ll(x, y):
+        la, lo = to_ll(x, y)
+        return (round(la, 11), round(lo, 11))
+
+    def short(step):
+        nodes = {"1": ll(0.0, 0.0), "2": ll(step, 0.0), "3": ll(step, 7.0),
+                 "4": ll(0.0, 7.0)}
+        w = cg.Way("1", "apron", "r", "apron", ["1", "2", "3", "4", "1"],
+                   [None] * 5, {})
+        rows = cg._check_hairline_pair([], nodes, [w], [], 0.5)
+        return [r for r in rows if r.reading == "short"]
+
+    assert short(0.5) == [], "one lattice cell is the spacing, not under it"
+    assert len(short(0.45)) == 2         # the ring's two 0.45 m sides
+
+
 def test_hairline_pair_is_critical_unconditionally(cg):
     """§39 (2): a LOAD-TIME and TEXTURE defect, not a height — there is no
     threshold to price it against and no view test to pass."""
@@ -11056,6 +11085,32 @@ def test_the_per_airport_check_is_the_engines_own_predicate(build_mod,
     assert build_mod.this_airports_inset_problem(
         {"tile_stem": "N60W136", "airport_insets": True,
          "airports_layer": True}, 60, -136, None) is None
+
+
+def test_an_airport_outside_the_inset_selection_needs_no_inset(build_mod,
+                                                              monkeypatch):
+    """§A.6 (#1352): patched but not inset ⇒ the base raster.  Neither a
+    missing insets directory nor a stale orphan inset refuses it."""
+    ipf = build_mod.IPF
+    monkeypatch.setattr(ipf, "inset_selection_admits",
+                        lambda lat, lon, icao: icao == "KABC")
+    monkeypatch.setattr(ipf, "required_boxes",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("no box is required")))
+    state = {"tile_stem": "N43W122", "tile": [43, -122],
+             "airport_insets": True, "airports_layer": True}
+    assert build_mod.this_airports_inset_problem(state, 43, -122, "S21") is None
+    assert build_mod.insets_expected(state, 43, -122, "S21") is False
+    assert build_mod.insets_expected(state, 43, -122, "KABC") is True
+    monkeypatch.setattr(ipf, "required_boxes", lambda *a, **k: {})
+    monkeypatch.setattr(ipf, "airports_layer_is_cached", lambda lat, lon: False)
+    assert build_mod.insets_expected(state, 43, -122, None) is True
+    monkeypatch.setattr(ipf, "airports_layer_is_cached", lambda lat, lon: True)
+    assert build_mod.insets_expected(state, 43, -122, None) is False
+    cold = dict(state, airport_insets=False, base_raster=True)
+    build_mod.require_dem_frame(cold, inset_dir_expected=False)
+    with pytest.raises(SystemExit):
+        build_mod.require_dem_frame(cold)
 
 
 def test_the_per_airport_check_scans_packs_with_the_owners_xplane_root(

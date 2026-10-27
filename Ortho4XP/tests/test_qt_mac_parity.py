@@ -476,7 +476,10 @@ def test_legacy_offer_shows_for_a_built_tile_only(make_window, tmp_path):
     window = make_window()
     build = tmp_path / "zOrtho4XP_+48-006"
     build.mkdir()
-    (build / "Ortho4XP.cfg").write_text("default_zl=17\n", encoding="utf-8", newline="")
+    # This app's own cfg with a value this version does not define (an
+    # Ortho4XP cfg is ignored, never offered: RULINGS 2026-10-26c).
+    (build / "XPTerrainBuilder_+48-006.cfg").write_text(
+        "default_zl=17\ntexture_mode=weird\n", encoding="utf-8", newline="")
     # Unbuilt: nothing to say, even with a legacy file on disk.
     window._built = {}
     window._refresh_legacy_config(TILE)
@@ -485,14 +488,13 @@ def test_legacy_offer_shows_for_a_built_tile_only(make_window, tmp_path):
     window._built = {TILE: _tile_info(*TILE, build_dir=str(build))}
     window._legacy_prompted.add(TILE)   # suppress the modal auto-prompt
     window._refresh_legacy_config(TILE)
-    assert window._legacy_tile_settings["uses_legacy_name"] is True
+    assert window._legacy_tile_settings["foreign_enums"][0][0] == "texture_mode"
 
 
 def test_legacy_message_names_every_marker(make_window):
     window = make_window()
     text = window._legacy_config_message({
         "lat": 48, "lon": -6,
-        "uses_legacy_name": True,
         "foreign_enums": [("texture_mode", "weird", "full_ortho")],
         "quoted_keys": ["default_website"],
         "missing_pins": ["/gone/dem.tif"],
@@ -501,7 +503,7 @@ def test_legacy_message_names_every_marker(make_window):
     assert "texture_mode = weird" in text and "full_ortho" in text
     assert "dem.tif" in text
     assert "1 setting" in text
-    assert "Ortho4XP.cfg" in text
+    assert "Ortho4XP" not in text
 
 
 # ===========================================================================
@@ -757,6 +759,55 @@ def test_no_match_says_so_and_selects_nothing(make_window, monkeypatch):
 
 
 # ===========================================================================
+# #1317: a typed coordinate (Mac: MapMainView.performSearch,
+# SearchReticleOverlay; the shared parser's twin is test_coordinate_query.py)
+# ===========================================================================
+def test_a_coordinate_centres_at_zl19_under_a_reticle(make_window,
+                                                      monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    before = window.map.selection()
+    text = "49\u00b000'45.6\"N 2\u00b033'29.4\"E"
+    window.search_edit.setText(text)
+    window._update_search_popup(text)
+    assert window.search_popup.count() == 1
+    assert window.search_popup.item(0).text() == "Go to 49.01267, 2.55817"
+    window._search_accept_first()
+    (lat, lon) = window._search_reticle().point()
+    assert (round(lat, 5), round(lon, 5)) == (49.01267, 2.55817)
+    assert window.map.zoom_level() == GUI.COORDQ.ZOOM_LEVEL
+    assert window.map.selection() == before   # a point selects nothing
+    assert window.search_edit.text() == text  # Esc clears both
+    window._search_escape()
+    assert window._search_reticle().point() is None
+    assert window.search_edit.text() == ""
+
+
+def test_the_next_search_or_an_empty_field_drops_the_reticle(
+        make_window, monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    window.search_edit.setText("45.52 -122.68")
+    window._update_search_popup("45.52 -122.68")
+    window._search_accept_first()
+    assert window._search_reticle().point() == (45.52, -122.68)
+    window._update_search_popup("KCLT")
+    window._search_accept_first()
+    assert window._search_reticle().point() is None
+    window._update_search_popup("45.52 -122.68")
+    window._search_accept_first()
+    window._update_search_popup("")
+    assert window._search_reticle().point() is None
+
+
+def test_a_tile_key_still_wins(make_window, monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    window._update_search_popup("+48-006")
+    assert window.search_popup.item(0).text() == "Go to tile +48-006"
+    window._search_accept_first()
+    assert window.map.active_tile() == (48, -6)
+    assert window._search_reticle().point() is None
+
+
+# ===========================================================================
 # #829: select from flight plan (Mac: FlightPlanPanel, FlightRouteOverlay)
 # ===========================================================================
 _PLANS = os.path.join(os.path.dirname(__file__), "fixtures", "flight_plan")
@@ -847,3 +898,75 @@ def test_simbrief_uses_the_fetch_seam_and_reports_errors(make_window):
     assert dialog.summary.text().startswith("ENGM \u2192 ENTC")
     assert (60, 11) in window.map.selection() and (69, 18) in window.map.selection()
     assert _prefs(make_window)["simbrief_user"] == "123456"
+
+
+# ===========================================================================
+# A Qt run that cannot see its tiles or airports says so (#1240, #1241)
+# ===========================================================================
+def test_a_missing_tiles_folder_falls_back_to_the_default(make_window, tmp_path):
+    """A remembered output folder that is gone (the owner's pointed at a
+    deleted pytest folder) listed no built tiles, so the patch editor
+    never appeared: the window falls back to the default Tiles folder."""
+    with open(make_window.prefs_path, "w", encoding="utf-8", newline="") as handle:
+        json.dump({"output_dir": str(tmp_path / "gone")}, handle)
+    window = make_window()
+    assert window.prefs["output_dir"] == ""
+    assert window.working_dir() == GUI.FNAMES.Tile_dir
+
+
+def test_search_without_an_airport_index_says_why(make_window):
+    window = make_window()
+    window._airports = []
+    window._airport_search_index = None
+    window._update_search_popup("KSEA")
+    rows = [window.search_popup.item(i).text()
+            for i in range(window.search_popup.count())]
+    assert rows == [GUI.SEARCH.NO_INDEX_TEXT]
+
+
+def test_the_x_plane_folder_is_found_above_custom_scenery(tmp_path, monkeypatch):
+    import O4_Config_Utils as CFG
+
+    apt = tmp_path / "X-Plane 12" / "Global Scenery" / "Global Airports" / "Earth nav data"
+    apt.mkdir(parents=True)
+    (apt / "apt.dat").write_text("I\n1100 Version\n99\n", encoding="utf-8", newline="")
+    (tmp_path / "X-Plane 12" / "Custom Scenery").mkdir()
+    monkeypatch.setattr(CFG, "custom_scenery_dir",
+                        str(tmp_path / "X-Plane 12" / "Custom Scenery"))
+    assert GUI._xplane_above_custom_scenery() == str(tmp_path / "X-Plane 12")
+    monkeypatch.setattr(CFG, "custom_scenery_dir", "")
+    assert GUI._xplane_above_custom_scenery() == ""
+
+
+def test_an_unset_global_config_starts_from_sharper_airports(tmp_path, monkeypatch):
+    """Owner 2026-10-22: the default preset is Sharper airports, also for
+    a user who skipped the first-run assistant (it used to stay Balanced)."""
+    import O4_Settings_Model as SM
+    import O4_Settings_Presets as PRESETS
+
+    cfg = tmp_path / "Ortho4XP.cfg"
+    monkeypatch.setattr(SM, "_default_global_cfg", lambda: str(cfg))
+    monkeypatch.setattr(SM, "apply_runtime", lambda values: None)
+    entry = PRESETS.preset("sharper_airports")
+    assert GUI.write_default_preset_if_unset() == PRESETS.zoom_value(entry)
+    written = SM.read_global_raw()
+    assert all(written[name] == value
+               for name, value in PRESETS.cfg_values(entry).items())
+    # Once any preset key is set, nothing is overwritten.
+    assert GUI.write_default_preset_if_unset() is None
+
+
+def test_why_build_is_off_shows_as_text(make_window, monkeypatch):
+    """The Mac's build box says why Build is off; a tooltip alone was
+    never seen."""
+    window = make_window()
+    reason = "Your X-Plane folder has no runway data (CIFP)."
+    monkeypatch.setattr(window, "xplane_block_reason", lambda: reason)
+    window._update_build_summary()
+    assert not window.build_btn.isEnabled()
+    assert window.build_block_label.isVisibleTo(window)
+    assert window.build_block_label.text() == reason
+    monkeypatch.setattr(window, "xplane_block_reason", lambda: None)
+    window._update_build_summary()
+    assert window.build_btn.isEnabled()
+    assert not window.build_block_label.isVisibleTo(window)

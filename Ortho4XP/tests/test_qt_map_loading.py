@@ -135,6 +135,29 @@ def test_wanted_tile_fetches_and_lands_in_scene(view, qapp, monkeypatch):
     assert os.path.isfile(cache), "fetched tile must be disk-cached"
 
 
+def test_overzoom_fetches_only_the_source_ceiling(view, monkeypatch):
+    """#1315: at ZL 22 over a ZL 19 source the map zooms on, scaling up
+    ZL 19 tiles; no URL above the source's max_zl is ever requested."""
+    calls = []
+    fetch_recorder(monkeypatch, calls)
+    monkeypatch.setitem(IMG.providers_dict[FAKE], "max_zl", 19)
+    view.set_provider(FAKE)
+    view._update_timer.stop()
+    settle(view, 48.1, -6.3, zoom=22)
+    assert view.zoom_level() == 22, "the view zooms past the source"
+    assert view._fetch_zoom() == 19
+    for key in queued(view):
+        view._fetch_tile(*key)
+    assert calls, "the view still draws imagery"
+    assert max(z for _, z, _, _ in calls) == 19
+    assert any(z == 19 for _, z, _, _ in calls)
+
+
+def test_view_zooms_to_the_overzoom_ceiling(view):
+    settle(view, 48.1, -6.3, zoom=99)
+    assert view.zoom_level() == QTMAP.OVERZOOM.MAX_VIEW_ZL
+
+
 def test_base_layer_survives_pruning(view):
     settle(view, 48, -6, zoom=9)
 
@@ -212,7 +235,8 @@ def test_cache_miss_falls_through(monkeypatch, tmp_path):
     )
     calls = []
 
-    def fake_http(width, height, url, headers, session, timeout=None):
+    def fake_http(width, height, url, headers, session, timeout=None,
+                  host_limit=None):
         calls.append(url)
         return 1, Image.new("RGB", (256, 256), (9, 9, 9))
 

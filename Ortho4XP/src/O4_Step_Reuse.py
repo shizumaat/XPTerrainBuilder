@@ -10,7 +10,7 @@ by name, when both are as recorded.
 WHAT A STEP'S INPUTS ARE.  The settings it reads — the step's own list in
 ``O4_Cfg_Vars`` (``list_vector_vars`` / ``list_mesh_vars`` /
 ``list_mask_vars``) plus ``custom_dem`` / ``fill_nodata``, and the
-app-level settings that choose its data — the engine's version, the
+app-level settings that choose its data — the
 digest of the code the step runs through (``O4_Step_Code``), the auto-patch
 configuration digest, and what the step before it HANDS ON (#837): the
 CONTENT of the files it wrote and the inputs it read, its own code left
@@ -42,7 +42,10 @@ of them directly (the mesh bakes the elevation insets the vector step
 keys on).  Outputs are identified by content: a file whose path, size
 and mtime are as recorded is not read again (the hit path costs stats);
 any other is digested, so a touched file with the same bytes is no
-change.
+change.  The vector step's outputs include the sidecars the mesh step
+reads beside the .node/.poly (#1377): ``o4_levelled_roads.json`` and the
+object-anchor worklist, the latter read without the ``dsf_mtime`` the
+object stage's own pack rewrite moves.
 
 A STEP'S RECORD COUNTS WHEN THE STEP ENDS (#838, owner RULINGS
 2026-10-17a Q3).  A step that ran and succeeded writes its record at once
@@ -84,14 +87,18 @@ import urllib.parse
 import O4_File_Names as FNAMES
 
 __all__ = ["REUSABLE_STEPS", "stale_reason", "predicted_reuse", "record",
-           "forget_from", "reused_label"]
+           "forget_from", "reused_label", "edit_only_changes",
+           "committed_entry"]
 
 # 2026-10-14: pack DSFs keyed as the build's input and scenery_packs.ini
 # by content (#615 self-invalidation); a 2026-10-13 record reads as none.
 # 2026-10-18: ``code`` is the step's own closure digest (#836).
 # 2026-10-18b: outputs by content, ``previous`` = what the predecessor
 # hands on (#837); a 2026-10-18 record reads as none — reruns once.
-SCHEMA = "2026-10-18b"
+# 2026-10-26: the vector step's outputs add the sidecars the mesh step
+# reads (#1377); a 2026-10-18b record reads as none — reruns once.
+# 2026-10-26b: and the z-provenance log (O4_ZProv, #1323).
+SCHEMA = "2026-10-26b"
 
 #: the steps whose output can be reused, in build order
 REUSABLE_STEPS = ("vector", "mesh", "masks")
@@ -242,16 +249,23 @@ def _inset_files(tile) -> list:
     return INSETS.list_cached_inset_dems(tile.lat, tile.lon)
 
 
+# Keys a record written by an older engine may hold that are no longer
+# part of a step's key: ``engine`` (the engine version, #1248 — a release
+# that leaves a step's code alone must not rebuild it; the ``code``
+# digest already covers a change).  Compared without them, so such a
+# record is still reused.
+_RETIRED_KEYS = ("engine",)
+
+
 def _code_identity(step: str) -> dict:
-    """The engine half of ``step``'s key: its version, the digest of the
-    code ``step`` runs through (``O4_Step_Code``, #836 — the step's own
-    import closure and the law tables, not the whole tree; the whole-tree
-    digest only when the step's cannot be had), and the auto-patch
-    configuration."""
+    """The engine half of ``step``'s key: the digest of the code ``step``
+    runs through (``O4_Step_Code``, #836 — the step's own import closure
+    and the law tables, not the whole tree; the whole-tree digest only
+    when the step's cannot be had), and the auto-patch configuration.
+    Not the engine version (#1248): ``code`` already changes with it."""
     import O4_Step_Code as STEPCODE
     from auto_patch import provenance, provenance_code
-    return {"engine": provenance.engine_version(),
-            "code": STEPCODE.step_digest(step) or provenance_code.code_digest(),
+    return {"code": STEPCODE.step_digest(step) or provenance_code.code_digest(),
             "auto_patch_cfg": provenance.config_digest()}
 
 
@@ -287,10 +301,26 @@ def _journalled_dsfs(tile) -> list:
         return []
 
 
+def _worklist_path(tile) -> str:
+    from auto_patch import post_mesh
+    return post_mesh.object_anchor_worklist_path(tile)
+
+
 def _output_files(tile, step: str, pack_dsfs=()) -> list:
     if step == "vector":
-        files = [FNAMES.input_node_file(tile), FNAMES.input_poly_file(tile),
-                 FNAMES.apt_file(tile), FNAMES.alt_file(tile)]
+        # The sidecars the vector step writes for the mesh step to read
+        # (#1377): the levelled roads the bank blend keeps off, and the
+        # object-anchor worklist the object stage seats from.  A changed
+        # sidecar under an unchanged .node/.poly is a changed input of
+        # the mesh step.  (``o4_unpatched_airports.json`` is not one: no
+        # mesh code reads it, and the masks step writes it too.)  And the
+        # z-provenance log a height-only patch edit replays (#1323).
+        import O4_ZProv as ZPROV
+        node_file = FNAMES.input_node_file(tile)
+        files = [node_file, FNAMES.input_poly_file(tile),
+                 FNAMES.apt_file(tile), FNAMES.alt_file(tile),
+                 ZPROV.zprov_file(node_file),
+                 os.path.join(tile.build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)]
         files += _patch_files(tile)
     elif step == "mesh":
         # The pack DSFs the mesh step's object stage rewrote: a pack put
@@ -306,12 +336,52 @@ def _output_files(tile, step: str, pack_dsfs=()) -> list:
     return files
 
 
+#: Worklist keys that name the run, not the content: an entry's
+#: ``dsf_mtime`` is the live pack DSF's, which the mesh step's object
+#: stage rewrites, and the object stage reads the current DSF regardless
+#: (``post_mesh`` module doc, amendment A5).
+_WORKLIST_PER_RUN_KEYS = ("dsf_mtime",)
+
+
+def _worklist_row(path: str, known=()) -> list:
+    """The worklist's ``content_identity_list`` row, its content read
+    without :data:`_WORKLIST_PER_RUN_KEYS` (and its size that of what is
+    hashed): a vector step that reran after the object stage rewrote a
+    pack writes the same worklist."""
+    from auto_patch import provenance
+    recorded = {row[0]: row for row in known or ()
+                if isinstance(row, (list, tuple)) and len(row) == 4}
+    try:
+        stat = os.stat(path)
+        row = recorded.get(path)
+        if row and row[2] == stat.st_mtime_ns and row[3] != "missing":
+            return list(row)
+        with open(path, encoding="utf-8") as handle:
+            doc = json.load(handle)
+    except ValueError:
+        return provenance.content_identity_list([path])[0]
+    except OSError:
+        return [path, -1, -1, "missing"]
+    if isinstance(doc, dict):
+        doc = dict(doc, airports=[
+            {k: v for k, v in entry.items()
+             if k not in _WORKLIST_PER_RUN_KEYS}
+            if isinstance(entry, dict) else entry
+            for entry in doc.get("airports") or ()])
+    text = json.dumps(doc, sort_keys=True).encode("utf-8")
+    return [path, len(text), stat.st_mtime_ns,
+            hashlib.sha256(text).hexdigest()]
+
+
 def _outputs(tile, step: str, pack_dsfs=(), known=()) -> list:
     """``step``'s output files by content; ``known``: the rows recorded
     for them, whose digests a file with an unchanged stat keeps."""
     from auto_patch import provenance
-    return provenance.content_identity_list(
+    rows = provenance.content_identity_list(
         _output_files(tile, step, pack_dsfs), known)
+    if step == "vector":
+        rows.append(_worklist_row(_worklist_path(tile), known))
+    return rows
 
 
 def _outputs_digest(rows) -> str:
@@ -342,6 +412,28 @@ def _previous_digest(doc: dict, step: str) -> str:
     return _handed_on(entry)
 
 
+#: The remedies of an unpatched airport that a plain rebuild answers
+#: (``O4_Tile_Failures.REMEDIES``): the warning tells the user to build
+#: the tile again, so the next build must try that airport again.
+_RETRY_REMEDIES = ("retry", "network", "later", "rebuild_later")
+
+
+def _airports_to_retry(tile) -> list:
+    """The airports the tile on disk was built WITHOUT for a cause a
+    rebuild answers (issue #1352: a reused vector step never tried an
+    airport whose elevation was missing again, while its warning said
+    "build the tile again")."""
+    import O4_Tile_Failures as FAIL
+    import O4_Unpatched_Airports as UNPATCHED
+    names = []
+    for rec in UNPATCHED.read(tile):
+        code = FAIL.code_for_stage(rec.get("stage"), rec.get("code"))
+        entry = FAIL.CATALOGUE.get(code)
+        if entry is not None and entry.remedy in _RETRY_REMEDIES:
+            names.append(str(rec.get("icao") or "?"))
+    return names
+
+
 def stale_reason(tile, step: str) -> str | None:
     """None when ``step`` can be reused for ``tile``; else why not, in a
     few words for the log ("the mesh settings changed")."""
@@ -354,9 +446,14 @@ def stale_reason(tile, step: str) -> str | None:
         entry = (doc.get("committed") or {}).get(step)
         if not entry:
             return "no record of a finished run of it"
+        retry = _airports_to_retry(tile) if step == "vector" else []
+        if retry:
+            return "airport(s) left without a patch last time: " + \
+                ", ".join(retry[:4])
         live = _inputs(tile, step, _previous_digest(doc, step),
                        entry.get("osm_files"))
-        recorded = entry.get("inputs") or {}
+        recorded = {k: v for k, v in (entry.get("inputs") or {}).items()
+                    if k not in _RETIRED_KEYS}
         for key in sorted(set(live) | set(recorded)):
             if live.get(key) != recorded.get(key):
                 return _changed_words(key, live.get(key), recorded.get(key))
@@ -399,19 +496,72 @@ def _changed_words(key, live, recorded) -> str:
                 key, key + " changed")
 
 
-def record(tile, step: str) -> None:
+def committed_entry(tile, step: str) -> dict:
+    """``step``'s committed record (``{}`` when there is none)."""
+    return dict((_read(tile).get("committed") or {}).get(step) or {})
+
+
+def edit_only_changes(tile) -> tuple:
+    """``(patch files, None)`` when the ONLY change since the vector step
+    last ran is the content of those airport patch files — every vector
+    input key and every other output row is as recorded (#1323, the
+    height-edit fast path's admission, spec §3A.2 / §8 item 3); else
+    ``(None, why)`` in a few words."""
+    if os.environ.get("O4_STEP_REUSE", "1") == "0":
+        return None, "reuse is off (O4_STEP_REUSE=0)"
+    try:
+        doc = _read(tile)
+        entry = (doc.get("committed") or {}).get("vector")
+        if not entry:
+            return None, "no record of a finished vector step"
+        retry = _airports_to_retry(tile)
+        if retry:
+            return None, ("airport(s) left without a patch last time: "
+                          + ", ".join(retry[:4]))
+        live = _inputs(tile, "vector", _previous_digest(doc, "vector"),
+                       entry.get("osm_files"))
+        recorded = entry.get("inputs") or {}
+        for key in sorted(set(live) | set(recorded)):
+            if live.get(key) != recorded.get(key):
+                return None, _changed_words(key, live.get(key),
+                                            recorded.get(key))
+        known = {row[0]: row for row in entry.get("outputs") or ()}
+        rows = {row[0]: row for row in _outputs(tile, "vector", (),
+                                                entry.get("outputs") or ())}
+        if set(rows) != set(known):
+            return None, "a patch file was added or removed"
+        patches = set(_patch_files(tile))
+        changed = sorted(path for path, row in rows.items()
+                         if (row[1], row[3]) != (known[path][1],
+                                                 known[path][3]))
+        if not changed:
+            return None, "no patch file changed"
+        others = [p for p in changed if p not in patches]
+        if others:
+            return None, ("a vector output other than a patch changed (%s)"
+                          % os.path.basename(others[0]))
+        return changed, None
+    except Exception as error:                    # never fatal: just run it
+        return None, "the record could not be checked (%s)" % (error,)
+
+
+def record(tile, step: str, osm_files=None) -> None:
     """``step`` ran and succeeded, its outputs on disk: its record is the
-    one the next build reads (#838) — written now, not at the build's end."""
+    one the next build reads (#838) — written now, not at the build's end.
+    ``osm_files``: the vector step's OSM inputs when it did not list them
+    itself (the height-edit fast path keeps the run's own list)."""
     if step not in REUSABLE_STEPS:
         return
     try:
         doc = _read(tile)
-        inputs = _inputs(tile, step, _previous_digest(doc, step))
+        if step == "vector" and osm_files is None:
+            osm_files = _osm_files(tile)
+        inputs = _inputs(tile, step, _previous_digest(doc, step), osm_files)
         pack_dsfs = _journalled_dsfs(tile) if step == "mesh" else []
         rows = _outputs(tile, step, pack_dsfs)
         committed = dict(doc.get("committed") or {})
         committed[step] = {"inputs": inputs, "digest": _digest(inputs),
-                           "osm_files": _osm_files(tile) if step == "vector"
+                           "osm_files": osm_files if step == "vector"
                            else None,
                            "pack_dsfs": pack_dsfs,
                            "outputs": rows,

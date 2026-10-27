@@ -14,15 +14,16 @@ Fetched tiles are cached on disk under Previews/livemap/<provider>/.
 
 import math
 import os
-import re
 import threading
 import time
 from collections import deque
 
+import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
+import O4_Map_Overzoom as OVERZOOM
 import O4_Qt_Map_Labels as QTLABELS
 import O4_Qt_Text_Scale as QTTEXT
 import requests
@@ -52,14 +53,21 @@ from PySide6.QtWidgets import (
 
 SCENE_ZL = 19  # scene units = webmercator pixels at this zoom level
 WORLD = 2 ** SCENE_ZL * 256
+MERCATOR_LAT = 85.05  # the web-mercator square's edge (MapCamera.latLimit)
 MIN_ZOOM = 2.0
-# Deep-inspection ceiling: far past any imagery source, so users can
-# always zoom in to judge what a source offers (tiles upscale/blur
-# beyond the provider max; the corner badge flags it).
-MAX_ZOOM = 22.0
+# Deep-inspection ceiling, independent of the imagery source (#1315):
+# past the source's max_zl the view keeps scaling up its finest tiles
+# (O4_Map_Overzoom; the corner badge says "overzoom xN").
+MAX_ZOOM = float(OVERZOOM.MAX_VIEW_ZL)
 FETCH_MAX_ZL = 21  # never request tiles beyond this from any source
 MAX_ITEMS = 900        # loaded tile pixmaps kept in the scene
 BASE_ZL = 3            # world base layer, always resident (max 64 tiles)
+#: A left or right press that moves less than this (Manhattan px) is a
+#: click; more, and a left drag pans (#1325).
+MAP_CLICK_SLOP_PX = 6
+#: The map cursors by ``O4_Qt_Patch_ShapePick.POINTERS`` name (#1325).
+MAP_CURSORS = {"openHand": Qt.OpenHandCursor, "closedHand": Qt.ClosedHandCursor,
+               "pointingHand": Qt.PointingHandCursor}
 FETCH_DEBOUNCE_MS = 250  # settle time before network fetches start
 FETCH_WORKERS = 6      # concurrent tile downloads
 LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
@@ -67,6 +75,12 @@ LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
 # Built tiles are plain green — the ZL stays readable in the center
 # label ("PROV 16*"); no per-ZL color coding, no legend.
 BUILT_COLOR = "#4CAF6E"
+#: The selection ring (the Mac app's buildSelection).
+SELECTION_COLOR = "#FFD60A"
+#: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
+SETTINGS_BADGE_COLOR = "#0A84FF"
+#: The custom-patch band (#1229); MapCanvasView.customPatchBand.
+CUSTOM_PATCH_COLOR = "#FF9F0A"
 
 
 BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
@@ -124,10 +138,8 @@ parse_tile_key = FNAMES.parse_tile_key
 # Files carrying any other provider token are dead weight from an earlier
 # build with a different source.  Imagery zones legitimately mix ZOOM
 # LEVELS, so only the provider token decides foreignness; masks and other
-# non-.dds files are ignored.  The two-digit ZL anchor is what lets a
-# provider code that itself ends in digits ("USA_2" -> "…_USA_216.dds")
-# parse correctly.
-_TEXTURE_DDS_RE = re.compile(r"\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$")
+# non-.dds files are ignored.  The name grammar is
+# O4_Custom_Scenery.parse_texture_stem's (one parser, two readers).
 
 
 def texture_provider(name):
@@ -139,8 +151,8 @@ def texture_provider(name):
     """
     if not isinstance(name, str) or not name.lower().endswith(".dds"):
         return None
-    match = _TEXTURE_DDS_RE.fullmatch(name[:-4])
-    return match.group(1) if match else None
+    parsed = PACKS.parse_texture_stem(name[:-4])
+    return parsed[0] if parsed else None
 
 
 def has_foreign_sources(textures_dir, provider):
@@ -326,6 +338,7 @@ class MapView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setMouseTracking(True)
+        self.viewport().setCursor(Qt.OpenHandCursor)
         self.grabGesture(Qt.PinchGesture)
 
         # Imagery state
@@ -355,6 +368,8 @@ class MapView(QGraphicsView):
         self._built = {}             # (lat, lon) -> TileInfo
         self._installed = set()      # (lat, lon)
         self._conflicts = set()      # (lat, lon) with mixed imagery sources
+        self._customized = set()     # (lat, lon) with tile settings (#1350)
+        self._custom_patched = set()  # (lat, lon) with a custom patch (#1229)
         self._selection = set()
         self._active = None
         self._progress = {}          # (lat, lon) -> (state, label, pct)
@@ -369,11 +384,13 @@ class MapView(QGraphicsView):
         # kind); the tiles ORTHO packs cover carry an imagery label.
         self._regions = []
         self._ortho_tiles = set()
+        # (lat, lon) -> (provider, zl) the covering ortho pack's files say.
+        self._ortho_imagery = {}
         self._scenery_filter = SCENERY_FILTER_ALL
 
         # Layers drawn over the map that take the mouse first (the patch
         # editor): paint(painter), mouse_press/move/release(event) -> bool,
-        # viewport_moved().
+        # pointer_at(pos) -> cursor name or None, viewport_moved().
         self._layers = []
 
         # Interaction state
@@ -500,6 +517,28 @@ class MapView(QGraphicsView):
         self._conflicts = set(conflicts)
         self.viewport().update()
 
+    def set_customized(self, tiles):
+        """Tiles whose cfg customizes a setting (#1350): the settings
+        badge, computed by the window from ``O4_Tile_Customizations``."""
+        tiles = set(tiles)
+        if tiles != self._customized:
+            self._customized = tiles
+            self.viewport().update()
+
+    def customized(self):
+        return set(self._customized)
+
+    def set_custom_patched(self, tiles):
+        """Tiles with a custom patch (#1229): the orange band, read by the
+        window from ``O4_Custom_Patches.custom_patch_tiles``."""
+        tiles = set(tiles)
+        if tiles != self._custom_patched:
+            self._custom_patched = tiles
+            self.viewport().update()
+
+    def custom_patched(self):
+        return set(self._custom_patched)
+
     def set_default_airports(self, airports):
         """X-Plane's Global Airports marks: ``(code, lat, lon)`` rows.
 
@@ -556,18 +595,24 @@ class MapView(QGraphicsView):
 
     def set_scenery_regions(self, regions):
         """Other installed ortho/mesh packages: ``(name, tiles, dim)``
-        or ``(name, tiles, dim, kind)`` rows, ``tiles`` an iterable of the
-        (lat, lon) they cover; an ``"ortho"`` kind's tiles carry an
-        imagery label (#817)."""
+        or ``(name, tiles, dim, kind[, imagery])`` rows, ``tiles`` an
+        iterable of the (lat, lon) they cover; an ``"ortho"`` kind's tiles
+        carry an imagery label (#817), its ``imagery`` ``(provider, zl)``
+        when the pack's files name one (#1257, the Mac's PackImagery)."""
         self._regions = []
         self._ortho_tiles = set()
+        self._ortho_imagery = {}
         for row in regions:
             (name, tiles, dim) = row[:3]
             kind = row[3] if len(row) > 3 else ""
+            imagery = row[4] if len(row) > 4 else None
             covered = {(int(la), int(lo)) for (la, lo) in tiles}
             self._regions.append((str(name), covered, bool(dim), str(kind)))
             if kind == "ortho":
                 self._ortho_tiles |= covered
+                if imagery:
+                    for tile in covered:
+                        self._ortho_imagery.setdefault(tile, imagery)
         self.viewport().update()
 
     def scenery_filter(self):
@@ -621,7 +666,13 @@ class MapView(QGraphicsView):
         self.viewport().update()
 
     def center_on_tile(self, lat, lon, zoom=None):
-        cx, cy = GEO.wgs84_to_pix(lat + 0.5, lon + 0.5, SCENE_ZL)
+        self.center_on_point(lat + 0.5, lon + 0.5, zoom)
+
+    def center_on_point(self, lat, lon, zoom=None):
+        """Centre the view on ``(lat, lon)``, at slippy ``zoom`` if given
+        (latitude held inside the web-mercator square)."""
+        lat = max(-MERCATOR_LAT, min(float(lat), MERCATOR_LAT))
+        cx, cy = GEO.wgs84_to_pix(lat, lon, SCENE_ZL)
         if zoom is not None:
             self._zoom = max(MIN_ZOOM, min(float(zoom), MAX_ZOOM))
             self._apply_zoom()
@@ -689,16 +740,44 @@ class MapView(QGraphicsView):
                 return True
         return super().event(ev)
 
+    # Gestures, the same in both apps (#1325): a left drag on open map
+    # pans (a middle drag too); a left click selects; a right click with
+    # no drag opens the tile's menu and a right drag does nothing; scroll
+    # and pinch zoom.  Layers (the patch editor) take the mouse first.
+    def _set_pointer(self, name):
+        shape = MAP_CURSORS[name]
+        if self.viewport().cursor().shape() != shape:
+            self.viewport().setCursor(shape)
+
+    def _update_pointer(self, pos):
+        """The cursor over ``pos``: a layer's (a pointing hand over a patch
+        node or line), else an open hand, a closed one while panning."""
+        if self._panning:
+            self._set_pointer("closedHand")
+            return
+        for layer in self._layers:
+            name = layer.pointer_at(pos)
+            if name is not None:
+                self._set_pointer(name)
+                return
+        self._set_pointer("openHand")
+
+    def _start_pan(self, pos):
+        self._panning = True
+        self._pan_start = pos
+        self._set_pointer("closedHand")
+
     def mousePressEvent(self, event):
-        if event.button() in (Qt.RightButton, Qt.MiddleButton):
-            self._panning = True
-            self._pan_start = event.position()
-            self._right_press = (event.position()
-                                 if event.button() == Qt.RightButton else None)
-            self.setCursor(Qt.ClosedHandCursor)
+        if event.button() == Qt.RightButton:
+            self._right_press = event.position()
+            event.accept()
+            return
+        if event.button() == Qt.MiddleButton:
+            self._start_pan(event.position())
             event.accept()
             return
         if any(layer.mouse_press(event) for layer in self._layers):
+            self._update_pointer(event.position())
             event.accept()
             return
         if event.button() == Qt.LeftButton:
@@ -709,6 +788,10 @@ class MapView(QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         lat, lon = GEO.pix_to_wgs84(scene_pos.x(), scene_pos.y(), SCENE_ZL)
         self.hover_ll.emit(lat, lon)
+        if (not self._panning and self._press_pos is not None
+                and event.buttons() & Qt.LeftButton
+                and (event.position() - self._press_pos).manhattanLength() >= MAP_CLICK_SLOP_PX):
+            self._start_pan(self._press_pos)
         if self._panning:
             d = event.position() - self._pan_start
             self._pan_start = event.position()
@@ -716,21 +799,18 @@ class MapView(QGraphicsView):
             event.accept()
             return
         if any(layer.mouse_move(event) for layer in self._layers):
+            self._update_pointer(event.position())
             event.accept()
             return
+        self._update_pointer(event.position())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._panning and event.button() in (
-            Qt.RightButton,
-            Qt.MiddleButton,
-        ):
-            self._panning = False
-            self.unsetCursor()
+        if event.button() == Qt.RightButton:
             press, self._right_press = self._right_press, None
-            if (event.button() == Qt.RightButton and press is not None
-                    and (event.position() - press).manhattanLength() < 6):
-                # A right-click, not a pan: the tile's menu.
+            if (press is not None
+                    and (event.position() - press).manhattanLength() < MAP_CLICK_SLOP_PX):
+                # A right-click (no drag): the tile's menu.
                 scene_pos = self.mapToScene(event.position().toPoint())
                 lat, lon = GEO.pix_to_wgs84(
                     scene_pos.x(), scene_pos.y(), SCENE_ZL)
@@ -739,14 +819,21 @@ class MapView(QGraphicsView):
                     event.globalPosition().toPoint())
             event.accept()
             return
+        if self._panning and event.button() in (Qt.LeftButton, Qt.MiddleButton):
+            self._panning = False
+            self._press_pos = None
+            self._update_pointer(event.position())
+            event.accept()
+            return
         if any(layer.mouse_release(event) for layer in self._layers):
             self._press_pos = None
+            self._update_pointer(event.position())
             event.accept()
             return
         if (
             event.button() == Qt.LeftButton
             and self._press_pos is not None
-            and (event.position() - self._press_pos).manhattanLength() < 6
+            and (event.position() - self._press_pos).manhattanLength() < MAP_CLICK_SLOP_PX
             and not self._locked
         ):
             self._handle_click(event)
@@ -806,8 +893,11 @@ class MapView(QGraphicsView):
         self.viewport().update()
 
     def _fetch_zoom(self):
-        z = int(round(self._zoom))
-        return max(2, min(z, self._provider_max_zl, FETCH_MAX_ZL))
+        # Past the source's ceiling the view tile's ancestor is fetched
+        # and the scene scales it up: never a URL above max_zl (#1315).
+        z = max(2, int(round(self._zoom)))
+        ceiling = min(self._provider_max_zl, FETCH_MAX_ZL)
+        return max(2, OVERZOOM.ancestor(z, 0, 0, ceiling).z)
 
     def _visible_range(self, z):
         """Visible tile index range at zoom z, with a one-tile margin."""
@@ -1063,14 +1153,13 @@ class MapView(QGraphicsView):
         painter.end()
 
     def _draw_zoom_badge(self, painter):
-        """Bottom-right badge: the tile zoom the view equates to, flagging
-        when it exceeds the imagery source's ceiling (mac-app parity)."""
+        """Bottom-right badge: the tile zoom the view equates to, and the
+        overzoom factor past the imagery source's ceiling (mac-app
+        parity, #1315)."""
         view_zl = max(2, math.ceil(self._zoom - 1e-6))
         at_limit = view_zl > self._provider_max_zl
-        text = "ZL %d" % view_zl
-        if at_limit:
-            text += "  \u00b7  %s max ZL %d" % (
-                self._display_code, self._provider_max_zl)
+        text = OVERZOOM.badge_text(view_zl, self._display_code,
+                                   self._provider_max_zl)
         metrics = painter.fontMetrics()
         width = metrics.horizontalAdvance(text) + 18
         height = metrics.height() + 8
@@ -1139,25 +1228,31 @@ class MapView(QGraphicsView):
         selected = tile in self._selection
         active = tile == self._active
         progress = self._progress.get(tile)
-        if not (built or selected or progress):
+        custom_patched = tile in self._custom_patched
+        if not (built or selected or progress or custom_patched):
             return
         r = self._tile_rect(*tile)
         px = r.width() * scale  # tile size on screen
 
+        # Strokes only, never a fill: a tint colours the very imagery the
+        # user is judging (#1256; MapCanvasView.swift draws the same).
+        painter.setBrush(Qt.NoBrush)
         if built is not None:
+            # Built: a green border; installed adds the inset double border.
             base = QColor(BUILT_COLOR)
-            fill = QColor(base)
-            fill.setAlpha(70)
-            painter.fillRect(r, fill)
-            border = QPen(base.darker(140))
-            border.setCosmetic(True)
-            border.setWidth(2)
-            painter.setPen(border)
+            border = QColor(base)
+            border.setAlphaF(0.85)
+            pen = QPen(border)
+            pen.setCosmetic(True)
+            pen.setWidth(2)
+            painter.setPen(pen)
             painter.drawRect(r)
             if tile in self._installed:
-                pen = QPen(QColor(20, 28, 36, 210))
+                inner = QColor(base)
+                inner.setAlphaF(0.9)
+                pen = QPen(inner)
                 pen.setCosmetic(True)
-                pen.setWidth(3)
+                pen.setWidthF(1.5)
                 painter.setPen(pen)
                 inset = r.adjusted(
                     r.width() * 0.03, r.height() * 0.03,
@@ -1171,17 +1266,38 @@ class MapView(QGraphicsView):
             if tile in self._conflicts and px > 14:
                 self._draw_conflict_badge(painter, r, px, scale)
 
+        if custom_patched:
+            self._draw_custom_patch_band(painter, r, scale)
+
         if selected:
-            fill = QColor("#FFD60A")
-            fill.setAlpha(36)
-            painter.fillRect(r, fill)
-            pen = QPen(QColor("#FFD60A"))
-            pen.setCosmetic(True)
-            pen.setWidth(3 if active else 2)
-            if not active:
-                pen.setStyle(Qt.DashLine)
+            # Selection: a focus ring.  Active: solid with a soft outer
+            # glow; other selected tiles: dashed.
+            ring = QColor(SELECTION_COLOR)
+            px1 = 1.0 / scale if scale else 0.0     # one screen pixel
+            if active:
+                glow = QColor(ring)
+                glow.setAlphaF(0.35)
+                pen = QPen(glow)
+                pen.setCosmetic(True)
+                pen.setWidth(5)
+                painter.setPen(pen)
+                painter.drawRect(r.adjusted(-1.5 * px1, -1.5 * px1,
+                                            1.5 * px1, 1.5 * px1))
+                pen = QPen(ring)
+                pen.setCosmetic(True)
+                pen.setWidthF(2.5)
+            else:
+                pen = QPen(ring)
+                pen.setCosmetic(True)
+                pen.setWidth(2)
+                pen.setDashPattern([5 / 2, 4 / 2])  # 5 px on, 4 off at width 2
             painter.setPen(pen)
-            painter.drawRect(r)
+            painter.drawRect(r.adjusted(px1, px1, -px1, -px1))
+
+        # Customized settings (#1350): a blue dot in the top-left corner,
+        # on a built or selected tile (MapCanvasView.swift draws the same).
+        if tile in self._customized and px > 14:
+            self._draw_settings_badge(painter, r, px, scale)
 
         if progress:
             self._draw_progress_badge(painter, r, px, progress)
@@ -1245,7 +1361,7 @@ class MapView(QGraphicsView):
             else None,
             self._ortho_tiles if self._scenery_filter != SCENERY_FILTER_BUILT
             else None,
-            QTTEXT.current_scale())
+            QTTEXT.current_scale(), self._ortho_imagery)
 
     def _draw_airports(self, painter):
         """Sectional-style airport marks by size (#817, mac-app parity).
@@ -1297,6 +1413,33 @@ class MapView(QGraphicsView):
             Qt.AlignCenter,
             "!",
         )
+
+    def _draw_custom_patch_band(self, painter, r, scale):
+        """The custom-patch band (#1229): a 4 pt orange band just inside
+        the tile's edge, so it is plain the auto patch will not run for an
+        airport of this tile (MapCanvasView.swift draws the same)."""
+        width = 4.0 / max(scale, 1e-12)
+        band = QColor(CUSTOM_PATCH_COLOR)
+        band.setAlphaF(0.85)
+        pen = QPen(band)
+        pen.setWidthF(width)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(r.adjusted(width / 2, width / 2,
+                                    -width / 2, -width / 2))
+
+    def _draw_settings_badge(self, painter, r, px, scale):
+        """The customized-settings dot, top-left of the tile square, sized
+        in screen points like the conflict badge (8-14 pt)."""
+        size = min(max(px * 0.11, 8.0), 14.0) / max(scale, 1e-12)
+        center = QPointF(r.left() + size, r.top() + size)
+        outline = QPen(QColor("#FFFFFF"))
+        outline.setCosmetic(True)
+        outline.setWidthF(1.5)
+        painter.setPen(outline)
+        painter.setBrush(QColor(SETTINGS_BADGE_COLOR))
+        painter.drawEllipse(center, size / 2, size / 2)
+        painter.setBrush(Qt.NoBrush)
 
     def _draw_progress_badge(self, painter, r, px, progress):
         state, label, pct = progress

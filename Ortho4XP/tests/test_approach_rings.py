@@ -1790,6 +1790,78 @@ def test_the_fetch_goes_through_the_rung_and_the_sidecar_records_it(
     ) is None
 
 
+def _ring_run(tmp_path, monkeypatch, workers):
+    """One ``ensure_approach_rings`` run under a ``workers``-wide pool
+    whose ``fetch_inset`` sleeps and records how many fetches overlap.
+    Returns ``(fetched, stamp bytes, sidecar bytes, peak, cells)``."""
+    import threading
+    import time
+
+    records = []
+    _fetching_registry(
+        monkeypatch, [_usgs_shaped(), _point_cloud_definition()], records
+    )
+    writer = INSETS.fetch_inset
+    lock = threading.Lock()
+    in_flight = [0, 0]
+
+    def slow_fetch(*args):
+        with lock:
+            in_flight[0] += 1
+            in_flight[1] = max(in_flight[1], in_flight[0])
+        try:
+            time.sleep(0.02)
+            return writer(*args)
+        finally:
+            with lock:
+                in_flight[0] -= 1
+
+    monkeypatch.setattr(INSETS, "fetch_inset", slow_fetch)
+    monkeypatch.setattr(RINGS, "APPROACH_RING_FETCH_WORKERS", workers)
+    tile = _tile(tmp_path, monkeypatch)
+    dico = _dico(KASE=_boundary(0.5, 0.5))
+    plan = RINGS.resolve_approach_ring_plan(tile, dico)
+    fetched = RINGS.ensure_approach_rings(tile, dico)
+    with open(
+        FNAMES.approach_ring_index(TILE_LAT, TILE_LON), "rb"
+    ) as handle:
+        stamp = handle.read()
+    sidecars = {}
+    for cell in plan["cells"]:
+        if not cell["provider"]:
+            continue
+        sidecar = FNAMES.approach_ring_cell_provenance(
+            TILE_LAT, TILE_LON, cell["column"], cell["row"],
+            cell["provider"], cell["class_m"], cell["source_rung_token"],
+        )
+        with open(sidecar, "rb") as handle:
+            sidecars[os.path.relpath(sidecar, str(tmp_path))] = handle.read()
+    cells = sorted(os.path.relpath(r["path"], str(tmp_path)) for r in records)
+    return fetched, stamp, sidecars, in_flight[1], cells
+
+
+def test_ring_cells_fetch_in_a_bounded_pool_with_a_serial_identical_stamp(
+    tmp_path, monkeypatch, capsys
+):
+    """#1327: ring cells fetch concurrently -- never more than the cap in
+    flight -- and every cell, the stamp and every sidecar come out exactly
+    as the one-at-a-time run writes them.  A progress line counts the
+    finished cells."""
+    serial = _ring_run(tmp_path / "serial", monkeypatch, workers=1)
+    capsys.readouterr()
+    pooled = _ring_run(tmp_path / "pooled", monkeypatch, workers=3)
+    out = capsys.readouterr().out
+
+    (fetched, stamp, sidecars, peak, cells) = pooled
+    assert fetched == len(cells) > 3
+    assert serial[3] == 1
+    assert 1 < peak <= 3
+    assert (fetched, stamp, sidecars, cells) == (
+        serial[0], serial[1], serial[2], serial[4]
+    )
+    assert "approach rings: %d/%d cells" % (fetched, fetched) in out
+
+
 def test_the_band_and_the_rings_share_one_rung_derivation(monkeypatch):
     """The coastline band takes the SAME path (RULINGS 2026-10-02f: one
     derivation site).  Its near tier is the ring-1 class, so the band

@@ -137,3 +137,62 @@ def test_valid_area_reads_the_area_and_drops_the_precision_model():
     ok = box(0, 0, 1, 1)
     assert valid_area(ok) is ok
     assert valid_area(None).is_empty
+
+
+def test_the_lower_level_is_held_rigid_at_the_objects_lower_floor(monkeypatch, law):
+    """#1141 (KATL east terminal): the lower level is a RIGID level tied
+    to its block at the object's own lower floor, ``z = D + y_lo`` -- its
+    own ground no longer chooses where in the storey it sits (it stood
+    1.64 m over the floor and buried the roadway's towers)."""
+    from auto_patch_v2.constraints import platform as CP
+    from auto_patch_v2.model.registries import Registries
+    monkeypatch.setattr(CP, "landing_vertices", lambda _p: {"b/p1": [1, 2, 3]})
+    monkeypatch.setattr(CP, "datum_vertices", lambda _p, _l: {"b": 0})
+    pm = types.SimpleNamespace(registries=Registries())
+    pm.registries.landings["b/p1"] = {"kind": "low_level", "block": "b", "y_lo": -13.029,
+                                      "y_hi": -3.0, "ground_z": 289.5}
+    rows = CP.landing_rows(pm, law)
+    assert len(rows) == 6                                   # two per vertex, no own-ground row
+    for r in rows:
+        (v, cv), (d, cd) = r.terms
+        assert d == 0 and cv == -cd
+        assert r.hi == pytest.approx(-13.029 * cv)          # z_v - D = y_lo, both ways
+
+
+def _way(pts, **tags):
+    return types.SimpleNamespace(points=tuple(pts), tags={"highway": "secondary", **tags})
+
+
+def test_a_road_between_two_low_parts_is_on_the_lower_level(law):
+    """#1291 (owner RULINGS 2026-10-24a): a 14 m road between two low parts
+    stood on the block's level (a ridge over the lower level); it is on the
+    lower level, and a road that runs on over the block carries the low
+    level no further than one carriageway from it."""
+    low = [_part(0.0, 0.0, 90.0, 80.0, -13.0), _part(110.0, 0.0, 200.0, 80.0, -13.0)]
+    ap = _airport(FRONT + low)
+    gap = box(92.0, 5.0, 108.0, 75.0)
+    H0, L0, _S0, _r0 = plan_low(P, AIR, ap, law, 0.5)
+    assert L0.intersection(gap).area < 0.1 * gap.area      # the ridge
+    ap.osm_ways = (_way([(100.0, -10.0), (100.0, 80.0)], lanes="4"),
+                   # a bore never lowers the ground it runs under
+                   _way([(30.0, -10.0), (30.0, 99.0)], tunnel="yes"))
+    H, L, _S, _r = plan_low(P, AIR, ap, law, 0.5)
+    assert L.intersection(gap).area > 0.95 * gap.area
+    assert L.distance(AIR) >= 3.0 - 1e-6                     # the frontage stays high
+    assert H.area > 0.0
+    # a road leaving the lower level north over the block: one carriageway
+    ap.osm_ways = (_way([(150.0, 40.0), (150.0, 99.0)], lanes="2"),)
+    _H, L2, _S2, _r2 = plan_low(P, AIR, ap, law, 0.5)
+    assert L2.intersection(box(140.0, 80.0 + 7.0 + 3.5, 160.0, 100.0)).area < 1.0
+
+
+def test_a_block_piece_the_lower_level_cuts_off_the_frontage_is_low(law):
+    """#1291: a strip of the block between two low parts, fronting no
+    airside, is the lower level; the frontage block stays high."""
+    low = [_part(0.0, 0.0, 90.0, 80.0, -13.0), _part(110.0, 0.0, 200.0, 80.0, -13.0)]
+    # the island between the low parts is cut off from the frontage by a
+    # low part across its north end
+    low.append(_part(85.0, 70.0, 115.0, 82.0, -13.0))
+    H, L, _S, _r = plan_low(P, AIR, _airport(FRONT + low), law, 0.5)
+    assert L.intersection(box(92.0, 5.0, 108.0, 65.0)).area > 0.95 * 16.0 * 60.0
+    assert H.intersection(box(0.0, 95.0, 200.0, 100.0)).area > 0.9 * 200.0 * 5.0

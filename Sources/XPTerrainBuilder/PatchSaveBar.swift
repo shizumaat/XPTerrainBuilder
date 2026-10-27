@@ -20,8 +20,8 @@ struct PatchSaveBar: View {
                 note(doc.source == .manual
                      ? "The tile is out of date until you rebuild it. Fitting custom airport buildings is off for this airport while the edited ground shape is in use."
                      : "The tile is out of date until you rebuild it.")
+                // Never disabled by a running build: the tile joins it (#1322).
                 Button("Rebuild tile") { model.rebuildTile() }
-                    .disabled(model.build?.isBuilding ?? false)
             }
             if doc.isHandMade {
                 note("This airport ground shape was made outside the editor. Saving writes back to \(file); there is no automatic shape to go back to.")
@@ -38,7 +38,7 @@ struct PatchSaveBar: View {
                 }
                 Spacer(minLength: 4)
                 if canRevert, !confirmingRevert.value {
-                    Button(O4Glossary.term("undo_edits") + "…") { confirmingRevert.value = true }
+                    Button(O4Glossary.term("undo_edits")) { confirmingRevert.value = true }
                 }
                 Button(model.isSaving ? "Saving…" : O4Glossary.term("save_edits")) { Task { await model.save() } }
                     .buttonStyle(.borderedProminent)
@@ -60,7 +60,7 @@ struct PatchSaveBar: View {
             HStack {
                 Spacer()
                 Button("Cancel") { confirmingRevert.value = false }
-                Button(doc.source == .manual ? "Undo my edits" : "Discard edits", role: .destructive) {
+                Button(doc.source == .manual ? O4Glossary.term("undo_edits") : "Discard edits", role: .destructive) {
                     confirmingRevert.value = false
                     Task { await model.revertToAuto() }
                 }
@@ -121,7 +121,7 @@ struct PatchUnsavedPromptCard: View {
     }
 }
 
-/// File ▸ Save my edits (⌘S) — the airport ground shape.
+/// File ▸ Save (⌘S) — the airport ground shape.
 struct PatchSaveCommand: View {
     @ObservedObject var model: PatchEditModel
 

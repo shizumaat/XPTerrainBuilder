@@ -139,6 +139,29 @@ public struct O4PatchListEntry: Codable, Equatable, Sendable {
 
 public struct O4PatchList: Codable, Equatable, Sendable {
     public let airports: [O4PatchListEntry]
+
+    public init(airports: [O4PatchListEntry]) { self.airports = airports }
+
+    private enum CodingKeys: String, CodingKey { case airports }
+
+    /// Decodes entry by entry: one malformed entry (e.g. a null bbox from an
+    /// empty patch) is dropped and logged, never the whole listing.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var list = try c.nestedUnkeyedContainer(forKey: .airports)
+        var kept: [O4PatchListEntry] = []
+        while !list.isAtEnd {
+            do {
+                kept.append(try list.decode(O4PatchListEntry.self))
+            } catch {
+                _ = try? list.decode(SkippedEntry.self)
+                NSLog("patch_list: dropped an undecodable entry: \(error)")
+            }
+        }
+        airports = kept
+    }
+
+    private struct SkippedEntry: Decodable {}
 }
 
 /// One `[id, lat, lon, alt_or_null]` node row.
@@ -245,8 +268,14 @@ public struct O4PackOutlines: Codable, Equatable, Sendable {
     public struct Pavement: Codable, Equatable, Sendable {
         /// "pavement" or "boundary".
         public let kind: String
+        /// The row's description, or the kind (#1316); nil from an older
+        /// engine.
+        public let label: String?
         /// Exterior first, then the holes.
         public let rings: [[O4LatLon]]
+
+        /// The map's label: the engine's, else the kind.
+        public var mapLabel: String { (label?.isEmpty == false ? label : nil) ?? kind }
     }
 
     public let pavement: [Pavement]
@@ -307,6 +336,81 @@ public struct O4MeshCrop: Decodable, Equatable, Sendable {
     }
 }
 
+/// `cursor_elevation` (protocol 1.14, #1308): the built mesh's elevation
+/// at a point, else the DEM's; `pending` while the engine loads a source.
+public struct O4CursorElevation: Decodable, Equatable, Sendable {
+    public let elevationM: Double?
+    /// "mesh" or "dem"; nil when there is no value.
+    public let source: String?
+    public let pending: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case elevationM = "elevation_m", source, pending
+    }
+
+    /// The readout's suffix: `123.4 m`, `(DEM)` appended on the fallback.
+    public var readout: String? {
+        guard let elevationM else { return nil }
+        let metres = String(format: "%.1f m", elevationM)
+        return source == "dem" ? metres + " (DEM)" : metres
+    }
+}
+
+/// `terrain_relief` (protocol 1.15, #1320, owner Q134): the patch view's
+/// terrain picture — hillshade plus contour lines — over `bbox` (the asked
+/// box clipped to the tile), rows even in web-mercator Y so it lies on the
+/// map's projection; `pending` (and no picture) while the engine draws it.
+public struct O4TerrainRelief: Decodable, Equatable, Sendable {
+    public struct Legend: Decodable, Equatable, Sendable {
+        public let minM: Double?
+        public let maxM: Double?
+        public let contourM: Double
+
+        private enum CodingKeys: String, CodingKey {
+            case minM = "min_m", maxM = "max_m", contourM = "contour_m"
+        }
+
+        /// The legend row: `1 m contours · 100–110 m`.
+        public var text: String {
+            let step = String(format: "%g m contours", contourM)
+            guard let minM, let maxM else { return step }
+            return step + String(format: " · %.0f–%.0f m", minM, maxM)
+        }
+    }
+
+    public let pending: Bool
+    /// The PNG file's bytes; nil while pending.
+    public let png: Data?
+    public let width: Int
+    public let height: Int
+    public let bbox: O4LatLonBox
+    /// "mesh", "dem" or "mixed"; nil while pending or with no elevation there.
+    public let source: String?
+    public let legend: Legend?
+
+    private enum CodingKeys: String, CodingKey {
+        case pending, png = "png_b64", width, height, bbox, source, legend
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pending = try c.decode(Bool.self, forKey: .pending)
+        if let text = try c.decodeIfPresent(String.self, forKey: .png) {
+            guard let data = Data(base64Encoded: text) else {
+                throw O4CommandError("The engine's terrain picture is not base64.")
+            }
+            png = data
+        } else {
+            png = nil
+        }
+        width = try c.decode(Int.self, forKey: .width)
+        height = try c.decode(Int.self, forKey: .height)
+        bbox = try c.decode(O4LatLonBox.self, forKey: .bbox)
+        source = try c.decodeIfPresent(String.self, forKey: .source)
+        legend = try c.decodeIfPresent(Legend.self, forKey: .legend)
+    }
+}
+
 public struct O4PackObjects: Decodable, Equatable, Sendable {
     public struct Model: Decodable, Equatable, Sendable {
         public let key: String
@@ -358,8 +462,10 @@ public struct O4PackObjects: Decodable, Equatable, Sendable {
     public struct Facade: Decodable, Equatable, Sendable {
         public let ring: [O4LatLon]
         public let heightM: Double
+        /// The facade's `.fac` path (#1316); nil from an older engine.
+        public let defPath: String?
 
-        private enum CodingKeys: String, CodingKey { case ring, heightM = "height_m" }
+        private enum CodingKeys: String, CodingKey { case ring, heightM = "height_m", defPath = "def" }
     }
 
     public let models: [Model]

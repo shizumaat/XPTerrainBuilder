@@ -15,10 +15,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-
 import O4_Config_Utils as CFG  # noqa: E402
 import O4_UI_Utils as UI  # noqa: E402
+import pytest  # noqa: E402
 
 
 class _Dir:
@@ -28,6 +27,9 @@ class _Dir:
         self.build_dir = build_dir
 
     make_dirs = CFG.Tile.make_dirs
+
+    def _check_elevation_folder(self):
+        """The elevation-link pre-flight (#1167) has its own twin."""
 
 
 @pytest.fixture

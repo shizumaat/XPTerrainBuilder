@@ -46,10 +46,13 @@ def test_an_agl_row_on_a_deck_is_not_converted():
         _row("OBJECT", None, path="objects/hangar.obj")])
     conv, kept = W.conversions_for_dump(dump)
     assert [c.index for c in conv] == [1] and kept == []
-    # a SINK (negative column) is not a lift: it converts as before
+    # a SINK (negative column) is not a lift — and is never stripped
+    # without a seat (#1214 round 3, R2: LFPG H17 rose 2.3 m)
     sunk = types.SimpleNamespace(placements=[_row("OBJECT_AGL", -0.45)])
     assert AL.is_sink(sunk.placements[0])
-    assert [c.index for c in W.conversions_for_dump(sunk)[0]] == [0]
+    assert W.conversions_for_dump(sunk)[0] == []
+    assert [c.index for c in W.conversions_for_dump(
+        sunk, convert_agl={0})[0]] == [0]
     plan = types.SimpleNamespace(units=(), contacts=(), flat=None, authored_seats=())
     ss = types.SimpleNamespace(unit_seats=())
     conv, msl, riders, counts = PW.dump_rows(dump, plan, ss, (), _flat(), "",
@@ -127,7 +130,9 @@ def test_a_rigid_placement_over_sloping_ground_is_still_split(tmp_path):
     """The other way: the ground falls 1 m per 100 m along the fence, so a
     rigid placement at its row floats or sinks by metres at its far end —
     our ground requires the split, and it stands.  An AGL fence's bodies
-    keep the author's 3 m lift on their rows."""
+    are seated by their own feet on our ground, so they keep NO lift (owner
+    RULINGS 2026-10-22b, #1214: a re-seated footed frame moves as one and
+    the author's lift would float it); the rows are written on-ground."""
     path, _n = _fence(tmp_path, 400.0)
     plan = _fence_plan(path, 400.0)
     slope = lambda la, lo: 100.0 + (lo + 3.0) * 85000.0 * 0.01    # noqa: E731
@@ -139,10 +144,10 @@ def test_a_rigid_placement_over_sloping_ground_is_still_split(tmp_path):
                          rows=_rows_for(path, "OBJECT_AGL", 3.0),
                          authored_keep_tol_m=TOL)
     assert len(ss.splits) == 1
-    assert all(b.lift_m == 3.0 for b in ss.splits[0].bodies)
+    assert all(b.lift_m == 0.0 for b in ss.splits[0].bodies)
     splits, _k = PP.to_placement_records(ss)
-    assert all(b.lift_m == 3.0 for b in splits[0].bodies)
-    assert all(b.to_dict()["lift_m"] == 3.0 for b in splits[0].bodies)
+    assert all(b.lift_m == 0.0 for b in splits[0].bodies)
+    assert all("lift_m" not in b.to_dict() for b in splits[0].bodies)
 
 
 def test_lands_needs_a_row_and_a_surface():

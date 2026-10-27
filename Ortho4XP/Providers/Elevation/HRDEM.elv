@@ -13,6 +13,10 @@
 # airport bounding boxes.
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=CAN
+
 # Named fetch strategy implemented in code: a STAC /search query for
 # intersecting items, then a mosaic + warp of their Cloud-Optimized GeoTIFF
 # Digital Terrain Model assets through GDAL's virtual file system.
@@ -53,6 +57,12 @@ native_resolution_m=1
 # This is the box that keeps Portland, Seattle and the whole northwest
 # of the United States out.
 coverage_bbox=-141.0,48.9,-95.15,84.0
+# Southern Vancouver Island (Victoria, Saanich, Sooke): Canada BELOW the
+# 49th parallel, which the box above left out -- CYYJ (48.65 N) never asked
+# HRDEM (#1205).  East edge Haro Strait, south edge the Juan de Fuca
+# border; the corner it shares with Washington's Cape Flattery is kept off
+# US airports by the country rule (country=CAN, RULINGS 2026-10-20bc).
+coverage_bbox=-128.5,48.38,-123.25,48.9
 # Ontario and the Great Lakes, south to Middle Island (41.68 N), Canada's
 # southernmost point.  Southern Ontario lies SOUTH of Minneapolis, so a
 # rectangle holding Toronto necessarily holds the upper Midwest and the

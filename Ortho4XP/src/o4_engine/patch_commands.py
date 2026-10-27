@@ -1,6 +1,8 @@
 """The patch editor's engine commands (spec patch-editor-20261015 §2,
 protocol 1.12): ``patch_list``, ``patch_load``, ``patch_save``,
-``patch_revert``.
+``patch_revert``; and the custom-patch commands of #1229 (owner RULINGS
+2026-10-26c): ``custom_patches`` (the map band, the tile info line) and
+``use_auto_patch`` (sets a tile's custom patches aside, never deletes).
 
 Plain synchronous functions on the JSON-lines read loop (registered in
 ``o4_engine.jsonl``), like ``failure_report``: they read and write files in
@@ -20,12 +22,14 @@ from __future__ import annotations
 import os
 import typing as _t
 
+import O4_Custom_Patches as CUSTOM
 import O4_File_Names as FNAMES
 
 from . import patch_file as PF
 
 
-__all__ = ["patch_list", "patch_load", "patch_save", "patch_revert", "law_identity"]
+__all__ = ["patch_list", "patch_load", "patch_save", "patch_revert",
+           "custom_patches", "use_auto_patch", "law_identity"]
 
 
 def law_identity() -> tuple[float, int]:
@@ -64,7 +68,9 @@ def _effective_patch(directory: str, icao: str) -> tuple[str, str] | None:
 
 def patch_list(tile: str) -> dict:
     """ENGINE COMMAND ``patch_list``: the airports with a patch in *tile*'s
-    Patches folder, each with the patch the build applies."""
+    Patches folder, each with the patch the build applies.  A patch with no
+    nodes (an airport whose emit came out empty) has no box and is skipped,
+    so one empty file never breaks the listing."""
     directory = _patch_dir(tile)
     icaos = sorted({FNAMES.patch_file_icao(f) for f in
                     (os.listdir(directory) if os.path.isdir(directory) else ())
@@ -76,8 +82,11 @@ def patch_list(tile: str) -> dict:
             continue
         source, path = found
         doc = PF.read_patch(path)
+        bbox = doc.bbox() if doc.nodes else None
+        if bbox is None:
+            continue
         airports.append({"icao": icao, "source": source, "path": path,
-                         "bbox": doc.bbox(), "nodes": len(doc.nodes),
+                         "bbox": bbox, "nodes": len(doc.nodes),
                          "ways": len(doc.ways)})
     return {"airports": airports}
 
@@ -173,10 +182,20 @@ def patch_revert(tile: str, icao: str) -> dict:
     if not os.path.isfile(path):
         raise ValueError(f"{icao} has no edited patch in tile {tile} to "
                          f"revert; a hand-made patch is renamed by hand")
-    target = path + ".disabled"
-    n = 2
-    while os.path.exists(target):
-        target = f"{path}.disabled.{n}"
-        n += 1
-    os.rename(path, target)
-    return {"disabled_path": target}
+    return {"disabled_path": CUSTOM.set_aside(path)}
+
+
+def custom_patches() -> dict:
+    """ENGINE COMMAND ``custom_patches``: every tile of the data root with a
+    custom patch, ``{"tiles": [{"lat", "lon", "files"}]}`` — the map's
+    band and the tile info's "Custom patch" line (#1229)."""
+    return {"tiles": CUSTOM.custom_patch_tiles()}
+
+
+def use_auto_patch(tile: str, icao: str = "") -> dict:
+    """ENGINE COMMAND ``use_auto_patch``: set aside *tile*'s custom patches
+    (only *icao*'s when given) as ``….disabled`` so the next build
+    auto-patches those airports; never deletes (#1229).  A tile with no
+    custom patch is refused with the user's sentence."""
+    lat, lon = _tile(tile)
+    return {"set_aside": CUSTOM.use_auto_patch(lat, lon, icao or None)}

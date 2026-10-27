@@ -306,6 +306,34 @@ def _restore_ambient_data_root():
         os.environ.pop(_AMBIENT_DATA_ROOT_VARIABLE, None)
 
 
+#: The Qt window's user files: its preferences and the tile-scan cache.
+_QT_USER_FILES = ("PREFS_FILE", "TILE_SCAN_CACHE_FILE")
+
+
+@pytest.fixture(autouse=True)
+def _qt_user_files_never_reach_the_checkout(tmp_path_factory):
+    """No test writes the REAL Qt preferences (issue #1240).
+
+    ``O4_Qt_GUI`` resolves them at import, under the data root, which a
+    test run makes the checkout itself.  Each window fixture monkeypatches
+    them, but a window saves again when it closes, and one closed at
+    garbage collection or at the QApplication's exit closes AFTER that
+    monkeypatch is undone: the checkout's ``.qt_prefs.json`` was left with
+    a deleted pytest folder as its output folder, so the Qt app run from
+    the checkout found no built tiles (no patch editor) on the owner's Mac.
+    Pointed here, for the whole run and never undone, at a session folder;
+    a test's own monkeypatch restores to it."""
+    gui = sys.modules.get("O4_Qt_GUI")
+    if gui is not None:
+        folder = tmp_path_factory.getbasetemp() / "qt_user_files"
+        folder.mkdir(exist_ok=True)
+        for name in _QT_USER_FILES:
+            current = getattr(gui, name, "")
+            if not str(current).startswith(str(folder)):
+                setattr(gui, name, str(folder / os.path.basename(current)))
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _no_modal_first_run_wizard(monkeypatch):
     """No test opens the REAL first-run wizard by accident.
@@ -326,6 +354,10 @@ def _no_modal_first_run_wizard(monkeypatch):
     gui = sys.modules.get("O4_Qt_GUI")
     if gui is not None and hasattr(gui, "MainWindow"):
         monkeypatch.setattr(gui.MainWindow, "run_wizard",
+                            lambda self: None)
+        # Its sibling at launch writes the global config (the checkout's,
+        # under a test run): off unless a test patches it back.
+        monkeypatch.setattr(gui.MainWindow, "_apply_default_preset_if_unset",
                             lambda self: None)
     yield
 
@@ -348,6 +380,27 @@ def _dds_cache_is_per_test(monkeypatch, tmp_path_factory, request):
         _DDS_CACHE_BASE = str(tmp_path_factory.mktemp("dds_cache"))
     slot = hashlib.sha256(request.node.nodeid.encode()).hexdigest()[:16]
     monkeypatch.setenv("O4_DDS_CACHE_DIR", os.path.join(_DDS_CACHE_BASE, slot))
+    yield
+
+
+_EDIT_CACHE_STATE_BASE = None
+
+
+@pytest.fixture(autouse=True)
+def _edit_cache_session_is_per_test(monkeypatch, tmp_path_factory, request):
+    """No test lists or sweeps an edit-cache session in the user's
+    ``~/.ortho4xp/edit_cache`` (``O4_Edit_Cache``, #1323), and no test
+    inherits another test's session list through the environment.  The
+    folder is only named here; nothing is created until a list is."""
+    global _EDIT_CACHE_STATE_BASE
+    import O4_Edit_Cache as EDITCACHE
+    if _EDIT_CACHE_STATE_BASE is None:
+        _EDIT_CACHE_STATE_BASE = str(tmp_path_factory.mktemp("edit_cache"))
+    slot = hashlib.sha256(request.node.nodeid.encode()).hexdigest()[:16]
+    monkeypatch.setenv(EDITCACHE.STATE_ENV,
+                       os.path.join(_EDIT_CACHE_STATE_BASE, slot))
+    monkeypatch.delenv(EDITCACHE.LIST_ENV, raising=False)
+    monkeypatch.setattr(EDITCACHE, "_owned", {})
     yield
 
 
@@ -1250,6 +1303,16 @@ def pytest_configure(config):
     # test that wants a pool asks for one (``WorkPool(workers=N)``).
     from auto_patch_v2.airport import pool as _v2_pool
     _v2_pool.configure(1)
+    # THE MACHINE BUDGET IS NOT UNDER TEST HERE (#1225): a CI runner (2-4
+    # cores, 7-16 GB) measures one slot and sits below the live memory
+    # gate's headroom for good, which serialises every scheduling test.
+    # The suite runs a fixed, ungated session; the slot tests that exercise
+    # the gate or the measured capacity unset these themselves.  Same hook
+    # rule as above: never at import.
+    import O4_Machine_Slots as _slots
+    os.environ[_slots.ENV_UNGATED] = "1"
+    if not os.environ.get(_slots.ENV_DIR):
+        os.environ.setdefault(_slots.ENV_CAPACITY, "16")
     if os.environ.get("O4_SUITE_WRITE_AUDIT", "0") != "1":
         return
     out = os.environ.get("O4_SUITE_WRITE_AUDIT_OUT", "").strip()

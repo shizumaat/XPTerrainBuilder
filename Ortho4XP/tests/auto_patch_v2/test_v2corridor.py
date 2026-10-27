@@ -510,7 +510,7 @@ def test_no_per_airport_table_remains_and_law_c_reads_the_same_everywhere(objs, 
     from auto_patch_v2 import law as law_pkg
     from auto_patch_v2.law import DEFAULT_LAW_DIR
     from auto_patch_v2.law.model import TABLE_FILES
-    assert "airports.toml" not in TABLE_FILES and len(TABLE_FILES) == 7
+    assert "airports.toml" not in TABLE_FILES and len(TABLE_FILES) == 9
     assert not (DEFAULT_LAW_DIR / "airports.toml").exists()
     assert not hasattr(law, "affordances") and not hasattr(law.tables, "airports")
     assert not hasattr(law_pkg, "Affordances") and not hasattr(law_pkg, "NO_AFFORDANCES")

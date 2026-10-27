@@ -9,6 +9,10 @@
 # CRS, so the warp assigns EPSG:25832.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=DEU
 access_strategy=tile_grid_http
 
 tile_url_template={file_name}

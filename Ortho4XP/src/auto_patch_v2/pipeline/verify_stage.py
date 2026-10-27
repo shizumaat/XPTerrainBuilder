@@ -106,6 +106,13 @@ def install(icao: str, v: Verdict, served: bool, report: dict, wall: dict,
     verdict says "served" where the census clock was); returns the rows."""
     from ..verify.census import under_floor_text
     vrows, defects, under_floor = v.rows, v.defects, v.under_floor
+    # THE EMITTED RING IS SIMPLE (issue #1275): a folded ring the emit stage
+    # read on the rings as written is a structural DEFECT of the product
+    from ..emit.ring_fold import FAMILY_RING_FOLD
+    folds = report.get("ring_folds") or []
+    if folds:
+        defects = {**defects, FAMILY_RING_FOLD: len(folds)}
+        vrows = {**vrows, FAMILY_RING_FOLD: folds}
     summary = {k: len(rows) for k, rows in vrows.items()}
     clock = "served" if served else f"{v.census_s:.2f} s"
     out(f"[{icao}] verify {clock}  rows "

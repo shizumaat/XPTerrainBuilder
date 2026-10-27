@@ -28,6 +28,8 @@ from . import approach as _approach
 from . import apt_dat as _apt
 from . import borrow as _borrow
 from . import cifp as _cifp
+from . import end_pins as _end_pins
+from . import runway_refs as _refs
 from . import dem as _dem
 from . import dsf as _dsf
 from . import dsf_write as _dw
@@ -133,6 +135,12 @@ class LoadReport:
     #: #119: one line per end joined (or REFUSED as ambiguous) by its
     #: threshold coordinate after its designator matched nothing
     cifp_coordinate_joins: tuple[str, ...] = ()
+    #: THE RUNWAY-END PIN RULE (``end_pins.verify``; RULINGS 2026-10-25a):
+    #: one record per runway end, the loud lines, and the cross-check
+    #: sources whose cache held this airport
+    end_pins: list = _dc.field(default_factory=list)
+    end_pin_lines: tuple[str, ...] = ()
+    end_pin_crosscheck: tuple[str, ...] = ()
     buildings_by_source: dict[str, int] = _dc.field(default_factory=dict)
     dsf_dump_path: str | None = None
     #: the pack's tile DSF is newer than every cached text dump (refused)
@@ -184,6 +192,9 @@ class LoadReport:
     #: The flat-site verdict record (``airport/flat_site.record``; set by
     #: the pipeline once the detector ran — ``report.load.flat_site``).
     flat_site: dict | None = None
+    #: The flat-pack witness record (``airport/flat_pack.record``; set by
+    #: the pipeline once the pack partition is read — ``report.load.flat_pack``).
+    flat_pack: dict | None = None
     #: the runway chord fit's coverage (RULINGS 2026-09-08d (1); ``constraints/runway_chord.py``)
     runway_chord: dict | None = None
     #: the taxi chains' trend fit coverage (owner RULINGS 2026-09-10v (1);
@@ -250,6 +261,10 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     tol = float(law.tables.emit.identity.cifp_threshold_join_m)
     recs, missing, joins = join_cifp(icao, apt.runways, cifp, to_xy, tol)
     approaches = (_cifp.read_cifp_approach_runways(cifp_path) if cifp else {})
+    # #1358 (2): an end whose CIFP record lies beyond it on a SHIFTED runway
+    # is pinned on the two thresholds' CIFP line (``end_pins.shifted_ends``)
+    shifted, shift_lines = _end_pins.shifted_ends(icao, apt.runways, cifp, recs, to_xy, tol)
+    joins = [*joins, *shift_lines]
     for _log_line in joins:
         _log.info(_log_line)
     for i, rw in enumerate(apt.runways):
@@ -264,9 +279,23 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                 approaches.get(rec.designator) if rec is not None else None,
                 *(getattr(rw, f, (0, 0))[k]
                   for f in ("markings", "approach_lights", "tdz_lights")))
+            # #1358: a joined CIFP record pins at ITS OWN landing threshold,
+            # projected onto the axis (``end_pins.cifp_station``)
+            other = rw.ends[1 - k]
+            along = (_end_pins.cifp_station(to_xy(lon, lat), to_xy(other[2], other[1]),
+                                            to_xy(rec.lon, rec.lat))
+                     if rec is not None else None)
+            if (i, k) in shifted:
+                z_line, far = shifted[(i, k)]
+                ends.append(RunwayEnd(desig, to_xy(lon, lat), (lat, lon), disp, over,
+                                      z_line, far.source, cls, cat, pin_along_m=None,
+                                      pin_source=_end_pins.SHIFTED))
+                continue
             ends.append(RunwayEnd(desig, to_xy(lon, lat), (lat, lon), disp,
                                   over, rec.elevation_m if rec else None,
-                                  rec.source if rec else "", cls, cat))
+                                  rec.source if rec else "", cls, cat,
+                                  pin_along_m=along,
+                                  pin_source="cifp" if rec is not None else ""))
         # INSTRUMENT: either end has an approach (``Runway.instrument``, the
         # status the RESA and the strip's end length are read by)
         instrument = any(is_instrument(e.approach) for e in ends)
@@ -669,6 +698,16 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         boundaries, startups, tuple(osm_ways), tuple(buildings),
         tuple(dsf_objects), pack, dem, law.ruleset_key,
         gap_sheets=tuple(gap_sheets))
+    # THE RUNWAY-END PIN RULE (owner RULINGS 2026-10-25a / 26a; #1342):
+    # every CIFP end is verified on the DEM and the cached cross-check
+    # sources before it becomes a pin — ONE site (``end_pins``)
+    refs = _refs.lookup(icao, inputs.mod_cache_root,
+                        law.tables.runway_ends.crosscheck_order)
+    airport, rep.end_pins, end_lines = _end_pins.verify(airport, law, refs)
+    rep.end_pin_lines = tuple(end_lines)
+    rep.end_pin_crosscheck = tuple(src for src, _e in refs)
+    for _line in end_lines:
+        _log.warning(_line)
     return airport, rep
 
 
@@ -732,8 +771,10 @@ def join_cifp(icao: str, runways: _t.Sequence[_t.Any],
     runways were built with no pins at all (#117).
 
     A DESIGNATOR JOIN MUST AGREE IN PLACE (issue #994): a record whose
-    landing threshold lies farther than ``tol_m`` from the end it named is
-    a different runway carrying that designator (KEDW: the apt.dat keeps
+    landing threshold lies OFF the end it named — off its centreline by
+    more than ``tol_m``, or outside its own half of the runway
+    (:func:`_off_own_end`) — is a different runway carrying that
+    designator (KEDW: the apt.dat keeps
     the lakebed runways as 05L/23R, 05R/23L, 07/25 and the paved ones as
     04L/22R, 04R/22L, 06/24, while the CIFP cycle renumbered the paved
     ones to 05L/23R, 05R/23L, 07/25 — the paved thresholds, 11 m above the
@@ -750,13 +791,10 @@ def join_cifp(icao: str, runways: _t.Sequence[_t.Any],
     for (i, k), r in out.items():
         if r is None:
             continue
-        x, y = _landing_xy(runways[i], k, to_xy)
-        rx, ry = to_xy(r.lon, r.lat)
-        dist = math.hypot(rx - x, ry - y)
-        if dist > tol_m:
+        why = _off_own_end(runways[i], k, to_xy(r.lon, r.lat), to_xy, tol_m)
+        if why:
             joins.append(f"CIFP designator join refused (#994): {icao} "
-                         f"{runways[i].ends[k][0]} -> {r.designator} lies "
-                         f"{dist:.1f} m from the end (radius {tol_m:g} m)")
+                         f"{runways[i].ends[k][0]} -> {r.designator} {why}")
             out[(i, k)] = None
     claimed = {r.designator for r in out.values() if r is not None}
     free_xy = {d: to_xy(r.lon, r.lat) for d, r in cifp.items() if d not in claimed}
@@ -776,6 +814,40 @@ def join_cifp(icao: str, runways: _t.Sequence[_t.Any],
             if out[(i, k)] is None:
                 missing.append(desig)
     return out, missing, joins
+
+
+def _off_own_end(rw: _t.Any, k: int, p: XY,
+                 to_xy: _t.Callable[[float, float], XY], tol_m: float) -> str:
+    """Why CIFP point ``p`` is NOT on apt.dat end ``k``'s own runway
+    threshold, or ``""`` when it is.
+
+    THE THRESHOLD IS WHATEVER THE AIRPORT DATA SAYS (owner RULINGS
+    2026-10-22a, issue #1238): a CIFP landing threshold may lie any
+    distance down the runway from the apt.dat end — the CIFP record names
+    the displaced distance, and the apt.dat's may differ (CYYJ 32: CIFP
+    390 ft, apt.dat 35 m; the old 30 m radius about the apt.dat threshold
+    refused it and the end lost its pin).  So the point is judged against
+    the runway's own geometry, with NO displaced-length cap: within
+    ``tol_m`` of the centreline, and along it from ``tol_m`` before the
+    end to the runway's midpoint (past the midpoint it is nearer the
+    reciprocal end — the other end's threshold, not this one's)."""
+    _desig, lat, lon, _disp, _over = rw.ends[k]
+    other = rw.ends[1 - k]
+    (x0, y0), (x1, y1) = to_xy(lon, lat), to_xy(other[2], other[1])
+    L = math.hypot(x1 - x0, y1 - y0)
+    if L <= 0.0:
+        d = math.hypot(p[0] - x0, p[1] - y0)
+        return "" if d <= tol_m else f"lies {d:.1f} m from the end (radius {tol_m:g} m)"
+    ux, uy = (x1 - x0) / L, (y1 - y0) / L
+    s = (p[0] - x0) * ux + (p[1] - y0) * uy
+    lat_off = abs((p[0] - x0) * uy - (p[1] - y0) * ux)
+    if lat_off > tol_m:
+        return (f"lies {lat_off:.1f} m off the runway centreline "
+                f"(tolerance {tol_m:g} m)")
+    if not -tol_m <= s <= L / 2.0:
+        return (f"lies {s:.1f} m along a {L:.0f} m runway from the end — "
+                f"outside its own half (from -{tol_m:g} m to {L / 2.0:.0f} m)")
+    return ""
 
 
 def _landing_xy(rw: _t.Any, k: int, to_xy: _t.Callable[[float, float], XY]) -> XY:

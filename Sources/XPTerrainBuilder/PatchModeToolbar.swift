@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The map's patch toolbar (mockup, top left): the View | Edit segmented
-/// control, Undo / Redo and the "Pack outlines" check box. Shown while the patch layer is drawn.
+/// control, Undo / Redo, the "Pack outlines" check box and the "Terrain"
+/// check box with its opacity slider (#1320). Shown while the patch layer is drawn.
 struct PatchModeToolbar: View {
     @ObservedObject var model: PatchEditModel
 
@@ -25,6 +26,10 @@ struct PatchModeToolbar: View {
                 if let outlines = model.build?.packOutlines {
                     Divider().frame(height: 16)
                     PackOutlinesToggle(outlines: outlines)
+                }
+                if let terrain = model.build?.terrainRelief {
+                    Divider().frame(height: 16)
+                    TerrainReliefToggle(relief: terrain)
                 }
             }
             .buttonStyle(.borderless)

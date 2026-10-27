@@ -162,6 +162,15 @@ the scope of the fix. `Ortho4XP/tests/test_no_airport_specific_code.py`
 gates it; its RECORDED set is empty since RULINGS 2026-10-05g and may never
 rise.
 
+## Two UIs, one layout (owner 2026-10-22, #1244)
+
+The Mac app (`Sources/XPTerrainBuilder`) is the layout authority; the Qt
+window (`Ortho4XP/src/O4_Qt_*.py`, what Windows and Linux users run)
+mirrors it. A change to either app's toolbar, build box or Settings lands
+in BOTH in the same PR, or records an owner-ruled exception in the
+manifest of `Ortho4XP/tests/test_qt_layout_parity.py`, which fails when
+the two differ. A spec that adds a control names its home in both apps.
+
 ## Cross-language wire protocol (silent-break hazard)
 
 `Ortho4XP/src/o4_engine/events.py` class names ARE the JSONL wire names

@@ -10,6 +10,10 @@
 # extraction) and window-read them directly.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=BEL
 access_strategy=xyz_archive_drop
 
 download_page=https://geoportail.wallonie.be/catalogue/fe13bc84-e7d7-4a1b-9adc-c3d5cbc350ee.html

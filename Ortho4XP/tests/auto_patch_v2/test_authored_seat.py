@@ -358,7 +358,8 @@ def test_a_kept_seat_keeps_its_dsf_row():
     # 2026-10-14g (1)) — neither converted nor re-expressed as MSL
     assert 3 in conv and 6 not in conv | msl and not riders
     assert counts["authored_rows_kept"] == 5
-    # THE CONTROL: with no record no LIFTED AGL row is touched (14g (1));
-    # the SUNK ones (rows 0, 4, 5: negative columns) convert as before
+    # THE CONTROL: with no record no LIFTED AGL row is touched (14g (1)),
+    # and neither is a SUNK one (rows 0, 4, 5: negative columns) — never
+    # stripped without a seat (#1214 round 3, R2)
     conv0, msl0, _r, counts0 = _rows_of(())
-    assert conv0 | msl0 == {0, 4, 5} and counts0["authored_rows_kept"] == 0
+    assert conv0 | msl0 == set() and counts0["authored_rows_kept"] == 0

@@ -55,6 +55,17 @@ struct SettingsView: View {
             detail(overrides: overrides)
         }
         .frame(minWidth: 840, idealWidth: 880, minHeight: 560, idealHeight: 620)
+        // "Edit settings…" in the tile pane (#1350) asks for a pane: the
+        // tile's Selected Overrides, whether the window is new or open.
+        .onAppear { takePaneRequest() }
+        .onChange(of: buildModel.settingsPaneRequest) { takePaneRequest() }
+    }
+
+    private func takePaneRequest() {
+        guard let pane = buildModel.settingsPaneRequest else { return }
+        query.value = ""
+        selection.value = pane
+        buildModel.settingsPaneRequest = nil
     }
 
     private var searchField: some View {
@@ -184,6 +195,15 @@ private struct GeneralPane: View {
             // The preset cards (#822): one click sets a fixed set of keys.
             Section {
                 PresetCardsView()
+                // The build detail level (#1242): here, not in the build pane.
+                Picker(O4Glossary.term("detail"), selection: Binding(
+                    get: { buildModel.buildZL },
+                    set: { buildModel.objectWillChange.send(); buildModel.buildZL = $0 })) {
+                    ForEach(12...21, id: \.self) { zl in
+                        Text(O4Glossary.detailChoice(zl)).tag(zl)
+                    }
+                }
+                .help("More detail means sharper imagery and much larger downloads: one step (one ZL) ≈ 4× the data. Most sources top out below ZL21 — the map's zoom badge shows each source's ceiling.")
             }
             Section("Application") {
                 LabeledContent("Version") {

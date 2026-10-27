@@ -229,5 +229,7 @@ class TestR17c2TheFeatherStopsAtTheWall:
         src = inspect.getsource(INSETS.overlay_flat_site_insets)
         grower = inspect.getsource(INSETS._flat_site_inset)
         assert '"extent_tile_degrees": [x0, y0, x1, y1]' in src
-        assert '_feather_outward_extent(tile, *extent_deg, feather_m)' in grower
-        assert '_flat_site_inset(\n            tile, (x0, y0, x1, y1)' in src
+        # RE-SCOPED 2026-10-21 (#1144, RULINGS 2026-10-20ag): the grown
+        # raster is the FOOTPRINT ⊕ feather; the stamp keeps the box.
+        assert '_grow_footprint(tile, footprint, feather_m)' in grower
+        assert '_flat_site_inset(\n            tile, _footprint_of(substitution)' in src

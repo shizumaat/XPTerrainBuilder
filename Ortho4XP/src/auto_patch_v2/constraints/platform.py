@@ -557,9 +557,25 @@ def landing_rows(planar: PlanarMap, law: Law,
         return []
     held = datum_vertices(planar, law, fills=True)
     rows: list[Row] = []
-    n = n_none = 0
+    n = n_none = n_group = 0
+    table = None
     for ref, vs in sorted(landing_vertices(planar).items()):
         rec = planar.registries.landings[ref]
+        if rec.get("kind") == "low_level" and rec.get("air_xy"):
+            # THE GROUP'S LOWER LEVEL (``planar/group_low``, #1214 round 7):
+            # held at the group's zero read on the airside, never at its
+            # pad's datum (``constraints/group_level``)
+            from .group_level import group_level_rows, witness_index
+            if table is None:
+                table = witness_index(planar, law)
+            src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-23b/f the group's lower "
+                         "level held at the group's zero + its feet plane)",
+                         (f"low_level:{ref}", ref, f"platform:{rec['block']}"))
+            got = group_level_rows(ref, vs, rec, src, table)
+            n_group += bool(got)
+            n_none += not got
+            rows.extend(got)
+            continue
         dv = held.get(rec["block"])
         if dv is None:
             n_none += 1
@@ -567,53 +583,29 @@ def landing_rows(planar: PlanarMap, law: Law,
         n += 1
         if rec.get("kind") == "low_level":
             # A LOWER LEVEL (owner RULINGS 2026-10-19ai, ``planar/low_level``):
-            # banded to its block, ``D + y_lo <= z <= D + y_hi`` — its own
-            # ground places it inside the object's storey
-            lo, hi = float(rec["y_lo"]), float(rec["y_hi"])
+            # a RIGID level tied to its block at the object's own lower
+            # floor, ``z = D + y_lo`` -- the floor the unit's low parts stand
+            # on, so the object meets its lower ground (#1141: "the bottom
+            # road deck sits at ground level").  Its own ground placed it
+            # 1.64 m over that floor at KATL and buried the roadway's
+            # towers; the ground no longer chooses the level.
+            y = float(rec["y_lo"])
             src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-19ai the lower "
-                         "level banded to its block within the object's storey)",
+                         "level held at its block's level + the object's lower floor)",
                          (f"low_level:{ref}", ref, f"platform:{rec['block']}"))
-            for v in vs:
-                if v == dv:
-                    continue
-                rows.append(Linear(((v, 1.0), (dv, -1.0)), None, hi, src))
-                rows.append(Linear(((v, -1.0), (dv, 1.0)), None, -lo, src))
-            rows.extend(_own_ground_rows(planar, ref, vs, rec.get("ground_z")))
-            continue
-        y = float(rec["y"])
-        src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-03e the ramp "
-                     "landing held at its unit's level + the deck's y)",
-                     (f"landing:{ref}", ref, f"platform:{rec['block']}"))
+        else:
+            y = float(rec["y"])
+            src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-03e the ramp "
+                         "landing held at its unit's level + the deck's y)",
+                         (f"landing:{ref}", ref, f"platform:{rec['block']}"))
         for v in vs:
             if v == dv:
                 continue
             rows.append(Linear(((v, 1.0), (dv, -1.0)), None, y, src))
             rows.append(Linear(((v, -1.0), (dv, 1.0)), None, -y, src))
     STATS["landing_rows"] = {"landings": n, "landings_no_datum": n_none,
-                             "rows": len(rows)}
+                             "group_levels": n_group, "rows": len(rows)}
     return rows
-
-
-def _own_ground_rows(planar: PlanarMap, ref: str, vs: _t.Sequence[int],
-                     ground: "float | None") -> list[Row]:
-    """A LOWER LEVEL STANDS ON ITS OWN GROUND (owner RULINGS 2026-10-19ai):
-    its mean is its ground's (``planar/low_level._ground``: the DEM
-    median over its area, read at the mint), at the pad's frontage-level price (the
-    ``frontage_level`` head: ``pad_flat``, the pad follows) — the band to
-    the block bounds it.  Without it the level has no datum at all: its
-    shape is the apron's (pads are value roles), whose body carries the
-    apron trend, so no §9b plane reaches it — MEASURED KATL on the gap-free
-    base map, where no road holds it, it floated to its band's top."""
-    from .pads import LEVEL_RULING
-    if not vs or ground is None:
-        return []
-    w = 1.0 / len(vs)
-    mean = float(ground)
-    src = Source(GEN, LEVEL_RULING + " (RULINGS 2026-10-19ai the lower level "
-                 "on its own ground)", (f"low_level:{ref}", ref))
-    fol = tuple(vs)
-    return [Linear(tuple((v, w) for v in vs), None, mean, src, follows=fol),
-            Linear(tuple((v, -w) for v in vs), None, -mean, src, follows=fol)]
 
 
 def _contact_sets(planar: PlanarMap, law: Law

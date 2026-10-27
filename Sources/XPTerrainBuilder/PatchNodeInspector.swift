@@ -2,15 +2,17 @@ import SwiftUI
 import SceneryKit
 
 /// The Patch box's node inspector in Edit mode (patch-editor spec §4,
-/// mockup): one node — lat/lon, the elevation field (m, with ft and the
-/// loaded value), "Used by", Delete; several — the elevation range, "Set
-/// to", "Offset", Delete N.
+/// mockup): one node — lat/lon (a click copies `lat, lon`, #1281), the
+/// elevation field (m, with ft and the loaded value), "Used by", Delete;
+/// several — the elevation range, "Set to", "Offset", Delete N.
 struct PatchNodeInspector: View {
     @ObservedObject var model: PatchEditModel
     let doc: PatchDocument
     @StateObject private var altText = ViewState("")
     @StateObject private var setText = ViewState("")
     @StateObject private var offsetText = ViewState("")
+    /// "Copied" shows in the header for `PatchClipboard.copiedNoteSeconds`.
+    @State private var copied = false
 
     static let feetPerMetre = 3.280839895
 
@@ -27,6 +29,12 @@ struct PatchNodeInspector: View {
         }
     }
 
+    /// One node coordinate as the node info shows it: 9 decimals.
+    static func coord(_ value: Double) -> String { String(format: "%.9f", value) }
+
+    /// A position in the node format: `lat, lon`, 9 decimals each.
+    static func latLon(lat: Double, lon: Double) -> String { "\(coord(lat)), \(coord(lon))" }
+
     // MARK: - One node
 
     @ViewBuilder
@@ -34,10 +42,17 @@ struct PatchNodeInspector: View {
         HStack {
             Text("Node \(node.id)").scaledFont(.callout, weight: .semibold)
             Spacer()
-            Text("1 selected").scaledFont(.caption).foregroundStyle(.secondary)
+            Text(copied ? "Copied" : "1 selected").scaledFont(.caption).foregroundStyle(.secondary)
         }
-        row("lat", String(format: "%.9f", node.lat))
-        row("lon", String(format: "%.9f", node.lon))
+        Button { PatchClipboard.copy(Self.latLon(lat: node.lat, lon: node.lon), noting: $copied) } label: {
+            VStack(spacing: 6) {
+                coordinateRow("lat", Self.coord(node.lat))
+                coordinateRow("lon", Self.coord(node.lon))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Click to copy “lat, lon”")
         HStack(spacing: 6) {
             Text("Elevation").foregroundStyle(.secondary)
             TextField(node.alt == nil ? "from the mesh" : "", text: $altText.value)
@@ -114,11 +129,13 @@ struct PatchNodeInspector: View {
 
     static func metres(_ alt: Double?) -> String { alt.map { String(format: "%.2f", $0) } ?? "" }
 
-    private func row(_ key: String, _ value: String) -> some View {
+    /// A lat or lon row inside the copy button (no text selection there:
+    /// the click copies).
+    private func coordinateRow(_ key: String, _ value: String) -> some View {
         HStack {
             Text(key).foregroundStyle(.secondary)
             Spacer()
-            Text(value).scaledFont(.callout, monospacedDigit: true).textSelection(.enabled)
+            Text(value).scaledFont(.callout, monospacedDigit: true)
         }
         .scaledFont(.callout)
     }

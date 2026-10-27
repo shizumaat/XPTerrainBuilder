@@ -38,6 +38,14 @@ public struct TileTextureAudit: Sendable, Equatable {
     private static let ddsPattern =
         #/^\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$/#
 
+    /// Provider and ZL of an Ortho4XP texture or terrain file stem
+    /// (extension removed); nil when the name isn't Ortho4XP-shaped.
+    static func parseStem(_ stem: String) -> (provider: String, zl: Int)? {
+        guard let match = stem.wholeMatch(of: ddsPattern), let zl = Int(match.2)
+        else { return nil }
+        return (String(match.1), zl)
+    }
+
     /// Aggregation of several tiles' audits (multi-tile selection): who
     /// conflicts, which sources are in play, and the on-disk split between
     /// in-use and unused textures across the conflicted tiles.

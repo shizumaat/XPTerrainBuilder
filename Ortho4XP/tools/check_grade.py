@@ -2811,7 +2811,8 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                                   ll_to_m,
                                   runway_axes_ll: Optional[list] = None,
                                   road_cap_governs_ll: Optional[list] = None,
-                                  end_profile_yields_ll: Optional[list] = None
+                                  end_profile_yields_ll: Optional[list] = None,
+                                  natural_shore_ll: Optional[list] = None
                                   ) -> List[Violation]:
     """THE GROUND BEYOND A RUNWAY END, as v2 emits it (owner RULINGS
     2026-10-12q (1) (d); #620): every ``graded_strip`` ring in a runway's
@@ -2862,7 +2863,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     # ... and the end-area lip of non-runway pavement (RULINGS 2026-10-15j):
     # ONE exemption with the generator and verify (``end_exempt_geometry``)
     cap_geom = end_exempt_geometry(road_cap_governs_ll, end_profile_yields_ll,
-                                   ll_to_m, law)
+                                   ll_to_m, law, natural_shore_ll)
 
     def road(pt) -> bool:
         return cap_geom is not None and cap_geom.covers(_Pt(pt[0], pt[1]))
@@ -4056,7 +4057,31 @@ def _runway_strip_keepout_rings(ways: List[Way], nodes, ll_to_m):
     return rings
 
 
-def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
+#: the RUNWAY strips a pack portal's cut may stand in (RULINGS 2026-10-26k);
+#: a taxiway's strip still refuses it
+_PORTAL_STRIP_ROLES = frozenset({"runway", "runway_crossing"})
+
+
+def _portal_cut_regions(portal_cuts_ll, ll_to_m):
+    """The rim polygons, in metres, of the cuts a pack portal pins
+    (``pipeline/publication.portal_cuts``; owner RULINGS 2026-10-26k: they
+    may stand inside the RUNWAY strip keep-out) — the shape of
+    :func:`_object_cut_regions`, one witness for both strip families."""
+    from shapely.geometry import Polygon
+    out = []
+    for rec in (portal_cuts_ll or []):
+        ring = [ll_to_m(float(la), float(lo)) for la, lo in (rec.get("outline_ll") or [])]
+        if len(ring) < 3:
+            continue
+        g = Polygon(ring)
+        g = g if g.is_valid else g.buffer(0)
+        if not g.is_empty:
+            out.append(g)
+    return out
+
+
+def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m,
+                                   portal_cuts_ll: Optional[list] = None
                                    ) -> List[Violation]:
     """Every ``retaining_wall`` vertex standing inside a runway strip
     footprint (owner ruling 2026-08-01).  Cap ZERO — a wall there is
@@ -4066,6 +4091,8 @@ def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
     rings = _runway_strip_keepout_rings(ways, nodes, ll_to_m)
     if not rings:
         return []
+    from shapely.geometry import Point
+    portal = _portal_cut_regions(portal_cuts_ll, ll_to_m)
     out: List[Violation] = []
     for w in ways:
         if w.role != "retaining_wall":
@@ -4077,6 +4104,8 @@ def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
             if not any(_point_in_rect_ring(x, y, r, _WALL_STRIP_MARGIN_M)
                        for r in rings):
                 continue
+            if any(g.distance(Point(x, y)) <= SHARED_VERTEX_TOL_M for g in portal):
+                continue     # RULINGS 2026-10-26k: a pack portal's own cut
             z = w.elevs[k] if k < len(w.elevs) else None
             z = 0.0 if z is None else float(z)
             out.append(Violation(
@@ -4136,7 +4165,8 @@ def _pavement_edge_junction_nids(ways):
     return owned, pavement_edge_junction
 
 
-def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
+def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m,
+                                    natural_shore_ll: Optional[list] = None
                                     ) -> Tuple[List[Violation], int, int]:
     """``(violations, n_pairs, n_ways)`` — every strip-band pair whose
     ALONG-RUNWAY slope exceeds the strip's by-code longitudinal cap.
@@ -4162,6 +4192,7 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
         if w.role in _STRIP_PAVEMENT_ROLES:
             pavement_nids.update(w.nids)
     owned, junction = _pavement_edge_junction_nids(ways)
+    bank = _natural_bank(natural_shore_ll, ll_to_m)
     out: List[Violation] = []
     n_pairs = 0
     hit_ways: set = set()
@@ -4204,6 +4235,8 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
                         continue
                     if junction((nn[a], nn[b]), owned):
                         continue      # a pavement-edge junction (end_lip, #763 phase 8)
+                    if _in_bank(bank, pts[a], pts[b]):
+                        continue      # the natural-shore bank yields (Q52)
                     ds = abs((pts[b][0] - pts[a][0]) * axis[0]
                              + (pts[b][1] - pts[a][1]) * axis[1])
                     if ds < _STRIP_LONGITUDINAL_MIN_RUN_M:
@@ -4322,7 +4355,23 @@ def _site_key(*pts) -> tuple:
                         for (x, y) in pts))
 
 
-def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
+def _natural_bank(natural_shore_ll, ll_to_m):
+    """Q52 (owner, under RULINGS 2026-10-20k): the published natural-shore
+    wedges, where the strip and end laws yield — the verify reading
+    (``auto_patch_v2.verify.strips.natural_shore_geometry``)."""
+    if not natural_shore_ll:
+        return None
+    from auto_patch_v2.verify.strips import natural_shore_geometry
+    return natural_shore_geometry(natural_shore_ll, ll_to_m, runway_edge_tie_law())
+
+
+def _in_bank(bank, *pts) -> bool:
+    from shapely.geometry import Point as _Pt
+    return bank is not None and any(bank.covers(_Pt(x, y)) for x, y in pts)
+
+
+def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m,
+                          natural_shore_ll: Optional[list] = None
                           ) -> Tuple[List[Violation], int, int]:
     """§A3(b) twin — strip stations whose GRADE CHANGE along the runway
     axis outruns the strip's rate-of-change law.
@@ -4338,6 +4387,7 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
     if not groups:
         return [], 0, 0
     owned, junction = _pavement_edge_junction_nids(ways)
+    bank = _natural_bank(natural_shore_ll, ll_to_m)
     out: List[Violation] = []
     n_stations = 0
     hit_ways: set = set()
@@ -4380,6 +4430,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
                         continue
                     if junction((nn[a], nn[b], nn[c]), owned):
                         continue      # a pavement-edge junction (end_lip, #763 phase 8)
+                    if _in_bank(bank, pts[a], pts[b], pts[c]):
+                        continue      # the natural-shore bank yields (Q52)
                     dp = abs(s[k] - s[k - 1])
                     dn = abs(s[k + 1] - s[k])
                     if dp < 1e-6 or dn < 1e-6:
@@ -4417,7 +4469,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
 
 def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
                                  road_cap_governs_ll: Optional[list] = None,
-                                 end_profile_yields_ll: Optional[list] = None
+                                 end_profile_yields_ll: Optional[list] = None,
+                                 natural_shore_ll: Optional[list] = None
                                  ) -> Tuple[List[Violation], int, int]:
     """§A1 twin — the END-corridor ACROSS-corridor grade, a family
     NOTHING read before (the count therefore RISES on first sight; that
@@ -4441,12 +4494,11 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
     if not groups:
         return [], 0, 0
     cap_geom = None
-    if road_cap_governs_ll or end_profile_yields_ll:
-        from auto_patch_v2.law import Law
+    if road_cap_governs_ll or end_profile_yields_ll or natural_shore_ll:
         from auto_patch_v2.verify.strips import end_exempt_geometry
         cap_geom = end_exempt_geometry(
             road_cap_governs_ll, end_profile_yields_ll, ll_to_m,
-            Law.load(ruleset=str(_ACTIVE_RULESET or _DEFAULT_RULESET).lower()))
+            runway_edge_tie_law(), natural_shore_ll)
     from shapely.geometry import Point as _Pt
     out: List[Violation] = []
     n_pairs = 0
@@ -7503,22 +7555,34 @@ def _shore_index(shore_edges_ll, ll_to_m):
             b = ll_to_m(float(e[2]), float(e[3]))
         except (TypeError, ValueError):
             continue
-        segs.append((a, b))
+        # #1177: the fifth field is the water line's level there (an
+        # inland body's bank terrain, the sea's 0); absent, the sea's 0
+        try:
+            lvl = float(e[4]) if len(e) > 4 else 0.0
+        except (TypeError, ValueError):
+            lvl = 0.0
+        segs.append((a, b, lvl))
     return segs or None
 
 
 def _on_shore(pt, segs, tol_m: float) -> bool:
     """``pt`` (metres) lies ON one of ``segs`` within ``tol_m``."""
+    return _shore_level(pt, segs, tol_m) is not None
+
+
+def _shore_level(pt, segs, tol_m: float):
+    """The water line's level of the first of ``segs`` ``pt`` (metres) lies
+    ON within ``tol_m``; ``None`` when it lies on none."""
     x, y = pt
-    for (ax, ay), (bx, by) in segs:
+    for (ax, ay), (bx, by), lvl in segs:
         vx, vy = bx - ax, by - ay
         l2 = vx * vx + vy * vy
         t = 0.0 if l2 < 1e-18 else max(0.0, min(
             1.0, ((x - ax) * vx + (y - ay) * vy) / l2))
         dx, dy = x - (ax + t * vx), y - (ay + t * vy)
         if dx * dx + dy * dy <= tol_m * tol_m:
-            return True
-    return False
+            return lvl
+    return None
 
 
 def _check_sea_wall(shore_edges_ll, nodes, ways, ll_to_m,
@@ -7556,21 +7620,23 @@ def _check_sea_wall(shore_edges_ll, nodes, ways, ll_to_m,
                 continue
             pa = ll_to_m(*nodes[na])
             pb = ll_to_m(*nodes[nb])
-            if not (_on_shore(pa, segs, SEA_WALL_ON_SHORE_M)
-                    and _on_shore(pb, segs, SEA_WALL_ON_SHORE_M)):
+            la = _shore_level(pa, segs, SEA_WALL_ON_SHORE_M)
+            lb = _shore_level(pb, segs, SEA_WALL_ON_SHORE_M)
+            if la is None or lb is None:
                 continue
+            water = max(float(water_level_m), (la + lb) / 2.0)
             length = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
             if length <= 0.0:
                 continue
             level = (float(za) + float(zb)) / 2.0
-            drop = level - float(water_level_m)
+            drop = level - water
             if drop <= 0.0:
                 continue
             v = Violation(
                 grade_pct=0.0, excess_pct=0.0, distance_m=length,
                 de_m=drop, way_a=w, way_b=w,
                 pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
-                elev_a=level, elev_b=float(water_level_m))
+                elev_a=level, elev_b=water)
             v.lat, v.lon = nodes[na]
             v.out_of_scope = SEA_WALL_OUT_OF_SCOPE
             out.append(v)
@@ -8126,7 +8192,8 @@ except Exception:                                       # pragma: no cover
 
 def _check_ramp_in_strip(ways, nodes, ll_to_m,
                          face_holes_m: Optional[dict] = None,
-                         object_cuts_ll: Optional[list] = None) -> List[Violation]:
+                         object_cuts_ll: Optional[list] = None,
+                         portal_cuts_ll: Optional[list] = None) -> List[Violation]:
     """§34 (5) (b) NO STRUCTURE RAMP INSIDE THE STRIP OF THE WAY IT PASSES
     UNDER (Fable 2026-09-15; RULINGS 2026-09-15h; owner 15e item 7).
 
@@ -8207,6 +8274,8 @@ def _check_ramp_in_strip(ways, nodes, ll_to_m,
     # the strip there is the object's deck, not ground: a ramp vertex
     # inside the object's own wall line is exempt
     decked = [g for _i, g, _f, _r in _object_cut_regions(object_cuts_ll, ll_to_m)]
+    # RULINGS 2026-10-26k: a pack portal's cut may stand in a RUNWAY strip
+    portal = _portal_cut_regions(portal_cuts_ll, ll_to_m)
     out: List[Violation] = []
     for w in ways:
         if law_role(w) not in _RAMP_ROLES:
@@ -8218,8 +8287,11 @@ def _check_ramp_in_strip(ways, nodes, ll_to_m,
             p = Point(ll_to_m(lat, lon))
             if any(d.distance(p) <= SHARED_VERTEX_TOL_M for d in decked):
                 continue
+            in_portal = any(d.distance(p) <= SHARED_VERTEX_TOL_M for d in portal)
             for g, pw in bands:
                 if not g.contains(p):
+                    continue
+                if in_portal and law_role(pw) in _PORTAL_STRIP_ROLES:
                     continue
                 depth = min((p.distance(part.exterior)
                              for part in getattr(g, "geoms", [g])
@@ -8287,6 +8359,11 @@ def _hairline_segments(nodes, ways, feature_ways) -> List[Tuple[
     return out
 
 
+#: THE IDENTITY'S DECIMALS the hairline spacing's slack is read at — the
+#: law's ``emit.identity.coordinate_dp`` (the frame's own identity).
+_HAIRLINE_IDENTITY_DP = 11
+
+
 def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
                          spacing_m: float) -> List[Violation]:
     """§39 (2) NO EDGE BESIDE ANOTHER — the ``hairline_pair`` family,
@@ -8330,12 +8407,28 @@ def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
     segs = _hairline_segments(nodes, ways, feature_ways)
     if not segs:
         return []
-    lat0 = segs[0][0][0]
-    mlat = _M_PER_DEG_LAT
-    mlon = _M_PER_DEG_LAT * max(0.05, math.cos(math.radians(lat0)))
+    # THE ENGINE'S METRIC (issue #1278, owner RULINGS 2026-10-23a): the
+    # spacing is the planar map's 0.5 m lattice, read in the airport's
+    # transverse-Mercator frame, less the identity's own rounding — the
+    # emit merge's own reading.  The cos(lat) frame is ~0.3 % short and
+    # read every one-cell lattice segment as a 0.4985 m "short".
+    from auto_patch_v2.model.frame import identity_slack_m
+    from auto_patch_v2.verify.frame import metric_points
+    spacing -= identity_slack_m(_HAIRLINE_IDENTITY_DP)
+    pts = {p for a, b, _w in segs for p in (a, b)}
+    for e in (shore_edges_ll or []):
+        try:
+            pts.add((float(e[0]), float(e[1])))
+            pts.add((float(e[2]), float(e[3])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    pts_l = list(pts)
+    lat0, lon0 = segs[0][0]
+    mxy = dict(zip(pts_l, ((x, y) for x, y in
+                           metric_points(lat0, lon0, pts_l)), strict=True))
 
     def xy(p):
-        return (p[1] * mlon, p[0] * mlat)
+        return mxy[p]
 
     foreign: List[Tuple[Tuple[float, float], Tuple[float, float],
                         Optional[Way]]] = []
@@ -12159,6 +12252,8 @@ def run_checks(
     # §33 (6): per signature-B corridor, the object's wall line (lat/lon
     # ring) and its AUTHORED floor — the witness both new families price
     object_cuts_ll: Optional[list] = None,
+    # RULINGS 2026-10-26k: the cuts a pack portal pins (runway-strip exempt)
+    portal_cuts_ll: Optional[list] = None,
     mesh_edges_ll: Optional[list] = None,
     face_holes_ll: Optional[dict] = None,
     crown_drops_ll: Optional[list] = None,
@@ -12578,7 +12673,8 @@ def run_checks(
                            _check_runway_end_skirt_edges(ways, nodes, ll_to_m,
                                                          runway_axes_ll,
                                                          road_cap_governs_ll,
-                                                         end_profile_yields_ll),
+                                                         end_profile_yields_ll,
+                                                         natural_shore_ll),
                            terrace_joints_ll, ll_to_m))
     _pv("RUNWAY-END PROFILE: ground beyond a runway end outside the "
         "ruleset's end profile (strip cap / near-end cap, 5 % beyond, the "
@@ -12783,7 +12879,7 @@ def run_checks(
     # AND its graded strip, so no ramp vertex stands inside that strip
     ramp_strip = _fam("ramp_in_strip",
                       _check_ramp_in_strip(ways, nodes, ll_to_m, face_holes_m,
-                                           object_cuts_ll))
+                                           object_cuts_ll, portal_cuts_ll))
     _pv("RAMP vertex INSIDE a runway/taxiway GRADED STRIP (RULINGS "
         "2026-09-15h §34 (5) (b): the covered extent of an underpass "
         "beneath a taxiway or runway spans the pavement AND its strip — "
@@ -12997,7 +13093,7 @@ def run_checks(
     within = within + lateral
 
     strip_long, n_sl_pairs, n_sl_ways = _check_strip_longitudinal_grade(
-        ways, nodes, ll_to_m)
+        ways, nodes, ll_to_m, natural_shore_ll)
     _fam("strip_longitudinal", strip_long)
     _pv("STRIP ABEAM-LONGITUDINAL grade > the by-code strip cap (ICAO "
         "Annex 14 §3.4.13 / FAA AC 150/5300-13B §3.16.5 item 1 — "
@@ -13010,7 +13106,7 @@ def run_checks(
 
     # ── §A3(b) — the strip's CURVATURE law ───────────────────────────
     strip_arc, n_sa_st, n_sa_ways = _check_strip_arc_rate(
-        ways, nodes, ll_to_m)
+        ways, nodes, ll_to_m, natural_shore_ll)
     _fam("strip_arc", strip_arc)
     _pv("STRIP LONGITUDINAL grade-CHANGE rate > the strip arc law "
         "(FAA AC §3.16.5 item 5 ±2%/30.5 m; ICAO §3.4.14 is qualitative "
@@ -13026,7 +13122,8 @@ def run_checks(
 
     # ── §A1 — the END-corridor TRANSVERSE law ────────────────────────
     resa_tr, n_rt_pairs, n_rt_ways = _check_resa_transverse_grade(
-        ways, nodes, ll_to_m, road_cap_governs_ll, end_profile_yields_ll)
+        ways, nodes, ll_to_m, road_cap_governs_ll, end_profile_yields_ll,
+        natural_shore_ll)
     _fam("resa_transverse", resa_tr)
     _pv("RESA / END-CORRIDOR TRANSVERSE grade > the per-authority cap "
         "(FAA Table 3-6 S-3 inside 61 m, Fig 3-35 ±5% beyond; ICAO "
@@ -13086,7 +13183,7 @@ def run_checks(
 
     wall_in_strip = _fam(
         "wall_in_runway_strip",
-        _check_no_wall_in_runway_strip(ways, nodes, ll_to_m))
+        _check_no_wall_in_runway_strip(ways, nodes, ll_to_m, portal_cuts_ll))
     _pv("RETAINING WALL inside a RUNWAY STRIP footprint (owner ruling "
         "2026-08-01: walls are never lawful at a runway edge — cap 0)",
         wall_in_strip, top_n)

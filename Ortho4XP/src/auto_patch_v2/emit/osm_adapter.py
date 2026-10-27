@@ -72,6 +72,7 @@ import shapely
 from ..law.model import Law
 from ..law.tables import role_cap
 from .graded import z_decimals
+from .ring_fold import folded
 from .surface import GradedSurface
 
 __all__ = ["SIDECAR_KEYS", "PatchPaths", "PatchFiles", "write_patch", "render_patch",
@@ -123,6 +124,11 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "channel_facilities",
     "ground_envelope",  # issue #623: [lowest, highest] lawful elevation of the map (``solve/ground_band``) — LAW INPUT for ``sentinel_elevation``
     "road_coverage_join",  # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each coverage exit
+    # RULINGS 2026-10-26b: the CIFP thresholds the solve released to the
+    # tile seam — [lat, lon, CIFP, built, seam distance m, end]
+    "threshold_seam_yield",
+    # owner RULINGS 2026-10-25a / 26e: one record per runway end (a REPORT key)
+    "runway_end_pins",
     "road_join_yield",  # RULINGS 2026-09-27a (10): the joins the solve released — the level the core ribbon must take there (``O4_Vector_Map.road_join_yield_pins``)
     "road_route_frame",  # §37 (7) (RULINGS 2026-09-13av): the road pair law's route frame (``pipeline/publication``)
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
@@ -143,6 +149,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "tunnel_objects",   # RULINGS 2026-09-05k-1: the object corridors (``pipeline/publication.tunnel_objects``)
     # #1028: a slid mouth's own depth (``pipeline/publication.tunnel_mouth_depths``)
     "tunnel_mouth_depths",
+    # RULINGS 2026-10-26k: the cuts a pack portal pins (``publication.portal_cuts``)
+    "portal_cuts",
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
     "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon.  Derived by ``write_patch`` from the surface IT WRITES (``face_holes_ll``), never from the planar map (RULINGS 2026-09-13da residual: 782 sub-spacing merges after publication left stale hole rings that minted ``zone_on_pavement`` slivers)
     "design",         # RULINGS 2026-09-08t/v: the design surface's residual per family (replaces ``law_tiers``)
@@ -554,6 +562,8 @@ class WeldReport:
     projected: int = 0
     stranded: int = 0
     merged: int = 0
+    #: sub-spacing merges REFUSED because they would fold a ring (#1275)
+    fold_refused: int = 0
     worst_mm_before: float = 0.0
     worst_at: tuple[float, float] | None = None
 
@@ -566,7 +576,8 @@ class WeldReport:
                 f"{self.snapped} snapped onto a water vertex, {self.dropped} "
                 f"dropped off the shore line, {self.projected} projected onto "
                 f"it, {self.stranded} left beside it; {self.merged} "
-                f"sub-spacing segment(s) merged"
+                f"sub-spacing segment(s) merged, {self.fold_refused} refused "
+                f"(the merge would fold a ring, #1275)"
                 + at)
 
 
@@ -579,6 +590,25 @@ def _local_metres(origin: LL_T) -> tuple[float, float]:
     lat0 = float(origin[0])
     return (_M_PER_DEG_LAT,
             _M_PER_DEG_LAT * max(math.cos(math.radians(lat0)), 1.0e-6))
+
+
+def _planar_xy(surface: GradedSurface) -> dict[int, tuple[float, float]]:
+    """Every vertex of ``surface`` in THE PLANAR MAP'S METRES (issue
+    #1278): the transverse-Mercator :class:`model.frame.Frame` centred on
+    the surface's origin, the frame the 0.5 m identity lattice is noded
+    in.  One vectorised projection call."""
+    import numpy as _np
+    from pyproj import Transformer  # local: geodesy stays in the producers
+
+    from ..model.frame import Frame
+    crs = Frame("", (float(surface.origin[0]), float(surface.origin[1])),
+                int(surface.identity_dp)).crs
+    t = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    ids = [v.id for v in surface.vertices]
+    a = _np.asarray([v.ll for v in surface.vertices], dtype=float)
+    xs, ys = t.transform(a[:, 1], a[:, 0])
+    return {i: (float(x), float(y)) for i, x, y in zip(ids, xs, ys,
+                                                        strict=True)}
 
 
 def shore_edges_of(dem, surface: GradedSurface, pad_m: float = 5.0,
@@ -963,6 +993,22 @@ def survivor_key(ll: _t.Sequence[float], identity_dp: int) -> tuple[float, float
     return (round(float(ll[0]), identity_dp), round(float(ll[1]), identity_dp))
 
 
+def _fold_culprits(ids: _t.Sequence[int], remap: _t.Mapping[int, int],
+                   pxy: _t.Mapping[int, tuple[float, float]],
+                   key: _t.Callable[[int], tuple[float, float]]) -> set[int]:
+    """The merges (by survivor) to refuse for one ring the remap folds: the
+    FIRST merge, in :func:`survivor_key` order (pair-local, #199), whose
+    refusal alone leaves the ring simple — or, when no single one does,
+    every merge the ring carries (#1275)."""
+    sub = {i: remap[i] for i in ids}
+    cand = sorted({u for i, u in sub.items() if u != i}, key=key)
+    for t in cand:
+        trial = {i: (i if u == t else u) for i, u in sub.items()}
+        if not folded([ids], trial, pxy):
+            return {t}
+    return set(cand)
+
+
 def merge_sub_spacing(surface: GradedSurface, law: Law,
                       report: "WeldReport | None" = None) -> GradedSurface:
     """§39 (iii) THE IDENTITY JOIN MERGES, IT NEVER WRITES, A SUB-SPACING
@@ -1000,11 +1046,26 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
 
     Runs AFTER :func:`weld_to_shore`, whose projection can itself bring two
     vertices together on the shore line.
+
+    THE SPACING IS PLANAR METRES (issue #1278, owner RULINGS 2026-10-23a):
+    a pair's distance is read in the airport's own transverse-Mercator
+    frame (:func:`_planar_xy`), the frame whose 0.5 m lattice the planar
+    map is noded on, never the cos(lat)-scaled lat/lon frame of
+    :func:`_local_metres`.  The two differ by ~0.3 %, and in the old frame
+    two EXACT one-cell lattice neighbours read 0.4985 m and merged: 1,067
+    of KMCI's 1,104 merges.  A pair at the spacing to within the
+    identity's own rounding (:func:`model.frame.identity_slack_m`) IS at
+    the spacing, and stays.
+    The fold check below keeps the mesh's linear frame: it asks whether a
+    ring crosses itself in the ``.poly``, not how far apart two vertices
+    are.
     """
     rep = report if report is not None else WeldReport()
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
     if spacing <= 0.0 or not surface.vertices:
         return surface
+    from ..model.frame import identity_slack_m
+    spacing -= identity_slack_m(int(surface.identity_dp))
     mlat, mlon = _local_metres(surface.origin)
     la0, lo0 = float(surface.origin[0]), float(surface.origin[1])
     vll = {v.id: v.ll for v in surface.vertices}
@@ -1036,6 +1097,7 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
         return x
 
     pxy = {i: xy(ll) for i, ll in vll.items()}
+    mxy = _planar_xy(surface)
     members: dict[int, list[int]] = {}
     for _w, _o, ids, closed in seqs:
         n = len(ids)
@@ -1046,7 +1108,7 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
             a, b = find(ids[k]), find(ids[(k + 1) % n])
             if a == b:
                 continue
-            pa, pb = pxy[a], pxy[b]
+            pa, pb = mxy[a], mxy[b]
             if math.hypot(pa[0] - pb[0], pa[1] - pb[1]) >= spacing:
                 continue
             keep, drop = (a, b) if key(a) <= key(b) else (b, a)
@@ -1059,14 +1121,34 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
             # leave any member of either group one spacing or more from the
             # survivor is refused; the segment stays as written.
             group = members.get(a, [a]) + members.get(b, [b])
-            kx, ky = pxy[keep]
-            if any(math.hypot(pxy[m][0] - kx, pxy[m][1] - ky) >= spacing
+            kx, ky = mxy[keep]
+            if any(math.hypot(mxy[m][0] - kx, mxy[m][1] - ky) >= spacing
                    for m in group):
                 continue
             parent[drop] = keep
             members[keep] = group
             members.pop(drop, None)
     remap = {i: find(i) for i in vll}
+    # A MERGE NEVER FOLDS A RING (issue #1275): collapsing a pair moves the
+    # ring's edges onto the survivor, and where the dropped vertex stood on
+    # the far side of a short hook the new edge CROSSES the ring two
+    # segments on (KMCI building26/b1 and its plateau at 39.2996647,
+    # -94.7192985: a 0.07 m2 bow-tie the mesh dropped whole, leaving the
+    # 85,882 m2 pad on the raw DEM).  Every merge a folded ring carries is
+    # refused, as the chain merge above is; the segment stays as written.
+    # Each pass reverts at least one merge, so the loop ends.
+    closed_seqs = [ids for _w, _o, ids, closed in seqs if closed]
+    while True:
+        bad = folded(closed_seqs, remap, pxy)
+        if not bad:
+            break
+        roots: set[int] = set()
+        for k in bad:
+            roots |= _fold_culprits(closed_seqs[k], remap, pxy, key)
+        for i, t in remap.items():
+            if t in roots:
+                remap[i] = i
+        rep.fold_refused += len(roots)
     if all(t == i for i, t in remap.items()):
         return surface
 

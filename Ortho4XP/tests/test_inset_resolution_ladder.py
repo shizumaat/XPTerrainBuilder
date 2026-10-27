@@ -15,6 +15,7 @@ import json
 import os
 
 import numpy
+from inset_relief import with_relief  # noqa: E402
 import pytest
 
 import O4_File_Names as FNAMES
@@ -57,7 +58,7 @@ def _write_raster(path, valid_fraction, size=40):
     values[:valid_rows, :] = 2400.0
     band = dataset.GetRasterBand(1)
     band.SetNoDataValue(-32768.0)
-    band.WriteArray(values)
+    band.WriteArray(with_relief(values, -32768.0))
     dataset = None
 
 
@@ -694,7 +695,7 @@ def _write_partial(path, box, value, keep):
     values[inside] = value
     band = dataset.GetRasterBand(1)
     band.SetNoDataValue(-32768.0)
-    band.WriteArray(values)
+    band.WriteArray(with_relief(values, -32768.0))
     dataset = None
 
 

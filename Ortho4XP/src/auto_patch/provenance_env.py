@@ -54,9 +54,27 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_PARALLEL_AIRPORTS":
         "scheduling only; the parallel path is byte-identical to serial",
     "O4_PARALLEL_AIRPORTS_N": "the airport worker cap",
+    "O4_MACHINE_SLOTS_DIR":
+        "the engine session's machine worker budget (O4_Machine_Slots, "
+        "#1225): where its slot files are — scheduling only",
+    "O4_MACHINE_SLOTS":
+        "how many heavy processes the session's budget runs at once — "
+        "scheduling only",
+    "O4_MACHINE_SLOTS_UNGATED":
+        "a slot session that proves mechanics (the pool self-check) skips "
+        "the live memory gate — scheduling only",
+    "O4_ENGINE_PRIORITY_LOWERED":
+        "the engine's process tree already runs at lowered CPU priority "
+        "(O4_Machine_Slots.lower_priority, #1225) — scheduling only",
     "O4_STEP_REUSE":
         "whether a tile build may skip a step whose output is current "
         "(O4_Step_Reuse, #615); a step that runs builds the same patch",
+    "O4_EDIT_CACHE_LIST":
+        "the app session's list of edit caches to clear when it quits "
+        "(O4_Edit_Cache, #1323) — new on every launch, read by no step",
+    "O4_EDIT_CACHE_STATE_DIR":
+        "where those session lists live (O4_Edit_Cache; the suite points it "
+        "at a temporary folder) — read by no step",
     "O4_V2_STAGE_CACHE":
         "whether the v2 airport build may serve a stage from its content-"
         "keyed record (#843); a hit is byte-identical to the build that "

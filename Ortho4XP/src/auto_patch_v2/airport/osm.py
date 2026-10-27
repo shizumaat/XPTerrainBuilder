@@ -54,6 +54,10 @@ TAGS_OF_INTEREST = frozenset((
     # 2026-09-15 schema (§45 (9)); every consumer reads tags BY KEY, so
     # one more key changes no existing reading.
     "covered",
+    # issue #1179: ``cutting`` states the way runs BELOW the ground beside
+    # it — the witness ``classify/pad_cut_corridor`` reads so a flat pad
+    # never fills a mapped cut (the road feed has kept it since §45 (9))
+    "cutting",
 ))
 #: §37 (11) (7) THE SHORE-STRUCTURE FEED (issue #72): ``man_made=quay`` /
 #: ``pier`` / ``breakwater`` / ``seawall`` / ``groyne`` / ``dyke``,

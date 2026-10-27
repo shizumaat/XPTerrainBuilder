@@ -41,6 +41,9 @@ def _write_hgt(path, values):
     numpy.asarray(values, dtype=">i2").tofile(path)
 
 
+ABSENT_TEXT = "no elevation for the LAND cell +48-123 (404/410)"
+
+
 class _Configured:
     """A configured base strategy with a scripted download."""
 
@@ -63,8 +66,10 @@ class _Configured:
         _Configured.calls.append((lat, lon))
         if _Configured.outcome == "transport":
             raise DEM.ElevationTransportRefused(TRANSPORT_TEXT)
-        if _Configured.outcome == "mapping":
-            raise DEM.ElevationDownloadRefused("no elevation for LAND cell")
+        if _Configured.outcome == "absent":
+            raise DEM.ElevationAbsentRefused(ABSENT_TEXT)
+        if _Configured.outcome == "client":
+            raise DEM.ElevationDownloadRefused("REFUSED with status 403")
         _write_hgt(path, numpy.full((5, 5), 100))
         return 1
 
@@ -158,13 +163,46 @@ def test_a_cached_configured_file_is_used_and_nothing_is_asked(world):
         FNAMES.elevation_data("View", *CELL), *CELL, world)[1] is None
 
 
-def test_only_a_transport_refusal_is_covered(world):
-    # A mapping defect (#173) keeps refusing: it is not an outage.
-    _Configured.outcome = "mapping"
+def test_a_client_refusal_is_not_covered(world):
+    # A host refusing this client (#124/#173) or a redirect loop (#193)
+    # keeps refusing: it is a defect, not missing data.
+    _Configured.outcome = "client"
     with pytest.raises(DEM.ElevationDownloadRefused) as caught:
         _ensure()
-    assert not isinstance(caught.value, DEM.ElevationTransportRefused)
+    assert not isinstance(caught.value, (DEM.ElevationTransportRefused,
+                                         DEM.ElevationAbsentRefused))
     assert _Fallback.calls == []
+
+
+def test_an_absent_land_cell_takes_the_first_fallback(world, capsys):
+    # Owner Q77 (RULINGS 2026-10-20ap): no data found -> next best source.
+    _Configured.outcome = "absent"
+    assert _ensure() == 1
+    configured_path = FNAMES.elevation_data("View", *CELL)
+    (path, fallback) = base_fallback.cell_file(configured_path, *CELL, world)
+    assert fallback["code"] == "SPARE1" and path != configured_path
+    said = capsys.readouterr().out
+    assert ("Primary source has no data for this cell; elevation cell "
+            "+48-123 taken from Spare one instead") in said
+    assert ABSENT_TEXT in said
+
+
+def test_an_absent_cell_does_not_skip_the_host_for_other_cells(world):
+    _Configured.outcome = "absent"
+    assert _ensure((48, -123)) == 1
+    assert _ensure((48, -122)) == 1
+    assert _Configured.calls == [(48, -123), (48, -122)]
+
+
+def test_an_absent_cell_every_source_failing_still_refuses(world):
+    _Configured.outcome = "absent"
+    _Fallback.failing = {"SPARE1", "SPARE2"}
+    with pytest.raises(DEM.ElevationAbsentRefused) as caught:
+        _ensure()
+    text = str(caught.value)
+    assert "could not be fetched from any source" in text
+    assert "Primary source: " + ABSENT_TEXT in text
+    assert "Check the network" not in text
 
 
 def test_the_second_fallback_is_asked_when_the_first_fails(world, capsys):

@@ -159,6 +159,8 @@ from elevation_access.definitions import (
     _parse_float,
     coverage_boxes,
     export_image_definition_refusal,
+    provider_serves_country,
+    providers_share_country,
 )
 from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access import fetch_scratch as FETCH_SCRATCH
@@ -170,7 +172,10 @@ from elevation_access.vertical_units import (
     VERTICAL_UNIT_STAMP_DECLARED,
     VERTICAL_UNIT_STAMP_SOURCE,
 )
-from elevation_access.warp import inset_valid_fraction
+from elevation_access.warp import (
+    INSET_MIN_RELIEF_M, inset_carries_no_relief, inset_valid_fraction)
+from elevation_access.provider_fill import (
+    declared_provider_fills, mask_provider_fill)
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
@@ -186,6 +191,16 @@ import O4_Scenery_Packs as _scenery_packs
 # The .elv provider CODE is lower-cased in cache file names so the cache key
 # survives access-strategy refactors (spec section 3.2).
 NO_COVERAGE = "no-coverage"
+
+#: The law a stamped durable status was written under (#1328).  Absent
+#: (law 1): every 4xx answer to a discovery query was a durable
+#: no-coverage, so a provider that REFUSED the query (FRANCE50CM's WFS
+#: 400 at LFPG / LFSB) was recorded as "no data here" for good.  Law 2:
+#: only a 404 / 410 or a well-formed empty answer is no-coverage; any
+#: other 4xx raises ``ProviderQueryError`` and records ``unavailable:``.
+#: A ``no-coverage`` stamped under an older law is NOT durable on read:
+#: it is re-probed once (:func:`negative_predates_query_law`).
+NEGATIVE_LAW = 2
 
 # =====================================================================
 # THE STATUS CLASSES OF THE INSET INDEX (owner RULINGS 2026-09-13b)
@@ -696,7 +711,8 @@ def run_capability_record(definition):
     """
     required = provider_required_capabilities(definition)
     if not required:
-        return {"engine": _engine_version(), "capabilities": []}
+        return {"engine": _engine_version(), "capabilities": [],
+                "negative_law": NEGATIVE_LAW}
     have = []
     for capability in required:
         if capability == CAPABILITY_LERC and lerc_decode_available():
@@ -705,7 +721,8 @@ def run_capability_record(definition):
             have.append(capability)
         elif capability == CAPABILITY_LAZ and laz_reader_available():
             have.append(capability)
-    return {"engine": _engine_version(), "capabilities": have}
+    return {"engine": _engine_version(), "capabilities": have,
+            "negative_law": NEGATIVE_LAW}
 
 
 def _engine_version():
@@ -736,6 +753,27 @@ def _record_run_capabilities(airport_record, code, definition):
         capabilities = {}
         airport_record["capabilities"] = capabilities
     capabilities[code] = record
+
+
+def negative_predates_query_law(airport_record, code):
+    """Was this ``no-coverage`` written before :data:`NEGATIVE_LAW`?
+
+    True when the stamp beside ``code`` records no ``negative_law`` (or an
+    older one): that engine turned a REFUSED query (a 400, a 403) into a
+    durable negative (#1328), so the record is not trusted as one.  The
+    two re-probe doors below ask it; the re-probe stamps the current law
+    whatever it answers, so it happens once.
+    """
+    capabilities = (airport_record.get("capabilities")
+                    if isinstance(airport_record, dict) else None)
+    stamp = (capabilities.get(code)
+             if isinstance(capabilities, dict) else None)
+    if not isinstance(stamp, dict):
+        return True
+    try:
+        return int(stamp.get("negative_law") or 1) < NEGATIVE_LAW
+    except (TypeError, ValueError):
+        return True
 
 
 def negative_is_unverified(airport_record, code, definition,
@@ -774,6 +812,10 @@ def negative_is_unverified(airport_record, code, definition,
         return True
     stamp = capabilities.get(code)
     if not isinstance(stamp, dict):
+        return True
+    # A negative from before the query-error law may be a refused query
+    # (#1328), whatever capabilities that run had.
+    if negative_predates_query_law(airport_record, code):
         return True
     # A stamp that says the run LACKED what the provider needs verifies
     # nothing: it records the 1.0.324 condition instead of ruling it out.
@@ -837,7 +879,11 @@ def negative_is_version_stale(airport_record, code, definition,
         definition, bounding_box
     ):
         return False
-    return recorded_engine_version(airport_record, code) != _engine_version()
+    # A negative from before the query-error law may be a refused query
+    # (#1328): re-asked once even under the same engine version.
+    return (recorded_engine_version(airport_record, code)
+            != _engine_version()
+            or negative_predates_query_law(airport_record, code))
 
 
 def _bounding_box_hull(boxes):
@@ -1058,7 +1104,8 @@ def fetch_inset(
             footprint_polygon=footprint_polygon,
         )
     else:
-        provenance = strategy.fetch(
+        provenance = _fetch_masking_provider_fill(
+            strategy,
             definition,
             bounding_box_wgs84,
             target_resolution_m,
@@ -1104,6 +1151,64 @@ def fetch_inset(
             )
         )
     return provenance
+
+
+def _fetch_masking_provider_fill(strategy, definition, bounding_box_wgs84,
+                                 target_resolution_m, destination_path):
+    """``strategy.fetch`` and then THE PROVIDER-FILL MASK (#1340,
+    :mod:`elevation_access.provider_fill`): a fill the server served
+    beyond its data becomes nodata before any reader sees the raster, and
+    the provenance records it (``provider_fill``) with the TRUE coverage.
+    Every fetch passes here -- the airport inset, each ladder rung, the
+    approach-ring and coastline-band cells -- so the rule is one."""
+    provenance = strategy.fetch(definition, bounding_box_wgs84,
+                                target_resolution_m, destination_path)
+    if provenance is not None:
+        record = mask_fetched_provider_fill(destination_path, definition)
+        if record is not None:
+            provenance["provider_fill"] = record
+    return provenance
+
+
+def mask_fetched_provider_fill(raster_path, definition, label=None):
+    """Mask ``definition``'s fill in ``raster_path`` (fresh or CACHED)
+    and say so in one line; the masked record, or ``None`` when there was
+    no fill.  Bathymetry is not judged: its 0 m is the waterline."""
+    if (definition or {}).get("role") == ROLE_BATHYMETRY:
+        return None
+    if not os.path.isfile(raster_path):
+        return None
+    record = mask_provider_fill(
+        raster_path, declared_provider_fills(definition),
+        before_write=lambda path: EXTWRITE.declare_external_write(
+            path, writer="the provider-fill mask"))
+    if record is not None:
+        UI.vprint(
+            1,
+            "    [insets] %s from %s: %.1f %% of the raster was the "
+            "provider's fill (exactly %g, served beyond its data) - masked "
+            "as nodata; true coverage %.1f %%."
+            % (label or os.path.basename(raster_path),
+               (definition or {}).get("code"),
+               100.0 * record["masked_fraction"], record["fill_value"],
+               100.0 * record["valid_fraction"]),
+        )
+    return record
+
+
+def inset_airport_cover_reason(inset_path, boundary_box):
+    """Why an inset is NOT used for its airport (#1340), or ``None``: its
+    valid share over the aerodrome ``boundary_box`` is below
+    ``INSET_MIN_VALID_FRAC`` -- data beside the field, none on it.  The
+    ranking then falls to the next provider, else the base DEM.  ``None``
+    without a boundary box or a raster."""
+    if boundary_box is None or not os.path.isfile(inset_path):
+        return None
+    fraction = raster_valid_fraction_in_box(inset_path, boundary_box)
+    if fraction >= INSET_MIN_VALID_FRAC:
+        return None
+    return ("covers %.2f %% of the airport boundary (< %.2f %%)"
+            % (100.0 * fraction, 100.0 * INSET_MIN_VALID_FRAC))
 
 
 def _is_global_ladder_member(definition):
@@ -1207,6 +1312,7 @@ def _ladder_rung_definitions(definition, bounding_box_wgs84=None):
         member = elevation_providers_dict[code]
         if (str(member.get("code")) in named
                 or not _is_global_ladder_member(member)
+                or not providers_share_country(member, definition)
                 or not _coverage_bbox_intersects(member,
                                                  bounding_box_wgs84)):
             continue
@@ -1439,9 +1545,9 @@ def _fetch_through_resolution_ladder(
                 rung_definition.get("access_strategy"),)
         else:
             try:
-                provenance = rung_strategy.fetch(
-                    rung_definition, bounding_box_wgs84, rung_target,
-                    rung_path)
+                provenance = _fetch_masking_provider_fill(
+                    rung_strategy, rung_definition, bounding_box_wgs84,
+                    rung_target, rung_path)
             except ProviderUnavailable as error:
                 # RUNG 0 CLIMBS TOO (spec us-holder-providers §1 outcome
                 # table: ``unavailable`` -> next rung, "only transient
@@ -4322,9 +4428,8 @@ def cached_inset_declined_reason(inset_path):
     (is_empty, valid_fraction) = inset_is_effectively_empty(inset_path)
     if not is_empty:
         return None
-    return ("it holds %.2f %% valid pixels (< %.2f %%) — it carries no "
-            "coverage and the bake DECLINES it"
-            % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC))
+    return ("it %s — it carries no coverage and the bake DECLINES it"
+            % inset_empty_reason(inset_path, valid_fraction))
 
 
 def _void_inset_record_reason(inset_path, definition=None):
@@ -4358,10 +4463,8 @@ def _void_inset_record_reason(inset_path, definition=None):
         return pre_key
     (is_empty, valid_fraction) = inset_is_effectively_empty(inset_path)
     if is_empty:
-        return (
-            "its raster holds %.2f %% valid pixels (< %.2f %%)"
-            % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC)
-        )
+        return "its raster %s" % inset_empty_reason(inset_path,
+                                                     valid_fraction)
     return None
 
 
@@ -4415,6 +4518,31 @@ def _archive_void_inset_record(inset_path, icao, code, reason):
     )
 
 
+def _set_aside_foreign_inset(inset_path, icao, code, country):
+    """Rename aside an inset a provider of ANOTHER country delivered for
+    this airport before the country rule (RULINGS 2026-10-20bc): every
+    disk-driven consumer globs ``*.tif``, so the raster must leave that
+    name.  Evidence, not deletion: ``<name>.out-of-country-<date>``."""
+    suffix = ".out-of-country-" + datetime.date.today().isoformat()
+    moved = False
+    for path in (inset_path, os.path.splitext(inset_path)[0] + ".json"):
+        if not os.path.exists(path):
+            continue
+        try:
+            os.replace(path, path + suffix)
+            moved = True
+        except OSError as error:                         # pragma: no cover
+            UI.vprint(1, "   [inset] could not set aside",
+                      os.path.basename(path), ":", str(error))
+    if moved:
+        UI.vprint(
+            0,
+            "   [inset] %s from %s: the provider serves another country "
+            "than the airport's (%s) - its inset is set aside (%s)."
+            % (icao, code, country, suffix.lstrip(".")),
+        )
+
+
 def ensure_airport_insets(
     lat,
     lon,
@@ -4426,8 +4554,17 @@ def ensure_airport_insets(
     meter_key="airport-insets",
     fetch_failures=None,
     airport_polygons=None,
+    airport_countries=None,
 ):
     """Ensure a cached inset exists for each airport, per provider ranking.
+
+    ``airport_countries`` (optional ``{airport: ISO alpha-3}``, from
+    apt.dat) applies THE COUNTRY RULE (owner RULINGS 2026-10-20bc): a
+    national provider is skipped for an airport of another country -- it
+    is recorded ``no-coverage`` and a raster it delivered there earlier is
+    set aside -- so the ranking falls to the airport's own country's
+    providers, then to the global ones.  An airport with no country keeps
+    the coverage box as its only test.
 
     ``airport_polygons`` (optional ``{airport: shapely geometry}``, the
     aerodrome boundaries :func:`_airport_bounding_boxes` fills) rides the
@@ -4505,20 +4642,39 @@ def ensure_airport_insets(
 
     def _fetch_airport_insets(icao):
         bounding_box = airport_bounding_boxes[icao]
+        polygon = (airport_polygons or {}).get(icao)
+        boundary_box = (tuple(polygon.bounds)
+                        if getattr(polygon, "is_empty", True) is False
+                        else None)
         airport_record = index.get(icao, {})
         recorded_box = airport_record.get("bounding_box")
         negatives_are_stale = (
             recorded_box is not None
             and _bounding_box_extends_beyond(bounding_box, recorded_box)
         )
+        country = (airport_countries or {}).get(icao)
         for definition in provider_definitions:
             code = definition["code"]
             destination = FNAMES.airport_inset_dem(lat, lon, icao, code)
+            if not provider_serves_country(definition, country):
+                _set_aside_foreign_inset(destination, icao, code, country)
+                airport_record[code] = NO_COVERAGE
+                airport_record["checked"] = checked_stamp
+                # stamp THIS engine on the negative: unstamped, 15aq (4)'s
+                # once-per-version predicate calls it stale for ever (the
+                # loop never re-probes a foreign provider), and the harness
+                # refuses every build of the airport (#1238, CYYJ USGS3DEP)
+                _record_run_capabilities(airport_record, code, definition)
+                continue
             # R13-1, BEFORE the cache is consulted: a record whose raster
             # is gone or holds no data is treated as UNFETCHED.  Without
             # this the empty-cut inset is a permanent cache -- the reuse
             # branch below breaks on it every run -- and the only cure
             # was deleting the sidecar by hand.
+            # THE PROVIDER-FILL RE-CHECK (#1340): a cached raster is
+            # judged by the fetch's own mask, so a fill cached before the
+            # rule existed stops poisoning the build.
+            mask_fetched_provider_fill(destination, definition, label=icao)
             void_reason = _void_inset_record_reason(destination,
                                                     definition)
             if void_reason is not None:
@@ -4535,7 +4691,8 @@ def ensure_airport_insets(
             # the bake alike.  The status goes in BEFORE the fetch: a
             # transient failure below leaves the record honest instead
             # of leaving it ``ok``.
-            empty_reason = cached_inset_declined_reason(destination)
+            empty_reason = cached_inset_declined_reason(destination) or (
+                inset_airport_cover_reason(destination, boundary_box))
             if empty_reason is not None:
                 airport_record[code] = empty_status(empty_reason)
                 airport_record["checked"] = checked_stamp
@@ -4660,7 +4817,17 @@ def ensure_airport_insets(
                 airport_record[code] = NO_COVERAGE
                 airport_record["checked"] = checked_stamp
                 continue
-            if unverified:
+            if (unverified or version_stale) and negative_predates_query_law(
+                    airport_record, code):
+                # #1328: the negative may be a REFUSED query (a 400 / 403)
+                # that an older engine recorded as "no data here".
+                UI.vprint(
+                    1,
+                    "    [insets] %s: re-probing %s (no-coverage recorded "
+                    "before refused queries stopped counting as one) - once"
+                    % (icao, code),
+                )
+            elif unverified:
                 # A RECORDED REFRESH, not a content refresh: the negative
                 # on disk was written by an engine whose capabilities the
                 # index does not record, and 1.0.324 proved such an
@@ -4790,6 +4957,32 @@ def ensure_airport_insets(
                 fetch_error = str(error)
             finally:
                 slow_note.cancel()
+            if provenance is not None and inset_carries_no_relief(
+                    fetch_destination):
+                # THE FLAT-FILL RULE (#1171): a provider asked beyond its
+                # extent answered a constant fill.  That is a durable
+                # no-coverage answer; the next provider is asked.
+                UI.vprint(
+                    1,
+                    "    [insets] %s: %s returned a flat fill with no "
+                    "relief - not elevation data; recorded as no-coverage "
+                    "and the next provider (else the base DEM) is used."
+                    % (icao, code),
+                )
+                provenance = None
+            cover_reason = (None if provenance is None else
+                            inset_airport_cover_reason(fetch_destination,
+                                                       boundary_box))
+            if cover_reason is not None:
+                # THE AIRPORT-COVER RULE (#1340): data beside the field
+                # and none on it is no inset for this airport.
+                UI.vprint(
+                    1,
+                    "    [insets] %s: %s %s - not used; recorded as "
+                    "no-coverage and the next provider (else the base DEM) "
+                    "is used." % (icao, code, cover_reason),
+                )
+                provenance = None
             if provenance is None:
                 FETCH_SCRATCH.discard(fetch_destination)
                 # A refresh that failed leaves a sound cached raster on
@@ -5801,6 +5994,15 @@ def _inset_target_resolution_m(definition, target_resolution_m):
     return max(float(target_resolution_m), float(native_resolution_m))
 
 
+def _airport_countries(dico_airports):
+    """``{airport: ISO alpha-3}`` for the airports apt.dat names a country
+    for (``O4_Airport_Apt_Identity`` stamps it on the record)."""
+    return {key: record["country"]
+            for (key, record) in dico_airports.items()
+            if isinstance(key, str) and isinstance(record, dict)
+            and record.get("country")}
+
+
 def ensure_insets_for_tile(tile, dico_airports, refresh=False,
                            meter_key="airport-insets"):
     """Fetch/refresh every airport inset on the tile (step-1 download hook).
@@ -5864,6 +6066,7 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
             refresh=refresh,
             fetch_counter=fetch_counter,
             fetch_failures=fetch_failures,
+            airport_countries=_airport_countries(dico_airports),
             **extra,
             **_footprint_kwargs(airport_boundary_polygons(
                 tile, dico_airports, only=selected), "airport_polygons"),
@@ -6507,9 +6710,26 @@ def _inset_source_project(inset_path):
 
 
 def inset_is_effectively_empty(inset_path):
-    """``(is_empty, valid_fraction)`` for one cached inset (R11-3)."""
+    """``(is_empty, valid_fraction)`` for one cached inset (R11-3).
+
+    Empty too when its valid pixels carry no relief (#1171, the flat-fill
+    rule :func:`elevation_access.warp.inset_carries_no_relief`): a
+    constant fill is not elevation data, whatever its valid share."""
     fraction = inset_valid_fraction(inset_path)
-    return (fraction < INSET_MIN_VALID_FRAC, fraction)
+    if fraction < INSET_MIN_VALID_FRAC:
+        return (True, fraction)
+    return (inset_carries_no_relief(inset_path), fraction)
+
+
+def inset_empty_reason(inset_path, valid_fraction):
+    """The plain words for why :func:`inset_is_effectively_empty` said
+    empty -- too few valid pixels, or a flat fill with no relief."""
+    if valid_fraction >= INSET_MIN_VALID_FRAC:
+        return ("holds no relief (every valid pixel within %.2f m of "
+                "one value: a provider fill, not elevation data)"
+                % INSET_MIN_RELIEF_M)
+    return ("holds %.2f %% valid pixels (< %.2f %%)"
+            % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC))
 
 
 def bake_candidate_inset_paths(tile):
@@ -6604,11 +6824,11 @@ def bake_airport_insets_into_alt_dem(tile):
             nodata_refused.append(entry)
             UI.vprint(
                 0,
-                "   [inset] %s holds %.2f %% valid pixels (< %.2f %%) - NO "
+                "   [inset] %s %s - NO "
                 "INSET: it is not baked and carries no coverage; the build "
                 "proceeds on the base DEM. Source project(s): %s."
-                % (os.path.basename(inset_path), 100.0 * valid_fraction,
-                   100.0 * INSET_MIN_VALID_FRAC,
+                % (os.path.basename(inset_path),
+                   inset_empty_reason(inset_path, valid_fraction),
                    _inset_source_project(inset_path)),
             )
             continue
@@ -6787,14 +7007,22 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
     centre_latitude = tile.lat + (y0 + y1) / 2.0
     metres_per_degree_longitude = GEO.lon_to_m(centre_latitude)
     metres_per_degree_latitude = GEO.lat_to_m
-    distance_west = (mesh_x - inset.x0) * metres_per_degree_longitude
-    distance_east = (inset.x1 - mesh_x) * metres_per_degree_longitude
-    distance_south = (mesh_y - inset.y0) * metres_per_degree_latitude
-    distance_north = (inset.y1 - mesh_y) * metres_per_degree_latitude
-    distance_to_edge = numpy.minimum(
-        numpy.minimum(distance_west, distance_east),
-        numpy.minimum(distance_south, distance_north),
-    )
+    footprint = getattr(inset, "footprint", None)
+    if footprint is not None:
+        # #1144: a FLAT-SITE plateau feathers from its footprint's own
+        # edge (the airport boundary), never from a rectangle.
+        distance_to_edge = _footprint_edge_distance_m(
+            footprint, mesh_x, mesh_y, feather_m,
+            metres_per_degree_longitude, metres_per_degree_latitude)
+    else:
+        distance_west = (mesh_x - inset.x0) * metres_per_degree_longitude
+        distance_east = (inset.x1 - mesh_x) * metres_per_degree_longitude
+        distance_south = (mesh_y - inset.y0) * metres_per_degree_latitude
+        distance_north = (inset.y1 - mesh_y) * metres_per_degree_latitude
+        distance_to_edge = numpy.minimum(
+            numpy.minimum(distance_west, distance_east),
+            numpy.minimum(distance_south, distance_north),
+        )
     weight = feather_weight(distance_to_edge, feather_m)
     weight = numpy.where(valid, weight, 0.0)
 
@@ -6865,6 +7093,59 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
 # refresh ledger's meaning, so nothing here writes a file -- the value
 # reaches the mesher only through ``tile.dem.alt_dem`` and the tile's own
 # ``.alt`` build product.
+
+
+def _footprint_edge_distance_m(footprint, mesh_x, mesh_y, feather_m,
+                               metres_per_degree_longitude,
+                               metres_per_degree_latitude):
+    """The bake's ``distance_to_edge`` for a FOOTPRINT-shaped inset (#1144).
+
+    R17c-2 with the footprint as the wall line: every post ON the
+    footprint reads ``feather_m`` (full weight), a post outside it reads
+    ``feather_m`` minus its distance to the footprint in metres, so the
+    ramp lies wholly OUTSIDE the footprint and reaches 0 ``feather_m``
+    beyond it.  Distances are taken only for posts within that ring of
+    the footprint's grown copy; everything farther reads ``-1``.
+    """
+    from shapely import affinity, contains_xy, distance, points
+
+    feather = float(feather_m or 0.0)
+    xs = numpy.ravel(mesh_x)
+    ys = numpy.ravel(mesh_y)
+    out = numpy.full(xs.shape, feather, dtype=numpy.float64)
+    inside = contains_xy(footprint, xs, ys)
+    outside = numpy.nonzero(~inside)[0]
+    if len(outside):
+        out[outside] = -1.0
+        if feather > 0:
+            metric = affinity.scale(
+                footprint, metres_per_degree_longitude,
+                metres_per_degree_latitude, origin=(0.0, 0.0))
+            near = outside[contains_xy(
+                metric.buffer(feather), xs[outside]
+                * metres_per_degree_longitude,
+                ys[outside] * metres_per_degree_latitude)]
+            if len(near):
+                out[near] = feather - distance(metric, points(
+                    xs[near] * metres_per_degree_longitude,
+                    ys[near] * metres_per_degree_latitude))
+    return out.reshape(numpy.shape(mesh_x))
+
+
+def _grow_footprint(tile, footprint, feather_m):
+    """``footprint ⊕ feather_m`` in tile-relative degrees, grown in METRES
+    (R17c-2: the raster reaches ``feather_m`` past the wall line so the
+    whole ramp lands outside it)."""
+    if not feather_m or feather_m <= 0:
+        return footprint
+    from shapely import affinity
+
+    _minx, miny, _maxx, maxy = footprint.bounds
+    lon_m = GEO.lon_to_m(tile.lat + (miny + maxy) / 2.0) or GEO.lat_to_m
+    lat_m = GEO.lat_to_m
+    metric = affinity.scale(footprint, lon_m, lat_m, origin=(0.0, 0.0))
+    return affinity.scale(metric.buffer(float(feather_m)), 1.0 / lon_m,
+                          1.0 / lat_m, origin=(0.0, 0.0))
 
 
 def _feather_outward_extent(tile, x0, y0, x1, y1, feather_m):
@@ -6970,7 +7251,8 @@ class _MaskedConstantInset(_ConstantInset):
     """
 
     def __init__(self, polygon, elevation_m, x_step, y_step, *, label=None,
-                 nodata=-32768.0, base_reader=None, band_m=None, bounds=None):
+                 nodata=-32768.0, base_reader=None, band_m=None, bounds=None,
+                 footprint=None):
         # ``bounds`` pins the RECTANGLE (2026-09-09o (2)): the flat-site
         # water cut hands in a polygon that may not reach its own
         # rectangle's corners, and the bake's feather is driven from the
@@ -6995,6 +7277,9 @@ class _MaskedConstantInset(_ConstantInset):
             mask = self._within_band(mask, base_reader, float(band_m))
         self.alt_dem[mask] = numpy.float32(self.elevation_m)
         self.mask_valid_posts = int(mask.sum())
+        # #1144: the FLAT-SITE plateau's wall line — the bake feathers
+        # outward from it (``_footprint_edge_distance_m``).
+        self.footprint = footprint
 
     def _within_band(self, mask, base_reader, band_m):
         """R21 datum band — grade only ground already NEAR Z0.
@@ -7054,47 +7339,55 @@ class _MaskedConstantInset(_ConstantInset):
         return numpy.array(image, dtype=bool)
 
 
-def _flat_site_inset(tile, extent_deg, z0_m, feather_m, label, water):
-    """The synthetic flat-site raster for one rectangle — WATER CUT OUT.
+def _flat_site_inset(tile, footprint, z0_m, feather_m, label, water):
+    """The synthetic flat-site raster over one FOOTPRINT — WATER CUT OUT.
 
-    Owner RULINGS 2026-09-09m, mechanism 09o (2).  ``water`` is the
-    tile's water geometry (``auto_patch.flat_site_mode.water_cutout``,
-    tile-relative) or ``None``.  With no water over the rectangle this
-    returns exactly the ``_ConstantInset`` the pre-change code built, so
-    an inland airport (CYXY, HECA, LEMD) is untouched; with water it
-    returns a ``_MaskedConstantInset`` over ``rectangle − water``,
-    pinned to the SAME rectangle so the bake's feather does not move.
+    Owner RULINGS 2026-10-20ag (#1144): the plateau follows the airport
+    boundary, never a box.  ``footprint`` (tile-relative degrees) is the
+    decision record's region — pavement ∪ runways ∪ boundary ⊕ margin —
+    or one claimed-object cluster's hull ⊕ margin; the raster covers it
+    grown by ``feather_m`` (R17c-2, :func:`_grow_footprint`) and the bake
+    feathers outward from the footprint's own edge.  RULINGS 2026-09-09m,
+    09o (2): ``water`` (``auto_patch.flat_site_mode.water_cutout``,
+    tile-relative, or ``None``) is cut out, a hard sea wall.
 
-    Returns ``(inset, water_cut_frac)`` — the fraction of the rectangle
-    the water removed (``0.0`` when none), for the provenance stamp.
+    Returns ``(inset, water_cut_frac)`` — the fraction of the grown
+    footprint the water removed (``0.0`` when none), for the provenance
+    stamp — or ``(None, 1.0)`` when nothing is left.
     """
-    rect = _feather_outward_extent(tile, *extent_deg, feather_m)
-    if water is None or water.is_empty:
-        return _ConstantInset(*rect, z0_m, label=label), 0.0
-    from shapely import geometry as _geometry
-
-    box = _geometry.box(*rect)
-    try:
-        if not water.intersects(box):
-            return _ConstantInset(*rect, z0_m, label=label), 0.0
-        land = box.difference(water)
-    except Exception:                                      # pragma: no cover
-        return _ConstantInset(*rect, z0_m, label=label), 0.0
+    grown = _grow_footprint(tile, footprint, feather_m)
+    land = grown
+    if water is not None and not water.is_empty:
+        try:
+            if water.intersects(grown):
+                land = grown.difference(water)
+        except Exception:                                  # pragma: no cover
+            land = grown
     if land.is_empty:
         return None, 1.0
-    frac = 0.0 if box.area <= 0 else float(1.0 - land.area / box.area)
-    if frac < 1e-6:
-        return _ConstantInset(*rect, z0_m, label=label), 0.0
+    frac = 0.0 if grown.area <= 0 else float(1.0 - land.area / grown.area)
     base_dem = tile.dem
     x_step = ((base_dem.x1 - base_dem.x0) / (base_dem.nxdem - 1)
               if base_dem.nxdem > 1 else 0.0)
     y_step = ((base_dem.y1 - base_dem.y0) / (base_dem.nydem - 1)
               if base_dem.nydem > 1 else 0.0)
     inset = _MaskedConstantInset(land, z0_m, x_step, y_step, label=label,
-                                 bounds=rect)
+                                 bounds=grown.bounds, footprint=footprint)
     if not inset.mask_valid_posts:                         # pragma: no cover
         return None, 1.0
-    return inset, round(frac, 4)
+    return inset, (round(frac, 4) if frac >= 1e-6 else 0.0)
+
+
+def _footprint_of(entry):
+    """A substitution's (or cluster's) plateau footprint: its
+    ``footprint_deg`` polygon, or — for a caller that hands only a box —
+    that box."""
+    footprint = entry.get("footprint_deg")
+    if footprint is not None and not footprint.is_empty:
+        return footprint
+    from shapely import geometry
+
+    return geometry.box(*entry["extent_deg"])
 
 
 def _bake_island_continuity(tile, stamped, feather_m):
@@ -7233,8 +7526,38 @@ def _isthmus_base_offset_m(tile, polygon, z0_m):
         return None
 
 
+def _restore_off_site_relief(tile, relief_before, record, z0_m, icao):
+    """#1137 — hand one airport's baked window to
+    ``auto_patch.flat_site_relief`` and say what came back."""
+    from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
+
+    site = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
+        record, int(math.floor(tile.lat)), int(math.floor(tile.lon)))
+    if site is None:
+        UI.vprint(1, "   [flat-site] %s: the decision carries no gate — the "
+                     "off-site relief rule has no site to keep." % icao)
+        return None
+    centre_latitude = tile.lat + 0.5
+    report = FLAT_SITE_RELIEF.restore_off_site_relief(
+        tile.dem, relief_before, site, z0_m, INSET_DATUM_WARNING_THRESHOLD_M,
+        (GEO.lon_to_m(centre_latitude), GEO.lat_to_m))
+    if report["restored_posts"]:
+        UI.vprint(
+            0,
+            "   [flat-site] %s: %.4f km2 of ground OUTSIDE the airport's own "
+            "surfaces stood more than %g m above Z0 %.2f m (up to %.1f m) — a "
+            "hill is not the site; it keeps the real surface."
+            % (icao, report["restored_km2"],
+               INSET_DATUM_WARNING_THRESHOLD_M
+               * FLAT_SITE_RELIEF.BAND_FULL_FRACTION,
+               float(z0_m), report["max_offset_m"]))
+    return report
+
+
 def overlay_flat_site_insets(tile, dico_airports=None):
-    """Blend a constant-Z0 inset over every flat airport on the tile.
+    """Blend a constant-Z0 inset over every flat airport's FOOTPRINT
+    (its boundary ⊕ margin, and each claimed-object cluster's hull ⊕
+    margin — never a box, RULINGS 2026-10-20ag / #1144).
 
     THE DEM-ASSEMBLY STEP (spec section 2.1), called by
     ``O4_Airport_Utils.smooth_raster_over_airports`` on EVERY build --
@@ -7275,6 +7598,7 @@ def overlay_flat_site_insets(tile, dico_airports=None):
     base_dem.flat_site_decisions = decisions
     try:
         from auto_patch import flat_site_mode as FLAT_SITE_MODE
+        from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
 
         substitutions = FLAT_SITE_MODE.flat_site_substitutions(
             tile, dico_airports=dico_airports, decisions_out=decisions
@@ -7311,10 +7635,17 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         # OUTSIDE the declared extent -- Z0 holds to the wall line.  The
         # provenance below keeps the DECLARED box.
         record = substitution["record"]
+        # #1137: the honest surface under every rectangle this airport is
+        # about to bake, for the off-site relief rule after its clusters.
+        relief_before = FLAT_SITE_RELIEF.snapshot_window(base_dem, [
+            _feather_outward_extent(tile, *_footprint_of(entry).bounds,
+                                    feather_m)
+            for entry in [substitution] + list(
+                substitution.get("object_clusters") or ())])
         # #945: the airport's OWN pavement over water (a viaduct taxiway)
         # is land for this cut, exactly as the decision record reads it.
         inset, water_frac = _flat_site_inset(
-            tile, (x0, y0, x1, y1), substitution["z0_m"], feather_m,
+            tile, _footprint_of(substitution), substitution["z0_m"], feather_m,
             "%s synthetic flat-site inset" % icao,
             FLAT_SITE_MODE.water_beside_site(
                 water, record, int(math.floor(tile.lat)),
@@ -7395,13 +7726,13 @@ def overlay_flat_site_insets(tile, dico_airports=None):
             # channel this law already refuses to span must not be
             # flattened from either side.
             cluster_inset, cluster_water_frac = _flat_site_inset(
-                tile, (cx0, cy0, cx1, cy1), substitution["z0_m"], feather_m,
+                tile, _footprint_of(cluster), substitution["z0_m"], feather_m,
                 "%s synthetic flat-site object-cluster inset" % icao, water)
             cluster["water_cut_frac"] = float(cluster_water_frac)
             if cluster_inset is None:
                 UI.vprint(
                     0,
-                    "   [flat-site] %s: a claimed-object cluster rectangle is "
+                    "   [flat-site] %s: a claimed-object cluster footprint is "
                     "entirely WATER — not substituted." % icao)
                 continue
             try:
@@ -7476,6 +7807,10 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                    cluster.get("placements") or 0,
                    cluster.get("extent_area_km2") or 0.0, feather_m),
             )
+        # #1137 A HILL IS NOT THE SITE: off the airport's own surfaces the
+        # plateau stands only where the honest surface was near Z0.
+        airport_entry["off_site_relief"] = _restore_off_site_relief(
+            tile, relief_before, record, substitution["z0_m"], icao)
         # R11-1/R11-2: the refusals this airport collected, counted once
         # and carried on its provenance entry.  Refusals raised BEFORE
         # the bake (the R11-1 distance bound, recorded by

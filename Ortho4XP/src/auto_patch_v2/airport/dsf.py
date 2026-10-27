@@ -478,6 +478,15 @@ SHEET = "sheet"
 #: or ``runways``.
 IMAGE_TEXTURE_ROWS = ("TEXTURE_NOWRAP", "TEXTURE_LIT_NOWRAP")
 GROUND_LAYER_GROUPS = ("terrain", "beaches")
+#: THE INVISIBLE HARD SURFACE (issue #1153): a ``.pol`` whose texture is
+#: FULLY TRANSPARENT paints nothing — it is a physics-only polygon a pack
+#: lays so wheels roll hard over grass, and its ``SURFACE`` is no pavement
+#: witness.  MEASURED (LPPT, MKStudios): ``ZZ_DF-Hard_Surface/pol/
+#: Hard_Surface.pol`` (``SURFACE concrete``, ``airports -1``, a 32x32 PNG
+#: with alpha 0 everywhere) is one 4-point page of 5.3 km2 over the whole
+#: field, and it minted the 1.5 km2 ``gap:0/s0/lot`` of "groundside
+#: pavement" over grass.  The rows naming the colour texture are read.
+COLOUR_TEXTURE_ROWS = ("TEXTURE", "TEXTURE_NOWRAP")
 
 
 class PolDeclaration(_t.NamedTuple):
@@ -485,11 +494,29 @@ class PolDeclaration(_t.NamedTuple):
     and its first ``LAYER_GROUP`` name (both lower-cased, ``None`` when
     absent); ``layer`` is :data:`PAINT` when ANY row names a paint group;
     ``image`` when a texture row is a photograph's
-    (:data:`IMAGE_TEXTURE_ROWS`)."""
+    (:data:`IMAGE_TEXTURE_ROWS`); ``invisible`` when its colour texture
+    is fully transparent (:func:`texture_invisible`)."""
 
     surface: str | None = None
     layer: str | None = None
     image: bool = False
+    invisible: bool = False
+
+
+def texture_invisible(pol_path: str, name: str) -> bool:
+    """Whether the texture a ``.pol`` names (beside the file) is FULLY
+    TRANSPARENT; ``False`` when it is absent, unreadable or has no alpha."""
+    path = os.path.join(os.path.dirname(pol_path), name)
+    if not os.path.isfile(path):
+        return False
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            if "A" not in im.getbands():
+                return False
+            return im.getchannel("A").getextrema()[1] == 0
+    except Exception:       # an unreadable texture is no witness either way
+        return False
 
 
 def pol_declaration(physical_path: str | None) -> PolDeclaration:
@@ -500,6 +527,7 @@ def pol_declaration(physical_path: str | None) -> PolDeclaration:
     surface: str | None = None
     layer: str | None = None
     image = False
+    texture: str | None = None
     try:
         with open(physical_path, "r", encoding="utf-8", errors="ignore") as fh:
             for line in fh:
@@ -507,6 +535,8 @@ def pol_declaration(physical_path: str | None) -> PolDeclaration:
                 if len(toks) < 2:
                     continue
                 kw = toks[0].upper()
+                if kw in COLOUR_TEXTURE_ROWS and texture is None:
+                    texture = line.strip()[len(toks[0]):].strip()
                 if kw in IMAGE_TEXTURE_ROWS:
                     image = True
                 elif kw == "SURFACE" and surface is None:
@@ -518,7 +548,8 @@ def pol_declaration(physical_path: str | None) -> PolDeclaration:
                         layer = toks[1].lower()
     except OSError:
         return PolDeclaration()
-    return PolDeclaration(surface, layer, image)
+    invisible = bool(texture) and texture_invisible(physical_path, texture)
+    return PolDeclaration(surface, layer, image, invisible)
 
 
 def ground_photograph(decl: PolDeclaration) -> bool:
@@ -547,7 +578,8 @@ def pavement_verdict(path: str, decl: PolDeclaration | None = None) -> str | Non
        when the name alone already said so (step 5), else as a SHEET;
        a soft surface refuses; a GROUND PHOTOGRAPH's surface (an image
        in a ground layer group, :func:`ground_photograph`, issue #719)
-       is no declaration at all — step 5 decides;
+       is no declaration at all, nor an INVISIBLE page's (a fully
+       transparent texture, issue #1153) — step 5 decides;
     5. no surface declared, or no file (04d (2)): the ``conc`` word with
        no paint/sign word in the name is a source."""
     p = path.lower()
@@ -563,7 +595,8 @@ def pavement_verdict(path: str, decl: PolDeclaration | None = None) -> str | Non
     if decl is not None:
         if decl.layer == PAINT:
             return None
-        if decl.surface is not None and not ground_photograph(decl):
+        if (decl.surface is not None and not ground_photograph(decl)
+                and not decl.invisible):
             if decl.surface not in HARD_SURFACES or (
                     decl.layer is None and decorative):
                 return None

@@ -41,8 +41,8 @@ scope for the first release cycle.)
   Never next to the app: macOS Gatekeeper translocation makes that
   unreliable outright, and keeping the data out of the app folder makes an
   update a plain folder replacement everywhere.
-- `set_data_root()` + `seed_shipped_patches()` for pointing a fresh data
-  root and seeding shipped `Patches/`.
+- `set_data_root()` for pointing a fresh data root (no patches are
+  shipped or seeded since #1229).
 - The JSON-lines engine transport (`--engine-jsonl`) the Mac app drives,
   with a parent-death watchdog (`O4_PARENT_PROCESS_ID`).
 

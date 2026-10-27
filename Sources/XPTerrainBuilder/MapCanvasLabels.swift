@@ -84,10 +84,12 @@ extension MapCanvasView {
 
     /// Tile coordinate (top-left) on every visible tile, installed imagery
     /// (bottom-left) on built tiles and on tiles another installed ortho
-    /// pack covers (provider unreadable there: `imagery ?`).
+    /// pack covers (read from that pack's file names, #1227; `imagery ?`
+    /// when they name no source).
     func drawTileLabels(context: GraphicsContext, size: CGSize, cam: MapCamera,
                         bounds: (minLon: Double, maxLon: Double, minLat: Double, maxLat: Double),
-                        built: [BuildModel.TileCoord: O4TileInfo]?, orthoTiles: Set<Int32>?) {
+                        built: [BuildModel.TileCoord: O4TileInfo]?, orthoTiles: Set<Int32>?,
+                        orthoImagery: [Int32: PackImagery]) {
         guard cam.scale >= MapLabelLayout.tileLabelMinScale else { return }
         let latLo = max(Int(floor(bounds.minLat)), -90), latHi = min(Int(floor(bounds.maxLat)), 89)
         let lonLo = max(Int(floor(bounds.minLon)), -180), lonHi = min(Int(floor(bounds.maxLon)), 179)
@@ -98,12 +100,21 @@ extension MapCanvasView {
                 drawPill(TileMath.key(lat: lat, lon: lon), context: context,
                          at: CGPoint(x: rect.minX + 4, y: rect.minY + 4), anchorTop: true)
                 let coord = BuildModel.TileCoord(lat: lat, lon: lon)
+                let key = Int32((lat + 90) * 360 + lon + 180)
                 let imagery: String?
                 if let info = built?[coord] {
-                    imagery = MapLabelLayout.imageryLabel(provider: info.provider, zl: info.zl,
+                    // A tile built in the working dir whose cfg names no
+                    // provider (an Ortho4XP-built tile, whose config is ignored, or none written) falls
+                    // back to the installed pack's own file names (#1227).
+                    let known = !info.provider.trimmingCharacters(in: .whitespaces).isEmpty
+                    let pack = known ? nil : orthoImagery[key]
+                    imagery = MapLabelLayout.imageryLabel(provider: known ? info.provider : pack?.provider,
+                                                          zl: known ? info.zl : (pack?.zl ?? info.zl),
                                                           hasZones: info.hasZones)
-                } else if orthoTiles?.contains(Int32((lat + 90) * 360 + lon + 180)) == true {
-                    imagery = MapLabelLayout.imageryLabel(provider: nil, zl: nil, hasZones: false)
+                } else if orthoTiles?.contains(key) == true {
+                    let pack = orthoImagery[key]
+                    imagery = MapLabelLayout.imageryLabel(provider: pack?.provider, zl: pack?.zl,
+                                                          hasZones: false)
                 } else {
                     imagery = nil
                 }

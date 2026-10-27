@@ -15,7 +15,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from auto_patch_v2.airport import backup_state as B
 from auto_patch_v2.airport import dsf_write as W
 from auto_patch_v2.airport import pack_art as PA
@@ -425,7 +424,10 @@ def test_the_write_drops_the_split_original_keeps_the_authors(tmp_path,
                                                              _memo):
     pack, dsf = _pack(tmp_path, present=("objects/a.obj", "objects/b.obj",
                                          "objects/u.obj", "objects/c.obj",
-                                         "draped/ok.pol"),
+                                         "draped/ok.pol",
+                                         # the cut bodies the write names
+                                         # (#1214 R1: never a missing file)
+                                         "objects/b__b0.obj", "objects/b__b1.obj"),
                       dump=SPLIT_DUMP)
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     plan = _split_plan(pack, dsf)

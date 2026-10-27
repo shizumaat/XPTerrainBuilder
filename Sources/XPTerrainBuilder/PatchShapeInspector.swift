@@ -4,10 +4,13 @@ import SceneryKit
 /// The Patch box's shape inspector in Edit mode (issue #759, spec §4 as
 /// amended 2026-10-15): one shape — role, `ref`, node count, plan area,
 /// perimeter, elevation range, "Used by" (other shapes sharing its nodes),
-/// "Delete shape"; several — their count and node count, "Delete N shapes".
+/// "Copy shape reference" (#1281, `PatchCopy.swift`), "Set elevation…"
+/// (#1357), "Delete shape"; several — their count and node count, "Set
+/// elevation…", "Delete N shapes".
 struct PatchShapeInspector: View {
     @ObservedObject var model: PatchEditModel
     let doc: PatchDocument
+    @State private var copied = false
 
     var body: some View {
         let ways = doc.ways.filter { model.shapeSelection.contains($0.id) }
@@ -25,10 +28,13 @@ struct PatchShapeInspector: View {
                 note("Also \(model.selection.count.formatted()) selected nodes, deleted with the shapes.")
             }
             note("Drag a selected shape to move it; nodes it shares with other shapes move too.")
+            Button(PatchSetElevationSheet.title) { model.showsSetElevation = true }
+                .help("Give every node of the selected shapes one elevation")
             Button(ways.count == 1 ? "Delete shape" : "Delete \(ways.count.formatted()) shapes", role: .destructive) {
                 model.deleteSelection()
             }
         }
+        .sheet(isPresented: $model.showsSetElevation) { PatchSetElevationSheet(model: model, doc: doc) }
     }
 
     @ViewBuilder
@@ -50,6 +56,13 @@ struct PatchShapeInspector: View {
             note("\(stats.nodesWithoutElevation.formatted()) nodes: elevation from the mesh.")
         }
         row("Used by", stats.neighbours == 1 ? "1 other shape" : "\(stats.neighbours.formatted()) other shapes")
+        HStack(spacing: 6) {
+            Button(PatchCopyItem.shapeReferenceTitle) {
+                if let text = model.shapeReference(way) { PatchClipboard.copy(text, noting: $copied) }
+            }
+            .help("Copies a text block that identifies this shape, for an issue report.")
+            if copied { Text("Copied").scaledFont(.caption).foregroundStyle(.secondary) }
+        }
     }
 
     private func row(_ key: String, _ value: String) -> some View {

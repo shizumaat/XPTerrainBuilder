@@ -93,9 +93,10 @@ def test_the_shoreline_is_a_step_not_a_ramp(monkeypatch):
     assert between.size <= 1, "a beach ramp appeared where a wall belongs"
 
 
-def test_no_water_layer_bakes_the_pre_change_constant_bbox(monkeypatch):
-    """An inland airport, or a tile with no cached water: byte-identical
-    to the pre-change bake."""
+def test_no_water_layer_bakes_the_bare_footprint(monkeypatch):
+    """An inland airport, or a tile with no cached water: the bake is the
+    footprint plateau alone (#1144) — byte-identical to baking
+    ``_flat_site_inset`` over the substitution's footprint with no water."""
     wire_airport(monkeypatch)
     dem_a = flat_dem(1.0, n=1201)
     _wire_water(monkeypatch, None)
@@ -106,12 +107,11 @@ def test_no_water_layer_bakes_the_pre_change_constant_bbox(monkeypatch):
     dem_b = flat_dem(1.0, n=1201)
     tile_b = make_tile(dem_b)
     got = substitutions(tile_b)
-    x0, y0, x1, y1 = got[0]["extent_deg"]
-    INSETS._bake_one_inset(
-        tile_b, None, FEATHER_M,
-        inset=INSETS._ConstantInset(
-            *INSETS._feather_outward_extent(tile_b, x0, y0, x1, y1, FEATHER_M),
-            got[0]["z0_m"]))
+    inset, frac = INSETS._flat_site_inset(
+        tile_b, got[0]["footprint_deg"], got[0]["z0_m"], FEATHER_M,
+        "TEST", None)
+    assert frac == 0.0
+    INSETS._bake_one_inset(tile_b, None, FEATHER_M, inset=inset)
 
     assert sha(dem_a.alt_dem) == sha(dem_b.alt_dem)
     assert dem_a.synthetic_flat_site_provenance[0]["water_cut_frac"] == 0.0

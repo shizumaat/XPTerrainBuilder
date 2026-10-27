@@ -71,6 +71,7 @@ __all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
            "pad_plurality", "census_families", "census_families_lines",
            "union_area_m2", "PlanCluster", "plan_clusters", "bodies_of_plan",
            "cluster_plane", "member_is_deck", "ProfileLaw",
+           "frame_is_bridge", "member_is_bridge_deck",
            "cluster_base_profile"]
 
 #: §16f (1): two placement rows do not make a family and neither does one
@@ -354,6 +355,39 @@ def member_is_deck(m: _t.Any) -> bool:
         return False
     return bool(getattr(m, "deck_ring", None)
                 or str(getattr(m, "deck_kind", "") or "") in DECK_VERDICTS)
+
+
+def frame_is_bridge(u: _t.Any) -> bool:
+    """Owner RULINGS 2026-10-22d (#1214): is this shared frame (one plan
+    unit: every row at one anchor spelling) a BRIDGE — every member of it
+    a deck by the object stage's own verdict (:data:`DECK_VERDICTS`)?  Its
+    deck then seats flush with the terrain at its ends
+    (``anchor_rule.datum_of``).  A deck sharing its frame with anything
+    else is a BUILDING's — its floor, its viaduct (10-03e) — and moves
+    with that building (10-22b, :func:`member_is_bridge_deck`)."""
+    ms = tuple(getattr(u, "members", ()) or ())
+    return bool(ms) and all(str(getattr(x, "deck_kind", "") or "") in DECK_VERDICTS
+                            for x in ms)
+
+
+def member_is_bridge_deck(u: _t.Any, m: _t.Any) -> bool:
+    """:func:`member_is_deck` of a member whose frame IS a bridge
+    (:func:`frame_is_bridge`).  Owner RULINGS 2026-10-22b (#1214): "for
+    any closed object group, like a building with solid walls, we only
+    need to check the perimeter/wall objects to determine the seat,
+    everything else just moves with it" — so the object stage's footprint
+    unit keeps a deck verdict out of the WALL chain and the CONTENTS only
+    for a bridge.  KMCI's terminal frame is 148 members, 42 of them
+    signature 'decks' (its floors, its forecourt road: the departures
+    viaduct's mapped bridge way carries the frame's deck plane); with all
+    42 refused as walls and as contents its pieces seated one by one and
+    came apart by up to 8 m.  A FLAG deck (the pack's own hard deck) or
+    one over an emitted deck face keeps its own datum law (§16e / §49) in
+    any frame — §48 (1) (c) stands for it."""
+    if not member_is_deck(m):
+        return False
+    return (frame_is_bridge(u) or str(getattr(m, "deck_kind", "") or "") == "flag"
+            or getattr(m, "deck_datum_z", None) is not None)
 
 
 #: §16g (10) (2) AMENDED (issue #73, spec-author ruling to lane
@@ -678,7 +712,9 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
             links = sheet_links(
                 shims, walled, leaves, sheet_chain_min_fraction,
                 is_deck=lambda i: member_is_deck(u.members[shims[i].member]),
-                is_footed=lambda i: shims[i].footed, ml=ml, mo=mo, pool=pool)
+                is_footed=lambda i: shims[i].footed, ml=ml, mo=mo, pool=pool,
+                top_y=lambda i, _s=shims: (_s[i].span[1] if _s[i].span
+                                          else None))
             if links:
                 chains = merge_by_sheets(chains, links, adj)
         sheets = {s for s, _b in links}

@@ -29,6 +29,12 @@ def say_planar(icao: str, pm, pstats, airport, lrep, planar_s: float,
          f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
          f"  seam-band faces dropped {pstats.dropped_seam_faces}"
          f"  slivers merged {pstats.slivers_merged} (08d-4a)")
+    # #1214 round 7: the pads' levels and why a pad got none
+    lv = getattr(pstats, "levels", None) or {}
+    if lv:
+        out(f"[{icao}] pad levels: " + "  ".join(
+            f"{k} {v if not isinstance(v, list) else '; '.join(map(str, v[:12]))}"
+            for k, v in lv.items()))
     # §41 (4) (owner RULINGS 2026-09-14c item 4): the sliver ZONE strips
     if pstats.zone_slivers_dissolved or pstats.zone_slivers_dropped:
         out(f"[{icao}] zone slivers (41-4): "

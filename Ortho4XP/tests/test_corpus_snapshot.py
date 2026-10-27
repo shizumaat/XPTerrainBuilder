@@ -207,12 +207,13 @@ def test_mount_and_unmount(CS, tmp_path, monkeypatch):
     shared = tmp_path / "shared" / "OSM_data"
     shared.mkdir(parents=True)
     (root / "OSM_data").symlink_to(shared)
-    (root / "Ortho4XP.cfg").write_text("custom_scenery_dir=/real/X/Custom Scenery\n", encoding="utf-8", newline="")
+    (root / "XPTerrainBuilder.cfg").write_text(
+        "custom_scenery_dir=/real/X/Custom Scenery\n", encoding="utf-8", newline="")
     rec = CS.mount(root, snap, icao="ZZZZ")
     assert rec["corpus"] == f"snapshot@{man['hash'][:12]}"
     for name in CS.DATA_DIRS:
         assert (root / name).resolve() == (snap / "data" / name).resolve()
-    cfg = (root / "Ortho4XP.cfg").read_text(encoding="utf-8")
+    cfg = (root / "XPTerrainBuilder.cfg").read_text(encoding="utf-8")
     # the token is replaced by XPLANE_ROOT (native spelling, asserted just
     # below) + the cfg's own '/Custom Scenery' tail (#92)
     assert f"custom_scenery_dir={snap / 'xplane'}/Custom Scenery" in cfg
@@ -228,7 +229,7 @@ def test_mount_and_unmount(CS, tmp_path, monkeypatch):
     CS.unmount(root, rec2)
     assert (root / "OSM_data").resolve() == shared.resolve()
     assert not (root / CS.MOUNTS_RECORD).exists()
-    assert "/real/X" in (root / "Ortho4XP.cfg").read_text(encoding="utf-8")
+    assert "/real/X" in (root / "XPTerrainBuilder.cfg").read_text(encoding="utf-8")
 
 
 def test_mount_refuses_a_real_directory(CS, tmp_path):

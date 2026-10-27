@@ -1615,7 +1615,13 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         upper_all = [v for v in near if v in up_v]
         lots = sorted({lot_ids[int(j)] for j in ltree.query(zone, predicate="intersects")}
                       if ltree is not None else set())
-        if not upper_all or not (lots or w.retains):
+        # #1139: a PACK wall that retains its height is a declared step
+        # whether or not a road, a lot or a pavement stands within reach of
+        # it (KATL ``muro_ladrillo``: the taxiway's adjacent ground above,
+        # the tower's pad below) — its record may carry empty sides; the
+        # adjacent ground reads its line (``constraints/wall_zone``)
+        bare = w.retains and not w.mouth
+        if (not upper_all or not (lots or w.retains)) and not bare:
             continue
         lot_set = set(lots)
 
@@ -1631,7 +1637,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                 return True
             return not on_road and any(g_ in lot_set for g_ in inc)
         low_all = [v for v in near if v not in air_or_pad and _low(v)]
-        if not low_all:
+        if not low_all and not bare:
             continue
 
         def across(a: int, b: int) -> bool:
@@ -1644,9 +1650,11 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         # the LOWER side: lot vertices whose nearest airside-level vertex is
         # across the wall; the UPPER side: airside-level vertices whose
         # nearest lot vertex is across it (the wall stands BETWEEN them)
-        lower = [v for v in low_all if across(v, nearest(v, upper_all))]
-        upper = [v for v in upper_all if across(v, nearest(v, low_all))]
-        if not lower or not upper:
+        lower = [v for v in low_all if across(v, nearest(v, upper_all))] \
+            if upper_all else []
+        upper = [v for v in upper_all if across(v, nearest(v, low_all))] \
+            if low_all else []
+        if (not lower or not upper) and not bare:
             continue
         # THE LOT AT THE WALL'S FOOT (10-03c: "graded flat to the
         # building's level at the wall's foot"): every lower lot vertex

@@ -18,6 +18,19 @@ PATCH-EDGE window (some samples on the patch, some on the DEM), and per
 from its mouth (the vertices it shares with a ``graded_strip`` ring) and
 their worst ``|z - DEM|`` (bar: within ``cockpit.visual_m``).
 
+``--reach M`` (issue #1246, owner RULINGS 2026-10-22g) reads EVERY mapped
+road of a ribbon class (``rules.toml [osm_roads] ribbon_highways``, at
+grade, of the mint's feeds ``model.planar.OSM_RIBBON_FEEDS``) meeting the
+aerodrome boundary buffered ``M`` metres: the metres of
+it inside that reach, the metres of those on the patch, and every
+PATCH-EDGE STEP along those ways — ``|dz|`` between the two consecutive
+samples where the course leaves the patch for the DEM — worst five with
+lat/lon and the count over 0.5 m (the ground bar), and apart the steps AT
+THE REACH EDGE (the terrain-side sample outside the reach).  A step within 15 m of
+a mapped STRUCTURE (any way tagged bridge / tunnel / covered, or a layer
+other than 0) is counted apart: the course goes onto a deck or under a
+roof there, not onto the terrain.  ``--ways`` is then optional.
+
 A WELD GAP IS PATCH (lane roads609e): a sample off every ring but inside
 the patch's CLOSING by ``--gap`` metres (default 1.5 — three identity
 cells, the most a ribbon the arrangement could not weld to a rim node
@@ -108,7 +121,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("patch")
     ap.add_argument("--capture", required=True, help="v2_solve_replay --capture pickle")
-    ap.add_argument("--ways", required=True, help="comma-separated OSM way ids")
+    ap.add_argument("--ways", default="", help="comma-separated OSM way ids")
+    ap.add_argument("--reach", type=float, default=None,
+                    help="read every ribbon-class road within the boundary + M metres")
     ap.add_argument("--step", type=float, default=2.0)
     ap.add_argument("--window", type=float, default=10.0)
     ap.add_argument("--detail", default=None, help="WAY:S0:S1")
@@ -154,7 +169,9 @@ def main(argv=None) -> int:
 
     ways = {w.id: w for w in airport.osm_ways}
     k = max(1, int(round(a.window / a.step)))
-    for wid in (int(s) for s in a.ways.split(",")):
+    if a.reach is not None:
+        _reach_read(airport, a.reach, a.step, zon, Ti)
+    for wid in (int(s) for s in a.ways.split(",") if s.strip()):
         L = LineString(ways[wid].points)
         prof = []
         for i in range(int(L.length / a.step) + 1):
@@ -205,6 +222,72 @@ def main(argv=None) -> int:
             lon, lat = Ti.transform(p.x, p.y)
             print(f"  s={s:.0f} {lat:.6f},{lon:.6f} z={z:.2f} {src} dem={dem.z(p.x, p.y):.2f}")
     return 0
+
+
+def _reach_read(airport, reach_m: float, step: float, zon, Ti) -> None:
+    """``--reach``: road metres in the boundary + ``reach_m``, on the patch,
+    and the patch-edge steps along those roads (module doc)."""
+    from shapely.ops import unary_union
+
+    from auto_patch_v2.airport.road_ways import road_ways
+    from auto_patch_v2.classify.evidence import polygon_from
+    from auto_patch_v2.classify.rules import load_rules
+    bs = [polygon_from(b.outer, b.holes) for b in getattr(airport, "boundaries", ())]
+    bs = [b for b in bs if b is not None]
+    if not bs:
+        print("reach: the airport has no boundary (apt.dat 130)")
+        return
+    reach = unary_union(bs).buffer(reach_m, join_style="mitre", mitre_limit=2.0)
+    shapely.prepare(reach)
+    classes = set(load_rules().osm_roads.ribbon_highways)
+    from auto_patch_v2.model.planar import OSM_RIBBON_FEEDS
+    sel = [(w, ln) for w, ln in road_ways(airport.osm_ways)
+           if (w.tags or {}).get("highway") in classes
+           and getattr(w, "kind", "") in OSM_RIBBON_FEEDS and reach.intersects(ln)]
+    structs = [LineString(w.points) for w in airport.osm_ways
+               if len(w.points) >= 2 and _is_structure(w.tags or {})]
+    struct = unary_union(structs).buffer(15.0) if structs else None
+    if struct is not None:
+        shapely.prepare(struct)
+    total = on = 0.0
+    steps = []
+    for w, L in sel:
+        prof = []
+        for i in range(int(L.length / step) + 1):
+            p, z, src = zon(L, i * step)
+            inside = reach.covers(p)
+            prof.append((p, z, src))
+            if inside:
+                total += step
+                on += step if src != "dem" else 0.0
+        for (p0, z0, s0), (p1, z1, s1) in zip(prof, prof[1:], strict=False):
+            if (s0 == "dem") != (s1 == "dem"):
+                q, d = (p1, p0) if s0 == "dem" else (p0, p1)
+                at_struct = struct is not None and struct.covers(q)
+                steps.append((abs(z1 - z0), w.id, q, reach.covers(d), at_struct))
+    print(f"reach boundary+{reach_m:.0f} m: {len(sel)} roads, {total:.0f} m inside, "
+          f"{on:.0f} m on the patch ({100.0 * on / total if total else 0.0:.1f} %)")
+    steps.sort(key=lambda r: -r[0])
+    ground = [r for r in steps if not r[4]]
+    print(f"   patch-edge steps onto the terrain {len(ground)}, over 0.5 m "
+          f"{sum(1 for r in ground if r[0] > 0.5)}; at a structure {len(steps) - len(ground)}, "
+          f"over 0.5 m {sum(1 for r in steps if r[4] and r[0] > 0.5)}")
+    edge = [r for r in ground if not r[3]]
+    print(f"   AT THE REACH EDGE (the terrain side outside the reach) {len(edge)}, over "
+          f"0.5 m {sum(1 for r in edge if r[0] > 0.5)}, worst "
+          + (f"{edge[0][0]:.2f} m way {edge[0][1]} at "
+             "{1:.6f}, {0:.6f}".format(*Ti.transform(edge[0][2].x, edge[0][2].y))
+             if edge else "-"))
+    for dz, wid, q, inside, _s in ground[:5]:
+        lon, lat = Ti.transform(q.x, q.y)
+        print(f"   step {dz:.2f} m  way {wid}  at {lat:.6f}, {lon:.6f}"
+              f"  (terrain side {'inside' if inside else 'outside'} the reach)")
+
+
+def _is_structure(tags: dict) -> bool:
+    """A way the course leaves the terrain on: a deck, a bore or a roof."""
+    return any(str(tags.get(k, "no")).lower() not in ("no", "") for k in
+               ("bridge", "tunnel", "covered")) or str(tags.get("layer", "0")) not in ("0", "")
 
 
 def _corridor_ends(patch: str, crs: str, dem, Ti, roads) -> None:

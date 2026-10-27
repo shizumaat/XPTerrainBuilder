@@ -54,6 +54,7 @@ import math
 import os as _os
 import typing as _t
 
+from ..model import pulse as _pulse
 from ..model.rebake import Member, Part, RebakePlan, Unit
 from . import anchor_rule as _ar
 from . import basin_ring as _br
@@ -112,6 +113,17 @@ from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
 # ── the authored frame and the body FILING: ``airport/placement_file``
 # (issue #303, the 1,500-line split point); re-exported, so every
 # caller's and every twin's import path is unchanged ──
+# #1214: the airside hard deck (class A) and the one-zero groups live next
+# door; the round-2 private names stay importable from here
+from . import cut_deck_seat as _cds  # noqa: E402
+from .airside_deck_seat import (  # noqa: E402
+    airside_deck as _airside_deck, airside_frame as _airside_frame,
+    deck_owns_its_datum as _deck_owns_its_datum)
+from .open_frame_seat import (  # noqa: E402
+    OPEN_KINDS as _OPEN_KINDS, body_root as _body_root,
+    frame_root_boxes as _frame_root_boxes, group_zero as _group_zero,
+    merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
+    rigid_open as _rigid_open, root_zeros as _root_zeros)
 from .placement_file import (  # noqa: E402,F401
     OWN_GROUND, authored_offset, _carried_file, _cut_and_file,
     _deck_rider, _geom_hull, _geom_pts, _group_bodies,
@@ -269,6 +281,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # 14g (1): a §18 RE-SEATED row is the law's seat, never the author's lift
     from . import authored_seat as _aseat
     reseated = _aseat.reseated_rows(getattr(plan, "authored_seats", ()) or ())
+    # 26d (#1331): the pack object cuts' rings, published on the seat records
+    _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,
@@ -318,12 +332,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             _cutters[id_of((ui, mi))] = hit
         return hit
 
+    _pulse.tick("placement: deck footprints")             # issue #1213
     prints = _bf.deck_prints(plan, _cutter_for)
     counts["bridge_deck_footprints"] = len(prints)
     # issue #290: the deck footprint of a (unit, member), for the
     # deck-rider test ``footprint_unit.contents_seat`` asks
     _deck_of = {(p.unit, p.member): p for p in prints}
 
+    _pulse.tick("placement: plan-wide seats")
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,
                                       connector_span_m,  # §16g (6)
@@ -332,10 +348,22 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       sheet_chain_min_fraction,  # 27a
                                       level_tol_m=split_tol_m,  # 10n (3)
                                       piece_reach_m=piece_reach_m)  # 19u
+    # #1214 round 3, R5 (owner RULINGS 2026-10-22o): one zero per CONNECTED
+    # unit — the pieces the pad-level and block passes cut put back together
+    _gz_air: dict[str, tuple[float, int]] = {}           # 23e: airside wins
+    _gz = _root_zeros(_pw or {}, plan, surface, counts, _gz_air)   # 22q: airside first
+    #: R5: a written body file -> its connected unit (a rider follows it)
+    _file_root: dict[str, str] = {}
     # owner RULINGS 2026-10-03e (#290): the decks that are a UNIT'S —
     # derived once per plan; their whole viaduct rides the unit's level
-    _viaducts = _bf.unit_viaducts(prints, plan, _pw, counts) if _pw else {}
+    _pulse.tick("placement: viaducts")
+    _viaducts = (_bf.unit_viaducts(prints, plan, _pw, counts,
+                                   surface=surface,  # 20av (#1179)
+                                   bar_m=bind_ground_m) if _pw else {})
     _deck_by_key = {p.key: p for p in prints}
+    # issue #1179: a viaduct is ONE connected piece of its deck's footprint
+    _deck_by_key.update({k: v.print for k, v in _viaducts.items()
+                         if v.print is not None})
 
     # issue #31: the §16g unit footprints a FOOTLESS piece with no footed
     # carrier is asked against — built ONCE, and only if one asks, so a
@@ -353,7 +381,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     from . import footprint_connector as _fc
     _st29q = _fc.verdicts_of(plan) if connector_span_m > 0.0 else None
     _cut29q = _fc.linear_pids(_st29q) if _st29q else frozenset()   # 29v
-    for ui, u in enumerate(plan.units):
+    _pulse.tick("placement: units")
+    for ui, u in _pulse.each(list(enumerate(plan.units)),
+                             "placement: units", "units"):
         # ── PASS 1: every member's bodies ────────────────────────────
         # §14a (2): each basin ring's DEPTH, read ONCE per unit — a pit is
         # authored as several resources on one row, so no member can read
@@ -583,7 +613,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 plan, ui, staged, cands, _cut29q,
                 contacts=unit_pairs.get(ui, ()), counts=counts)
             forced.update(_rides29q)
-        def _viaduct_carrier(st, grp, ui_, cands_):
+        def _viaduct_carrier(st, grp, ui_, cands_, staged_):
             fr = _bf.frame_of(st.m)
             if fr is None or st.m.deck_kind in ("flag", "signature"):
                 return None
@@ -595,6 +625,15 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                    deck_edge_m):
                     continue
                 dc = [c for c in cands_ if c.member == v.member]
+                if not v.whole:
+                    # issue #1179: the deck body of THIS connected piece
+                    _sd = next((s_ for s_ in staged_ if s_.mi == v.member),
+                               None)
+                    dc = [c for c in dc if _sd is not None
+                          and 0 <= c.group < len(_sd.groups)
+                          and _bf.viaduct_of([v], [
+                              q for i in _sd.groups[c.group]
+                              for q in _sd.raw[i][0]]) is v]
                 if not dc:
                     continue
                 counts["viaduct_riders_to_deck"] = \
@@ -790,7 +829,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 # ``_deck_rider``) — rides the deck, whatever else the
                 # search found to rest on (a sidewalk beside the ramp)
                 if _viaducts and over:
-                    _vd = _viaduct_carrier(st, grp, ui, cands)
+                    _vd = _viaduct_carrier(st, grp, ui, cands, staged)
                     if _vd is not None:
                         over = [_vd]
                 # issue #10 [HECA-5]: a UNIT'S CONTENTS RIDE THE UNIT — a
@@ -857,7 +896,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             uc = (_fu.unit_carry(_pids, _bx, _pw, _unit_ix(),
                                  frontage_m=touch_m,
                                  span_max_m=connector_span_m, counts=counts)
-                  if st.footless and _pw and not (_pids & _cut29q) else None)
+                  if st.footless and _pw and not (_pids & _cut29q)
+                  # 10-22b (#1214): a pack hard deck, or a deck over an
+                  # emitted deck face, keeps its own datum (§16e / §49) —
+                  # never a unit's (LFPG's taxiway bridge H1 rode the T2
+                  # road unit 11-18 m over its taxiway)
+                  and not _deck_owns_its_datum(st.m) else None)
             # issue #10: an ELEVATED piece of a footed member that no
             # carrier takes still rides its own unit when its parts are
             # that unit's (the part-id join only — the box join stays the
@@ -881,6 +925,45 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
         # ── PASS 4: the cut, carriers first ──────────────────────────
         by_mi = {st.mi: st for st in staged}
+        # owner RULINGS 2026-10-22b (#1214): a frame the law seats on our
+        # ground by its FEET moves as one and keeps no authored lift
+        footed_frame = any(not st.footless for st in staged)
+        # owner RULINGS 2026-10-22c/f (#1214): an OPEN STRUCTURE's frame
+        # (every member a deck or a deck candidate: a bridge, a canopy)
+        # moves as ONE rigid group
+        airside = _airside_frame(staged, decks, surface, counts,
+                                 abutment_step_m, tuple(u.anchor))
+
+        # owner RULINGS 2026-10-26d (#1331): outside a class-A frame, a
+        # pack deck body over the pack's own cut sits flush with what it
+        # carries (``cut_deck_seat``)
+        def _cut_decks(r, mm, _u=u, _air=airside):
+            if _air is not None or not _cuts:
+                return r
+            return _cds.seat_cut_decks(r, mm, getattr(mm, "origin", None) or tuple(_u.anchor),
+                                       surface, _cuts, abutment_step_m,
+                                       deck_on_fraction, counts)
+        open_frame = bool(u.members) and all(
+            str(getattr(x, "deck_kind", "") or "") in _OPEN_KINDS
+            for x in u.members)
+        # R5: in a LIFTED frame (one anchor, one authored OBJECT_AGL lift:
+        # one object the author stood on his own ground) an unchained body
+        # joins the connected unit whose parts it comes within a metre of,
+        # and touching units move as one (22o).  Plan BOXES are the
+        # witness, so an unlifted shared-datum frame — whose rotated
+        # neighbours' boxes overlap 20 m apart — is not read this way
+        # #1214 round 5 (owner, KMCI 1.0.420): an unchained body of ANY
+        # frame — a bridge or a wall piece against its garage — joins the
+        # unit whose parts it comes within a metre of; only the MERGING of
+        # two units stays a lifted frame's (plan boxes of an unlifted
+        # shared-datum frame overlap 20 m apart)
+        _rboxes = _frame_root_boxes(u, _pw or {}) if _pw else {}
+        _rmerge = (_merge_frame_roots(_rboxes)
+                   if len(_rboxes) > 1 and float(u.agl_m or 0.0) > 0.0 else {})
+        # #1214 round 6 (22o, 23e): units an UNCHAINED part chain joins move
+        # as one group, in any frame, at the airside share's zero
+        if len(_rboxes) > 1:
+            _rmerge = _unchained_links(u, _pw or {}, _rmerge, _gz_air, counts)
         written_of: dict[int, bool] = {}
         # 14at: the FILE a carrier group was actually written as.  A
         # candidate's own ``resource`` is a body SLOT's id — it is
@@ -929,10 +1012,17 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                m.authored_path, u.anchor[0], u.anchor[1],
                                m.heading_deg, (body,))
                 before = len(splits)
-                record = _lifted(record, rows, reseated)
+                record = _airside_deck(record, m, airside, counts)
+                record = _rigid_open(record, m, open_frame)
+                if not (open_frame or airside):
+                    record = _group_zero(record, m, _pw or {}, _gz, counts,
+                                         str(u.id), file_root=_file_root,
+                                         root_boxes=_rboxes, merged=_rmerge)
+                record = _cut_decks(record, m)
+                record, landed = _lifted(record, rows, reseated, surface,
+                                          authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              landed=_lands(record, rows, surface,
-                                            authored_keep_tol_m),
+                              landed=landed,
                               always_write=True, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
                               drape_law=drape_law)
@@ -1015,10 +1105,17 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 if not all(b.merged_into_written for b in bodies):
                     counts["footless_carrier_kept_whole"] = \
                         counts.get("footless_carrier_kept_whole", 0) + 1
-                record = _lifted(record, rows, reseated)
+                record = _airside_deck(record, m, airside, counts)
+                record = _rigid_open(record, m, open_frame)
+                if not (open_frame or airside):
+                    record = _group_zero(record, m, _pw or {}, _gz, counts,
+                                         str(u.id), file_root=_file_root,
+                                         root_boxes=_rboxes, merged=_rmerge)
+                record = _cut_decks(record, m)
+                record, landed = _lifted(record, rows, reseated, surface,
+                                          authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              landed=_lands(record, rows, surface,
-                                            authored_keep_tol_m),
+                              landed=landed,
                               always_write=True, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
                               drape_law=drape_law)
@@ -1045,14 +1142,35 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     off_row = True
                     counts["one_body_carrier_written"] = \
                         counts.get("one_body_carrier_written", 0) + 1
-                record = _lifted(record, rows, reseated)
+                _pre = record
+                record = _airside_deck(record, m, airside, counts)
+                record = _rigid_open(record, m, open_frame)
+                if not (open_frame or airside):
+                    record = _group_zero(record, m, _pw or {}, _gz, counts,
+                                         str(u.id), file_root=_file_root,
+                                         root_boxes=_rboxes, merged=_rmerge)
+                record = _cut_decks(record, m)
+                if record is not _pre:
+                    # #1214 R3/R5: a body the group passes moved is never
+                    # kept on its authored row (LFPG's one-body H4, H16,
+                    # H18r stayed there)
+                    off_row = True
+                record, landed = _lifted(record, rows, reseated, surface,
+                                          authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              landed=_lands(record, rows, surface,
-                                            authored_keep_tol_m),
+                              landed=landed,
                               always_write=off_row, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
                               drape_law=drape_law)
             written_of[mi] = len(splits) > before
+            if written_of[mi]:
+                # R1: a rider names the file its carrier was WRITTEN as
+                for _b in splits[-1].bodies:
+                    if (st.mi, _b.body_id) in file_of:
+                        file_of[(st.mi, _b.body_id)] = _b.new_resource
+                    _r = _body_root(_b, _pw or {}, _file_root)
+                    if _r:
+                        _file_root[_b.new_resource] = _r
     for k, v in sorted(by_class.items()):
         counts[f"class_{k}"] = v
     # §16 (3): why a candidate was refused the carry — reported, never
@@ -1079,27 +1197,48 @@ def _row_of(record: Split, rows: "_t.Sequence | None") -> _t.Any:
 
 
 def _lifted(record: Split, rows: "_t.Sequence | None",
-            reseated: _t.AbstractSet[int]) -> Split:
+            reseated: _t.AbstractSet[int], surface: _ar.Surface,
+            tol_m: float, footed_frame: bool) -> tuple[Split, "bool | None"]:
     """14g (1): every body of an ``OBJECT_AGL`` placement keeps the
     author's lift on its row (``authored_landing.body_lift`` decides
-    which bodies do)."""
+    which bodies do) — and 14g (3): does the placement land on its
+    authored seat?  Returns ``(record, landed)``.
+
+    AS AMENDED BY owner RULINGS 2026-10-22b (#1214): a placement the law
+    RE-SEATS (it does not land) in a FOOTED frame keeps NO lift.  The seat
+    already puts the frame's feet on OUR ground — a group seat from its
+    walls, a pad, a datum or its own low-side foot — so the author's lift,
+    his correction for another ground, would float the whole frame by it
+    (KMCI's terminal, ``OBJECT_AGL`` +8.5 m, stood 8.5 m over its own
+    apron, and the eight rim bodies the lift never reached stood 8.5 m
+    under the rest of it).  Every body of the frame moves together, so
+    the lift is dropped for all of them.  A frame with no footed member
+    (a dock head, a beacon, clutter on a rack) keeps it: nothing in it
+    reads our ground, and the lift is the only seat it has."""
     row = _row_of(record, rows)
     if row is None:
-        return record
+        return record, None
     from . import authored_landing as _al
     bodies = tuple(_dc.replace(b, lift_m=_al.body_lift(
         row, b.anchor, reseated=record.index in reseated))
         for b in record.bodies)
-    return _dc.replace(record, bodies=bodies)
+    record = _dc.replace(record, bodies=bodies)
+    landed = _lands(record, rows, surface, tol_m)
+    if footed_frame and not landed and any(b.lift_m for b in bodies):
+        record = _dc.replace(record, bodies=tuple(
+            _dc.replace(b, lift_m=0.0) for b in bodies))
+    return record, landed
 
 
 def _lands(record: Split, rows: "_t.Sequence | None", surface: _ar.Surface,
-           tol_m: float) -> bool:
+           tol_m: float) -> "bool | None":
     """14g (3) for one placement's bodies, read against ITS dump row
-    (``authored_landing.lands_on_authored_seat``)."""
+    (``authored_landing.lands_on_authored_seat``); ``None`` where there is
+    no row to read it against (issue #1172: unknown is not "does not
+    land")."""
     row = _row_of(record, rows)
     if row is None or tol_m <= 0.0:
-        return False
+        return None
     from . import authored_landing as _al
     return _al.lands_on_authored_seat(record.bodies, row, surface, tol_m)
 

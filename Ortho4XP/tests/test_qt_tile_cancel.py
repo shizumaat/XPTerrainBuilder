@@ -9,10 +9,10 @@ The rows are driven directly through ``MainWindow._setup_progress_page`` and
 dispatch uses — so the padding, the painted stop-sign button, and the
 terminal-state disabling are all asserted without a real build.
 
-The PREFS_FILE monkeypatch BEFORE construction is mandatory (see the note
-in ``test_qt_texture_mode``): MainWindow loads prefs in ``__init__`` and
-``closeEvent`` SAVES them, so without isolation a test window clobbers the
-user's real ``.qt_prefs.json``.
+The PREFS_FILE monkeypatch BEFORE construction is mandatory (see
+``_qt_user_files_never_reach_the_checkout`` in conftest): MainWindow
+loads prefs in ``__init__`` and ``closeEvent`` SAVES them, so without
+isolation a test window clobbers the user's real ``.qt_prefs.json``.
 """
 
 import os

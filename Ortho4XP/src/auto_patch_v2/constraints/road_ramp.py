@@ -288,8 +288,47 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
         diffs.append(r)
     linears = []
     beyond: set[int] = set()        # zone ground released across a wall
+    # #1139: a RETAINING wall splits the adjacent ground — the pavement's
+    # side is flat at its edge, the far side (an overhanging edge included)
+    # is released (``constraints/wall_zone``)
+    from .wall_zone import retaining_lines, split
+    held = retaining_lines(walls)
+    rep["zone_flat"] = 0
+    pave = frozenset(r for r, spec in law.tables.precedence.roles.items()
+                     if spec.value and spec.side == "airside")
+
+    def paved(v: int) -> frozenset:
+        return frozenset(planar.faces[f].ref for f in planar.vertices[v].incident_faces
+                         if planar.faces[f].role in pave)
+    face_poly: dict[int, _t.Any] = {}
+
+    def paved_area(r):
+        from shapely.ops import unary_union
+        fids = sorted({f for v, _c in r.terms if v != r.follows
+                       for f in planar.vertices[v].incident_faces
+                       if planar.faces[f].role in pave})
+        for f in fids:
+            if f not in face_poly:
+                face = planar.faces[f]
+                g = Polygon([planar.vertices[v].xy for v in planar.ring_vertices(face.ring)],
+                            [[planar.vertices[v].xy for v in planar.ring_vertices(h)]
+                             for h in face.holes])
+                face_poly[f] = g if g.is_valid else g.buffer(0.0)
+        return unary_union([face_poly[f] for f in fids]) if fids else None
     for r in cs.linears:
         vs = [v for v, _c in r.terms]
+        if held and r.source.generator in _ZONE_LAW_GENERATORS and \
+                all(v in xy for v in vs):
+            side, kept = split(r, xy, held, paved, paved_area)
+            if side == "beyond":
+                rep["released"] += 1
+                beyond.add(int(r.follows))
+                continue
+            rep["zone_flat"] += side == "before"
+            rep["zone_trimmed"] = rep.get("zone_trimmed", 0) + (
+                side is None and kept is not r)
+            r = kept
+            vs = [v for v, _c in r.terms]
         # THE ZONE STOPS AT THE WALL (08-30l M4; owner RULINGS 2026-10-15g
         # (B): the graded zone goes to raw ground at its edge, and groundside
         # below the step keeps its own grade): a corridor row whose ground
@@ -305,7 +344,8 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
             continue
         linears.append(r)
     if not rep["released"]:
-        return cs, rep
+        return (_dc.replace(cs, linears=tuple(linears))
+                if rep["zone_flat"] or rep.get("zone_trimmed") else cs), rep
     # ...and that ground IS the raw DEM (15g (B): "let it go straight to DEM
     # after that"): a released zone vertex no other face shares is held at
     # its DEM sample at the law's weight — the weak §23 datum alone left the
@@ -315,11 +355,12 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
               for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)} \
         if beyond else set()
     bands = list(cs.bands)
-    for v in sorted(beyond - shared):
-        dz = planar.vertices[v].dem_z
-        if dz is not None:
-            bands.append(Band(v, float(dz), float(dz),
-                              Source("wall_terrace", BEYOND_WALL_RULING, (f"vertex:{v}",))))
+    dem = {v: float(planar.vertices[v].dem_z) for v in beyond - shared
+           if planar.vertices[v].dem_z is not None and v in xy}
+    from .wall_zone import foot_ground
+    for v, dz in sorted(foot_ground(dem, xy, held).items()):
+        bands.append(Band(v, dz, dz,
+                          Source("wall_terrace", BEYOND_WALL_RULING, (f"vertex:{v}",))))
     rep["beyond_wall_ground"] = len(bands) - len(cs.bands)
     return _dc.replace(cs, diffs=tuple(diffs), linears=tuple(linears),
                        bands=tuple(bands)), rep
@@ -401,6 +442,10 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # under its ground (``constraints/apron_shelf``)
     from .apron_shelf import shelf_release
     cs, rep["shelf_release"] = shelf_release(planar, law, cs, levels)
+    # #1214 round 7: a group's lower level is PINNED at its group's zero
+    # read on stage 1's airside (``constraints/group_level``)
+    from .group_level import group_level_rewrite
+    cs, rep["group_level"] = group_level_rewrite(planar, law, cs, levels)
     return cs, rep
 
 

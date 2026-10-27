@@ -39,7 +39,8 @@ from . import skirt as _skirt
 from .pool import WorkPool
 
 __all__ = ["PackWorker", "setup", "open_pool", "resource_reads",
-           "read_resources_ahead", "member_attrs", "part_attrs_ahead",
+           "read_resources_ahead", "skirt_reading", "read_skirts_ahead",
+           "SKIRT_POOL_MIN", "member_attrs", "part_attrs_ahead",
            "placement_reads", "placements_ahead"]
 
 
@@ -129,6 +130,63 @@ def read_resources_ahead(pool: WorkPool | None, cache: _obj8.ResourceCache,
             held = {"deck": deck_memo, "base": cache.base, "skirt": cache.skirt}[kind]
             if path not in held:
                 cache.pre[(kind, path)] = r
+    return len(todo)
+
+
+# ── the below-zero (skirt) readings of the placements outside the pack ──
+
+#: fewer below-zero resources than this are read on one core: a worker
+#: must start and parse its own copy, and a few plan unions are done first
+#: (a cost rule only — the reading is the same)
+SKIRT_POOL_MIN = 24
+
+
+def skirt_reading(state: PackWorker, path: str):
+    """``skirt.below_zero_reading`` of one resource, in a worker — or
+    ``None`` where it raises: the serial reader derives it and raises in
+    its own place (:func:`resource_reads`' rule)."""
+    try:
+        return _skirt.below_zero_reading(state.cache_for(path), path, state.law)
+    except Exception:
+        return None
+
+
+def read_skirts_ahead(cache: _obj8.ResourceCache, law, paths: _t.Iterable[str],
+                      pool: WorkPool | None = None) -> int:
+    """Put ``skirt.below_zero_reading`` for every resource of ``paths``
+    that ``skirt.reading`` would derive (not memoised, not already read
+    ahead, past ``skirt._read``'s pre-screen) on ``cache.pre``, read by
+    ``pool`` — or by a pool opened here and closed again (issue #412: at
+    OTHH ``classify``'s skirt readings are 137 resources the pack stage
+    does not read, 36.5 s of plan unions on one core).  Returns how many
+    were read ahead; 0 when no pool answers (the serial reader derives
+    them in its own place, the same record)."""
+    todo: list[str] = []
+    for path in dict.fromkeys(paths):
+        if path in cache.skirt or ("skirt", path) in cache.pre:
+            continue
+        g = cache.geometry(path)
+        if g is None or g.solid.shape[0] == 0 or not (cache.y_range(path)[0] < -1e-9):
+            continue
+        todo.append(path)
+    if len(todo) < SKIRT_POOL_MIN:
+        return 0
+    own = pool is None
+    if own:
+        pool = open_pool(law, cache)
+    try:
+        if not pool.parallel:
+            return 0
+        got = pool.try_map(skirt_reading, todo, weights=[_weight(p) for p in todo],
+                           what="skirt readings", unit="resources")
+    finally:
+        if own:
+            pool.close()
+    if got is None:
+        return 0
+    for path, r in zip(todo, got, strict=True):
+        if r is not None:
+            cache.pre[("skirt", path)] = r
     return len(todo)
 
 

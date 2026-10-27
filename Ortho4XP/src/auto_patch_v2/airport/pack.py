@@ -24,13 +24,14 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import os
+import typing as _t
 
 from ..model.airport import SceneryPack
 from . import borrow as _borrow
 from .apt_dat import block_sha256, find_apt_dat
 from .file_hash import sha256_file
 
-__all__ = ["PackSelection", "select_pack", "tile_dsf_path", "signature",
+__all__ = ["PackSelection", "select_pack", "tile_dsf_path", "signature", "flatten_declared",
            "sha256_file", "AUTHORED_BACKUP_SUFFIX", "authored_source",
            "is_authored_backup", "live_path_of"]
 
@@ -139,4 +140,16 @@ def signature(sel: PackSelection, block: list[str], lat: int,
     paths = (dsf,) if dsf else ()
     return SceneryPack(sel.name, sel.apt_dat_path, block_sha256(block),
                        paths, tuple(sha256_file(p) for p in paths),
-                       sel.borrow.apt_dat_path, sel.borrow.block_sha256)
+                       sel.borrow.apt_dat_path, sel.borrow.block_sha256,
+                       flatten_declared=flatten_declared(block))
+
+
+def flatten_declared(block: _t.Sequence[str]) -> bool:
+    """Does the airport's apt.dat block carry ``1302 flatten 1`` — the
+    author asking X-Plane to flatten the airport (owner answer 65,
+    2026-10-20)?"""
+    for line in block:
+        toks = line.split()
+        if len(toks) >= 3 and toks[0] == "1302" and toks[1] == "flatten":
+            return toks[2] == "1"
+    return False

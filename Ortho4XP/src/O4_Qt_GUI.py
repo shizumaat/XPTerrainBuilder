@@ -1,7 +1,8 @@
 """Main window of the Ortho4XP Qt UI (map-first shell).
 
-Layout: toolbar (search, imagery, build ZL) / live map / context panel on the
-right / collapsible console drawer below / status bar.
+Layout: toolbar (refresh, imagery preview, scenery filter, search, side
+panel switch) / live map / context panel on the right / collapsible
+console drawer below / status bar.
 
 The build pipeline is untouched: this window talks to it exactly the way the
 legacy Tk GUI does — a worker thread runs the step functions, progress arrives
@@ -39,6 +40,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPixmap,
+    QShortcut,
     QTextCursor,
 )
 from PySide6.QtWidgets import (
@@ -70,6 +72,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import O4_Activity_Order as ACTORDER
 import O4_Glossary as GLOSSARY
 import O4_File_Names as FNAMES
 import O4_Imagery_Utils as IMG
@@ -81,6 +84,7 @@ import O4_Airport_Index as APT
 import O4_Airport_Batch as APTBATCH
 import O4_Airport_Rank as RANK
 import O4_Airport_Search as SEARCH
+import O4_Coordinate_Query as COORDQ
 import O4_Map_Guidance as GUIDE
 import O4_Text_Scale as TEXTSCALE
 import O4_Flight_Plan as FLIGHTPLAN
@@ -98,14 +102,18 @@ import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Qt_Tile_Menu as QTTILEMENU
+import O4_Qt_Plan_Estimate as QTPLAN
+import O4_Qt_Scenery_Watcher as QTSCW
+import O4_Qt_Library as QTLIBRARY
+import O4_Qt_Step_Strip as QTSTRIP
+import O4_Step_Strip as STRIP
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
 # PyInstaller sees it without a hidden-import entry.  The underscored
 # aliases keep this file's ~20 existing call sites unchanged.
-from O4_Qt_Click_Row import ClickableRow  # noqa: E402
+from O4_Qt_Click_Row import ClickableRow, ClickableStatus  # noqa: E402
 from O4_Qt_Map_Hint import MapHint  # noqa: E402
-from O4_Qt_Detail_Combo import DetailCombo  # noqa: E402
 from O4_Qt_Widgets import (  # noqa: E402
     ElidedRowLabel,
     may_be_squeezed as _may_be_squeezed,
@@ -119,6 +127,9 @@ PREFS_FILE = FNAMES.data_path(".qt_prefs.json")
 TILE_FRAME_MARGIN = 0.15
 AIRPORT_CACHE = FNAMES.airport_index_cache()
 MAX_CONSOLE_LINES = 5000
+#: Quiet time after a Build-box change before the cost estimate is asked
+#: for (#820): one request per burst of clicks, an answer within ~1 s.
+PLAN_ESTIMATE_DEBOUNCE_MS = 250
 
 # Prefs keys for the restored tile selection (docs/specs/qt-parity-
 # selection-stop-resume-spec.md §Q1).  The selected set is a list of
@@ -141,6 +152,8 @@ AUTO_INSTALL_KEY = "auto_install"
 # Prefs key for the map's scenery-layer filter — the mac app's
 # ``MapSceneryFilter`` (MapMainView.swift).
 SCENERY_FILTER_KEY = "scenery_filter"
+# Prefs key: whether the side panel shows (the toolbar's switch).
+SIDE_PANEL_KEY = "side_panel_visible"
 
 # Persisted tile-scan results for the optimistic launch overlay
 # (docs/specs/qt-backlog-parity2-spec.md §QB1).  A CACHE, not user state:
@@ -166,68 +179,57 @@ ROW_SMALL_PX = 11
 # Search-popup item role carrying an airport row's code (#667 tag).
 _SEARCH_CODE_ROLE = Qt.UserRole + 1
 STOP_SIGN_COLOR = "#E5372B"
+# The tile pane's customized-settings section (#1350); BuildPane.swift
+# uses the same words.
+CUSTOM_SETTINGS = "Custom settings"
+EDIT_TILE_SETTINGS = "Edit settings…"
 RESUME_COLOR = "#2E9E5B"
 STOPPED_COLOR = QTMAP.STOPPED_COLOR
+# Gold for a tile built with warnings (#1341; the Mac app's
+# ActivityBox.warningGold).
+WARNING_COLOR = "#D4A017"
+# A status tone (O4_Activity_Order.status_tone) as the row paints it.
+TONE_COLORS = {"live": "gray", "done": "green", "warning": WARNING_COLOR,
+               "failed": "red", "stopped": STOPPED_COLOR}
 
-# Build-area texture-mode selector: user-visible label -> tile config value.
-# Order is significant (it is the popup-menu item order).
-TEXTURE_MODE_CHOICES = (
-    ("Full Ortho", "full_ortho"),
-    ("Airport Ortho", "airport_ortho"),
-    ("Default X-Plane", "default_xplane"),
-)
+def _xplane_above_custom_scenery():
+    """The X-Plane folder holding the configured Custom Scenery folder
+    (when it has the airport data), or ``""``."""
+    import O4_Config_Utils as CFG
 
-# Build-area elevation-detail selector: user-visible label -> tile config
-# value (the elevation analogue of the imagery zoom level; see
-# docs/specs/elevation-level-spec.md).  Order is the popup-menu order.
-ELEVATION_LEVEL_CHOICES = (
-    ("Auto", "auto"),
-    ("Auto + coastline", "coastline"),
-    ("90 m", "90"),
-    ("30 m", "30"),
-    ("10 m", "10"),
-    ("5 m", "5"),
-    ("1 m", "1"),
-)
+    scenery = getattr(CFG, "custom_scenery_dir", "") or ""
+    root = os.path.dirname(os.path.normpath(scenery)) if scenery else ""
+    return root if root and APT.find_apt_dats(root) else ""
 
-ELEVATION_LEVEL_TOOLTIP = (
-    "Tile-wide elevation detail level.\n"
-    "Auto: 90 m base data (small downloads) plus meter-class lidar at\n"
-    "airports, where the detail is actually visible (standard).\n"
-    "Auto + coastline: additionally drapes a lidar band along shorelines,\n"
-    "graded by approach visibility — about 10 m detail within 20 km of an\n"
-    "airport, 20 m out to 50 km, 30 m beyond.\n"
-    "90 m pins the automatic base class explicitly. 30 m and finer\n"
-    "restore the 1 arc-second base class and fetch the finest wide-area\n"
-    "elevation source covering the whole tile, densifying the mesh grid\n"
-    "to match. Levels never coarsen the automatic choice and cap\n"
-    "themselves to the finest source actually available. Higher levels\n"
-    "mean substantially larger downloads, working files, memory use and\n"
-    "triangle counts."
-)
 
-# Popup choices for the per-tile ``airport_elevation_level`` config value
-# (the warp/storage resolution of the airport lidar insets).  Order is
-# the popup-menu order.
-AIRPORT_ELEVATION_LEVEL_CHOICES = (
-    ("Auto", "auto"),
-    ("0.5 m", "0.5"),
-    ("1 m", "1"),
-    ("5 m", "5"),
-    ("10 m", "10"),
-    ("30 m", "30"),
-)
+def _zoom_level(value, fallback):
+    """``value`` as a zoom level 12–21, else ``fallback``."""
+    try:
+        zl = int(float(value))
+    except (TypeError, ValueError):
+        return fallback
+    return zl if 12 <= zl <= 21 else fallback
 
-AIRPORT_ELEVATION_LEVEL_TOOLTIP = (
-    "Airport elevation detail level — the resolution the airport lidar\n"
-    "insets are warped to and stored at.\n"
-    "Auto: each provider's best available native resolution, never finer\n"
-    "than 0.5 m (standard).\n"
-    "A numeric level pins the warp target instead: coarser stores fewer\n"
-    "bytes and warps faster; finer only helps where a provider actually\n"
-    "publishes data that fine. Cached insets fetched at an earlier level\n"
-    "are recycled as-is until refreshed."
-)
+
+def write_default_preset_if_unset():
+    """While the global config sets none of the preset keys, write the
+    default preset's (Sharper airports, #937; owner 2026-10-22, "what I
+    want the default to be") and return its zoom; else None.  The Mac app
+    does the same (BuildModel.applyDefaultPresetIfUnset)."""
+    import O4_Settings_Model as SM
+    import O4_Settings_Presets as PRESETS
+
+    try:
+        if not PRESETS.unset_in(SM.read_global_raw()):
+            return None
+        entry = PRESETS.default_preset()
+        values = PRESETS.cfg_values(entry)
+        SM.write_global(values)
+        SM.apply_runtime(values)
+    except OSError as exc:
+        print("Could not save the default preset:", exc)
+        return None
+    return PRESETS.zoom_value(entry)
 
 
 def load_prefs():
@@ -466,15 +468,50 @@ def row_detail(state, label, detail):
     return detail if (state == "stopped" or label == "stopped") else ""
 
 
-def enqueue_resume(tile, queue):
-    """Ordered, deduped append to the pending-resume queue."""
-    return list(queue) if tile in queue else list(queue) + [tile]
+def is_stopped_attempt(attempt, stale_through, stop_pending):
+    """Is an engine event news from an attempt the user STOPPED (#1326)?
+
+    While the engine has not yet confirmed a tile's stop, everything it
+    says about the tile is the stopped attempt's.  After that, its events
+    carry ``attempt``: one at or below the stopped attempt is late news;
+    a higher one belongs to the attempt that re-queued the tile.  The
+    row's displayed state decides nothing here — a re-queued row reads
+    "queued" while the old attempt may still be talking.
+    """
+    if stop_pending:
+        return True
+    return bool(attempt) and stale_through is not None and (
+        attempt <= stale_through)
+
+
+def resolve_tile_event(incoming, current, stale):
+    """``resolve_tile_state`` for an event that may be a stopped attempt's
+    (``is_stopped_attempt``): such an event only ever lands as a terminal
+    outcome — a tile that finished or failed before its stop took effect
+    really did."""
+    if stale and not may_overwrite_stopped(incoming[0]):
+        return None
+    return resolve_tile_state(incoming, current)
+
+
+def displayed_clock(state, row, previous):
+    """The clock a row shows for an engine TileClocks ``row``
+    (``(elapsed, remaining, finished)``), or None for none (#1326).
+
+    A stopped row keeps the clock its stop froze; a queued row runs no
+    clock — its estimate alone, never the elapsed of an attempt that was
+    stopped (the 2 h timer under a queued row, #1326)."""
+    if state == "stopped":
+        return previous
+    if state == "queued":
+        return (0.0, row[1], False)
+    return row
 
 
 def _batched_by_settings(pairs):
     """``(tile, settings)`` pairs as ``([tiles], settings)`` batches, one
     per distinct settings set in first-seen order; a tile with no
-    settings (toolbar unresolved) is skipped."""
+    settings (Build box unresolved) is skipped."""
     batches = []
     for (tile, settings) in pairs:
         if settings is None:
@@ -666,7 +703,7 @@ def map_preview_codes():
     ``mapPreviewProvider``) offers only sources the map can render
     directly — a combined or non-webmercator source silently falls back
     to OSM, which makes for a picker whose entries lie.  Order follows
-    :func:`gui_provider_codes` so the two toolbar combos read alike.
+    :func:`gui_provider_codes` so the two imagery combos read alike.
     """
     return [c for c in gui_provider_codes() if QTMAP.provider_is_mappable(c)]
 
@@ -711,6 +748,14 @@ class MainWindow(QMainWindow):
 
         self.prefs = load_prefs()
         self._first_run = not os.path.isfile(PREFS_FILE)
+        # A remembered tiles folder that is gone lists no built tiles at
+        # all, so the patch editor never appears (#1240): fall back to the
+        # default Tiles folder and say so.
+        gone = self.prefs.get("output_dir", "")
+        if gone and not os.path.isdir(gone):
+            print("The tiles folder %s is missing; using the default "
+                  "Tiles folder (Settings ▸ General to pick another)." % gone)
+            self.prefs["output_dir"] = ""
         self._airports = []
         self._built = {}
         self._installed = set()
@@ -723,19 +768,23 @@ class MainWindow(QMainWindow):
         self._progress_states = {}
         self._building = False
         self._stop_requested = False
-        # Tiles the user resumed while a run was still going, in press
-        # order: they start as ONE follow-up run when the current one
-        # ends.  Purely client-side and session-local — the engine knows
-        # nothing about this queue.
-        self._resume_queue = []
+        # Per-tile stop/re-queue bookkeeping (#1326): the tiles whose Stop
+        # the engine has not confirmed yet (its "stopped" TileState is
+        # still to come), the re-queues held until it does — tile ->
+        # (settings, boundary policy); never two copies of one tile in
+        # the engine — and, per tile, the last attempt the user stopped,
+        # whose late events are stale.
+        self._stop_pending = set()
+        self._held_for_stop = {}
+        self._stale_through = {}
         # What each tile of the current run was STARTED with — the resume
         # path's settings source, so resuming a tile rebuilds it as it was
-        # queued and not with whatever the toolbar says now.
+        # queued and not with whatever the Build box says now.
         self._run_settings = {}
         # #821: the last run's failed and never-started tiles, each with
         # its run settings — what "Build failed tiles again" re-queues.
         self._retry_tiles = []
-        # Last (output dir, selection) the toolbar combos were synced to:
+        # Last (output dir, selection) the build controls were synced to:
         # _sync_build_controls_to_selection runs once per selection so
         # panel refreshes never clobber a user-picked imagery source/ZL.
         self._combos_synced_to = None
@@ -774,6 +823,8 @@ class MainWindow(QMainWindow):
             EV.ScanBatch: self._on_scan_batch,
             EV.ScanDone: self._on_scan_done,
             EV.StepProgress: self._on_step_progress,
+            EV.AutoPatchBegin: self._feed_step_strip,
+            EV.AutoPatchProgress: self._feed_step_strip,
             EV.TileState: self._on_tile_state,
             EV.RunEta: self._on_run_eta,
             EV.TileClocks: self._on_tile_clocks,
@@ -784,6 +835,7 @@ class MainWindow(QMainWindow):
             EV.PackMissingArt: self._on_pack_missing_art,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
+            EV.PlanEstimateReady: self._on_plan_estimate_ready,
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
@@ -848,7 +900,7 @@ class MainWindow(QMainWindow):
         # Optimistic launch: last session's squares are on the map before
         # the engine has finished booting.  Runs BEFORE the selection
         # restore below, so the restored active tile's info panel and
-        # toolbar combos see `_built` exactly as they do on a user click.
+        # build controls see `_built` exactly as they do on a user click.
         self._load_cached_tile_states()
 
         # Persisted window layout: geometry (size + position), console
@@ -875,6 +927,13 @@ class MainWindow(QMainWindow):
 
         if self._first_run:
             self._after(200, self.run_wizard)
+        else:
+            self._after(200, self._apply_default_preset_if_unset)
+        # Custom Scenery changed outside the app (a pack added, removed or
+        # renamed, X-Plane rewriting the ini): rescan, as the Mac does
+        # (#1258).  refresh_tiles points it at the current folder.
+        self._scenery_watcher = QTSCW.SceneryWatcher(
+            self._on_scenery_changed, self)
         self._after(300, self.refresh_tiles)
         self._after(400, self._load_airports_async)
 
@@ -892,7 +951,7 @@ class MainWindow(QMainWindow):
         # The selection outlives the app: last session's selected set and
         # its active tile come back on launch, the same doctrine as the
         # built-tile overlay.  Restored LAST, so the map, the info panel
-        # and the toolbar combos see it exactly the way they see a click.
+        # and the build controls see it exactly the way they see a click.
         selection, active = self._restore_selection()
         lat = int(self.prefs.get("last_lat", 48))
         lon = int(self.prefs.get("last_lon", -6))
@@ -916,7 +975,7 @@ class MainWindow(QMainWindow):
     # Widgets
     # ------------------------------------------------------------------
     def _make_widgets(self):
-        toolbar = QToolBar()
+        self.toolbar = toolbar = QToolBar()
         toolbar.setMovable(False)
         # Breathing room: keep controls off the window edges and apart.
         toolbar.setStyleSheet(
@@ -924,52 +983,24 @@ class MainWindow(QMainWindow):
         )
         self.addToolBar(toolbar)
 
-        self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText(
-            "Airport code or name, or tile like +48-006"
-        )
-        self.search_edit.setToolTip(
-            "Several airport codes (KCLT, KASE OTHH) select all their "
-            "tiles at once"
-        )
-        self.search_edit.setFixedWidth(320)
-        self.search_edit.textEdited.connect(self._update_search_popup)
-        self.search_edit.returnPressed.connect(self._search_accept_first)
-        toolbar.addWidget(self.search_edit)
-        self.search_popup = QListWidget(self)
-        self.search_popup.setWindowFlags(Qt.ToolTip)
-        self.search_popup.itemClicked.connect(self._search_accept_item)
-
-        toolbar.addSeparator()
-        toolbar.addWidget(QLabel(" Imagery "))
-        self.imagery_combo = QComboBox()
-        self.imagery_combo.addItems(gui_provider_codes())
-        # "--" shows when the selected tiles' configs disagree
-        # (currentIndex -1); start_build refuses to run until resolved.
-        self.imagery_combo.setPlaceholderText("--")
-        # No map hookup: the BUILD source is what the next build
-        # downloads, never what the basemap draws (see the Map combo).
-        toolbar.addWidget(self.imagery_combo)
-        toolbar.addWidget(QLabel(" %s " % GLOSSARY.TERMS["detail"]))
-        self.zl_combo = DetailCombo(range(12, 22))
-        self.zl_combo.setPlaceholderText("--")
-        self.zl_combo.currentTextChanged.connect(
-            lambda _text: self._update_build_summary()
-        )
-        toolbar.addWidget(self.zl_combo)
-        toolbar.addSeparator()
-        # Live map imagery source — INDEPENDENT of the build provider
-        # above (mac-app parity, MapMainView.swift's mapPreviewProvider):
+        # The Mac app's toolbar, item for item (#1243, MapMainView.swift
+        # toolbarContent): the map's imagery preview on the left; the
+        # scenery filter, the search and the side-panel switch on the
+        # right.  The BUILD source and the detail level are not here: the
+        # source is in the Build box, the detail in Settings.  No refresh
+        # button (#1258): a Custom Scenery change rescans by itself.
+        # Live map imagery source — INDEPENDENT of the build source (the
+        # Build box's Imagery; MapMainView.swift's mapPreviewProvider):
         # previewing a source must never rewrite what the next build
         # downloads, and judging a source on the map is exactly why one
         # looks at it.  Only mappable providers are offered; the build
         # combo keeps the full list.
-        toolbar.addWidget(QLabel(" Map "))
+        toolbar.addWidget(QLabel(" Imagery Preview "))
         self.map_provider_combo = QComboBox()
         self.map_provider_combo.addItems(map_preview_codes())
         self.map_provider_combo.setToolTip(
-            "Which imagery source the map previews — independent of the "
-            "source used for building."
+            "Choose which imagery source the map previews — independent "
+            "of the provider used for building"
         )
         self.map_provider_combo.currentTextChanged.connect(
             self._map_provider_changed
@@ -979,9 +1010,49 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(spacer.sizePolicy().horizontalPolicy().Expanding,
                              spacer.sizePolicy().verticalPolicy().Preferred)
         toolbar.addWidget(spacer)
-        settings_btn = QPushButton("⚙ Settings")
-        settings_btn.clicked.connect(self.open_settings)
-        toolbar.addWidget(settings_btn)
+        # Scenery layer filter (MapSceneryFilter); View ▸ Scenery too.
+        self.scenery_filter_combo = QComboBox()
+        for (mode, label) in QTMAP.SCENERY_FILTER_LABELS:
+            self.scenery_filter_combo.addItem(label, mode)
+        self.scenery_filter_combo.setToolTip(
+            "Show the tiles you built, other installed ortho/mesh "
+            "packages, or both"
+        )
+        self.scenery_filter_combo.activated.connect(
+            lambda index: self._set_scenery_filter(
+                self.scenery_filter_combo.itemData(index))
+        )
+        toolbar.addWidget(self.scenery_filter_combo)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText(
+            "Airport, tile like +48-006, or lat, lon"
+        )
+        self.search_edit.setToolTip(
+            "Several airport codes (KCLT, KASE OTHH) select all their "
+            "tiles at once; a latitude and longitude (49.0127, 2.5582 or "
+            "49\u00b000'45.6\"N 2\u00b033'29.4\"E) centres the map there"
+        )
+        self.search_edit.setFixedWidth(320)
+        self.search_edit.textEdited.connect(self._update_search_popup)
+        self.search_edit.returnPressed.connect(self._search_accept_first)
+        # Esc empties the field and takes the coordinate reticle away
+        # (#1317), as the Mac search field's Esc does.
+        escape = QShortcut(QKeySequence(Qt.Key_Escape), self.search_edit)
+        escape.setContext(Qt.WidgetShortcut)
+        escape.activated.connect(self._search_escape)
+        toolbar.addWidget(self.search_edit)
+        self.search_popup = QListWidget(self)
+        self.search_popup.setWindowFlags(Qt.ToolTip)
+        self.search_popup.itemClicked.connect(self._search_accept_item)
+
+        self.panel_toggle = QToolButton()
+        self.panel_toggle.setText("◨")
+        self.panel_toggle.setCheckable(True)
+        self.panel_toggle.setChecked(True)
+        self.panel_toggle.setToolTip("Hide the side panel")
+        self.panel_toggle.toggled.connect(self._show_side_panel)
+        toolbar.addWidget(self.panel_toggle)
 
         # Map + right panel
         # Tile -> the search codes that picked it (#667), shown after the
@@ -1086,7 +1157,7 @@ class MainWindow(QMainWindow):
         self.legacy_config_btn.setVisible(False)
         self.legacy_config_btn.setToolTip(
             "This tile's settings were written by an older version of "
-            "this app or by Ortho4XP — review and update them."
+            "this app — review and update them."
         )
         _never_widen(self.legacy_config_btn)
         ig.addRow(self.legacy_config_btn)
@@ -1095,6 +1166,47 @@ class MainWindow(QMainWindow):
         # session: the prompt volunteers itself ONCE per tile, then lives
         # on in the button above.
         self._legacy_prompted = set()
+        # Custom settings (#1350; mac-app parity: BuildPane's "Custom
+        # settings" section): each setting this tile's cfg customizes,
+        # "name: tile value (default value)", and the button that opens
+        # Settings on this tile with only its customized rows showing.
+        self.custom_settings_row = QWidget()
+        self._custom_settings_rows = QVBoxLayout(self.custom_settings_row)
+        self._custom_settings_rows.setContentsMargins(0, 0, 0, 0)
+        self._custom_settings_rows.setSpacing(2)
+        self.edit_tile_settings_btn = QPushButton(EDIT_TILE_SETTINGS)
+        self.edit_tile_settings_btn.setToolTip(
+            "Open Settings for this tile, showing its customized settings."
+        )
+        self.edit_tile_settings_btn.clicked.connect(self._edit_tile_settings)
+        _never_widen(self.edit_tile_settings_btn)
+        self._custom_settings_rows.addWidget(self.edit_tile_settings_btn)
+        ig.addRow(CUSTOM_SETTINGS + ":", self.custom_settings_row)
+        self._custom_settings_labels = []
+        self._custom_settings_tile = None
+        # Custom patch (#1229, RULINGS 2026-10-26c; mac-app parity:
+        # BuildPane's "Custom patch" row): the custom patch files the
+        # build applies instead of the auto patch, and "Use auto patch",
+        # which sets them aside (never deletes them).
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        self.custom_patch_row = QWidget()
+        custom_patch_rows = QVBoxLayout(self.custom_patch_row)
+        custom_patch_rows.setContentsMargins(0, 0, 0, 0)
+        custom_patch_rows.setSpacing(2)
+        self.custom_patch_label = QLabel()
+        _wrap_and_never_widen(self.custom_patch_label)
+        custom_patch_rows.addWidget(self.custom_patch_label)
+        self.use_auto_patch_btn = QPushButton(
+            CUSTOM_PATCHES.USE_AUTO_PATCH_TITLE)
+        self.use_auto_patch_btn.setToolTip(
+            CUSTOM_PATCHES.use_auto_patch_help())
+        self.use_auto_patch_btn.clicked.connect(self._use_auto_patch)
+        _never_widen(self.use_auto_patch_btn)
+        custom_patch_rows.addWidget(self.use_auto_patch_btn)
+        ig.addRow(CUSTOM_PATCHES.CUSTOM_PATCH_TITLE + ":",
+                  self.custom_patch_row)
+        self._custom_patch_tile = None
         # Other installed ortho/mesh packages covering this tile — one
         # row per pack, carrying that pack's DSF date for the tile.
         self.other_scenery_row = QWidget()
@@ -1115,6 +1227,8 @@ class MainWindow(QMainWindow):
         self._info_layout = ig
         self._info_layout.setRowVisible(self.modified_airports_row, False)
         self._info_layout.setRowVisible(self.other_scenery_row, False)
+        self._info_layout.setRowVisible(self.custom_settings_row, False)
+        self._info_layout.setRowVisible(self.custom_patch_row, False)
         self._modified_airport_packs = []
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)
@@ -1137,11 +1251,30 @@ class MainWindow(QMainWindow):
         build_group = QGroupBox("Build")
         bg = QVBoxLayout(build_group)
         # Two-line elided: the dynamic summary ("N tiles selected ·
-        # rough est. …") must never widen the fixed-width panel into
+        # airport lidar …") must never widen the fixed-width panel into
         # clipping, and plain word wrap here would tie its height to
         # its width — the scroll-area oscillation the class avoids.
         self.build_summary = TwoLineElidedLabel("No tiles selected")
         bg.addWidget(self.build_summary)
+        # The BUILD imagery source, first in the box as in the Mac app's
+        # BuildPane (#1243); the detail level lives in Settings (#1242).
+        # Label + combo row: the label PREFERS its full text but yields
+        # first when the panel is tighter than the platform font wants —
+        # the combo beside it must stay usable.
+        imagery_build_row = QWidget()
+        ibl = QHBoxLayout(imagery_build_row)
+        ibl.setContentsMargins(0, 0, 0, 0)
+        ibl.addWidget(ElidedRowLabel("Imagery:"))
+        self.imagery_combo = QComboBox()
+        self.imagery_combo.addItems(gui_provider_codes())
+        # "--" shows when the selected tiles' configs disagree
+        # (currentIndex -1); start_build refuses to run until resolved.
+        self.imagery_combo.setPlaceholderText("--")
+        # No map hookup: the BUILD source is what the next build
+        # downloads, never what the basemap draws (Imagery Preview).
+        _may_be_squeezed(self.imagery_combo)
+        ibl.addWidget(self.imagery_combo, 1)
+        bg.addWidget(imagery_build_row)
         # Selection-wide mixed-sources offer (mac-app parity: BuildPane's
         # combinedConflictPopover).  Hidden unless more than one tile is
         # selected and at least one of them mixes sources.
@@ -1201,13 +1334,14 @@ class MainWindow(QMainWindow):
         self.chk_modify_airports.toggled.connect(
             self._modify_custom_airports_changed
         )
+        # The Mac app's BuildPane order (tests/test_qt_layout_parity.py).
         for c in (
             self.chk_vector,
             self.chk_imagery,
             self.chk_overlays,
+            self.chk_modify_airports,
             self.chk_skip_built,
             self.chk_auto_install,
-            self.chk_modify_airports,
         ):
             # A QCheckBox neither wraps nor elides, so its label width is
             # a hard floor under the panel — and the floor grows with the
@@ -1217,69 +1351,30 @@ class MainWindow(QMainWindow):
             # width the panel has, clipping its own tail at worst.
             _never_widen(c)
             bg.addWidget(c)
+            c.toggled.connect(self._schedule_plan_estimate)
+        self.imagery_combo.currentTextChanged.connect(
+            self._schedule_plan_estimate)
 
-        # Texture mode: what the base mesh is textured with (per-tile config).
-        self.texture_row = QWidget()
-        trl = QHBoxLayout(self.texture_row)
-        trl.setContentsMargins(0, 0, 0, 0)
-        # Label + combo rows: the label PREFERS its full text (nothing
-        # moves where the row has room) but yields first when the panel
-        # is tighter than the platform font wants — the combo beside it
-        # must stay usable.
-        self.texture_label = ElidedRowLabel("Textures:")
-        trl.addWidget(self.texture_label)
-        self.texture_combo = QComboBox()
-        _may_be_squeezed(self.texture_combo)
-        for label, value in TEXTURE_MODE_CHOICES:
-            self.texture_combo.addItem(label, value)
-        self.texture_combo.currentIndexChanged.connect(
-            self._texture_mode_changed
-        )
-        trl.addWidget(self.texture_combo, 1)
-        bg.addWidget(self.texture_row)
-
-        # Tile elevation detail level: how fine the tile-wide terrain
-        # data is (per-tile config), mirroring the texture-mode row above.
-        self.elevation_row = QWidget()
-        erl = QHBoxLayout(self.elevation_row)
-        erl.setContentsMargins(0, 0, 0, 0)
-        self.elevation_label = ElidedRowLabel("Tile elevation:")
-        erl.addWidget(self.elevation_label)
-        self.elevation_combo = QComboBox()
-        _may_be_squeezed(self.elevation_combo)
-        for label, value in ELEVATION_LEVEL_CHOICES:
-            self.elevation_combo.addItem(label, value)
-        self.elevation_combo.setToolTip(ELEVATION_LEVEL_TOOLTIP)
-        self.elevation_combo.currentIndexChanged.connect(
-            self._elevation_level_changed
-        )
-        erl.addWidget(self.elevation_combo, 1)
-        bg.addWidget(self.elevation_row)
-
-        # Airport elevation detail level: the warp/storage resolution of
-        # the airport lidar insets (per-tile config), the airport sibling
-        # of the tile-wide row above.
-        self.airport_elevation_row = QWidget()
-        arl = QHBoxLayout(self.airport_elevation_row)
-        arl.setContentsMargins(0, 0, 0, 0)
-        self.airport_elevation_label = ElidedRowLabel("Airport elevation:")
-        arl.addWidget(self.airport_elevation_label)
-        self.airport_elevation_combo = QComboBox()
-        _may_be_squeezed(self.airport_elevation_combo)
-        for label, value in AIRPORT_ELEVATION_LEVEL_CHOICES:
-            self.airport_elevation_combo.addItem(label, value)
-        self.airport_elevation_combo.setToolTip(
-            AIRPORT_ELEVATION_LEVEL_TOOLTIP
-        )
-        self.airport_elevation_combo.currentIndexChanged.connect(
-            self._airport_elevation_level_changed
-        )
-        arl.addWidget(self.airport_elevation_combo, 1)
-        bg.addWidget(self.airport_elevation_row)
+        # What the build will cost, above Build (#820): the engine's
+        # plan_estimate ranges, refreshed shortly after any change.
+        self.plan_panel = QTPLAN.PlanEstimatePanel()
+        bg.addWidget(self.plan_panel)
+        self._plan_request = 0
+        self._plan_timer = QTimer(self)
+        self._plan_timer.setSingleShot(True)
+        self._plan_timer.setInterval(PLAN_ESTIMATE_DEBOUNCE_MS)
+        self._plan_timer.timeout.connect(self._request_plan_estimate)
 
         self.build_btn = QPushButton("▶ Build")
         self.build_btn.clicked.connect(self.start_build)
         bg.addWidget(self.build_btn)
+        # Why Build is off, in words under the button (the Mac app's
+        # build box shows it; a tooltip alone was never seen).
+        self.build_block_label = QLabel("")
+        self.build_block_label.setWordWrap(True)
+        self.build_block_label.setStyleSheet("color: #D9822B;")
+        self.build_block_label.setVisible(False)
+        bg.addWidget(self.build_block_label)
 
         # Activity box — live per-tile progress of the run in progress.
         # Hidden while idle; a running build shows it WITHOUT hiding the
@@ -1325,6 +1420,19 @@ class MainWindow(QMainWindow):
         self._tile_rows = {}
         # TileState.detail of a stopped tile (#598), by tile.
         self._tile_details = {}
+        # Each row's step strip (#825, O4_Step_Strip), by tile.
+        self._step_strips = {}
+        # #1341: the rows outlive their run.  Each row's place in the list
+        # (O4_Activity_Order stamps), the order last laid out, and a
+        # finished row's BuildDone with messages, which its status reopens.
+        self._row_stamps = {}
+        self._row_counter = 0
+        self._row_order = []
+        self._row_issues = {}
+        # The run in progress, or the one that just ended until its
+        # linger is over: what the map's badges, the run report and
+        # "Build failed tiles again" describe.
+        self._run_tiles = set()
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_build_clock)
@@ -1340,6 +1448,7 @@ class MainWindow(QMainWindow):
         panel_scroll.setFrameShape(QFrame.NoFrame)
         panel_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         panel_scroll.setFixedWidth(280)
+        self.panel_scroll = panel_scroll
 
         center = QWidget()
         ch = QHBoxLayout(center)
@@ -1372,6 +1481,7 @@ class MainWindow(QMainWindow):
         status = QStatusBar()
         self.setStatusBar(status)
         self.coords_label = QLabel("—")
+        self.coords_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         status.addWidget(self.coords_label)
         self.zoom_label = QLabel("")
         status.addWidget(self.zoom_label)
@@ -1414,6 +1524,12 @@ class MainWindow(QMainWindow):
         console_action = QAction("Toggle console", self)
         console_action.triggered.connect(self.toggle_console)
         view_menu.addAction(console_action)
+        # Library (#824; Mac: View ▸ Library, ⌘L): every built tile with
+        # its size, and the download caches.
+        library_action = QAction("Library…", self)
+        library_action.setShortcut(QKeySequence("Ctrl+L"))
+        library_action.triggered.connect(self.open_library_dialog)
+        view_menu.addAction(library_action)
         # Text size (#827): Bigger / Smaller / Actual Size, remembered.
         view_menu.addSeparator()
         self._text_scale_actions = QTTEXT.make_actions(self, self.set_text_scale)
@@ -1493,7 +1609,12 @@ class MainWindow(QMainWindow):
             for i in range(self.imagery_combo.count())
         ]:
             self.imagery_combo.setCurrentText(imagery)
-        self.zl_combo.setCurrentText(str(self.prefs.get("zl", 16)))
+        # The build detail level (ZL): set in Settings (#1242), adopted
+        # from a selected built tile (_sync_build_controls_to_selection).
+        self.build_zl = _zoom_level(self.prefs.get("zl"), 16)
+        shown = bool(self.prefs.get(SIDE_PANEL_KEY, True))
+        self.panel_toggle.setChecked(shown)
+        self.panel_scroll.setVisible(shown)
         xplane = self.prefs.get("xplane_dir", "")
         if xplane and not CFG.custom_scenery_dir:
             candidate = os.path.join(xplane, "Custom Scenery")
@@ -1581,10 +1702,21 @@ class MainWindow(QMainWindow):
                 SM.apply_runtime(wizard.preset_values)
             except OSError as exc:
                 print("Could not save the preset:", exc)
+        self._apply_default_preset_if_unset()
         self._seed_paths_from_xplane()
         self._apply_prefs()
         self._load_airports_async()
         self.refresh_tiles()
+
+    def _apply_default_preset_if_unset(self):
+        """A skipped first-run assistant, or prefs that predate it, left
+        the engine's Balanced defaults: start from the default preset
+        (:func:`write_default_preset_if_unset`)."""
+        zoom = write_default_preset_if_unset()
+        if zoom is not None:
+            self.build_zl = zoom
+            self.prefs["zl"] = zoom
+            self._update_build_summary()
 
     def _seed_paths_from_xplane(self):
         """Fill empty scenery/overlay paths from the X-Plane folder."""
@@ -1631,6 +1763,30 @@ class MainWindow(QMainWindow):
         self.flight_plan_dialog.show()
         return self.flight_plan_dialog
 
+    def open_library_dialog(self):
+        """View menu: the Library window (#824).  One at a time; it reads
+        the tiles folder and the caches as it opens."""
+        import O4_Config_Utils as CFG
+
+        dialog = getattr(self, "library_dialog", None)
+        if dialog is not None and dialog.isVisible():
+            dialog.raise_()
+            return dialog
+        self.library_dialog = QTLIBRARY.LibraryDialog(
+            self, self.working_dir(), CFG.custom_scenery_dir,
+            building=lambda: self._building,
+            on_rebuild=self._rebuild_from_library,
+            on_changed=self.refresh_tiles,
+            restore_pack=self._session.reanchor_restore)
+        self.library_dialog.show()
+        self.library_dialog.refresh()
+        return self.library_dialog
+
+    def _rebuild_from_library(self, tiles):
+        """Library ▸ Rebuild: select those tiles and press Build."""
+        self.map.set_selection(tiles)
+        self.start_build()
+
     def open_coral_atlas_dialog(self):
         """Tools menu: the Allen Coral Atlas reef bathymetry setup."""
         import O4_Qt_Coral_Atlas as QTCORAL
@@ -1653,22 +1809,27 @@ class MainWindow(QMainWindow):
         )
         dialog.show()
 
-    def open_settings(self):
+    def open_settings(self, tiles=None, customized_only=False):
         # The whole map selection edits together (mixed states across
         # tiles); the active tile alone when nothing is multi-selected.
-        selected = sorted(self.map.selection())
+        # *tiles* scopes the window to those tiles instead ("Edit
+        # settings…" in the tile pane, #1350); *customized_only* opens it
+        # with the Customized filter on.
+        selected = sorted(
+            self.map.selection() if tiles is None else tiles)
         if not selected and self.map.active_tile():
             selected = [self.map.active_tile()]
-        # The preset cards (#822) read and set the build zoom: hand the
-        # dialog the zoom the toolbar shows, not the one saved at launch.
-        if self.zl_combo.currentIndex() >= 0:
-            self.prefs["zl"] = int(self.zl_combo.currentText())
+        # The dialog's Detail and preset cards (#822, #1242) read and set
+        # the build zoom: hand it the one the next build uses.
+        self.prefs["zl"] = self.build_zl
         dialog = QTSET.SettingsWindow(
             self.prefs,
             selected,
             self.output_dir(),
             self,
         )
+        if customized_only:
+            dialog.show_customized_only()
         settings_geometry = str(self.prefs.get("settings_geometry", ""))
         if settings_geometry:
             dialog.restoreGeometry(
@@ -1688,6 +1849,7 @@ class MainWindow(QMainWindow):
             self._seed_paths_from_xplane()
             self._load_airports_async()
         self.refresh_tiles()
+        self._refresh_customized_tiles()
         if dialog.tile_written:
             self._active_changed(self.map.active_tile())
 
@@ -1713,7 +1875,10 @@ class MainWindow(QMainWindow):
 
         def work():
             try:
-                paths = APT.find_apt_dats(xplane) if xplane else []
+                # No X-Plane folder set (#1241): the one above the
+                # configured Custom Scenery folder, which the build uses.
+                root = xplane or _xplane_above_custom_scenery()
+                paths = APT.find_apt_dats(root) if root else []
                 if paths and APT.index_is_stale(paths, AIRPORT_CACHE):
                     if os.path.isfile(AIRPORT_CACHE):
                         print(
@@ -1788,14 +1953,21 @@ class MainWindow(QMainWindow):
 
     def _update_search_popup(self, text):
         self.search_popup.clear()
+        if not text.strip():
+            self._search_reticle().set_point(None)
         text = text.strip()
         if len(text) < 2:
             self.search_popup.hide()
             return
-        coord = APT.parse_coordinate_query(text)
+        # A tile key wins, then a typed point (O4_Coordinate_Query, the
+        # rule the Mac field shares, #1317).
+        coord = COORDQ.classify(text)
         if coord:
-            item = QListWidgetItem("Go to tile %+03d%+04d" % coord)
-            item.setData(Qt.UserRole, ("tile", coord))
+            (kind, target) = coord
+            item = QListWidgetItem(
+                "Go to tile %+03d%+04d" % target if kind == "tile"
+                else "Go to %.5f, %.5f" % target)
+            item.setData(Qt.UserRole, coord)
             self.search_popup.addItem(item)
         batch = None if coord else self._airport_batch(text)
         if batch is not None:
@@ -1819,8 +1991,10 @@ class MainWindow(QMainWindow):
             self.search_popup.addItem(item)
         if (not self.search_popup.count()
                 and len(SEARCH.normalize(text)) >= SEARCH.MIN_QUERY_LENGTH):
-            # The no-match state: one row that says so, not an empty void.
-            item = QListWidgetItem(SEARCH.no_match_text(text))
+            # The no-match state: one row that says so, not an empty void;
+            # with no airport index at all, the row says why (#1241).
+            item = QListWidgetItem(SEARCH.no_match_text(text) if self._airports
+                                   else SEARCH.NO_INDEX_TEXT)
             item.setData(Qt.UserRole, ("none", None))
             item.setFlags(Qt.NoItemFlags)
             self.search_popup.addItem(item)
@@ -1836,11 +2010,12 @@ class MainWindow(QMainWindow):
 
     def _search_accept_first(self):
         text = self.search_edit.text()
-        if not APT.parse_coordinate_query(text):
+        if not COORDQ.classify(text):
             batch = self._airport_batch(text)
             if batch is not None:
                 # Return selects the batch whether or not the popup is up.
                 self.search_popup.hide()
+                self._search_reticle().set_point(None)
                 self._select_airport_batch(batch)
                 return
         if self.search_popup.count():
@@ -1851,6 +2026,13 @@ class MainWindow(QMainWindow):
         if kind == "none":
             return  # the no-match row: nothing to select
         self.search_popup.hide()
+        self._search_reticle().set_point(None)
+        if kind == "point":
+            # Centre at ZL 19 under the reticle; the text stays, so Esc
+            # clears both.
+            self.map.center_on_point(*target, zoom=COORDQ.ZOOM_LEVEL)
+            self._search_reticle().set_point(target)
+            return
         if kind == "batch":
             self._select_airport_batch(target)
             return
@@ -1869,6 +2051,22 @@ class MainWindow(QMainWindow):
         self.search_edit.clear()
         self.map.center_on_tile(lat, lon, zoom=8)
         self.map.set_active(lat, lon)
+
+    def _search_reticle(self):
+        """The coordinate-search reticle layer, installed on first use."""
+        import O4_Qt_Reticle as QTRETICLE
+
+        if getattr(self, "_reticle_layer", None) is None:
+            self._reticle_layer = QTRETICLE.ReticleLayer(self.map)
+            self.map.add_layer(self._reticle_layer)
+        return self._reticle_layer
+
+    def _search_escape(self):
+        """Esc in the search field: empty it, close the list, and take the
+        reticle away (#1317)."""
+        self.search_edit.clear()
+        self.search_popup.hide()
+        self._search_reticle().set_point(None)
 
     def _airport_search(self):
         """The name/code search over the loaded index, normalised once
@@ -2002,7 +2200,8 @@ class MainWindow(QMainWindow):
         # the ones that compete with our tiles for the ground.  Airport
         # and landmark packs say what they are with their own marks.
         self.map.set_scenery_regions(
-            (pack.name, pack.tiles, pack.status != "enabled", pack.kind)
+            (pack.name, pack.tiles, pack.status != "enabled", pack.kind,
+             pack.imagery)
             for pack in self._scenery_packs
             if pack.kind in ("ortho", "mesh") and pack.tiles
         )
@@ -2055,13 +2254,26 @@ class MainWindow(QMainWindow):
             self._other_scenery_rows.addWidget(row)
         self._info_layout.setRowVisible(self.other_scenery_row, True)
 
+    def _show_side_panel(self, shown):
+        """The toolbar's side-panel switch (Mac: the inspector toggle)."""
+        self.panel_scroll.setVisible(shown)
+        self.panel_toggle.setToolTip(
+            "Hide the side panel" if shown else "Show the side panel")
+        if self.prefs.get(SIDE_PANEL_KEY, True) != shown:
+            self.prefs[SIDE_PANEL_KEY] = shown
+            save_prefs(self.prefs)
+
     def _set_scenery_filter(self, mode, persist=True):
-        """Point the map at one scenery-layer filter and tick its menu."""
+        """Point the map at one scenery-layer filter and tick its menu
+        and the toolbar's combo."""
         self.map.set_scenery_filter(mode)
         mode = self.map.scenery_filter()
         for (key, action) in getattr(
                 self, "_scenery_filter_actions", {}).items():
             action.setChecked(key == mode)
+        combo = getattr(self, "scenery_filter_combo", None)
+        if combo is not None:
+            combo.setCurrentIndex(max(combo.findData(mode), 0))
         if persist and self.prefs.get(SCENERY_FILTER_KEY) != mode:
             self.prefs[SCENERY_FILTER_KEY] = mode
             save_prefs(self.prefs)
@@ -2324,6 +2536,12 @@ class MainWindow(QMainWindow):
             if conflicted else ""
         )
 
+    def _on_scenery_changed(self):
+        """A settled burst of Custom Scenery changes.  A scan already
+        running reads the new state; a build rescans when its run ends."""
+        if not self._scanning and not self._building:
+            self.refresh_tiles()
+
     def refresh_tiles(self):
         import O4_Config_Utils as CFG
 
@@ -2336,6 +2554,7 @@ class MainWindow(QMainWindow):
         self._scanning = True
         working_dir = self.working_dir()
         self._scan_dirs = (working_dir, CFG.custom_scenery_dir)
+        self._scenery_watcher.watch(CFG.custom_scenery_dir)
         self._session.scan(working_dir, CFG.custom_scenery_dir)
         # An already-shown "(not built)" verdict is stale the moment a
         # rescan starts — repaint the active tile as pending.
@@ -2379,6 +2598,8 @@ class MainWindow(QMainWindow):
         # Badges follow the authoritative built set, never a partial one:
         # a mid-scan sweep would audit tiles the swap is about to drop.
         self._refresh_conflict_tiles()
+        self._refresh_customized_tiles()
+        self._refresh_custom_patch_tiles()
         # Same rule for the other-scenery survey: its exclusion list IS
         # the built set, so a partial one would draw our own tiles as
         # somebody else's coverage.
@@ -2392,6 +2613,7 @@ class MainWindow(QMainWindow):
 
     def _selection_changed(self):
         sel = self.map.selection()
+        self._refresh_customized_tiles(sel)
         self._search_tags = {
             t: c for t, c in self._search_tags.items() if t in sel
         }
@@ -2442,14 +2664,17 @@ class MainWindow(QMainWindow):
         return tiles, active
 
     def _sync_build_controls_to_selection(self, selection):
-        """Point the Imagery / Build ZL combos at the selection's config.
+        """Point the Imagery combo and the build detail level at the
+        selection's config.
 
         Tiles whose per-tile config records build provenance
-        (``default_website`` / ``default_zl``) drive the toolbar combos:
-        one agreed value is selected outright; disagreement unresolves the
-        combo (it shows "--") and :meth:`start_build` refuses to run until
-        the user picks a value.  Tiles with no recorded value impose
-        nothing, and an empty selection leaves the combos alone.
+        (``default_website`` / ``default_zl``) drive the build controls:
+        one agreed value is selected outright.  Disagreeing sources
+        unresolve the Imagery combo (it shows "--") and
+        :meth:`start_build` refuses to run until the user picks one;
+        disagreeing detail levels keep the Settings value.  Tiles with no
+        recorded value impose nothing, and an empty selection leaves the
+        controls alone.
 
         The sync runs once per selection: panel refreshes on an UNCHANGED
         selection (scan results streaming in, build bookkeeping) must not
@@ -2479,25 +2704,21 @@ class MainWindow(QMainWindow):
                     pass
                 zoomlevels.add(zoomlevel)
         _sync_combo_to_agreed_value(self.imagery_combo, websites)
-        _sync_combo_to_agreed_value(self.zl_combo, zoomlevels)
+        # One agreed detail level is adopted for the next build (the Mac
+        # app's adoptActiveTileConfig); disagreement keeps the setting.
+        if len(zoomlevels) == 1:
+            self.build_zl = _zoom_level(next(iter(zoomlevels)), self.build_zl)
+            self.prefs["zl"] = self.build_zl
 
     def _update_build_summary(self, sel=None):
         if sel is None:
             sel = self.map.selection()
         n = len(sel)
+        self._schedule_plan_estimate()
         if not n:
             self.build_summary.setText("No tiles selected")
         else:
-            try:
-                zl = int(self.zl_combo.currentText())
-            except ValueError:
-                zl = 16
-            est = n * 3.0 * 4 ** (zl - 16)
-            summary_text = "%d tile%s selected · rough est. %.1f GB" % (
-                n,
-                "s" if n > 1 else "",
-                est,
-            )
+            summary_text = "%d tile%s selected" % (n, "s" if n > 1 else "")
             try:
                 import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
 
@@ -2530,13 +2751,85 @@ class MainWindow(QMainWindow):
                 "" if fresh else
                 "The selected tiles are already queued or building in "
                 "the current run.")
+            self._show_build_block(None)
         else:
             self.build_btn.setText(
                 "▶ Build %d tile%s" % (n, "s" if n > 1 else "")
                 if n else "▶ Build")
-            blocked = self.xplane_block_reason()
+            blocked = (self.xplane_block_reason()
+                       or self.plan_panel.blocking_reason())
             self.build_btn.setEnabled(blocked is None)
             self.build_btn.setToolTip(blocked or "")
+            self._show_build_block(blocked)
+
+    # ------------------------------------------------------------------
+    # Build cost (#820): the engine's plan_estimate for the next press
+    # ------------------------------------------------------------------
+    def _plan_tiles(self):
+        """The tiles the next Build press would hand the engine."""
+        selection = sorted(self.map.selection())
+        if self.chk_skip_built.isChecked():
+            selection = [t for t in selection if t not in self._built]
+        return [t for t in selection if not self._tile_in_active_run(t)]
+
+    def _schedule_plan_estimate(self, *_args):
+        if hasattr(self, "_plan_timer"):
+            self._plan_timer.start()
+
+    def _request_plan_estimate(self):
+        tiles = self._plan_tiles()
+        steps = (self.chk_vector.isChecked(), self.chk_imagery.isChecked(),
+                 self.chk_overlays.isChecked())
+        self._plan_request += 1
+        if not tiles or not any(steps):
+            self.plan_panel.clear()
+            self._update_build_button_only()
+            return
+        self.plan_panel.show_pending()
+        try:
+            self._plan_command()(
+                tiles=[list(t) for t in tiles],
+                provider=self.imagery_combo.currentText(),
+                zoomlevel=self.build_zl,
+                custom_build_dir=self.output_dir(),
+                do_vector=steps[0], do_imagery=steps[1], do_overlays=steps[2],
+                request=self._plan_request)
+        except Exception as error:
+            self.plan_panel.show_error(str(error))
+
+    def _plan_command(self):
+        """The engine's ``plan_estimate`` handler, from the ONE command
+        table (``o4_engine.jsonl.command_table``), never re-spelled."""
+        if getattr(self, "_plan_handler", None) is None:
+            from o4_engine import jsonl
+
+            self._plan_handler = jsonl.command_table(self._session)["plan_estimate"]
+        return self._plan_handler
+
+    def _on_plan_estimate_ready(self, event):
+        if event.request != self._plan_request:
+            return  # an answer to a selection that has since changed
+        if event.error or event.result is None:
+            self.plan_panel.show_error(event.error or "the engine sent none")
+        else:
+            self.plan_panel.show_result(event.result)
+        self._update_build_button_only()
+
+    def _update_build_button_only(self):
+        """Re-apply the refusal after a new estimate (idle runs only:
+        a queued batch joins a run whose space is already spoken for)."""
+        if self._building:
+            return
+        blocked = (self.xplane_block_reason()
+                   or self.plan_panel.blocking_reason())
+        self.build_btn.setEnabled(blocked is None)
+        self.build_btn.setToolTip(blocked or "")
+        self._show_build_block(blocked)
+
+    def _show_build_block(self, reason):
+        """The Build box's visible why-not line; hidden when Build is on."""
+        self.build_block_label.setText(reason or "")
+        self.build_block_label.setVisible(bool(reason))
 
     def _refresh_empty_state(self):
         """The no-selection explanation (#828), with the how-to-start
@@ -2583,16 +2876,19 @@ class MainWindow(QMainWindow):
         return FNAMES.build_dir(tile[0], tile[1], self.output_dir())
 
     def _tile_menu(self, lat, lon, global_pos):
-        """Right-click on a tile (#938): its menu at the pointer."""
+        """Right-click on a tile (#938): its menu at the pointer, after
+        the patch layer's copy items (#1281); in patch Edit mode it starts
+        with "Slice" (#1318)."""
         menu = QTTILEMENU.tile_menu(
-            self, lat, lon, self._tile_folder((lat, lon)))
+            self, lat, lon, self._tile_folder((lat, lon)),
+            self.patch_editor.context_actions())
+        pos = self.map.viewport().mapFromGlobal(global_pos)
+        self.patch_editor.add_copy_actions(menu, pos.x(), pos.y())
+        self.patch_editor.add_to_menu(menu)
         menu.exec(global_pos)
 
     def _active_changed(self, tile):
         self._selection_changed()
-        self._refresh_texture_mode(tile)
-        self._refresh_elevation_level(tile)
-        self._refresh_airport_elevation_level(tile)
         self._refresh_empty_state()
         if tile is None:
             self.info_group.setVisible(False)
@@ -2611,6 +2907,8 @@ class MainWindow(QMainWindow):
         # render inline rather than through a probe.
         self._refresh_other_scenery(tile)
         self._refresh_legacy_config(tile)
+        self._refresh_custom_settings(tile)
+        self._refresh_custom_patch(tile)
 
         # Reanchor probe (worker thread: one sidecar stat per pack in
         # Custom Scenery); the row stays hidden until a result for THIS
@@ -2735,126 +3033,13 @@ class MainWindow(QMainWindow):
         else:
             self.install_check.setToolTip("")
 
-    def _refresh_texture_mode(self, tile):
-        """Load the active tile's ``texture_mode`` into the build-area combo.
-
-        Reads the per-tile config via :mod:`O4_Settings_Model`; falls back to
-        the registry default (``full_ortho``) when the tile has no config or
-        the value is unknown.  Signals are blocked so the programmatic update
-        does not trigger a write back to disk.
-        """
-        import O4_Settings_Model as SM
-
-        value = "full_ortho"
-        if tile is not None:
-            raw = SM.read_tile_raw(tile[0], tile[1], self.output_dir())
-            if raw and raw.get("texture_mode"):
-                value = raw["texture_mode"]
-        index = self.texture_combo.findData(value)
-        if index < 0:
-            index = 0
-        self.texture_combo.blockSignals(True)
-        self.texture_combo.setCurrentIndex(index)
-        self.texture_combo.blockSignals(False)
-
-    def _refresh_elevation_level(self, tile):
-        """Load the active tile's ``elevation_level`` into the build-area combo.
-
-        Mirrors :meth:`_refresh_texture_mode`: reads the per-tile config via
-        :mod:`O4_Settings_Model`, falls back to "auto" when the tile has no
-        config or an unknown value, and blocks signals so the programmatic
-        update does not write back to disk.
-        """
-        import O4_Settings_Model as SM
-
-        value = "auto"
-        if tile is not None:
-            raw = SM.read_tile_raw(tile[0], tile[1], self.output_dir())
-            if raw and raw.get("elevation_level"):
-                value = raw["elevation_level"]
-        index = self.elevation_combo.findData(value)
-        if index < 0:
-            index = 0
-        self.elevation_combo.blockSignals(True)
-        self.elevation_combo.setCurrentIndex(index)
-        self.elevation_combo.blockSignals(False)
-
-    def _elevation_level_changed(self, index):
-        """Persist the chosen elevation detail level to the tile's config.
-
-        No-ops when no tile is active.  Writes only the ``elevation_level``
-        key; :func:`O4_Settings_Model.write_tile` preserves every other
-        tile var.
-        """
-        tile = self.map.active_tile()
-        if tile is None:
-            return
-        value = self.elevation_combo.itemData(index)
-        if value is None:
-            return
-        import O4_Settings_Model as SM
-
-        try:
-            SM.write_tile(
-                tile[0],
-                tile[1],
-                self.output_dir(),
-                {"elevation_level": value},
-            )
-        except OSError as exc:
-            print("Could not save elevation level:", exc)
-
-    def _refresh_airport_elevation_level(self, tile):
-        """Load the active tile's ``airport_elevation_level`` into its combo.
-
-        Mirrors :meth:`_refresh_elevation_level` for the airport-inset
-        detail level.
-        """
-        import O4_Settings_Model as SM
-
-        value = "auto"
-        if tile is not None:
-            raw = SM.read_tile_raw(tile[0], tile[1], self.output_dir())
-            if raw and raw.get("airport_elevation_level"):
-                value = raw["airport_elevation_level"]
-        index = self.airport_elevation_combo.findData(value)
-        if index < 0:
-            index = 0
-        self.airport_elevation_combo.blockSignals(True)
-        self.airport_elevation_combo.setCurrentIndex(index)
-        self.airport_elevation_combo.blockSignals(False)
-
-    def _airport_elevation_level_changed(self, index):
-        """Persist the chosen airport elevation detail level to the tile.
-
-        No-ops when no tile is active; mirrors
-        :meth:`_elevation_level_changed`.
-        """
-        tile = self.map.active_tile()
-        if tile is None:
-            return
-        value = self.airport_elevation_combo.itemData(index)
-        if value is None:
-            return
-        import O4_Settings_Model as SM
-
-        try:
-            SM.write_tile(
-                tile[0],
-                tile[1],
-                self.output_dir(),
-                {"airport_elevation_level": value},
-            )
-        except OSError as exc:
-            print("Could not save airport elevation level:", exc)
-
     def _modify_custom_airports_changed(self, checked):
         """Persist the global modify-custom-airports switch.
 
         Gates auto_patch Phase 2 (object reseating inside installed
         packages): the in-session CFG value covers tiles built by this
         process; the cfg write covers parallel worker children, which
-        re-read Ortho4XP.cfg from disk.
+        re-read XPTerrainBuilder.cfg from disk.
         """
         import O4_Config_Utils as CFG
         import O4_Settings_Model as SM
@@ -2879,27 +3064,6 @@ class MainWindow(QMainWindow):
             )
         except OSError as exc:
             print("Could not update the tile's modify_custom_airports:", exc)
-
-    def _texture_mode_changed(self, index):
-        """Persist the chosen texture mode to the active tile's config.
-
-        No-ops when no tile is active.  Writes only the ``texture_mode`` key;
-        :func:`O4_Settings_Model.write_tile` preserves every other tile var.
-        """
-        tile = self.map.active_tile()
-        if tile is None:
-            return
-        value = self.texture_combo.itemData(index)
-        if value is None:
-            return
-        import O4_Settings_Model as SM
-
-        try:
-            SM.write_tile(
-                tile[0], tile[1], self.output_dir(), {"texture_mode": value}
-            )
-        except OSError as exc:
-            print("Could not save texture mode:", exc)
 
     def _compute_size_async(self, info):
         try:
@@ -3083,6 +3247,117 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     # ------------------------------------------------------------------
+    # Customized tile settings (#1350; mac-app parity: BuildPane's
+    # "Custom settings" section and MapCanvasView's settings badge).  The
+    # engine owns the comparison: O4_Tile_Customizations.
+    # ------------------------------------------------------------------
+    def _refresh_customized_tiles(self, tiles=None):
+        """The map's settings badges: every built and selected tile when
+        *tiles* is None, else only *tiles* (a selection change)."""
+        import O4_Tile_Customizations as TC
+
+        if tiles is None:
+            scope = set(self._built) | set(self.map.selection())
+            kept = set()
+        else:
+            scope = set(tiles)
+            kept = self.map.customized() - scope
+        try:
+            found = TC.customized_tiles(sorted(scope), self.output_dir())
+        except Exception:
+            found = set()
+        self.map.set_customized(kept | found)
+
+    def _refresh_custom_settings(self, tile):
+        """The tile pane's Custom settings section for the active tile."""
+        import O4_Tile_Customizations as TC
+
+        for label in self._custom_settings_labels:
+            self._custom_settings_rows.removeWidget(label)
+            label.deleteLater()
+        self._custom_settings_labels = []
+        self._custom_settings_tile = tile
+        rows = []
+        if tile is not None:
+            try:
+                rows = TC.tile_customizations(
+                    tile[0], tile[1], self.output_dir())["customizations"]
+            except Exception:
+                rows = []
+        for (index, row) in enumerate(rows):
+            label = QLabel(TC.row_text(row))
+            _wrap_and_never_widen(label)
+            label.setToolTip(TC.row_tooltip(row))
+            self._custom_settings_rows.insertWidget(index, label)
+            self._custom_settings_labels.append(label)
+        self._info_layout.setRowVisible(self.custom_settings_row, bool(rows))
+        if tile is not None:
+            badges = self.map.customized()
+            self.map.set_customized(
+                badges | {tile} if rows else badges - {tile})
+
+    # ------------------------------------------------------------------
+    # Custom patches (#1229, RULINGS 2026-10-26c; mac-app parity:
+    # MapCanvasView's custom-patch band and BuildPane's "Custom patch"
+    # row).  The rule is O4_Custom_Patches'.
+    # ------------------------------------------------------------------
+    def _refresh_custom_patch_tiles(self):
+        """The map's custom-patch bands: every tile with a custom patch."""
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        try:
+            rows = CUSTOM_PATCHES.custom_patch_tiles()
+        except Exception:
+            rows = []
+        self.map.set_custom_patched({(r["lat"], r["lon"]) for r in rows})
+
+    def _refresh_custom_patch(self, tile):
+        """The tile pane's Custom patch row for the active tile."""
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        self._custom_patch_tile = tile
+        files = []
+        if tile is not None:
+            try:
+                files = CUSTOM_PATCHES.custom_patches(tile[0], tile[1])
+            except Exception:
+                files = []
+        self.custom_patch_label.setText(
+            CUSTOM_PATCHES.info_text(files) if files else "")
+        self.use_auto_patch_btn.setEnabled(not self._building)
+        self._info_layout.setRowVisible(self.custom_patch_row, bool(files))
+        if tile is not None:
+            bands = self.map.custom_patched()
+            self.map.set_custom_patched(
+                bands | {tile} if files else bands - {tile})
+
+    def _use_auto_patch(self):
+        """Use auto patch: set the active tile's custom patches aside."""
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        tile = self._custom_patch_tile
+        if tile is None or self._building:
+            return
+        try:
+            moved = CUSTOM_PATCHES.use_auto_patch(tile[0], tile[1])
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, CUSTOM_PATCHES.USE_AUTO_PATCH_TITLE,
+                                str(exc))
+            moved = []
+        for path in moved:
+            print("Tile %s: set the custom patch aside as %s; the next "
+                  "build uses the auto patch."
+                  % (FNAMES.short_latlon(*tile), os.path.basename(path)))
+        self._refresh_custom_patch(tile)
+
+    def _edit_tile_settings(self):
+        """Edit settings…: Settings scoped to the active tile, showing
+        only its customized settings."""
+        tile = self._custom_settings_tile
+        if tile is not None:
+            self.open_settings(tiles=[tile], customized_only=True)
+
+    # ------------------------------------------------------------------
     # Legacy per-tile configs (mac-app parity: BuildPane's "Update to
     # Current Defaults" alert, BuildModel.updateLegacyTileSettings)
     # ------------------------------------------------------------------
@@ -3119,7 +3394,7 @@ class MainWindow(QMainWindow):
         interpret rather than take literally."""
         lines = [
             "Tile %s's settings were written by an older version of "
-            "this app or by Ortho4XP:"
+            "this app:"
             % FNAMES.short_latlon(legacy["lat"], legacy["lon"])
         ]
         for (key, value, replacement) in legacy["foreign_enums"]:
@@ -3139,8 +3414,6 @@ class MainWindow(QMainWindow):
                 "• legacy quoted value format (%d setting%s)"
                 % (count, "" if count == 1 else "s")
             )
-        if legacy["uses_legacy_name"]:
-            lines.append("• legacy config file name (Ortho4XP.cfg)")
         lines.append(
             "Updating keeps the tile's imagery source, zoom level and "
             "zones, and resets everything else to your current global "
@@ -3267,8 +3540,10 @@ class MainWindow(QMainWindow):
             self._panel_spacer_index, 0 if visible else 1)
 
     def _tile_in_active_run(self, tile):
-        """True while the tile is queued or building in the current run."""
-        if not self._building:
+        """True while the tile is queued or building in the current run.
+        A tile held here until its stop is confirmed is not in the
+        engine's run yet (#1326)."""
+        if not self._building or tile in self._held_for_stop:
             return False
         state, label, _percent = self._progress_states.get(
             tile, (None, None, 0))
@@ -3301,6 +3576,8 @@ class MainWindow(QMainWindow):
         """Build the selected tiles — or queue them into the run in
         progress (the map and the Build box stay live during builds)."""
         blocked = self.xplane_block_reason()
+        if not self._building:
+            blocked = blocked or self.plan_panel.blocking_reason()
         if blocked:
             self._status(blocked)
             return
@@ -3317,21 +3594,19 @@ class MainWindow(QMainWindow):
         unresolved = []
         if self.imagery_combo.currentIndex() < 0:
             unresolved.append("imagery source")
-        if self.zl_combo.currentIndex() < 0:
-            unresolved.append("build zoom level")
         if unresolved:
             self._status(
                 "The selected tiles disagree on the %s — pick one in the "
-                "toolbar before building." % " and the ".join(unresolved)
+                "Build box before building." % " and the ".join(unresolved)
             )
             return
-        # Freeze the toolbar choices NOW: the panel refreshes below
+        # Freeze the Build box choices NOW: the panel refreshes below
         # (_active_changed → _sync_build_controls_to_selection) re-read
         # the selected tiles' recorded provenance and could otherwise
         # snap the combos back to it, silently overriding what the user
         # just picked for this build.
         provider = self.imagery_combo.currentText()
-        zoomlevel = int(self.zl_combo.currentText())
+        zoomlevel = self.build_zl
         if self.chk_skip_built.isChecked():
             todo = [t for t in selection if t not in self._built]
             skipped = len(selection) - len(todo)
@@ -3522,10 +3797,11 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("■ Stop")
         self.map.zoom_to_tiles(todo)
-        self._progress_states = {
-            t: ("queued", "queued", 0) for t in todo
-        }
-        self.map.set_progress(self._progress_states)
+        # Earlier rows stay (#1341); this run's tiles start queued.
+        for t in todo:
+            self._progress_states[t] = ("queued", "queued", 0)
+        self._run_tiles = set(todo)
+        self.map.set_progress(self._map_progress())
         self._setup_progress_page(todo)
         self._snapshot_run_settings(todo, settings)
         self._update_build_summary()
@@ -3653,63 +3929,77 @@ class MainWindow(QMainWindow):
             self._status(
                 "The selected tiles are already building or queued.")
             return
-        self._stderr_log.note(
-            STDLOG.queued_line([QTBOUND.tile_label(t) for t in fresh]))
-        accepted = self._session.enqueue_build(
-            fresh,
-            provider=provider,
-            zoomlevel=zoomlevel,
-            custom_build_dir=self.output_dir(),
-            do_vector=do_vector,
-            do_imagery=do_imagery,
-            do_overlays=do_overlays,
-            **QTBOUND.build_kwargs({}, boundary_policy)
-        )
-        if not accepted:
-            self._status(
-                "Could not queue the tiles — the previous run is still "
-                "winding down; try again in a moment."
-            )
-            return
-        for tile in fresh:
-            self._progress_states[tile] = ("queued", "queued", 0)
-            # A finished tile being built again starts a fresh stopwatch.
-            self._tile_started_at.pop(tile, None)
-            self._tile_results.pop(tile, None)
-        self._snapshot_run_settings(fresh, {
+        self._requeue_into_run(fresh, {
             "provider": provider,
             "zoomlevel": zoomlevel,
             "do_vector": do_vector,
             "do_imagery": do_imagery,
             "do_overlays": do_overlays,
-        })
-        self.map.set_progress(self._progress_states)
-        self._add_progress_rows(fresh)
-        self._ntiles += len(fresh)
+        }, boundary_policy)
+
+    def _requeue_into_run(self, tiles, settings, boundary_policy=None):
+        """Queue ``tiles`` into the running build: Build, Queue, Resume and
+        "Rebuild tile" all end here (#1326, #1322).
+
+        A tile whose Stop the engine has not confirmed is HELD until it
+        does (``_on_tile_state`` sends it then): the engine refuses a
+        second copy of a tile it is still stopping.  Every tile's row
+        reads queued from now, with no clock.
+        """
+        held = [t for t in tiles if t in self._stop_pending]
+        send = [t for t in tiles if t not in self._stop_pending]
+        for tile in held:
+            self._held_for_stop[tile] = (dict(settings), boundary_policy)
+        if send:
+            self._stderr_log.note(
+                STDLOG.queued_line([QTBOUND.tile_label(t) for t in send]))
+            accepted = self._session.enqueue_build(
+                send,
+                custom_build_dir=self.output_dir(),
+                **QTBOUND.build_kwargs(settings, boundary_policy)
+            )
+            if not accepted:
+                self._status(
+                    "Could not queue the tiles — the previous run is still "
+                    "winding down; try again in a moment."
+                )
+                send = []
+        queued = send + held
+        if not queued:
+            return
+        # A stopped tile resumed into the run was already counted in it.
+        joining = [t for t in queued if t not in self._run_tiles]
+        self._run_tiles.update(queued)
+        for tile in queued:
+            self._progress_states[tile] = ("queued", "queued", 0)
+            self._tile_clocks.pop(tile, None)
+            # A finished tile being built again starts a fresh stopwatch.
+            self._tile_started_at.pop(tile, None)
+            self._tile_results.pop(tile, None)
+        self._snapshot_run_settings(queued, settings)
+        self.map.set_progress(self._map_progress())
+        self._add_progress_rows(queued)
+        for tile in queued:
+            self._render_row_state(tile)
+        self._ntiles += len(joining)
         self.progress_title.setText(
             "<b>Building %d tile%s</b>"
             % (self._ntiles, "s" if self._ntiles > 1 else "")
         )
         self._status(
             "Queued %d tile%s into the running build."
-            % (len(fresh), "s" if len(fresh) > 1 else "")
+            % (len(queued), "s" if len(queued) > 1 else "")
         )
+        self._update_build_summary()
         self._active_changed(self.map.active_tile())
 
     def _setup_progress_page(self, todo):
-        """Reset the Activity box to a fresh run's per-tile rows."""
-        for bar, status, row, cancel, clock in self._tile_rows.values():
-            row.deleteLater()
-        self._tile_rows = {}
-        # TileState.detail of a stopped tile (#598), by tile.
-        self._tile_details = {}
+        """Start a fresh run in the Activity box: its tiles' rows on top,
+        queued; the rows of earlier runs stay under them until the app
+        quits (#1341), and so do the settings a stopped one resumes with."""
         self._tile_clocks = {}
         self._eta_samples = []
         self._eta_unreliable = False
-        # A fresh run owns the box: rows the previous one left behind
-        # (stopped tiles waiting for a resume) go with it, and so do the
-        # settings snapshots that belonged to them.
-        self._run_settings = {}
         self._add_progress_rows(todo)
         self._done_count = 0
         self._ntiles = len(todo)
@@ -3731,15 +4021,22 @@ class MainWindow(QMainWindow):
         "queued") the row of a finished or stopped tile being built
         again."""
         for tile in tiles:
+            # Every attempt starts its step strip afresh (#825).
+            self._step_strips[tile] = STRIP.new_strip()
             if tile in self._tile_rows:
                 bar, status, _row, cancel, clock = self._tile_rows[tile]
+                QTSTRIP.show(_row.findChild(QLabel, "tile_steps"),
+                             self._step_strips[tile])
                 self._tile_details.pop(tile, None)
+                self._row_issues.pop(tile, None)
                 stale = _row.findChild(QLabel, "tile_detail")
                 if stale is not None:
                     stale.setVisible(False)
                 bar.setValue(0)
                 status.setText("queued")
                 status.setStyleSheet("color: gray;")
+                status.set_clickable(False)
+                _row.findChild(QLabel, "tile_title").setStyleSheet("")
                 clock.setText("")
                 cancel.setEnabled(True)
                 cancel.setVisible(True)
@@ -3754,9 +4051,9 @@ class MainWindow(QMainWindow):
             rl = QVBoxLayout(row)
             rl.setContentsMargins(6, 4, 6, 4)
             rl.setSpacing(2)
-            # Two lines (#694): the title (coordinate + search tag, #667)
-            # owns the whole first line and elides at its tail only when
-            # wider than the row; the second line carries the status,
+            # Title, bar, then a line (#694): the title (coordinate +
+            # search tag, #667) owns the whole first line and elides at its
+            # tail only when wider than the row; the line under the bar carries the status,
             # left, and the clock, right, then the stop / resume button.
             # The status elides before it reaches the clock, which never
             # shrinks (a plain QLabel's minimum is its full text).
@@ -3769,10 +4066,26 @@ class MainWindow(QMainWindow):
             )
             title.setObjectName("tile_title")
             rl.addWidget(title)
+            # The bar sits right under the title (owner 2026-10-24) so
+            # each bar reads as its tile's when several rows run.
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setValue(0)
+            bar.setTextVisible(False)
+            bar.setFixedHeight(6)
+            rl.addWidget(bar)
+            # The steps (#825): Map data → Airports → … → Install.
+            steps = QTSTRIP.make_label(ROW_SMALL_PX)
+            QTSTRIP.show(steps, self._step_strips[tile])
+            rl.addWidget(steps)
             line = QHBoxLayout()
             line.setSpacing(6)
-            status = ElidedRowLabel("queued")
+            # A finished row's gold or red status reopens the tile's
+            # messages (#1341); until then a click is the row's.
+            status = ClickableStatus("queued")
             status.setObjectName("tile_status")
+            status.clicked.connect(
+                lambda t=tile: self._reopen_tile_issues(t))
             status.setStyleSheet("color: gray;")
             QTTEXT.size_text(status, pixels=ROW_SMALL_PX)
             line.addWidget(status, 1)
@@ -3798,12 +4111,6 @@ class MainWindow(QMainWindow):
             )
             line.addWidget(cancel)
             rl.addLayout(line)
-            bar = QProgressBar()
-            bar.setRange(0, 100)
-            bar.setValue(0)
-            bar.setTextVisible(False)
-            bar.setFixedHeight(6)
-            rl.addWidget(bar)
             # What a STOPPED tile is left with (#598); hidden otherwise.
             detail = QLabel("")
             detail.setObjectName("tile_detail")
@@ -3816,6 +4123,56 @@ class MainWindow(QMainWindow):
                 self._rows_layout.count() - 1, row
             )
             self._tile_rows[tile] = (bar, status, row, cancel, clock)
+        self._sync_row_order()
+
+    def _sync_row_order(self):
+        """Lay the Activity rows out in the list's order (#1341): live
+        rows on top, newest queued first, then finished rows in the order
+        they finished."""
+        rows = []
+        for tile in self._tile_rows:
+            (state, label, _pct) = self._progress_states.get(
+                tile, ("queued", "queued", 0))
+            rows.append((tile, ACTORDER.is_finished(state, label)))
+        (self._row_stamps, self._row_counter) = ACTORDER.restamp(
+            rows, self._row_stamps, self._row_counter)
+        order = ACTORDER.display_order(list(self._tile_rows),
+                                       self._row_stamps)
+        if order == self._row_order:
+            return
+        self._row_order = order
+        for index, tile in enumerate(order):
+            widget = self._tile_rows[tile][2]
+            if self._rows_layout.indexOf(widget) != index:
+                self._rows_layout.removeWidget(widget)
+                self._rows_layout.insertWidget(index, widget)
+
+    def _map_progress(self):
+        """The rows the map draws a badge for: this run's, and any row
+        still live or waiting for a resume (#1341: the rest stay in the
+        Activity list only)."""
+        return {
+            tile: state for tile, state in self._progress_states.items()
+            if tile in self._run_tiles or state[0] == "stopped"
+            or not ACTORDER.is_finished(state[0], state[1])
+        }
+
+    def _reopen_tile_issues(self, tile):
+        """#1341: a finished row's status was clicked — show that tile's
+        end-of-build messages again, with the report buttons."""
+        event = self._row_issues.get(tile)
+        if event is None:
+            return
+        box = QTFAIL.issues_box(
+            [event], parent=self, app_version=O4_Version.version,
+            on_remove_link=self._remove_link_and_build)
+        if box is None:
+            return
+        self._pack_art_boxes.append(box)
+        box.finished.connect(
+            lambda _result, box=box: box in self._pack_art_boxes
+            and self._pack_art_boxes.remove(box))
+        box.show()
 
     def _show_tile_on_map(self, tile):
         """An Activity row was clicked (#816): select its tile, as a
@@ -3824,36 +4181,59 @@ class MainWindow(QMainWindow):
         self.map.set_active(*tile)
         self.map.zoom_to_tiles([tile], margin=TILE_FRAME_MARGIN)
 
+    def _feed_step_strip(self, event):
+        """Fold one engine event into its tile's step strip (#825) and
+        repaint the strip line; tiles without a row are not this run's."""
+        tile = (event.lat, event.lon)
+        strip = self._step_strips.get(tile)
+        row = self._tile_rows.get(tile)
+        if strip is None or row is None:
+            return
+        STRIP.apply_event(strip, event, time.monotonic())
+        QTSTRIP.show(row[2].findChild(QLabel, "tile_steps"), strip)
+
     def _on_step_progress(self, event):
         tile = (event.lat, event.lon)
+        self._feed_step_strip(event)
         state = "indeterminate" if event.indeterminate else "active"
         # Wire label -> plain step name (#831); the wire is unchanged.
         label = GLOSSARY.step_display(event.step_key, event.label)
-        resolved = resolve_tile_state(
+        resolved = resolve_tile_event(
             (state, label, event.percent),
             self._progress_states.get(tile),
+            self._is_stopped_attempt(tile, event),
         )
         if resolved is None:
             return  # stale news from a run this row has already left
         self._tile_started_at.setdefault(tile, time.time())
         self._progress_states[tile] = resolved
-        self.map.set_progress(self._progress_states)
+        self.map.set_progress(self._map_progress())
         self._render_row_state(tile)
         self.setWindowTitle(
             "XPTerrainBuilder — building %s · %s · %d%%"
             % (FNAMES.short_latlon(*tile), label, event.percent)
         )
 
+    def _is_stopped_attempt(self, tile, event):
+        return is_stopped_attempt(
+            getattr(event, "attempt", 0), self._stale_through.get(tile),
+            tile in self._stop_pending)
+
     def _on_tile_state(self, event):
         tile = (event.lat, event.lon)
-        resolved = resolve_tile_state(
+        self._feed_step_strip(event)
+        resolved = resolve_tile_event(
             (event.state, event.label, event.percent),
             self._progress_states.get(tile),
+            self._is_stopped_attempt(tile, event),
         )
         if event.label == "stopped":
             # What the engine's stop left the tile with (#598) — the one
             # thing its late notice adds to a row already stopped here.
             self._tile_details[tile] = getattr(event, "detail", "") or ""
+        if tile in self._stop_pending and (
+                event.label == "stopped" or event.state in ("done", "error")):
+            self._stop_confirmed(tile, event)
         if resolved is None:
             # The row is locally stopped and this is not a terminal
             # outcome — including the engine's own late "stopped" notice,
@@ -3864,7 +4244,7 @@ class MainWindow(QMainWindow):
         if state == "done":
             self._done_count += 1
         self._progress_states[tile] = resolved
-        self.map.set_progress(self._progress_states)
+        self.map.set_progress(self._map_progress())
         self._render_row_state(tile)
         if state in ("done", "error") or label == "stopped":
             # The tile left the active run: selected finished/failed
@@ -3872,6 +4252,25 @@ class MainWindow(QMainWindow):
             self._update_build_summary()
         if state == "done":
             self.refresh_tiles()
+
+    def _stop_confirmed(self, tile, event):
+        """The engine has finished with the attempt the user stopped
+        (#1326): its later events are stale by number, and a re-queue held
+        for it goes to the engine now — unless the tile finished before
+        its stop took effect, which leaves nothing to resume."""
+        self._stop_pending.discard(tile)
+        attempt = getattr(event, "attempt", 0)
+        if attempt:
+            self._stale_through[tile] = max(
+                attempt, self._stale_through.get(tile, 0))
+        held = self._held_for_stop.pop(tile, None)
+        if held is None or event.state == "done":
+            return
+        (settings, boundary_policy) = held
+        if self._building:
+            self._requeue_into_run([tile], settings, boundary_policy)
+        else:
+            self._start_run([tile], settings)
 
     def _on_run_eta(self, event):
         self._last_run_eta = event
@@ -3885,17 +4284,17 @@ class MainWindow(QMainWindow):
             (int(row[0]), int(row[1])): (row[2], row[3], bool(row[4]))
             for row in event.rows
         }
-        # A stopped row's clock stays frozen where the stop left it: the
-        # engine goes on counting until its cancel lands, and that number
-        # describes a tile the user has already stopped.
+        # A stopped row's clock stays frozen where the stop left it (the
+        # engine goes on counting until its cancel lands), and a queued
+        # row runs none (#1326).
         for tile in list(rows):
-            if self._progress_states.get(tile, (None,))[0] != "stopped":
-                continue
-            previous = self._tile_clocks.get(tile)
-            if previous is None:
+            shown = displayed_clock(
+                self._progress_states.get(tile, (None,))[0], rows[tile],
+                self._tile_clocks.get(tile))
+            if shown is None:
                 rows.pop(tile)
             else:
-                rows[tile] = previous
+                rows[tile] = shown
         self._tile_clocks = rows
 
     def _update_tile_row(self, tile, pct, label):
@@ -3916,9 +4315,16 @@ class MainWindow(QMainWindow):
             button.setToolTip("Stop this tile")
 
     def _render_row_state(self, tile):
-        """Repaint one Activity row from ``_progress_states``: status text
-        and colour, the progress bar, and which of the two things the
-        row's button is offering.
+        """Repaint one Activity row from ``_progress_states``, then put
+        the rows back in the list's order (a row that just finished moves
+        under the live ones, #1341)."""
+        self._paint_row_state(tile)
+        self._sync_row_order()
+
+    def _paint_row_state(self, tile):
+        """Repaint one Activity row: status text and colour, the title
+        (dimmed once finished, #1341), the progress bar, and which of the
+        two things the row's button is offering.
 
         The button is deliberately NOT gated on a run being in progress —
         a stopped row keeps its resume button after the run ends, so the
@@ -3935,29 +4341,31 @@ class MainWindow(QMainWindow):
             text = row_detail(state, label, self._tile_details.get(tile, ""))
             detail.setText(text)
             detail.setVisible(bool(text))
-        color = "gray"
+        finished = ACTORDER.is_finished(state, label)
+        has_issues = finished and tile in self._row_issues
         if state == "done":
             bar.setValue(100)
-            status.setText("done ✓")
-            color = "green"
+            status.setText(QTFAIL.BUILT_WITH_WARNINGS if has_issues
+                           else "done ✓")
         elif state == "error":
             status.setText("failed")
-            color = "red"
         elif state == "stopped":
             # Frozen where the stop caught it — the percent is the last
             # thing the tile actually reached, not a number still moving.
             bar.setValue(int(pct))
             status.setText(label or "stopped")
-            color = STOPPED_COLOR
         elif state in ("active", "indeterminate"):
             bar.setValue(int(pct))
             status.setText("%s · %d%%" % (label, pct))
         else:
             bar.setValue(int(pct))
             status.setText(label or "queued")
-            if label == "stopped":
-                color = STOPPED_COLOR
-        status.setStyleSheet("color: %s;" % color)
+        status.setStyleSheet("color: %s;" % TONE_COLORS[
+            ACTORDER.status_tone(state, label, has_issues)])
+        status.set_clickable(has_issues, QTFAIL.REOPEN_TOOLTIP)
+        title = row_widget.findChild(QLabel, "tile_title")
+        if title is not None:
+            title.setStyleSheet("color: gray;" if finished else "")
         if state in ("done", "error"):
             # Nothing left to stop and nothing to resume: a finished tile
             # goes back through the Build button.
@@ -3992,16 +4400,32 @@ class MainWindow(QMainWindow):
         for the engine to agree is what made the button feel broken.  The
         cancel still goes over exactly as before; the ROW goes "stopped"
         now, percent frozen, and the engine's eventual events for the
-        tile are stale (``resolve_tile_state`` drops them).
+        tile are stale (``resolve_tile_event`` drops them).
+
+        Until the engine confirms the stop, the tile is ``_stop_pending``
+        (#1326): a re-queue meanwhile is held, never sent as a second
+        copy.  Pending is marked BEFORE the call — an in-process session
+        can confirm a queued tile's stop inside it.
         """
-        self._session.cancel_tile(tile[0], tile[1])
-        # Stop is the inverse of resume, at any scale: stopping a row that
-        # was waiting for the follow-up run takes it out of the queue.
-        self._resume_queue = [t for t in self._resume_queue if t != tile]
-        _state, _label, pct = self._progress_states.get(
+        state, _label, pct = self._progress_states.get(
             tile, ("queued", "queued", 0))
+        # Stop is the inverse of resume, at any scale: a row held for its
+        # earlier stop is only on this side — it goes back to stopped.
+        held = self._held_for_stop.pop(tile, None)
+        if held is None:
+            pending = self._building and state in (
+                "queued", "active", "indeterminate")
+            if pending:
+                self._stop_pending.add(tile)
+            if not self._session.cancel_tile(tile[0], tile[1]):
+                self._stop_pending.discard(tile)
         self._progress_states[tile] = ("stopped", "stopped", pct)
-        self.map.set_progress(self._progress_states)
+        self.map.set_progress(self._map_progress())
+        strip = self._step_strips.get(tile)
+        if strip is not None and tile in self._tile_rows:
+            STRIP.stop(strip, time.monotonic())
+            QTSTRIP.show(self._tile_rows[tile][2].findChild(
+                QLabel, "tile_steps"), strip)
         # The clock freezes too: the engine keeps counting until its
         # cancel lands, and a running clock under "stopped" is the same
         # lie the row itself used to tell.
@@ -4013,11 +4437,11 @@ class MainWindow(QMainWindow):
 
     def _resume_tile_clicked(self, tile):
         """The row's green resume: rebuild this tile with the settings ITS
-        run was started with, not whatever the toolbar says now.
+        run was started with, not whatever the Build box says now.
 
-        A run in progress is left alone — the tile joins a client-side
-        queue and starts as one follow-up run when the current one ends
-        (no protocol change: the engine knows nothing about the queue).
+        A run in progress takes it now (#1326): the tile is queued into
+        the running build, like any other Queue press — held only until
+        the engine confirms the stop it is resuming from.
         """
         settings = self._run_settings.get(tile) or self._toolbar_settings()
         if settings is None:
@@ -4025,30 +4449,21 @@ class MainWindow(QMainWindow):
                 "Pick an imagery source and zoom level to resume this tile.")
             return
         if self._building:
-            self._resume_queue = enqueue_resume(tile, self._resume_queue)
-            self._progress_states[tile] = (
-                "queued", "resumes after current run", 0)
-            self.map.set_progress(self._progress_states)
-            self._tile_clocks.pop(tile, None)
-            row = self._tile_rows.get(tile)
-            if row is not None:
-                row[4].setText("")
-            self._render_row_state(tile)
-            self._update_build_summary()
+            self._queue_into_running_build(
+                [tile], settings["provider"], settings["zoomlevel"],
+                settings["do_vector"], settings["do_imagery"],
+                settings["do_overlays"])
             return
-        self._resume_queue = [t for t in self._resume_queue if t != tile]
         self._start_run([tile], settings)
 
     def _toolbar_settings(self):
-        """The run settings the toolbar currently spells out, or None while
+        """The run settings the Build box currently spells out, or None while
         a combo is unresolved ("--")."""
         if self.imagery_combo.currentIndex() < 0:
             return None
-        if self.zl_combo.currentIndex() < 0:
-            return None
         return {
             "provider": self.imagery_combo.currentText(),
-            "zoomlevel": int(self.zl_combo.currentText()),
+            "zoomlevel": self.build_zl,
             "do_vector": self.chk_vector.isChecked(),
             "do_imagery": self.chk_imagery.isChecked(),
             "do_overlays": self.chk_overlays.isChecked(),
@@ -4060,17 +4475,14 @@ class MainWindow(QMainWindow):
         for tile in tiles:
             self._run_settings[tile] = dict(settings)
 
-    def _start_resume_queue(self):
-        """The tiles resumed mid-run, as ONE follow-up run.
-
-        Each carries its own run's settings, so they are grouped: one
-        batch per distinct settings set, the first batch starting the run
-        and the rest queued into it.
-        """
-        todo, self._resume_queue = self._resume_queue, []
+    def _start_held_tiles(self):
+        """Re-queues still held for a stop the engine never confirmed when
+        the run ended (#1326): the engine is done with them now, so they
+        start as one follow-up run, a batch per settings set."""
+        held, self._held_for_stop = self._held_for_stop, {}
+        self._stop_pending = set()
         self._start_resume_batches(_batched_by_settings(
-            (tile, self._run_settings.get(tile) or self._toolbar_settings())
-            for tile in todo))
+            (tile, settings) for tile, (settings, _policy) in held.items()))
 
     def _failed_and_unstarted(self):
         """#821: the run's failed and never-started tiles with the settings
@@ -4080,7 +4492,8 @@ class MainWindow(QMainWindow):
             (tile, self._run_settings.get(tile) or self._toolbar_settings())
             for (tile, state) in self._progress_states.items()
             if state[0] in ("error", "queued")
-            and tile not in self._resume_queue
+            and tile in self._run_tiles
+            and tile not in self._held_for_stop
         ]
 
     def _build_failed_again(self):
@@ -4192,6 +4605,7 @@ class MainWindow(QMainWindow):
         """One tile's terminal outcome: remember it (with the tile's own
         wall time) for the end-of-run console report."""
         tile = (event.lat, event.lon)
+        self._feed_step_strip(event)
         started_at = self._tile_started_at.get(tile)
         seconds = (time.time() - started_at) if started_at else None
         # #562 / #564: the engine's own words — what, why, what to do —
@@ -4202,6 +4616,9 @@ class MainWindow(QMainWindow):
         if lines:
             print("\n".join(lines))
             self._run_issue_events.append(event)
+            # #1341: kept on the row, whose status reopens them.
+            self._row_issues[tile] = event
+            self._render_row_state(tile)
         # #695: a cause the user can fix is asked NOW, not at the run's end.
         if not event.ok and self._link_fixes.offer(event):
             self._show_link_fix()
@@ -4261,10 +4678,14 @@ class MainWindow(QMainWindow):
             time.time() - self._build_t0
             if self._build_t0 is not None else None
         )
+        # This run's rows only: earlier runs' rows stay listed (#1341).
+        run_states = {tile: state
+                      for tile, state in self._progress_states.items()
+                      if tile in self._run_tiles}
         (summary, detail_lines) = _compose_run_report(
-            sorted(self._progress_states),
+            sorted(run_states),
             self._tile_results,
-            self._progress_states,
+            run_states,
             total_seconds,
             self._stop_requested,
         )
@@ -4285,53 +4706,51 @@ class MainWindow(QMainWindow):
             # Activity display must not be torn down under it.
             if self._building:
                 return
-            # Rows the user STOPPED survive the linger: their resume
-            # button is the way back to the tile without hunting for it
-            # on the map again, so the row — and the settings a resume
-            # needs — has to outlive the run it was stopped in.
-            stopped = {
-                tile: state
-                for tile, state in self._progress_states.items()
-                if state[0] == "stopped"
-            }
-            for tile in list(self._tile_rows):
-                if tile in stopped:
-                    continue
-                self._tile_rows.pop(tile)[2].deleteLater()
-                self._tile_clocks.pop(tile, None)
-            self._run_settings = {
-                tile: settings
-                for tile, settings in self._run_settings.items()
-                if tile in stopped
-            }
-            self._progress_states = stopped
-            self.map.set_progress(stopped)
-            self._set_activity_box_visible(bool(stopped))
-            if stopped:
-                # The run is over: there is no elapsed left to report,
-                # only the stopped rows waiting for a resume.
-                self.progress_title.setText("")
-                self.elapsed_label.setText("")
-                self.eta_label.setText("")
+            self._end_run_display()
             self._selection_changed()
 
         self._after(5000, revert)
-        # Tiles the user resumed mid-run get their own follow-up run,
-        # client-side.  A run the user STOPPED wholesale takes the queue
-        # down with it — stop is the inverse of resume, at any scale.
+        # Re-queues still held for a stop get their own follow-up run.  A
+        # run the user STOPPED wholesale takes them down with it — stop is
+        # the inverse of resume, at any scale.
         if self._stop_requested:
-            self._resume_queue = []
+            self._held_for_stop = {}
+            self._stop_pending = set()
         else:
-            self._start_resume_queue()
+            self._start_held_tiles()
         self.refresh_tiles()
         QApplication.beep()
 
+    def _end_run_display(self):
+        """The run is over (its linger ended): its title, clock and map
+        badges go, and so does any row it left live (a tile it never
+        started).  Every finished row stays until the app quits (#1341)
+        — a stopped one with its resume button and the settings a resume
+        needs."""
+        for tile in [tile for tile, state in self._progress_states.items()
+                     if not ACTORDER.is_finished(state[0], state[1])]:
+            self._progress_states.pop(tile)
+            self._tile_clocks.pop(tile, None)
+            self._step_strips.pop(tile, None)
+            row = self._tile_rows.pop(tile, None)
+            if row is not None:
+                self._rows_layout.removeWidget(row[2])
+                row[2].deleteLater()
+        self._run_tiles = set()
+        self._sync_row_order()
+        self.map.set_progress(self._map_progress())
+        self._set_activity_box_visible(bool(self._tile_rows))
+        # There is no elapsed left to report, only finished rows.
+        self.progress_title.setText("")
+        self.elapsed_label.setText("")
+        self.eta_label.setText("")
+
     def request_stop(self):
         self._stop_requested = True
-        # Stopping the whole run takes the pending resumes with it: a
+        # Stopping the whole run takes the held re-queues with it: a
         # follow-up run starting behind a wholesale stop is the opposite
         # of what the button was pressed for.
-        self._resume_queue = []
+        self._held_for_stop = {}
         self._session.cancel()
         self.stop_btn.setText("Stopping after current step…")
         self.stop_btn.setEnabled(False)
@@ -4401,7 +4820,13 @@ class MainWindow(QMainWindow):
         )
 
     def _hover(self, lat, lon):
-        self.coords_label.setText("%.3f°, %.3f°" % (lat, lon))
+        readout = getattr(self, "_cursor_readout", None)
+        if readout is None:                 # the label is made after the map
+            from O4_Qt_Cursor_Readout import CursorReadout
+            readout = self._cursor_readout = CursorReadout(
+                self.coords_label, self.patch_editor.engine, lambda: self._built, self,
+                pack_label=self.patch_editor.pack_label_at)
+        readout.hover(lat, lon)
 
     def _update_zoom_label(self):
         self.zoom_label.setText(
@@ -4426,7 +4851,30 @@ class MainWindow(QMainWindow):
         if self.chk_skip_built.isChecked() and tuple(tile) in self._built:
             return ("This tile can't be rebuilt now. Turn off “Skip already-built "
                     "tiles” and try again.")
-        self.start_build()
+        if not self._building:
+            self.start_build()
+            return None
+        # #1322: a build is running — the tile joins it, with the source
+        # and zoom it was built with, unless it is already part of it.
+        tile = tuple(tile)
+        if self._tile_in_active_run(tile):
+            return "This tile is already in this run."
+        settings = dict(self._toolbar_settings() or {
+            "do_vector": self.chk_vector.isChecked(),
+            "do_imagery": self.chk_imagery.isChecked(),
+            "do_overlays": self.chk_overlays.isChecked(),
+        })
+        info = self._built.get(tile)
+        if info is not None and info.provider:
+            settings["provider"] = info.provider
+        if info is not None and info.zl:
+            settings["zoomlevel"] = info.zl
+        if not settings.get("provider") or not settings.get("zoomlevel"):
+            return "Pick an imagery source and zoom level to build this tile."
+        self._queue_into_running_build(
+            [tile], settings["provider"], settings["zoomlevel"],
+            settings["do_vector"], settings["do_imagery"],
+            settings["do_overlays"])
         return None
 
     def closeEvent(self, event):
@@ -4456,8 +4904,7 @@ class MainWindow(QMainWindow):
         # An unresolved combo ("--", index -1) keeps the previous pref.
         if self.imagery_combo.currentIndex() >= 0:
             self.prefs["imagery"] = self.imagery_combo.currentText()
-        if self.zl_combo.currentIndex() >= 0:
-            self.prefs["zl"] = int(self.zl_combo.currentText())
+        self.prefs["zl"] = self.build_zl
         self.prefs["window_geometry"] = bytes(
             self.saveGeometry().toBase64()
         ).decode("ascii")
@@ -4687,9 +5134,5 @@ def _provider_label(providers):
     return "Multiple" if providers else "—"
 
 
-def _fmt_size(nbytes):
-    value = float(nbytes)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if value < 1024 or unit == "TB":
-            return "%.1f %s" % (value, unit)
-        value /= 1024
+#: One size format for the info pane and the Library window.
+_fmt_size = QTLIBRARY.fmt_size

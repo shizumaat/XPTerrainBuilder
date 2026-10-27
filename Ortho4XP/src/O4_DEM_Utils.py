@@ -15,6 +15,7 @@ except:
     has_gdal = False
 from PIL import Image
 import O4_Cfg_Module_Values as MODULE_VALUES
+import O4_Machine_Slots as MACHINE_SLOTS
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 
@@ -1317,7 +1318,22 @@ class ElevationTransportRefused(ElevationDownloadRefused):
     source (``elevation_access.base_fallback``, issue #561).  A host that
     refused this client, a redirect loop and a land cell the source does
     not hold stay plain :class:`ElevationDownloadRefused`: they are
-    defects to see, never outages to route around.
+    defects to see, never outages to route around.  (A land cell the
+    source answered "not there" for is :class:`ElevationAbsentRefused`,
+    which the fallback covers too -- owner Q77, RULINGS 2026-10-20ap.)
+    """
+
+
+class ElevationAbsentRefused(ElevationDownloadRefused):
+    """The source LOOKED and has no elevation for a LAND cell: its archive
+    answered 404/410, or the archive came back without the cell's member
+    (``elevation_access.strategies.viewfinder_zip.
+    refuse_absent_base_archive``).  Owner Q77 (RULINGS 2026-10-20ap,
+    reversing the #561 rule for this case): "if no data is found,
+    definitely fall back to next best available" -- so the base-tile
+    fallback covers it exactly as it covers a transport failure.  A host
+    that refused THIS CLIENT (403/407/429...) or looped on redirects is
+    not this: those stay plain :class:`ElevationDownloadRefused`.
     """
 
 
@@ -1419,6 +1435,7 @@ def http_request(url, source, verbose=False):
     # module level.  It owns the ONE answer-outcome classifier (SQ3: a
     # second convention at a call site is the defect, not a refinement).
     from elevation_access import discovery as ea_discovery
+    from elevation_access import fetch_slots as ea_fetch_slots
     s = requests.Session()
     tentative = 0
     last_failure = None
@@ -1431,10 +1448,18 @@ def http_request(url, source, verbose=False):
         if UI.red_flag:
             return 0
         try:
-            t0 = time.time()
-            (r, _redirects) = http_request_get_following_redirects(
-                s, url, source, verbose)
-            elapsed = time.time() - t0
+            # One slot of the server's budget for the whole build session
+            # (#1236): every tile's base downloads from this host share it.
+            with MACHINE_SLOTS.hold_class(
+                    MACHINE_SLOTS.net_class(url),
+                    ea_fetch_slots.PROVIDER_CONCURRENT_FETCHES,
+                    give_up=lambda: UI.red_flag):
+                if UI.red_flag:
+                    return 0
+                t0 = time.time()
+                (r, _redirects) = http_request_get_following_redirects(
+                    s, url, source, verbose)
+                elapsed = time.time() - t0
             # THE ONE OUTCOME LAW, classified on the STATUS INTEGER
             # (issues #124/#173).  The historic test was a substring of
             # ``str(response)``: "[40" matched 400-409, so a CDN 403 and

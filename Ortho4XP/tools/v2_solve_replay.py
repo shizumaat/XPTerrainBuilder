@@ -663,6 +663,9 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     airport = _dc.replace(airport, clusters=_derive_clusters(airport, law))
     from auto_patch_v2.airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law)       # issue #516
+    from auto_patch_v2.airport import flat_pack as _flat_pack     # flat-pack spec §1
+    airport = _dc.replace(airport, flat_pack=_flat_pack.detect(airport, law))
+    print(f"[{icao}] " + _flat_pack.log_line(icao, airport.flat_pack))
     print(f"[{icao}] clusters {len(airport.clusters)} "
           f"({time.perf_counter() - _cl_t:.0f} s)")
     print(f"[{icao}] pack partition {time.perf_counter() - t:.0f} s  "
@@ -1099,6 +1102,11 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     surf_out = weld_to_shore(surf_out, law, shore, wrep)
     surf_out = merge_sub_spacing(surf_out, law, wrep)
     print("    " + wrep.line(icao))
+    # issue #1275: the emitted rings the mesh would drop, as the build reads them
+    from auto_patch_v2.emit.ring_fold import ring_folds
+    _folds = ring_folds(surf_out)
+    print(f"    [{icao}] emitted rings NOT simple: {len(_folds)}"
+          + "".join(f"; {r['way_a']}" for r in _folds[:10]))
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=strip_rep, hard_conflict=hard_conflict,
                       runway_flex=runway_flex)
@@ -1106,7 +1114,8 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     from auto_patch_v2.constraints.pad_warning import warnings_of
     for _w in warnings_of(pub.get("platforms")):
         print(f"[{icao}] WARNED: {_w}")
-    pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
+    from auto_patch_v2.geom.water_level import shore_edge_records
+    pub["shore_edges"] = shore_edge_records(airport.dem, shore)
     from auto_patch_v2.pipeline.publication import gap_pieces
     _gap_records = gap_pieces(late_cut, cells)
     if late_cut is not None or _gap_records:
@@ -2586,6 +2595,15 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 _lat, _lon = _to_ll(*pm.vertices[_v].xy)
                 print(f"[{icao}] JOIN YIELD (27a (10)): v{_v} at {_lat:.8f},{_lon:.8f} "
                       f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m)")
+    except (ImportError, AttributeError):
+        pass
+    # owner RULINGS 2026-10-26b: the thresholds the tile seam outranked —
+    # the build's own post-solve recorder, so a replay names the yield too
+    try:
+        from auto_patch_v2.pipeline.emit_stage import with_threshold_yield
+        pm = with_threshold_yield(icao, pm, law, airport, sol,
+                                  [*(prob["late"]["rep"]["pin_yield"] if late_from is not None
+                                     else ()), *rep.pin_yield], print)
     except (ImportError, AttributeError):
         pass
     print(f"[{icao}] {rep.jetway_strip.line()}")

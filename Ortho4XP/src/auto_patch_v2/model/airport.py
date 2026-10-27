@@ -23,7 +23,7 @@ __all__ = [
     "Ring", "Surface", "RunwayEnd", "Runway", "Pavement", "LinearFeature",
     "TaxiNode", "TaxiEdge", "GroundRoute", "Boundary", "Startup",
     "OsmWay", "Building", "FacadeEdge", "FacadeRead", "DemSample", "DsfObject", "SceneryPack",
-    "FlatVerdict", "Airport", "GAP_SHEET_PREFIX",
+    "FlatVerdict", "FlatPackVerdict", "Airport", "GAP_SHEET_PREFIX",
 ]
 
 #: the id prefix of a GAP SHEET body (``Airport.gap_sheets``; owner RULINGS
@@ -68,6 +68,28 @@ class RunwayEnd:
     #: Cat II/III: apt.dat ALSF-II / Calvert II lighting with touchdown-zone
     #: lights at a precision end (15m (2))
     cat_ii_iii: bool = False
+    #: THE PIN'S STATION (issue #1358, ``airport/end_pins``): how far along
+    #: the runway from THIS end the height pin sits — the joined CIFP
+    #: record's own landing threshold projected onto the axis; ``None`` =
+    #: the apt.dat landing threshold (``displaced_m``).  Read through
+    #: :meth:`pin_along`, never directly.
+    pin_along_m: float | None = None
+    #: THE PIN'S ORIGIN (owner RULINGS 2026-10-25a / 26a / 26e;
+    #: ``airport/end_pins``): ``cifp`` (verified), a cross-check source name
+    #: (``ourairports`` …: ``threshold_elev_m`` is ITS value), ``dem`` (a
+    #: flagged CIFP end the DEM decides, ``threshold_elev_m`` = None), or
+    #: ``""`` (no CIFP record: the apt.dat datum / 22a DEM end).
+    pin_source: str = ""
+    #: the CIFP elevation AS READ, kept when verification replaced it
+    cifp_elev_m: float | None = None
+    #: the verification flags that fired on this end's runway (``a``,
+    #: ``b``, ``c``), comma-joined; ``""`` = none
+    pin_flags: str = ""
+
+    def pin_along(self) -> float:
+        """Metres from this end to its pin's station (``pin_along_m``,
+        else the apt.dat displaced length)."""
+        return float(self.displaced_m if self.pin_along_m is None else self.pin_along_m)
 
 
 @_dc.dataclass(frozen=True)
@@ -315,6 +337,10 @@ class SceneryPack:
     dsf_sha256: tuple[str, ...]
     borrowed_apt_dat_path: str = ""
     borrowed_block_sha256: str = ""
+    #: the airport block's ``1302 flatten 1`` metadata: the author asked
+    #: X-Plane to flatten the airport (owner answer 65, 2026-10-20: "a
+    #: strong clue the author was not planning for terrain")
+    flatten_declared: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -346,6 +372,26 @@ class FlatVerdict:
 
 
 @_dc.dataclass(frozen=True)
+class FlatPackVerdict:
+    """THE FLAT-PACK WITNESS (owner direction 2026-10-20, answers 59-66;
+    ``airport/flat_pack.py`` measures it at load, spec
+    ``flat-pack-terracing-spec.md`` §1).  ``verdict`` ∈ ``flat_assumed |
+    follows_terrain | no_data``; ``witness`` names what decided it
+    (``seats``, ``flatten_flag``, both joined by ``+``, or ``""``);
+    ``level_share`` the share of the pack's grounded objects at ONE level,
+    ``level_m`` that level, ``relief_m`` the p95 − p5 of the ground under
+    them; ``signals`` the rest of the evidence (plain values, reported
+    verbatim).  A REPORT in phase 1: nothing grades by it."""
+
+    verdict: str
+    witness: str
+    level_share: float | None
+    level_m: float | None
+    relief_m: float | None
+    signals: _t.Mapping[str, _t.Any]
+
+
+@_dc.dataclass(frozen=True)
 class Airport:
     """Everything the producers need, loaded ONCE."""
 
@@ -370,6 +416,10 @@ class Airport:
     #: The flat-site verdict, measured after the load (``pipeline`` sets it
     #: through ``dataclasses.replace``); ``None`` before the detector ran.
     flat_site: FlatVerdict | None = None
+    #: THE FLAT-PACK WITNESS, measured at load once the pack partition is
+    #: read (``airport/flat_pack.detect``); ``None`` before it ran.  A
+    #: report in phase 1 (``law/flat_pack.toml`` ``terrace = false``).
+    flat_pack: FlatPackVerdict | None = None
     #: THE PACK PARTITION, read ONCE at load (owner RULINGS 2026-09-11j;
     #: spec §11a (3)) — ``airport.pack_partition.PackPartition``.  The
     #: pack is a load-stage input like the DEM, and the pad law needs its

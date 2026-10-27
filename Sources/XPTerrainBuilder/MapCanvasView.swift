@@ -20,6 +20,11 @@ struct MapCanvasView: View {
         MapSceneryFilter(rawValue: sceneryFilterRaw) ?? .all
     }
 
+    @State private var cursorText: String?
+    @State private var cursorElevation: String?
+    /// The pack outline under the cursor (#1316).
+    @State private var cursorPack: String?
+    @State private var elevationQuery: Task<Void, Never>?
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
     /// The airport layer's last plan (#817): rebuilt only when the camera,
     /// the viewport or the airport lists change.
@@ -48,6 +53,10 @@ struct MapCanvasView: View {
     static let badgeDone = Color(red: 0.18, green: 0.62, blue: 0.36)     // #2E9E5B
     static let badgeError = Color(red: 0.90, green: 0.22, blue: 0.17)    // #E5372B
     static let badgeStopped = Color(red: 0.95, green: 0.58, blue: 0.10)  // #F29419
+    /// The customized-settings dot (#1350); Qt SETTINGS_BADGE_COLOR.
+    static let settingsBadge = Color(red: 0.04, green: 0.52, blue: 1.0)  // #0A84FF
+    /// The custom-patch band (#1229); Qt CUSTOM_PATCH_COLOR.
+    static let customPatchBand = Color(red: 1.0, green: 0.62, blue: 0.04)  // #FF9F0A
 
     var body: some View {
         GeometryReader { proxy in
@@ -70,7 +79,11 @@ struct MapCanvasView: View {
                     let point = camera.value.coordinate(of: location, in: proxy.size)
                     let coord = BuildModel.TileCoord(lat: Int(floor(point.lat)),
                                                      lon: Int(floor(point.lon)))
-                    return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord))
+                    return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord),
+                                           copies: buildModel.patchEdit.copyItems(at: location, camera: camera.value,
+                                                                                  size: proxy.size),
+                                           patch: buildModel.patchEdit,
+                                           extra: buildModel.patchEdit.contextActions)
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }
@@ -80,6 +93,25 @@ struct MapCanvasView: View {
                     PatchModeToolbar(model: buildModel.patchEdit)
                 }
             }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    // The hand over open map (#1325); in Edit mode the patch
+                    // layer sets it (a pointer over nodes and lines).
+                    if !editLayerOwnsCursor { PatchShapePick.pointer(over: nil).cursor.set() }
+                    let point = camera.value.coordinate(of: location, in: proxy.size)
+                    cursorText = PatchNodeInspector.latLon(lat: point.lat, lon: point.lon)
+                    cursorPack = buildModel.patchEdit.isShowing
+                        ? buildModel.packOutlines.label(atLat: point.lat, lon: point.lon) : nil
+                    queryElevation(lat: point.lat, lon: point.lon)
+                case .ended:
+                    NSCursor.arrow.set()
+                    cursorText = nil
+                    cursorPack = nil
+                    elevationQuery?.cancel()
+                }
+            }
+            .overlay(alignment: .bottomLeading) { cursorReadout }
             .overlay(alignment: .bottomTrailing) {
                 VStack(alignment: .trailing, spacing: 6) {
                     ScanProgressChip()
@@ -219,7 +251,8 @@ struct MapCanvasView: View {
         let bounds = (minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
         drawTileLabels(context: context, size: size, cam: cam, bounds: bounds,
                        built: sceneryFilter != .othersOnly ? buildModel.built : nil,
-                       orthoTiles: sceneryFilter != .builtOnly ? overlays.orthoTileKeys : nil)
+                       orthoTiles: sceneryFilter != .builtOnly ? overlays.orthoTileKeys : nil,
+                       orthoImagery: overlays.orthoImagery)
 
         // Airports by size (#817): large fields marked and labelled from
         // far out, small ones as you zoom in; labels never overlap. The
@@ -307,13 +340,23 @@ struct MapCanvasView: View {
         }
 
         /// One tile. The canvas is mercator like the imagery, so a tile
-        /// maps to exactly one screen rect — no strip warping.
-        func drawTile(_ cg: CGImage, x: Int, y: Int, alpha: CGFloat) {
+        /// maps to exactly one screen rect — no strip warping. Past the
+        /// source's ceiling `cg` is the tile's ancestor (#1315): drawn over
+        /// its own rect and clipped to the tile, which shows exactly the
+        /// ancestor's sub-square, scaled up.
+        func drawTile(_ cg: CGImage, x: Int, wrapped: Int, y: Int, alpha: CGFloat,
+                      ancestor anc: MapOverzoom.Ancestor) {
             let dest = tileRect(z, x, y)
             guard dest.width > 0.1, dest.height > 0.1 else { return }
             var layer = context
             layer.opacity = alpha
-            layer.draw(Image(decorative: cg, scale: 1), in: dest)
+            guard anc.z < z else {
+                layer.draw(Image(decorative: cg, scale: 1), in: dest)
+                return
+            }
+            let shift = (x - wrapped) / (1 << (z - anc.z))
+            layer.clip(to: Path(dest))
+            layer.draw(Image(decorative: cg, scale: 1), in: tileRect(anc.z, anc.x + shift, anc.y))
         }
 
         // Outgoing source, drawn from cache beneath the incoming one while
@@ -322,8 +365,10 @@ struct MapCanvasView: View {
             for y in yMin...yMax {
                 for x in xMin...xMax {
                     let wrapped = ((x % n) + n) % n
-                    if let cg = imagery.cachedImage(previous: true, z: z, x: wrapped, y: y) {
-                        drawTile(cg, x: x, y: y, alpha: 1)
+                    if let hit = imagery.cachedDisplayImage(previous: true, z: z,
+                                                            x: wrapped, y: y) {
+                        drawTile(hit.image, x: x, wrapped: wrapped, y: y, alpha: 1,
+                                 ancestor: hit.ancestor)
                     }
                 }
             }
@@ -332,13 +377,13 @@ struct MapCanvasView: View {
         for y in yMin...yMax {
             for x in xMin...xMax {
                 let wrapped = ((x % n) + n) % n
-                if let (cg, alpha) = imagery.image(z: z, x: wrapped, y: y) {
+                if let (cg, alpha, anc) = imagery.displayImage(z: z, x: wrapped, y: y) {
                     // Blur-up stand-in beneath a tile still fading in.
                     if alpha < 1 {
                         drawAncestor(x: x, wrapped: wrapped, y: y, z: z,
                                      n: n, tileRect: tileRect)
                     }
-                    drawTile(cg, x: x, y: y, alpha: alpha)
+                    drawTile(cg, x: x, wrapped: wrapped, y: y, alpha: alpha, ancestor: anc)
                 } else {
                     // Not loaded yet: show the nearest cached lower zoom,
                     // upscaled — soft blur instead of a hard empty square.
@@ -402,6 +447,16 @@ struct MapCanvasView: View {
             }
         }
 
+        // Custom patch (#1229): a 4 pt orange band just inside the tile's
+        // edge — the auto patch does not run for an airport of this tile
+        // (Qt: O4_Qt_Map._draw_custom_patch_band).
+        for coord in buildModel.customPatchTiles.keys where visible(coord) {
+            let r = rect(coord)
+            guard r.width > 8 else { continue }
+            context.stroke(Path(r.insetBy(dx: 2, dy: 2)),
+                           with: .color(Self.customPatchBand.opacity(0.85)), lineWidth: 4)
+        }
+
         // Selection: focus ring, not a fill — a fill tints the very
         // imagery the user is judging. Active tile: solid ring with a soft
         // outer glow (macOS focus-ring look); other selected tiles: dashed.
@@ -420,8 +475,22 @@ struct MapCanvasView: View {
             }
         }
 
+        // Customized settings (#1350): a blue dot in the top-left corner
+        // of a built or selected tile, sized in screen points (8-14) like
+        // the warning triangle (Qt: O4_Qt_Map._draw_settings_badge).
+        for coord in buildModel.customizedTiles
+        where visible(coord) && (buildModel.built[coord] != nil || buildModel.selected.contains(coord)) {
+            let r = rect(coord)
+            guard r.width > 14 else { continue }
+            let d = min(max(r.width * 0.11, 8), 14)
+            let dot = Path(ellipseIn: CGRect(x: r.minX + d / 2, y: r.minY + d / 2,
+                                             width: d, height: d))
+            context.fill(dot, with: .color(Self.settingsBadge))
+            context.stroke(dot, with: .color(.white), lineWidth: 1.5)
+        }
+
         // Progress badges: rings at tile centers during a run.
-        for (coord, progress) in buildActivity.tiles where visible(coord) {
+        for (coord, progress) in buildActivity.badges where visible(coord) {
             drawBadge(context: context, rect: rect(coord), progress: progress)
         }
     }
@@ -515,10 +584,21 @@ struct MapCanvasView: View {
 
     // MARK: - Gestures
 
+    /// The patch editor's Edit layer is over the map and sets the cursor.
+    private var editLayerOwnsCursor: Bool {
+        let patch = buildModel.patchEdit
+        return patch.mode == .edit && patch.isShowing && patch.geometry != nil && patch.document != nil
+    }
+
+    /// A drag on open map pans (#1325: every map view, a closed hand while
+    /// it does); a click selects a tile; right click is the tile menu.
     private func pan(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
-                if dragAnchor.value == nil { dragAnchor.value = camera.value }
+                if dragAnchor.value == nil {
+                    dragAnchor.value = camera.value
+                    PatchShapePick.pointer(over: nil, panning: true).cursor.set()
+                }
                 guard let anchor = dragAnchor.value else { return }
                 var cam = anchor
                 cam.centerLon = anchor.centerLon - Double(value.translation.width) / anchor.scale
@@ -530,6 +610,7 @@ struct MapCanvasView: View {
             }
             .onEnded { _ in
                 dragAnchor.value = nil
+                PatchShapePick.pointer(over: nil).cursor.set()
             }
     }
 
@@ -573,21 +654,61 @@ struct MapCanvasView: View {
         }
     }
 
+    /// Bottom-left readout: the cursor position in the node format (#1308),
+    /// the elevation, and the pack outline under it (#1316; Qt's
+    /// `O4_Qt_Cursor_Readout.readout_text`).
+    @ViewBuilder
+    private var cursorReadout: some View {
+        if let cursorText {
+            Text(([cursorText] + [cursorElevation, cursorPack.map { "pack: \($0)" }].compactMap { $0 })
+                .joined(separator: " · "))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(8)
+        }
+    }
+
+    /// Asks the engine once the cursor rests (150 ms), again while it
+    /// reports a source still loading; never on every move.
+    private func queryElevation(lat: Double, lon: Double) {
+        elevationQuery?.cancel()
+        cursorElevation = nil
+        guard let client = buildModel.patchEditorClient() else { return }
+        let coord = BuildModel.TileCoord(lat: Int(floor(lat)), lon: Int(floor(lon)))
+        let buildDir = buildModel.tileFolder(coord)?.path
+        elevationQuery = Task { @MainActor in
+            var delay: UInt64 = 150_000_000
+            for _ in 0..<20 {
+                try? await Task.sleep(nanoseconds: delay)
+                if Task.isCancelled { return }
+                guard let reply = try? await client.cursorElevation(lat: lat, lon: lon, buildDir: buildDir),
+                      !Task.isCancelled else { return }
+                cursorElevation = reply.readout
+                if !reply.pending { return }
+                delay = 400_000_000
+            }
+        }
+    }
+
     /// Bottom-right badge: the tile zoom level the current view equates to,
     /// so what's on screen correlates with the Build ZL setting. Flags when
-    /// the view has out-zoomed the imagery source's ceiling (image upscales
-    /// and blurs past that point).
+    /// the view has out-zoomed the imagery source's ceiling, with the
+    /// overzoom factor (#1315; `MapOverzoom.badgeText`, the Qt badge's text).
     private var zoomChip: some View {
-        let viewZL = max(2, Int(ceil(log2(camera.value.scale * 360 / 256))))
+        let viewZL = max(2, Int(ceil(log2(camera.value.scale * 360 / 256) - 1e-6)))
         let sourceMax = imagery.hasActiveSource ? imagery.activeMaxZL : nil
         let atLimit = sourceMax.map { viewZL > $0 } ?? false
         return HStack(spacing: 5) {
-            Text("ZL \(viewZL)")
-                .fontWeight(.semibold)
-            if let sourceMax, atLimit {
+            if atLimit {
                 Image(systemName: "eye.trianglebadge.exclamationmark")
-                Text("\(imagery.activeLabel ?? "source") max ZL \(sourceMax)")
             }
+            Text(MapOverzoom.badgeText(viewZL: viewZL, source: imagery.activeLabel,
+                                       maxZL: sourceMax))
+                .fontWeight(.semibold)
         }
         .font(.caption.monospacedDigit())
         .foregroundStyle(atLimit ? Color.orange : Color.secondary)
@@ -596,7 +717,7 @@ struct MapCanvasView: View {
         .background(.ultraThinMaterial, in: Capsule())
         .padding(8)
         .help(atLimit
-              ? "The view is zoomed past the imagery source's finest zoom level — tiles are upscaled and blurry. Builds at higher ZLs would upscale the same data."
+              ? "The view is zoomed past the imagery source's finest zoom level — its finest tiles are scaled up (overzoom), so they look soft. Builds at higher ZLs would upscale the same data."
               : "The imagery zoom level matching the current view — compare with the Detail setting (ZL) in the Build pane.")
     }
 

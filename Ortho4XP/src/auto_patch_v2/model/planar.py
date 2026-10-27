@@ -51,7 +51,8 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "gap_step_part", "shares_gap_part",
            "bears_shape",
            "face_edge_ids",
-           "face_vertex_set", "gap_follower_faces", "pad_road_faces"]
+           "face_vertex_set", "gap_follower_faces", "pad_road_faces",
+           "ROAD_REACH_KEY", "is_road_reach"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
 #: (``planar/platform.py`` mints it).  ``#`` is the tree's split spelling,
@@ -579,6 +580,14 @@ class PlanarMap:
     #: sidecar publishes it as ``road_join_yield`` for the core clamp.
     road_join_yield: _t.Mapping[int, tuple[float, float]] = _dc.field(
         default_factory=dict)
+    #: OWNER RULINGS 2026-10-26b, THE TILE SEAM OUTRANKS A CIFP THRESHOLD:
+    #: vertex -> ``(CIFP value, built value, metres to the nearest seam pin,
+    #: "runway RWY end")`` for every threshold the solve released to the
+    #: seam (``constraints/threshold_seam``).  Set AFTER the solve by
+    #: ``pipeline/emit_stage.with_threshold_yield``; the sidecar publishes
+    #: it as ``threshold_seam_yield``.
+    threshold_seam_yield: _t.Mapping[int, tuple[float, float, float, str]] = _dc.field(
+        default_factory=dict)
     #: THE SHAPES (owner RULINGS 2026-09-08k, ``planar/shapes.py``): vertex
     #: id -> shape id (``NO_SHAPE`` = -1 for a vertex of no shape), face id
     #: -> shape id (a pad's majority shape), and the declared joints — the
@@ -991,6 +1000,29 @@ OSM_RIBBON_FEEDS = {"airport_small_roads": "small_roads", "big_roads": "big_road
 def is_osm_ribbon_ref(ref) -> bool:
     """A face ref the widened road-face mint spelled (30e (6))."""
     return str(ref or "").split(":", 1)[0] in OSM_RIBBON_FEEDS.values()
+
+
+#: owner RULINGS 2026-10-22g (#1246): the evidence key of a ribbon cell
+#: minted OUTSIDE the airside bands' envelope, in the aerodrome's road reach
+#: (``classify/ribbon_mint.road_extent``).  Such a ribbon never leads a
+#: structure: :func:`is_road_reach` cells are set aside like a late gap
+#: piece and cut by the finished footprints (``planar/structure_approach.
+#: standing_cover``).
+ROAD_REACH_KEY = "road_reach"
+
+
+#: The classification roles whose faces ARE patch ROAD ribbons — the road
+#: cross-section family and the groundside pavement a kerb road runs over
+#: (``classify/roles.py``).  One home (#1214 round 3): the Law C mouth
+#: test (``airport/wall_corridor_probe``), §34 (9)'s ramp pinch
+#: (``planar/wall_corridor_ramps``) and a road overpass's end line
+#: (``airport/bridge_approach``) read this set.
+ROAD_ROLES = ("service_road", "service_junction", "groundside_pavement")
+
+
+def is_road_reach(cell) -> bool:
+    """A ribbon cell of the aerodrome's road reach (:data:`ROAD_REACH_KEY`)."""
+    return bool((getattr(cell, "evidence", None) or {}).get(ROAD_REACH_KEY))
 
 
 #: §52 (owner RULINGS 2026-10-04d (3), issue #334): the refs

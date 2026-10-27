@@ -22,6 +22,41 @@ struct PatchEditorTests {
         return try result.get()
     }
 
+    @Test func cursorElevationDecodes() throws {
+        func reply(_ json: String) throws -> O4CursorElevation {
+            let object = try JSONSerialization.jsonObject(with: Data(json.utf8))
+            let r = O4Reply(ok: true, result: O4JSON.from(object), error: nil)
+            let result: Result<O4CursorElevation, Error> =
+                OrthoEngineClient.decodeReply(r, command: "cursor_elevation")
+            return try result.get()
+        }
+        let mesh = try reply(#"{"elevation_m": 123.44, "source": "mesh", "pending": false}"#)
+        #expect(mesh.readout == "123.4 m" && !mesh.pending)
+        let dem = try reply(#"{"elevation_m": 61.25, "source": "dem", "pending": true}"#)
+        #expect(dem.readout == "61.2 m (DEM)" && dem.pending)
+        let none = try reply(#"{"elevation_m": null, "source": null, "pending": true}"#)
+        #expect(none.readout == nil)
+    }
+
+    @Test func terrainReliefDecodes() throws {
+        func reply(_ json: String) throws -> O4TerrainRelief {
+            let object = try JSONSerialization.jsonObject(with: Data(json.utf8))
+            let r = O4Reply(ok: true, result: O4JSON.from(object), error: nil)
+            let result: Result<O4TerrainRelief, Error> =
+                OrthoEngineClient.decodeReply(r, command: "terrain_relief")
+            return try result.get()
+        }
+        let pending = try reply(#"{"pending": true, "png_b64": null, "width": 4, "height": 2, "bbox": [45.5, -122.6, 45.504, -122.594], "source": null, "legend": null}"#)
+        #expect(pending.pending && pending.png == nil && pending.legend == nil)
+        #expect(pending.bbox.maxLon == -122.594)
+        let done = try reply(#"{"pending": false, "png_b64": "iVBORw0K", "width": 4, "height": 2, "bbox": [45.5, -122.6, 45.504, -122.594], "source": "mesh", "legend": {"min_m": 100.4, "max_m": 109.6, "contour_m": 1.0}}"#)
+        #expect(done.png == Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]))
+        #expect(done.source == "mesh" && done.width == 4 && done.height == 2)
+        #expect(done.legend?.text == "1 m contours · 100–110 m")
+        let flat = try reply(#"{"pending": false, "png_b64": "", "width": 1, "height": 1, "bbox": [45.5, -122.6, 45.504, -122.594], "source": null, "legend": {"min_m": null, "max_m": null, "contour_m": 0.5}}"#)
+        #expect(flat.legend?.text == "0.5 m contours")
+    }
+
     private func document() throws -> PatchDocument {
         PatchDocument(tile: "+45-123", load: try decode("patch_load", as: O4PatchLoad.self))
     }
@@ -35,6 +70,12 @@ struct PatchEditorTests {
         #expect(entry.source == .auto)
         #expect(entry.nodes == 14 && entry.ways == 7)
         #expect(entry.bbox.minLat == 45.539 && entry.bbox.maxLon == -122.938)
+    }
+
+    @Test func patchListDropsAnEntryWithANullBoxAndKeepsTheOthers() throws {
+        let json = #"{"airports":[{"icao":"EGLW","source":"auto","path":"/p/EGLW_auto.patch.osm","bbox":null,"nodes":0,"ways":0},{"icao":"EGLL","source":"auto","path":"/p/EGLL_auto.patch.osm","bbox":[51.4,-0.5,51.5,-0.4],"nodes":3,"ways":1}]}"#
+        let list = try JSONDecoder().decode(O4PatchList.self, from: Data(json.utf8))
+        #expect(list.airports.map(\.icao) == ["EGLL"])
     }
 
     @Test func patchLoadDecodesNodesWaysAndHeader() throws {
@@ -155,5 +196,15 @@ struct PatchEditorTests {
         #expect(PatchStyleClass(tags: ["role": "parking_lot", "aeroway": "apron"]) == .groundside)
         #expect(PatchStyleClass(tags: ["aeroway": "aerodrome"]) == .ground)
         #expect(PatchStyleClass(tags: ["highway": "residential"]) == .road)
+    }
+
+    /// #1319: below-grade shapes are hatched, read from `role` or from the
+    /// emitter's `class` (an aliased role is written under its oracle name).
+    @Test func belowGradeIsReadFromRoleOrClass() {
+        #expect(PatchWay(id: -1, refs: [], tags: ["role": "tunnel_ramp", "aeroway": "taxiway"]).isBelowGrade)
+        #expect(PatchWay(id: -2, refs: [], tags: ["role": "tunnel_ramp", "class": "wall_corridor_ramp"]).isBelowGrade)
+        #expect(PatchWay(id: -3, refs: [], tags: ["role": "tunnel_trench", "aeroway": "apron"]).isBelowGrade)
+        #expect(!PatchWay(id: -4, refs: [], tags: ["role": "apron", "aeroway": "apron"]).isBelowGrade)
+        #expect(!PatchWay(id: -5, refs: [], tags: ["role": "service_road", "class": "parking_lot"]).isBelowGrade)
     }
 }

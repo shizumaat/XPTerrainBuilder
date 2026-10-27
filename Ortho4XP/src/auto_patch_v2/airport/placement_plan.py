@@ -75,6 +75,7 @@ from . import bridge_family as _bf
 # to.  (The carrier question and its cut — ``_footless_targets``,
 # ``_carrier_pieces`` — are ``placement_body``'s, re-exported below.)
 from .placement_targets import welded_carriers          # noqa: F401
+from .placement_targets import weld_own_ground as _weld_own_ground
 # THE PLAN AND GRADED-DOC READERS live next door (the 1,000-line law,
 # moved by lane ``v2bridgecontact``) and are re-exported: every caller
 # and every twin — ``engine_v2``, ``obj8_split_report``, the replay —
@@ -1040,6 +1041,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
+                    record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
@@ -1133,6 +1135,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
+                    record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
@@ -1171,6 +1174,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
+                    record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 if record is not _pre:
                     # #1214 R3/R5: a body the group passes moved is never

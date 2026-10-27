@@ -260,7 +260,8 @@ def _extend_back(seg: LineString, by: float) -> LineString:
 
 def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float],
                  inward: tuple[float, float], rim_off: float, spacing: float,
-                 cover: _t.Sequence[Polygon] = ()):
+                 cover: _t.Sequence[Polygon] = (), floor: float | None = None,
+                 extra: float = 0.0):
     """THE ROAD'S OWN PROFILE out of a MAPPED portal (#1028; module doc):
     ``(z_p, s_g, floor_at)`` or ``None`` where the DEM carries no portal.
 
@@ -276,7 +277,10 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
     a road passing under a taxiway.  ``floor_at(s)`` is that profile;
     ``s_g`` the first station, out from under the pavement, where the
     ground has come down to it (``None`` within the slide cap plus the
-    longest ramp)."""
+    longest ramp).  ``floor`` is a SURVEYED road's blended floor at the
+    portal (``lidar_road``, RULINGS 2026-10-27g): the profile starts there,
+    and under the pavement it holds ``extra`` (the depth owed) under the DEM
+    — which reads that road — instead of ``mouth_depth_m``."""
     from .structure_approach import approach_ground
     tn = law.tables.structures.tunnel
     z = dem_z_at(airport, (portal[0] + inward[0] * rim_off, portal[1] + inward[1] * rim_off))
@@ -289,7 +293,8 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
     ground = approach_ground(airport, fn, tn.mouth_depth_m, spacing)
     if not math.isnan(ground):
         z = min(z, ground + tn.mouth_depth_m)          # §33 (3): an overbridge is no cover
-    z_p = z - tn.mouth_depth_m
+    z_p = z - tn.mouth_depth_m if floor is None else floor
+    under_depth = tn.mouth_depth_m if floor is None else extra
     # a ribbon the road runs ALONG is the road's own paving, never its cover
     cover = [p for p in cover if not _runs_along(axis, p, _narrow_width(p), _PROFILE_STEP_M)]
     tree = STRtree(cover) if cover else None
@@ -302,7 +307,7 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
         f += tn.ramp_grade * step
         under = tree is not None and len(tree.query(q, predicate="within")) > 0
         if under and not math.isnan(d):
-            f = min(f, d - tn.mouth_depth_m)
+            f = min(f, d - under_depth)
         floors.append(f)
         if s_g is None and not under and not math.isnan(d) and d <= f:
             s_g = s
@@ -318,7 +323,8 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       cut_roles: _t.Collection[str], half: float, rim_off: float, gap: float,
                       spacing: float, grid: float, decked: _t.Sequence[Polygon],
                       airport=None, crossing: _t.Sequence[tuple[Polygon, str]] = (),
-                      pinned: bool = False):
+                      pinned: bool = False, road_floor: float | None = None,
+                      road_extra: float = 0.0):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
     axis starting at the mouth that stands clear of the pavement (the
@@ -406,7 +412,8 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         return axis, group.mouth, stops, tree, "", None
     at = ", ".join(dict.fromkeys(refs))
     prof = None if airport is None else road_profile(airport, law, axis, group.mouth,
-                                                     group.inward, rim_off, spacing, cover)
+                                                     group.inward, rim_off, spacing, cover,
+                                                     road_floor, road_extra)
     floor = None
     if prof is not None:
         z_p, s_g, floor_at = prof

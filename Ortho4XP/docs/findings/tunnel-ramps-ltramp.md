@@ -136,13 +136,47 @@ graded strip and stops at the pavement edge), `road_cross_section` ≤ 0.27 m; n
 mouth `ramp_in_strip` 2.25 m (position unchanged). No control was built at this base
 (one build per lane), so these are not deltas.
 
-## Owner question (non-blocking; the branch implements (a))
+## Round 2 — RULINGS 2026-10-27g (Q187) implemented
 
-Q: Where the airport's lidar shows a road passing under a taxiway at the road's own
-level (LFPG: 15 underpass mouths under the terminal-2 taxiway berms, the #1280 site
-among them), should we (a) cut nothing there and leave the road where the survey has
-it (recommended), or (b) keep cutting a 7.5 m-deep ramp under the ground over the
-mouth (RULINGS 2026-10-14f) even below a road the survey shows?
+The owner answered (a) with a clearance proviso: keep the surveyed road where it
+stands at least 5 m (`[tunnel] clearance_m`) under the taxiway or bridge deck over it;
+where shallower, cut only the depth owed, blended gently; never a 14f ramp on top.
+
+* DECK = the cover's top at the crossing: along the bore, the §45 cut reading's lower
+  side top (the highest ground within 30 m on the lower of the two sides; carried out
+  of `channel_geometry._lidar_cut` by a new optional `readings` sink), taken at the
+  station where it is highest. ROAD = the survey floor at that station.
+* Kept (clearance ≥ 5.0 m): mouth refused by name, as round 1.
+* Blend-cut (clearance < 5.0 m): mouth floor = surveyed road at the portal − the depth
+  owed; the ramp climbs from it at the design grade `ramp_grade` (5 %) to the ground.
+  A slid mouth's road profile starts at that floor and holds the owed depth (not
+  `mouth_depth_m`) under the DEM beneath pavement.
+
+LFPG, dry replay on the branch (tunnels 63 → 55; KCLT and KDEN identical to round 1):
+
+| bore mouth | deck (m) | surveyed road under it (m; kept rows = deck − clearance, ±0.01) | clearance (m) | verdict | cut at mouth |
+|---|---|---|---|---|---|
+| -300@0 (owner's #1280 site) | 106.70 | 101.14 | 5.56 | kept | — (was 7.4 m) |
+| -300@1 | 106.70 | 101.14 | 5.56 | kept | — |
+| -294@0 | 107.73 | 102.50 | 5.23 | kept | — |
+| -314@0 | 106.44 | 100.85 | 5.59 | kept | — |
+| -317@0 | 105.59 | 100.44 | 5.15 | kept | — |
+| -384@0 | 104.61 | 98.41 | 6.20 | kept | — |
+| -412@0 | 104.69 | 99.09 | 5.60 | kept | — |
+| -3458@0 | 107.24 | 101.81 | 5.43 | kept | — |
+| -10776+-323@0 | 108.67 | 101.13 | 7.54 | kept | — |
+| -10778+-322@0 | 110.91 | 103.30 | 7.61 | kept | — |
+| -1719+…@0 | 102.88 | 97.01 | 5.87 | kept | — |
+| -28283+-1286@0 / @1 | 86.86 | 80.59 | 6.27 | kept | — |
+| -413@0 | 103.25 | 98.61 | 4.64 | blend-cut | 0.36 m (floor 98.50, ramp 48 m at 5 %; was 7.5 m, floor 91.37) |
+| -10256+-3516@0 | 101.13 | 96.53 | 4.60 | blend-cut | 0.40 m (floor 95.54, 24 m; was floor 88.86) |
+| -8478+-2774@0 | 92.57 | 88.34 | 4.23 | blend-cut | 0.77 m (floor 87.30, 60 m; was floor 80.69) |
+| -1667+-226@0 | 110.19 | 105.62 | 4.57 | blend-cut | 0.43 m (floor 105.02, 24 m; was floor 98.09) |
+| -1669+-228@0 | 110.20 | 105.59 | 4.61 | blend-cut | 0.39 m (floor 104.99, 24 m; was refused: bend) |
+
+(The road column is the survey floor at the deck's crest station; the refusal lines
+quote the floor at the mapped portal. The @1 mouths of the five blend-cut bores stay
+refused as on main: "its corridor overlaps @0".)
 
 ## What the owner should look at in the sim
 

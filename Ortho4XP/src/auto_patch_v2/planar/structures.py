@@ -110,7 +110,7 @@ from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
 from .structure_overlap import resolve_overlaps
 from ..airport.portal_objects import portal_of
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement, road_end_after_slide
-from .lidar_road import lidar_road_floor, lidar_road_refusal
+from .lidar_road import lidar_road, lidar_road_note, lidar_road_refusal
 from .dual_width import compose_half_fn, dual_half_fn
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, portal_mouth,
                               portal_note, strip_keepout)
@@ -384,12 +384,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             stats.portal_mouths.append(f"{tid}: {pin.object_id} depth {pin.depth_m:.2f}"
                                        + (f", mouth {moved:.1f} m into the bore to the "
                                           f"portal's anchor" if moved else ""))
-        # #1280: a road the credible lidar reads under the cover is built by the survey
-        road_f = None if c is not None or pin is not None else lidar_road_floor(
+        # #1280 / RULINGS 2026-10-27g: the road a credible lidar reads under the
+        # cover is kept where it clears; else only the depth owed is cut
+        road_rd = None if c is not None or pin is not None else lidar_road(
             airport, law, members, credible, rim_off)
-        if road_f is not None:
-            stats.refused.append(f"{tid}: {lidar_road_refusal(road_f)}")
+        if road_rd is not None and road_rd.extra <= 0.0:
+            stats.refused.append(f"{tid}: {lidar_road_refusal(road_rd)}")
             continue
+        road_f = None if road_rd is None else road_rd.mouth_floor
         clear = None if c is not None else _mouth_at_pavement(   # #971: stop AT the pavement
             g, axis_ln, cells, polys, pads, law, _cut_roles, half, rim_off, gap, spacing_g,
             grid, [d[3] for d in deck_intervals(
@@ -399,7 +401,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             + [d[3] for d in object_deck_intervals(axis_ln, half + rim_off, odecks)],
             airport=airport, crossing=crossing_roads(       # #1028 Q32: never through a road
                 axis_ln, roads_ix, law, [m.approach for m in members if hasattr(m, "approach")]),
-            pinned=pin is not None)
+            pinned=pin is not None, road_floor=road_f,
+            road_extra=0.0 if road_rd is None else road_rd.extra)
         if pin is not None and clear is not None and clear[4].startswith(PORTAL_YIELDS):
             stats.portals_unpinned.append(f"{tid}: {pin.object_id} — {clear[4]}")
             pin = None
@@ -467,8 +470,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     f"(> mouth_depth_m {tn.mouth_depth_m} + split_tol_m {tol_m}): an "
                     f"overbridge embankment, not the portal's cover (§33 (3))")
                 mouth_dem = cap_z
-        mouth_z = c.floor_z if c is not None else mouth_dem - (
-            tn.mouth_depth_m if pin is None else pin.depth_m)
+        mouth_z = c.floor_z if c is not None else road_f if road_f is not None else \
+            mouth_dem - (tn.mouth_depth_m if pin is None else pin.depth_m)
         slid_depth = None if pin is None else pin.depth_m   # #1028: a slid mouth's road profile
         if clear is not None and clear[5] is not None and clear[5] > mouth_z:
             mouth_z, slid_depth = clear[5], mouth_dem - clear[5]
@@ -858,7 +861,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if far_mid and cap_mid:
             wall_path.append(wall_path[0])          # the O: a closed rim
         notes = list(deck_notes) + ([clear[4]] if clear is not None and clear[4] else []) + (
-            [] if pin is None else [portal_note(pin, mouth_dem, mouth_z)])
+            [] if pin is None else [portal_note(pin, mouth_dem, mouth_z)]) + (
+            [] if road_rd is None else [lidar_road_note(road_rd)])
         if collapse_note:
             notes.append(collapse_note)
         if steepen_note:

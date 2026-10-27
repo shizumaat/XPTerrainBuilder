@@ -73,14 +73,32 @@ def _bore_ways():
 
 @pytest.mark.parametrize("twy_half", [30.0, 20.0])
 def test_a_road_the_lidar_reads_under_the_berm_gets_no_ramp(law, twy_half):
-    """#1280: the survey reads the road through a 6 m taxiway berm at the
-    surrounding ground's level.  Neither mouth builds a ramp (today: floored
+    """#1280 / RULINGS 2026-10-27g: the survey reads the road through a 6 m
+    taxiway berm at the surrounding ground's level — 6 m under the deck, so
+    it clears ``clearance_m``.  Neither mouth builds a ramp (before: floored
     7.5 m under that road), whether the taxiway reaches the portal (the
     mouth would slide) or stops short of it; the refusal names the reading."""
     _cl, tunnels, st = build_structures(
         _airport(law, _Berm(6.0, 30.0, notch=True), _bore_ways()), _cells(twy_half), law)
     assert tunnels == ()
     assert len(st.refused) == 2 and all("#1280" in r and "700.00" in r for r in st.refused)
+
+
+def test_a_surveyed_road_short_of_the_clearance_is_cut_only_the_depth_owed(law):
+    """RULINGS 2026-10-27g: a 3.6 m berm over the surveyed road leaves it
+    short of ``clearance_m``; only the depth owed is cut at the mouth and
+    the ramp climbs from there at the design grade — never ``mouth_depth_m``
+    under the surveyed road."""
+    tn = law.tables.structures.tunnel
+    height = 3.6
+    _cl, tunnels, st = build_structures(
+        _airport(law, _Berm(height, 30.0, notch=True), _bore_ways()), _cells(20.0), law)
+    assert len(tunnels) == 2, st.refused
+    owed = tn.clearance_m - height
+    for t in tunnels:
+        assert t.mouth_z == pytest.approx(700.0 - owed, abs=0.05), t.notes
+        assert t.mouth_z > 700.0 - tn.mouth_depth_m + 1.0
+        assert any("2026-10-27g" in n for n in t.notes)
 
 
 @pytest.mark.parametrize("notch,lidar", [(False, True), (True, False)])

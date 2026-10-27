@@ -164,3 +164,40 @@ def test_no_custom_row_fill_is_left():
         for symbol in ("ClickableRow", "fill_color", "span_box",
                        "apply_fills", "set_filled", "filled_rows"):
             assert symbol not in text, (name, symbol)
+
+
+def _click_title(window, tile, modifier=None):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QLabel
+    label = window._tile_rows[tile][2].findChild(QLabel, "tile_title")
+    QTest.mouseClick(label, Qt.LeftButton, modifier or Qt.NoModifier,
+                     label.rect().center())
+
+
+def test_a_row_click_takes_the_lists_modifiers_on_every_platform(window):
+    """A plain click REPLACES the selection, also on a row that is already
+    selected (batch AK CI: on Windows the view deferred that to the
+    release and kept the old selection); ⌘/Ctrl toggles one row; Shift
+    selects the run from the last clicked row."""
+    from PySide6.QtCore import Qt
+    window._start_run([A, B, C], dict(SETTINGS))
+    listed = window.activity_list
+    window.map.set_selection([A, B])
+    window.show()
+    QApplication.processEvents()
+    _click_title(window, B)
+    assert listed.selected_tiles() == {B} == window.map.selection()
+    _click_title(window, C, Qt.ControlModifier)
+    assert listed.selected_tiles() == {B, C}
+    _click_title(window, B, Qt.ControlModifier)
+    assert listed.selected_tiles() == {C}
+    order = listed.section_tiles(QTACT.ACTORDER.ACTIVITY)
+    _click_title(window, order[0])
+    _click_title(window, order[-1], Qt.ShiftModifier)
+    assert listed.selected_tiles() == set(order) == window.map.selection()
+    # A plain click last: the application's modifier state follows the
+    # last input event, and a Shift left standing makes a later view's
+    # selectRow() (no event) extend instead of replace.
+    _click_title(window, order[0])
+    assert listed.selected_tiles() == {order[0]}

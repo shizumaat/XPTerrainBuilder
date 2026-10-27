@@ -14,7 +14,14 @@ style's item-view metrics.  The Mac app's twin is ``ActivitySections``
 """
 
 import O4_Activity_Order as ACTORDER
-from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QItemSelection,
+    QItemSelectionModel,
+    QPersistentModelIndex,
+    Qt,
+    Signal,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QStyle,
@@ -66,6 +73,30 @@ class _Cell(QWidget):
     def _fit(self):
         self._item.setSizeHint(0, self.sizeHint())
 
+    # A click on the row that no control inside it took (a label ignores
+    # it) is a click on the list's row, decided HERE on the press.  Left
+    # to the view, a plain click on an already-selected row is deferred
+    # to the release, and on Windows that release never replaced the
+    # selection (batch AK CI): the press, its release and a double click
+    # all stop at the cell, so the view never acts on half a click.
+    def mousePressEvent(self, event):
+        view = self._view()
+        if view is not None and event.button() == Qt.LeftButton:
+            view.row_clicked(self._item, event.modifiers())
+        event.accept()
+
+    def mouseDoubleClickEvent(self, event):
+        self.mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        event.accept()
+
+    def _view(self):
+        widget = self.parentWidget()
+        while widget is not None and not isinstance(widget, ActivityList):
+            widget = widget.parentWidget()
+        return widget
+
 
 class ActivityList(QTreeWidget):
     """The two sections' rows in one tree: the section headers are
@@ -91,6 +122,7 @@ class ActivityList(QTreeWidget):
         self._items = {}   # tile -> its row's item
         self._shown = set()   # what the list last showed selected
         self._syncing = False
+        self._anchor = None   # the row a Shift-click ranges from
         self.itemSelectionChanged.connect(self._selection_changed)
         self.itemExpanded.connect(lambda item: self._toggled(item, True))
         self.itemCollapsed.connect(lambda item: self._toggled(item, False))
@@ -176,6 +208,26 @@ class ActivityList(QTreeWidget):
         finally:
             self._syncing = False
         self._shown = shown
+
+    def row_clicked(self, item, modifiers):
+        """A click on ``item``'s row, as the view's ExtendedSelection takes
+        it: a plain click selects that row alone, ⌘/Ctrl toggles it, Shift
+        selects from the current row to it within its section."""
+        model, index = self.selectionModel(), self.indexFromItem(item)
+        rows = QItemSelectionModel.Rows
+        anchor = self._anchor
+        if (modifiers & Qt.ShiftModifier and anchor is not None
+                and anchor.isValid() and anchor.parent() == index.parent()):
+            model.select(QItemSelection(self.model().index(anchor.row(), 0,
+                                                           anchor.parent()),
+                                        index),
+                         QItemSelectionModel.ClearAndSelect | rows)
+            model.setCurrentIndex(index, QItemSelectionModel.NoUpdate)
+            return
+        self._anchor = QPersistentModelIndex(index)
+        flag = (QItemSelectionModel.Toggle if modifiers & Qt.ControlModifier
+                else QItemSelectionModel.ClearAndSelect)
+        model.setCurrentIndex(index, flag | rows)
 
     def shown(self):
         """What the list showed selected before the user's edit."""

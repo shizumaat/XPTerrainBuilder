@@ -33,6 +33,15 @@ THE LAW, in two halves:
   the Global row-130 boundary is taken ONLY when the custom block has
   none.  NOT borrowed: runways, lines, the taxi network, startups,
   metadata, the DSF — the pack stays the pack (§44 (1), (3)).
+* :func:`yield_to_scenery` — THE SCENERY STAGE of the same decision
+  (owner RULINGS 2026-10-20al (1), #1160), called from the ONE place the
+  pack's scenery is read (``load.load_with_report``, after the DSF pages
+  and the §42 object bodies).  The pack's own pavement is its row-110
+  polygons ∪ the draped pavement SOURCES its scenery supplies (never a
+  §60 gap sheet, 20bb); at or above the same key the borrow is
+  WITHDRAWN.  KATL: 0 row-110 rows, 223 ``.pol`` pages covering 85 % of
+  Global's union — the borrowed polygons made classify drop those pages
+  as overlays (``classify/evidence._dsf_pavements``) and Global governed.
 
 The Global apt.dat is 383 MB and both halves need its block, so the
 block read is memoised on ``(path, icao, size, mtime)`` — one scan per
@@ -50,7 +59,8 @@ from ..model.frame import Frame
 from . import apt_dat as _apt
 
 __all__ = ["BorrowDecision", "BorrowResult", "decide", "compose",
-           "global_block", "find_global_block", "BORROWED_SOURCE"]
+           "yield_to_scenery", "global_block", "find_global_block",
+           "BORROWED_SOURCE"]
 
 #: what a borrowed :class:`~..model.airport.Pavement` /
 #: :class:`~..model.airport.Boundary` says of itself (§44 (3))
@@ -70,6 +80,11 @@ class BorrowDecision:
     custom_pavements: int = 0
     global_pavements: int = 0
     coverage_max: float = 0.0
+    #: #1160: the draped pavement sources the pack's SCENERY supplied and
+    #: the coverage with them counted (``None`` until the scenery stage
+    #: measured it — it measures only a borrow stage 1 decided)
+    scenery_pavements: int = 0
+    scenery_coverage: float | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -97,13 +112,25 @@ class BorrowResult:
                 "borrowed_pavements": self.borrowed_pavements,
                 "borrowed_boundary": self.borrowed_boundary,
                 "reason": d.reason,
-                "coverage_max": d.coverage_max}
+                "coverage_max": d.coverage_max,
+                "scenery_pavements": d.scenery_pavements,
+                "scenery_coverage": (None if d.scenery_coverage is None
+                                     else round(d.scenery_coverage, 6))}
 
     def line(self, icao: str) -> str:
-        """THE ONE log line (§44 (4)); ``""`` when nothing was borrowed."""
-        if not self.borrowed:
-            return ""
+        """THE ONE log line (§44 (4)); ``""`` when nothing was borrowed
+        and the scenery stage did not withdraw a borrow (#1160)."""
         d = self.decision
+        if not self.borrowed:
+            if d.scenery_coverage is None:
+                return ""
+            return (f"{icao}: the pack's apt.dat carries {self.custom_pavements} "
+                    f"pavement(s) covering {100 * d.coverage:.1f} % of Global "
+                    f"Airports' {d.global_pavements}, but its scenery's "
+                    f"{d.scenery_pavements} draped pavement(s) bring it to "
+                    f"{100 * d.scenery_coverage:.1f} % (>= "
+                    f"{100 * d.coverage_max:.0f} %): the pack's own pavement "
+                    "stands, nothing BORROWED (§44, #1160)")
         what = "pavement + boundary" if self.borrowed_boundary else "pavement"
         return (f"{icao}: the pack's apt.dat carries {self.custom_pavements} "
                 f"pavement(s) covering {100 * d.coverage:.1f} % of Global "
@@ -161,19 +188,16 @@ def _to_xy(frame: Frame) -> _t.Callable[[float, float], tuple[float, float]]:
     return frame.entry()
 
 
-def _union(pavements: _t.Sequence[_apt.AptPavement],
-           to_xy: _t.Callable[[float, float], tuple[float, float]]):
-    """The row-110 union in the airport frame, or ``None`` when empty."""
+def _union_xy(rings: _t.Iterable[tuple[_t.Sequence, _t.Sequence]]):
+    """The union of ``(outer, holes)`` rings already in metres, or
+    ``None`` when empty."""
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
     polys = []
-    for p in pavements:
-        ext = [to_xy(lo, la) for lo, la in p.rings[0]]
+    for ext, holes in rings:
         if len(ext) < 3:
             continue
-        holes = [[to_xy(lo, la) for lo, la in r] for r in p.rings[1:]
-                 if len(r) >= 3]
-        poly = Polygon(ext, holes)
+        poly = Polygon(ext, [h for h in holes if len(h) >= 3])
         if not poly.is_valid:
             poly = poly.buffer(0)
         if not poly.is_empty:
@@ -184,23 +208,37 @@ def _union(pavements: _t.Sequence[_apt.AptPavement],
     return None if u.is_empty else u
 
 
+def _union(pavements: _t.Sequence[_apt.AptPavement],
+           to_xy: _t.Callable[[float, float], tuple[float, float]]):
+    """The row-110 union in the airport frame, or ``None`` when empty."""
+    return _union_xy(
+        ([to_xy(lo, la) for lo, la in p.rings[0]],
+         [[to_xy(lo, la) for lo, la in r] for r in p.rings[1:]])
+        for p in pavements)
+
+
+def _covered(own, gu) -> float:
+    """``area(own ∩ gu) / area(gu)``; ``1.0`` for a degenerate ``gu``,
+    ``0.0`` for no ``own``."""
+    if gu is None or gu.area <= 0.0:
+        return 1.0
+    if own is None:
+        return 0.0
+    try:
+        inter = own.intersection(gu)
+    except Exception:                       # GEOS on a pathological ring
+        inter = own.buffer(0).intersection(gu.buffer(0))
+    return float(inter.area) / float(gu.area)
+
+
 def coverage_of(custom: _apt.AptAirport, glob: _apt.AptAirport,
                 frame: Frame) -> float:
     """``area(custom ∩ global) / area(global)`` in ``frame``'s metres.
     ``0.0`` when the custom block has no pavement; ``1.0`` when the
     Global union is degenerate (nothing to borrow against)."""
     to_xy = _to_xy(frame)
-    gu = _union(glob.pavements, to_xy)
-    if gu is None or gu.area <= 0.0:
-        return 1.0
-    cu = _union(custom.pavements, to_xy)
-    if cu is None:
-        return 0.0
-    try:
-        inter = cu.intersection(gu)
-    except Exception:                       # GEOS on a pathological ring
-        inter = cu.buffer(0).intersection(gu.buffer(0))
-    return float(inter.area) / float(gu.area)
+    return _covered(_union(custom.pavements, to_xy),
+                    _union(glob.pavements, to_xy))
 
 
 def decide(xplane_root: str, icao: str, custom_apt_path: str,
@@ -270,3 +308,39 @@ def compose(decision: BorrowDecision, icao: str,
         _dc.replace(apt, pavements=apt.pavements + borrowed,
                     boundaries=boundaries),
         n_custom, len(borrowed), took_boundary, decision)
+
+
+# ── (2) the scenery stage (#1160, RULINGS 2026-10-20al (1)) ──────────────
+
+def yield_to_scenery(result: BorrowResult, own: _t.Sequence[tuple],
+                     borrowed: _t.Sequence[tuple],
+                     scenery_count: int) -> BorrowResult:
+    """The borrow stage 1 decided, re-measured with the pack's SCENERY
+    counted.  ``own`` is the pack's own pavement as ``(outer, holes)``
+    rings in metres — its row-110 polygons and every draped pavement
+    SOURCE its DSF supplied (``.pol`` pages, §42 object bodies; never a
+    §60 gap sheet, 20bb); ``borrowed`` the Global polygons stage 1
+    appended, in the same frame; ``scenery_count`` how many of ``own``
+    the scenery supplied.  At or above the key the borrow is WITHDRAWN:
+    the returned result borrows nothing (``airport`` is the custom block
+    again) and its decision says why.  A result that borrowed nothing is
+    returned unchanged — the scenery can only withdraw a borrow."""
+    d = result.decision
+    if not result.borrowed or scenery_count <= 0:
+        return result
+    try:
+        cov = _covered(_union_xy(own), _union_xy(borrowed))
+    except Exception:                       # unmeasurable: the borrow stands
+        return result
+    if cov < d.coverage_max:
+        return _dc.replace(result, decision=_dc.replace(
+            d, scenery_pavements=scenery_count, scenery_coverage=cov))
+    apt = result.airport
+    kept = apt.pavements[:result.custom_pavements]
+    bounds = () if result.borrowed_boundary else apt.boundaries
+    return BorrowResult(
+        _dc.replace(apt, pavements=kept, boundaries=bounds),
+        result.custom_pavements, 0, False,
+        _dc.replace(d, apt_dat_path="", block_sha256="",
+                    reason="the pack's scenery pavement at or above the key",
+                    scenery_pavements=scenery_count, scenery_coverage=cov))

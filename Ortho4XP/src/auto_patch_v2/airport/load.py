@@ -673,6 +673,27 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.dsf_gap_sheets = len(pol_sheets)
     rep.dsf_gap_sheet_m2 = float(sum(_sheet_area(s) for s in pol_sheets))
     pavements = pavements + tuple(dsf_pavements)
+    # ── §44 (2) THE SCENERY STAGE of the borrow (#1160, RULINGS 2026-10-20al
+    # (1)): the pack's own draped pavement — its ``.pol`` pages and §42
+    # bodies, never a gap sheet (20bb) — counts toward the coverage; at or
+    # above the key the borrow stage 1 decided is WITHDRAWN here, the one
+    # place the scenery exists (``borrow.yield_to_scenery``).
+    if bres.borrowed:
+        bres = _borrow.yield_to_scenery(
+            bres,
+            [(p.outer, p.holes) for p in pavements
+             if p.source != _borrow.BORROWED_SOURCE],
+            [(p.outer, p.holes) for p in pavements
+             if p.source == _borrow.BORROWED_SOURCE],
+            len(dsf_pavements))
+        if not bres.borrowed:
+            pavements = tuple(p for p in pavements
+                              if p.source != _borrow.BORROWED_SOURCE)
+            boundaries = tuple(b for b in boundaries
+                               if b.source != _borrow.BORROWED_SOURCE)
+            sel = _dc.replace(sel, borrow=bres.decision)
+        rep.pavement_source = bres.record(sel.name)
+        rep.pavement_borrow_line = bres.line(icao)
 
     # ── DEM ────────────────────────────────────────────────────────
     if inputs.elevation_root and inputs.dem_frame == "production":

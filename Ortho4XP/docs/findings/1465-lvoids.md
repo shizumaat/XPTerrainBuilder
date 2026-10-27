@@ -46,3 +46,32 @@ freshness stamp and the tile's closing note name it (RULINGS 2026-10-12e).
 * A tile without voids, or with voids the neighbour fill closes:
   byte-identical raster.
 * Offline (fallback unreachable): voids take nearest heights, never 0.
+
+Amendment (measured): the tile's base is the COMBINED raster (3673 posts,
+0.01 deg beyond the cell on every side), so the fallback cell is sampled
+on the base raster's own frame (`on_base_grid`); the 344 margin voids
+(neighbour cells' posts) take the nearest-post fill and ask no further
+source.
+
+## Results (2026-10-26)
+
+* `N47E007.hgt` alone: 27,883 void posts, all at 0 m before; after, 0 at
+  0 m, 0 nodata, every valid post unchanged, all 27,883 from GLO-30.  Rim
+  step (fill vs its valid neighbour) p50 1.40 / p95 5.54 / max 21.5 m;
+  the natural post-to-post step 1-4 posts outside the voids p95 3.0 /
+  max 31 m.  GLO-30 is a surface model: the voids over built-up Basel
+  read up to ~14 m over their rim (e.g. 47.5936, 7.5359: fill 266.8 -
+  282.8 m, rim 258 - 269 m).
+* Composed tile DEM +47+007 (`compose_tile_dem_from_disk`, 11,017 posts a
+  side): posts at 0 m 148,865 (main) -> 0 (this fix, full and trimmed
+  inset boxes).
+* #1330's trim on top (cached insets CROPPED to the trimmed box): inside
+  boundary + 305 m 0 posts changed at all 14 airports (LFSB 132,024, LFGB
+  39,389); between that and the old 2 km box 0 posts at 0 m at every
+  airport (was LFSB 6,196, LFGB 2,791 without this fix); p99 |delta| there
+  LFSB 3.49 m, LFGB 2.25 m (the 10 m ring replacing the inset).
+* Closing build `lvoids1465_LFSB3` (trim + fix, `--refresh-data dem`:
+  +2 files, the GLO-30 and GLO-90 cells of +47+007): rc 0, patch created
+  249.8 s, body sha 2847b80c522e = the linsets control
+  `LFSB_20261026T194640`; law-true 1,150, adjudicated 579 (airside 283,
+  groundside 295, mixed 1) -- unchanged.

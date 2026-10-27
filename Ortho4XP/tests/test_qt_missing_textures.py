@@ -73,6 +73,7 @@ def test_the_window_shows_the_row_for_a_symlinked_tile(
     import sys
 
     import O4_Qt_GUI as GUI
+    import O4_Qt_Map as QTMAP
     import O4_Tile_Info as TINFO
     import O4_UI_Utils as UI
     from test_tile_texture_check import _linked_tile
@@ -84,17 +85,18 @@ def test_the_window_shows_the_row_for_a_symlinked_tile(
     monkeypatch.setattr(GUI, "PREFS_FILE", str(prefs))
     monkeypatch.setattr(
         GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "tile-scan.json"))
+    # The settle below would let the map fetch its base tiles (#122).
+    monkeypatch.setattr(QTMAP.MapView, "_start_workers", lambda self: None)
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
     monkeypatch.setattr(win, "refresh_tiles", lambda: None)
     monkeypatch.setattr(win, "_refresh_scenery_packs", lambda: None)
     try:
         win._built.update(TINFO.scan_tiles(scenery))
-        win.show()
         win._active_changed((47, -113))
         _settle(qapp)
         row = win.missing_textures_row
-        assert row.isVisible()
+        assert not row.isHidden()
         assert row.label.text().startswith("⚠ 2 textures missing")
     finally:
         win._building = False

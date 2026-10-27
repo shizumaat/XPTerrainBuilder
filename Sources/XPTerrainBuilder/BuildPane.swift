@@ -214,6 +214,9 @@ struct BuildPane: View {
                     }
                 }
             }
+            if info != nil {
+                TileMissingTexturesRow(coord: active)
+            }
             detailRow(O4Glossary.term("detail"), zlText(info))
             detailRow("Ground shaped", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))

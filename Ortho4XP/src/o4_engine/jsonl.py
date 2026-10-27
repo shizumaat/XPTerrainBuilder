@@ -170,6 +170,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # not wait for.
     import O4_Imagery_Sources as SOURCES
     from O4_Tile_Customizations import tile_customizations
+    from O4_Tile_Texture_Check import tile_texture_check
 
     from . import patch_commands, patch_insert
     from .build_airports import start_build_airports
@@ -199,6 +200,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # the Mac map badge and tile pane.  Synchronous file reads, no
         # session state; the Qt app calls the same function in process.
         "tile_customizations": tile_customizations,
+        # Installed-tile integrity (protocol 1.22): the textures a tile's
+        # terrain files name that its textures folder lacks — the tile X-Plane
+        # will not load.  Synchronous directory and .ter reads, one tile.
+        "tile_texture_check": tile_texture_check,
         "links_status": session.links_status,
         "links_install": session.links_install,
         "links_uninstall": session.links_uninstall,

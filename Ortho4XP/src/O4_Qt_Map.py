@@ -28,6 +28,7 @@ import O4_Map_Overzoom as OVERZOOM
 import O4_Qt_Map_Labels as QTLABELS
 import O4_Qt_Selection_Ring as RING
 import O4_Qt_Text_Scale as QTTEXT
+import O4_Tile_Texture_Check as TEXCHECK
 import requests
 from PIL import Image as PILImage
 from PySide6.QtCore import (
@@ -140,6 +141,11 @@ parse_tile_key = FNAMES.parse_tile_key
 # LEVELS, so only the provider token decides foreignness; masks and other
 # non-.dds files are ignored.  The name grammar is
 # O4_Custom_Scenery.parse_texture_stem's (one parser, two readers).
+# A texture the tile's terrain files NAME is in use, never foreign, whatever
+# the cfg says (O4_Tile_Texture_Check.terrain_texture_names): on 2026-10-25
+# a cfg reset to a 2017 build's source made a tile's real textures look
+# unused and the cleanup sent all of them to the Trash.  A tile whose
+# terrain folder cannot be listed gets no call.
 
 
 def texture_provider(name):
@@ -168,6 +174,9 @@ def has_foreign_sources(textures_dir, provider):
     provider = str(provider or "").strip()
     if not provider:
         return False
+    in_use = TEXCHECK.terrain_texture_names(os.path.dirname(textures_dir))
+    if in_use is None:
+        return False
     try:
         names = os.listdir(textures_dir)
     except OSError:
@@ -175,7 +184,8 @@ def has_foreign_sources(textures_dir, provider):
     current = provider.lower()
     for name in names:
         found = texture_provider(name)
-        if found is not None and found.lower() != current:
+        if (found is not None and found.lower() != current
+                and name not in in_use):
             return True
     return False
 
@@ -268,6 +278,9 @@ def audit_textures(textures_dir, provider):
     provider = str(provider or "").strip()
     if not provider:
         return None
+    in_use = TEXCHECK.terrain_texture_names(os.path.dirname(textures_dir))
+    if in_use is None:
+        return None
     try:
         names = os.listdir(textures_dir)
     except OSError:
@@ -286,7 +299,7 @@ def audit_textures(textures_dir, provider):
             size = 0
         (count, total) = counts.get(found, (0, 0))
         counts[found] = (count + 1, total + size)
-        if found.lower() != current:
+        if found.lower() != current and name not in in_use:
             foreign_files.append(path)
     sources = sorted(
         ((found, count, total) for (found, (count, total)) in counts.items()),

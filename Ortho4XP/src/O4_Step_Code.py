@@ -625,6 +625,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.solve.project_strip",
     "auto_patch_v2.solve.rows",
     "auto_patch_v2.solve.wall_cut",
+    "auto_patch_v2.solve.warm_seed",
     "auto_patch_v2.verify",
     "auto_patch_v2.verify.census",
     "auto_patch_v2.verify.channel",

@@ -18,6 +18,7 @@ from elevation_access.definitions import (
     _bounding_boxes_intersect,
     _coverage_bbox_intersects,
 )
+from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access.gdal_support import has_gdal
 from elevation_access.registry import register_access_strategy
 from elevation_access.vertical_units import _raster_vertical_unit
@@ -139,10 +140,33 @@ class CoordinateNamedUrlListStrategy:
             return {}
 
     def _save_index(self, definition, index):
+        """Write the index once, when :meth:`_ensure_entries` built it.
+
+        THE INDEX IS SHARED DATA (issue #1544).  ``discover`` used to
+        rewrite it on EVERY call, unchanged, truncate-then-write: each
+        bathymetry query of every concurrent build touched the shared
+        ``Elevation_data`` copy, and a reader racing the truncation saw
+        an empty file and re-downloaded the list.  Now it is written
+        only when built, ATOMICALLY (a ``.tmp-<pid>`` scratch beside it,
+        then ``os.replace``), and never under an armed harness write
+        guard that refuses it — a lane uses the list from memory unless
+        it runs ``--refresh-data dem`` (ruling e9daef5).  Same shape as
+        the CWCB listing cache (``cwcb_lidar_api``).
+        """
         index_file = self.index_path(definition)
-        os.makedirs(os.path.dirname(index_file), exist_ok=True)
-        with open(index_file, "w", newline="\n") as handle:
-            json.dump(index, handle)
+        if _write_refused_by_armed_guard(index_file):
+            return
+        scratch = "%s.tmp-%d" % (index_file, os.getpid())
+        try:
+            os.makedirs(os.path.dirname(index_file), exist_ok=True)
+            with open(scratch, "w", newline="\n") as handle:
+                json.dump(index, handle)
+            os.replace(scratch, index_file)
+        except OSError as error:
+            if os.path.exists(scratch):
+                os.remove(scratch)
+            UI.vprint(1, "   WARNING: URL-list index not cached (%s) - "
+                      "used from memory" % error)
 
     def _ensure_entries(self, definition, index):
         """Fill ``index["entries"]`` from the URL list once (memoised).
@@ -212,11 +236,13 @@ class CoordinateNamedUrlListStrategy:
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
         index = self._load_index(definition)
+        built = index.get("entries") is None
         self._ensure_entries(definition, index)
         entries = index.get("entries")
         if not entries:
             return None
-        self._save_index(definition, index)
+        if built:
+            self._save_index(definition, index)
         matched = [
             entry
             for entry in entries

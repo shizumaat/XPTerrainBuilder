@@ -1967,6 +1967,109 @@ def test_a_REDIRECTED_scope_cannot_be_this_builds_contamination(
     assert len(guard_mod.contaminating_writes(offenders)) == 1
 
 
+def test_a_STOOD_DOWN_pack_write_cannot_be_this_builds_contamination(
+        guard_mod, tmp_path, monkeypatch):
+    """ISSUE #1544 (measured 2026-10-27).  Lane l805r's patch-only KCLT
+    build was flagged CONTAMINATED on 1,460 re-baked ``.obj`` bodies in the
+    KCLT pack — written at 07:12:40 by the OWNER'S APP batch building tile
+    +35-081, whose object stage rewrote that pack by design.  The lane had
+    stood its pack writes down (``O4_PACK_WRITES=measure_only``, inherited
+    by every child) and its guard refuses an install write at the call and
+    blocked nothing: no writer in it could have reached the pack.  Named
+    EXTERNAL, never dropped; without the stand-down, or with anything
+    blocked, the verdict stands."""
+    monkeypatch.setattr(guard_mod, "DATA_REPO", tmp_path / "repo")
+    rel = ("Custom Scenery/Test Pack/Terminals/"
+           "paredes_10__b0_becba351.obj")
+    changes = {"added": [rel], "modified": [], "removed": []}
+
+    monkeypatch.setenv(guard_mod.PACK_WRITES_ENV,
+                       guard_mod.PACK_WRITES_STOOD_DOWN)
+    assert "pack_rebake" in guard_mod.redirected_scopes()
+    offenders = guard_mod.report_unauthorised_writes(changes, set())
+    assert offenders[0]["scope"] == "pack_rebake"
+    assert offenders[0]["external_candidate"] is True
+    assert guard_mod.contaminating_writes(offenders) == []
+
+    offenders = guard_mod.report_unauthorised_writes(
+        changes, set(), blocked=[{"path": rel, "scope": "pack_rebake"}])
+    assert len(guard_mod.contaminating_writes(offenders)) == 1
+
+    monkeypatch.delenv(guard_mod.PACK_WRITES_ENV)
+    assert "pack_rebake" not in guard_mod.redirected_scopes()
+    offenders = guard_mod.report_unauthorised_writes(changes, set())
+    assert len(guard_mod.contaminating_writes(offenders)) == 1
+
+
+def test_the_url_list_index_is_guarded_python_only(
+        guard_mod, tmp_path, monkeypatch):
+    """ISSUE #1544, the second path: ``Elevation_data/
+    cudemconus_url_list_index.json`` was rewritten at 07:16:46 by the
+    owner's app batch (tile +49-124, "Indexing the CUDEMCONUS elevation
+    URL list") inside l805r's window.  The engine writes it ONLY through
+    an in-process Python ``open`` that asks the armed guard first, so with
+    nothing blocked the delta is external.  Any other ``dem`` path (GDAL
+    writes in C) still contaminates, and the blocked-anything veto holds."""
+    monkeypatch.setattr(guard_mod, "DATA_REPO", tmp_path / "repo")
+    index = "Elevation_data/cudemconus_url_list_index.json"
+    raster = "Elevation_data/+30-090/N35W081.tif"
+    changes = {"added": [], "modified": [index, raster], "removed": []}
+    offenders = guard_mod.report_unauthorised_writes(changes, set(),
+                                                     redirected=())
+    by = {o["path"]: o for o in offenders}
+    assert by[index]["external_reason"] == "guarded_python_only"
+    assert [o["path"] for o in guard_mod.contaminating_writes(offenders)] \
+        == [raster]
+    offenders = guard_mod.report_unauthorised_writes(
+        changes, set(), redirected=(),
+        blocked=[{"path": raster, "scope": "dem"}])
+    assert len(guard_mod.contaminating_writes(offenders)) == 2
+    assert not guard_mod.is_guarded_python_only_artifact(
+        "Elevation_data/+30-090/cudemconus_url_list_index.json")
+
+
+def test_the_url_list_index_is_READ_ONLY_under_an_armed_guard(
+        build_mod, guard_mod, tmp_path, monkeypatch):
+    """The engine half of #1544: under the harness the index is used from
+    memory and never written unless ``dem`` is authorised; it is written
+    once (atomically) when built, never rewritten on a read; and its path
+    is the one :data:`GUARDED_PYTHON_ONLY_RE` names (the spelling twin)."""
+    import requests
+    import O4_File_Names as FNAMES
+    from elevation_access.strategies.coordinate_named_url_list import (
+        CoordinateNamedUrlListStrategy as S)
+
+    repo = tmp_path / "repo"
+    elev = repo / "Elevation_data"
+    elev.mkdir(parents=True)
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(elev))
+
+    class _R:
+        status_code = 200
+        text = "https://x.test/d/ncei19_n35x25_w081x00_2016v1.tif\n"
+    monkeypatch.setattr(requests, "get", lambda url, timeout=None: _R())
+    definition = {"code": "CUDEMCONUS", "url_list_url": "https://x.test/l",
+                  "coverage_bbox": (-126.0, 23.0, -64.0, 50.0)}
+    box = (-81.0, 35.0, -80.9, 35.1)
+    path = Path(S().index_path(definition))
+    assert guard_mod.is_guarded_python_only_artifact(
+        path.relative_to(repo).as_posix())
+
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo) as guard:
+        assert S().discover(definition, box)
+    assert not path.exists() and guard.blocked == []
+
+    with build_mod.SharedRepoWriteGuard({"dem"}, lane, repo=repo) as guard:
+        assert S().discover(definition, box)
+    assert path.exists() and guard.blocked == []
+    stamp = path.stat().st_mtime_ns
+    assert S().discover(definition, box)
+    assert path.stat().st_mtime_ns == stamp, "a read rewrote the index"
+    assert list(elev.iterdir()) == [path], "a scratch was left behind"
+
+
 # ══════════════════════════════════════════════════════════════════════
 # THE OWNER'S X-PLANE INSTALL (RULINGS 2026-09-15av)
 # ══════════════════════════════════════════════════════════════════════
@@ -2750,7 +2853,8 @@ def test_a_lane_build_STANDS_DOWN_the_pack_write_half(
     assert "AUTHORISED" in redirects["pack_writes"]
 
 
-def test_the_engine_reads_the_same_stand_down_flag_the_harness_sets():
+def test_the_engine_reads_the_same_stand_down_flag_the_harness_sets(
+        guard_mod):
     """THE CROSS-FILE CONTRACT, like the JSONL wire names: the harness
     WRITES ``O4_PACK_WRITES=measure_only`` and the engine's rebake READS
     it; the string appears in two files and nowhere else, so a rename on
@@ -2761,7 +2865,9 @@ def test_the_engine_reads_the_same_stand_down_flag_the_harness_sets():
                / "build_airport.py").read_text(encoding="utf-8")
     assert 'os.environ.get("O4_PACK_WRITES") == "measure_only"' in engine, (
         "the engine must read the harness's stand-down flag")
-    assert 'os.environ["O4_PACK_WRITES"] = "measure_only"' in harness
+    assert (guard_mod.PACK_WRITES_ENV, guard_mod.PACK_WRITES_STOOD_DOWN) \
+        == ("O4_PACK_WRITES", "measure_only")
+    assert "os.environ[PACK_WRITES_ENV] = PACK_WRITES_STOOD_DOWN" in harness
     # and it must set ``measure_only``, the engine's OWN no-write path —
     # the placement plan is still built and reported.
     i = engine.index('os.environ.get("O4_PACK_WRITES")')

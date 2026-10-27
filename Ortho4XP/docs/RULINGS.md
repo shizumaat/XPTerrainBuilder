@@ -10450,3 +10450,6 @@ Asked: at PAAQ the gravel strip 16S/34S (no CIFP) is pinned to its apt.dat eleva
 
 **2026-10-28n — the Activity pane uses standard platform controls (#1537; owner on app 1.0.439, 2026-10-27T17:04:28Z, verbatim):** "Activity cells should have consistent, OS specific HIG defined spacing and padding. And use standard system controls and UI elements wherever possible. The cell selection appears custom and non-standard for macOS."
 Applies to the Activity and Completed rows in both apps: the selection is the platform's own (on the Mac, a native List or Table selection with the system highlight; in Qt, the item view's own selection), with no custom fill or ring. Spacing and padding come from each platform's guidelines and are the same in every row.
+
+**2026-10-28o — 28m applies on lidar and fine ground only (#1348, PR #1574; owner Q239, 2026-10-27T17:41:29Z: "239. a").**
+Asked: applied worldwide, 28m moves 1,909 of 11,192 no-CIFP runways from their apt.dat elevation onto the coarse 30 m DEM, each by more than 8 m, and only 5 onto fine data. On coarse data the DEM is often the less reliable side. Ruled (a): an apt.dat-only runway yields to the survey ground only where that ground is lidar or fine DEM (`inset_class.ground_class`). On coarse DEM the apt.dat elevation is kept.

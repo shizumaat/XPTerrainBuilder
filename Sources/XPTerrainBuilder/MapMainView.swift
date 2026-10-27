@@ -28,7 +28,10 @@ struct MapMainView: View {
 
     static let systemInfo = SystemInfo.current()
 
-    var body: some View {
+    /// The window's content, sheets and file picker; `body` adds the
+    /// alerts. Split so the type checker meets two shorter chains (CI's
+    /// compiler timed out on one).
+    private var coreBody: some View {
         Group {
             // First run, step 2 (after the data-folder sheet below): a VALID
             // X-Plane folder is required before anything can be built — with
@@ -92,6 +95,10 @@ struct MapMainView: View {
                 buildModel.runIssues = nil
             }
         }
+    }
+
+    var body: some View {
+        coreBody
         // A tile that failed with a cause the user can fix, asked as soon
         // as it fails (#695).
         .modifier(LinkFixAlert(buildModel: buildModel))

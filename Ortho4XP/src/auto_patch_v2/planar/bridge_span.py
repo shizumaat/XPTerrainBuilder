@@ -43,7 +43,8 @@ import math
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import nearest_points, unary_union
 
-__all__ = ["EdgeBridge", "edge_bridges", "back_line", "bridge_crossed", "bridge_pin", "edge_cut", "edge_flat_s", "span_side", "far_back_s"]
+__all__ = ["EdgeBridge", "edge_bridges", "back_line", "bridge_crossed", "bridge_pin", "edge_cut",
+           "edge_flat_s", "span_side", "far_back_s"]
 
 #: the lateral sampling step of a back (metres)
 _BACK_STEP_M = 1.0

@@ -316,13 +316,15 @@ def test_verify_reads_the_solvers_route_budgets(hook, law):
     ll = {v: pub_ll for v, pub_ll in _ll_of(pm, airport).items()}
     want = {k for k, pp in pps.items() if not pp.routed or abs(pp.budget - pp.chord_bound_m) > tol}
     key_of = {tuple(v): k for k, v in ll.items()}
-    published = {(min(key_of[tuple(a)], key_of[tuple(b)]), max(key_of[tuple(a)], key_of[tuple(b)])): (bud, dist)
+    published = {(min(key_of[tuple(a)], key_of[tuple(b)]),
+                  max(key_of[tuple(a)], key_of[tuple(b)])): (bud, dist)
                  for a, b, bud, dist in taxi_route_pairs(pm, law, airport, ll, tol)}
     assert set(published) == want                     # every differing pair, once
     for k, (bud, dist) in published.items():
         assert (bud is None) == (not pps[k].routed)
         if bud is not None:
-            assert bud == pytest.approx(pps[k].budget, abs=1e-5) and dist == pytest.approx(pps[k].dist, abs=1e-3)
+            assert bud == pytest.approx(pps[k].budget, abs=1e-5)
+            assert dist == pytest.approx(pps[k].dist, abs=1e-3)
     tighter = {(min(pp.a, pp.b), max(pp.a, pp.b)) for pp in pps.values()
                if pp.routed and pp.budget < pp.chord_bound_m - tol}
     looser = {(min(pp.a, pp.b), max(pp.a, pp.b)) for pp in pps.values()
@@ -422,7 +424,8 @@ def _harness_census():
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
     cg = pytest.importorskip("check_grade")
-    spec = importlib.util.spec_from_file_location("route_twin_census", tools / "harness" / "census.py")
+    spec = importlib.util.spec_from_file_location("route_twin_census",
+                                                  tools / "harness" / "census.py")
     cen = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(cen)
     return cg, cen
@@ -463,7 +466,8 @@ def test_the_census_reads_a_taxiway_chord_on_its_route_in_lockstep_with_verify(h
         stamp = cen.stamp_withdrawn_taxi_chords(paths.patch, cg, fam)
         live = [r for r in on_hook if cg.row_adjudicated("within_shape", r)]
         w, _x = within_shape(Patch.of(surf, law, pub, {}))
-        got[name] = (on_hook, live, stamp, [r for r in w if set(r["roles"].split("|")) <= taxi_roles])
+        got[name] = (on_hook, live, stamp,
+                     [r for r in w if set(r["roles"].split("|")) <= taxi_roles])
     on_hook, live, stamp, verify_rows = got["bound"]
     assert on_hook, "the chord reading flags the runway-owned hook chords"
     assert live == [] and stamp["route_over"] == {}

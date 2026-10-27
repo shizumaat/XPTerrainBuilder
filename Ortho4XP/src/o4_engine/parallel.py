@@ -590,6 +590,8 @@ _FORWARDED_EVENT_TYPES = (
     "AutoPatchFailed",
     # #433: a child's object stage names a pack X-Plane will not load.
     "PackMissingArt",
+    # #1360: ... and a pack whose old flat forests have 3D equivalents.
+    "PackOldForests",
     "Log",
 )
 

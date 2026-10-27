@@ -319,6 +319,11 @@ public enum O4Event: Sendable, Equatable {
     /// the object stage, or the completion of an `omit_missing_art`
     /// command. See `O4PackMissingArt`.
     case packMissingArt(O4PackMissingArt)
+    /// An airport pack with old flat forests that have X-Plane 12 3D
+    /// equivalents (protocol 1.17, #1360): found by the object stage, or
+    /// the outcome of a build or a `pack_forests` command. See
+    /// `O4PackOldForests`.
+    case packOldForests(O4PackOldForests)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -471,6 +476,21 @@ public enum O4Event: Sendable, Equatable {
                     .compactMap { $0 as? String } ?? [],
                 // absent ⇒ no primary button: never offer without a yes
                 canOmit: bool("can_omit"),
+                state: object["state"] as? String ?? "found",
+                error: string("error")))
+        // Another STRING LITERAL match (see AutoPatchFailed above): it is
+        // `class PackOldForests` in Ortho4XP/src/o4_engine/events.py.
+        case "PackOldForests":
+            return .packOldForests(O4PackOldForests(
+                pack: string("pack"), packRoot: string("pack_root"),
+                lat: int("lat"), lon: int("lon"), total: int("total"),
+                mapped: int("mapped"), uses: int("uses"),
+                firstPaths: (object["first_paths"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                unmapped: int("unmapped"),
+                firstUnmapped: (object["first_unmapped"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                // absent ⇒ no question: never offer without a yes
+                canUpdate: bool("can_update"),
+                files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
         case "Error":
@@ -849,6 +869,25 @@ public final class OrthoEngineClient: @unchecked Sendable {
     public func omitMissingArt(packRoot: String, lat: Int, lon: Int) {
         send(command: "omit_missing_art",
              arguments: ["pack_root": packRoot, "lat": lat, "lon": lon])
+    }
+
+    // MARK: - 3D trees (protocol 1.17)
+
+    /// The user's answer about a pack's old flat forests (#1360): action
+    /// "update" (remember it and point the tile DSF at the X-Plane 12 3D
+    /// trees), "never" (remember it, write nothing) or "undo" (forget it
+    /// and put the originals back — the whole pack when lat/lon are nil).
+    /// The engine replies `{"status": "started"}` at once and completes
+    /// with a `packOldForests` event. An engine older than 1.17 replies
+    /// ok=false: nothing changes.
+    public func packForests(packRoot: String, action: String,
+                            lat: Int? = nil, lon: Int? = nil) {
+        var arguments: [String: Any] = ["pack_root": packRoot, "action": action]
+        if let lat, let lon {
+            arguments["lat"] = lat
+            arguments["lon"] = lon
+        }
+        send(command: "pack_forests", arguments: arguments)
     }
 
     // MARK: - Stream handling

@@ -1065,6 +1065,8 @@ final class BuildModel: ObservableObject {
             boundaryAirportsReady(ready)
         case .packMissingArt(let art):
             packMissingArt(art)
+        case .packOldForests(let forests):
+            packOldForests(forests)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -1205,6 +1207,9 @@ final class BuildModel: ObservableObject {
         let packName: String
         let packPath: String
         let objectCount: Int
+        /// Forest definitions upgraded to X-Plane 12 3D trees (#1360); 0
+        /// from an engine older than protocol 1.17.
+        var forestCount: Int = 0
     }
 
     /// Packs whose objects the auto-patch reseater modified for `coord`,
@@ -1231,7 +1236,8 @@ final class BuildModel: ObservableObject {
                     else { return nil }
                     return ReanchorPack(
                         packName: name, packPath: path,
-                        objectCount: entry["objects"]?.intValue ?? 0)
+                        objectCount: entry["objects"]?.intValue ?? 0,
+                        forestCount: entry["forests"]?.intValue ?? 0)
                 })
             }
         }
@@ -1858,6 +1864,52 @@ final class BuildModel: ObservableObject {
             client?.omitMissingArt(packRoot: art.packRoot, lat: art.lat, lon: art.lon)
         }
         packArtPrompt = packArtQueue.isEmpty ? nil : packArtQueue.removeFirst()
+    }
+
+    /// The "3D trees" question to present, or nil (#1360).
+    @Published var packForestsPrompt: O4PackOldForests?
+    /// Questions waiting behind the one on screen, in arrival order.
+    private var packForestsQueue: [O4PackOldForests] = []
+    /// Every question already asked this session (one per pack, tile and
+    /// set — each airport of a pack runs the check).
+    private var packForestsSeen: Set<String> = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_pack_old_forests`): a
+    /// "found" event asks once; the other states are already on the
+    /// console through the engine's log line, and an upgrade or undo
+    /// refreshes the tile's Modified airports rows.
+    private func packOldForests(_ forests: O4PackOldForests) {
+        if forests.state == "upgraded" || forests.state == "undone" {
+            packForestsChanged += 1
+        }
+        guard forests.state == "found", forests.canUpdate,
+              !packForestsSeen.contains(forests.id) else { return }
+        packForestsSeen.insert(forests.id)
+        if packForestsPrompt == nil {
+            packForestsPrompt = forests
+        } else {
+            packForestsQueue.append(forests)
+        }
+    }
+
+    /// Bumped when a pack's forests were upgraded or undone, so the
+    /// Modified airports rows re-read the engine.
+    @Published var packForestsChanged = 0
+
+    /// The user's answer to the question on screen: "update" or "never"
+    /// sends `pack_forests`; nil (Not now) sends nothing.
+    func answerPackForestsPrompt(action: String?) {
+        if let forests = packForestsPrompt, let action {
+            client?.packForests(packRoot: forests.packRoot, action: action,
+                                lat: forests.lat, lon: forests.lon)
+        }
+        packForestsPrompt = packForestsQueue.isEmpty ? nil : packForestsQueue.removeFirst()
+    }
+
+    /// The pack row's Undo 3D trees: every upgraded DSF of the pack.
+    func undoPackForests(packPath: String) {
+        connectIfNeeded()
+        client?.packForests(packRoot: packPath, action: "undo")
     }
 
     // MARK: - Boundary airports (protocol 1.8)

@@ -189,6 +189,28 @@ def tile_failure(code, *detail, exc=None, **params):
 
 
 ################################################################################
+def pack_old_forests(**fields):
+    """An airport pack whose DSF draws old flat (X-Plane 11) forests with
+    X-Plane 12 3D equivalents (issue #1360).
+
+    ``fields`` are the ``PackOldForests`` event's.  The engine's log line
+    is printed by the caller; this is the front-end notification.  No-op
+    without an engine session or GUI and never raises.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.pack_old_forests(**fields)
+        except Exception:
+            pass
+        return
+    if gui:
+        try:
+            gui.pack_old_forests(**fields)
+        except Exception:
+            pass
+
+
+################################################################################
 def pack_missing_art(**fields):
     """A scenery pack X-Plane will NOT load: its DSF declares definitions
     that are not installed (owner RULINGS 2026-10-06c, issue #433).

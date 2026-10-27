@@ -43,6 +43,7 @@ from .events import (
     ImageryDownloadsDone,
     Log,
     PackMissingArt,
+    PackOldForests,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     StepProgress,
     TileClocks,
@@ -1758,6 +1759,36 @@ class EngineSession:
 
         threading.Thread(target=work, daemon=True,
                          name="o4-omit-missing-art").start()
+        return {"status": "started"}
+
+    def pack_old_forests(self, **fields):
+        """A pack with old flat forests (#1360): the ``PackOldForests``
+        event (``UI.pack_old_forests`` hook).  Unknown fields are dropped
+        so an engine-side addition never breaks the emit."""
+        names = {f for f in PackOldForests.__dataclass_fields__
+                 if f not in ("seq", "ts")}
+        self._emit(PackOldForests(**{k: v for k, v in fields.items()
+                                     if k in names}))
+
+    def pack_forests(self, pack_root="", action="", lat=None, lon=None):
+        """THE USER'S ANSWER (protocol 1.17, #1360): ``action`` is
+        ``"update"`` (remember it, point the tile DSF's old flat forests
+        at the X-Plane 12 3D trees), ``"never"`` (remember it, write
+        nothing) or ``"undo"`` (forget it, put the originals back in every
+        DSF of the pack, or the tile's with ``lat``/``lon``).  Replies
+        ``{"status": "started"}`` at once — DSFTool runs on a worker
+        thread, never on the transport's read loop — and completes with a
+        ``PackOldForests`` event."""
+        root, act = str(pack_root or ""), str(action or "")
+        la = None if lat is None else int(lat)
+        lo = None if lon is None else int(lon)
+
+        def work():
+            from auto_patch import forest_stage as _FS
+            _FS.forest_choice(root, act, la, lo)
+
+        threading.Thread(target=work, daemon=True,
+                         name="o4-pack-forests").start()
         return {"status": "started"}
 
     def log_warning(self, text: str):

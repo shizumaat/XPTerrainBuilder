@@ -417,7 +417,8 @@ def check_design(d: Design, err: type[Exception],
                   f"carries over its pin-to-pin grade (§50.1 (3))")
     if not d.steep_runway_ground_wavelength_coarse_m > 0.0:
         raise err(f"emit.design.steep_runway_ground_wavelength_coarse_m "
-                  f"{d.steep_runway_ground_wavelength_coarse_m}: metres, above 0 (RULINGS 2026-10-28a)")
+                  f"{d.steep_runway_ground_wavelength_coarse_m}: metres, above 0 "
+                  "(RULINGS 2026-10-28a)")
     if not d.steep_runway_ground_wavelength_m > 0.0:
         raise err(f"emit.design.steep_runway_ground_wavelength_m "
                   f"{d.steep_runway_ground_wavelength_m}: metres, above 0 (RULINGS 2026-10-27n)")

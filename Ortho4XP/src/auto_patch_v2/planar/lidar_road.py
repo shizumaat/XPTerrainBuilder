@@ -25,7 +25,8 @@ cover from a road on a hillside. The stations run the WHOLE bore, end to
 end, so a bore's two mouths take one verdict (read from each portal over its
 first 30 m, KCLT's underpass of way -31625 under taxiway bridge -71 split:
 one mouth built, the other refused); a real tunnel, whose survey reads its
-cover over most of its length, never fires. Where it fires (owner RULINGS 2026-10-27g, amending 14f for surveyed
+cover over most of its length, never fires. Where it fires (owner RULINGS
+2026-10-27g, amending 14f for surveyed
 underpasses: "As long as the depth is at least 5m below the taxiway/bridge
 deck, then we can leave, it otherwise a gentle blended additional cut can be
 added, but not 7m in addition to the existing cut"): the DECK is the cover's
@@ -48,7 +49,7 @@ from ..law import Law
 from ..model.frame import XY
 from .channel_geometry import _lidar_cut, _lidar_floor
 
-__all__ = ["LidarRoad", "lidar_road", "lidar_road_refusal", "lidar_road_note"]
+__all__ = ["lidar_road", "lidar_road_refusal", "lidar_road_note"]
 
 #: the station step along the bore (the §45 cut reading's own lateral step)
 _STEP_M = 5.0

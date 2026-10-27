@@ -51,7 +51,7 @@ import numpy as np
 from ..law import Law
 from ..model.planar import PlanarMap, is_osm_ribbon_ref
 
-__all__ = ["transition", "junction_joints"]
+__all__ = ["junction_joints"]
 
 
 def transition(z0: float, g0: float, line_z0: float, g1: float, free: float,

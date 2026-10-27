@@ -29,7 +29,6 @@ from .precedence import view
 __all__ = ["road_within_shape", "road_family_roles", "road_law_caps",
            "hole_pairs",
            "road_pair_reading", "one_ribbon_m", "RIBBON_RULING",
-           "junction_mouth", "with_public_road",
            "NOT_A_PAIR", "NO_FRAME", "road_pair_side", "stage_one_vertices",
            "PAIR_AIRSIDE", "PAIR_WELD", "PAIR_GROUNDSIDE"]
 

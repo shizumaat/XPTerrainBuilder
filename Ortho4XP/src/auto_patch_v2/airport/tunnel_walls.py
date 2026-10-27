@@ -33,7 +33,7 @@ from ..geom.vector import unit_vector
 from ..model.frame import XY
 
 __all__ = ["WallLines", "Station", "read_wall_lines", "stations_along", "midline",
-           "station_frame", "station_crossing"]
+           "station_crossing"]
 
 #: A ring vertex turning more than this is a CORNER (a side wall meeting
 #: an end wall); curved side walls turn a few degrees per vertex.

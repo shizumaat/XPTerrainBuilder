@@ -43,7 +43,7 @@ from ..model.constraints import Diff, Row
 from ..model.planar import PlanarMap, face_vertex_set
 from .roads import stage_one_vertices
 
-__all__ = ["released_vertices", "terrain_release", "GEN", "RELEASE_SLACK", "TRANSVERSE_HEAD"]
+__all__ = ["terrain_release", "GEN", "RELEASE_SLACK", "TRANSVERSE_HEAD"]
 
 GEN = "public_road_release"
 #: the cross-fall rows' ruling head (``constraints/roads.road_within_shape``'s

@@ -20,7 +20,7 @@ from ..model.constraints import ConstraintSet, Linear, Source
 from ..model.planar import PlanarMap, face_vertex_set
 from .ramp_runout import GEN, _dz_at, _row_vs
 
-__all__ = ["FOOT_ROAD_RULING", "foot_levels", "foot_road_rows"]
+__all__ = ["FOOT_ROAD_RULING", "foot_road_rows"]
 
 
 #: The ruling head of a MAPPED ROAD's run-out off a ramp foot (#669 / #1093).

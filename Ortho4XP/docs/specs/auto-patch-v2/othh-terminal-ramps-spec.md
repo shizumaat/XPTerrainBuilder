@@ -950,8 +950,9 @@ objects the reader already holds. Nothing is re-derived downstream (RULINGS 2026
   `tunnel_walls.read_wall_lines` kind `"II"`; stations by `stations_along`
   (`wall_family.py:215-216`). Arms of unequal length: the corridor is their OVERLAP window along
   the axis (`_overlap_along`, `:160`); the longer arm's run-on is not part of the corridor.
-* **MOUTH SEGMENT** M_k = `end_line(k)` (`wall_family.py:354-362`): the segment across the
-  trench at the last station of end k, from the left inner face to the right inner face; its
+* **MOUTH SEGMENT** M_k = `end_line(k)` = `tunnel_walls.station_crossing` of end k's TERMINAL
+  station (RULINGS 2026-10-26s, #414): the segment across the trench AT that station, on the
+  station's own normal, from the left inner face to the right inner face; its
   length W = `half_l + half_r` (6.1–19.4 m on the corpus). Its WINDOW is the flat buffer of M_k
   by `[tunnel.object] end_cap_open_m` (2.0) — the same window rule 4's `_end_cover`
   (`wall_corridors.py:351-386`) reads.
@@ -1081,7 +1082,7 @@ the arms 0.00–0.10.
 | case | reading under R |
 | --- | --- |
 | one arm only | no pair (rule 2 unchanged): nothing. |
-| arms of unequal length | the records end at the terminal STATION (where the shorter wall ends); rule 4's `end_line` and the mouth segment M_k stand at the MIDLINE's end, half the run-on beyond that station (unchanged: OTHH's identity bar; owner question E 1 — on the corpus one OTHH record's class depends on it). |
+| arms of unequal length | the records end at the terminal STATION (where the shorter wall ends), and each end is TESTED there: rule 4's `end_line` and the mouth segment M_k are that station's own crossing (RULINGS 2026-10-26s, #414; was the MIDLINE's end, half the run-on beyond the station). OTHH `Qatar_DutyFree_003@1` (25.283203, 51.603764) is a bay under it — end 0 closed by the object's own face. |
 | roll-up door mesh / fence / kerb / step across the mouth | a face in the AT-GRADE or BELOW band covering ≥ 0.5 of W → that end CLOSED. A 0.15 m kerb at grade crosses `ground + ε` → CLOSED (owner question (12) Q1). |
 | jet bridge across the mouth | underside above `min_headroom_m` → not in the band; its legs cover < 0.5 → OPEN. |
 | canopy / deck overhead | underside ≥ ground + min_headroom_m, or the plate stops short of the window: OPEN; a deck reaching the window under that: CLOSED (LEMD GAVIA 0/0) |

@@ -36,3 +36,7 @@ Ortho4XP/version_info.txt
 frozen-tile-logs/
 Ortho4XP/.corpus_snapshot_mounts.json
 .lanes/
+
+# Lane-ritual mounts and engine run output (never tracked; batch AD swept two symlinks in)
+Ortho4XP/DDS_cache
+Ortho4XP/logs

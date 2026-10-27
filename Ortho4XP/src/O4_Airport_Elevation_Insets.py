@@ -7457,6 +7457,7 @@ def _bake_island_continuity(tile, stamped, feather_m):
         return
     try:
         from auto_patch import flat_site_mode as FLAT_SITE_MODE
+        from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
 
         regions = FLAT_SITE_MODE.island_continuity_regions(tile, stamped)
     except Exception as error:
@@ -7469,6 +7470,10 @@ def _bake_island_continuity(tile, stamped, feather_m):
         return
     if not regions:
         return
+    # #1208: each airport's decision record (its pavement), for the
+    # fill-only pass after its isthmus bake.
+    records = {entry.get("icao"): entry["record"] for entry in stamped
+               if isinstance(entry.get("record"), dict)}
     x_step = ((base_dem.x1 - base_dem.x0) / (base_dem.nxdem - 1)
               if base_dem.nxdem > 1 else 0.0)
     y_step = ((base_dem.y1 - base_dem.y0) / (base_dem.nydem - 1)
@@ -7494,7 +7499,13 @@ def _bake_island_continuity(tile, stamped, feather_m):
                        int(INSET_DATUM_WARNING_THRESHOLD_M), region["z0_m"]),
                 )
                 continue
+            before = FLAT_SITE_RELIEF.snapshot_window(
+                base_dem, [polygon.bounds])
             _bake_one_inset(tile, None, 0.0, inset=inset)
+            # #1208: the isthmus is a Z0 stamp too — it fills, never cuts.
+            fill_only = _keep_ground_above_flat_level(
+                tile, before, records.get(icao) or {}, region["z0_m"],
+                icao, what="isthmus")
         except Exception as error:
             UI.vprint(
                 0,
@@ -7520,6 +7531,7 @@ def _bake_island_continuity(tile, stamped, feather_m):
             "band_kept_posts": int(inset.mask_valid_posts),
             "band_dropped_posts": int(inset.mask_band_dropped),
             "feather_m": 0.0,
+            "fill_only": fill_only,
         })
         UI.vprint(
             0,
@@ -7568,31 +7580,33 @@ def _isthmus_base_offset_m(tile, polygon, z0_m):
         return None
 
 
-def _restore_off_site_relief(tile, relief_before, record, z0_m, icao):
-    """#1137 — hand one airport's baked window to
-    ``auto_patch.flat_site_relief`` and say what came back."""
+def _keep_ground_above_flat_level(tile, before, record, z0_m, icao,
+                                  what="plateau"):
+    """RULINGS 2026-10-26r (#1208) — the plateau is a fill, not a cut: hand
+    one airport's baked window to ``auto_patch.flat_site_relief`` (ground
+    the stamp cut that stands more than 0.5 m above Z0 keeps its real
+    surface; its pavement and runway strips keep Z0) and say what came back.
+    ``what`` names the stamp in the log line."""
     from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
 
-    site = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
+    held = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
         record, int(math.floor(tile.lat)), int(math.floor(tile.lon)))
-    if site is None:
-        UI.vprint(1, "   [flat-site] %s: the decision carries no gate — the "
-                     "off-site relief rule has no site to keep." % icao)
-        return None
+    if held is None:
+        UI.vprint(1, "   [flat-site] %s: the decision carries no held ground — "
+                     "no post of the %s keeps a cut." % (icao, what))
     centre_latitude = tile.lat + 0.5
-    report = FLAT_SITE_RELIEF.restore_off_site_relief(
-        tile.dem, relief_before, site, z0_m, INSET_DATUM_WARNING_THRESHOLD_M,
+    report = FLAT_SITE_RELIEF.restore_ground_above_flat_level(
+        tile.dem, before, held, z0_m,
         (GEO.lon_to_m(centre_latitude), GEO.lat_to_m))
     if report["restored_posts"]:
         UI.vprint(
             0,
-            "   [flat-site] %s: %.4f km2 of ground OUTSIDE the airport's own "
-            "surfaces stood more than %g m above Z0 %.2f m (up to %.1f m) — a "
-            "hill is not the site; it keeps the real surface."
-            % (icao, report["restored_km2"],
-               INSET_DATUM_WARNING_THRESHOLD_M
-               * FLAT_SITE_RELIEF.BAND_FULL_FRACTION,
-               float(z0_m), report["max_offset_m"]))
+            "   [flat-site] %s: %.4f km2 of the %s's ground off the pavement and strips "
+            "stood more than %g m above Z0 %.2f m (up to %.1f m) — the "
+            "plateau fills, it does not cut; it keeps the real surface."
+            % (icao, report["restored_km2"], what,
+               FLAT_SITE_RELIEF.KEEP_ABOVE_M, float(z0_m),
+               report["max_offset_m"]))
     return report
 
 
@@ -7677,8 +7691,8 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         # OUTSIDE the declared extent -- Z0 holds to the wall line.  The
         # provenance below keeps the DECLARED box.
         record = substitution["record"]
-        # #1137: the honest surface under every rectangle this airport is
-        # about to bake, for the off-site relief rule after its clusters.
+        # #1208: the honest surface under every rectangle this airport is
+        # about to bake, for the fill-only rule after its clusters.
         relief_before = FLAT_SITE_RELIEF.snapshot_window(base_dem, [
             _feather_outward_extent(tile, *_footprint_of(entry).bounds,
                                     feather_m)
@@ -7849,9 +7863,10 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                    cluster.get("placements") or 0,
                    cluster.get("extent_area_km2") or 0.0, feather_m),
             )
-        # #1137 A HILL IS NOT THE SITE: off the airport's own surfaces the
-        # plateau stands only where the honest surface was near Z0.
-        airport_entry["off_site_relief"] = _restore_off_site_relief(
+        # #1208 (RULINGS 2026-10-26r) THE PLATEAU IS A FILL, NOT A CUT:
+        # off the airport's pavement and runway strips, ground more than 0.5 m above Z0
+        # keeps the real surface.
+        airport_entry["fill_only"] = _keep_ground_above_flat_level(
             tile, relief_before, record, substitution["z0_m"], icao)
         # R11-1/R11-2: the refusals this airport collected, counted once
         # and carried on its provenance entry.  Refusals raised BEFORE

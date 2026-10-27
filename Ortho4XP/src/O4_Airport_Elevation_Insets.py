@@ -164,7 +164,7 @@ from elevation_access.definitions import (
 )
 from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access import fetch_scratch as FETCH_SCRATCH
-from elevation_access.fetch_slots import _held_provider_fetch_slot
+from elevation_access.fetch_slots import held_inset_fetch_slot
 from elevation_access.las_tiles import LAS_FOOTPRINT_KEY, _buffer_geometry_m
 from elevation_access.registry import ACCESS_STRATEGIES
 from elevation_access.vertical_units import (
@@ -4919,7 +4919,7 @@ def ensure_airport_insets(
                 # and the refusal is on the guard's record.
                 EXTWRITE.declare_external_write(
                     destination, writer="the airport inset fetch")
-                with _held_provider_fetch_slot(code):
+                with held_inset_fetch_slot(code):
                     slow_note.start()
                     provenance = fetch_inset(
                         definition,

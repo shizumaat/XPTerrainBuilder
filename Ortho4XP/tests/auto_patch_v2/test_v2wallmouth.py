@@ -20,8 +20,6 @@ import math
 import re
 
 import pytest
-from shapely.geometry import Point, Polygon
-
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport import wall_family as WF
 from auto_patch_v2.airport import wall_mouth as WM
@@ -31,7 +29,7 @@ from auto_patch_v2.law import Law
 from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.planar.build import build as planar_build
 from auto_patch_v2.planar.structure_approach import FieldRegion, cover_polygons, wall_field
-
+from shapely.geometry import Point, Polygon
 from test_tunnel_objects import _airport, _rect, _slab, _write
 from test_v2wallcorridor import _corridor_obj, _vwall
 
@@ -475,21 +473,19 @@ def test_unequal_arms_ignore_the_longer_arms_run_on(objs, law):
     at the OVERLAP's end (y = −20: authored +z is frame −y) and a wall
     across the LONG arm's own end (y = −40) closes nothing.
 
-    WHERE THE MOUTH SEGMENT STANDS for such a pair is rule 4's own
-    ``end_line`` — the end of the pair's MIDLINE, which runs halfway into
-    the run-on (y = −30 here), with the last station's half widths.  §12h
-    (1) defines M_k as that segment and §12h (3) says "at the overlap
-    window's end"; for arms of unequal length the two differ by half the
-    run-on.  This twin pins the reading as it is (rule 4 unchanged — its
-    covers are OTHH's identity bar) and the lane's report carries the
-    difference for the spec author."""
+    WHERE THE END IS TESTED (RULINGS 2026-10-26s, #414): at the TERMINAL
+    STATION, where the shorter wall stops (y = −20) — rule 4's cover and
+    the mouth segment M_k alike — never at the midline's end halfway into
+    the run-on (y = −30), where a wall closes nothing either."""
     recs, st = _read(objs, law, "unequal", cells=_cells())
     assert st.by_class == {CLASS_LEVEL: 2}, st.refused
     ys = sorted(r.axis[-1][1] for r in recs)
     assert ys[0] == pytest.approx(-20.0, abs=1.0) and ys[1] == pytest.approx(40.0, abs=1.0)
     _r, st_run = _read(objs, law, "unequal", [("wall", (0.0, -40.0))], cells=_cells())
     assert st_run.by_class == {CLASS_LEVEL: 2}, st_run.admission
-    _r, st_at = _read(objs, law, "unequal", [("wall", (0.0, -30.0))], cells=_cells())
+    _r, st_mid = _read(objs, law, "unequal", [("wall", (0.0, -30.0))], cells=_cells())
+    assert st_mid.by_class == {CLASS_LEVEL: 2}, st_mid.admission
+    _r, st_at = _read(objs, law, "unequal", [("wall", (0.0, -20.5))], cells=_cells())
     assert st_at.by_class == {CLASS_BAY: 1}, st_at.admission
 
 

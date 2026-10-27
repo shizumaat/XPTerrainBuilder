@@ -25,11 +25,9 @@ from __future__ import annotations
 import math
 
 import pytest
-from shapely.geometry import LineString, Point, Polygon
-from shapely.ops import unary_union
-
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport.tunnel_objects import read_corridors, signature
+from auto_patch_v2.airport.tunnel_walls import Station, station_crossing
 from auto_patch_v2.airport.wall_corridors import CLASS_BAY, CLASS_GARAGE, CLASS_LEVEL
 from auto_patch_v2.airport.wall_family import read_wall_corridors
 from auto_patch_v2.classify.roles import Cell, Classification
@@ -44,16 +42,23 @@ from auto_patch_v2.model.airport import OsmWay
 from auto_patch_v2.model.constraints import Pin
 from auto_patch_v2.model.structures import profile_z
 from auto_patch_v2.pipeline.build import _plate_seats, plate_stations
-from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.pipeline.publication import lifted_caps
+from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.planar.structures import _pad_relief_m as _pad_relief, build_structures
-from auto_patch_v2.planar.wall_corridor_ramps import (OBJECT_FRAMED, GARAGE_ROLE, KIND, RAMP_ROLE,
-                                                     wall_corridor_groups)
+from auto_patch_v2.planar.structures import _pad_relief_m as _pad_relief
+from auto_patch_v2.planar.structures import build_structures
+from auto_patch_v2.planar.wall_corridor_ramps import (
+    GARAGE_ROLE,
+    KIND,
+    OBJECT_FRAMED,
+    RAMP_ROLE,
+    wall_corridor_groups,
+)
 from auto_patch_v2.solve import Options, Status, solve_design
-
-from test_tunnel_objects import _airport, _cells as _wall_cells, _rect, _slab, _wall_obj, _write
-
+from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import unary_union
+from test_tunnel_objects import _airport, _rect, _slab, _wall_obj, _write
+from test_tunnel_objects import _cells as _wall_cells
 
 # ── synthetic OBJ8 ───────────────────────────────────────────────────────
 
@@ -84,7 +89,7 @@ STATION_TOL_M = 1.0
 
 def _corridor_obj(path, width=10.0, depth=1.9, top=0.5, thick=0.3, deck_y=2.6, end_wall=False,
                   drop=0.0, half_len=DECK_HALF_LEN_M, one_band=False, end_top=None,
-                  deck_inset=DECK_END_INSET_M, short=0.0):
+                  deck_inset=DECK_END_INSET_M, short=0.0, end_z=None):
     """Two kerb bands ``width`` apart between their inner faces, ``depth``
     under the seat, ``top`` above it, under a deck slab at ``deck_y``
     (``None`` = open air); ``end_wall`` closes the +z end, rising to
@@ -93,7 +98,8 @@ def _corridor_obj(path, width=10.0, depth=1.9, top=0.5, thick=0.3, deck_y=2.6, e
     ``drop`` makes the bottom DESCEND from −depth at −z to −depth − drop
     at +z; ``deck_inset`` is how far short of each wall end the deck stops
     (0: the cover reaches the wall ends); ``short`` stops the +x band that
-    far short of the +z end (two walls of UNEQUAL length)."""
+    far short of the +z end (two walls of UNEQUAL length); ``end_z`` stands
+    the end wall there instead of at the +z end."""
     vt: list = []
     tris: list = []
     hw = width / 2.0
@@ -101,7 +107,8 @@ def _corridor_obj(path, width=10.0, depth=1.9, top=0.5, thick=0.3, deck_y=2.6, e
     if not one_band:
         _vwall(vt, tris, hw, hw + thick, -half_len, half_len - short, -depth, -depth - drop, top)
     if end_wall:
-        _vwall(vt, tris, -hw, hw, half_len, half_len + thick, -depth - drop, -depth - drop,
+        ez = half_len if end_z is None else end_z
+        _vwall(vt, tris, -hw, hw, ez, ez + thick, -depth - drop, -depth - drop,
                top if end_top is None else end_top)
     if deck_y is not None:
         _slab(vt, tris, -hw - 2.0, hw + 2.0, -half_len + deck_inset,
@@ -132,8 +139,17 @@ def objs(tmp_path_factory):
         "level": _corridor_obj(d / "level.obj"),
         # 07b (2) twins: the cover reaching both wall ends; one wall 8 m short
         "roofed": _corridor_obj(d / "roofed.obj", deck_inset=0.0, deck_y=6.0),
-        "unequal": _corridor_obj(d / "unequal.obj", short=8.0),
+        # its deck stops ≥ end_cap_open_m inside the SHORTER wall's end (a
+        # deck reaching that end's window under the headroom would close it,
+        # §12h (1): a pit roofed to its mouth is a dock)
+        "unequal": _corridor_obj(d / "unequal.obj", short=8.0,
+                                 deck_inset=DECK_END_INSET_M + 4.0),
         "single": _corridor_obj(d / "single.obj", one_band=True),
+        # #414 (RULINGS 2026-10-26s): one wall 8 m short, the built end wall
+        # standing where the SHORTER wall stops — the midline runs on 4 m
+        # past it (beyond ``end_cap_open_m``), the terminal station does not
+        "unequal_bay": _corridor_obj(d / "unequal_bay.obj", short=8.0, end_wall=True,
+                                     end_z=DECK_HALF_LEN_M - 8.0, deck_y=None, end_top=2.5),
         "wide": _corridor_obj(d / "wide.obj", width=25.0),
         # §12h W3: the bay runs out from a BUILT WALL — its end wall rises
         # 2.5 m over the ground — under open sky (a deck 2.6 m over the
@@ -447,6 +463,35 @@ def test_walls_of_unequal_length_end_the_ramp_at_the_shorter_wall(objs, law):
     # wall's end only where the shorter one also stands there
     a, b = (LineString(t.axis).interpolate(t.top_s) for t in tunnels)
     assert a.distance(b) == pytest.approx(2 * DECK_HALF_LEN_M - 8.0, abs=0.1)
+
+
+def test_an_end_is_tested_where_the_shorter_wall_stops(objs, law):
+    """RULINGS 2026-10-26s (#414): for walls of unequal length each end is
+    read at its TERMINAL STATION (where the shorter wall stops), not at the
+    midline's end half the run-on beyond it — so a face standing across the
+    corridor there closes that end, and the pair is a BAY open at the other."""
+    _airport, _cache, _objects, recs, st = _corridors(objs, law, "unequal_bay")
+    assert st.by_class == {CLASS_BAY: 1} and len(recs) == 1, (st.refused, st.admission)
+    r = recs[0]
+    assert r.cls == CLASS_BAY and r.mouth_closed and not r.far_closed
+    line = next(a for a in st.admission if "unequal_bay" in a)
+    assert "ends family 100%/0%" in line or "ends family 0%/100%" in line, line
+
+
+def test_the_end_segment_is_the_terminal_stations_own_crossing():
+    """The end segment spans the two inner faces AT the station, left face
+    first, on the station's own normal — at BOTH ends (end 0's segment was
+    once mirrored across the axis by ``half_l - half_r``)."""
+    ln = LineString([(0.0, 0.0), (0.0, 20.0), (20.0, 40.0)])
+    for s_ in (0.0, 10.0):
+        a, b = station_crossing(ln, Station(s_, 3.0, 5.0, 0.3, 0.3))
+        # travel +y: left is −x
+        assert a == pytest.approx((-3.0, s_)) and b == pytest.approx((5.0, s_))
+    L = ln.length
+    a, b = station_crossing(ln, Station(L, 3.0, 5.0, 0.3, 0.3))
+    r = 2.0 ** -0.5          # travel (+x, +y)/√2: left is (−1, +1)/√2
+    assert a == pytest.approx((20.0 - 3.0 * r, 40.0 + 3.0 * r))
+    assert b == pytest.approx((20.0 + 5.0 * r, 40.0 - 5.0 * r))
 
 
 @pytest.mark.parametrize("rise, wall_end", [

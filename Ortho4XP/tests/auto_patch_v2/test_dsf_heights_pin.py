@@ -32,7 +32,7 @@ def _text(row: str, span: str | None = "65535.00000", off: str = "0.00000") -> s
 
 
 def _row(text: str) -> str:
-    return next(l for l in text.splitlines() if l.startswith("HEIGHTS "))
+    return next(line for line in text.splitlines() if line.startswith("HEIGHTS "))
 
 
 def test_a_printed_row_from_overread_memory_is_replaced_by_the_files():
@@ -58,8 +58,8 @@ def test_no_elevated_pool_is_dsflibs_own_empty_answer():
 def test_a_base_mesh_or_a_text_without_the_row_is_untouched():
     mesh = _text("1.00000 -1.0").replace("PROPERTY sim/overlay 1\n", "")
     assert H.pin_heights(mesh) == mesh
-    bare = "\n".join(l for l in _text("1.0 0.0").splitlines()
-                     if not l.startswith("HEIGHTS"))
+    bare = "\n".join(line for line in _text("1.0 0.0").splitlines()
+                     if not line.startswith("HEIGHTS"))
     assert H.pin_heights(bare) == bare
 
 
@@ -86,8 +86,8 @@ def test_two_writes_of_one_plan_agree_whatever_heights_row_the_dump_printed(
         out = real_dump(dsf_path, text_out, tool_, **kw)
         if dsf_path.endswith(".anchor_bak") and text_out.endswith(".pristine.text"):
             body = Path(out).read_text(encoding="utf-8")
-            lines = [("HEIGHTS " + next(printed)) if l.startswith("HEIGHTS ") else l
-                     for l in body.split("\n")]
+            lines = [("HEIGHTS " + next(printed)) if line.startswith("HEIGHTS ") else line
+                     for line in body.split("\n")]
             Path(out).write_text("\n".join(lines), encoding="utf-8", newline="")
         return out
 

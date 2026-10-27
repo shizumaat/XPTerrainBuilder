@@ -24,7 +24,7 @@ import math
 import re
 
 #: ``# pool N: p=P s=S  span0 off0  span1 off1 ...`` (``DSFReadFile``).
-POOL_LINE = re.compile(r"^#\s*pool\s+\d+:\s+p=(\d+)\s+s=\s*\d+\s+(.*)$")
+_POOL_LINE = re.compile(r"^#\s*pool\s+\d+:\s+p=(\d+)\s+s=\s*\d+\s+(.*)$")
 
 #: ``HEIGHTS quantum base`` with DSFTool's trailing comment, if any.
 _HEIGHTS_LINE = re.compile(r"^HEIGHTS\s+\S+\s+\S+.*?(\r?\n)?$")
@@ -43,7 +43,7 @@ def pool_header(text: str) -> list[tuple[int, list[float]]]:
             if pools:
                 break
             continue
-        m = POOL_LINE.match(line)
+        m = _POOL_LINE.match(line)
         if m is None:
             continue
         try:
@@ -53,7 +53,7 @@ def pool_header(text: str) -> list[tuple[int, list[float]]]:
     return pools
 
 
-def guess_good_heights(min_all: float, max_all: float, min_rng: float
+def _guess_good_heights(min_all: float, max_all: float, min_rng: float
                        ) -> tuple[float, float]:
     """``(scale, offset)`` — DSFLib's ``GuessGoodHeights``, line for line
     (the scale is the plane's whole span, ``quantum * 65535``)."""
@@ -71,7 +71,7 @@ def guess_good_heights(min_all: float, max_all: float, min_rng: float
     return scale, float(offs)
 
 
-def file_heights(text: str) -> tuple[float, float]:
+def _file_heights(text: str) -> tuple[float, float]:
     """``(scale, offset)`` DSFTool's dump of an OVERLAY would print if it
     read only the elevation plane of the four-plane object pools (plane 2
     is the heading, span 360).  With none, DSFLib's own empty answer."""
@@ -85,7 +85,7 @@ def file_heights(text: str) -> tuple[float, float]:
         min_all = min(min_all, off)
         max_all = max(max_all, off + span)
         min_rng = min(min_rng, span)
-    return guess_good_heights(min_all, max_all, min_rng)
+    return _guess_good_heights(min_all, max_all, min_rng)
 
 
 def _is_overlay(text: str) -> bool:
@@ -95,7 +95,7 @@ def _is_overlay(text: str) -> bool:
 
 def pin_heights(text: str) -> str:
     """``text`` with its ``HEIGHTS`` row rewritten from the file's own pool
-    header (:func:`file_heights`), in DSFTool's format.  A text with no
+    header (:func:`_file_heights`), in DSFTool's format.  A text with no
     ``HEIGHTS`` row, or not an overlay (a base mesh reads the row from its
     terrain pools, which this does not model), is returned unchanged."""
     if not _is_overlay(text):
@@ -105,12 +105,11 @@ def pin_heights(text: str) -> str:
         m = _HEIGHTS_LINE.match(line)
         if m is None:
             continue
-        scale, offs = file_heights(text)
+        scale, offs = _file_heights(text)
         lines[i] = (f"HEIGHTS {scale / 65535.0:.5f} {offs:.1f}  "
                     f"# max encodeable {offs + scale:.5f}{m.group(1) or ''}")
         return "".join(lines)
     return text
 
 
-__all__ = ["POOL_LINE", "file_heights", "guess_good_heights",
-                     "pin_heights", "pool_header"]
+__all__ = ["pin_heights", "pool_header"]

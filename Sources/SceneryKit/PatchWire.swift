@@ -356,6 +356,46 @@ public struct O4CursorElevation: Decodable, Equatable, Sendable {
     }
 }
 
+/// `patch_insert_shape` (protocol 1.20, #1314): "Insert shape" planned by
+/// the engine — the airport whose extent holds the click, the patch the
+/// build applies for it (nil when it has none) and the square's corners
+/// `[lat, lon, alt]` at the elevation under them. `pending` (and nothing
+/// else) while an elevation source loads: ask again.
+public struct O4PatchInsertShape: Decodable, Equatable, Sendable {
+    public let pending: Bool
+    public let tile: String?
+    public let icao: String?
+    public let path: String?
+    public let source: String?
+    public let sideM: Double?
+    public let corners: [[Double]]?
+
+    private enum CodingKeys: String, CodingKey {
+        case pending, tile, icao, path, source, sideM = "side_m", corners
+    }
+}
+
+/// `patch_add_shape` (protocol 1.20, #1314): the shape appended to a patch
+/// the editor does not have open — the file written, the new way, whether
+/// the airport had no patch before, and the sentence to show.
+public struct O4PatchAddShape: Decodable, Equatable, Sendable {
+    public let path: String
+    public let wayID: Int64
+    public let created: Bool
+    public let message: String
+
+    private enum CodingKeys: String, CodingKey {
+        case path, wayID = "way_id", created, message
+    }
+}
+
+extension O4ProtocolVersion {
+    /// `patch_insert_shape` / `patch_add_shape` exist from protocol 1.20.
+    public static func supportsInsertShape(_ version: String) -> Bool {
+        isAtLeast(version, 1, 20)
+    }
+}
+
 /// `terrain_relief` (protocol 1.15, #1320, owner Q134): the patch view's
 /// terrain picture — hillshade plus contour lines — over `bbox` (the asked
 /// box clipped to the tile), rows even in web-mercator Y so it lies on the

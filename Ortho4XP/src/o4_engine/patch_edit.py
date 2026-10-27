@@ -10,7 +10,8 @@ THE RULES (§3.1-§3.3):
 
 * Operations: :func:`move`, :func:`set_position`, :func:`set_alt`,
   :func:`offset_alt`, :func:`delete_nodes`, :func:`insert_on_edge`,
-  :func:`delete_ways` (#759: deleting a whole shape).
+  :func:`delete_ways` (#759: deleting a whole shape), :func:`add_shape`
+  (#1314: a new closed shape, "Insert shape" on the map).
 * Topology (§3.2): a deleted node leaves every way.  After any operation,
   consecutive duplicate refs collapse (cyclically on a closed way, whose
   ``refs`` repeat the first node last); a closed way left with fewer than 3
@@ -43,7 +44,7 @@ from o4_engine import patch_slice as _slice
 
 __all__ = ["Node", "Way", "PatchDoc", "move", "set_position", "set_alt",
            "offset_alt", "delete_nodes", "delete_ways", "insert_on_edge", "merge_nodes",
-           "slice_shape", "slice_way", "next_node_id", "next_way_id", "apply_op"]
+           "slice_shape", "add_shape", "slice_way", "next_node_id", "next_way_id", "apply_op"]
 
 
 #: One node: ``(id, lat, lon, alt or None)`` — the §2 wire shape.
@@ -366,11 +367,33 @@ def slice_shape(doc: PatchDoc, a: int, b: int, way: int | None = None) -> PatchD
     return _dc.replace(doc, nodes=nodes, ways=tuple(ways))
 
 
+# ─── add a shape (#1314) ───────────────────────────────────────────────────
+
+def add_shape(doc: PatchDoc, corners: _t.Sequence[_t.Sequence],
+              tags: _t.Mapping[str, str] | None = None) -> PatchDoc:
+    """Append a new closed shape through ``corners`` (``[lat, lon,
+    alt|null]`` each, the ring in order, not repeated at the end): new
+    nodes from :func:`next_node_id` downwards, appended in that order, and
+    a new way (:func:`next_way_id`) after the others, its refs repeating
+    the first node last.  Never merges with a node already there."""
+    if len(corners) < 3:
+        raise ValueError("a shape needs at least 3 corners")
+    nodes = dict(doc.nodes)
+    new_id = next_node_id(doc)
+    refs = []
+    for c in corners:
+        nodes[new_id] = _node((new_id, *c))
+        refs.append(new_id)
+        new_id -= 1
+    way = Way(next_way_id(doc), tuple(refs + refs[:1]), dict(tags or {}))
+    return _dc.replace(doc, nodes=nodes, ways=doc.ways + (way,))
+
+
 _OPS: dict[str, _t.Callable[..., PatchDoc]] = {
     "move": move, "set_position": set_position, "set_alt": set_alt,
     "offset_alt": offset_alt, "delete_nodes": delete_nodes, "delete_ways": delete_ways,
     "insert_on_edge": insert_on_edge, "merge_nodes": merge_nodes,
-    "slice_shape": slice_shape,
+    "slice_shape": slice_shape, "add_shape": add_shape,
 }
 
 

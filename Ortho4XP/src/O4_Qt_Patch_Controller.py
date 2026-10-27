@@ -338,6 +338,18 @@ class PatchController(QObject):
             self.discard_edits()
         self.engine.call("patch_revert", done, tile=p.tile, icao=p.icao)
 
+    def relist(self, tile: str) -> None:
+        """A patch of ``tile`` changed on disk outside the open document
+        ("Insert shape" into another airport's patch, #1314): list the
+        tile again (the open document is not reloaded) and mark it for a
+        rebuild."""
+        self.model.tiles_needing_rebuild.add(tile)
+        parsed = FNAMES.parse_tile_key(tile)
+        listing = self._listings.get(tuple(parsed)) if parsed else None
+        if listing is not None:
+            listing["entries"] = None
+            self._list(tuple(parsed))
+
     def discard_edits(self) -> None:
         """Forget the unsaved edits and load the airport's file again."""
         self.model.discard_to_saved()

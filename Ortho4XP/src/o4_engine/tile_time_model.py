@@ -712,3 +712,58 @@ def predict_step_seconds(lat: int, lon: int, features: dict,
             estimate = DEFAULT_STEP_SECONDS.get(step_key, 60.0)
         predictions[step_key] = float(estimate)
     return predictions
+
+
+# What grading one airport costs when no build has been recorded yet: a
+# deliberately wide ballpark (a small field solves in about a minute, a
+# large hub in several), replaced by the learned range after one build.
+DEFAULT_AIRPORT_SECONDS_RANGE = (60.0, 600.0)
+
+# A range learned from ONE sample is widened around it by these factors:
+# a single build says roughly how long, never how precisely.
+SINGLE_SAMPLE_SPREAD = (0.6, 1.6)
+
+
+def _airport_seconds_samples(records: list) -> list:
+    """Seconds per airport of each record that graded airports."""
+    samples = []
+    for record in records:
+        features = record.get("features") or {}
+        airports = features.get("airports")
+        seconds = features.get("autopatch_seconds")
+        if (isinstance(airports, (int, float)) and airports > 0
+                and isinstance(seconds, (int, float))
+                and math.isfinite(seconds) and seconds > 0):
+            samples.append(float(seconds) / float(airports))
+    return samples
+
+
+def airport_seconds_range(lat: int, lon: int) -> tuple:
+    """``(low, high)`` seconds to grade ONE airport of this tile (#818).
+
+    The Build pane says "about N–M min" from this, never a single number:
+    the auto-patch time each build records (``autopatch_seconds`` over its
+    ``airports``) of this tile's recent builds first, else of every
+    recorded tile, else :data:`DEFAULT_AIRPORT_SECONDS_RANGE`.  Four or
+    more samples give their middle half (a hub elsewhere must not stretch
+    a small field's range); one sample is widened by
+    :data:`SINGLE_SAMPLE_SPREAD`.  Never raises.
+    """
+    try:
+        same_tile = _airport_seconds_samples(
+            _load_tile_records(lat, lon)[-_SAME_TILE_WINDOW:])
+        samples = same_tile or _airport_seconds_samples(_load_all_records())
+    except Exception:
+        samples = []
+    if not samples:
+        return DEFAULT_AIRPORT_SECONDS_RANGE
+    if len(samples) >= 4:
+        quartiles = statistics.quantiles(samples, n=4)
+        (low, high) = (quartiles[0], quartiles[2])
+    else:
+        (low, high) = (min(samples), max(samples))
+    if len(samples) == 1 or high <= low:
+        middle = statistics.median(samples)
+        (low, high) = (middle * SINGLE_SAMPLE_SPREAD[0],
+                       middle * SINGLE_SAMPLE_SPREAD[1])
+    return (float(low), float(high))

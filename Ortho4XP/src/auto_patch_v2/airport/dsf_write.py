@@ -140,6 +140,7 @@ from . import authored_landing as _al
 from . import backup_state as _bs
 from . import dsf_commands as _cmds
 from . import pack_art as _pa
+from . import pack_forests as _pf
 from . import split_guard as _sg
 from .backup_state import BackupUnproven, State
 from .file_hash import sha256_file
@@ -1286,7 +1287,8 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                law_digest: str = "",
                body_files: _t.Sequence[str] = (),
                omit: _t.Sequence[_pa.MissingDef] = (),
-               drop: _t.Collection[str] = ()) -> WriteResult:
+               drop: _t.Collection[str] = (),
+               forests: _t.Mapping[str, str] | None = None) -> WriteResult:
     """Apply ``plan`` to the pack's DSF (§3.3-§3.5).
 
     The pristine DSF is kept ONCE as ``<name>.dsf.anchor_bak`` and is
@@ -1311,7 +1313,14 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     edits are NOT re-applied: their rows leave the record and their
     bodies go as orphans.  With a plan with no ICAO that is "this DSF
     without that airport's seating, the others' kept"
-    (``unpatched_pack.restore_airport``)."""
+    (``unpatched_pack.restore_airport``).
+
+    ``forests`` (issue #1360) is the X-Plane 12 3D forest upgrade the
+    user accepted, ``{declared path: target}`` (``pack_forests.
+    rename_definitions``, applied last).  ``None`` keeps the one the
+    record holds for this pristine DSF, so a placement write never drops
+    it; ``{}`` writes the DSF without it (the user's Undo).  The record
+    gains ``forest_upgrade``."""
     dsf_path = plan.dsf_path or ""
     if not os.path.isfile(dsf_path):
         raise FileNotFoundError(f"DSF not found: {dsf_path!r}")
@@ -1388,6 +1397,9 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     # edit is an orphan and goes after the move.
     dump_sha = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
     prior_entry = _bs.dsf_entry(_bs.read_record(dsf_path), base)
+    backup_sha = sha256_file(backup)
+    if forests is None:
+        forests = _pf.recorded(prior_entry, backup_sha)
     siblings, sibling_rows = _sibling_plans(prior_entry, plan, dump_sha, drop)
     # #1246: a split DSFTool cannot place (a body off the tile) is undone
     # — the placement is written whole — and never fails the pack.
@@ -1401,6 +1413,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         _refuse_missing_bodies(pack_root, composed)          # #1214 R1
         edited, omitted, unused = _edited_text(text, composed, omit, engine_version
                                                or plan.provenance.engine_version)
+        edited, renamed = _pf.rename_definitions(edited, forests)
         with open(edited_text, "w", encoding="utf-8",
                   errors="surrogateescape", newline="\n") as fh:
             fh.write(edited)
@@ -1479,7 +1492,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     # carrying the mark: row D4, never D5.
     entry = {
         "backup": os.path.basename(backup),
-        "backup_sha256": sha256_file(backup),
+        "backup_sha256": backup_sha,
         "backup_size": bak_stat.st_size,
         "backup_mtime_ns": bak_stat.st_mtime_ns,
         "dump_sha256": hashlib.sha256(text.encode("utf-8", "replace")).hexdigest(),
@@ -1495,6 +1508,9 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         # #433: the omission the user accepted, or None — never a stale one
         "omitted_art": (_pa.record(sha256_file(backup), omit, omitted,
                                    _bs.stamp()) if omit else None),
+        # #1360: the 3D forest upgrade the user accepted, or None
+        _pf.RECORD_KEY: (_pf.record(backup_sha, forests, renamed, _bs.stamp())
+                         if forests else None),
         # #678: the definitions the edit emptied and the write dropped
         "unused_defs_dropped": int(unused.get("object_defs", 0)),
     }

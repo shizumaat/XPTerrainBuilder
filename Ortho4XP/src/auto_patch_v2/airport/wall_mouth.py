@@ -30,10 +30,10 @@ is ADMITTED iff, in the object's SEATED frame (RULINGS 2026-09-10ad):
 treats as visible; the window along the axis is ``[tunnel.object]
 end_cap_open_m``.  No value lives here.
 
-THE MOUTH SEGMENT M_k is rule 4's own ``end_line`` (``wall_family``): it
-stands at the end of the pair's MIDLINE — for arms of unequal length half
-the longer arm's run-on beyond the terminal STATION, where the records end
-(spec §12h (3)).
+THE MOUTH SEGMENT M_k is rule 4's own ``end_line`` (``wall_family``): the
+crossing of the end's terminal STATION, where the records end — for arms
+of unequal length where the SHORTER wall stops (RULINGS 2026-10-26s, #414;
+spec §12h (3)).
 
 :class:`MouthIndex` is the pack-wide reading (§12h (5)): ONE STRtree over
 every placed, non-stock object's plan extent, built on the first mouth
@@ -57,8 +57,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..model.frame import XY
 from . import obj8 as _obj8
-from .wall_geometry import (_plan_segments_indexed, _seat_base, _tri_normals_y,
-                            _union_length)
+from .wall_geometry import _plan_segments_indexed, _seat_base, _tri_normals_y, _union_length
 
 __all__ = ["WallField", "FieldCover", "MouthIndex", "MouthEnd", "Closer", "MouthVerdict",
            "admit", "FIELD", "W1S", "W3"]

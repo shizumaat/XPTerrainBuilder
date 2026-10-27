@@ -31,11 +31,22 @@ from ..model.frame import XY
 from . import obj8 as _obj8
 from .below_zero import read_below_zero, read_wall_height
 from .deck_signature import family_key
-from .tunnel_walls import midline, read_wall_lines, stations_along
+from .tunnel_walls import midline, read_wall_lines, station_crossing, stations_along
 from .wall_corridor_probe import _floor_road, _floor_slab, _RoadLevels, mouth_roads
-from .wall_corridors import (CLASS_BAY, CLASS_GARAGE, CLASS_LEVEL, ID_PREFIX,
-                             WallCorridorRecord, WallCorridorStats, _bands_of, _end_cover,
-                             _floor_profile, _headroom, _slice, _trench)
+from .wall_corridors import (
+    CLASS_BAY,
+    CLASS_GARAGE,
+    CLASS_LEVEL,
+    ID_PREFIX,
+    WallCorridorRecord,
+    WallCorridorStats,
+    _bands_of,
+    _end_cover,
+    _floor_profile,
+    _headroom,
+    _slice,
+    _trench,
+)
 from .wall_geometry import _DENSIFY_M, _FamilyFaces, _merge_walls, _overlap_along, _seat_base
 from .wall_mouth import FieldCover, MouthIndex, WallField, admit
 
@@ -397,16 +408,12 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                                        f"{h_own:.2f} m over the zero: foundations")
                 continue
             descending = (zmax - zmin) >= wc.min_wall_depth_m
-            # RULE 4: the ends
+            # RULE 4: the ends — each read AT ITS TERMINAL STATION, where the
+            # shorter wall stops (RULINGS 2026-10-26s, #414), never at the
+            # midline's end beyond it: rule 4's cover and the §12h mouth
+            # read this one segment
             def end_line(k: int) -> tuple[XY, XY]:
-                p = axis[0] if k == 0 else axis[-1]
-                q = axis[1] if k == 0 else axis[-2]
-                ux, uy = p[0] - q[0], p[1] - q[1]
-                L = math.hypot(ux, uy) or 1.0
-                nx, ny_ = -uy / L, ux / L
-                st = sts[0] if k == 0 else sts[-1]
-                return ((p[0] + nx * st.half_l, p[1] + ny_ * st.half_l),
-                        (p[0] - nx * st.half_r, p[1] - ny_ * st.half_r))
+                return station_crossing(axis_ln, sts[0] if k == 0 else sts[-1])
             covers = [_end_cover(end_line(k), ends.faces, ends.tree, ob.end_cap_open_m)
                       for k in (0, 1)]
             covers_low = [_end_cover(end_line(k), ends.faces_low, ends.low_tree,
@@ -443,7 +450,8 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
             # a gate and never a build cost: neither separates LEMD
             # from OTHH (spec §12c), so nothing reads them in law.
             if measure:
-                mouth_pts = [(k, axis[0] if k == 0 else axis[-1],
+                mouth_pts = [(k, axis_ln.interpolate(orig_s[0] if k == 0 else orig_s[-1]
+                                                     ).coords[0],
                               floors[0] if k == 0 else floors[-1]) for k in mouth_ks]
                 fr = _floor_road(mouth_pts, roads, road_tree,
                                  wc.corridor_road_level_m, levels)

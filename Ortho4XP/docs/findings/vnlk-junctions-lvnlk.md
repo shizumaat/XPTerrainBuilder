@@ -370,7 +370,7 @@ Any wavelength from 175 to 250 m gives the same shape; only the peak moves, as a
 round-3 ski-jump end cap is deleted (27n supersedes 27e).
 
 **Closing build** `lvnlk4` (body `939b32004ea4`; census identical to the replay of capture
-`lvnlk/VNLK.r4.pkl`). Against the video (§9), `s` in metres from the RWY 24 end:
+`lvnlk/VNLK.pkl`). Against the video (§9), `s` in metres from the RWY 24 end:
 
 | s from 24 (m) | built grade | video | video confidence | within? |
 |---|---|---|---|---|

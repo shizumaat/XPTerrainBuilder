@@ -10444,3 +10444,20 @@ Read with the questions as asked:
 **2026-10-28l — wall-corridor bays: lids and shared-wall steps (#414, PR #1567; owner Q234–Q235, 2026-10-27T16:51:31Z: "234. A 235. A").**
 (1) Q234 A: a lid over a wall-corridor trench counts as a roof (the headroom gate) only when it covers at least half the trench (`cutout.wall_corridor.headroom_cover_min = 0.5`). A sidewalk strip drawn at grade over a small part of the trench does not refuse the bay.
 (2) Q235 A: where neighbouring bays with different floors meet under a wall they share, and that wall reaches below both floors, the step is lawful: the wall hides it, and the census forgives it as a declared wall step.
+
+**2026-10-28m — an apt.dat-only runway elevation yields to the survey ground (#1348, PAAQ; owner Q217, 2026-10-27T16:52:28Z: "A").**
+Asked: at PAAQ the gravel strip 16S/34S (no CIFP) is pinned to its apt.dat elevation, 0.9–1.7 m below the lidar ground (34S 68.66 vs DEM 70.38; 16S 70.95 vs 72.65), which leaves a ~1.1 m step across runway 16/34's shoulder. Ruled (a): where a runway has no CIFP threshold elevation, the lidar or DEM ground wins over the apt.dat elevation, so the runway sits on the terrain and no step is minted against its neighbours. Runways with CIFP keep the CIFP pin (25a/26a/26e).
+
+**2026-10-28n — the Activity pane uses standard platform controls (#1537; owner on app 1.0.439, 2026-10-27T17:04:28Z, verbatim):** "Activity cells should have consistent, OS specific HIG defined spacing and padding. And use standard system controls and UI elements wherever possible. The cell selection appears custom and non-standard for macOS."
+Applies to the Activity and Completed rows in both apps: the selection is the platform's own (on the Mac, a native List or Table selection with the system highlight; in Qt, the item view's own selection), with no custom fill or ring. Spacing and padding come from each platform's guidelines and are the same in every row.
+
+**2026-10-28o — 28m applies on lidar and fine ground only (#1348, PR #1574; owner Q239, 2026-10-27T17:41:29Z: "239. a").**
+Asked: applied worldwide, 28m moves 1,909 of 11,192 no-CIFP runways from their apt.dat elevation onto the coarse 30 m DEM, each by more than 8 m, and only 5 onto fine data. On coarse data the DEM is often the less reliable side. Ruled (a): an apt.dat-only runway yields to the survey ground only where that ground is lidar or fine DEM (`inset_class.ground_class`). On coarse DEM the apt.dat elevation is kept.
+
+**2026-10-28p — five site rules (owner Q240–Q245, 2026-10-27T17:58:26Z: "240. b 241. a 242. a 243. a 244. a 245. Yes").**
+(1) Q240 b (#1201 KSEA): inside a runway safety area, airport service roads (`highway=service`) sit at grade on the graded surface. Public roads keep RULINGS 2026-10-20c (39) and follow their own ground (#951 KLAX).
+(2) Q241 a (#1572/#1288 KMCI): within one shared frame, a unit seated on the same flat pad as the pad's largest unit, but drawn higher, sinks to that group's level at any depth. Units never float off the pad.
+(3) Q242 a (#1338 NZWN): under §27 (RULINGS 2026-09-12c), a lot's contact with airside pavement that runs under a building or along the pack's own fence does not count as a connection to airside, so such lots stay groundside.
+(4) Q243 a (#1338 NZWN): inside the airport fence, pavement painted over a tagged tunnel is not by itself a witness that the tunnel exists; it needs one of RULINGS 2026-10-27z's witnesses.
+(5) Q244 a (#1301/#1279 LFPG): an objects-only companion pack (no apt.dat, objects inside the airport boundary) is re-seated together with the main pack. Overlay packs (AEP Overlays, simHeaven and the like) are left alone.
+(6) Q245 Yes (#1559 LFPG cuts, 28k): a taxiway's adjacent-ground zones 1–2 give way to a trench the survey shows inside them. The reduced tunnel counts the 28k rules give elsewhere (LFPG 55→25, EGGW 17→2, KCLT 8→2, NZWN 10→5) land only after the owner's sim read.

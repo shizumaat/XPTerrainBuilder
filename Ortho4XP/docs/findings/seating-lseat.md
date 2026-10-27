@@ -161,3 +161,24 @@ the owner's rule.
 Until ruled, KLAX's APM track is lowered 16.4 m at main.
 
 Q-b (#1288): pad-level rule (§3) or the owner's witness of the connection.
+
+## 6. Measured (R1, object stage replayed on the owner's plans)
+
+* KLAX (1.0.409 plan, replayed at this branch): R1 moves 4 bodies — Walkway_4
+  b4/b5 31.81 -> 31.94, b10/b11 31.75 -> 31.94; the walkway's 13 pieces now
+  stand within 0.05 m of one zero. Tracks.obj is unchanged by R1: at main its
+  38 pieces are already ONE zero (class A, §1 / Q-a). With class A refused (a
+  lane-private arm, not shipped), the rail's frame is open and 22c's
+  `rigid_open` gives it one zero, 30.01 — so once Q-a is ruled, the rail
+  needs no further grouping rule. Written into a pack copy
+  (`--write-pack`): 279 body files, every Walkway_4 / Tracks file present.
+* KMCI (1.0.424 plan): R1 moves 78 own-ground bodies onto the zero of the
+  pieces they touch — 53 `Airport/Tower/metal.obj` pieces at the control tower
+  (one zero 304.43, moves -0.66 ... +0.84 m), 21 Nghia trimsheet / dirt pieces
+  (13 to 301.55, moves -2.30 ... -0.62 m, around 39.2848, -94.6950), 3 Thong
+  pieces (+1.25 m), one Terminal CEILING-DECO piece (+2.42 m, 39.29826,
+  -94.71881). The #1288 island is unchanged (307.25).
+* Suites: `tests/auto_patch_v2` 3,877 passed (one corpus test,
+  `test_v2dsfagl::test_real_pack_roundtrip_and_idempotent_write`, fails with
+  and without this change: it reads the first shipped pack on the machine); the
+  CI registry and closure twins 478 passed; ratchets pass.

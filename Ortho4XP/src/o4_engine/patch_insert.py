@@ -1,4 +1,4 @@
-""""Insert shape" on the map (issue #1314, protocol 1.17): a square of
+""""Insert shape" on the map (issue #1314, protocol 1.20): a square of
 :data:`SQUARE_SIDE_M` centred at the right-click, its corners at the
 elevation under them, added to the patch of the airport the point is in.
 

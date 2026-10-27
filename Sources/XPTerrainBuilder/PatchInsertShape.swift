@@ -17,7 +17,7 @@ extension PatchEditModel {
     static let insertPendingNanoseconds: UInt64 = 400_000_000
     static let insertMaxTries = 20
 
-    /// Whether the engine has the commands (protocol 1.17).
+    /// Whether the engine has the commands (protocol 1.20).
     var canInsertShape: Bool {
         O4ProtocolVersion.supportsInsertShape(build?.protocolHello?.protocolVersion ?? "")
     }

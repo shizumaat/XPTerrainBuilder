@@ -1189,7 +1189,7 @@ final class BuildModel: ObservableObject {
     }
 
     /// The engine session for the Build pane's Airports card, or nil when
-    /// the engine is not running or predates it (protocol < 1.17).
+    /// the engine is not running or predates it (protocol < 1.18).
     func buildAirportsClient() -> OrthoEngineClient? {
         connectIfNeeded()
         guard O4ProtocolVersion.supportsBuildAirports(protocolHello?.protocolVersion ?? "") else { return nil }

@@ -10447,3 +10447,6 @@ Read with the questions as asked:
 
 **2026-10-28m — an apt.dat-only runway elevation yields to the survey ground (#1348, PAAQ; owner Q217, 2026-10-27T16:52:28Z: "A").**
 Asked: at PAAQ the gravel strip 16S/34S (no CIFP) is pinned to its apt.dat elevation, 0.9–1.7 m below the lidar ground (34S 68.66 vs DEM 70.38; 16S 70.95 vs 72.65), which leaves a ~1.1 m step across runway 16/34's shoulder. Ruled (a): where a runway has no CIFP threshold elevation, the lidar or DEM ground wins over the apt.dat elevation, so the runway sits on the terrain and no step is minted against its neighbours. Runways with CIFP keep the CIFP pin (25a/26a/26e).
+
+**2026-10-28n — the Activity pane uses standard platform controls (#1537; owner on app 1.0.439, 2026-10-27T17:04:28Z, verbatim):** "Activity cells should have consistent, OS specific HIG defined spacing and padding. And use standard system controls and UI elements wherever possible. The cell selection appears custom and non-standard for macOS."
+Applies to the Activity and Completed rows in both apps: the selection is the platform's own (on the Mac, a native List or Table selection with the system highlight; in Qt, the item view's own selection), with no custom fill or ring. Spacing and padding come from each platform's guidelines and are the same in every row.

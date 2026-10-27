@@ -393,7 +393,9 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # route.  EVIDENCE here: ``run_checks`` never consumes it (the oracle
     # prices the chord law the owner withdrew for the taxi family);
     # ``harness/census.py`` reads its PRESENCE to stamp the oracle's taxi
-    # chord rows ``WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE``.
+    # chord rows ``WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE``, and its BUDGETS to
+    # read a taxi-ring chord with a non-taxi face at an end along its
+    # route (RULINGS 2026-10-28f, ``census.read_taxi_ring_route``).
     "taxi_route_pairs",
     # THE LAW-BAND CONTRADICTION LEDGER (spec unified-law-band Amendment
     # 1, owner ruling "3", 2026-08-27).  EVIDENCE, deliberately: a row

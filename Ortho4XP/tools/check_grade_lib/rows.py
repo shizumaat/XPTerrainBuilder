@@ -67,3 +67,8 @@ class Violation:
     #: family): ``run_checks`` maps every other row's points from the
     #: engine metric back to the census frame and leaves these (#772)
     points_ll: bool = field(default=False, repr=False, compare=False)
+    #: THE PAIR'S EMITTED ENDPOINTS, ``(lat, lon)`` as the patch carries
+    #: them (a within-shape row only): the identity keys a sidecar pair
+    #: publication joins on (``taxi_route_pairs``, RULINGS 2026-10-28f).
+    ll_a: Optional[Tuple[float, float]] = field(default=None, repr=False, compare=False)
+    ll_b: Optional[Tuple[float, float]] = field(default=None, repr=False, compare=False)

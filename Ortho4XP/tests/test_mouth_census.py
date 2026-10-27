@@ -107,3 +107,19 @@ def test_pack_wall_declares_its_height_along_its_outline():
     assert walls.allowance(-1.0, 0.0, 1.0, 0.0) == 3.112
     # a row without a height (an older sidecar) reads as published
     assert cg._declared_joint_step(_joint(WALL, 1.6)) == 1.6
+
+
+def test_a_declared_gap_step_is_forgiven_like_a_wall():
+    """owner RULINGS 2026-10-27y (#883): a step the owner approved — the
+    declared 08k gap joint between two shapes (``gap: true``) — is lawful in
+    the zone-strip step families too, read exactly as a declared wall; an
+    apron terrace that is not a gap stays ground."""
+    gap = dict(_joint("pad", 1.04), kind="apron_terrace", gap=True)
+    walls = cg.DeclaredWallSteps([gap], _xy)
+    assert walls.allowance(-1.0, 0.0, 1.0, 0.0) == 1.04
+    assert walls.allowance(2.0, 0.0, 3.0, 0.0) == 0.0      # beside the line
+    nodes = {"a": (0.0, -1.0), "b": (0.0, 1.0)}
+    assert cg._check_adjacent_ground_steps(
+        [_ag_way([100.8, 100.0, 100.8])], nodes, _xy, 0.5, 0.2, walls) == []
+    terrace = dict(gap, gap=False)
+    assert cg.DeclaredWallSteps([terrace], _xy).allowance(-1, 0, 1, 0) == 0.0

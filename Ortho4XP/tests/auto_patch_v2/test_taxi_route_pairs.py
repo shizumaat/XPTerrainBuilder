@@ -409,3 +409,66 @@ def _pushed_surface(pm, law, airport, z0):
     return res.x
 
 
+
+
+def _harness_census():
+    """``tools/check_grade.py`` and ``tools/harness/census.py`` — THE census
+    the lanes measure with — loaded as the harness twins load them."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+    tools = Path(__file__).resolve().parents[2] / "tools"
+    for p in (tools, tools / "harness"):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    cg = pytest.importorskip("check_grade")
+    spec = importlib.util.spec_from_file_location("route_twin_census", tools / "harness" / "census.py")
+    cen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cen)
+    return cg, cen
+
+
+def test_the_census_reads_a_taxiway_chord_on_its_route_in_lockstep_with_verify(hook, law, tmp_path):
+    """RULINGS 2026-10-28f (#805): a taxiway's longitudinal slope is judged
+    along its route; the straight line across the paved shape is not a
+    taxiway-slope witness.  The HOOK pushed to its start/end route bound
+    is lawful along every route and steep across its 310 m chord, and its
+    start vertices are the RUNWAY's (the senior face at the runway edge,
+    12aj (c)) — the chords from them are ``runway|stub`` rows the role
+    test never withdrew.  Written as a patch, the harness census reads
+    them on the published route budget (``taxi_route_pairs``) and the v2
+    verify reads them on the same budget: NEITHER reports a taxi row.
+    Lowered a metre past that bound, the far end is over its route and
+    BOTH readers report it — the census restated on the route."""
+    from auto_patch_v2.emit.osm_adapter import write_patch
+    from auto_patch_v2.pipeline.publication import face_tags
+    cg, cen = _harness_census()
+    airport, pm = hook
+    cs, _c, _w = generate(pm, law, airport)
+    sol = solve_design(pm, cs, law)[0]
+    pub = publication(pm, law, airport, sol.z)
+    taxi_roles = set(law.tables.precedence.taxi_family.members)
+    z_bound = _pushed_surface(pm, law, airport, sol.z)
+    z_over = np.array(z_bound, float)
+    z_over[_vid(pm, 300.0, 100.0)] -= 1.0
+    got = {}
+    for name, z in (("bound", z_bound), ("over", z_over)):
+        surf = graded_surface(pm, law, _with_z(sol, z), airport.frame.origin, airport.frame.crs)
+        paths = write_patch(surf, law, tmp_path / name, pub, face_tags=face_tags(pm, law))
+        fam: dict = {}
+        cg.run_checks_law_true(paths.patch, family_out=fam, quiet=True, top_n=0)
+        ws = fam.get("within_shape") or []
+        on_hook = [r for r in ws if cg.effective_role(r.way_a) in taxi_roles
+                   and not all(x in taxi_roles for x in cg.row_roles(r))]
+        stamp = cen.stamp_withdrawn_taxi_chords(paths.patch, cg, fam)
+        live = [r for r in on_hook if cg.row_adjudicated("within_shape", r)]
+        w, _x = within_shape(Patch.of(surf, law, pub, {}))
+        got[name] = (on_hook, live, stamp, [r for r in w if set(r["roles"].split("|")) <= taxi_roles])
+    on_hook, live, stamp, verify_rows = got["bound"]
+    assert on_hook, "the chord reading flags the runway-owned hook chords"
+    assert live == [] and stamp["route_over"] == {}
+    assert verify_rows == []
+    on_hook, live, stamp, verify_rows = got["over"]
+    assert live and all(r.reading == cen.TAXI_ROUTE_READING for r in live)
+    assert sum(stamp["route_over"].values()) == len(live)
+    assert verify_rows, "the verify reads the same pair over its route"

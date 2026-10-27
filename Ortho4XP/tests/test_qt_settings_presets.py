@@ -165,3 +165,11 @@ def test_first_run_zoom_change_after_a_pick_is_custom(
         assert wizard.preset_values == {}
     finally:
         wizard.close()
+
+
+def test_choosing_a_zoom_in_the_dialog_is_recorded(window):
+    """#1539: the main window makes the dialog's zoom the default only
+    when the user chose one there (Detail or a preset card)."""
+    assert window.zoom_chosen is False
+    window.detail_combo.setCurrentText("18")
+    assert window.zoom_chosen is True

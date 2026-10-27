@@ -134,7 +134,10 @@ def check(pack_root: str, lat: int, lon: int, *,
 
 
 def _relative(pack_root: str, path: str) -> str:
-    return os.path.relpath(path, pack_root).replace(os.sep, "/")
+    try:
+        return os.path.relpath(path, pack_root).replace(os.sep, "/")
+    except ValueError:      # Windows: a path on another drive has no relpath
+        return path.replace(os.sep, "/")
 
 
 def _announce(pf: PackForests, pack_root: str, lat: int, lon: int,

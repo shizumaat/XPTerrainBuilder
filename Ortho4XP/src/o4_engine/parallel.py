@@ -65,6 +65,7 @@ from typing import Optional
 
 import O4_Console_Encoding
 import O4_Edit_Cache as EDITCACHE
+import O4_File_Names as FNAMES
 import O4_Machine_Slots
 import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
@@ -823,9 +824,15 @@ class _WorkerChild:
         try:
             for line in self.process.stderr:
                 tile = self.tile
+                text = line.rstrip("\n")
                 prefix = ("[%s] " % _short_latlon(tile)) if tile else (
                     "[worker %d] " % self.index)
-                print(prefix + line.rstrip("\n"))
+                print(prefix + text)
+                # The tile's own build log (#1226); the prefix is the
+                # console's, the file is the tile's alone.
+                log = getattr(self.run, "tile_log_line", None)
+                if log is not None:
+                    log(tile, text)
         except Exception:
             pass
 
@@ -837,6 +844,9 @@ class ParallelBuildRun:
                  custom_build_dir, step_flags, slots,
                  boundary_policy=None, missing_art=None):
         self._session = session
+        # The session's per-tile build logs (#1226); a stand-in session
+        # without them logs nothing.
+        self._tile_logs = getattr(session, "tile_logs", None)
         self._queue = deque()
         self._total = 0
         # THE MACHINE BUDGET (issue #1225): one slot pool for the engine
@@ -1505,6 +1515,11 @@ class ParallelBuildRun:
             return False
         self._queue.remove(tile)
         child.tile = tile
+        # The tile's build starts here: its own build log opens (#1226).
+        if self._tile_logs is not None:
+            self._tile_logs.begin(tile, FNAMES.build_dir(
+                tile[0], tile[1], (self._tile_arguments.get(tile)
+                                   or {}).get("custom_build_dir", "")))
         child.step_failed = False
         self._next_step_index[tile] = 0
         if not self._try_start_step_locked(child):
@@ -1514,6 +1529,11 @@ class ParallelBuildRun:
             self._queue.appendleft(tile)
             return False
         return True
+
+    def tile_log_line(self, tile, text):
+        """One line of ``tile``'s build into its own log (#1226)."""
+        if self._tile_logs is not None:
+            self._tile_logs.line(tile, text)
 
     # -- attempts (#1326) ------------------------------------------------
     def _start_attempt(self, tile):
@@ -1784,6 +1804,10 @@ class ParallelBuildRun:
                 remapped, self._percent_high_water.get(tile, 0.0))
             self._percent_high_water[tile] = remapped
             event = dataclasses.replace(event, percent=remapped)
+        if event_name == "Log" and tile is not None:
+            # The child knows no orchestration: its line is the tile it
+            # carries (#1226).
+            event = dataclasses.replace(event, tile=tuple(tile))
         if event_name in ("AutoPatchBegin", "AutoPatchProgress"):
             if tile is not None and (event.lat, event.lon) == (0, 0):
                 event = dataclasses.replace(event, lat=tile[0], lon=tile[1])
@@ -1868,14 +1892,18 @@ class ParallelBuildRun:
                     # The per-tile total the children cannot print (each
                     # sees one step): dispatched-step seconds summed by
                     # _release_step_resources_locked.
-                    print("\nTile %s completed in %s."
-                          % (_short_latlon(child.tile),
-                             UI.nicer_timer(
-                                 self._tile_step_seconds.pop(
-                                     child.tile, 0.0))))
-                    for line in FAIL.closing_lines(
-                            *self._tile_warnings.pop(child.tile, ([], []))):
+                    closing = ["Tile %s completed in %s."
+                               % (_short_latlon(child.tile),
+                                  UI.nicer_timer(
+                                      self._tile_step_seconds.pop(
+                                          child.tile, 0.0)))]
+                    closing += FAIL.closing_lines(
+                        *self._tile_warnings.pop(child.tile, ([], [])))
+                    print("")
+                    for line in closing:
                         print(line)
+                        # Joins the tile's (just closed) build log.
+                        self.tile_log_line(child.tile, line)
                     self._next_step_index.pop(child.tile, None)
                     self._percent_high_water.pop(child.tile, None)
                     child.tile = None

@@ -240,7 +240,9 @@ public struct O4BoundaryAirportsReady: Sendable, Equatable {
 /// the schema). Unknown event types and fields are ignored by protocol rule.
 public enum O4Event: Sendable, Equatable {
     case hello(engineVersion: String, protocolVersion: String, capabilities: [String])
-    case log(level: String, text: String)
+    /// `tile` (#1226): the key (`+47-123`) of the tile whose build wrote
+    /// the line, nil for a run-level line.
+    case log(level: String, text: String, tile: String?)
     case scanProgress(phase: String, done: Int, total: Int)
     /// built: [lat, lon, info] triples; installed: [lat, lon] pairs.
     case scanBatch(built: [(lat: Int, lon: Int, info: O4JSON)], installed: [(lat: Int, lon: Int)])
@@ -347,7 +349,9 @@ public enum O4Event: Sendable, Equatable {
                           capabilities: (object["capabilities"] as? [Any])?
                               .compactMap { $0 as? String } ?? [])
         case "Log":
-            return .log(level: string("level"), text: string("text"))
+            let tile = (object["tile"] as? [Any])?.compactMap { ($0 as? NSNumber)?.intValue }
+            return .log(level: string("level"), text: string("text"),
+                        tile: tile.flatMap { $0.count == 2 ? TileMath.key(lat: $0[0], lon: $0[1]) : nil })
         case "ScanProgress":
             return .scanProgress(phase: string("phase"), done: int("done"), total: int("total"))
         case "ScanBatch":
@@ -507,6 +511,12 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     public let meshDate: Double?
     public let imageryDate: Double?
     public let sizeBytes: Int?
+    /// The newest build-record row (#1226); nil for a tile built before
+    /// logging or by an older engine.
+    public let lastBuild: TileBuildRecord?
+    /// "Built by": from the record, else (single-tile `tile_info` only)
+    /// from the DSF's creation agent; nil when unknown.
+    public let builtBy: String?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -534,6 +544,8 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         meshDate = object["mesh_date"]?.doubleValue
         imageryDate = object["imagery_date"]?.doubleValue
         sizeBytes = object["size_bytes"]?.intValue
+        lastBuild = TileBuildRecord(json: object["last_build"])
+        builtBy = object["built_by"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
     }
 }
 

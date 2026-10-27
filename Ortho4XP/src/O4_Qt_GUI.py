@@ -41,7 +41,6 @@ from PySide6.QtGui import (
     QPainterPath,
     QPixmap,
     QShortcut,
-    QTextCursor,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -96,6 +95,7 @@ from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
 import O4_Qt_Wizard as QTWIZ
 import O4_Qt_Boundary_Dialog as QTBOUND
+import O4_Qt_Build_History as QTHIST
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
@@ -914,7 +914,7 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(
                 QByteArray.fromBase64(geometry_b64.encode("ascii"))
             )
-        self.console.setVisible(
+        self.console_drawer.setVisible(
             bool(self.prefs.get("console_visible", True))
         )
         splitter_b64 = str(self.prefs.get("splitter_state", ""))
@@ -1122,6 +1122,9 @@ class MainWindow(QMainWindow):
         ig.addRow("Ground shaped:", self.info_mesh)
         self.info_imagery = ElidedRowLabel("—")
         ig.addRow("Imagery updated:", self.info_imagery)
+        # Who built it (#1226, owner Q95): the build record, else the DSF.
+        self.info_built_by = ElidedRowLabel("—")
+        ig.addRow("Built by:", self.info_built_by)
         self.info_elevation = TwoLineElidedLabel("—")
         ig.addRow("Elevation:", self.info_elevation)
         self.info_airport_lidar = TwoLineElidedLabel("—")
@@ -1466,9 +1469,17 @@ class MainWindow(QMainWindow):
         self.console.setFont(font)
         QTTEXT.size_text(self.console, points=11)  # follows View > text size
 
+        # The drawer around it (#1226): the header's selection filter,
+        # Saved logs, History and Clear, and the Build History list
+        # beside the console (BuildConsoleView.swift is the layout).
+        self.console_drawer = QTHIST.ConsoleDrawer(
+            self.console, lambda: self._built,
+            lambda lat, lon: self.map.set_active(lat, lon),
+            self.map.set_dimmed)
+
         self.splitter = QSplitter(Qt.Vertical)
         self.splitter.addWidget(center)
-        self.splitter.addWidget(self.console)
+        self.splitter.addWidget(self.console_drawer)
         # The console drawer keeps ITS height when the window resizes
         # (stretch 0: all growth goes to the map) and cannot be dragged
         # to zero — it only changes size at the user's splitter handle,
@@ -2607,6 +2618,7 @@ class MainWindow(QMainWindow):
 
     def _push_overlays(self):
         self.map.set_built(self._built)
+        self.console_drawer.refresh_history()
         self._refresh_empty_state()
         self.map.set_installed(self._installed)
         self._active_changed(self.map.active_tile())
@@ -2620,6 +2632,7 @@ class MainWindow(QMainWindow):
         self._sync_build_controls_to_selection(sel)
         self._update_build_summary(sel)
         self._persist_selection(sel)
+        self.console_drawer.set_selection(sel, self.map.active_tile())
 
     def _persist_selection(self, selection=None):
         """Write the selected set and the active tile to the prefs file.
@@ -2968,6 +2981,7 @@ class MainWindow(QMainWindow):
                 self.info_zl,
                 self.info_mesh,
                 self.info_imagery,
+                self.info_built_by,
                 self.info_size,
             ):
                 w.setText("…" if pending else "—")
@@ -2994,6 +3008,7 @@ class MainWindow(QMainWindow):
         self.info_zl.setText(zl_text)
         self.info_mesh.setText(_fmt_date(info.mesh_date))
         self.info_imagery.setText(_fmt_date(info.imagery_date))
+        self.info_built_by.setText(TINFO.with_built_by(info).built_by or "—")
         if info.size_bytes is None:
             self.info_size.setText("computing…")
             threading.Thread(
@@ -3808,7 +3823,7 @@ class MainWindow(QMainWindow):
         # Re-gate the info panel (install toggle) for the active tile
         # now that it may be part of the run.
         self._active_changed(self.map.active_tile())
-        if not self.console.isVisible():
+        if not self.console_drawer.isVisible():
             self.toggle_console()
 
         # THE RUN BOUNDARY: the build request that opens a run starts a
@@ -4766,10 +4781,9 @@ class MainWindow(QMainWindow):
         except queue.Empty:
             pass
         if chunks:
-            text = "".join(chunks)
-            self.console.moveCursor(QTextCursor.End)
-            self.console.insertPlainText(text)
-            self.console.moveCursor(QTextCursor.End)
+            # Filtered to the map selection when tiles are selected
+            # (#1226); otherwise shown as it comes.
+            self.console_drawer.append_text("".join(chunks))
 
     CONSOLE_DEFAULT_LINES = 6
 
@@ -4794,29 +4808,29 @@ class MainWindow(QMainWindow):
         if not self._console_defaulted:
             self._console_defaulted = True
             self._sync_console_button()
-            if not self._layout_restored and self.console.isVisible():
+            if not self._layout_restored and self.console_drawer.isVisible():
                 self._apply_console_height(self._console_default_height())
 
     def toggle_console(self):
-        self.set_console_visible(not self.console.isVisible())
+        self.set_console_visible(not self.console_drawer.isVisible())
 
     def set_console_visible(self, visible):
         """Show or hide the console drawer at a STEADY size: re-opening
         restores the height it had when hidden (default: 6 lines)."""
-        if visible != self.console.isVisible():
+        if visible != self.console_drawer.isVisible():
             if visible:
-                self.console.setVisible(True)
+                self.console_drawer.setVisible(True)
                 self._apply_console_height(
                     self._console_height or self._console_default_height()
                 )
             else:
                 self._console_height = self.splitter.sizes()[1]
-                self.console.setVisible(False)
+                self.console_drawer.setVisible(False)
         self._sync_console_button()
 
     def _sync_console_button(self):
         self.console_btn.setText(
-            "Console ▴" if self.console.isVisible() else "Console ▾"
+            "Console ▴" if self.console_drawer.isVisible() else "Console ▾"
         )
 
     def _hover(self, lat, lon):
@@ -4911,7 +4925,7 @@ class MainWindow(QMainWindow):
         self.prefs["splitter_state"] = bytes(
             self.splitter.saveState().toBase64()
         ).decode("ascii")
-        self.prefs["console_visible"] = self.console.isVisible()
+        self.prefs["console_visible"] = self.console_drawer.isVisible()
         save_prefs(self.prefs)
         self._closed = True
         self._cancel_deferred()

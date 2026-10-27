@@ -101,7 +101,9 @@ from typing import Any, Optional
 # 1.16 (2026-10-26, additive, #1320): ``terrain_relief`` answers a
 # hillshade-and-contours PNG over a box from the same sources, with its
 # legend; ``pending`` while it is drawn off the read loop.
-PROTOCOL_VERSION = "1.16"
+# 1.17 (2026-10-27, additive, #1226): ``Log.tile`` — the ``[lat, lon]``
+# of the tile whose build wrote the line; empty for a run-level line.
+PROTOCOL_VERSION = "1.17"
 
 
 @dataclass(frozen=True)
@@ -128,10 +130,15 @@ class EngineHello(EngineEvent):
 
 @dataclass(frozen=True)
 class Log(EngineEvent):
-    """A build log line.  ``level``: "info" | "warning" | "error"."""
+    """A build log line.  ``level``: "info" | "warning" | "error".
+
+    ``tile`` (#1226): ``(lat, lon)`` of the tile whose build wrote it —
+    a front end filters its console by it — or ``()`` for a run-level
+    line."""
 
     level: str = "info"
     text: str = ""
+    tile: tuple = ()
 
 
 @dataclass(frozen=True)

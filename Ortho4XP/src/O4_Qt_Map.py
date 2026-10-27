@@ -366,6 +366,9 @@ class MapView(QGraphicsView):
 
         # Overlay state
         self._built = {}             # (lat, lon) -> TileInfo
+        # Built tiles outside the Build History date filter (#1226),
+        # drawn faint (MapCanvasView.swift dims the same).
+        self._dimmed = set()
         self._installed = set()      # (lat, lon)
         self._conflicts = set()      # (lat, lon) with mixed imagery sources
         self._customized = set()     # (lat, lon) with tile settings (#1350)
@@ -506,6 +509,13 @@ class MapView(QGraphicsView):
         self._built = dict(built)
         self.built_changed.emit()
         self.viewport().update()
+
+    def set_dimmed(self, tiles):
+        """Built tiles the Build History date filter leaves out (#1226)."""
+        tiles = set(tiles)
+        if tiles != self._dimmed:
+            self._dimmed = tiles
+            self.viewport().update()
 
     def set_installed(self, installed):
         self._installed = set(installed)
@@ -1240,8 +1250,9 @@ class MapView(QGraphicsView):
         if built is not None:
             # Built: a green border; installed adds the inset double border.
             base = QColor(BUILT_COLOR)
+            dim = 0.3 if tile in self._dimmed else 1.0
             border = QColor(base)
-            border.setAlphaF(0.85)
+            border.setAlphaF(0.85 * dim)
             pen = QPen(border)
             pen.setCosmetic(True)
             pen.setWidth(2)
@@ -1249,7 +1260,7 @@ class MapView(QGraphicsView):
             painter.drawRect(r)
             if tile in self._installed:
                 inner = QColor(base)
-                inner.setAlphaF(0.9)
+                inner.setAlphaF(0.9 * dim)
                 pen = QPen(inner)
                 pen.setCosmetic(True)
                 pen.setWidthF(1.5)

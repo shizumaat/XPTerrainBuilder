@@ -30,6 +30,7 @@ from typing import Iterator, Optional
 import O4_Config_Names as CN
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
+import O4_Tile_Build_Log as TILELOG
 
 
 @dataclass
@@ -52,6 +53,12 @@ class TileInfo:
     mesh_date: Optional[float] = None     # unix mtime of newest dsf/mesh
     imagery_date: Optional[float] = None  # unix mtime of newest texture
     size_bytes: Optional[int] = None      # None until compute_size()
+    # The newest row of build_logs/build_record.json (#1226), None for a
+    # tile built before logging; ``built_by`` is its "Built by" line —
+    # for a tile without a record, filled from the DSF only when the
+    # tile is asked for alone (:func:`with_built_by`), never by a scan.
+    last_build: Optional[dict] = None
+    built_by: str = ""
 
 
 ##############################################################################
@@ -191,6 +198,7 @@ def _build_tile_info(
     if cfg_path is not None:
         (provider, zl, has_zones, custom_dem,
          high_zl_airports, cover_zl) = _parse_cfg(cfg_path)
+    last_build = TILELOG.last_build(build_dir, lat, lon)
 
     return TileInfo(
         lat=lat,
@@ -207,7 +215,19 @@ def _build_tile_info(
         mesh_date=_mesh_date(build_dir),
         imagery_date=_imagery_date(build_dir),
         size_bytes=None,
+        last_build=last_build,
+        built_by=TILELOG.built_by_text(last_build),
     )
+
+
+def with_built_by(info: Optional[TileInfo]) -> Optional[TileInfo]:
+    """``info`` with its "Built by" line, read from the tile's DSF when it
+    has no build record (one selected tile: never call it in a scan)."""
+    if info is not None and not info.built_by and info.dsf_present:
+        info.built_by = TILELOG.built_by_text(
+            agent=TILELOG.dsf_creation_agent(
+                FNAMES.dsf_file(info.build_dir, info.lat, info.lon)))
+    return info
 
 
 def iter_scan_tiles(

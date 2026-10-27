@@ -21,12 +21,14 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from ..geom.ramp_profile import axis_ground, is_lead_face, lead_section, strip_level
 from ..law import Law
 from ..model.constraints import Band, ConstraintSet, Diff, Linear, Source
 from ..model.planar import PlanarMap, face_vertex_set
 from .pad_ramp import ramp_delta
 
-__all__ = ["RUNOUT_RULING", "runout_rows", "landing_runout_rows", "runout_exempt", "GEN", "STATS"]
+__all__ = ["RUNOUT_RULING", "BANK_RULING", "runout_rows", "landing_runout_rows",
+           "runout_exempt", "GEN", "STATS"]
 
 GEN = "ramp_runout"
 
@@ -48,8 +50,9 @@ def runout_rows(planar: PlanarMap, law: Law, cs: ConstraintSet,
     each side's ground contests it (MEASURED, KCLT #1093: an 11 % cross
     slope under the strip's end; HECA #711 the same for the landing's)."""
     from ..law.tables import is_rigid_role
+    from ..model.planar import COLLAR_SUFFIX
     runs = getattr(planar, "ramp_runouts", None) or {}
-    rep = {"faces": 0, "rows": 0}
+    rep = {"faces": 0, "rows": 0, "bank_faces": 0, "bank_rows": 0}
     if not runs:
         return cs, rep
     g = float(law.tables.emit.road_contact.ramp_grade)
@@ -63,9 +66,11 @@ def runout_rows(planar: PlanarMap, law: Law, cs: ConstraintSet,
             continue
         rep["faces"] += 1
         x0, y0, dx, dy, z0, d0 = r
+        bank = str(f.ref) + COLLAR_SUFFIX       # the strip's own 1:3 bank (#1093)
+        lead = _lead(planar, f, r, levels)
         for v in sorted(face_vertex_set(planar, f)):
             if v in levels or v in seen or any(
-                    q in F and is_rigid_role(law, F[q].role)
+                    q in F and is_rigid_role(law, F[q].role) and str(F[q].ref) != bank
                     for q in planar.vertices[v].incident_faces):
                 continue
             dv = planar.vertices[v].dem_z
@@ -75,14 +80,98 @@ def runout_rows(planar: PlanarMap, law: Law, cs: ConstraintSet,
             x, y = planar.vertices[v].xy
             s = max(0.0, (x - x0) * dx + (y - y0) * dy)
             if dem is not None:
-                dv = dem.z(x0 + dx * s, y0 + dy * s)
-            t = z0 + ramp_delta(float(dv), z0, d0, g, s)
+                t = strip_level(s, z0, d0, axis_ground(dem, x0, y0, dx, dy), g, lead)
+            else:
+                t = z0 + ramp_delta(float(dv), z0, d0, g, s)
             rows.append(Linear(((v, 1.0),), t, t,
                                Source(GEN, RUNOUT_RULING, (f"vertex:{v}", str(f.ref)))))
     rep["rows"] = len(rows)
+    brows = _bank_rows(planar, law, runs, levels, seen, dem, rep)
+    rows.extend(brows)
     if not rows:
         return cs, rep
     return _dc.replace(cs, linears=tuple(cs.linears) + tuple(rows)), rep
+
+
+def _lead(planar: PlanarMap, f, r: tuple, levels: _t.Mapping[int, float]
+          ) -> list[tuple[float, float]]:
+    """The LEAD a strip face rides (``geom/ramp_profile.strip_level``): its
+    own vertices that a standing mapped road shares, ``(s, level)``."""
+    x0, y0, dx, dy = r[:4]
+    pads = frozenset(getattr(planar, "pad_roads", None) or ())
+    runs = frozenset(getattr(planar, "ramp_runouts", None) or ())
+    F = planar.faces
+    pts = []
+    for v in face_vertex_set(planar, f):
+        if v in levels and any(q in F and is_lead_face(F[q], pads, runs)
+                               for q in planar.vertices[v].incident_faces):
+            x, y = planar.vertices[v].xy
+            pts.append(((x - x0) * dx + (y - y0) * dy, float(levels[v])))
+    return lead_section(pts)
+
+
+def _bank_rows(planar: PlanarMap, law: Law, runs: _t.Mapping[str, tuple],
+               levels: _t.Mapping[int, float], seen: set[int], dem, rep: dict) -> list:
+    """THE STRIP'S BANK LIES ON ITS 1:3 LINE TO THE GROUND (#1093; RULINGS
+    2026-10-20aw trial, 20ay "no visible edge"): every unknown vertex of a
+    run-out's bank ``runout:<k>#collar`` (``classify/ramp_runout``, minted to
+    its daylight line) takes ONE design row at its own raw ground, clamped
+    into the 1:3 cone off the nearest point ``q`` of its strip —
+    ``clamp(DEM(v), z(q) - k d, z(q) + k d)``, ``d = |v - q|``, ``z(q)`` the
+    strip's profile there.  At the daylight line that is the DEM: the toe is
+    on the ground (lane l1093b's bank had no such row; its toe stood
+    -2.00 / +2.37 m off the DEM).  The collar's hard 1:3 rows stay
+    (``constraints/platform._with_runouts``)."""
+    import shapely
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import nearest_points
+
+    from ..model.planar import is_collar_ref, platform_ref_of
+    if dem is None:
+        return []
+    k = float(law.tables.emit.design.bank_slope)
+    g = float(law.tables.emit.road_contact.ramp_grade)
+    F = planar.faces
+    strips: dict[str, list] = {}
+    for f in F.values():
+        if str(f.ref) in runs and f.role == "service_road":
+            strips.setdefault(str(f.ref), []).append(
+                (f, Polygon([planar.vertices[v].xy for v in planar.ring_vertices(f.ring)])))
+    out: list = []
+    for f in sorted(F.values(), key=lambda q: q.id):
+        if not is_collar_ref(f.ref):
+            continue
+        sref = platform_ref_of(f.ref)
+        r = runs.get(sref)
+        if r is None or sref not in strips:
+            continue
+        rep["bank_faces"] += 1
+        x0, y0, dx, dy, z0, d0 = r
+        body = shapely.union_all([q for _f, q in strips[sref]])
+        lead = lead_section([p for sf, _q in strips[sref] for p in _lead(planar, sf, r, levels)])
+        src = Source(GEN, BANK_RULING, (f"face:{f.id}", str(f.ref)))
+        own = {str(f.ref), sref}
+        for v in sorted(face_vertex_set(planar, f)):
+            # a vertex another face shares is that face's (a pad road, a
+            # lot): the bank lies between them, it never lifts them
+            if v in levels or v in seen or any(
+                    q in F and str(F[q].ref) not in own for q in planar.vertices[v].incident_faces):
+                continue
+            seen.add(v)
+            x, y = planar.vertices[v].xy
+            q = nearest_points(body, Point(x, y))[0]
+            d = float(q.distance(Point(x, y)))
+            sq = max(0.0, (q.x - x0) * dx + (q.y - y0) * dy)
+            zq = strip_level(sq, z0, d0, axis_ground(dem, x0, y0, dx, dy), g, lead)
+            t = min(zq + k * d, max(zq - k * d, float(dem.z(x, y))))
+            out.append(Linear(((v, 1.0),), t, t, src))
+    rep["bank_rows"] = len(out)
+    return out
+
+
+#: The ruling head of a run-out BANK's row (#1093; RULINGS 2026-10-20aw trial).
+BANK_RULING = ("roads.ramp_runout ramp foot to raw DEM, the strip's 1:3 bank to the ground "
+               "(owner 2026-10-20aw trial, 20ay; issue #1093)")
 
 
 #: The ruling head of a LANDING run-out's level row (#711).
@@ -161,8 +250,8 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
     collar, the strip's side bank ``<run-out>#collar``) — the landing
     platform, another pad — is not the strip's."""
     from ..law.tables import is_rigid_role
-    from ..model.platform import datum_vertices
     from ..model.planar import COLLAR_SUFFIX
+    from ..model.platform import datum_vertices
     STATS.pop("landing_runout_rows", None)
     runouts = planar.registries.landing_runouts
     if not runouts:
@@ -263,3 +352,4 @@ def runout_exempt(rows: list, planar: PlanarMap) -> tuple[list, int]:
     out = [r for r in rows if not (r.source.generator == _ROAD_RAMP
                                    and all(v in held for v in _row_vs(r)))]
     return out, len(rows) - len(out)
+

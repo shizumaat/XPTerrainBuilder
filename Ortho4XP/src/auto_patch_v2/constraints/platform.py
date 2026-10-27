@@ -141,18 +141,23 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
 def _with_runouts(planar: PlanarMap, pairs: list) -> list:
     """``pairs`` with each landing's run-out faces (``planar.registries.
     landing_runouts``, issue #711) joined to its platform faces."""
-    if not planar.registries.landing_runouts:
+    # a RAMP FOOT's run-out (``classify/ramp_runout``, #1093) banks the same:
+    # its strip faces are its own ``#collar``'s inner set
+    runs = {**(getattr(planar, "ramp_runouts", None) or {}),
+            **planar.registries.landing_runouts}
+    if not runs:
         return pairs
     by: dict[str, list[int]] = {}
     strip: dict[str, list[int]] = {}
     bank: dict[str, list[int]] = {}
     for fid in sorted(planar.faces):
         ref = str(planar.faces[fid].ref)
-        rec = planar.registries.landing_runouts.get(ref)
+        rec = runs.get(ref)
         if rec is not None:
-            by.setdefault(rec["landing"], []).append(fid)
+            if isinstance(rec, dict):
+                by.setdefault(rec["landing"], []).append(fid)
             strip.setdefault(ref, []).append(fid)
-        elif is_collar_ref(ref) and platform_ref_of(ref) in planar.registries.landing_runouts:
+        elif is_collar_ref(ref) and platform_ref_of(ref) in runs:
             bank.setdefault(platform_ref_of(ref), []).append(fid)
     # the landing's collar banks off the strip's first metres too; the
     # strip's own side bank (``<run-out>#collar``) banks off the strip

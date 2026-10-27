@@ -394,6 +394,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.constraints.end_lip",
     "auto_patch_v2.constraints.face_index",
     "auto_patch_v2.constraints.flat_site",
+    "auto_patch_v2.constraints.foot_road",
     "auto_patch_v2.constraints.foot_rows",
     "auto_patch_v2.constraints.gap_follow",
     "auto_patch_v2.constraints.geometry",

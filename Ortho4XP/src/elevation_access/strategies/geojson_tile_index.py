@@ -18,6 +18,7 @@ from elevation_access.definitions import (
     _coverage_bbox_intersects,
     _geojson_geometry_bounding_box,
 )
+from elevation_access.footprints import read_cached_json
 from elevation_access.gdal_support import has_gdal
 from elevation_access.layered_warp import (
     hidden_sources_record,
@@ -96,6 +97,15 @@ class GeojsonTileIndexStrategy:
         with open(self.index_path(definition), "w", newline="\n") as handle:
             json.dump(entries, handle)
         return entries
+
+    def cached_source_boxes(self, definition):
+        """The catalogue's tile boxes when the index is already on disk
+        (offline, the provider's real footprint -- #1466), else ``None``."""
+        entries = read_cached_json(self.index_path(definition))
+        if not isinstance(entries, list):
+            return None
+        return [entry["bbox"] for entry in entries
+                if isinstance(entry, dict) and entry.get("bbox")]
 
     def discover(self, definition, bounding_box_wgs84):
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):

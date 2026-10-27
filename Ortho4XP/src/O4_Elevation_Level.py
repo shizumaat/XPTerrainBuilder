@@ -422,6 +422,7 @@ def _registry_definitions_reaching_tile(
     import O4_Airport_Elevation_Insets as INSETS
     from elevation_access import base_tiles as ea_base_tiles
     from elevation_access import definitions as ea_definitions
+    from elevation_access import footprints as ea_footprints
     from elevation_access import registry as ea_registry
 
     if not INSETS.elevation_providers_dict:
@@ -473,9 +474,8 @@ def _registry_definitions_reaching_tile(
         if role == ea_definitions.ROLE_BASE:
             if not ea_base_tiles.base_definition_covers_tile(definition, lat, lon):
                 continue
-        elif not ea_definitions._coverage_bbox_intersects(
-            definition, tile_bounding_box
-        ):
+        elif not ea_footprints.covers_box(definition, tile_bounding_box):
+            # The declared box AND, when known, the real footprint (#1466).
             continue
         candidates.append(definition)
     return candidates
@@ -1758,15 +1758,17 @@ def approach_ring_cell_box(lat, lon, column, row):
 
 
 def _definition_covers_box(definition, box):
-    """Cheap per-cell coverage test, the candidate filter's own convention."""
+    """Per-cell coverage test, the candidate filter's own convention: the
+    declared box AND, when known, the provider's real footprint (#1466)."""
     from elevation_access import definitions as ea_definitions
+    from elevation_access import footprints as ea_footprints
 
     role = definition.get("role", ea_definitions.ROLE_AIRPORT_INSET)
     if role == ea_definitions.ROLE_BASE:
         # A base definition's coverage was already resolved for the whole
         # tile by the candidate filter; every cell of the tile is covered.
         return True
-    return bool(ea_definitions._coverage_bbox_intersects(definition, box))
+    return bool(ea_footprints.covers_box(definition, box))
 
 
 def _neighbour_boundary_polygons(lat, lon, reach_m):
@@ -2305,6 +2307,11 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
     import O4_Airport_Elevation_Insets as INSETS
 
     tile.rings_fetched_last_build = 0
+    if resolve_approach_ring_plan(tile, dico_airports) is None:
+        return 0
+    # The candidates' real footprints first (#1466): the plan then walks
+    # past a provider whose box reaches a cell its data does not.
+    _ensure_ring_candidate_footprints(tile, refresh)
     plan = resolve_approach_ring_plan(tile, dico_airports)
     if plan is None:
         return 0
@@ -2444,6 +2451,24 @@ APPROACH_RING_PROGRESS_EVERY = 1
 #: A cell a Stop drained before its fetch began: no outcome is recorded,
 #: so the next run fetches it.
 _RING_FETCH_SKIPPED = object()
+
+
+def _ensure_ring_candidate_footprints(tile, refresh=False):
+    """Probe the footprint of every ring candidate of the tile that can be
+    probed and is not known yet (:mod:`elevation_access.footprints`)."""
+    from elevation_access import footprints as ea_footprints
+
+    lat, lon = int(tile.lat), int(tile.lon)
+    if refresh:
+        ea_footprints.forget_tile_footprints(lat, lon)
+    ladder = approach_rung_ladder()
+    candidates = _approach_ring_candidates(
+        lat, lon, getattr(tile, "airport_elevation_providers", "auto"),
+        float("inf"), rung_label=ladder[-1].label, ladder=ladder,
+    )
+    return ea_footprints.ensure_tile_footprints(
+        candidates, lat, lon, refresh=refresh
+    )
 
 
 def _fetch_approach_ring_cells(lat, lon, jobs, insets):

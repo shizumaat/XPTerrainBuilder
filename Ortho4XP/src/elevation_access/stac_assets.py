@@ -2,6 +2,7 @@
 """
 
 __all__ = [
+    "_item_footprints_by_href",
     "_select_stac_dtm_assets",
     "_stac_asset_href_to_vsicurl",
 ]
@@ -106,6 +107,28 @@ def _select_stac_dtm_assets(items, prefer_asset_keys, target_resolution_m=None):
         )
         chosen.append((href, resolution))
     return chosen
+
+
+def _item_footprints_by_href(items):
+    """``{asset href: (west, south, east, north)}`` from each item's STAC
+    ``bbox`` (2-D or 3-D form); an item without one maps nothing, so its
+    assets are never skipped as hidden (#1327)."""
+    footprints = {}
+    for item in items:
+        bbox = item.get("bbox") or []
+        if len(bbox) == 6:
+            bbox = [bbox[0], bbox[1], bbox[3], bbox[4]]
+        if len(bbox) != 4:
+            continue
+        try:
+            box = tuple(float(value) for value in bbox)
+        except (TypeError, ValueError):
+            continue
+        for asset in (item.get("assets") or {}).values():
+            href = asset.get("href") if isinstance(asset, dict) else None
+            if href:
+                footprints[href] = box
+    return footprints
 
 
 def _stac_asset_resolution(asset):

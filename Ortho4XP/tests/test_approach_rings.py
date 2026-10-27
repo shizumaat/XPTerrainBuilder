@@ -1928,3 +1928,53 @@ def test_a_date_only_stamp_change_is_not_rewritten(tmp_path, monkeypatch):
     changed = dict(later, plan_stamp="def")
     assert EL.write_approach_ring_stamp(39, -107, changed) is True
 
+
+
+def test_ring_cells_of_every_tile_share_one_machine_wide_pool(
+    tmp_path, monkeypatch, capsys
+):
+    """RULINGS 2026-10-26t (#1327): ring-cell fetches against one provider
+    hold its session-wide CELL class, so two tiles fetching at once are
+    one cap on the server, not one cap each -- and every finished cell
+    prints a progress line."""
+    import threading
+    import time
+
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(RINGS, "APPROACH_RING_FETCH_WORKERS", 2)
+    lock = threading.Lock()
+    in_flight = [0, 0]
+
+    def _fetch(_definition, _box, _class_m, _path):
+        with lock:
+            in_flight[0] += 1
+            in_flight[1] = max(in_flight[1], in_flight[0])
+        try:
+            time.sleep(0.05)
+            return None
+        finally:
+            with lock:
+                in_flight[0] -= 1
+
+    fake = SimpleNamespace(fetch_inset=_fetch)
+    rung = SimpleNamespace(definition={"code": "POOLTEST"})
+
+    def _tile_pass(lat):
+        jobs = [
+            ({"column": column, "row": 0, "provider": "POOLTEST",
+              "class_m": 10.0,
+              "path": str(tmp_path / ("c%d_%d.tif" % (lat, column)))}, rung)
+            for column in range(4)
+        ]
+        RINGS._fetch_approach_ring_cells(lat, 7, jobs, fake)
+
+    tiles = [threading.Thread(target=_tile_pass, args=(lat,))
+             for lat in (46, 47)]
+    for thread in tiles:
+        thread.start()
+    for thread in tiles:
+        thread.join()
+    assert in_flight[1] == 2
+    out = capsys.readouterr().out
+    for done in (1, 2, 3, 4):
+        assert "approach rings: %d/4 cells" % done in out

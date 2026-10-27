@@ -2431,13 +2431,15 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
     return fetched
 
 
-#: Ring-cell fetches in flight at once (#1327): the cap the airport-inset
-#: fetch uses; ``fetch_inset``'s per-provider slots still bound any one
-#: server.
+#: Ring-cell fetches in flight at once against one provider, MACHINE-WIDE
+#: (#1327, RULINGS 2026-10-26t): every tile of the session shares the
+#: provider's cell class (``fetch_slots.cell_fetch_class``), so three
+#: tiles are four streams to one host, not twelve.
 APPROACH_RING_FETCH_WORKERS = 4
 
-#: A progress line every this many finished cells (and at the last one).
-APPROACH_RING_PROGRESS_EVERY = 10
+#: A progress line every this many finished cells (and at the last one):
+#: every cell (RULINGS 2026-10-26t), so a long ring pass is seen moving.
+APPROACH_RING_PROGRESS_EVERY = 1
 
 #: A cell a Stop drained before its fetch began: no outcome is recorded,
 #: so the next run fetches it.
@@ -2458,6 +2460,9 @@ def _fetch_approach_ring_cells(lat, lon, jobs, insets):
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
+    import O4_Machine_Slots as MACHINE_SLOTS
+    from elevation_access import fetch_slots as ea_fetch_slots
+
     os.makedirs(FNAMES.approach_ring_directory(lat, lon), exist_ok=True)
     total = len(jobs)
     lock = threading.Lock()
@@ -2469,14 +2474,21 @@ def _fetch_approach_ring_cells(lat, lon, jobs, insets):
             if UI.red_flag:
                 return (_RING_FETCH_SKIPPED, None)
             try:
-                provenance = insets.fetch_inset(
-                    source_rung.definition,
-                    approach_ring_cell_box(
-                        lat, lon, cell["column"], cell["row"]
-                    ),
-                    cell["class_m"],
-                    cell["path"],
-                )
+                with MACHINE_SLOTS.hold_class(
+                    ea_fetch_slots.cell_fetch_class(cell["provider"]),
+                    APPROACH_RING_FETCH_WORKERS,
+                    give_up=lambda: UI.red_flag,
+                ):
+                    if UI.red_flag:
+                        return (_RING_FETCH_SKIPPED, None)
+                    provenance = insets.fetch_inset(
+                        source_rung.definition,
+                        approach_ring_cell_box(
+                            lat, lon, cell["column"], cell["row"]
+                        ),
+                        cell["class_m"],
+                        cell["path"],
+                    )
             except Exception as error:
                 return (None, error)
             return (provenance, None)

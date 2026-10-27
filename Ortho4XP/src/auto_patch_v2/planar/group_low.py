@@ -80,7 +80,7 @@ def group_floor(ui: int, airport, air_of: _t.Callable[[_t.Any], _t.Any],
         sf = stand_floor(parts, air, stands, law, to_xy)
         if sf is not None:
             t, X, Y, at = sf
-            idx = _floor_band(airport, X, Y, [i for i in range(len(Y)) if at[i]])
+            idx = _floor_band(airport, law, X, Y, [i for i in range(len(Y)) if at[i]])
             idx = idx[::max(1, -(-len(idx) // WITNESS_MAX))]
             got = (t, tuple((round(float(X[i, 0]), 3), round(float(X[i, 1]), 3)) for i in idx),
                    tuple(round(float(Y[i]), 3) for i in idx))
@@ -88,7 +88,7 @@ def group_floor(ui: int, airport, air_of: _t.Callable[[_t.Any], _t.Any],
     return got
 
 
-def _floor_band(airport, X, Y, idx: list) -> list:
+def _floor_band(airport, law, X, Y, idx: list) -> list:
     """The stand-side feet ``idx`` whose ground candidate ``DEM - y`` lies
     within half a ``PLANE_BAND_M`` of their ``floor_plane``: the feet the
     object stage's floor will be read on (the highest dense plane of
@@ -96,7 +96,7 @@ def _floor_band(airport, X, Y, idx: list) -> list:
     every stand-side foot 104.2 m, the floor 105.2, the mean of this band
     105.0).  The DEM stands in for the airside, unsolved here; without a
     DEM every foot is kept."""
-    from ..geom.foot_planes import floor_plane
+    from ..airport.airside_group_seat import floor_plane, storey_m
     dem = getattr(airport, "dem", None)
     if dem is None or not idx:
         return idx
@@ -108,7 +108,7 @@ def _floor_band(airport, X, Y, idx: list) -> list:
             continue
         if z == z:
             c[i] = z - float(Y[i])
-    fp = floor_plane(list(c.values()))
+    fp = floor_plane(list(c.values()), storey_m(law))
     if fp is None:
         return idx
     return [i for i in idx if i in c and abs(c[i] - fp) <= 0.5 * PLANE_BAND_M]

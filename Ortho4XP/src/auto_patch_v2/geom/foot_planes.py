@@ -23,7 +23,7 @@ PLANE_BAND_M = 1.0
 PLANE_MIN_FEET = 20
 
 
-def floor_plane(zs: _t.Sequence[float]) -> "float | None":
+def floor_plane(zs: _t.Sequence[float], storey_m: float = 0.0) -> "float | None":
     """THE AIRSIDE FLOOR among a group's airside-contact feet (RULINGS
     2026-10-22q as read by #1214 round 5): each foot's zero candidate is
     ``airside z - y`` (where the group's zero must be for THAT foot to
@@ -34,7 +34,18 @@ def floor_plane(zs: _t.Sequence[float]) -> "float | None":
     its median.  The feet above it are the building's upper storeys.
     Round 4 took the highest plane of feet: KMCI's concourse walls at
     y -1.1 stood on the apron and the complex sank a storey (owner,
-    1.0.420); its curb plane at y -5.8 is the floor (zero 310.7)."""
+    1.0.420); its curb plane at y -5.8 is the floor (zero 310.7).
+
+    ONE LEVEL WITHIN A STOREY (#1344): the candidates less than
+    ``storey_m`` (``[building_pad] low_level_min_step_m``) under that
+    median are the SAME level, authored on ground that falls — the patch
+    mints no second level for them either (``planar/low_level``).  Where
+    their LOWEST substantial plane's median lies below the floor's band,
+    it is the zero (:func:`ground_plane`'s reading: nothing floats; the
+    feet of the higher plane may sink, owner RULINGS 2026-10-22c).  KBUF's
+    terminal frame: 68 feet at y -0.10 and 39 at y -1.20 on one flat pad
+    — the round-5 floor stood on the y -1.20 plane and floated the west
+    half 0.9 m.  ``storey_m`` 0 keeps round 5's floor."""
     if not zs:
         return None
     v = sorted((float(z) for z in zs), reverse=True)
@@ -47,8 +58,25 @@ def floor_plane(zs: _t.Sequence[float]) -> "float | None":
         if i - j + 1 >= need:
             band = [x for x in v if v[j] - PLANE_BAND_M <= x <= v[j]]
             band.sort()
-            return band[len(band) // 2]
+            floor = band[len(band) // 2]
+            if storey_m <= 0.0:
+                return floor
+            low = _lowest_plane([x for x in v if x > floor - storey_m], need)
+            return low if low < v[j] - PLANE_BAND_M else floor
     return sorted(v)[len(v) // 2]
+
+
+def _lowest_plane(zs: _t.Sequence[float], need: int) -> float:
+    """The median of the lowest :data:`PLANE_BAND_M` band of ``zs``
+    holding ``need`` of them (else of all of them)."""
+    v = sorted(zs)
+    j = 0
+    for i in range(len(v)):
+        while v[i] - v[j] > PLANE_BAND_M:
+            j += 1
+        if i - j + 1 >= need:
+            return v[(i + j) // 2]
+    return v[len(v) // 2]
 
 
 def ground_plane(zs: _t.Sequence[float]) -> "float | None":
@@ -62,13 +90,6 @@ def ground_plane(zs: _t.Sequence[float]) -> "float | None":
     across its frame (owner, 1.0.421)."""
     if not zs:
         return None
-    v = sorted(float(z) for z in zs)
-    need = max(1, int(PLANE_SHARE * len(v) + 0.999999),
-               min(PLANE_MIN_FEET, int(0.5 * len(v) + 0.999999)))
-    j = 0
-    for i in range(len(v)):
-        while v[i] - v[j] > PLANE_BAND_M:
-            j += 1
-        if i - j + 1 >= need:
-            return v[(i + j) // 2]
-    return v[len(v) // 2]
+    need = max(1, int(PLANE_SHARE * len(zs) + 0.999999),
+               min(PLANE_MIN_FEET, int(0.5 * len(zs) + 0.999999)))
+    return _lowest_plane(zs, need)

@@ -112,18 +112,18 @@ public enum TileBuildLogs {
     /// `(tile key, text)` of a console line: the key of its `[+47-123] `
     /// prefix and the text after it; `(nil, line)` for a run-level line.
     public static func tileOfLine(_ line: String) -> (tile: String?, text: String) {
-        // "[" + sign + 2 digits + sign + 3 digits + "] " = 11 characters.
-        let chars = Array(line.utf8.prefix(11))
-        guard chars.count == 11, chars[0] == UInt8(ascii: "["),
-              chars[9] == UInt8(ascii: "]"), chars[10] == UInt8(ascii: " ") else {
+        // "[" + sign + 2 digits + sign + 3 digits + "] " = 10 characters.
+        let chars = Array(line.utf8.prefix(10))
+        guard chars.count == 10, chars[0] == UInt8(ascii: "["),
+              chars[8] == UInt8(ascii: "]"), chars[9] == UInt8(ascii: " ") else {
             return (nil, line)
         }
         func sign(_ c: UInt8) -> Bool { c == UInt8(ascii: "+") || c == UInt8(ascii: "-") }
         func digit(_ c: UInt8) -> Bool { c >= UInt8(ascii: "0") && c <= UInt8(ascii: "9") }
         guard sign(chars[1]), digit(chars[2]), digit(chars[3]), sign(chars[4]),
               digit(chars[5]), digit(chars[6]), digit(chars[7]) else { return (nil, line) }
-        let key = String(decoding: chars[1...8], as: UTF8.self)
-        return (key, String(line.dropFirst(11)))
+        let key = String(decoding: chars[1...7], as: UTF8.self)
+        return (key, String(line.dropFirst(10)))
     }
 
     /// The "Built by" line: from the record's builder; else from the

@@ -6,7 +6,10 @@ import SceneryKit
 /// holds the app's own settings plus the Ortho4XP app-level ones (engine,
 /// status, runtime); the remaining sections mirror the Qt UI's categories
 /// and edit the engine config — globally, or as per-tile overrides when
-/// tiles are selected on the map (the Qt "blended view" semantics).
+/// tiles are selected on the map (the Qt "blended view" semantics). The
+/// window follows the selection (#1549): its subtitle says what an edit
+/// changes, a setting the selected tiles disagree on shows "Conflicting
+/// values", and while they disagree a change asks before it applies.
 struct SettingsView: View {
     @EnvironmentObject var buildModel: BuildModel
     @StateObject private var selection = ViewState<String?>("general")
@@ -55,6 +58,17 @@ struct SettingsView: View {
             detail(overrides: overrides)
         }
         .frame(minWidth: 840, idealWidth: 880, minHeight: 560, idealHeight: 620)
+        .navigationSubtitle(buildModel.settingsScopeText)
+        .alert(SettingsSelection.confirmTitle,
+               isPresented: Binding(
+                   get: { buildModel.pendingSelectionEdit != nil },
+                   set: { if !$0 { buildModel.pendingSelectionEdit = nil } }),
+               presenting: buildModel.pendingSelectionEdit) { _ in
+            Button(SettingsSelection.confirmButton) { buildModel.confirmPendingSelectionEdit() }
+            Button("Cancel", role: .cancel) { buildModel.pendingSelectionEdit = nil }
+        } message: { pending in
+            Text(SettingsSelection.confirmMessage(tileCount: pending.tileCount))
+        }
         // "Edit settings…" in the tile pane (#1350) asks for a pane: the
         // tile's Selected Overrides, whether the window is new or open.
         .onAppear { takePaneRequest() }
@@ -187,6 +201,9 @@ private struct GeneralPane: View {
     /// The SAME predicate the first-run page and the engine use (beta plan
     /// §1 B2): Settings calling a folder valid that Build then rejects is
     /// the confusion this closes.
+    /// The Detail picker's entry while the selected tiles disagree.
+    private static let conflictTag = -1
+
     private var xplaneProblem: String? { XPlaneInstall.problem(at: xplanePath) }
     private var xplaneValid: Bool { xplaneProblem == nil }
 
@@ -195,10 +212,18 @@ private struct GeneralPane: View {
             // The preset cards (#822): one click sets a fixed set of keys.
             Section {
                 PresetCardsView()
-                // The build detail level (#1242): here, not in the build pane.
+                // The build detail level (#1242): here, not in the build pane;
+                // the selection's (#1549), -1 while the tiles disagree.
+                let zoom = buildModel.selectionZoom
                 Picker(O4Glossary.term("detail"), selection: Binding(
-                    get: { buildModel.buildZL },
-                    set: { buildModel.objectWillChange.send(); buildModel.buildZL = $0 })) {
+                    get: { zoom.value ?? Self.conflictTag },
+                    set: { zl in
+                        guard zl != Self.conflictTag else { return }
+                        buildModel.editSelection { buildModel.chooseZoom(zl) }
+                    })) {
+                    if zoom.isConflicting {
+                        Text(SettingsSelection.conflictText).tag(Self.conflictTag)
+                    }
                     ForEach(12...21, id: \.self) { zl in
                         Text(O4Glossary.detailChoice(zl)).tag(zl)
                     }
@@ -732,6 +757,9 @@ private struct ConfigItemRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     control(variable)
+                    if buildModel.overrideState(for: item.name) == .mixed, item.scope == .tile {
+                        ConflictBadge()
+                    }
                     if showsRevert {
                         Button {
                             buildModel.revertTileOverrides(for: item.name)
@@ -818,6 +846,18 @@ private struct ConfigItemRow: View {
                     return true
                 })
         }
+    }
+}
+
+/// The selected tiles disagree on this setting (#1549): a change applies to
+/// all of them, after the user confirms. Same words as the Qt row's tag.
+private struct ConflictBadge: View {
+    var body: some View {
+        Label(SettingsSelection.conflictText, systemImage: "exclamationmark.triangle.fill")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.orange)
+            .fixedSize()
+            .help("The selected tiles use different values. A change applies to all of them, after you confirm.")
     }
 }
 

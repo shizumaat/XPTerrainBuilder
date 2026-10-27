@@ -89,3 +89,31 @@ def test_a_wall_on_a_slope_along_itself_retains_nothing():
     ap.dem = _SlopeAlongDem()
     got = wall_class_components(ap, CFG)
     assert len(got) == 1 and not got[0].retains
+
+
+def _with(ap, **part_fields):
+    part = ap.partition.units[0].members[0].parts[0]
+    for k, v in part_fields.items():
+        setattr(part, k, v)
+    return ap
+
+
+def test_an_elevated_part_retains_nothing():
+    """#1197 (KATL ``Vidrios.obj`` comp 17): a part the partition found no
+    ground feet for stands on nothing and holds nothing — the thick one
+    leaves the wall class, the thin one stays a wall that does not retain."""
+    assert wall_class_components(_with(_airport(3.46, 10.65, 10.6), feet=()), CFG) == []
+    got = wall_class_components(_with(_airport(0.8, 3.0, 3.0), feet=()), CFG)
+    assert len(got) == 1 and not got[0].retains
+    footed = _with(_airport(0.8, 3.0, 3.0), feet=((33.64, -84.42, 0.0),))
+    assert wall_class_components(footed, CFG)[0].retains
+
+
+def test_a_fence_named_in_another_language_is_no_wall():
+    """#1197 (LEMD ``…LEMDzaun.obj``): the 29h fence words are read in the
+    packs' languages, accents folded."""
+    for name in ("objects/LEMD_OBJ-T4STower_(c)_Sim-wings-LEMDzaun.obj",
+                 "objects/Clôture_sud.obj", "Hangrao.obj"):
+        ap = _airport(0.8, 3.0, 3.0)
+        ap.partition.units[0].members[0].resource = name
+        assert wall_class_components(ap, CFG) == [], name

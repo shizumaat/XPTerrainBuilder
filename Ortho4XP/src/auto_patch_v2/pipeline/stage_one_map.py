@@ -491,9 +491,12 @@ class StageOne:
                 out.append(q)
         return out, lost
 
-    def apply_full(self, cs_full: ConstraintSet) -> ConstraintSet:
+    def apply_full(self, cs_full: ConstraintSet, free: frozenset = frozenset()
+                   ) -> ConstraintSet:
         """``HoldPass.apply`` on the FULL map's set: the hold rows pass 1b
-        derived on the ribbon-free map, carried by the join."""
+        derived on the ribbon-free map, carried by the join -- less every
+        carried row naming a vertex of ``free``, stage 2's own (a group's
+        lower level, ``constraints/group_level.stage_two_vertices``)."""
         res = getattr(self.hold, "result", None)
         if self.hold is None or res is None:
             return cs_full
@@ -501,6 +504,11 @@ class StageOne:
         if hasattr(self.hold, "widened"):
             base = self.hold.widened(base, self.to_full)   # 08d (2), by the join
         rows, lost = self.rows_to_full(res.rows)
+        if free:
+            from ..solve.pin_yield import row_vertices
+            kept = [r for r in rows if not free.intersection(row_vertices(r))]
+            self.report["hold_rows_stage_two"] = len(rows) - len(kept)
+            rows = kept
         self.report["hold_rows_unmapped"] = lost
         return ConstraintSet.from_rows([*base.rows(), *rows])
 

@@ -26,7 +26,9 @@ import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
 import O4_Map_Overzoom as OVERZOOM
 import O4_Qt_Map_Labels as QTLABELS
+import O4_Qt_Selection_Ring as RING
 import O4_Qt_Text_Scale as QTTEXT
+import O4_Tile_Texture_Check as TEXCHECK
 import requests
 from PIL import Image as PILImage
 from PySide6.QtCore import (
@@ -76,8 +78,6 @@ LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
 # Built tiles are plain green — the ZL stays readable in the center
 # label ("PROV 16*"); no per-ZL color coding, no legend.
 BUILT_COLOR = "#4CAF6E"
-#: The selection ring (the Mac app's buildSelection).
-SELECTION_COLOR = "#FFD60A"
 #: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
 SETTINGS_BADGE_COLOR = "#0A84FF"
 #: The custom-patch band (#1229); MapCanvasView.customPatchBand.
@@ -141,6 +141,11 @@ parse_tile_key = FNAMES.parse_tile_key
 # LEVELS, so only the provider token decides foreignness; masks and other
 # non-.dds files are ignored.  The name grammar is
 # O4_Custom_Scenery.parse_texture_stem's (one parser, two readers).
+# A texture the tile's terrain files NAME is in use, never foreign, whatever
+# the cfg says (O4_Tile_Texture_Check.terrain_texture_names): on 2026-10-25
+# a cfg reset to a 2017 build's source made a tile's real textures look
+# unused and the cleanup sent all of them to the Trash.  A tile whose
+# terrain folder cannot be listed gets no call.
 
 
 def texture_provider(name):
@@ -169,6 +174,9 @@ def has_foreign_sources(textures_dir, provider):
     provider = str(provider or "").strip()
     if not provider:
         return False
+    in_use = TEXCHECK.terrain_texture_names(os.path.dirname(textures_dir))
+    if in_use is None:
+        return False
     try:
         names = os.listdir(textures_dir)
     except OSError:
@@ -176,7 +184,8 @@ def has_foreign_sources(textures_dir, provider):
     current = provider.lower()
     for name in names:
         found = texture_provider(name)
-        if found is not None and found.lower() != current:
+        if (found is not None and found.lower() != current
+                and name not in in_use):
             return True
     return False
 
@@ -269,6 +278,9 @@ def audit_textures(textures_dir, provider):
     provider = str(provider or "").strip()
     if not provider:
         return None
+    in_use = TEXCHECK.terrain_texture_names(os.path.dirname(textures_dir))
+    if in_use is None:
+        return None
     try:
         names = os.listdir(textures_dir)
     except OSError:
@@ -287,7 +299,7 @@ def audit_textures(textures_dir, provider):
             size = 0
         (count, total) = counts.get(found, (0, 0))
         counts[found] = (count + 1, total + size)
-        if found.lower() != current:
+        if found.lower() != current and name not in in_use:
             foreign_files.append(path)
     sources = sorted(
         ((found, count, total) for (found, (count, total)) in counts.items()),
@@ -1066,6 +1078,10 @@ class MapView(QGraphicsView):
         path = self._cache_path(code, z, x, y)
         generation = self._generation
         try:
+            if os.path.isfile(path):
+                layer = SOURCES.tile_source(code, z, x, y)
+                if layer and IMG.is_cached_placeholder(path, layer["url"]):
+                    os.remove(path)   # refetch: the parent fallback draws it
             if not os.path.isfile(path):
                 if not self._still_wanted(key):
                     return  # cancelled while queued
@@ -1291,29 +1307,10 @@ class MapView(QGraphicsView):
             self._draw_custom_patch_band(painter, r, scale)
 
         if selected:
-            # Selection: a focus ring.  Active: solid with a soft outer
-            # glow; other selected tiles: dashed.
-            ring = QColor(SELECTION_COLOR)
-            px1 = 1.0 / scale if scale else 0.0     # one screen pixel
-            if active:
-                glow = QColor(ring)
-                glow.setAlphaF(0.35)
-                pen = QPen(glow)
-                pen.setCosmetic(True)
-                pen.setWidth(5)
-                painter.setPen(pen)
-                painter.drawRect(r.adjusted(-1.5 * px1, -1.5 * px1,
-                                            1.5 * px1, 1.5 * px1))
-                pen = QPen(ring)
-                pen.setCosmetic(True)
-                pen.setWidthF(2.5)
-            else:
-                pen = QPen(ring)
-                pen.setCosmetic(True)
-                pen.setWidth(2)
-                pen.setDashPattern([5 / 2, 4 / 2])  # 5 px on, 4 off at width 2
-            painter.setPen(pen)
-            painter.drawRect(r.adjusted(px1, px1, -px1, -px1))
+            # Selection: the shared focus ring (#1537) -- solid with a
+            # glow on the active tile, dashed on the others.
+            RING.draw(painter, r, active, RING.ring_color(self.palette()),
+                      1.0 / scale if scale else 0.0)
 
         # Customized settings (#1350): a blue dot in the top-left corner,
         # on a built or selected tile (MapCanvasView.swift draws the same).

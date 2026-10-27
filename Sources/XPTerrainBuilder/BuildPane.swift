@@ -78,14 +78,10 @@ struct BuildPane: View {
                     VStack(alignment: .leading, spacing: 12) {
                         box("Selection") { selectionBox }
                         box("Build") { buildBox }
-                        if buildModel.isBuilding || !buildModel.activity.runOrder.isEmpty {
-                            box("Activity") {
-                                ActivityBox()
-                                    .environmentObject(buildModel)
-                                    .environmentObject(buildModel.activity)
-                                    .environmentObject(controller)
-                            }
-                        }
+                        ActivitySections()
+                            .environmentObject(buildModel)
+                            .environmentObject(buildModel.activity)
+                            .environmentObject(controller)
                         PatchInspector(model: buildModel.patchEdit)
                     }
                     .padding(10)
@@ -187,13 +183,7 @@ struct BuildPane: View {
     }
 
     private func box<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                content()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(4)
-        } label: {
+        PaneBox(content: content) {
             Text(title).scaledFont(.callout, weight: .semibold)
         }
     }
@@ -223,6 +213,9 @@ struct BuildPane: View {
                         imageryConflictPopover(audit)
                     }
                 }
+            }
+            if info != nil {
+                TileMissingTexturesRow(coord: active)
             }
             detailRow(O4Glossary.term("detail"), zlText(info))
             detailRow("Ground shaped", dateText(info?.meshDate))
@@ -1040,15 +1033,17 @@ struct BuildPane: View {
     }
 }
 
-/// Per-tile rows + the run clock, like the Qt Activity group: each row is
+/// One section's per-tile rows, like the Qt Activity group: each row is
 /// tile key · status · progress bar · per-tile stop (resume, once stopped);
-/// below them Elapsed / Remaining. Finished rows stay until the app quits,
-/// under the live ones in finish order, titles dimmed (#1341). Observes
-/// only the high-frequency activity model.
+/// in Activity, below them Elapsed / Remaining. Finished rows stay until
+/// the app quits, under the live ones in finish order, titles dimmed
+/// (#1341); built tiles' rows sit in Completed, compact (#1556, #1542).
+/// Observes only the high-frequency activity model.
 struct ActivityBox: View {
     @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var activity: BuildActivityModel
     @EnvironmentObject var controller: AnalysisController
+    var section: ActivityOrder.Section = .activity
 
     /// Point size of the per-tile stop / resume glyphs. Shared so the two
     /// buttons stay the same size as each other beside the row's small text.
@@ -1058,17 +1053,22 @@ struct ActivityBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if activity.totalTiles > 0 {
+            if section == .activity, activity.totalTiles > 0 {
                 Text("Building \(activity.totalTiles) tile\(activity.totalTiles == 1 ? "" : "s") — \(activity.doneTiles) done")
                     .scaledFont(.callout, weight: .medium)
             }
-            ForEach(activity.displayOrder, id: \.self) { coord in
+            // Rows of selected tiles are filled, judged over both
+            // sections (#1537).
+            let filled = ActivityOrder.filledRows(rows: activity.displayOrder,
+                                                  selected: buildModel.selected)
+            ForEach(activity.rows(in: section), id: \.self) { coord in
                 row(coord, activity.tiles[coord])
+                    .activityRowFill(filled.contains(coord))
             }
             // The run clock belongs to a run: once one has ended and only
             // stopped rows are left waiting for a resume, there is no
             // elapsed to report.
-            if buildModel.isBuilding || activity.totalTiles > 0 {
+            if section == .activity, buildModel.isBuilding || activity.totalTiles > 0 {
                 Divider()
                 HStack {
                     Text("Total \(ProgressRowText.clock(activity.elapsedSeconds))")
@@ -1098,6 +1098,7 @@ struct ActivityBox: View {
             TileProgressRowLines(
                 text: text, statusColor: Self.color(tone),
                 titleDimmed: BuildActivityModel.isFinished(progress),
+                compact: section == .completed,
                 onStatusTap: hasIssues ? { buildModel.reopenIssues(coord) } : nil,
                 strip: activity.stepStrips[coord]
             ) {

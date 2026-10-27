@@ -245,7 +245,8 @@ def _channels(icao: str, pm, law, law_c, airport, road_profiles, road_rep, road_
          f"{ramp_rep.get('max_clamp_over_dem_m', 0.0):.2f} m; coverage-edge joins "
          f"(§37 (9)) {ramp_rep.get('join_exits', 0)} exit(s) on "
          f"{ramp_rep.get('join_routes', 0)} route(s) -> {ramp_rep.get('join_vertices', 0)} "
-         f"pinned vertices")
+         f"pinned vertices; fill risers (10-20d, 27i) {ramp_rep.get('fill_riser_walls', 0)} "
+         f"declared, {ramp_rep.get('fill_riser_unmapped', 0)} not on the map")
     out(f"[{icao}] road {descent_line(ramp_rep)}")
     return pm, _yield_records
 

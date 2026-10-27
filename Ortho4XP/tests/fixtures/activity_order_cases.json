@@ -1,5 +1,31 @@
 {
-  "_doc": "The Activity list's row order and status tone (#1341). Read by Ortho4XP/tests/test_activity_order.py (O4_Activity_Order) and Tests/SceneryKitTests/ActivityOrderTests.swift (SceneryKit ActivityOrder). Each sequence starts with no stamps and counter 0; each step lists every row [key, state, label] in the order the rows were made, and the order the list shows after it.",
+  "_doc": "The Activity list's row order and status tone (#1341), the section a row sits in (#1556) and the rows filled as selected (#1537, every row of both sections). Read by Ortho4XP/tests/test_activity_order.py (O4_Activity_Order) and Tests/SceneryKitTests/ActivityOrderTests.swift (SceneryKit ActivityOrder). Each sequence starts with no stamps and counter 0; each step lists every row [key, state, label] in the order the rows were made, and the order the list shows after it.",
+  "section": [
+    {"state": "done", "section": "completed"},
+    {"state": "error", "section": "activity"},
+    {"state": "stopped", "section": "activity"},
+    {"state": "queued", "section": "activity"},
+    {"state": "active", "section": "activity"},
+    {"state": "indeterminate", "section": "activity"}
+  ],
+  "filled": [
+    {"name": "subset: the selected rows fill",
+     "rows": ["a", "b", "c"], "selected": ["a", "b"], "filled": ["a", "b"]},
+    {"name": "every row selected: none fill",
+     "rows": ["a", "b"], "selected": ["a", "b"], "filled": []},
+    {"name": "every row selected plus tiles off the list: none fill",
+     "rows": ["a", "b"], "selected": ["a", "b", "z"], "filled": []},
+    {"name": "nothing selected: none fill",
+     "rows": ["a", "b"], "selected": [], "filled": []},
+    {"name": "selection off the list: none fill",
+     "rows": ["a", "b"], "selected": ["z"], "filled": []},
+    {"name": "selection partly off the list: the selected row fills",
+     "rows": ["a", "b"], "selected": ["a", "z"], "filled": ["a"]},
+    {"name": "a lone row: never fills",
+     "rows": ["a"], "selected": ["a"], "filled": []},
+    {"name": "no rows",
+     "rows": [], "selected": ["a"], "filled": []}
+  ],
   "finished": [
     {"state": "queued", "label": "queued", "finished": false},
     {"state": "active", "label": "mesh", "finished": false},

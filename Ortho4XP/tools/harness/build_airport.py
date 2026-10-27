@@ -277,7 +277,8 @@ from shared_repo_guard import (                          # noqa: E402,F401
     REFRESH_SCOPES, scope_of, scope_description, shared_repo_snapshot,
     snapshot_diff, _file_stamp, RefreshLock, record_refresh,
     REFRESH_TS_FORMAT, ledgered_refresh_paths, redirected_scopes,
-    record_reconciliation,
+    record_reconciliation, PACK_WRITES_ENV, PACK_WRITES_STOOD_DOWN,
+    is_guarded_python_only_artifact,
     install_snapshot, install_relpath, pack_roots_for_tile,
     LOCK_ARTIFACT_SUFFIX, LOCK_FILE_OPS, is_lock_artifact,
     LIB_INDEX_ARTIFACT_RE, LIB_INDEX_FILE_OPS, is_library_index_artifact,
@@ -3926,9 +3927,9 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=(),
     # exactly as an authorised cache scope is left SHARED.
     if "pack_rebake" in authorised:
         skipped.append("pack_rebake")
-        os.environ.pop("O4_PACK_WRITES", None)
+        os.environ.pop(PACK_WRITES_ENV, None)
     else:
-        os.environ["O4_PACK_WRITES"] = "measure_only"
+        os.environ[PACK_WRITES_ENV] = PACK_WRITES_STOOD_DOWN
 
     # AN AIRPORT FAILURE STILL FAILS A HARNESS BUILD (owner RULINGS
     # 2026-10-12a (4)).  The app now builds a tile WITHOUT a failed

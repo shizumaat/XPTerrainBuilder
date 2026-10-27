@@ -1,8 +1,9 @@
 """Twin of ``Tests/SceneryKitTests/MapOverzoomTests.swift`` (#1315).
 
 Both run ``fixtures/map_overzoom_cases.json`` -- the ancestor tile and
-sub-square that draw a view tile past the source's ceiling, and the zoom
-badge -- so the Qt and Mac maps overzoom alike.
+sub-square that draw a view tile past the source's ceiling, the zoom
+badge, and the server's "no imagery here" tile the maps draw a coarser
+ancestor in place of (#1540) -- so the Qt and Mac maps overzoom alike.
 """
 
 import json
@@ -11,6 +12,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import O4_Imagery_Utils as IMG  # noqa: E402
 import O4_Map_Overzoom as OVERZOOM  # noqa: E402
 import pytest  # noqa: E402
 
@@ -48,3 +50,10 @@ def test_badge(case):
             case["view_zl"], case["max_zl"]) == case["factor"]
     assert OVERZOOM.badge_text(
         case["view_zl"], case["source"], case["max_zl"]) == case["text"]
+
+
+@pytest.mark.parametrize("case", CASES["placeholder"])
+def test_placeholder_tile(case):
+    """The engine's download test is the rule the Mac map's
+    ``MapOverzoom.isPlaceholderTile`` twins (#1540)."""
+    assert IMG.is_placeholder_tile(case["url"], case["headers"]) is case["placeholder"]

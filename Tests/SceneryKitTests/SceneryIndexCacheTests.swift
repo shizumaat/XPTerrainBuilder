@@ -100,11 +100,22 @@ import Foundation
         #expect(PackObjectProbe.hasCustomObjects(at: pack))
     }
 
+    /// A tile folder's `textures/` under `root/name`, with an empty
+    /// `terrain/` beside it (the audit needs one to make a call).
+    private func tileTextures(_ root: URL, _ name: String) throws -> URL {
+        let tile = root.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: tile.appendingPathComponent("terrain"), withIntermediateDirectories: true)
+        let textures = tile.appendingPathComponent("textures", isDirectory: true)
+        try FileManager.default.createDirectory(at: textures, withIntermediateDirectories: true)
+        return textures
+    }
+
     @Test func tileTextureAuditFlagsForeignSources() throws {
-        let dir = FileManager.default.temporaryDirectory
+        let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("texaudit-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try tileTextures(root, "a")
         for name in ["130768_135904_Arc18.dds", "130768_135920_Arc18.dds",
                      "130768_135904_BI16.dds",
                      "130768_135904_USA_216.dds",   // provider ending in a digit
@@ -126,8 +137,7 @@ import Foundation
 
         // Combined aggregation over several tiles: conflicted tiles only,
         // in-use vs unused split, providers collapse to sets.
-        let cleanDir = dir.appendingPathComponent("clean")
-        try FileManager.default.createDirectory(at: cleanDir, withIntermediateDirectories: true)
+        let cleanDir = try tileTextures(root, "clean")
         try Data("xx".utf8).write(to: cleanDir.appendingPathComponent("1_2_BI16.dds"))
         let a = try #require(TileTextureAudit.scan(texturesDir: dir, currentProvider: "Arc"))
         let b = try #require(TileTextureAudit.scan(texturesDir: cleanDir, currentProvider: "BI"))
@@ -142,10 +152,39 @@ import Foundation
         // Names-only fast path (map badge sweep) agrees with the full scan.
         #expect(TileTextureAudit.hasForeignSources(texturesDir: dir, currentProvider: "Arc"))
         #expect(!TileTextureAudit.hasForeignSources(texturesDir: dir, currentProvider: ""))
-        let single = dir.appendingPathComponent("single")
-        try FileManager.default.createDirectory(at: single, withIntermediateDirectories: true)
+        let single = try tileTextures(root, "single")
         try Data("x".utf8).write(to: single.appendingPathComponent("1_2_Arc18.dds"))
         #expect(!TileTextureAudit.hasForeignSources(texturesDir: single, currentProvider: "Arc"))
+    }
+
+    /// 2026-10-25: a stale cfg said NZ while the tile's terrain named Arc;
+    /// the Arc textures were offered as unused and went to the Trash. A
+    /// texture the terrain names is never foreign; no terrain, no call.
+    @Test func tileTextureAuditNeverOffersTexturesTheTerrainUses() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("texaudit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let textures = try tileTextures(root, "tile")
+        let terrain = textures.deletingLastPathComponent().appendingPathComponent("terrain")
+        for name in ["163856_259008_Arc18.ter", "163856_259008_Arc18_sea_overlay.ter",
+                     "163872_259024_Arc16_water_overlay.ter"] {
+            try Data("x".utf8).write(to: terrain.appendingPathComponent(name))
+        }
+        for name in ["163856_259008_Arc18.dds", "163872_259024_Arc16.dds",
+                     "10240_16144_NZ17.dds"] {
+            try Data("x".utf8).write(to: textures.appendingPathComponent(name))
+        }
+        #expect(TileTextureAudit.terrainTextureNames(texturesDir: textures)
+                == ["163856_259008_Arc18.dds", "163872_259024_Arc16.dds"])
+        let stale = try #require(TileTextureAudit.scan(texturesDir: textures, currentProvider: "NZ"))
+        #expect(stale.foreignFiles.isEmpty)
+        #expect(!TileTextureAudit.hasForeignSources(texturesDir: textures, currentProvider: "NZ"))
+        let right = try #require(TileTextureAudit.scan(texturesDir: textures, currentProvider: "Arc"))
+        #expect(right.foreignFiles.map(\.lastPathComponent) == ["10240_16144_NZ17.dds"])
+        #expect(TileTextureAudit.hasForeignSources(texturesDir: textures, currentProvider: "Arc"))
+        try FileManager.default.removeItem(at: terrain)
+        #expect(TileTextureAudit.scan(texturesDir: textures, currentProvider: "Arc") == nil)
+        #expect(!TileTextureAudit.hasForeignSources(texturesDir: textures, currentProvider: "Arc"))
     }
 
     /// Legacy tile configs quote strings (default_website='Arc'); the

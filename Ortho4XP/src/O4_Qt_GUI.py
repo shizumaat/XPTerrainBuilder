@@ -89,8 +89,10 @@ import O4_Text_Scale as TEXTSCALE
 import O4_Flight_Plan as FLIGHTPLAN
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
+import O4_Settings_Selection as SEL
 import O4_Qt_Imagery_Menu as QTIMENU
 import O4_Qt_Map as QTMAP
+import O4_Qt_Missing_Textures as QTMISSING
 from o4_engine import EngineSession
 from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
@@ -108,6 +110,7 @@ import O4_Qt_Tile_Menu as QTTILEMENU
 import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
+import O4_Qt_Completed as QTDONE
 import O4_Qt_Step_Strip as QTSTRIP
 import O4_Step_Strip as STRIP
 
@@ -115,7 +118,7 @@ import O4_Step_Strip as STRIP
 # the settings sheet and the wizard all import it.  Top-level, so
 # PyInstaller sees it without a hidden-import entry.  The underscored
 # aliases keep this file's ~20 existing call sites unchanged.
-from O4_Qt_Click_Row import ClickableRow, ClickableStatus  # noqa: E402
+from O4_Qt_Click_Row import ClickableRow, ClickableStatus, apply_fills  # noqa: E402
 from O4_Qt_Map_Hint import MapHint  # noqa: E402
 from O4_Qt_Widgets import (  # noqa: E402
     ElidedRowLabel,
@@ -194,6 +197,10 @@ WARNING_COLOR = "#D4A017"
 # A status tone (O4_Activity_Order.status_tone) as the row paints it.
 TONE_COLORS = {"live": "gray", "done": "green", "warning": WARNING_COLOR,
                "failed": "red", "stopped": STOPPED_COLOR}
+#: A finished row's dimmed title (#1341), and a built tile's (#1542): that
+#: gray taken 50 % of the way to white (the Mac app's completedTitle).
+FINISHED_TITLE_COLOR = "gray"   # #808080
+COMPLETED_TITLE_COLOR = "#c0c0c0"
 
 def _xplane_above_custom_scenery():
     """The X-Plane folder holding the configured Custom Scenery folder
@@ -734,6 +741,29 @@ def _batch_summary(batch):
 
 
 class MainWindow(QMainWindow):
+    @property
+    def build_zl(self):
+        """The next build's detail level: one chosen in Settings for the
+        selection (#1549), else the selection's recorded zoom, else
+        ``prefs["zl"]`` — the default for new tiles that Settings' Detail
+        and the preset cards set with nothing selected (#1539).  Neither
+        is ever written back to the default, so a never-built tile
+        selected after a ZL17 one shows the default again (the Mac's
+        ``BuildZoom``)."""
+        if self._selection_zl is not None:
+            return self._selection_zl
+        if self._adopted_zl is not None:
+            return self._adopted_zl
+        return _zoom_level(self.prefs.get("zl"), 16)
+
+    @build_zl.setter
+    def build_zl(self, zoomlevel):
+        """A chosen detail level becomes the default and outranks the
+        selection's until the next selection."""
+        self._adopted_zl = None
+        self._selection_zl = None
+        self.prefs["zl"] = zoomlevel
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("XPTerrainBuilder " + O4_Version.version)
@@ -781,6 +811,12 @@ class MainWindow(QMainWindow):
         # _sync_build_controls_to_selection runs once per selection so
         # panel refreshes never clobber a user-picked imagery source/ZL.
         self._combos_synced_to = None
+        # The selection's recorded detail level (#1539): session only,
+        # never written to prefs["zl"] (see build_zl).
+        self._adopted_zl = None
+        # A detail level chosen in Settings for the selection (#1549):
+        # session only, cleared with the selection.
+        self._selection_zl = None
 
         # --- pipeline adapters -----------------------------------------
         UI.verbosity = int(self.prefs.get("verbosity", 1))
@@ -951,6 +987,9 @@ class MainWindow(QMainWindow):
         # built-tile overlay.  Restored LAST, so the map, the info panel
         # and the build controls see it exactly the way they see a click.
         selection, active = self._restore_selection()
+        # Framed once, on the first show (#1554): the viewport has no
+        # size before it, and later selection changes leave the camera.
+        self._launch_selection = list(selection)
         lat = int(self.prefs.get("last_lat", 48))
         lon = int(self.prefs.get("last_lon", -6))
         if active is not None:
@@ -1121,6 +1160,12 @@ class MainWindow(QMainWindow):
         self.imagery_conflict_btn.setVisible(False)
         irl.addWidget(self.imagery_conflict_btn, 0)
         ig.addRow("Imagery:", imagery_row)
+        # An installed tile whose terrain names textures it lacks: X-Plane
+        # will not load it (mac-app parity: TileMissingTexturesRow).
+        self.missing_textures_row = QTMISSING.MissingTexturesRow()
+        self.missing_textures_row.rebuild_requested.connect(
+            self._rebuild_tile_missing_textures)
+        ig.addRow(self.missing_textures_row)
         self.info_zl = ElidedRowLabel("—")
         ig.addRow("%s:" % GLOSSARY.TERMS["detail"], self.info_zl)
         self.info_mesh = ElidedRowLabel("—")
@@ -1410,6 +1455,12 @@ class MainWindow(QMainWindow):
         self.stop_btn.clicked.connect(self.request_stop)
         pg.addWidget(self.stop_btn)
         self.activity_group.setVisible(False)
+        # Completed (#1556): built tiles' rows, under Activity, collapsed
+        # to their count until the user opens it.
+        self.completed_section = QTDONE.CompletedSection()
+        self.completed_section.setVisible(False)
+        self.completed_section.expanded_changed.connect(
+            lambda _shown: self._sync_panel_stretch())
 
         pv.addWidget(build_group)
         # While visible, the Activity box absorbs ALL free panel height
@@ -1418,6 +1469,7 @@ class MainWindow(QMainWindow):
         # shows (_set_activity_box_visible), otherwise the spacer keeps
         # its share and the box stops growing with the window.
         pv.addWidget(self.activity_group, 1)
+        pv.addWidget(self.completed_section)
         pv.addWidget(self.patch_editor.panel)
         pv.addStretch(1)
         self._panel_layout = pv
@@ -1619,9 +1671,9 @@ class MainWindow(QMainWindow):
         imagery = self.prefs.get("imagery", "BI")
         if imagery in QTIMENU.offered_codes(self.imagery_combo):
             self.imagery_combo.setCurrentText(imagery)
-        # The build detail level (ZL): set in Settings (#1242), adopted
-        # from a selected built tile (_sync_build_controls_to_selection).
-        self.build_zl = _zoom_level(self.prefs.get("zl"), 16)
+        # The default detail level (ZL), set in Settings (#1242); a
+        # selected built tile's is adopted on top (build_zl, #1539).
+        self.prefs["zl"] = _zoom_level(self.prefs.get("zl"), 16)
         shown = bool(self.prefs.get(SIDE_PANEL_KEY, True))
         self.panel_toggle.setChecked(shown)
         self.panel_scroll.setVisible(shown)
@@ -1722,7 +1774,6 @@ class MainWindow(QMainWindow):
         zoom = write_default_preset_if_unset()
         if zoom is not None:
             self.build_zl = zoom
-            self.prefs["zl"] = zoom
             self._update_build_summary()
 
     def _seed_paths_from_xplane(self):
@@ -1826,14 +1877,16 @@ class MainWindow(QMainWindow):
             self.map.selection() if tiles is None else tiles)
         if not selected and self.map.active_tile():
             selected = [self.map.active_tile()]
-        # The dialog's Detail and preset cards (#822, #1242) read and set
-        # the build zoom: hand it the one the next build uses.
-        self.prefs["zl"] = self.build_zl
+        # The dialog's Detail and preset cards (#822, #1242) show the
+        # selection's detail level (#1549): each tile's recorded one, a
+        # never-built tile the default (prefs["zl"], #1539).
         dialog = QTSET.SettingsWindow(
-            self.prefs,
+            dict(self.prefs),
             selected,
             self.output_dir(),
             self,
+            tile_zooms=self._recorded_zooms(selected),
+            selection_zl=self._selection_zl,
         )
         if customized_only:
             dialog.show_customized_only()
@@ -1846,7 +1899,19 @@ class MainWindow(QMainWindow):
         # Blended settings apply immediately (Option C): every close path
         # keeps the changes, so the result is consumed unconditionally.
         old_xplane = self.prefs.get("xplane_dir", "")
+        default_zl = self.prefs.get("zl")
         self.prefs = dialog.result_prefs()
+        zoom_target = getattr(dialog, "zoom_target", None)
+        if zoom_target == "tiles":
+            # Chosen for the selected tiles: their next build, never the
+            # default for new tiles (RULINGS 2026-10-28j (3)).
+            self._selection_zl = dialog.selection_zl
+            self.prefs["zl"] = default_zl
+        elif zoom_target == "defaults":
+            self._adopted_zl = None
+            self._selection_zl = None
+        else:
+            self.prefs["zl"] = default_zl
         self.prefs["settings_geometry"] = bytes(
             dialog.saveGeometry().toBase64()
         ).decode("ascii")
@@ -2653,6 +2718,8 @@ class MainWindow(QMainWindow):
         self._update_build_summary(sel)
         self._persist_selection(sel)
         self.console_drawer.set_selection(sel, self.map.active_tile())
+        # Rows of selected tiles are filled (#1537).
+        apply_fills(self._row_widgets(), sel)
 
     def _persist_selection(self, selection=None):
         """Write the selected set and the active tile to the prefs file.
@@ -2706,9 +2773,9 @@ class MainWindow(QMainWindow):
         one agreed value is selected outright.  Disagreeing sources
         unresolve the Imagery combo (it shows "--") and
         :meth:`start_build` refuses to run until the user picks one;
-        disagreeing detail levels keep the Settings value.  Tiles with no
-        recorded value impose nothing, and an empty selection leaves the
-        controls alone.
+        disagreeing detail levels, and tiles with no recorded one, show
+        the Settings default (#1539: an adopted zoom is never written to
+        it).  Tiles with no recorded source leave the Imagery combo alone.
 
         The sync runs once per selection: panel refreshes on an UNCHANGED
         selection (scan results streaming in, build bookkeeping) must not
@@ -2724,39 +2791,48 @@ class MainWindow(QMainWindow):
         if selection_key == self._combos_synced_to:
             return
         self._combos_synced_to = selection_key
-        import O4_Settings_Model as SM
-
         websites = set()
-        zoomlevels = set()
+        zooms = {}
         for lat, lon in selection:
-            raw = SM.read_tile_raw(lat, lon, self.output_dir()) or {}
-            website = raw.get("default_website", "").strip()
-            zoomlevel = str(raw.get("default_zl", "")).strip()
-            # No cfg source: the imagery its textures carry (#1334,
-            # TINFO.effective_imagery — the Mac's TileImageryChoice).  A
-            # detected source that did not answer at launch is not
-            # adopted (#1345).
-            info = self._built.get((lat, lon))
-            choice = TINFO.effective_imagery(info) if info is not None else None
-            if not website and choice and choice[2] == TINFO.SOURCE_DETECTED \
-                    and self._imagery_status.get(choice[0], ("", ""))[0] != "offline":
-                website = choice[0]
-                if not zoomlevel and choice[1] is not None:
-                    zoomlevel = str(choice[1])
+            website, zooms[(lat, lon)] = self._recorded_build(lat, lon)
             if website:
                 websites.add(website)
-            if zoomlevel:
-                try:
-                    zoomlevel = str(int(float(zoomlevel)))
-                except ValueError:
-                    pass
-                zoomlevels.add(zoomlevel)
         _sync_combo_to_agreed_value(self.imagery_combo, websites)
         # One agreed detail level is adopted for the next build (the Mac
         # app's adoptActiveTileConfig); disagreement keeps the setting.
-        if len(zoomlevels) == 1:
-            self.build_zl = _zoom_level(next(iter(zoomlevels)), self.build_zl)
-            self.prefs["zl"] = self.build_zl
+        # A never-built tile counts as the default (#1539; RULINGS
+        # 2026-10-28j (2)), so it can agree or disagree with the others.
+        self._adopted_zl = None
+        self._selection_zl = None
+        merged = SEL.selection_zoom(
+            zooms.values(), _zoom_level(self.prefs.get("zl"), 16))
+        if merged is not SEL.CONFLICT and any(
+                zl is not None for zl in zooms.values()):
+            self._adopted_zl = merged
+
+    def _recorded_build(self, lat, lon):
+        """The tile's recorded imagery source and detail level: its cfg's
+        build provenance (``default_website`` / ``default_zl``), else
+        what its textures carry (#1334, TINFO.effective_imagery — the
+        Mac's TileImageryChoice).  A detected source that did not answer
+        at launch is not adopted (#1345).  ``("", None)``: never built."""
+        import O4_Settings_Model as SM
+
+        raw = SM.read_tile_raw(lat, lon, self.output_dir()) or {}
+        website = raw.get("default_website", "").strip()
+        zoomlevel = str(raw.get("default_zl", "")).strip()
+        info = self._built.get((lat, lon))
+        choice = TINFO.effective_imagery(info) if info is not None else None
+        if not website and choice and choice[2] == TINFO.SOURCE_DETECTED \
+                and self._imagery_status.get(choice[0], ("", ""))[0] != "offline":
+            website = choice[0]
+            if not zoomlevel and choice[1] is not None:
+                zoomlevel = str(choice[1])
+        return website, _zoom_level(zoomlevel, None) if zoomlevel else None
+
+    def _recorded_zooms(self, tiles):
+        """Each tile's recorded detail level (None: never built)."""
+        return {tuple(tile): self._recorded_build(*tile)[1] for tile in tiles}
 
     def _imagery_picked(self, _index):
         """The user chose a source: a scan result arriving later for the
@@ -3023,6 +3099,9 @@ class MainWindow(QMainWindow):
             bool(self._manual_elevation_entries)
         )
 
+        self.missing_textures_row.check(
+            tile if info is not None else None,
+            getattr(info, "build_dir", "") if info is not None else "")
         if info is None:
             # While a scan streams in, absence only means "not scanned
             # yet" — a built tile must not flash as "(not built)".
@@ -3599,15 +3678,22 @@ class MainWindow(QMainWindow):
             save_prefs(self.prefs)
 
     def _set_activity_box_visible(self, visible):
-        """Show or hide the Activity box.
-
-        While visible, the panel's idle bottom spacer is zeroed so the
-        box takes every pixel of free height as the window grows;
-        hiding it restores the spacer so the boxes sit top-aligned.
-        """
+        """Show or hide the Activity box (``_sync_panel_stretch``)."""
         self.activity_group.setVisible(visible)
-        self._panel_layout.setStretch(
-            self._panel_spacer_index, 0 if visible else 1)
+        self._sync_panel_stretch()
+
+    def _sync_panel_stretch(self):
+        """While the Activity box, or an expanded Completed section
+        (#1556), shows, the panel's idle bottom spacer is zeroed so the
+        boxes take every pixel of free height as the window grows; with
+        neither, the spacer returns so the boxes sit top-aligned."""
+        layout = self._panel_layout
+        completed = self.completed_section
+        grows = not completed.isHidden() and completed.expanded()
+        layout.setStretch(layout.indexOf(completed), 1 if grows else 0)
+        layout.setStretch(
+            self._panel_spacer_index,
+            0 if grows or not self.activity_group.isHidden() else 1)
 
     def _tile_in_active_run(self, tile):
         """True while the tile is queued or building in the current run.
@@ -4115,6 +4201,7 @@ class MainWindow(QMainWindow):
                 if stale is not None:
                     stale.setVisible(False)
                 bar.setValue(0)
+                bar.setVisible(True)   # a compact row grows back (#1542)
                 status.setText("queued")
                 status.setStyleSheet("color: gray;")
                 status.set_clickable(False)
@@ -4207,10 +4294,21 @@ class MainWindow(QMainWindow):
             self._tile_rows[tile] = (bar, status, row, cancel, clock)
         self._sync_row_order()
 
+    def _row_widgets(self):
+        """Tile -> its row widget, in Activity or Completed."""
+        return {tile: row[2]
+                for tile, row in getattr(self, "_tile_rows", {}).items()}
+
+    def _row_section(self, tile):
+        """The section ``tile``'s row sits in (#1556)."""
+        return ACTORDER.section(self._progress_states.get(
+            tile, ("queued",))[0])
+
     def _sync_row_order(self):
-        """Lay the Activity rows out in the list's order (#1341): live
-        rows on top, newest queued first, then finished rows in the order
-        they finished."""
+        """Lay the rows out in the list's order (#1341) -- live rows on
+        top, newest queued first, then finished rows in the order they
+        finished -- each in its section (#1556): built tiles in
+        Completed, the rest in Activity."""
         rows = []
         for tile in self._tile_rows:
             (state, label, _pct) = self._progress_states.get(
@@ -4220,14 +4318,32 @@ class MainWindow(QMainWindow):
             rows, self._row_stamps, self._row_counter)
         order = ACTORDER.display_order(list(self._tile_rows),
                                        self._row_stamps)
-        if order == self._row_order:
+        placed = [(tile, self._row_section(tile)) for tile in order]
+        if placed == self._row_order:
             return
-        self._row_order = order
-        for index, tile in enumerate(order):
-            widget = self._tile_rows[tile][2]
-            if self._rows_layout.indexOf(widget) != index:
-                self._rows_layout.removeWidget(widget)
-                self._rows_layout.insertWidget(index, widget)
+        self._row_order = placed
+        # A row come or gone can change "every row selected" (#1537).
+        apply_fills(self._row_widgets(), self.map.selection())
+        layouts = {ACTORDER.ACTIVITY: self._rows_layout,
+                   ACTORDER.COMPLETED: self.completed_section.rows_layout}
+        for section, layout in layouts.items():
+            tiles = [tile for tile, where in placed if where == section]
+            for index, tile in enumerate(tiles):
+                widget = self._tile_rows[tile][2]
+                if layout.indexOf(widget) != index:
+                    for either in layouts.values():   # it may change box
+                        either.removeWidget(widget)
+                    layout.insertWidget(index, widget)
+        done = sum(1 for _tile, where in placed
+                   if where == ACTORDER.COMPLETED)
+        self.completed_section.set_count(done)
+        self.completed_section.setVisible(done > 0)
+        self._sync_panel_stretch()
+
+    def _activity_rows(self):
+        """The tiles whose rows sit in Activity (not Completed)."""
+        return [tile for tile in self._tile_rows
+                if self._row_section(tile) == ACTORDER.ACTIVITY]
 
     def _map_progress(self):
         """The rows the map draws a badge for: this run's, and any row
@@ -4273,6 +4389,16 @@ class MainWindow(QMainWindow):
             return
         STRIP.apply_event(strip, event, time.monotonic())
         QTSTRIP.show(row[2].findChild(QLabel, "tile_steps"), strip)
+        self._fold_row_steps(tile)
+
+    def _fold_row_steps(self, tile):
+        """A built tile's row is compact (#1542): its steps line hides,
+        whatever step event lands after the tile is done."""
+        row = self._tile_rows.get(tile)
+        state = self._progress_states.get(tile, ("queued",))[0]
+        steps = row[2].findChild(QLabel, "tile_steps") if row else None
+        if steps is not None and ACTORDER.section(state) == ACTORDER.COMPLETED:
+            steps.setVisible(False)
 
     def _on_step_progress(self, event):
         tile = (event.lat, event.lon)
@@ -4446,8 +4572,13 @@ class MainWindow(QMainWindow):
             ACTORDER.status_tone(state, label, has_issues)])
         status.set_clickable(has_issues, QTFAIL.REOPEN_TOOLTIP)
         title = row_widget.findChild(QLabel, "tile_title")
+        compact = ACTORDER.section(state) == ACTORDER.COMPLETED
         if title is not None:
-            title.setStyleSheet("color: gray;" if finished else "")
+            title.setStyleSheet(
+                "color: %s;" % COMPLETED_TITLE_COLOR if compact
+                else "color: %s;" % FINISHED_TITLE_COLOR if finished else "")
+        bar.setVisible(not compact)
+        self._fold_row_steps(tile)
         if state in ("done", "error"):
             # Nothing left to stop and nothing to resume: a finished tile
             # goes back through the Build button.
@@ -4868,7 +4999,7 @@ class MainWindow(QMainWindow):
         self._run_tiles = set()
         self._sync_row_order()
         self.map.set_progress(self._map_progress())
-        self._set_activity_box_visible(bool(self._tile_rows))
+        self._set_activity_box_visible(bool(self._activity_rows()))
         # There is no elapsed left to report, only finished rows.
         self.progress_title.setText("")
         self.elapsed_label.setText("")
@@ -4919,11 +5050,22 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if getattr(self, "_launch_selection", None) is not None:
+            QTimer.singleShot(0, self._frame_launch_selection)
         if not self._console_defaulted:
             self._console_defaulted = True
             self._sync_console_button()
             if not self._layout_restored and self.console_drawer.isVisible():
                 self._apply_console_height(self._console_default_height())
+
+    def _frame_launch_selection(self):
+        """Frame the selection restored at launch, once (#1554), so the
+        user sees which tiles came back: one tile with the Activity-row
+        margin, several as their union.  It wins over the remembered
+        last tile's centring; nothing restored leaves that view."""
+        tiles, self._launch_selection = self._launch_selection, None
+        if tiles:
+            self.map.zoom_to_tiles(tiles, margin=TILE_FRAME_MARGIN)
 
     def toggle_console(self):
         self.set_console_visible(not self.console_drawer.isVisible())
@@ -4963,6 +5105,13 @@ class MainWindow(QMainWindow):
 
     def _status(self, message):
         self.statusBar().showMessage(message, 8000)
+
+    def _rebuild_tile_missing_textures(self, tile):
+        """The missing-textures row's "Rebuild Tile": the patch box's own
+        path, which says why not when it cannot."""
+        reason = self.rebuild_patch_tile(FNAMES.short_latlon(*tile))
+        if reason:
+            self._status(reason)
 
     # ------------------------------------------------------------------
     def rebuild_patch_tile(self, tile_key):
@@ -5032,7 +5181,6 @@ class MainWindow(QMainWindow):
         # An unresolved combo ("--", index -1) keeps the previous pref.
         if self.imagery_combo.currentIndex() >= 0:
             self.prefs["imagery"] = self.imagery_combo.currentText()
-        self.prefs["zl"] = self.build_zl
         self.prefs["window_geometry"] = bytes(
             self.saveGeometry().toBase64()
         ).decode("ascii")

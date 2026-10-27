@@ -33,9 +33,10 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["OPEN_KINDS", "rigid_open", "unit_root", "group_key", "root_zeros", "body_root",
+__all__ = ["OPEN_KINDS", "rigid_open", "open_zero", "frame_zero", "unit_root",
+           "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
-           "GROUP_REASON",
+           "GROUP_REASON", "at_zero",
            "TOUCH_M"]
 
 #: the deck verdicts that make a member an OPEN structure — a deck
@@ -60,14 +61,33 @@ def rigid_open(record: _t.Any, m: _t.Any, open_frame: bool) -> _t.Any:
         return record
     if any(getattr(b.seat, "applied", False) for b in bodies if b.seat is not None):
         return record
-    zs = [(float(b.anchor.surface_z) - float(b.anchor.y_zero), b) for b in bodies
+    zs = [float(b.anchor.surface_z) - float(b.anchor.y_zero) for b in bodies
           if b.anchor.surface_z is not None]
-    if len(zs) < 2 or max(z for z, _b in zs) - min(z for z, _b in zs) <= 0.05:
+    if len(zs) < 2 or max(zs) - min(zs) <= 0.05:
         return record
-    dat = [z for z, b in zs if b.anchor.datum]
-    target = dat[0] if dat else min(z for z, _b in zs)
+    target = open_zero(bodies)
     return _at_zero(record, m, target, lambda b: True,
                     f"one rigid open structure at {target:.2f} (RULINGS 2026-10-22c)")
+
+
+def open_zero(bodies: _t.Sequence[_t.Any]) -> "float | None":
+    """10-22c's one zero of an open structure's bodies: the deck's datum
+    where a body carries it, else the LOWEST of their own zeros (no support
+    floats); ``None`` with no seated body."""
+    zs = [(float(b.anchor.surface_z) - float(b.anchor.y_zero), b) for b in bodies
+          if b.anchor.surface_z is not None]
+    if not zs:
+        return None
+    dat = [z for z, b in zs if b.anchor.datum]
+    return dat[0] if dat else min(z for z, _b in zs)
+
+
+def frame_zero(record: _t.Any, m: _t.Any, target: float, why: str) -> _t.Any:
+    """Every seated body of ``record`` not already at ``target`` re-anchored
+    to it (10-22c/f: a bridge's frame moves as one), its file renamed."""
+    return _at_zero(record, m, target,
+                    lambda b: abs(float(b.anchor.surface_z) - float(b.anchor.y_zero)
+                                  - target) > 1e-6, why)
 
 
 def _at_zero(record: _t.Any, m: _t.Any, target: float,
@@ -85,6 +105,10 @@ def _at_zero(record: _t.Any, m: _t.Any, target: float,
                          reason=f"{why}; was: {a.reason}")
         out.append(named_body(m, b, anchor=a2))
     return _dc.replace(record, bodies=tuple(out))
+
+
+#: the bodies ``take`` accepts at ``target`` (``placement_targets``' weld)
+at_zero = _at_zero
 
 
 def unit_root(uid: str) -> str:

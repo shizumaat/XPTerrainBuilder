@@ -56,13 +56,32 @@ recognition that broke; every refusal is NAMED in :data:`RECTS`):
   457.2 m or beyond.  Nearer, the taxiway is an ordinary ATC-controlled
   crossing of the departure area with no depth requirement (KDEN 17R /
   34R at 415-419 m and KCLT 18C at 448 m were pinned 9-11 m under
-  credible lidar by v1's engine-chosen 300 m);
+  credible lidar by v1's engine-chosen 300 m) — UNLESS IT WRAPS:
+* THE WRAP, RECOGNITION BY SHAPE (owner RULINGS 2026-10-16d (1)): a route
+  crossing whose two ends each reach the runway's flank on their OWN side
+  of the extended centreline (:func:`_joins_both_sides`) wraps around the
+  end and is an end-around taxiway whatever its distance — nearer than
+  1,500 ft it needs the tail clearance all the more — but ONLY WHERE IT
+  PASSES BEYOND THE RUNWAY SAFETY AREA (owner RULINGS 2026-10-27x;
+  ``tables.runway_safety_area_length_m``, owner 15c (2)): inside it the
+  end profile governs the ground, and a taxiway crossing the end itself is
+  not a loop around it (LEMD 36L wraps 71 m out and would be pinned 23 m
+  under its end);
 * clause 4, CREDIBLE LIDAR IS THE WITNESS (owner RULINGS 2026-10-15e (2),
   the §45 (19)(b) precedent): where the inset is credible lidar (the ONE
   reading, ``law/inset_class.lidar_credible``) a recognised rect is
   REPORT-ONLY — never stamped, published by :func:`eat_report_rects` so
   the census prices the ground against the value.  The pin works only for
-  a recognised EAT on a coarse DEM;
+  a recognised EAT on a coarse DEM — or where the lidar itself reads the
+  pavement IN A CUT (owner RULINGS 2026-10-16d (2); :func:`_reads_cut`):
+  there it is no witness against the law and the rect is judged as on a
+  coarse DEM.  Nor where THE SURVEY BREAKS THE TAXIWAY GRADE LAW ALONG
+  THE TAXIWAY'S OWN ROUTE (owner RULINGS 2026-10-27w, reading 16d (2b)
+  "the survey predates the airport data"; :func:`_route_grade`): a lidar
+  whose ground along the crossing route is steeper than the taxiway's
+  longitudinal cap does not show that pavement (KCLT taxiway T: 2.4 %
+  against 1.5 %).  The road beside a lowered EAT keeps its level; the
+  edge between them is the existing bank / wall law's;
 * clause 3, CUT-ONLY: the rect is stamped at ONE value, so "does it cut?"
   is a question about the RECT.  Where that value sits ABOVE the
   pavement's unconstrained reference (its DEM sample) EVERYWHERE it would
@@ -93,6 +112,8 @@ import math
 import typing as _t
 
 from ..law import Law
+from ..law.reference_code import runway_status
+from ..law.tables import runway_safety_area_length_m
 from ..model.airport import Airport
 from ..model.constraints import Flat, Pin, Row, Source
 from ..model.planar import PlanarMap
@@ -216,6 +237,9 @@ def _ends(airport: Airport, law: Law, chords, rec, planar: PlanarMap, vw,
                 "half_width_m": float(rw.width_m) / 2.0,
                 "tail_height_m": float(tail),
                 "code_number": int(code),
+                "code_letter": rw.code_letter,
+                "rsa_m": runway_safety_area_length_m(
+                    law, int(code), rw.code_letter, runway_status(rw)),
                 "end_z": end_z,
                 "anchor": anchor,
             })
@@ -246,14 +270,18 @@ def _project(spec: dict, x: float, y: float) -> tuple[float, float]:
     return (dx * nx + dy * ny, -dx * ny + dy * nx)
 
 
-def _crossing_stations(airport: Airport, spec: dict) -> list[float]:
-    """The stations at which a TAXI ROUTE crosses this end's extended
-    centreline — clause 1's geometry half.  A crossing is a SIGN CHANGE of
-    ``q`` between the two ends of one row-1202 edge; a route that merely
-    touches ``q == 0`` is not a crossing and is not reported (recognition
-    must under-claim)."""
+def _crossing_stations(airport: Airport, spec: dict
+                       ) -> list[tuple[float, bool, _t.Any]]:
+    """``(station, wraps)`` of every TAXI ROUTE crossing of this end's
+    extended centreline — clause 1's geometry half.  A crossing is a SIGN
+    CHANGE of ``q`` between the two ends of one row-1202 edge; a route that
+    merely touches ``q == 0`` is not a crossing and is not reported
+    (recognition must under-claim).  ``wraps``: the crossing joins both
+    sides of the runway (:func:`_joins_both_sides`, owner RULINGS
+    2026-10-16d (1)); the third item is the crossing row-1202 edge."""
     nodes = airport.taxi_nodes
-    out: list[float] = []
+    out: list[tuple[float, bool, _t.Any]] = []
+    walk = _SideWalk(airport, spec)
     for e in airport.taxi_edges:
         a, b = nodes.get(e.a), nodes.get(e.b)
         if a is None or b is None:
@@ -263,9 +291,111 @@ def _crossing_stations(airport: Airport, spec: dict) -> list[float]:
         if (qa < 0.0 <= qb) or (qb < 0.0 <= qa):
             denom = qb - qa
             t = (-qa / denom) if denom else 0.0
-            out.append(sa + t * (sb - sa))
-    out.sort()
+            s = sa + t * (sb - sa)
+            out.append((s, s > 0.0 and walk.joins_both_sides(e.a, e.b), e))
+    out.sort(key=lambda r: r[0])
     return out
+
+
+def _route_grade(airport: Airport, edges: _t.Sequence[_t.Any]) -> float:
+    """THE SURVEY ALONG THE EAT'S OWN ROUTE (owner RULINGS 2026-10-27w):
+    the steepest DEM grade between the two ends of the crossing row-1202
+    edges — the ground the survey shows where the taxiway runs.  An end
+    the DEM cannot read contributes nothing (under-claim)."""
+    nodes = airport.taxi_nodes
+    worst = 0.0
+    for e in edges:
+        a, b = nodes.get(e.a), nodes.get(e.b)
+        if a is None or b is None:
+            continue
+        run = math.hypot(b.xy[0] - a.xy[0], b.xy[1] - a.xy[1])
+        if run <= 0.0:
+            continue
+        try:
+            za, zb = airport.dem.z(*a.xy), airport.dem.z(*b.xy)
+        except Exception:                      # pragma: no cover - off the DEM
+            continue
+        if za is None or zb is None or not (math.isfinite(float(za))
+                                            and math.isfinite(float(zb))):
+            continue
+        worst = max(worst, abs(float(zb) - float(za)) / run)
+    return worst
+
+
+class _SideWalk:
+    """THE WRAP's walk (owner RULINGS 2026-10-16d (1)): over the airport's
+    TAXI routes (row-1202 edges that are not runway routes) restricted to
+    ONE side of the extended centreline — the strict sign of ``q``, so a
+    walk never crosses back over the line it is asking about — does a
+    crossing's end reach the RUNWAY'S FLANK, a node at ``s <= 0`` (abeam
+    the runway or behind its other end)?"""
+
+    def __init__(self, airport: Airport, spec: dict) -> None:
+        self._sq = {n: _project(spec, *t.xy)
+                    for n, t in airport.taxi_nodes.items()}
+        self._adj: dict[int, list[int]] = {}
+        for e in airport.taxi_edges:
+            if e.is_runway or e.a not in self._sq or e.b not in self._sq:
+                continue
+            self._adj.setdefault(e.a, []).append(e.b)
+            self._adj.setdefault(e.b, []).append(e.a)
+        self._memo: dict[int, bool] = {}
+
+    def _reaches_flank(self, start: int) -> bool:
+        if start in self._memo:
+            return self._memo[start]
+        side = self._sq[start][1] > 0.0
+        seen = {start}
+        todo = [start]
+        hit = False
+        while todo and not hit:
+            u = todo.pop()
+            if self._sq[u][0] <= 0.0:
+                hit = True
+                break
+            for v in self._adj.get(u, ()):
+                q = self._sq[v][1]
+                if v in seen or q == 0.0 or (q > 0.0) != side:
+                    continue
+                seen.add(v)
+                todo.append(v)
+        self._memo[start] = hit
+        return hit
+
+    def joins_both_sides(self, a: int, b: int) -> bool:
+        """Both ends of the crossing edge ``a``-``b`` reach the flank."""
+        if a not in self._sq or b not in self._sq:
+            return False
+        if self._sq[a][1] == 0.0 or self._sq[b][1] == 0.0:
+            return False                 # touching the line is no side
+        return self._reaches_flank(a) and self._reaches_flank(b)
+
+
+def _reads_cut(planar: PlanarMap, airport: Airport, spec: dict,
+               verts: _t.Sequence[int], s_lo: float, s_hi: float,
+               reach_m: float, depth_m: float) -> bool:
+    """THE CUT WITNESS (owner RULINGS 2026-10-16d (2)): does the lidar read
+    the rect's pavement IN A CUT — the ground on the extended centreline
+    ``reach_m`` before the rect (toward the runway) AND ``reach_m`` past it
+    both standing more than ``depth_m`` above the pavement's own level (the
+    median DEM over the rect's vertices)?  A side that cannot be read is
+    no witness (recognition under-claims)."""
+    zs = sorted(float(planar.vertices[v].dem_z) for v in verts
+                if planar.vertices[v].dem_z is not None)
+    if not zs:
+        return False
+    mid = len(zs) // 2
+    level = zs[mid] if len(zs) % 2 else 0.5 * (zs[mid - 1] + zs[mid])
+    p0 = spec["p0"]
+    nx, ny = spec["outward"]
+    for s in (s_lo - reach_m, s_hi + reach_m):
+        try:
+            z = airport.dem.z(p0[0] + s * nx, p0[1] + s * ny)
+        except Exception:                      # pragma: no cover - off the DEM
+            return False
+        if z is None or not math.isfinite(float(z)) or float(z) - level <= depth_m:
+            return False
+    return True
 
 
 def _lidar_witness(airport: Airport, law: Law) -> bool:
@@ -291,6 +421,8 @@ def _recognise(planar: PlanarMap, law: Law, airport: Airport
         "runways_without_letter": 0, "rects_accepted": 0, "report_only": 0,
         "refused_far_bound": 0, "refused_no_wrap": 0,
         "refused_near_crossing": 0, "refused_no_cut": 0,
+        "recognised_by_shape": 0, "lidar_cut_witness": 0,
+        "lidar_route_witness": 0,
         "refused_along_corridor": 0, "runway_vertices_excluded": 0, "pins": 0,
     }
     surface = getattr(law.ruleset, "eat", None)
@@ -330,7 +462,7 @@ def _recognise(planar: PlanarMap, law: Law, airport: Airport
         members = _corridor_members(spec, faces, vw, rwy_vertices,
                                     excluded, rec, stats)
         out.extend(_judge_clusters(spec, members, planar, airport, surface,
-                                   rec, lidar, stats))
+                                   rec, lidar, stats, law))
     stats["runway_vertices_excluded"] = len(excluded)
     return out
 
@@ -394,11 +526,13 @@ def _corridor_members(spec: dict, faces, vw, rwy_vertices, excluded: set,
 
 def _judge_clusters(spec: dict, members, planar: PlanarMap,
                     airport: Airport, surface, rec, lidar: bool,
-                    stats: dict) -> list[tuple[dict, list[int], float]]:
+                    stats: dict, law: Law
+                    ) -> list[tuple[dict, list[int], float]]:
     """Cluster one end's corridor vertices into rects and apply the
     clauses (module docstring) to each, in order: along-corridor, the far
-    bound, the routed wrap, the 1,500 ft crossing, then clause 4 (credible
-    lidar ⇒ report-only) or clause 3 (cut-only)."""
+    bound, the routed wrap, the 1,500 ft crossing (or the WRAP beyond the
+    safety area, 16d (1)), then clause 4 (credible lidar ⇒ report-only,
+    unless the lidar reads a cut, 16d (2)) and clause 3 (cut-only)."""
     if not members:
         return []
     min_s = float(rec.min_crossing_m)
@@ -412,7 +546,9 @@ def _judge_clusters(spec: dict, members, planar: PlanarMap,
     cap = float(rec.max_crossing_m)
     d_far, far_rule = ((d_clear, "D_clear") if d_clear <= cap
                        else (cap, "max_crossing_m"))
-    cross_s = _crossing_stations(airport, spec)
+    crossings = _crossing_stations(airport, spec)
+    rsa = float(spec.get("rsa_m") or 0.0)
+    visual = float(law.tables.emit.cockpit.visual_m)
     out: list[tuple[dict, list[int], float]] = []
     start = 0
     for k in range(1, len(members) + 1):
@@ -423,13 +559,21 @@ def _judge_clusters(spec: dict, members, planar: PlanarMap,
         d_mid = 0.5 * (s_lo + s_hi)
         value = spec["end_z"] + eat_ceiling_offset(
             d_mid, slope, setback, spec["tail_height_m"])
-        wrap = [c for c in cross_s if s_lo - gap <= c <= s_hi + gap]
+        near = [(c, w, e) for c, w, e in crossings
+                if s_lo - gap <= c <= s_hi + gap]
+        wrap = [c for c, _w, _e in near]
+        # 16d (1), bounded by 27x: a crossing that joins both sides beyond
+        # the runway safety area
+        shaped = [c for c, w, _e in near if w and c > rsa]
         row = {"end": spec["end"], "runway": spec["runway"],
                "anchor": spec["anchor"],
                "d_lo": round(s_lo, 1), "d_hi": round(s_hi, 1),
                "d_mid": round(d_mid, 1), "vertices": len(seg),
                "crossing_m": round(max(wrap), 1) if wrap else None,
                "value_m": round(value, 3), "end_z_m": round(spec["end_z"], 3),
+               "wraps": any(w for _c, w, _e in near),
+               "recognised_by": ("distance" if wrap and max(wrap) >= min_s
+                                 else "shape" if shaped else None),
                "accepted": True, "report_only": False, "reason": ""}
         refusal = None
         if s_hi - s_lo > max_along:
@@ -443,17 +587,22 @@ def _judge_clusters(spec: dict, members, planar: PlanarMap,
         elif not wrap:
             refusal = ("refused_no_wrap",
                        "no routed wrap: "
-                       f"{len(cross_s)} taxi-route crossing(s) at this end, "
+                       f"{len(crossings)} taxi-route crossing(s) at this end, "
                        f"none within [{s_lo - gap:.0f},{s_hi + gap:.0f}] m")
-        elif max(wrap) < min_s:
+        elif max(wrap) < min_s and not shaped:
             refusal = ("refused_near_crossing",
                        f"the taxi route crosses at {max(wrap):.1f} m < "
                        f"min_crossing_m {min_s:.1f} (AC 150/5300-13B §4.12 "
                        "std 1: an EAT's centreline is ≥ 1,500 ft from the "
                        "departure end; nearer it is an ATC-controlled "
-                       "crossing with no depth requirement)")
-        elif lidar:
+                       "crossing with no depth requirement) and does not "
+                       "wrap around the end beyond its safety area "
+                       f"({rsa:.0f} m; owner RULINGS 2026-10-16d (1))")
+        elif lidar and not (witness := _lidar_overruled(
+                planar, airport, law, spec, seg, near, s_lo, s_hi, gap,
+                visual, row)):
             stats["report_only"] += 1
+            stats["recognised_by_shape"] += row["recognised_by"] == "shape"
             row.update(accepted=False, report_only=True,
                        reason=("credible lidar inset: report-only "
                                "(owner RULINGS 2026-10-15e (2)); the "
@@ -475,10 +624,44 @@ def _judge_clusters(spec: dict, members, planar: PlanarMap,
             row.update(accepted=False, reason=refusal[1])
             RECTS.append(row)
             continue
+        if lidar:
+            # 16d (2) / 27w: the lidar is no witness against the law here
+            stats[witness[0]] += 1
+            row["reason"] = witness[1]
+        stats["recognised_by_shape"] += row["recognised_by"] == "shape"
         stats["rects_accepted"] += 1
         RECTS.append(row)
         out.append((row, [v for _s, v in seg], float(value)))
     return out
+
+
+def _lidar_overruled(planar: PlanarMap, airport: Airport, law: Law,
+                     spec: dict, seg, near, s_lo: float, s_hi: float,
+                     gap: float, visual: float, row: dict
+                     ) -> tuple[str, str] | None:
+    """Why the CREDIBLE LIDAR is no witness against this rect — ``(stat,
+    reason)`` — or ``None`` (clause 4: report-only).  The lidar reads the
+    pavement in a cut (16d (2), :func:`_reads_cut`), or its ground along
+    the crossing route breaks the taxiway's longitudinal cap (27w,
+    :func:`_route_grade`: the survey predates the taxiway)."""
+    if _reads_cut(planar, airport, spec, [v for _s, v in seg], s_lo, s_hi,
+                  gap, visual):
+        return ("lidar_cut_witness",
+                "credible lidar reads the pavement in a cut: no witness "
+                "against the law (owner RULINGS 2026-10-16d (2))")
+    edges = [e for _c, _w, e in near]
+    grade = _route_grade(airport, edges)
+    letter = next((e.width_class for e in edges
+                   if getattr(e, "width_class", None)), spec.get("code_letter"))
+    cap = float(law.ruleset.taxi.longitudinal.value(None, letter))
+    row["route_grade"] = round(grade, 4)
+    if grade > cap:
+        return ("lidar_route_witness",
+                f"credible lidar breaks the taxiway grade law along the "
+                f"route ({100 * grade:.2f} % > {100 * cap:.2f} %): the survey "
+                "predates the taxiway, no witness against the law (owner "
+                "RULINGS 2026-10-27w)")
+    return None
 
 
 def eat_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

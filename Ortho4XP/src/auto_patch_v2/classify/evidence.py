@@ -26,6 +26,7 @@ from ..law.tables import base_slab_law, pad_admission
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
 from .rules import Rules
+from .wall_clip import clip_at_walls, cutting_walls
 from ..geom.parts import line_parts
 
 __all__ = ["Chain", "Evidence", "build_evidence", "polygon_from",
@@ -104,6 +105,8 @@ class Evidence:
     #: :func:`_with_jetways`) — the ground stays pavement-senior for the
     #: pad's relief target (``constraints/pad_relief``).
     jetway_ground: list[Polygon] = _dc.field(default_factory=list)
+    #: THE WALL CLIP (#1158, ``classify/wall_clip``): its stats
+    wall_clip: dict = _dc.field(default_factory=dict)
 
 
 # ── names (the author's own word for a page) ────────────────────────────
@@ -284,6 +287,12 @@ def build_evidence(airport: Airport, rules: Rules,
         if poly is None or poly.area <= 0:
             continue
         (dsf_raw if p.id.startswith("dsf:") else apt_pav).append((p.id, poly))
+    # RULINGS 2026-10-20ak / 20ax (#1158): pavement never crosses a pack
+    # retaining wall — cut at the wall, each side its own shape
+    wall_cut = _wall_cut(airport, rules)
+    apt_pav, clip_a = clip_at_walls(apt_pav, wall_cut, rules.cells.min_area_m2)
+    dsf_raw, clip_d = clip_at_walls(dsf_raw, wall_cut, rules.cells.min_area_m2)
+    wall_clip = {k: clip_a[k] + clip_d[k] for k in clip_a}
     apt_union = unary_union([g for _i, g in apt_pav]) if apt_pav else Polygon()
     dsf_pav, dsf_dropped = _dsf_pavements(dsf_raw, apt_union, boundary, rules)
     pav = apt_pav + dsf_pav
@@ -346,7 +355,14 @@ def build_evidence(airport: Airport, rules: Rules,
                     taxi_chains, truck_chains, pads, pad_union, boundary,
                     terminal, dropped, leadins, len(dsf_pav), dsf_dropped,
                     road_chains, parking, skirted, letter_counts, base_pads,
-                    jetway_ground=jetway_ground)
+                    jetway_ground=jetway_ground, wall_clip=wall_clip)
+
+
+def _wall_cut(airport: Airport, rules: Rules):
+    """The pack retaining walls pavement stops at (``classify/wall_clip``)."""
+    from ..airport.wall_class import wall_class_components
+    return cutting_walls(airport, wall_class_components(airport, rules.service),
+                         rules.service)
 
 
 def _network_reach(edges: _t.Sequence[tuple[int, int, str | None, str]],

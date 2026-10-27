@@ -38,6 +38,45 @@ public enum MapOverzoom {
                         subSize: 1 / span)
     }
 
+    /// The tile that draws view tile `(z, x, y)` (#1540): its ancestor at
+    /// the source's ceiling — or, where the server has answered that tile
+    /// "no imagery here" (`isEmpty`, see `isPlaceholderTile`), the next
+    /// coarser one that it has not, so the map scales up the finest
+    /// imagery the place has instead of showing the server's empty tile.
+    /// nil when every level up to ZL 0 is empty.
+    public static func displayAncestor(z: Int, x: Int, y: Int, maxZ: Int,
+                                       isEmpty: (Int, Int, Int) -> Bool) -> Ancestor? {
+        var ceiling = min(z, maxZ)
+        while ceiling >= 0 {
+            let anc = ancestor(z: z, x: x, y: y, maxZ: ceiling)
+            if !isEmpty(anc.z, anc.x, anc.y) { return anc }
+            ceiling -= 1
+        }
+        return nil
+    }
+
+    /// True when a tile answer is the server's "no imagery here" tile, not
+    /// imagery (#1540) — twin of `O4_Imagery_Utils.is_placeholder_tile`
+    /// (the engine's download test), pinned on the `placeholder` cases of
+    /// `map_overzoom_cases.json`. Bing: the 1033-byte camera tile or
+    /// `X-VE-Tile-Info: no-tile`; ArcGIS: the 2521-byte no-data tile.
+    /// Header names match case-insensitively.
+    public static func isPlaceholderTile(url: String, headers: [String: String]) -> Bool {
+        func header(_ name: String) -> String? {
+            headers.first { $0.key.lowercased() == name.lowercased() }?.value
+        }
+        let length = header("Content-Length")
+        if url.contains("virtualearth") {
+            let info = (header("X-VE-Tile-Info") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return length == "1033" || info == "no-tile"
+        }
+        if url.contains("arcgisonline") {
+            return length == "2521"
+        }
+        return false
+    }
+
     /// How many times the source's finest tiles are scaled up (1 = not).
     public static func overzoomFactor(viewZL: Int, maxZL: Int) -> Int {
         1 << max(0, viewZL - maxZL)

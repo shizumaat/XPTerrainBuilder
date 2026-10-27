@@ -16,9 +16,13 @@ import Foundation
         struct Badge: Decodable {
             let view_zl: Int, source: String?, max_zl: Int?, factor: Int, text: String
         }
+        struct Placeholder: Decodable {
+            let url: String, headers: [String: String], placeholder: Bool
+        }
         let max_view_zl: Int
         let ancestor: [AncestorCase]
         let badge: [Badge]
+        let placeholder: [Placeholder]
     }
 
     static let cases: Cases = {
@@ -49,6 +53,39 @@ import Foundation
             #expect(MapOverzoom.badgeText(viewZL: c.view_zl, source: c.source,
                                           maxZL: c.max_zl) == c.text, "\(c)")
         }
+    }
+
+    @Test func placeholderLikeThePythonTwin() {
+        for c in Self.cases.placeholder {
+            #expect(MapOverzoom.isPlaceholderTile(url: c.url, headers: c.headers) == c.placeholder,
+                    "\(c)")
+        }
+    }
+
+    /// #1540: a view ZL above the source's max draws the max-ZL tile,
+    /// scaled up — never a request (or a "no imagery" tile) above it.
+    @Test func aboveTheSourceMaxDrawsTheMaxZLTile() {
+        let anc = MapOverzoom.displayAncestor(z: 22, x: 300001, y: 700003, maxZ: 19) { _, _, _ in false }
+        #expect(anc == MapOverzoom.ancestor(z: 22, x: 300001, y: 700003, maxZ: 19))
+        #expect(anc?.z == 19 && anc?.subSize == 0.125)
+    }
+
+    /// #1540: where the server answers "no imagery here" below the declared
+    /// max (Bing at HECA: ZL 20 and 21 are its camera tile), the map draws
+    /// the finest level that has imagery, scaled up.
+    @Test func pastNoImageryTilesDrawsTheFinestImagery() {
+        let (x, y) = (1231526, 864412)
+        let empty: Set<[Int]> = [[21, x, y], [20, x >> 1, y >> 1]]
+        let anc = MapOverzoom.displayAncestor(z: 22, x: x * 2, y: y * 2, maxZ: 21) { z, ax, ay in
+            empty.contains([z, ax, ay])
+        }
+        #expect(anc == MapOverzoom.ancestor(z: 22, x: x * 2, y: y * 2, maxZ: 19))
+        #expect(MapOverzoom.badgeText(viewZL: 22, source: "BI", maxZL: anc?.z)
+                == "ZL 22 · overzoom ×8 (BI max ZL 19)")
+    }
+
+    @Test func everyLevelEmptyDrawsNothing() {
+        #expect(MapOverzoom.displayAncestor(z: 5, x: 3, y: 4, maxZ: 21) { _, _, _ in true } == nil)
     }
 
     @Test func viewCeilingScaleIsTheCeilingZL() {

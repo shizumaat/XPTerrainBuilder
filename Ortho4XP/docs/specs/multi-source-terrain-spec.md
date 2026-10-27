@@ -1,9 +1,19 @@
 # Multi-source airport terrain — spec (#1359, RULINGS 2026-10-26q / Q172)
 
-Lane `ltriang`, 2026-10-26, base `origin/main` 59fa7241d. SPEC ONLY: no engine
-change, no airport build. The numbers in §0 are hand probes on the shared
-corpus (scratch scripts, not a tool); the prototype in §8 replaces them with
-a measured run on captures.
+Lane `ltriang`, 2026-10-26, base `origin/main` 59fa7241d (the spec). The
+numbers in §0 are hand probes on the shared corpus; §8.1 is the measured
+prototype run on captures (lane `ltriang2`, 2026-10-26).
+
+**State (lane `ltriang2`, #1359):** the owner ruled §9 (RULINGS 2026-10-26v,
+26w, 26x, 26y, 26z, 27a). Landed: the §8 prototype (`v2_solve_replay
+--witness`, the label sets, the measured bars, §8.1); **Q1/Q2 at its
+derivation site** (26v: `airport/runway_end_witness`, called by
+`airport/load` before `end_pins.verify`); **26y** (the airport's own photos
+are fetched before the patches and stamped `o4_imagery`). NOT landed: **Q4
+on coarse DEM** (26w/26z/27a) — its §8 bar was missed (§8.1), so the rule is
+coded (`airport/graded_edge_witness.decide_edges`) and printed by
+`--witness`, not wired into `planar/zones`; **Q5/Q6** (bar missed, §8.1);
+**Q3** (no stale region on the five, no synthetic twin yet).
 
 **The ruling (RULINGS 2026-10-26q, Noah, 2026-10-27T00:47:57Z, verbatim):**
 "I think both are worth exploring. Lidar is not always available or up to
@@ -238,7 +248,7 @@ is derived today.
 |---|---|---|---|
 | Q1, Q2 | `airport/end_pins.py` (`verify`, `shifted_ends`, `cifp_station`) at load | a CIFP record that loses Q1 is not joined as this end's threshold (no pin from it). The end is then an apt.dat-only end and takes the 26e lidar rule, or the 30z (2) datum where there is no lidar. Q2 runs the existing 25a / 26a / 26m / 26j rule on the remaining votes | move an apt.dat end; invent a threshold |
 | Q3 | **new**: `airport/dem_trust.py`, wrapping `Airport.dem` once at load (the sampler every planar and constraint reader already takes) | inside a **stale region** (layout + imagery say pavement, the DEM shows natural ground), the sampler answers from a fill of the region's rim (the one rule: harmonic, as `O4_Mesh_Utils.interpolate_free_interior_altitudes` does for the mesh), so every DEM reader inherits it at once; the raw DEM stays `Airport.dem_raw` for the witness and the census | override a CIFP or cross-check pin (the pins stand; the fill only replaces the DEM); touch a seam pin (26b: the seam outranks everything) |
-| Q4 | `planar/zones.py` (zone-2 / RSA rings from `law/zones.toml` offsets) | **coarse DEM only** (Q-B): the ring's outer edge moves to the observed toe where ≥ 70 % of an edge's stations agree. It may widen to at most `band_half_m` past the law edge, and never narrows inside it. On lidar-class DEM the answer is a **check** (§6, `verify`) | narrow a law zone; grade beyond the band |
+| Q4 | `planar/zones.py` (zone-2 / RSA rings from `law/zones.toml` offsets) | **coarse DEM only** (26w): the ring's outer edge moves to the observed toe where ≥ 70 % of an edge's stations agree. It moves OUT freely and IN (narrower or shorter, 26z) only down to the standard width and length — the FAA RSA or ICAO strip for that runway (27a); every place the imagery shows less is logged with how much and where, by landmark. On lidar-class DEM the answer is a **check** (§6, `verify`) | narrow or shorten below the standard RSA / strip (27a); grade beyond the probe band |
 | Q5 | `planar/structures.build_structures` admission (OSM mouths via `structure_approach.mouths` / `structure_mouth`), `airport/portal_objects.read_portals`, `airport/object_cut` shells | an **OSM-only** mouth that loses Q5 (DEM and imagery both say no, NZWN) is refused by name (`#1359 witness`); one that wins stays admitted by today's rules. A **pack** portal or trench that loses is kept and published as a disagreement: the sim draws the object, and an object the sim draws is never left floating | create a cut no map source names (Q-C) |
 | Q6 | `airport/portal_objects` (pack portal floor pins), `planar/structure_mouth.portal_mouth` | the floor pin takes the winning value: the pack's authored floor where a pack portal exists (today's rule), the fresh-lidar floor at an OSM-only mouth in place of the design depth; a pack floor more than `k`σ from fresh lidar is published as a disagreement | lower airside pavement (a mouth under a taxiway is a deck, RULINGS 26d, 26p) |
 
@@ -308,7 +318,7 @@ changes is a finding for the master, never a silent fix.
 
 | reader | ruling |
 |---|---|
-| auto-patch freshness (26o fingerprint) and the v2 stage cache (`airport/stage_cache` keys) | **amended**: the imagery identity (provider, zoom, the airport-cover texture list and their file hashes) and the image provider's `name@version` (§7.3) join the patch inputs, so a provider switch rebuilds the patch |
+| auto-patch freshness (26o fingerprint) and the v2 stage cache (`airport/stage_cache` keys) | **amended** (landed): `o4_imagery` (`auto_patch/provenance.imagery_identity`: each airport texture's name and byte size) is a compared freshness stamp, schema "7"; the front half keys on the airport, which carries the witness's answer. The provider's `name@version` is in the patch code key (its module is in the closure). **Owner question (§9 Q-E):** the tile step reuse (#615, owner 2026-10-12: an imagery-only change rebuilds "just the DSF") still does not count the imagery as a vector-step input, so a provider switch alone keeps the patch until the vector step runs again |
 | the object stage (`placement_*`, `rebake_*`) | inherits (reads the solved surface) |
 
 No reader takes a second derivation. Every answer is set at one site.
@@ -339,7 +349,12 @@ import is invisible to the freeze).
 
 ### 7.2 Law keys and published records
 
-`law/witness.toml` (values are starting points; the prototype sets them):
+The table landed as `law/terrain_witness.toml` (schema
+`law/terrain_witness_schema.py`; `law/witness.py` is the stage cache's law
+recorder). Its `[q1]` gained `search_after_max_m` 300, `search_past_threshold_m`
+150, `marking_inset_m` 6 (the markings begin 6 m inside the threshold) and
+`marking_sigma_m` 4; `[q4]` `band_half_m` is 40 (26z: the probe reaches in and
+out, no 20 m cap). The starting block below is kept for the record:
 
 ```toml
 [vote]
@@ -530,9 +545,26 @@ It carries Q1, Q2 and Q4 at once. Its site bar is both runway ends within
 reaching the DEM at the mowed edge. KBUF is the portal control if the master wants
 a second one in the batch sweep.
 
+### 8.1 Measured (lane `ltriang2`, 2026-10-26; `v2_solve_replay --witness`)
+
+Captures: KDIJ (lrwypin), KBUF (lpackcut), NZWN / LGAV / LFLL (taken by
+this lane, registered in `frames.py`). Imagery: the owner's built tiles
+(live textures named by `terrain/*.ter`). Labels:
+`docs/specs/multi-source-terrain/labels/<ICAO>.json` (read off the built
+textures and the lidar by this lane; owner sites from the issues).
+
+| bar | measured | verdict |
+|---|---|---|
+| **Q1** every labelled end right; KDIJ CIFP yields both ends | **14 / 14** (KDIJ 2 dropped; KBUF 4, LGAV 4, LFLL 4 kept, the markings confirming the CIFP displaced thresholds within 0.5–4 m). NZWN 16/34 labelled *neither* (threshold bars about 130 m / 108 m in; apt.dat 150 / 156, CIFP 66.5 / 36): the vote keeps CIFP (layout and imagery disagree) — a finding, not scored | **MET** |
+| Q1 on the 81 shifted runways (lrwypin's test set) | 162 ends, 76 with an owner-built texture, 8 with an imagery vote: **2 drops (KDIJ 4, 22), both right**; 4 ends where the markings confirm CIFP over a stale apt.dat (KAEG 17/35, KVCB 2/20), kept; 2 false marking reads, both ties, no action | **MET** |
+| **Q4** image edge within 10 m of the lidar break at ≥ 70 % of non-abstaining stations, abstain ≤ 40 % (lidar airports) | KDIJ 33 %, KBUF 70 %, LFLL 42 %, NZWN no truth (every probe crosses pavement); **pooled 48 %**, abstain 30 % — after two iterations (stations crossing pavement abstain; a coherent-line mode over 9 stations) | **MISSED** — step 4 stops (§5 Q4 not wired) |
+| **Q5** precision ≥ 0.95, recall ≥ 0.9, three witnesses | 60 labelled mouths: **precision 0.52, recall 0.94**. The lidar alone: 21 / 21 positives and no false yes (P = R = 1.0); the classic imagery alone P 0.40, R 0.76 (dark roofs and building shadows read as openings) | **MISSED** (no iteration spent: the fix is a seniority change — §9 Q-F) |
+| Q6 KBUF floors (finding, not a bar) | lidar core minimum at the pack-pinned mouths: way −756 ends 208.08 / 208.72 against pack floors 205.54 / 206.28; −709 212.28 against 210.38; −766 212.22 / 214.21 against 212.94 — gaps 0.7–2.5 m, over the 0.3 m floor | finding for the master |
+| cost per airport (this Mac, under sibling load) | Q1 0.2–0.6 s; Q4 0.8–11 s (unwired); Q5 0.04–0.3 s | Q1 is about 1 % of the 60 s budget (final-profile round) |
+
 ---
 
-## 9. Owner questions
+## 9. Owner questions (ruled: RULINGS 2026-10-26v, 26w, 26x, 26y, 26z, 27a)
 
 **Q-A. A CIFP threshold that is not on the runway in the imagery.**
 At KDIJ, the CIFP records for runways 4 and 22 both sit 594 m north-east of
@@ -543,7 +575,9 @@ threshold. (a) When the layout and the imagery agree on where the runway end
 is and CIFP disagrees, the CIFP record is dropped for that end (position and
 height), and the end follows the lidar like any runway without CIFP (26e);
 (b) keep using the CIFP height at its own point (today's rule).
-**Recommend (a).** The CIFP points are ground beside an old or moved runway,
+**RULED (a): RULINGS 2026-10-26v (Q177), "A".** Implemented at the end-pin
+derivation site (`airport/runway_end_witness`, §8.1).
+The CIFP points are ground beside an old or moved runway,
 not thresholds. Their heights only agree with the lidar because the lidar
 there is ground. With (a), the 22 end (now +0.50 m) is expected to sit on the
 lidar; §8 measures it. The 81 shifted runways lane lrwypin counted are the
@@ -555,7 +589,12 @@ imagery sets the outer edge of the graded zone around runways and taxiways.
 It can widen the zone by up to 20 m and never narrows it below the law's
 width. Where the lidar is fresh, the edge is only a check, because the lidar
 already holds the real fill. (b) The imagery edge is only ever a check.
-**Recommend (a).** On lidar the two agree (KDIJ, within 0–10 m), so nothing
+**RULED (a): RULINGS 2026-10-26w (Q178), "A"; amended by 2026-10-26z (the
+edge may also narrow or shorten the zone; the 20 m widen-only cap dropped)
+and 2026-10-27a (Q181: never below the standard width — the FAA RSA or
+ICAO strip for that runway — and every place the imagery shows less is
+logged).** Not wired: the §8 Q4 bar was missed (§8.1).
+On lidar the two agree (KDIJ, within 0–10 m), so nothing
 moves. On coarse data it is the only witness of where the fill stops, and it
 fits the terrain to the imagery as 26q asks.
 
@@ -563,7 +602,9 @@ fits the terrain to the imagery as 26q asks.
 (a) The witnesses only confirm, refuse, place and set the depth of cuts that
 OSM or the pack names. A cut with no map source is a log line and a finding.
 (b) Where the lidar and the imagery both show a cut, the build cuts it even
-with no map source. **Recommend (a).** Without a map source there is no road
+with no map source. **RULED (a): RULINGS 2026-10-26x (Q179), "A"** (the
+prototype reads mapped mouths only, `portal_witness.mapped_mouths`).
+Without a map source there is no road
 to seat, no axis and no width. Both owner reports of a missing cut (KBUF sites
 1 and 2) had a pack portal object, which (a) covers.
 
@@ -573,10 +614,31 @@ downloads the airport's own photos first (the ones it downloads later anyway)
 and the patch waits for them. The first build of a tile is slower by that
 download, and every build of the same inputs gives the same patch. (b) The
 patch never waits. When a photo is not there yet, the imagery's votes abstain,
-so the first and second builds of a tile can differ. **Recommend (a).** A
+so the first and second builds of a tile can differ. **RULED (a): RULINGS
+2026-10-26y (Q180), "A".** Implemented: the session hands the vector step
+`O4_Imagery_Prefetch.fetch_airport_imagery`, which downloads the airport's
+own textures (`zone_list_to_ortho_dico`'s assignment over the boundary +
+500 m) before the patches build; the background prefetch puts the highest
+zoom first and shares its download lock. A
 patch that changes between two builds of the same inputs breaks the A/B
 measurement and confuses a sim read. The download is not extra work, only
 moved earlier.
+
+**Q-E (new, for the owner). Does an imagery-only change rebuild the airport
+patches?** Owner 2026-10-12 (#615): a rebuild whose only change is the
+imagery rebuilds "just the DSF" — the vector step and its patches are
+reused. 26q / 26y fit the patch to the imagery, so a provider switch now
+changes what the patch should be. Today: the patch stamps `o4_imagery`, so
+the next time the vector step runs it refits; an imagery-only rebuild keeps
+the old patch.
+
+**Q-F (new, for the owner). At a mapped tunnel mouth, should fresh lidar
+outrank the photo?** Measured (§8.1): the lidar alone answers all 21
+positives and every negative right; the classic photo method reads dark roofs
+and shadows as openings, and with the map's own "yes" it outvotes the lidar
+2–1 (precision 0.52). (a) On fresh lidar the lidar decides and the photo is
+a check; the photo votes only where the elevation data is coarse (LGAV).
+(b) Keep the vote as ruled and wait for the image model branch.
 
 ---
 

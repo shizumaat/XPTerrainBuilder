@@ -1001,6 +1001,15 @@ class EngineSession:
         alongside it when this run prefetches (#1002) — in a run that
         builds imagery, or in a worker child its parent lent an imagery
         token (whose plan is the one step)."""
+        if key == "vector":
+            # #1359 (owner RULINGS 2026-10-26y): the patches wait for the
+            # airport's own photos — the session that owns the tile's imagery
+            # downloads hands the vector step the fetch
+            import functools
+
+            import O4_Imagery_Prefetch as PREFETCH
+            tile.airport_imagery_fetch = functools.partial(
+                PREFETCH.fetch_airport_imagery, tile)
         if key != "vector" or not self._prefetch_imagery:
             return function(tile)
         if not self._stepwise_run and not any(

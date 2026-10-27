@@ -13,6 +13,13 @@ promoted on its second use by lane ``v2chord``).
     venv/bin/python tools/v2_solve_replay.py --why-from SOLVED.pkl --why-hard [N]
     venv/bin/python tools/v2_solve_replay.py --capture ICAO --out DIR/ICAO.pkl --stage-cache
     venv/bin/python tools/v2_solve_replay.py --replay-cache ICAO [--why-miss] [replay flags]
+    venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl --witness [--witness-labels L.json]
+        [--imagery-dir TILE_DIR ...] [--json OUT.json]
+
+``--witness`` (#1359): the terrain witness's dry read on a capture — every
+runway end's threshold vote (Q1), every runway band edge's lidar break and
+image edge (Q4), every mapped tunnel mouth's cut vote (Q5) — and, with
+labels, the spec §8 bars (``tools/v2_witness.py``).
 
 ``--stage-cache`` / ``--replay-cache`` (issue #844): the front half runs
 through the v2 stage cache — written by the capture, served read-only to
@@ -3013,6 +3020,12 @@ def main() -> int:
     ap.add_argument("--bank-from", type=Path, metavar="PKL",
                     help="replay the EMIT HALF (terrain edges + patch) off a "
                          "--solved-out pickle, without re-paying the solve")
+    ap.add_argument("--witness", action="store_true",
+                    help="#1359: the terrain witness on a --replay capture (dry read): every "
+                         "Q1/Q4/Q5 vote, scored with --witness-labels (tools/v2_witness.py)")
+    ap.add_argument("--witness-labels", type=Path, metavar="LABELS.json", default=None)
+    ap.add_argument("--imagery-dir", action="append", default=[], metavar="TILE_DIR",
+                    help="--witness: a built ortho tile folder to read the textures from")
     ap.add_argument("--probe-site", metavar="LAT,LON",
                     help="§20a/§20c THE STABILITY PROBE off a --solved-out "
                          "pickle (--why-from): one extra ceiling row --probe-drop "
@@ -3156,6 +3169,9 @@ def main() -> int:
         # issue #844: the front half served from the stage cache, read-only
         a.replay = _capture_guarded(a.replay_cache.upper(), None, stage_cache="read",
                                     why_miss=a.why_miss)
+    if a.replay and a.witness:
+        import v2_witness as _witness
+        return _witness.witness_run(a.replay, a.witness_labels, a.imagery_dir, a.json, ROOT)
     if a.replay:
         sites = [tuple(float(x) for x in it.split(",")) for it in a.site]
         wh = (a.why_hump[0], float(a.why_hump[1]), float(a.why_hump[2])) if a.why_hump else None

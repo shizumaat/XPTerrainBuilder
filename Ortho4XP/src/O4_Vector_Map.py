@@ -2147,6 +2147,16 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
         # by name, and an app user has no --refresh-data to run).  One
         # bz2 header read per feed when current.
         road_feeds = ensure_auto_patch_road_feeds(tile)
+        # THE PATCH WAITS FOR THE AIRPORT'S OWN PHOTOS (#1359; owner RULINGS
+        # 2026-10-26y): the textures the imagery step will texture each
+        # airport with are downloaded FIRST, so the terrain witness reads
+        # the same pixels on every build of the same inputs.  The session
+        # that owns the tile's imagery downloads hands the fetch in
+        # (``tile.airport_imagery_fetch``, ``O4_Imagery_Prefetch.
+        # fetch_airport_imagery``) — this step reads the photos, it does not
+        # download (its code key stays the vector step's, #836); a build
+        # without the hook reads no photos and every imagery vote abstains
+        airport_imagery = _airport_imagery(tile, dico_airports)
         AUTOPATCH.generate_auto_patches(
             tile, cifp_path,
             taxiway_data=_taxiway_provider,
@@ -2159,7 +2169,22 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
             # v2 reader refuse it inside each airport's worker with a
             # developer --refresh-data command (issue #24).
             stale_road_feeds=road_feeds.stale,
+            airport_imagery=airport_imagery,
         )
+
+
+################################################################################
+def _airport_imagery(tile, dico_airports):
+    """``{airport: (orthophoto path, ...)}`` from the session's fetch hook
+    (#1359, RULINGS 2026-10-26y), ``{}`` without one or on any failure."""
+    fetch = getattr(tile, "airport_imagery_fetch", None)
+    if not callable(fetch):
+        return {}
+    try:
+        return dict(fetch(dico_airports) or {})
+    except Exception as error:
+        UI.vprint(1, "    Airport imagery skipped:", error)
+        return {}
 
 
 ################################################################################

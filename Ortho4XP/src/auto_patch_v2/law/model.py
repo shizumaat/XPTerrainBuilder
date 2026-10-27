@@ -25,6 +25,9 @@ from .flat_pack_schema import (FlatPack, FlatPackDetector,  # noqa: F401
 # runway_ends.toml's schema likewise (owner RULINGS 2026-10-25a / 26a / 26e)
 from .runway_ends_schema import (ByDemClass, RunwayEnds,  # noqa: F401
                                  check_runway_ends as _check_runway_ends)
+# terrain_witness.toml's schema likewise (#1359, RULINGS 2026-10-26q/v/w/x/y/z, 27a)
+from .terrain_witness_schema import (TerrainWitness,  # noqa: F401
+                                     check_terrain_witness as _check_terrain_witness)
 # the [rebake] schema (06g: the contact-cluster law's keys) likewise
 from .rebake_schema import Deck, Placement, Rebake, Scatter  # noqa: F401
 # the [cutout] schema (06b (1), 09-08a; the door / sunken-road ramp laws 09-08b/c)
@@ -66,11 +69,12 @@ __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "
 #: The eight files a law directory must contain (owner amendment
 #: 2026-09-03; ``flat_site.toml`` per RULINGS 2026-09-05k-2;
 #: ``flat_pack.toml`` per the owner's 2026-10-20 flat-pack direction;
-#: ``runway_ends.toml`` per RULINGS 2026-10-25a / 26a / 26e).  None names
+#: ``runway_ends.toml`` per RULINGS 2026-10-25a / 26a / 26e; ``terrain_witness.toml``
+#: per RULINGS 2026-10-26q, #1359).  None names
 #: an airport (RULINGS 2026-10-05e; ``tests/test_no_airport_specific_code``).
 TABLE_FILES: tuple[str, ...] = ("rulesets.toml", "zones.toml", "structures.toml", "emit.toml",
                                 "precedence.toml", "families.toml", "flat_site.toml",
-                                "flat_pack.toml", "runway_ends.toml")
+                                "flat_pack.toml", "runway_ends.toml", "terrain_witness.toml")
 
 
 class LawError(ValueError):
@@ -945,6 +949,8 @@ class LawTables:
     flat_pack: FlatPack
     #: THE RUNWAY-END PIN RULE (RULINGS 2026-10-25a / 26a / 26e)
     runway_ends: RunwayEnds
+    #: THE TERRAIN WITNESS (#1359, RULINGS 2026-10-26q)
+    terrain_witness: TerrainWitness
 
 
 # ── the loader ───────────────────────────────────────────────────────────
@@ -1207,6 +1213,7 @@ def _check_cross_refs(t: LawTables) -> None:
     _check_flat_site(t.flat_site, LawError)
     _check_flat_pack(t.flat_pack, LawError)
     _check_runway_ends(t.runway_ends, LawError)
+    _check_terrain_witness(t.terrain_witness, LawError)
     role_words = roles | {"all", "airside", "groundside", "taxi_family",
                           "runway_family"}
     for key, fam in t.families.items():
@@ -1281,7 +1288,9 @@ def load_tables(law_dir: str | Path) -> LawTables:
         families=families,
         flat_site=_build(FlatSite, _read(d, "flat_site.toml"), "flat_site"),
         flat_pack=_build(FlatPack, _read(d, "flat_pack.toml"), "flat_pack"),
-        runway_ends=_build(RunwayEnds, _read(d, "runway_ends.toml"), "runway_ends"))
+        runway_ends=_build(RunwayEnds, _read(d, "runway_ends.toml"), "runway_ends"),
+        terrain_witness=_build(TerrainWitness, _read(d, "terrain_witness.toml"),
+                               "terrain_witness"))
     _check_cross_refs(tables)
     return tables
 

@@ -521,6 +521,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.strip_keepout",
         "auto_patch_v2.planar.structure_approach",
         "auto_patch_v2.planar.structure_deck",
+        "auto_patch_v2.planar.structure_fence",
         "auto_patch_v2.planar.structure_geometry",
         "auto_patch_v2.planar.structure_mouth",
         "auto_patch_v2.planar.structure_overlap",
@@ -1461,7 +1462,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
-    planar.structure_approach planar.structure_deck planar.structure_geometry
+    planar.structure_approach planar.structure_deck planar.structure_fence
+    planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.structure_service planar.structure_stats
     planar.structure_underpass planar.structures planar.terrain_edge
@@ -1570,7 +1572,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
-    planar.structure_approach planar.structure_deck planar.structure_geometry
+    planar.structure_approach planar.structure_deck planar.structure_fence
+    planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.structure_service planar.structure_stats
     planar.structure_underpass planar.structures planar.terrain_edge

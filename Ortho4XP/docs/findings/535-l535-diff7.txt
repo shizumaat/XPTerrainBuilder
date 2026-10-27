@@ -1,0 +1,368 @@
+== SPJC: 11 bore(s) asked (base), 11 (branch)
+  -10252                      19.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -5552                       19.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -5548+-2202                 44.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -5546+-2200                 63.5 m  layer -1  cover 0.0  rise 0.92  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -2827                       19.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -900                        19.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -6914                       19.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -2206                       19.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -5724                       35.2 m  layer None  cover 0.0  rise 0.0  passage -  | BUILT [an OSM tunnel inside the airport boundary (§34 (12) (5) (d), owner RULIN]  -> REFUSED  *** CHANGED: bore -5724 IS TAGGED A TUNNEL INSIDE THE AIRPORT BOUNDARY WITH NO WITNESS (35 m; cover 0.0 m, ground +0.00 m over its mouth chord, no level sign on a road joined at a mouth, no pack portal, nothing crossing over it, no lidar cut) — the road
+  -2525                     1264.1 m  layer -1  cover 201.4  rise 0.2  passage -  | BUILT [under the classified cover for 201.4 m]  -> BUILT
+  -641                      1258.5 m  layer -1  cover 202.3  rise 0.34  passage -  | BUILT [under the classified cover for 202.3 m]  -> BUILT
+== KCLT: 15 bore(s) asked (base), 15 (branch)
+  -32111+-27411              312.9 m  layer None  cover 273.0  rise 0.82  passage paredes_8_charlotte.obj @ 3.03 m  | REFUSED [bore -32111+-27411 PASSES UNDER AN ELEVATED PACK PART AT GRADE (313 m; c]  -> REFUSED
+  -31620                      13.1 m  layer -1  cover 21.7  rise 0.0  passage -  | REFUSED [bore -31620 ENTERS A PACK BUILDING at 601,1442 — Terminals/paredes_10_ch]  -> REFUSED
+  -11768                     100.1 m  layer -1  cover 100.1  rise 1.47  passage -  | REFUSED [bore -11768 ENTERS A PACK BUILDING at 569,984 — Terminals/paredes_10_cha]  -> REFUSED
+  -11198                       9.7 m  layer None  cover 0.0  rise 0.0  passage paredes_11_charlotte.obj @ 5.12 m  | REFUSED [bore -11198 ENTERS A PACK BUILDING at 273,1397 — Terminals/paredes_11_ch]  -> REFUSED
+  -11194                       9.9 m  layer None  cover 0.0  rise 0.0  passage paredes_10_charlotte.obj @ 3.12 m  | REFUSED [bore -11194 PASSES UNDER AN ELEVATED PACK PART AT GRADE (10 m; classifie]  -> REFUSED
+  -11160                       9.2 m  layer None  cover 0.0  rise 0.05  passage -  | REFUSED [bore -11160 PASSES UNDER NOTHING AT GRADE (9 m; cover 0.0 m, no road or ]  -> REFUSED
+  -11131                      20.1 m  layer -1  cover 32.3  rise 0.03  passage paredes_10_charlotte.obj @ 4.13 m  | REFUSED [bore -11131 ENTERS A PACK BUILDING at 239,726 — Terminals/suelos_interio]  -> REFUSED
+  -9541                       50.6 m  layer -1  cover 53.9  rise 0.03  passage techos_2_charlotte.obj @ 2.98 m  | REFUSED [bore -9541 ENTERS A PACK BUILDING at 620,801 — Terminals/paredes_8_charl]  -> REFUSED
+  -8739                      153.0 m  layer -1  cover 56.5  rise 3.23  passage -  | BUILT [under the classified cover for 56.5 m]  -> BUILT
+  -7373                       78.2 m  layer -1  cover 78.2  rise 0.23  passage paredes_10_charlotte.obj @ 3.0 m  | REFUSED [bore -7373 ENTERS A PACK BUILDING at 605,729 — Terminals/paredes_10_char]  -> REFUSED
+  -7372                       61.7 m  layer -1  cover 61.7  rise 0.03  passage Paredes_7_charlotte.obj @ 3.36 m  | REFUSED [bore -7372 ENTERS A PACK BUILDING at 386,694 — Terminals/paredes_8_charl]  -> REFUSED
+  -6958                       95.6 m  layer -1  cover 61.9  rise 3.73  passage -  | BUILT [under the classified cover for 61.9 m]  -> BUILT
+  -30363+-30362+-30359        90.0 m  layer None  cover 81.8  rise 2.64  passage -  | BUILT [under the classified cover for 81.8 m]  -> BUILT
+  -30361+-30360+-30358        89.9 m  layer None  cover 82.0  rise 1.95  passage -  | BUILT [under the classified cover for 82.0 m]  -> BUILT
+  -31625                      64.7 m  layer None  cover 64.7  rise 7.8  passage -  | BUILT [under the classified cover for 64.7 m]  -> BUILT
+== HECA: 10 bore(s) asked (base), 10 (branch)
+  -20899                      31.0 m  layer -1  cover 0.0  rise 0.0  passage concrete_2.obj @ 2.63 m  | REFUSED [bore -20899 PASSES UNDER AN ELEVATED PACK PART AT GRADE (31 m; classifie]  -> REFUSED
+  -19181                      63.6 m  layer -1  cover 8.4  rise 0.88  passage concrete_2.obj @ 2.63 m  | REFUSED [bore -19181 PASSES UNDER AN ELEVATED PACK PART AT GRADE (64 m; classifie]  -> REFUSED
+  -3949                       63.0 m  layer -1  cover 7.8  rise 1.06  passage concrete_2.obj @ 2.63 m  | REFUSED [bore -3949 PASSES UNDER AN ELEVATED PACK PART AT GRADE (63 m; classified]  -> REFUSED
+  -1758                       42.2 m  layer -1  cover 0.0  rise 0.16  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1743                       32.2 m  layer -1  cover 0.0  rise 0.59  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1730                       53.0 m  layer -1  cover 0.0  rise 0.36  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1725                       31.4 m  layer -1  cover 0.0  rise 0.34  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1721                       38.4 m  layer -1  cover 0.0  rise 0.17  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1210                      262.3 m  layer -1  cover 0.0  rise 5.96  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1209                      269.8 m  layer -1  cover 0.0  rise 6.66  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+== KDEN: 53 bore(s) asked (base), 53 (branch)
+  -24681                      43.7 m  layer -1  cover 82.8  rise 0.0  passage Electronic_Sign_B11.obj @ 12.85 m  | REFUSED [bore -24681 PASSES UNDER AN ELEVATED PACK PART AT GRADE (44 m; classifie]  -> REFUSED
+  -22806                      46.1 m  layer -1  cover 46.1  rise 0.02  passage -  | BUILT [under the classified cover for 46.1 m]  -> BUILT
+  -22803                      42.7 m  layer -1  cover 42.7  rise 0.12  passage -  | BUILT [under the classified cover for 42.7 m]  -> BUILT
+  -22801                      42.0 m  layer -1  cover 42.0  rise 0.1  passage -  | BUILT [under the classified cover for 42.0 m]  -> BUILT
+  -22629                      45.1 m  layer None  cover 45.1  rise 0.0  passage -  | BUILT [under the classified cover for 45.1 m]  -> BUILT
+  -19106                       4.1 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -19103                       4.1 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -18955                      12.2 m  layer -1  cover 0.0  rise 0.1  passage Over_Train_Bridge.obj @ 3.0 m  | REFUSED [bore -18955 PASSES UNDER AN ELEVATED PACK PART AT GRADE (12 m; classifie]  -> REFUSED
+  -18948                      22.9 m  layer -1  cover 22.9  rise 0.07  passage -  | REFUSED [bore -18948 ENTERS A PACK BUILDING at -786,-1125 — Objects/Buildings/Mis]  -> REFUSED
+  -18919                      11.9 m  layer -1  cover 0.0  rise 0.01  passage Canopy_Mid.obj @ 3.9 m  | REFUSED [bore -18919 ENTERS A PACK BUILDING at -691,-1296 — Objects/Landside/Park]  -> REFUSED
+  -18917                       8.1 m  layer -1  cover 2.4  rise 0.0  passage Booths_Large.obj @ 4.04 m  | REFUSED [bore -18917 ENTERS A PACK BUILDING at -547,-1207 — Objects/Buildings/Par]  -> REFUSED
+  -18916                      12.1 m  layer -1  cover 7.6  rise 0.01  passage -  | REFUSED [bore -18916 ENTERS A PACK BUILDING at -551,-1207 — Objects/Buildings/Par]  -> REFUSED
+  -18906                      13.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -18671+-15925               21.9 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -18036                      17.0 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -16126                       6.0 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -16125+-3086               251.9 m  layer -1  cover 0.0  rise 0.98  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -16124                       9.3 m  layer -1  cover 0.0  rise 0.01  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15979                       8.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15978                      14.0 m  layer -1  cover 0.0  rise 0.04  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15977+-15923              241.0 m  layer -1  cover 0.0  rise 1.26  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15975                       7.7 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15973+-15901              253.1 m  layer -1  cover 0.9  rise 2.64  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15972                       2.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15935                      13.3 m  layer -1  cover 0.0  rise 0.04  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15933                     238.1 m  layer -1  cover 0.0  rise 1.75  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15932                      15.5 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15929                       9.5 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15924                     216.9 m  layer -1  cover 0.0  rise 1.28  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15912                       5.8 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15910+-15904              232.8 m  layer -1  cover 0.0  rise 2.14  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15909                      19.5 m  layer -1  cover 0.0  rise 0.12  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15907                       7.5 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15898                       9.0 m  layer -1  cover 0.0  rise 0.01  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -14337                      12.5 m  layer -1  cover 0.0  rise 0.0  passage -  | REFUSED [bore -14337 ENTERS A PACK BUILDING at 189,-1801 — Objects/Buildings/Park]  -> REFUSED
+  -14318                      38.5 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -11475                      45.1 m  layer -1  cover 45.1  rise 0.04  passage -  | BUILT [under the classified cover for 45.1 m]  -> BUILT
+  -6846                       24.2 m  layer None  cover 24.2  rise 0.02  passage -  | BUILT [under the classified cover for 24.2 m]  -> BUILT
+  -6306                       72.0 m  layer None  cover 0.0  rise 0.0  passage -  | BUILT [an OSM tunnel inside the airport boundary (§34 (12) (5) (d), owner RULIN]  -> REFUSED  *** CHANGED: bore -6306 IS TAGGED A TUNNEL INSIDE THE AIRPORT BOUNDARY WITH NO WITNESS (72 m; cover 0.0 m, ground +0.00 m over its mouth chord, no level sign on a road joined at a mouth, no pack portal, nothing crossing over it, no lidar cut) — the road
+  -6161                       45.3 m  layer None  cover 45.3  rise 0.04  passage -  | BUILT [under the classified cover for 45.3 m]  -> BUILT
+  -6158                       48.4 m  layer None  cover 48.4  rise 0.05  passage Electronic_Sign_B21.obj @ 12.85 m  | REFUSED [bore -6158 PASSES UNDER AN ELEVATED PACK PART AT GRADE (48 m; classified]  -> REFUSED
+  -6157                       48.4 m  layer None  cover 48.4  rise 0.03  passage -  | BUILT [under the classified cover for 48.4 m]  -> BUILT
+  -6153                       36.3 m  layer None  cover 36.3  rise 0.02  passage -  | BUILT [under the classified cover for 36.3 m]  -> BUILT
+  -6152                       39.8 m  layer None  cover 39.8  rise 0.03  passage -  | BUILT [under the classified cover for 39.8 m]  -> BUILT
+  -6151                       17.7 m  layer None  cover 17.7  rise 0.0  passage -  | BUILT [under the classified cover for 17.7 m]  -> BUILT
+  -6148                       44.4 m  layer None  cover 44.4  rise 0.02  passage -  | BUILT [under the classified cover for 44.4 m]  -> BUILT
+  -3841+-3840+-3839         3026.0 m  layer -1  cover 3617.5  rise 9.6  passage -  | REFUSED [bore -3841+-3840+-3839 ENTERS AN ENCLOSURE at -46,174 — way -73 building]  -> REFUSED
+  -2858                      128.5 m  layer -1  cover 38.4  rise 6.57  passage -  | BUILT [under the classified cover for 38.4 m]  -> BUILT
+  -2857                      117.6 m  layer -1  cover 38.2  rise 5.62  passage -  | BUILT [under the classified cover for 38.2 m]  -> BUILT
+  -21557+-3702               266.6 m  layer -2  cover 0.0  rise 0.53  passage -  | BUILT [the bore carries layer -2]  -> BUILT
+  -4171                       66.5 m  layer -1  cover 0.0  rise 4.55  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -4166                       65.9 m  layer -1  cover 0.0  rise 5.94  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -3697                      255.6 m  layer -2  cover 0.0  rise 2.79  passage -  | BUILT [the bore carries layer -2]  -> BUILT
+== LFPG: 141 bore(s) asked (base), 141 (branch)
+  -48964+-19923               77.6 m  layer -1  cover 0.0  rise 1.14  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -48616+-19839               18.4 m  layer 0  cover 0.0  rise 0.02  passage -  | BUILT [under -19838[unclassified], -48615[unclassified] at grade]  -> BUILT
+  -47149+-19292              106.5 m  layer -1  cover 75.9  rise 0.1  passage -  | REFUSED [bore -47149+-19292 ENTERS A PACK BUILDING at 3162,-462 — AIRPORT/KHU1/2A]  -> REFUSED
+  -47148+-19291               67.9 m  layer -1  cover 34.0  rise 0.02  passage 2A_45_22.obj @ 2.18 m  | REFUSED [bore -47148+-19291 PASSES UNDER AN ELEVATED PACK PART AT GRADE (68 m; cl]  -> REFUSED
+  -40021+-16019              229.5 m  layer None  cover 114.7  rise 0.04  passage 2A_23.obj @ 3.64 m  | REFUSED [bore -40021+-16019 ENTERS A PACK BUILDING at 2171,-542 — AIRPORT/KHU1/2A]  -> REFUSED
+  -36751+-14546               21.9 m  layer -1  cover 0.0  rise 0.86  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -33917+-13264               94.4 m  layer -1  cover 0.0  rise 0.84  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -33838+-13174               39.3 m  layer -1  cover 0.0  rise 1.73  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -31365+-11873               31.5 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -31275+-11828               21.2 m  layer -1  cover 10.6  rise 0.0  passage -  | BUILT [under the classified cover for 10.6 m]  -> BUILT
+  -31274+-11827               16.3 m  layer -1  cover 8.1  rise 0.05  passage -  | BUILT [under the classified cover for 8.1 m]  -> BUILT
+  -31260+-11813               29.2 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -31258+-11811               29.7 m  layer -1  cover 0.0  rise 0.02  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -31256+-11809               29.2 m  layer -1  cover 0.0  rise 0.03  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -31254+-11807               28.9 m  layer -1  cover 0.0  rise 0.03  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -31253+-11806               28.7 m  layer -1  cover 0.0  rise 0.02  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -31251+-11804               28.0 m  layer -1  cover 0.0  rise 0.01  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -31249+-11802               30.1 m  layer -1  cover 0.0  rise 0.01  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -31246+-11799               30.9 m  layer -1  cover 0.0  rise 0.02  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -30879+-11664              194.7 m  layer -1  cover 94.0  rise 0.0  passage -  | BUILT [under the classified cover for 94.0 m]  -> BUILT
+  -30878+-11663              163.3 m  layer None  cover 80.3  rise 2.99  passage -  | BUILT [under the classified cover for 80.3 m]  -> BUILT
+  -28889+-11006               86.0 m  layer -1  cover 0.0  rise 0.23  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -27685+-10406              236.1 m  layer -1  cover 118.1  rise 0.0  passage -  | BUILT [under the classified cover for 118.1 m]  -> BUILT
+  -27683+-10404               14.3 m  layer -1  cover 7.1  rise 0.09  passage -  | REFUSED [bore -27683+-10404 ENTERS AN ENCLOSURE at -499,579 — way -372 building=y]  -> REFUSED
+  -27682+-10403               14.2 m  layer -1  cover 7.1  rise 0.09  passage -  | REFUSED [bore -27682+-10403 ENTERS AN ENCLOSURE at -503,576 — way -372 building=y]  -> REFUSED
+  -27681+-10402               12.9 m  layer -1  cover 6.4  rise 0.07  passage -  | REFUSED [bore -27681+-10402 ENTERS AN ENCLOSURE at -505,573 — way -372 building=y]  -> REFUSED
+  -27680+-10401              281.5 m  layer -1  cover 140.8  rise 0.17  passage -  | REFUSED [bore -27680+-10401 ENTERS AN ENCLOSURE at -372,581 — way -372 building=y]  -> REFUSED
+  -27679+-10400               13.2 m  layer -1  cover 6.6  rise 0.09  passage -  | REFUSED [bore -27679+-10400 ENTERS AN ENCLOSURE at -497,581 — way -372 building=y]  -> REFUSED
+  -27678+-10399               10.5 m  layer -1  cover 5.2  rise 0.02  passage -  | REFUSED [bore -27678+-10399 ENTERS AN ENCLOSURE at -374,579 — way -372 building=y]  -> REFUSED
+  -27677                      39.6 m  layer -1  cover 39.6  rise 0.12  passage -  | REFUSED [bore -27677 ENTERS AN ENCLOSURE at -351,548 — way -372 building=yes: it ]  -> REFUSED
+  -27663+-10384               41.6 m  layer -1  cover 20.8  rise 0.0  passage -  | REFUSED [bore -27663+-10384 ENTERS AN ENCLOSURE at -468,433 — way -372 building=y]  -> REFUSED
+  -27662+-10383               17.8 m  layer -2  cover 8.9  rise 0.0  passage -  | REFUSED [bore -27662+-10383 ENTERS AN ENCLOSURE at -502,454 — way -372 building=y]  -> REFUSED
+  -27496                      54.3 m  layer -1  cover 38.0  rise 0.04  passage -  | REFUSED [bore -27496 ENTERS AN ENCLOSURE at 3117,-571 — way -330 building=yes: it]  -> REFUSED
+  -27470+-10312              107.2 m  layer -1  cover 0.0  rise 0.06  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -27468+-10310              108.0 m  layer -1  cover 0.0  rise 0.52  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -26707+-10034               98.1 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -25536+-9527               293.9 m  layer None  cover 219.9  rise 0.04  passage 2A_22.obj @ 1.73 m  | REFUSED [bore -25536+-9527 ENTERS A PACK BUILDING at 2080,-841 — AIRPORT/KHU1/2A_]  -> REFUSED
+  -25535+-9526               393.9 m  layer None  cover 393.9  rise 0.06  passage -  | REFUSED [bore -25535+-9526 ENTERS A PACK BUILDING at 2046,-819 — AIRPORT/KHU1/2A_]  -> REFUSED
+  -20892+-6946                18.7 m  layer None  cover 0.0  rise 0.36  passage -  | BUILT [under -20895[service], -6949[service] at grade]  -> BUILT
+  -20891+-6945                18.6 m  layer None  cover 0.0  rise 0.28  passage -  | BUILT [under -20890[service], -6944[service] at grade]  -> BUILT
+  -20679+-6881               285.4 m  layer -1  cover 135.4  rise 0.47  passage -  | BUILT [under the classified cover for 135.4 m]  -> BUILT
+  -20676+-6878               169.3 m  layer -1  cover 71.6  rise 4.96  passage -  | BUILT [under the classified cover for 71.6 m]  -> BUILT
+  -20675+-6877               124.2 m  layer -1  cover 0.0  rise 0.17  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -18668+-6119                43.7 m  layer -1  cover 0.0  rise 0.09  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -17951+-6055                51.4 m  layer None  cover 25.7  rise 0.05  passage -  | BUILT [under the classified cover for 25.7 m]  -> BUILT
+  -17946+-6050                42.7 m  layer None  cover 20.1  rise 0.0  passage -  | BUILT [under the classified cover for 20.1 m]  -> BUILT
+  -15932+-5312                13.0 m  layer -1  cover 0.0  rise 1.09  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -15385+-5028               114.3 m  layer -1  cover 24.1  rise 5.91  passage -  | BUILT [under the classified cover for 24.1 m]  -> BUILT
+  -15171+-4906                34.5 m  layer -1  cover 0.0  rise 0.07  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -13225+-4321               132.2 m  layer None  cover 105.7  rise 0.38  passage -  | REFUSED [bore -13225+-4321 ENTERS AN ENCLOSURE at 2726,-482 — way -85 building=ye]  -> REFUSED
+  -13221+-4317                40.9 m  layer None  cover 26.3  rise 0.25  passage -  | REFUSED [bore -13221+-4317 ENTERS AN ENCLOSURE at 2694,-653 — way -85 building=ye]  -> REFUSED
+  -13212+-4308               130.3 m  layer -1  cover 0.0  rise 0.23  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -13202+-4298               169.0 m  layer None  cover 71.6  rise 0.0  passage -  | REFUSED [bore -13202+-4298 ENTERS A PACK BUILDING at 2755,-578 — AIRPORT/KHU1/2A_]  -> REFUSED
+  -13199+-4295               184.5 m  layer -1  cover 0.0  rise 5.25  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -13191+-4287               118.5 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -13183+-4279               228.0 m  layer -1  cover 101.8  rise 0.0  passage 2A_75.obj @ 2.55 m  | REFUSED [bore -13183+-4279 PASSES UNDER AN ELEVATED PACK PART AT GRADE (228 m; cl]  -> REFUSED
+  -13180+-4276               501.5 m  layer None  cover 250.8  rise 0.0  passage 2A_67.obj @ 4.85 m  | REFUSED [bore -13180+-4276 ENTERS A PACK BUILDING at 2661,-236 — AIRPORT/KHU1/2A_]  -> REFUSED
+  -12471+-4119               106.2 m  layer None  cover 106.2  rise 0.01  passage -  | BUILT [under the classified cover for 106.2 m]  -> BUILT
+  -10305+-3565               136.1 m  layer -1  cover 0.0  rise 0.09  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -10293+-3553               179.0 m  layer -1  cover 0.0  rise 4.89  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -10256+-3516               107.2 m  layer -1  cover 39.0  rise 0.59  passage -  | BUILT [under the classified cover for 39.0 m]  -> BUILT
+  -9035+-3062                116.0 m  layer -1  cover 0.0  rise 2.21  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -8478+-2774                 85.6 m  layer -1  cover 0.0  rise 1.21  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1719+-235                 151.5 m  layer -1  cover 0.0  rise 1.29  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1669+-228                  51.5 m  layer -1  cover 0.0  rise 0.31  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1667+-226                  51.1 m  layer -1  cover 0.0  rise 1.09  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -10398                      39.6 m  layer -1  cover 39.6  rise 0.12  passage -  | REFUSED [bore -10398 ENTERS AN ENCLOSURE at -351,548 — way -372 building=yes: it ]  -> REFUSED
+  -10326                      54.3 m  layer -1  cover 38.0  rise 0.04  passage -  | REFUSED [bore -10326 ENTERS AN ENCLOSURE at 3117,-571 — way -330 building=yes: it]  -> REFUSED
+  -53129+-16792             2624.9 m  layer -2  cover 490.7  rise 7.72  passage -  | BUILT [under the classified cover for 490.7 m]  -> BUILT
+  -53128+-16791             2624.9 m  layer -2  cover 595.3  rise 5.42  passage -  | REFUSED [bore -53128+-16791 ENTERS A PACK BUILDING at 1665,-644 — AIRPORT/KHU1/2A]  -> REFUSED
+  -28286                     137.9 m  layer -1  cover 0.0  rise 3.35  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -28285                     216.8 m  layer -1  cover 0.0  rise 5.39  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -28283                      43.9 m  layer -1  cover 0.0  rise 0.5  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -24060                     264.5 m  layer -2  cover 60.5  rise 6.86  passage -  | BUILT [under the classified cover for 60.5 m]  -> BUILT
+  -24058                     264.6 m  layer -2  cover 60.5  rise 7.29  passage -  | BUILT [under the classified cover for 60.5 m]  -> BUILT
+  -1286                       44.2 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1224                      137.3 m  layer -1  cover 0.0  rise 2.89  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -1222                       27.4 m  layer -1  cover 0.0  rise 0.21  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -21322                     187.8 m  layer -2  cover 158.4  rise 0.74  passage -  | BUILT [under the classified cover for 158.4 m]  -> BUILT
+  -21305+-13766              326.9 m  layer -1  cover 49.2  rise 0.38  passage H18.obj @ 10.02 m  | REFUSED [bore -21305+-13766 ENTERS A PACK BUILDING at -929,1492 — Hard_deck/H18.o]  -> REFUSED
+  -21304+-160                326.8 m  layer -1  cover 49.1  rise 0.37  passage H18.obj @ 10.02 m  | REFUSED [bore -21304+-160 ENTERS A PACK BUILDING at -1016,1183 — Hard_deck/H18.ob]  -> REFUSED
+  -20670                     280.3 m  layer -1  cover 0.0  rise 0.34  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -18829+-17815              376.7 m  layer -2  cover 293.4  rise 1.7  passage -  | REFUSED [bore -18829+-17815 ENTERS A PACK BUILDING at 1678,-640 — AIRPORT/KHU1/2A]  -> REFUSED
+  -18828+-17816              299.5 m  layer -2  cover 322.0  rise 1.61  passage -  | REFUSED [bore -18828+-17816 ENTERS A PACK BUILDING at 1665,-641 — AIRPORT/KHU1/2A]  -> REFUSED
+  -15695+-15694              672.0 m  layer -2  cover 292.5  rise 6.57  passage -  | BUILT [under the classified cover for 292.5 m]  -> BUILT
+  -15693+-15692              672.0 m  layer -2  cover 282.9  rise 7.15  passage -  | BUILT [under the classified cover for 282.9 m]  -> BUILT
+  -13770                     233.9 m  layer -1  cover 73.7  rise 0.17  passage -  | BUILT [under the classified cover for 73.7 m]  -> BUILT
+  -13769                     234.6 m  layer -1  cover 74.2  rise 0.03  passage -  | BUILT [under the classified cover for 74.2 m]  -> BUILT
+  -13768                     235.1 m  layer -1  cover 74.3  rise 0.03  passage -  | BUILT [under the classified cover for 74.3 m]  -> BUILT
+  -13765                     327.0 m  layer -1  cover 49.1  rise 0.47  passage H18.obj @ 10.02 m  | REFUSED [bore -13765 ENTERS A PACK BUILDING at -1058,1180 — Hard_deck/H18.obj (un]  -> REFUSED
+  -13048                      24.5 m  layer -1  cover 0.0  rise 0.04  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -11792                      29.0 m  layer -1  cover 0.0  rise 0.43  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -11502                      60.0 m  layer -2  cover 60.0  rise 0.02  passage -  | BUILT [under the classified cover for 60.0 m]  -> BUILT
+  -11501                      59.7 m  layer -2  cover 59.7  rise 0.0  passage -  | BUILT [under the classified cover for 59.7 m]  -> BUILT
+  -11500                      63.7 m  layer -2  cover 36.1  rise 0.08  passage -  | BUILT [under the classified cover for 36.1 m]  -> BUILT
+  -11499                      64.6 m  layer -2  cover 19.7  rise 0.08  passage -  | BUILT [under the classified cover for 19.7 m]  -> BUILT
+  -11498                      74.0 m  layer -2  cover 14.6  rise 0.2  passage -  | BUILT [under the classified cover for 14.6 m]  -> BUILT
+  -11497                      72.9 m  layer -2  cover 28.1  rise 0.11  passage -  | BUILT [under the classified cover for 28.1 m]  -> BUILT
+  -10785                     415.5 m  layer -2  cover 33.9  rise 5.54  passage -  | BUILT [under the classified cover for 33.9 m]  -> BUILT
+  -10778                      59.8 m  layer -1  cover 0.0  rise 0.56  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -10776                      59.0 m  layer -1  cover 0.0  rise 0.04  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -10774                     187.1 m  layer -1  cover 74.5  rise 8.13  passage -  | BUILT [under the classified cover for 74.5 m]  -> BUILT
+  -5323                      138.9 m  layer -1  cover 0.0  rise 2.88  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -4534                       66.8 m  layer -1  cover 0.0  rise 0.02  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -4531                       65.6 m  layer -1  cover 0.0  rise 0.15  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -4530                       59.7 m  layer -1  cover 0.0  rise 0.14  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -4529                       60.7 m  layer -1  cover 0.0  rise 0.02  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -3478                       84.5 m  layer -1  cover 71.7  rise 0.65  passage -  | REFUSED [bore -3478 ENTERS A PACK BUILDING at 2751,-537 — AIRPORT/KHU1/2A_55.obj ]  -> REFUSED
+  -3476                       59.6 m  layer -1  cover 0.0  rise 0.2  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -3475                       59.3 m  layer -1  cover 0.0  rise 0.08  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -3472                      177.7 m  layer -1  cover 164.3  rise 5.88  passage -  | BUILT [under the classified cover for 164.3 m]  -> BUILT
+  -3471                      178.3 m  layer -1  cover 164.3  rise 6.17  passage -  | BUILT [under the classified cover for 164.3 m]  -> BUILT
+  -3470                       84.4 m  layer -1  cover 71.5  rise 0.0  passage -  | REFUSED [bore -3470 ENTERS A PACK BUILDING at 2754,-571 — AIRPORT/KHU1/2A_55.obj ]  -> REFUSED
+  -3458                       63.1 m  layer -1  cover 0.0  rise 0.31  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -3445                       30.1 m  layer -1  cover 0.0  rise 0.22  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -3444                       23.2 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -2491                      416.4 m  layer -2  cover 20.2  rise 9.12  passage -  | BUILT [under the classified cover for 20.2 m]  -> BUILT
+  -1219                       38.3 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -413                        37.8 m  layer -1  cover 0.0  rise 0.52  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -412                        70.2 m  layer -1  cover 45.0  rise 1.41  passage -  | BUILT [under the classified cover for 45.0 m]  -> BUILT
+  -388                        60.7 m  layer -1  cover 0.0  rise 0.35  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -387                        61.3 m  layer -1  cover 3.3  rise 0.08  passage -  | BUILT [under the classified cover for 3.3 m]  -> BUILT
+  -384                        67.5 m  layer -1  cover 0.0  rise 0.28  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -383                        85.1 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -373                       192.8 m  layer -1  cover 0.0  rise 3.11  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -369                       106.6 m  layer -1  cover 101.2  rise 5.0  passage -  | BUILT [under the classified cover for 101.2 m]  -> BUILT
+  -323                        58.9 m  layer -1  cover 0.0  rise 0.04  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -322                        59.8 m  layer -1  cover 0.0  rise 0.89  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -319                       187.0 m  layer -1  cover 74.5  rise 7.66  passage -  | BUILT [under the classified cover for 74.5 m]  -> BUILT
+  -317                        61.2 m  layer -1  cover 61.2  rise 0.77  passage -  | BUILT [under the classified cover for 61.2 m]  -> BUILT
+  -314                        63.9 m  layer -1  cover 63.9  rise 0.17  passage -  | BUILT [under the classified cover for 63.9 m]  -> BUILT
+  -300                        58.9 m  layer -1  cover 51.5  rise 0.74  passage -  | BUILT [under the classified cover for 51.5 m]  -> BUILT
+  -294                        59.9 m  layer -1  cover 0.0  rise 0.42  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -204                        66.5 m  layer -1  cover 0.0  rise 0.05  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -202                        66.7 m  layer -1  cover 0.0  rise 0.11  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -200                        66.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -192                        65.5 m  layer -1  cover 0.0  rise 0.13  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -190                        65.4 m  layer -1  cover 0.0  rise 0.14  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -188                        65.6 m  layer -1  cover 0.0  rise 0.58  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -48960+-19919               59.7 m  layer None  cover 0.0  rise 0.0  passage -  | REFUSED [bore -48960+-19919 PASSES UNDER NOTHING AT GRADE (60 m; cover 0.0 m, no ]  -> REFUSED
+  -5099+-719                  59.1 m  layer None  cover 0.0  rise 0.15  passage -  | BUILT [under -5099[tertiary], -719[tertiary] at grade]  -> BUILT
+== OTHH: 10 bore(s) asked (base), 10 (branch)
+  -10442                      23.4 m  layer -1  cover 1.9  rise 0.0  passage OTHH_Terminal_Parking_Parking-Left_005.obj @ 0.55 m  | REFUSED [bore -10442 ENTERS A PACK BUILDING at 575,-1783 — Buildings/Terminal/OTH]  -> REFUSED
+  -5215                      473.4 m  layer -1  cover 261.5  rise 0.0  passage -  | BUILT [under the classified cover for 261.5 m]  -> BUILT
+  -5214                      473.9 m  layer -1  cover 98.8  rise 0.0  passage -  | BUILT [under the classified cover for 98.8 m]  -> BUILT
+  -1355                       76.8 m  layer -1  cover 37.3  rise 0.0  passage -  | BUILT [under the classified cover for 37.3 m]  -> BUILT
+  -1258                      346.9 m  layer -1  cover 208.1  rise 0.0  passage -  | BUILT [under the classified cover for 208.1 m]  -> BUILT
+  -1257                      340.2 m  layer -1  cover 189.4  rise 0.0  passage -  | BUILT [under the classified cover for 189.4 m]  -> BUILT
+  -1240                      332.5 m  layer -1  cover 158.8  rise 0.0  passage -  | BUILT [under the classified cover for 158.8 m]  -> BUILT
+  -1239                      341.3 m  layer -1  cover 175.4  rise 0.0  passage -  | BUILT [under the classified cover for 175.4 m]  -> BUILT
+  -918                       811.3 m  layer -1  cover 508.1  rise 0.0  passage -  | BUILT [under the classified cover for 508.1 m]  -> BUILT
+  -917                       809.9 m  layer -1  cover 518.6  rise 0.0  passage -  | BUILT [under the classified cover for 518.6 m]  -> BUILT
+== EDDF: 120 bore(s) asked (base), 120 (branch)
+  -36514+-19285               26.7 m  layer -1  cover 13.4  rise 0.01  passage -  | REFUSED [bore -36514+-19285 ENTERS A PACK BUILDING at 853,2079 — Apt Buildings/So]  -> REFUSED
+  -35458+-18828               74.8 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -35430+-18812              295.1 m  layer -1  cover 0.0  rise 1.42  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -35232+-18637              169.2 m  layer -1  cover 0.0  rise 5.94  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -34508+-18257              136.3 m  layer -1  cover 68.2  rise 0.03  passage -  | BUILT [under the classified cover for 68.2 m]  -> BUILT
+  -34065+-17970               36.6 m  layer None  cover 32.5  rise 0.07  passage -  | REFUSED [bore -34065+-17970 ENTERS A PACK BUILDING at -1171,1263 — Apt Buildings/]  -> REFUSED
+  -33673+-17829              872.3 m  layer -1  cover 639.1  rise 16.26  passage -  | REFUSED [bore -33673+-17829 ENTERS A PACK BUILDING at 953,-305 — Apt Buildings/T3]  -> REFUSED
+  -30642+-16481                4.7 m  layer -1  cover 2.4  rise 0.56  passage -  | BUILT [under the classified cover for 2.4 m]  -> BUILT
+  -30318+-16352               26.7 m  layer -1  cover 13.4  rise 0.08  passage -  | REFUSED [bore -30318+-16352 ENTERS A PACK BUILDING at 859,2067 — Apt Buildings/So]  -> REFUSED
+  -29748+-16039               22.0 m  layer -1  cover 11.0  rise 0.01  passage -  | REFUSED [bore -29748+-16039 ENTERS A PACK BUILDING at -382,1747 — Apt Buildings/P]  -> REFUSED
+  -29600+-15970               81.4 m  layer 1  cover 40.7  rise 0.46  passage MultiPark_1.obj @ 2.8 m  | REFUSED [bore -29600+-15970 ENTERS A PACK BUILDING at -818,1696 — Apt Buildings/P]  -> REFUSED
+  -29585+-15960               51.9 m  layer None  cover 26.0  rise 0.0  passage -  | REFUSED [bore -29585+-15960 ENTERS A PACK BUILDING at -422,1684 — Apt Buildings/F]  -> REFUSED
+  -29584+-15959              156.3 m  layer None  cover 95.7  rise 0.04  passage -  | REFUSED [bore -29584+-15959 ENTERS A PACK BUILDING at -411,1833 — Apt Buildings/P]  -> REFUSED
+  -28395+-15299               53.6 m  layer -1  cover 0.0  rise 5.07  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -28216+-15140               23.9 m  layer -1  cover 15.6  rise 0.19  passage FRA_Interior_Props.obj @ 4.9 m  | REFUSED [bore -28216+-15140 ENTERS A PACK BUILDING at 209,1774 — Apt Buildings/Co]  -> REFUSED
+  -27820+-14922              163.2 m  layer -1  cover 0.0  rise 1.07  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -27579+-14869               40.7 m  layer None  cover 33.1  rise 1.1  passage -  | REFUSED [bore -27579+-14869 ENTERS A PACK BUILDING at 1323,2029 — Apt Buildings/C]  -> REFUSED
+  -26721+-14277              182.9 m  layer -2  cover 88.6  rise 0.05  passage -  | REFUSED [bore -26721+-14277 ENTERS A PACK BUILDING at 950,2026 — Apt Buildings/Co]  -> REFUSED
+  -26720+-14276              113.5 m  layer -2  cover 41.0  rise 0.01  passage -  | REFUSED [bore -26720+-14276 ENTERS A PACK BUILDING at 1007,2020 — Apt Buildings/C]  -> REFUSED
+  -26719+-14275              114.5 m  layer -2  cover 51.3  rise 0.0  passage -  | REFUSED [bore -26719+-14275 ENTERS A PACK BUILDING at 1025,2027 — Apt Buildings/C]  -> REFUSED
+  -26718+-14274              110.6 m  layer -2  cover 51.2  rise 0.0  passage -  | REFUSED [bore -26718+-14274 ENTERS A PACK BUILDING at 1044,2034 — Apt Buildings/C]  -> REFUSED
+  -26717+-14273              110.7 m  layer -2  cover 51.0  rise 0.0  passage -  | REFUSED [bore -26717+-14273 ENTERS A PACK BUILDING at 1062,2040 — Apt Buildings/C]  -> REFUSED
+  -26716+-14272              104.7 m  layer -2  cover 50.9  rise 0.0  passage -  | REFUSED [bore -26716+-14272 ENTERS A PACK BUILDING at 1079,2047 — Apt Buildings/C]  -> REFUSED
+  -26715+-14271              103.4 m  layer -2  cover 50.7  rise 0.42  passage -  | REFUSED [bore -26715+-14271 ENTERS A PACK BUILDING at 1097,2053 — Apt Buildings/C]  -> REFUSED
+  -26714+-14270              102.7 m  layer -2  cover 50.6  rise 0.37  passage -  | REFUSED [bore -26714+-14270 ENTERS A PACK BUILDING at 1115,2060 — Apt Buildings/C]  -> REFUSED
+  -26713+-14269              103.7 m  layer -2  cover 42.3  rise 0.52  passage -  | REFUSED [bore -26713+-14269 ENTERS A PACK BUILDING at 1134,2066 — Apt Buildings/C]  -> REFUSED
+  -26712+-14268              101.8 m  layer -2  cover 82.4  rise 7.67  passage -  | REFUSED [bore -26712+-14268 ENTERS A PACK BUILDING at 1152,2073 — Apt Buildings/C]  -> REFUSED
+  -26711+-14267              100.1 m  layer -2  cover 81.6  rise 15.96  passage -  | REFUSED [bore -26711+-14267 ENTERS A PACK BUILDING at 1170,2080 — Apt Buildings/C]  -> REFUSED
+  -26709+-14265              110.9 m  layer -2  cover 86.3  rise 20.34  passage -  | REFUSED [bore -26709+-14265 ENTERS A PACK BUILDING at 1187,2086 — Apt Buildings/C]  -> REFUSED
+  -26708+-14264              112.7 m  layer -2  cover 86.3  rise 17.14  passage -  | REFUSED [bore -26708+-14264 ENTERS A PACK BUILDING at 1206,2092 — Apt Buildings/C]  -> REFUSED
+  -26707+-14263              112.6 m  layer -2  cover 49.6  rise 1.5  passage -  | REFUSED [bore -26707+-14263 ENTERS A PACK BUILDING at 1227,2100 — Apt Buildings/C]  -> REFUSED
+  -26706+-14262              112.7 m  layer -2  cover 49.4  rise 0.53  passage -  | REFUSED [bore -26706+-14262 ENTERS A PACK BUILDING at 1249,2108 — Apt Buildings/C]  -> REFUSED
+  -25616+-13589               18.6 m  layer None  cover 10.6  rise 0.0  passage -  | REFUSED [bore -25616+-13589 ENTERS AN ENCLOSURE at 109,1586 — way -94 building=tr]  -> REFUSED
+  -25553+-13528               23.9 m  layer None  cover 11.9  rise 0.04  passage -  | REFUSED [bore -25553+-13528 ENTERS A PACK BUILDING at -246,1905 — Apt Buildings/F]  -> REFUSED
+  -22991+-12426              498.2 m  layer None  cover 495.0  rise 0.06  passage -  | REFUSED [bore -22991+-12426 ENTERS A PACK BUILDING at -1345,1379 — Apt Buildings/]  -> REFUSED
+  -22379+-12196              158.7 m  layer None  cover 83.1  rise 2.07  passage -  | REFUSED [bore -22379+-12196 ENTERS A PACK BUILDING at 1413,2101 — Apt Buildings/C]  -> REFUSED
+  -22377+-12194              939.1 m  layer None  cover 517.9  rise 13.91  passage -  | REFUSED [bore -22377+-12194 ENTERS A PACK BUILDING at 1039,1962 — Apt Buildings/C]  -> REFUSED
+  -22376+-12193              141.5 m  layer None  cover 70.9  rise 0.07  passage CC_C_Facade_1.obj @ 3.7 m  | REFUSED [bore -22376+-12193 PASSES UNDER AN ELEVATED PACK PART AT GRADE (142 m; c]  -> REFUSED
+  -22144+-12048              155.1 m  layer None  cover 140.7  rise 0.45  passage CC_C_Facade_1.obj @ 3.7 m  | REFUSED [bore -22144+-12048 PASSES UNDER AN ELEVATED PACK PART AT GRADE (155 m; c]  -> REFUSED
+  -22006+-11966              144.7 m  layer -2  cover 23.4  rise 0.05  passage FRA_Car_Sharing_and_Parking_2.obj @ 2.0 m  | REFUSED [bore -22006+-11966 ENTERS A PACK BUILDING at -308,1963 — Apt Buildings/F]  -> REFUSED
+  -21519+-11523               63.8 m  layer None  cover 33.5  rise 0.18  passage -  | REFUSED [bore -21519+-11523 ENTERS AN ENCLOSURE at 94,1487 — way -94 building=tra]  -> REFUSED
+  -21452+-11451              183.5 m  layer -3  cover 53.2  rise 0.11  passage -  | REFUSED [bore -21452+-11451 ENTERS A PACK BUILDING at 963,2000 — Apt Buildings/Co]  -> REFUSED
+  -21450                      18.1 m  layer -3  cover 0.0  rise 0.7  passage -  | BUILT [the bore carries layer -3]  -> BUILT
+  -21449+-11448              164.6 m  layer -3  cover 40.0  rise 0.26  passage -  | REFUSED [bore -21449+-11448 ENTERS A PACK BUILDING at 970,2009 — Apt Buildings/Co]  -> REFUSED
+  -21446+-11445              164.6 m  layer -3  cover 85.2  rise 20.04  passage -  | REFUSED [bore -21446+-11445 ENTERS A PACK BUILDING at 1187,2087 — Apt Buildings/C]  -> REFUSED
+  -21445+-11444              164.6 m  layer -3  cover 41.9  rise 0.36  passage -  | REFUSED [bore -21445+-11444 ENTERS A PACK BUILDING at 1097,2055 — Apt Buildings/C]  -> REFUSED
+  -21444+-11443              164.6 m  layer -3  cover 39.4  rise 0.01  passage -  | REFUSED [bore -21444+-11443 ENTERS A PACK BUILDING at 1007,2022 — Apt Buildings/C]  -> REFUSED
+  -21442+-11441              164.6 m  layer -3  cover 84.9  rise 7.0  passage -  | REFUSED [bore -21442+-11441 ENTERS A PACK BUILDING at 1151,2074 — Apt Buildings/C]  -> REFUSED
+  -21441+-11440              164.6 m  layer -3  cover 39.7  rise 0.05  passage -  | REFUSED [bore -21441+-11440 ENTERS A PACK BUILDING at 989,2015 — Apt Buildings/Co]  -> REFUSED
+  -21440+-11439              164.6 m  layer -3  cover 43.7  rise 0.0  passage -  | REFUSED [bore -21440+-11439 ENTERS A PACK BUILDING at 1025,2028 — Apt Buildings/C]  -> REFUSED
+  -21439+-11438              164.6 m  layer -3  cover 43.4  rise 0.0  passage -  | REFUSED [bore -21439+-11438 ENTERS A PACK BUILDING at 1043,2035 — Apt Buildings/C]  -> REFUSED
+  -21438+-11437              164.6 m  layer -3  cover 42.8  rise 0.0  passage -  | REFUSED [bore -21438+-11437 ENTERS A PACK BUILDING at 1061,2041 — Apt Buildings/C]  -> REFUSED
+  -21437+-11436              164.6 m  layer -3  cover 42.5  rise 0.0  passage -  | REFUSED [bore -21437+-11436 ENTERS A PACK BUILDING at 1079,2048 — Apt Buildings/C]  -> REFUSED
+  -21436+-11435              164.6 m  layer -3  cover 42.0  rise 0.26  passage -  | REFUSED [bore -21436+-11435 ENTERS A PACK BUILDING at 1115,2061 — Apt Buildings/C]  -> REFUSED
+  -21435+-11434              164.6 m  layer -3  cover 41.8  rise 0.34  passage -  | REFUSED [bore -21435+-11434 ENTERS A PACK BUILDING at 1133,2068 — Apt Buildings/C]  -> REFUSED
+  -21434+-11433              164.6 m  layer -3  cover 85.3  rise 15.24  passage -  | REFUSED [bore -21434+-11433 ENTERS A PACK BUILDING at 1169,2081 — Apt Buildings/C]  -> REFUSED
+  -21432                      51.7 m  layer -1  cover 0.0  rise 1.62  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -20307+-11008              144.7 m  layer -1  cover 33.5  rise 1.0  passage -  | BUILT [under the classified cover for 33.5 m]  -> BUILT
+  -19160+-10400               59.9 m  layer None  cover 53.9  rise 0.38  passage CC_D_Appendix_North_Offices_Dogana_Capanno.obj @ 6.53 m  | REFUSED [bore -19160+-10400 ENTERS A PACK BUILDING at 887,1964 — Apt Buildings/Co]  -> REFUSED
+  -17683+-9832               137.2 m  layer None  cover 85.8  rise 0.34  passage -  | REFUSED [bore -17683+-9832 ENTERS AN ENCLOSURE at 335,1646 — way -94 building=tra]  -> REFUSED
+  -17626+-9780               153.1 m  layer -1  cover 68.5  rise 3.86  passage -  | BUILT [under the classified cover for 68.5 m]  -> BUILT
+  -16931+-9518                15.1 m  layer None  cover 0.0  rise 0.0  passage -  | BUILT [under -11943[service], -21935[service] at grade]  -> BUILT
+  -14714+-8732                96.1 m  layer -1  cover 0.0  rise 2.81  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -14187+-8545                81.9 m  layer -1  cover 0.0  rise 2.53  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -13143+-7909               149.8 m  layer -1  cover 65.8  rise 4.18  passage -  | BUILT [under the classified cover for 65.8 m]  -> BUILT
+  -12880+-7761                25.8 m  layer -1  cover 12.9  rise 0.88  passage -  | BUILT [under the classified cover for 12.9 m]  -> BUILT
+  -12878+-7759                21.0 m  layer -1  cover 10.5  rise 0.0  passage -  | BUILT [under the classified cover for 10.5 m]  -> BUILT
+  -12874+-7755                23.3 m  layer None  cover 11.7  rise 0.1  passage -  | REFUSED [bore -12874+-7755 ENTERS A PACK BUILDING at -256,1903 — Apt Buildings/FR]  -> REFUSED
+  -12871+-7752              1166.8 m  layer -2  cover 810.8  rise 30.13  passage -  | REFUSED [bore -12871+-7752 ENTERS A PACK BUILDING at 1482,2132 — Apt Buildings/Co]  -> REFUSED
+  -12865+-7746                81.1 m  layer None  cover 53.7  rise 6.42  passage -  | REFUSED [bore -12865+-7746 ENTERS A PACK BUILDING at 1034,1960 — Apt Buildings/Co]  -> REFUSED
+  -12854+-7735                71.7 m  layer -1  cover 0.0  rise 1.91  passage -  | REFUSED [bore -12854+-7735 ENTERS A PACK BUILDING at 1118,2115 — Apt Buildings/Co]  -> REFUSED
+  -12848+-7729               935.6 m  layer -2  cover 15.2  rise 1.64  passage Citroen_Grand_C4_Picasso_2016_Parked.obj @ 5.94 m  | REFUSED [bore -12848+-7729 PASSES UNDER AN ELEVATED PACK PART AT GRADE (936 m; cl]  -> REFUSED
+  -11095+-6523                34.0 m  layer -1  cover 0.0  rise 0.23  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -10677+-6116               856.1 m  layer -1  cover 780.0  rise 0.15  passage -  | REFUSED [bore -10677+-6116 ENTERS AN ENCLOSURE at 172,1733 — way -94 building=tra]  -> REFUSED
+  -9351+-5156                448.1 m  layer -1  cover 0.0  rise 1.59  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -8519+-4662                284.2 m  layer -1  cover 155.0  rise 1.55  passage -  | REFUSED [bore -8519+-4662 ENTERS A PACK BUILDING at 388,1926 — Apt Buildings/FRA_]  -> REFUSED
+  -8163+-4404                899.2 m  layer -1  cover 133.7  rise 3.07  passage -  | BUILT [under the classified cover for 133.7 m]  -> BUILT
+  -6903+-3743                 40.6 m  layer None  cover 20.3  rise 0.02  passage FRA_3D_PPL.obj @ 3.93 m  | REFUSED [bore -6903+-3743 ENTERS AN ENCLOSURE at -297,1280 — way -826 building=tr]  -> REFUSED
+  -6902+-3742                 45.1 m  layer None  cover 22.6  rise 0.05  passage FRA_Glass_Master.obj @ 3.3 m  | REFUSED [bore -6902+-3742 PASSES UNDER AN ELEVATED PACK PART AT GRADE (45 m; clas]  -> REFUSED
+  -6899+-3739               1360.1 m  layer -1  cover 890.2  rise 2.85  passage -  | BUILT [under the classified cover for 890.2 m]  -> BUILT
+  -6823+-3705               1018.1 m  layer -1  cover 234.1  rise 15.54  passage -  | BUILT [under the classified cover for 234.1 m]  -> BUILT
+  -3189+-1462                 67.8 m  layer -1  cover 0.0  rise 3.16  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -757+-315                  119.5 m  layer -1  cover 0.0  rise 4.96  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -471+-180                   66.4 m  layer -1  cover 0.0  rise 2.4  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -365+-81                   907.2 m  layer -1  cover 133.0  rise 6.08  passage -  | BUILT [under the classified cover for 133.0 m]  -> BUILT
+  -11449                      18.1 m  layer -3  cover 0.0  rise 0.7  passage -  | BUILT [the bore carries layer -3]  -> BUILT
+  -11431                      51.7 m  layer -1  cover 0.0  rise 1.62  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -44836+-31387+-9868+-36251+-43692+-32008  2624.9 m  layer -3  cover 133.8  rise 9.7  passage FRA_Terminal_Roads_Streetlights.obj @ 6.75 m  | REFUSED [bore -44836+-31387+-9868+-36251+-43692+-32008 PASSES UNDER AN ELEVATED P]  -> REFUSED
+  -44835+-30366+-36250+-36268+-32004  2545.6 m  layer -2  cover 142.9  rise 8.96  passage FRA_Terminal_Roads_Streetlights.obj @ 6.75 m  | REFUSED [bore -44835+-30366+-36250+-36268+-32004 PASSES UNDER AN ELEVATED PACK PA]  -> REFUSED
+  -44819                     240.7 m  layer -2  cover 153.7  rise 3.67  passage -  | BUILT [under the classified cover for 153.7 m]  -> BUILT
+  -42767+-9533              1884.5 m  layer -1  cover 0.0  rise 11.27  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -36260                     117.1 m  layer -2  cover 0.0  rise 0.23  passage -  | BUILT [the bore carries layer -2]  -> BUILT
+  -31248+-25480+-25479      1400.0 m  layer -2  cover 1030.9  rise 4.39  passage -  | BUILT [under the classified cover for 1030.9 m]  -> BUILT
+  -31247+-484+-30367        1391.7 m  layer -2  cover 929.5  rise 5.19  passage -  | BUILT [under the classified cover for 929.5 m]  -> BUILT
+  -31109                     236.9 m  layer -2  cover 201.4  rise 3.57  passage -  | BUILT [under the classified cover for 201.4 m]  -> BUILT
+  -29909+-9531              1630.1 m  layer -3  cover 0.0  rise 12.43  passage -  | BUILT [the bore carries layer -3]  -> BUILT
+  -29908+-437               1625.9 m  layer -3  cover 0.0  rise 12.18  passage -  | BUILT [the bore carries layer -3]  -> BUILT
+  -27365                     493.7 m  layer -1  cover 0.0  rise 7.37  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -27364                     493.8 m  layer -1  cover 0.0  rise 7.62  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -27361                      14.9 m  layer -1  cover 0.0  rise 2.04  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -27359                      14.9 m  layer -1  cover 0.0  rise 2.01  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -24000                      99.7 m  layer -2  cover 52.3  rise 1.01  passage FRA_Terminal_Roads_Streetlights.obj @ 6.75 m  | REFUSED [bore -24000 PASSES UNDER AN ELEVATED PACK PART AT GRADE (100 m; classifi]  -> REFUSED
+  -10179                     494.1 m  layer -1  cover 0.0  rise 5.69  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -9871                       72.8 m  layer -1  cover 0.0  rise 6.79  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -9546                      130.6 m  layer -1  cover 0.0  rise 0.0  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -9545                       94.0 m  layer -1  cover 0.0  rise 3.32  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -9543                      131.7 m  layer -1  cover 0.0  rise 13.67  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -9539                      216.9 m  layer -1  cover 0.0  rise 5.49  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -2201                      165.1 m  layer -1  cover 0.0  rise 4.99  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -2200                      132.3 m  layer -1  cover 0.0  rise 13.25  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -2110                       76.9 m  layer -1  cover 0.0  rise 6.29  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -479                      1883.9 m  layer -2  cover 0.0  rise 11.85  passage -  | BUILT [the bore carries layer -2]  -> BUILT
+  -478                       493.0 m  layer -1  cover 0.0  rise 7.95  passage -  | BUILT [the bore carries layer -1]  -> BUILT
+  -11137+-6539                57.5 m  layer None  cover 28.8  rise 0.0  passage -  | BUILT [under the classified cover for 28.8 m]  -> BUILT
+  -16928+-9515                85.2 m  layer None  cover 42.6  rise 0.34  passage -  | BUILT [under the classified cover for 42.6 m]  -> BUILT
+  -16927+-9514               137.5 m  layer None  cover 68.7  rise 0.0  passage -  | BUILT [under the classified cover for 68.7 m]  -> BUILT
+  -22664+-12274               81.5 m  layer None  cover 40.7  rise 0.31  passage -  | BUILT [under the classified cover for 40.7 m]  -> BUILT
+  -22659+-12269              104.2 m  layer None  cover 52.1  rise 0.46  passage -  | BUILT [under the classified cover for 52.1 m]  -> BUILT
+  -16296                      79.9 m  layer None  cover 79.9  rise 0.17  passage -  | BUILT [under the classified cover for 79.9 m]  -> BUILT
+  -16295                      79.5 m  layer None  cover 79.5  rise 0.14  passage -  | BUILT [under the classified cover for 79.5 m]  -> BUILT
+VERDICT: only the expected bores changed

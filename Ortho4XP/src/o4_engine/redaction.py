@@ -83,7 +83,7 @@ ROOT_MARKERS = {
 _SEP = r"[\\/]"
 _URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.\-]*://[^\s\"'<>]+")
 _USERINFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*://)[^/@\s]+@")
-_SECRET_NAME = (r"(?:pass(?:word|wd)?|pwd|token|api[_\-]?key|key|secret|sig"
+_SECRET_NAME = (r"(?:pass(?:word|wd)?|pwd|token|api[_\-]?key|api|key|secret|sig"
                 r"(?:nature)?|auth(?:orization)?|access[_\-]?(?:token|key)|"
                 r"client[_\-]?secret|session(?:[_\-]?id)?|cookie)")
 _SECRET_QUERY = re.compile(r"(?i)([?&;](?:[\w\-]*[_\-])?%s)=[^&#\s]*"

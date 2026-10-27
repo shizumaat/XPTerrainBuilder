@@ -1358,12 +1358,17 @@ def _rung_ask_signature(rung_definition):
 
 
 def _cap_declined_listing(error, rung_strategy):
-    """The listing ids a rung was DECLINED over by a per-airport cap, or
-    ``None`` when ``error`` is any other ``unavailable`` (a missing
-    decoder has its own rule, :func:`_rung_stands_without_capability`; a
-    refused download is asked again on every build, owner RULINGS
-    2026-09-13b) or the strategy kept no listing."""
-    if not getattr(error, "declined_by_cap", False):
+    """The listing ids a rung was DECLINED over by a per-airport cap -- or,
+    THE PRODUCT CLASS (#1210), over a listed tile whose own bytes the
+    engine refuses (a LAS tile with no CRS) -- or ``None`` when ``error``
+    is any other ``unavailable`` (a missing decoder has its own rule,
+    :func:`_rung_stands_without_capability`; a refused download is asked
+    again on every build, owner RULINGS 2026-09-13b) or the strategy kept
+    no listing.  Both classes are a function of the listing, the
+    definition and the engine, so both record under
+    :func:`_rung_ask_signature`."""
+    if not (getattr(error, "declined_by_cap", False)
+            or getattr(error, "declined_by_product", False)):
         return None
     listing = getattr(rung_strategy, "last_listing", None)
     if not listing:

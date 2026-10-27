@@ -1,0 +1,574 @@
+{
+ "_comment": "Shared by Ortho4XP/tests/test_imagery_menu_parity.py and Tests/SceneryKitTests/ImagerySourcesTests.swift (#1345). Rows are engine imagery_sources rows (EUR trimmed to three layers); regenerate the expectations with O4_Imagery_Sources / O4_Qt_Imagery_Menu if the rule changes.",
+ "rows": [
+  {
+   "code": "EUR",
+   "region": "",
+   "name": "EUR",
+   "combined": true,
+   "members": [
+    {
+     "code": "EST",
+     "extent": "Estonia",
+     "bbox": [
+      21.36,
+      57.480000000000004,
+      28.240000000000002,
+      59.96
+     ],
+     "preview": null
+    },
+    {
+     "code": "NL",
+     "extent": "Netherlands",
+     "bbox": [
+      3.06,
+      50.72,
+      7.26,
+      53.76
+     ],
+     "preview": {
+      "template": "https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0?&SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=Actueel_ortho25&STYLE=&FORMAT=image/jpeg&TILEMATRIXSET=EPSG:3857&TILEMATRIX={tilematrix}&TILEROW={y}&TILECOL={x}",
+      "referer": "",
+      "max_zl": 19,
+      "tilematrix": [
+       "00",
+       "01",
+       "02",
+       "03",
+       "04",
+       "05",
+       "06",
+       "07",
+       "08",
+       "09",
+       "10",
+       "11",
+       "12",
+       "13",
+       "14",
+       "15",
+       "16",
+       "17",
+       "18",
+       "19",
+       null
+      ]
+     }
+    },
+    {
+     "code": "Arc@",
+     "extent": "global",
+     "bbox": null,
+     "preview": {
+      "template": "https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{zoom}/{y}/{x}",
+      "referer": "",
+      "max_zl": null
+     }
+    }
+   ],
+   "max_zl": null,
+   "coverage": null,
+   "buildable": true,
+   "previewable": true,
+   "reason": "",
+   "preview": null,
+   "attribution": ""
+  },
+  {
+   "code": "Arc",
+   "region": "Global",
+   "name": "Arc",
+   "combined": false,
+   "members": [],
+   "max_zl": null,
+   "coverage": null,
+   "buildable": true,
+   "previewable": true,
+   "reason": "",
+   "preview": {
+    "template": "http://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{zoom}/{y}/{x}",
+    "referer": "",
+    "max_zl": null
+   },
+   "attribution": ""
+  },
+  {
+   "code": "BI",
+   "region": "Global",
+   "name": "BI",
+   "combined": false,
+   "members": [],
+   "max_zl": null,
+   "coverage": null,
+   "buildable": true,
+   "previewable": true,
+   "reason": "",
+   "preview": {
+    "template": "https://ecn.t{switch:0,1,2,3}.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=15312",
+    "referer": "",
+    "max_zl": null
+   },
+   "attribution": ""
+  },
+  {
+   "code": "OSM",
+   "region": "Global",
+   "name": "OSM",
+   "combined": false,
+   "members": [],
+   "max_zl": 19,
+   "coverage": null,
+   "buildable": false,
+   "previewable": true,
+   "reason": "",
+   "preview": {
+    "template": "https://tile.openstreetmap.org/{zoom}/{x}/{y}.png",
+    "referer": "https://www.openstreetmap.org/",
+    "max_zl": 19
+   },
+   "attribution": ""
+  },
+  {
+   "code": "FIN",
+   "region": "Finland",
+   "name": "FIN",
+   "combined": false,
+   "members": [],
+   "max_zl": 18,
+   "coverage": null,
+   "buildable": true,
+   "previewable": true,
+   "reason": "",
+   "preview": {
+    "template": "https://karttamoottori.maanmittauslaitos.fi/maasto/wmts?&SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=ortokuva&STYLE=&FORMAT=image/jpeg&TILEMATRIXSET=WGS84_Pseudo-Mercator&TILEMATRIX={tilematrix}&TILEROW={y}&TILECOL={x}",
+    "referer": "https://hkp.maanmittauslaitos.fi",
+    "max_zl": 18,
+    "tilematrix": [
+     "0",
+     "1",
+     "2",
+     "3",
+     "4",
+     "5",
+     "6",
+     "7",
+     "8",
+     "9",
+     "10",
+     "11",
+     "12",
+     "13",
+     "14",
+     "15",
+     "16",
+     "17",
+     "18",
+     null,
+     null
+    ]
+   },
+   "attribution": ""
+  },
+  {
+   "code": "Govmap",
+   "region": "Israel",
+   "name": "Govmap",
+   "combined": false,
+   "members": [],
+   "max_zl": null,
+   "coverage": null,
+   "buildable": true,
+   "previewable": false,
+   "reason": "This source uses map projection EPSG:2039, which the map can't preview.",
+   "preview": null,
+   "attribution": ""
+  },
+  {
+   "code": "LINZ",
+   "region": "New Zealand",
+   "name": "LINZ",
+   "combined": false,
+   "members": [],
+   "max_zl": 20,
+   "coverage": [
+    166.0,
+    -47.5,
+    179.0,
+    -34.0
+   ],
+   "buildable": true,
+   "previewable": false,
+   "reason": "This source needs an API key, which the map preview doesn't send.",
+   "preview": null,
+   "attribution": "CC BY 4.0 Toitū Te Whenua LINZ"
+  },
+  {
+   "code": "PDOK",
+   "region": "Netherland",
+   "name": "PDOK",
+   "combined": false,
+   "members": [],
+   "max_zl": null,
+   "coverage": [
+    3.06,
+    50.72,
+    7.26,
+    53.76
+   ],
+   "buildable": true,
+   "previewable": true,
+   "reason": "",
+   "preview": {
+    "template": "https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0?&SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=Actueel_ortho25&STYLE=&FORMAT=image/jpeg&TILEMATRIXSET=EPSG:3857&TILEMATRIX={tilematrix}&TILEROW={y}&TILECOL={x}",
+    "referer": "",
+    "max_zl": 19,
+    "tilematrix": [
+     "00",
+     "01",
+     "02",
+     "03",
+     "04",
+     "05",
+     "06",
+     "07",
+     "08",
+     "09",
+     "10",
+     "11",
+     "12",
+     "13",
+     "14",
+     "15",
+     "16",
+     "17",
+     "18",
+     "19",
+     null
+    ]
+   },
+   "attribution": ""
+  },
+  {
+   "code": "PT",
+   "region": "Portugal",
+   "name": "PT",
+   "combined": false,
+   "members": [],
+   "max_zl": null,
+   "coverage": [
+    -31.580000000000002,
+    29.8,
+    -6.16,
+    42.18
+   ],
+   "buildable": true,
+   "previewable": true,
+   "reason": "",
+   "preview": {
+    "template": "https://cartografia.dgterritorio.gov.pt/wms/ortos2021?SERVICE=WMS&VERSION=1.1.1&FORMAT=image/jpeg&REQUEST=GetMap&LAYERS=Ortos2021-RGB&STYLES=&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox}",
+    "referer": "",
+    "max_zl": null
+   },
+   "attribution": ""
+  },
+  {
+   "code": "QC",
+   "region": "Canada",
+   "name": "QC",
+   "combined": false,
+   "members": [],
+   "max_zl": null,
+   "coverage": null,
+   "buildable": true,
+   "previewable": true,
+   "reason": "",
+   "preview": {
+    "template": "https://geoegl.msp.gouv.qc.ca/apis/carto/tms/1.0.0/orthos@EPSG_3857/{zoom}/{x}/{-y}.jpg",
+    "referer": "",
+    "max_zl": null
+   },
+   "attribution": ""
+  }
+ ],
+ "statuses": {
+  "Arc": [
+   "offline",
+   "No answer within 5 seconds."
+  ],
+  "PDOK": [
+   "online",
+   ""
+  ],
+  "QC": [
+   "unknown",
+   ""
+  ]
+ },
+ "build": [
+  {
+   "code": "EUR",
+   "label": "EUR",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Combined"
+  },
+  {
+   "code": "Arc",
+   "label": "Arc (offline)",
+   "enabled": false,
+   "tooltip": "No answer within 5 seconds.",
+   "section": "Global"
+  },
+  {
+   "code": "BI",
+   "label": "BI",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Global"
+  },
+  {
+   "code": "FIN",
+   "label": "FIN",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Finland"
+  },
+  {
+   "code": "Govmap",
+   "label": "Govmap",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Israel"
+  },
+  {
+   "code": "LINZ",
+   "label": "LINZ",
+   "enabled": true,
+   "tooltip": "",
+   "section": "New Zealand"
+  },
+  {
+   "code": "PDOK",
+   "label": "PDOK",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Netherland"
+  },
+  {
+   "code": "PT",
+   "label": "PT",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Portugal"
+  },
+  {
+   "code": "QC",
+   "label": "QC",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Canada"
+  }
+ ],
+ "build_tiles": [
+  [
+   -42,
+   173
+  ]
+ ],
+ "build_nz": [
+  {
+   "code": "EUR",
+   "label": "EUR",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Combined"
+  },
+  {
+   "code": "Arc",
+   "label": "Arc (offline)",
+   "enabled": false,
+   "tooltip": "No answer within 5 seconds.",
+   "section": "Global"
+  },
+  {
+   "code": "BI",
+   "label": "BI",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Global"
+  },
+  {
+   "code": "FIN",
+   "label": "FIN",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Finland"
+  },
+  {
+   "code": "Govmap",
+   "label": "Govmap",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Israel"
+  },
+  {
+   "code": "LINZ",
+   "label": "LINZ",
+   "enabled": true,
+   "tooltip": "",
+   "section": "New Zealand"
+  },
+  {
+   "code": "PDOK",
+   "label": "PDOK",
+   "enabled": false,
+   "tooltip": "Covers none of the selected tiles.",
+   "section": "Netherland"
+  },
+  {
+   "code": "PT",
+   "label": "PT",
+   "enabled": false,
+   "tooltip": "Covers none of the selected tiles.",
+   "section": "Portugal"
+  },
+  {
+   "code": "QC",
+   "label": "QC",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Canada"
+  }
+ ],
+ "map": [
+  {
+   "code": "EUR",
+   "label": "EUR",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Combined"
+  },
+  {
+   "code": "Arc",
+   "label": "Arc (offline)",
+   "enabled": false,
+   "tooltip": "No answer within 5 seconds.",
+   "section": "Global"
+  },
+  {
+   "code": "BI",
+   "label": "BI",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Global"
+  },
+  {
+   "code": "OSM",
+   "label": "OSM",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Global"
+  },
+  {
+   "code": "FIN",
+   "label": "FIN",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Finland"
+  },
+  {
+   "code": "Govmap",
+   "label": "Govmap",
+   "enabled": false,
+   "tooltip": "This source uses map projection EPSG:2039, which the map can't preview.",
+   "section": "Israel"
+  },
+  {
+   "code": "LINZ",
+   "label": "LINZ",
+   "enabled": false,
+   "tooltip": "This source needs an API key, which the map preview doesn't send.",
+   "section": "New Zealand"
+  },
+  {
+   "code": "PDOK",
+   "label": "PDOK",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Netherland"
+  },
+  {
+   "code": "PT",
+   "label": "PT",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Portugal"
+  },
+  {
+   "code": "QC",
+   "label": "QC",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Canada"
+  }
+ ],
+ "urls": [
+  {
+   "code": "BI",
+   "z": 15,
+   "x": 16834,
+   "y": 10770,
+   "url": "https://ecn.t0.tiles.virtualearth.net/tiles/a120202111020030.jpeg?g=15312"
+  },
+  {
+   "code": "Arc",
+   "z": 12,
+   "x": 655,
+   "y": 1583,
+   "url": "http://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/12/1583/655"
+  },
+  {
+   "code": "PDOK",
+   "z": 15,
+   "x": 16834,
+   "y": 10770,
+   "url": "https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0?&SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=Actueel_ortho25&STYLE=&FORMAT=image/jpeg&TILEMATRIXSET=EPSG:3857&TILEMATRIX=15&TILEROW=10770&TILECOL=16834"
+  },
+  {
+   "code": "PDOK",
+   "z": 20,
+   "x": 0,
+   "y": 0,
+   "url": null
+  },
+  {
+   "code": "FIN",
+   "z": 13,
+   "x": 4660,
+   "y": 2370,
+   "url": "https://karttamoottori.maanmittauslaitos.fi/maasto/wmts?&SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=ortokuva&STYLE=&FORMAT=image/jpeg&TILEMATRIXSET=WGS84_Pseudo-Mercator&TILEMATRIX=13&TILEROW=2370&TILECOL=4660"
+  },
+  {
+   "code": "QC",
+   "z": 15,
+   "x": 9692,
+   "y": 23000,
+   "url": "https://geoegl.msp.gouv.qc.ca/apis/carto/tms/1.0.0/orthos@EPSG_3857/15/9692/9767.jpg"
+  },
+  {
+   "code": "PT",
+   "z": 14,
+   "x": 7820,
+   "y": 6240,
+   "url": "https://cartografia.dgterritorio.gov.pt/wms/ortos2021?SERVICE=WMS&VERSION=1.1.1&FORMAT=image/jpeg&REQUEST=GetMap&LAYERS=Ortos2021-RGB&STYLES=&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX=-909906.38,4772116.55,-907460.40,4774562.53"
+  },
+  {
+   "code": "OSM",
+   "z": 3,
+   "x": 1,
+   "y": 2,
+   "url": "https://tile.openstreetmap.org/3/1/2.png"
+  }
+ ]
+}

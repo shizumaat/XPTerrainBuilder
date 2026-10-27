@@ -45,11 +45,8 @@ _LOGGER.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 _LOGGER.addHandler(handler)
 
-# THIS APP'S OWN GLOBAL (owner RULINGS 2026-10-26c): XPTerrainBuilder.cfg,
-# after the data root's one-time hand-over; Ortho4XP.cfg is never read,
-# written or moved (O4_Config_Names).
-for _info in CONFIG_NAMES.adopt_global_cfg():
-    _LOGGER.info(_info)
+# THIS APP'S OWN GLOBAL (owner RULINGS 2026-10-26c): XPTerrainBuilder.cfg;
+# Ortho4XP.cfg is never read, written, moved or copied (O4_Config_Names).
 global_cfg_file = CONFIG_NAMES.global_cfg_path()
 global_cfg_bak_file = global_cfg_file + ".bak"
 
@@ -169,6 +166,10 @@ except Exception as e:
     _LOGGER.error("Error accessing global config file: %s", e)
 
 
+#: The tile settings a build request may set for that build only (#818).
+BUILD_OVERRIDE_KEYS = ("auto_patch", "modify_custom_airports")
+
+
 ################################################################################
 class Tile:
     """Class for building tiles."""
@@ -186,6 +187,34 @@ class Tile:
         self.dem = None
         for var in list_tile_vars:
             exec("self." + var + "=" + var)
+
+    def apply_build_overrides(self, overrides):
+        """Land a build request's per-build switches on this tile (#818).
+
+        The Build pane's "Grade airports" and "Fit custom airport
+        buildings" toggles change THIS build only: the value read from the
+        cfg layers is kept aside, and :meth:`write_to_config` writes that
+        kept value, so the tile's own cfg never learns the override.  Off
+        grades nothing (``auto_patch`` "None"); on keeps the tile's own
+        mode, or grades every airport when that mode is "None".  Keys
+        other than :data:`BUILD_OVERRIDE_KEYS` and non-bool values are
+        ignored.
+        """
+        from O4_Airport_Modes import resolved_auto_patch_mode
+
+        saved = self.__dict__.setdefault("_build_override_saved", {})
+        for key, value in (overrides or {}).items():
+            if key not in BUILD_OVERRIDE_KEYS or not isinstance(value, bool):
+                continue
+            saved.setdefault(key, getattr(self, key))
+            if key == "auto_patch":
+                if not value:
+                    value = "None"
+                elif resolved_auto_patch_mode(self) == "None":
+                    value = "All"
+                else:
+                    continue
+            setattr(self, key, value)
 
     def make_dirs(self):
         self._check_elevation_folder()
@@ -435,13 +464,15 @@ class Tile:
         import O4_Settings_Model as SM
         if not config_file:
             config_file = self._tile_cfg_path()
+        saved = self.__dict__.get("_build_override_saved", {})
         try:
             values = {}
             for var in list_tile_vars:
                 if var == "zone_list":
                     values[var] = self._tile_zones()
                 else:
-                    values[var] = getattr(self, var)
+                    # A per-build override is never the tile's own value.
+                    values[var] = saved.get(var, getattr(self, var))
             out = SM.sparse_tile_values(
                 values, always_keep=SM._TILE_PRESERVED,
                 global_cfg=SM.read_global_raw(global_cfg_file))

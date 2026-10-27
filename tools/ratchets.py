@@ -29,12 +29,31 @@ The count is the number of such functions and may fall, never rise.
 One-statement stubs (``pass``, ``...``, a bare ``raise``, a ``return`` of
 a constant or a name) are not counted.
 
-NEAR-DUPLICATES — reported, not gated (04b (2)).  ``dupes --near``:
+NEAR-DUPLICATES — THE FOURTH GATE (#740 step 2, plan
+``Ortho4XP/docs/specs/unused-code-plan-20261015.md``; reported only under
+04b (2) until then).  ``dupes --near``:
 top-level functions and class methods under ``Ortho4XP/src`` whose bodies
 are identical after renaming every parameter and locally-bound name to
 its order of first appearance and replacing every constant by its type,
 in two or more files.  Functions under ``NEAR_MIN_NODES`` AST nodes are
 skipped.  Streaming: one file parsed at a time, one digest per function.
+The count (functions in groups) is recorded as ``near_duplicates`` and
+may fall, never rise.
+
+UNUSED — THE FIFTH GATE (#740 step 2, same plan).  ``unused``: public
+top-level definitions (functions and classes; ``__all__`` when the module
+declares one, else every name without a leading underscore — archmap's
+PUBLIC NAME RULE) under ``Ortho4XP/src`` that NO OTHER PRODUCTION module
+references (``USER_ROOTS``: the engine, both tool trees, ``scripts``, the
+``Ortho4XP/*.py`` launchers; uses read by ``tools/archmap.py``).  The
+tests are reported apart: a row is ``tests`` (only tests use it from
+outside), ``local`` (only its own module reads it — public by name, private
+in fact) or ``none`` (nothing does).  The count of rows is recorded as ``unused``
+and may fall, never rise.  Dynamic use the scan cannot see (a JSONL
+command table, a ``getattr`` registry, an entry point run by name) goes
+in ``tools/unused_allowlist.json``, one entry per definition WITH A
+REASON; an entry without one, or one whose definition is gone or now
+used, is refused.  Never an exemption by pattern.
 
 LAYERS — THE SECOND GATE (04a (3)).  ``layers``: the package-to-package
 import matrix of ``auto_patch_v2`` (file -> file edges, read by
@@ -58,11 +77,13 @@ the install line, exit 0 — except under ``CI`` (env set), where it fails:
 CI must run the gate.
 
     tools/ratchets.py                    # all sections; exit 1 ONLY on a
-                                         # risen duplicate, layer or lint count
+                                         # risen duplicate, near-duplicate,
+                                         # unused, layer or lint count
     tools/ratchets.py size               # the size report alone
     tools/ratchets.py funcs [--top N]    # the long functions
     tools/ratchets.py dupes [--top N]    # the identical-body groups
-    tools/ratchets.py dupes --near       # the near-duplicate groups
+    tools/ratchets.py dupes --near       # the near-duplicate ratchet
+    tools/ratchets.py unused [--top N]   # the unused-definition ratchet
     tools/ratchets.py layers [--propose] # the v2 import matrix + violations
     tools/ratchets.py lint               # ruff counts per rule vs baseline
     tools/ratchets.py --justify PATH "reason"   # an optional note
@@ -96,7 +117,10 @@ __all__ = ["SOFT", "HARD", "SIZE_ROOTS", "DUP_ROOT", "BASELINE",
            "V2_ROOT", "LAYER_ORDER", "layer_edges", "layer_matrix",
            "layer_violations", "propose_order", "check_layers",
            "print_layers", "RUFF_VERSION", "lint_counts", "check_lint",
-           "print_lint"]
+           "print_lint", "check_near", "UNUSED_ROOT", "USER_ROOTS",
+           "TEST_ROOTS", "ALLOWLIST", "unused_scan_paths", "load_allowlist",
+           "unused_definitions", "unused_report", "check_unused",
+           "print_unused"]
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE = os.path.join(REPO, "tools", "ratchet_baseline.json")
@@ -117,6 +141,13 @@ LAYER_ORDER = ("geom", "law", "model", "airport", "classify", "planar",
 # THE pin (RULINGS 2026-10-17a Q8): ci.yml installs exactly this; the
 # baseline's ``lint_ruff`` records it.  A bump re-measures (--regenerate).
 RUFF_VERSION = "0.16.10"
+UNUSED_ROOT = DUP_ROOT
+# the modules whose use keeps an UNUSED_ROOT definition alive; TEST_ROOTS
+# are read too and reported apart (a test is not a reason for code to exist)
+USER_ROOTS = ("Ortho4XP/src", "Ortho4XP/tools", "tools", "scripts")
+TEST_ROOTS = ("Ortho4XP/tests",)
+LAUNCHER_DIR = "Ortho4XP"           # Ortho4XP_Qt.py & co. (top level only)
+ALLOWLIST = os.path.join(REPO, "tools", "unused_allowlist.json")
 
 
 def tracked_sources(roots=SIZE_ROOTS, repo=REPO, exts=EXTS):
@@ -316,6 +347,167 @@ def near_duplicate_groups(files=None, repo=REPO):
     return sorted(groups, key=lambda g: (-len(g), g))
 
 
+def check_near(groups, recorded):
+    """Refusals: the near-duplicate count may fall, never rise.
+    ``recorded`` None: no record yet, nothing is gated."""
+    n = duplicate_count(groups)
+    if recorded is None or n <= recorded:
+        return []
+    return ["near-duplicate functions: %d, baseline %d — the count may "
+            "fall, never rise (#740); reuse the existing one "
+            "(`tools/ratchets.py dupes --near` prints the groups)"
+            % (n, recorded)]
+
+
+# ----------------------------------------------------------------- unused
+def unused_scan_paths(repo=REPO):
+    """Tracked ``.py`` files the unused census reads: ``USER_ROOTS``,
+    ``TEST_ROOTS`` and the launchers directly in ``Ortho4XP/``, without
+    archmap's skipped directories (``Unused``, ``attic``, ...)."""
+    import archmap
+    roots = tuple(r + "/" for r in USER_ROOTS + TEST_ROOTS)
+    return [rel for rel in tracked_sources((LAUNCHER_DIR,) + USER_ROOTS, repo,
+                                           exts=(".py",))
+            if (rel.startswith(roots) or os.path.dirname(rel) == LAUNCHER_DIR)
+            and not set(rel.split("/")[:-1]) & archmap.SKIP_DIRS]
+
+
+def load_allowlist(path=ALLOWLIST):
+    """``({(rel, name): reason}, problems)`` from the allow-list (a JSON
+    list of ``{"path", "name", "reason"}``); no file is an empty list.
+    An entry with no reason, or named twice, is a problem."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            rows = json.load(f)
+    except FileNotFoundError:
+        return {}, []
+    allow, problems = {}, []
+    for r in rows:
+        key = (r.get("path", ""), r.get("name", ""))
+        reason = " ".join(str(r.get("reason") or "").split())
+        if not reason:              # no reason, no exemption
+            problems.append("allow-list entry %s:%s has no reason — say "
+                            "which dynamic use reaches it" % key)
+            continue
+        if key in allow:
+            problems.append("allow-list entry %s:%s is listed twice" % key)
+        allow[key] = reason
+    return allow, problems
+
+
+def _is_test(rel):
+    return rel.startswith(tuple(r + "/" for r in TEST_ROOTS))
+
+
+def _def_lines(rel, repo):
+    """``({top-level name: lines}, names the module itself reads)`` of one
+    file (``def`` line to last line)."""
+    try:
+        with open(os.path.join(repo, rel), encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+    except (SyntaxError, UnicodeDecodeError, OSError):
+        return {}, set()
+    return ({n.name: n.end_lineno - n.lineno + 1 for n in tree.body
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                               ast.ClassDef))},
+            {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)
+             and isinstance(n.ctx, ast.Load)})
+
+
+def unused_definitions(files=None, repo=REPO):
+    """Every public top-level definition under ``UNUSED_ROOT`` no other
+    production module uses, as ``(rel, name, lineno, lines, evidence)``
+    sorted by path and line; ``evidence`` is ``"tests"`` (tests use it),
+    ``"local"`` (only its own module reads it) or ``"none"`` (nothing
+    does: dead unless something reaches it dynamically).  ``files`` is an
+    ``archmap.scan(..., users=True)`` result (default: the scan of
+    ``unused_scan_paths``)."""
+    if files is None:
+        import archmap
+        files = archmap.scan(repo, paths=unused_scan_paths(repo), users=True)
+    out = []
+    for rel, e in sorted(files.items()):
+        if not (rel.startswith(UNUSED_ROOT + "/") and rel.endswith(".py")):
+            continue
+        defs = [d for d in e["defs"] if d[1] in ("f", "c")]
+        exported = set(e["all"]) if e["all"] is not None else {
+            d[0] for d in defs if not d[0].startswith("_")}
+        rows = []
+        for name, _kind, _sig, line, _doc in defs:
+            who = e.get("users", {}).get(name, ())
+            if name in exported and all(_is_test(u) for u in who):
+                rows.append((name, line, bool(who)))
+        if rows:
+            size, read = _def_lines(rel, repo)
+            out += [(rel, n, ln, size.get(n, 0), "tests" if t else "local"
+                     if n in read else "none") for n, ln, t in rows]
+    return out
+
+
+def unused_report(rows, allow):
+    """``(counted, allowed, stale)``: the rows the gate counts, the rows
+    the allow-list takes out, and allow-list keys that name no row (the
+    definition is gone or is now used — drop the entry)."""
+    keys = {(r[0], r[1]) for r in rows}
+    return ([r for r in rows if (r[0], r[1]) not in allow],
+            [r for r in rows if (r[0], r[1]) in allow],
+            sorted(k for k in allow if k not in keys))
+
+
+def _unused_record(counted):
+    return {"count": len(counted),
+            "none": sum(1 for r in counted if r[4] == "none"),
+            "local": sum(1 for r in counted if r[4] == "local"),
+            "tests_only": sum(1 for r in counted if r[4] == "tests"),
+            "lines": sum(r[3] for r in counted)}
+
+
+def check_unused(counted, recorded):
+    """Refusals: the unused count may fall, never rise.  ``recorded`` is
+    the baseline's ``unused`` record (None: nothing is gated)."""
+    if recorded is None or len(counted) <= recorded["count"]:
+        return []
+    return ["UNUSED ROSE: %d public definitions under %s that no other "
+            "production module uses, the baseline records %d (#740).  Use "
+            "it from where it is needed, make it private (`_name`, or drop "
+            "it from `__all__`), delete it, or — for dynamic use the scan "
+            "cannot see — add it to tools/unused_allowlist.json WITH A "
+            "REASON (`tools/ratchets.py unused` lists the rows)"
+            % (len(counted), UNUSED_ROOT, recorded["count"])]
+
+
+def print_unused(rows, recorded, allow, problems=(), top=10, out=None):
+    """The unused section; returns refusals (a rise, an allow-list
+    problem, a stale allow-list entry)."""
+    out = out or sys.stdout
+    counted, allowed, stale = unused_report(rows, allow)
+    rec = _unused_record(counted)
+    print("== unused-definition ratchet (public top-level definitions under "
+          "%s no other production module uses; tests reported apart) =="
+          % UNUSED_ROOT, file=out)
+    print("  %d definitions, %d lines (baseline %s%s): %d read by nothing, "
+          "%d only by their own module, %d by tests; %d allow-listed"
+          % (rec["count"], rec["lines"], None if recorded is None
+             else recorded["count"], " — fell, `--regenerate` lowers the "
+             "record" if recorded and rec["count"] < recorded["count"]
+             else "", rec["none"], rec["local"], rec["tests_only"],
+             len(allowed)), file=out)
+    by = Counter("/".join(r[0][len(UNUSED_ROOT) + 1:].split("/")[:-1])
+                 or "(top level)" for r in counted)
+    print("  by package: " + ", ".join(
+        "%s %d" % kv for kv in by.most_common(8)), file=out)
+    ranked = sorted(counted, key=lambda r: (-r[3], r[0], r[2]))
+    for rel, name, line, n, ev in ranked[:top] if top else ranked:
+        print("  %5d  %s:%d %s  [%s]" % (n, rel[len(UNUSED_ROOT) + 1:], line,
+                                         name, ev), file=out)
+    bad = list(problems) + ["allow-list entry %s:%s names no unused "
+                            "definition (gone, or now used): drop it" % k
+                            for k in stale]
+    for b in bad:
+        print("  REFUSED " + b, file=out)
+    return bad + check_unused(counted, recorded)
+
+
 # ------------------------------------------------------------------ report
 # ------------------------------------------------------------- layering
 def layer_edges(repo=REPO, root=V2_ROOT):
@@ -489,11 +681,14 @@ def print_dupes(groups, recorded, top=10, out=None, near=False):
     out = out or sys.stdout
     n = duplicate_count(groups)
     if near:
-        print("== near-duplicates, REPORTED NOT GATED (functions and "
-              "methods under %s, >= %d AST nodes, identical after renaming "
-              "locals and typing constants, in >= 2 files) =="
-              % (DUP_ROOT, NEAR_MIN_NODES), file=out)
-        print("  %d functions in %d groups" % (n, len(groups)), file=out)
+        print("== near-duplicate ratchet (functions and methods under %s, "
+              ">= %d AST nodes, identical after renaming locals and typing "
+              "constants, in >= 2 files) ==" % (DUP_ROOT, NEAR_MIN_NODES),
+              file=out)
+        print("  %d functions in %d groups (baseline %s)  %s"
+              % (n, len(groups), recorded, "NOT GATED (no baseline)"
+                 if recorded is None else "OK" if n <= recorded else "FAIL"),
+              file=out)
     else:
         print("== duplicate ratchet (top-level functions under %s with one "
               "normalised body in >= 2 files) ==" % DUP_ROOT, file=out)
@@ -506,7 +701,9 @@ def print_dupes(groups, recorded, top=10, out=None, near=False):
         for rel, name, line in g:
             print("        %s:%d %s" % (rel[len(DUP_ROOT) + 1:], line, name),
                   file=out)
-    if near or recorded is None:
+    if near:
+        return check_near(groups, recorded)
+    if recorded is None:
         return []
     return check_duplicates(groups, recorded)
 
@@ -584,17 +781,21 @@ def print_lint(counts, recorded, why=None, out=None):
 
 
 def _write_baseline(path, size, justified, duplicates, layers=None,
-                    lint=None):
+                    lint=None, near=None, unused=None):
     doc = {"ruling": "RULINGS 2026-10-04a, amended 04b and 04c",
            "note": "generated by tools/ratchets.py; `size` is a snapshot "
                    "the report measures growth against (never a gate), "
-                   "`duplicates`, `layers` (upward imports in "
-                   "auto_patch_v2) and each `lint` rule count (ruff "
-                   "`lint_ruff`) may fall and never rise; never edit by "
-                   "hand",
+                   "`duplicates`, `near_duplicates`, `unused.count`, "
+                   "`layers` (upward imports in auto_patch_v2) and each "
+                   "`lint` rule count (ruff `lint_ruff`) may fall and "
+                   "never rise; never edit by hand",
            "soft": SOFT, "hard": HARD, "duplicates": duplicates,
            "size": dict(sorted(size.items())),
            "justified": dict(sorted(justified.items()))}
+    if near is not None:
+        doc["near_duplicates"] = near
+    if unused is not None:
+        doc["unused"] = unused
     if layers is not None:
         doc["layers"] = sorted(layers)
     if lint is not None:
@@ -605,17 +806,19 @@ def _write_baseline(path, size, justified, duplicates, layers=None,
 
 
 def regenerate(path=BASELINE, init=False, current=None, groups=None,
-               layers=None, lint=None):
+               layers=None, lint=None, near=None, unused=None):
     """Re-snapshot the baseline: every file past 1,000 at its CURRENT size
     (growth included — size is a report, 04c), notes kept for files still
     past 1,000, none invented.  Refuses, writing nothing, only on a risen
-    duplicate, layer or lint count.  ``lint`` None (ruff unavailable)
-    keeps the recorded lint counts.  Returns the list of refusals."""
+    duplicate, near-duplicate, unused, layer or lint count.  ``lint`` None
+    (ruff unavailable), ``near`` None (near-duplicate groups not measured)
+    and ``unused`` None (the counted unused rows not measured) keep what
+    is recorded.  Returns the list of refusals."""
     current = sizes() if current is None else current
     groups = duplicate_groups() if groups is None else groups
     layers = layer_violations(layer_edges()) if layers is None else layers
     past = {r: n for r, n in current.items() if n > HARD}
-    kept = {}
+    kept, near_n, unused_rec = {}, None, None
     if init:
         if os.path.exists(path):
             return ["%s exists — --init never overwrites a baseline" % path]
@@ -623,12 +826,22 @@ def regenerate(path=BASELINE, init=False, current=None, groups=None,
         old = load_baseline(path)
         bad = check_duplicates(groups, old["duplicates"]) \
             + check_layers(layers, old.get("layers")) \
-            + check_lint(lint, old.get("lint"))
+            + check_lint(lint, old.get("lint")) \
+            + (check_near(near, old.get("near_duplicates")) if near
+               is not None else []) \
+            + (check_unused(unused, old.get("unused")) if unused
+               is not None else [])
         if bad:
             return bad
         kept = {r: w for r, w in old.get("justified", {}).items() if r in past}
         lint = old.get("lint") if lint is None else lint
-    _write_baseline(path, past, kept, duplicate_count(groups), layers, lint)
+        near_n, unused_rec = old.get("near_duplicates"), old.get("unused")
+    if near is not None:
+        near_n = duplicate_count(near)
+    if unused is not None:
+        unused_rec = _unused_record(unused)
+    _write_baseline(path, past, kept, duplicate_count(groups), layers, lint,
+                    near_n, unused_rec)
     return []
 
 
@@ -653,7 +866,8 @@ def justify(rel, reason, path=BASELINE, current=None):
     size, just = dict(old["size"]), dict(old.get("justified", {}))
     size[rel], just[rel] = current[rel], reason
     _write_baseline(path, size, just, old["duplicates"], old.get("layers"),
-                    old.get("lint"))
+                    old.get("lint"), old.get("near_duplicates"),
+                    old.get("unused"))
     return []
 
 
@@ -663,12 +877,11 @@ def main(argv=None):
             stream.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("what", nargs="?", choices=("size", "funcs", "dupes", "layers",
-                                             "lint"))
+                                             "lint", "unused"))
     p.add_argument("--top", type=int, default=10,
-                   help="dupes / funcs: rows to print (0 = all)")
+                   help="dupes / funcs / unused: rows to print (0 = all)")
     p.add_argument("--near", action="store_true",
-                   help="dupes: the near-duplicate groups (reported, not "
-                        "gated)")
+                   help="dupes: the near-duplicate ratchet alone")
     p.add_argument("--propose", action="store_true",
                    help="layers: also print the order with the fewest "
                         "upward imports")
@@ -677,7 +890,7 @@ def main(argv=None):
                         "the size report")
     p.add_argument("--regenerate", action="store_true",
                    help="re-snapshot the baseline; refuses only a risen "
-                        "duplicate count")
+                        "gated count")
     p.add_argument("--init", action="store_true",
                    help="write the FIRST baseline; refuses if one exists")
     p.add_argument("--baseline", default=BASELINE)
@@ -690,21 +903,33 @@ def main(argv=None):
             print("justified: %s" % a.justify[0])
         return 1 if bad else 0
     if a.near:
-        print_dupes(near_duplicate_groups(), None, a.top, near=True)
-        return 0
+        bad = print_dupes(near_duplicate_groups(),
+                          load_baseline(a.baseline).get("near_duplicates"),
+                          a.top, near=True)
+        print("NEAR-DUPLICATE RATCHET " + ("FAIL" if bad else "PASS"))
+        return 1 if bad else 0
     if a.regenerate or a.init:
         lint, why = lint_counts()
         if why:
             print("lint not measured (%s): the recorded counts are kept" % why)
-        bad = regenerate(a.baseline, init=a.init, lint=lint)
+        allow, problems = load_allowlist()
+        if problems:
+            for r in problems:
+                print("REFUSED " + r)
+            return 1
+        counted = unused_report(unused_definitions(), allow)[0]
+        bad = regenerate(a.baseline, init=a.init, lint=lint,
+                         near=near_duplicate_groups(), unused=counted)
         for r in bad:
             print("REFUSED " + r)
         if not bad:
             b = load_baseline(a.baseline)
             print("baseline written: %d files, %d lines, %d duplicates, "
-                  "%d upward imports, %d lint findings"
+                  "%d near-duplicates, %d unused, %d upward imports, %d "
+                  "lint findings"
                   % (len(b["size"]), sum(b["size"].values()),
-                     b["duplicates"], len(b.get("layers") or ()),
+                     b["duplicates"], b["near_duplicates"],
+                     b["unused"]["count"], len(b.get("layers") or ()),
                      sum((b.get("lint") or {}).values())))
         return 1 if bad else 0
     base = load_baseline(a.baseline)
@@ -718,6 +943,17 @@ def main(argv=None):
     if a.what in (None, "dupes"):
         print("DUPLICATE RATCHET " + ("PASS" if not bad else "FAIL")
               + " (size and long functions are reports, never a gate)")
+    if a.what is None:
+        worse = print_dupes(near_duplicate_groups(),
+                            base.get("near_duplicates"), a.top, near=True)
+        print("NEAR-DUPLICATE RATCHET " + ("FAIL" if worse else "PASS"))
+        bad += worse
+    if a.what in (None, "unused"):
+        allow, problems = load_allowlist()
+        worse = print_unused(unused_definitions(), base.get("unused"), allow,
+                             problems, a.top)
+        print("UNUSED RATCHET " + ("FAIL" if worse else "PASS"))
+        bad += worse
     if a.what in (None, "layers"):
         worse = print_layers(layer_edges(), base.get("layers"),
                              propose=a.propose)

@@ -1393,7 +1393,11 @@ def http_request_to_image(
 ################################################################################
 
 ################################################################################
-def get_wms_image(bbox, width, height, provider, http_session):
+def wms_request(bbox, width, height, provider):
+    """``(url, request_headers)`` of one WMS GetMap; ``bbox`` is
+    ``(minx, maxy, maxx, miny)`` in the provider's projection.  The one
+    request builder the build and the map preview read
+    (``O4_Imagery_Sources``)."""
     request_headers = None
     if has_URL and provider["code"] in URL.custom_url_list:
         (url, request_headers) = URL.custom_wms_request(
@@ -1435,6 +1439,11 @@ def get_wms_image(bbox, width, height, provider, http_session):
             request_headers = provider["fake_headers"]
         else:
             request_headers = request_headers_generic
+    return (url, request_headers)
+
+
+def get_wms_image(bbox, width, height, provider, http_session):
+    (url, request_headers) = wms_request(bbox, width, height, provider)
     (success, data) = http_request_to_image(
         width, height, url, request_headers, http_session,
         timeout=provider.get("timeout"), host_limit=host_request_limit(provider),
@@ -1534,6 +1543,12 @@ def wmts_request(tilematrix, til_x, til_y, provider):
             server_list = tmp.split(",")
             url_1 = random.choice(server_list).strip()
             url = url_0 + url_1 + url_2
+        if "{api_key}" in url:
+            # A keyed source (#1339): the stored key, at fetch time only —
+            # never in the .lay, a cfg or a log line (UI scrubs it).
+            import O4_Authenticated_Sessions as SESSIONS
+
+            url = url.replace("{api_key}", SESSIONS.ensure_api_key(provider))
     elif provider["request_type"] == "wmts":  # WMTS
         url = (
             provider["url_prefix"]

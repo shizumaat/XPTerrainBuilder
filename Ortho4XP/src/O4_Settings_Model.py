@@ -393,9 +393,8 @@ def _parse_cfg(path: str, strip_quotes: bool = True) -> dict:
 
 
 def _default_global_cfg() -> str:
-    """Path to the default global config file (``XPTerrainBuilder.cfg``),
-    after the data root's one-time hand-over (:mod:`O4_Config_Names`)."""
-    CN.adopt_global_cfg()
+    """Path to the default global config file (``XPTerrainBuilder.cfg``,
+    :mod:`O4_Config_Names`)."""
     return CN.global_cfg_path()
 
 

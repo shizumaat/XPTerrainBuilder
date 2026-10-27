@@ -1,0 +1,19 @@
+{
+ "builds": [
+  {
+   "builder": {
+    "app_version": "1.0.430",
+    "engine_version": "1.50.1880",
+    "tool": "XPTerrainBuilder"
+   },
+   "duration": 1834.2,
+   "end": 1793037434.5,
+   "log": "20261026T170000Z_+47-123.log",
+   "outcome": "warnings",
+   "start": 1793035600.25,
+   "tile": "+47-123",
+   "warnings": 1
+  }
+ ],
+ "schema": 1
+}

@@ -62,7 +62,7 @@ import typing as _t
 
 from .obj8 import resolve_resource
 
-__all__ = ["MissingDef", "DEF_KINDS", "FIRST_PATHS", "declared_definitions",
+__all__ = ["MissingDef", "DEF_KINDS", "FIRST_PATHS", "declared_definitions", "count_uses",
            "missing_definitions", "omit_definitions", "unused_definitions", "can_omit",
            "decision_key", "kind_counts", "first_paths", "summary",
            "log_line", "accepted", "record", "recorded"]
@@ -138,7 +138,7 @@ def _present(path: str, pack_root: str,
             or (p != path and resolve_resource(path, pack_root, index) is not None))
 
 
-def _count_uses(source: str | _t.Iterable[str],
+def count_uses(source: str | _t.Iterable[str],
                 wanted: _t.AbstractSet[tuple[str, int]]) -> dict[tuple[str, int], int]:
     uses: dict[tuple[str, int], int] = dict.fromkeys(wanted, 0)
     for raw in _lines(source):
@@ -180,7 +180,7 @@ def missing_definitions(pack_root: str, source: str | _t.Sequence[str],
                   if a[2].replace("\\", "/").lower() not in names]
     if not absent:
         return ()
-    uses = _count_uses(source, {(k, i) for k, i, _p in absent})
+    uses = count_uses(source, {(k, i) for k, i, _p in absent})
     return tuple(MissingDef(k, i, p, uses[(k, i)]) for k, i, p in absent)
 
 
@@ -198,7 +198,7 @@ def unused_definitions(text: str, kinds: _t.AbstractSet[str] = frozenset({"objec
     declared = declared_definitions(lines)
     cand = {(k, i) for k in kinds for i, p in enumerate(declared[k])
             if p not in keep}
-    uses = _count_uses(lines, cand)
+    uses = count_uses(lines, cand)
     return tuple(MissingDef(k, i, declared[k][i]) for k in DEF_KINDS.values()
                  if k in kinds for i in range(len(declared[k]))
                  if (k, i) in cand and not uses[(k, i)])

@@ -291,7 +291,7 @@ private struct GeneralPane: View {
                         }
                     }
                     LabeledContent("Imagery Providers") {
-                        Text("\(buildModel.providers.count.formatted()) available")
+                        Text("\(buildModel.imagerySources.filter(\.buildable).count.formatted()) available")
                             .foregroundStyle(.secondary)
                     }
                     LabeledContent("Config Schema") {

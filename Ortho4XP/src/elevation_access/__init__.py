@@ -40,6 +40,7 @@ WHAT A STRATEGY MAY USE (the shared modules beside this file)
 ``fetch_slots``     per-server politeness cap
 ``downloads``       whole-file downloads into the cache
 ``warp``            sources -> one GeoTIFF; "does it hold data"
+``layered_warp``    the same mosaic, never reading a source it hides
 ``provider_fill``   masking the constant a server serves beyond its data
 ``vertical_units``  feet to metres
 ``capabilities``    can this run decode LERC / LAS / LAZ

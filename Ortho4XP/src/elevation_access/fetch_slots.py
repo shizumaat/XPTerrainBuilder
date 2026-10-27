@@ -20,6 +20,7 @@ from elevation_access.definitions import _parse_float
 __all__ = [
     "PROVIDER_CONCURRENT_FETCHES",
     "_held_provider_fetch_slot",
+    "cell_fetch_class",
     "machine_class",
     "provider_fetch_slots",
 ]
@@ -37,6 +38,16 @@ PROVIDER_CONCURRENT_FETCHES = _PROVIDER_CONCURRENT_FETCHES
 def machine_class(code):
     """The session-wide slot class of one elevation provider (#1236)."""
     return "net:elevation:%s" % code
+
+
+def cell_fetch_class(code):
+    """The session-wide slot class of one provider's whole-CELL fetches --
+    the approach-ring and coastline-band cells of EVERY tile of the
+    session (#1327, RULINGS 2026-10-26t).  Its own class, not
+    :func:`machine_class`: a cell fetch's strategy may take that class
+    itself (``tnm_cog``'s stripped prefetch), and a holder waiting on its
+    own class would wait out the bounded class wait."""
+    return machine_class(code) + ":cells"
 
 
 _provider_fetch_slots: dict = {}

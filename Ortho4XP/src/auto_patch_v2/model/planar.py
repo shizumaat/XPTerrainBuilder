@@ -1190,14 +1190,15 @@ def pad_road_faces(pm) -> list:
 
 
 def drop_edges(pm) -> frozenset[frozenset[int]]:
-    """The edges of the published road DROP runs (``road_terrace['drop']``,
-    owner RULINGS 2026-10-20d; minted by ``airport/road_edge_wall.drop_runs``)
-    as unordered vertex pairs — the edges no station lies on and no gap
+    """The FAR-KERB edges of the fill's declared risers (the ``kerb`` of
+    every ``road_terrace['wall']`` record with ``road_edge``, owner RULINGS
+    2026-10-20d / 2026-10-27i; read onto the map by ``airport/riser_wall``)
+    as unordered vertex pairs — the edges no late station lies on and no gap
     piece follows.  A reader of this map's own field, so every layer that
     holds the map may ask it."""
-    runs = (getattr(pm, "road_terrace", None) or {}).get("drop") or ()
-    return frozenset(frozenset((a, b)) for r in runs
-                     for a, b in zip(r["run"], r["run"][1:], strict=False))
+    walls = (getattr(pm, "road_terrace", None) or {}).get("wall") or {}
+    return frozenset(frozenset((int(a), int(b))) for r in walls.values()
+                     if r.get("road_edge") for a, b in (r.get("kerb") or ()))
 
 
 def is_late_ref(ref) -> bool:

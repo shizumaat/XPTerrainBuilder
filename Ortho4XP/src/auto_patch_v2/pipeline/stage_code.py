@@ -493,6 +493,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.edges",
         "auto_patch_v2.planar.fill_road",
+        "auto_patch_v2.planar.fill_riser",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
@@ -610,7 +611,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.road_descent",
-        "auto_patch_v2.airport.road_edge_wall",
+        "auto_patch_v2.airport.riser_wall",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_ramp",
         "auto_patch_v2.airport.road_stations",
@@ -1446,7 +1447,7 @@ CODE_MODULES["solve"] = _mods("""
     geom.valid_area
     constraints.door_pad
     geom.slope_pad
-    planar.fill_road
+    planar.fill_road planar.fill_riser
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low
@@ -1551,8 +1552,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.valid_area
     constraints.door_pad
     geom.slope_pad
-    planar.fill_road
-    airport.road_descent airport.road_edge_wall airport.road_ramp
+    planar.fill_road planar.fill_riser
+    airport.road_descent airport.riser_wall airport.road_ramp
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
@@ -1629,7 +1630,7 @@ CODE_MODULES["emit"] = _mods("""
     solve.project_strip solve.rows solve.wall_cut verify.roads
     classify.reachability
     geom.slope_pad
-    airport.road_edge_wall
+    airport.riser_wall
     model.road_yield pipeline.band_road_wall
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index

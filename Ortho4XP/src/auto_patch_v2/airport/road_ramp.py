@@ -1856,17 +1856,13 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     road_caps = [role_cap(law, r).longitudinal for r in _road_roles(law)
                  if role_cap(law, r)]
     terr, left = wall_keyed(terr, min(road_caps) if road_caps else None)
-    # owner RULINGS 2026-10-20d (round 3 D4): THE DROP ALONG THE ROAD'S LOW
-    # SIDE (``airport/road_edge_wall``) — the high-kerb runs of a road a
-    # landing raises, and where the gap sheet stands across them (the late
-    # derive) one declared wall per run.  After the trim: these records are
-    # no placed-wall witness for 10-03l
-    from .road_edge_wall import drop_runs, road_edge_walls
-    drop = drop_runs(pm, law, targets, report)
-    edge = road_edge_walls(pm, law, drop, targets,
-                           float(service.retaining_wall_reach_m) if service else 8.0,
-                           report)
-    terr = {**terr, "drop": drop}
+    # owner RULINGS 2026-10-20d, 2026-10-27i (spec fill-step-at-road-kerb
+    # §2 (4)): THE FILL'S RISERS at its road's far kerb, minted with the fill
+    # (``planar/fill_riser``) and read here as one declared wall each
+    # (``airport/riser_wall``).  After the trim: they are no placed-wall
+    # witness for 10-03l
+    from .riser_wall import riser_walls
+    edge = riser_walls(pm, law, report)
     if edge:
         walls_ = dict(terr.get("wall") or {})
         k0 = max(walls_, default=-1) + 1

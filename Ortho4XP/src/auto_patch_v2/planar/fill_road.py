@@ -41,11 +41,15 @@ __all__ = ["road_strips", "cannot_bank", "extend_to_roads", "STRIP_EXCLUDE"]
 STRIP_EXCLUDE = ("route", "runout")
 
 
-def road_strips(base_regions: _t.Iterable, air_polys: _t.Sequence, law) -> list:
+def road_strips(base_regions: _t.Iterable, air_polys: _t.Sequence, law,
+                roles: "_t.Collection[str] | None" = None) -> list:
     """The ROAD STRIPS among ``base_regions`` (module docstring): road-family
-    source cells off every airside region by more than one weld spacing."""
+    source cells off every airside region by more than one weld spacing.
+    ``roles`` reads another family the same way (the LOTS a fill runs to,
+    RULINGS 2026-10-27i: ``planar/landing.LOT_ROLES``)."""
     from ..law.tables import family
-    roads = frozenset(family(law, "road_cross_section").roles)
+    roads = frozenset(roles) if roles is not None else \
+        frozenset(family(law, "road_cross_section").roles)
     weld = float(law.tables.emit.identity.weld_spacing_m)
     air = unary_union([a for a in air_polys if a is not None])
     out = []

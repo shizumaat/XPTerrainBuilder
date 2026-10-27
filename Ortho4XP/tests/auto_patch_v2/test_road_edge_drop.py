@@ -1,18 +1,20 @@
-"""Issues #712 / #1003 twin (owner RULINGS 2026-10-20d; spec
-``docs/specs/road-edge-drop-spec.md``): where a pad fill cannot bank down,
-the drop goes along a road edge — R1 a page a network road runs through is
-that road, R2 the fill runs to the road, R3 the road comes down off the
-fill by §37 (6) alone (round 3 D3: no second road profile), R4 the road's
-low side is a DROP the gap sheet never follows, declared as a wall where a
-gap piece stands across it (round 3 D4).  Hermetic: a metre frame."""
+"""Issues #712 / #1003 twin (owner RULINGS 2026-10-20d, 2026-10-27i, 27j;
+spec ``docs/specs/fill-step-at-road-kerb-spec.md``): where a pad fill
+cannot bank down, the step goes along a road edge — R1 a page a network
+road runs through is that road only where it is welded to a pad (§3), R2
+the fill runs to the road (or the lot between, 27i) as a lens, R3 the road
+comes down off the fill by §37 (6) alone, and the fill's RISER at the
+road's far kerb (§2 (3)-(5)) is minted with the fill and declared as one
+wall.  Hermetic: a metre frame."""
 from __future__ import annotations
 
 import types
 
 import pytest
-from auto_patch_v2.airport import road_edge_wall as RW
+from auto_patch_v2.airport import riser_wall as RW
 from auto_patch_v2.classify import sources as S
 from auto_patch_v2.classify.rules import load_rules
+from auto_patch_v2.planar import fill_riser as FR
 from auto_patch_v2.planar import fill_road as PF
 from shapely.geometry import LineString, Point, box
 
@@ -35,23 +37,49 @@ def _tree(lines):
     return STRtree(lines)
 
 
-def test_r1_a_page_a_network_road_runs_through_is_that_road():
+def test_r1_network_road_through_a_page_is_evidence_and_a_candidate():
     page = box(0, 0, 1000, 18)                       # an 18 m carriageway
     road = [LineString([(-10, 9), (1010, 9)])]       # the mapped secondary
-    got = S._network_strip(_rec(page), page, _tree(road), road, RULES)
-    assert got.cls == "strip" and got.network_through_m == pytest.approx(1000.0)
+    got, cand = S._network_evidence(_rec(page), page, _tree(road), road, RULES)
+    assert cand and got.cls == "lot" and got.network_through_m == pytest.approx(1000.0)
 
 
-def test_r1_a_lot_wider_than_a_road_or_with_no_road_through_stays():
+def test_r1_a_lot_wider_than_a_road_or_with_no_road_through_is_no_candidate():
     lot = box(0, 0, 200, 120)                        # 120 m: a car park
     road = [LineString([(-10, 60), (210, 60)])]
-    assert S._network_strip(_rec(lot), lot, _tree(road), road, RULES).cls == "lot"
+    got, cand = S._network_evidence(_rec(lot), lot, _tree(road), road, RULES)
+    assert not cand and got.network_through_m > 0.0  # evidence on every page
     page = box(0, 0, 1000, 18)
     stub = [LineString([(-10, 9), (100, 9)])]        # ends inside: no through road
-    assert S._network_strip(_rec(page), page, _tree(stub), stub, RULES).cls == "lot"
+    assert not S._network_evidence(_rec(page), page, _tree(stub), stub, RULES)[1]
     # taxi evidence keeps a page off the road rung
-    assert S._network_strip(_rec(page, taxi_m=50.0), page, _tree(road), road,
-                            RULES).cls == "lot"
+    assert not S._network_evidence(_rec(page, taxi_m=50.0), page, _tree(road), road,
+                                   RULES)[1]
+
+
+def test_r1_a_candidate_is_a_road_only_where_it_is_welded_to_a_pad():
+    """§3 (owner RULINGS 2026-10-27i): the witness is the classifier's own
+    touch witness — a page sharing a pad's rim is that road, a page held off
+    a pad as a hillside terrace or gapped from one keeps its verdict."""
+    from auto_patch_v2.law import Law
+    law = Law.for_airport("HECA")
+    page = box(0, 0, 1000, 18)
+    rec, _c = S._network_evidence(_rec(page), page, _tree([LineString([(-10, 9), (1010, 9)])]),
+                                  [LineString([(-10, 9), (1010, 9)])], RULES)
+    polys = {rec.id: page}
+
+    def run(pads, dem):
+        ev = types.SimpleNamespace(pads=pads, runway_polys=[])
+        ap = types.SimpleNamespace(dem=dem)
+        return S._network_strips([rec], [0], polys, ev, ap, law)[0]
+    flat = _Dem(lambda x, y: 90.0)
+    got = run([("building1", box(400, 18, 500, 80))], flat)
+    assert got.cls == "strip" and got.network_strip and "building1" in got.reason
+    assert run([("building1", box(400, 30, 500, 80))], flat).cls == "lot"     # gapped
+    hill = _Dem(lambda x, y: 90.0 if y < 18.0 else 100.0)
+    assert run([("building1", box(400, 18, 500, 80))], hill).cls == "lot"     # held
+    assert S._network_strips([rec], [0], polys, types.SimpleNamespace(pads=[]),
+                             types.SimpleNamespace(dem=flat), law)[0].cls == "lot"
 
 
 class _Dem:
@@ -98,29 +126,66 @@ def test_r3_no_second_road_profile():
     assert not any("fill_road" in r for r in hard_rulings(law))
 
 
-def test_r4_runs_are_cyclic_and_need_two_vertices():
-    ring = [1, 2, 3, 4, 5, 6]
-    assert RW._runs(ring, {2, 3, 5, 6, 1}.__contains__) == [[5, 6, 1, 2, 3]]
-    assert RW._runs(ring, {2, 3, 5, 6}.__contains__) == [[2, 3], [5, 6]]
-    assert RW._runs(ring, {4}.__contains__) == []
-
-
-# THE DROP TWIN (round 3 step 5): a block's fill (south), an 18 m road strip
-# whose south kerb is the fill's edge, and a gap piece 1 m off its far
-# (north) kerb, all over ground at 90 m; the fill at D + y = 100 m
+# THE RISER TWIN (spec §2 (3)-(5)): a block's fill (south), an 18 m road
+# whose south kerb is the fill's edge, the fill's riser along the far
+# (north) kerb, and a gap piece beyond it, all over ground at 90 m; the
+# fill at D + y = 100 m
 GROUND = 90.0
 LEVEL = 100.0
+LENS = box(0, -40, 100, 0)
+ROAD = box(-50, 0, 150, 18)
+
+
+def _law():
+    from auto_patch_v2.law import Law
+    return Law.for_airport("HECA")
+
+
+def _risers(dem, law=None, grid=0.5):
+    law = law or _law()
+    return FR.fill_risers(LENS, LEVEL, [ROAD], ROAD, dem, law, grid, 100.0), law
+
+
+def test_the_riser_stands_along_the_far_kerb_within_the_lens_span():
+    (r,), law = _risers(_Dem(lambda x, y: GROUND))
+    w = FR.riser_width(law, 0.5)
+    x0, y0, x1, y1 = r["polygon"].bounds
+    assert y0 == pytest.approx(18.0) and y1 == pytest.approx(18.0 + w)
+    assert x0 >= -1e-6 and x1 <= 100.0 + 1e-6 and x1 - x0 > 95.0   # the lens's span
+    assert r["polygon"].intersection(ROAD).area < 1e-6               # the road is never cut
+    assert r["upper"].distance(LineString([(0, 18), (100, 18)])) < 1e-6
+    g = float(law.tables.emit.road_contact.ramp_grade)
+    assert r["height_m"] == pytest.approx(LEVEL - g * (18.0 + w) - GROUND, abs=0.05)
+
+
+def test_no_riser_where_the_kerb_stands_within_visual_of_the_ground():
+    law = _law()
+    g = float(law.tables.emit.road_contact.ramp_grade)
+    near = LEVEL - g * 19.0 - 0.2                     # 0.2 m under the kerb: drapes
+    assert _risers(_Dem(lambda x, y: near), law)[0] == []
+    # half the span over high ground: the riser stands only over the low half
+    (r,), _l = _risers(_Dem(lambda x, y: near if x < 50.0 else GROUND), law)
+    x0, _y0, x1, _y1 = r["polygon"].bounds
+    assert x0 > 40.0 and x1 == pytest.approx(100.0)
+    assert _risers(_Dem(lambda x, y: GROUND), law)[0] and \
+        FR.fill_risers(LENS, LEVEL, [ROAD], ROAD, None, law, 0.5, 100.0) == []
+
+
+W = 2.0                                               # the twin's riser width
 _RINGS = {
     "fill": ("building", "b/landing0", [(0, -40), (100, -40), (100, 0), (0, 0)]),
     "road": ("service_road", "dsf:pol10", [(-50, 0), (0, 0), (100, 0), (150, 0),
                                            (150, 18), (100, 18), (50, 18), (0, 18),
                                            (-50, 18)]),
-    "gap": ("groundside_pavement", "gap:0", [(-50, 19), (0, 19), (50, 19), (100, 19),
-                                             (150, 19), (150, 60), (-50, 60)]),
+    "riser": ("building", "b/landing0#strip", [(0, 18), (50, 18), (100, 18),
+                                               (100, 18 + W), (50, 18 + W), (0, 18 + W)]),
+    "gap": ("groundside_pavement", "gap:0", [(-50, 18 + W), (0, 18 + W), (50, 18 + W),
+                                             (100, 18 + W), (150, 18 + W), (150, 60),
+                                             (-50, 60)]),
 }
 
 
-def _drop_map():
+def _riser_map():
     V: dict = {}
     at: dict = {}
     eid, ends, cyc_v = {}, {}, {}
@@ -147,131 +212,116 @@ def _drop_map():
         faces[fid] = types.SimpleNamespace(id=fid, role=role, ref=ref, ring=cyc, holes=())
         for v in ring:
             V[v].incident_faces.append(fid)
+    ring = _RINGS["riser"][2]
     reg = types.SimpleNamespace(
-        landings={"b/landing0": {"block": "b", "y": 0.0, "kind": "plate"}},
+        landings={"b/landing0": {"block": "b", "y": 0.0, "kind": "plate", "risers": [
+            {"ring": ring + ring[:1], "upper": [[(0, 18), (100, 18)]], "height_m": 9.5}]}},
         held={"b": {"datum_pred": LEVEL, "samples_reach": [0.0]}})
     pm = types.SimpleNamespace(vertices=V, faces=faces, edges=ends, registries=reg,
                                ring_vertices=lambda c: list(cyc_v[c]), road_terrace={})
     return pm, at
 
 
-def _road_targets(pm, at, grade=0.05):
-    """§37 (6) off the fill's kerb mouths: the road falls at ``grade`` from
-    LEVEL along its distance to the fill's kerb."""
-    out = {}
+def _z(pm, at, grade=0.05):
+    """The road falls at ``grade`` off the fill's kerb; the riser's outer
+    line and the gap stand on the ground."""
+    z = {}
     for xy, v in at.items():
-        if pm.faces[1].id in pm.vertices[v].incident_faces:
-            x, y = xy
-            d = y + max(0.0, -x, x - 100.0)
-            out[v] = LEVEL - grade * d
-    return out
+        fs = pm.vertices[v].incident_faces
+        if 1 in fs:
+            z[v] = LEVEL - grade * xy[1]
+        elif 0 in fs:
+            z[v] = LEVEL
+        else:
+            z[v] = GROUND
+    return z
 
 
 @pytest.fixture(scope="module")
-def drop():
-    from auto_patch_v2.law import Law
-    law = Law.for_airport("HECA")
-    pm, at = _drop_map()
-    targets = _road_targets(pm, at)
+def riser():
+    law = _law()
+    pm, at = _riser_map()
     counts: dict = {}
-    runs = RW.drop_runs(pm, law, targets, counts)
-    walls = RW.road_edge_walls(pm, law, runs, targets, 8.0, counts)
-    pm.road_terrace = {"drop": runs, "wall": dict(enumerate(walls))}
-    return law, pm, at, targets, runs, walls
+    walls = RW.riser_walls(pm, law, counts)
+    pm.road_terrace = {"wall": dict(enumerate(walls))}
+    return law, pm, at, walls, counts
 
 
-def test_the_drop_is_the_far_kerb_never_the_fill(drop):
-    _law, pm, at, _t, runs, _w = drop
-    assert len(runs) == 1
-    run = {pm.vertices[v].xy for v in runs[0]["run"]}
-    assert (0.0, 18.0) in run and (100.0, 18.0) in run
-    assert not run & {(0.0, 0.0), (100.0, 0.0)}      # the fill's kerb is no drop
-
-
-def test_no_station_lies_on_a_drop_edge(drop):
-    from shapely.geometry import LineString as L
-    from auto_patch_v2.pipeline.late_stage import late_stations
-    law, pm, _at, targets, runs, _w = drop
-    z = {v: targets.get(v, LEVEL if 0 in pm.vertices[v].incident_faces else GROUND)
-         for v in pm.vertices}
-    base = types.SimpleNamespace(**{**vars(pm), "faces": {k: f for k, f in pm.faces.items()
-                                                          if k != 2}})
-    (st,) = late_stations(base, z, [box(-50, 19, 150, 60)], law, "groundside_pavement")
-    kerb = L([pm.vertices[v].xy for v in runs[0]["run"]])
-    assert all(kerb.distance(Point(s.xy)) > 1e-6 for s in st)
-    pm2 = types.SimpleNamespace(**{**vars(base), "road_terrace": {}})
-    (st2,) = late_stations(pm2, z, [box(-50, 19, 150, 60)], law, "groundside_pavement")
-    assert any(kerb.distance(Point(s.xy)) <= 1e-6 for s in st2)   # the control
-
-
-def test_the_drop_is_one_declared_wall_of_about_the_step(drop):
+def test_each_riser_is_one_declared_wall_and_one_joint(riser):
     from auto_patch_v2.pipeline.publication import wall_terrace_joints
-    law, pm, at, targets, runs, walls = drop
-    assert len(walls) == 1
+    law, pm, at, walls, counts = riser
+    assert counts["fill_riser_walls"] == len(walls) == 1
     rec = walls[0]
-    assert rec["retains"] and rec["upper"] == runs[0]["run"]
-    assert {pm.vertices[v].xy[1] for v in rec["lower"]} == {19.0}
-    top = max(targets[v] for v in rec["upper"])
-    assert rec["height_m"] == pytest.approx(top - GROUND, abs=1e-3)
-    z = [0.0] * len(pm.vertices)
-    for v in pm.vertices:
-        z[v] = targets.get(v, LEVEL if 0 in pm.vertices[v].incident_faces else GROUND)
-    (j,) = wall_terrace_joints(pm, law, z)
-    assert j["kind"] == "wall_terrace" and 8.5 <= j["step_m"] <= 10.5
+    assert rec["retains"] and rec["road_edge"] and rec["height_m"] == 9.5
+    assert {pm.vertices[v].xy for v in rec["upper"]} == {(0.0, 18.0), (50.0, 18.0),
+                                                         (100.0, 18.0)}
+    assert {pm.vertices[v].xy[1] for v in rec["lower"]} == {18.0 + W}
+    z = _z(pm, at)
+    (j,) = wall_terrace_joints(pm, law, [z[v] for v in sorted(pm.vertices)])
+    assert j["kind"] == "wall_terrace" and j["step_m"] == pytest.approx(9.5, abs=0.01)
 
 
-def test_the_gap_piece_keeps_its_own_ground_beside_the_drop(drop):
-    """No follow row and no lot row binds the piece to the raised road; the
-    wall's own step floor admits its DEM."""
-    from auto_patch_v2.constraints import gap_follow as gf
-    from auto_patch_v2.constraints.road_ramp import _wall_step_rows
-    law, pm, at, targets, _runs, walls = drop
-    fixed = {v: targets.get(v, LEVEL) for v in pm.vertices
-             if 2 not in pm.vertices[v].incident_faces}
-    rows, rep = gf.gap_follow_rows(pm, law, fixed)
-    near = {v for xy, v in at.items() if xy[1] == 19.0}
-    assert not [r for r in rows if r.terms[0][0] in near], rep
-    z = {v: GROUND for v in near}
-    for r in _wall_step_rows(pm, dict(enumerate(walls))):
-        (lv, _c), (uv, _c2) = r.terms
-        assert z[lv] - targets[uv] >= r.lo - 1e-9
-    # the control: without the drop the piece follows the road
-    pm2 = types.SimpleNamespace(**{**vars(pm), "road_terrace": {}})
-    rows2, _rep2 = gf.gap_follow_rows(pm2, law, fixed)
-    assert [r for r in rows2 if r.terms[0][0] in near]
+def test_no_station_lies_on_the_far_kerb(riser):
+    from auto_patch_v2.model.planar import drop_edges
+    from auto_patch_v2.pipeline.late_stage import late_stations
+    law, pm, at, _walls, _c = riser
+    kerb = drop_edges(pm)
+    assert kerb == {frozenset((at[(0, 18)], at[(50, 18)])),
+                    frozenset((at[(50, 18)], at[(100, 18)]))}
+    z = _z(pm, at)
+    base = types.SimpleNamespace(**{**vars(pm), "faces": {k: f for k, f in pm.faces.items()
+                                                          if k != 3}})
+    line = LineString([(0, 18), (100, 18)])
+    (st,) = late_stations(base, z, [box(-50, 17.5, 150, 60)], law, "groundside_pavement")
+    assert all(line.distance(Point(s.xy)) > 1e-6 for s in st if 0 < s.xy[0] < 100)
+    pm2 = types.SimpleNamespace(**{**vars(base), "road_terrace": {}})
+    (st2,) = late_stations(pm2, z, [box(-50, 17.5, 150, 60)], law, "groundside_pavement")
+    assert any(line.distance(Point(s.xy)) <= 1e-6 for s in st2)   # the control
 
 
-def test_the_wall_machinery_reaches_the_last_stage(drop):
-    """Round 3 step 4: the drop's record is one the last stage reads — the
-    pair rows across its line are released (``wall_release``, which the
-    last stage applies, ``pipeline/late_stage.late_solve``) and the bending
-    across the stand-off is cut (``solve/wall_cut``)."""
+def test_the_low_side_keeps_its_ground_across_the_riser(riser):
+    """The wall's step floor admits the DEM on the riser's outer line, the
+    pair rows across it are released and its bending is cut."""
     import inspect
 
-    from auto_patch_v2.constraints.road_ramp import wall_release
+    from auto_patch_v2.constraints.road_ramp import _wall_step_rows, wall_release
     from auto_patch_v2.model.constraints import ConstraintSet, Diff, Source
     from auto_patch_v2.pipeline import late_stage
     from auto_patch_v2.solve.wall_cut import wall_cut_edges
-    law, pm, at, _t, _runs, walls = drop
-    up, lo = at[(50, 18)], at[(50, 19)]
-    across = Diff(lo, up, 0.1, 1.0, Source("gap_follow", "x", ()))
+    law, pm, at, walls, _c = riser
+    z = _z(pm, at)
+    rows = _wall_step_rows(pm, dict(enumerate(walls)))
+    assert len(rows) == 3
+    for r in rows:
+        (lv, _c1), (uv, _c2) = r.terms
+        assert z[lv] - z[uv] >= r.lo - 1e-9
+    up, lo = at[(50, 18)], at[(50, 18 + W)]
+    across = Diff(lo, up, 0.1, 1.0, Source("roads", "x", ()))
     along = Diff(at[(0, 18)], up, 0.1, 50.0, Source("roads", "x", ()))
     cs, rep = wall_release(pm, law, ConstraintSet.from_rows([across, along]))
     assert rep["released"] == 1 and list(cs.diffs) == [along]
-    cut = wall_cut_edges(pm, [(up, lo, at[(0, 19)]), (up, at[(0, 18)], at[(0, 0)])])
+    cut = wall_cut_edges(pm, [(up, lo, at[(0, 18 + W)]), (up, at[(0, 18)], at[(0, 0)])])
     assert (min(up, lo), max(up, lo)) in cut
     assert (min(up, at[(0, 18)]), max(up, at[(0, 18)])) not in cut
     assert "wall_release(pm, law, cs)" in inspect.getsource(late_stage.late_solve)
+
+
+def test_the_riser_takes_no_bank_and_no_landing_row(riser):
+    from auto_patch_v2.constraints import platform as P
+    law, pm, _at, _w, _c = riser
+    assert set(P.landing_vertices(pm)) == {"b/landing0"}
+    assert not any("#strip" in str(q[0]) for q in
+                   [q for q in P.collar_faces(pm, law, P.is_strip_ref)
+                    if q[0] not in pm.registries.landings])
 
 
 def test_a_block_carrying_a_fill_gets_a_stage_two_datum_column():
     """Round 3 D5 (``model.platform.datum_vertices`` ``fills``): a held
     block that welds nothing and carries a pad fill gets its own column —
     the readers that ask for it, never the stage split."""
-    from auto_patch_v2.law import Law
     from auto_patch_v2.model.platform import datum_vertices
-    law = Law.for_airport("HECA")
-    pm, at = _drop_map()
+    law = _law()
+    pm, _at = _riser_map()
     pm.registries.held = {"b/landing0": {}}       # the fill's own ref as a held block
     pm.registries.landings = {"x/landing0": {"block": "b/landing0", "y": 0.0,
                                              "kind": "plate"}}
@@ -281,21 +331,3 @@ def test_a_block_carrying_a_fill_gets_a_stage_two_datum_column():
     assert 0 in pm.vertices[got["b/landing0"]].incident_faces
     pm.registries.landings["x/landing0"]["kind"] = "deck"
     assert datum_vertices(pm, law, air=set(), fills=True) == {}
-
-
-def test_a_lot_below_the_drop_takes_no_level_from_the_road_beyond_it(drop):
-    """The lot rows never bind a vertex whose nearest road edge is a drop to
-    the next road edge along (``constraints/gap_follow._lot_rows``)."""
-    from auto_patch_v2.constraints import gap_follow as gf
-    law, pm, at, targets, _runs, _walls = drop
-    pm2 = types.SimpleNamespace(**{**vars(pm), "faces": dict(pm.faces)})
-    g = pm.faces[2]
-    pm2.faces[2] = types.SimpleNamespace(**{**vars(g), "ref": "gap:0/lot"})
-    fixed = {v: targets.get(v, LEVEL) for v in pm.vertices
-             if 2 not in pm.vertices[v].incident_faces}
-    rows, rep = gf.gap_follow_rows(pm2, law, fixed)
-    near = {v for xy, v in at.items() if xy[1] == 19.0}
-    assert not set(rep["lot_targets"]) & near, rep["lot_targets"]
-    pm3 = types.SimpleNamespace(**{**vars(pm2), "road_terrace": {}})
-    _rows3, rep3 = gf.gap_follow_rows(pm3, law, fixed)
-    assert set(rep3["lot_targets"]) & near                         # the control

@@ -76,7 +76,7 @@ def late_stations(pm_base, z_base, pieces: _t.Sequence[Polygon], law: Law,
     with the base's level interpolated on its edge and the PIECE's cap (a
     ring's own cap binds inside the follow reach only, through the follow
     rows).  No station lies on a road's DROP edge
-    (``airport/road_edge_wall.drop_edges``).  A mapped-road ribbon welded
+    (``model/planar.drop_edges``, the fill risers' far kerb).  A mapped-road ribbon welded
     to a piece is a follower (an unknown), never a station; a ribbon
     beside no piece is a standing ring."""
     from ..constraints.groundside import groundside_face_roles
@@ -329,7 +329,7 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     pad_joins = pad_ramp.pop("joins")
     # owner RULINGS 2026-10-15a (2) / 10-20d (round 3 D4): THE WALL IS THE
     # STEP in this stage too — a road-edge drop's lower side is a gap piece
-    # (``airport/road_edge_wall``), and the pair rows across a declared
+    # (``airport/riser_wall``), and the pair rows across a declared
     # wall's line leave here as they leave between §20b's stages
     from ..constraints.road_ramp import wall_release
     cs, wall_rep = wall_release(pm, law, cs)

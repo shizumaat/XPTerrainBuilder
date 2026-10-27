@@ -155,3 +155,54 @@ west apron walls' lower faces within 0.5 m of each wall's foot to the
 wall's end; LFPG, the T2 central corridor within 0.5 m of the lower
 central buildings' bottoms; airside movement < 1 m (23d) with no new
 airside grade row; verify DEFECT families zero; the closing build KATL.
+
+## Measured (captures on main 275514532, replays on this branch; closing build KATL)
+
+Two corrections to the design above, both measured:
+- the reach read runs in PLANAR, after `pad_cut.apron_cut_to_pads`
+  (`planar/reach_after_pads`), not in classify: given the pads as
+  obstacles at classify time, the split pieces under the halls fed
+  `pad_touch`'s cut-back and LFPG lost hall bays (`building24/57/16`); and
+  only a page the pads cut into reached and unreached pieces is split -- a
+  page wholly beyond stays classify's (five synthetic fixtures have one);
+- wall pieces keep off the adjacent-ground ZONES too (a piece cut into a
+  zone tore it 5-9 m at the walls' ends) and off every STRUCTURE (a piece
+  over an LFPG tunnel ramp lifted its walls 2.75 m).
+- a group level reaching its pad's own ring took 461 pass-1b hold rows
+  carried by the join onto that ring and was lifted, rigid, to the pad's
+  datum (`building34/p1` 104.17 m against its 97.99 m pin): a group
+  level's vertices are stage 2's (`group_level.stage_two_vertices`).
+
+**KATL east terminal** (replay `--from planar`; build `llevels_KATL`,
+artifact ledger 805c8913110a, body 1efc102dee91, DEFECT families zero):
+- south apron wall (`muro_concreto`): the lower level runs its whole
+  length on the lower side, `building47/p4` 11,114 m2 held at 289.30 m =
+  the wall's foot (y -11.51); before: raw DEM 290.0-290.7 m;
+- west apron wall (`muro_concreto5`): the pocket north of it,
+  `building47/p6` 7,299 m2 at 291.11 m = the wall's foot (y -9.70), to the
+  brick wall by the tower; before: raw DEM 290.1-292.3 m;
+- the terminal's lower storey stays `building47/p1` at 287.78 m; risers
+  1.52 m and 3.33 m between;
+- airside pavement: 1 vertex moved over 0.01 m (0.044 m); verify 2,135 ->
+  2,214 rows: road_cross_section 15 -> 69 (roads crossing the new risers:
+  3.2 m at the pocket's east end by the terminal's west tip, 1.7 m at the
+  south wall's north end -- the #1138 class), strip_seam_tear 69 -> 73
+  (8.4 m where the south strip ends at the taxiway strip south of the
+  wall's end), groundside_cutback 123 -> 121.
+- NOT taken in (27h): the control tower (unit 26, 16.7 m off the
+  terminal's unit) and the brick wall (unit 27, 152.6 m off): the tower
+  pad stays at 293.06 m beside the pocket level's 291.11 m.
+
+**LFPG T2** (replay `--from planar`; no build -- the IGN WFS tile index
+answers HTTP 400):
+- the central corridor (`dsf:pol459#beyond1`, 43,482 m2 unreachable once
+  the halls stand) is groundside, and the lower level spans it:
+  `building34/p2` at 98.39 m (y -7.07, the lower central buildings'
+  area-weighted bottom); before: apron at 102.5-104.7 m;
+- the four trench levels stay at 97.98-97.99 m (0.4 m riser to the
+  corridor); further extensions along the road trench east
+  (`building62/p2..p4`, 98.39-99.09 m);
+- airside pavement: 205 vertices over 0.01 m, 34 over 0.1 m, max 0.51 m
+  (the apron beside the corridor's west end, 49.00475, 2.57392; 23d);
+  verify 3,635 -> 2,705 rows (within_shape 1,791 -> 847, airside_no_step
+  227 -> 221, road_cross_section 167 -> 182), DEFECT families zero.

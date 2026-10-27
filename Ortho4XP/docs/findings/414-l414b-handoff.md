@@ -64,3 +64,14 @@ Branch `claude/l414b-ramp-orient` (PR #1567, already merged into batch AK
 Steps 1-2 yes (pure Python twins, ratchets). Step 3 (OTHH build/census) NO:
 needs the Mac corpus (`/Users/noah/XPTerrainBuilderData`) and the
 Aeroscape OTHH pack in the X-Plane install.
+
+## Cloud round (2026-10-27, after the pause)
+- Merged origin/main. Twin fixed: the test stub planar now carries
+  `faces` / `ring_vertices` (default none, so `_between` falls back to the
+  axis). `shared_walls` made private (`_shared_walls`): it was public and
+  read only by its own module (unused ratchet 1282 > 1281).
+- New twin `test_the_step_is_declared_between_the_ramps_as_emitted`: both
+  ramps end left of the authored axis (lattice snap); the ring-to-ring
+  chord is forgiven, a chord crossing only the authored axis inside bay B
+  and a step inside bay A still report in full.
+- STILL OPEN (Mac only): step 3 above, the OTHH closing build and census.

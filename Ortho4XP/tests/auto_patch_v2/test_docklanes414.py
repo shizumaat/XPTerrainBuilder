@@ -232,12 +232,20 @@ def _pair(shared_bottom):
     return a, b
 
 
-def _planar(tunnels):
-    """The planar map's two things the publication reads: the structures
-    and vertex keys for the plan -> lat/lon fit."""
+def _planar(tunnels, ramps=None):
+    """The planar map's things the publication reads: the structures,
+    vertex keys for the plan -> lat/lon fit, and the faces the emitted
+    ramps stand on (``ramps``: ref -> plan ring; none by default)."""
+    xys = [(-50.0, -50.0), (50.0, -50.0), (0.0, 60.0), (40.0, 40.0)]
+    faces = {}
+    for ref, ring in (ramps or {}).items():
+        faces[ref] = types.SimpleNamespace(ref=ref, role="", holes=(),
+                                           ring=tuple(range(len(xys), len(xys) + len(ring))))
+        xys += list(ring)
     vs = {i: types.SimpleNamespace(xy=(x, y), key=(60.5 + y / 111320.0, -135.5 + x / 55000.0))
-          for i, (x, y) in enumerate([(-50.0, -50.0), (50.0, -50.0), (0.0, 60.0), (40.0, 40.0)])}
-    return types.SimpleNamespace(structures=tuple(tunnels), vertices=vs)
+          for i, (x, y) in enumerate(xys)}
+    return types.SimpleNamespace(structures=tuple(tunnels), vertices=vs, faces=faces,
+                                 ring_vertices=lambda ring: ring)
 
 
 def test_a_deep_shared_wall_declares_the_step_between_two_bays(law):
@@ -261,3 +269,27 @@ def test_a_shallow_shared_wall_declares_nothing(law):
     """A shared wall standing ABOVE a floor hides nothing: the step reports."""
     from auto_patch_v2.pipeline.shared_wall_steps import shared_wall_joints
     assert shared_wall_joints(_planar(_pair(699.0)), law) == []
+
+
+def test_the_step_is_declared_between_the_ramps_as_emitted(law):
+    """The rings stand on the identity lattice, not on a 0.3 m wall: here
+    both emitted ramps end LEFT of the authored band's axis (x = 0.15).
+    The declared line is their midline (x = -0.75), so the chord between
+    the two rings is forgiven; a chord that crosses only the authored
+    axis, inside bay B's ramp, is not under the shared wall and still
+    reports in full, as does a step inside bay A."""
+    import dataclasses as dc
+
+    import tools.check_grade as cg
+    from auto_patch_v2.pipeline.shared_wall_steps import shared_wall_joints
+    a, b = _pair(698.5)
+    a, b = dc.replace(a, ramp_refs=("rampA",)), dc.replace(b, ramp_refs=("rampB",))
+    ramps = {"rampA": _rect(-LANE_W, 0.0, -1.0, LANE_M),
+             "rampB": _rect(-0.5, 0.0, WALL_T + LANE_W, LANE_M)}
+    joints = shared_wall_joints(_planar((a, b), ramps), law)
+    assert len(joints) == 1
+    ll_to_m = lambda la, lo: ((lo + 135.5) * 55000.0, (la - 60.5) * 111320.0)  # noqa: E731
+    walls = cg.DeclaredWallSteps(joints, ll_to_m)
+    assert walls.allowance(-1.0, 9.0, -0.5, 9.0) == pytest.approx(1.51)   # ring to ring
+    assert walls.allowance(-0.4, 9.0, 1.0, 9.0) == 0.0                    # off the wall, in B
+    assert walls.allowance(-3.0, 9.0, -1.5, 9.0) == 0.0                   # off the wall, in A

@@ -16,8 +16,9 @@ thinner than the lattice spacing (OTHH's dock walls: 0.3 m on a 0.5 m
 lattice) is not where the rings put it, and the authored band's axis can
 lie beside both rings, where no chord between them crosses it.  Each
 sample of the wall's axis moves to the midpoint of its nearest points on
-the two ramps' faces (the axis itself where a corridor has none) — so the census's ``DeclaredWallSteps`` / ``_terrace_step_allowance``
-and the engine's ``verify/steps`` forgive exactly a pair whose chord
+the two ramps' faces (the axis itself where a corridor has none) — so
+the census's ``DeclaredWallSteps`` / ``_terrace_step_allowance`` and the
+engine's ``verify/steps`` forgive exactly a pair whose chord
 crosses that wall, up to that depth; the excess, and every pair beside the
 wall that does not cross it, still reports.  A shared wall standing
 SHALLOWER than either floor declares nothing."""
@@ -30,7 +31,7 @@ import typing as _t
 from ..law import Law
 from ..model.planar import PlanarMap
 
-__all__ = ["shared_wall_joints", "shared_walls", "LABEL"]
+__all__ = ["shared_wall_joints", "LABEL"]
 
 #: the shape label the record carries
 LABEL = "shared_bay_wall"
@@ -46,8 +47,8 @@ def shared_wall_joints(planar: PlanarMap, law: Law,
     """The ``wall_terrace`` records of the walls neighbouring bays share
     (module docstring)."""
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
-    walls = shared_walls(getattr(planar, "structures", ()) or (),
-                         lambda t: _ramp_faces(planar, t), spacing)
+    walls = _shared_walls(getattr(planar, "structures", ()) or (),
+                          lambda t: _ramp_faces(planar, t), spacing)
     if not walls:
         return []
     from .ribbon_steps import _to_ll
@@ -64,8 +65,8 @@ def shared_wall_joints(planar: PlanarMap, law: Law,
     return out
 
 
-def shared_walls(tunnels: _t.Sequence, ramps=None, spacing: float = 0.5
-                 ) -> list[tuple[_t.Any, float, tuple[str, str]]]:
+def _shared_walls(tunnels: _t.Sequence, ramps=None, spacing: float = 0.5
+                  ) -> list[tuple[_t.Any, float, tuple[str, str]]]:
     """``(the declared line, the wall's reach under the higher mouth
     ground, (id, id))`` per wall two Law C corridors share whose bottom
     stands under BOTH their floors.  ``ramps(tunnel)`` is the corridor's

@@ -234,7 +234,9 @@ final class BuildModel: ObservableObject {
 
     // MARK: Scan state (what exists on disk / in X-Plane)
 
-    @Published private(set) var built: [TileCoord: O4TileInfo] = [:]
+    @Published private(set) var built: [TileCoord: O4TileInfo] = [:] {
+        didSet { adoptArrivedTileConfig() }
+    }
     @Published private(set) var installed: Set<TileCoord> = []
     /// Built tiles whose textures folder mixes imagery sources (only one
     /// can be used) — warning badges on the map + selection pane.
@@ -271,7 +273,7 @@ final class BuildModel: ObservableObject {
     var searchTags = TileSearchTags()
     @Published var activeTile: TileCoord? {
         didSet {
-            adoptActiveTileConfig()
+            adopt(imageryAdoption.select(activeTile, info: activeTile.flatMap { built[$0] }))
             persistSelection()
             refreshBuiltByIfMissing()
         }
@@ -283,12 +285,31 @@ final class BuildModel: ObservableObject {
     /// did not answer the launch check is not adopted (#1345). The user
     /// can still change either afterwards — startBuild then warns on the
     /// mismatch.
-    private func adoptActiveTileConfig() {
-        guard let coord = activeTile, let info = built[coord],
-              let choice = TileImageryChoice.resolve(info) else { return }
+    ///
+    /// A tile selected before the scan has reported it (launch, a rejected
+    /// scan cache, a scan slowed by a running build) adopts once its info
+    /// arrives — unless the user picked a source in between.
+    private func adopt(_ choice: TileImageryChoice?) {
+        guard let choice else { return }
         if choice.source == .detected, imageryStatus[choice.provider]?.status == "offline" { return }
+        // AppStorage on the model doesn't self-publish.
+        objectWillChange.send()
         buildProvider = choice.provider
         if let zl = choice.zl { buildZL = zl }
+    }
+
+    private var imageryAdoption = TileImageryAdoption<TileCoord>()
+
+    private func adoptArrivedTileConfig() {
+        adopt(imageryAdoption.arrived(active: activeTile, info: activeTile.flatMap { built[$0] }))
+    }
+
+    /// The Build box's Imagery menu: the user's pick outranks a tile
+    /// imagery adoption still waiting for the scan.
+    func chooseBuildProvider(_ code: String) {
+        imageryAdoption.userPicked()
+        objectWillChange.send()
+        buildProvider = code
     }
 
     /// Both selection keys, rewritten whole on every change. A selection is

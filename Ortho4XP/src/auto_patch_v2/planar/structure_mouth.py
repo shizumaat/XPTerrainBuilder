@@ -277,8 +277,8 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
     a road passing under a taxiway.  ``floor_at(s)`` is that profile;
     ``s_g`` the first station, out from under the pavement, where the
     ground has come down to it (``None`` within the slide cap plus the
-    longest ramp).  ``floor`` is a SURVEYED road's blended floor at the
-    portal (``lidar_road``, RULINGS 2026-10-27g): the profile starts there,
+    longest ramp).  ``floor`` is a SURVEY MOUTH's floor at the
+    portal (``lidar_road.survey_mouth``, RULINGS 2026-10-28k R1): the profile starts there,
     and under the pavement it holds ``extra`` (the depth owed) under the DEM
     — which reads that road — instead of ``mouth_depth_m``."""
     from .structure_approach import approach_ground

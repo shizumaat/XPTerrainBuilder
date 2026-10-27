@@ -19,6 +19,9 @@ class StructureStats:
     """What the structure pass found, made and refused."""
 
     bores: int = 0
+    #: RULINGS 2026-10-28k R2: the survey's open approach trenches made
+    #: keepouts (``lidar_road.survey_trench``) — the zones stop at them.
+    survey_cuts: int = 0
     #: spec §29 (2): bores with NO mouth on the field — nothing is built for
     #: them (the old ``bores_uncovered``, whose test was the bore's cover).
     bores_no_mouth: int = 0

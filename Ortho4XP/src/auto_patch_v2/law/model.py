@@ -361,6 +361,11 @@ class Tunnel:
     #: 2026-10-08c (1)): what it is BUILT at; ``ramp_max_grade`` is the
     #: ceiling it steepens toward only where this one cannot top out.
     ramp_grade: float
+    #: RAIL AT A TUNNEL MOUTH (owner RULINGS 2026-10-28k (233 a)): a railway
+    #: bore's ramp design grade and its ceiling — a longer, shallower ramp
+    #: than a road's (EU TSI INF §4.2.3.6: 12.5 / 35 mm/m).
+    rail_ramp_grade: float
+    rail_ramp_max_grade: float
     mouth_standoff_m: float   # spec §29 (1): cover ⊕ this = where a mouth may stand
     ramp_cuts_runway_family: bool
     ramp_crosses_pad: bool
@@ -1207,6 +1212,14 @@ def _check_cross_refs(t: LawTables) -> None:
         raise LawError(
             f"structures.tunnel.ramp_grade {t.structures.tunnel.ramp_grade} is not in "
             f"(0, ramp_max_grade {t.structures.tunnel.ramp_max_grade}] (RULINGS 2026-10-08c (1))")
+    # RULINGS 2026-10-28k (233 a): rail's design grade under its ceiling, and
+    # rail never steeper than a road
+    _tn = t.structures.tunnel
+    if not 0.0 < _tn.rail_ramp_grade <= _tn.rail_ramp_max_grade <= _tn.ramp_max_grade + 1e-12:
+        raise LawError(
+            f"structures.tunnel.rail_ramp_grade {_tn.rail_ramp_grade} / rail_ramp_max_grade "
+            f"{_tn.rail_ramp_max_grade} are not 0 < design <= cap <= ramp_max_grade "
+            f"{_tn.ramp_max_grade} (RULINGS 2026-10-28k (233 a))")
     # RULINGS 2026-10-09c (2b): the same law for the groundside road's ramp —
     # its design grade stands at or under every road role's own cap
     road_caps = [t.common.roles[r].longitudinal

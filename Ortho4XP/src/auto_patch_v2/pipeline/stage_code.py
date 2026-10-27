@@ -1553,7 +1553,6 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.door_pad
     geom.slope_pad
     planar.fill_road planar.fill_riser
-    airport.road_descent airport.riser_wall airport.road_ramp
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low

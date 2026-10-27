@@ -105,6 +105,8 @@ class OsmRoads:
     ribbon_highways: tuple[str, ...]
     road_gap_bridge_m: float
     boundary_reach_m: float
+    #: #1548: the ``railway=*`` values a source page's rail rung reads
+    railways: tuple[str, ...]
 
 
 @_dc.dataclass(frozen=True)

@@ -30,6 +30,17 @@ The verdict per source, with the numbers recorded (``SourceRecord``):
   NAMES A TAXIWAY (RULINGS 2026-09-04z(1), ``evidence.taxi_name_match``):
   taxi evidence stands in for the centreline it lacks, so the page is
   never a strip or a lot (the scorer reads it taxi family).
+
+#1548 THE RAIL RUNG: a page an AT-GRADE mapped railway runs ALONG — rail
+centreline inside at least ``lot.through_min_fraction`` of its
+half-perimeter, the wide-strip rung's own share — that touches no taxi
+centreline, holds no startup and is no apron by name or mapped cover is a
+``strip``: ground transport, never airside pavement.  Measured at LGAV
+(Global Airports pack, ``dsf:pol171``, 15 m x 400 m, 975 m of four mapped
+tracks): it read ``open``, the §110 default made it a road ribbon, and
+§27 flipped it to ``apron`` on 16 m of end-on contact with a taxiway page.
+A strip flips under §27 by SHARE of its perimeter, which a track bed
+meeting a taxiway end-on never reaches.
 """
 from __future__ import annotations
 
@@ -40,6 +51,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import linemerge, unary_union
 from shapely.strtree import STRtree
 
+from ..airport.deck_signature import is_bridge_way
 from ..model.airport import Airport
 from .evidence import Evidence, apron_named, polygon_parts, taxi_name_match
 from .rules import Rules
@@ -88,6 +100,7 @@ class SourceRecord:
     taxi_designator: str = ""  # ...and the designator after it ("Taxiway B" -> "B")
     network_through_m: float = 0.0  # NETWORK road running through it (R1 evidence, every page)
     network_strip: bool = False     # ...re-kinded a road strip by it: touches a pad (R1, §3)
+    rail_m: float = 0.0     # #1548: at-grade mapped railway length inside
 
     def as_evidence(self) -> dict[str, float | str]:
         out: dict[str, float | str] = {
@@ -135,6 +148,8 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules, law=None
     parking = unary_union([p for _i, p in ev.parking_polys]) if ev.parking_polys \
         else Polygon()
     apron_u = apron_union(airport)
+    rails = _rail_lines(airport, rules)
+    rail_tree = STRtree(rails) if rails else None
     desc = {p.id: p.description for p in airport.pavements}
     out: list[SourceRecord] = []
     cut: dict[str, Polygon] = {}
@@ -156,6 +171,7 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules, law=None
                       poly, road_tree, roads, osm_tree,
                       osm_roads, aisle_tree, aisles, taxi_tree, taxis, start_tree,
                       parking, apron_u, rules)
+        rec = _rail_rung(rec, poly, rail_tree, rails, rules)
         rec, candidate = _network_evidence(rec, poly, net_tree, network, rules)
         out.append(rec)
         if candidate:
@@ -168,6 +184,35 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules, law=None
     return out, cut
 
 
+def _rail_lines(airport: Airport, rules: Rules) -> list[LineString]:
+    """The AT-GRADE mapped railways (``osm_roads.railways``): a bridge
+    passes OVER the page and a tunnel UNDER it, so neither is evidence of
+    what the page itself carries."""
+    admitted = rules.osm_roads.railways
+    return [LineString(w.points) for w in airport.osm_ways
+            if w.tags.get("railway") in admitted and len(w.points) >= 2
+            and not is_bridge_way(w.tags)
+            and w.tags.get("tunnel", "no") == "no"]
+
+
+def _rail_rung(rec: SourceRecord, poly: Polygon, rail_tree, rails,
+               rules: Rules) -> SourceRecord:
+    """#1548: an ``open`` page a railway runs ALONG is a ``strip`` (module
+    docstring); every other verdict is returned unchanged."""
+    rail_m = sum(p.length for p in _inside_length(poly, rail_tree, rails))
+    if rail_m <= 0.0:
+        return rec
+    lot = rules.lot
+    half_perim = max(poly.length / 2.0, 1e-6)
+    if rec.cls == "open" and rec.taxi_m < rules.cells.min_shared_m \
+            and not rec.taxi_name and rec.startups == 0 \
+            and rec.apron_cover < lot.apron_cover_fraction \
+            and not apron_named(rec.description, rules) \
+            and rail_m >= lot.through_min_fraction * half_perim:
+        return _dc.replace(rec, rail_m=rail_m, cls="strip", reason=(
+            f"railway {rail_m:.0f} m >= {lot.through_min_fraction:g} x "
+            f"{half_perim:.0f} m, no taxi centreline, no startup (#1548)"))
+    return _dc.replace(rec, rail_m=rail_m)
 def network_ways(airport: Airport, rules: Rules) -> list[tuple[_t.Any, LineString]]:
     """The mapped NETWORK roads (spec ``road-edge-drop-spec.md`` R1), each
     with its way: the at-grade classes the ribbon mint admits (``[osm_roads]

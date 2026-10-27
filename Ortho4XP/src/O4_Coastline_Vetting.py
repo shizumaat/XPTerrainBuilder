@@ -189,9 +189,16 @@ def _components(lines: list) -> list:
 
 
 def _witness_reads_sea(chain, sampler: Sampler) -> bool:
-    ring = chain.buffer(WITNESS_REACH_M / _LAT_TO_M, quad_segs=4).exterior
-    pts = numpy.vstack([numpy.asarray(ring.coords, dtype=float),
-                        numpy.asarray(chain.coords, dtype=float)])
+    """True when the DEM reads sea on the chain or on the outline of its
+    ``WITNESS_REACH_M`` buffer.  GEOS can return that buffer as a
+    MultiPolygon (a small closed ring's buffer came back with two
+    1e-11 deg^2 slivers beside it, #1300), so every part's outline is
+    sampled."""
+    buf = chain.buffer(WITNESS_REACH_M / _LAT_TO_M, quad_segs=4)
+    pts = numpy.vstack(
+        [numpy.asarray(part.exterior.coords, dtype=float)
+         for part in getattr(buf, "geoms", [buf]) if not part.is_empty]
+        + [numpy.asarray(chain.coords, dtype=float)])
     return bool(numpy.nanmin(sampler(pts)) <= SEA_WITNESS_MAX_M)
 
 

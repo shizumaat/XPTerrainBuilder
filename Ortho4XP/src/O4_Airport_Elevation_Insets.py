@@ -136,6 +136,9 @@ from elevation_access.gdal_support import (
 )
 from elevation_access.base import ProviderUnavailable, TransientFetchError
 from elevation_access import base_fallback as ea_base_fallback
+# Imported lazily by ``O4_DEM_Utils.DEM.fill_base_voids``; named here so
+# the frozen engine and the step-code closure carry it (#1465).
+from elevation_access import base_voids as ea_base_voids  # noqa: F401
 from elevation_access.base_tiles import (
     base_definition_covers_tile,
     cached_elevation_file_is_valid,
@@ -164,7 +167,8 @@ from elevation_access.definitions import (
 )
 from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access import fetch_scratch as FETCH_SCRATCH
-from elevation_access.fetch_slots import _held_provider_fetch_slot
+from elevation_access.fetch_slots import held_inset_fetch_slot
+from elevation_access import footprints as ea_footprints
 from elevation_access.las_tiles import LAS_FOOTPRINT_KEY, _buffer_geometry_m
 from elevation_access.registry import ACCESS_STRATEGIES
 from elevation_access.vertical_units import (
@@ -803,7 +807,7 @@ def negative_is_unverified(airport_record, code, definition,
         return False
     if bounding_box is None:
         bounding_box = airport_record.get("bounding_box")
-    if bounding_box is not None and not _coverage_bbox_intersects(
+    if bounding_box is not None and not ea_footprints.covers_box(
         definition, bounding_box
     ):
         return False
@@ -875,7 +879,7 @@ def negative_is_version_stale(airport_record, code, definition,
         return False
     if bounding_box is None:
         bounding_box = airport_record.get("bounding_box")
-    if bounding_box is not None and not _coverage_bbox_intersects(
+    if bounding_box is not None and not ea_footprints.covers_box(
         definition, bounding_box
     ):
         return False
@@ -4241,6 +4245,37 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
 #: which is why it warns and never re-cuts.
 INSET_FUNCTIONAL_MARGIN_M = 1000.0
 
+#: THE GRADED REACH, in metres (owner RULINGS 2026-10-26t: "fetch only the
+#: part of each inset box the build reads"): the furthest the graded zones
+#: of any runway reach beyond its pavement -- the FAA RSA length beyond the
+#: end (304.8 m), the ICAO strip end plus RESA (60 + 240 m), the RAOA
+#: (300 m); zone 2 beside a runway is at most 76.2 m from the centreline.
+#: The aerodrome boundary already holds the pavement
+#: (``O4_Airport_Utils.update_airport_boundaries``), so the reach is
+#: measured from it.  ``tests/test_inset_fetch_reach.py`` holds it at or
+#: above the law tables' own maximum.
+INSET_GRADED_REACH_M = 305.0
+
+#: Room past the graded reach and the inset feather: the working grid's
+#: stencil (a 1 arc-second posting is 31 m) and the warp's pixel snap.
+INSET_FETCH_PAD_M = 100.0
+
+# The WARN rule judges the reach the box is now cut to: an inset that
+# covers the graded zones and their feather harms nothing.
+INSET_FUNCTIONAL_MARGIN_M = min(INSET_FUNCTIONAL_MARGIN_M,
+                                INSET_GRADED_REACH_M + 60.0)
+
+
+def inset_fetch_margin_m(tile):
+    """THE inset box margin beyond the aerodrome boundary's box, in metres
+    (owner RULINGS 2026-10-26t): the graded reach, the tile's inset
+    feather and :data:`INSET_FETCH_PAD_M` -- never more than the user's
+    ``airport_elevation_inset_margin_m``.  Beyond it the 10 m approach
+    ring stands, which is baked under every inset already."""
+    setting = float(getattr(tile, "airport_elevation_inset_margin_m", 2000.0))
+    feather = float(getattr(tile, "airport_elevation_inset_feather_m", 60.0))
+    return min(setting, INSET_GRADED_REACH_M + feather + INSET_FETCH_PAD_M)
+
 
 def inset_delivery_shortfall(inset_path, boundary_box, mid_latitude,
                              functional_margin_m=INSET_FUNCTIONAL_MARGIN_M):
@@ -4813,9 +4848,10 @@ def ensure_airport_insets(
                 and not version_stale
             ):
                 continue
-            if not _coverage_bbox_intersects(definition, bounding_box):
+            if not ea_footprints.covers_box(definition, bounding_box):
                 # The honest, capability-free negative: this provider's
-                # own declared box does not reach this airport.  No
+                # own declared box -- or its known footprint (#1466) --
+                # does not reach this airport.  No
                 # capability stamp -- ``negative_is_unverified`` reads the
                 # same boxes and never calls this one into question, so
                 # stamping it would be pure churn in the shared repo.
@@ -4919,7 +4955,7 @@ def ensure_airport_insets(
                 # and the refusal is on the guard's record.
                 EXTWRITE.declare_external_write(
                     destination, writer="the airport inset fetch")
-                with _held_provider_fetch_slot(code):
+                with held_inset_fetch_slot(code):
                     slow_note.start()
                     provenance = fetch_inset(
                         definition,
@@ -5829,16 +5865,17 @@ def _airport_bounding_boxes(tile, dico_airports, only=None, margin_m=None,
                             boundary_polygons=None):
     """Build ``{airport: (west, south, east, north)}`` in EPSG:4326.
 
-    ``margin_m`` overrides ``airport_elevation_inset_margin_m`` (``0`` =
-    the aerodrome boundary's own box).  ``boundary_polygons``, when a
+    ``margin_m`` overrides :func:`inset_fetch_margin_m` -- the margin
+    every inset reader (the fetch, the recut test, the harness frame and
+    pre-flight) shares (``0`` = the aerodrome boundary's own box).  ``boundary_polygons``, when a
     dict, is FILLED with ``{airport: shapely geometry}`` -- the aerodrome
     boundary in EPSG:4326 degrees, the extent a surgical LAS fetch is cut
     to (spec las-tile-lidar-provider §2, #130).  The return value is
     unchanged for every existing caller.
 
     Ortho4XP geometry is in tile-relative degrees; this adds the tile origin
-    back and expands by ``airport_elevation_inset_margin_m`` converted to
-    degrees at the tile latitude.
+    back and expands by the margin converted to degrees at the tile
+    latitude.
 
     *only*, when given, is the collection of ``dico_airports`` keys the
     INSET SELECTION admits (spec §A.4).  ``only=None`` is every airport,
@@ -5849,7 +5886,7 @@ def _airport_bounding_boxes(tile, dico_airports, only=None, margin_m=None,
     """
     admitted = None if only is None else set(only)
     if margin_m is None:
-        margin_m = getattr(tile, "airport_elevation_inset_margin_m", 2000.0)
+        margin_m = inset_fetch_margin_m(tile)
     metres_per_degree_latitude = GEO.lat_to_m
     metres_per_degree_longitude = GEO.lon_to_m(tile.lat + 0.5)
     margin_lon = margin_m / metres_per_degree_longitude

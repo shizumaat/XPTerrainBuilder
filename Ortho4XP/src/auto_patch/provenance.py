@@ -1047,6 +1047,16 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
         spec_parts.append("base_fallback:%s=%s|%s" % (
             record.get("cell"), record.get("code"),
             _identity(record.get("path"))))
+    # Base void posts filled from a fallback source (#1465,
+    # ``elevation_access.base_voids``): none on a void-free base cell, so
+    # every such stamp is unchanged.
+    for record in sorted(
+            (r for r in (getattr(dem, "base_void_fills", None) or ())
+             if isinstance(r, dict)),
+            key=lambda r: (str(r.get("cell")), str(r.get("code")))):
+        spec_parts.append("base_voids:%s=%s|%s" % (
+            record.get("cell"), record.get("code"),
+            _identity(record.get("path"))))
     try:
         # The app-level base source is a per-tile setting only in effect when
         # ``custom_dem`` is empty; the config registry assigns it onto

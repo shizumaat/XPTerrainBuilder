@@ -307,7 +307,7 @@ def test_ladder_near_mid_far_by_airport_distance(monkeypatch, tmp_path):
     monkeypatch.setattr(
         INSETS,
         "_airport_bounding_boxes",
-        lambda tile, dico_airports: {"KTEST": box},
+        lambda tile, dico_airports, **_margin: {"KTEST": box},
     )
     records = []
     monkeypatch.setattr(INSETS, "fetch_inset", _writing_fetch(records))
@@ -468,7 +468,7 @@ def test_stamp_factor_three_when_a_near_cell_exists(monkeypatch, tmp_path):
     monkeypatch.setattr(
         INSETS,
         "_airport_bounding_boxes",
-        lambda tile, dico_airports: {"KTEST": box},
+        lambda tile, dico_airports, **_margin: {"KTEST": box},
     )
     records = []
     monkeypatch.setattr(INSETS, "fetch_inset", _writing_fetch(records))
@@ -517,7 +517,7 @@ def test_resolve_plan_round_trips_the_stamp(monkeypatch, tmp_path):
     monkeypatch.setattr(
         INSETS,
         "_airport_bounding_boxes",
-        lambda tile, dico_airports: {"KTEST": box},
+        lambda tile, dico_airports, **_margin: {"KTEST": box},
     )
     records = []
     monkeypatch.setattr(INSETS, "fetch_inset", _writing_fetch(records))

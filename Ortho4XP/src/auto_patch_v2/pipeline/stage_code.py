@@ -1332,7 +1332,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     constraints.runway_profile constraints.shoulder_crossing constraints.stretches
     constraints.threshold_seam
     constraints.strips constraints.transverse constraints.trend constraints.weld_floor
-    geom geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
+    geom geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence geom.parts
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_pack_schema
@@ -1436,7 +1436,7 @@ CODE_MODULES["solve"] = _mods("""
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.wall_cut
+    solve.project solve.project_strip solve.rows solve.wall_cut solve.warm_seed
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
@@ -1540,7 +1540,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.wall_cut
+    solve.project solve.project_strip solve.rows solve.wall_cut solve.warm_seed
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
@@ -1620,7 +1620,7 @@ CODE_MODULES["emit"] = _mods("""
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
     solve.flex solve.ground_band solve.linear solve.pin_yield solve.project
-    solve.project_strip solve.rows solve.wall_cut verify.roads
+    solve.project_strip solve.rows solve.wall_cut solve.warm_seed verify.roads
     classify.reachability
     geom.slope_pad
     model.road_yield pipeline.band_road_wall

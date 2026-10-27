@@ -565,7 +565,8 @@ class DEM:
             ELEVATION_PROVIDERS.initialize_elevation_providers_dict()
         (filled, self.base_void_fills) = base_voids.fill_base_voids(
             self.alt_dem, self.nodata, self.lat, self.lon,
-            ELEVATION_PROVIDERS.elevation_providers_dict)
+            ELEVATION_PROVIDERS.elevation_providers_dict,
+            frame=(self.x0, self.y0, self.x1, self.y1))
         if not filled:
             self.nodata_to_zero()
 

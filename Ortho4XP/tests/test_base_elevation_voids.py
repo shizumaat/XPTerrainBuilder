@@ -129,6 +129,7 @@ def test_the_dem_load_fills_a_base_cell_from_the_fallback(
     holed = _with_void(_slope())
     dem = DEM.DEM.__new__(DEM.DEM)
     (dem.lat, dem.lon, dem.nodata) = (*CELL, NODATA)
+    (dem.x0, dem.y0, dem.x1, dem.y1) = (0.0, 0.0, 1.0, 1.0)
     (dem.alt_dem, dem.base_void_fills) = (holed, [])
     dem.fill_base_voids()
     assert not (dem.alt_dem == NODATA).any()
@@ -175,3 +176,27 @@ def test_void_fills_enter_the_fingerprint_only_when_present(tmp_path):
     filled.base_void_fills = [
         {"cell": "+47+007", "code": "SPARE1", "path": path, "voids": 9}]
     assert provenance.dem_fingerprint(_Tile(filled)) != plain
+
+
+def test_a_combined_raster_maps_the_fallback_onto_its_wider_frame(
+        providers):
+    beyond = 5
+    side = SIDE + 2 * beyond
+    margin = beyond / (SIDE - 1)
+    rows, cols = numpy.mgrid[0:side, 0:side] - beyond
+    plane = (500.0 - rows - 0.5 * cols).astype(numpy.float32)
+    holed = plane.copy()
+    holed[20:90, 20:90] = NODATA         # inside the cell
+    holed[0:3, 40:50] = NODATA           # in the margin, beyond the cell
+    void = holed == NODATA
+    (filled, records) = base_voids.fill_base_voids(
+        holed, NODATA, *CELL, providers,
+        frame=(-margin, -margin, 1 + margin, 1 + margin))
+    assert filled and [r["code"] for r in records] == ["SPARE1"]
+    assert records[0]["voids"] == 70 * 70
+    assert not (holed == NODATA).any()
+    cell = numpy.zeros_like(void)
+    cell[beyond:-beyond, beyond:-beyond] = True
+    error = numpy.abs(holed - plane)
+    assert error[void & cell].max() <= 1.0        # the fallback, offset
+    assert error[void & ~cell].max() <= 3.0       # the nearest post

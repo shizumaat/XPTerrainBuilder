@@ -23,12 +23,18 @@ a record ``{"cell", "code", "path", "voids"}`` for the provenance stamp.
 import numpy
 import O4_DEM_Utils as DEM
 import O4_UI_Utils as UI
-from scipy.ndimage import distance_transform_edt, uniform_filter
+from scipy.ndimage import (
+    distance_transform_edt,
+    map_coordinates,
+    uniform_filter,
+)
 
 from elevation_access import base_fallback
 from elevation_access.base_tiles import cached_elevation_file_is_valid
 
-__all__ = ["SMOOTHING_PASSES", "fill_base_voids", "offset_fill"]
+__all__ = [
+    "SMOOTHING_PASSES", "fill_base_voids", "offset_fill", "on_base_grid",
+]
 
 #: 3 x 3 mean passes over the filled posts only (the valid posts stay
 #: fixed): they soften the creases the nearest-post offset leaves where
@@ -57,7 +63,30 @@ def offset_fill(values, void, donor=None):
     return True
 
 
-def _fallback_cell(definition, lat, lon, shape):
+def on_base_grid(values, valid, frame, shape):
+    """A whole-degree cell (posts on both edges) sampled at the posts of
+    a raster of ``shape`` spanning the tile-relative ``frame`` ``(x0, y0,
+    x1, y1)``: ``(heights, valid)``.  Bilinear, so a post that lands on a
+    cell post reads it exactly; a post outside the cell, or touching a
+    void of it, is not valid."""
+    (x0, y0, x1, y1) = frame
+    (rows, cols) = shape
+    span = values.shape[0] - 1
+    x = x0 + (x1 - x0) * numpy.arange(cols) / (cols - 1)
+    y = y1 - (y1 - y0) * numpy.arange(rows) / (rows - 1)
+    (row_index, col_index) = numpy.meshgrid((1.0 - y) * span, x * span,
+                                            indexing="ij")
+    where = numpy.stack([row_index, col_index])
+    heights = map_coordinates(numpy.where(valid, values, 0.0).astype(
+        numpy.float64), where, order=1, mode="constant", cval=0.0)
+    holes = map_coordinates((~valid).astype(numpy.float64), where, order=1,
+                            mode="constant", cval=1.0)
+    inside = ((row_index >= -1e-6) & (row_index <= span + 1e-6)
+              & (col_index >= -1e-6) & (col_index <= span + 1e-6))
+    return (heights, inside & (holes < 1e-6))
+
+
+def _fallback_cell(definition, lat, lon, frame, shape):
     """The fallback's heights and valid mask on the base grid, or None."""
     strategy = base_fallback._strategy(definition)
     try:
@@ -73,17 +102,23 @@ def _fallback_cell(definition, lat, lon, shape):
     path = base_fallback._cache_path(strategy, definition, lat, lon)
     if not path or not cached_elevation_file_is_valid(path):
         return None
-    result = DEM.read_elevation_from_file(path, lat, lon, False, shape[0])
+    result = DEM.read_elevation_from_file(path, lat, lon, False)
     (nodata, values) = (result[5], result[-1])
-    if values is None or values.shape != shape:
+    if values is None or values.ndim != 2 or values.shape[0] != (
+            values.shape[1]) or values.shape[0] < 2:
         return None
-    return (path, values, (values != nodata) & numpy.isfinite(values))
+    valid = (values != nodata) & numpy.isfinite(values)
+    return (path,) + on_base_grid(values, valid, frame, shape)
 
 
-def fill_base_voids(alt_dem, nodata, lat, lon, providers):
+def fill_base_voids(alt_dem, nodata, lat, lon, providers,
+                    frame=(0.0, 0.0, 1.0, 1.0)):
     """Fill the void posts of base cell ``(lat, lon)`` under THE RULE,
-    in place.  Returns ``(filled, records)``: ``filled`` False only when
-    the raster holds no valid post."""
+    in place; ``frame`` is the raster's tile-relative extent ``(x0, y0,
+    x1, y1)`` (a combined raster reaches beyond the cell, and its posts
+    there only take the nearest-post fill).  Returns ``(filled,
+    records)``: ``filled`` False only when the raster holds no valid
+    post."""
     void = alt_dem == nodata
     if not void.any():
         return (True, [])
@@ -103,7 +138,8 @@ def fill_base_voids(alt_dem, nodata, lat, lon, providers):
     for definition in base_fallback.fallback_definitions(providers or {}):
         if donated[void].all() or UI.red_flag:
             break
-        fallback = _fallback_cell(definition, lat, lon, alt_dem.shape)
+        fallback = _fallback_cell(definition, lat, lon, frame,
+                                  alt_dem.shape)
         if fallback is None:
             continue
         (path, values, valid) = fallback

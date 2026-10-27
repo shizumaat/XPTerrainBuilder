@@ -6,7 +6,7 @@ and prints the counts and the wall time.  Input roots default to the
 engine tree's mounted data dirs (``Elevation_data``, ``OSM_data``,
 ``Airport_mod_cache`` — the shared corpus the lane ritual mounts) and
 the X-Plane install named by ``custom_scenery_dir`` in the engine's
-``Ortho4XP.cfg`` (a convenience of THIS entry point only; the library
+``XPTerrainBuilder.cfg`` (a convenience of THIS entry point only; the library
 takes explicit paths).  No environment reads, with ONE exception: the
 implicit ``Airport_mod_cache`` root resolves through the engine's own
 accessor (:func:`implicit_mod_cache_root`), so the lane redirect
@@ -33,7 +33,7 @@ ENGINE_DIR = Path(__file__).resolve().parents[3]
 
 
 def _cfg_value(key: str) -> str:
-    cfg = ENGINE_DIR / "Ortho4XP.cfg"
+    cfg = ENGINE_DIR / "XPTerrainBuilder.cfg"
     if not cfg.is_file():
         return ""
     for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -384,7 +384,7 @@ def structure_records(airport, cl, law) -> dict:
         airport, cl, law, objects, corridors, extra, plates, cache, orep,
         hard_claims, frozenset(tstats.shell_claimed), synth_claims)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
-                                            plates, channels)
+                                            plates, channels, portals=tstats.portals)
     # the rim diagnostics are read HERE, on demand (owner RULINGS
     # 2026-10-04x (2)): a build's basin notes carry neither
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,
@@ -459,6 +459,10 @@ def structure_records(airport, cl, law) -> dict:
         "plate_stats": {k: v for k, v in _dc.asdict(pstats).items()
                         if not isinstance(v, list)},
         "plate_mouths": list(sstats.plate_mouths),
+        # #1343: the mouths a pack portal pinned, and the ones left to the bore law
+        "portal_mouths": list(sstats.portal_mouths),
+        "portals_unpinned": list(sstats.portals_unpinned),
+        "portals_in_strip": list(sstats.portals_in_strip),
         "crest_from_approach": list(sstats.crest_from_approach),
         # spec §34 (5): the crossings an aeroway bridge stated
         "underpasses": list(sstats.underpasses),

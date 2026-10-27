@@ -28,6 +28,13 @@ class StructureStats:
     #: population the owner ruled in stays visible without a rebuild.
     bores_mouth_only: int = 0
     mouth_only_bores: list[str] = _dc.field(default_factory=list)
+    #: #1343: mouths a pack PORTAL pins (``airport/portal_objects``); the
+    #: portals left to the bore law because their opening meets a taxiway
+    #: (#971 clause 1: a taxiway is never cut); and the pinned cuts that
+    #: stand inside the runway strip keep-out (RULINGS 2026-10-26k)
+    portal_mouths: list[str] = _dc.field(default_factory=list)
+    portals_unpinned: list[str] = _dc.field(default_factory=list)
+    portals_in_strip: list[str] = _dc.field(default_factory=list)
     mouths: int = 0
     #: spec §29 (1): mapped ends DROPPED for standing off the field —
     #: neither the mouth point nor its ramp reach inside the classified

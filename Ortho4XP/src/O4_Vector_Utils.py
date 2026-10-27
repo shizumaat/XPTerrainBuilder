@@ -8,6 +8,7 @@ from rtree import core as rtree_core
 from rtree import index
 import O4_UI_Utils as UI
 import O4_Geo_Utils as GEO
+import O4_ZProv as ZPROV
 
 _RTREE_DOUBLE2 = ctypes.c_double * 2
 
@@ -164,8 +165,15 @@ class Vector_Map:
         #: degrees, i.e. unconstrained beside a 1 deg tile.  Sized by
         #: ``O4_Bank_Annulus.bank_annulus_region_areas``.
         self.seed_areas = {}
+        #: #1323: the log of every z write a patch ``alt_abs`` reaches
+        #: (``O4_ZProv``), written beside the ``.node`` — what lets a
+        #: height-only patch edit skip the vector step.
+        self.zprov = ZPROV.ZProvLog()
 
-    def insert_node(self, x, y, z):
+    def insert_node(self, x, y, z, src=None):
+        """The node at ``(x, y)``: an existing one keeps its z (the first
+        producer wins); a new one takes ``z``.  ``src``: the patch node
+        ``z`` is the ``alt_abs`` of (``O4_ZProv``), else ``None``."""
         # One tuple and one hash lookup instead of two of each: node ids
         # start at 1, so ``None`` cannot be a stored id.
         key = (x, y)
@@ -179,6 +187,8 @@ class Vector_Map:
             cells = self._node_cells
             if cells is not None:
                 cells.setdefault(self._node_cell(x, y), []).append(node_id)
+            if src is not None:
+                self.zprov.base(node_id, src, z)
         return node_id
 
     #: §39 (iv) (owner RULINGS 2026-09-13cg/13cj): the cell size of the
@@ -380,8 +390,9 @@ class Vector_Map:
                     # ONE altitude; where a crossing makes two ways share
                     # one, the crossed chain's interpolated value is it.
                     c_id = near
-                    self.data_nodes[c_id] = (1 - beta) * self.data_nodes[id2] \
-                        + beta * self.data_nodes[id3]
+                    (z2, z3) = (self.data_nodes[id2], self.data_nodes[id3])
+                    self.data_nodes[c_id] = (1 - beta) * z2 + beta * z3
+                    self.zprov.lin(c_id, beta, id2, z2, id3, z3)
                     self.split_z_carried += 1
                     del self.dico_edges[(id2, id3)]
                     del self.edges_dico[edge_id]
@@ -392,9 +403,8 @@ class Vector_Map:
                     self.create_edge(c_id, id3, c_marker)
                 elif beta not in (0, 1):
                     # ! important to rely on the old id2 id3 for the z value !
-                    c_z = (1 - beta) * self.data_nodes[
-                        id2
-                    ] + beta * self.data_nodes[id3]
+                    (z2, z3) = (self.data_nodes[id2], self.data_nodes[id3])
+                    c_z = (1 - beta) * z2 + beta * z3
                     # §39 (iv): an existing node within the radius of the
                     # crossing IS the crossing — never a second node 0.8 mm
                     # from the first (:meth:`_node_near`).
@@ -402,11 +412,15 @@ class Vector_Map:
                         c_x, c_y, self.split_spacing_m, GEO.lat_to_m,
                         GEO.lon_to_m(self.nodes_dico[id0][1] + 0.5))
                     if c_id is None:
+                        minted = self.next_node_id
                         c_id = self.insert_node(c_x, c_y, c_z)
+                        if c_id == minted:      # a new node took c_z
+                            self.zprov.lin(c_id, beta, id2, z2, id3, z3)
                     else:
                         # 13cp again: the reused node now belongs to the
                         # OLD chain too, so it carries the old chain's z.
                         self.data_nodes[c_id] = c_z
+                        self.zprov.lin(c_id, beta, id2, z2, id3, z3)
                         self.split_z_carried += 1
                     # destroy old edge
                     del self.dico_edges[(id2, id3)]
@@ -478,12 +492,22 @@ class Vector_Map:
             else:
                 self.create_edge(id_list[i], id_list[i + 1], marker)
 
-    def insert_way(self, way, marker, check=True):
+    def insert_way(self, way, marker, check=True, zsrc=None):
+        """Insert ``way`` (rows x, y, z) as a chain of ``marker`` edges.
+        ``zsrc``: per row, the patch node whose ``alt_abs`` is its z, or
+        ``None`` (``O4_ZProv``)."""
         if isinstance(marker, str):
             marker = self.dico_attributes[marker]
-        node0_id = self.insert_node(*way[0])
-        for node_array in way[1:]:
-            node1_id = self.insert_node(*node_array)
+        if zsrc is None:
+            node0_id = self.insert_node(*way[0])
+            for node_array in way[1:]:
+                node1_id = self.insert_node(*node_array)
+                self.insert_edge(node0_id, node1_id, marker, check)
+                node0_id = node1_id
+            return
+        node0_id = self.insert_node(*way[0], src=zsrc[0])
+        for node_array, src in zip(way[1:], zsrc[1:], strict=True):
+            node1_id = self.insert_node(*node_array, src=src)
             self.insert_edge(node0_id, node1_id, marker, check)
             node0_id = node1_id
 
@@ -824,6 +848,7 @@ class Vector_Map:
                     del self.dico_nodes[key]
                 del self.nodes_dico[nid]
                 del self.data_nodes[nid]
+                self.zprov.dead(nid)
         dico_edges, edges_dico, data_edges = {}, {}, {}
         next_edge_id = 1
         dropped = 0
@@ -1062,6 +1087,9 @@ class Vector_Map:
         dico_old_to_new = {}
         data_nodes = self.data_nodes
         data_edges = self.data_edges
+        # O4_ZProv: the new nodes whose z comes from a tainted old node.
+        taint = self.zprov.taint
+        tainted_pairs = []
         # ``.items()`` in both loops: the old id and the old edge id were
         # each re-looked-up two or three times per entry, on dicts with a
         # million-plus entries.  Same iteration order (insertion order),
@@ -1076,7 +1104,10 @@ class Vector_Map:
                 next_node_id += 1
                 nodes_dico_new[idx_new] = key_new
                 data_nodes_new[idx_new] = data_nodes[old_id]
+                if taint and old_id in taint:
+                    tainted_pairs.append((idx_new, old_id))
             dico_old_to_new[old_id] = idx_new
+        self.zprov.renumber(tainted_pairs)
         for (id0, id1), old_edge_id in self.dico_edges.items():
             (id0n, id1n) = (dico_old_to_new[id0], dico_old_to_new[id1])
             if id0n == id1n:

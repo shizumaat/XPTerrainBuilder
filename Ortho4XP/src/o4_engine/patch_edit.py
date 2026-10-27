@@ -17,6 +17,11 @@ THE RULES (§3.1-§3.3):
   distinct nodes, or an open way with fewer than 2, is removed in the same
   step.  Nodes a removed way leaves behind are kept (untouched geometry is
   never changed).
+* Slice (#1318, owner Q130-Q133): :func:`slice_shape` cuts one shape in
+  two between two of its nodes that are not neighbours, leaving a 0.5 m
+  gap; the geometry is ``patch_slice``'s.  Both halves keep the tags (and
+  so the role); the larger keeps the way id, the other is a new way right
+  after it.
 * Merge (§3.3, owner A10 as clarified 2026-10-15): snapping is a
   drag-time preview in the UI; the engine has ONE explicit operation for
   its result, :func:`merge_nodes` — the target survives with its own
@@ -34,9 +39,11 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from o4_engine import patch_slice as _slice
+
 __all__ = ["Node", "Way", "PatchDoc", "move", "set_position", "set_alt",
            "offset_alt", "delete_nodes", "delete_ways", "insert_on_edge", "merge_nodes",
-           "next_node_id", "apply_op"]
+           "slice_shape", "slice_way", "next_node_id", "next_way_id", "apply_op"]
 
 
 #: One node: ``(id, lat, lon, alt or None)`` — the §2 wire shape.
@@ -258,10 +265,112 @@ def merge_nodes(doc: PatchDoc, source: int, target: int) -> PatchDoc:
                        ways=_rewrite_ways(doc.ways, {source: target}, set()))
 
 
+# ─── slice (#1318) ─────────────────────────────────────────────────────────
+
+#: The tag that marks the emit's uncovered hole of a shape (the Mac app's
+#: ``PatchShapeAssembly.holeFeature``).
+HOLE_FEATURE = "gap_interior_ring"
+
+
+def _is_surface(w: Way) -> bool:
+    return w.closed and len(w.refs) > 3 and "o4_feature" not in w.tags
+
+
+def next_way_id(doc: PatchDoc) -> int:
+    """The id a new way gets: one below the document's minimum way id
+    (never above -1)."""
+    return min([0, *(w.id for w in doc.ways)]) - 1
+
+
+def slice_way(doc: PatchDoc, a: int, b: int, way: int | None = None) -> Way:
+    """The shape a slice between ``a`` and ``b`` would cut: the one shape
+    (closed way, no ``o4_feature``) whose outline holds both, or ``way``
+    when given, and the two are not neighbours on it — when Slice is
+    offered.  Raises ``ValueError`` saying why there is none."""
+    a, b = int(a), int(b)
+    _known(doc, [a, b])
+    hits = [w for w in doc.ways if _is_surface(w) and a in w.refs and b in w.refs
+            and (way is None or w.id == int(way))]
+    if a == b or not hits:
+        raise ValueError("Slice needs two nodes of the same shape.")
+    if len(hits) > 1:
+        raise ValueError("These nodes are on more than one shape: select the shape first.")
+    ring = hits[0].refs[:-1]
+    if (ring.index(a) - ring.index(b)) % len(ring) in (1, len(ring) - 1):
+        raise ValueError("Slice needs two nodes that are not neighbours on the shape.")
+    return hits[0]
+
+
+def slice_shape(doc: PatchDoc, a: int, b: int, way: int | None = None) -> PatchDoc:
+    """Slice the shape holding nodes ``a`` and ``b`` (``way`` picks it when
+    several do) along a -> b, leaving ``patch_slice.GAP_M`` between the
+    halves (#1318).
+
+    * ``a`` and ``b`` each become two nodes, half the gap either side of the
+      cut line, keeping their height.  The copy on the half that keeps the
+      way id keeps the node id (other ways using the node stay welded to
+      it); the other copy is a new node.
+    * A hole the cut crosses (an ``o4_feature=gap_interior_ring`` ring of
+      this shape) gets two new nodes at each crossing, height interpolated
+      along its edge, and stops being a way: its sides become notches.
+    * The half with the larger plan area keeps the way id and its place in
+      the file; the other is a new way (:func:`next_way_id`) right after
+      it.  Both keep the tags, and the ring's original direction.
+    * New nodes (:func:`next_node_id` downwards) follow the cut: ``a``'s
+      copy, then each crossing's left then right copy, then ``b``'s copy.
+
+    Raises ``ValueError`` (``patch_slice.SliceRefused``) when the cut leaves
+    the shape, passes through a corner, or would make more than two pieces.
+    """
+    w = slice_way(doc, a, b, way)
+    a, b = int(a), int(b)
+    sid = w.tags.get("shapeID")
+    holes = [(h.id, h.refs[:-1]) for h in doc.ways
+             if h.closed and h.tags.get("o4_feature") == HOLE_FEATURE
+             and (sid is None or h.tags.get("shapeID") in (None, sid))]
+    coords = {i: (n[1], n[2], n[3]) for i, n in doc.nodes.items()}
+    c = _slice.cut(list(w.refs[:-1]), holes, coords, a, b)
+    # A tie (within float noise, so both apps agree) goes to the left half.
+    keep = "R" if c.right_area > c.left_area * (1.0 + 1.0e-9) else "L"
+    other = "L" if keep == "R" else "R"
+    last = len(c.points) - 1
+    nodes = dict(doc.nodes)
+    ids: dict = {}
+    new_id = next_node_id(doc)
+    for k, (_lat, _lon, alt) in enumerate(c.points):
+        sides = (other,) if k in (0, last) else ("L", "R")
+        if k in (0, last):
+            orig = a if k == 0 else b
+            ids[(k, keep)] = orig
+            nodes[orig] = (orig, *c.copies[(k, keep)], nodes[orig][3])
+        for sd in sides:
+            ids[(k, sd)] = new_id
+            nodes[new_id] = (new_id, *c.copies[(k, sd)], alt)
+            new_id -= 1
+
+    def refs(cycle) -> tuple[int, ...]:
+        ring = [ids.get(x, x) if isinstance(x, tuple) else x for x in cycle]
+        if not c.ccw:
+            ring = ring[:1] + ring[:0:-1]
+        return tuple(ring + ring[:1])
+
+    halves = {"L": c.left, "R": c.right}
+    crossed = set(c.crossed)
+    ways: list[Way] = []
+    for x in doc.ways:
+        if x.id == w.id:
+            ways.append(_dc.replace(x, refs=refs(halves[keep])))
+            ways.append(Way(next_way_id(doc), refs(halves[other]), dict(x.tags)))
+        elif x.id not in crossed:
+            ways.append(x)
+    return _dc.replace(doc, nodes=nodes, ways=tuple(ways))
+
+
 _OPS: dict[str, _t.Callable[..., PatchDoc]] = {
     "move": move, "set_position": set_position, "set_alt": set_alt,
     "offset_alt": offset_alt, "delete_nodes": delete_nodes, "delete_ways": delete_ways,
     "insert_on_edge": insert_on_edge, "merge_nodes": merge_nodes,
+    "slice_shape": slice_shape,
 }
 
 

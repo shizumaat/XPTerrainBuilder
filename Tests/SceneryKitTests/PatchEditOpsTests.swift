@@ -55,6 +55,7 @@ struct PatchEditOpsTests {
         case "delete_ways": try doc.deleteWays(ids(args["way_ids"]))
         case "insert_on_edge": try doc.insertOnEdge(int("a"), int("b"))
         case "merge_nodes": try doc.mergeNodes(source: int("source"), target: int("target"))
+        case "slice_shape": try doc.sliceShape(int("a"), int("b"), way: (args["way"] as? NSNumber)?.int64Value)
         default: Issue.record("unknown op \(op["op"] ?? "nil")")
         }
     }

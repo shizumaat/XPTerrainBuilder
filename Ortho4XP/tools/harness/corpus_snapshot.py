@@ -595,7 +595,7 @@ def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
     import build_airport as BA                                # noqa: E402
     data_repo = Path(DATA_REPO)
     allow = load_allowlist(allowlist)
-    owner_cfg = data_repo / "Ortho4XP.cfg"
+    owner_cfg = BA._owner_app_cfg(data_repo)
     install_root = install_root_of(_read_cfg(owner_cfg))
     out.mkdir(parents=True, exist_ok=True)
     traces.mkdir(parents=True, exist_ok=True)
@@ -859,9 +859,11 @@ def mount(root: Path, snap: Path, icao=None, prog=None) -> dict:
     previous = json.loads(origin.read_text())
     rendered = (data / "Ortho4XP.cfg.in").read_text().replace(
         XPLANE_TOKEN, str(snap / "xplane"))
-    (data / "Ortho4XP.cfg").write_text(rendered)
-    lane_cfg = root / "Ortho4XP.cfg"
-    backup = root / "Ortho4XP.cfg.shared-corpus"
+    # This app's own global names (RULINGS 2026-10-26c, O4_Config_Names);
+    # the snapshot's template keeps the name it was cut with.
+    (data / "XPTerrainBuilder.cfg").write_text(rendered)
+    lane_cfg = root / "XPTerrainBuilder.cfg"
+    backup = root / "XPTerrainBuilder.cfg.shared-corpus"
     if lane_cfg.is_file() and not backup.exists() and \
             lane_cfg.read_text(errors="replace") != rendered:
         shutil.copy2(lane_cfg, backup)
@@ -893,9 +895,10 @@ def unmount(root: Path, record: dict) -> None:
         if link.is_symlink():
             link.unlink()
         link.symlink_to(target)
-    backup = record.get("lane_cfg_backup") or str(root / "Ortho4XP.cfg.shared-corpus")
+    backup = record.get("lane_cfg_backup") or str(
+        root / "XPTerrainBuilder.cfg.shared-corpus")
     if backup and Path(backup).is_file():
-        shutil.move(backup, root / "Ortho4XP.cfg")
+        shutil.move(backup, root / "XPTerrainBuilder.cfg")
     if origin.is_file():
         origin.unlink()
 

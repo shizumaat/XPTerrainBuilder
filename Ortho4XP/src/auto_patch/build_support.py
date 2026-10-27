@@ -252,8 +252,8 @@ def read_patch_source(path: str) -> dict | None:
     ``o4_apt_dat`` / ``o4_apt_dat_mtime`` attributes on the ``<osm>``
     root element, plus — for a driver-driven build — the freshness
     stamps for the build's other inputs (``o4_fresh_v``, ``o4_cfg``,
-    ``o4_dem``, ``o4_cifp``, ``o4_pack``, ``o4_engine``, ``o4_dsf``,
-    ``o4_dsf_tiles``; see ``provenance.FRESHNESS_KEYS``).
+    ``o4_dem``, ``o4_cifp``, ``o4_pack``, ``o4_tools``, ``o4_engine``,
+    ``o4_dsf``, ``o4_dsf_tiles``; see ``provenance.FRESHNESS_KEYS``).
 
     v2's emitter additionally records §44's BORROWED Global Airports
     apt.dat as ``o4_apt_dat_borrowed`` / ``o4_apt_dat_borrowed_mtime``

@@ -1,0 +1,117 @@
+{
+ "_comment": "Copy shape reference (#1281): src/O4_Qt_Patch_Reference.shape_reference_text and SceneryKit PatchShapeReference.text must produce `expected` exactly from `input`.",
+ "cases": [
+  {
+   "name": "closed apron, every tag, more vertices than listed",
+   "input": {
+    "tile": "+33-085",
+    "icao": "KATL",
+    "patch_file": "KATL_edited.patch.osm",
+    "engine_version": "1.50.1874",
+    "way_id": -1234,
+    "tags": {
+     "aeroway": "apron",
+     "role": "apron",
+     "ref": "pav3#plateau:building26/b0",
+     "name": "North apron"
+    },
+    "closed": true,
+    "area_m2": 1234.5678,
+    "vertices": [
+     [
+      33.6401,
+      -84.4271,
+      300.125
+     ],
+     [
+      33.6402,
+      -84.4271,
+      300.5
+     ],
+     [
+      33.64025,
+      -84.42705,
+      301.0
+     ],
+     [
+      33.6403,
+      -84.427,
+      301.5
+     ],
+     [
+      33.6402,
+      -84.4269,
+      300.75
+     ],
+     [
+      33.6401,
+      -84.4269,
+      300.25
+     ]
+    ]
+   },
+   "expected": "Shape reference (XPTerrainBuilder)\nTile: +33-085\nAirport: KATL\nPatch file: KATL_edited.patch.osm\nEngine: 1.50.1874\nWay: -1234\nref: pav3#plateau:building26/b0\nrole: apron\nname: North apron\nCentroid: 33.640191667, -84.427008333\nVertices: 6\nArea: 1234.6 m²\nElevation: 300.12 – 301.50 m\nFirst vertices:\n33.640100000, -84.427100000\n33.640200000, -84.427100000\n33.640250000, -84.427050000\n33.640300000, -84.427000000\n33.640200000, -84.426900000"
+  },
+  {
+   "name": "open line, no reference tags, mixed elevations, unknown engine",
+   "input": {
+    "tile": "+30+031",
+    "icao": "ZZZZ",
+    "patch_file": "ZZZZ_auto.patch.osm",
+    "engine_version": "",
+    "way_id": -11,
+    "tags": {
+     "highway": "service"
+    },
+    "closed": false,
+    "area_m2": 0.0,
+    "vertices": [
+     [
+      30.101,
+      31.401,
+      102.0
+     ],
+     [
+      30.1012,
+      31.4012,
+      null
+     ]
+    ]
+   },
+   "expected": "Shape reference (XPTerrainBuilder)\nTile: +30+031\nAirport: ZZZZ\nPatch file: ZZZZ_auto.patch.osm\nEngine: unknown\nWay: -11\nCentroid: 30.101100000, 31.401100000\nVertices: 2\nArea: open line\nElevation: 102.00 – 102.00 m (1 from the mesh)\nFirst vertices:\n30.101000000, 31.401000000\n30.101200000, 31.401200000"
+  },
+  {
+   "name": "southern and western hemisphere, all from the mesh",
+   "input": {
+    "tile": "-34-059",
+    "icao": "SABE",
+    "patch_file": "SABE_edited.patch.osm",
+    "engine_version": "1.50.1874",
+    "way_id": -7,
+    "tags": {
+     "role": "graded_strip"
+    },
+    "closed": true,
+    "area_m2": 25.04,
+    "vertices": [
+     [
+      -34.5591,
+      -58.4156,
+      null
+     ],
+     [
+      -34.5591,
+      -58.4155,
+      null
+     ],
+     [
+      -34.559,
+      -58.4155,
+      null
+     ]
+    ]
+   },
+   "expected": "Shape reference (XPTerrainBuilder)\nTile: -34-059\nAirport: SABE\nPatch file: SABE_edited.patch.osm\nEngine: 1.50.1874\nWay: -7\nrole: graded_strip\nCentroid: -34.559066667, -58.415533333\nVertices: 3\nArea: 25.0 m²\nElevation: from the mesh\nFirst vertices:\n-34.559100000, -58.415600000\n-34.559100000, -58.415500000\n-34.559000000, -58.415500000"
+  }
+ ]
+}

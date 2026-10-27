@@ -58,6 +58,39 @@ extension PatchEditModel {
         }
     }
 
+    /// `sliceShape`'s arguments for the selection (#1318): exactly two
+    /// nodes, not neighbours, on one shape — the selected shape when it
+    /// holds both. Throws saying why Slice is not offered.
+    func sliceArgs() throws -> (a: Int64, b: Int64, way: Int64?) {
+        guard let doc = document, selection.count == 2 else {
+            throw PatchEditError.sliceRefused("Select two nodes of one shape that are not neighbours.")
+        }
+        let ids = selection.sorted()
+        let a = ids[0], b = ids[1]
+        let chosen = doc.ways.filter { shapeSelection.contains($0.id) && $0.refs.contains(a) && $0.refs.contains(b) }
+        let way = chosen.count == 1 ? chosen[0].id : nil
+        _ = try doc.sliceWay(a, b, way: way)
+        return (a, b, way)
+    }
+
+    /// "Slice": cut the shape between the two selected nodes (one step);
+    /// the two halves end selected.
+    func sliceSelection() {
+        let args: (a: Int64, b: Int64, way: Int64?)
+        let target: Int64
+        do {
+            args = try sliceArgs()
+            target = try document!.sliceWay(args.a, args.b, way: args.way).id
+        } catch {
+            editError = "\(error)"
+            return
+        }
+        let before = Set(document?.ways.map(\.id) ?? [])
+        if perform("Slice", { try $0.sliceShape(args.a, args.b, way: args.way) }), let doc = document {
+            selectShapes(Set(doc.ways.map(\.id)).subtracting(before).union([target]))
+        }
+    }
+
     func setSelectionAlt(_ alt: Double) {
         let ids = selection.sorted()
         perform("Set Elevation") { try $0.setAlt(ids, alt: alt) }
@@ -66,6 +99,23 @@ extension PatchEditModel {
     func offsetSelectionAlt(_ d: Double) {
         let ids = selection.sorted()
         perform("Offset Elevation") { try $0.offsetAlt(ids, by: d) }
+    }
+
+    /// "Set elevation…" on the selected shapes (#1357): every node of
+    /// theirs, holes too, and the nodes they share unless told not to.
+    func setShapesAlt(_ alt: Double, includeShared: Bool) {
+        guard let doc = document, !shapeSelection.isEmpty else { return }
+        let plan = PatchShapeElevation(shapes: shapeSelection, in: doc)
+        perform(shapeSelection.count == 1 ? "Set Shape Elevation" : "Set Shapes Elevation") {
+            try $0.setShapeElevation(plan, alt: alt, includeShared: includeShared)
+        }
+    }
+
+    /// The map's right-click items for the Edit-mode selection (#1357:
+    /// "Set elevation…" on selected shapes).
+    var contextActions: [(title: String, run: () -> Void)] {
+        guard mode == .edit, document != nil, !shapeSelection.isEmpty else { return [] }
+        return [(PatchSetElevationSheet.title, { [weak self] in self?.showsSetElevation = true })]
     }
 
     // MARK: - Undo / redo
@@ -192,9 +242,14 @@ extension PatchEditModel {
     // MARK: - Rebuild
 
     /// "Rebuild tile": the Build box's own path — select the tile, build
-    /// it with the source and zoom it was built with.
+    /// it with the source and zoom it was built with. During a build the
+    /// tile joins it (#1322), unless it is already part of it.
     func rebuildTile() {
         guard let build, let doc = document, let coord = Self.coord(doc.tile) else { return }
+        if build.rebuildDecision(for: coord) == .alreadyInRun {
+            editError = "This tile is already in this run."
+            return
+        }
         build.click(lat: coord.lat, lon: coord.lon, command: false, shift: false)
         guard build.canBuild else {
             editError = build.xplaneBlockReason

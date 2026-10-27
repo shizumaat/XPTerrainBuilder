@@ -80,6 +80,7 @@ KEEP = frozenset({
     # the drivers and the shared support
     "auto_patch.build_support",
     "auto_patch.config",
+    "auto_patch.config_gates",
     "auto_patch.driver",
     "auto_patch.engine_v2",
     "auto_patch.object_stage",
@@ -92,6 +93,8 @@ KEEP = frozenset({
     # the freshness gate's CODE digest (#346) — provenance's own family
     "auto_patch.provenance_code",
     "auto_patch.provenance_env",
+    # ... and its TOOLCHAIN digest (owner Q158, ``o4_tools``)
+    "auto_patch.provenance_tools",
     # THE PATCH-SET SELECTOR (insets-follow-patch-set spec §A.3 / §C.3,
     # RULINGS 2026-09-18b): ``select_patch_airports`` and the boundary
     # policy are the head of every tile build (``O4_Vector_Map``,

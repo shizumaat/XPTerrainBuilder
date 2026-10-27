@@ -104,7 +104,7 @@ extension MapCanvasView {
                 let imagery: String?
                 if let info = built?[coord] {
                     // A tile built in the working dir whose cfg names no
-                    // provider (renamed .pre352.bak, or never written) falls
+                    // provider (an Ortho4XP-built tile, whose config is ignored, or none written) falls
                     // back to the installed pack's own file names (#1227).
                     let known = !info.provider.trimmingCharacters(in: .whitespaces).isEmpty
                     let pack = known ? nil : orthoImagery[key]

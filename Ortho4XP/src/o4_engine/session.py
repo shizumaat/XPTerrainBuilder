@@ -27,6 +27,7 @@ from typing import Callable, Optional
 
 import O4_File_Names as FNAMES
 import O4_Machine_Slots as SLOTS
+import O4_Patch_Fast_Path as FASTPATH
 import O4_Step_Reuse as REUSE
 import O4_Stopped_Build as STOPPED
 import O4_Tile_Failures as FAIL
@@ -666,18 +667,20 @@ class _EtaTracker:
         return tuple(rows)
 
 
-def stopped_tile_state(lat, lon, custom_build_dir=""):
+def stopped_tile_state(lat, lon, custom_build_dir="", attempt=0):
     """The ``TileState`` of a tile whose build was STOPPED (#598): the
     scenery packs the build rewrote are put back, and ``detail`` says what
     the tile is left with (``O4_Stopped_Build.settle``).  ONE place for
-    the session and the parallel orchestrator; never raises."""
+    the session and the parallel orchestrator; never raises.  ``attempt``
+    is the stopped attempt's number, taken when the stop was decided
+    (#1326); 0 lets ``EngineSession._emit`` stamp the current one."""
     try:
         detail = STOPPED.settle(
             FNAMES.build_dir(lat, lon, custom_build_dir), lat, lon)
     except Exception:
         detail = ""
     return TileState(lat=lat, lon=lon, state="queued", label="stopped",
-                     detail=detail)
+                     detail=detail, attempt=attempt)
 
 
 class EngineSession:
@@ -711,6 +714,12 @@ class EngineSession:
         self._cancelled_tiles: set = set()
         self._active_tile = None
         self._cancel_all = False
+        # Per-tile admission count for this session (#1326): every time a
+        # tile joins a run it starts a new ATTEMPT, stamped on its
+        # TileState / StepProgress events, so a front end can tell the
+        # late news of a stopped attempt from the attempt re-queued after
+        # it.  Never reset: the numbers only rise.
+        self._tile_attempts: dict = {}
         # True while the current run was a per-step worker-child command
         # (``build(steps=...)``): such a run covers ONE step, so the
         # per-tile total line is the parent orchestrator's to print.
@@ -760,11 +769,29 @@ class EngineSession:
             self._seq += 1
             object.__setattr__(event, "seq", self._seq)
             object.__setattr__(event, "ts", time.time())
+            if (isinstance(event, (TileState, StepProgress))
+                    and not event.attempt):
+                object.__setattr__(event, "attempt", self._tile_attempts.get(
+                    (int(event.lat), int(event.lon)), 0))
         for callback in list(self._subscribers):
             try:
                 callback(event)
             except Exception:
                 pass
+
+    def new_tile_attempt(self, tile):
+        """Start the next attempt of ``tile`` (#1326): called wherever a
+        tile is admitted to a run.  Returns the new attempt number."""
+        key = (int(tile[0]), int(tile[1]))
+        with self._lock:
+            attempt = self._tile_attempts.get(key, 0) + 1
+            self._tile_attempts[key] = attempt
+        return attempt
+
+    def tile_attempt(self, tile):
+        """The current attempt number of ``tile``; 0 before its first."""
+        with self._lock:
+            return self._tile_attempts.get((int(tile[0]), int(tile[1])), 0)
 
     # ------------------------------------------------------------------
     # Command: scan (streamed; moved from the Qt view 2026-07-15)
@@ -993,6 +1020,7 @@ class EngineSession:
         with self._work_queue_lock:
             self._work_queue.clear()
             for tile in tiles:
+                self.new_tile_attempt(tile)
                 self._work_queue.append(
                     (tuple(tile), provider, zoomlevel, custom_build_dir,
                      plan))
@@ -1072,6 +1100,10 @@ class EngineSession:
                      if tile not in already_queued
                      and tile != self._active_tile]
             for tile in fresh:
+                # A tile stopped earlier in this run is wanted again: its
+                # old cancel must not stop the new attempt (#1326).
+                self._cancelled_tiles.discard(tile)
+                self.new_tile_attempt(tile)
                 self._work_queue.append(
                     (tile, provider, zoomlevel, custom_build_dir, plan))
             if fresh:
@@ -1190,9 +1222,21 @@ class EngineSession:
             return parallel_run.cancel_tile(tile)
         if not self._building:
             return False
-        self._cancelled_tiles.add(tile)
-        if self._active_tile == tile:
-            UI.red_flag = True
+        with self._work_queue_lock:
+            queued = [item for item in self._work_queue if item[0] == tile]
+            for item in queued:
+                self._work_queue.remove(item)
+            attempt = self.tile_attempt(tile)
+            if not queued:
+                self._cancelled_tiles.add(tile)
+                if self._active_tile == tile:
+                    UI.red_flag = True
+        if queued:
+            # A queued tile never starts: it leaves the queue now and is
+            # reported stopped now, so a re-queue need not wait for the
+            # worker to reach it (#1326).
+            self._emit(stopped_tile_state(tile[0], tile[1], queued[0][3],
+                                          attempt))
         return True
 
     def _run_finished(self):
@@ -1310,6 +1354,7 @@ class EngineSession:
                         # after it (#838).  One that saw the Stop may
                         # have cut its work short: no record.
                         REUSE.record(tile, key)
+                        FASTPATH.after_step_recorded(tile, key)
                     if self._autopatch_state is not None:
                         autopatch_airports = self._autopatch_state["total"]
                     self._finish_step((lat, lon), key)
@@ -1492,27 +1537,31 @@ class EngineSession:
         self._emit_eta(force=True)
 
     def _reuse_step(self, tile, tile_key, key, base, width):
-        """Skip ``key`` when its output is current (#615): True when it
-        was reused — said in the log and on the tile's row, and left out
-        of the step-time history (a reused step's seconds are not what
-        the step costs).  Otherwise the step's old record is dropped
-        before it runs, and False."""
+        """Skip ``key`` when its output is current (#615), or when the
+        height-edit fast path brought the vector step up to date (#1323,
+        ``O4_Patch_Fast_Path``, which says so in the log): True then —
+        said on the tile's row, and left out of the step-time history (a
+        reused step's seconds are not what the step costs).  Otherwise the
+        step's old record is dropped before it runs, and False."""
         if key not in REUSE.REUSABLE_STEPS:
             return False
-        why = REUSE.stale_reason(tile, key)
-        if why is not None:
+        (decision, detail) = FASTPATH.step_decision(tile, key)
+        if decision == "run":
             UI.vprint(1, "   %s step: building (%s)."
-                      % (STEP_FAILURE_NOUNS.get(key, key).capitalize(), why))
-            REUSE.forget_from(tile, key)
+                      % (STEP_FAILURE_NOUNS.get(key, key).capitalize(),
+                         detail))
             return False
-        UI.vprint(0, "\n%s for tile %s: REUSED — its inputs are unchanged "
-                     "since it last ran to its end."
-                  % (STEP_FAILURE_NOUNS.get(key, key).capitalize(),
-                     FNAMES.short_latlon(*tile_key)))
+        if decision == "updated":
+            label = FASTPATH.UPDATED_LABEL % (STEP_LABELS.get(key, key),)
+        else:
+            UI.vprint(0, "\n%s for tile %s: REUSED — its inputs are "
+                         "unchanged since it last ran to its end."
+                      % (STEP_FAILURE_NOUNS.get(key, key).capitalize(),
+                         FNAMES.short_latlon(*tile_key)))
+            label = REUSE.reused_label(STEP_LABELS.get(key, key))
         self._step_percent = (base + width) * 100.0
         self._emit(StepProgress(
-            lat=tile_key[0], lon=tile_key[1], step_key=key,
-            label=REUSE.reused_label(STEP_LABELS.get(key, key)),
+            lat=tile_key[0], lon=tile_key[1], step_key=key, label=label,
             percent=self._step_percent))
         self._finish_step(tile_key, key)
         return True

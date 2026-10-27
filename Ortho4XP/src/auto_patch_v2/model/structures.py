@@ -313,6 +313,10 @@ class Tunnel:
     #: build steeper than the judged cap mints a violation by
     #: construction").
     pinched: tuple[str, float, float] | None = None
+    #: #1343 / RULINGS 2026-10-26k: the pack PORTAL object pinning this
+    #: mapped bore's mouth (``airport/portal_objects``), or ``""``; its cut
+    #: may stand inside the runway strip keep-out
+    portal: str = ""
 
 
 @_dc.dataclass(frozen=True)

@@ -8,7 +8,9 @@ import Foundation
 /// * the shapes an edge belongs to, smallest plan area first (adjacent faces
 ///   share vertices, so one edge can belong to several shapes);
 /// * the repeat-click cycle: clicking the same spot again (within 4 pt, no
-///   move) steps to the next shape on that edge.
+///   move) steps to the next shape on that edge;
+/// * the map cursor (#1325): a pointing hand over what a click acts on, an
+///   open hand over open map, a closed hand while panning.
 public enum PatchShapePick {
     /// A repeat click within this many points of the last one cycles.
     public static let repeatRadius: Double = 4
@@ -26,6 +28,20 @@ public enum PatchShapePick {
         if let node { return .node(node) }
         if onHandle { return .handle }
         return onEdge ? .edge : .empty
+    }
+
+    /// The map cursors (#1325); Qt's `O4_Qt_Patch_ShapePick.POINTERS` names.
+    public enum Pointer: String, Equatable, Sendable {
+        case openHand, closedHand, pointingHand
+    }
+
+    /// The cursor over `target` (nil: no patch layer there): a closed hand
+    /// while panning, a pointing hand over a node, "+" handle or line, else
+    /// an open hand.
+    public static func pointer(over target: Target?, panning: Bool = false) -> Pointer {
+        if panning { return .closedHand }
+        guard let target, target != .empty else { return .openHand }
+        return .pointingHand
     }
 
     /// The ids of the ways in which `a` and `b` are consecutive (either

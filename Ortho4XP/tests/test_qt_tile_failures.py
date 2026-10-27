@@ -94,7 +94,8 @@ def test_the_button_copy_matches_the_mac_app():
     with open(swift, encoding="utf-8") as handle:
         source = handle.read()
     for text in (QTFAIL.REPORT_BUTTON, QTFAIL.SAVE_REPORT_BUTTON,
-                 QTFAIL.REPORT_PREVIEW_TITLE, QTFAIL.OPEN_ISSUE_BUTTON):
+                 QTFAIL.REPORT_PREVIEW_TITLE, QTFAIL.OPEN_ISSUE_BUTTON,
+                 QTFAIL.BUILT_WITH_WARNINGS, QTFAIL.REOPEN_TOOLTIP):
         assert '"%s"' % text in source, text
 
 

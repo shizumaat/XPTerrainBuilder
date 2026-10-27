@@ -124,6 +124,11 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "channel_facilities",
     "ground_envelope",  # issue #623: [lowest, highest] lawful elevation of the map (``solve/ground_band``) — LAW INPUT for ``sentinel_elevation``
     "road_coverage_join",  # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each coverage exit
+    # RULINGS 2026-10-26b: the CIFP thresholds the solve released to the
+    # tile seam — [lat, lon, CIFP, built, seam distance m, end]
+    "threshold_seam_yield",
+    # owner RULINGS 2026-10-25a / 26e: one record per runway end (a REPORT key)
+    "runway_end_pins",
     "road_join_yield",  # RULINGS 2026-09-27a (10): the joins the solve released — the level the core ribbon must take there (``O4_Vector_Map.road_join_yield_pins``)
     "road_route_frame",  # §37 (7) (RULINGS 2026-09-13av): the road pair law's route frame (``pipeline/publication``)
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
@@ -144,6 +149,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "tunnel_objects",   # RULINGS 2026-09-05k-1: the object corridors (``pipeline/publication.tunnel_objects``)
     # #1028: a slid mouth's own depth (``pipeline/publication.tunnel_mouth_depths``)
     "tunnel_mouth_depths",
+    # RULINGS 2026-10-26k: the cuts a pack portal pins (``publication.portal_cuts``)
+    "portal_cuts",
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
     "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon.  Derived by ``write_patch`` from the surface IT WRITES (``face_holes_ll``), never from the planar map (RULINGS 2026-09-13da residual: 782 sub-spacing merges after publication left stale hole rings that minted ``zone_on_pavement`` slivers)
     "design",         # RULINGS 2026-09-08t/v: the design surface's residual per family (replaces ``law_tiers``)

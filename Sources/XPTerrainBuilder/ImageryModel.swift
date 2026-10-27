@@ -315,6 +315,14 @@ final class ImageryModel: ObservableObject {
         return nil
     }
 
+    /// The incoming (or, during a cross-fade, outgoing) source's provider
+    /// for one tile.
+    private func resolvedSpec(previous: Bool, z: Int, x: Int, y: Int) -> ImageryProviderSpec? {
+        previous
+            ? resolvedSpec(single: previousActive, combined: previousCombined, z: z, x: x, y: y)
+            : resolvedSpec(single: active, combined: activeCombined, z: z, x: x, y: y)
+    }
+
     /// Memory-cached tile with its fade-in alpha, or nil — in which case a
     /// disk-load/download is scheduled and `generation` bumps when the tile
     /// becomes drawable. Cache keys use the RESOLVED member code, so
@@ -323,7 +331,26 @@ final class ImageryModel: ObservableObject {
         guard let spec = resolvedSpec(single: active, combined: activeCombined,
                                       z: z, x: x, y: y),
               z <= spec.maxZL else { return nil }
-        let key = TileKey(code: spec.code, z: z, x: x, y: y)
+        return image(TileKey(code: spec.code, z: z, x: x, y: y), spec: spec)
+    }
+
+    /// The map's tile (#1315): past the resolved source's `maxZL` (a
+    /// combined member finer or coarser than the others, or the view
+    /// overzoomed) it is the deepest available ancestor, with the
+    /// sub-square of it to crop and scale up. Never schedules a URL above
+    /// `maxZL`.
+    func displayImage(z: Int, x: Int, y: Int)
+        -> (image: CGImage, alpha: CGFloat, ancestor: MapOverzoom.Ancestor)? {
+        guard let spec = resolvedSpec(single: active, combined: activeCombined,
+                                      z: z, x: x, y: y) else { return nil }
+        let anc = MapOverzoom.ancestor(z: z, x: x, y: y, maxZ: spec.maxZL)
+        guard let hit = image(TileKey(code: spec.code, z: anc.z, x: anc.x, y: anc.y),
+                              spec: spec) else { return nil }
+        return (hit.image, hit.alpha, anc)
+    }
+
+    private func image(_ key: TileKey, spec: ImageryProviderSpec)
+        -> (image: CGImage, alpha: CGFloat)? {
         if let hit = memory[key] {
             let alpha: CGFloat
             if let start = loadedAt[key] {
@@ -340,11 +367,20 @@ final class ImageryModel: ObservableObject {
     /// Cache-only peek (never schedules): used for lower-zoom stand-ins
     /// while a tile loads, and for the outgoing source during cross-fades.
     func cachedImage(previous: Bool, z: Int, x: Int, y: Int) -> CGImage? {
-        let spec = previous
-            ? resolvedSpec(single: previousActive, combined: previousCombined, z: z, x: x, y: y)
-            : resolvedSpec(single: active, combined: activeCombined, z: z, x: x, y: y)
-        guard let spec, z <= spec.maxZL else { return nil }
+        guard let spec = resolvedSpec(previous: previous, z: z, x: x, y: y),
+              z <= spec.maxZL else { return nil }
         return memory[TileKey(code: spec.code, z: z, x: x, y: y)]
+    }
+
+    /// `cachedImage` past the source's ceiling: the cached ancestor and the
+    /// sub-square of it that covers the tile (#1315).
+    func cachedDisplayImage(previous: Bool, z: Int, x: Int, y: Int)
+        -> (image: CGImage, ancestor: MapOverzoom.Ancestor)? {
+        guard let spec = resolvedSpec(previous: previous, z: z, x: x, y: y) else { return nil }
+        let anc = MapOverzoom.ancestor(z: z, x: x, y: y, maxZ: spec.maxZL)
+        guard let hit = memory[TileKey(code: spec.code, z: anc.z, x: anc.x, y: anc.y)]
+        else { return nil }
+        return (hit, anc)
     }
 
     /// Keeps the canvas redrawing while fades/cross-fades are animating.

@@ -777,6 +777,12 @@ cfg_tile_vars = {
         "default": True,
         "hint": "When set, the no_data values in the raster will be filled by a nearest neighbour algorithm. If unset, they are turned into zero (can be useful for rasters with no_data over the whole oceanic part or partial LIDAR data).",
     },
+    # #1323, owner RULINGS 2026-10-26h Q148: what O4_Edit_Cache keeps.
+    "keep_edit_cache": {
+        "type": bool,
+        "default": False,
+        "hint": "Keeps the data a fast rebuild after a patch edit needs (the tile's airport patches as last built, in the tile's fast_path folder; a few MB) when the app quits, so the first Rebuild after a height-only patch edit in a later session can skip rebuilding the vector data. Off: the data is kept only while the app runs and is deleted when it quits. Changes no build output.",
+    },
 }
 
 # Create dictionary from cfg_tile_vars with prefix and remove keys not in global config
@@ -907,12 +913,18 @@ list_dsf_vars = [
 
 list_other_vars = ["custom_dem", "fill_nodata"]
 
+#: Tile settings no build step reads (``O4_Step_Reuse._step_settings``
+#: leaves them out, so toggling one stales nothing): the edit cache's
+#: lifetime (#1323, ``O4_Edit_Cache``).
+list_cache_vars = ["keep_edit_cache"]
+
 list_tile_vars = (
     list_vector_vars
     + list_mesh_vars
     + list_mask_vars
     + list_dsf_vars
     + list_other_vars
+    + list_cache_vars
     + ["default_website", "default_zl", "zone_list"]
 )
 
@@ -924,6 +936,7 @@ list_global_tile_vars = [
         + list_mask_vars
         + list_dsf_vars
         + list_other_vars
+        + list_cache_vars
     )
 ]
 

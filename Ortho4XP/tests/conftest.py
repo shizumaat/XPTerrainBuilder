@@ -383,6 +383,27 @@ def _dds_cache_is_per_test(monkeypatch, tmp_path_factory, request):
     yield
 
 
+_EDIT_CACHE_STATE_BASE = None
+
+
+@pytest.fixture(autouse=True)
+def _edit_cache_session_is_per_test(monkeypatch, tmp_path_factory, request):
+    """No test lists or sweeps an edit-cache session in the user's
+    ``~/.ortho4xp/edit_cache`` (``O4_Edit_Cache``, #1323), and no test
+    inherits another test's session list through the environment.  The
+    folder is only named here; nothing is created until a list is."""
+    global _EDIT_CACHE_STATE_BASE
+    import O4_Edit_Cache as EDITCACHE
+    if _EDIT_CACHE_STATE_BASE is None:
+        _EDIT_CACHE_STATE_BASE = str(tmp_path_factory.mktemp("edit_cache"))
+    slot = hashlib.sha256(request.node.nodeid.encode()).hexdigest()[:16]
+    monkeypatch.setenv(EDITCACHE.STATE_ENV,
+                       os.path.join(_EDIT_CACHE_STATE_BASE, slot))
+    monkeypatch.delenv(EDITCACHE.LIST_ENV, raising=False)
+    monkeypatch.setattr(EDITCACHE, "_owned", {})
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _no_test_window_writes_the_engine_stderr_log_into_the_tree(
         monkeypatch, tmp_path_factory):

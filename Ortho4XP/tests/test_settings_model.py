@@ -3,7 +3,7 @@
 All tests run headless: no network, no X-Plane install, no GUI toolkit.
 Global-config tests pass ``cfg_file`` explicitly; tile / global-fallback
 tests ``chdir`` into ``tmp_path`` so ``FNAMES.resource_path`` resolves the
-default ``Ortho4XP.cfg`` deterministically inside the temp tree.
+default ``XPTerrainBuilder.cfg`` deterministically inside the temp tree.
 """
 
 import os
@@ -226,7 +226,7 @@ def test_read_tile_raw_none_when_absent(tmp_path):
 
 def test_read_tile_raw_parses(tmp_path):
     build = _tile_dir(tmp_path)
-    path = os.path.join(build, "Ortho4XP_+45+005.cfg")
+    path = os.path.join(build, "XPTerrainBuilder_+45+005.cfg")
     with open(path, "w", encoding="utf-8", newline="") as f:
         # STAMPED (RULINGS 2026-09-18c (2)): an unstamped tile cfg is a
         # pre-1.0.352 file, MOVED aside on first touch rather than read.
@@ -246,7 +246,7 @@ def test_write_tile_sparse_overrides_and_preservation(tmp_path, monkeypatch):
     (tmp_path / "Ortho4XP.cfg").write_text("road_level=4\n", encoding="utf-8", newline="")
 
     build = _tile_dir(tmp_path)
-    path = os.path.join(build, "Ortho4XP_+45+005.cfg")
+    path = os.path.join(build, "XPTerrainBuilder_+45+005.cfg")
     # Existing tile file: map-managed vars + one plain var to preserve.
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(
@@ -297,13 +297,11 @@ def test_write_tile_equal_value_removes_the_override(tmp_path, monkeypatch):
     assert SM.tile_override_names(45, 5, build) == ()
 
 
-def test_legacy_snapshot_is_MOVED_not_shrunk(tmp_path, monkeypatch):
-    """SUPERSEDED RULE (owner RULINGS 2026-09-18c (2)): a legacy
-    full-snapshot tile file is not shrunk to its true differences any
-    more — it carries no stamp, so the first touch MOVES it aside and the
-    tile inherits everything.  Even ``road_level=5``, which genuinely
-    differs from the global, does not survive: the snapshot records the
-    frame the tile was BUILT with, not a choice (Q 18b-1, superseded)."""
+def test_an_ortho4xp_snapshot_is_ignored_not_moved(tmp_path, monkeypatch):
+    """RULINGS 2026-10-26c (amending 2026-09-18c's move): Ortho4XP's
+    full-snapshot tile file is neither read nor moved -- the tile inherits
+    everything, and a change writes this app's own new, stamped, sparse
+    file beside it."""
     monkeypatch.chdir(tmp_path)
     build = _tile_dir(tmp_path)
     path = os.path.join(build, "Ortho4XP_+45+005.cfg")
@@ -316,16 +314,18 @@ def test_legacy_snapshot_is_MOVED_not_shrunk(tmp_path, monkeypatch):
                 f.write("road_level=5\n")
             else:
                 f.write("%s=%s\n" % (var, O4_Cfg_Vars.cfg_vars[var]["default"]))
+    with open(path, "rb") as f:
+        before = f.read()
 
     assert list(SM.tile_override_names(45, 5, build)) == []
     assert SM.read_tile_raw(45, 5, build) is None
-    assert os.path.isfile(path + SM.PRE_STAMP_BACKUP_SUFFIX)
 
-    # …and a change after the move writes a NEW, stamped, sparse file.
     SM.write_tile(45, 5, build, {"road_level": "5"})
     result = SM.read_tile_raw(45, 5, build)
     assert result == {"road_level": "5"}
-    assert "lane_width" not in result
+    with open(path, "rb") as f:
+        assert f.read() == before
+    assert not os.path.exists(path + SM.PRE_STAMP_BACKUP_SUFFIX)
 
 
 def test_write_tile_with_no_overrides_writes_an_empty_config(
@@ -467,7 +467,8 @@ def test_autodetect_cifp_empty_cases(tmp_path):
 # ---------------------------------------------------------------------------
 def test_legacy_tile_settings_none_for_a_current_config(tmp_path):
     build = _tile_dir(tmp_path)
-    with open(os.path.join(build, "Ortho4XP_+45+005.cfg"), "w", encoding="utf-8", newline="") as f:
+    with open(os.path.join(build, "XPTerrainBuilder_+45+005.cfg"), "w",
+              encoding="utf-8", newline="") as f:
         f.write("default_website=BI\ndefault_zl=17\nroad_level=2\n")
     assert SM.legacy_tile_settings(45, 5, build) is None
 
@@ -479,7 +480,8 @@ def test_legacy_tile_settings_none_without_any_config(tmp_path):
 def test_legacy_tile_settings_reports_every_marker(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # no global cfg: replacements are defaults
     build = _tile_dir(tmp_path)
-    with open(os.path.join(build, "Ortho4XP.cfg"), "w", encoding="utf-8", newline="") as f:
+    with open(os.path.join(build, "XPTerrainBuilder_+45+005.cfg"), "w",
+              encoding="utf-8", newline="") as f:
         f.write(
             "default_website='Arc'\n"
             "default_zl=17\n"
@@ -487,7 +489,7 @@ def test_legacy_tile_settings_reports_every_marker(tmp_path, monkeypatch):
             "custom_dem=/nowhere/missing.tif\n"
         )
     legacy = SM.legacy_tile_settings(45, 5, build)
-    assert legacy["uses_legacy_name"] is True
+    assert "uses_legacy_name" not in legacy
     assert legacy["quoted_keys"] == ["default_website"]
     assert legacy["missing_pins"] == ["/nowhere/missing.tif"]
     assert legacy["foreign_enums"] == [
@@ -502,7 +504,8 @@ def test_legacy_tile_settings_enum_replacement_comes_from_global(
     with open(SM._default_global_cfg(), "w", encoding="utf-8", newline="") as f:
         f.write("texture_mode=airport_ortho\n")
     build = _tile_dir(tmp_path)
-    with open(os.path.join(build, "Ortho4XP_+45+005.cfg"), "w", encoding="utf-8", newline="") as f:
+    with open(os.path.join(build, "XPTerrainBuilder_+45+005.cfg"), "w",
+              encoding="utf-8", newline="") as f:
         f.write("texture_mode=weird_mode\n")
     legacy = SM.legacy_tile_settings(45, 5, build)
     assert legacy["foreign_enums"] == [
@@ -517,8 +520,8 @@ def test_update_legacy_tile_settings_keeps_identity_only(
     to the current global defaults, and the original is kept."""
     monkeypatch.chdir(tmp_path)
     build = _tile_dir(tmp_path)
-    generic = os.path.join(build, "Ortho4XP.cfg")
-    with open(generic, "w", encoding="utf-8", newline="") as f:
+    ours = os.path.join(build, "XPTerrainBuilder_+45+005.cfg")
+    with open(ours, "w", encoding="utf-8", newline="") as f:
         f.write(
             "default_website='Arc'\n"
             "default_zl=17\n"
@@ -528,21 +531,38 @@ def test_update_legacy_tile_settings_keeps_identity_only(
         )
     legacy = SM.legacy_tile_settings(45, 5, build)
     written = SM.update_legacy_tile_settings(legacy, build)
-    assert written == os.path.join(build, "Ortho4XP_+45+005.cfg")
+    assert written == os.path.join(build, "XPTerrainBuilder_+45+005.cfg")
     assert SM.read_tile_raw(45, 5, build) == {
         "default_website": "Arc",   # legacy quotes gone
         "default_zl": "17",
         "zone_list": "[(1,2)]",
     }
     # The original file is kept, and nothing legacy is left to report.
-    assert os.path.isfile(generic + ".legacy")
-    assert not os.path.isfile(generic)
+    assert os.path.isfile(ours + ".bak")
     assert SM.legacy_tile_settings(45, 5, build) is None
+
+
+def test_an_ortho4xp_tile_cfg_is_not_legacy_and_never_moved(tmp_path):
+    """RULINGS 2026-10-26c: Ortho4XP's own files (the generic
+    ``Ortho4XP.cfg`` and ``Ortho4XP_+XX+YYY.cfg``) are ignored -- nothing
+    to modernise, and they stay byte-identical."""
+    build = _tile_dir(tmp_path)
+    paths = [os.path.join(build, "Ortho4XP.cfg"),
+             os.path.join(build, "Ortho4XP_+45+005.cfg")]
+    for path in paths:
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write("default_website='Arc'\ntexture_mode=weird_mode\n")
+    assert SM.legacy_tile_settings(45, 5, build) is None
+    assert SM.read_tile_raw(45, 5, build) is None
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            assert f.read() == "default_website='Arc'\ntexture_mode=weird_mode\n"
+    assert sorted(os.listdir(build)) == ["Ortho4XP.cfg", "Ortho4XP_+45+005.cfg"]
 
 
 def test_update_legacy_tile_settings_rewrites_canonical_in_place(tmp_path):
     build = _tile_dir(tmp_path)
-    canonical = os.path.join(build, "Ortho4XP_+45+005.cfg")
+    canonical = os.path.join(build, "XPTerrainBuilder_+45+005.cfg")
     with open(canonical, "w", encoding="utf-8", newline="") as f:
         f.write("default_zl=16\ntexture_mode=weird_mode\n")
     legacy = SM.legacy_tile_settings(45, 5, build)

@@ -214,6 +214,9 @@ class TunnelObjectStats:
     #: never a basin").
     shells: int = 0
     shell_claimed: tuple[str, ...] = ()
+    #: the pack PORTALS over mapped bore ends (``airport/portal_objects``;
+    #: #971 "or object if one is provided", #1343): each pins its mouth
+    portals: tuple = ()
     refused: list[str] = _dc.field(default_factory=list)
     signature_s: float = 0.0
 
@@ -1010,6 +1013,13 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         out.append(c)
     out.extend(shell_corridors)
     out.sort(key=lambda c: c.id)
+    # #1343: the roofed PORTALS over the bore ends no corridor took
+    from .portal_objects import read_portals
+    portals, p_refused = read_portals(_object_cut.placement_order(objects), cache, law,
+                                      tunnel_ways, claimed_ids | {i for c in out
+                                                                  for i in c.objects})
+    stats.portals = tuple(portals)
+    stats.refused.extend(p_refused)
     # the report is order-free too: a refusal LIST whose order depends on
     # the read order cannot be diffed between two arms (lane v2othhdet)
     stats.refused.sort()

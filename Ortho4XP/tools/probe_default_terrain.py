@@ -39,7 +39,7 @@ physical and overlay, with their ``TERRAIN_DEF`` header lines)::
 Discovery order for the X-Plane install mirrors the app:
 
   1. ``--xplane-root`` / ``--overlay-src`` / ``--dsf`` command-line values;
-  2. ``custom_overlay_src`` in the repo ``Ortho4XP.cfg`` (points straight at
+  2. ``custom_overlay_src`` in the repo ``XPTerrainBuilder.cfg`` (points straight at
      the Global Scenery folder that holds ``Earth nav data``);
   3. the ``xplane_dir`` preference in ``.qt_prefs.json`` (see
      ``src/O4_Qt_GUI.py``);
@@ -279,7 +279,7 @@ def resolve_install_paths(
     if overlay_src is None:
         print("ERROR: could not locate a Global Scenery overlay source. "
               "Pass --overlay-src, --xplane-root, or --dsf, or set "
-              "custom_overlay_src in Ortho4XP.cfg.")
+              "custom_overlay_src in XPTerrainBuilder.cfg.")
         return None
 
     if xplane_root is None:
@@ -878,8 +878,8 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--dsf", default=None,
                         help="explicit path to the default DSF to probe")
     parser.add_argument(
-        "--cfg", default=os.path.join(_REPO_ROOT, "Ortho4XP.cfg"),
-        help="Ortho4XP.cfg to read custom_overlay_src from")
+        "--cfg", default=os.path.join(_REPO_ROOT, "XPTerrainBuilder.cfg"),
+        help="XPTerrainBuilder.cfg to read custom_overlay_src from")
     parser.add_argument(
         "--prefs", default=os.path.join(_REPO_ROOT, ".qt_prefs.json"),
         help="Qt prefs JSON to read xplane_dir from")

@@ -155,7 +155,7 @@ def test_forget_drops_the_tile_maps():
 
 
 def test_wcs_cells_holding_data_reject_nodata_and_a_constant_fill(tmp_path):
-    from osgeo import gdal
+    gdal = pytest.importorskip("osgeo.gdal")
 
     pixels = 40
     values = numpy.full((pixels, pixels), -32768.0, dtype="float32")

@@ -502,6 +502,15 @@ final class BuildModel: ObservableObject {
         return reply?.customizations ?? []
     }
 
+    /// Does the installed tile have every texture its terrain files name?
+    /// (protocol 1.22). nil when the engine predates the command or the
+    /// tile has no folder — the pane then shows nothing.
+    func tileTextureCheck(for coord: TileCoord) async -> O4TileTextureCheck? {
+        connectIfNeeded()
+        guard let client, let dir = built[coord]?.buildDir, !dir.isEmpty else { return nil }
+        return try? await client.tileTextureCheck(buildDir: dir)
+    }
+
     /// Ask the engine again for the badge set: every built and selected
     /// tile, or only `coords` (newly selected tiles). One small cfg read
     /// per tile on the engine side.

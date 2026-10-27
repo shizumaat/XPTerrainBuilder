@@ -8,6 +8,13 @@ import Foundation
 /// build with a different source (imagery zones legitimately mix ZOOM
 /// LEVELS, so only the provider token decides foreignness; masks and other
 /// non-.dds files are ignored).
+///
+/// A texture the tile's `terrain/` files NAME is in use, never foreign,
+/// whatever the cfg says (`terrainTextureNames`; the engine's
+/// `O4_Tile_Texture_Check.terrain_texture_names` is the same rule): on
+/// 2026-10-25 a cfg reset to a 2017 build's source made a tile's real
+/// textures look unused, and the cleanup sent all of them to the Trash.
+/// A tile whose terrain folder cannot be listed gets no call at all.
 public struct TileTextureAudit: Sendable, Equatable {
     public struct Source: Sendable, Equatable, Identifiable {
         /// Provider token exactly as found on disk, e.g. "Arc", "BI".
@@ -82,15 +89,36 @@ public struct TileTextureAudit: Sendable, Equatable {
         }
     }
 
+    /// The `.dds` names a tile's `terrain/` FILE NAMES stand for —
+    /// `<tex>.ter`, `<tex>_sea.ter`, `<tex>_water.ter` and their
+    /// `_overlay` forms all name `<tex>.dds` — or nil when the folder
+    /// (the sibling of `texturesDir`) cannot be listed. One listing.
+    public static func terrainTextureNames(texturesDir: URL) -> Set<String>? {
+        let terrain = texturesDir.deletingLastPathComponent()
+            .appendingPathComponent("terrain", isDirectory: true)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: terrain.path)
+        else { return nil }
+        var textures: Set<String> = []
+        for name in names where name.hasSuffix(".ter") {
+            var stem = String(name.dropLast(4))
+            for suffix in ["_overlay", "_sea", "_water"] where stem.hasSuffix(suffix) {
+                stem.removeLast(suffix.count)
+            }
+            textures.insert(stem + ".dds")
+        }
+        return textures
+    }
+
     /// Names-only fast path for sweeping many tiles (map badges): true as
     /// soon as one .dds from a provider other than `currentProvider` is
     /// seen. One directory listing, no per-file stat calls.
     public static func hasForeignSources(texturesDir: URL, currentProvider: String) -> Bool {
         guard !currentProvider.isEmpty,
+              let inUse = terrainTextureNames(texturesDir: texturesDir),
               let names = try? FileManager.default.contentsOfDirectory(atPath: texturesDir.path)
         else { return false }
         let currentLower = currentProvider.lowercased()
-        for name in names where name.lowercased().hasSuffix(".dds") {
+        for name in names where name.lowercased().hasSuffix(".dds") && !inUse.contains(name) {
             let stem = String(name.dropLast(4))
             guard let match = stem.wholeMatch(of: ddsPattern) else { continue }
             if String(match.1).lowercased() != currentLower { return true }
@@ -99,10 +127,12 @@ public struct TileTextureAudit: Sendable, Equatable {
     }
 
     /// Scans `texturesDir` (a built tile's textures folder). Returns nil
-    /// when the folder can't be listed or the current provider is unknown
-    /// — no conflict call can be made without knowing the current source.
+    /// when it or its terrain folder can't be listed or the current
+    /// provider is unknown — no conflict call can be made without knowing
+    /// the current source and what the terrain uses.
     public static func scan(texturesDir: URL, currentProvider: String) -> TileTextureAudit? {
         guard !currentProvider.isEmpty,
+              let inUse = terrainTextureNames(texturesDir: texturesDir),
               let entries = try? FileManager.default.contentsOfDirectory(
                   at: texturesDir,
                   includingPropertiesForKeys: [.fileSizeKey],
@@ -120,7 +150,8 @@ public struct TileTextureAudit: Sendable, Equatable {
             entry.count += 1
             entry.bytes += size
             counts[provider] = entry
-            if provider.lowercased() != currentLower {
+            if provider.lowercased() != currentLower,
+               !inUse.contains(file.lastPathComponent) {
                 foreign.append(file)
             }
         }

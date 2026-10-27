@@ -91,6 +91,7 @@ import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
 import O4_Qt_Imagery_Menu as QTIMENU
 import O4_Qt_Map as QTMAP
+import O4_Qt_Missing_Textures as QTMISSING
 from o4_engine import EngineSession
 from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
@@ -1121,6 +1122,12 @@ class MainWindow(QMainWindow):
         self.imagery_conflict_btn.setVisible(False)
         irl.addWidget(self.imagery_conflict_btn, 0)
         ig.addRow("Imagery:", imagery_row)
+        # An installed tile whose terrain names textures it lacks: X-Plane
+        # will not load it (mac-app parity: TileMissingTexturesRow).
+        self.missing_textures_row = QTMISSING.MissingTexturesRow()
+        self.missing_textures_row.rebuild_requested.connect(
+            self._rebuild_tile_missing_textures)
+        ig.addRow(self.missing_textures_row)
         self.info_zl = ElidedRowLabel("—")
         ig.addRow("%s:" % GLOSSARY.TERMS["detail"], self.info_zl)
         self.info_mesh = ElidedRowLabel("—")
@@ -3023,6 +3030,9 @@ class MainWindow(QMainWindow):
             bool(self._manual_elevation_entries)
         )
 
+        self.missing_textures_row.check(
+            tile if info is not None else None,
+            getattr(info, "build_dir", "") if info is not None else "")
         if info is None:
             # While a scan streams in, absence only means "not scanned
             # yet" — a built tile must not flash as "(not built)".
@@ -4963,6 +4973,13 @@ class MainWindow(QMainWindow):
 
     def _status(self, message):
         self.statusBar().showMessage(message, 8000)
+
+    def _rebuild_tile_missing_textures(self, tile):
+        """The missing-textures row's "Rebuild Tile": the patch box's own
+        path, which says why not when it cannot."""
+        reason = self.rebuild_patch_tile(FNAMES.short_latlon(*tile))
+        if reason:
+            self._status(reason)
 
     # ------------------------------------------------------------------
     def rebuild_patch_tile(self, tile_key):

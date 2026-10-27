@@ -28,7 +28,7 @@ def data(tmp_path, monkeypatch):
 def _write_tile(tiles, lines):
     folder = os.path.join(tiles, "zOrtho4XP_+45+005")
     os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, "Ortho4XP_+45+005.cfg")
+    path = os.path.join(folder, "XPTerrainBuilder_+45+005.cfg")
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(SM.tile_cfg_stamp_line())
         handle.write("".join(line + "\n" for line in lines))
@@ -78,12 +78,17 @@ def test_texture_only_setting_does_not_affect_the_ground(data):
     assert row["tile_text"] == ("On" if other == "True" else "Off")
 
 
-def test_unstamped_cfg_is_retired_as_the_build_would(data):
-    path = _write_tile(data, [])
-    with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write("road_level=5\n")              # no stamp: pre-1.0.352
+def test_an_ortho4xp_cfg_is_no_customization_and_stays(data):
+    """RULINGS 2026-10-26c: Ortho4XP's own tile cfg is ignored, as the
+    build ignores it, and left exactly where it is."""
+    folder = os.path.dirname(_write_tile(data, []))
+    os.remove(os.path.join(folder, "XPTerrainBuilder_+45+005.cfg"))
+    theirs = os.path.join(folder, "Ortho4XP_+45+005.cfg")
+    with open(theirs, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write("road_level=5\n")              # no stamp: Ortho4XP's
     assert TC.tile_customizations(45, 5, data)["customizations"] == []
-    assert not os.path.exists(path)
+    with open(theirs, encoding="utf-8") as handle:
+        assert handle.read() == "road_level=5\n"
 
 
 def test_wire_round_trip(data):

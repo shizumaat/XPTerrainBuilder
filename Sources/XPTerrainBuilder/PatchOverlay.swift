@@ -100,15 +100,20 @@ struct PatchOverlay: View {
             }
             .allowsHitTesting(false)
             .background {
-                if let outlines = model.build?.packOutlines {
-                    PatchPackOutlineLayer(outlines: outlines, camera: camera)
+                ZStack {
+                    if let terrain = model.build?.terrainRelief {
+                        PatchTerrainReliefLayer(relief: terrain, camera: camera)
+                    }
+                    if let outlines = model.build?.packOutlines {
+                        PatchPackOutlineLayer(outlines: outlines, camera: camera)
+                    }
                 }
             }
             .overlay {
                 if model.mode == .edit { PatchEditLayer(model: model, drag: model.drag, camera: camera) }
             }
             .overlay(alignment: .topTrailing) {
-                PatchLegend(outlines: model.build?.packOutlines).padding(.top, 44).padding(.trailing, 8).allowsHitTesting(false)
+                PatchLegend(outlines: model.build?.packOutlines, terrain: model.build?.terrainRelief).padding(.top, 44).padding(.trailing, 8).allowsHitTesting(false)
             }
         }
     }
@@ -272,6 +277,7 @@ struct PatchStyle {
 
 private struct PatchLegend: View {
     let outlines: PatchPackOutlines?
+    let terrain: PatchTerrainRelief?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -293,6 +299,7 @@ private struct PatchLegend: View {
                 Text(PatchStyle.belowGradeLabel)
             }
             if let outlines { PackOutlineLegendRow(outlines: outlines) }
+            if let terrain { TerrainReliefLegendRow(relief: terrain) }
         }
         .font(.caption)
         .foregroundStyle(.white.opacity(0.85))
@@ -310,8 +317,9 @@ private struct PackOutlineLegendRow: View {
         if outlines.enabled {
             HStack(spacing: 6) {
                 RoundedRectangle(cornerRadius: 2)
-                    .strokeBorder(PatchPackOutlineLayer.stroke,
-                                  style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    .fill(PackOutlineStyle.legendFill)
+                    .overlay(RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(PackOutlineStyle.stroke, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2])))
                     .frame(width: 14, height: 8)
                 Text("pack apt.dat")
             }

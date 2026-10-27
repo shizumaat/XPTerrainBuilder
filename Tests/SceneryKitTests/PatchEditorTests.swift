@@ -38,6 +38,25 @@ struct PatchEditorTests {
         #expect(none.readout == nil)
     }
 
+    @Test func terrainReliefDecodes() throws {
+        func reply(_ json: String) throws -> O4TerrainRelief {
+            let object = try JSONSerialization.jsonObject(with: Data(json.utf8))
+            let r = O4Reply(ok: true, result: O4JSON.from(object), error: nil)
+            let result: Result<O4TerrainRelief, Error> =
+                OrthoEngineClient.decodeReply(r, command: "terrain_relief")
+            return try result.get()
+        }
+        let pending = try reply(#"{"pending": true, "png_b64": null, "width": 4, "height": 2, "bbox": [45.5, -122.6, 45.504, -122.594], "source": null, "legend": null}"#)
+        #expect(pending.pending && pending.png == nil && pending.legend == nil)
+        #expect(pending.bbox.maxLon == -122.594)
+        let done = try reply(#"{"pending": false, "png_b64": "iVBORw0K", "width": 4, "height": 2, "bbox": [45.5, -122.6, 45.504, -122.594], "source": "mesh", "legend": {"min_m": 100.4, "max_m": 109.6, "contour_m": 1.0}}"#)
+        #expect(done.png == Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]))
+        #expect(done.source == "mesh" && done.width == 4 && done.height == 2)
+        #expect(done.legend?.text == "1 m contours · 100–110 m")
+        let flat = try reply(#"{"pending": false, "png_b64": "", "width": 1, "height": 1, "bbox": [45.5, -122.6, 45.504, -122.594], "source": null, "legend": {"min_m": null, "max_m": null, "contour_m": 0.5}}"#)
+        #expect(flat.legend?.text == "0.5 m contours")
+    }
+
     private func document() throws -> PatchDocument {
         PatchDocument(tile: "+45-123", load: try decode("patch_load", as: O4PatchLoad.self))
     }

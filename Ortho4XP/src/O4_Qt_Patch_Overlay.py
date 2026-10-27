@@ -128,11 +128,12 @@ class _Shape(_t.NamedTuple):
 class PatchOverlay:
     """The patch layer: base drawing here, interaction in ``gestures``."""
 
-    def __init__(self, map_view, controller, outlines=None):
+    def __init__(self, map_view, controller, outlines=None, terrain=None):
         self.map = map_view
         self.controller = controller
         self.model = controller.model
         self.outlines = outlines
+        self.terrain = terrain          # O4_Qt_Terrain_Relief, under everything
         self.gestures = None            # set by O4_Qt_Patch_Gestures
         self.toolbar = None             # O4_Qt_Patch_Toolbar, pinned top-left
         self.index: PatchScreenIndex | None = None
@@ -143,6 +144,8 @@ class PatchOverlay:
         controller.state_changed.connect(self.update)
         if outlines is not None:
             outlines.changed.connect(self.update)
+        if terrain is not None:
+            terrain.changed.connect(self.update)
 
     def update(self) -> None:
         self.map.viewport().update()
@@ -213,6 +216,8 @@ class PatchOverlay:
         skip = self.gestures.skip if self.gestures is not None else None
         view_t = self.map.viewportTransform()
         visible = view_t.inverted()[0].mapRect(QRectF(vp))
+        if self.terrain is not None:
+            self.terrain.paint(painter, view_t)
         if self.outlines is not None:
             self.outlines.paint(painter, view_t)
         painter.save()
@@ -244,6 +249,11 @@ class PatchOverlay:
         if self.outlines is not None and self.outlines.enabled:
             from O4_Qt_Pack_Outlines import OUTLINE_COLOR
             rows.append((OUTLINE_COLOR, "pack apt.dat", "dashed"))
+        if self.terrain is not None and self.terrain.enabled:
+            from O4_Qt_Terrain_Relief import CONTOUR_COLOR, legend_text
+            text = legend_text(self.terrain.legend)
+            if text:
+                rows.append((CONTOUR_COLOR, text, None))
         painter.save()
         self._panel_font(painter, 10)
         fm = painter.fontMetrics()
@@ -263,11 +273,12 @@ class PatchOverlay:
                 paint_hatch(painter, outline, color)
                 painter.setPen(QPen(color, 1))
                 painter.setBrush(Qt.NoBrush)
-            elif swatch_kind == "dashed":
-                pen = QPen(color, 1)
+            elif swatch_kind == "dashed":   # the pack outlines' swatch (#1316)
+                from O4_Qt_Pack_Outlines import LEGEND_FILL
+                pen = QPen(color, 1.5)
                 pen.setDashPattern([3, 2])
                 painter.setPen(pen)
-                painter.setBrush(Qt.NoBrush)
+                painter.setBrush(LEGEND_FILL)
             else:
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(color)
@@ -294,3 +305,7 @@ class PatchOverlay:
 
     def mouse_release(self, event) -> bool:
         return self._editing() and self.gestures.release(event)
+
+    def pointer_at(self, pos) -> str | None:
+        """The cursor over ``pos`` in Edit mode (#1325), else None."""
+        return self.gestures.pointer_at(pos) if self._editing() else None

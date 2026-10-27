@@ -1,9 +1,10 @@
 """The tile right-click menu (issue #938), offscreen, and its launcher.
 
 A right-click without a drag on the map asks for the tile's menu; a
-right-drag still pans.  The menu's one item shows the tile's folder in
-the platform's file manager (Finder / Explorer / the default file
-manager) and is greyed out while the folder does not exist.
+right-drag neither pans nor asks (#1325: a LEFT drag pans).  The menu's
+one item shows the tile's folder in the platform's file manager (Finder /
+Explorer / the default file manager) and is greyed out while the folder
+does not exist; the patch editor's items come first.
 
 Headless: QT_QPA_PLATFORM=offscreen, tmp_path, no file manager started.
 """
@@ -108,14 +109,66 @@ def test_a_right_click_asks_for_the_tile_menu(view):
     assert asked == [_tile_at(view, pos + QPointF(2, 1))]
 
 
-def test_a_right_drag_pans_and_asks_for_nothing(view):
+def _scroll(view):
+    return (view.horizontalScrollBar().value(), view.verticalScrollBar().value())
+
+
+def _left(view, kind, pos):
+    buttons = Qt.NoButton if kind == QEvent.MouseButtonRelease else Qt.LeftButton
+    ev = QMouseEvent(kind, pos, view.viewport().mapToGlobal(pos.toPoint()),
+                     Qt.LeftButton, buttons, Qt.NoModifier)
+    {QEvent.MouseButtonPress: view.mousePressEvent,
+     QEvent.MouseMove: view.mouseMoveEvent,
+     QEvent.MouseButtonRelease: view.mouseReleaseEvent}[kind](ev)
+
+
+def test_a_right_drag_neither_pans_nor_asks(view):
     asked = []
     view.tile_menu_requested.connect(lambda *args: asked.append(args))
+    view._zoom = 8.0
+    view._apply_zoom()
+    before = _scroll(view)
     start = QPointF(200, 150)
     _right(view, QEvent.MouseButtonPress, start)
     _right(view, QEvent.MouseMove, start + QPointF(40, 0))
     _right(view, QEvent.MouseButtonRelease, start + QPointF(40, 0))
-    assert asked == []
+    assert asked == [] and _scroll(view) == before
+
+
+def test_a_left_drag_pans_with_a_closed_hand_and_a_left_click_selects(view):
+    """#1325: a plain drag on open map pans (open hand over the map, a
+    closed hand while it pans); a click without a drag selects the tile."""
+    view._zoom = 8.0
+    view._apply_zoom()
+    start = QPointF(200, 150)
+    view.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, start,
+                                    view.viewport().mapToGlobal(start.toPoint()),
+                                    Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+    assert view.viewport().cursor().shape() == Qt.OpenHandCursor
+    before = _scroll(view)
+    _left(view, QEvent.MouseButtonPress, start)
+    _left(view, QEvent.MouseMove, start + QPointF(40, 0))
+    assert view.viewport().cursor().shape() == Qt.ClosedHandCursor
+    _left(view, QEvent.MouseMove, start + QPointF(60, 10))
+    _left(view, QEvent.MouseButtonRelease, start + QPointF(60, 10))
+    after = _scroll(view)
+    assert after[0] == before[0] - 60 and after[1] == before[1] - 10
+    assert view.selection() == set()                     # a pan selects nothing
+    assert view.viewport().cursor().shape() == Qt.OpenHandCursor
+    _left(view, QEvent.MouseButtonPress, start)
+    _left(view, QEvent.MouseButtonRelease, start + QPointF(2, 1))
+    assert view.selection() == {_tile_at(view, start + QPointF(2, 1))}
+
+
+def test_the_patch_editor_items_come_first(qapp, tmp_path):
+    ran = []
+    menu = QTTILEMENU.tile_menu(None, 47, -123, str(tmp_path),
+                                [("Set elevation…", lambda: ran.append(1))])
+    first, separator, reveal = menu.actions()
+    assert first.text() == "Set elevation…" and separator.isSeparator()
+    assert reveal.text() == REVEAL.menu_label()
+    first.trigger()
+    assert ran == [1]
 
 
 def test_the_menu_shows_the_folder_and_greys_out_a_missing_one(

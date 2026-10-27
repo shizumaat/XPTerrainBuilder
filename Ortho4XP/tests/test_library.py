@@ -34,7 +34,7 @@ def _tile(tiles, lat, lon, ours, provider="BI", zl=17):
                         FNAMES.long_latlon(lat, lon) + ".dsf"), 1000)
     _write(os.path.join(build, "textures", "1000_2000_%s%d.dds" % (provider, zl)), 500)
     if ours:
-        with open(os.path.join(build, "Ortho4XP_" + short + ".cfg"), "w",
+        with open(os.path.join(build, "XPTerrainBuilder_" + short + ".cfg"), "w",
                   encoding="utf-8", newline="\n") as handle:
             handle.write("cfg_written_by=test\ndefault_website=%s\n"
                          "default_zl=%d\n" % (provider, zl))

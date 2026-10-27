@@ -15,6 +15,7 @@ from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 
 import O4_Glossary as GLOSSARY
 import O4_Qt_Map as QTMAP
+import O4_Qt_Patch_Elevation_Dialog as ELEVDIALOG
 import O4_Qt_Patch_Reference as REFERENCE
 from O4_Qt_Pack_Outlines import PackOutlines
 from O4_Qt_Patch_Controller import PatchController
@@ -24,11 +25,16 @@ from O4_Qt_Patch_Model import MODE_EDIT, PatchEditModel
 from O4_Qt_Patch_Overlay import PatchOverlay
 from O4_Qt_Patch_Panel import PatchPanel, node_lat_lon
 from O4_Qt_Patch_Toolbar import PatchToolbar
+from O4_Qt_Terrain_Relief import TerrainRelief
 
-__all__ = ["PatchEditor", "PACK_OUTLINES_PREF", "SLICE_TITLE"]
+__all__ = ["PatchEditor", "PACK_OUTLINES_PREF", "SLICE_TITLE", "TERRAIN_PREF",
+           "TERRAIN_OPACITY_PREF"]
 
 #: The prefs key that remembers the "Pack outlines" toggle (on by default).
 PACK_OUTLINES_PREF = "patch_editor_pack_outlines"
+#: ... and the "Terrain" toggle (off by default) and its opacity (#1320).
+TERRAIN_PREF = "patch_editor_terrain"
+TERRAIN_OPACITY_PREF = "patch_editor_terrain_opacity"
 
 #: The right-click item that cuts a shape between two selected nodes
 #: (#1318; the Mac app's ``TileContextMenu.sliceTitle``).
@@ -53,10 +59,20 @@ class PatchEditor:
         self.outlines = PackOutlines(self.engine, self.model, QTMAP.SCENE_ZL,
                                      enabled=bool(prefs.get(PACK_OUTLINES_PREF, True)),
                                      remember=remember, parent=window)
-        self.overlay = PatchOverlay(map_view, self.controller, self.outlines)
+
+        def remember_terrain(on: bool, opacity: float) -> None:
+            prefs[TERRAIN_PREF], prefs[TERRAIN_OPACITY_PREF] = on, opacity
+            save_prefs(prefs)
+        self.terrain = TerrainRelief(self.engine, self.model, map_view, built,
+                                     enabled=bool(prefs.get(TERRAIN_PREF, False)),
+                                     opacity=float(prefs.get(TERRAIN_OPACITY_PREF, 0.6)),
+                                     remember=remember_terrain,
+                                     showing=lambda: self.controller.is_showing, parent=window)
+        self.controller.state_changed.connect(self.terrain.view_changed)
+        self.overlay = PatchOverlay(map_view, self.controller, self.outlines, self.terrain)
         self.gestures = PatchGestures(self.overlay)
         self.overlay.toolbar = PatchToolbar(map_view.viewport(), self.controller, self.outlines,
-                                            open_preview=self.open_preview)
+                                            open_preview=self.open_preview, terrain=self.terrain)
         map_view.add_layer(self.overlay)
         self.panel = PatchPanel(self.controller)
         self._window, self._map, self._built = window, map_view, built
@@ -105,6 +121,13 @@ class PatchEditor:
             menu.insertSeparator(first)
         menu.setToolTipsVisible(True)
 
+    def context_actions(self) -> list[tuple[str, _t.Callable[[], _t.Any]]]:
+        """The map's right-click items for the Edit-mode selection
+        (#1357: "Set elevation…" on selected shapes)."""
+        if self.model.mode != MODE_EDIT or not self.model.shape_selection or self.model.doc is None:
+            return []
+        return [(ELEVDIALOG.TITLE, self.panel.open_set_elevation)]
+
     def open_preview(self) -> None:
         """Ctrl/⌘3 or the map's "3D" button: show (or raise) the window."""
         if self.preview is None:
@@ -117,6 +140,11 @@ class PatchEditor:
         self.preview.show()
         self.preview.raise_()
         self.preview.activateWindow()
+
+    def pack_label_at(self, lat: float, lon: float) -> str | None:
+        """The cursor readout's pack outline label (#1316), while the
+        patch and its outlines are showing."""
+        return self.outlines.label_at(lat, lon) if self.controller.is_showing else None
 
     def copy_items(self, x: float, y: float) -> list[tuple[str, str]]:
         """``(title, text)`` for a right-click at viewport ``(x, y)``:

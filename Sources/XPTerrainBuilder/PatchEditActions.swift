@@ -101,6 +101,23 @@ extension PatchEditModel {
         perform("Offset Elevation") { try $0.offsetAlt(ids, by: d) }
     }
 
+    /// "Set elevation…" on the selected shapes (#1357): every node of
+    /// theirs, holes too, and the nodes they share unless told not to.
+    func setShapesAlt(_ alt: Double, includeShared: Bool) {
+        guard let doc = document, !shapeSelection.isEmpty else { return }
+        let plan = PatchShapeElevation(shapes: shapeSelection, in: doc)
+        perform(shapeSelection.count == 1 ? "Set Shape Elevation" : "Set Shapes Elevation") {
+            try $0.setShapeElevation(plan, alt: alt, includeShared: includeShared)
+        }
+    }
+
+    /// The map's right-click items for the Edit-mode selection (#1357:
+    /// "Set elevation…" on selected shapes).
+    var contextActions: [(title: String, run: () -> Void)] {
+        guard mode == .edit, document != nil, !shapeSelection.isEmpty else { return [] }
+        return [(PatchSetElevationSheet.title, { [weak self] in self?.showsSetElevation = true })]
+    }
+
     // MARK: - Undo / redo
 
     /// Register the step's inverse; run as an undo it registers the redo.
@@ -225,9 +242,14 @@ extension PatchEditModel {
     // MARK: - Rebuild
 
     /// "Rebuild tile": the Build box's own path — select the tile, build
-    /// it with the source and zoom it was built with.
+    /// it with the source and zoom it was built with. During a build the
+    /// tile joins it (#1322), unless it is already part of it.
     func rebuildTile() {
         guard let build, let doc = document, let coord = Self.coord(doc.tile) else { return }
+        if build.rebuildDecision(for: coord) == .alreadyInRun {
+            editError = "This tile is already in this run."
+            return
+        }
         build.click(lat: coord.lat, lon: coord.lon, command: false, shift: false)
         guard build.canBuild else {
             editError = build.xplaneBlockReason

@@ -108,7 +108,7 @@ public struct O4StepStrip: Equatable, Sendable {
     public mutating func apply(_ event: O4Event, at now: Double) {
         guard !ended else { return }
         switch event {
-        case .stepProgress(_, _, let stepKey, let label, _, _):
+        case .stepProgress(_, _, let stepKey, let label, _, _, _):
             let autoPatch = "auto-patch"
             let key = label == autoPatch || label.hasPrefix(autoPatch + " ")
                 ? "airports" : Self.stepPills[stepKey]
@@ -136,7 +136,7 @@ public struct O4StepStrip: Equatable, Sendable {
             let percent = total > 0 ? 100 * done / total : 0
             let shown = Int(floor(min(max(percent, 0), 100) + 0.5))
             airportLine = "\(airport) — \(Self.airportStage(label)) (\(shown) %)"
-        case .tileState(_, _, let state, let label, _, _):
+        case .tileState(_, _, let state, let label, _, _, _):
             if state == "done" {
                 finishBuild(at: now, ok: true)
             } else if state == "error" {

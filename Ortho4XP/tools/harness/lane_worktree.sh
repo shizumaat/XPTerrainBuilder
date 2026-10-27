@@ -55,7 +55,11 @@
 #                      other's geometry.  Same reasoning keeps Tiles/,
 #                      Previews/ and tmp/ lane-local; they are products,
 #                      and the ruling's enumeration lists neither.
-#   Ortho4XP.cfg       CLONED.  It is NOT tracked, so a fresh worktree has
+#   XPTerrainBuilder.cfg  CLONED (this app's global; RULINGS 2026-10-26c
+#                      renamed it from Ortho4XP.cfg, which a main tree that
+#                      has not run the engine since is copied from first —
+#                      the engine's own one-time hand-over, O4_Config_Names).
+#                      It is NOT tracked, so a fresh worktree has
 #                      none at all — and then `Tile.read_from_config()`
 #                      finds no config, the DEM prep runs on constructor
 #                      defaults, and the lane grades against a surface
@@ -140,7 +144,7 @@ ENGINE_LINKS="venv"
 REQUIRED_DATA_DIRS="OSM_data Elevation_data Airport_mod_cache"
 # Products, never shared.  See the header for why Patches is the exception.
 CLONE_DIRS="Patches"
-CLONE_FILES="Ortho4XP.cfg"
+CLONE_FILES="XPTerrainBuilder.cfg"
 # Lane-local products that must NOT be mounted even if the data repo has
 # them — two lanes writing one of these would overwrite each other's work.
 NEVER_MOUNT="Patches Tiles Previews tmp"
@@ -473,6 +477,12 @@ up)
         done
         echo "  [ritual] cloned $d ($(ls -1 "$ENGINE/$d" 2>/dev/null | wc -l | tr -d ' ') entries; $_how) — lane-private OUTPUT, writes stay here"
     done
+    # The global's one-time hand-over in the MAIN tree, as the engine does
+    # on its first import there: copy, never overwrite, original kept.
+    if [ ! -e "$MAIN_ENGINE/XPTerrainBuilder.cfg" ] && [ -f "$MAIN_ENGINE/Ortho4XP.cfg" ]; then
+        cp -n "$MAIN_ENGINE/Ortho4XP.cfg" "$MAIN_ENGINE/XPTerrainBuilder.cfg" \
+            && echo "  [ritual] main tree: copied Ortho4XP.cfg to XPTerrainBuilder.cfg (RULINGS 2026-10-26c)"
+    fi
     for f in $CLONE_FILES; do
         [ -e "$MAIN_ENGINE/$f" ] || die "the MAIN tree has no $f — without
     it every build in this lane would run on constructor defaults."

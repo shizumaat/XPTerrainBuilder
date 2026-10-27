@@ -6,7 +6,7 @@ and prints the counts and the wall time.  Input roots default to the
 engine tree's mounted data dirs (``Elevation_data``, ``OSM_data``,
 ``Airport_mod_cache`` — the shared corpus the lane ritual mounts) and
 the X-Plane install named by ``custom_scenery_dir`` in the engine's
-``Ortho4XP.cfg`` (a convenience of THIS entry point only; the library
+``XPTerrainBuilder.cfg`` (a convenience of THIS entry point only; the library
 takes explicit paths).  No environment reads, with ONE exception: the
 implicit ``Airport_mod_cache`` root resolves through the engine's own
 accessor (:func:`implicit_mod_cache_root`), so the lane redirect
@@ -33,7 +33,7 @@ ENGINE_DIR = Path(__file__).resolve().parents[3]
 
 
 def _cfg_value(key: str) -> str:
-    cfg = ENGINE_DIR / "Ortho4XP.cfg"
+    cfg = ENGINE_DIR / "XPTerrainBuilder.cfg"
     if not cfg.is_file():
         return ""
     for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():

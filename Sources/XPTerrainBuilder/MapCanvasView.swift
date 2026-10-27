@@ -22,6 +22,8 @@ struct MapCanvasView: View {
 
     @State private var cursorText: String?
     @State private var cursorElevation: String?
+    /// The pack outline under the cursor (#1316).
+    @State private var cursorPack: String?
     @State private var elevationQuery: Task<Void, Never>?
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
     /// The airport layer's last plan (#817): rebuilt only when the camera,
@@ -53,6 +55,8 @@ struct MapCanvasView: View {
     static let badgeStopped = Color(red: 0.95, green: 0.58, blue: 0.10)  // #F29419
     /// The customized-settings dot (#1350); Qt SETTINGS_BADGE_COLOR.
     static let settingsBadge = Color(red: 0.04, green: 0.52, blue: 1.0)  // #0A84FF
+    /// The custom-patch band (#1229); Qt CUSTOM_PATCH_COLOR.
+    static let customPatchBand = Color(red: 1.0, green: 0.62, blue: 0.04)  // #FF9F0A
 
     var body: some View {
         GeometryReader { proxy in
@@ -78,7 +82,8 @@ struct MapCanvasView: View {
                     return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord),
                                            copies: buildModel.patchEdit.copyItems(at: location, camera: camera.value,
                                                                                   size: proxy.size),
-                                           patch: buildModel.patchEdit)
+                                           patch: buildModel.patchEdit,
+                                           extra: buildModel.patchEdit.contextActions)
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }
@@ -91,11 +96,18 @@ struct MapCanvasView: View {
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
+                    // The hand over open map (#1325); in Edit mode the patch
+                    // layer sets it (a pointer over nodes and lines).
+                    if !editLayerOwnsCursor { PatchShapePick.pointer(over: nil).cursor.set() }
                     let point = camera.value.coordinate(of: location, in: proxy.size)
                     cursorText = PatchNodeInspector.latLon(lat: point.lat, lon: point.lon)
+                    cursorPack = buildModel.patchEdit.isShowing
+                        ? buildModel.packOutlines.label(atLat: point.lat, lon: point.lon) : nil
                     queryElevation(lat: point.lat, lon: point.lon)
                 case .ended:
+                    NSCursor.arrow.set()
                     cursorText = nil
+                    cursorPack = nil
                     elevationQuery?.cancel()
                 }
             }
@@ -435,6 +447,16 @@ struct MapCanvasView: View {
             }
         }
 
+        // Custom patch (#1229): a 4 pt orange band just inside the tile's
+        // edge — the auto patch does not run for an airport of this tile
+        // (Qt: O4_Qt_Map._draw_custom_patch_band).
+        for coord in buildModel.customPatchTiles.keys where visible(coord) {
+            let r = rect(coord)
+            guard r.width > 8 else { continue }
+            context.stroke(Path(r.insetBy(dx: 2, dy: 2)),
+                           with: .color(Self.customPatchBand.opacity(0.85)), lineWidth: 4)
+        }
+
         // Selection: focus ring, not a fill — a fill tints the very
         // imagery the user is judging. Active tile: solid ring with a soft
         // outer glow (macOS focus-ring look); other selected tiles: dashed.
@@ -562,10 +584,21 @@ struct MapCanvasView: View {
 
     // MARK: - Gestures
 
+    /// The patch editor's Edit layer is over the map and sets the cursor.
+    private var editLayerOwnsCursor: Bool {
+        let patch = buildModel.patchEdit
+        return patch.mode == .edit && patch.isShowing && patch.geometry != nil && patch.document != nil
+    }
+
+    /// A drag on open map pans (#1325: every map view, a closed hand while
+    /// it does); a click selects a tile; right click is the tile menu.
     private func pan(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
-                if dragAnchor.value == nil { dragAnchor.value = camera.value }
+                if dragAnchor.value == nil {
+                    dragAnchor.value = camera.value
+                    PatchShapePick.pointer(over: nil, panning: true).cursor.set()
+                }
                 guard let anchor = dragAnchor.value else { return }
                 var cam = anchor
                 cam.centerLon = anchor.centerLon - Double(value.translation.width) / anchor.scale
@@ -577,6 +610,7 @@ struct MapCanvasView: View {
             }
             .onEnded { _ in
                 dragAnchor.value = nil
+                PatchShapePick.pointer(over: nil).cursor.set()
             }
     }
 
@@ -620,11 +654,14 @@ struct MapCanvasView: View {
         }
     }
 
-    /// Bottom-left readout: the cursor position in the node format (#1308).
+    /// Bottom-left readout: the cursor position in the node format (#1308),
+    /// the elevation, and the pack outline under it (#1316; Qt's
+    /// `O4_Qt_Cursor_Readout.readout_text`).
     @ViewBuilder
     private var cursorReadout: some View {
         if let cursorText {
-            Text(cursorElevation.map { "\(cursorText) · \($0)" } ?? cursorText)
+            Text(([cursorText] + [cursorElevation, cursorPack.map { "pack: \($0)" }].compactMap { $0 })
+                .joined(separator: " · "))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)

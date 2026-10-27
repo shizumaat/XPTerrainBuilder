@@ -72,7 +72,7 @@ import Foundation
     }
 
     @Test func configFileRoundTrip() throws {
-        var file = try OrthoConfigFile(contentsOf: engineRoot.appendingPathComponent("Ortho4XP.cfg"))
+        var file = try OrthoConfigFile(contentsOf: engineRoot.appendingPathComponent(OrthoConfigNames.globalFileName))
         #expect(file.rawValues["verbosity"] == "2")
         #expect(file.rawValues["custom_unknown_key"] == "keepme")
 
@@ -90,7 +90,7 @@ import Foundation
             Issue.record("bundled schema snapshot missing")
             return
         }
-        let file = try OrthoConfigFile(contentsOf: engineRoot.appendingPathComponent("Ortho4XP.cfg"))
+        let file = try OrthoConfigFile(contentsOf: engineRoot.appendingPathComponent(OrthoConfigNames.globalFileName))
         let values = file.values(schema: schema)
         #expect(values["verbosity"] == .int(2))
         #expect(values["curvature_tol"] == .double(2.5))
@@ -255,6 +255,17 @@ import Foundation
         #expect(stopped == .tileState(lat: 10, lon: 20, state: "queued", label: "stopped", percent: 0,
                                       detail: "Stopped — the previous scenery is still active."))
         #expect(state == .tileState(lat: 10, lon: 20, state: "done", label: "", percent: 100, detail: ""))
+        // #1326 (additive within 1.14): the tile's attempt number; an engine
+        // that does not send it decodes as 0.
+        let numbered = event(#"{"event":"StepProgress","lat":10,"lon":20,"step_key":"mesh","label":"triangulating","percent":12.5,"indeterminate":false,"attempt":2,"seq":3,"ts":2.0}"#)
+        #expect(numbered == .stepProgress(lat: 10, lon: 20, stepKey: "mesh",
+                                          label: "triangulating", percent: 12.5,
+                                          indeterminate: false, attempt: 2))
+        let stoppedFirst = event(#"{"event":"TileState","lat":10,"lon":20,"state":"queued","label":"stopped","percent":0.0,"attempt":1,"seq":4,"ts":3.0}"#)
+        #expect(stoppedFirst == .tileState(lat: 10, lon: 20, state: "queued", label: "stopped",
+                                           percent: 0, attempt: 1))
+        #expect(step == .stepProgress(lat: 10, lon: 20, stepKey: "mesh", label: "triangulating",
+                                      percent: 12.5, indeterminate: true, attempt: 0))
         let eta = event(#"{"event":"RunEta","elapsed_seconds":12.0,"remaining_seconds":null,"done_tiles":0,"total_tiles":2,"seq":5,"ts":4.0}"#)
         #expect(eta == .runEta(elapsedSeconds: 12, remainingSeconds: nil,
                                doneTiles: 0, totalTiles: 2))

@@ -254,6 +254,29 @@ struct BuildPane: View {
                     }
                 }
             }
+            // Custom patch (#1229, RULINGS 2026-10-26c): the custom patch
+            // files the build applies instead of the auto patch, and "Use
+            // auto patch", which sets them aside, never deletes them (the
+            // Qt pane: the same).
+            if let files = buildModel.customPatchTiles[active], !files.isEmpty {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(O4CustomPatchText.title + ":")
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 104, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(O4CustomPatchText.info(files))
+                            .scaledFont(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(O4CustomPatchText.useAutoPatchTitle) {
+                            buildModel.useAutoPatch(for: active)
+                        }
+                        .controlSize(.small)
+                        .disabled(buildModel.isBuilding)
+                        .help(O4CustomPatchText.useAutoPatchHelp)
+                    }
+                }
+            }
             // Custom airports whose objects the auto-patch pass reseated
             // for this tile's mesh: one label, one row per airport, an
             // undo button per row reverting that airport's pack to the
@@ -792,7 +815,7 @@ struct BuildPane: View {
     }
 
     private func legacyAlertMessage(_ legacy: BuildModel.LegacyTileSettings) -> String {
-        var parts = ["Tile \(legacy.coord.key)'s settings were written by an older version of this app or by Ortho4XP:"]
+        var parts = ["Tile \(legacy.coord.key)'s settings were written by an older version of this app:"]
         for item in legacy.foreignEnums {
             parts.append("• \(item.key) = \(item.value) — not a setting of this version; currently interpreted conservatively. Updating sets: \(item.replacement.isEmpty ? "default" : item.replacement)")
         }
@@ -801,9 +824,6 @@ struct BuildPane: View {
         }
         if !legacy.quotedKeys.isEmpty {
             parts.append("• legacy quoted value format (\(legacy.quotedKeys.count) setting\(legacy.quotedKeys.count == 1 ? "" : "s"))")
-        }
-        if legacy.usesLegacyFileName {
-            parts.append("• legacy config file name (Ortho4XP.cfg)")
         }
         parts.append("Updating keeps the tile's imagery source, zoom level and zones, and resets everything else to your current global defaults (the original file is kept as a backup).")
         return parts.joined(separator: "\n")

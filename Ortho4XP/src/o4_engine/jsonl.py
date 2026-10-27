@@ -176,6 +176,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .plan_estimate import start_plan_estimate
+    from .relief_commands import terrain_relief
     from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
@@ -233,6 +234,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "patch_load": patch_commands.patch_load,
         "patch_save": patch_commands.patch_save,
         "patch_revert": patch_commands.patch_revert,
+        # Custom patches (#1229, RULINGS 2026-10-26c): which tiles carry
+        # one (the map band, the tile info) and setting a tile's aside so
+        # the auto patch runs again.  Synchronous file work.
+        "custom_patches": patch_commands.custom_patches,
+        "use_auto_patch": patch_commands.use_auto_patch,
         # Patch editor 3D preview (protocol 1.12, #46): the DEM grid under
         # the patch, from the data repo's caches only.  Synchronous.
         "terrain_sample": terrain_sample,
@@ -250,6 +256,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # thread: an uncached source loads on a daemon thread and the
         # reply says pending.
         "cursor_elevation": cursor_elevation,
+        # Terrain view (protocol 1.15, #1320): a hillshade-and-contours
+        # PNG over a box, from the same sources; drawn off THIS thread,
+        # the reply says pending until it is ready.
+        "terrain_relief": terrain_relief,
         # Library view (#824): built tiles with sizes, the caches, freeing
         # a cache, deleting tiles.  Each replies {"status": "started"} and
         # completes with LibraryReady carrying this command's id; deleting

@@ -360,11 +360,12 @@ def test_pack_outlines_follow_the_patch_through_pack_objects_ready(editor):
     assert asked["footprints_only"] is True         # the outlines only (#797)
     s, w, n, e = asked["bbox"]                      # the patch bbox + 500 m (A9)
     assert (30.1 - s) * 111320 == pytest.approx(500)
-    assert not ed.outlines._pavement.isEmpty() and ed.outlines._footprints.isEmpty()
+    assert [o.label for o in ed.outlines.pavement] == ["pavement"]   # no label: its kind
+    assert ed.outlines.footprints == []
     ed.on_pack_objects_ready(EV.PackObjectsReady(request=asked["request"], result={
         "models": [], "placements": [], "missing": [],
         "facades": [{"ring": [[30.1, 31.4], [30.1, 31.4005], [30.1005, 31.4005]], "height_m": 4}]}))
-    assert not ed.outlines._footprints.isEmpty()
+    assert [o.label for o in ed.outlines.footprints] == ["facade"]
     assert "The pack draws no boundary." in ed.outlines.help_text
     assert ed.overlay.toolbar.outlines_box.isChecked()
     view.viewport().grab()                          # paints every layer once
@@ -629,3 +630,146 @@ def test_a_click_on_the_node_coordinates_copies_them(editor, qapp):
     ed.panel.lat_value.clicked.emit()
     assert QApplication.clipboard().text() == "30.100000000, 31.401000000"
     assert ed.panel.node_count_note.text() == "Copied"
+
+
+def test_rebuild_tile_stays_usable_while_a_build_runs(editor):
+    """#1322: "Rebuild tile" is never disabled by a running build — the
+    window queues the tile into it (``MainWindow.rebuild_patch_tile``)."""
+    ed, _view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    asked = []
+    ed.controller.is_building = lambda: True
+    ed.controller.rebuild = lambda tile: asked.append(tile) or None
+    ed.model.tiles_needing_rebuild.add(TILE)
+    ed.panel._refresh_save_bar(0)
+    assert not ed.panel.rebuild_button.isHidden()
+    assert ed.panel.rebuild_button.isEnabled()
+    ed.panel.rebuild_button.click()
+    assert asked == [TILE]
+
+
+def _hover(view, pos):
+    view.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, pos,
+                                    view.viewport().mapToGlobal(pos.toPoint()),
+                                    Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+    return view.viewport().cursor().shape()
+
+
+def test_cursor_is_a_pointer_over_nodes_and_lines_and_a_hand_elsewhere(editor):
+    """#1325: hover alone sets the cursor; a drag on open map pans with a
+    closed hand, and a right press / release opens the menu, never a pan."""
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    assert _hover(view, _screen(ed, -1)) == Qt.PointingHandCursor
+    assert _hover(view, _along(ed, -1, -4, 0.3)) == Qt.PointingHandCursor
+    empty = _screen(ed, -1) + QPointF(-120, 60)
+    assert _hover(view, empty) == Qt.OpenHandCursor
+    before = (view.horizontalScrollBar().value(), view.verticalScrollBar().value())
+    _mouse(view, QEvent.MouseButtonPress, empty)
+    _mouse(view, QEvent.MouseMove, empty + QPointF(30, 0))
+    assert view.viewport().cursor().shape() == Qt.ClosedHandCursor
+    _mouse(view, QEvent.MouseButtonRelease, empty + QPointF(30, 0), buttons=Qt.NoButton)
+    assert view.horizontalScrollBar().value() == before[0] - 30
+    assert ed.model.undo_stack.count() == 0
+    asked = []
+    view.tile_menu_requested.connect(lambda lat, lon, _pos: asked.append((lat, lon)))
+    scroll = view.horizontalScrollBar().value()
+    for kind, buttons in ((QEvent.MouseButtonPress, Qt.RightButton),
+                          (QEvent.MouseButtonRelease, Qt.NoButton)):
+        view_pos = empty + QPointF(1, 0)
+        ev = QMouseEvent(kind, view_pos, view.viewport().mapToGlobal(view_pos.toPoint()),
+                         Qt.RightButton, buttons, Qt.NoModifier)
+        (view.mousePressEvent if kind == QEvent.MouseButtonPress else view.mouseReleaseEvent)(ev)
+    assert asked == [(30, 31)] and view.horizontalScrollBar().value() == scroll
+
+
+def test_set_elevation_on_shapes_is_one_step_that_undoes_and_saves(editor, patches):
+    """#1357: the dialog states what it touches, prefills the mean, takes
+    feet, and Apply is ONE undoable edit saved through patch_save."""
+    ed, view = editor
+    auto = os.path.join(patches, "ZZZZ_auto.patch.osm")
+    with open(auto, "w", encoding="utf-8", newline="\n") as f:
+        f.write(_AUTO.replace("</osm>", _TRIANGLE.split("\n</osm>")[0] + "\n</osm>"))
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    assert ed.context_actions() == []
+    ed.model.select_shapes({-12})
+    (title, _run), = ed.context_actions()
+    assert title == "Set elevation…"
+    assert not ed.panel.set_elevation.isHidden()
+    dialog = ed.panel.open_set_elevation()
+    assert dialog.summary.text() == "3 shared nodes, 2 neighbouring shapes affected."
+    assert dialog.value.text() == "%.2f" % ((101 + 102 + 104) / 3)
+    dialog.unit.setCurrentText("ft")
+    dialog.value.setText("328.084")
+    before = ed.model.doc
+    assert dialog.apply()
+    assert ed.model.undo_stack.count() == 1 and ed.model.unsaved_edits == 1
+    assert ed.model.undo_stack.undoText() == "Set Shape Elevation"
+    for nid in (-2, -3, -5):
+        assert abs(ed.model.doc.nodes[nid][3] - 100.0) < 0.001
+    assert ed.model.doc.nodes[-1] == before.nodes[-1]     # the apron's own node stays
+    ed.model.undo_stack.undo()
+    assert ed.model.doc == before and ed.model.unsaved_edits == 0
+    ed.model.undo_stack.redo()
+    ed.controller.save()
+    reply = PC.patch_load(TILE, "ZZZZ")
+    assert reply["path"] == os.path.join(patches, "ZZZZ_edited.patch.osm")
+    doc = PE.PatchDoc.from_wire(reply["nodes"], reply["ways"])
+    assert abs(doc.nodes[-5][3] - 100.0) < 0.001
+
+
+# ─── the terrain view (#1320) ─────────────────────────────────────────────
+
+def test_terrain_toggle_asks_for_the_view_and_draws_it(editor):
+    import base64
+
+    from o4_engine import relief as R
+    ed, view = editor
+    asked = []
+    picture = base64.b64encode(R.png_bytes(R.relief_rgba(
+        [[100.0, 101.5], [100.5, 102.0]], 1.0, 1.0, 1.0).rgba)).decode("ascii")
+
+    def terrain_relief(**kw):
+        asked.append(kw)
+        if len(asked) == 1:                         # still drawing: asked again
+            return {"pending": True}
+        return {"pending": False, "png_b64": picture, "width": 2, "height": 2,
+                "bbox": kw["bbox"], "source": "mesh",
+                "legend": {"min_m": 100.0, "max_m": 102.0, "contour_m": 1.0}}
+    table = ed.engine._table()
+    table["pack_objects"] = lambda **kw: {"status": "started"}
+    table["terrain_relief"] = terrain_relief
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    toolbar = ed.overlay.toolbar
+    assert not ed.terrain.enabled and not toolbar.terrain_box.isChecked()   # off by default
+    assert not toolbar.opacity_slider.isVisibleTo(toolbar)
+    toolbar.terrain_box.click()
+    assert ed.terrain.enabled and toolbar.opacity_slider.isVisibleTo(toolbar)
+    ed.terrain._timer.stop()
+    ed.terrain._ask()                               # the view rested
+    ed.terrain._ask(again=True)                     # ... and the pending reply's retry
+    assert len(asked) == 2 and asked[0] == asked[1]
+    kw = asked[0]
+    assert kw["tile"] == TILE and max(kw["px_w"], kw["px_h"]) <= 640
+    s, w, n, e = kw["bbox"]
+    assert s < 30.1006 < n and w < 31.4006 < e      # the visible box
+    assert ed.terrain._image is not None and ed.terrain.legend["contour_m"] == 1.0
+    toolbar.opacity_slider.setValue(35)
+    assert ed.terrain.opacity == pytest.approx(0.35)
+    view.viewport().grab()                          # paints the picture and the legend row
+    toolbar.terrain_box.click()
+    assert not ed.terrain.enabled and ed.terrain._image is None
+
+
+def test_terrain_legend_text():
+    from O4_Qt_Terrain_Relief import legend_text
+    assert (legend_text({"min_m": 100.4, "max_m": 109.6, "contour_m": 1.0})
+            == "1 m contours · 100–110 m")
+    assert legend_text({"min_m": None, "max_m": None, "contour_m": 0.5}) == "0.5 m contours"
+    assert legend_text(None) is None

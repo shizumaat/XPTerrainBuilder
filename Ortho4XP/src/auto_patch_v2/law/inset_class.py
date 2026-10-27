@@ -17,7 +17,7 @@ import typing as _t
 from .model import Law
 from .tables import FLAT_CLASS_COARSE, FLAT_CLASS_LIDAR, flat_source_class
 
-__all__ = ["dem_source_class", "lidar_credible"]
+__all__ = ["dem_source_class", "ground_class", "lidar_credible"]
 
 
 def dem_source_class(dem, law: Law) -> tuple[str | None, float | None, str]:
@@ -33,8 +33,9 @@ def dem_source_class(dem, law: Law) -> tuple[str | None, float | None, str]:
     return flat_source_class(law, pixel), float(pixel), whence
 
 
-def lidar_credible(airport: _t.Any, law: Law) -> bool:
-    """Whether THIS airport's inset is CREDIBLE lidar — the flat-site
+def ground_class(airport: _t.Any, law: Law) -> str | None:
+    """THIS airport's ground source class (``lidar`` / ``fine`` /
+    ``coarse``, ``None`` for a sampler stating nothing) — the flat-site
     verdict's own S2 class where the airport carries one, else the DEM's
     source class.  A refresh (``--refresh-data dem``, the owner's act)
     moves a site between classes with no law change: this is the only
@@ -43,9 +44,14 @@ def lidar_credible(airport: _t.Any, law: Law) -> bool:
     if fv is not None:
         klass = (fv.signals or {}).get("s2_source_class")
         if klass:
-            return str(klass) == FLAT_CLASS_LIDAR
+            return str(klass)
     try:
         klass, _pixel, _whence = dem_source_class(airport.dem, law)
     except Exception:                          # pragma: no cover - fixtures
-        return False
-    return str(klass) == FLAT_CLASS_LIDAR
+        return None
+    return None if klass is None else str(klass)
+
+
+def lidar_credible(airport: _t.Any, law: Law) -> bool:
+    """Whether THIS airport's inset is CREDIBLE lidar (:func:`ground_class`)."""
+    return ground_class(airport, law) == FLAT_CLASS_LIDAR

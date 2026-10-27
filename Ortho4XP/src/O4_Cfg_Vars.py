@@ -398,7 +398,7 @@ cfg_tile_vars = {
     "airport_elevation_inset_margin_m": {
         "type": float,
         "default": 2000.0,
-        "hint": "How far beyond each airport's smoothing mask, in metres, the elevation inset bounding box is expanded. The clearance band and custom object neighbourhoods extend well past the boundary polygon, so a generous margin is deliberate.",
+        "hint": "The most, in metres, that each airport's elevation inset box may reach beyond the airport boundary. The fetch never reaches further than the graded ground beside the pavement and its feather need (about 465 m); beyond that the approach-ring elevation carries the terrain, so a larger value fetches nothing more.",
     },
     "airport_elevation_inset_feather_m": {
         "type": float,

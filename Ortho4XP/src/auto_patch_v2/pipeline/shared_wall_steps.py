@@ -8,10 +8,15 @@ Where that wall reaches BELOW BOTH floors, the wall hides the step: it is
 lawful.
 
 THE DECLARATION is the existing one: one ``terrace_joints`` record
-(``kind`` ``wall_terrace``, shape :data:`LABEL`) per shared wall, along the
-wall band's own long axis within the two corridors, declared at the wall's
-reach under the higher ground at the two mouths (plus the emit's
-rounding) — so the census's ``DeclaredWallSteps`` / ``_terrace_step_allowance``
+(``kind`` ``wall_terrace``, shape :data:`LABEL`) per shared wall, declared
+at the wall's reach under the higher ground at the two mouths (plus the
+emit's rounding).  Its LINE is the MIDLINE BETWEEN THE TWO RAMPS AS
+EMITTED along the wall: the rings stand on the identity lattice, so a wall
+thinner than the lattice spacing (OTHH's dock walls: 0.3 m on a 0.5 m
+lattice) is not where the rings put it, and the authored band's axis can
+lie beside both rings, where no chord between them crosses it.  Each
+sample of the wall's axis moves to the midpoint of its nearest points on
+the two ramps' faces (the axis itself where a corridor has none) — so the census's ``DeclaredWallSteps`` / ``_terrace_step_allowance``
 and the engine's ``verify/steps`` forgive exactly a pair whose chord
 crosses that wall, up to that depth; the excess, and every pair beside the
 wall that does not cross it, still reports.  A shared wall standing
@@ -40,7 +45,9 @@ def shared_wall_joints(planar: PlanarMap, law: Law,
                        z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
     """The ``wall_terrace`` records of the walls neighbouring bays share
     (module docstring)."""
-    walls = shared_walls(getattr(planar, "structures", ()) or ())
+    spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
+    walls = shared_walls(getattr(planar, "structures", ()) or (),
+                         lambda t: _ramp_faces(planar, t), spacing)
     if not walls:
         return []
     from .ribbon_steps import _to_ll
@@ -57,10 +64,14 @@ def shared_wall_joints(planar: PlanarMap, law: Law,
     return out
 
 
-def shared_walls(tunnels: _t.Sequence) -> list[tuple[_t.Any, float, tuple[str, str]]]:
-    """``(the wall's axis LineString within the two corridors, its reach
-    under the higher mouth ground, (id, id))`` per wall two Law C corridors
-    share whose bottom stands under BOTH their floors."""
+def shared_walls(tunnels: _t.Sequence, ramps=None, spacing: float = 0.5
+                 ) -> list[tuple[_t.Any, float, tuple[str, str]]]:
+    """``(the declared line, the wall's reach under the higher mouth
+    ground, (id, id))`` per wall two Law C corridors share whose bottom
+    stands under BOTH their floors.  ``ramps(tunnel)`` is the corridor's
+    emitted ramp region (or ``None``); the line samples every ``spacing``.
+    Two records sharing BOTH walls are the two halves of one corridor,
+    never neighbours."""
     from shapely.geometry import LineString, Polygon
 
     bays = [t for t in tunnels if t.source == _WALL_KIND and t.wall_bands and t.footprint]
@@ -69,26 +80,67 @@ def shared_walls(tunnels: _t.Sequence) -> list[tuple[_t.Any, float, tuple[str, s
         fa, fb = Polygon(a.footprint), Polygon(b.footprint)
         if not fa.buffer(1e-6).intersects(fb):
             continue
-        floor = min(_floor(a), _floor(b))
-        for ra, za in a.wall_bands:
-            pa = Polygon(ra)
-            for rb, zb in b.wall_bands:
-                pb = Polygon(rb)
-                inter = pa.intersection(pb).area
-                if inter < _SAME_WALL * min(pa.area, pb.area):
-                    continue
-                bottom = max(za, zb)            # the one wall, read twice
-                if bottom > floor + _EMIT_Z_ROUND_M:
-                    continue                    # shallower than a floor: it hides nothing
-                axis = _long_axis(pa)
-                if axis is None:
-                    continue
-                part = axis.intersection(fa.union(fb).buffer(1.0))
-                if part.is_empty or part.geom_type != "LineString":
-                    part = axis
-                ground = max(float(a.mouth_dem_z), float(b.mouth_dem_z))
-                out.append((LineString(part.coords), ground - bottom, (a.id, b.id)))
+        shared = [(Polygon(ra), max(za, zb)) for ra, za in a.wall_bands
+                  for rb, zb in b.wall_bands if _same_wall(Polygon(ra), Polygon(rb))]
+        if len(shared) != 1:
+            continue                            # none, or the halves of one corridor
+        pa, bottom = shared[0]
+        if bottom > min(_floor(a), _floor(b)) + _EMIT_Z_ROUND_M:
+            continue                            # shallower than a floor: it hides nothing
+        axis = _long_axis(pa)
+        if axis is None:
+            continue
+        part = axis.intersection(fa.union(fb).buffer(1.0))
+        if part.is_empty or part.geom_type != "LineString":
+            part = axis
+        line = _between(LineString(part.coords), ramps(a) if ramps else None,
+                        ramps(b) if ramps else None, spacing)
+        ground = max(float(a.mouth_dem_z), float(b.mouth_dem_z))
+        out.append((line, ground - bottom, (a.id, b.id)))
     return out
+
+
+def _same_wall(pa, pb) -> bool:
+    """Two band rings are ONE wall (read once by each corridor)."""
+    return pa.intersection(pb).area >= _SAME_WALL * min(pa.area, pb.area)
+
+
+def _between(axis, ra, rb, spacing: float):
+    """The wall's axis moved, sample by sample, to the midpoint of its
+    nearest points on the two ramp regions (module docstring)."""
+    from shapely.geometry import LineString, Point
+    from shapely.ops import nearest_points
+    if ra is None or rb is None or ra.is_empty or rb.is_empty:
+        return axis
+    n = max(2, int(math.ceil(axis.length / max(spacing, 1e-6))) + 1)
+    pts: list = []
+    for k in range(n):
+        c = axis.interpolate(axis.length * k / (n - 1))
+        qa = nearest_points(ra.boundary, c)[0]
+        qb = nearest_points(rb.boundary, c)[0]
+        m = ((qa.x + qb.x) / 2.0, (qa.y + qb.y) / 2.0)
+        if not pts or Point(m).distance(Point(pts[-1])) > 1e-6:
+            pts.append(m)
+    return LineString(pts) if len(pts) >= 2 else axis
+
+
+def _ramp_faces(planar: PlanarMap, t):
+    """The corridor's emitted ramp region: the faces carrying one of its
+    ramp refs whose centre stands inside its footprint (``None`` if none)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    from .band_road_wall import _poly
+    foot = Polygon(t.footprint)
+    refs = set(t.ramp_refs)
+    got = []
+    for f in planar.faces.values():
+        if f.ref not in refs and f.role not in refs:
+            continue
+        g = _poly(planar, f)
+        if not g.is_empty and foot.contains(g.representative_point()):
+            got.append(g)
+    return unary_union(got) if got else None
 
 
 def _floor(t) -> float:

@@ -3119,6 +3119,11 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             packs = []
+        # The scan reads every pack's records and can outlive the window
+        # (#1360 made it longer): a result for a closed window is dropped,
+        # never queued to a deleted receiver.
+        if not shiboken6.isValid(self) or getattr(self, "_closed", False):
+            return
         self._bridge.reanchor_ready.emit((tile, packs))
 
     def _on_reanchor_ready(self, payload):

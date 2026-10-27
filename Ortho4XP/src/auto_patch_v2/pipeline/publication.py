@@ -809,9 +809,15 @@ def _landings(planar: PlanarMap, z) -> list[dict[str, _t.Any]]:
     out = []
     for ref, rec in sorted(planar.registries.landings.items()):
         zs = sorted(float(z[v]) for v in vs.get(ref, ())) if z is not None else []
-        out.append({"ref": ref, "block": rec["block"], "deck": rec["deck"],
-                    "y": rec["y"], "area_m2": rec.get("area_m2"),
-                    "level": round(zs[len(zs) // 2], 3) if zs else None})
+        row = {"ref": ref, "block": rec["block"], "deck": rec["deck"],
+               "y": rec["y"], "area_m2": rec.get("area_m2"),
+               "level": round(zs[len(zs) // 2], 3) if zs else None}
+        if rec.get("risers"):
+            # the fill's risers at its road's far kerb (``planar/fill_riser``):
+            # their face ref and each one's declared height
+            row["riser_ref"] = ref + "#strip"
+            row["riser_heights_m"] = [r["height_m"] for r in rec["risers"]]
+        out.append(row)
     return out
 
 

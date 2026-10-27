@@ -184,6 +184,7 @@ def test_texture_provider(name, expected):
 
 
 def test_has_foreign_sources(tmp_path):
+    (tmp_path / "terrain").mkdir()
     textures = tmp_path / "textures"
     textures.mkdir()
     for name in ("22528_38912_BI16.dds", "22528_38912_BI17.dds",
@@ -197,6 +198,7 @@ def test_has_foreign_sources(tmp_path):
 
 
 def test_has_foreign_sources_needs_a_current_provider(tmp_path):
+    (tmp_path / "terrain").mkdir()
     textures = tmp_path / "textures"
     textures.mkdir()
     (textures / "22528_38912_Arc16.dds").write_text("", encoding="utf-8", newline="")
@@ -208,6 +210,7 @@ def test_has_foreign_sources_needs_a_current_provider(tmp_path):
 # The full audit behind the cleanup offer (sizes, per-source rows)
 # ---------------------------------------------------------------------------
 def _textures(tmp_path, sizes):
+    (tmp_path / "terrain").mkdir(parents=True)
     textures = tmp_path / "textures"
     textures.mkdir(parents=True)
     for (name, size) in sizes.items():
@@ -386,6 +389,7 @@ def test_conflict_sweep_reaches_the_map_and_the_info_panel(
         qapp, tmp_path, make_window):
     build_dir = tmp_path / "zOrtho4XP_+48-006"
     (build_dir / "textures").mkdir(parents=True)
+    (build_dir / "terrain").mkdir()
     for name in ("22528_38912_BI16.dds", "22528_38912_Arc16.dds"):
         (build_dir / "textures" / name).write_text("", encoding="utf-8", newline="")
     window = make_window()

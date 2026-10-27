@@ -123,7 +123,11 @@ from typing import Any, Optional
 # this pack), and the pack row's Undo puts the originals back; the
 # ``reanchor_status`` pack entries carry ``forests`` (definitions
 # upgraded).
-PROTOCOL_VERSION = "1.21"
+# 1.22 (2026-10-27, additive): ``tile_texture_check`` — the textures an
+# installed tile's ``terrain/*.ter`` files name that its ``textures/``
+# folder lacks (``O4_Tile_Texture_Check``); the tile pane warns and offers
+# "Rebuild Tile".  An older engine refuses it and the app shows nothing.
+PROTOCOL_VERSION = "1.22"
 
 
 @dataclass(frozen=True)

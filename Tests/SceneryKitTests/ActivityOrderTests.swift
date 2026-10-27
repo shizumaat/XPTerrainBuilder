@@ -7,12 +7,18 @@ import Foundation
 @Suite struct ActivityOrderTests {
     struct Cases: Decodable {
         struct Finished: Decodable { let state: String; let label: String; let finished: Bool }
+        struct SectionCase: Decodable { let state: String; let section: String }
+        struct Filled: Decodable {
+            let name: String, rows: [String], selected: [String], filled: [String]
+        }
         struct ToneCase: Decodable {
             let state: String, label: String, has_issues: Bool, tone: String
         }
         struct Step: Decodable { let rows: [[String]]; let order: [String] }
         struct Sequence: Decodable { let name: String; let steps: [Step] }
         let finished: [Finished]
+        let section: [SectionCase]
+        let filled: [Filled]
         let tones: [ToneCase]
         let sequences: [Sequence]
     }
@@ -29,6 +35,21 @@ import Foundation
         for c in Self.cases.finished {
             #expect(ActivityOrder.isFinished(state: c.state, label: c.label) == c.finished,
                     "\(c.state) \(c.label)")
+        }
+    }
+
+    @Test func sectionLikeThePythonTwin() {
+        #expect(!Self.cases.section.isEmpty)
+        for c in Self.cases.section {
+            #expect(ActivityOrder.section(state: c.state).rawValue == c.section, "\(c.state)")
+        }
+    }
+
+    @Test func filledLikeThePythonTwin() {
+        #expect(!Self.cases.filled.isEmpty)
+        for c in Self.cases.filled {
+            let filled = ActivityOrder.filledRows(rows: c.rows, selected: Set(c.selected))
+            #expect(filled == Set(c.filled), "\(c.name)")
         }
     }
 

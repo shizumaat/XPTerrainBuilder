@@ -249,6 +249,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.sources",
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
+        "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.cluster_outline",
@@ -423,6 +424,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.sources",
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
+        "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.cluster_outline",
@@ -504,20 +506,25 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.dual_width",
         "auto_patch_v2.planar.edges",
+        "auto_patch_v2.planar.fill_riser",
+        "auto_patch_v2.planar.fill_road",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
         "auto_patch_v2.planar.lidar_road",
+        "auto_patch_v2.planar.low_extent",
         "auto_patch_v2.planar.low_level",
         "auto_patch_v2.planar.object_corridor",
         "auto_patch_v2.planar.overlay",
         "auto_patch_v2.planar.pack_reads",
         "auto_patch_v2.planar.pad_blocks",
         "auto_patch_v2.planar.pad_cut",
+        "auto_patch_v2.planar.pad_fill",
         "auto_patch_v2.planar.pad_sliver",
         "auto_patch_v2.planar.pad_terrace",
         "auto_patch_v2.planar.plate_bays",
         "auto_patch_v2.planar.platform",
+        "auto_patch_v2.planar.reach_after_pads",
         "auto_patch_v2.planar.ribbon_weld",
         "auto_patch_v2.planar.ribbons",
         "auto_patch_v2.planar.ridge_reach",
@@ -627,6 +634,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.public_road",
+        "auto_patch_v2.airport.riser_wall",
         "auto_patch_v2.airport.road_descent",
         "auto_patch_v2.airport.road_joint",
         "auto_patch_v2.airport.road_profile",
@@ -812,6 +820,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.sources",
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
+        "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.constraints",
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_shelf",
@@ -1309,7 +1318,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     classify.ribbon_mint classify.roles classify.rules classify.sources
-    classify.taxi_letter constraints constraints.apron constraints.apron_shelf
+    classify.taxi_letter classify.wall_clip constraints constraints.apron constraints.apron_shelf
     constraints.assembly constraints.ceiling constraints.channel constraints.cluster_pad
     constraints.contiguity constraints.eat constraints.end_lip constraints.flat_site
     constraints.foot_rows constraints.geometry constraints.groundside
@@ -1450,7 +1459,8 @@ CODE_MODULES["solve"] = _mods("""
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
-    classify.sources classify.taxi_letter constraints.apron constraints.apron_shelf
+    classify.sources classify.taxi_letter classify.wall_clip constraints.apron
+    constraints.apron_shelf
     constraints.ceiling constraints.cluster_pad constraints.contiguity
     constraints.end_lip constraints.geometry constraints.groundside constraints.no_step
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
@@ -1480,11 +1490,11 @@ CODE_MODULES["solve"] = _mods("""
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
-    planar.dual_width
-    planar.edges planar.landing planar.landing_runout planar.lidar_road
-    planar.low_level planar.object_corridor
-    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
-    planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld planar.ribbons
+    planar.dual_width planar.edges planar.landing planar.landing_runout
+    planar.lidar_road planar.low_level planar.object_corridor planar.overlay
+    planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
+    planar.pad_terrace planar.plate_bays
+    planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_fence
@@ -1503,11 +1513,12 @@ CODE_MODULES["solve"] = _mods("""
     geom.valid_area
     constraints.door_pad
     geom.slope_pad
+    planar.fill_road planar.fill_riser
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low
-    model.stage_one
-    airport.walled_plate law.walled_plate_schema model.walled_plate
+    airport.walled_plate law.walled_plate_schema model.stage_one model.walled_plate
+    planar.low_extent planar.reach_after_pads
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
         law.runway_ends_schema law.terrain_witness_schema
@@ -1549,7 +1560,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
     classify.pad_cut_corridor classify.pad_touch
     classify.ramp_runout classify.retaining_wall classify.ribbon_mint
-    classify.roles classify.rules classify.sources classify.taxi_letter constraints
+    classify.roles classify.rules classify.sources classify.taxi_letter classify.wall_clip
+    constraints
     constraints.apron constraints.apron_shelf constraints.assembly constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
     constraints.end_lip constraints.flat_site constraints.foot_road constraints.foot_rows
@@ -1592,11 +1604,11 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
-    planar.dual_width
-    planar.edges planar.landing planar.landing_runout planar.lidar_road
-    planar.low_level planar.object_corridor
-    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
-    planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld planar.ribbons
+    planar.dual_width planar.edges planar.landing planar.landing_runout
+    planar.lidar_road planar.low_level planar.object_corridor planar.overlay
+    planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
+    planar.pad_terrace planar.plate_bays
+    planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_fence
@@ -1615,11 +1627,12 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.valid_area
     constraints.door_pad
     geom.slope_pad
+    planar.fill_road planar.fill_riser
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
-    model.stage_one
-    airport.walled_plate constraints.walled_plate law.walled_plate_schema model.walled_plate
+    airport.walled_plate constraints.walled_plate law.walled_plate_schema
+    model.stage_one model.walled_plate planar.low_extent planar.reach_after_pads
 """)
 CODE_MODULES["emit"] = _mods("""
         constraints.runway_end_report law.runway_ends_schema law.terrain_witness_schema
@@ -1657,7 +1670,7 @@ CODE_MODULES["emit"] = _mods("""
     classify.gap_mint classify.lot_roads classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch
     classify.retaining_wall classify.ribbon_mint classify.roles
-    classify.rules classify.sources classify.taxi_letter constraints.apron
+    classify.rules classify.sources classify.taxi_letter classify.wall_clip constraints.apron
     constraints.apron_shelf constraints.apron_trend constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
     constraints.end_lip constraints.flat_site constraints.geometry
@@ -1694,6 +1707,7 @@ CODE_MODULES["emit"] = _mods("""
     solve.project_strip solve.rows solve.wall_cut solve.warm_seed verify.roads
     classify.reachability
     geom.slope_pad
+    airport.riser_wall
     model.road_yield pipeline.band_road_wall
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index
@@ -1732,7 +1746,8 @@ CODE_MODULES["verify"] = _mods("""
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     classify.ribbon_mint classify.roles classify.rules classify.sources
-    classify.taxi_letter constraints.apron constraints.ceiling constraints.channel
+    classify.taxi_letter classify.wall_clip constraints.apron constraints.ceiling
+    constraints.channel
     constraints.cluster_pad constraints.contiguity constraints.eat constraints.end_lip
     constraints.geometry constraints.groundside constraints.junction_mesh
     constraints.no_step constraints.pad_frontage_gs constraints.pad_relief

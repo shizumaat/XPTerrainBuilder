@@ -6965,11 +6965,16 @@ class DeclaredWallSteps:
     declared step it crosses (never the sum: a mouth publishes several
     overlapping outlines, and summing them would blind the reader); the
     excess still reports, and a pair beside the line that does not cross
-    it is ground, not the riser, and reports in full."""
+    it is ground, not the riser, and reports in full.
+
+    A DECLARED GAP STEP is read the same way (owner RULINGS 2026-10-27y,
+    #883: "a step the owner has approved is lawful in the strip checks
+    too"): the 08k separation joint between two shapes (``gap: true``,
+    ``planar.shapes._gap_joints``, #1084) forgives its declared step."""
 
     def __init__(self, terrace_joints_ll, ll_to_m) -> None:
         rows = [r for r in (terrace_joints_ll or [])
-                if r.get("kind") == WALL_TERRACE_JOINT_KIND]
+                if r.get("kind") == WALL_TERRACE_JOINT_KIND or r.get("gap")]
         self.joints = _terrace_joints_to_m(rows, ll_to_m)
         self._index = _JointSegments(self.joints) if self.joints else None
 
@@ -9740,6 +9745,7 @@ def _check_within_shape(ways: List[Way],
         if _lla is not None and _llb is not None:
             v.lat = (_lla[0] + _llb[0]) / 2.0
             v.lon = (_lla[1] + _llb[1]) / 2.0
+            v.ll_a, v.ll_b = _lla, _llb
         if _box:
             v.reading = "taxi_box"
         if transverse_road_out is not None and c.transverse_road:
@@ -11059,8 +11065,12 @@ OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
         "(a v2 patch under that law) and only on a chord at least "
         "``emit.within_shape.withdrawn_chord_min_m`` long (RULINGS "
         "2026-09-06p (3): a short stub|stub step is priced); a v1 patch is "
-        "untouched.  Counted in its family, reported under this heading, "
-        "never adjudicated",
+        "untouched.  A chord on a taxi-family RING with another face at an "
+        "end (a taxiway vertex welded to a runway) is stamped only where its "
+        "published route holds it (RULINGS 2026-10-28f: a taxiway's slope is "
+        "judged along its route, never straight across the paved shape).  "
+        "Counted in its family, reported under this heading, never "
+        "adjudicated",
     "role_less_host_duplicate":
         "every way of the row is ROLE-LESS ARTICULATION geometry (an "
         "o4_feature way with no role tag) whose HOST shape's vertex set "

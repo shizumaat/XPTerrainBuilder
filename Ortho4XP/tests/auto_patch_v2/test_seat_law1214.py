@@ -363,9 +363,9 @@ def test_an_airside_hard_deck_sits_flush_with_the_solved_airside():
     # R1: the file is named for the offset it now bakes
     from auto_patch_v2.airport import obj8_split as OS
     assert b.new_resource == OS.body_resource_name("objects/deck.obj", 0, b.anchor.offset)
-    # no end lines read (no step): the ring median, as round 2 read it
-    got0 = ADS.airside_frame([st_deck, st_rail], (), surface, {}, 0.0)
-    assert abs(got0[0] - (99.7 - 6.96)) < 1e-9
+    # no step: nothing reads the pavement running across the deck, so it
+    # is not class A (RULINGS 2026-10-27c, #1471)
+    assert ADS.airside_frame([st_deck, st_rail], (), surface, {}, 0.0) is None
     # a building beside the deck in its frame: not a bridge, nothing moves
     st_hall = types.SimpleNamespace(m=rail, bridge=[""])
     assert ADS.airside_frame([st_deck, st_hall], (), surface, {}, 2.0) is None

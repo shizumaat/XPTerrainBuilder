@@ -247,24 +247,11 @@ extension PatchEditModel {
 
     // MARK: - Rebuild
 
-    /// "Rebuild tile": the Build box's own path — select the tile, build
-    /// it with the source and zoom it was built with. During a build the
-    /// tile joins it (#1322), unless it is already part of it.
+    /// "Rebuild tile": `BuildModel.rebuildWithItsImagery`, the Build box's
+    /// own path; the sentence why not shows as the editor's error.
     func rebuildTile() {
         guard let build, let doc = document, let coord = Self.coord(doc.tile) else { return }
-        if build.rebuildDecision(for: coord) == .alreadyInRun {
-            editError = "This tile is already in this run."
-            return
-        }
-        build.click(lat: coord.lat, lon: coord.lon, command: false, shift: false)
-        guard build.canBuild else {
-            editError = build.xplaneBlockReason
-                ?? "This tile can't be rebuilt now. Turn off “Skip tiles already built” and try again."
-            return
-        }
-        let choice = build.built[coord].flatMap(TileImageryChoice.resolve)
-        build.startBuild(batches: [([coord], choice?.provider ?? build.buildProvider,
-                                    choice?.zl ?? build.buildZL)])
+        if let reason = build.rebuildWithItsImagery(coord) { editError = reason }
     }
 
     // MARK: - Unsaved-edits prompt

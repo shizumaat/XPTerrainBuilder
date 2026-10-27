@@ -30,6 +30,17 @@ The verdict per source, with the numbers recorded (``SourceRecord``):
   NAMES A TAXIWAY (RULINGS 2026-09-04z(1), ``evidence.taxi_name_match``):
   taxi evidence stands in for the centreline it lacks, so the page is
   never a strip or a lot (the scorer reads it taxi family).
+
+#1548 THE RAIL RUNG: a page an AT-GRADE mapped railway runs ALONG — rail
+centreline inside at least ``lot.through_min_fraction`` of its
+half-perimeter, the wide-strip rung's own share — that touches no taxi
+centreline, holds no startup and is no apron by name or mapped cover is a
+``strip``: ground transport, never airside pavement.  Measured at LGAV
+(Global Airports pack, ``dsf:pol171``, 15 m x 400 m, 975 m of four mapped
+tracks): it read ``open``, the §110 default made it a road ribbon, and
+§27 flipped it to ``apron`` on 16 m of end-on contact with a taxiway page.
+A strip flips under §27 by SHARE of its perimeter, which a track bed
+meeting a taxiway end-on never reaches.
 """
 from __future__ import annotations
 
@@ -40,11 +51,12 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import linemerge, unary_union
 from shapely.strtree import STRtree
 
+from ..airport.deck_signature import is_bridge_way
 from ..model.airport import Airport
 from .evidence import Evidence, apron_named, polygon_parts, taxi_name_match
 from .rules import Rules
 
-__all__ = ["SourceRecord", "classify_sources", "apron_union",
+__all__ = ["SourceRecord", "classify_sources", "apron_union", "network_ways",
            "object_body_cuts", "OBJECT_PAVEMENT_PREFIX", "ENCLOSED_MIN_FRAC"]
 
 #: the source-id prefix ``airport/load.py`` gives a §42 object-pavement body
@@ -86,6 +98,9 @@ class SourceRecord:
     reason: str
     taxi_name: str = ""     # the description's taxiway token (04z-1), "" when it names none
     taxi_designator: str = ""  # ...and the designator after it ("Taxiway B" -> "B")
+    network_through_m: float = 0.0  # NETWORK road running through it (R1 evidence, every page)
+    network_strip: bool = False     # ...re-kinded a road strip by it: touches a pad (R1, §3)
+    rail_m: float = 0.0     # #1548: at-grade mapped railway length inside
 
     def as_evidence(self) -> dict[str, float | str]:
         out: dict[str, float | str] = {
@@ -112,10 +127,11 @@ def apron_union(airport: Airport):
     return unary_union(aprons) if aprons else Polygon()
 
 
-def classify_sources(airport: Airport, ev: Evidence, rules: Rules
+def classify_sources(airport: Airport, ev: Evidence, rules: Rules, law=None
                      ) -> tuple[list[SourceRecord], dict[str, Polygon]]:
     """Every source polygon's record, and the polygons of the strips and
-    lots (the ones whose boundary cuts)."""
+    lots (the ones whose boundary cuts).  ``law`` reads R1's pad witness
+    (:func:`_network_strips`); without it no page is re-kinded by it."""
     roads = [c.line for c in ev.truck_chains] + \
         [c.line for c in ev.road_chains if not c.aisle]
     osm_roads = [c.line for c in ev.road_chains if not c.aisle]
@@ -123,6 +139,8 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules
     taxis = [c.line for c in ev.taxi_chains]
     road_tree = STRtree(roads) if roads else None
     osm_tree = STRtree(osm_roads) if osm_roads else None
+    network = [ln for _w, ln in network_ways(airport, rules)]
+    net_tree = STRtree(network) if network else None
     aisle_tree = STRtree(aisles) if aisles else None
     taxi_tree = STRtree(taxis) if taxis else None
     starts = [Point(s.xy) for s in airport.startups]
@@ -130,9 +148,13 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules
     parking = unary_union([p for _i, p in ev.parking_polys]) if ev.parking_polys \
         else Polygon()
     apron_u = apron_union(airport)
+    rails = _rail_lines(airport, rules)
+    rail_tree = STRtree(rails) if rails else None
     desc = {p.id: p.description for p in airport.pavements}
     out: list[SourceRecord] = []
     cut: dict[str, Polygon] = {}
+    cands: list[int] = []
+    polys = dict(ev.pavement_polys)
     for sid, poly in ev.pavement_polys:
         # A REMAINDER KEEPS ITS PAGE'S DESCRIPTION.  A source overlapping
         # apt.dat pavement is admitted as its remainder pieces (``<id>#k``,
@@ -149,10 +171,124 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules
                       poly, road_tree, roads, osm_tree,
                       osm_roads, aisle_tree, aisles, taxi_tree, taxis, start_tree,
                       parking, apron_u, rules)
+        rec = _rail_rung(rec, poly, rail_tree, rails, rules)
+        rec, candidate = _network_evidence(rec, poly, net_tree, network, rules)
         out.append(rec)
+        if candidate:
+            cands.append(len(out) - 1)
+    if cands and law is not None:
+        out = _network_strips(out, cands, polys, ev, airport, law)
+    for rec in out:
         if rec.cls in ("strip", "lot"):
-            cut[sid] = poly
+            cut[rec.id] = polys[rec.id]
     return out, cut
+
+
+def _rail_lines(airport: Airport, rules: Rules) -> list[LineString]:
+    """The AT-GRADE mapped railways (``osm_roads.railways``): a bridge
+    passes OVER the page and a tunnel UNDER it, so neither is evidence of
+    what the page itself carries."""
+    admitted = rules.osm_roads.railways
+    return [LineString(w.points) for w in airport.osm_ways
+            if w.tags.get("railway") in admitted and len(w.points) >= 2
+            and not is_bridge_way(w.tags)
+            and w.tags.get("tunnel", "no") == "no"]
+
+
+def _rail_rung(rec: SourceRecord, poly: Polygon, rail_tree, rails,
+               rules: Rules) -> SourceRecord:
+    """#1548: an ``open`` page a railway runs ALONG is a ``strip`` (module
+    docstring); every other verdict is returned unchanged."""
+    rail_m = sum(p.length for p in _inside_length(poly, rail_tree, rails))
+    if rail_m <= 0.0:
+        return rec
+    lot = rules.lot
+    half_perim = max(poly.length / 2.0, 1e-6)
+    if rec.cls == "open" and rec.taxi_m < rules.cells.min_shared_m \
+            and not rec.taxi_name and rec.startups == 0 \
+            and rec.apron_cover < lot.apron_cover_fraction \
+            and not apron_named(rec.description, rules) \
+            and rail_m >= lot.through_min_fraction * half_perim:
+        return _dc.replace(rec, rail_m=rail_m, cls="strip", reason=(
+            f"railway {rail_m:.0f} m >= {lot.through_min_fraction:g} x "
+            f"{half_perim:.0f} m, no taxi centreline, no startup (#1548)"))
+    return _dc.replace(rec, rail_m=rail_m)
+def network_ways(airport: Airport, rules: Rules) -> list[tuple[_t.Any, LineString]]:
+    """The mapped NETWORK roads (spec ``road-edge-drop-spec.md`` R1), each
+    with its way: the at-grade classes the ribbon mint admits (``[osm_roads]
+    ribbon_highways``) less the ones the road evidence already reads
+    (``[osm_roads] highways``).  Read here for the verdict and by
+    ``roles.classify`` for a network strip's station source."""
+    orr = rules.osm_roads
+    classes = set(getattr(orr, "ribbon_highways", ()) or ()) - set(orr.highways)
+    return [(w, LineString(w.points)) for w in airport.osm_ways
+            if w.tags.get("highway") in classes and len(w.points) >= 2]
+
+
+def _network_evidence(rec: SourceRecord, poly: Polygon, tree: STRtree | None,
+                      lines: list[LineString], rules: Rules
+                      ) -> tuple[SourceRecord, bool]:
+    """R1's EVIDENCE (RULINGS 2026-10-20d; spec ``fill-step-at-road-kerb-
+    spec.md`` §3): ``network_through_m`` on every page a network road runs
+    through, and whether the page is a CANDIDATE — the 04j strip rung read
+    with the network roads: a page at most ``[service] free_max_width_m``
+    wide, touching no taxi centreline, holding no startup and no apron
+    evidence, with network road running THROUGH it for ``[lot]
+    through_min_fraction`` of its half-perimeter in at most ``[lot]
+    max_road_pieces_per_100m`` pieces."""
+    if tree is None:
+        return rec, False
+    through, _dead, pieces = _through_length(poly, _inside_length(poly, tree, lines))
+    if through <= 0.0:
+        return rec, False
+    rec = _dc.replace(rec, network_through_m=round(through, 1))
+    if rec.cls == "strip":
+        return rec, False
+    lot = rules.lot
+    half = max(poly.length / 2.0, 1e-6)
+    if rec.width_m > rules.service.free_max_width_m or rec.startups or \
+            rec.taxi_m >= rules.cells.min_shared_m or rec.taxi_name or \
+            rec.apron_cover >= lot.apron_cover_fraction or apron_named(rec.description, rules):
+        return rec, False
+    return rec, (through >= lot.through_min_fraction * half
+                 and pieces * 100.0 / half <= lot.max_road_pieces_per_100m)
+
+
+def _network_strips(out: list[SourceRecord], cands: list[int],
+                    polys: dict[str, Polygon], ev: Evidence, airport: Airport,
+                    law) -> list[SourceRecord]:
+    """R1 NARROWED (spec ``fill-step-at-road-kerb-spec.md`` §3; owner RULINGS
+    2026-10-27i): A CANDIDATE PAGE THAT REACHES A HIGH TERMINAL IS ITS
+    NETWORK ROAD — re-kinded a road strip only where it is WELDED to a
+    building pad (it shares the pad's rim: ``pad_touch.
+    source_weld_partners``, the classifier's own touch witness — a page held
+    off a pad as a §28 (6) hillside terrace, or gapped, shares no edge with
+    it).  A page that touches no pad keeps its verdict: a lot between a
+    pad's fill and its road stays a lot (27i).  The strip's stations are
+    then its network way (``roles.classify``).  MEASURED HECA ``dsf:pol10``:
+    its outline overlaps ``building5``'s footprint by 495 m2, and the pair is
+    HELD (the knife stands it 0.95 m off) — no weld, no re-kind."""
+    from .pad_touch import source_weld_partners
+    if not ev.pads:
+        return out
+    r = float(law.tables.emit.design.pad_frontage_m)
+    air = [p for _rw, p in ev.runway_polys] + [polys[x.id] for x in out if x.cls == "open"]
+    airside = unary_union(air).buffer(r) if air else None
+    dem = getattr(airport, "dem", None)
+    tree = STRtree([q for _ref, q in ev.pads])
+    out = list(out)
+    for k in cands:
+        rec = out[k]
+        poly = polys[rec.id]
+        near = [ev.pads[int(j)] for j in tree.query(poly, predicate="dwithin", distance=r)]
+        welded = source_weld_partners(poly, near, airside, dem, law) if near else []
+        if not welded:
+            continue
+        out[k] = _dc.replace(rec, cls="strip", network_strip=True, reason=(
+            f"network road {rec.network_through_m:.0f} m through, width "
+            f"{rec.width_m:.1f} m, welded to {', '.join(sorted(welded))} "
+            f"(2026-10-20d R1, spec fill-step §3)"))
+    return out
 
 
 def _polygon(points: _t.Sequence[tuple[float, float]]) -> Polygon | None:

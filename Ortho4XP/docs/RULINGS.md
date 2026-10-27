@@ -10421,3 +10421,26 @@ Both apps (the Mac app is the layout authority; the Qt window mirrors it, #1244)
 (1) Q223 a: only the per-tile build settings follow the selection (zoom, cover, imagery, airport options). App-wide settings (data folders, API keys, appearance) always stay global.
 (2) Q224 a: a never-built tile in the selection counts as having the current global defaults, so it can match or conflict with the others.
 (3) Q225 a: with no tiles selected, an edit changes the global defaults for NEW tiles only; built tiles keep their own settings.
+
+**2026-10-28k — airport cuts and tunnels, from the LFPG hand patch (spec `docs/specs/lfpg-cuts-tunnels-rules-spec.md`, PR #1559; owner Q226–Q233, 2026-10-27T15:56:40Z, verbatim):**
+"226. a
+227. a
+228. a
+229. b - should be guided by objects for tunnel mouths, buildings, and road grading requirements
+230. a
+231. b - except where an object would indicate a different value
+232. a
+233. a - rails can't be as steep, so where there's a tunnel mouth they need a longer ramp than a road."
+Read with the questions as asked:
+- (226 a) The auto patch is judged by depth below the surrounding ground, not by the hand patch's absolute elevations.
+- (227 a) Where a hard-deck bridge object stands over a road the survey shows, the trench is cut to the surveyed road under the deck. This lifts the 22n hold for that case.
+- (228 a) A road running at least 100 m under viaducts mapped at layer 2 or higher, inside the airport boundary, sits 7.5 m below the apron.
+- (229 b) Landside zones such as Roissypole sit at the level the tunnel-mouth objects, the buildings and the road grading requirements set, not at the survey's level.
+- (230 a) Survey cuts are kept.
+- (231 b) Every road under pavement is deepened to the 7.5 m mouth depth, except where an object indicates a different value.
+- (232 a) A tagged tunnel gets no cut where its road already clears 5 m under the apron, or where neither the survey nor the ground shows one.
+- (233 a) Rail follows the survey and never gets a road ramp. At a tunnel mouth, rail needs a longer (shallower) ramp than a road; on coarse elevation that ramp is at most 3.5 %.
+
+**2026-10-28l — wall-corridor bays: lids and shared-wall steps (#414, PR #1567; owner Q234–Q235, 2026-10-27T16:51:31Z: "234. A 235. A").**
+(1) Q234 A: a lid over a wall-corridor trench counts as a roof (the headroom gate) only when it covers at least half the trench (`cutout.wall_corridor.headroom_cover_min = 0.5`). A sidewalk strip drawn at grade over a small part of the trench does not refuse the bay.
+(2) Q235 A: where neighbouring bays with different floors meet under a wall they share, and that wall reaches below both floors, the step is lawful: the wall hides it, and the census forgives it as a declared wall step.

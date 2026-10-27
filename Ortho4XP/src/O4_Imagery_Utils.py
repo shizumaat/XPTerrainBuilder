@@ -1217,6 +1217,18 @@ def is_placeholder_tile(url, headers):
     return False
 
 
+def is_cached_placeholder(path, url):
+    """True when a cached tile file is a server's "no imagery here" tile
+    (:func:`is_placeholder_tile` on its size, #1540).  The Mac map wrote
+    raw answers to the shared ``Previews/livemap`` cache before it learned
+    to drop them; the Qt map and the build's shared-cache read skip one."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return False
+    return is_placeholder_tile(url, {"Content-Length": str(size)})
+
+
 def provider_timeout(value):
     """The ``timeout=`` of a .lay file as positive seconds, or None if invalid."""
     try:
@@ -1475,12 +1487,14 @@ def shared_tile_cache_path(provider_code, zoomlevel, til_x, til_y):
     )
 
 
-def _shared_tile_cache_get(provider_code, zoomlevel, til_x, til_y):
+def _shared_tile_cache_get(provider_code, zoomlevel, til_x, til_y, url=""):
+    """A tile the map cached, or None -- never its "no imagery" tile
+    (``url``, the provider's address template, names the server)."""
     if not shared_tile_cache_dir:
         return None
     try:
         path = shared_tile_cache_path(provider_code, zoomlevel, til_x, til_y)
-        if os.path.isfile(path):
+        if os.path.isfile(path) and not is_cached_placeholder(path, url):
             return Image.open(path).convert("RGB")
     except Exception:
         pass
@@ -1580,7 +1594,8 @@ def wmts_request(tilematrix, til_x, til_y, provider):
 ################################################################################
 def get_wmts_image(tilematrix, til_x, til_y, provider, http_session):
     cached = _shared_tile_cache_get(
-        provider.get("code", ""), tilematrix, til_x, til_y
+        provider.get("code", ""), tilematrix, til_x, til_y,
+        str(provider.get("url_template") or ""),
     )
     if cached is not None:
         return (1, cached)

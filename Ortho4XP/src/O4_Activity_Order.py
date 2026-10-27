@@ -1,4 +1,5 @@
-"""The Activity list's row order and status tone (issue #1341).
+"""The Activity list's row order and status tone (issue #1341), which
+section a row sits in (#1556) and which rows show selected (#1537).
 
 Finished rows (done, built with warnings, failed, stopped) stay in the
 list until the app quits.  Live rows (queued, running) sit on top, the
@@ -16,7 +17,8 @@ Pure, no Qt.  Twin: ``Sources/SceneryKit/ActivityOrder.swift``; both read
 ``tests/fixtures/activity_order_cases.json``.
 """
 
-__all__ = ["FINISHED_STATES", "is_finished", "status_tone", "restamp",
+__all__ = ["FINISHED_STATES", "ACTIVITY", "COMPLETED", "is_finished",
+           "section", "filled_rows", "status_tone", "restamp",
            "display_order"]
 
 #: Engine / app states a row does not leave without being queued again.
@@ -27,6 +29,30 @@ def is_finished(state, label=""):
     """True for a row whose tile has left the run: done, failed, stopped
     here, or drained by the engine (state ``queued``, label ``stopped``)."""
     return state in FINISHED_STATES or label == "stopped"
+
+
+#: The pane sections a row sits in (#1556).
+ACTIVITY = "activity"
+COMPLETED = "completed"
+
+
+def section(state):
+    """The pane section a row sits in (#1556): a built tile (``done``,
+    with or without warnings) leaves Activity for Completed, where its
+    row is compact (#1542) -- title, then status and elapsed time, no
+    bar, no steps.  Failed, stopped and live rows stay in Activity; a
+    completed tile queued again is live, so it moves back."""
+    return COMPLETED if state == "done" else ACTIVITY
+
+
+def filled_rows(rows, selected):
+    """The rows filled as selected (#1537): a row whose tile is in the
+    map selection -- unless the selection holds every row's tile, or none
+    of them: a list lit up wholesale tells the user nothing.  ``rows`` is
+    every row of both sections."""
+    every = set(rows)
+    hit = every & set(selected)
+    return set() if not hit or hit == every else hit
 
 
 def status_tone(state, label="", has_issues=False):

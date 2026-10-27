@@ -114,10 +114,11 @@ def deck_rows(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str,
     """(ii)/(iii): per pack deck (``deck_kind`` flag / signature with a
     ring or two end lines), the written deck top at each end line against
     the mesh there.  Class A (a flag deck over airside, the solve's own
-    ``deck_datum_z``) reads its end lines by ``airside_deck_seat``; a
+    ``deck_datum_z``, the airport's pavement running across it — RULINGS
+    2026-10-27c) reads its end lines by ``airside_deck_seat``; a
     free-standing deck (``placement_family.frame_is_bridge``) reads its
     plate's end lines and the 22p classification."""
-    from .airside_deck_seat import airside_end_ground, end_tops
+    from .airside_deck_seat import airside_end_ground, end_tops, pavement_runs_across
     from .anchor_rule import Datum
     from .bridge_approach import approach_seat, end_ground
     from .placement_family import frame_is_bridge
@@ -140,7 +141,8 @@ def deck_rows(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str,
                 continue
             row = {"resource": m.resource, "unit": u.id, "kind": kind,
                    "deck_top": z0 + float(top), "class": "", "ends": (), "note": ""}
-            if m.deck_datum_z is not None and ring:
+            if (m.deck_datum_z is not None and ring
+                    and pavement_runs_across(ring, surface, step_m)):
                 got = airside_end_ground(ring, surface, step_m)
                 row["class"] = "A airside"
                 if got is None:

@@ -80,3 +80,21 @@ def test_bing_layer_uses_the_https_host():
     assert template == [
         "url_template=https://ecn.t{switch:0,1,2,3}.tiles.virtualearth.net"
         "/tiles/a{quadkey}.jpeg?g=15312"]
+
+
+def test_cached_placeholder_is_skipped(tmp_path, monkeypatch):
+    """#1540: a "no imagery" tile the Mac map cached (raw, 1033 bytes) is
+    never read back as imagery; a real cached tile is."""
+    monkeypatch.setattr(IMG, "shared_tile_cache_dir", str(tmp_path))
+    bad = IMG.shared_tile_cache_path("BI", 20, 5, 7)
+    os.makedirs(os.path.dirname(bad))
+    with open(bad, "wb") as fh:
+        fh.write(b"\0" * 1033)
+    assert IMG.is_cached_placeholder(bad, BING)
+    assert IMG._shared_tile_cache_get("BI", 20, 5, 7, BING) is None
+    good = IMG.shared_tile_cache_path("BI", 19, 2, 3)
+    os.makedirs(os.path.dirname(good))
+    with open(good, "wb") as fh:
+        fh.write(_jpeg())
+    assert not IMG.is_cached_placeholder(good, BING)
+    assert IMG._shared_tile_cache_get("BI", 19, 2, 3, BING) is not None

@@ -486,7 +486,7 @@ struct MapMainView: View {
                     .frame(maxWidth: 440)
             }
             // The preset cards (#822): the first choice a new user makes.
-            PresetCardsView()
+            PresetCardsView(followsSelection: false)
                 .frame(maxWidth: 640)
                 .padding(.top, 8)
             Text(Self.systemInfo.summary)

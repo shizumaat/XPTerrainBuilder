@@ -227,6 +227,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.walled_plate",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -280,6 +281,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.terrace_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
+        "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.frame",
@@ -289,6 +291,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.rebake",
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.structures",
+        "auto_patch_v2.model.walled_plate",
     ),
     "planar": (
         "auto_patch_v2",
@@ -394,6 +397,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_family",
         "auto_patch_v2.airport.wall_geometry",
         "auto_patch_v2.airport.wall_mouth",
+        "auto_patch_v2.airport.walled_plate",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -458,6 +462,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.terrace_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
+        "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.end_area",
@@ -474,6 +479,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.road_yield",
         "auto_patch_v2.model.stage_one",
         "auto_patch_v2.model.structures",
+        "auto_patch_v2.model.walled_plate",
         "auto_patch_v2.planar",
         "auto_patch_v2.planar.apron_shelf",
         "auto_patch_v2.planar.arrangement_memo",
@@ -563,6 +569,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.terrace_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
+        "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.frame",
@@ -596,6 +603,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.terrace_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
+        "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.frame",
@@ -672,6 +680,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.terrace_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
+        "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.constraints",
@@ -766,6 +775,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.walled_plate",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -838,6 +848,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.transverse",
         "auto_patch_v2.constraints.trend",
         "auto_patch_v2.constraints.wall_zone",
+        "auto_patch_v2.constraints.walled_plate",
         "auto_patch_v2.constraints.water",
         "auto_patch_v2.constraints.weld_floor",
         "auto_patch_v2.constraints.zones",
@@ -882,6 +893,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.terrace_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
+        "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.constraints",
@@ -900,6 +912,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.stage_one",
         "auto_patch_v2.model.structures",
         "auto_patch_v2.model.threshold_datum",
+        "auto_patch_v2.model.walled_plate",
         "auto_patch_v2.pipeline",
         "auto_patch_v2.pipeline.shapes",
         "auto_patch_v2.planar",
@@ -954,6 +967,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "airside_sliver_pairs": "proximity",
     "reach_bands": "no_step",
     "zone_bands": "zones",
+    "walled_plate_under": "walled_plate",
     "strip_transverse": "zones",
     "strip_longitudinal": "strips",
     "strip_arc": "strips",
@@ -992,7 +1006,8 @@ _GENERATOR_CORE = """
     law.eat_schema law.flat_pack_schema
     law.flat_site_schema law.model law.model_types law.rebake_schema
     law.reference_code law.role_cap_schema law.runway_ends_schema law.tables
-    law.terrace_schema law.tunnel_object_schema law.units model model.constraints
+    law.terrace_schema law.tunnel_object_schema law.units law.walled_plate_schema
+    model model.constraints
     model.frame model.planar model.registries model.structures
 """
 
@@ -1214,6 +1229,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.strips constraints.transverse geom.containment model.airport
         model.end_area model.islands model.map_memo model.platform model.threshold_datum
     """),
+    "walled_plate": _mods(_GENERATOR_CORE + """
+        constraints.walled_plate model.airport
+    """),
     "water": _mods(_GENERATOR_CORE + """
         geom.water_level constraints.geometry constraints.precedence
         constraints.water model.airport
@@ -1297,6 +1315,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level
     model.stage_one
+    airport.walled_plate constraints.walled_plate law.walled_plate_schema model.walled_plate
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
         law.inset_class law.runway_ends_schema
@@ -1344,6 +1363,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     model.registries model.structures model.threshold_datum
     geom.slope_pad
     geom.foot_planes constraints.group_level constraints.face_index
+    airport.dem airport.walled_plate law.walled_plate_schema model.walled_plate
 """)
 
 #: THE SOLVE AND THE LAST STAGE (spec §4b.4, §4b.5; #843 step 9b): the solve
@@ -1447,6 +1467,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low
     model.stage_one
+    airport.walled_plate law.walled_plate_schema model.walled_plate
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
         law.runway_ends_schema
@@ -1551,6 +1572,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
     model.stage_one
+    airport.walled_plate constraints.walled_plate law.walled_plate_schema model.walled_plate
 """)
 CODE_MODULES["emit"] = _mods("""
         constraints.runway_end_report law.runway_ends_schema
@@ -1626,6 +1648,7 @@ CODE_MODULES["emit"] = _mods("""
     model.road_yield pipeline.band_road_wall
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index
+    airport.walled_plate law.walled_plate_schema model.walled_plate
 """)
 CODE_MODULES["verify"] = _mods("""
         constraints.runway_end_report law.runway_ends_schema
@@ -1695,6 +1718,7 @@ CODE_MODULES["verify"] = _mods("""
     geom.slope_pad
     model.road_yield pipeline.band_road_wall
     geom.foot_planes constraints.group_level constraints.face_index
+    airport.walled_plate law.walled_plate_schema model.walled_plate
 """)
 
 

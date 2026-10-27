@@ -207,6 +207,11 @@ class Member:
     #: tunnel wall plate (its stations read at-grade ground) and for every
     #: plan written before 11t — the pre-11t law exactly.
     plate_clearance_m: float = 0.0
+    #: owner RULINGS 2026-10-27u (#1201): ``"walled"`` — the plate is a
+    #: RUNWAY-END WALLED PLATE's (``airport/walled_plate``): its datum is read
+    #: at any authored height (§16e (1)'s crest plate reads ``plate_y > 0``
+    #: only).  ``""`` for every other member and in every older plan.
+    plate_kind: str = ""
     #: THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3):
     #: this member's resource carries a uniform below-zero extent across
     #: its footprint (``airport/skirt.is_skirt``).  A body EVERY one of
@@ -431,6 +436,7 @@ class RebakePlan:
                     "deck_end_stations": [[a, b] for a, b in m.deck_end_stations],
                     "plate_y": m.plate_y,
                     "plate_clearance_m": m.plate_clearance_m,
+                    "plate_kind": m.plate_kind,
                     "plate_stations": [[a, b] for a, b in m.plate_stations],
                     "skirted": m.skirted,
                     "elevated_deck": m.elevated_deck,
@@ -530,6 +536,7 @@ class RebakePlan:
                 plate_y=None if m.get("plate_y") is None else float(m["plate_y"]),
                 plate_stations=tuple((float(a), float(b)) for a, b in m.get("plate_stations", ())),
                 plate_clearance_m=float(m.get("plate_clearance_m") or 0.0),
+                plate_kind=str(m.get("plate_kind") or ""),
                 skirted=bool(m.get("skirted", False)),
                 elevated_deck=bool(m.get("elevated_deck", False)),
                 deck_shade_ring=None if m.get("deck_shade_ring") is None

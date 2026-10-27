@@ -21,7 +21,11 @@ no drop keeps the RSA length.  ONE reading, published in the sidecar's
 A general rule read from the DEM: no airport, no runway and no length is
 named here.  Measured (lane rwyzone15c, 2026-10-15): CYXY 14R/32L and
 14L/32R stop at 155-195 m on the escarpment; KBJC (steepest end ground
-10.5 %, no 2 m deficit) and KDEN keep their 304.8 m."""
+10.5 %, no 2 m deficit) and KDEN keep their 304.8 m.
+
+AND AT A WALLED PLATE (owner RULINGS 2026-10-27t, #1201): an end capped by a
+recognised runway-end walled plate (``Airport.walled_plates``) ends at the
+plate's inner edge — KSEA 16R / 16C / 16L at 302.8 / 298.6 / 296.3 m."""
 from __future__ import annotations
 
 import math
@@ -99,4 +103,11 @@ def end_area_lengths(airport: Airport, law: Law) -> dict[str, tuple[float, float
         cn, cl, ins = rw.code_number, rw.code_letter, runway_status(rw)
         out[rw.id] = (_end_length(dem, a, (-ux, -uy), law, cn, cl, ins),
                       _end_length(dem, b, (ux, uy), law, cn, cl, ins))
+    # owner RULINGS 2026-10-27t (#1201): A RUNWAY SAFETY AREA ENDS AT A
+    # RECOGNISED WALLED PLATE'S INNER EDGE (``airport/walled_plate``)
+    for p in getattr(airport, "walled_plates", ()) or ():
+        if p.runway in out:
+            lens = list(out[p.runway])
+            lens[p.end] = min(lens[p.end], float(p.inner_s))
+            out[p.runway] = (lens[0], lens[1])
     return out

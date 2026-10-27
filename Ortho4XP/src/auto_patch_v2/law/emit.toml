@@ -881,6 +881,7 @@ hard_rulings = [
   "rulesets.common.road_max_grade pavement fallback, last stage",    # the same
   "door line keeps the apron cap",                       # #798 round 3 (owner 2026-10-20 01:15Z): a sloping building's door line keeps the apron's (yielded) cap to the nearest taxi point — ONE row (constraints/door_pad).  MEASURED soft (KASE round 7): priced at the target weight the QP traded it, Hangar1's door line 2.81 % against 2.02
   "door airside give",                                   # #798 round 3 (owner RULINGS 2026-10-19ac): an airside vertex a door pad's hard rows reach is solved in stage 2 within door_airside_give_m of its stage-1 level (constraints/door_pad.blend_release)
+  "structures.walled_plate under-plate cap",            # owner RULINGS 2026-10-27t/u (#1201): the ground under a runway-end walled plate never rises through its top (constraints/walled_plate)
 ]
 # THE APRON'S PLANE ROW IS HARD ON THE APRON ONLY (flat-pad spec v2 §5, owner
 # RULINGS 2026-09-30be/30bf): ``plane_gradient`` is minted on EVERY governed
@@ -921,7 +922,8 @@ hard_conflict_ranks = [
    "apron body chord, stationed across the face", "plane_gradient", "apron body chord, strict",
    "door line keeps the apron cap"],                                  # #798: the door line is an apron law
   ["structures.building_pad pad_slope_max ceiling", "structures.building_pad platform plane",
-   "structures.building_pad frontage_hold"],
+   "structures.building_pad frontage_hold",
+   "structures.walled_plate under-plate cap"],                        # #1201 (27t/u): the plate's ground outranks the groundside rows under it
   ["road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.mouth_depth_m",
    "roads.ramp_runout landing run-out at road grade",                 # #711: groundside, with the road ramp ceiling
    "gap_piece follows its standing neighbour across the stand-off",    # §53 (13): groundside, the last stage's own

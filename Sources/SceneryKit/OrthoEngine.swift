@@ -133,63 +133,6 @@ public struct OrthoEngine: Sendable, Equatable {
         root.appendingPathComponent("install_mac.sh")
     }
 
-    // MARK: - Providers
-
-    /// An imagery source the engine can download from: a single provider
-    /// (Providers/<Region>/<CODE>.lay) or a combined one (Providers/<CODE>.comb).
-    public struct Provider: Sendable, Equatable, Identifiable {
-        public let code: String
-        /// Region folder for single providers; nil for combined.
-        public let region: String?
-        public let isCombined: Bool
-        public var id: String { code }
-
-        public init(code: String, region: String?, isCombined: Bool) {
-            self.code = code
-            self.region = region
-            self.isCombined = isCombined
-        }
-    }
-
-    /// Enumerates providers the same way the engine's GUI dropdown does —
-    /// every .lay not flagged in_GUI=False plus every .comb, minus the
-    /// internal OSM/SEA layers — but from the filesystem, so no python is
-    /// needed just to fill a picker.
-    public func providers() -> [Provider] {
-        Self.providers(inProvidersDirectory: resourcesRoot.appendingPathComponent("Providers"))
-    }
-
-    public static func providers(inProvidersDirectory dir: URL) -> [Provider] {
-        let fm = FileManager.default
-        var found: [Provider] = []
-        let entries = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            if entry.pathExtension == "comb" {
-                found.append(Provider(code: entry.deletingPathExtension().lastPathComponent,
-                                      region: nil, isCombined: true))
-                continue
-            }
-            guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-            else { continue }
-            let region = entry.lastPathComponent
-            let lays = (try? fm.contentsOfDirectory(at: entry, includingPropertiesForKeys: nil)) ?? []
-            for lay in lays.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
-            where lay.pathExtension == "lay" {
-                let code = lay.deletingPathExtension().lastPathComponent
-                if let text = try? String(contentsOf: lay, encoding: .utf8),
-                   text.components(separatedBy: .newlines).contains(where: {
-                       $0.replacingOccurrences(of: " ", with: "").hasPrefix("in_GUI=False")
-                   }) {
-                    continue
-                }
-                found.append(Provider(code: code, region: region, isCombined: false))
-            }
-        }
-        return found
-            .filter { $0.code != "OSM" && $0.code != "SEA" }
-            .sorted { $0.code.lowercased() < $1.code.lowercased() }
-    }
-
     // MARK: - Tile output state
 
     /// What exists on disk for one tile the engine has (at least partially)

@@ -368,6 +368,18 @@ class PatchEditModel(QObject):
         name = "Set Shape Elevation" if len(ways) == 1 else "Set Shapes Elevation"
         return self.perform(name, lambda doc: ELEV.apply(doc, p, alt, include_shared))
 
+    def add_shape(self, corners: _t.Sequence[_t.Sequence]) -> bool:
+        """"Insert shape" into the open patch (#1314): ONE step; the editor
+        turns to Edit mode with the new shape selected."""
+        if self.doc is None:
+            return False
+        way = PE.next_way_id(self.doc)
+        done = self.perform("Insert Shape", lambda doc: PE.add_shape(doc, corners))
+        if done:
+            self.set_mode(MODE_EDIT)
+            self.select_shapes({way})
+        return done
+
     # ─── save ──────────────────────────────────────────────────────────
     def save_payload(self) -> dict:
         """``patch_save``'s arguments for the document as it is now."""

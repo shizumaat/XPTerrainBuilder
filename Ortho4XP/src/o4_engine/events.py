@@ -101,7 +101,29 @@ from typing import Any, Optional
 # 1.16 (2026-10-26, additive, #1320): ``terrain_relief`` answers a
 # hillshade-and-contours PNG over a box from the same sources, with its
 # legend; ``pending`` while it is drawn off the read loop.
-PROTOCOL_VERSION = "1.16"
+# 1.17 (2026-10-27, additive, #1226): ``Log.tile`` — the ``[lat, lon]``
+# of the tile whose build wrote the line; empty for a run-level line.
+# 1.18 (2026-10-27, additive, #818): the ``build_airports`` command and
+# its completion BuildAirportsReady (the Build pane's Airports card), and
+# the ``overrides`` keyword on build/enqueue_build — the card's per-build
+# "Grade airports" / "Fit custom airport buildings" switches.
+# 1.19 (2026-10-27, additive, #1345): ``imagery_sources`` (one source
+# list for every imagery menu), ``preview_tile_url``, and
+# ``imagery_source_status``, which completes through one
+# ImagerySourceStatus event per source.
+# 1.20 (2026-10-27, additive, #1314): ``patch_insert_shape`` (the map's
+# "Insert shape": a 20 m square's corners at the elevation under them, and
+# the airport whose extent holds the point; ``pending`` while a source
+# loads) and ``patch_add_shape`` (append it to an airport's patch that is
+# not open in the editor, or start that airport's edited patch).
+# 1.21 (2026-10-27, additive, #1360): PackOldForests + the
+# ``pack_forests`` command — an airport pack the build modifies whose DSF
+# draws old flat (X-Plane 11) forests is named, the user is asked whether
+# to point them at the X-Plane 12 3D trees (Update / Not now / Never for
+# this pack), and the pack row's Undo puts the originals back; the
+# ``reanchor_status`` pack entries carry ``forests`` (definitions
+# upgraded).
+PROTOCOL_VERSION = "1.21"
 
 
 @dataclass(frozen=True)
@@ -128,10 +150,15 @@ class EngineHello(EngineEvent):
 
 @dataclass(frozen=True)
 class Log(EngineEvent):
-    """A build log line.  ``level``: "info" | "warning" | "error"."""
+    """A build log line.  ``level``: "info" | "warning" | "error".
+
+    ``tile`` (#1226): ``(lat, lon)`` of the tile whose build wrote it —
+    a front end filters its console by it — or ``()`` for a run-level
+    line."""
 
     level: str = "info"
     text: str = ""
+    tile: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -536,6 +563,54 @@ class PackMissingArt(EngineEvent):
 
 
 @dataclass(frozen=True)
+class PackOldForests(EngineEvent):
+    """An airport pack whose DSF draws OLD FLAT (X-Plane 11) forests that
+    have an X-Plane 12 3D equivalent (issue #1360).
+
+    Emitted by the object stage (``auto_patch.forest_stage``) for a pack
+    the build modifies, and again as the completion of a ``pack_forests``
+    command (which replies ``{"status": "started"}`` at once and works on
+    a worker thread).  ``state``:
+
+    * ``"found"`` — nothing was changed.  The front end asks, once per
+      pack, tile and set: **Update** sends ``pack_forests`` with
+      ``action="update"``, **Never for this pack** with ``action="never"``,
+      **Not now** sends nothing (the next build asks again).  Only when
+      ``can_update``.
+    * ``"upgraded"`` — the DSF now points at the 3D trees (``files`` lists
+      what was rewritten; the pristine DSF stays as ``.anchor_bak``).  Also
+      sent by a build for a pack the user already said Update for.
+    * ``"undone"`` — (command) the original definitions are back.
+    * ``"never"`` — (command) the answer is remembered; nothing written.
+    * ``"failed"`` — ``error`` says why; the pack is as it was.
+    * ``"none"`` — (command) nothing to do.
+
+    ``total`` is the flat forest definitions, ``mapped`` those with a 3D
+    equivalent (``uses`` their polygons, ``first_paths`` up to five),
+    ``unmapped`` those without one (``first_unmapped``), which stay.
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
+    pack: str = ""
+    pack_root: str = ""
+    lat: int = 0
+    lon: int = 0
+    total: int = 0
+    mapped: int = 0
+    uses: int = 0
+    first_paths: list = field(default_factory=list)
+    unmapped: int = 0
+    first_unmapped: list = field(default_factory=list)
+    can_update: bool = False
+    files: list = field(default_factory=list)
+    state: str = "found"
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class PackObjectsReady(EngineEvent):
     """The completion half of the ``pack_objects`` command (protocol 1.12,
     patch-editor spec §2 and §5): the command replies
@@ -594,6 +669,54 @@ class PlanEstimateReady(EngineEvent):
     request: Any = None
     result: Any = None
     error: str = ""
+
+
+@dataclass(frozen=True)
+class BuildAirportsReady(EngineEvent):
+    """The completion half of the ``build_airports`` command (protocol
+    1.18, #818): what airport grading and object fitting will do for the
+    tiles about to be built (``o4_engine.build_airports``).
+
+    ``airports``: one entry per airport the build grades::
+
+        {"icao": str, "name": str,          # name "" when not indexed
+         "ruleset": "FAA" | "ICAO", "tile": [lat, lon],
+         "estimate_s": [low, high]}         # a range, never one number
+
+    ``packs``: the enabled custom airport packs with an airport in the
+    tiles and 3-D objects of their own —
+    ``{"name", "path", "airports": [icao, ...], "objects": int}``.
+    ``total_s`` is ``[low, high]`` summed over ``airports``.  ``request``
+    is the ``id`` of the command it answers; ``error`` the failure text.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
+    airports: list = field(default_factory=list)
+    packs: list = field(default_factory=list)
+    total_s: list = field(default_factory=list)
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class ImagerySourceStatus(EngineEvent):
+    """One imagery source's launch-time liveness (protocol 1.19, #1345):
+    the completion of ``imagery_source_status``, one event per source
+    (``O4_Imagery_Sources.check_status``).
+
+    ``status`` is ``online``, ``offline`` or ``unknown``; a front end
+    disables an ``offline`` source, shows it as "<name> (offline)" and
+    ``reason`` as its tooltip, and keeps an ``unknown`` one enabled.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    code: str = ""
+    status: str = "unknown"
+    reason: str = ""
 
 
 @dataclass(frozen=True)

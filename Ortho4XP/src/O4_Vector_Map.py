@@ -1543,7 +1543,8 @@ def load_airports_and_prepare_dem(tile):
     ``tools/production_airport_patch.py`` can run single-airport builds
     against the identical surface.  Returns ``(airport_layer,
     dico_airports)``, or ``(None, None)`` when the airports layer
-    cannot be loaded."""
+    cannot be loaded: a failed download or a stop.  A successful empty
+    answer is an empty layer, never ``(None, None)``."""
     airport_layer = OSM.OSM_layer()
     queries = AIRPORTS_QUERIES
     tags_of_interest = ["all"]
@@ -2188,6 +2189,16 @@ def _airport_imagery(tile, dico_airports):
 
 
 ################################################################################
+class OsmLayerUnavailable(RuntimeError):
+    """An OSM layer the tile cannot be built without did not download."""
+
+    def __init__(self, layer):
+        super().__init__(
+            "The %s map data could not be downloaded (the OpenStreetMap "
+            "servers did not answer); the tile was not built." % layer)
+        self.layer = layer
+
+
 def include_airports(vector_map, tile):
     """``(apt_array, treated_area, patches_area)`` for the tile.
 
@@ -2202,7 +2213,15 @@ def include_airports(vector_map, tile):
     UNPATCHED.record(tile, [])
     (airport_layer, dico_airports) = load_airports_and_prepare_dem(tile)
     if airport_layer is None:
-        return (0, 0, geometry.Polygon(), geometry.Polygon())
+        # ``(None, None)`` never means "no airports": an empty answer
+        # loads an empty layer.  It is a stop (the caller checks
+        # ``UI.red_flag`` before the roads) or a failed download, which
+        # must stop the tile by name, never build it without its
+        # airports (#1445).
+        if not UI.red_flag:
+            raise OsmLayerUnavailable("airports")
+        return (numpy.zeros((1001, 1001), dtype=bool), geometry.Polygon(),
+                geometry.Polygon(), geometry.Polygon())
     # A FAILED AIRPORT NO LONGER STOPS THE TILE (owner RULINGS 2026-10-12a).
     # The driver has already named each failure and set its files aside,
     # so ``include_patches`` below loads the patches THIS build wrote (and

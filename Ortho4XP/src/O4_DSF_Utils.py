@@ -20,6 +20,7 @@ import O4_Geo_Utils as GEO
 import O4_Mask_Utils as MASK
 import O4_Mesh_Utils as MESH
 import O4_Overlay_Utils as OVL
+import O4_Tile_Build_Log as TILELOG
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 from PIL import Image, ImageDraw
@@ -1912,7 +1913,10 @@ def _build_dsf_body(tile, download_queue):
             + str(tile.lat + 1)
             + "\0"
             + "sim/creation_agent\0"
-            + "Ortho4XP\0",
+            # Names the builder and its versions (#1226), so the tile
+            # says who built it even without its build record.
+            + TILELOG.creation_agent()
+            + "\0",
             "ascii",
         )
     else:

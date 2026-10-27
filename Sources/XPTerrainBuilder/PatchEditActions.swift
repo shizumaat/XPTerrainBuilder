@@ -111,11 +111,17 @@ extension PatchEditModel {
         }
     }
 
-    /// The map's right-click items for the Edit-mode selection (#1357:
-    /// "Set elevation…" on selected shapes).
-    var contextActions: [(title: String, run: () -> Void)] {
-        guard mode == .edit, document != nil, !shapeSelection.isEmpty else { return [] }
-        return [(PatchSetElevationSheet.title, { [weak self] in self?.showsSetElevation = true })]
+    /// The map's right-click items: "Set elevation…" on the Edit-mode
+    /// selected shapes (#1357), then "Insert shape" at the click (#1314).
+    func contextActions(lat: Double, lon: Double) -> [(title: String, run: () -> Void)] {
+        var items: [(title: String, run: () -> Void)] = []
+        if mode == .edit, document != nil, !shapeSelection.isEmpty {
+            items.append((PatchSetElevationSheet.title, { [weak self] in self?.showsSetElevation = true }))
+        }
+        if canInsertShape {
+            items.append((TileContextMenu.insertShapeTitle, { [weak self] in self?.insertShape(lat: lat, lon: lon) }))
+        }
+        return items
     }
 
     // MARK: - Undo / redo
@@ -253,12 +259,12 @@ extension PatchEditModel {
         build.click(lat: coord.lat, lon: coord.lon, command: false, shift: false)
         guard build.canBuild else {
             editError = build.xplaneBlockReason
-                ?? "This tile can't be rebuilt now. Turn off “Skip already-built tiles” and try again."
+                ?? "This tile can't be rebuilt now. Turn off “Skip tiles already built” and try again."
             return
         }
-        let info = build.built[coord]
-        let provider = info.map(\.provider).flatMap { $0.isEmpty ? nil : $0 } ?? build.buildProvider
-        build.startBuild(batches: [([coord], provider, info?.zl ?? build.buildZL)])
+        let choice = build.built[coord].flatMap(TileImageryChoice.resolve)
+        build.startBuild(batches: [([coord], choice?.provider ?? build.buildProvider,
+                                    choice?.zl ?? build.buildZL)])
     }
 
     // MARK: - Unsaved-edits prompt

@@ -1,0 +1,17 @@
+{
+ "_comment": "Shared by Ortho4XP/tests/test_tile_imagery_parity.py and Tests/SceneryKitTests/TileImageryTests.swift (#1334): texture-name detection (O4_Custom_Scenery.imagery_from_file_names / PackImagery.fromFileNames) and the cfg-else-detected rule (O4_Tile_Info.effective_imagery / TileImageryChoice.resolve).",
+ "detect": [
+  {"names": ["5424_8720_BI16.dds", "5440_8720_BI16.dds", "5456_8720_BI16.dds"], "provider": "BI", "zl": 16},
+  {"names": ["25000_10752_BI16.dds", "25016_10752_BI16.dds", "25032_10752_BI16.dds", "25000_10752_BI18.dds", "25000_10752_GO216.dds", "25000_10752_BI16_sea.ter", "readme.txt"], "provider": "BI", "zl": 16},
+  {"names": ["25000_10752_GO216.dds", "25000_10752_BI16.dds"], "provider": "BI", "zl": 16},
+  {"names": ["24576_10240_USA_216.dds", "24592_10240_USA_216.ter"], "provider": "USA_2", "zl": 16},
+  {"names": ["grass.dds", "rock_01.ter"], "provider": null, "zl": null}
+ ],
+ "resolve": [
+  {"info": {"lat": 47, "lon": 11, "provider": "Arc", "zl": 17, "detected_provider": "BI", "detected_zl": 16}, "expect": ["Arc", 17, "config"]},
+  {"info": {"lat": 47, "lon": 11, "provider": "BI", "detected_provider": "BI", "detected_zl": 18}, "expect": ["BI", 18, "config"]},
+  {"info": {"lat": 47, "lon": 11, "provider": "Arc", "detected_provider": "BI", "detected_zl": 18}, "expect": ["Arc", null, "config"]},
+  {"info": {"lat": 47, "lon": 11, "provider": "", "detected_provider": "BI", "detected_zl": 16}, "expect": ["BI", 16, "detected"]},
+  {"info": {"lat": 47, "lon": 11, "provider": "", "detected_provider": ""}, "expect": null}
+ ]
+}

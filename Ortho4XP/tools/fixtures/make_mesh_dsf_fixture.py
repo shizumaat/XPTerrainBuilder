@@ -331,6 +331,10 @@ def sha256_bytes(data):
     return hashlib.sha256(data).hexdigest()
 
 
+#: The ``sim/creation_agent`` the committed DSFs carry.
+FIXTURE_CREATION_AGENT = "Ortho4XP"
+
+
 def replay_downstream(source, work):
     """Steps 2-3 on ``source``'s inputs and Triangle outputs, run in the
     empty directory ``work``; returns ``{name: bytes}`` for the ``.mesh``
@@ -341,8 +345,15 @@ def replay_downstream(source, work):
         shutil.copyfile(os.path.join(source, name), os.path.join(work, name))
     with open(run_mesh_stage(work), "rb") as handle:
         out = {MESH_OUTPUT: handle.read()}
-    for mode in DSF_MODES:
-        out[mode + ".dsf"] = run_dsf_stage(work, mode)
+    # The DSF names its builder and versions (#1226); the oracle pins the
+    # geometry, so the fixture's frozen agent is kept.
+    agent = DSF.TILELOG.creation_agent
+    DSF.TILELOG.creation_agent = lambda: FIXTURE_CREATION_AGENT
+    try:
+        for mode in DSF_MODES:
+            out[mode + ".dsf"] = run_dsf_stage(work, mode)
+    finally:
+        DSF.TILELOG.creation_agent = agent
     return out
 
 

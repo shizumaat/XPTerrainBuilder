@@ -18,6 +18,12 @@ struct BuildPane: View {
     /// Custom airport packs (own 3-D objects) in the selected tiles —
     /// the packages "Modify custom airports" would reseat.
     @State private var customAirportPacks: [String] = []
+    /// The engine's Airports card for the selected tiles (#818).
+    @State private var airportCard: O4BuildAirports?
+    @State private var airportCardLoading = false
+    @State private var airportCardError: String?
+    /// The Build box's plumbing toggles, collapsed by default (#818).
+    @State private var showingAdvanced = false
     /// Imagery-source audit of the active tile's textures folder; non-nil
     /// with hasConflict when sources besides the tile's current one exist.
     @State private var textureAudit: TileTextureAudit?
@@ -91,6 +97,9 @@ struct BuildPane: View {
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)") {
             await refreshCustomAirportPacks()
         }
+        .task(id: "airports|\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)|\(buildModel.built.count)") {
+            await refreshAirportCard()
+        }
         .task(id: imageryAuditKey) {
             await refreshTextureAudit()
         }
@@ -100,7 +109,7 @@ struct BuildPane: View {
         .task(id: "\(buildModel.activeTile?.key ?? "")|\(controller.mapOverlays.regions.count)") {
             await refreshOtherScenery()
         }
-        .task(id: "reseat|\(buildModel.activeTile?.key ?? "")|\(controller.installationPacks.count)|\(buildModel.isBuilding)|\(reseatRefresh)") {
+        .task(id: "reseat|\(buildModel.activeTile?.key ?? "")|\(controller.installationPacks.count)|\(buildModel.isBuilding)|\(reseatRefresh)|\(buildModel.packForestsChanged)") {
             await refreshModifiedAirports()
         }
         .task(id: customizationsKey) {
@@ -218,6 +227,11 @@ struct BuildPane: View {
             detailRow(O4Glossary.term("detail"), zlText(info))
             detailRow("Ground shaped", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))
+            if let info {
+                // Who built it (#1226, owner Q95): from the build record,
+                // else the tile's DSF.
+                detailRow("Built by", info.builtBy ?? "—")
+            }
             if let dem = info?.customDEM, !dem.isEmpty {
                 detailRow("Elevation", (dem as NSString).lastPathComponent)
             }
@@ -296,6 +310,21 @@ struct BuildPane: View {
                                     .truncationMode(.middle)
                                     .help("\(row.packName) — \(row.objectCount) object file\(row.objectCount == 1 ? "" : "s") reseated to this tile's rebuilt ground")
                                 Spacer(minLength: 8)
+                                // #1360: the pack's 3D trees, undone on
+                                // their own (the Qt row's twin button)
+                                if row.forestCount > 0 {
+                                    Button {
+                                        buildModel.undoPackForests(packPath: row.packPath)
+                                    } label: {
+                                        Image(systemName: "leaf")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .controlSize(.small)
+                                    .disabled(buildModel.isBuilding)
+                                    .help(buildModel.isBuilding
+                                          ? "Wait for the current run — the engine may be rewriting these files"
+                                          : O4PackOldForestsCopy.undoHelp)
+                                }
                                 Button {
                                     revertModifiedAirports(row)
                                 } label: {
@@ -411,68 +440,53 @@ struct BuildPane: View {
 
     // MARK: - Build box
 
+    /// Top to bottom (#818): what you're building, the Airports card,
+    /// the imagery source, what happens when it's done, and the build
+    /// plumbing collapsed under Advanced.
     private var buildBox: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(buildSummary)
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
+            BuildAirportsCard(card: airportCard, isLoading: airportCardLoading,
+                              error: airportCardError,
+                              fallbackPacks: customAirportPacks)
             Picker("Imagery", selection: providerBinding) {
                 Text("Tile / global default").tag("")
-                Divider()
-                ForEach(buildModel.providers) { provider in
-                    Text(provider.isCombined ? "\(provider.code) (combined)" : provider.code)
-                        .tag(provider.code)
-                }
-            }
-            Divider()
-            Toggle(O4Glossary.term("terrain_steps"), isOn: boolBinding(\.doVector))
-                .help("Downloads map data (roads, water, airports), shapes the ground and blends coastlines and water — the tile's terrain.")
-            Toggle(O4Glossary.term("imagery_and_scenery_file"), isOn: boolBinding(\.doImagery))
-                .help("Downloads imagery, converts textures and writes the final scenery file (DSF).")
-            Toggle(O4Glossary.term("xplane_objects"), isOn: boolBinding(\.doOverlays))
-                .help("Copies the roads, forests and buildings (overlays) of the X-Plane scenery configured as the overlay source.")
-            Toggle(O4Glossary.term("fit_buildings"), isOn: Binding(
-                get: { buildModel.modifyCustomAirports },
-                set: { buildModel.setModifyCustomAirports($0) }))
-                .disabled(customAirportPacks.isEmpty)
-                .help(customAirportPacks.isEmpty
-                      ? "No custom airport with its own 3-D objects is in the selected tiles."
-                      : "Reseats the 3-D objects in the listed packages at the new ground elevation this build produces, so they neither float above nor sink into the reprofiled terrain.")
-            if !customAirportPacks.isEmpty {
-                Text(customAirportPacks.joined(separator: ", "))
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .padding(.leading, 18)
-            }
-            Toggle("Skip already-built tiles", isOn: boolBinding(\.skipBuilt))
-            Toggle("Install finished tiles automatically", isOn: boolBinding(\.linkTiles))
-            Divider()
-            LabeledContent("Tile folder") {
-                HStack(spacing: 4) {
-                    Text(buildModel.customBuildDir.isEmpty
-                         ? "Ortho4XP/Tiles" : buildModel.customBuildDir)
-                        .scaledFont(.caption)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(.secondary)
-                    Button {
-                        showingBaseFolderPicker.value = true
-                    } label: {
-                        Image(systemName: "folder")
-                    }
-                    .buttonStyle(.borderless)
-                    if !buildModel.customBuildDir.isEmpty {
-                        Button {
-                            buildModel.customBuildDir = ""
-                            buildModel.rescan()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
+                // The engine's one list (#1345), the map picker's order;
+                // an offline source shows "(offline)", greyed, its reason
+                // as the tooltip.
+                ForEach(ImageryMenu.sections(ImageryMenu.entries(
+                    buildModel.imagerySources, statuses: buildModel.imageryStatus,
+                    forMap: false,
+                    tiles: buildModel.selected.map { (lat: $0.lat, lon: $0.lon) }))) { section in
+                    Section(section.title) {
+                        ForEach(section.entries) { entry in
+                            Text(entry.label).tag(entry.code)
+                                .disabled(!entry.enabled)
+                                .help(entry.tooltip)
                         }
-                        .buttonStyle(.borderless)
                     }
                 }
+            }
+            Divider()
+            Text("When it's done")
+                .scaledFont(.caption, weight: .semibold)
+                .foregroundStyle(.secondary)
+            Toggle("Install in X-Plane automatically", isOn: boolBinding(\.linkTiles))
+            Toggle("Skip tiles already built", isOn: boolBinding(\.skipBuilt))
+            DisclosureGroup("Advanced", isExpanded: $showingAdvanced) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(O4Glossary.term("terrain_steps"), isOn: boolBinding(\.doVector))
+                        .help("Downloads map data (roads, water, airports), shapes the ground and blends coastlines and water — the tile's terrain.")
+                    Toggle(O4Glossary.term("imagery_and_scenery_file"), isOn: boolBinding(\.doImagery))
+                        .help("Downloads imagery, converts textures and writes the final scenery file (DSF).")
+                    Toggle(O4Glossary.term("xplane_objects"), isOn: boolBinding(\.doOverlays))
+                        .help("Copies the roads, forests and buildings (overlays) of the X-Plane scenery configured as the overlay source.")
+                    tileFolderRow
+                }
+                .padding(.top, 4)
             }
             .scaledFont(.callout)
             // What the build will cost, above Build (#820).
@@ -482,6 +496,63 @@ struct BuildPane: View {
             }
         }
         .toggleStyle(.checkbox)
+    }
+
+    private var tileFolderRow: some View {
+        LabeledContent("Tile folder") {
+            HStack(spacing: 4) {
+                Text(buildModel.customBuildDir.isEmpty
+                     ? "Ortho4XP/Tiles" : buildModel.customBuildDir)
+                    .scaledFont(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.secondary)
+                Button {
+                    showingBaseFolderPicker.value = true
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                if !buildModel.customBuildDir.isEmpty {
+                    Button {
+                        buildModel.customBuildDir = ""
+                        buildModel.rescan()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+        }
+        .scaledFont(.callout)
+    }
+
+    /// Asks the engine what grading and fitting will do for the selected
+    /// tiles (#818). Debounced: a drag-selection changes the key per tile.
+    private func refreshAirportCard() async {
+        let tiles = Array(buildModel.selected)
+        guard !tiles.isEmpty else {
+            airportCard = nil
+            airportCardError = nil
+            return
+        }
+        airportCardLoading = true
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        guard !Task.isCancelled else { return }
+        let answer = await buildModel.buildAirportsCard(for: tiles)
+        guard !Task.isCancelled else { return }
+        switch answer {
+        case .success(let card)?:
+            airportCard = card
+            airportCardError = nil
+        case .failure(let error)?:
+            airportCard = nil
+            airportCardError = "\(error)"
+        case nil:
+            airportCard = nil
+            airportCardError = nil
+        }
+        airportCardLoading = false
     }
 
     // MARK: - Imagery-source conflict (active tile)
@@ -754,6 +825,8 @@ struct BuildPane: View {
         let packName: String
         let packPath: String
         let objectCount: Int
+        /// Forest definitions upgraded to 3D trees (#1360).
+        var forestCount: Int = 0
     }
 
     /// Asks the ENGINE which packs the reseater modified for the active
@@ -786,13 +859,15 @@ struct BuildPane: View {
                 return [ModifiedAirportRow(
                     id: pack.packPath, label: pack.packName,
                     packName: pack.packName, packPath: pack.packPath,
-                    objectCount: pack.objectCount)]
+                    objectCount: pack.objectCount,
+                    forestCount: pack.forestCount)]
             }
             return names.map { name in
                 ModifiedAirportRow(
                     id: "\(pack.packPath)|\(name)", label: name,
                     packName: pack.packName, packPath: pack.packPath,
-                    objectCount: pack.objectCount)
+                    objectCount: pack.objectCount,
+                    forestCount: pack.forestCount)
             }
         }
         .sorted { $0.label < $1.label }
@@ -843,7 +918,17 @@ struct BuildPane: View {
         guard count > 0 else { return "No tiles selected" }
         let todo = buildModel.buildableSelection.count
         let inRun = buildModel.selectedInRun.count
-        var text = "\(count) tile\(count == 1 ? "" : "s") selected"
+        var text = "\(count) tile\(count == 1 ? "" : "s")"
+        if let card = airportCard {
+            let airports = card.airports.count
+            text += " · \(airports) airport\(airports == 1 ? "" : "s")"
+            let custom = Set(card.packs.flatMap(\.airports)).count
+            if custom > 0 {
+                let packs = card.packs.count
+                let objects = card.packs.reduce(0) { $0 + $1.objects }
+                text += " · \(custom) custom airport\(custom == 1 ? "" : "s") (\(packs) pack\(packs == 1 ? "" : "s"), \(objects.formatted()) objects)"
+            }
+        }
         if inRun > 0 { text += " · \(inRun) in current run" }
         let skipped = count - todo - inRun
         if skipped > 0 { text += " · \(skipped) already built (skipped)" }

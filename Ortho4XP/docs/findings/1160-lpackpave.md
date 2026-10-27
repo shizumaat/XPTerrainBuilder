@@ -125,3 +125,51 @@ merged with main 2cc289364; body 5fc910dd7671) and control `lpackpave_base`
   -84.41675), `within_shape` 0.69 / 0.59 m cross_connector|runway.
   Whether the 10/28 embankment strip is graded or left as the cliff is
   the strip law's question, not this rule's — named for the owner.
+
+## Round 2 — attribution of the 10/28-south sites (RULINGS 2026-10-27r)
+
+Read on the registered captures `lpackpave/KATL.pkl` / `KATL_base.pkl` and
+the two closing patches; stations along 10/28 from the 10 end (2,743 m).
+
+* **The sites are inside the I-285 bridge-edge span.** The south bridge-edge
+  object `New Buildings/tunel_A.obj` (heading 90) spans stations
+  1,423–1,603 at 65–102 m south of the axis, 23.7 m deep (top at y = 0);
+  its north twin spans 1,627–1,807 at 46–82 m north; the I-285 bores
+  (`-2190`, `-2193`, tunnel=yes) cross the axis at stations 1,599 and
+  1,655, their south portals at 1,459 / 1,521, ~90 m south. Of the new
+  rows > 0.5 m within 250 m of the axis on the south side, 67 lie within
+  60 m of the bridge-edge objects (stations 1,200–1,800: the 116-row
+  `strip_transverse` site, `adjacent_ground_step` 8.53 m,
+  `mid_edge_step` 2.74 m), 3 lie over the bores just past 60 m (station
+  ~1,730, 25 m south: `strip_seam_tear` 6.97 m, `strip_arc` 7.54 m), and 2
+  are groundside service-road rows 190 m south (station ~800). No strip row
+  is new on the south side away from the span.
+* **Away from the span the strip already holds (27r (2)).** DEM / face
+  transects south of the axis at stations 800, 1,300, 1,350, 1,900,
+  2,100: graded strip at runway level (299–303 m) out to the zone-2 edge
+  (60–75 m from the axis), then the embankment on the DEM (≈ 298 → 278 m
+  between 75 and 120 m, about 1 : 2). That is "a standard graded strip,
+  then the sloped embankment". No change at the strip's derivation site.
+* **Why the span got worse than the control.** Inside the span the lidar
+  reads the HIGHWAY under the deck: at stations 1,430–1,700 the DEM is
+  280–289 m from 30 m south of the axis, and 281–285 m under the runway
+  itself at 1,490–1,700. On main the Global block's `pav17` shoulder
+  strips (offset 23–48 m) were apron graded at runway level across that
+  ground — by accident the reading 27r (1) asks for (flush with the
+  airside surface out to the edge objects' backs). With the pack's own
+  pavement the ground there is adjacent-ground zones 1–2, which take the
+  lidar trench. Holding the ground between the runway edge and the edge
+  objects' backs at deck level is 27r (1) — the bridge-edge span, lane
+  lpackcut (#1138, PR #1489). Not edited here.
+* **The other new site (not 10/28-south).** North of 10/28 at the 10 end
+  (33.62167, -84.44659, stations 0–600), 408 `within_shape` rows, worst
+  12.96 m over 180 m, all on ONE `terrain_edge:22` way (-14902, 96 nodes)
+  whose run joins the taxiway's adjacent-ground ring and the service road
+  `big_roads:-13911` below it. A `terrain_edge` way is role-less
+  articulation (check_grade `ROLE_LESS_FEATURE_CLASSES`: "carries no grade
+  law of its own"); the census prices it as a shape when no single host
+  covers the whole run. The control carries the same class (terrain_edge
+  ways of 442 rows each, e.g. `terrain_edge:59/68/76`). The pack's
+  `dsf:pol93` / `dsf:pol85` end the taxi ring at the road over a longer
+  run than Global's `pav15` did. This is an instrument class, not a surface
+  step — a follow-up for the census owner, not edited here.

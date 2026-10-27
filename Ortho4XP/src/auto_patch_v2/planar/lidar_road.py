@@ -89,8 +89,9 @@ from ..law.tables import is_value_role, role_family, role_side
 from ..model.frame import XY
 from .channel_geometry import _lidar_cut, _lidar_floor
 
-__all__ = ["SurveyMouth", "survey_mouth", "survey_design_grade", "under_airside_pavement",
-           "is_rail_group", "survey_mouth_refusal", "survey_mouth_note", "survey_trench"]
+__all__ = ["survey_mouth", "survey_design_grade", "under_airside_pavement",
+           "is_rail_group", "survey_mouth_refusal", "survey_mouth_note", "survey_trench",
+           "survey_road_trenches"]
 
 #: the station step along the bore (the §45 cut reading's own lateral step)
 _STEP_M = 5.0
@@ -315,6 +316,63 @@ def survey_trench(airport, law: Law, sm: SurveyMouth, axis_line, width: float,
     bank = min(max(0.0, sm.clearance), 2.0 * float(tn.mouth_depth_m))
     g = substring(axis_line, 0.0, s).buffer(width / 2.0 + rim_off + bank, cap_style="flat")
     return g if g.geom_type == "Polygon" and not g.is_empty else None
+
+
+def survey_road_trenches(airport, law: Law, carriageways, region) -> tuple:
+    """Q245 (owner 2026-10-27, "Yes") — A TAXIWAY'S ZONE GIVES WAY TO A
+    TRENCH THE SURVEY SHOWS INSIDE IT.  The open cuts of R2 that no mouth
+    decides (a bore end with no portal, #1028; an approach the survey
+    carries through a taxiway's graded strip): every stretch of a mapped
+    road (``carriageways``: ``road_yield.road_carriageways``) inside
+    ``region`` (the taxiway bands; read one cut reach beyond them) along
+    which the credible survey reads a
+    both-sides cut — §45's ``_lidar_cut`` reading, ratified 2026-09-16g,
+    over at least two consecutive stations — as a polygon as wide as the
+    carriageway plus the rim stand-off plus a 1:1 bank (capped as
+    :func:`survey_trench` caps it).  ``()`` on a coarse DEM, where a 7 m
+    trench is below the grid and no cut is evidence (14f stands)."""
+    if airport is None or region is None or region.is_empty or not carriageways:
+        return ()
+    from ..law import inset_class
+    if not inset_class.lidar_credible(airport, law):
+        return ()
+    from shapely.ops import substring
+    tn = law.tables.structures.tunnel
+    reach = 4.0 * float(tn.mouth_depth_m)
+    rim_off = float(tn.wall_gap_m) + float(tn.wall_band_width_m)
+    # the road is read across the band and one cut reading's reach beyond it:
+    # a band is a few metres wide, and a trench crossing it is read where
+    # it runs (the polygon cuts only the band it overlaps)
+    near = region.buffer(reach)
+    out: list = []
+    for line, half in carriageways:
+        if not line.intersects(region):
+            continue
+        piece = line.intersection(near)
+        for seg in getattr(piece, "geoms", (piece,)):
+            if seg.geom_type != "LineString" or seg.length < _STEP_M:
+                continue
+            n = int(seg.length // _STEP_M) + 1
+            ss = [seg.length * k / (n - 1) for k in range(n)]
+
+            def fn(s: float, _ln=seg) -> XY:
+                q = _ln.interpolate(max(0.0, min(_ln.length, s)))
+                return (q.x, q.y)
+            run: list[tuple[float, float]] = []      # (station, depth) of the open run
+            for s in ss + [math.inf]:
+                rows: list = []
+                cut = s != math.inf and _lidar_cut(airport, law, fn, [s], reach, rows)
+                if cut:
+                    run.append((s, rows[-1][2] - rows[-1][1]))
+                    continue
+                if len(run) >= 2:
+                    bank = min(max(d for _s, d in run), 2.0 * float(tn.mouth_depth_m))
+                    g = substring(seg, run[0][0], run[-1][0]).buffer(
+                        float(half) + rim_off + bank, cap_style="flat")
+                    if g.geom_type == "Polygon" and not g.is_empty:
+                        out.append(g)
+                run = []
+    return tuple(out)
 
 
 def survey_mouth_refusal(sm: SurveyMouth) -> str:

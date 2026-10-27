@@ -453,8 +453,18 @@ in `planar/structures.build_structures`):
   decides keeps the zones off its open approach trench (`survey_trench`, a
   keepout like the corridor it replaces, bounded by `clearance / ramp_grade`;
   measured necessary at CYXY `tunnel:-725`, whose kept mouth otherwise gave
-  its approach to the strip zone). NOT built: a taxiway's zone 1/2 yielding to
-  a surveyed trench inside it — an airside-law question for the owner.
+  its approach to the strip zone). Built after the owner's Q245 "Yes"
+  (2026-10-27): a taxiway's zone 1/2 gives way to a surveyed trench inside it
+  (`lidar_road.survey_road_trenches`, cut at `zones.zone_regions`, the zones'
+  single derivation site): every mapped road through a taxiway band whose
+  credible survey reads §45's both-sides cut over two or more 5 m stations
+  (read one cut reach past the band) takes a trench as wide as the
+  carriageway + rim stand-off + 1:1 bank (bank ≤ 2 × `mouth_depth_m`) out of
+  the TAXIWAY bands, with the keepout stand-off; a runway strip never yields;
+  a coarse DEM reads nothing (14f). Consumer census: the zone regions are its
+  only reader — every pass downstream reads the trimmed region, as for any
+  keepout trim. Reported on the terrain-edge line. Twins:
+  `tests/auto_patch_v2/test_taxi_zone_trench.py`.
 - **NOT built:** R3 (227 a, #1138's trench under a hard deck — the runway
   faces under the deck must be cut out and re-roled; its own spec/census),
   R6 (228 a; dry witness: 12 mapped ways ≥ 100 m under layer ≥ 2 viaducts,

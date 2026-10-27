@@ -283,7 +283,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                  shore_wedge_m: float | None = None,
                  pack_walls: tuple = (), runways: tuple = (),
                  carriageways: tuple = (),
-                 yields: list | None = None) -> list[ZoneRegion]:
+                 yields: list | None = None,
+                 trenches=None) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -300,7 +301,12 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     every road running BESIDE them (owner 2026-10-19, #944), and zone 2
     yields the carriageway of every road running THROUGH it (owner RULINGS
     2026-10-20c, 39); each zone-2 yield is appended to ``yields`` as a
-    :class:`~.road_yield.BandYield`."""
+    :class:`~.road_yield.BandYield`.
+
+    ``trenches`` (``region -> polygons``: ``lidar_road.survey_road_trenches``
+    bound to the airport and the carriageways) is the survey's open cut
+    read inside the TAXIWAY bands: those bands give way to it (Q245, owner
+    2026-10-27 "Yes"); a runway's strip never does."""
     ag = law.tables.zones.adjacent_ground
     # groundside pavement (roads, lots) buffered by the stand-off: a zone
     # band never shares a vertex with it — the gap terraces (groundside
@@ -484,12 +490,29 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         through = road_cut_pieces(carriageways,
                                   unary_union([b[1] for b in bands.values()] + airside),
                                   cut, extent=envelope, cap_style="square")
+    # Q245 (owner 2026-10-27): A TAXIWAY'S ZONE GIVES WAY TO A TRENCH THE
+    # SURVEY SHOWS INSIDE IT — cut with the stand-off a keepout gets, so the
+    # band terraces against the trench's bank as it does against a corridor
+    trench = None
+    taxi_outer = [b[2] for k, b in bands.items() if k[0] == "taxi"]
+    if trenches is not None and taxi_outer:
+        got = trenches(unary_union(taxi_outer))
+        if got:
+            trench = unary_union([g.buffer(cut, **_MITRE) for g in got])
+            if edge_report is not None:
+                edge_report.survey_trenches += len(got)
     for key, (u, inner, outer) in bands.items():
         fam, cn, cl = key
         z1 = fixed_difference(inner, claimed)
         z2 = fixed_difference(fixed_difference(outer, inner), claimed)
         z1 = fixed_difference(z1, beside)
         z2 = fixed_difference(z2, beside)
+        if trench is not None and fam == "taxi":
+            before = z1.area + z2.area
+            z1 = fixed_difference(z1, trench)
+            z2 = fixed_difference(z2, trench)
+            if edge_report is not None:
+                edge_report.trench_cut_m2 += before - z1.area - z2.area
         if through:
             z2 = _yield_zone2(z2, outer, key, through, yields)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"

@@ -254,12 +254,19 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                                    cs.flats)
     seed_rep: dict = {}
     planar2 = planar
+    fixed2, free2 = levels, frozenset()
     if stage2_rewrite is not None:
         cs, seed_rep = stage2_rewrite(levels)
         # #798 round 3: the airside give's stage-1 levels, STAGE 2's targets
         extra = seed_rep.pop("preferred_z", None)
         if extra:
             planar2 = _dc.replace(planar, preferred_z={**planar.preferred_z, **extra})
+        # #1302: the vertices the rewrite names as STAGE 2'S (a group's lower
+        # level, ``constraints/group_level.stage_two_vertices``) are no
+        # stage-1 constants and carry no stage-1 hold row (below)
+        free2 = frozenset(seed_rep.pop("stage2_free", None) or ())
+        if free2:
+            fixed2 = {v: z for v, z in levels.items() if v not in free2}
         # the caller's rewrite re-reads the set it was BOUND to (the un-
         # yielded one): a pin stage 1 RELEASED stays released in stage 2
         # (lane ``joinyield128``: HECA v28332 was re-pinned 0.32 m off the
@@ -271,17 +278,18 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         from .pin_yield import release_pins
         cs = release_pins(cs, {int(r["v"]) for r in yielded1}, yield_heads)
     if stage1 is not None:
-        cs = stage1.apply_full(cs)  # pass 1b's hold law, carried by the join
+        # pass 1b's hold law, carried by the join (never onto stage 2's own)
+        cs = stage1.apply_full(cs, free2) if free2 else stage1.apply_full(cs)
     elif pass1a is not None and hasattr(hold, "apply"):
         cs = hold.apply(cs)        # stage 2 states pass 1b's hold law (§4)
     t2 = time.perf_counter()
     sol2, rep2 = _solve_stage(planar2, cs, law, options, size_out=size_out,
-                              method=method, low_rank=low_rank, fixed=levels)
+                              method=method, low_rank=low_rank, fixed=fixed2)
     yielded: list[dict] = []
     if sol2.z and yield_heads:     # issue #778: each pin by its own conflict
         def _stage2(cs_x: ConstraintSet):
             return _solve_stage(planar2, cs_x, law, options, size_out=size_out,
-                                method=method, low_rank=low_rank, fixed=levels)
+                                method=method, low_rank=low_rank, fixed=fixed2)
         among2 = {p.v for p in cs.pins} - set(s1_read)
         sol2, rep2, yielded, _cs2 = _yield_pins(planar2, cs, law, sol2, rep2,
                                                 _stage2, among=among2)

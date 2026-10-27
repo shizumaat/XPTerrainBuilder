@@ -465,12 +465,19 @@ def _ground(L, dem, step: float) -> "float | None":
 
 def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                     law, grid: float, counts: dict, *, reg: Registries,
-                    storey_lots: _t.Sequence = ()) -> list:
+                    storey_lots: _t.Sequence = (),
+                    air_all: _t.Sequence | None = None,
+                    beyond: _t.Sequence = ()) -> list:
     """The pad regions ``out`` with every held block whose unit carries a
     lower storey split into its high block, its low level ``<ref>/p1`` and
     the riser strip (module docstring); each low level registered in
     ``reg.landings``.  ``storey_lots`` — ``(polygon, rise)`` of the lots
-    met across a storey — give the held pads they touch an UPPER level."""
+    met across a storey — give the held pads they touch an UPPER level.
+    Each lower level then extends over its group's lower footprint
+    (``planar/low_extent``, #1306/#1302), kept off ``air_all`` -- every
+    airside or structure REGION, the zones among them (default: ``air_polys`` as
+    pavement); ``beyond`` the apron pieces no aircraft reaches once the
+    pads stand (``planar/reach_after_pads``), which it takes in."""
     from ..airport.obj8_grade import STEPPED
     from .group_low import plan_group_low
     from .pad_blocks import unit_base
@@ -540,6 +547,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     _upper_split(groups, done, out, tree, air_polys, storey_lots, law, grid, reg)
     if not done:
         return out
+    from .low_extent import AirRegion, extend_levels
     res: list = []
     for r in out:
         ref = str(r.ref)
@@ -549,6 +557,9 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                 done[ref] = None
             continue
         res.append(r)
+    res = extend_levels(res, reg, air_all if air_all is not None
+                        else [AirRegion(g, "cell") for g in air_polys],
+                        airport, law, grid, counts, beyond)
     counts["low_levels"] = sum(1 for v in reg.landings.values() if v.get("kind") == LOW_KIND)
     counts["low_level_list"] = "; ".join(
         f"{k} on {v['block']} band [{v['y_lo']:+.2f}, {v['y_hi']:+.2f}] {v['area_m2']:g} m2"

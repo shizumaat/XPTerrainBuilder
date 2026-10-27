@@ -16,6 +16,11 @@ holding the level's edge up.  MEASURED KMCI ``building26/b1`` (A/B replay):
 with the rows kept, 832 pad rows were relaxed in stage 2 and 112 of the
 lower level's 622 vertices stood up to 2.04 m over it where ``big_roads``
 ribbons crossed the riser.
+
+TWO LOWER LEVELS AT TWO FLOORS (#1306, RULINGS 2026-10-27h): a level's
+extension (``planar/low_extent``) stands at the bottom of the objects on it,
+so two levels of one group may stand at different floors with a riser
+between; a row naming vertices of both is withdrawn the same way.
 """
 from __future__ import annotations
 
@@ -71,6 +76,7 @@ def riser_exempt(rows: list[Row], planar: PlanarMap, counts: dict) -> list[Row]:
     low, high, road = riser_sets(planar)
     if not low or not high:
         return rows
+    floor = _level_floors(planar)
     out: list[Row] = []
     n = 0
     sites: set[str] = set()
@@ -84,7 +90,8 @@ def riser_exempt(rows: list[Row], planar: PlanarMap, counts: dict) -> list[Row]:
         if ins and str(ins[0]).startswith(LANDING_INPUT_PREFIX):
             out.append(r)
             continue
-        if any(v in low for v in vs) and any(v in high for v in vs):
+        if (any(v in low for v in vs) and any(v in high for v in vs)) \
+                or len({floor[v] for v in vs if v in floor}) > 1:
             n += 1
             for v in vs:
                 if v in road:
@@ -95,6 +102,25 @@ def riser_exempt(rows: list[Row], planar: PlanarMap, counts: dict) -> list[Row]:
     counts["riser_road_sites"] = len(sites)
     STATS["riser_road_sites"] = sorted(sites)
     return out
+
+
+def _level_floors(planar: PlanarMap) -> dict[int, float]:
+    """``vertex -> its lower level's floor`` (``y_lo``) for the vertices of
+    ONE floor only: a vertex two levels at different floors share (the
+    riser's foot) is neither's."""
+    lands = getattr(planar.registries, "landings", {}) or {}
+    ys = {ref: round(float(rec["y_lo"]), 1) for ref, rec in lands.items()
+          if rec.get("kind") == "low_level" and rec.get("y_lo") is not None}
+    if len(set(ys.values())) < 2:
+        return {}
+    seen: dict[int, set] = {}
+    for f in planar.faces.values():
+        y = ys.get(str(f.ref))
+        if y is None:
+            continue
+        for v in face_vertex_set(planar, f):
+            seen.setdefault(v, set()).add(y)
+    return {v: next(iter(s)) for v, s in seen.items() if len(s) == 1}
 
 
 def _named(r: Row) -> tuple[int, ...]:

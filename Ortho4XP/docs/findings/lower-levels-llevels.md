@@ -118,3 +118,40 @@ still reaches the walls' ends and spans the corridor.
 - Replays `--from classify` on both captures (the 19ag read moves upstream),
   then ONE closing build. Measured after the first replay: the build-time cost
   of the reach read on the planar map (one more room read).
+
+## RULED (RULINGS 2026-10-27h, option (b)) — the design implemented
+
+1. **The reach read sees the buildings** (`classify/reachability`, 19ag).
+   The room an aircraft has is the airside pavement LESS the building pads
+   standing on it (`Evidence.pad_union`); "joined to the taxi network" is
+   still read on the pavement with them (a corridor under the halls is
+   pavement, not an island). An apron face whose room is reachable in part
+   is SPLIT: each piece of it outside the buildings whose room is all
+   beyond (and that is a lot, the existing half-room test, with no startup
+   on it) is cut off as `<ref>#beyond<k>` and takes the groundside role.
+   LFPG T2's central corridor is such a piece.
+2. **The lower level extends over the group's lower footprint**
+   (`planar/low_extent`, called by `low_level_split` after the levels are
+   minted). For each lower level: the group is its unit plus the units
+   whose footprints come within `[placement] touch_m` of it (22o, one hop);
+   its LOWER parts are the walled parts whose foot plane stands at least two
+   plane bands under the level's top floor. The extension is the closed
+   footprint of those parts (a retaining wall's piece widened by its own
+   reach, `max(4 h, 20 m)`, the wall-zone reading) plus the roads over it,
+   less every pad region and a riser's width, less the airside (cells and
+   zones) and `pad_frontage_m`, less any piece whose ground does not lie
+   below the block's (the #1115 witness). Each connected piece is minted
+   `<block>/p<k>` (kind `low_level`, the level's witness) at the densest
+   walled-foot plane of the group's lower parts on it: the objects'
+   bottoms (27h). Its riser strip `#strip` separates it from every pad.
+3. **Risers between levels.** `constraints/riser` withdraws a row spanning
+   two lower levels held at different floors, as it does one spanning a
+   level and its block.
+4. The KATL tower (unit 26) and brick wall (unit 27) are not in the group
+   and are not taken in.
+
+Acceptance (bars 12y: ground 0.5 m): KATL, the ground along the south and
+west apron walls' lower faces within 0.5 m of each wall's foot to the
+wall's end; LFPG, the T2 central corridor within 0.5 m of the lower
+central buildings' bottoms; airside movement < 1 m (23d) with no new
+airside grade row; verify DEFECT families zero; the closing build KATL.

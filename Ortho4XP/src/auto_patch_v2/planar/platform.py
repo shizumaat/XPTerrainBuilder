@@ -322,10 +322,18 @@ def platform_split(base_regions, pad_regions, law: Law,
     # the block's datum (``planar/low_level``); after the landings, which
     # clear the registry it is recorded in
     from .low_level import low_level_split
+    from .reach_after_pads import BEYOND
+    from ..law.tables import is_structure_role
     out = low_level_split(out, air_polys, airport, law, float(grid), counts, reg=reg,
                           storey_lots=[(r.polygon, float(storey[str(r.ref)]))
                                        for r in base_regions if storey
-                                       and str(r.ref) in storey and r.polygon is not None])
+                                       and str(r.ref) in storey and r.polygon is not None],
+                          air_all=[r for r in base_regions if r.polygon is not None
+                                   and not r.polygon.is_empty
+                                   and (_side(law, r.role) == "airside"
+                                        or is_structure_role(law, r.role))],
+                          beyond=[r.polygon for r in base_regions if r.polygon is not None
+                                  and BEYOND in str(r.ref)])
     counts["platforms"] = sum(1 for p in platforms if not p.refused)
     counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(

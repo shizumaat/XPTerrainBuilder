@@ -114,10 +114,22 @@ def test_the_map_picker_repaints_and_persists(make_window):
 
 
 def test_the_map_picker_offers_only_sources_the_map_can_draw(monkeypatch):
-    monkeypatch.setattr(GUI, "gui_provider_codes", lambda: ["OSM", "EUR"])
-    monkeypatch.setattr(
-        QTMAP, "provider_is_mappable", lambda code: code == "OSM")
+    """#1345: both menus read the engine's one list; the map picker greys
+    out (never offers) a source the map cannot draw."""
+    import O4_Qt_Imagery_Menu as QTIMENU
+
+    rows = [
+        {"code": "EUR", "name": "EUR", "region": "", "combined": True,
+         "buildable": True, "previewable": False, "reason": "no layer"},
+        {"code": "OSM", "name": "OSM", "region": "Global", "combined": False,
+         "buildable": False, "previewable": True, "reason": ""},
+    ]
+    monkeypatch.setattr(GUI.SOURCES, "imagery_sources", lambda: rows)
     assert GUI.map_preview_codes() == ["OSM"]
+    assert GUI.gui_provider_codes() == ["EUR"]
+    entries = QTIMENU.menu_entries(rows, {}, for_map=True)
+    assert [(e["code"], e["enabled"], e["tooltip"]) for e in entries] == [
+        ("EUR", False, "no layer"), ("OSM", True, "")]
 
 
 # ===========================================================================

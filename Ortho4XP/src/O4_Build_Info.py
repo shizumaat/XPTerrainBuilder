@@ -101,3 +101,22 @@ def build_info() -> BuildInfo:
         engine=engine,
         sha=fields.get("sha") or DEV,
     )
+
+
+#: The Mac app's VERSION resource, read when no artifact stamped one.
+_SOURCE_VERSION = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "Sources", "XPTerrainBuilder", "Resources", "VERSION")
+
+
+def app_version() -> str:
+    """The app version the Mac app's Settings shows (``AppVersion.current``):
+    the artifact's stamp, else the source tree's VERSION file, else ``dev``."""
+    stamped = build_info().app
+    if stamped != DEV:
+        return stamped
+    try:
+        with open(_SOURCE_VERSION, encoding="utf-8") as handle:
+            return handle.read().strip() or DEV
+    except OSError:
+        return DEV

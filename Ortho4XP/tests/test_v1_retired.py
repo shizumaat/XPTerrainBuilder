@@ -74,6 +74,8 @@ KEEP = frozenset({
     "auto_patch.object_footprints",
     "auto_patch.object_frame",
     "auto_patch.object_rebake",
+    # ... and its 3D trees offer beside the missing-art check (#1360)
+    "auto_patch.forest_stage",
     "auto_patch.object_terrain_features",
     "auto_patch.object_terrain_kinds",
     "auto_patch.post_mesh",

@@ -28,7 +28,10 @@ struct MapMainView: View {
 
     static let systemInfo = SystemInfo.current()
 
-    var body: some View {
+    /// The window's content, sheets and file picker; `body` adds the
+    /// alerts. Split so the type checker meets two shorter chains (CI's
+    /// compiler timed out on one).
+    private var coreBody: some View {
         Group {
             // First run, step 2 (after the data-folder sheet below): a VALID
             // X-Plane folder is required before anything can be built — with
@@ -92,6 +95,10 @@ struct MapMainView: View {
                 buildModel.runIssues = nil
             }
         }
+    }
+
+    var body: some View {
+        coreBody
         // A tile that failed with a cause the user can fix, asked as soon
         // as it fails (#695).
         .modifier(LinkFixAlert(buildModel: buildModel))
@@ -113,6 +120,24 @@ struct MapMainView: View {
             Text(art.canOmit
                  ? art.bodyText + "\n\n" + O4PackMissingArtCopy.detail
                  : art.bodyText)
+        }
+        // An airport pack with old flat forests (protocol 1.21, #1360):
+        // Update / Not now / Never for this pack, the Qt question's copy.
+        .alert(buildModel.packForestsPrompt?.titleText ?? "", isPresented: Binding(
+            get: { buildModel.packForestsPrompt != nil },
+            set: { _ in }
+        ), presenting: buildModel.packForestsPrompt) { _ in
+            Button(O4PackOldForestsCopy.updateButton) {
+                buildModel.answerPackForestsPrompt(action: "update")
+            }
+            Button(O4PackOldForestsCopy.neverButton) {
+                buildModel.answerPackForestsPrompt(action: "never")
+            }
+            Button(O4PackOldForestsCopy.notNowButton, role: .cancel) {
+                buildModel.answerPackForestsPrompt(action: nil)
+            }
+        } message: { forests in
+            Text(forests.bodyText)
         }
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
@@ -156,8 +181,19 @@ struct MapMainView: View {
                     get: { buildModel.mapPreviewProvider },
                     set: { buildModel.mapPreviewProvider = $0 }
                 )) {
-                    ForEach(buildModel.imagery.availableProviders, id: \.self) { code in
-                        Text(code).tag(code)
+                    // The engine's one list (#1345): sources the map can't
+                    // draw, or that didn't answer at launch, show greyed
+                    // with the reason.
+                    ForEach(ImageryMenu.sections(ImageryMenu.entries(
+                        buildModel.imagerySources, statuses: buildModel.imageryStatus,
+                        forMap: true))) { section in
+                        Section(section.title) {
+                            ForEach(section.entries) { entry in
+                                Text(entry.label).tag(entry.code)
+                                    .disabled(!entry.enabled)
+                                    .help(entry.tooltip)
+                            }
+                        }
                     }
                 }
                 .pickerStyle(.inline)
@@ -386,7 +422,7 @@ struct MapMainView: View {
                 .environmentObject(buildModel.activity)
                 .environmentObject(buildModel.imagery)
         } second: {
-            BuildConsoleView()
+            BuildConsoleView(console: buildModel.console)
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
                 .environmentObject(buildModel)

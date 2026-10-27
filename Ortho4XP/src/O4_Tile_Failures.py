@@ -401,6 +401,7 @@ EXCEPTION_CODES = {
     # map data
     "ExtractFilterError": "map_data_failed",
     "AtlasApiError": "network_unavailable",
+    "OsmLayerUnavailable": "network_unavailable",
     "ImplausibleSeaTile": "map_coastline_implausible",
     # mesh
     "BankAnnulusCollapse": "mesh_refused",

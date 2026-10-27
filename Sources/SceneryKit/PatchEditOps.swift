@@ -20,6 +20,8 @@ public enum PatchEditError: Error, Equatable, CustomStringConvertible {
     case mergeIntoItself(Int64)
     /// Slice (#1318) refused, in the engine's words (`patch_slice.py`).
     case sliceRefused(String)
+    /// `addShape` (#1314) with fewer than 3 corners.
+    case tooFewCorners(Int)
 
     public var description: String {
         switch self {
@@ -29,6 +31,7 @@ public enum PatchEditError: Error, Equatable, CustomStringConvertible {
         case .nodeExists(let id): return "node \(id) already exists"
         case .mergeIntoItself(let id): return "cannot merge node \(id) into itself"
         case .sliceRefused(let why): return why
+        case .tooFewCorners: return "a shape needs at least 3 corners"
         }
     }
 }
@@ -117,6 +120,29 @@ extension PatchDocument {
         nodeOrder.append(newID)
         reindex()
         return newID
+    }
+
+    /// Append a new closed shape through `corners` (`[lat, lon, alt?]`,
+    /// the ring in order, not repeated; #1314 "Insert shape"): new nodes
+    /// from `nextNewNodeID` downwards in corner order, then a new way
+    /// (`nextNewWayID`) after the others repeating its first node last.
+    /// Never merges. Returns the new way's id.
+    @discardableResult
+    public mutating func addShape(_ corners: [(lat: Double, lon: Double, alt: Double?)],
+                                  tags: [String: String] = [:]) throws -> Int64 {
+        guard corners.count >= 3 else { throw PatchEditError.tooFewCorners(corners.count) }
+        let wayID = nextNewWayID
+        var id = nextNewNodeID
+        var refs: [Int64] = []
+        for c in corners {
+            nodes[id] = PatchNode(id: id, lat: c.lat, lon: c.lon, alt: c.alt)
+            nodeOrder.append(id)
+            refs.append(id)
+            id -= 1
+        }
+        ways.append(PatchWay(id: wayID, refs: refs + [refs[0]], tags: tags))
+        reindex()
+        return wayID
     }
 
     /// Merge `source` INTO `target` (§3.3): the target keeps its position

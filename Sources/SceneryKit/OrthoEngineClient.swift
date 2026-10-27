@@ -240,7 +240,9 @@ public struct O4BoundaryAirportsReady: Sendable, Equatable {
 /// the schema). Unknown event types and fields are ignored by protocol rule.
 public enum O4Event: Sendable, Equatable {
     case hello(engineVersion: String, protocolVersion: String, capabilities: [String])
-    case log(level: String, text: String)
+    /// `tile` (#1226): the key (`+47-123`) of the tile whose build wrote
+    /// the line, nil for a run-level line.
+    case log(level: String, text: String, tile: String?)
     case scanProgress(phase: String, done: Int, total: Int)
     /// built: [lat, lon, info] triples; installed: [lat, lon] pairs.
     case scanBatch(built: [(lat: Int, lon: Int, info: O4JSON)], installed: [(lat: Int, lon: Int)])
@@ -319,6 +321,14 @@ public enum O4Event: Sendable, Equatable {
     /// the object stage, or the completion of an `omit_missing_art`
     /// command. See `O4PackMissingArt`.
     case packMissingArt(O4PackMissingArt)
+    /// One imagery source's launch-time liveness (protocol 1.19, #1345):
+    /// the completion of `imagery_source_status`, one event per source.
+    case imagerySourceStatus(code: String, status: O4ImageryStatus)
+    /// An airport pack with old flat forests that have X-Plane 12 3D
+    /// equivalents (protocol 1.21, #1360): found by the object stage, or
+    /// the outcome of a build or a `pack_forests` command. See
+    /// `O4PackOldForests`.
+    case packOldForests(O4PackOldForests)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -347,7 +357,9 @@ public enum O4Event: Sendable, Equatable {
                           capabilities: (object["capabilities"] as? [Any])?
                               .compactMap { $0 as? String } ?? [])
         case "Log":
-            return .log(level: string("level"), text: string("text"))
+            let tile = (object["tile"] as? [Any])?.compactMap { ($0 as? NSNumber)?.intValue }
+            return .log(level: string("level"), text: string("text"),
+                        tile: tile.flatMap { $0.count == 2 ? TileMath.key(lat: $0[0], lon: $0[1]) : nil })
         case "ScanProgress":
             return .scanProgress(phase: string("phase"), done: int("done"), total: int("total"))
         case "ScanBatch":
@@ -473,6 +485,27 @@ public enum O4Event: Sendable, Equatable {
                 canOmit: bool("can_omit"),
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
+        // Another STRING LITERAL match (see AutoPatchFailed above): it is
+        // `class ImagerySourceStatus` in Ortho4XP/src/o4_engine/events.py.
+        case "ImagerySourceStatus":
+            return .imagerySourceStatus(
+                code: string("code"),
+                status: O4ImageryStatus(status: object["status"] as? String ?? "unknown",
+                                        reason: string("reason")))
+        // `class PackOldForests` in Ortho4XP/src/o4_engine/events.py.
+        case "PackOldForests":
+            return .packOldForests(O4PackOldForests(
+                pack: string("pack"), packRoot: string("pack_root"),
+                lat: int("lat"), lon: int("lon"), total: int("total"),
+                mapped: int("mapped"), uses: int("uses"),
+                firstPaths: (object["first_paths"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                unmapped: int("unmapped"),
+                firstUnmapped: (object["first_unmapped"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                // absent ⇒ no question: never offer without a yes
+                canUpdate: bool("can_update"),
+                files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                state: object["state"] as? String ?? "found",
+                error: string("error")))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -507,6 +540,18 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     public let meshDate: Double?
     public let imageryDate: Double?
     public let sizeBytes: Int?
+    /// The newest build-record row (#1226); nil for a tile built before
+    /// logging or by an older engine.
+    public let lastBuild: TileBuildRecord?
+    /// "Built by": from the record, else (single-tile `tile_info` only)
+    /// from the DSF's creation agent; nil when unknown.
+    public let builtBy: String?
+    /// The imagery the tile's textures carry (#1334): the dominant
+    /// provider among `textures/` names and its ZL; nil when none parses
+    /// (or the engine predates the field). `TileImageryChoice.resolve`
+    /// picks the cfg's or this.
+    public let detectedProvider: String?
+    public let detectedZL: Int?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -534,6 +579,10 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         meshDate = object["mesh_date"]?.doubleValue
         imageryDate = object["imagery_date"]?.doubleValue
         sizeBytes = object["size_bytes"]?.intValue
+        lastBuild = TileBuildRecord(json: object["last_build"])
+        builtBy = object["built_by"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        detectedProvider = object["detected_provider"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        detectedZL = object["detected_zl"]?.intValue
     }
 }
 
@@ -744,6 +793,25 @@ public final class OrthoEngineClient: @unchecked Sendable {
         }
     }
 
+    // MARK: - Imagery sources (protocol 1.19, #1345)
+
+    /// The engine's one imagery source list, in menu order. Empty when the
+    /// engine predates the command (unknown commands reply ok=false).
+    public func imagerySources() async -> [O4ImagerySource] {
+        let result: Result<[O4ImagerySource], Error> = await withCheckedContinuation { continuation in
+            send(command: "imagery_sources") { reply in
+                continuation.resume(returning: Self.decodeReply(reply, command: "imagery_sources"))
+            }
+        }
+        return (try? result.get()) ?? []
+    }
+
+    /// Start the background liveness check: one `imagerySourceStatus`
+    /// event per source follows from engine worker threads.
+    public func startImagerySourceStatus() {
+        send(command: "imagery_source_status")
+    }
+
     // MARK: - Default airport index (protocol 1.6)
 
     /// Ask the engine for X-Plane's Global Airports index. The engine owns
@@ -851,6 +919,25 @@ public final class OrthoEngineClient: @unchecked Sendable {
              arguments: ["pack_root": packRoot, "lat": lat, "lon": lon])
     }
 
+    // MARK: - 3D trees (protocol 1.21)
+
+    /// The user's answer about a pack's old flat forests (#1360): action
+    /// "update" (remember it and point the tile DSF at the X-Plane 12 3D
+    /// trees), "never" (remember it, write nothing) or "undo" (forget it
+    /// and put the originals back — the whole pack when lat/lon are nil).
+    /// The engine replies `{"status": "started"}` at once and completes
+    /// with a `packOldForests` event. An engine older than 1.21 replies
+    /// ok=false: nothing changes.
+    public func packForests(packRoot: String, action: String,
+                            lat: Int? = nil, lon: Int? = nil) {
+        var arguments: [String: Any] = ["pack_root": packRoot, "action": action]
+        if let lat, let lon {
+            arguments["lat"] = lat
+            arguments["lon"] = lon
+        }
+        send(command: "pack_forests", arguments: arguments)
+    }
+
     // MARK: - Stream handling
 
     private func consumeStdout(_ data: Data) {
@@ -890,12 +977,13 @@ public final class OrthoEngineClient: @unchecked Sendable {
             return
         }
         // A STRING LITERAL match (see O4Event.parse): these are `class
-        // PackObjectsReady`, `class LibraryReady` and `class
-        // PlanEstimateReady` in Ortho4XP/src/o4_engine/events.py, the
-        // completions of the `pack_objects`, Library and `plan_estimate`
-        // (#820) commands whose id is `request`.
+        // PackObjectsReady`, `class LibraryReady`, `class
+        // PlanEstimateReady` and `class BuildAirportsReady` in
+        // Ortho4XP/src/o4_engine/events.py, the completions of the
+        // `pack_objects`, Library, `plan_estimate` (#820) and
+        // `build_airports` (#818) commands whose id is `request`.
         switch object["event"] as? String {
-        case "PackObjectsReady", "LibraryReady", "PlanEstimateReady":
+        case "PackObjectsReady", "LibraryReady", "PlanEstimateReady", "BuildAirportsReady":
             if let request = (object["request"] as? NSNumber)?.intValue,
                let waiter = lock.withLock({ eventWaiters.removeValue(forKey: request) }) {
                 waiter(O4JSON.from(object))
@@ -962,6 +1050,20 @@ extension OrthoEngineClient {
         var arguments: [String: Any] = ["lat": lat, "lon": lon]
         if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
         return try await request("cursor_elevation", arguments)
+    }
+
+    /// "Insert shape" planned at a point (protocol 1.20, #1314); ask again
+    /// while the reply is `pending`.
+    public func patchInsertShape(lat: Double, lon: Double, buildDir: String? = nil) async throws -> O4PatchInsertShape {
+        var arguments: [String: Any] = ["lat": lat, "lon": lon]
+        if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        return try await request("patch_insert_shape", arguments)
+    }
+
+    /// Append the planned corners to `icao`'s patch on disk (protocol 1.20,
+    /// #1314) — for an airport whose patch is not the open document.
+    public func patchAddShape(tile: String, icao: String, corners: [[Double]]) async throws -> O4PatchAddShape {
+        try await request("patch_add_shape", ["tile": tile, "icao": icao, "corners": corners])
     }
 
     /// The terrain view's picture over `bbox` (protocol 1.15, #1320):

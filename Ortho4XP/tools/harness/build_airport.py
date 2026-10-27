@@ -317,17 +317,15 @@ def _config_names():
 
 def global_cfg_in(root) -> Path:
     """THE global cfg of an engine tree or data root: ``XPTerrainBuilder.cfg``
-    after the root's one-time hand-over from ``Ortho4XP.cfg`` (the engine
-    makes the same copy on its first import there; RULINGS 2026-10-26c)."""
+    (RULINGS 2026-10-26c; an ``Ortho4XP.cfg`` there is never read)."""
     CN = _config_names()
-    CN.adopt_global_cfg(str(root))
     return Path(root) / CN.GLOBAL_CFG_NAME
 
 
 def _owner_app_cfg(data_repo) -> Path:
     """The owner's app cfg, READ-ONLY: ``XPTerrainBuilder.cfg`` once the app
-    has handed it over, else the ``Ortho4XP.cfg`` it still runs on.  The
-    harness never writes into the data repo, so it never adopts here."""
+    has written one, else the ``Ortho4XP.cfg`` the corpus was frozen with.
+    The harness never writes into the data repo."""
     data_repo = Path(data_repo)
     ours = data_repo / "XPTerrainBuilder.cfg"
     return ours if ours.is_file() else data_repo / "Ortho4XP.cfg"

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 __all__ = [
     "CONFLICT", "CONFLICT_TEXT", "CONFIRM_TITLE", "CONFIRM_BUTTON",
-    "TILES_NOTE", "merge", "tile_value", "selection_zoom", "edits_tiles",
+    "TILES_NOTE", "tile_value", "selection_zoom", "edits_tiles",
     "any_conflict", "preset_values", "scope_text", "confirm_text",
 ]
 

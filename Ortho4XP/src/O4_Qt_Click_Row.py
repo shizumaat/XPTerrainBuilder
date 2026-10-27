@@ -20,7 +20,7 @@ from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPalette
 from PySide6.QtWidgets import QWidget
 
-__all__ = ["ClickableRow", "ClickableStatus", "fill_color", "apply_fills"]
+__all__ = ["ClickableRow", "ClickableStatus", "apply_fills"]
 
 
 def fill_color(palette):

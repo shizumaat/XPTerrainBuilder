@@ -10,7 +10,7 @@ app's twin is ``ActivitySections`` (``ActivitySections.swift``).
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QGroupBox, QScrollArea, QToolButton, QVBoxLayout, QWidget
 
-__all__ = ["completed_title", "CompletedSection"]
+__all__ = [ "CompletedSection"]
 
 
 def completed_title(count):

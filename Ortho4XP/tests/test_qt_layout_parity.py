@@ -96,6 +96,15 @@ CONSOLE_HEADER = (
 HISTORY_DATE_FILTER = ('Picker("Built"', "range_combo")
 APPLICATION_ROWS = ("Version", "X-Plane Folder", "Data Folder")
 
+#: The Build pane's run sections, top to bottom (#1556): (key, Swift
+#: marker in ActivitySections.swift, Qt window attribute).  Completed
+#: collapses to "Completed (N)" in both apps.
+RUN_SECTIONS = (
+    ("activity", 'Text("Activity")', "activity_group"),
+    ("completed", "Self.completedTitle(", "completed_section"),
+)
+COMPLETED_TITLE = ('"Completed (\\(count))"', "Completed (12)", 12)
+
 
 # ─── the Mac app, read statically ─────────────────────────────────────────
 
@@ -154,6 +163,15 @@ def test_mac_plan_panel_closes_the_build_box():
     marker = block.find(PLAN_PANEL[0])
     assert marker != -1, "the Mac Build box lost its cost panel"
     assert marker > block.rfind("Toggle("), "the cost panel must follow the toggles"
+
+
+def test_mac_run_sections_are_the_manifest():
+    block = _block(SWIFT / "ActivitySections.swift",
+                   "struct ActivitySections", "\n}\n")
+    marks = [block.find(marker) for _key, marker, _attr in RUN_SECTIONS]
+    assert -1 not in marks, dict(zip((k for k, _m, _a in RUN_SECTIONS), marks, strict=True))
+    assert marks == sorted(marks), "Mac run section order differs"
+    assert COMPLETED_TITLE[0] in block
 
 
 def _swift_general() -> str:
@@ -312,6 +330,17 @@ def test_qt_grading_off_is_this_builds_only(window, tmp_path, monkeypatch):
     assert not writes
     window.start_build()
     assert "overrides" not in sent[-1]
+
+
+def test_qt_run_sections_are_the_manifest(window):
+    import O4_Qt_Completed as QTDONE
+
+    layout = window._panel_layout
+    indices = [layout.indexOf(getattr(window, attr))
+               for _key, _marker, attr in RUN_SECTIONS]
+    assert -1 not in indices
+    assert indices == list(range(indices[0], indices[0] + len(indices)))
+    assert QTDONE.completed_title(COMPLETED_TITLE[2]) == COMPLETED_TITLE[1]
 
 
 def test_qt_plan_panel_sits_just_above_build(window):

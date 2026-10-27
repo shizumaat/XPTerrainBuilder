@@ -87,6 +87,18 @@ final class BuildActivityModel: ObservableObject {
         ActivityOrder.order(runOrder.filter { tiles[$0] != nil }, stamps: stamps)
     }
 
+    /// `displayOrder`'s rows that sit in `section` (#1556): built tiles in
+    /// Completed, every other row in Activity.
+    func rows(in section: ActivityOrder.Section) -> [BuildModel.TileCoord] {
+        displayOrder.filter {
+            tiles[$0].map { ActivityOrder.section(state: $0.state.rawValue) } == section
+        }
+    }
+
+    /// The Completed section is expanded (#1556): collapsed at launch, it
+    /// keeps what the user chose for the rest of the session.
+    @Published var completedExpanded = false
+
     /// The rows the map draws a badge for: this run's, and any row still
     /// live or waiting for a resume.
     var badges: [BuildModel.TileCoord: TileProgress] {

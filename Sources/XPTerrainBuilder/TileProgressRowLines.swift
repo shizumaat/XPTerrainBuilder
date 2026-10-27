@@ -18,7 +18,7 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
     let text: ProgressRowText
     let statusColor: Color
     var titleDimmed = false
-    /// A built tile (#1542, `ActivityOrder.isCompact`): no bar, no steps.
+    /// A built tile, in Completed (#1542, #1556): no bar, no steps.
     var compact = false
     /// Non-nil: the status reopens the tile's end-of-build messages.
     var onStatusTap: (() -> Void)?
@@ -71,11 +71,7 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
 
     /// `color` 50 % of the way to white (alpha kept).
     static func halfwayToWhite(_ color: NSColor) -> NSColor {
-        let rgb = color.usingColorSpace(.sRGB) ?? color
-        return NSColor(srgbRed: (rgb.redComponent + 1) / 2,
-                       green: (rgb.greenComponent + 1) / 2,
-                       blue: (rgb.blueComponent + 1) / 2,
-                       alpha: rgb.alphaComponent)
+        color.halfway(toward: 1)
     }
 
     private var statusLine: some View {

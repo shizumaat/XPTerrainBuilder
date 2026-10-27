@@ -109,7 +109,7 @@ import O4_Qt_Tile_Menu as QTTILEMENU
 import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
-import O4_Qt_Selection_Ring as RING
+import O4_Qt_Completed as QTDONE
 import O4_Qt_Step_Strip as QTSTRIP
 import O4_Step_Strip as STRIP
 
@@ -117,7 +117,7 @@ import O4_Step_Strip as STRIP
 # the settings sheet and the wizard all import it.  Top-level, so
 # PyInstaller sees it without a hidden-import entry.  The underscored
 # aliases keep this file's ~20 existing call sites unchanged.
-from O4_Qt_Click_Row import ClickableRow, ClickableStatus  # noqa: E402
+from O4_Qt_Click_Row import ClickableRow, ClickableStatus, apply_fills  # noqa: E402
 from O4_Qt_Map_Hint import MapHint  # noqa: E402
 from O4_Qt_Widgets import (  # noqa: E402
     ElidedRowLabel,
@@ -1445,6 +1445,12 @@ class MainWindow(QMainWindow):
         self.stop_btn.clicked.connect(self.request_stop)
         pg.addWidget(self.stop_btn)
         self.activity_group.setVisible(False)
+        # Completed (#1556): built tiles' rows, under Activity, collapsed
+        # to their count until the user opens it.
+        self.completed_section = QTDONE.CompletedSection()
+        self.completed_section.setVisible(False)
+        self.completed_section.expanded_changed.connect(
+            lambda _shown: self._sync_panel_stretch())
 
         pv.addWidget(build_group)
         # While visible, the Activity box absorbs ALL free panel height
@@ -1453,6 +1459,7 @@ class MainWindow(QMainWindow):
         # shows (_set_activity_box_visible), otherwise the spacer keeps
         # its share and the box stops growing with the window.
         pv.addWidget(self.activity_group, 1)
+        pv.addWidget(self.completed_section)
         pv.addWidget(self.patch_editor.panel)
         pv.addStretch(1)
         self._panel_layout = pv
@@ -2701,8 +2708,8 @@ class MainWindow(QMainWindow):
         self._update_build_summary(sel)
         self._persist_selection(sel)
         self.console_drawer.set_selection(sel, self.map.active_tile())
-        # Rows of selected tiles wear the map's focus ring (#1537).
-        RING.apply_rings(self._row_widgets(), sel, self.map.active_tile())
+        # Rows of selected tiles are filled (#1537).
+        apply_fills(self._row_widgets(), sel)
 
     def _persist_selection(self, selection=None):
         """Write the selected set and the active tile to the prefs file.
@@ -3658,15 +3665,22 @@ class MainWindow(QMainWindow):
             save_prefs(self.prefs)
 
     def _set_activity_box_visible(self, visible):
-        """Show or hide the Activity box.
-
-        While visible, the panel's idle bottom spacer is zeroed so the
-        box takes every pixel of free height as the window grows;
-        hiding it restores the spacer so the boxes sit top-aligned.
-        """
+        """Show or hide the Activity box (``_sync_panel_stretch``)."""
         self.activity_group.setVisible(visible)
-        self._panel_layout.setStretch(
-            self._panel_spacer_index, 0 if visible else 1)
+        self._sync_panel_stretch()
+
+    def _sync_panel_stretch(self):
+        """While the Activity box, or an expanded Completed section
+        (#1556), shows, the panel's idle bottom spacer is zeroed so the
+        boxes take every pixel of free height as the window grows; with
+        neither, the spacer returns so the boxes sit top-aligned."""
+        layout = self._panel_layout
+        completed = self.completed_section
+        grows = not completed.isHidden() and completed.expanded()
+        layout.setStretch(layout.indexOf(completed), 1 if grows else 0)
+        layout.setStretch(
+            self._panel_spacer_index,
+            0 if grows or not self.activity_group.isHidden() else 1)
 
     def _tile_in_active_run(self, tile):
         """True while the tile is queued or building in the current run.
@@ -4268,14 +4282,20 @@ class MainWindow(QMainWindow):
         self._sync_row_order()
 
     def _row_widgets(self):
-        """Tile -> its Activity row widget."""
+        """Tile -> its row widget, in Activity or Completed."""
         return {tile: row[2]
                 for tile, row in getattr(self, "_tile_rows", {}).items()}
 
+    def _row_section(self, tile):
+        """The section ``tile``'s row sits in (#1556)."""
+        return ACTORDER.section(self._progress_states.get(
+            tile, ("queued",))[0])
+
     def _sync_row_order(self):
-        """Lay the Activity rows out in the list's order (#1341): live
-        rows on top, newest queued first, then finished rows in the order
-        they finished."""
+        """Lay the rows out in the list's order (#1341) -- live rows on
+        top, newest queued first, then finished rows in the order they
+        finished -- each in its section (#1556): built tiles in
+        Completed, the rest in Activity."""
         rows = []
         for tile in self._tile_rows:
             (state, label, _pct) = self._progress_states.get(
@@ -4285,17 +4305,32 @@ class MainWindow(QMainWindow):
             rows, self._row_stamps, self._row_counter)
         order = ACTORDER.display_order(list(self._tile_rows),
                                        self._row_stamps)
-        if order == self._row_order:
+        placed = [(tile, self._row_section(tile)) for tile in order]
+        if placed == self._row_order:
             return
-        self._row_order = order
+        self._row_order = placed
         # A row come or gone can change "every row selected" (#1537).
-        RING.apply_rings(self._row_widgets(), self.map.selection(),
-                         self.map.active_tile())
-        for index, tile in enumerate(order):
-            widget = self._tile_rows[tile][2]
-            if self._rows_layout.indexOf(widget) != index:
-                self._rows_layout.removeWidget(widget)
-                self._rows_layout.insertWidget(index, widget)
+        apply_fills(self._row_widgets(), self.map.selection())
+        layouts = {ACTORDER.ACTIVITY: self._rows_layout,
+                   ACTORDER.COMPLETED: self.completed_section.rows_layout}
+        for section, layout in layouts.items():
+            tiles = [tile for tile, where in placed if where == section]
+            for index, tile in enumerate(tiles):
+                widget = self._tile_rows[tile][2]
+                if layout.indexOf(widget) != index:
+                    for either in layouts.values():   # it may change box
+                        either.removeWidget(widget)
+                    layout.insertWidget(index, widget)
+        done = sum(1 for _tile, where in placed
+                   if where == ACTORDER.COMPLETED)
+        self.completed_section.set_count(done)
+        self.completed_section.setVisible(done > 0)
+        self._sync_panel_stretch()
+
+    def _activity_rows(self):
+        """The tiles whose rows sit in Activity (not Completed)."""
+        return [tile for tile in self._tile_rows
+                if self._row_section(tile) == ACTORDER.ACTIVITY]
 
     def _map_progress(self):
         """The rows the map draws a badge for: this run's, and any row
@@ -4349,7 +4384,7 @@ class MainWindow(QMainWindow):
         row = self._tile_rows.get(tile)
         state = self._progress_states.get(tile, ("queued",))[0]
         steps = row[2].findChild(QLabel, "tile_steps") if row else None
-        if steps is not None and ACTORDER.is_compact(state):
+        if steps is not None and ACTORDER.section(state) == ACTORDER.COMPLETED:
             steps.setVisible(False)
 
     def _on_step_progress(self, event):
@@ -4524,7 +4559,7 @@ class MainWindow(QMainWindow):
             ACTORDER.status_tone(state, label, has_issues)])
         status.set_clickable(has_issues, QTFAIL.REOPEN_TOOLTIP)
         title = row_widget.findChild(QLabel, "tile_title")
-        compact = ACTORDER.is_compact(state)
+        compact = ACTORDER.section(state) == ACTORDER.COMPLETED
         if title is not None:
             title.setStyleSheet(
                 "color: %s;" % COMPLETED_TITLE_COLOR if compact
@@ -4951,7 +4986,7 @@ class MainWindow(QMainWindow):
         self._run_tiles = set()
         self._sync_row_order()
         self.map.set_progress(self._map_progress())
-        self._set_activity_box_visible(bool(self._tile_rows))
+        self._set_activity_box_visible(bool(self._activity_rows()))
         # There is no elapsed left to report, only finished rows.
         self.progress_title.setText("")
         self.elapsed_label.setText("")

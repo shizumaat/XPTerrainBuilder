@@ -35,7 +35,7 @@ import typing as _t
 
 __all__ = ["OPEN_KINDS", "rigid_open", "unit_root", "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
-           "GROUP_REASON",
+           "GROUP_REASON", "at_zero",
            "TOUCH_M"]
 
 #: the deck verdicts that make a member an OPEN structure — a deck
@@ -85,6 +85,10 @@ def _at_zero(record: _t.Any, m: _t.Any, target: float,
                          reason=f"{why}; was: {a.reason}")
         out.append(named_body(m, b, anchor=a2))
     return _dc.replace(record, bodies=tuple(out))
+
+
+#: the bodies ``take`` accepts at ``target`` (``placement_targets``' weld)
+at_zero = _at_zero
 
 
 def unit_root(uid: str) -> str:

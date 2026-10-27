@@ -10407,3 +10407,8 @@ KCLT taxiway T has to drop about 9 m over 450 m for tails to clear runway 18C. M
 
 **2026-10-28g — SPJC walkway tunnels accepted on the data available (#535; owner sim read on 1.0.436, 2026-10-27T13:54Z: "SPJC, still has a tunnel on either side of the walkway, but the walkway is not present in the package or the terrain, so it makes sense that we're trying to add a tunnel based on the data available."; Q216 "a", 13:58:59Z).**
 Where neither the airport package nor the terrain shows the structure over a mapped road (27z's witness), the tunnels the mapped data asks for are accepted as built until a package or survey shows the walkway. Q204's ruling on SPJC's real geometry stands as the description of the site; #535 is closed as accepted. The same reading covers VNLK (#1461): pavement the package carries is honoured until the package changes.
+
+**2026-10-28h — pack dock lanes: the walls frame the ramp (#414; owner Q218–Q220, 2026-10-27T14:30:52Z: "218. a 219. a 220. a").**
+(1) Q218 a: where a pack's own floor plate in a walled lane runs opposite to what its walls frame (at grade against the closing face, deepest at the open end), the WALLS win. The lane is read as a bay: deep at the closed end, rising over the walls' length to grade at the open end, as the owner-approved OTHH dock ramp is. This amends Law B (RULINGS 2026-09-08b/c, floor = the plate's own y) for that case only.
+(2) Q219 a: where a bay's two walls reach different depths, the floor is the SHALLOWER wall's bottom. A deeper block standing as one wall is not the floor.
+(3) Q220 a: side-by-side bays that share a wall are all built. One wall corridor touching another is not an overlap to resolve by dropping the smaller.

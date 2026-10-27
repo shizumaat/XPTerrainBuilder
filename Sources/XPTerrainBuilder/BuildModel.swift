@@ -205,12 +205,24 @@ final class BuildModel: ObservableObject {
     }
     /// The detail level for new tiles (Settings' Detail picker, presets).
     @AppStorage("OrthoZoomLevel") var defaultZL: Int = 16
-    /// A selected built tile's recorded zoom (#1539): session only.
-    @Published private var zoom = BuildZoom()
-    /// The next build's detail level: the active tile's recorded zoom, else
-    /// the default. Setting it chooses a new default (#1539, `BuildZoom`).
+    /// A selected built tile's recorded zoom (#1539) and a zoom chosen for
+    /// the selection (#1549): session only.
+    @Published var zoom = BuildZoom()
+    /// A per-tile Settings change waiting for the user's yes: the selected
+    /// tiles disagree (#1549, `BuildModel+SelectionSettings.swift`).
+    @Published var pendingSelectionEdit: PendingSelectionEdit?
+    /// The next build's detail level: a zoom chosen for the selection, else
+    /// the selection's own (each tile's recorded zoom, a never-built tile
+    /// the default; disagreeing tiles build at the default, as in the Qt
+    /// window — #1549), else the active tile's, else the default. Setting
+    /// it chooses a new default (#1539, `BuildZoom`).
     var buildZL: Int {
-        get { zoom.current(default: defaultZL) }
+        get {
+            guard zoom.selectionChoice == nil, !selected.isEmpty else {
+                return zoom.current(default: defaultZL)
+            }
+            return selectionZoom.value ?? defaultZL
+        }
         set { zoom.chosen(); defaultZL = newValue }
     }
     @AppStorage("OrthoCustomBuildDir") var customBuildDir: String = ""
@@ -274,7 +286,11 @@ final class BuildModel: ObservableObject {
             persistSelection()
             refreshCustomizedTiles(only: selected.subtracting(oldValue))
             searchTags.keep(only: Set(selected.map { AirportTile(lat: $0.lat, lon: $0.lon) }))
-            if selected != oldValue { selectionChangedForConsole() }
+            if selected != oldValue {
+                // A zoom chosen for the old selection is not this one's (#1549).
+                zoom.newSelection()
+                selectionChangedForConsole()
+            }
         }
     }
     /// The search codes that picked each selected tile (#667); a search
@@ -2644,7 +2660,7 @@ final class BuildModel: ObservableObject {
         didSet { refreshCustomizedTiles(only: selected) }
     }
 
-    private func tileConfigURL(_ coord: TileCoord) -> URL? {
+    func tileConfigURL(_ coord: TileCoord) -> URL? {
         guard let base = tileBaseFolder else { return nil }
         return base.appendingPathComponent(OrthoEngine.tileFolderName(lat: coord.lat, lon: coord.lon))
             .appendingPathComponent(OrthoConfigNames.tileFileName(lat: coord.lat, lon: coord.lon))
@@ -2693,13 +2709,16 @@ final class BuildModel: ObservableObject {
         return configValue(for: item.name)
     }
 
-    /// Writes a settings row's new value to the right place for its scope.
+    /// Writes a settings row's new value to the right place for its scope:
+    /// a tile setting with tiles selected to every selected tile — after
+    /// the user's yes while they disagree (#1549) — else the global config.
     func setValue(for item: SettingItem, to value: O4Value) {
-        guard item.scope == .tile, !selected.isEmpty else {
+        guard SettingsSelection.editsTiles(isTileScope: item.scope == .tile,
+                                           tileCount: selected.count) else {
             setConfigValue(item.name, to: value)
             return
         }
-        writeThroughToSelectedTiles(item.name, value)
+        editSelection { [weak self] in self?.writeThroughToSelectedTiles(item.name, value) }
     }
 
     /// Every config variable the current selection actually customizes —
@@ -2753,7 +2772,7 @@ final class BuildModel: ObservableObject {
     /// (O4_Settings_Model.write_tile), which the Qt window calls in
     /// process; this local writer predates that command and is the one
     /// convergence owed here.
-    private func writeThroughToSelectedTiles(_ name: String, _ value: O4Value) {
+    func writeThroughToSelectedTiles(_ name: String, _ value: O4Value) {
         guard !selected.isEmpty else { return }
         let inherited = configValue(for: name)
         for coord in selected {

@@ -28,3 +28,24 @@ struct BuildZoomTests {
         #expect(zoom.current(default: 15) == 15)
     }
 }
+
+/// #1549: a zoom chosen in Settings with tiles selected is theirs — never
+/// the default (RULINGS 2026-10-28j (3)) — and goes with the selection.
+struct BuildZoomSelectionTests {
+    @Test func aChoiceForTheSelectionOutranksTheAdoption() {
+        var zoom = BuildZoom()
+        zoom.adopt(TileImageryChoice(provider: "BI", zl: 17, source: .config))
+        zoom.chooseForSelection(18)
+        #expect(zoom.current(default: 16) == 18)
+        zoom.newSelection()
+        #expect(zoom.selectionChoice == nil)
+        #expect(zoom.current(default: 16) == 17)
+    }
+
+    @Test func choosingADefaultDropsTheSelectionsChoice() {
+        var zoom = BuildZoom()
+        zoom.chooseForSelection(18)
+        zoom.chosen()
+        #expect(zoom.current(default: 15) == 15)
+    }
+}

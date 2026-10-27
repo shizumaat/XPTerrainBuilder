@@ -102,7 +102,7 @@ def test_edit_settings_opens_the_tile_with_its_customized_rows(
         tile_written = False
         zoom_chosen = False
 
-        def __init__(self, prefs, tiles, custom_build_dir, parent):
+        def __init__(self, prefs, tiles, custom_build_dir, parent, **kwargs):
             opened["tiles"] = tiles
             self._prefs = prefs
 

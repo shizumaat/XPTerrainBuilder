@@ -10440,3 +10440,7 @@ Read with the questions as asked:
 - (231 b) Every road under pavement is deepened to the 7.5 m mouth depth, except where an object indicates a different value.
 - (232 a) A tagged tunnel gets no cut where its road already clears 5 m under the apron, or where neither the survey nor the ground shows one.
 - (233 a) Rail follows the survey and never gets a road ramp. At a tunnel mouth, rail needs a longer (shallower) ramp than a road; on coarse elevation that ramp is at most 3.5 %.
+
+**2026-10-28l — wall-corridor bays: lids and shared-wall steps (#414, PR #1567; owner Q234–Q235, 2026-10-27T16:51:31Z: "234. A 235. A").**
+(1) Q234 A: a lid over a wall-corridor trench counts as a roof (the headroom gate) only when it covers at least half the trench (`cutout.wall_corridor.headroom_cover_min = 0.5`). A sidewalk strip drawn at grade over a small part of the trench does not refuse the bay.
+(2) Q235 A: where neighbouring bays with different floors meet under a wall they share, and that wall reaches below both floors, the step is lawful: the wall hides it, and the census forgives it as a declared wall step.

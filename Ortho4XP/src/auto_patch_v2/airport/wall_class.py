@@ -5,8 +5,8 @@ A pack component is WALL-CLASS when it is thin, tall and long enough
 ``_min_length_m``, read from the ``cfg`` the CALLER supplies), and its
 resource does not name a fence (RULINGS 2026-09-29h, Q-72b).  A THICK
 component is wall-class too where it retains its own height — slender for
-its height and the ground stepping across it by that height (#715,
-:func:`_retains_its_height`).
+its height, standing on the ground, and the ground stepping across it by
+that height (#715, #1197, :func:`_retains_its_height`).
 
 THE ONE implementation, read by three layers: ``classify/retaining_wall``
 (§47's wall along a road edge), ``planar/shore`` (RULINGS 2026-09-29a (2):
@@ -25,6 +25,7 @@ it, so every caller's import path is unchanged.
 from __future__ import annotations
 
 import dataclasses as _dc
+import unicodedata as _ud
 
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -54,11 +55,21 @@ class WallComponent:
 #: tell a fence from a retaining or sea wall (TFFJ ``beach_fence.obj``:
 #: 92 m, 2.38 m, thin), so the pack's own resource name decides: a
 #: component whose resource basename names one of these is never wall-class.
-NOT_WALL_RESOURCE_WORDS = ("fence", "railing")
+#: Read in the languages the installed packs are named in (#1197: LEMD's
+#: ``…LEMDzaun.obj`` is a 739 m fence, *Zaun*): German, French, Italian,
+#: Vietnamese (*hàng rào*), Swedish and Spanish fence and railing words.  A
+#: word that is also a common name part stays out (``valla``: Vallarta,
+#: Valladolid; ``cerca``: "near").  The words are plain ASCII: a name is
+#: compared with its accents folded (``Clôture`` -> ``cloture``).
+NOT_WALL_RESOURCE_WORDS = ("fence", "railing", "guardrail", "zaun", "cloture",
+                           "recinzione", "hangrao", "staket", "baranda",
+                           "gelander", "gelaender", "ringhiera")
 
 
 def _not_a_wall(resource: str) -> bool:
     base = str(resource or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+    base = "".join(ch for ch in _ud.normalize("NFKD", base)
+                   if not _ud.combining(ch))
     return any(w in base for w in NOT_WALL_RESOURCE_WORDS)
 
 
@@ -106,8 +117,8 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 # #1139: an object that IS one wall (its only part) may
                 # retain only what stands under its zero
                 depth = _depth_under_zero(p) if len(m.parts) == 1 else None
-                retains = _retains_its_height(airport, whole, wide,
-                                              float(p.height_m), cfg, depth)
+                retains = _stands_on_ground(p) and _retains_its_height(
+                    airport, whole, wide, float(p.height_m), cfg, depth)
                 if wide > float(cfg.retaining_wall_max_width_m) and not retains:
                     continue
                 out.append(WallComponent(tuple(polys), float(p.height_m),
@@ -119,6 +130,20 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
 #: percentile of the across-wall steps (a retaining wall's ends and returns
 #: retain nothing; KATL ``muro_concreto5`` steps 7-9 m over its south run)
 ACROSS_PERCENTILE = 90.0
+
+
+def _stands_on_ground(part) -> bool:
+    """False for an ELEVATED part — the partition found no ground feet for
+    it (``Part.feet`` empty: its base stands more than ``[rebake]
+    elevated_base_m`` above its contact structure, RULINGS 2026-09-09s
+    (2)).  A wall retains the ground at its foot; a part with no foot (a
+    band of glass on an upper storey, a garage's upper parapet) retains
+    nothing, whatever the ground does beside it (#1197: KATL ``Vidrios.obj``
+    comp 17, glass 12.51 m tall standing 3.00 m up its object, read a 10.97
+    m step off the slope beside the terminal).  A part record that carries
+    no ``feet`` field at all says nothing, and stands."""
+    feet = getattr(part, "feet", None)
+    return feet is None or len(feet) > 0
 
 
 def _depth_under_zero(part) -> float | None:

@@ -17,6 +17,7 @@ import O4_Glossary as GLOSSARY
 from O4_Qt_Widgets import never_widen, wrap_and_never_widen
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QCheckBox,
     QGroupBox,
     QLabel,
@@ -139,13 +140,42 @@ class AirportsCard(QGroupBox):
             lambda checked: self._switched(FIT_KEY, checked))
         self.fit_text = self._caption(FIT_SENTENCE)
         self.packs_text = self._caption("")
-        for widget in (self.chk_grade, self.grade_text,
+        # The explanations sit behind a small "i" (owner 2026-10-27; the
+        # Mac card's infoButton): the card shows switches and lists.
+        self.grade_info = self._info_button()
+        self.fit_info = self._info_button()
+        for widget in (self._row(self.chk_grade, self.grade_info),
+                       self.grade_text,
                        self.airports_toggle, self.airports_text,
-                       self.chk_fit, self.fit_text, self.packs_text):
-            if isinstance(widget, QCheckBox):
-                never_widen(widget)
-            layout.addWidget(widget)
+                       self._row(self.chk_fit, self.fit_info),
+                       self.fit_text, self.packs_text):
+            if isinstance(widget, QHBoxLayout):
+                layout.addLayout(widget)
+            else:
+                layout.addWidget(widget)
+        self.grade_text.setVisible(False)
+        self.fit_text.setVisible(False)
         self.refresh_switches()
+
+    def _info_button(self):
+        button = QToolButton()
+        button.setText("ⓘ")
+        button.setCheckable(True)
+        button.setAutoRaise(True)
+        button.setToolTip("What does this do?")
+        button.toggled.connect(self._render)
+        never_widen(button)
+        return button
+
+    @staticmethod
+    def _row(check, info):
+        never_widen(check)
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        row.addWidget(check)
+        row.addWidget(info)
+        row.addStretch(1)
+        return row
 
     @staticmethod
     def _caption(text):
@@ -208,7 +238,9 @@ class AirportsCard(QGroupBox):
             from o4_engine import build_airports as CARD
 
             try:
-                answer = (generation, CARD.build_airports(cells, folder), "")
+                answer = (generation, CARD.build_airports(
+                    cells, folder,
+                    live=lambda: generation == self._generation), "")
             except Exception as error:       # the card says so
                 answer = (generation, None, str(error))
             try:
@@ -267,6 +299,8 @@ class AirportsCard(QGroupBox):
         self.chk_fit.setEnabled(reason is None)
         self.chk_fit.setToolTip(reason or PER_BUILD_TIP)
         self.fit_text.setText(reason or FIT_SENTENCE)
+        self.fit_text.setVisible(bool(reason) or self.fit_info.isChecked())
+        self.grade_text.setVisible(self.grade_info.isChecked())
         packs = (card or {}).get("packs") or []
         self.packs_text.setText("\n".join(
             ["%s · %s object%s" % (p["name"], format(int(p["objects"]), ","),

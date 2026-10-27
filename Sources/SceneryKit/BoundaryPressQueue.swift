@@ -10,7 +10,7 @@ import Foundation
 /// 1.0.433 report: Queue disabled while a 100-airport tile solved). With
 /// no build running a press while one is in flight is still refused: it
 /// would start a second run for the same tiles.
-public struct O4BoundaryPressQueue<Press>: Sendable where Press: Sendable {
+public struct O4BoundaryPressQueue<Press> {
     private var inFlight = false
     private var waiting: [Press] = []
 
@@ -48,3 +48,5 @@ public struct O4BoundaryPressQueue<Press>: Sendable where Press: Sendable {
         return waiting.removeFirst()
     }
 }
+
+extension O4BoundaryPressQueue: Sendable where Press: Sendable {}

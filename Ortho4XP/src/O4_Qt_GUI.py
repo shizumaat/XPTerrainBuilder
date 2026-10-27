@@ -1081,6 +1081,7 @@ class MainWindow(QMainWindow):
             prefs=self.prefs, save_prefs=save_prefs)
         self.patch_editor.controller.rebuild = self.rebuild_patch_tile
         self.patch_editor.controller.is_building = lambda: self._building
+        self.patch_editor.controller.is_scanning = lambda: self._scanning
 
         panel = QWidget()
         pv = QVBoxLayout(panel)

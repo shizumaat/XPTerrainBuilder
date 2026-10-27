@@ -445,7 +445,42 @@ def global_candidates(xplane_root: str) -> tuple[str, ...]:
                          "default apt dat", "Earth nav data", "apt.dat"))
 
 
+#: ``{(xplane_root, ICAO): (install identity, chosen, chosen identity)}``
+#: -- the SELECTION map beside ``_BLOCK_INDEX``.  A selection lists every
+#: Custom Scenery pack (4,000+ on the owner's install) and stats each
+#: pack's apt.dat; tile selection asks it for every in-tile airport, and
+#: the Airports card and the boundary preflight run tile selection on
+#: every selection change and press.  Re-derived when the install moves:
+#: the Custom Scenery folder or ``scenery_packs.ini`` (a pack added,
+#: removed, enabled or disabled), a Global Airports candidate, or the
+#: chosen file itself.
+_SELECTION: dict[tuple[str, str], tuple] = {}
+
+
+def _install_identity(xplane_root: str) -> tuple:
+    custom_root = os.path.join(xplane_root, "Custom Scenery")
+    return (_file_identity(custom_root),
+            _file_identity(os.path.join(custom_root, "scenery_packs.ini")),
+            tuple(_file_identity(p) for p in global_candidates(xplane_root)))
+
+
 def find_apt_dat(xplane_root: str, icao: str) -> str | None:
+    """The apt.dat that serves ``icao`` (:func:`_find_apt_dat`), from the
+    selection map while the install has not moved."""
+    icao = icao.upper()
+    key = (xplane_root, icao)
+    identity = _install_identity(xplane_root)
+    cached = _SELECTION.get(key)
+    if (cached is not None and cached[0] == identity
+            and (cached[1] is None or _file_identity(cached[1]) == cached[2])):
+        return cached[1]
+    chosen = _find_apt_dat(xplane_root, icao)
+    _SELECTION[key] = (identity, chosen,
+                       _file_identity(chosen) if chosen else None)
+    return chosen
+
+
+def _find_apt_dat(xplane_root: str, icao: str) -> str | None:
     """The apt.dat that serves ``icao``.
 
     §44 (1) (owner RULINGS 2026-09-15f): THE PACK IS STILL THE PACK — the

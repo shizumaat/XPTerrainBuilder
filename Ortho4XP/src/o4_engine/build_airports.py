@@ -130,31 +130,53 @@ def airport_packs(cells, scenery_dir: str | None = None) -> list:
         scenery_dir = CFG.custom_scenery_dir
     wanted = {(int(c[0]), int(c[1])) for c in cells}
     rows = []
-    for pack in SCENERY.scan_packs(scenery_dir or ""):
-        if pack.status != "enabled":
+    for (name, path, content_root, enabled, airports) in (
+            SCENERY.iter_airport_packs(scenery_dir or "")):
+        if not enabled:
             continue
-        icaos = sorted({a.icao for a in pack.airports
+        icaos = sorted({a.icao for a in airports
                         if (int(a.lat // 1), int(a.lon // 1)) in wanted})
         if not icaos:
             continue
-        objects = count_objects(pack.content_root)
+        objects = count_objects(content_root)
         if objects:
-            rows.append({"name": pack.name, "path": pack.path,
+            rows.append({"name": name, "path": path,
                          "airports": icaos, "objects": objects})
     return rows
 
 
+class Superseded(Exception):
+    """A newer card was asked for before this one finished."""
+
+
 def build_airports(cells, custom_build_dir: str = "",
-                   scenery_dir: str | None = None) -> dict:
-    """The whole card for ``cells``: airports, packs and the total range."""
+                   scenery_dir: str | None = None,
+                   live: _t.Callable[[], bool] = lambda: True) -> dict:
+    """The whole card for ``cells``: airports, packs and the total range.
+
+    Prints nothing (``UI.quiet_thread``): the card is asked on every
+    selection change, while a build may be filling the console, and the
+    selector it runs narrates for the build only."""
+    import O4_UI_Utils as UI
+
     airports = []
-    for (lat, lon) in sorted({(int(c[0]), int(c[1])) for c in cells}):
-        airports.extend(tile_airports(lat, lon, custom_build_dir))
+    with UI.quiet_thread():
+        for (lat, lon) in sorted({(int(c[0]), int(c[1])) for c in cells}):
+            if not live():
+                raise Superseded("superseded by a newer selection")
+            airports.extend(tile_airports(lat, lon, custom_build_dir))
+        if not live():
+            raise Superseded("superseded by a newer selection")
     total = [round(sum(a["estimate_s"][0] for a in airports), 1),
              round(sum(a["estimate_s"][1] for a in airports), 1)]
     return {"airports": airports,
             "packs": airport_packs(cells, scenery_dir),
             "total_s": total}
+
+
+#: The newest card asked for (``start_build_airports``).
+_GENERATION = [0]
+_GENERATION_LOCK = threading.Lock()
 
 
 def start_build_airports(emit: _t.Callable[[_t.Any], None], tiles=(),
@@ -163,15 +185,24 @@ def start_build_airports(emit: _t.Callable[[_t.Any], None], tiles=(),
     """The command: replies ``{"status": "started"}`` at once and reads on
     a worker thread (a handler runs on the transport's read loop);
     ``BuildAirportsReady`` with ``request`` = the command's id completes
-    it."""
+    it.
+
+    The card is asked on every selection change; a newer ask SUPERSEDES
+    an older one still reading, which stops at its next tile and answers
+    with an error (its asker has moved on) -- asks never pile up into
+    threads that each read the whole install while a build runs."""
     from .events import BuildAirportsReady
 
     cells = [(int(t[0]), int(t[1])) for t in (tiles or ())]
+    with _GENERATION_LOCK:
+        _GENERATION[0] += 1
+        generation = _GENERATION[0]
 
     def work() -> None:
         try:
             event = BuildAirportsReady(request=request, **build_airports(
-                cells, custom_build_dir))
+                cells, custom_build_dir,
+                live=lambda: _GENERATION[0] == generation))
         except Exception as error:      # the event carries it
             event = BuildAirportsReady(request=request, error=str(error))
         emit(event)

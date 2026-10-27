@@ -2277,8 +2277,12 @@ class EngineSession:
             request_id = self._boundary_request_id
 
         def work():
+            import O4_UI_Utils as UI
             try:
-                event = self._boundary_preflight(request_id, cells)
+                # An ask, not a build: the selector's narration stays in
+                # the build's own log (the selector "never doubles the log").
+                with UI.quiet_thread():
+                    event = self._boundary_preflight(request_id, cells)
             except Exception as error:                   # never fatal
                 event = BoundaryAirportsReady(request_id=request_id,
                                               error=str(error))

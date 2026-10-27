@@ -1,5 +1,7 @@
+import contextlib
 import os
 import sys
+import threading
 import time
 
 import O4_Cfg_Module_Values as MODULE_VALUES
@@ -283,8 +285,32 @@ def _scrub(args):
 
 
 ################################################################################
+# A thread that only ASKS (a preview card, the boundary preflight) runs the
+# build's own selectors, which narrate for the build.  Its lines would land
+# in the build console under no tile (#1414 card, #820 plan, boundary ask),
+# so such a thread runs inside quiet_thread() and vprint/lvprint stay silent
+# there -- on that thread only; a build thread beside it still prints.
+_quiet = threading.local()
+
+
+@contextlib.contextmanager
+def quiet_thread():
+    """vprint/lvprint print and log nothing on this thread while inside."""
+    depth = getattr(_quiet, "depth", 0)
+    _quiet.depth = depth + 1
+    try:
+        yield
+    finally:
+        _quiet.depth = depth
+
+
+def thread_is_quiet():
+    """Whether this thread is inside :func:`quiet_thread`."""
+    return getattr(_quiet, "depth", 0) > 0
+
+
 def vprint(min_verbosity, *args):
-    if verbosity >= min_verbosity:
+    if verbosity >= min_verbosity and not thread_is_quiet():
         print(*_scrub(args))
 
 
@@ -306,6 +332,8 @@ def logprint(*args):
 
 ################################################################################
 def lvprint(min_verbosity, *args):
+    if thread_is_quiet():
+        return
     if verbosity >= min_verbosity:
         print(*_scrub(args))
     if log:

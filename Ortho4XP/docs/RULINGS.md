@@ -10404,3 +10404,6 @@ After its third failed round (PR #1134 at 348e8079c misses the §4 bars: riser o
 
 **2026-10-28f — taxiway slopes are measured along the taxiway's route (#805; owner Q210, 2026-10-27T13:23:40Z: "210. a").**
 KCLT taxiway T has to drop about 9 m over 450 m for tails to clear runway 18C. Measured straight across the paved shape that is 2 %, over the 1.5 % taxiway limit; along the taxiway's own route it is within the limit. Ruled (a): a taxiway's longitudinal slope is judged along its route, as route slopes already are. The straight-line-across-the-shape reading is not a taxiway-slope witness.
+
+**2026-10-28g — SPJC walkway tunnels accepted on the data available (#535; owner sim read on 1.0.436, 2026-10-27T13:54Z: "SPJC, still has a tunnel on either side of the walkway, but the walkway is not present in the package or the terrain, so it makes sense that we're trying to add a tunnel based on the data available."; Q216 "a", 13:58:59Z).**
+Where neither the airport package nor the terrain shows the structure over a mapped road (27z's witness), the tunnels the mapped data asks for are accepted as built until a package or survey shows the walkway. Q204's ruling on SPJC's real geometry stands as the description of the site; #535 is closed as accepted. The same reading covers VNLK (#1461): pavement the package carries is honoured until the package changes.

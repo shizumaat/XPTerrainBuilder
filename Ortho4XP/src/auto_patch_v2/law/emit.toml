@@ -204,6 +204,18 @@ answer_radius_lane_widths = 2.0  # a vertex reads the profile within this many l
 runout_m    = 100.0  # S.1 (3): arclength along the way from its nearest in-band station
 budget_m    = 1.0    # S.3: the deviation budget — the cap yields rather than move the road further off terrain (OWNER Q1 open; this is the spec default)
 cap_ceiling = 0.30   # S.3: nothing above this is a road any class drives (49 CFR 665 bus testing; loaded trucks stall ~10 %)
+# OWNER RULINGS 2026-10-22h (Q111, #1254): A PUBLIC ROAD FOLLOWS THE REAL
+# TERRAIN where it is steeper than the road cap; airside and service roads
+# keep the cap.  The public classes are the `highway` values below that are
+# not airport-internal (every class but `service`; a `track` is a farm or
+# forest road on its own terrain, never the airport's):
+# inside the band their segments take `cap_ceiling` instead of the patch's
+# `road_grade_limit` (`O4_Vector_Utils.road_inside_cap`, read by the core and
+# by v2), so the clamp is the terrain itself wherever the terrain is a road.
+public_classes = ["motorway", "motorway_link", "trunk", "trunk_link",
+                  "primary", "primary_link", "secondary", "secondary_link",
+                  "tertiary", "tertiary_link", "unclassified", "residential",
+                  "living_street", "road", "track"]
 
 # S.3 PER-CLASS CAPS — the steepest grade a PUBLISHED DESIGN STANDARD
 # permits for that class in MOUNTAINOUS terrain at low design speed.

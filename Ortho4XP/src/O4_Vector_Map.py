@@ -2630,6 +2630,7 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
             cap_ceiling=_law["cap_ceiling"],
             class_caps=_law["class_caps"],
             join_pins=_join_pins,
+            public_classes=_law["public_classes"],
         )
         _clamp_report = levelled["roads"].summary()
         UI.vprint(3, "Time for road profile clamp:", time.time() - timer)

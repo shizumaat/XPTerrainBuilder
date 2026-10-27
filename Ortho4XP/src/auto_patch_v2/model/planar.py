@@ -696,6 +696,22 @@ class PlanarMap:
     #: census reads it as a LIFTED longitudinal cap
     #: (``pipeline/publication.lifted_caps``); empty where every road fits.
     pad_road_released: _t.Mapping[int, tuple] = _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-10-22h (#1254): face id -> the steepest grade a
+    #: PUBLIC road's own target runs at, for every public-road face whose
+    #: target is over the road cap — derived once by
+    #: ``airport/road_ramp.with_road_ramp`` (``airport/public_road``); read
+    #: by ``constraints/public_road_release`` (the rows yield) and
+    #: ``pipeline/publication.lifted_caps`` (the census lift)
+    public_road_lifted: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-10-27f / 27s (Q186 / Q197): vertex -> the ref of
+    #: the PUBLIC road it stands on, for every vertex of a SIZED junction
+    #: joint (the side street's mouth and transition, the main road's kerb
+    #: it pairs with; ``airport/road_joint.junction_joints``).  Published as
+    #: the sixth field of each ``road_route_frame`` record, so every reader
+    #: of ``constraints/roads.road_pair_reading`` prices the same pairs of
+    #: two different roads as the street's longitudinal grade; any other
+    #: pair of two routes keeps the one-carriageway cross-section
+    road_junction_road: _t.Mapping[int, str] = _dc.field(default_factory=dict)
     #: THE TILE-SEAM BANDS (§38 (3); owner RULINGS 2026-09-13ah/13am), as
     #: frame polygon rings — the SINGLE derivation is
     #: ``planar/overlay.seam_bands``, recorded here so every downstream

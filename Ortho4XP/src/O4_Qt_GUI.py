@@ -734,6 +734,24 @@ def _batch_summary(batch):
 
 
 class MainWindow(QMainWindow):
+    @property
+    def build_zl(self):
+        """The next build's detail level: the selection's recorded zoom,
+        else ``prefs["zl"]`` — the default for new tiles that Settings'
+        Detail and the preset cards set (#1539).  The adoption is never
+        written back to the default, so a never-built tile selected after
+        a ZL17 one shows the default again (the Mac's ``BuildZoom``)."""
+        if self._adopted_zl is not None:
+            return self._adopted_zl
+        return _zoom_level(self.prefs.get("zl"), 16)
+
+    @build_zl.setter
+    def build_zl(self, zoomlevel):
+        """A chosen detail level becomes the default and outranks the
+        selection's until the next selection."""
+        self._adopted_zl = None
+        self.prefs["zl"] = zoomlevel
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("XPTerrainBuilder " + O4_Version.version)
@@ -781,6 +799,9 @@ class MainWindow(QMainWindow):
         # _sync_build_controls_to_selection runs once per selection so
         # panel refreshes never clobber a user-picked imagery source/ZL.
         self._combos_synced_to = None
+        # The selection's recorded detail level (#1539): session only,
+        # never written to prefs["zl"] (see build_zl).
+        self._adopted_zl = None
 
         # --- pipeline adapters -----------------------------------------
         UI.verbosity = int(self.prefs.get("verbosity", 1))
@@ -1619,9 +1640,9 @@ class MainWindow(QMainWindow):
         imagery = self.prefs.get("imagery", "BI")
         if imagery in QTIMENU.offered_codes(self.imagery_combo):
             self.imagery_combo.setCurrentText(imagery)
-        # The build detail level (ZL): set in Settings (#1242), adopted
-        # from a selected built tile (_sync_build_controls_to_selection).
-        self.build_zl = _zoom_level(self.prefs.get("zl"), 16)
+        # The default detail level (ZL), set in Settings (#1242); a
+        # selected built tile's is adopted on top (build_zl, #1539).
+        self.prefs["zl"] = _zoom_level(self.prefs.get("zl"), 16)
         shown = bool(self.prefs.get(SIDE_PANEL_KEY, True))
         self.panel_toggle.setChecked(shown)
         self.panel_scroll.setVisible(shown)
@@ -1722,7 +1743,6 @@ class MainWindow(QMainWindow):
         zoom = write_default_preset_if_unset()
         if zoom is not None:
             self.build_zl = zoom
-            self.prefs["zl"] = zoom
             self._update_build_summary()
 
     def _seed_paths_from_xplane(self):
@@ -1827,10 +1847,12 @@ class MainWindow(QMainWindow):
         if not selected and self.map.active_tile():
             selected = [self.map.active_tile()]
         # The dialog's Detail and preset cards (#822, #1242) read and set
-        # the build zoom: hand it the one the next build uses.
-        self.prefs["zl"] = self.build_zl
+        # the build zoom: hand it the one the next build uses, without
+        # writing a tile's adopted zoom into the default (#1539).
+        dialog_prefs = dict(self.prefs)
+        dialog_prefs["zl"] = self.build_zl
         dialog = QTSET.SettingsWindow(
-            self.prefs,
+            dialog_prefs,
             selected,
             self.output_dir(),
             self,
@@ -1846,7 +1868,12 @@ class MainWindow(QMainWindow):
         # Blended settings apply immediately (Option C): every close path
         # keeps the changes, so the result is consumed unconditionally.
         old_xplane = self.prefs.get("xplane_dir", "")
+        default_zl = self.prefs.get("zl")
         self.prefs = dialog.result_prefs()
+        if dialog.zoom_chosen:
+            self._adopted_zl = None
+        else:
+            self.prefs["zl"] = default_zl
         self.prefs["settings_geometry"] = bytes(
             dialog.saveGeometry().toBase64()
         ).decode("ascii")
@@ -2706,9 +2733,9 @@ class MainWindow(QMainWindow):
         one agreed value is selected outright.  Disagreeing sources
         unresolve the Imagery combo (it shows "--") and
         :meth:`start_build` refuses to run until the user picks one;
-        disagreeing detail levels keep the Settings value.  Tiles with no
-        recorded value impose nothing, and an empty selection leaves the
-        controls alone.
+        disagreeing detail levels, and tiles with no recorded one, show
+        the Settings default (#1539: an adopted zoom is never written to
+        it).  Tiles with no recorded source leave the Imagery combo alone.
 
         The sync runs once per selection: panel refreshes on an UNCHANGED
         selection (scan results streaming in, build bookkeeping) must not
@@ -2754,9 +2781,10 @@ class MainWindow(QMainWindow):
         _sync_combo_to_agreed_value(self.imagery_combo, websites)
         # One agreed detail level is adopted for the next build (the Mac
         # app's adoptActiveTileConfig); disagreement keeps the setting.
+        # Tiles with no recorded zoom show the default (#1539).
+        self._adopted_zl = None
         if len(zoomlevels) == 1:
-            self.build_zl = _zoom_level(next(iter(zoomlevels)), self.build_zl)
-            self.prefs["zl"] = self.build_zl
+            self._adopted_zl = _zoom_level(next(iter(zoomlevels)), None)
 
     def _imagery_picked(self, _index):
         """The user chose a source: a scan result arriving later for the
@@ -5032,7 +5060,6 @@ class MainWindow(QMainWindow):
         # An unresolved combo ("--", index -1) keeps the previous pref.
         if self.imagery_combo.currentIndex() >= 0:
             self.prefs["imagery"] = self.imagery_combo.currentText()
-        self.prefs["zl"] = self.build_zl
         self.prefs["window_geometry"] = bytes(
             self.saveGeometry().toBase64()
         ).decode("ascii")

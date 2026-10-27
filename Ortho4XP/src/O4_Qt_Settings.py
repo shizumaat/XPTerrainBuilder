@@ -859,6 +859,9 @@ class SettingsWindow(QDialog):
         self.setWindowTitle("Settings")
         self.resize(880, 620)
         self.prefs = dict(prefs)
+        # Whether the user chose a detail level here (Detail or a preset
+        # card): the main window then makes it the default (#1539).
+        self.zoom_chosen = False
         if tiles and isinstance(tiles, tuple) and isinstance(tiles[0], int):
             tiles = [tiles]  # a bare (lat, lon) is one tile
         self.tiles = sorted(tiles or [])
@@ -1222,6 +1225,7 @@ class SettingsWindow(QDialog):
         text = self.detail_combo.currentText()     # the zoom level
         if text:
             self.prefs[PRESETS.ZOOM_PREF] = int(text)
+            self.zoom_chosen = True
             self._refresh_presets()
 
     def _apply_preset(self, key):
@@ -1240,6 +1244,7 @@ class SettingsWindow(QDialog):
         for name, value in values.items():
             self._show_global_value(SM.get_setting(name), value)
         self.prefs[PRESETS.ZOOM_PREF] = PRESETS.zoom_value(entry)
+        self.zoom_chosen = True
         self.detail_combo.blockSignals(True)
         self.detail_combo.setCurrentText(str(self.prefs[PRESETS.ZOOM_PREF]))
         self.detail_combo.blockSignals(False)

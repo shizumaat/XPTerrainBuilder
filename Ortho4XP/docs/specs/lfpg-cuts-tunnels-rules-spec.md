@@ -465,9 +465,34 @@ in `planar/structures.build_structures`):
   only reader — every pass downstream reads the trimmed region, as for any
   keepout trim. Reported on the terrain-edge line. Twins:
   `tests/auto_patch_v2/test_taxi_zone_trench.py`.
+- **R6, built (round 2, after 28p).** `planar/viaduct_road.viaduct_road_groups`,
+  called once in `build_structures` beside the §34 (5) underpasses: a mapped
+  road (`layer <= 0`, not bridge/tunnel) running `[tunnel] viaduct_min_run_m`
+  (100) under `highway`/`railway` bridge ways of `layer >= viaduct_min_layer`
+  (2) inside the apt.dat boundary, read along its heading-keeping ROUTE through
+  the forecourt's many short ways (least turn at every node, none over
+  `approach_turn_max_deg`; two parallel carriageways within
+  `dual_carriageway_max_separation_m` are one trench), becomes two sibling
+  Law-B (`sunken_road`) halves meeting capless at the run's midpoint: level
+  at `apron − mouth_depth_m` (apron = median DEM at the nearest edges of the
+  airside apron cells within `viaduct_apron_reach_m`, 300), climbing back to
+  the ground beyond the run on the mapped road at the design grade, or —
+  where no mapped road carries the climb, or the road curls more than 45°
+  within one trench width — INSIDE the run, steepening up to
+  `ramp_max_grade`. The generator pins the profile per station (Law B's
+  existing rows); the mouth-law readers exempt it as every non-OSM source.
+  Dry: LFPG `viaduct-road:0` (T2 central service road, 49.00354, 2.56225;
+  floor 99.33 = apron 106.83 − 7.5, 35 m wide, 331 m run), `viaduct-road:1`
+  refused by name (the climb does not fit its 140 m run); KATL
+  `viaduct-road:0` (33.64154, −84.41815, floor 283.39, 250 m run). Twins:
+  `tests/auto_patch_v2/test_viaduct_road.py`. NOTE: the owner's B1 is a
+  ~260 m wide flat polygon at 96 m (his `altitude=96` way spanning
+  49.0029–49.0052, 2.5600–2.5770), not a road trench; R6 as ruled lowers
+  the mapped road only.
 - **NOT built:** R3 (227 a, #1138's trench under a hard deck — the runway
-  faces under the deck must be cut out and re-roled; its own spec/census),
-  R6 (228 a; dry witness: 12 mapped ways ≥ 100 m under layer ≥ 2 viaducts,
-  1,646 m, mostly T2 central service roads at 49.0035–49.0038,
-  2.561–2.566 — a run must be read per connected chain, not per way), R7
-  (229 b; no level source is specified beyond the objects).
+  faces under the deck must be cut out and re-roled; its own spec/census;
+  batch AK's `bridge_span` serves EDGE-WALL bridges, not `ATTR_hard_deck`
+  decks, so it does not build R3 either), R7 (229 b: no "landside zone"
+  region and no level source beyond the objects is specified — it replaces
+  the groundside ground's DEM term inside the boundary for every airport, a
+  solver-objective change that needs its own spec and consumer census).

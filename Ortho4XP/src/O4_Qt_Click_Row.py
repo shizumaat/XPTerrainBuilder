@@ -27,6 +27,8 @@ class ClickableRow(QWidget):
     released over itself (a press dragged off the row does nothing)."""
 
     clicked = Signal()
+    #: Where the focus ring sits, in px inside the row's edge (#1537).
+    RING_INSET = 2
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -46,11 +48,12 @@ class ClickableRow(QWidget):
         super().paintEvent(event)
         if self._ring is None:
             return
-        reach = RING.GLOW_REACH
+        # Inside the row's 6/4 px margins; the glow's outer edge clips.
+        inset = self.RING_INSET
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         RING.draw(painter,
-                  QRectF(self.rect()).adjusted(reach, reach, -reach, -reach),
+                  QRectF(self.rect()).adjusted(inset, inset, -inset, -inset),
                   self._ring == RING.ACTIVE, RING.ring_color(self.palette()))
         painter.end()
 

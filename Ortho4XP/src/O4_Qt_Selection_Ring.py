@@ -15,14 +15,12 @@ app's ``SelectionRing.rings``; both read
 
 from PySide6.QtGui import QColor, QPalette, QPen
 
-__all__ = ["ACTIVE", "OTHER", "GLOW_REACH", "ringed_rows", "ring_color",
-           "draw", "apply_rings"]
+__all__ = ["ACTIVE", "OTHER", "ringed_rows", "ring_color", "draw",
+           "apply_rings"]
 
 #: The two ring styles: solid with a glow, and dashed.
 ACTIVE = "active"
 OTHER = "other"
-#: How far, in screen pixels, the glow reaches outside the ringed rect.
-GLOW_REACH = 4
 
 
 def ringed_rows(rows, selected, active):

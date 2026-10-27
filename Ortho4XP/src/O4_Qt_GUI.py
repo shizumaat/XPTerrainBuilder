@@ -4125,8 +4125,7 @@ class MainWindow(QMainWindow):
             row.clicked.connect(
                 lambda t=tile: self._show_tile_on_map(t))
             rl = QVBoxLayout(row)
-            # Room inside the row for the focus ring (#1537).
-            rl.setContentsMargins(9, 7, 9, 7)
+            rl.setContentsMargins(6, 4, 6, 4)
             rl.setSpacing(2)
             # Title, bar, then a line (#694): the title (coordinate +
             # search tag, #667) owns the whole first line and elides at its

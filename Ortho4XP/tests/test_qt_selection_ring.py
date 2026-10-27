@@ -109,5 +109,5 @@ def test_a_ringed_row_paints_the_highlight(window):
     image = QImage(row.size(), QImage.Format_ARGB32)
     image.fill(0)
     row.render(image)
-    edge = image.pixelColor(100, RING.GLOW_REACH + 1)
+    edge = image.pixelColor(100, row.RING_INSET + 1)
     assert edge.rgb() == RING.ring_color(row.palette()).rgb()

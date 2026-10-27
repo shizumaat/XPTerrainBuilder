@@ -73,21 +73,36 @@ enum SettingsPresets {
 }
 
 extension BuildModel {
-    /// Whether every key of `preset` holds its value now (global config
-    /// and the build zoom). A key this engine's schema does not know
+    /// Whether every key of `preset` holds its value now: the selected
+    /// tiles' values when `followsSelection` and tiles are selected
+    /// (#1549; a conflicting key matches nothing), else the global config
+    /// and the build zoom. A key this engine's schema does not know
     /// cannot differ.
-    func presetMatches(_ preset: SettingsPreset) -> Bool {
-        preset.values.allSatisfy { name, raw in
-            if name == SettingsPresets.zoomKey { return Int(raw) == buildZL }
+    func presetMatches(_ preset: SettingsPreset, followsSelection: Bool = true) -> Bool {
+        let tiles = followsSelection && !selected.isEmpty ? selectedTileValues() : nil
+        return preset.values.allSatisfy { name, raw in
+            if name == SettingsPresets.zoomKey {
+                let zl = tiles == nil ? (followsSelection ? buildZL : defaultZL)
+                                      : selectionZoom.value
+                return Int(raw) == zl
+            }
             guard let variable = schema.vars[name],
-                  let wanted = O4Value.parse(raw, typeName: variable.type),
-                  let current = configValue(for: name) else { return true }
+                  let wanted = O4Value.parse(raw, typeName: variable.type) else { return true }
+            let current: O4Value?
+            if let tiles {
+                guard let merged = selectionValue(for: name, in: tiles) else { return true }
+                guard let value = merged.value else { return false }
+                current = value
+            } else {
+                current = configValue(for: name)
+            }
+            guard let current else { return true }
             return SettingsPresets.same(current, wanted)
         }
     }
 
-    var currentPreset: SettingsPreset? {
-        SettingsPresets.presets.first { presetMatches($0) }
+    func currentPreset(followsSelection: Bool = true) -> SettingsPreset? {
+        SettingsPresets.presets.first { presetMatches($0, followsSelection: followsSelection) }
     }
 
     /// First run (#937): when the global config sets none of the preset
@@ -98,11 +113,34 @@ extension BuildModel {
         guard engine != nil, let preset = SettingsPresets.defaultPreset,
               !preset.values.keys.contains(where: { globalConfigValues[$0] != nil })
         else { return }
-        applyPreset(preset)
+        applyPresetToDefaults(preset)
     }
 
-    /// One click: the zoom to the Build pane, the rest to the global config.
-    func applyPreset(_ preset: SettingsPreset) {
+    /// A card's Use: with tiles selected (and `followsSelection`), to every
+    /// selected tile — its config keys as their values, its zoom as theirs
+    /// — after the user's yes while they disagree (#1549); else to the
+    /// defaults for new tiles.
+    func applyPreset(_ preset: SettingsPreset, followsSelection: Bool = true) {
+        guard followsSelection, !selected.isEmpty else {
+            applyPresetToDefaults(preset)
+            return
+        }
+        editSelection { [weak self] in
+            guard let self else { return }
+            for (name, raw) in preset.values.sorted(by: { $0.key < $1.key }) {
+                if name == SettingsPresets.zoomKey {
+                    if let zoom = Int(raw) { self.chooseZoom(zoom) }
+                } else if let variable = self.schema.vars[name],
+                          let value = O4Value.parse(raw, typeName: variable.type) {
+                    self.writeThroughToSelectedTiles(name, value)
+                }
+            }
+        }
+    }
+
+    /// The defaults for new tiles: the zoom to the default detail level,
+    /// the rest to the global config.
+    func applyPresetToDefaults(_ preset: SettingsPreset) {
         for (name, raw) in preset.values.sorted(by: { $0.key < $1.key }) {
             if name == SettingsPresets.zoomKey {
                 if let zoom = Int(raw) {
@@ -118,12 +156,17 @@ extension BuildModel {
 }
 
 /// The three preset cards with a "Current: …" line, in Settings ▸ General
-/// and on the first-run screen.
+/// (following the map selection, #1549) and on the first-run screen (the
+/// defaults for new tiles: `followsSelection: false`).
 struct PresetCardsView: View {
     @EnvironmentObject var buildModel: BuildModel
+    var followsSelection = true
+
+    private var appliesToTiles: Bool { followsSelection && !buildModel.selected.isEmpty }
 
     var body: some View {
-        let current = buildModel.currentPreset
+        let _ = buildModel.tileConfigGeneration
+        let current = buildModel.currentPreset(followsSelection: followsSelection)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(SettingsPresets.sectionTitle).font(.headline)
@@ -136,7 +179,7 @@ struct PresetCardsView: View {
                     card(preset, isCurrent: preset.key == current?.key)
                 }
             }
-            Text(SettingsPresets.sectionNote)
+            Text(appliesToTiles ? SettingsSelection.tilesNote : SettingsPresets.sectionNote)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -153,7 +196,7 @@ struct PresetCardsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
-            Button("Use") { buildModel.applyPreset(preset) }
+            Button("Use") { buildModel.applyPreset(preset, followsSelection: followsSelection) }
                 .disabled(isCurrent)
                 .help("Use the \(preset.title) settings")
         }

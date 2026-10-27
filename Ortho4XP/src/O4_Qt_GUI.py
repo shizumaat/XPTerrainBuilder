@@ -89,6 +89,7 @@ import O4_Text_Scale as TEXTSCALE
 import O4_Flight_Plan as FLIGHTPLAN
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
+import O4_Settings_Selection as SEL
 import O4_Qt_Imagery_Menu as QTIMENU
 import O4_Qt_Map as QTMAP
 from o4_engine import EngineSession
@@ -741,11 +742,15 @@ def _batch_summary(batch):
 class MainWindow(QMainWindow):
     @property
     def build_zl(self):
-        """The next build's detail level: the selection's recorded zoom,
-        else ``prefs["zl"]`` — the default for new tiles that Settings'
-        Detail and the preset cards set (#1539).  The adoption is never
-        written back to the default, so a never-built tile selected after
-        a ZL17 one shows the default again (the Mac's ``BuildZoom``)."""
+        """The next build's detail level: one chosen in Settings for the
+        selection (#1549), else the selection's recorded zoom, else
+        ``prefs["zl"]`` — the default for new tiles that Settings' Detail
+        and the preset cards set with nothing selected (#1539).  Neither
+        is ever written back to the default, so a never-built tile
+        selected after a ZL17 one shows the default again (the Mac's
+        ``BuildZoom``)."""
+        if self._selection_zl is not None:
+            return self._selection_zl
         if self._adopted_zl is not None:
             return self._adopted_zl
         return _zoom_level(self.prefs.get("zl"), 16)
@@ -755,6 +760,7 @@ class MainWindow(QMainWindow):
         """A chosen detail level becomes the default and outranks the
         selection's until the next selection."""
         self._adopted_zl = None
+        self._selection_zl = None
         self.prefs["zl"] = zoomlevel
 
     def __init__(self):
@@ -807,6 +813,9 @@ class MainWindow(QMainWindow):
         # The selection's recorded detail level (#1539): session only,
         # never written to prefs["zl"] (see build_zl).
         self._adopted_zl = None
+        # A detail level chosen in Settings for the selection (#1549):
+        # session only, cleared with the selection.
+        self._selection_zl = None
 
         # --- pipeline adapters -----------------------------------------
         UI.verbosity = int(self.prefs.get("verbosity", 1))
@@ -1851,16 +1860,16 @@ class MainWindow(QMainWindow):
             self.map.selection() if tiles is None else tiles)
         if not selected and self.map.active_tile():
             selected = [self.map.active_tile()]
-        # The dialog's Detail and preset cards (#822, #1242) read and set
-        # the build zoom: hand it the one the next build uses, without
-        # writing a tile's adopted zoom into the default (#1539).
-        dialog_prefs = dict(self.prefs)
-        dialog_prefs["zl"] = self.build_zl
+        # The dialog's Detail and preset cards (#822, #1242) show the
+        # selection's detail level (#1549): each tile's recorded one, a
+        # never-built tile the default (prefs["zl"], #1539).
         dialog = QTSET.SettingsWindow(
-            dialog_prefs,
+            dict(self.prefs),
             selected,
             self.output_dir(),
             self,
+            tile_zooms=self._recorded_zooms(selected),
+            selection_zl=self._selection_zl,
         )
         if customized_only:
             dialog.show_customized_only()
@@ -1875,8 +1884,15 @@ class MainWindow(QMainWindow):
         old_xplane = self.prefs.get("xplane_dir", "")
         default_zl = self.prefs.get("zl")
         self.prefs = dialog.result_prefs()
-        if dialog.zoom_chosen:
+        zoom_target = getattr(dialog, "zoom_target", None)
+        if zoom_target == "tiles":
+            # Chosen for the selected tiles: their next build, never the
+            # default for new tiles (RULINGS 2026-10-28j (3)).
+            self._selection_zl = dialog.selection_zl
+            self.prefs["zl"] = default_zl
+        elif zoom_target == "defaults":
             self._adopted_zl = None
+            self._selection_zl = None
         else:
             self.prefs["zl"] = default_zl
         self.prefs["settings_geometry"] = bytes(
@@ -2758,40 +2774,48 @@ class MainWindow(QMainWindow):
         if selection_key == self._combos_synced_to:
             return
         self._combos_synced_to = selection_key
-        import O4_Settings_Model as SM
-
         websites = set()
-        zoomlevels = set()
+        zooms = {}
         for lat, lon in selection:
-            raw = SM.read_tile_raw(lat, lon, self.output_dir()) or {}
-            website = raw.get("default_website", "").strip()
-            zoomlevel = str(raw.get("default_zl", "")).strip()
-            # No cfg source: the imagery its textures carry (#1334,
-            # TINFO.effective_imagery — the Mac's TileImageryChoice).  A
-            # detected source that did not answer at launch is not
-            # adopted (#1345).
-            info = self._built.get((lat, lon))
-            choice = TINFO.effective_imagery(info) if info is not None else None
-            if not website and choice and choice[2] == TINFO.SOURCE_DETECTED \
-                    and self._imagery_status.get(choice[0], ("", ""))[0] != "offline":
-                website = choice[0]
-                if not zoomlevel and choice[1] is not None:
-                    zoomlevel = str(choice[1])
+            website, zooms[(lat, lon)] = self._recorded_build(lat, lon)
             if website:
                 websites.add(website)
-            if zoomlevel:
-                try:
-                    zoomlevel = str(int(float(zoomlevel)))
-                except ValueError:
-                    pass
-                zoomlevels.add(zoomlevel)
         _sync_combo_to_agreed_value(self.imagery_combo, websites)
         # One agreed detail level is adopted for the next build (the Mac
         # app's adoptActiveTileConfig); disagreement keeps the setting.
-        # Tiles with no recorded zoom show the default (#1539).
+        # A never-built tile counts as the default (#1539; RULINGS
+        # 2026-10-28j (2)), so it can agree or disagree with the others.
         self._adopted_zl = None
-        if len(zoomlevels) == 1:
-            self._adopted_zl = _zoom_level(next(iter(zoomlevels)), None)
+        self._selection_zl = None
+        merged = SEL.selection_zoom(
+            zooms.values(), _zoom_level(self.prefs.get("zl"), 16))
+        if merged is not SEL.CONFLICT and any(
+                zl is not None for zl in zooms.values()):
+            self._adopted_zl = merged
+
+    def _recorded_build(self, lat, lon):
+        """The tile's recorded imagery source and detail level: its cfg's
+        build provenance (``default_website`` / ``default_zl``), else
+        what its textures carry (#1334, TINFO.effective_imagery — the
+        Mac's TileImageryChoice).  A detected source that did not answer
+        at launch is not adopted (#1345).  ``("", None)``: never built."""
+        import O4_Settings_Model as SM
+
+        raw = SM.read_tile_raw(lat, lon, self.output_dir()) or {}
+        website = raw.get("default_website", "").strip()
+        zoomlevel = str(raw.get("default_zl", "")).strip()
+        info = self._built.get((lat, lon))
+        choice = TINFO.effective_imagery(info) if info is not None else None
+        if not website and choice and choice[2] == TINFO.SOURCE_DETECTED \
+                and self._imagery_status.get(choice[0], ("", ""))[0] != "offline":
+            website = choice[0]
+            if not zoomlevel and choice[1] is not None:
+                zoomlevel = str(choice[1])
+        return website, _zoom_level(zoomlevel, None) if zoomlevel else None
+
+    def _recorded_zooms(self, tiles):
+        """Each tile's recorded detail level (None: never built)."""
+        return {tuple(tile): self._recorded_build(*tile)[1] for tile in tiles}
 
     def _imagery_picked(self, _index):
         """The user chose a source: a scan result arriving later for the

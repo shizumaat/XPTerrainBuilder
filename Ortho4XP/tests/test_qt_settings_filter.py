@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import pytest
 from PySide6.QtWidgets import QApplication
 
+import O4_Qt_Settings as QTSET
 import O4_Settings_Model as SM
 from O4_Qt_Settings import SettingsWindow
 
@@ -134,7 +135,7 @@ def test_global_mode_footer_key_and_reset_labels(window):
 
 def test_blended_mode_footer_key_and_reset_labels(tile_window):
     assert "overrides the global value" in tile_window.legend.text()
-    assert "blended" in tile_window.context_label.text()
+    assert tile_window.context_label.text() == "Editing tile +48-006"
     # On a category view the defaults-resets act on the GLOBAL layer.
     tile_window.category_list.setCurrentRow(1)
     assert tile_window.reset_category_btn.text() == "Reset Category to Defaults"
@@ -252,9 +253,15 @@ def multi_window(qapp, tmp_path, monkeypatch):
     (tmp_path / "XPTerrainBuilder.cfg").write_text("road_level=3\n", encoding="utf-8", newline="")
     build_dir = str(tmp_path) + "/"
     SM.write_tile(48, -6, build_dir, {"road_level": "5"})  # one overrides
+    # The tiles disagree: every change asks first (#1549); say yes.
+    asked = []
+    monkeypatch.setattr(
+        QTSET.QMessageBox, "question",
+        lambda *a, **k: asked.append(a) or QTSET.QMessageBox.Yes)
     win = SettingsWindow(
         prefs={}, tiles=[(48, -6), (49, -6)], custom_build_dir=build_dir
     )
+    win.asked = asked
     yield win
     win.close()
 
@@ -266,15 +273,20 @@ def test_multi_tile_shows_mixed_state_with_override_dot(multi_window):
     assert row.revert_button.isEnabled()
     # Uniform settings are not mixed.
     assert not multi_window.rows["lane_width"].is_mixed()
-    assert "2 tiles" in multi_window.context_label.text()
+    assert multi_window.context_label.text() == (
+        "Editing 2 tiles · conflicting values")
     assert multi_window.category_list.item(0).text() == "★ These tiles (2)"
-    assert "mixed" in multi_window.legend.text()
+    # The conflicting row says so (#1549); an agreeing one does not.
+    assert not row.conflict_tag.isHidden()
+    assert row.conflict_tag.text() == "Conflicting values"
+    assert multi_window.rows["lane_width"].conflict_tag.isHidden()
 
 
 def test_multi_tile_edit_applies_to_every_selected_tile(multi_window):
     row = multi_window.rows["road_level"]
     row.set_value("4")
     multi_window._row_committed(row)
+    assert len(multi_window.asked) == 1, "the tiles disagreed: confirmed"
     assert not row.is_mixed()
     for tile in [(48, -6), (49, -6)]:
         raw = SM.read_tile_raw(tile[0], tile[1], multi_window.custom_build_dir)

@@ -145,12 +145,19 @@ def test_unconfigured_tiles_leave_combos_alone(window):
     assert window.build_zl == before_zoomlevel
 
 
-def test_unconfigured_tile_does_not_dilute_agreement(window):
+def test_unconfigured_tile_counts_as_the_default_detail(window):
+    """A never-built tile has no imagery of its own to dilute the agreed
+    source, but it counts as the default detail level (RULINGS
+    2026-10-28j (2)): ZL12 beside it disagrees, so the default stands."""
     _, code = _two_provider_codes(window)
     _write_tile_cfg(window, 48, -6, website=code, zoomlevel=12)
     window.map.set_selection({(48, -6), (48, -5)})
     assert window.imagery_combo.currentText() == code
-    assert window.build_zl == 12
+    assert window.build_zl == 16
+    _write_tile_cfg(window, 48, -6, website=code, zoomlevel=16)
+    window.map.set_selection({(48, -6)})
+    window.map.set_selection({(48, -6), (48, -5)})
+    assert window.build_zl == 16           # 16 and the default agree
 
 
 def test_unknown_provider_code_unresolves_the_combo(window):
@@ -349,11 +356,18 @@ def test_settings_closed_without_a_zoom_choice_keeps_the_default(
     class Dialog:
         tile_written = False
 
-        def __init__(self, prefs, tiles, custom_build_dir, parent):
+        def __init__(self, prefs, tiles, custom_build_dir, parent,
+                     tile_zooms=None, selection_zl=None):
             shown["zl"] = prefs["zl"]
+            shown["tile_zooms"] = tile_zooms
+            shown["selection_zl"] = selection_zl
             self._prefs = dict(prefs)
             self.zoom_chosen = choose is not None
-            if choose is not None:
+            self.zoom_target = target if choose is not None else None
+            self.selection_zl = None
+            if target == "tiles":
+                self.selection_zl = choose
+            elif choose is not None:
                 self._prefs["zl"] = choose
 
         def restoreGeometry(self, *_):
@@ -371,11 +385,18 @@ def test_settings_closed_without_a_zoom_choice_keeps_the_default(
 
     monkeypatch.setattr(GUI.QTSET, "SettingsWindow", Dialog)
     monkeypatch.setattr(GUI, "save_prefs", lambda prefs: None)
-    choose = None
+    choose, target = None, None
     window.open_settings()
-    assert shown["zl"] == 17
+    # The dialog gets the default and the tile's own zoom (#1549).
+    assert shown["zl"] == 16 and shown["tile_zooms"] == {(48, -6): 17}
     assert window.prefs["zl"] == 16 and window.build_zl == 17
 
-    choose = 18                            # the user picks ZL18 there
+    choose, target = 18, "tiles"           # ZL18 for the selected tile
     window.open_settings()
-    assert window.prefs["zl"] == 18 and window.build_zl == 18
+    assert window.prefs["zl"] == 16 and window.build_zl == 18
+    window.open_settings()                 # reopened: still the tile's 18
+    assert shown["selection_zl"] == 18
+
+    choose, target = 15, "defaults"        # nothing selected: the default
+    window.open_settings()
+    assert window.prefs["zl"] == 15

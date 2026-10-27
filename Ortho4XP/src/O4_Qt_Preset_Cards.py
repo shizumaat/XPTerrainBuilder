@@ -74,10 +74,15 @@ class PresetCards(QWidget):
             self.cards[entry.key] = card
             self.buttons[entry.key] = button
         root.addLayout(row)
-        note = wrap_and_never_widen(QLabel(PRESETS.SECTION_NOTE))
-        note.setStyleSheet("color: gray; font-size: 11px;")
-        root.addWidget(note)
+        self.note_label = wrap_and_never_widen(QLabel(PRESETS.SECTION_NOTE))
+        self.note_label.setStyleSheet("color: gray; font-size: 11px;")
+        root.addWidget(self.note_label)
         self.current_key = None
+
+    def set_note(self, text: str) -> None:
+        """The line under the cards: what a Use applies to (the defaults
+        for new tiles, or the selected tiles, #1549)."""
+        self.note_label.setText(text)
 
     def set_current(self, current: dict) -> None:
         """Highlight the preset ``current`` matches; "Custom" when none."""

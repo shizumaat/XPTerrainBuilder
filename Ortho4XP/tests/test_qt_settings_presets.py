@@ -85,18 +85,28 @@ def test_a_row_edit_after_a_preset_shows_custom(window):
                for button in window.preset_cards.buttons.values())
 
 
-def test_a_preset_keeps_a_tiles_own_override(qapp, tmp_path, monkeypatch):
+def test_a_preset_with_a_tile_selected_applies_to_the_tile(
+        qapp, tmp_path, monkeypatch):
+    """#1549: with a tile selected, Use applies the preset to that tile
+    (its config keys as tile values, its zoom as the tile's next build);
+    the global defaults are untouched."""
     monkeypatch.chdir(tmp_path)
     build_dir = str(tmp_path) + "/"
     SM.write_tile(48, -6, build_dir, {"cover_extent": "3.0"})
     win = SettingsWindow(prefs={}, tiles=[(48, -6)],
                          custom_build_dir=build_dir)
     try:
+        assert win.preset_cards.current_key is None    # 3.0 is no preset
         win.preset_cards.buttons["sharper_airports"].click()
-        assert SM.read_global_raw()["cover_airports_with_highres"] == "ICAO"
-        # The tile row keeps showing the tile's own value.
+        assert "cover_airports_with_highres" not in SM.read_global_raw()
+        raw = SM.read_tile_raw(48, -6, build_dir)
+        assert raw["cover_airports_with_highres"] == "ICAO"
+        assert "cover_extent" not in raw   # 1.0 is the global: no override
         assert SM.values_equivalent(
-            "cover_extent", win.rows["cover_extent"].value(), "3.0")
+            "cover_extent", win.rows["cover_extent"].value(), "1.0")
+        assert (win.zoom_target, win.selection_zl) == ("tiles", 16)
+        assert win.preset_cards.current_key == "sharper_airports"
+        assert not win.preset_cards.buttons["sharper_airports"].isEnabled()
     finally:
         win.close()
 

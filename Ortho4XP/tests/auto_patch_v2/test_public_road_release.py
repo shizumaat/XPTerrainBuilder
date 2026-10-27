@@ -17,12 +17,10 @@ from __future__ import annotations
 import dataclasses as dc
 
 import pytest
-
 from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import OsmWay
 from auto_patch_v2.model.constraints import Diff, Source
-
 from tests.auto_patch_v2.test_pad_touch import _rect
 from tests.auto_patch_v2.test_roads609e import _map
 
@@ -70,9 +68,11 @@ def test_a_public_road_on_steep_terrain_is_lifted_a_service_road_is_not(law):
 
 def test_the_longitudinal_rows_yield_the_cross_section_does_not(law):
     from auto_patch_v2.airport.public_road import public_road_faces, public_road_lifts
-    from auto_patch_v2.constraints.public_road_release import (RELEASE_SLACK,
-                                                               released_vertices,
-                                                               terrain_release)
+    from auto_patch_v2.constraints.public_road_release import (
+        RELEASE_SLACK,
+        released_vertices,
+        terrain_release,
+    )
     from auto_patch_v2.pipeline.publication import lifted_caps
     airport, pm, road = _built(law, "residential")
     lifted = public_road_lifts(pm, law, public_road_faces(pm, law, airport), pm.road_ramp_z)

@@ -16,8 +16,17 @@ import typing as _t
 from ..law import Law
 from ..model.constraints import Diff, Linear, Offset, Pin, Row, pinned_vertices
 from ..model.planar import PlanarMap
-from . import (ceiling, eat, pavement_cap, public_road_release, ramp_runout, riser, seams,
-               structures, water)
+from . import (
+    ceiling,
+    eat,
+    pavement_cap,
+    public_road_release,
+    ramp_runout,
+    riser,
+    seams,
+    structures,
+    water,
+)
 
 __all__ = ["assemble", "seam_exempt", "water_exempt"]
 

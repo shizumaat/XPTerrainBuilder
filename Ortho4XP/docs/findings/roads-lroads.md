@@ -61,7 +61,7 @@ Attiki Odos trench, #1138/#1246) and are not this mechanism.
    identity wherever the terrain is under the cap, so a public road on its
    own terrain IS the terrain. Service roads, tracks and untagged ways keep
    `road_grade_limit`.
-3. **The release** (`constraints/public_road.py`, the last assembly
+3. **The release** (`constraints/public_road_release.py`, the last assembly
    post-pass): on the faces of public ways whose own ramp target
    (`PlanarMap.road_ramp_z`) is steeper than the road cap
    (`PlanarMap.public_road_lifted`, derived once in
@@ -69,8 +69,10 @@ Attiki Odos trench, #1138/#1246) and are not this mechanism.
    RELEASED vertices — a vertex of such a face that is not airside
    (§20b stage 1), not a band kerb, and touched by no other pavement face —
    is widened to the target's own difference over that pair (x 1.001). A
-   row is never tightened. Cross-sections stay level because the target is
-   one value per (route, station) (§37 (8)).
+   row is never tightened. THE CROSS-SECTION IS NOT RELEASED (08-25g
+   "roads are laterally flat", the 13e precedent): measured, widening the
+   `road_cross_section` rows too tilted 42 junction sections up to 2.27 m
+   over 4.7 m (-1276 | -1190 at 37.95121, 23.98649).
 4. **The census honours the lift**: `publication.lifted_caps` carries the
    released faces (face -> the steepest target grade), so the v1 census's
    `o4_grade_law_cap_lifted` tag and v2 verify's `Patch.of(lifted_caps=…)`
@@ -109,3 +111,39 @@ Attiki Odos trench, #1138/#1246) and are not this mechanism.
   vertex is a stage-1 vertex); measured as the airside max |dz| between
   arms.
 - Closing build: LGAV through `tools/harness/build_airport.py`.
+
+## Result (same capture; closing build `lroads`, body_sha efd5057cf65d)
+
+Arms on the LGAV capture (`--replay --from constraints --emit`):
+
+| arm | -1190 max off-DEM on the patch | -1190 patch-edge step | join yield v22038 | census adjudicated (airside) |
+|-----|------|------|------|------|
+| base (main 59fa7241d) | 2.45 m (s 200) | 0.78 m | -7.69 m | 1707 (1437) |
+| floor only (rule 2) | — | — | -8.20 m | — |
+| floor + release incl. cross-section | 0.56 m | — | -2.54 m | 1741 (1437): +42 `road_cross_section` at junctions |
+| **floor + release (shipped)** | **0.57 m** (s 236) | **0.03 m** | -4.56 m | **1694 (1437)** |
+
+The closing build reproduces the shipped arm exactly (LAW-TRUE 5328,
+adjudicated 1694, airside 1437). -4571 stays within 0.38 m of the DEM.
+Stage 1 (airside, 5141 vertices) moves 0.0000 m. On the 38 public faces
+the release lifted: |z - DEM| p95 1.32 -> 1.09 m, max 7.38 -> 2.86 m, over
+1 m 55 -> 40 vertices. Rows: census -15 (13 `within_shape`, 2
+`pavement_over_road_cap`), +1 `transverse` 0.13 m on `route7` at
+37.95827, 23.97609 — no lifted face within 400 m, its vertices moved
+<= 0.09 m (stage-2 solve noise, under RULINGS 2026-10-19ab's 0.1 m).
+Patch-edge steps over 0.5 m (`road_course_profile --reach 200`): 23 -> 20.
+
+## Residual — a finding for the owner (needs a ruling, not built)
+
+At a T-junction on terrain steeper than the cap, §37 (10) (2) prices the
+pair between the MINOR road's mouth kerb and the MAJOR road's kerb
+(two routes, within `pair_lateral_m` = 6 m) as one carriageway's
+cross-section at 2 %. With both roads now on their own terrain, the two
+routes' targets differ there by the hill's own fall (LGAV -1276 into
+-1190, v22050 | v22051 at 37.95121, 23.98649: targets 155.28 | 153.00 m,
+4.7 m apart), so the 2 % pair drags the minor road's last ~60 m up to
+2.9 m under its DEM (v22041 at 37.95033, 23.98647; base was 7.4 m).
+Releasing that pair instead tilts the junction section in the census
+(the +42 rows above). The question: is the pair across a junction mouth
+between two DIFFERENT public roads a cross-section (2 %), or the minor
+road's own longitudinal grade into the major road's kerb?

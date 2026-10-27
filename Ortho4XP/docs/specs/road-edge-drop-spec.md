@@ -1,5 +1,12 @@
 # The drop goes along a road edge (RULINGS 2026-10-20d; issues #712, #1003; follows #1088)
 
+
+> **Superseded in part (round 5, lane lheca5, 2026-10-27).** §2 R1 and R4 and §4 are
+> replaced by `fill-step-at-road-kerb-spec.md` (RULINGS 2026-10-27i/j): R1 re-kinds a page
+> only where it is welded to a pad, and the drop is the fill's riser at the far kerb
+> (`planar/fill_riser`, `airport/riser_wall`); `airport/road_edge_wall` is deleted. §1 and
+> §7-8 stay as the measured record.
+
 Lane l1088, 2026-10-20. Owner law: RULINGS 2026-10-20d ("Where banks cannot
 reach the ground, the drop is placed along a road edge: the road is graded to
 road rules and reaches the high side, and a vertical drop is allowed on its

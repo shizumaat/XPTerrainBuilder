@@ -79,7 +79,7 @@ def _span(contact, depth: float):
     for ln in _lines(contact):
         c = list(ln.coords)
         rects.extend(LineString([a, b]).buffer(depth, cap_style=2)
-                     for a, b in zip(c, c[1:]) if a != b)
+                     for a, b in zip(c, c[1:], strict=False) if a != b)
     return unary_union(rects)
 
 

@@ -24,7 +24,7 @@ from ..model.planar import PlanarMap
 from .design_roles import bend_roles, pavement_roles
 
 __all__ = ["ground_roles", "ground_datum_vertices", "ground_rim_vertices",
-           "coverage_edge_collar_vertices"]
+           "coverage_edge_collar_vertices", "riser_outer_vertices"]
 
 
 def ground_roles(law: Law) -> frozenset[str]:
@@ -97,14 +97,41 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
                     continue
                 out.add(v)
     out.update(coverage_edge_collar_vertices(planar))
+    out.update(riser_outer_vertices(planar))
     return frozenset(out)
 
 
 def ground_rim_vertices(planar: PlanarMap) -> frozenset[int]:
     """The members of :func:`ground_datum_vertices` that carry the datum as
-    a COLLAR RIM (issue #302) and so anchor no sheet: their datum levels the
-    vertex, never the pad's body (``solve.design.assemble`` reads it)."""
-    return frozenset(coverage_edge_collar_vertices(planar))
+    a COLLAR RIM (issue #302) — or as a fill RISER's outer line — and so
+    anchor no sheet: their datum levels the vertex, never the pad's body
+    (``solve.design.assemble`` reads it)."""
+    return frozenset(coverage_edge_collar_vertices(planar) | riser_outer_vertices(planar))
+
+
+def riser_outer_vertices(planar: PlanarMap) -> set[int]:
+    """THE RISER'S LOW SIDE IS GROUND (spec ``fill-step-at-road-kerb-spec.md``
+    §2 (5); owner RULINGS 2026-10-20d "a vertical drop on the low side so the
+    buildings on that side can be seated on the ground").  The ``lower``
+    vertices of a fill's declared riser wall (``road_terrace['wall']`` with
+    ``road_edge``, ``airport/riser_wall``) whose every face is the riser
+    (``<landing>#strip``): the coverage edge of the collar's own kind (:func:`coverage_edge_collar_vertices`).  The wall's step floor is
+    their only law row and it is one-way; with no level of their own the
+    objective held them up to 1.85 m over the DEM (MEASURED HECA replay,
+    ``building6/landing0#strip``).  They take the same WEAK datum."""
+    from ..model.planar import is_strip_ref
+    walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
+    low = {int(v) for r in walls.values() if r.get("road_edge")
+           for v in (r.get("lower") or ())}
+    if not low:
+        return set()
+    out: set[int] = set()
+    for v in low:
+        vx = planar.vertices.get(v)
+        if vx is not None and vx.dem_z is not None and vx.incident_faces and all(
+                is_strip_ref(planar.faces[f].ref) for f in vx.incident_faces):
+            out.add(v)
+    return out
 
 
 def coverage_edge_collar_vertices(planar: PlanarMap) -> set[int]:

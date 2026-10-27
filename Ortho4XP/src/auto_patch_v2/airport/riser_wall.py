@@ -8,7 +8,8 @@ A pad fill that runs to its road mints its RISERS at the road's far kerb
 the map: one ``road_terrace['wall']`` record per riser, of the shape the
 pack walls take (``airport/road_ramp.wall_terraces``) —
 
-* ``line`` the riser's ring (every reader reads the wall as a polygon),
+* ``line`` the riser's faces as noded, one identity spacing wider (every
+  reader reads the wall as a polygon),
 * ``upper`` its vertices on the far kerb, ``lower`` its outer vertices,
 * ``kerb`` the far-kerb EDGES (``model.planar.drop_edges`` reads them: no
   late station lies on one and no gap piece follows one),
@@ -26,6 +27,7 @@ from __future__ import annotations
 import typing as _t
 
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
+from shapely.ops import unary_union
 
 from ..law import Law
 from ..model.planar import STRIP_SUFFIX, PlanarMap
@@ -40,11 +42,15 @@ def _ring_runs(pm: PlanarMap, f) -> list[list[int]]:
     return [list(pm.ring_vertices(c)) for c in (f.ring, *f.holes)]
 
 
+def _face_poly(pm: PlanarMap, f) -> Polygon:
+    cycles = [[pm.vertices[v].xy for v in c] for c in _ring_runs(pm, f)]
+    g = Polygon(cycles[0], cycles[1:])
+    return g if g.is_valid else g.buffer(0.0)
+
+
 def _inside(pm: PlanarMap, f) -> Point:
     """A point inside face ``f``."""
-    ring = [pm.vertices[v].xy for v in _ring_runs(pm, f)[0]]
-    g = Polygon(ring)
-    return (g if g.is_valid else g.buffer(0.0)).representative_point()
+    return _face_poly(pm, f).representative_point()
 
 
 def riser_walls(pm: PlanarMap, law: Law, counts: dict | None = None
@@ -75,12 +81,15 @@ def riser_walls(pm: PlanarMap, law: Law, counts: dict | None = None
             if not mine:
                 missing += 1
                 continue
+            # the riser's width off the record (area over its kerb run): a
+            # vertex within half of it of the kerb line is the kerb's
+            half = 0.5 * poly.area / max(upper_line.length, tol)
             up: list[int] = []
             lo: list[int] = []
             kerb: list[list[int]] = []
             for f in mine:
                 for cyc in _ring_runs(pm, f):
-                    flags = [upper_line.distance(Point(V[v].xy)) <= tol for v in cyc]
+                    flags = [upper_line.distance(Point(V[v].xy)) <= half for v in cyc]
                     for i, v in enumerate(cyc):
                         (up if flags[i] else lo).append(v)
                         j = (i + 1) % len(cyc)
@@ -91,7 +100,13 @@ def riser_walls(pm: PlanarMap, law: Law, counts: dict | None = None
             if not up or not lo:
                 missing += 1
                 continue
-            out.append({"line": [tuple(c) for c in r["ring"]],
+            # THE WALL'S LINE IS THE MAP'S RISER: its faces as noded (the
+            # record's ring is the pre-snap geometry; a vertex the snap moved
+            # off it left its edge uncut by ``solve/wall_cut``, MEASURED HECA
+            # replay: 0.10-0.16 m), widened by one identity spacing
+            g = unary_union([_face_poly(pm, f) for f in mine]).buffer(tol, join_style=2)
+            g = max(getattr(g, "geoms", [g]), key=lambda q: q.area)
+            out.append({"line": [tuple(c) for c in g.exterior.coords],
                         "height_m": float(r["height_m"]),
                         "label": f"{LABEL_PREFIX}{ref}#{k}",
                         "retains": True, "mouth": False, "road_edge": True,

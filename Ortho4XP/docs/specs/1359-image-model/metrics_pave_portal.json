@@ -1,0 +1,153 @@
+{
+ "KDIJ": {
+  "pavement": {
+   "px_P": 0.105,
+   "px_R": 0.761,
+   "px_F": 0.185,
+   "IoU": 0.102,
+   "edge4m_P": 0.057,
+   "edge4m_R": 0.351,
+   "edge4m_F": 0.099,
+   "edge10m_P": 0.118,
+   "edge10m_R": 0.72,
+   "edge10m_F": 0.203
+  },
+  "portals": {
+   "n": 2,
+   "model_peak_mean": 0.301,
+   "ctrl_peak_mean": 0.427,
+   "model_auc": 0.23,
+   "lidar_max_slope_mean": 38.0,
+   "lidar_auc": 1.0,
+   "lidar_says_cut_frac": 1.0,
+   "model_says_cut_frac": 0.0
+  },
+  "sites": [
+   {
+    "site": "CIFP RW04 threshold (#1358)",
+    "model_steep_peak": 0.65,
+    "model_pave": 0.97,
+    "lidar_max_slope_deg": 2.3
+   },
+   {
+    "site": "apt.dat rwy 04 end, 594 m SW of CIFP (#1358)",
+    "model_steep_peak": 0.63,
+    "model_pave": 0.85,
+    "lidar_max_slope_deg": 2.3
+   }
+  ]
+ },
+ "NZWN": {
+  "pavement": {
+   "px_P": 0.255,
+   "px_R": 0.896,
+   "px_F": 0.396,
+   "IoU": 0.247,
+   "edge4m_P": 0.095,
+   "edge4m_R": 0.243,
+   "edge4m_F": 0.136,
+   "edge10m_P": 0.204,
+   "edge10m_R": 0.562,
+   "edge10m_F": 0.3
+  },
+  "portals": {
+   "n": 38,
+   "model_peak_mean": 0.394,
+   "ctrl_peak_mean": 0.548,
+   "model_auc": 0.185,
+   "lidar_max_slope_mean": 20.3,
+   "lidar_auc": 0.543,
+   "lidar_says_cut_frac": 0.45,
+   "model_says_cut_frac": 0.21
+  },
+  "sites": [
+   {
+    "site": "phantom tunnel ramp, owner: no tunnel (#1337)",
+    "model_steep_peak": 0.36,
+    "model_pave": 0.05,
+    "lidar_max_slope_deg": 9.9
+   },
+   {
+    "site": "phantom tunnel ramp, owner: no tunnel (#1337)",
+    "model_steep_peak": 0.43,
+    "model_pave": 0.03,
+    "lidar_max_slope_deg": 10.8
+   }
+  ]
+ },
+ "EGFF": {
+  "pavement": {
+   "px_P": 0.173,
+   "px_R": 0.959,
+   "px_F": 0.293,
+   "IoU": 0.172,
+   "edge4m_P": 0.034,
+   "edge4m_R": 0.172,
+   "edge4m_F": 0.056,
+   "edge10m_P": 0.124,
+   "edge10m_R": 0.637,
+   "edge10m_F": 0.207
+  },
+  "portals": {
+   "n": 12,
+   "model_peak_mean": 0.47,
+   "ctrl_peak_mean": 0.447,
+   "model_auc": 0.525,
+   "lidar_max_slope_mean": 51.3,
+   "lidar_auc": 0.963,
+   "lidar_says_cut_frac": 1.0,
+   "model_says_cut_frac": 0.33
+  }
+ },
+ "KTRK": {
+  "pavement": {
+   "px_P": 0.427,
+   "px_R": 0.911,
+   "px_F": 0.581,
+   "IoU": 0.41,
+   "edge4m_P": 0.115,
+   "edge4m_R": 0.209,
+   "edge4m_F": 0.148,
+   "edge10m_P": 0.264,
+   "edge10m_R": 0.499,
+   "edge10m_F": 0.345
+  },
+  "portals": {
+   "n": 2,
+   "model_peak_mean": 0.416,
+   "ctrl_peak_mean": 0.615,
+   "model_auc": 0.142,
+   "lidar_max_slope_mean": 4.2,
+   "lidar_auc": 0.177,
+   "lidar_says_cut_frac": 0.0,
+   "model_says_cut_frac": 0.0
+  }
+ },
+ "LGAV": {
+  "pavement": {
+   "px_P": 0.369,
+   "px_R": 0.909,
+   "px_F": 0.525,
+   "IoU": 0.356,
+   "edge4m_P": 0.093,
+   "edge4m_R": 0.122,
+   "edge4m_F": 0.106,
+   "edge10m_P": 0.222,
+   "edge10m_R": 0.289,
+   "edge10m_F": 0.251
+  },
+  "portals": {
+   "n": 16,
+   "model_peak_mean": 0.393,
+   "ctrl_peak_mean": 0.503,
+   "model_auc": 0.256
+  },
+  "sites": [
+   {
+    "site": "taxiway sunk into tunnel_ramp pit; owner: flat (#1331)",
+    "model_steep_peak": 0.3,
+    "model_pave": 0.67
+   }
+  ]
+ }
+}

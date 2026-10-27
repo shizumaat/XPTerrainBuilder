@@ -57,6 +57,7 @@ from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .deck_signature import family_key
 from .obj8_clip import _plan_admitted
+from .plate_frame import PlateFrame, walls_frame
 from .tunnel_objects import _rect_axis
 
 __all__ = ["RoadStation", "SunkenRoadRecord", "SunkenRoadStats", "RoadReader",
@@ -108,6 +109,10 @@ class SunkenRoadRecord:
     anchor_dem_z: float
     agl_m: float
     notes: tuple[str, ...] = ()
+    #: RULINGS 2026-10-28h (1): the family's walls frame this plate the
+    #: other way (``plate_frame``) — the lane is read as THAT bay
+    #: (``planar/plate_bays``), never as this road
+    framed: PlateFrame | None = None
 
     @property
     def depth_m(self) -> float:
@@ -513,6 +518,9 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
                                  f"{sr.roof_min_fraction:.0%}) — an open ramp, not a sunken road "
                                  f"under a building (spec §3)")
             continue
+        # 2026-10-28h (1): the WALLS win where they frame the lane the
+        # other way (the plate at grade against the face that closes it)
+        framed = walls_frame(members, cache, dem_z, law, a, b, width, deep_end)
         mean_w = 2.0 * sum((st.half_l + st.half_r) / 2.0 for st in sts) / len(sts)
         notes = (f"plate {plate.area:.0f} m2 ({length:.0f} x {width:.0f} m) from {len(own)} face(s) "
                  f"of {len({o.id for o in own})} placement(s); the family's cover over it {cover:.0%}",
@@ -526,5 +534,5 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
             float(total), float(mean_w), float(sts[0].z), float(sts[0].ground_z),
             float(sts[-1].z), float(sts[-1].ground_z), plate,
             Polygon(region.exterior.coords), float(cover),
-            o0.xy, float(o0.anchor_z), float(o0.agl_m), notes)))
+            o0.xy, float(o0.anchor_z), float(o0.agl_m), notes, framed)))
     return stats, out

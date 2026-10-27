@@ -5,6 +5,11 @@ polygonised into crumbs, so the narrower one is refused loudly — after
 the ramps that can yield have been asked to (``unframed_ramp.
 overlap_yield``: a run end, 2026-10-08d (1); the cap, owner RULINGS
 2026-10-14j).
+
+TWO WALL CORRIDORS are never such a pair (owner RULINGS 2026-10-28h (3)):
+side-by-side bays that share a wall are all built — each ramp stands
+inside its own walls' inner faces, so two of them meet only in the wall
+they share, never in a floor.
 """
 from __future__ import annotations
 
@@ -38,8 +43,10 @@ def resolve_overlaps(tunnels, footprints, keep: list[bool], siblings: _t.Mapping
                 continue            # two halves of one corridor meet at their mouth line
             if not footprints[i].intersects(footprints[j]):
                 continue
-            inter = footprints[i].intersection(footprints[j])
             wall_i, wall_j = tunnels[i].source == WALL_KIND, tunnels[j].source == WALL_KIND
+            if wall_i and wall_j:
+                continue            # 2026-10-28h (3): bays sharing a wall are all built
+            inter = footprints[i].intersection(footprints[j])
             # a WALL CORRIDOR may not even TOUCH another structure (Law C):
             # a shared ring vertex carries the other's pin into its rows
             # (measured OTHH: a Parking_004 corridor's vertex on the door

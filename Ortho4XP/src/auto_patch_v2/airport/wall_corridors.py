@@ -354,26 +354,23 @@ def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
 
 def _floor_profile(bands: _t.Sequence[WallBand], axis_ln: LineString, ss: _t.Sequence[float],
                    window: float) -> tuple[list[float], list[float]]:
-    """Rule 3: per station, the lowest RENDERED vertex of the bands'
-    faces within ``±window`` of it along the axis, and that same sample's
-    AUTHORED height (``y`` in the object's own frame, RULINGS
-    2026-09-10u) — ``(floors, floors_y)``, gaps filled from the
-    neighbours."""
-    pts = np.concatenate([b.pts for b in bands])
-    # ONE ``line_locate_point`` call over every sample — the very reading
-    # ``axis_ln.project(Point(x, y))`` makes one point at a time (Law C is
-    # read at every airport since §12h: KASE's 3,247 candidate pairs spent
-    # 12 s here a point at a time)
-    s_of = shapely.line_locate_point(axis_ln, shapely.points(pts[:, :2]))
+    """Rule 3: per station, the floor is the SHALLOWER wall's bottom
+    (owner RULINGS 2026-10-28h (2): where a bay's two walls reach
+    different depths the floor is the shallower one's; a deeper block
+    standing as one wall is not the floor) — each band's lowest RENDERED
+    vertex within ``±window`` of the station along the axis, and that same
+    band's AUTHORED height (``y`` in the object's own frame, RULINGS
+    2026-09-10u); ``(floors, floors_y)``, gaps filled from the neighbours.
+    A station only one band reaches reads that band."""
+    per_band = [_band_bottoms(b, axis_ln, ss, window) for b in bands]
     out: list[float | None] = []
     out_y: list[float | None] = []
-    for s in ss:
-        sel = np.abs(s_of - s) <= window
-        if sel.any():
-            rows = pts[sel]
-            k = int(np.argmin(rows[:, 2]))
-            out.append(float(rows[k, 2]))
-            out_y.append(float(rows[:, 3].min()))
+    for k in range(len(ss)):
+        here = [(z[k], y[k]) for z, y in per_band if z[k] is not None]
+        if here:
+            z, y = max(here, key=lambda zy: zy[1])
+            out.append(z)
+            out_y.append(y)
         else:
             out.append(None)
             out_y.append(None)
@@ -385,6 +382,29 @@ def _floor_profile(bands: _t.Sequence[WallBand], axis_ln: LineString, ss: _t.Seq
                 right = next((col[j] for j in range(i + 1, len(col)) if col[j] is not None), None)
                 col[i] = left if right is None else (right if left is None else (left + right) / 2.0)
     return _t.cast(list[float], out), _t.cast(list[float], out_y)
+
+
+def _band_bottoms(band: WallBand, axis_ln: LineString, ss: _t.Sequence[float], window: float
+                  ) -> tuple[list[float | None], list[float | None]]:
+    """ONE band's bottom per station: its lowest rendered vertex within
+    ``±window`` of the station and its lowest authored ``y`` there
+    (``None`` where the band has no sample)."""
+    pts = band.pts
+    # ONE ``line_locate_point`` call over every sample (KASE's 3,247
+    # candidate pairs spent 12 s here a point at a time)
+    s_of = shapely.line_locate_point(axis_ln, shapely.points(pts[:, :2]))
+    zs: list[float | None] = []
+    ys: list[float | None] = []
+    for s in ss:
+        sel = np.abs(s_of - s) <= window
+        if sel.any():
+            rows = pts[sel]
+            zs.append(float(rows[int(np.argmin(rows[:, 2])), 2]))
+            ys.append(float(rows[:, 3].min()))
+        else:
+            zs.append(None)
+            ys.append(None)
+    return zs, ys
 
 
 def _end_cover(end: tuple[XY, XY], faces: list[LineString], tree: STRtree | None, tol: float

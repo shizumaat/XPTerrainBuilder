@@ -484,7 +484,12 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
             # clause: seven OTHH corridors carry no plate of their own).
             headroom, deck_w, plate_plan = _headroom(members, cache, trench0, zmax,
                                                      ob.plate_normal_y_min, grid, dem_z)
-            if headroom is not None and headroom < wc.min_headroom_m:
+            # #414: a lid refuses only when it COVERS the trench (its plate
+            # over ``headroom_cover_min`` of it), never a sliver at its end
+            lid = 0.0 if plate_plan is None or trench0.area <= 0.0 else \
+                plate_plan.intersection(trench0).area / trench0.area
+            if headroom is not None and headroom < wc.min_headroom_m \
+                    and lid >= wc.headroom_cover_min:
                 msg = (f"{name} at {site}: headroom {headroom:.2f} m over the floor "
                        f"(< min_headroom_m {wc.min_headroom_m}): a covered slot, "
                        f"not a corridor")

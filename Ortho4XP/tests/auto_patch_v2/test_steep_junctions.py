@@ -194,3 +194,19 @@ def test_the_smoothest_grades_meet_the_pins_and_the_caps_with_least_change():
     assert max(steps) < 4.0 * (sum(steps) / len(steps))
     assert g[0] == pytest.approx(g[-1], abs=1e-6)          # symmetric about the cap
     assert smoothest_grades(d[:2], 1.0, [0.01, 0.01]) is None
+
+
+def test_the_ski_jump_is_gentlest_at_both_ends_and_steepest_between(steep, law):
+    """RULINGS 2026-10-27e (Q185): "least slope at the two ends, most in the
+    middle ... we definitely don't want the steepest part to be at the low
+    end" — each runway end's chord is as gentle as the gentlest junction,
+    and the steepest chord is interior."""
+    _ap, pm = steep
+    rc = pm.runway_caps["09/27"]
+    vw, st = _stations(pm, law)
+    z = rc.profile_z
+    g = [(z[q] - z[p]) / vw.dist(p, q) for p, q in zip(st, st[1:], strict=False)]
+    t = min(jn.t for jn in rc.junctions)
+    assert abs(g[0]) <= t + 1e-9 and abs(g[-1]) <= t + 1e-9
+    k = max(range(len(g)), key=lambda q: g[q])
+    assert 0 < k < len(g) - 1 and g[k] > 5.0 * t

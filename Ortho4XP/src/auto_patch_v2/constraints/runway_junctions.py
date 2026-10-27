@@ -34,6 +34,11 @@ and the sidecar all read one thing.
   bounded least squares.  Its continuous optimum is a parabolic grade
   between the caps (a cubic profile): no crest or sag beyond what the
   junctions force, and no straight-line kinks.
+* THE SKI JUMP (owner RULINGS 2026-10-27e, Q185: "least slope at the two
+  ends, most in the middle ... we definitely don't want the steepest part to
+  be at the low end"): each runway END's chord (a threshold pin ends the
+  span) is capped like the runway's gentlest junction, so the smoothest
+  profile rises from both ends to its steepest grade between them.
 * THE CURVE the vertical-curve rows hold is the one the design needs: the
   law's ``vertical_curve_k_m`` where the design's largest change of grade
   fits it, else the K that design reads, published (``curve_k_m``) a little
@@ -190,10 +195,12 @@ def smoothest_grades(d: _t.Sequence[float], dz: float,
 
 def design(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
            cum: _t.Sequence[float], rw, i: int, j: int,
-           za: float, zb: float, k_law: float | None) -> JunctionProfile | None:
+           za: float, zb: float, k_law: float | None,
+           ends: tuple[bool, bool] = (True, True)) -> JunctionProfile | None:
     """THE DESIGNED PROFILE of the span ``st[i]``..``st[j]`` (module
     docstring), or ``None`` where no junction applies (the uniform §50
-    yield stands)."""
+    yield stands).  ``ends``: whether each end of the span is a runway END
+    (a threshold pin), which takes the ski-jump end cap."""
     span = cum[j] - cum[i]
     dz = zb - za
     if span <= 0.0 or dz == 0.0:
@@ -209,6 +216,14 @@ def design(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
         a0, a1 = cum[k] - cum[i], cum[k + 1] - cum[i]
         t = [jn.t for jn in js if a0 >= jn.u0 - 1e-6 and a1 <= jn.u1 + 1e-6]
         caps.append(max(0.0, min(t) - margin) if t else None)
+    # RULINGS 2026-10-27e THE SKI JUMP: "least slope at the two ends, most in
+    # the middle" — each runway END's chord is as gentle as the runway's
+    # gentlest junction (a junction there already is); the smoothest profile
+    # then rises from both ends to its steepest grade between them
+    end_cap = max(0.0, min(jn.t for jn in js) - margin)
+    for k, is_end in ((0, ends[0]), (len(caps) - 1, ends[1])):
+        if is_end and caps[k] is None:
+            caps[k] = end_cap
     g = smoothest_grades(d, dz, caps)
     if g is None:
         return None

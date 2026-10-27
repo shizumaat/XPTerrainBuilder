@@ -57,6 +57,12 @@ uniform §50 yield and the 30ah (1) / 10-10j following taxiways and aprons, byte
    parabolic grade between the caps — a cubic profile, no kink and no crest or sag beyond
    what the caps force. Parameter-free: round 1's `[design] steep_junction_curve_share` is
    DELETED (refuted mechanism).
+2b. **The ski jump (round 3, RULINGS 2026-10-27e Q185).** "Least slope at the two ends,
+   most in the middle ... we definitely don't want the steepest part to be at the low end."
+   Each runway END's chord (a threshold pin ends the governing span) is capped like the
+   runway's gentlest junction (here 1.5 %; an end inside a junction already is), and the
+   smoothest profile above then rises from both ends to its steepest grade between them.
+   Still one bounded least squares, still parameter-free.
 3. **The curve the rows hold** is the one the design needs: the law's K where the design's
    largest change of grade fits it, else the K it reads, published 5 % sharper than drawn
    so the vertical-curve rows hold it with room.
@@ -202,3 +208,53 @@ profile with the steepest grade bounded (same capture, mouth spans):
 A peak bound would be one law number over the same solver (`smoothest_grades` with a cap on
 every chord); it is not built, because Q182 asks for the smoothest profile and names no
 peak.
+
+## 8. Round 3 (RULINGS 2026-10-27e, Q185: the ski jump; #1461)
+
+Formulation: §3 item 2b — the round-2 smoothest profile with each runway end's chord capped
+like the gentlest junction (1.5 %). Closing harness build `lvnlk3`, body `515a308afe9d`
+(census identical to the replay).
+
+Grade profile at 50 m stations (metres from the RWY 06 low end; the 24 end is at 540.5 m):
+
+| s (m) | 0 | 50 | 100 | 150 | 200 | 250 | 300 | 350 | 400 | 450 | 500 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| grade | 1.5 % | 10.0 % | 16.4 % | 20.3 % | 21.8 % | 20.3 % | 16.4 % | 10.1 % | 1.5 % (J2) | 2.4 % | 1.5 % (J1) |
+| above DSM (m) | +1.1 | −3.0 | −2.4 | +1.3 | +6.8 | +11.7 | +14.7 | +14.0 | +12.2 | +6.4 | −2.1 |
+
+- Peak **21.75 %** at s = 206 m (335 m below the 24 threshold): the middle of the lower runway.
+- End grades: RWY 06 **1.5 %**, RWY 24 **1.5 %**; ends exact on the pins (2784.043 / 2845.003 m).
+- Largest change of grade 20.3 pp per 100 m (K 4.68 m per 1 % published).
+- Max height above the surface model **14.8 m** (s = 305 m), against round 2's 19.5 m and
+  round 1's 17 m.
+- Junction mouths ≤ 1.503 %.
+- Census ADJUDICATED **130** (round 2: 139; base 822), CRITICAL motion 0, `transverse` 0,
+  `taxi_box` 2. Against round 2: `airside_no_step` 16 → 11, `strip_arc` 7 → 3,
+  `pavement_over_road_cap` / `hard_conflict` 35 → 34, `strip_longitudinal` 27 → 28,
+  `strip_transverse` 5 → 6. Against base, 7 rows are at new sites: the 4 west-corner pad
+  rows, 2 `strip_transverse` lip rows (0.35–0.42 m) and one 0.28 m `airside_no_step` pair on
+  the lower runway.
+
+**The middle taxiway against the owner's shape.** The owner places the steepest part
+between the apron and the middle taxiway, easing past it. J2's mouth (388–411 m) is
+130–150 m below the 24 end and must be 1.5 %, and the stretch between J2 and the apron
+joint is 70 m. Forcing that stretch steep puts a dip at J2 (same capture, smoothest profile
+with the J1–J2 stretch held at least at the grade named):
+
+| J1–J2 grade at least | peak | largest change at J2 | above DSM |
+|---|---|---|---|
+| (shipped, free) 2.4 % | 21.8 % | 4 pp / 100 m (20 elsewhere) | 14.8 m |
+| 6 % | 20.9 % | 20 pp / 100 m | 12.9 m |
+| 9 % | 20.2 % | 33 pp / 100 m | 11.4 m |
+| 11.3 % (the pin average) | 19.7 % | 43 pp / 100 m | 10.2 m |
+
+A steep J1–J2 stretch costs a 1.5 % dip at J2 with up to twice the shipped largest change —
+the "dramatic bump or dip" 27b forbids. So the shipped shape is: gentle from the 24
+threshold past the apron joint and the middle taxiway (1.5–2.4 %), then steepening below
+J2 to the peak in the middle of the lower runway, then easing to 1.5 % at the low end.
+
+**Sim read (by landmark).** From the RWY 24 threshold by the Main Apron, roll toward RWY 06:
+nearly level past the apron joint and the right-side spot (the middle taxiway, about 140 m
+down); below it the runway tips over and steepens to about 22 % in the middle of its lower
+half (about 200 m above the 06 threshold), then eases out to almost level across the last
+50 m before the 06 threshold — the lip of the ski jump over the drop.

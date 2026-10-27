@@ -348,7 +348,8 @@ def _junction_design(pm: PlanarMap, law: Law, vw, st: list[int],
     k_law = law.ruleset.runway.vertical_curve_k_m.value(rw.code_number,
                                                         rw.code_letter)
     return design(pm, law, vw.xy, st, cum, rw, i, j, float(best[2].z),
-                  float(best[3].z), k_law)
+                  float(best[3].z), k_law,
+                  ends=(best[2].kind == KIND_THRESHOLD, best[3].kind == KIND_THRESHOLD))
 
 
 def report_line(icao: str, rc: RunwayCap, authority: str = "") -> str:

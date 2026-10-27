@@ -483,6 +483,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.basin_rim",
         "auto_patch_v2.planar.basins",
         "auto_patch_v2.planar.bore_continuation",
+        "auto_patch_v2.planar.bridge_span",
         "auto_patch_v2.planar.build",
         "auto_patch_v2.planar.channel",
         "auto_patch_v2.planar.channel_claims",
@@ -491,7 +492,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.channel_witness",
         "auto_patch_v2.planar.chords",
         "auto_patch_v2.planar.covered_ground",
-        "auto_patch_v2.planar.covered_span",
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.edges",
         "auto_patch_v2.planar.group_low",
@@ -798,6 +798,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.contiguity",
         "auto_patch_v2.constraints.door_pad",
         "auto_patch_v2.constraints.eat",
+        "auto_patch_v2.constraints.edge_deck",
         "auto_patch_v2.constraints.end_lip",
         "auto_patch_v2.constraints.face_index",
         "auto_patch_v2.constraints.flat_site",
@@ -945,6 +946,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "road_within_shape": "roads",
     "road_ramp": "road_ramp",
     "road_contact": "road_ramp",
+    "edge_deck": "edge_deck",
     "road_coverage_join": "road_ramp",
     "wall_terrace": "road_ramp",
     "groundside_ramp": "groundside",
@@ -1136,6 +1138,12 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.slope_pad
         constraints.group_level constraints.face_index
     """),
+    "edge_deck": _mods(_GENERATOR_CORE + """
+        constraints.contiguity constraints.edge_deck constraints.end_lip constraints.geometry
+        constraints.precedence constraints.roads constraints.strips geom.containment
+        model.airport model.end_area model.islands model.map_memo model.platform
+        model.threshold_datum
+    """),
     "roads": _mods(_GENERATOR_CORE + """
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.strips geom.containment
@@ -1262,7 +1270,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter constraints constraints.apron constraints.apron_shelf
     constraints.assembly constraints.ceiling constraints.channel constraints.cluster_pad
-    constraints.contiguity constraints.eat constraints.end_lip constraints.flat_site
+    constraints.contiguity constraints.eat
+    constraints.edge_deck constraints.end_lip constraints.flat_site
     constraints.foot_rows constraints.geometry constraints.groundside
     constraints.hard_plane constraints.junction_mesh constraints.no_step
     constraints.pad_frontage_gs constraints.pad_fronting constraints.pad_ramp
@@ -1371,7 +1380,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.msl_feet airport.obj8
     airport.terrain_feature airport.obj8_clip airport.obj8_drape
-    airport.obj8_grade airport.obj8_roof airport.obj8_split airport.object_cut airport.hanging_objects
+    airport.obj8_grade airport.obj8_roof
+    airport.obj8_split airport.object_cut airport.hanging_objects
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
     airport.placement_body airport.placement_boxes airport.placement_carrier
@@ -1424,7 +1434,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
-    planar.channel_witness planar.chords planar.covered_ground planar.covered_span
+    planar.channel_witness planar.chords planar.covered_ground planar.bridge_span
     planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
@@ -1465,7 +1475,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.msl_feet airport.obj8
     airport.terrain_feature airport.obj8_clip airport.obj8_drape
-    airport.obj8_grade airport.obj8_roof airport.obj8_split airport.object_cut airport.hanging_objects
+    airport.obj8_grade airport.obj8_roof
+    airport.obj8_split airport.object_cut airport.hanging_objects
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
     airport.placement_body airport.placement_boxes airport.placement_carrier
@@ -1492,7 +1503,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.ramp_runout classify.retaining_wall classify.ribbon_mint
     classify.roles classify.rules classify.sources classify.taxi_letter constraints
     constraints.apron constraints.apron_shelf constraints.assembly constraints.ceiling
-    constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
+    constraints.channel constraints.cluster_pad
+    constraints.contiguity constraints.eat constraints.edge_deck
     constraints.end_lip constraints.flat_site constraints.foot_rows
     constraints.gap_follow constraints.geometry constraints.groundside
     constraints.hard_plane constraints.jetway_strip constraints.junction_mesh
@@ -1529,7 +1541,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
-    planar.channel_witness planar.chords planar.covered_ground planar.covered_span
+    planar.channel_witness planar.chords planar.covered_ground planar.bridge_span
     planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver

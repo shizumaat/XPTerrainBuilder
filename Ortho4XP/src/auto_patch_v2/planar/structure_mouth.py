@@ -304,7 +304,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       cut_roles: _t.Collection[str], half: float, rim_off: float, gap: float,
                       spacing: float, grid: float, decked: _t.Sequence[Polygon],
                       airport=None, crossing: _t.Sequence[tuple[Polygon, str]] = (),
-                      pinned: bool = False):
+                      pinned: bool = False, slide: bool = True, own_lines=(), own_area=None):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
     axis starting at the mouth that stands clear of the pavement (the
@@ -331,7 +331,14 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     ``pinned`` — a pack PORTAL stands at the mapped mouth
     (``airport/portal_objects``; #971's "or object if one is provided",
     #1343): the mouth stays AT the portal, the pavement its own opening
-    stands in is the portal's, and the stops beyond still end the ramp."""
+    stands in is the portal's, and the stops beyond still end the ramp.
+    ``slide`` false (an EDGE BRIDGE's pin, ``planar/bridge_span``): AN
+    EDGE-BRIDGE PIN IS NEVER SLID — the taxiway at its opening is the
+    bridge's own deck (owner RULINGS 2026-10-27l / 28d; measured KATL: #971
+    slid the merged mouth 140 m out of the cut it stops), and the roads its
+    carriageways run ALONG (``own_lines``, their approaches) and the road
+    pieces the bridge stands over (``own_area``, its plan) are the cut's
+    own: one cut across both carriageways never stops at either's lanes."""
     from .structure_approach import pavement_half_widths
     from .structure_geometry import ring_for
     def ring_of(s0: float):
@@ -355,7 +362,8 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
 
     if pinned:
         got = _pinned(group, axis, cells, polys, pads, law, cut_roles, half, rim_off,
-                      decked, grid, crossing, ring_of(0.0))
+                      decked, grid, crossing, ring_of(0.0), taxi_yields=slide,
+                      own_lines=own_lines, own_area=own_area)
         if isinstance(got, tuple):
             return got
         # clause 1 stands over the portal: a taxiway face at its opening
@@ -447,37 +455,44 @@ PORTAL_YIELDS = "the pack portal yields to taxiway"
 
 
 def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, half: float,
-            rim_off: float, decked, grid: float, crossing, mouth_ring):
+            rim_off: float, decked, grid: float, crossing, mouth_ring, taxi_yields: bool = True,
+            own_lines=(), own_area=None):
     """:func:`mouth_at_pavement` for a mouth a pack PORTAL pins: never
     slid.  The stops are read at the mapped mouth; those the mouth's own
     end (its cap and first spacing of ramp, ``mouth_ring``) stands in are
     the portal's opening and dropped — the rest end the ramp's top.  A
     TAXIWAY face at the opening is never dropped (clause 1): its ref is
-    returned instead (a string), and the caller slides the mouth."""
+    returned instead (a string), and the caller slides the mouth — unless
+    ``taxi_yields`` is false (an edge bridge's pin is never slid)."""
     mouth = tuple(axis.coords[0])            # the portal's own mouth (``portal_mouth``)
     stops = mouth_stops(cells, polys, law, cut_roles, axis, mouth, half, rim_off,
                         decked, grid) + list(crossing)
     if mouth_ring is not None:
         taxi = {c.ref for c in cells if role_family(law, c.role) == "taxi"}
         hit = [r for p, r in stops if r in taxi and p.intersects(mouth_ring)]
-        if hit:
+        if hit and taxi_yields:
             return hit[0]
         stops = [(p, r) for p, r in stops if not p.intersects(mouth_ring)]
+    if own_lines:
+        stops = [(p, r) for p, r in stops if not any(
+            _runs_along(ln, p, _narrow_width(p), grid) for ln in own_lines)]
+    if own_area is not None:
+        stops = [(p, r) for p, r in stops
+                 if p.difference(own_area).area > 0.5 * p.area]
     stops = list(pads) + stops
     tree = STRtree([p for p, _r in stops]) if stops else None
     return axis, mouth, stops, tree, "", None
 
 
 def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
-    """The tunnel record's line for a mouth a pack portal pinned (an
-    edge-wall bridge's: ``mouth_dem`` is its deck level)."""
+    """The tunnel record's line for a mouth a pack portal pinned (an edge
+    bridge's: ``mouth_dem`` is its deck level, ``planar/bridge_span``)."""
     if getattr(pin, "edge_walls", ()):
-        return (f"the trench stops at the walls' back of the edge-wall bridge "
-                f"{pin.object_id} {pin.resource.rsplit('/', 1)[-1]} (owner RULINGS "
-                f"2026-10-27l, 20ao): floor {mouth_z:.2f} under its deck level "
-                f"{mouth_dem:.2f}, its walls' bottom {pin.depth_m:.2f} "
-                f"(20am / 20ar); the span behind the walls and every deck over this "
-                f"trench keep that deck level")
+        return (f"the trench stops at the back of the edge bridge {pin.object_id} "
+                f"{pin.resource.rsplit('/', 1)[-1]} (owner RULINGS 2026-10-27l, 20ao, "
+                f"2026-10-28d): floor {mouth_z:.2f} = its deck level {mouth_dem:.2f} − its "
+                f"walls' bottom {pin.depth_m:.2f} (20am / 20ar); the span behind the back "
+                f"is covered ground")
     return (f"mouth pinned by the pack portal {pin.object_id} "
             f"{pin.resource.rsplit('/', 1)[-1]} (#971 'or object if one is provided', "
             f"#1343): floor {mouth_z:.2f} = ground {mouth_dem:.2f} − its roof top "
@@ -522,17 +537,16 @@ def portal_mouth(axis: LineString, inward, anchor, plan=()) -> "tuple[LineString
 def edge_wall_mouth(axis: LineString, inward, walls, half: float
                     ) -> "tuple[LineString, float]":
     """``(axis, metres moved)``: THE TRENCH STOPS AT AN EDGE-WALL BRIDGE'S
-    WALLS' BACKS (owner RULINGS 2026-10-27l; 20ao "the road ends at the
-    back of the object"; 27r "drop straight down ... at the back of those
-    edge objects").  Across the corridor's width (``half`` either side of
-    the axis) the walls' back at each lateral line is the furthest station
-    any deep wall (``hanging_objects.edge_wall_reading``) reaches there;
-    the mouth stands at the NEAREST of those backs, so no part of the
-    square mouth line stands behind a wall in the span the bridge holds at
-    deck level.  Measured KATL with the furthest instead: a skewed headwall
-    put the corridor's corner 26 m into 10/28's span and minted 23-27 m
-    strip_transverse cliffs against the runway.  Walls only on the ramp side
-    keep the mapped end."""
+    BACK (owner RULINGS 2026-10-27l; 20ao "the road ends at the back of the
+    object"; 27r "drop straight down ... at the back of those edge
+    objects"; ``planar/bridge_span``).  Across the corridor's width
+    (``half`` either side of the axis) the back at each lateral line is the
+    furthest station ``walls`` (the bridge's back line) reach there; the
+    mouth stands at the FURTHEST of those, so the square mouth line takes
+    in the whole back, and the corridor's footprint is clipped to the
+    bridge's cover (``planar/structures``): the cut follows a skewed back
+    exactly.  A mapped end standing on the span side of the back (the bore
+    mapped short of it) moves OUT to it; ``moved`` is negative then."""
     m = axis.coords[0]
     nx, ny = -inward[1], inward[0]
     segs = []
@@ -556,7 +570,14 @@ def edge_wall_mouth(axis: LineString, inward, walls, half: float
             reach = a if reach is None else max(reach, a)
         if reach is not None:
             backs.append(reach)
-    return _moved_in(axis, inward, min(backs) if backs else 0.0)
+    if not backs:
+        return axis, 0.0
+    d = max(backs)
+    if d >= 0.0:
+        return _moved_in(axis, inward, d)
+    if -d >= axis.length:
+        return axis, 0.0
+    return substring(axis, -d, axis.length), float(d)
 
 
 #: the lateral sampling step of :func:`edge_wall_mouth`'s backs (metres)

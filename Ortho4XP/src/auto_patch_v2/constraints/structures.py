@@ -86,7 +86,7 @@ from .geometry import nearest_vertex_of_containing_cell
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
            "reconcile_datums", "structure_of", "rim_level", "rim_contacts",
            "GEN", "GEN_RIM_LEVEL", "RIM_LEVEL_RULING", "BASIN_FLOOR_RULING",
-           "RAMP_REF", "WALL_REF", "deck_floor", "SPAN_DECK_RULING"]
+           "RAMP_REF", "WALL_REF"]
 
 GEN = "structures"
 #: The planar builder's refs of a tunnel's own faces (``planar/structures.py``;
@@ -627,14 +627,10 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # ways -6288/-6291: emitted 603.81-603.85 = the DEM at the rim,
             # against an apron at 606.5 and way ends at 609.99 / 606.10.
             floor_lo = float(tn.mouth_z) + br_law.clearance_m
-            end_lo = deck_floor(tn, br_law.clearance_m)
             src_ends = Source(GEN, "spec §33 (4): a terrain deck is tied to its ends "
                               "(RULINGS 2026-09-13d item 9, 2026-09-13i)",
                               (*inputs, f"osm:{d.way}", *(r for r in d.end_ref if r)))
             deck_sorted = sorted(set(deck_vs))
-            if getattr(tn, "span_deck_z", None) is not None:
-                rows.extend(_span_deck_rows(tn, deck_sorted,
-                                            (*inputs, f"osm:{d.way}", tn.portal)))
             # A DECK END IS AN EQUALITY (spec §33 (4) as amended, RULINGS
             # 2026-09-13ai; owner 2026-09-13d item 9 "a road shape connecting
             # directly to the apron on the east end and the road on the west
@@ -700,41 +696,12 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                         continue
                     # no governed cell at this end: the way's own DEM chord
                     z_end = d.end_z[0] + t_end * (d.end_z[1] - d.end_z[0])
-                    lo, hi = max(end_lo, z_end - tol_m), z_end + tol_m
+                    lo, hi = max(floor_lo, z_end - tol_m), z_end + tol_m
                     if hi >= lo:
                         for dv in grp:
                             rows.append(Band(dv, lo, hi, src_ends))
     rows.extend(pins.values())
     return rows
-
-
-#: the ruling head of 27l's deck-level rows (``[design] hard_rulings``)
-SPAN_DECK_RULING = "bridge.edge_wall_deck_level"
-
-
-def deck_floor(tn, clearance_m: float) -> float:
-    """A terrain deck's LOWER BOUND over a corridor (spec §33 (4)): the
-    trench floor + ``bridge.clearance_m`` — and over an EDGE-WALL BRIDGE's
-    trench (owner RULINGS 2026-10-27l, ``Tunnel.span_deck_z``) the deck
-    level its walls' tops give: the service road level with the taxiway,
-    never sagging into the trench toward the bare-earth DEM under it."""
-    lo = float(tn.mouth_z) + clearance_m
-    span = getattr(tn, "span_deck_z", None)
-    return lo if span is None else max(lo, float(span))
-
-
-def _span_deck_rows(tn, deck_vs: list[int], inputs: tuple) -> list[Row]:
-    """THE DECK OVER AN EDGE-WALL BRIDGE'S TRENCH STANDS AT ITS DECK LEVEL
-    (owner RULINGS 2026-10-27l "the service road stays level with the
-    taxiway"; 2026-10-27r "the top of the objects flush with the airside
-    surface"): every deck vertex at or above ``Tunnel.span_deck_z``.  LAW,
-    not a target (``[design] hard_rulings``): measured KATL as a soft bound
-    the road cap pulled the service road 6.5 m under it toward the
-    bare-earth DEM beside the trench.  (A relational tie to the airside
-    vertex inside the edge object's plan was measured worse — 300.87
-    against 302.54 — the pavement over the pack's slabs sags there.)"""
-    src = Source(GEN, f"{SPAN_DECK_RULING} (owner RULINGS 2026-10-27l, 2026-10-27r)", inputs)
-    return [Band(dv, float(tn.span_deck_z), None, src) for dv in deck_vs]
 
 
 def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:

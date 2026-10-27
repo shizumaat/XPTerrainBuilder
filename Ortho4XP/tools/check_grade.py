@@ -3621,7 +3621,9 @@ def runway_edge_tie_law():
 def _check_runway_edge_tie(ways: List[Way],
                            nodes: Dict[str, Tuple[float, float]],
                            ll_to_m, natural_shore_ll=None,
-                           road_cap_governs_ll=None) -> List[Violation]:
+                           road_cap_governs_ll=None,
+                           declared_walls: "Optional[DeclaredWallSteps]" = None
+                           ) -> List[Violation]:
     """THE RUNWAY-EDGE TIE, geometric (RULINGS 2026-09-06p (1)/(3); owner
     sim read 2026-09-06o: ridges on both sides of HECA 05C/23C that both
     instruments PASSED — each read only the pairs the generators had
@@ -3668,8 +3670,11 @@ def _check_runway_edge_tie(ways: List[Way],
     shore = natural_shore_geometry(natural_shore_ll, ll_to_m, law)
     # OWNER RULINGS 2026-10-02ag (2): the published withdrawal, one core
     road_cap = road_cap_geometry(road_cap_governs_ll, ll_to_m, law)
+    # owner RULINGS 2026-10-15b: a chord across a declared wall line (a
+    # walled mouth at an edge bridge's back, 27r) reads its excess
     for h in runway_edge_tie(points, edges, axes, law, q, edge_tol,
-                             natural_shore=shore, road_cap=road_cap):
+                             natural_shore=shore, road_cap=road_cap,
+                             declared_walls=declared_walls):
         _role, w = h.label
         out.append(Violation(
             grade_pct=100.0 * h.dz / h.d,
@@ -12967,7 +12972,8 @@ def run_checks(
     runway_edge_tie = _fam(RUNWAY_EDGE_TIE_FAMILY,
                            _check_runway_edge_tie(ways, nodes, ll_to_m,
                                                   natural_shore_ll,
-                                                  road_cap_governs_ll))
+                                                  road_cap_governs_ll,
+                                                  declared_walls))
     _pv("RUNWAY-EDGE TIE: a vertex of ANY role abeam a runway edge inside "
         "the strip's zone-2 half width standing ABOVE the edge foot by more "
         "than the strip transverse bound (RULINGS 2026-09-06p; geometric, "

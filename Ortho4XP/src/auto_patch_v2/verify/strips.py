@@ -67,6 +67,7 @@ from .runway_witness import (published_code_letter, published_code_number,
                              published_end_classes, published_end_profiles,
                              published_status)
 from .no_step import rate_breaches
+from .steps import WallSteps
 
 __all__ = ["groups", "published_slabs", "end_groups", "strip_longitudinal", "strip_arc", "resa_transverse",
            "runway_end_skirt", "raoa", "adjacent_ground_tear", "strip_seam_tear", "strip_transverse",
@@ -110,7 +111,7 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
                     axes: _t.Mapping[str, tuple[tuple[float, float], tuple[float, float], float]],
                     law, q: float, edge_tol: float,
                     all_hits: bool = False,
-                    natural_shore=None, road_cap=None) -> list[TieHit]:
+                    natural_shore=None, road_cap=None, declared_walls=None) -> list[TieHit]:
     """THE RUNWAY-EDGE TIE, geometric (module docstring; RULINGS
     2026-09-06p (1)/(3)): for every point its nearest runway-family ring
     edge whose runway's lateral extent holds it abeam (``axes[ref] =
@@ -129,7 +130,16 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
     its foot is read against the natural shore's own fall — the zone
     corridor with the band at the bank slope (``zone_bounds(...,
     band_max_down=bank_slope)``, owner RULINGS 2026-09-27a (7)); the rise
-    side is unchanged."""
+    side is unchanged.
+
+    ``declared_walls`` (an object with ``allowance(xa, ya, xb, yb)``: the
+    census's ``DeclaredWallSteps``, verify's ``steps.WallSteps`` — both
+    over the published ``wall_terrace`` joints): a point whose chord to
+    its foot CROSSES a declared wall line — a walled tunnel mouth at an
+    edge bridge's back (owner RULINGS 2026-10-27r "drop straight down
+    ... at the back of those edge objects"), a pack retaining wall — is
+    read on the EXCESS over the largest declared step it crosses (owner
+    RULINGS 2026-10-15b: never the sum), and ``dz`` carries that excess."""
     if not edges:
         return []
     def status(ref) -> int:
@@ -203,6 +213,11 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
                                   half_m=half_of.get((cn, cl, ref)))
             if lo is not None:
                 bound = max(bound, -lo)
+        if declared_walls is not None:
+            # 15b: the declared riser crossed is forgiven, the excess reads
+            allow = declared_walls.allowance(foot[0], foot[1], x, y)
+            if allow > 0.0:
+                dz = math.copysign(max(0.0, abs(dz) - allow), dz)
         # TWO-WAY for every point (RULINGS 2026-09-06q (2)): neither above
         # nor below the foot by more than the bound; ``both`` (a strip-
         # only point) is carried as a label only
@@ -948,7 +963,9 @@ def strip_transverse(p: Patch) -> list[Row]:
     shore = natural_shore_geometry(p.publication.get("natural_shore"), p.to_m, law)
     road_cap = road_cap_geometry(p.publication.get("road_cap_governs"), p.to_m, law)
     for h in runway_edge_tie(pts, edges, axes, law, q, edge_tol,
-                             natural_shore=shore, road_cap=road_cap):
+                             natural_shore=shore, road_cap=road_cap,
+                             declared_walls=WallSteps(p.publication.get("terrace_joints"),
+                                                      p.to_m)):
         role = str(h.label)
         r = row(FAMILY_STRIP_TRANSVERSE, (role, "runway"),
                 p.side(role) if role in law.tables.precedence.roles else p.side("graded_strip"),

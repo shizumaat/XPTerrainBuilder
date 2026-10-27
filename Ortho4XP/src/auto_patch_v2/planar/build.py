@@ -43,7 +43,8 @@ from .basins import BasinStats, build_basins, read_objects
 from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
-from .covered_ground import CoveredGround, covered_ground
+from .covered_ground import CoveredGround, covered_cuts, covered_ground
+from .bridge_span import edge_bridges
 from .road_shadow import road_shadow
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
 from .structure_approach import wall_field
@@ -275,9 +276,15 @@ def build(airport: Airport, classification: Classification, law: Law,
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
         hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings)
+    # THE EDGE BRIDGES, read ONCE (owner RULINGS 2026-10-27l / 27r / 28d,
+    # ``planar/bridge_span``): their backs pin the trench and their cover is
+    # covered ground — the structure pass and the covered ground read one
+    # record
+    bridges = edge_bridges(objects, cache, *covered_cuts(airport, classification, law), law)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,
-                                                       portals=tstats.portals)
+                                                       portals=tstats.portals,
+                                                       edge_bridges=bridges)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
     # 2026-09-15; RULINGS 2026-09-15y): the ONE road-family face the
     # structures stage mints — a mapped way whose two ENDS are mouths.
@@ -374,7 +381,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # #714: over a mapped bore under airside pavement the ground is the
     # ground BESIDE the cover, not the road floor a bare-earth DEM carries
     zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs,
-                                              objects, cache)
+                                              objects, bridges)
     if stats.covered_ground.rings:
         print(f"  [planar] {stats.covered_ground.line()}")
     # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads

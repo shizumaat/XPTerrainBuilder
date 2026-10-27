@@ -28,7 +28,7 @@ from ..law.tables import role_cap
 from .frame import Patch, Row, Shape, pair_side, row
 
 __all__ = ["cross_shape", "vertex_to_edge_step", "mid_edge_step", "stacked_nodes",
-           "terrace_joints_m", "JointIndex", "joint_index"]
+           "terrace_joints_m", "JointIndex", "joint_index", "WallSteps"]
 
 
 def _designed_separation(p: Patch, ra: str, rb: str) -> bool:
@@ -130,11 +130,14 @@ class JointIndex:
     """The declared joints on a grid: ``allowance(a, b)`` = Σ of the
     declared steps of the joints the segment crosses (each joint once) —
     ``declared_step_allowance`` for a reader pricing hundreds of thousands
-    of pairs (the within-shape and box populations at HECA)."""
+    of pairs (the within-shape and box populations at HECA).  ``largest``:
+    the LARGEST crossed instead of the sum (owner RULINGS 2026-10-15b's
+    wall reading, :class:`WallSteps`)."""
 
-    def __init__(self, joints, cell: float = 50.0) -> None:
+    def __init__(self, joints, cell: float = 50.0, largest: bool = False) -> None:
         self.joints = joints
         self.cell = cell
+        self.largest = largest
         self.grid: dict[tuple[int, int], list[tuple[int, int]]] = {}
         for j, (pts, _step) in enumerate(joints):
             for k in range(len(pts) - 1):
@@ -160,7 +163,55 @@ class JointIndex:
                     pts = self.joints[j][0]
                     if _cross(a, b, pts[k], pts[k + 1]):
                         hit.add(j)
+        if self.largest:
+            return max((self.joints[j][1] for j in hit), default=0.0)
         return sum(self.joints[j][1] for j in hit)
+
+
+#: the joint kind a placed or walled-mouth wall publishes
+#: (``tools/check_grade.WALL_TERRACE_JOINT_KIND``)
+WALL_TERRACE_KIND = "wall_terrace"
+
+
+#: a walled tunnel mouth's shape label suffix (``airport/road_ramp.
+#: mouth_wall_pieces``; the census's ``MOUTH_WALL_LABEL_SUFFIX``)
+MOUTH_LABEL_SUFFIX = "#mouth"
+
+
+def wall_step_m(rec) -> float:
+    """The step a declared wall joint forgives — the census's
+    ``_declared_joint_step``: a pack wall its own height along its whole
+    outline (owner RULINGS 2026-10-19ao, rounded up by the emitted
+    centimetre), a walled tunnel mouth and every other joint its
+    published ``step_m``."""
+    step = float(rec.get("step_m") or 0.0)
+    mouth = any(str(s).endswith(MOUTH_LABEL_SUFFIX) for s in (rec.get("shapes") or ()))
+    h = rec.get("height_m")
+    if mouth or h is None:
+        return step
+    return max(step, round(float(h) + 0.01, 4))
+
+
+class WallSteps:
+    """THE DECLARED WALL STEP, verify's reading — the census's
+    ``tools/check_grade.DeclaredWallSteps`` (owner RULINGS 2026-10-15b):
+    the published ``terrace_joints`` records of kind ``wall_terrace``
+    (``[{"kind", "points": [[lat, lon], ...], "step_m"}]``) in the frame
+    ``to_m`` gives; ``allowance(xa, ya, xb, yb)`` is the LARGEST declared
+    step a chord crosses (never the sum)."""
+
+    def __init__(self, records, to_m) -> None:
+        joints = []
+        for rec in records or []:
+            if rec.get("kind") != WALL_TERRACE_KIND:
+                continue
+            pts = [to_m(float(la), float(lo)) for la, lo in (rec.get("points") or [])]
+            if len(pts) >= 2:
+                joints.append((pts, wall_step_m(rec)))
+        self._index = JointIndex(joints, largest=True)
+
+    def allowance(self, xa: float, ya: float, xb: float, yb: float) -> float:
+        return self._index.allowance((xa, ya), (xb, yb))
 
 
 def joint_index(p: Patch) -> JointIndex:

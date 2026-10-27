@@ -67,18 +67,14 @@ class Portal:
     #: owner RULINGS 2026-10-26p Q168 / 2026-10-20am-at: a HANGING portal
     #: (``airport/hanging_objects``) — a face or bridge-edge walls hanging
     #: from a top flush with the ground, no floor: ``depth_m`` is its walls'
-    #: bottom under that top, the top flush with the ground beside the cover
-    #: (``planar/covered_ground.beside_ground``, read by ``planar/
-    #: structures``: a bare-earth DEM carries the ROAD under a lid — KATL
-    #: 282 m under a 304 m field), and the cut takes in its whole plan
+    #: bottom under its top, and the cut takes in its whole plan
     #: (``plan_xy``): the mouth stands at its back
     hanging: bool = False
     plan_xy: tuple = ()
-    #: owner RULINGS 2026-10-27l: an EDGE-WALL BRIDGE (``hanging_objects.
-    #: edge_wall_reading``) — its deep walls' plan segments; the mouth
-    #: stands at their back (``planar/structure_mouth.edge_wall_mouth``) and
-    #: the span behind them keeps the deck level its top gives.  Empty for
-    #: every other portal.
+    #: owner RULINGS 2026-10-27l: an EDGE-WALL BRIDGE's pin
+    #: (``planar/bridge_span.bridge_pin``) — its back line; the mouth stands
+    #: at it (``planar/structure_mouth.edge_wall_mouth``).  Empty for every
+    #: portal this module reads.
     edge_walls: tuple = ()
 
 
@@ -183,11 +179,13 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
         if not near:
             continue
         g = cache.geometry(o.resolved)
+        if g is not None and edge_wall_reading(o, g, law) is not None:
+            # an EDGE-WALL BRIDGE pins by its back's CROSSING, never by an
+            # end's distance (``planar/bridge_span``, owner RULINGS 2026-10-28d)
+            continue
         hung = hanging_reading(o, g, law) if g is not None else None
-        edge = edge_wall_reading(o, g, law) if g is not None and hung is None else None
-        if hung is not None or edge is not None:
-            depth, plan_xy = (hung or edge)[:2]
-            walls = edge[2] if edge is not None else ()
+        if hung is not None:
+            depth, plan_xy = hung
             from shapely.geometry import LineString as _LS
             from shapely.geometry import Polygon as _Poly
             shape = (_Poly(plan_xy) if len(plan_xy) >= 4 else
@@ -200,8 +198,7 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                 if shape is not None and shape.distance(Point(ends[j][0])) <= reach:
                     xy, wid = ends[j]
                     out.append(Portal(o.id, o.path, xy, wid, depth, 0.0,
-                                      (float(o.xy[0]), float(o.xy[1])), True, plan_xy,
-                                      walls))
+                                      (float(o.xy[0]), float(o.xy[1])), True, plan_xy))
             continue
         if o.path not in readings:
             readings[o.path] = (roof_reading(g, cache.genuine(o.resolved), law)

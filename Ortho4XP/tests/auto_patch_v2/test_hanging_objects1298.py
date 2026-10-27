@@ -6,7 +6,8 @@ with it as one tunnel; without one the depth is the walls' bottom); without a
 hard deck at a bore end it is a PORTAL whose depth is its walls' bottom, read
 from the ground beside the cover, and the cut takes in its whole plan.  With a
 deck slab but still no hard deck it is an EDGE-WALL BRIDGE (2026-10-27l): the
-trench stops at its walls' back and every deck over it keeps its deck level.
+trench stops at its back (``planar/bridge_span``; the round-5 twins are
+``test_edge_bridge1138.py``).
 """
 from __future__ import annotations
 
@@ -140,14 +141,15 @@ class _Dem:
         return float(self.z_many([x], [y])[0])
 
 
-def test_the_portal_ground_is_the_ground_beside_the_cover():
+def test_the_ground_beside_the_cover_is_the_field_not_the_road():
     """KATL (#714): the DEM carries the road (280) under the lid; the
-    portal's top is flush with the field beside it (300)."""
+    ground beside the cover is the field beside it (300)."""
     from auto_patch_v2.planar.structure_approach import chains
     way = OsmWay(-1, "big_roads", ((0.0, -100.0), (0.0, 100.0)), False,
                  {"highway": "motorway", "tunnel": "yes", "lanes": "5"})
     bore = chains([way])[0]
-    assert abs(CG.beside_ground(_Dem(), bore, LAW, (0.0, 0.0)) - 300.0) < 1e-6
+    secs = CG._sections(_Dem(), bore, LAW)
+    assert abs(CG.ground_beside((0.0, 0.0), bore.line, secs) - 300.0) < 1e-6
 
 
 def _edge_bridge(tmp_path):
@@ -173,69 +175,26 @@ def test_bridge_edge_walls_with_a_deck_plate_are_an_edge_wall_bridge(tmp_path):
     # heading 0: authored z runs to frame −y; the headwall stands at y −20..−20.5
     assert any(min(p[1] for p in w) <= -20.0 and max(abs(p[0]) for p in w) >= 29.0
                for w in walls)
+    # round 5 (owner RULINGS 2026-10-28d): an edge bridge pins by its
+    # back's CROSSING (``planar/bridge_span``), never as a portal by an
+    # end's distance
     bore = types.SimpleNamespace(id=-2191, points=[(0.0, -2.0), (0.0, -120.0)])
     got, _r = P.read_portals([o], O.ResourceCache(THICK), LAW, [bore])
-    assert len(got) == 1 and got[0].hanging and got[0].edge_walls
+    assert got == []
 
 
 def test_an_edge_wall_bridges_trench_stops_at_its_walls_back(tmp_path):
-    """27l / 20ao / 27r: the mouth moves into the bore to the NEAREST of the
-    walls' backs across the corridor's width — no corner of the square mouth
-    line behind a skewed headwall in the span; a pier in front and a wall
-    beside the corridor do not move it."""
+    """27l / 20ao / 27r / 28d: the mouth moves into the bore to the FURTHEST
+    back across the corridor's width (the footprint is then clipped to the
+    bridge's cover, ``bridge_span.edge_cut``, so a skewed back is followed
+    exactly); a wall beside the corridor does not move it, and a back on the
+    ramp side moves the mouth OUT to it."""
     axis = LineString([(0.0, 0.0), (0.0, 100.0)])          # the ramp runs +y
     inward = (0.0, -1.0)                                     # the bore runs −y
-    skewed = ((-60.0, -10.0), (60.0, -30.0))                 # a 120 m skewed headwall
-    pier = ((3.0, -4.0), (5.0, -4.0))
+    skewed = ((-60.0, -10.0), (60.0, -30.0))                 # a 120 m skewed back
     beside = ((40.0, -80.0), (45.0, -80.0))                  # outside |x| <= 8
-    moved, d = SM.edge_wall_mouth(axis, inward, (skewed, pier, beside), 8.0)
-    # across x −8..8 the headwall stands at y −18.67..−21.33: the nearest back 18.67
-    assert abs(d - (20.0 - 8.0 / 6.0)) < 1e-6 and abs(moved.coords[0][1] + d) < 1e-9
-    kept, d0 = SM.edge_wall_mouth(axis, inward, (((-5.0, 4.0), (5.0, 4.0)),), 8.0)
-    assert d0 == 0.0 and kept is axis                        # a wall on the ramp side
-
-
-def test_a_deck_over_an_edge_wall_trench_keeps_the_deck_level():
-    """27l: over an edge-wall bridge's trench a terrain deck never stands
-    under the deck level its walls' tops give (KATL: the service road level
-    with the taxiway); elsewhere the floor + clearance alone."""
-    from auto_patch_v2.constraints.structures import deck_floor
-    tn = types.SimpleNamespace(mouth_z=276.5, span_deck_z=302.4)
-    assert deck_floor(tn, 5.0) == 302.4
-    assert deck_floor(types.SimpleNamespace(mouth_z=285.5, span_deck_z=None), 5.0) == 290.5
-
-
-def test_the_deck_over_an_edge_wall_trench_is_held_hard_at_the_deck_level():
-    """27l / 27r: every deck vertex at or above the recorded deck level, under
-    a head ``[design] hard_rulings`` names (a law, never a target)."""
-    from auto_patch_v2.constraints.structures import SPAN_DECK_RULING, _span_deck_rows
-    from auto_patch_v2.model.constraints import Band
-    from auto_patch_v2.solve.design_roles import hard_rulings, is_hard
-    rows = _span_deck_rows(types.SimpleNamespace(span_deck_z=303.1), [3, 4], ())
-    assert all(isinstance(r, Band) and r.lo == 303.1 and r.hi is None for r in rows)
-    assert all(r.source.ruling.startswith(SPAN_DECK_RULING) for r in rows)
-    assert all(is_hard(hard_rulings(LAW), r) for r in rows)
-
-
-def test_the_span_between_two_edge_wall_bridges_is_cover(tmp_path):
-    """27l / 27r: over a covered bore the span between two pack bridge edges
-    — from one's walls' back to the other's — is clipped in as cover, so
-    the ground there takes the ground beside the cover (not the lidar road);
-    the open cut beyond the walls is not."""
-    from auto_patch_v2.planar.covered_span import edge_spans
-    path = _edge_bridge(tmp_path)
-    a = _placed(path, "dsf:obj1")
-    b = types.SimpleNamespace(**{**vars(_placed(path, "dsf:obj2", xy=(0.0, -100.0))),
-                                 "heading_deg": 180.0,
-                                 "plan_bbox": _sbox(-31.0, -101.0, 31.0, -79.0)})
-    a.plan_bbox = _sbox(-31.0, -21.0, 31.0, 1.0)
-    bore = types.SimpleNamespace(line=LineString([(0.0, 10.0), (0.0, -110.0)]))
-    rib = _sbox(-40.0, -110.0, 40.0, 10.0)
-    secs = [types.SimpleNamespace(dl=30.0, dr=30.0)]
-    spans = edge_spans([(bore, secs, rib)], [a, b], O.ResourceCache(THICK), LAW)
-    assert len(spans) == 1
-    lo, hi = spans[0].bounds[1], spans[0].bounds[3]
-    # from the second edge's headwall back (its 0.5 m wall at y −80..−79.5)
-    # to the first's (y −20..−20.5): never the slabs or piers beyond them
-    assert abs(hi + 20.5) < 1e-6 and abs(lo + 79.5) < 1e-6
-    assert edge_spans([(bore, secs, rib)], [a], O.ResourceCache(THICK), LAW) == []
+    moved, d = SM.edge_wall_mouth(axis, inward, (skewed, beside), 8.0)
+    # across x −8..8 the back stands at y −18.67..−21.33: the furthest 21.33
+    assert abs(d - (20.0 + 8.0 / 6.0)) < 1e-6 and abs(moved.coords[0][1] + d) < 1e-9
+    out, d0 = SM.edge_wall_mouth(axis, inward, (((-5.0, 4.0), (5.0, 4.0)),), 8.0)
+    assert abs(d0 + 4.0) < 1e-9 and abs(out.coords[0][1] - 4.0) < 1e-9

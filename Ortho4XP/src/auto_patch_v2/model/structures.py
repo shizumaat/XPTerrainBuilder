@@ -317,12 +317,11 @@ class Tunnel:
     #: mapped bore's mouth (``airport/portal_objects``), or ``""``; its cut
     #: may stand inside the runway strip keep-out
     portal: str = ""
-    #: owner RULINGS 2026-10-27l: the DECK LEVEL an edge-wall bridge's top
-    #: gives (``airport/hanging_objects.edge_wall_reading``; the ground its
-    #: top is flush with) when one stopped this trench, else ``None`` — a
-    #: terrain deck over the trench never stands under it
-    #: (``constraints/structures``: the service road level with the taxiway)
-    span_deck_z: float | None = None
+    #: owner RULINGS 2026-10-27l / 2026-10-28d: the BACK line of the edge
+    #: bridge that pinned this trench (``planar/bridge_span``), or ``()`` —
+    #: a terrain deck over it is level with the airside abeam
+    #: (``constraints/edge_deck``)
+    edge_back: tuple[XY, ...] = ()
 
 
 @_dc.dataclass(frozen=True)

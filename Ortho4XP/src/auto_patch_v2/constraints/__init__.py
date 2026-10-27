@@ -14,7 +14,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import PlanarMap
-from . import (apron, cluster_pad, eat, flat_site, foot_rows,
+from . import (apron, cluster_pad, eat, edge_deck, flat_site, foot_rows,
                groundside, hard_plane, door_pad,
                junction_mesh,
                no_step, pad_frontage_gs, pad_fronting, pads,
@@ -75,6 +75,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # a ONE-WAY ceiling at that edge's own solved level plus its own cap
     # along the route — HECA ``route0``'s 33 % cliff over 4.4 m.
     ("road_contact", road_ramp.road_contact_rows),
+    # owner RULINGS 2026-10-28d Q211 (#1138): a road deck over an edge
+    # bridge's trench is level with the airside abeam (one-way)
+    ("edge_deck", edge_deck.edge_deck_rows),
     # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): where a
     # road's way leaves the patch coverage the patch takes the CORE
     # ribbon's altitude just outside — the two are one road.

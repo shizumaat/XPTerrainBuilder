@@ -40,7 +40,7 @@ from ..model.planar import (PlanarMap, face_vertex_set, is_bank_ref, is_collar_r
 from ..model.platform import HOLD_DATUM_RULING, HOLD_RULING, datum_vertices
 from .pad_warning import stamp_warning
 
-__all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
+__all__ = ["platform_collar_rows", "platform_plane_rows", "coplanar_rows", "frontage_hold_rows",
            "datum_groups", "datum_group_rows",
            "landing_rows", "landing_vertices",
            "TERRACE_RULING", "HOLD_RULING", "HOLD_DATUM_RULING",
@@ -422,6 +422,36 @@ def _basis(xy: dict[int, tuple[float, float]], vs: list[int]
     return a, b, c
 
 
+def coplanar_rows(xy: _t.Mapping[int, tuple[float, float]], vs: _t.Sequence[int],
+                  src: Source, pool: _t.Sequence[int] | None = None
+                  ) -> list[Row] | None:
+    """Every vertex of ``vs`` ON the plane through three basis vertices of
+    ``vs`` (:func:`_basis`, drawn from ``pool`` when given) — a two-sided
+    ``Linear`` equality per vertex, hard or priced by ``src``'s head.
+    ``None`` where ``vs`` spans no plane."""
+    bs = _basis(xy, list(pool)) if pool and len(pool) >= 3 else None
+    bs = bs or _basis(xy, list(vs))
+    if bs is None:
+        return None
+    a, b, c = bs
+    (x1, y1), (x2, y2), (x3, y3) = xy[a], xy[b], xy[c]
+    det = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
+    if det == 0.0:
+        return None
+    rows: list[Row] = []
+    for v in vs:
+        if v in (a, b, c):
+            continue
+        x, y = xy[v]
+        l1 = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / det
+        l2 = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) / det
+        l3 = 1.0 - l1 - l2
+        terms = ((v, 1.0), (a, -l1), (b, -l2), (c, -l3))
+        rows.append(Linear(terms, None, 0.0, src))
+        rows.append(Linear(tuple((q, -k) for q, k in terms), None, 0.0, src))
+    return rows
+
+
 def platform_plane_rows(planar: PlanarMap, law: Law,
                         airport: Airport | None = None) -> list[Row]:
     """THE PLATFORM IS ONE PLANE (unit-platform spec §1 (1); RULINGS
@@ -483,15 +513,6 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
                 rows.append(Linear(((v, 1.0), (dv, -1.0)), None, 0.0, src))
                 rows.append(Linear(((v, -1.0), (dv, 1.0)), None, 0.0, src))
             continue
-        bs = _basis(xy, vs)
-        if bs is None:
-            continue
-        a, b, c = bs
-        (x1, y1), (x2, y2), (x3, y3) = xy[a], xy[b], xy[c]
-        det = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
-        if det == 0.0:
-            continue
-        n_planes += 1
         src = Source(GEN, PLANE_RULING + " (unit-platform spec §1 (1); "
                      "RULINGS 2026-09-28a (1) one platform per unit)",
                      (tag, pref))
@@ -504,16 +525,11 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
             src = Source(GEN, FLAT_RULING + " (plate plane; SPEC-AUTHOR "
                          "RULINGS 2026-09-29s (E) the refused platform's "
                          "contact-led fit)", (tag, pref))
-        for v in vs:
-            if v in (a, b, c):
-                continue
-            x, y = xy[v]
-            l1 = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / det
-            l2 = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) / det
-            l3 = 1.0 - l1 - l2
-            terms = ((v, 1.0), (a, -l1), (b, -l2), (c, -l3))
-            rows.append(Linear(terms, None, 0.0, src))
-            rows.append(Linear(tuple((q, -k) for q, k in terms), None, 0.0, src))
+        got = coplanar_rows(xy, vs, src)
+        if got is None:
+            continue
+        n_planes += 1
+        rows.extend(got)
     STATS["platform_plane_rows"] = {"planes": n_planes, "flat_blocks": n_flat,
                                     "rows": len(rows)}
     return rows

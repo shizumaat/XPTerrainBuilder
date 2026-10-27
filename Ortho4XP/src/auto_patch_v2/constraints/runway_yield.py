@@ -54,7 +54,7 @@ import dataclasses as _dc
 import typing as _t
 
 from ..law import Law
-from ..law.tables import pavement_fallback_cap, role_cap, role_family
+from ..law.tables import pavement_fallback_cap, role_cap, role_family, yielded_curve_rate
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from .precedence import taxi_cap_for, view
@@ -131,6 +131,13 @@ class RunwayCap:
     dz_m: float
     pin_a: Pin | None = None
     pin_b: Pin | None = None
+    #: RULINGS 2026-10-26n: the junction flats of a steep runway and its
+    #: designed profile (``constraints/runway_junctions``); empty / ``None``
+    #: on every runway the ruling does not touch
+    junctions: tuple = ()
+    curve_k_m: float | None = None
+    curve_rate_per_m: float | None = None
+    profile_z: _t.Mapping[int, float] | None = _dc.field(default=None, compare=False)
 
     def as_dict(self, ruleset: str = "",
                 ll: _t.Mapping[int, tuple[float, float]] | None = None
@@ -147,13 +154,20 @@ class RunwayCap:
                 rec["ll"] = [round(float(lat), 11), round(float(lon), 11)]
             return rec
 
-        return {"ref": self.ref, "code_number": self.code_number,
-                "code_letter": self.code_letter, "ruleset": ruleset,
-                "cap_law": self.cap_law, "cap": self.cap,
-                "yielded": self.yielded, "pin_grade": round(self.g_pin, 8),
-                "span_m": round(self.span_m, 3), "dz_m": round(self.dz_m, 4),
-                "pins": [p for p in (pin(self.pin_a), pin(self.pin_b))
-                         if p is not None]}
+        out = {"ref": self.ref, "code_number": self.code_number,
+               "code_letter": self.code_letter, "ruleset": ruleset,
+               "cap_law": self.cap_law, "cap": self.cap,
+               "yielded": self.yielded, "pin_grade": round(self.g_pin, 8),
+               "span_m": round(self.span_m, 3), "dz_m": round(self.dz_m, 4),
+               "pins": [p for p in (pin(self.pin_a), pin(self.pin_b))
+                        if p is not None]}
+        if self.junctions:              # 26n: only where the ruling acted
+            out["junctions"] = [jn.as_dict() for jn in self.junctions]
+            out["curve_k_m"] = (None if self.curve_k_m is None
+                                else round(self.curve_k_m, 4))
+            out["curve_rate_per_m"] = (None if self.curve_rate_per_m is None
+                                       else round(self.curve_rate_per_m, 8))
+        return out
 
 
 def _pin_sources(pm: PlanarMap, law: Law, airport: Airport, vw, chains
@@ -244,6 +258,7 @@ def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
     # OWNER RULINGS 2026-10-26b: a threshold the tile seam outranks YIELDS
     # to the seam, so the span between them never raises the cap
     seam_yield = seam_thresholds(pm, law, airport)
+    steep = pavement_fallback_cap(law)
     out: dict[str, RunwayCap] = {}
     for rw in airport.runways:
         chs = chains.get(rw.id)
@@ -284,6 +299,7 @@ def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
         order = sorted(at)
         g_pin = 0.0
         best: tuple[float, float, Pin, Pin] | None = None
+        best_ij = (0, 0)
         for i, j in zip(order, order[1:]):
             if _seam_yields(at[i], at[j], seam_yield):
                 continue
@@ -295,15 +311,44 @@ def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
             if g > g_pin:
                 g_pin = g
                 best = (span, dz, at[i], at[j])
+                best_ij = (i, j)
         cap = max(rc.longitudinal, g_pin + margin) if g_pin > 0.0 \
             else rc.longitudinal
+        prof = None
+        if best is not None and cap > rc.longitudinal and g_pin > steep:
+            # RULINGS 2026-10-26n: a STEEP runway (its pins demand more than
+            # the 29ac pavement ceiling — pavement can no longer follow it)
+            # flattens where taxiways join it; the cap names the steepest
+            # DESIGNED grade
+            prof = _junction_design(pm, law, vw, st, best_ij, best, rw)
+            if prof is not None:
+                cap = max(rc.longitudinal, prof.grade + margin)
         out[rw.id] = RunwayCap(
             ref=rw.id, code_number=rw.code_number, code_letter=rw.code_letter,
             cap_law=rc.longitudinal, g_pin=g_pin, cap=cap,
             yielded=cap > rc.longitudinal,
             span_m=best[0] if best else 0.0, dz_m=best[1] if best else 0.0,
-            pin_a=best[2] if best else None, pin_b=best[3] if best else None)
+            pin_a=best[2] if best else None, pin_b=best[3] if best else None,
+            junctions=prof.junctions if prof else (),
+            curve_k_m=prof.curve_k_m if prof else None,
+            curve_rate_per_m=yielded_curve_rate(law, prof.curve_k_m) if prof else None,
+            profile_z=prof.z if prof else None)
     return out
+
+
+def _junction_design(pm: PlanarMap, law: Law, vw, st: list[int],
+                     ij: tuple[int, int], best: tuple, rw):
+    """RULINGS 2026-10-26n over the governing span (stations ``ij``):
+    ``runway_junctions.design``, or ``None``."""
+    from .runway_junctions import design
+    i, j = ij
+    cum = [0.0]
+    for k in range(len(st) - 1):
+        cum.append(cum[-1] + vw.dist(st[k], st[k + 1]))
+    k_law = law.ruleset.runway.vertical_curve_k_m.value(rw.code_number,
+                                                        rw.code_letter)
+    return design(pm, law, vw.xy, st, cum, rw, i, j, float(best[2].z),
+                  float(best[3].z), k_law)
 
 
 def report_line(icao: str, rc: RunwayCap, authority: str = "") -> str:
@@ -327,10 +372,19 @@ def report_line(icao: str, rc: RunwayCap, authority: str = "") -> str:
     else:
         cls = (f"{authority or 'ICAO'} code {rc.code_number}"
                if rc.code_number is not None else (authority or "ICAO"))
-    return (f"[{icao}] RUNWAY OVER GRADE {rc.ref}: the {who} demand "
+    line = (f"[{icao}] RUNWAY OVER GRADE {rc.ref}: the {who} demand "
             f"{100 * rc.g_pin:.3f} % pin to pin{where}; the law's cap is "
             f"{100 * rc.cap_law:.3f} % ({cls}); the cap yields — built to "
-            f"{100 * rc.cap:.3f} % uniformly (RULINGS 2026-09-18d)")
+            f"{100 * rc.cap:.3f} %")
+    if not rc.junctions:
+        return line + " uniformly (RULINGS 2026-09-18d)"
+    flats = ", ".join(f"{jn.u0:.0f}-{jn.u1:.0f} m at {100 * jn.t:.2f} %"
+                      for jn in rc.junctions)
+    k = ("the law's K" if rc.curve_k_m is None
+         else f"K {rc.curve_k_m:.2f} m per 1 %")
+    return (line + f" between {len(rc.junctions)} junction flat(s) ({flats} "
+            f"from {a.name if a else 'the lower pin'}), eased at {k} "
+            f"(RULINGS 2026-09-18d, 2026-10-26n)")
 
 
 def yielded_lines(icao: str, caps: _t.Mapping[str, RunwayCap],
@@ -401,7 +455,9 @@ def derive_taxi(pm: PlanarMap, law: Law, airport: Airport | None,
     a ring vertex it shares with a tied taxi-family face (the runway's
     taxi family FRONTS it) or with a face of the yielded runway itself
     (:func:`_tied_aprons`).  A pad's plateau and an apron no yielded
-    runway's family reaches keep the table cap.
+    runway's family reaches keep the table cap.  At a STEEP runway — one
+    carrying junction flats (owner RULINGS 2026-10-26n, Q162, replacing
+    10-10j there) — no apron yields: it is terraced.
 
     Empty — and NOTHING is built — when no runway yielded, so an airport
     with no yielded runway is untouched byte for byte."""
@@ -462,8 +518,13 @@ def derive_taxi(pm: PlanarMap, law: Law, airport: Airport | None,
             aprons[fid] = ties            # contact is read once the family is known
         else:
             record(fid, rc.longitudinal, ties)
+    # RULINGS 2026-10-26n (Q162) replaces 2026-10-10j at a STEEP runway
+    # (one carrying junction flats): an apron it reaches is terraced, it
+    # never follows the runway's grade
+    steep = {r for r, rc in yielded.items() if rc.junctions}
     for fid, ties in _tied_aprons(pm, law, yielded, ceiling, aprons, out).items():
-        record(fid, role_cap(law, APRON_ROLE).longitudinal, ties)
+        record(fid, role_cap(law, APRON_ROLE).longitudinal,
+               [t for t in ties if t[1] not in steep])
     return out
 
 

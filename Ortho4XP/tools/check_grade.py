@@ -3848,7 +3848,7 @@ def _set_active_ruleset(key) -> str:
     return _ACTIVE_RULESET
 
 
-def _runway_strip_groups(ways: List[Way], nodes, ll_to_m):
+def _runway_strip_groups(ways: List[Way], nodes, ll_to_m, with_ref: bool = False):
     """One record per RUNWAY of this patch:
     ``(rings, axis_unit, code_number, length_m, code_letter)`` — the strip
     FOOTPRINT rings in the check's metre frame plus the runway's
@@ -3904,7 +3904,7 @@ def _runway_strip_groups(ways: List[Way], nodes, ll_to_m):
     for ref, pts in groups.items():
         grp = _strip_group_of_axis(slabs.get(ref) or _runway_axis_and_width(pts), ll_to_m)
         if grp is not None:
-            out.append(grp)
+            out.append((ref, grp) if with_ref else grp)
     return out
 
 
@@ -3913,6 +3913,28 @@ def _runway_strip_groups(ways: List[Way], nodes, ll_to_m):
 #: from the runway END (owner RULINGS 2026-10-15c (2)), and only these rows
 #: say how far a slab end stands past it.  Installed by ``run_checks``.
 _ACTIVE_RUNWAY_AXES: Optional[list] = None
+
+#: RULINGS 2026-10-26n: runway ref -> the grade-change rate per metre a
+#: steep runway's junction curves yielded to (sidecar
+#: ``runway_caps[].curve_rate_per_m``, the build's own record) — the rate
+#: its ring and the strip along it are read at, where that is the looser
+_ACTIVE_RUNWAY_CURVE_RATE: Dict[str, float] = {}
+
+
+def _runway_curve_rates(runway_caps: Optional[list]) -> Dict[str, float]:
+    """``{ref: rate}`` off the published ``runway_caps`` records."""
+    return {str(r["ref"]): float(r["curve_rate_per_m"]) for r in (runway_caps or ())
+            if isinstance(r, dict) and r.get("ref")
+            and r.get("curve_rate_per_m") is not None}
+
+
+def _curve_rate_of(ref: Optional[str]) -> float:
+    """The yielded curve rate of runway ``ref`` (a crossing's ``A+B``: the
+    loosest), or 0.0."""
+    if not ref or not _ACTIVE_RUNWAY_CURVE_RATE:
+        return 0.0
+    return max((_ACTIVE_RUNWAY_CURVE_RATE.get(r, 0.0) for r in str(ref).split("+")),
+               default=0.0)
 _MIN_END_LEN_M = 0.01
 
 
@@ -4383,7 +4405,7 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m,
     — the same call the emitter's clamp makes."""
     if _strip_longitudinal_law is None or _strip_longitudinal_breaches is None:
         return [], 0, 0
-    groups = _runway_strip_groups(ways, nodes, ll_to_m)
+    groups = _runway_strip_groups(ways, nodes, ll_to_m, with_ref=True)
     if not groups:
         return [], 0, 0
     owned, junction = _pavement_edge_junction_nids(ways)
@@ -4407,7 +4429,7 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m,
             zs.append(w.elevs[k] if k < len(w.elevs) else None)
         if not ok or len(pts) < 3:
             continue
-        for rings, axis, code, _length, letter in groups:
+        for ref, (rings, axis, code, _length, letter) in groups:
             inside = [_strip_station_inside(px, py, rings[0])
                       for px, py in pts]
             if not any(inside):
@@ -4416,6 +4438,9 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m,
                 code, letter, _ACTIVE_RULESET)
             if not arc_rate:
                 continue
+            # RULINGS 2026-10-26n: the strip along a steep runway follows
+            # its yielded curves (the generator's ``strip_arc_rate_per_m``)
+            arc_rate = max(arc_rate, _curve_rate_of(ref))
             for run in _strip_station_runs(pts, axis, inside,
                                            closed):
                 s = [pts[i][0] * axis[0] + pts[i][1] * axis[1] for i in run]
@@ -5456,6 +5481,10 @@ def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m,
             # superset, each triple is then judged at its own rate below
             rate = _airside_rate_per_m_for(w.tags.get("class") or w.tags.get("role"),
                                            w.tags.get("code_letter"), _ACTIVE_RULESET, 1.0)
+        # RULINGS 2026-10-26n: a steep runway's ring reads its yielded curve
+        # (``tables.airside_rate_per_m(yield_k_m=)``, the generator's)
+        y_rate = _curve_rate_of(w.ref) if w.role in _CROWN_RUNWAY_ROLES else 0.0
+        rate_w = max(rate, y_rate)
         idx = list(range(len(pts)))
         if closed:
             # The cyclic sequence, walked once with its two wrap triples.
@@ -5467,7 +5496,7 @@ def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m,
             s.append(s[-1] + math.hypot(xb - xa, yb - ya))
         z = [zs[i] for i in idx]
         n_stations += max(0, len(idx) - 2)
-        for k in _strip_longitudinal_breaches(s, z, inf, rate):
+        for k in _strip_longitudinal_breaches(s, z, inf, rate_w):
             if k <= 0 or k >= len(idx) - 1:
                 continue
             a, b, c = idx[k - 1], idx[k], idx[k + 1]
@@ -5489,9 +5518,9 @@ def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m,
             r_k = rate
             if _airside_rate_per_m_for is not None:
                 from auto_patch_v2.constraints.no_step import turn_cos as _turn_cos
-                r_k = _airside_rate_per_m_for(
+                r_k = max(y_rate, _airside_rate_per_m_for(
                     w.tags.get("class") or w.tags.get("role"), w.tags.get("code_letter"),
-                    _ACTIVE_RULESET, _turn_cos(pts[a], pts[b], pts[c]))
+                    _ACTIVE_RULESET, _turn_cos(pts[a], pts[b], pts[c])))
             allowed = r_k * 0.5 * (dp + dn)
             if change - allowed <= _rate_reader_blind_spot(w, dp, dn):
                 continue                    # PASS-with-residual
@@ -12321,6 +12350,8 @@ def run_checks(
     _active = _set_active_ruleset(ruleset)
     global _ACTIVE_RUNWAY_AXES
     _ACTIVE_RUNWAY_AXES = runway_axes_ll
+    global _ACTIVE_RUNWAY_CURVE_RATE
+    _ACTIVE_RUNWAY_CURVE_RATE = _runway_curve_rates(runway_caps)
 
     # PER-FAMILY CENSUS (see ``LAW_FAMILIES``).  When ``family_out`` is a
     # dict, every family records its OWN rows here as it is produced — so a

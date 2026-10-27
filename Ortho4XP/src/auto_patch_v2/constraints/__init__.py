@@ -21,7 +21,7 @@ from . import (apron, cluster_pad, eat, flat_site, foot_rows,
                platform,
                proximity, ramp_runout, road_ramp, roads, routes, runway_chord, runway_mean_slope,
                runway_profile, runway_step,
-               seams, strips,
+               seams, steep_apron, strips,
                channel,
                structures,
                taxi, transverse, water, zones)
@@ -58,6 +58,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # §42 (1b) (owner RULINGS 2026-09-27a (5)): a hard ground plane is ONE
     # level (a Flat), its level the runway-edge frontage's
     ("hard_plane_level", hard_plane.hard_plane_level),
+    # RULINGS 2026-10-26n (Q162): an apron a steep runway joins is ONE
+    # terrace plane at its junction mouth's level
+    ("steep_apron_plane", steep_apron.steep_apron_plane),
     # owner 2026-10-20 (#798): a sloping building's pad welded into the
     # apron is ONE level; the door line keeps the apron cap
     ("door_pad_level", door_pad.door_pad_level),

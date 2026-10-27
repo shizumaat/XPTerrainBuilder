@@ -402,6 +402,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.bulk_geos",
     "auto_patch_v2.airport.cifp",
     "auto_patch_v2.airport.cluster_profile",
+    "auto_patch_v2.airport.companion",
     "auto_patch_v2.airport.contact",
     "auto_patch_v2.airport.contents",
     "auto_patch_v2.airport.cut_deck_seat",

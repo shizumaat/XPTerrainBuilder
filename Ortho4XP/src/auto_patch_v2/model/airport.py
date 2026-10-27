@@ -349,6 +349,10 @@ class SceneryPack:
     #: X-Plane to flatten the airport (owner answer 65, 2026-10-20: "a
     #: strong clue the author was not planning for terrain")
     flatten_declared: bool = False
+    #: the pack's folder when it carries no apt.dat to derive it from (an
+    #: objects-only COMPANION, ``airport/companion``); ``""`` = the folder
+    #: two levels above ``apt_dat_path``
+    root: str = ""
 
 
 @_dc.dataclass(frozen=True)

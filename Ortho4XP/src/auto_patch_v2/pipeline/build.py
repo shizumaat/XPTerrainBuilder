@@ -110,6 +110,10 @@ class BuildResult:
     #: ``<out>/<ICAO>.rebake.screen.json`` — what the object step builds
     #: that plan from (owner RULINGS 2026-10-04x (1); ``airport/rebake_screen``)
     rebake_screen: Path | None = None
+    #: ``<out>/<ICAO>.rebake.c<k>.json`` — the plans of the airport's
+    #: objects-only COMPANION packs (RULINGS 2026-10-28p (5);
+    #: ``airport/companion``), placed beside the main plan by the driver
+    companion_plans: tuple[Path, ...] = ()
 
 
 #: the taxi-family row counters (§8.6 trend, §61 cross-section and
@@ -742,6 +746,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     paths = None
     vrows = None
     pieces = None
+    companion_plans: tuple[Path, ...] = ()
     #: the verify work pool's account (``report["pool"]["verify"]``)
     _vpool: list[dict] = []
     if sol.status.value in ("optimal", "feasible"):
@@ -762,6 +767,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             lrep=lrep, header_extra=cfg.header_extra, out_dir=out_dir,
             objects_out=objects_out, report=report, wall=wall, out=out)
         paths, pieces = _em.paths, _em.pieces
+        companion_plans = _companion_plans(icao, airport, law, inputs, out_dir, report, out)
         # THE CREATION CLOCK ENDS HERE (owner decision D4, Noah 2026-10-20;
         # cold-patch spec §6): the patch and its sidecar are written; verify
         # still runs and reports below, off the creation time
@@ -823,4 +829,39 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                        Path(out_dir) / f"{icao}.rebake.json" if report.get("rebake_plan")
                        else None,
                        Path(out_dir) / f"{icao}.rebake.screen.json"
-                       if report.get("rebake_screen") else None)
+                       if report.get("rebake_screen") else None,
+                       companion_plans)
+
+
+def _companion_plans(icao: str, airport, law: Law, inputs: Inputs, out_dir,
+                     report: dict, out) -> tuple[Path, ...]:
+    """THE COMPANION PACKS (owner RULINGS 2026-10-28p (5); ``airport/
+    companion``): each one's plan written as ``<ICAO>.rebake.c<k>.json``
+    and named in ``report["companions"]``.  A failure is named and costs
+    the main pack nothing."""
+    import math
+    from ..airport import companion as _companion
+    lat0, lon0 = airport.frame.origin
+    tile = (int(math.floor(lat0)), int(math.floor(lon0)))
+    try:
+        found = _companion.find(airport, inputs.mod_cache_root, *tile,
+                                say=lambda m: _say(m, out))
+        plans = _companion.plans(airport, law, found)
+    except Exception as exc:                       # noqa: BLE001
+        _say(f"  [companion] {icao}: not adopted ({type(exc).__name__}: {exc})", out)
+        report["companions"] = {"error": str(exc)}
+        return ()
+    written = []
+    rows = []
+    for k, (c, rplan) in enumerate(zip(found, plans, strict=True), start=1):
+        dest = Path(out_dir) / f"{icao}.rebake.c{k}.json"
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        dest.write_text(rplan.to_json(), encoding="utf-8", newline="\n")
+        written.append(dest)
+        rows.append({"pack": c.name, "rows": len(c.rows), "units": len(rplan.units),
+                     "skipped": len(rplan.skipped), "plan": str(dest)})
+        _say(f"  [companion] {icao}: {c.name}: {len(c.rows)} pack-local object(s) "
+             f"inside the airport -> {len(rplan.units)} unit(s), "
+             f"{len(rplan.skipped)} resource(s) skipped  -> {dest}", out)
+    report["companions"] = rows
+    return tuple(written)

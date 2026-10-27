@@ -169,11 +169,14 @@ def test_stop_flag_ends_the_prefetch(tile):
     assert len(started) == 1
 
 
-def test_nothing_to_fetch_reports_before_the_step_runs(tile):
+def test_nothing_to_fetch_reports_at_the_airport_fetch_or_the_step_end(tile):
+    """#1359 (26y): the vector step's airport fetch rides the lent token,
+    so with an empty queue the token comes back after that fetch — or at
+    the step's end when no fetch comes (no auto-patch)."""
     reports = []
     with PREFETCH.alongside(tile, on_done=lambda d, f: reports.append(d),
                             find=lambda t: []):
-        assert reports == [0], "the lent token comes back at once"
+        assert reports == [], "held for the airport fetch"
     assert reports == [0]
 
 
@@ -421,10 +424,60 @@ def test_the_session_hands_the_vector_step_the_airport_fetch(spied):
 
     tile = SimpleNamespace(lat=1, lon=2)
     session._run_step(step, "vector", tile, _plan("vector"))
-    assert callable(seen[0]) and seen[0].func is PREFETCH.fetch_airport_imagery
+    # no token lent: the cache-only fetch
+    assert seen[0].func is PREFETCH.fetch_airport_imagery
+    assert seen[0].keywords == {"download": False}
     # the vector step's side: no hook, no photos; a failing hook, no photos
     assert VMAP._airport_imagery(SimpleNamespace(), {}) == {}
 
     def boom(_dico):
         raise RuntimeError("offline")
     assert VMAP._airport_imagery(SimpleNamespace(airport_imagery_fetch=boom), {}) == {}
+
+
+# -- the airport fetch rides the prefetch's imagery token (#1359, 26y) -----
+def test_without_a_token_the_airport_fetch_downloads_nothing(tile, monkeypatch):
+    """A worker child its parent lent no imagery token (or a run that
+    builds no imagery) reads the airport photos already cached only."""
+    import O4_Imagery_Utils as IMG
+    monkeypatch.setattr(IMG, "providers_dict", _imagery("NEW").providers_dict)
+    fetched = []
+    (bx, by) = GEO.wgs84_to_orthogrid(LAT + 0.5, LON + 0.5, 18)
+    got = PREFETCH.fetch_airport_imagery(
+        tile, {"ZZZZ": {}}, fetch=lambda t, x: fetched.append(x) or 1,
+        find=lambda _t, _d: {"ZZZZ": [(bx, by, 18, "NEW")]}, download=False)
+    assert fetched == [] and got == {}
+
+
+def test_the_token_comes_back_only_after_the_airport_fetch(tile, monkeypatch):
+    """The prefetch's report (which hands the lent token back) waits for
+    its queue AND the vector step's airport fetch; the airport downloads
+    are counted in it."""
+    import O4_Imagery_Utils as IMG
+    monkeypatch.setattr(IMG, "providers_dict", _imagery("NEW").providers_dict)
+    reports = []
+    (bx, by) = GEO.wgs84_to_orthogrid(LAT + 0.5, LON + 0.5, 18)
+
+    def fetch(_tile, texture):
+        path = PREFETCH._orthophoto_path(tile, texture, IMG)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "wb").close()
+        return 1
+
+    prefetch = PREFETCH.Prefetch(tile, [], fetch=fetch,
+                                 on_done=lambda d, f: reports.append((d, f))).start()
+    assert reports == []                       # queue empty, token still lent
+    got = prefetch.fetch_airports(
+        {"ZZZZ": {}}, find=lambda _t, _d: {"ZZZZ": [(bx, by, 18, "NEW")]})
+    assert reports == [(1, 0)] and list(got) == ["ZZZZ"]
+    prefetch.stop()
+    assert reports == [(1, 0)]                 # reported once
+
+
+def test_the_session_hands_the_token_holder_the_downloading_fetch(spied):
+    session = EngineSession()
+    session._prefetch_imagery = True
+    seen = []
+    session._run_step(lambda t: seen.append(t.airport_imagery_fetch) or 1, "vector",
+                      SimpleNamespace(lat=LAT, lon=LON), _plan("vector", "imagery"))
+    assert getattr(seen[0], "__func__", None) is PREFETCH.Prefetch.fetch_airports

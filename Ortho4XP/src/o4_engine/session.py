@@ -1000,28 +1000,34 @@ class EngineSession:
         """The vector step downloads the tile's likely orthophotos
         alongside it when this run prefetches (#1002) — in a run that
         builds imagery, or in a worker child its parent lent an imagery
-        token (whose plan is the one step)."""
-        if key == "vector":
-            # #1359 (owner RULINGS 2026-10-26y): the patches wait for the
-            # airport's own photos — the session that owns the tile's imagery
-            # downloads hands the vector step the fetch
-            import functools
+        token (whose plan is the one step).
 
-            import O4_Imagery_Prefetch as PREFETCH
-            tile.airport_imagery_fetch = functools.partial(
-                PREFETCH.fetch_airport_imagery, tile)
-        if key != "vector" or not self._prefetch_imagery:
+        THE AIRPORT'S OWN PHOTOS (#1359, owner RULINGS 2026-10-26y): the
+        vector step is handed ``tile.airport_imagery_fetch``.  Where the
+        prefetch runs, it is the prefetch's own :meth:`~O4_Imagery_Prefetch.
+        Prefetch.fetch_airports`: the downloads ride the SAME imagery token
+        (the remote-server cap the imagery step obeys), which comes back
+        only once the queue has drained AND the airport fetch has run.
+        Where it does not (a worker child its parent lent no token, or a run
+        that builds no imagery), the fetch downloads nothing and reads the
+        airport photos already cached."""
+        if key != "vector":
             return function(tile)
-        if not self._stepwise_run and not any(
-                step == "imagery" for step, _, _ in plan):
-            return function(tile)
+        import functools
+
         import O4_Imagery_Prefetch as PREFETCH
+        if not self._prefetch_imagery or (not self._stepwise_run and not any(
+                step == "imagery" for step, _, _ in plan)):
+            tile.airport_imagery_fetch = functools.partial(
+                PREFETCH.fetch_airport_imagery, tile, download=False)
+            return function(tile)
 
         def downloads_done(downloaded, failed):
             self.imagery_downloads_done(tile.lat, tile.lon, downloaded,
                                         failed)
 
-        with PREFETCH.alongside(tile, on_done=downloads_done):
+        with PREFETCH.alongside(tile, on_done=downloads_done) as prefetch:
+            tile.airport_imagery_fetch = prefetch.fetch_airports
             return function(tile)
 
     def _seed_work_queue(self, tiles, provider, zoomlevel,

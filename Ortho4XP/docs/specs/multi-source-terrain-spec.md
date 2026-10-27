@@ -619,8 +619,12 @@ so the first and second builds of a tile can differ. **RULED (a): RULINGS
 2026-10-26y (Q180), "A".** Implemented: the session hands the vector step
 `O4_Imagery_Prefetch.fetch_airport_imagery`, which downloads the airport's
 own textures (`zone_list_to_ortho_dico`'s assignment over the boundary +
-500 m) before the patches build; the background prefetch puts the highest
-zoom first and shares its download lock. A
+500 m) before the patches build, UNDER THE IMAGERY TOKEN the vector step's
+prefetch holds (`Prefetch.fetch_airports`: one orthophoto in flight, the
+token handed back only after the queue AND the airport fetch); a worker
+child lent no token, or a run that builds no imagery, downloads nothing and
+reads the airport photos already cached. The background prefetch puts the
+highest zoom first and shares its download lock. A
 patch that changes between two builds of the same inputs breaks the A/B
 measurement and confuses a sim read. The download is not extra work, only
 moved earlier.

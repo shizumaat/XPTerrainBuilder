@@ -253,13 +253,19 @@ def airport_textures(tile, dico_airports, imagery=None, ortho_dico=None):
     return out
 
 
-def fetch_airport_imagery(tile, dico_airports, fetch=None, find=airport_textures):
+def fetch_airport_imagery(tile, dico_airports, fetch=None, find=airport_textures,
+                          download=True):
     """THE PATCH WAITS FOR THE AIRPORT'S OWN PHOTOS (26y): download every
     missing texture of :func:`airport_textures` now, one at a time, and
     return ``{airport: (orthophoto path, ...)}`` of those in the cache
     afterwards.  A texture whose download fails is left out (the witness
     abstains there, and the patch's ``o4_imagery`` stamp says so).  Stop
-    (``UI.red_flag``) ends it; never raises."""
+    (``UI.red_flag``) ends it; never raises.
+
+    DOWNLOADS ONLY UNDER AN IMAGERY TOKEN: the session calls it with
+    ``download=True`` only through :meth:`Prefetch.fetch_airports` (the
+    token its parent lent the vector step's prefetch); otherwise
+    ``download=False`` reads the cache and fetches nothing."""
     try:
         wanted = find(tile, dico_airports)
     except Exception as error:
@@ -272,7 +278,7 @@ def fetch_airport_imagery(tile, dico_airports, fetch=None, find=airport_textures
     textures = sorted({t for ts in wanted.values() for t in ts},
                       key=lambda t: (-t[2], t[1], t[0], t[3]))
     missing = [t for t in textures
-               if not os.path.exists(_orthophoto_path(tile, t, IMG))]
+               if not os.path.exists(_orthophoto_path(tile, t, IMG))] if download else []
     if missing:
         UI.vprint(1, "    * Downloading", len(missing), "orthophotos of the "
                   "airports first: the patches are fitted to them.")
@@ -307,11 +313,21 @@ class Prefetch:
         self._lock = threading.Lock()
         self._pending = list(reversed(self.textures))
         self._running = 0
+        # #1359 (26y): the vector step's airport fetch rides this token, so
+        # the report (which hands the token back) waits for the queue to
+        # drain AND for the airport fetch, or for the step's end (stop)
+        self._drained = False
+        self._airports_pending = True
+        # one orthophoto in flight under the token, the airport fetch's
+        # included (:data:`TEXTURES_IN_FLIGHT`)
+        self._in_flight = threading.Lock()
 
     def start(self):
-        """Begin the downloads; with nothing to fetch, report at once."""
+        """Begin the downloads; with nothing to fetch, the queue is drained
+        at once (the report still waits for the airport fetch)."""
         if not self.textures:
-            self._finish()
+            self._drained = True
+            self._maybe_finish()
             return self
         UI.vprint(1, "    * Downloading", len(self.textures),
                   "orthophotos the last build of this tile used, while "
@@ -337,7 +353,8 @@ class Prefetch:
                 if texture is None:
                     break
                 try:
-                    ok = self._fetch(self.tile, texture)
+                    with self._in_flight:
+                        ok = self._fetch(self.tile, texture)
                 except Exception as error:
                     UI.vprint(1, "    Prefetch of", texture, "failed:", error)
                     ok = 0
@@ -353,8 +370,37 @@ class Prefetch:
         with self._lock:
             self._running -= 1
             last = self._running == 0
+            if last:
+                self._drained = True
         if last:
+            self._maybe_finish()
+
+    def _maybe_finish(self):
+        """Report once the queue has drained and the airport fetch ran."""
+        with self._lock:
+            ready = self._drained and not self._airports_pending
+        if ready:
             self._finish()
+
+    def fetch_airports(self, dico_airports, find=airport_textures):
+        """The vector step's airport fetch (26y) UNDER THIS PREFETCH'S
+        TOKEN: :func:`fetch_airport_imagery` with this prefetch's fetcher,
+        its downloads counted in the report; then the report may go."""
+        def counted(tile, texture):
+            with self._in_flight:
+                ok = self._fetch(tile, texture)
+            with self._lock:
+                if ok:
+                    self.downloaded += 1
+                else:
+                    self.failed += 1
+            return ok
+        try:
+            return fetch_airport_imagery(self.tile, dico_airports, fetch=counted, find=find)
+        finally:
+            with self._lock:
+                self._airports_pending = False
+            self._maybe_finish()
 
     def _finish(self):
         """Report once: the queue drained, was stopped or never started."""
@@ -369,6 +415,8 @@ class Prefetch:
     def stop(self, wait_seconds=STOP_WAIT_SECONDS):
         """Start nothing new; wait for the orthophoto in flight."""
         self._stop.set()
+        with self._lock:
+            self._airports_pending = False       # the step ended: no fetch comes
         for thread in self._threads:
             thread.join(wait_seconds)
         if any(thread.is_alive() for thread in self._threads):
@@ -381,7 +429,7 @@ class Prefetch:
             UI.vprint(1, "    * Prefetched", self.downloaded, "of",
                       len(self.textures), "orthophotos",
                       "(%d failed)." % self.failed if self.failed else ".")
-        if not self._threads:
+        if not self._threads or self._drained:
             self._finish()
 
 

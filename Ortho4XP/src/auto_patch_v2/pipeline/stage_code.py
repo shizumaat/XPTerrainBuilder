@@ -1332,7 +1332,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     constraints.runway_profile constraints.shoulder_crossing constraints.stretches
     constraints.threshold_seam
     constraints.strips constraints.transverse constraints.trend constraints.weld_floor
-    geom geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
+    geom geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence geom.parts
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_pack_schema

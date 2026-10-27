@@ -72,7 +72,7 @@ def records(planar: PlanarMap, law: Law, airport: Airport) -> list[dict[str, _t.
 def lines(icao: str, recs: _t.Iterable[dict[str, _t.Any]]) -> list[str]:
     """The loud line of every end the DEM decided over a survey or a datum:
     a flagged CIFP end (#1342) and an apt.dat-only end the lidar (#1394)
-    or a fine / coarse DEM (#1348, 28m) outvoted."""
+    or a fine DEM (#1348, 28m / 28o) outvoted."""
     out = []
     for r in recs:
         if r["source"] == CASE_FLAGGED:

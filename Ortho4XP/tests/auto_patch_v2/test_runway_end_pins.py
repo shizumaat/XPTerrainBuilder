@@ -247,12 +247,10 @@ def test_an_apt_dat_only_end_keeps_its_datum_off_lidar_or_within_noise(law):
     assert {p.case for p in end_pin_cases(pm, law, airport).values()} == {CASE_DATUM}
 
 
-@pytest.mark.parametrize("pixel", [10.0, None], ids=["fine", "coarse"])
-def test_an_apt_dat_only_end_yields_to_a_fine_or_coarse_dem(law, pixel):
-    """RULINGS 2026-10-28m (#1348): no CIFP, the datum 10 m over a DEM that
-    is not lidar — beyond the class's noise (2 m fine, 8 m coarse), so
-    both ends sit on the DEM, and say so."""
-    dem = _Classed(0.004, pixel)
+def test_an_apt_dat_only_end_yields_to_a_fine_dem(law):
+    """RULINGS 2026-10-28m (#1348): no CIFP, the datum 10 m over a fine DEM
+    — beyond its 2 m noise, so both ends sit on the DEM, and say so."""
+    dem = _Classed(0.004, 10.0)
     airport, pm = _site(law, dem, (None, None), elev=712.5)
     cases = end_pin_cases(pm, law, airport)
     assert {p.case for p in cases.values()} == {CASE_GROUND}
@@ -263,12 +261,13 @@ def test_an_apt_dat_only_end_yields_to_a_fine_or_coarse_dem(law, pixel):
     assert len(lines) == 2 and all("YIELDS TO THE SURVEY GROUND" in ln for ln in lines)
 
 
-def test_a_coarse_dem_within_its_noise_keeps_the_datum(law):
-    """A coarse DEM 5 m off the datum is inside its 8 m noise: no witness
-    against the apt.dat record, the datum stands."""
+def test_a_coarse_dem_keeps_the_datum_however_far_off(law):
+    """RULINGS 2026-10-28o: coarse ground never outvotes the apt.dat record
+    — the datum stands 10 m and 30 m over it, beyond its 8 m noise."""
     top = 700.0 + 0.004 * RUN_LEN / 2
-    airport, pm = _site(law, _Classed(0.004, None), (None, None), elev=top + 5.0)
-    assert {p.case for p in end_pin_cases(pm, law, airport).values()} == {CASE_DATUM}
+    for off in (10.0, 30.0):
+        airport, pm = _site(law, _Classed(0.004, None), (None, None), elev=top + off)
+        assert {p.case for p in end_pin_cases(pm, law, airport).values()} == {CASE_DATUM}
 
 
 def test_a_cifp_runway_keeps_its_pin_over_any_dem_class(law):
@@ -343,8 +342,8 @@ def test_the_harness_scope_names_the_engine_cache_directory():
 
 def test_the_census_counts_an_apt_dat_only_runway_that_yields(law):
     """``tools/runway_end_census._apt_only``: the field 10 m over the highest
-    DEM end yields on a fine DEM (2 m noise), not inside a coarse one's 8 m
-    when the offset is 5 m; a runway with a CIFP end is not counted."""
+    DEM end yields on a fine DEM (2 m noise), never on a coarse one (28o);
+    a runway with a CIFP end is not counted."""
     import collections
     import importlib.util
     path = Path(__file__).resolve().parents[2] / "tools" / "runway_end_census.py"
@@ -359,7 +358,6 @@ def test_the_census_counts_an_apt_dat_only_runway_that_yields(law):
     out, by = [], collections.defaultdict(collections.Counter)
     census._apt_only("ZZZZ", _Ap(), "fine", rows, law, by, out)
     assert [(r["runway"], r["yields"]) for r in out] == [("09/27", True)]
-    _Ap.elevation_m = 707.5
     out = []
     census._apt_only("ZZZZ", _Ap(), "coarse", rows, law, by, out)
     assert [(r["runway"], r["yields"]) for r in out] == [("09/27", False)]

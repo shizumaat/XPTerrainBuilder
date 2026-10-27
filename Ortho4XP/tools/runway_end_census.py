@@ -18,9 +18,9 @@ more than ``cifp_threshold_join_m`` from the apt.dat threshold) and the
 shifted runways.
 
 THE apt.dat-ONLY RUNWAYS (owner RULINGS 2026-10-26e lidar, 2026-10-28m any
-DEM class; #1394, #1348): a runway with no CIFP end follows the DEM where
-its datum line stands off it by more than the class's
-``runway_ends.dem_noise_m``.  The census ESTIMATES the datum line off the
+DEM class, 2026-10-28o lidar and fine only; #1394, #1348): a runway with
+no CIFP end follows a lidar or fine DEM where its datum line stands off it
+by more than the class's ``runway_ends.dem_noise_m``; coarse keeps it.  The census ESTIMATES the datum line off the
 DEM end reads (``constraints/runway_profile._datum_line`` needs the planar
 ridge trends): the higher end at the field elevation less the fall from
 the airport's highest DEM end, tilted with the DEM — so a runway yields
@@ -142,7 +142,7 @@ def _apt_only(icao, airport, klass, rows, law, by_class, out) -> None:
     for rid, ends in rows.items():
         if any(e["cifp_m"] is not None for e in ends) or any(e["dem_m"] is None for e in ends):
             continue
-        yields = abs(off) > noise
+        yields = klass in ("lidar", "fine") and abs(off) > noise
         by_class[klass]["apt_only_runways"] += 1
         by_class[klass]["apt_only_yield"] += int(yields)
         out.append({"icao": icao, "runway": rid, "class": klass, "field_m":

@@ -2,7 +2,7 @@
 # "add more intelligent verification of CIFP data, and look for an
 # alternate data source we might use to cross check questionable values";
 # 2026-10-26a openAIP acceptable, source order; 2026-10-26e an apt.dat-only
-# end gives way to the lidar, 2026-10-28m to any DEM class beyond its noise;
+# end gives way to the lidar, 2026-10-28m / 28o to lidar or fine ground beyond its noise;
 # issues #1342, #1358, #1394, #1348).  Spec and census:
 # docs/findings/lrwypin-runway-end-pins.md.  A CIFP threshold that passes
 # verification stays truth (09-18d (3)).  Metres unless named in feet.

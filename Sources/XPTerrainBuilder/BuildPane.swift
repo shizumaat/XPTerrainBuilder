@@ -75,18 +75,15 @@ struct BuildPane: View {
             if buildModel.engine == nil {
                 noEngine
             } else {
-                ScrollView {
+                RunListLayout {
                     VStack(alignment: .leading, spacing: 12) {
                         box("Selection") { selectionBox }
                         box("Build") { buildBox }
-                        ActivitySections()
-                            .environmentObject(buildModel)
-                            .environmentObject(buildModel.activity)
-                            .environmentObject(controller)
                         PatchInspector(model: buildModel.patchEdit)
                     }
                     .padding(10)
                 }
+                .environmentObject(buildModel.activity)
                 Divider()
                 bottomBar
             }
@@ -1040,158 +1037,5 @@ struct BuildPane: View {
     private func boolBinding(_ keyPath: ReferenceWritableKeyPath<BuildModel, Bool>) -> Binding<Bool> {
         Binding(get: { buildModel[keyPath: keyPath] },
                 set: { buildModel.objectWillChange.send(); buildModel[keyPath: keyPath] = $0 })
-    }
-}
-
-/// One section's per-tile rows, like the Qt Activity group: each row is
-/// tile key · status · progress bar · per-tile stop (resume, once stopped);
-/// in Activity, below them Elapsed / Remaining. Finished rows stay until
-/// the app quits, under the live ones in finish order, titles dimmed
-/// (#1341); built tiles' rows sit in Completed, compact (#1556, #1542).
-/// Observes only the high-frequency activity model.
-struct ActivityBox: View {
-    @EnvironmentObject var buildModel: BuildModel
-    @EnvironmentObject var activity: BuildActivityModel
-    @EnvironmentObject var controller: AnalysisController
-    var section: ActivityOrder.Section = .activity
-
-    /// Point size of the per-tile stop / resume glyphs. Shared so the two
-    /// buttons stay the same size as each other beside the row's small text.
-    /// 16 pt, not the default caption size: at the shipped size the octagon
-    /// was too small to read AS a stop sign (owner, on 1.0.238).
-    static let stopIconSize: CGFloat = 16
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if section == .activity, activity.totalTiles > 0 {
-                Text("Building \(activity.totalTiles) tile\(activity.totalTiles == 1 ? "" : "s") — \(activity.doneTiles) done")
-                    .scaledFont(.callout, weight: .medium)
-            }
-            // Rows of selected tiles are filled, judged over both
-            // sections (#1537).
-            let filled = ActivityOrder.filledRows(rows: activity.displayOrder,
-                                                  selected: buildModel.selected)
-            ForEach(activity.rows(in: section), id: \.self) { coord in
-                row(coord, activity.tiles[coord])
-                    .activityRowFill(filled.contains(coord))
-            }
-            // The run clock belongs to a run: once one has ended and only
-            // stopped rows are left waiting for a resume, there is no
-            // elapsed to report.
-            if section == .activity, buildModel.isBuilding || activity.totalTiles > 0 {
-                Divider()
-                HStack {
-                    Text("Total \(ProgressRowText.clock(activity.elapsedSeconds))")
-                    Spacer()
-                    Text(activity.remainingUnreliable
-                         ? "Remaining: estimating…"
-                         : "Remaining ≈ \(activity.remainingSeconds.map(ProgressRowText.clock) ?? "—")")
-                }
-                .scaledFont(.caption, monospacedDigit: true)
-                .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func row(_ coord: BuildModel.TileCoord, _ progress: TileProgress?) -> some View {
-        let progress = progress ?? TileProgress(state: .queued, label: "queued", percent: 0)
-        let text = ProgressRowText(
-            tileKey: coord.key, tag: activity.runTags[coord] ?? "",
-            status: progress.state == .active
-                ? "\(progress.label) · \(Int(progress.percent))%" : progress.label,
-            clock: activity.tileClocks[coord])
-        let hasIssues = activity.issues[coord] != nil && BuildActivityModel.isFinished(progress)
-        let tone = ActivityOrder.tone(state: progress.state.rawValue, label: progress.label,
-                                      hasIssues: hasIssues)
-        VStack(alignment: .leading, spacing: 2) {
-            TileProgressRowLines(
-                text: text, statusColor: Self.color(tone),
-                titleDimmed: BuildActivityModel.isFinished(progress),
-                compact: section == .completed,
-                onStatusTap: hasIssues ? { buildModel.reopenIssues(coord) } : nil,
-                strip: activity.stepStrips[coord]
-            ) {
-                ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
-                    .controlSize(.small)
-                    .tint(tone == .live ? Color.accentColor : Self.color(tone))
-            } trailing: {
-                // Stop sign / resume. Deliberately NOT gated on isBuilding:
-                // a stopped row keeps its resume button after the run ends,
-                // so the tile never has to be found on the map again.
-                if buildModel.usesProtocol {
-                    if progress.state == .queued || progress.state == .active
-                        || progress.state == .indeterminate {
-                        Button {
-                            buildModel.cancelTile(coord)
-                        } label: {
-                            // The octagon IS the stop-sign shape (owner-confirmed).
-                            // The white square is an overlaid SHAPE, not a second
-                            // SF Symbol: two symbols in a ZStack align by frame,
-                            // but each glyph carries its own internal padding, so
-                            // the inner one sat visibly off-centre. An overlay
-                            // centres geometrically, so this is centred by
-                            // construction — do not go back to a ZStack.
-                            Image(systemName: "octagon.fill")
-                                .font(.system(size: Self.stopIconSize))
-                                .foregroundStyle(.red)
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 0.75)
-                                        .fill(.white)
-                                        .frame(width: Self.stopIconSize * 0.38,
-                                               height: Self.stopIconSize * 0.38)
-                                }
-                        }
-                        .buttonStyle(.borderless)
-                        .controlSize(.small)
-                        .help("Stop this tile")
-                    } else if progress.state == .stopped {
-                        Button {
-                            buildModel.resumeTile(coord)
-                        } label: {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: Self.stopIconSize))
-                                .foregroundStyle(.green)
-                        }
-                        .buttonStyle(.borderless)
-                        .controlSize(.small)
-                        .help("Resume this tile")
-                    }
-                }
-            }
-            // A stopped tile: what the engine left it with (#598).
-            if !progress.detail.isEmpty,
-               progress.state == .stopped || progress.label == "stopped" {
-                Text(progress.detail)
-                    .scaledFont(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        // Clicking the row — not its stop / resume button, which keeps
-        // its own action — selects the tile and frames it (#816).
-        .contentShape(Rectangle())
-        .onTapGesture { showOnMap(coord) }
-        .help("Show this tile on the map")
-    }
-
-    /// Select `coord` as a plain map click would, and frame the whole tile.
-    private func showOnMap(_ coord: BuildModel.TileCoord) {
-        buildModel.click(lat: coord.lat, lon: coord.lon, command: false, shift: false)
-        controller.zoomToTile(lat: coord.lat, lon: coord.lon)
-    }
-
-    /// Gold for a tile built with warnings (#1341; Qt's `WARNING_COLOR`).
-    static let warningGold = Color(red: 212.0 / 255, green: 160.0 / 255, blue: 23.0 / 255)
-
-    /// A status tone's colour, the same in the Qt window.
-    static func color(_ tone: ActivityOrder.Tone) -> Color {
-        switch tone {
-        case .done: return .green
-        case .warning: return warningGold
-        case .failed: return .red
-        case .stopped: return .orange
-        case .live: return .secondary
-        }
     }
 }

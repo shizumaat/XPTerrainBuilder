@@ -1,5 +1,6 @@
 """The Activity list's row order and status tone (issue #1341), which
-section a row sits in (#1556) and which rows show selected (#1537).
+section a row sits in (#1556), and how the list's native selection and
+the map's tile selection stay one selection (#1537).
 
 Finished rows (done, built with warnings, failed, stopped) stay in the
 list until the app quits.  Live rows (queued, running) sit on top, the
@@ -18,7 +19,7 @@ Pure, no Qt.  Twin: ``Sources/SceneryKit/ActivityOrder.swift``; both read
 """
 
 __all__ = ["FINISHED_STATES", "ACTIVITY", "COMPLETED", "is_finished",
-           "section", "filled_rows", "status_tone", "restamp",
+           "section", "shown_selected", "list_edit", "status_tone", "restamp",
            "display_order"]
 
 #: Engine / app states a row does not leave without being queued again.
@@ -45,14 +46,29 @@ def section(state):
     return COMPLETED if state == "done" else ACTIVITY
 
 
-def filled_rows(rows, selected):
-    """The rows filled as selected (#1537): a row whose tile is in the
-    map selection -- unless the selection holds every row's tile, or none
-    of them: a list lit up wholesale tells the user nothing.  ``rows`` is
-    every row of both sections."""
-    every = set(rows)
-    hit = every & set(selected)
-    return set() if not hit or hit == every else hit
+def shown_selected(rows, selected):
+    """The rows the list shows selected (#1537, RULINGS 2026-10-28n):
+    every row whose tile is in the map selection.  ``rows`` is every row
+    of both sections."""
+    return set(rows) & set(selected)
+
+
+def list_edit(new, shown, active):
+    """The map selection after the user changed the list's own selection
+    (#1537): ``(selected, active, frame)``.  ``new`` is the list's
+    selection now, ``shown`` what it showed before.  The list's selection
+    becomes the map selection; the one row the edit added becomes the
+    active tile, else the active tile stays if it is still selected, else
+    the first.  ``frame``: the edit left one row selected -- a click on
+    a row -- which frames its tile on the map (#816)."""
+    new = set(new)
+    added = new - set(shown)
+    if len(added) == 1:
+        (active,) = added
+    elif active not in new:
+        active = min(new) if new else None
+    frame = len(new) == 1
+    return (new, active, frame)
 
 
 def status_tone(state, label="", has_issues=False):

@@ -92,7 +92,7 @@ def enqueue_calls(window, monkeypatch):
 # ---------------------------------------------------------------------
 def test_panel_has_selection_build_and_activity_boxes(window):
     assert window.info_group.title() == "Selection"
-    assert window.activity_group.title() == "Activity"
+    assert window.activity_list.activity_item.text(0) == "Activity"
     # Idle: the Activity box hides; the Build options are present.
     # (isHidden: the window itself is never shown in offscreen tests,
     # so isVisible() would be False regardless.)

@@ -1,10 +1,11 @@
-import AppKit
+import SwiftUI
 import XCTest
 import SceneryKit
 @testable import XPTerrainBuilder
 
-/// The Build pane's Activity and Completed sections (#1556) and the
-/// selected rows' fill (#1537). Qt twins: `Ortho4XP/tests/test_qt_completed.py`.
+/// The Build pane's Activity and Completed sections (#1556) and the list's
+/// native selection, one with the map's (#1537). Qt twins:
+/// `Ortho4XP/tests/test_qt_activity_keep.py`, `test_qt_activity_list.py`.
 @MainActor
 final class ActivitySectionsTests: XCTestCase {
     private let a = BuildModel.TileCoord(lat: 47, lon: -123)
@@ -53,47 +54,68 @@ final class ActivitySectionsTests: XCTestCase {
         XCTAssertTrue(model.completedExpanded)
     }
 
-    private func luminance(_ color: NSColor, _ name: NSAppearance.Name) -> CGFloat {
-        var out: CGFloat = 0
-        NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
-            let rgb = color.usingColorSpace(.sRGB)!
-            out = 0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent
-                + 0.0722 * rgb.blueComponent
+    // MARK: - #1537: the list's native selection is the map selection
+
+    private final class Map {
+        var selected: Set<BuildModel.TileCoord> = []
+        var active: BuildModel.TileCoord?
+        var framed: [BuildModel.TileCoord] = []
+    }
+
+    private func listSelection(_ map: Map, rows: [BuildModel.TileCoord])
+        -> Binding<Set<BuildModel.TileCoord>> {
+        ActivityListSelection.binding(
+            rows: { rows },
+            selected: Binding(get: { map.selected }, set: { map.selected = $0 }),
+            active: Binding(get: { map.active }, set: { map.active = $0 }),
+            frame: { map.framed.append($0) })
+    }
+
+    func testTheListShowsTheMapSelection() {
+        let map = Map()
+        let list = listSelection(map, rows: [a, b])
+        XCTAssertEqual(list.wrappedValue, [])
+        map.selected = [a, c]          // c has no row
+        XCTAssertEqual(list.wrappedValue, [a])
+        map.selected = [a, b]          // every row: every row shows it
+        XCTAssertEqual(list.wrappedValue, [a, b])
+    }
+
+    func testAListClickSelectsItsTileOnTheMapAndFramesIt() {
+        let map = Map()
+        map.selected = [a, c]
+        map.active = a
+        let list = listSelection(map, rows: [a, b])
+        list.wrappedValue = [b]
+        XCTAssertEqual(map.selected, [b])
+        XCTAssertEqual(map.active, b)
+        XCTAssertEqual(map.framed, [b])
+        list.wrappedValue = [a, b]      // ⌘-click adds a: active, no frame
+        XCTAssertEqual(map.selected, [a, b])
+        XCTAssertEqual(map.active, a)
+        XCTAssertEqual(map.framed, [b])
+        list.wrappedValue = [a, b]      // unchanged: nothing happens
+        XCTAssertEqual(map.framed, [b])
+    }
+
+    /// RULINGS 2026-10-28n: the selection is the platform's own — no
+    /// custom fill, ring or box-edge metrics are left in the app.
+    func testNoCustomRowFillIsLeft() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/XPTerrainBuilder")
+        let files = try FileManager.default.contentsOfDirectory(atPath: sources.path)
+            .filter { $0.hasSuffix(".swift") }
+        XCTAssertFalse(files.contains("ActivityRowFill.swift"))
+        for file in files {
+            let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
+            for name in ["ActivityRowFill", "PaneBoxMetrics", "activityRowFill", "filledRows"] {
+                XCTAssertFalse(text.contains(name), "\(file) still names \(name)")
+            }
         }
-        return out
-    }
-
-    func testTheFillIsSubtleButDistinctInBothAppearances() {
-        let fill = ActivityRowFill.system
-        let pane = NSColor.underPageBackgroundColor
-        let first = ActivityRowFill.awayFromText(.textBackgroundColor)
-        for name in [NSAppearance.Name.darkAqua, .aqua] {
-            let step = abs(luminance(fill, name) - luminance(pane, name))
-            let firstStep = abs(luminance(first, name) - luminance(pane, name))
-            XCTAssertGreaterThan(step, 0.005, "\(name)")
-            XCTAssertLessThan(step, firstStep / 2, "\(name)")
-        }
-        XCTAssertLessThan(luminance(fill, .darkAqua), luminance(pane, .darkAqua))
-        XCTAssertGreaterThan(luminance(fill, .aqua), luminance(pane, .aqua))
-    }
-
-    func testSubtleIsAQuarterStep() {
-        let pane = NSColor(srgbRed: 0.2, green: 0.2, blue: 0.2, alpha: 1)
-        let out = ActivityRowFill.subtle(pane: pane, text: pane)   // away = 0.1
-        XCTAssertEqual(out.redComponent, 0.175, accuracy: 1e-6)
-    }
-
-    func testTheFillSpansTheBoxWithSquareCorners() {
-        XCTAssertEqual(ActivityRowFill.cornerRadius, 0)
-        XCTAssertEqual(ActivityRowFill.sideReach, PaneBoxMetrics.edgeInset)
-        XCTAssertEqual(PaneBoxMetrics.edgeInset,
-                       PaneBoxMetrics.padding + PaneBoxMetrics.groupBoxInset)
-    }
-
-    func testAwayFromText() {
-        let dark = ActivityRowFill.awayFromText(NSColor(srgbRed: 0.2, green: 0.2, blue: 0.2, alpha: 1))
-        XCTAssertEqual(dark.redComponent, 0.1, accuracy: 1e-6)
-        let light = ActivityRowFill.awayFromText(NSColor(srgbRed: 0.8, green: 0.8, blue: 0.8, alpha: 1))
-        XCTAssertEqual(light.redComponent, 0.9, accuracy: 1e-6)
+        let list = try String(contentsOf: sources.appendingPathComponent("ActivitySections.swift"),
+                              encoding: .utf8)
+        XCTAssertTrue(list.contains("List(selection:"))
+        XCTAssertTrue(list.contains("Section(isExpanded:"))
     }
 }

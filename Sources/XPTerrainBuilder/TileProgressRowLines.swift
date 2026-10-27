@@ -12,7 +12,7 @@ import SceneryKit
 /// and, when the tile left messages, is a button that reopens them. A
 /// built tile's row is compact (#1542): the title, brightened halfway from
 /// the dimmed colour to white, then the status line — no bar, no steps.
-/// Kept out of `ActivityBox`'s body so the type-checker sees small,
+/// Kept out of `ActivityRow`'s body so the type-checker sees small,
 /// explicitly typed expressions.
 struct TileProgressRowLines<Bar: View, Trailing: View>: View {
     let text: ProgressRowText
@@ -30,7 +30,7 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
     @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading) {
             titleLine
             if !compact {
                 bar()
@@ -71,14 +71,18 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
 
     /// `color` 50 % of the way to white (alpha kept).
     static func halfwayToWhite(_ color: NSColor) -> NSColor {
-        color.halfway(toward: 1)
+        let rgb = color.usingColorSpace(.sRGB) ?? color
+        return NSColor(srgbRed: (rgb.redComponent + 1) / 2,
+                       green: (rgb.greenComponent + 1) / 2,
+                       blue: (rgb.blueComponent + 1) / 2,
+                       alpha: rgb.alphaComponent)
     }
 
     private var statusLine: some View {
-        HStack(spacing: 6) {
+        HStack {
             status
                 .layoutPriority(0)
-            Spacer(minLength: 6)
+            Spacer()
             if let time = text.time {
                 Text(time)
                     .scaledFont(.caption, monospacedDigit: true)

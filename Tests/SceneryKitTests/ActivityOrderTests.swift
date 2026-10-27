@@ -8,8 +8,12 @@ import Foundation
     struct Cases: Decodable {
         struct Finished: Decodable { let state: String; let label: String; let finished: Bool }
         struct SectionCase: Decodable { let state: String; let section: String }
-        struct Filled: Decodable {
-            let name: String, rows: [String], selected: [String], filled: [String]
+        struct Shown: Decodable {
+            let name: String, rows: [String], selected: [String], shown: [String]
+        }
+        struct ListEdit: Decodable {
+            let name: String, new: [String], shown: [String], active: String?
+            let selected: [String], to_active: String?, frame: Bool
         }
         struct ToneCase: Decodable {
             let state: String, label: String, has_issues: Bool, tone: String
@@ -18,7 +22,8 @@ import Foundation
         struct Sequence: Decodable { let name: String; let steps: [Step] }
         let finished: [Finished]
         let section: [SectionCase]
-        let filled: [Filled]
+        let shown: [Shown]
+        let list_edit: [ListEdit]
         let tones: [ToneCase]
         let sequences: [Sequence]
     }
@@ -45,11 +50,21 @@ import Foundation
         }
     }
 
-    @Test func filledLikeThePythonTwin() {
-        #expect(!Self.cases.filled.isEmpty)
-        for c in Self.cases.filled {
-            let filled = ActivityOrder.filledRows(rows: c.rows, selected: Set(c.selected))
-            #expect(filled == Set(c.filled), "\(c.name)")
+    @Test func shownSelectedLikeThePythonTwin() {
+        #expect(!Self.cases.shown.isEmpty)
+        for c in Self.cases.shown {
+            let shown = ActivityOrder.shownSelected(rows: c.rows, selected: Set(c.selected))
+            #expect(shown == Set(c.shown), "\(c.name)")
+        }
+    }
+
+    @Test func listEditLikeThePythonTwin() {
+        #expect(!Self.cases.list_edit.isEmpty)
+        for c in Self.cases.list_edit {
+            let out = ActivityOrder.listEdit(new: Set(c.new), shown: Set(c.shown), active: c.active)
+            #expect(out.selected == Set(c.selected), "\(c.name)")
+            #expect(out.active == c.to_active, "\(c.name)")
+            #expect(out.frame == c.frame, "\(c.name)")
         }
     }
 

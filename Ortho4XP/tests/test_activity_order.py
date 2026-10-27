@@ -1,7 +1,8 @@
 """Twin of ``Tests/SceneryKitTests/ActivityOrderTests.swift`` (#1341): both
 read ``fixtures/activity_order_cases.json`` -- which rows count as
 finished, each status's colour role, the Activity list's order, the
-section a row sits in and the rows filled as selected -- so
+section a row sits in, the rows shown selected and a list edit's map
+selection -- so
 the Mac and Qt apps keep and order their rows alike."""
 
 import json
@@ -28,10 +29,16 @@ def test_section(case):
     assert ORDER.section(case["state"]) == case["section"]
 
 
-@pytest.mark.parametrize("case", CASES["filled"], ids=lambda c: c["name"])
-def test_filled(case):
-    assert ORDER.filled_rows(case["rows"], case["selected"]) == set(
-        case["filled"])
+@pytest.mark.parametrize("case", CASES["shown"], ids=lambda c: c["name"])
+def test_shown_selected(case):
+    assert ORDER.shown_selected(case["rows"], case["selected"]) == set(
+        case["shown"])
+
+
+@pytest.mark.parametrize("case", CASES["list_edit"], ids=lambda c: c["name"])
+def test_list_edit(case):
+    assert ORDER.list_edit(case["new"], case["shown"], case["active"]) == (
+        set(case["selected"]), case["to_active"], case["frame"])
 
 
 @pytest.mark.parametrize("case", CASES["tones"])

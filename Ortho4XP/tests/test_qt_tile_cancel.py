@@ -65,15 +65,16 @@ def _row_widgets(window, tile):
     return window._tile_rows[tile][:4]
 
 
-def test_rows_have_padding_and_spacing(window):
+def test_rows_take_the_styles_item_margins(window):
+    """#1537: a row's padding is the style's item-view text margin, the
+    same in every row; the list draws no spacing of its own."""
+    import O4_Qt_Activity_List as QTACT
     window._setup_progress_page(TILES)
-    # 6 px spacing between rows (the rows container).
-    assert window._rows_layout.spacing() == 6
     for tile in TILES:
         _bar, _status, row, _cancel = _row_widgets(window, tile)
         margins = row.layout().contentsMargins()
-        assert (margins.left(), margins.top(),
-                margins.right(), margins.bottom()) == (6, 4, 6, 4)
+        assert (margins.left(), margins.top(), margins.right(),
+                margins.bottom()) == QTACT.row_margins(row.style())
 
 
 def test_each_row_has_a_stop_sign_button(window):

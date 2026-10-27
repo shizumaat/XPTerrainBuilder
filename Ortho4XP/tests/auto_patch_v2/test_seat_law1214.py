@@ -554,6 +554,32 @@ def test_r5_an_airside_group_sits_on_its_foundation_plane():
     assert floor_plane([]) is None
 
 
+def test_1344_feet_within_a_storey_are_one_level():
+    """#1344: a frame authored on ground falling 1.1 m (feet at y -0.10
+    and y -1.20) stands on ONE flat pad at 211.16; the patch mints no
+    second level for 1.1 m (< one storey, ``low_level_min_step_m``), so
+    the object floor is the LOWER candidate plane and nothing floats.
+    Planes a full storey apart keep round 5's floor (KMCI curb)."""
+    from auto_patch_v2.airport.airside_group_seat import floor_plane, storey_m
+    from auto_patch_v2.law import Law
+    storey = storey_m(Law.load())
+    assert storey == 3.0
+    pad = 211.16
+    west = [pad + 0.10 + 0.01 * (k % 5) for k in range(68)]
+    east = [pad + 1.20 - 0.35 + 0.01 * (k % 70) for k in range(39)]
+    zero = floor_plane(west + east, storey)
+    assert abs(zero - (pad + 0.10)) < 0.05
+    # every foot stands on the pad or sinks into it: none floats
+    assert all(zero <= c + 0.05 for c in west + east)
+    # round 5 without the storey stood on the east plane and floated the west
+    assert floor_plane(west + east) > pad + 0.8
+    concourse = [306.0] * 900 + [305.0] * 460 + [304.0] * 110
+    curb = [310.7] * 250
+    assert floor_plane(concourse + curb, storey) == 310.7
+    halls = [104.3] * 35 + [100.2] * 14 + [105.0] * 5 + [106.0] * 12
+    assert abs(floor_plane(halls + [111.3] * 12, storey) - 104.3) < 0.8
+
+
 def test_23b_the_stands_are_read_from_the_packs_apt_dat(tmp_path):
     """RULINGS 2026-10-23b: the airside floor is chosen at the AIRCRAFT
     STANDS — apt.dat 1300 gate / tie_down startups and 1500 jetways."""

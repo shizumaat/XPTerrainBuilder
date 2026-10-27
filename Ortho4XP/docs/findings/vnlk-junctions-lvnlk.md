@@ -109,6 +109,19 @@ The runway now: flat at 1.5 % over its top 165 m (J1 and J2, 11.7 m apart, one c
 the lower 290 m (abrupt fit 15.17 %). Against the Copernicus DSM it stands up to 17 m above
 the surface model at mid-runway (the uniform build stood within ±2 m there).
 
+**Closing build** (harness `build_airport.py VNLK --tag lvnlk`, branch at de78009e9; frame
+registered `lvnlk/lvnlk.osm`): body `194de949d191`, patch 32.1 s, `status=optimal`, shared
+repo unchanged. Census identical to the replay: ADJUDICATED **143** (base 822), CRITICAL
+motion **0** (the registered round-2 build had 1: 3.435 m `strip_transverse`
+junction|runway), v2 verify DEFECT families all zero.
+
+**Sim read (by landmark).** From the Main Apron at the top (RWY 24) end, look down the
+runway: the runway should be flat (1.5 %) from the 24 threshold past the apron joint and
+the right-side spot (about 165 m from the 24 end), then curve over about 90 m into a
+steady 17 % fall to the RWY 06 threshold. On the apron: one flat pad meeting the runway
+edge with no twist; its west corner (toward the lodge and terminal buildings) is the one
+place it bends (about 0.5 m) to meet the building pads.
+
 ## 5. Census of consumers (08-30l) — what reads the changed records
 
 | reader | reads | effect |

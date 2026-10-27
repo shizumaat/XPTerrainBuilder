@@ -50,7 +50,7 @@ from ..model.airport import DsfObject, SceneryPack
 from . import dsf as _dsf
 from .pack import authored_source
 
-__all__ = ["COMPANION_PLAN", "Companion", "dump_candidates", "find", "admitted",
+__all__ = ["COMPANION_PLAN", "dump_candidates", "find",
            "plans", "place"]
 
 #: ``<patch dir>/o4_v2_rebake_<ICAO>~<k>.json`` -- the object stage's plan

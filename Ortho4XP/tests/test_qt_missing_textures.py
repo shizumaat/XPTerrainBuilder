@@ -63,3 +63,42 @@ def test_a_late_answer_for_another_tile_is_dropped(qapp, tmp_path):
     row.clear()
     _settle(qapp)
     assert not row.isVisible()
+
+
+def test_the_window_shows_the_row_for_a_symlinked_tile(
+        qapp, tmp_path, monkeypatch):
+    """#1563 on the Qt side: the WINDOW's path — the active tile's scanned
+    folder, a symlink into a scenery library — reaches the row."""
+    import json
+    import sys
+
+    import O4_Qt_GUI as GUI
+    import O4_Tile_Info as TINFO
+    import O4_UI_Utils as UI
+    from test_tile_texture_check import _linked_tile
+
+    scenery, link = _linked_tile(tmp_path)
+    prefs = tmp_path / "prefs.json"
+    prefs.write_text(json.dumps({"output_dir": str(tmp_path)}),
+                     encoding="utf-8", newline="")
+    monkeypatch.setattr(GUI, "PREFS_FILE", str(prefs))
+    monkeypatch.setattr(
+        GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "tile-scan.json"))
+    saved_stdout = sys.stdout
+    win = GUI.MainWindow()
+    monkeypatch.setattr(win, "refresh_tiles", lambda: None)
+    monkeypatch.setattr(win, "_refresh_scenery_packs", lambda: None)
+    try:
+        win._built.update(TINFO.scan_tiles(scenery))
+        win.show()
+        win._active_changed((47, -113))
+        _settle(qapp)
+        row = win.missing_textures_row
+        assert row.isVisible()
+        assert row.label.text().startswith("⚠ 2 textures missing")
+    finally:
+        win._building = False
+        win.close()
+        win.deleteLater()
+        UI.engine_session = None
+        sys.stdout = saved_stdout

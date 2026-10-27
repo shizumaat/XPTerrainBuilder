@@ -1,7 +1,7 @@
 import Foundation
 
 /// One imagery source from the engine's `imagery_sources` command
-/// (protocol 1.17, #1345; `Ortho4XP/src/O4_Imagery_Sources.py`). The
+/// (protocol 1.19, #1345; `Ortho4XP/src/O4_Imagery_Sources.py`). The
 /// Build box and the map's preview picker both read this list, so the two
 /// menus offer the same sources in the same order as the Qt window.
 /// Wire keys are STRING LITERALS matched against the engine's row dicts.

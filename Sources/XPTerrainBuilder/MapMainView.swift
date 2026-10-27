@@ -114,6 +114,24 @@ struct MapMainView: View {
                  ? art.bodyText + "\n\n" + O4PackMissingArtCopy.detail
                  : art.bodyText)
         }
+        // An airport pack with old flat forests (protocol 1.21, #1360):
+        // Update / Not now / Never for this pack, the Qt question's copy.
+        .alert(buildModel.packForestsPrompt?.titleText ?? "", isPresented: Binding(
+            get: { buildModel.packForestsPrompt != nil },
+            set: { _ in }
+        ), presenting: buildModel.packForestsPrompt) { _ in
+            Button(O4PackOldForestsCopy.updateButton) {
+                buildModel.answerPackForestsPrompt(action: "update")
+            }
+            Button(O4PackOldForestsCopy.neverButton) {
+                buildModel.answerPackForestsPrompt(action: "never")
+            }
+            Button(O4PackOldForestsCopy.notNowButton, role: .cancel) {
+                buildModel.answerPackForestsPrompt(action: nil)
+            }
+        } message: { forests in
+            Text(forests.bodyText)
+        }
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
             set: { if !$0 { controller.errorMessage = nil } }

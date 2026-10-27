@@ -221,6 +221,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # and completes through PackMissingArt — DSFTool may not run on
         # THIS thread.
         "omit_missing_art": session.omit_missing_art,
+        # 3D trees (protocol 1.17, #1360): replies {"status": "started"}
+        # and completes through PackOldForests — DSFTool may not run on
+        # THIS thread.
+        "pack_forests": session.pack_forests,
         # Failure report (#565, RULINGS 2026-10-12b): the REDACTED report
         # for one tile, its prefilled new-issue URL and, with
         # ``save_path``, the report file.  Synchronous — it reads the end
@@ -569,7 +573,7 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             capabilities=("scan", "build", "enqueue_build", "cancel",
                           "tile_info", "config", "links", "siblings",
                           "secrets", "tile_settings_write",
-                          "missing_art", "library"))))
+                          "missing_art", "library", "pack_forests"))))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

@@ -109,7 +109,7 @@ struct BuildPane: View {
         .task(id: "\(buildModel.activeTile?.key ?? "")|\(controller.mapOverlays.regions.count)") {
             await refreshOtherScenery()
         }
-        .task(id: "reseat|\(buildModel.activeTile?.key ?? "")|\(controller.installationPacks.count)|\(buildModel.isBuilding)|\(reseatRefresh)") {
+        .task(id: "reseat|\(buildModel.activeTile?.key ?? "")|\(controller.installationPacks.count)|\(buildModel.isBuilding)|\(reseatRefresh)|\(buildModel.packForestsChanged)") {
             await refreshModifiedAirports()
         }
         .task(id: customizationsKey) {
@@ -310,6 +310,21 @@ struct BuildPane: View {
                                     .truncationMode(.middle)
                                     .help("\(row.packName) — \(row.objectCount) object file\(row.objectCount == 1 ? "" : "s") reseated to this tile's rebuilt ground")
                                 Spacer(minLength: 8)
+                                // #1360: the pack's 3D trees, undone on
+                                // their own (the Qt row's twin button)
+                                if row.forestCount > 0 {
+                                    Button {
+                                        buildModel.undoPackForests(packPath: row.packPath)
+                                    } label: {
+                                        Image(systemName: "leaf")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .controlSize(.small)
+                                    .disabled(buildModel.isBuilding)
+                                    .help(buildModel.isBuilding
+                                          ? "Wait for the current run — the engine may be rewriting these files"
+                                          : O4PackOldForestsCopy.undoHelp)
+                                }
                                 Button {
                                     revertModifiedAirports(row)
                                 } label: {
@@ -810,6 +825,8 @@ struct BuildPane: View {
         let packName: String
         let packPath: String
         let objectCount: Int
+        /// Forest definitions upgraded to 3D trees (#1360).
+        var forestCount: Int = 0
     }
 
     /// Asks the ENGINE which packs the reseater modified for the active
@@ -842,13 +859,15 @@ struct BuildPane: View {
                 return [ModifiedAirportRow(
                     id: pack.packPath, label: pack.packName,
                     packName: pack.packName, packPath: pack.packPath,
-                    objectCount: pack.objectCount)]
+                    objectCount: pack.objectCount,
+                    forestCount: pack.forestCount)]
             }
             return names.map { name in
                 ModifiedAirportRow(
                     id: "\(pack.packPath)|\(name)", label: name,
                     packName: pack.packName, packPath: pack.packPath,
-                    objectCount: pack.objectCount)
+                    objectCount: pack.objectCount,
+                    forestCount: pack.forestCount)
             }
         }
         .sorted { $0.label < $1.label }

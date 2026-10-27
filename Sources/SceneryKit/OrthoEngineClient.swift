@@ -321,9 +321,14 @@ public enum O4Event: Sendable, Equatable {
     /// the object stage, or the completion of an `omit_missing_art`
     /// command. See `O4PackMissingArt`.
     case packMissingArt(O4PackMissingArt)
-    /// One imagery source's launch-time liveness (protocol 1.17, #1345):
+    /// One imagery source's launch-time liveness (protocol 1.19, #1345):
     /// the completion of `imagery_source_status`, one event per source.
     case imagerySourceStatus(code: String, status: O4ImageryStatus)
+    /// An airport pack with old flat forests that have X-Plane 12 3D
+    /// equivalents (protocol 1.21, #1360): found by the object stage, or
+    /// the outcome of a build or a `pack_forests` command. See
+    /// `O4PackOldForests`.
+    case packOldForests(O4PackOldForests)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -487,6 +492,20 @@ public enum O4Event: Sendable, Equatable {
                 code: string("code"),
                 status: O4ImageryStatus(status: object["status"] as? String ?? "unknown",
                                         reason: string("reason")))
+        // `class PackOldForests` in Ortho4XP/src/o4_engine/events.py.
+        case "PackOldForests":
+            return .packOldForests(O4PackOldForests(
+                pack: string("pack"), packRoot: string("pack_root"),
+                lat: int("lat"), lon: int("lon"), total: int("total"),
+                mapped: int("mapped"), uses: int("uses"),
+                firstPaths: (object["first_paths"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                unmapped: int("unmapped"),
+                firstUnmapped: (object["first_unmapped"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                // absent ⇒ no question: never offer without a yes
+                canUpdate: bool("can_update"),
+                files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                state: object["state"] as? String ?? "found",
+                error: string("error")))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -774,7 +793,7 @@ public final class OrthoEngineClient: @unchecked Sendable {
         }
     }
 
-    // MARK: - Imagery sources (protocol 1.17, #1345)
+    // MARK: - Imagery sources (protocol 1.19, #1345)
 
     /// The engine's one imagery source list, in menu order. Empty when the
     /// engine predates the command (unknown commands reply ok=false).
@@ -900,6 +919,25 @@ public final class OrthoEngineClient: @unchecked Sendable {
              arguments: ["pack_root": packRoot, "lat": lat, "lon": lon])
     }
 
+    // MARK: - 3D trees (protocol 1.21)
+
+    /// The user's answer about a pack's old flat forests (#1360): action
+    /// "update" (remember it and point the tile DSF at the X-Plane 12 3D
+    /// trees), "never" (remember it, write nothing) or "undo" (forget it
+    /// and put the originals back — the whole pack when lat/lon are nil).
+    /// The engine replies `{"status": "started"}` at once and completes
+    /// with a `packOldForests` event. An engine older than 1.21 replies
+    /// ok=false: nothing changes.
+    public func packForests(packRoot: String, action: String,
+                            lat: Int? = nil, lon: Int? = nil) {
+        var arguments: [String: Any] = ["pack_root": packRoot, "action": action]
+        if let lat, let lon {
+            arguments["lat"] = lat
+            arguments["lon"] = lon
+        }
+        send(command: "pack_forests", arguments: arguments)
+    }
+
     // MARK: - Stream handling
 
     private func consumeStdout(_ data: Data) {
@@ -1014,7 +1052,7 @@ extension OrthoEngineClient {
         return try await request("cursor_elevation", arguments)
     }
 
-    /// "Insert shape" planned at a point (protocol 1.17, #1314); ask again
+    /// "Insert shape" planned at a point (protocol 1.20, #1314); ask again
     /// while the reply is `pending`.
     public func patchInsertShape(lat: Double, lon: Double, buildDir: String? = nil) async throws -> O4PatchInsertShape {
         var arguments: [String: Any] = ["lat": lat, "lon": lon]
@@ -1022,7 +1060,7 @@ extension OrthoEngineClient {
         return try await request("patch_insert_shape", arguments)
     }
 
-    /// Append the planned corners to `icao`'s patch on disk (protocol 1.17,
+    /// Append the planned corners to `icao`'s patch on disk (protocol 1.20,
     /// #1314) — for an airport whose patch is not the open document.
     public func patchAddShape(tile: String, icao: String, corners: [[Double]]) async throws -> O4PatchAddShape {
         try await request("patch_add_shape", ["tile": tile, "icao": icao, "corners": corners])

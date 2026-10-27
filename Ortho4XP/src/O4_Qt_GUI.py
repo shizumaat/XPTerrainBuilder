@@ -99,6 +99,7 @@ import O4_Qt_Boundary_Dialog as QTBOUND
 import O4_Qt_Build_History as QTHIST
 import O4_Qt_Build_Airports as QTAIRPORTS
 import O4_Qt_Pack_Art as QTART
+import O4_Qt_Pack_Forests as QTFOREST
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
@@ -826,6 +827,7 @@ class MainWindow(QMainWindow):
             EV.BoundaryAirportsReady: self._on_boundary_airports_ready,
             EV.PackMissingArt: self._on_pack_missing_art,
             EV.ImagerySourceStatus: self._on_imagery_source_status,
+            EV.PackOldForests: self._on_pack_old_forests,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
@@ -834,6 +836,9 @@ class MainWindow(QMainWindow):
         # and missing set) and the open boxes (kept alive: non-modal).
         self._pack_art_seen = set()
         self._pack_art_boxes = []
+        # #1360: the 3D trees questions already asked (one per pack, tile
+        # and set); their open boxes live in _pack_art_boxes too.
+        self._pack_forests_seen = set()
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
         # #695: fixable failures, asked one at a time as each tile fails;
@@ -3092,6 +3097,17 @@ class MainWindow(QMainWindow):
             return
         self._bridge.size_computed.emit()
 
+    def _refresh_modified_airports(self):
+        """Re-read the active tile's Modified airports rows (a worker
+        probe, as the tile selection runs it)."""
+        import O4_Config_Utils as CFG
+
+        tile = self.map.active_tile()
+        if tile is not None and CFG.custom_scenery_dir:
+            threading.Thread(
+                target=self._probe_modified_airports,
+                args=(tile, CFG.custom_scenery_dir), daemon=True).start()
+
     def _probe_modified_airports(self, tile, scenery_dir):
         """Worker thread: which packs did the reseater modify for this
         tile?  Result marshalled to the GUI thread via the bridge."""
@@ -3135,6 +3151,21 @@ class MainWindow(QMainWindow):
                 % (objects, "s" if objects != 1 else "")
             )
             rl.addWidget(label, 1)
+            if pack.get("forests", 0):
+                # #1360: the pack's 3D trees, undone on their own (the mac
+                # row's twin button)
+                trees = QToolButton()
+                trees.setAutoRaise(True)
+                trees.setText("🌲")
+                trees.setFixedSize(18, 18)
+                trees.setEnabled(not self._building)
+                trees.setToolTip(
+                    "Wait for the current run — the engine may be "
+                    "rewriting these files." if self._building
+                    else QTFOREST.UNDO_HELP)
+                trees.clicked.connect(
+                    lambda _checked=False, p=pack: self._undo_pack_forests(p))
+                rl.addWidget(trees, 0, Qt.AlignRight)
             undo = QToolButton()
             undo.setAutoRaise(True)
             undo.setIcon(self.style().standardIcon(
@@ -4635,6 +4666,50 @@ class MainWindow(QMainWindow):
         box.finished.connect(finished)
         self._pack_art_boxes.append(box)
         box.show()
+
+    def _on_pack_old_forests(self, event):
+        """#1360: an airport pack with old flat (X-Plane 11) forests.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .packOldForests``): ``state == "found"`` (with ``can_update``)
+        asks once per pack, tile and set; Update / Never for this pack send
+        ``pack_forests``, Not now sends nothing.  An upgrade or an undo
+        re-reads the tile's Modified airports rows; the other states are
+        on the console through the engine's own log line.
+        """
+        state = getattr(event, "state", "found")
+        if state in ("upgraded", "undone"):
+            self._refresh_modified_airports()
+            return
+        if state != "found" or not getattr(event, "can_update", False):
+            return
+        key = QTFOREST.question_key(event)
+        if key in self._pack_forests_seen:
+            return
+        self._pack_forests_seen.add(key)
+        box, buttons = QTFOREST.pack_forests_box(event, parent=self)
+        root, lat, lon = event.pack_root, int(event.lat), int(event.lon)
+
+        def finished(_result, box=box, buttons=buttons):
+            for action, button in buttons.items():
+                if box.clickedButton() is button:
+                    self._session.pack_forests(pack_root=root, action=action,
+                                               lat=lat, lon=lon)
+            if box in self._pack_art_boxes:
+                self._pack_art_boxes.remove(box)
+
+        box.finished.connect(finished)
+        self._pack_art_boxes.append(box)
+        box.show()
+
+    def _undo_pack_forests(self, pack):
+        """#1360: the pack row's tree button — every upgraded DSF of the
+        pack gets its original forest definitions back (the engine
+        command; it completes with a PackOldForests event that refreshes
+        the rows)."""
+        if self._building:
+            return
+        self._session.pack_forests(pack_root=pack["pack_path"], action="undo")
 
     def _on_build_done(self, event):
         """One tile's terminal outcome: remember it (with the tile's own

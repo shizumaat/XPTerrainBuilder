@@ -356,7 +356,7 @@ public struct O4CursorElevation: Decodable, Equatable, Sendable {
     }
 }
 
-/// `patch_insert_shape` (protocol 1.17, #1314): "Insert shape" planned by
+/// `patch_insert_shape` (protocol 1.20, #1314): "Insert shape" planned by
 /// the engine — the airport whose extent holds the click, the patch the
 /// build applies for it (nil when it has none) and the square's corners
 /// `[lat, lon, alt]` at the elevation under them. `pending` (and nothing
@@ -375,7 +375,7 @@ public struct O4PatchInsertShape: Decodable, Equatable, Sendable {
     }
 }
 
-/// `patch_add_shape` (protocol 1.17, #1314): the shape appended to a patch
+/// `patch_add_shape` (protocol 1.20, #1314): the shape appended to a patch
 /// the editor does not have open — the file written, the new way, whether
 /// the airport had no patch before, and the sentence to show.
 public struct O4PatchAddShape: Decodable, Equatable, Sendable {

@@ -116,7 +116,14 @@ from typing import Any, Optional
 # the airport whose extent holds the point; ``pending`` while a source
 # loads) and ``patch_add_shape`` (append it to an airport's patch that is
 # not open in the editor, or start that airport's edited patch).
-PROTOCOL_VERSION = "1.20"
+# 1.21 (2026-10-27, additive, #1360): PackOldForests + the
+# ``pack_forests`` command — an airport pack the build modifies whose DSF
+# draws old flat (X-Plane 11) forests is named, the user is asked whether
+# to point them at the X-Plane 12 3D trees (Update / Not now / Never for
+# this pack), and the pack row's Undo puts the originals back; the
+# ``reanchor_status`` pack entries carry ``forests`` (definitions
+# upgraded).
+PROTOCOL_VERSION = "1.21"
 
 
 @dataclass(frozen=True)
@@ -551,6 +558,54 @@ class PackMissingArt(EngineEvent):
     uses: int = 0
     first_paths: list = field(default_factory=list)
     can_omit: bool = False
+    state: str = "found"
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class PackOldForests(EngineEvent):
+    """An airport pack whose DSF draws OLD FLAT (X-Plane 11) forests that
+    have an X-Plane 12 3D equivalent (issue #1360).
+
+    Emitted by the object stage (``auto_patch.forest_stage``) for a pack
+    the build modifies, and again as the completion of a ``pack_forests``
+    command (which replies ``{"status": "started"}`` at once and works on
+    a worker thread).  ``state``:
+
+    * ``"found"`` — nothing was changed.  The front end asks, once per
+      pack, tile and set: **Update** sends ``pack_forests`` with
+      ``action="update"``, **Never for this pack** with ``action="never"``,
+      **Not now** sends nothing (the next build asks again).  Only when
+      ``can_update``.
+    * ``"upgraded"`` — the DSF now points at the 3D trees (``files`` lists
+      what was rewritten; the pristine DSF stays as ``.anchor_bak``).  Also
+      sent by a build for a pack the user already said Update for.
+    * ``"undone"`` — (command) the original definitions are back.
+    * ``"never"`` — (command) the answer is remembered; nothing written.
+    * ``"failed"`` — ``error`` says why; the pack is as it was.
+    * ``"none"`` — (command) nothing to do.
+
+    ``total`` is the flat forest definitions, ``mapped`` those with a 3D
+    equivalent (``uses`` their polygons, ``first_paths`` up to five),
+    ``unmapped`` those without one (``first_unmapped``), which stay.
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
+    pack: str = ""
+    pack_root: str = ""
+    lat: int = 0
+    lon: int = 0
+    total: int = 0
+    mapped: int = 0
+    uses: int = 0
+    first_paths: list = field(default_factory=list)
+    unmapped: int = 0
+    first_unmapped: list = field(default_factory=list)
+    can_update: bool = False
+    files: list = field(default_factory=list)
     state: str = "found"
     error: str = ""
 

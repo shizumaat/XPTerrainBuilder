@@ -29,6 +29,7 @@ from auto_patch_v2.airport.dem_production import ColdDemFrame, TileWater
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.frame import Frame
 from shapely.geometry import Polygon, box
+from shapely.ops import unary_union
 
 FIX = Path(__file__).resolve().parent / "fixtures" / "CYXY"
 ANCHOR = (0.5, 0.5)
@@ -215,3 +216,22 @@ def test_the_plateau_check_reads_the_pavement_not_the_boundary():
     ap = types.SimpleNamespace(icao="ZZZZ", frame=Frame("ZZZZ", ANCHOR, 6), dem=dem)
     fv, _how = READ.verdict_for_build(ap, Law.for_airport("ZZZZ"))
     assert fv.signals["plateau_offset_m"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_the_packs_draped_pavement_joins_the_pavement(monkeypatch):
+    """RULINGS 2026-10-27d: pavement stays flat — the pack's draped
+    ``.pol`` pages (``pack_pavement``) are pavement too."""
+    apron = box(-300.0, 150.0, 300.0, 280.0)        # boundary grass, no apt.dat row
+    seen = {}
+
+    def _pages(root, name, lat, lon, to_xy, own, mod_cache_root, xplane_root):
+        seen["mod_cache_root"] = mod_cache_root
+        return [apron]
+    monkeypatch.setattr(PREP._pack_pavement, "pavement_pages", _pages)
+    law = Law.for_airport("ZZZZ")
+    rec = PREP.decide(_site(), _TileDem(1.0), 0, 0, TileWater(0, 0, None, None),
+                      law, out=lambda line: None, mod_cache_root="/cache")
+    assert seen["mod_cache_root"] == "/cache"
+    pav = F.from_record({"verdict": "x", "region": rec["pavement"]}).region
+    got = unary_union([Polygon(o, list(h)) for o, h in pav])
+    assert got.covers(apron.buffer(-1.0))

@@ -22,12 +22,15 @@ ONLY A CUT IS UNDONE.  A post the stamp raised (honest surface below Z0 —
 the reclamation class R8-1 and 20af exist for: VHHH's 2.00 m sea fill)
 keeps Z0.
 
-PAVEMENT KEEPS ITS CUT.  The airport's own pavement — apt.dat pavements
-∪ runways at margin 0, the decision record's ``pavement_ll`` — stays at
-Z0 whatever the DEM says: that is the cut pavement grading needs.  The
-boundary's grass, the margin, the cluster hulls and the isthmus are not
-pavement; grading the pavement's edge down to the real ground beside it
-is the patch's own work (its adjacent-ground zones).
+PAVEMENT KEEPS ITS CUT (RULINGS 2026-10-27d: inside the boundary only
+runways and pavement stay flat).  The airport's own pavement — apt.dat
+pavements ∪ runways ∪ the pack's draped pavement pages
+(``auto_patch_v2/airport/pack_pavement.py``), margin 0, the decision
+record's ``pavement_ll`` — stays at Z0 whatever the DEM says: that is the
+cut pavement grading needs.  The boundary's grass, the margin, the
+cluster hulls and the isthmus are not pavement; grading the pavement's
+edge down to the real ground beside it is the patch's own work (its
+adjacent-ground zones).
 
 It reads no file and writes nothing but the working raster.
 """

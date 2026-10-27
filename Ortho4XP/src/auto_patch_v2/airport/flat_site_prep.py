@@ -20,12 +20,15 @@ import dataclasses as _dc
 import os
 import typing as _t
 
+from shapely.ops import unary_union
+
 from ..law import Law
 from ..model.frame import XY
 from . import cifp as _cifp
 from . import flat_site as _flat
+from . import pack_pavement as _pack_pavement
 from .dem_production import ProductionDem, TileWater
-from .load import _ring, _vector_to_xy, join_cifp, read_apt
+from .load import _own_extent, _ring, _vector_to_xy, join_cifp, read_apt
 
 __all__ = ["FlatSiteInputs", "site_inputs", "decide"]
 
@@ -59,6 +62,10 @@ class FlatSiteInputs:
     pavements: tuple[_Poly, ...]
     boundaries: tuple[_Poly, ...]
     dem: _t.Any = None
+    #: the pack :func:`load.read_apt` selected — where DEM prep reads the
+    #: pack's draped pavement pages (``pack_pavement``, #1208)
+    pack_root: str = ""
+    pack_name: str = ""
 
 
 def site_inputs(icao: str, xplane_root: str, cifp_path: str | None, law: Law,
@@ -66,7 +73,7 @@ def site_inputs(icao: str, xplane_root: str, cifp_path: str | None, law: Law,
     """The airport as the detector reads it, from v2's own readers (module
     doc).  An end the CIFP join leaves unmatched has no threshold
     elevation, so a CIFP record with no apt.dat runway never counts in S1."""
-    _sel, _block, apt, _bres, frame = read_apt(icao, xplane_root, law, apt_dat_path)
+    sel, _block, apt, _bres, frame = read_apt(icao, xplane_root, law, apt_dat_path)
     to_xy = _vector_to_xy(frame)
     cifp = (_cifp.read_cifp_runways(cifp_path)
             if cifp_path and os.path.isfile(cifp_path) else {})
@@ -84,19 +91,23 @@ def site_inputs(icao: str, xplane_root: str, cifp_path: str | None, law: Law,
     boundaries = tuple(_Poly(_ring(b.rings[0], to_xy),
                              tuple(_ring(h, to_xy) for h in b.rings[1:]))
                        for b in apt.boundaries)
-    return FlatSiteInputs(icao.upper(), frame, runways, pavements, boundaries)
+    return FlatSiteInputs(icao.upper(), frame, runways, pavements, boundaries,
+                          pack_root=sel.root, pack_name=sel.name)
 
 
 def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
            water: TileWater | None, law: Law,
-           out: _t.Callable[[str], None] = print) -> dict:
+           out: _t.Callable[[str], None] = print,
+           mod_cache_root: str | None = None,
+           xplane_root: str | None = None) -> dict:
     """The decision record for ``site`` on DEM prep's raster ``tile_dem``:
     :func:`flat_site.record` plus ``origin`` (the frame), ``region`` (the
     dilated, water-cut rings the datum covers), ``gate`` (the margin-0 gate
     extent, water-cut), ``region_ll`` (the region's rings in ``(lon,
     lat)``), ``footprint_ll`` (the region before its water cut — the
     plateau's footprint, #1144) and ``pavement`` / ``pavement_ll``
-    (apt.dat pavements ∪ runways, margin 0:
+    (apt.dat pavements ∪ runways ∪, at a substituting site, the pack's
+    draped pavement pages read from ``mod_cache_root``; margin 0:
     the ground the plateau keeps at Z0 whatever the DEM says — elsewhere it
     only fills, ``auto_patch/flat_site_relief.py``, RULINGS 2026-10-26r).
     The bake adds ``plateau``."""
@@ -121,8 +132,21 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
 
     gate_rings = (_flat._rings(gate) if gate is not None
                   and not gate.is_empty else ())
-    pavement_rings = (_flat._rings(land) if land is not None
-                      and not land.is_empty else ())
+    pavement = land
+    if fv.substitutes:
+        # RULINGS 2026-10-27d: pavement stays flat — ALL of it the build
+        # grades as pavement, the pack's draped ``.pol`` pages included.
+        pages = _pack_pavement.pavement_pages(
+            site.pack_root, site.pack_name, tile_lat, tile_lon, _to_xy,
+            _own_extent(site.runways, site.pavements, site.boundaries,
+                        law.tables.emit.identity.dsf_pavement_admission_m),
+            mod_cache_root, xplane_root)
+        if pages:
+            pavement = unary_union(([land] if land is not None else []) + pages)
+            out(f"[flat-site] {site.icao}: {len(pages)} draped pavement "
+                f"page(s) of the pack join apt.dat's pavement at Z0")
+    pavement_rings = (_flat._rings(pavement) if pavement is not None
+                      and not pavement.is_empty else ())
     # #1144: the plateau's FOOTPRINT — the same (pavement ∪ runways ∪
     # boundary) ⊕ margin as ``region``, but NOT water-cut: the bake cuts
     # its own water (``flat_site_mode.water_beside_site``), and the

@@ -468,7 +468,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # is flush with (RULINGS 2026-10-26p Q168, 2026-10-20am/ar)
             else (_hanging_ground(airport, law, members, mouth, mouth_dem)
                   if pin.hanging else mouth_dem) - pin.depth_m)
-        slid_depth = None if pin is None else pin.depth_m   # #1028: a slid mouth's road profile
+        if pin is not None and pin.hanging:
+            # a bare-earth DEM that already shows the road at the object's
+            # bottom: the floor never stands over the cap's own ground
+            mouth_z = min(mouth_z, mouth_dem - grid)
+        # #1028: a slid mouth on the road's profile; a pinned one its own depth AT the cap
+        slid_depth = None if pin is None else mouth_dem - mouth_z
         if clear is not None and clear[5] is not None and clear[5] > mouth_z \
                 and not (pin is not None and pin.hanging):     # 20ar: the object wins
             mouth_z, slid_depth = clear[5], mouth_dem - clear[5]

@@ -1,4 +1,4 @@
-# #1254 lane lroads — handoff (paused by owner order, 2026-10-27)
+# #1254 lane lroads — handoff (paused by owner order, 2026-10-27) — RESUMED AND COMPLETED: see roads-lroads.md "Round 3"
 
 Branch `claude/lroads-grade` (PR #1473). Spec, attribution and the round 1/2
 tables are in `Ortho4XP/docs/findings/roads-lroads.md`. Round 3 (RULINGS

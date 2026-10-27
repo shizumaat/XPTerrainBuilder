@@ -186,3 +186,39 @@ objective's bending weight `[design] road = 3.0`, which is a weight, not a bound
 brief said not to invent a number, so the joint law needs the owner: a road vertical
 transition (a K value, or a maximum grade change per metre) for the side street's last
 stretch into the main road's kerb.
+
+## Round 3 — RULINGS 2026-10-27s (Q197 "a"): the junction joint, BUILT
+
+Law: `rulesets.toml [common] road_joint_free_grade_change = 0.08`,
+`road_joint_k_m_per_pct = 3.0`. Module: `airport/road_joint.py`.
+
+- The side street's mouth moves onto the main road's frame, at the main
+  road's level.
+- From the joint the street leaves within 8 % of the main road's grade
+  along it, changes grade at no more than 1 % per 3 m, and lands on its own
+  clamp.
+- Only a sized joint's vertices carry the junction road
+  (`PlanarMap.road_junction_road`, the sixth `road_route_frame` field). Any
+  other pair of two routes keeps the 2 % cross-section.
+- Reading taken: the 8 % free break, then K for the rest of the change.
+- Refuted along the way, each measured on the capture:
+  - tagging every public route (arm a7) minted 3 `cross_shape` rows at
+    unsized junctions;
+  - releasing only same-face pairs (arm a5) changed nothing.
+
+Closing build `lroads3` (body_sha 7cf338b6646b; merged main changes only
+`O4_Version`). At LGAV -1276 / -1190 (37.95121, 23.98649):
+
+- **The joint:** the 0.60 m `mid_edge_step` is gone. Grade breaks on the
+  joint stretch: 5.5 % at the kerb (main road 10.3 %, street 15.8 %), and
+  about 4 % and about 6 % further up — all within the free change. The joint
+  is 47.8 m long.
+- **The side street's worst gap to the DEM over its last 60 m:** 2.05 m
+  (s 804). The kerb it leaves from is itself 0.7–1.4 m under its DEM.
+- **Census:** adjudicated 1690 against 1694 in round 1 and 1707 at base;
+  airside 1437. Against round 1: 0 new rows, 4 gone (3 `mid_edge_step`,
+  1 `vertex_to_edge_step`).
+- **-1190:** within 0.56 m of the DEM; patch-edge step 0.03 m.
+- **-4571:** within 0.58 m (round 1: 0.38 m). The 0.58 m is at s = 20, where
+  its mouth rides the -1190 kerb beside a DEM sliver inside the junction
+  (37.95158, 23.98677).

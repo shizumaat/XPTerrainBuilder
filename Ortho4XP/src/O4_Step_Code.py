@@ -345,6 +345,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.road_ramp",
     "auto_patch_v2.airport.road_joint",
     "auto_patch_v2.airport.public_road",
+    "auto_patch_v2.airport.plate_ground",
     "auto_patch_v2.airport.road_stations",
     "auto_patch_v2.airport.road_ways",
     "auto_patch_v2.airport.runway_end_witness",

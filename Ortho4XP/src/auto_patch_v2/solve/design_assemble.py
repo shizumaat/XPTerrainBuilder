@@ -555,7 +555,17 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #    without the ribbons
     gs_roles = {r for r in pav_roles if role_side(law, r) == "groundside"}
     welded = _welded_faces(planar) if drop_f else set()
+    # owner RULINGS 2026-10-28p (1) (#1201): an airport service road AT
+    # GRADE in a runway safety area takes the safety area's level, never its
+    # own terrain plane (``PlanarMap.rsa_at_grade``) — MEASURED KSEA 16C: the
+    # plane of the road along the walled plate's edge, read over the plate's
+    # own lidar step, held the safety area 1.8 m under the plate
+    at_grade = getattr(planar, "rsa_at_grade", None) or frozenset()
     for vs in _role_bodies(planar, gs_roles, red, welded):
+        if at_grade:
+            vs = [v for v in vs if v not in at_grade]
+            if len(vs) < 3:
+                continue
         by_comp.setdefault(("groundside", vs[0]), vs)
     #    A RIGID GROUP (a pad, a plate, a wall band) is ONE column, so its
     #    own bending rows collapse to nothing: bending gives it no level at

@@ -509,6 +509,17 @@ class PlanarMap:
     #: threshold above it, and it SUPERSEDES ``preferred_z`` for the
     #: vertices it governs (which are therefore absent from that mapping).
     road_ramp_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: #1201 (owner RULINGS 2026-10-27t): the vertices UNDER a runway-end
+    #: walled plate (``airport/walled_plate.under_plate_vertices``): hidden
+    #: ground, capped under the plate's top (``constraints/walled_plate``);
+    #: the plate is the step, so no pair row and no bending reaches it from
+    #: the safety area (``walled_plate.release_across``, ``solve/wall_cut``)
+    plate_under: frozenset = frozenset()
+    #: owner RULINGS 2026-10-28p (1) (#1201): the vertices of the airport
+    #: service roads AT GRADE in a runway safety area
+    #: (``airport/road_profile.at_grade_rsa_vertices``): no route profile
+    #: and no terrain-plane datum of their own — the safety area's level
+    rsa_at_grade: frozenset = frozenset()
     #: §37 (7) THE ROAD'S ROUTE FRAME (owner RULINGS 2026-09-13av;
     #: ``airport/road_ramp.road_route_frame``): road-family ring vertex ->
     #: ``(route id, station s along that route, signed lateral t)``.  A

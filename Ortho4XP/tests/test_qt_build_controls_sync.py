@@ -309,3 +309,73 @@ def test_user_pick_outranks_a_late_scan_result(window):
     window._active_changed(window.map.active_tile())
     assert window.imagery_combo.currentText() == first
 
+
+
+def _preset_shown(window, cover="ICAO"):
+    """The preset card the Settings dialog marks current for this zoom,
+    with the global config holding Sharper airports' cover keys."""
+    import O4_Settings_Presets as PRESETS
+
+    current = PRESETS.current_values(
+        {"cover_airports_with_highres": cover, "cover_zl": "18",
+         "cover_extent": "1.0"}, window.build_zl)
+    entry = PRESETS.matching_preset(current)
+    return entry.key if entry else None
+
+
+def test_never_built_tile_after_a_built_one_shows_the_default(window):
+    """#1539: selecting a ZL17 built tile used to write 17 into the
+    default (prefs["zl"]), so a never-built tile selected next showed
+    ZL17 and no preset card — not Sharper airports."""
+    _write_tile_cfg(window, 48, -6, zoomlevel=17)
+    window.map.set_selection({(48, -6)})
+    assert window.build_zl == 17           # a built tile shows its own
+    assert window.prefs["zl"] == 16        # the default is untouched
+    assert _preset_shown(window) is None
+
+    window.map.set_selection({(41, 12)})   # never built
+    assert window.build_zl == 16
+    assert _preset_shown(window) == "sharper_airports"
+
+
+def test_settings_closed_without_a_zoom_choice_keeps_the_default(
+        window, monkeypatch):
+    """The dialog shows the next build's zoom (the tile's); closing it
+    without choosing one never makes that the default (#1539)."""
+    _write_tile_cfg(window, 48, -6, zoomlevel=17)
+    window.map.set_selection({(48, -6)})
+    shown = {}
+
+    class Dialog:
+        tile_written = False
+
+        def __init__(self, prefs, tiles, custom_build_dir, parent):
+            shown["zl"] = prefs["zl"]
+            self._prefs = dict(prefs)
+            self.zoom_chosen = choose is not None
+            if choose is not None:
+                self._prefs["zl"] = choose
+
+        def restoreGeometry(self, *_):
+            pass
+
+        def exec(self):
+            pass
+
+        def result_prefs(self):
+            return self._prefs
+
+        def saveGeometry(self):
+            from PySide6.QtCore import QByteArray
+            return QByteArray()
+
+    monkeypatch.setattr(GUI.QTSET, "SettingsWindow", Dialog)
+    monkeypatch.setattr(GUI, "save_prefs", lambda prefs: None)
+    choose = None
+    window.open_settings()
+    assert shown["zl"] == 17
+    assert window.prefs["zl"] == 16 and window.build_zl == 17
+
+    choose = 18                            # the user picks ZL18 there
+    window.open_settings()
+    assert window.prefs["zl"] == 18 and window.build_zl == 18

@@ -29,7 +29,7 @@ struct SettingsPreset: Identifiable, Equatable {
 
 enum SettingsPresets {
     /// The build-zoom key (Qt prefs["zl"]); the Mac app stores it as
-    /// `BuildModel.buildZL`.
+    /// `BuildModel.defaultZL` (the next build reads `buildZL`, #1539).
     static let zoomKey = "zl"
     static let sectionTitle = "Start from"
     static let sectionNote = "Sets the defaults for new tiles. Settings you change afterwards show as Custom."

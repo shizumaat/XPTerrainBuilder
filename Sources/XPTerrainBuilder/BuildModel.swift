@@ -203,7 +203,16 @@ final class BuildModel: ObservableObject {
             imagery.setProvider(mapPreviewProvider)
         }
     }
-    @AppStorage("OrthoZoomLevel") var buildZL: Int = 16
+    /// The detail level for new tiles (Settings' Detail picker, presets).
+    @AppStorage("OrthoZoomLevel") var defaultZL: Int = 16
+    /// A selected built tile's recorded zoom (#1539): session only.
+    @Published private var zoom = BuildZoom()
+    /// The next build's detail level: the active tile's recorded zoom, else
+    /// the default. Setting it chooses a new default (#1539, `BuildZoom`).
+    var buildZL: Int {
+        get { zoom.current(default: defaultZL) }
+        set { zoom.chosen(); defaultZL = newValue }
+    }
     @AppStorage("OrthoCustomBuildDir") var customBuildDir: String = ""
     /// Step groups, matching the Qt build box's three checkboxes.
     @AppStorage("OrthoDoVector") var doVector: Bool = true
@@ -273,6 +282,8 @@ final class BuildModel: ObservableObject {
     var searchTags = TileSearchTags()
     @Published var activeTile: TileCoord? {
         didSet {
+            // A tile imposes no zoom until its info says so (#1539).
+            zoom.adopt(nil)
             adopt(imageryAdoption.select(activeTile, info: activeTile.flatMap { built[$0] }))
             persistSelection()
             refreshBuiltByIfMissing()
@@ -295,7 +306,7 @@ final class BuildModel: ObservableObject {
         // AppStorage on the model doesn't self-publish.
         objectWillChange.send()
         buildProvider = choice.provider
-        if let zl = choice.zl { buildZL = zl }
+        zoom.adopt(choice)
     }
 
     private var imageryAdoption = TileImageryAdoption<TileCoord>()

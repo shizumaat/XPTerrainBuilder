@@ -371,6 +371,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_seams",
         "auto_patch_v2.airport.placement_seat_tilt",
         "auto_patch_v2.airport.placement_targets",
+        "auto_patch_v2.airport.plate_frame",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.portal_objects",
         "auto_patch_v2.airport.ramp_feet",
@@ -521,6 +522,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.pad_fill",
         "auto_patch_v2.planar.pad_sliver",
         "auto_patch_v2.planar.pad_terrace",
+        "auto_patch_v2.planar.plate_bays",
         "auto_patch_v2.planar.platform",
         "auto_patch_v2.planar.reach_after_pads",
         "auto_patch_v2.planar.ribbon_weld",
@@ -1442,7 +1444,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
     airport.bridge_approach airport.open_frame_seat
     airport.placement_read airport.placement_record airport.placement_seams
-    airport.placement_seat_tilt airport.placement_targets airport.pool airport.ramp_feet
+    airport.placement_seat_tilt airport.placement_targets airport.plate_frame airport.pool
+    airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
     airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
     airport.ring_contact_batch
@@ -1490,7 +1493,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.dual_width planar.edges planar.landing planar.landing_runout
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
-    planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
+    planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
+    planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_fence
@@ -1541,7 +1545,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
     airport.bridge_approach airport.open_frame_seat
     airport.placement_read airport.placement_record airport.placement_seams
-    airport.placement_seat_tilt airport.placement_targets airport.pool airport.ramp_feet
+    airport.placement_seat_tilt airport.placement_targets airport.plate_frame airport.pool
+    airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
     airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
     airport.ring_contact_batch
@@ -1602,7 +1607,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.dual_width planar.edges planar.landing planar.landing_runout
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
-    planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
+    planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
+    planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_fence

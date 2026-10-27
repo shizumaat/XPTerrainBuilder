@@ -55,6 +55,7 @@ from .pack_reads import pack_reads, ring_reads, wall_corridor_reads
 from ..airport.wall_corridors import WallCorridorStats
 from .door_ramps import door_groups, sunken_groups
 from .wall_corridor_ramps import wall_corridor_groups
+from .plate_bays import plate_bays
 
 __all__ = ["BuildStats", "build", "level_counts"]
 
@@ -260,6 +261,9 @@ def build(airport: Airport, classification: Classification, law: Law,
     walls_c, wstats = wall_corridor_reads(airport, objects, cache, law, field)
     # the basin pass's per-ring pack readings, on the same memo
     rings = ring_reads(airport, objects, cache, law)
+    # 2026-10-28h (1): a plate its walls frame the other way is THEIR bay
+    roads, framed_bays = plate_bays(roads, walls_c, law, airport.dem.z)
+    walls_c = list(walls_c) + framed_bays
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
     # the reads are done: what follows is the channel / structure / basin

@@ -192,8 +192,12 @@ def block_strip_rows(planar: PlanarMap, law: Law,
     # (base-profile spec §8a Q2): no bank rows, which would pull the block
     # toward the level a storey below it (MEASURED KATL: the apron moved
     # 0.11 m with them)
+    # A FILL'S RISER (``planar/fill_riser``, ``<landing>#strip``) stands at
+    # its road's far kerb, not against its landing: a declared wall
+    # (``airport/riser_wall``), never a bank of the landing — no bank rows
+    lands = planar.registries.landings or {}
     pairs = [q for q in collar_faces(planar, law, is_strip_ref)
-             if plane_origin_ref(q[0]) == q[0]]
+             if plane_origin_ref(q[0]) == q[0] and q[0] not in lands]
     rows, st = _bank_rows(planar, law, pairs)
     if st is not None:
         STATS["block_strip_rows"] = st
@@ -459,7 +463,9 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
     sets += [(ref, own, f"plate:{ref}", False) for ref, own, _w in plates]
     from .pads import FLAT_RULING
     n_flat = 0
-    held = datum_vertices(planar, law)
+    # a block carrying a pad fill is flat at its own (stage-2) column too
+    # (``model.platform.datum_vertices`` ``fills``; road-edge drop D5)
+    held = datum_vertices(planar, law, fills=True)
     for pref, vs, tag, unit in sets:
         if unit and pref not in held:
             # a planned unit with no datum column (no welded frontage in
@@ -553,7 +559,7 @@ def landing_rows(planar: PlanarMap, law: Law,
     STATS.pop("landing_rows", None)
     if not planar.registries.landings:
         return []
-    held = datum_vertices(planar, law)
+    held = datum_vertices(planar, law, fills=True)
     rows: list[Row] = []
     n = n_none = n_group = 0
     table = None

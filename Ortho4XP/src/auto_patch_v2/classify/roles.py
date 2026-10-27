@@ -114,7 +114,7 @@ from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m,
                         is_held_step, is_touching, part_evidence,
                         touch_distances)
 from .rules import Rules, load_rules
-from .sources import (SourceRecord, apron_union, classify_sources,
+from .sources import (SourceRecord, apron_union, classify_sources, network_ways,
                       object_body_cuts)
 from ..geom.parts import line_parts
 
@@ -214,7 +214,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     rules = rules or load_rules()
     pad_min = law.tables.structures.building_pad.min_area_m2
     ev = build_evidence(airport, rules, pad_min, law, cache)
-    sources, cut_polys = classify_sources(airport, ev, rules)
+    sources, cut_polys = classify_sources(airport, ev, rules, law)
     apron_u = apron_union(airport)     # §40 (2): mapped apron, read PER CELL
     # §40 (1): each runway's ring as a contact BAND, built ONCE (a buffer
     # per face per runway is ~2,200 constructions at HECA)
@@ -780,12 +780,24 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                            c.letter))
     for ln, c in truck_parts:
         cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
-    strips = [cut_polys[i] for i in cut_ids if src_of[i].cls == "strip"]
+    strips = [cut_polys[i] for i in cut_ids
+              if src_of[i].cls == "strip" and not src_of[i].network_strip]
     if strips:                                     # the road axis inside each strip
         strip_u = unary_union(strips)
         for c in ev.truck_chains + ev.road_chains:
             for ln in line_parts(c.line.intersection(strip_u)):
                 cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
+    # A NETWORK STRIP'S STATIONS ARE ITS NETWORK WAY (spec fill-step-at-road-
+    # kerb §3): the page re-kinded by the way running through it reads that
+    # way as its axis, the same authority as the way's ribbon beyond the
+    # page's end — never the service-road evidence beside it, which stepped
+    # against the ribbon (CYXY ``pav4`` / ``small_roads:-1071#1``)
+    net = [cut_polys[i] for i in cut_ids if src_of[i].network_strip]
+    if net:
+        net_u = unary_union(net)
+        for w, line in network_ways(airport, rules):
+            for ln in line_parts(line.intersection(net_u)):
+                cut.append(CutLine("road_centerline", f"net{w.id}", tuple(ln.coords)))
     for c in ev.truck_chains:                      # the corridor spine outside pavement
         outside = c.line.difference(ev.pavement_union)
         for ln in line_parts(outside):

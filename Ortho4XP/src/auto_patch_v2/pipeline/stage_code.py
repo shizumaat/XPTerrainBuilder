@@ -494,6 +494,8 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.covered_ground",
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.edges",
+        "auto_patch_v2.planar.fill_riser",
+        "auto_patch_v2.planar.fill_road",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
@@ -503,6 +505,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.pack_reads",
         "auto_patch_v2.planar.pad_blocks",
         "auto_patch_v2.planar.pad_cut",
+        "auto_patch_v2.planar.pad_fill",
         "auto_patch_v2.planar.pad_sliver",
         "auto_patch_v2.planar.pad_terrace",
         "auto_patch_v2.planar.platform",
@@ -609,6 +612,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2",
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.dem",
+        "auto_patch_v2.airport.riser_wall",
         "auto_patch_v2.airport.road_descent",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_ramp",
@@ -1427,8 +1431,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
-    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
-    planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
+    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill
+    planar.pad_sliver planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_geometry
@@ -1446,6 +1450,7 @@ CODE_MODULES["solve"] = _mods("""
     geom.valid_area
     constraints.door_pad
     geom.slope_pad
+    planar.fill_road planar.fill_riser
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low
@@ -1531,8 +1536,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
-    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
-    planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
+    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill
+    planar.pad_sliver planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_geometry
@@ -1550,6 +1555,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.valid_area
     constraints.door_pad
     geom.slope_pad
+    planar.fill_road planar.fill_riser
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
@@ -1626,6 +1632,7 @@ CODE_MODULES["emit"] = _mods("""
     solve.project_strip solve.rows solve.wall_cut solve.warm_seed verify.roads
     classify.reachability
     geom.slope_pad
+    airport.riser_wall
     model.road_yield pipeline.band_road_wall
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index

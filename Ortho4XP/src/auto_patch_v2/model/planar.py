@@ -39,7 +39,7 @@ from .frame import XY, Key
 from .registries import Registries
 from .structures import Basin, Channel, Tunnel
 
-__all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
+__all__ = ["NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
            "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "plane_origin_ref", "BLOCK_SEP",
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
@@ -1187,6 +1187,18 @@ def pad_road_faces(pm) -> list:
     refs = getattr(pm, "pad_roads", None) or frozenset()
     return [f for f in pm.faces.values()
             if f.role == "service_road" and f.ref in refs] if refs else []
+
+
+def drop_edges(pm) -> frozenset[frozenset[int]]:
+    """The FAR-KERB edges of the fill's declared risers (the ``kerb`` of
+    every ``road_terrace['wall']`` record with ``road_edge``, owner RULINGS
+    2026-10-20d / 2026-10-27i; read onto the map by ``airport/riser_wall``)
+    as unordered vertex pairs — the edges no late station lies on and no gap
+    piece follows.  A reader of this map's own field, so every layer that
+    holds the map may ask it."""
+    walls = (getattr(pm, "road_terrace", None) or {}).get("wall") or {}
+    return frozenset(frozenset((int(a), int(b))) for r in walls.values()
+                     if r.get("road_edge") for a, b in (r.get("kerb") or ()))
 
 
 def is_late_ref(ref) -> bool:

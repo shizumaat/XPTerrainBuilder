@@ -54,6 +54,7 @@ import dataclasses as _dc
 import typing as _t
 
 from ..law import Law
+from ..law.inset_class import lidar_credible
 from ..law.tables import pavement_fallback_cap, role_cap, role_family, yielded_curve_rate
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
@@ -349,7 +350,8 @@ def _junction_design(pm: PlanarMap, law: Law, vw, st: list[int],
                                                         rw.code_letter)
     return design(pm, law, vw.xy, st, cum, rw, i, j, float(best[2].z),
                   float(best[3].z), k_law,
-                  paved=getattr(airport, "paved_joins", None))
+                  paved=getattr(airport, "paved_joins", None),
+                  lidar=bool(lidar_credible(airport, law)))
 
 
 def report_line(icao: str, rc: RunwayCap, authority: str = "") -> str:

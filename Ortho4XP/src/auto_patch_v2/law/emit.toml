@@ -434,10 +434,12 @@ runway_yield_margin = 0.0002
 # (constraints/runway_junctions) is the smoothing spline of the ground along
 # its ridge, through its pins and its paved junction flats: relief LONGER
 # than this is followed, shorter relief (a surface model's buildings, its
-# noise) is smoothed out.  VALUE FROM ONE WITNESS: VNLK's video profile
-# (findings §10), matched within its confidences over 175-250 m.  A value,
-# never a switch.
+# noise) is smoothed out.  OWNER RULINGS 2026-10-28a (Q207): "Unless we
+# have lidar data, I think option b is probably the more logical choice" —
+# 200 m on a CREDIBLE LIDAR inset (law/inset_class.lidar_credible), 250 m
+# on a 30 m or coarser DEM.  Values, never switches.
 steep_runway_ground_wavelength_m = 200.0
+steep_runway_ground_wavelength_coarse_m = 250.0
 law           = 300.0  # every law row of every generator as a ONE-SIDED quadratic penalty (grade caps, transverse, K, rate, no_step, crown, portions, bands, offsets): strong, so a law is met wherever the geometry allows, and a design target where it cannot
 # THE DEM HAS LEFT THE PATCH (owner RULINGS 2026-09-09b (3)): the
 # `dem_zone` weight, its rows and the beyond-the-outer-ring DEM fixing are

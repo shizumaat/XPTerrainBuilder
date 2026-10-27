@@ -418,3 +418,65 @@ into its steepest stretch, about 16–17 % over the next 100 m. It passes the di
 right (the pack's Helo Apron, about 140 m down) without flattening. From about 200 m down
 it is a steady 11–12 % to the RWY 06 threshold, passing the helipad connector on the right
 (about 300 m down).
+
+## 11. Round 5 (RULINGS 2026-10-28a, Q207: the wavelength; 2026-10-28b, Q208: a refuted pavement is not joined)
+
+**28a.** `steep_runway_ground_wavelength_m = 200` applies on a credible lidar inset
+(`law/inset_class.lidar_credible`). `steep_runway_ground_wavelength_coarse_m = 250` applies on
+a 30 m or coarser DEM. VNLK (Copernicus) takes 250 m.
+
+**28b (the narrowest general rule for the site).** The owner says the helipad area is "cut
+into the terrain next to the runway, but not touching the runway". The rule: a pack pavement
+drawn PAVED (asphalt or concrete), whose runway contact the junction witness refutes, is
+trimmed back from every runway slab by the adjacent-ground lip
+(`zones.adjacent_ground.lip_width_m`, 3 m), at load (`junction_witness.detach_refuted`).
+
+- It then shares no vertex with the runway: no weld to the runway edge and no junction rows.
+- The design grades it as its own pad at its own level, with the lip between.
+- It is never re-roled as ground: the classifier still reads `pav2` as a junction face.
+- A pavement the layout itself draws unpaved (turf, dirt, gravel) is untouched.
+
+At VNLK, `pav2` (Helo Apron) is trimmed by 58 m².
+
+**Closing build** `lvnlk5b` (body `b76e19a30974`; census identical to the replay of the round 5
+capture). Grade by 50 m bin; s in metres from the RWY 24 end:
+
+| s from 24 (m) | built | video (§9) | confidence | within? |
+|---|---|---|---|---|
+| 0–50 | 1.5 % | ≈ 2 (1.5–6) | low | yes |
+| 50–100 | 9.7 % | 12 | medium | — |
+| 100–150 | 16.3 % | 15.0 ± 1 | high | no, +0.3 pp |
+| 150–200 | 14.6 % | 13.2 ± 1 | high | no, +0.4 pp |
+| 200–250 | 13.3 % | 12.2 ± 1 | high | no, +0.1 pp |
+| 250–300 | 12.1 % | 11.9 ± 1 | high | yes |
+| 300–350 | 11.4 % | 11.8 ± 1 | high | yes |
+| 350–400 | 11.2 % | 11.2 ± 1.2 | medium | yes |
+| 400–500 | 11.4 % | 12 ± 2 | low | yes |
+
+Height, built minus the video profile, at 50 m stations from the 24 end:
+
+| s (m) | 0 | 50 | 100 | 150 | 200 | 250 | 300 | 350 | 400 | 450 | 500 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Δ (m) | 0.0 | +0.2 | +1.4 | +0.7 | +0.1 | −0.5 | −0.5 | −0.3 | −0.3 | 0.0 | +0.2 |
+
+- Largest gap 1.8 m.
+- Peak 16.62 % at 123 m below the 24 end, as the owner chose (Q207 table: about 16.8 %).
+- Ends 1.5 % (24) and 11.1 % (06). Pins exact.
+- At most 3.8 m above the surface model.
+
+The smoother 250 m profile puts three high-confidence bins 0.1–0.4 pp outside the video's
+bands. This is the trade the owner took in Q207.
+
+**Census** ADJUDICATED **217** (round 4: 223; base 822).
+
+- **The Helo Apron's rows against the runway are gone**: from 13 to 0 (`taxi_box`
+  runway|runway 2 and junction|runway 3, `airside_no_step` junction|runway 3,
+  `strip_transverse` 4, `pavement_over_road_cap` 1).
+- Its internal rows remain: `taxi_box` junction|junction 7, `airside_no_step` 7, `plane_gradient` 1.
+  It is still graded under the taxi law (it keeps its junction role), at its own level over
+  a hillside.
+- **New with the detach:** the pad now stands 1.3–1.7 m below the runway edge 3 m away. This
+  is the elevated runway the owner describes. The runway-edge tie (`strip_transverse`) prices
+  that step: 9 → 12 rows, and **CRITICAL motion 0 → 1** (1.67 m over 2.79 m, the lip at
+  the pad's top corner).
+- A wall or cut edge there is the retaining-wall rule, which stays out of this round.

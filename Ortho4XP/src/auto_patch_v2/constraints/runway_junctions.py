@@ -31,7 +31,8 @@ and the sidecar all read one thing.
   chords' grades ``g_k``, the SMOOTHING SPLINE of the DEM along the ridge —
   minimise ``sum w_k (z_k - DEM_k)^2 + lam * sum_k (g_{k+1} - g_k)^2 / s_k``
   with ``lam = (L / 2 pi)^4``, ``L = [design]
-  steep_runway_ground_wavelength_m`` (relief longer than ``L`` is followed,
+  steep_runway_ground_wavelength_m`` on credible lidar, ``..._coarse_m`` on
+  a coarser DEM (owner RULINGS 2026-10-28a) (relief longer than ``L`` is followed,
   shorter relief — a surface model's buildings, its noise — is smoothed out)
   — subject to ``sum_k g_k d_k = dz`` (both pins exact) and
   ``|g_k| <= t - margin`` on every junction chord: a bounded least squares.
@@ -223,10 +224,12 @@ def smoothest_grades(d: _t.Sequence[float], dz: float,
 def design(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
            cum: _t.Sequence[float], rw, i: int, j: int,
            za: float, zb: float, k_law: float | None,
-           paved: _t.Mapping[str, bool] | None = None) -> JunctionProfile | None:
+           paved: _t.Mapping[str, bool] | None = None,
+           lidar: bool = False) -> JunctionProfile | None:
     """THE DESIGNED PROFILE of the span ``st[i]``..``st[j]`` (module
     docstring), or ``None`` where no junction applies (the uniform §50
-    yield stands).  ``paved``: the junction witness (:func:`junctions`)."""
+    yield stands).  ``paved``: the junction witness (:func:`junctions`);
+    ``lidar``: the DEM is a credible lidar inset (RULINGS 2026-10-28a)."""
     span = cum[j] - cum[i]
     dz = zb - za
     if span <= 0.0 or dz == 0.0:
@@ -247,7 +250,10 @@ def design(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
     # DEM value; else the pure smoothest profile
     dem = [pm.vertices[st[k]].dem_z for k in range(i, j + 1)]
     ground = None if any(x is None for x in dem) else [float(x) - za for x in dem]
-    wl = float(law.tables.emit.design.steep_runway_ground_wavelength_m)
+    # RULINGS 2026-10-28a: 200 m on credible lidar, 250 m on a coarse DEM
+    dl = law.tables.emit.design
+    wl = float(dl.steep_runway_ground_wavelength_m if lidar
+               else dl.steep_runway_ground_wavelength_coarse_m)
     g = smoothest_grades(d, dz, caps, ground, wl)
     if g is None:
         return None

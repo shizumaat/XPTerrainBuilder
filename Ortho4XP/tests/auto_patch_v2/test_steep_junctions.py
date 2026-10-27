@@ -244,15 +244,35 @@ def test_the_junction_witness_reads_pavement_by_its_grey(law, beyond, paved):
 
     from auto_patch_v2.airport.junction_witness import witness_paved_joins
     airport, _pm = _airport(law, 150.0)
-    pavs = tuple(_Pav(c.ref, c.ring) for c in _CELLS[1:])
+    from auto_patch_v2.model.airport import Pavement, Surface
+    from shapely.geometry import Polygon
+    pavs = tuple(Pavement(c.ref, Surface.ASPHALT, c.ring, ()) for c in _CELLS[1:])
     ap = _dc.replace(airport, pavements=pavs)
     got, recs, lines = witness_paved_joins(ap, _fake_imagery(beyond), law)
     assert got.paved_joins == {"stubE": paved, "apronW": paved}
     assert bool(lines) is (not paved)
+    # RULINGS 2026-10-28b: a refuted paved pavement is trimmed back from the
+    # runway by the lip — it no longer touches it; a confirmed one is kept
+    slab = Polygon(airport.runways[0].slab_corners)
+    lip = float(law.tables.zones.adjacent_ground.lip_width_m)
+    for pv in got.pavements:
+        gap = Polygon(pv.outer).distance(slab)
+        assert (gap >= lip - 1e-6) if not paved else (gap == 0.0)
     none, _r, _l = witness_paved_joins(ap, None, law)
     assert none.paved_joins is None                    # no imagery: abstain
 
 
-class _Pav:
-    def __init__(self, ref, ring):
-        self.id, self.outer, self.holes, self.description = ref, ring, (), ref
+def test_the_junction_witness_reads_only_a_steep_runway(law):
+    """The witness answers only where it changes something (27n flats, 28b
+    detach): a runway under the pavement ceiling is never read — on flat
+    concrete airports the saturation test refutes real taxiways (KDEN)."""
+    import dataclasses as _dc
+
+    from auto_patch_v2.airport.junction_witness import witness_paved_joins
+    from auto_patch_v2.model.airport import Pavement, Surface
+    airport, _pm = _airport(law, 30.0)                 # 2.5 %: not steep
+    pavs = tuple(Pavement(c.ref, Surface.ASPHALT, c.ring, ()) for c in _CELLS[1:])
+    ap = _dc.replace(airport, pavements=pavs)
+    got, recs, lines = witness_paved_joins(ap, _fake_imagery((150, 125, 85)), law)
+    assert got.paved_joins == {} and not recs and not lines
+    assert got.pavements == pavs

@@ -730,14 +730,6 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.witness_lines = tuple(w_lines)
     for _line in w_lines:
         _log.warning(_line)
-    # THE JUNCTION WITNESS (owner RULINGS 2026-10-27n): which pavements the
-    # imagery shows PAVED where they meet a runway — a steep runway flattens
-    # only there (``junction_witness``; no imagery = it abstains)
-    airport, rep.paved_joins, j_lines = _junction_witness.witness_paved_joins(
-        airport, textures, law)
-    rep.witness_lines = rep.witness_lines + tuple(j_lines)
-    for _line in j_lines:
-        _log.warning(_line)
     # THE RUNWAY-END PIN RULE (owner RULINGS 2026-10-25a / 26a; #1342):
     # every CIFP end is verified on the DEM and the cached cross-check
     # sources before it becomes a pin — ONE site (``end_pins``)
@@ -747,6 +739,16 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.end_pin_lines = tuple(end_lines)
     rep.end_pin_crosscheck = tuple(src for src, _e in refs)
     for _line in end_lines:
+        _log.warning(_line)
+    # THE JUNCTION WITNESS (owner RULINGS 2026-10-27n / 28b): which pavements
+    # the imagery shows PAVED where they meet a STEEP runway — it flattens
+    # only there, and a refuted one is not joined to it.  After the end pins,
+    # which say how steep each runway is (``junction_witness``; no imagery =
+    # it abstains)
+    airport, rep.paved_joins, j_lines = _junction_witness.witness_paved_joins(
+        airport, textures, law)
+    rep.witness_lines = rep.witness_lines + tuple(j_lines)
+    for _line in j_lines:
         _log.warning(_line)
     return airport, rep
 

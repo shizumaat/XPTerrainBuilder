@@ -39,7 +39,7 @@ from .frame import XY, Key
 from .registries import Registries
 from .structures import Basin, Channel, Tunnel
 
-__all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
+__all__ = ["NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
            "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "plane_origin_ref", "BLOCK_SEP",
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
@@ -1187,6 +1187,17 @@ def pad_road_faces(pm) -> list:
     refs = getattr(pm, "pad_roads", None) or frozenset()
     return [f for f in pm.faces.values()
             if f.role == "service_road" and f.ref in refs] if refs else []
+
+
+def drop_edges(pm) -> frozenset[frozenset[int]]:
+    """The edges of the published road DROP runs (``road_terrace['drop']``,
+    owner RULINGS 2026-10-20d; minted by ``airport/road_edge_wall.drop_runs``)
+    as unordered vertex pairs — the edges no station lies on and no gap
+    piece follows.  A reader of this map's own field, so every layer that
+    holds the map may ask it."""
+    runs = (getattr(pm, "road_terrace", None) or {}).get("drop") or ()
+    return frozenset(frozenset((a, b)) for r in runs
+                     for a, b in zip(r["run"], r["run"][1:], strict=False))
 
 
 def is_late_ref(ref) -> bool:

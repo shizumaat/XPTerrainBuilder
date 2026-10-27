@@ -201,9 +201,9 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
     floors = behind_step.floors if behind_step else frozenset()
     not_rim = behind_step.edges_not_rim(faces.values()) if behind_step else set()
     # owner RULINGS 2026-10-20d (round 3 D4 (b)): a piece never follows a
-    # road's DROP edge (``airport/road_edge_wall.drop_edges``), nor does a
+    # road's DROP edge (``model/planar.drop_edges``), nor does a
     # lot take its level across one — the low side keeps its own ground
-    from ..airport.road_edge_wall import drop_edges
+    from ..model.planar import drop_edges
     walled = drop_edges(planar)
     drop_segs: list = []
     drop_names: list[str] = []

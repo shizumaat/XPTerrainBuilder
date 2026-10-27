@@ -40,7 +40,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..law.tables import is_rigid_role, role_side
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, drop_edges
 from ..model.platform import fill_levels
 
 __all__ = ["drop_runs", "drop_edges", "road_edge_walls", "LABEL_PREFIX",
@@ -114,15 +114,6 @@ def drop_runs(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float],
         counts["road_drop_runs"] = len(out)
         counts["road_drop_vertices"] = len({v for r in out for v in r["run"]})
     return out
-
-
-def drop_edges(planar: _t.Any) -> frozenset[frozenset[int]]:
-    """The edges of the published drop runs (``road_terrace['drop']``) as
-    unordered vertex pairs — the edges no station lies on and no gap piece
-    follows."""
-    runs = (getattr(planar, "road_terrace", None) or {}).get("drop") or ()
-    return frozenset(frozenset((a, b)) for r in runs
-                     for a, b in zip(r["run"], r["run"][1:], strict=False))
 
 
 def _lower_side(pm: PlanarMap, law: Law, roads) -> tuple[list[int], _t.Any]:

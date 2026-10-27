@@ -94,7 +94,7 @@ def late_stations(pm_base, z_base, pieces: _t.Sequence[Polygon], law: Law,
     V = pm_base.vertices
     # owner RULINGS 2026-10-20d (round 3 D4 (b)): no station on a road's
     # DROP edge — the piece beyond it keeps its own ground
-    from ..airport.road_edge_wall import drop_edges
+    from ..model.planar import drop_edges
     drop = drop_edges(pm_base)
     ptree = STRtree(list(pieces)) if pieces else None
     segs, meta = [], []

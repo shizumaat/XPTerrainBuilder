@@ -10401,3 +10401,6 @@ Noah (owner), 2026-10-20T18:14:50Z, source: project chat, answering questions 59
 
 **2026-10-28e — HECA #712/#1003 round 5 ships for a sim read (owner Q215, 2026-10-27T13:23Z: "Include the current state and let me check it in-sim and provide feedback.").**
 After its third failed round (PR #1134 at 348e8079c misses the §4 bars: riser outer line +0.95–1.63 m over its ground, 94 gap vertices more than 0.5 m over their ground beside the T3 lot), the branch goes into the next test build as it stands. The owner's sim read decides the next step; no fourth round starts before it.
+
+**2026-10-28f — taxiway slopes are measured along the taxiway's route (#805; owner Q210, 2026-10-27T13:23:40Z: "210. a").**
+KCLT taxiway T has to drop about 9 m over 450 m for tails to clear runway 18C. Measured straight across the paved shape that is 2 %, over the 1.5 % taxiway limit; along the taxiway's own route it is within the limit. Ruled (a): a taxiway's longitudinal slope is judged along its route, as route slopes already are. The straight-line-across-the-shape reading is not a taxiway-slope witness.

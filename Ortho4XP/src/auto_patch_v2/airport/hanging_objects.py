@@ -14,10 +14,16 @@ lidar).  Two kinds, by one witness — a flush ``ATTR_hard_deck``:
   (:func:`read_hanging_covers`); a co-placed FLOOR object overlapping it —
   EGLL's ``Na.obj`` beside ``N.obj`` — is read WITH it as one tunnel (Q166),
   and the floor is then that object's authored plate.
-* a **PORTAL** carries none (``portal_objects``): a bare face or a pair of
-  bridge-edge walls at a bore's end (EGGW ``eggw_tex14``: one quad to
-  −8.33 m; KATL ``tunel_*``: walls to −23.7..−25.9 m) — the mouth's depth is
-  its walls' bottom under its top (Q168, 20at, 20ao).
+* a **PORTAL** carries none (``portal_objects``): a bare face at a bore's
+  end (EGGW ``eggw_tex14``: one quad to −8.33 m) — the mouth's depth is its
+  walls' bottom under its top (Q168, 20at).
+* an **EDGE-WALL BRIDGE** carries none either, but its top IS a deck — plates
+  of a plate's worth flush with its zero on walls hanging under them
+  (:func:`edge_wall_reading`; KATL ``tunel_A/B/C``: deck slabs at 0 / −2.1 on
+  a headwall to −23.2 and piers to −25.9).  It models the bridge's EDGES and
+  no deck over the span (owner RULINGS 2026-10-27l, 20ao): the trench stops
+  at its walls' backs, the span behind them stays graded at the deck level
+  its top gives, and the depth is its walls' bottom (20am, 20ar).
 
 Every number is a law-table value; nothing here names a pack or an airport.
 """
@@ -36,12 +42,13 @@ from .object_cut import (
     _cover_plate,
     _face_normals_y,
     _plan_area,
+    _plan_segments,
     placement_order,
     shell_cut,
     shell_reading,
 )
 
-__all__ = ["hanging_bottom", "read_hanging_covers"]
+__all__ = ["edge_wall_reading", "flush_hanging", "hanging_bottom", "read_hanging_covers"]
 
 
 def hanging_bottom(v: np.ndarray, tris: np.ndarray, law) -> "float | None":
@@ -65,6 +72,57 @@ def hanging_bottom(v: np.ndarray, tris: np.ndarray, law) -> "float | None":
     if plates.any() and float(_plan_area(v, tris)[plates].sum()) >= ob.plate_min_area_m2:
         return None
     return bottom
+
+
+def flush_hanging(g: _obj8.ObjGeometry, law) -> "tuple[float, float] | None":
+    """``(top, bottom)`` of a resource with NO hard deck whose solids top
+    out flush with its zero (``cover_flush_m``) and hang to a bottom that
+    states no floor (:func:`hanging_bottom`), else ``None`` — what a bare
+    portal face and an edge-wall bridge share."""
+    ob = law.tables.structures.tunnel.object
+    if len(g.hard_deck) or not len(g.solid):
+        return None
+    v = g.vertices
+    top = float(v[np.unique(g.solid), 1].max())
+    if abs(top) > ob.cover_flush_m:
+        return None
+    bottom = hanging_bottom(v, g.solid, law)
+    return None if bottom is None else (top, bottom)
+
+
+def edge_wall_reading(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, law
+                      ) -> "tuple[float, tuple, tuple] | None":
+    """``(depth, placed plan hull, deep wall segments)`` of an EDGE-WALL
+    BRIDGE (module doc; owner RULINGS 2026-10-27l), else ``None``.  The
+    deck: plates of ``plate_min_area_m2`` within ``cover_flush_m`` of its
+    top.  The walls: its faces that are no plate and reach
+    ``shell_floor_min_m`` under its zero, each as its plan segment in the
+    airport frame — the trench stops at their back
+    (``planar/structure_mouth.edge_wall_mouth``)."""
+    from shapely.geometry import MultiPoint
+    ob = law.tables.structures.tunnel.object
+    hung = flush_hanging(g, law)
+    if hung is None:
+        return None
+    top, bottom = hung
+    v, t = g.vertices, g.solid
+    plate = _face_normals_y(v, t) >= ob.plate_normal_y_min
+    ys = v[t, 1]
+    deck = plate & (ys.max(axis=1) >= top - ob.cover_flush_m)
+    if not deck.any() or float(_plan_area(v, t)[deck].sum()) < ob.plate_min_area_m2:
+        return None
+    deep = (~plate) & (ys.min(axis=1) <= -ob.shell_floor_min_m)
+    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
+    walls = tuple(tuple((a * x + b * z + xo, d * x + e * z + yo) for x, z in seg.coords)
+                  for seg in _plan_segments(v, t[deep]))
+    if not walls:
+        return None
+    hull = MultiPoint([(a * x + b * z + xo, d * x + e * z + yo)
+                       for x, _y, z in v[np.unique(t)]]).convex_hull
+    if hull.geom_type != "Polygon":
+        return None
+    return (top - bottom, tuple((float(x), float(y)) for x, y in hull.exterior.coords),
+            walls)
 
 
 def _co_placed(o, p, tol: float) -> bool:

@@ -43,6 +43,7 @@ from shapely.strtree import STRtree
 from ..model.frame import XY
 from . import frame_entry as _fe
 from . import obj8 as _obj8
+from .hanging_objects import edge_wall_reading, flush_hanging
 from .obj8_clip import _bulk_polys
 from .object_cut import _face_normals_y, _plan_area
 
@@ -73,6 +74,12 @@ class Portal:
     #: (``plan_xy``): the mouth stands at its back
     hanging: bool = False
     plan_xy: tuple = ()
+    #: owner RULINGS 2026-10-27l: an EDGE-WALL BRIDGE (``hanging_objects.
+    #: edge_wall_reading``) — its deep walls' plan segments; the mouth
+    #: stands at their back (``planar/structure_mouth.edge_wall_mouth``) and
+    #: the span behind them keeps the deck level its top gives.  Empty for
+    #: every other portal.
+    edge_walls: tuple = ()
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -129,35 +136,24 @@ def roof_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
 
 def hanging_reading(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, law
                     ) -> "tuple[float, tuple] | None":
-    """``(depth, placed plan hull)`` of a HANGING portal — no hard
-    deck, its top flush with its zero (``cover_flush_m``), its solids
-    hanging to a bottom with no floor there (``hanging_objects.
-    hanging_bottom``) — else ``None``."""
+    """``(depth, placed plan hull)`` of a HANGING portal — a BARE FACE (Q168):
+    ``hanging_objects.flush_hanging`` and no plate of a plate's worth
+    anywhere — else ``None``.  Bridge-edge walls carrying a deck plate (KATL
+    ``tunel_*``, #1138) are an edge-wall bridge (``hanging_objects.
+    edge_wall_reading``, owner RULINGS 2026-10-27l), not this: read as a
+    bare face, their hull's back sent KATL's mouths 68-135 m into the span."""
     from shapely.geometry import MultiPoint
-
-    from .hanging_objects import hanging_bottom
-    ob = law.tables.structures.tunnel.object
-    if len(g.hard_deck) or not len(g.solid):
+    hung = flush_hanging(g, law)
+    if hung is None:
         return None
-    v = g.vertices
-    top = float(v[np.unique(g.solid), 1].max())
-    if abs(top) > ob.cover_flush_m:
-        return None
-    bottom = hanging_bottom(v, g.solid, law)
-    if bottom is None:
-        return None
-    # A BARE FACE (Q168): no plate of a plate's worth anywhere.  Bridge-edge
-    # walls carrying a deck plate (KATL ``tunel_*``, #1138) are not read
-    # here: measured on KATL, reading them so dropped the service road on
-    # the bridge 3.8 m and cut 23-26 m trenches along I-285 (findings
-    # ``docs/findings/1298-1138-lpackcut.md``)
-    t = g.solid
+    top, bottom = hung
+    v, t = g.vertices, g.solid
     plates = _face_normals_y(v, t) >= law.tables.structures.tunnel.object.plate_normal_y_min
     if plates.any() and float(_plan_area(v, t)[plates].sum()) >= \
             law.tables.structures.tunnel.object.plate_min_area_m2:
         return None
     a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
-    pts = [(a * x + b * z + xo, d * x + e * z + yo) for x, _y, z in v[np.unique(g.solid)]]
+    pts = [(a * x + b * z + xo, d * x + e * z + yo) for x, _y, z in v[np.unique(t)]]
     hull = MultiPoint(pts).convex_hull
     ring = list(hull.exterior.coords) if hull.geom_type == "Polygon" else list(hull.coords)
     return top - bottom, tuple((float(x), float(y)) for x, y in ring)
@@ -188,8 +184,10 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
             continue
         g = cache.geometry(o.resolved)
         hung = hanging_reading(o, g, law) if g is not None else None
-        if hung is not None:
-            depth, plan_xy = hung
+        edge = edge_wall_reading(o, g, law) if g is not None and hung is None else None
+        if hung is not None or edge is not None:
+            depth, plan_xy = (hung or edge)[:2]
+            walls = edge[2] if edge is not None else ()
             from shapely.geometry import LineString as _LS
             from shapely.geometry import Polygon as _Poly
             shape = (_Poly(plan_xy) if len(plan_xy) >= 4 else
@@ -202,7 +200,8 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                 if shape is not None and shape.distance(Point(ends[j][0])) <= reach:
                     xy, wid = ends[j]
                     out.append(Portal(o.id, o.path, xy, wid, depth, 0.0,
-                                      (float(o.xy[0]), float(o.xy[1])), True, plan_xy))
+                                      (float(o.xy[0]), float(o.xy[1])), True, plan_xy,
+                                      walls))
             continue
         if o.path not in readings:
             readings[o.path] = (roof_reading(g, cache.genuine(o.resolved), law)

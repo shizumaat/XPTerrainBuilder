@@ -213,3 +213,63 @@ y ≈ 0, 99 % of the trench at pair 2). Two models, both emittable (§6):
   object, is the cut depth the walls' bottom? *yes / no*
 - **Q5 (portal faces, §4):** Does a bare vertical portal face over a mapped
   bore end (EGGW's `eggw_tex14`) set that mouth's depth to its foot? *yes / no*
+
+## 9. R4: the edge-wall bridge (KATL, #1138; owner RULINGS 2026-10-27l)
+
+**What the pack states.**  KATL's `tunel_A/B/C` model a taxiway bridge over
+I-285 by its EDGES only: a deck slab (plates at y 0 and −2.1, 3,200–8,150 m²,
+no `ATTR_hard_deck`) projecting over the highway on piers to −25.4/−25.9 m,
+behind it a headwall to −23.2 m, and NOTHING over the span between the two
+edges (`tunel_C`'s headwall and `tunel_B`'s face each other across the
+taxiway, ~40 m apart).  The bare-earth DEM carries the highway (290–293)
+under the whole bridge; the field beside it stands at 300–303.
+
+**The rule (27l (a), with 20am / 20ao / 20ar and 26p Q167).**  A pack
+object with no hard deck whose top is a deck — plates of `plate_min_area_m2`
+within `cover_flush_m` of a top flush with its zero — standing on walls that
+hang `shell_floor_min_m` or more under it with no floor at their bottom, is
+an EDGE-WALL BRIDGE (`airport/hanging_objects.edge_wall_reading`).  Over a
+mapped bore end it is read like a hanging portal, with three differences:
+
+1. **The trench stops at the walls' backs** (20ao "the road ends at the back
+   of the object"): the mouth moves into the bore to the furthest station any
+   of its deep walls reaches across the corridor's width
+   (`planar/structure_mouth.edge_wall_mouth`) — the headwall — never to the
+   far corner of its plan.  The #971 pavement yield then applies as for every
+   pinned mouth: the trench never cuts a taxiway (KATL: the taxiway `pav15`
+   runs over the slabs, so the mouths stop at its edge).
+2. **The depth is the walls' bottom under the deck level** (20am / 20ar /
+   Q167): floor = the ground the top is flush with (the ground beside the
+   cover, #714) − the walls' bottom.
+3. **The span keeps the deck level** (27l; 27r "drop straight down ... at
+   the back of those edge objects, with the top of the objects flush with the
+   airside surface"): the covered ground of #714 is clipped to the airside
+   pavement AND the span between consecutive edge objects over the bore, from
+   one's walls' back to the other's (`planar/covered_span.edge_spans`) — the
+   ground there takes the ground beside the cover, never the lidar road —
+   and every terrain deck over the trench (a mapped bridge way — KATL's
+   service road `-3152`) stands at or above that deck level as a HARD row
+   (`constraints/structures._span_deck_rows`, head
+   `bridge.edge_wall_deck_level` in `[design] hard_rulings`, ranked with
+   `tunnel.mouth_depth_m`; the record `Tunnel.span_deck_z`): the service road
+   level with the taxiway.  Measured soft, the road cap held it 6.5 m under.
+
+**Consumer census (08-30l), the passes this reading reaches:**
+
+| pass | effect | ruling |
+|---|---|---|
+| `airport/portal_objects.read_portals` | a plated hanging object over a bore end is a `Portal` with `edge_walls` | extend |
+| `planar/structures` pin | `edge_wall_mouth` instead of the plan hull; the deck level recorded | extend |
+| `planar/structure_mouth.mouth_at_pavement` (#971) | the pinned mouth slides out of pavement, keeping its depth (20am / 20ar) | unchanged |
+| `planar/structure_mouth.strip_keepout` (26k) | a pinned cut may stand in the runway strip | unchanged |
+| `planar/structure_overlap` (31h) | parallel carriageways 46 m apart are no dual: one corridor of the overlapping set is kept | unchanged — finding: merging the mouths one edge object stops into one trench was measured worse (the merged mouth slid 140 m out and lost the deck) |
+| `planar/covered_ground` (#714) | the cover's clip takes in the span between the edges (`covered_span`) | extend |
+| `constraints/structures` terrain deck rows | hard rows at the deck level; the end ties skip below it (`deck_floor`) | extend |
+| `pipeline/publication.portal_cuts`, `verify` strip families | the pinned cut's rim | unchanged |
+| object stage seat (`placement_plan`) | the edges seated by the existing seat law | unchanged — follow-up (the EGGW face seat, §4) |
+
+**Closing bars (KATL).**  The owner's site 33.622378944, −84.426822485 (the
+service road on the bridge next to the taxiway) level with the taxiway beside
+it (12y: ≤ 0.05 m on pavement); the I-285 trench floor at the walls' bottom
+under the deck level; the span between the edges at the deck level; no new
+verify rows outside the cut.

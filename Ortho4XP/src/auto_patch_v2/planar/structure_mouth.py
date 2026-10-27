@@ -91,7 +91,7 @@ from ..model.frame import rotated_rectangle
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
            "road_end_after_slide", "portal_note", "PORTAL_YIELDS", "strip_keepout",
-           "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth"]
+           "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth", "edge_wall_mouth"]
 
 #: Passes of the slide (each re-reads the stops from the new mouth).
 _SLIDE_PASSES = 4
@@ -469,7 +469,15 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
 
 
 def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
-    """The tunnel record's line for a mouth a pack portal pinned."""
+    """The tunnel record's line for a mouth a pack portal pinned (an
+    edge-wall bridge's: ``mouth_dem`` is its deck level)."""
+    if getattr(pin, "edge_walls", ()):
+        return (f"the trench stops at the walls' back of the edge-wall bridge "
+                f"{pin.object_id} {pin.resource.rsplit('/', 1)[-1]} (owner RULINGS "
+                f"2026-10-27l, 20ao): floor {mouth_z:.2f} under its deck level "
+                f"{mouth_dem:.2f}, its walls' bottom {pin.depth_m:.2f} "
+                f"(20am / 20ar); the span behind the walls and every deck over this "
+                f"trench keep that deck level")
     return (f"mouth pinned by the pack portal {pin.object_id} "
             f"{pin.resource.rsplit('/', 1)[-1]} (#971 'or object if one is provided', "
             f"#1343): floor {mouth_z:.2f} = ground {mouth_dem:.2f} − its roof top "
@@ -507,9 +515,47 @@ def portal_mouth(axis: LineString, inward, anchor, plan=()) -> "tuple[LineString
     cut takes in the object): the mouth moves to the plan's furthest point
     into the bore instead."""
     m = axis.coords[0]
-    d = max((q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1]
-            for q in (plan or (anchor,)))
+    return _moved_in(axis, inward, max((q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1]
+                                       for q in (plan or (anchor,))))
+
+
+def edge_wall_mouth(axis: LineString, inward, walls, half: float
+                    ) -> "tuple[LineString, float]":
+    """``(axis, metres moved)``: THE TRENCH STOPS AT AN EDGE-WALL BRIDGE'S
+    WALLS' BACKS (owner RULINGS 2026-10-27l; 20ao "the road ends at the
+    back of the object").  The mouth moves into the bore to the furthest
+    station any of the object's deep walls (``hanging_objects.
+    edge_wall_reading``) reaches within the corridor's width (``half``
+    either side of the axis) — the headwall the span stands behind, never
+    the far corner of a skewed object's plan (measured KATL ``tunel_C``:
+    its hull's back stood 68-104 m into the span).  Walls only on the ramp
+    side keep the mapped end."""
+    m = axis.coords[0]
+    nx, ny = -inward[1], inward[0]
+    best = 0.0
+    for seg in walls:
+        for (x0, y0), (x1, y1) in zip(seg[:-1], seg[1:]):
+            a0 = (x0 - m[0]) * inward[0] + (y0 - m[1]) * inward[1]
+            a1 = (x1 - m[0]) * inward[0] + (y1 - m[1]) * inward[1]
+            l0 = (x0 - m[0]) * nx + (y0 - m[1]) * ny
+            l1 = (x1 - m[0]) * nx + (y1 - m[1]) * ny
+            # the piece of the segment within |lateral| <= half
+            t_lo, t_hi = 0.0, 1.0
+            if abs(l1 - l0) > 1e-12:
+                ta, tb = sorted(((-half - l0) / (l1 - l0), (half - l0) / (l1 - l0)))
+                t_lo, t_hi = max(t_lo, ta), min(t_hi, tb)
+            elif abs(l0) > half:
+                continue
+            if t_hi < t_lo:
+                continue
+            best = max(best, a0 + (a1 - a0) * t_lo, a0 + (a1 - a0) * t_hi)
+    return _moved_in(axis, inward, best)
+
+
+def _moved_in(axis: LineString, inward, d: float) -> "tuple[LineString, float]":
+    """The axis with its mouth moved ``d`` into the bore (``d <= 0``: kept)."""
     if d <= 0.0:
         return axis, 0.0
+    m = axis.coords[0]
     new = (m[0] + inward[0] * d, m[1] + inward[1] * d)
     return LineString([new] + list(axis.coords)), float(d)

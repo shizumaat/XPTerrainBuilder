@@ -374,7 +374,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # #714: over a mapped bore under airside pavement the ground is the
     # ground BESIDE the cover, not the road floor a bare-earth DEM carries
     zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs,
-                                              objects)
+                                              objects, cache)
     if stats.covered_ground.rings:
         print(f"  [planar] {stats.covered_ground.line()}")
     # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads

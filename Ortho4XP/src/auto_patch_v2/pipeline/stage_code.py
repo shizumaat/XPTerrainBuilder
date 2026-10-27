@@ -491,6 +491,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.channel_witness",
         "auto_patch_v2.planar.chords",
         "auto_patch_v2.planar.covered_ground",
+        "auto_patch_v2.planar.covered_span",
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.edges",
         "auto_patch_v2.planar.group_low",
@@ -1423,7 +1424,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
-    planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
+    planar.channel_witness planar.chords planar.covered_ground planar.covered_span
+    planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
     planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
@@ -1527,7 +1529,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
-    planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
+    planar.channel_witness planar.chords planar.covered_ground planar.covered_span
+    planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
     planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons

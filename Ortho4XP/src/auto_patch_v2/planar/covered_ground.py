@@ -68,6 +68,7 @@ from ..airport.dem import dem_z_many
 from ..law import Law
 from .structure_approach import (Bore, carriageway_width_m, chains, is_tunnel,
                                  standing_cover)
+from .covered_span import edge_spans
 from .structure_service import airside_cut_roles
 
 __all__ = ["CoveredGround", "covered_ground", "beside_ground"]
@@ -280,11 +281,12 @@ def _mouth_walls(cuts, pav, objects, depth_min: float):
 
 
 def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.ndarray,
-                   zs: np.ndarray, objects=()) -> tuple[np.ndarray, CoveredGround]:
+                   zs: np.ndarray, objects=(), cache=None) -> tuple[np.ndarray, CoveredGround]:
     """``zs`` with every vertex inside the covered footprint lifted to the
     ground beside the cover (never lowered), and the report (with the
     walled mouth edges, :func:`_mouth_walls`, read off ``objects`` —
-    ``planar/basins.read_objects``)."""
+    ``planar/basins.read_objects``; ``cache`` their resources, for the
+    span between a pack bridge's edges, ``planar/covered_span``)."""
     rep = CoveredGround()
     dem = getattr(airport, "dem", None)
     tn = law.tables.structures.tunnel
@@ -309,7 +311,10 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
     # cut beyond the deck's edge — the road at its floor, the bank — keeps
     # the DEM even where the mapped bore ends a few metres past the portal
     pav = unary_union(airside).buffer(_PAVEMENT_TOL_M)
-    cuts = [(b, secs, rib.intersection(pav)) for b, secs, rib in cuts]
+    # ...and the span between a pack bridge's edge walls is cover too
+    # (owner RULINGS 2026-10-27l / 27r, ``planar/covered_span``)
+    clip = unary_union([pav, *edge_spans(cuts, objects, cache, law)])
+    cuts = [(b, secs, rib.intersection(clip)) for b, secs, rib in cuts]
     cuts = [(b, secs, rib, prep(rib)) for b, secs, rib in cuts if not rib.is_empty]
     if not cuts:
         return zs, rep

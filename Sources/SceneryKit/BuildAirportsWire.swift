@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Build pane's Airports card (protocol 1.17, #818): what airport
+/// The Build pane's Airports card (protocol 1.18, #818): what airport
 /// grading and object fitting will do for the tiles about to be built.
 /// The engine's `o4_engine/build_airports.py` is the one reader; the Qt
 /// window calls it in process, this app through `build_airports`.

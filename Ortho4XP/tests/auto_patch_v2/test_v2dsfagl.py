@@ -15,7 +15,6 @@ from __future__ import annotations
 import dataclasses as _dc
 import json
 import os
-import shutil
 from pathlib import Path
 
 import pytest
@@ -194,33 +193,38 @@ def test_live_install_is_refused(tmp_path):
     assert not W.live_install_roots(str(tmp_path))
 
 
-# ── the real round trip (a COPY of a shipped pack) ──────────────────────
+# ── the real round trip (a synthetic pack encoded by DSFTool) ─────────
+#
+# #1421: this used to copy a pack from the owner's X-Plane install, and
+# failed once that pack had been rewritten by the app (BackupUnproven).
+# A test never reads the install: the pack is DUMP, encoded here.
 
-PACKS = [
-    ("KMCI", "KMCI Kansas City (Taimodels)", "+30-100/+39-095.dsf"),
-    ("KBNA", "US-KBNA Nashville Airport", "+30-090/+36-087.dsf"),
-]
-XP = "/Users/noah/X-Plane 12/Custom Scenery"
-
-
-def _first_pack():
-    for icao, pack, rel in PACKS:
-        src = os.path.join(XP, pack, "Earth nav data", rel)
-        if os.path.isfile(src):
-            return icao, os.path.join(XP, pack), src
-    return None
+_TILE_PROPS = ("PROPERTY sim/west -95\nPROPERTY sim/east -94\n"
+               "PROPERTY sim/north 40\nPROPERTY sim/south 39\n"
+               "PROPERTY sim/planet earth\nPROPERTY sim/creation_agent test\n")
 
 
-@pytest.mark.skipif(_first_pack() is None or _dsftool_path() is None,
-                    reason="no shipped pack / no DSFTool on this machine")
+def _synthetic_pack(root: Path, tool: str) -> str:
+    """A pack under ``root`` whose one DSF is :data:`DUMP` encoded by
+    DSFTool, with the two pack-authored objects it names; returns the DSF."""
+    for n in ("tower.obj", "hangar.obj"):
+        (root / "objects").mkdir(parents=True, exist_ok=True)
+        (root / "objects" / n).write_text("I\n800\nOBJ\n", encoding="utf-8", newline="")
+    blk = root / "Earth nav data" / "+30-100"
+    blk.mkdir(parents=True)
+    text = root.parent / "pack_src.text"
+    text.write_text(DUMP.replace("PROPERTY sim/west -95\n", _TILE_PROPS),
+                    encoding="utf-8", newline="")
+    return W.encode(str(text), str(blk / "+39-095.dsf"), tool)
+
+
+@pytest.mark.skipif(_dsftool_path() is None, reason="no DSFTool on this machine")
 def test_real_pack_roundtrip_and_idempotent_write(tmp_path):
-    icao, real_pack, src = _first_pack()
-    pack = tmp_path / "pack"
-    (pack / "Earth nav data" / "blk").mkdir(parents=True)
-    dsf = pack / "Earth nav data" / "blk" / os.path.basename(src)
-    shutil.copy2(src, dsf)
-
     tool = _dsftool_path()
+    pack = tmp_path / "pack"
+    dsf = Path(_synthetic_pack(pack, tool))
+    icao, real_pack = "TEST", str(pack)
+
     text = W.dump(str(dsf), str(tmp_path / "pristine.text"), tool)
     dump = D.read_dump(text)
     conv, kept = W.conversions_for_dump(dump, real_pack)
@@ -279,10 +283,14 @@ def test_real_pack_roundtrip_and_idempotent_write(tmp_path):
         == backup_sha
 
 
-@pytest.mark.skipif(_first_pack() is None, reason="no shipped pack")
 def test_write_pack_refuses_the_live_install(tmp_path):
-    icao, real_pack, src = _first_pack()
-    plan = PlacementPlan(icao=icao, pack_name="p", pack_root=real_pack,
+    """The refusal reads the PATH, never the bytes: a pack laid out under
+    an ``X-Plane 12/Custom Scenery`` folder is refused before any read."""
+    real_pack = str(tmp_path / "X-Plane 12" / "Custom Scenery" / "p")
+    src = os.path.join(real_pack, "Earth nav data", "+30-100", "+39-095.dsf")
+    os.makedirs(os.path.dirname(src))
+    Path(src).write_bytes(b"not a dsf")
+    plan = PlacementPlan(icao="TEST", pack_name="p", pack_root=real_pack,
                          dsf_path=src, dsf_backup_path=src + ".anchor_bak",
                          provenance=Provenance("", "", ""))
     with pytest.raises(PermissionError, match="live X-Plane"):

@@ -51,7 +51,7 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "gap_step_part", "shares_gap_part",
            "bears_shape",
            "face_edge_ids",
-           "face_vertex_set", "gap_follower_faces", "pad_road_faces",
+           "face_vertex_set", "gap_follower_faces", "pad_road_faces", "is_lead_face",
            "ROAD_REACH_KEY", "is_road_reach"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
@@ -1192,6 +1192,16 @@ def gap_follower_faces(pm) -> tuple[list, list]:
                if f.role == "service_road" and is_osm_ribbon_ref(f.ref)
                and not gv.isdisjoint(face_vertex_set(pm, f))] if gv else []
     return gap, ribbons
+
+
+def is_lead_face(face, pad_roads: _t.AbstractSet[str], runouts: _t.AbstractSet[str]) -> bool:
+    """Is ``face`` a mapped road a run-out strip rides as its LEAD
+    (``geom/ramp_profile.strip_level``): a mapped-road ribbon, neither a pad road nor a
+    run-out itself."""
+    ref = str(face.ref)
+    return (getattr(face, "role", None) in ("service_road", "service_junction")
+            and is_osm_ribbon_ref(ref)
+            and ref not in pad_roads and ref not in runouts)
 
 
 def pad_road_faces(pm) -> list:

@@ -1523,7 +1523,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.roles classify.rules classify.sources classify.taxi_letter constraints
     constraints.apron constraints.apron_shelf constraints.assembly constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
-    constraints.end_lip constraints.flat_site constraints.foot_rows
+    constraints.end_lip constraints.flat_site constraints.foot_road constraints.foot_rows
     constraints.gap_follow constraints.geometry constraints.groundside
     constraints.hard_plane constraints.steep_apron constraints.jetway_strip
     constraints.junction_mesh

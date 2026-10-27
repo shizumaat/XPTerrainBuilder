@@ -183,35 +183,3 @@ def test_the_region_covers_the_runways_and_excludes_water():
     assert lon_max <= ANCHOR[1] + 1200.0 / 111319.49 + 1e-4
     assert wet["signals"]["region_area_m2"] < dry["signals"]["region_area_m2"]
     assert math.isclose(dry["z0_m"], wet["z0_m"])
-
-
-# ── 5. the plateau fills, it does not cut (RULINGS 2026-10-26r, #1208) ────
-
-def test_the_record_publishes_its_pavement_not_its_boundary():
-    """``pavement`` is the apt.dat pavements ∪ runways at margin 0 — the
-    one ground the bake keeps at Z0 — never the boundary's grass."""
-    rec = _decide(_site(runway_len_m=2400.0))
-    pav = F.from_record({"verdict": "x", "region": rec["pavement"]}).region
-    pavement = Polygon(pav[0][0], list(pav[0][1]))
-    assert pavement.covers(box(-1150.0, -20.0, 1150.0, 20.0))
-    assert not pavement.contains(Polygon([(-300, 200), (300, 200), (300, 300),
-                                          (-300, 300)]))   # boundary grass
-    assert rec["pavement_ll"] and len(rec["pavement_ll"]) == len(rec["pavement"])
-
-
-class _PavedOnlyDem(_ComposedDem):
-    """Z0 on the runway strip of pavement, real ground 3 m above off it."""
-
-    def z(self, x, y):
-        return Z0 if abs(y) <= 22.5 else Z0 + 3.0
-
-
-def test_the_plateau_check_reads_the_pavement_not_the_boundary():
-    """Off the pavement the composed DEM keeps ground above Z0 (the fill-
-    only rule); the mismatch rule reads the pavement, so it is not cold."""
-    rec = _decide()
-    rec["plateau"] = True
-    dem = _PavedOnlyDem(rec, Z0)
-    ap = types.SimpleNamespace(icao="ZZZZ", frame=Frame("ZZZZ", ANCHOR, 6), dem=dem)
-    fv, _how = READ.verdict_for_build(ap, Law.for_airport("ZZZZ"))
-    assert fv.signals["plateau_offset_m"] == pytest.approx(0.0, abs=1e-6)

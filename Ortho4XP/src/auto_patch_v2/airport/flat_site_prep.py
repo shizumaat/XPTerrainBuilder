@@ -93,13 +93,12 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
     """The decision record for ``site`` on DEM prep's raster ``tile_dem``:
     :func:`flat_site.record` plus ``origin`` (the frame), ``region`` (the
     dilated, water-cut rings the datum covers), ``gate`` (the margin-0 gate
-    extent, water-cut), ``region_ll`` (the region's rings in ``(lon,
-    lat)``), ``footprint_ll`` (the region before its water cut — the
-    plateau's footprint, #1144) and ``pavement`` / ``pavement_ll``
-    (apt.dat pavements ∪ runways, margin 0:
-    the ground the plateau keeps at Z0 whatever the DEM says — elsewhere it
-    only fills, ``auto_patch/flat_site_relief.py``, RULINGS 2026-10-26r).
-    The bake adds ``plateau``."""
+    extent, water-cut — the ground the plateau must cover) and
+    ``region_ll`` (the region's rings in ``(lon, lat)``, for the bake's
+    rectangle) and ``gate_ll`` (the gate's, for the bake's off-site relief
+    rule, ``auto_patch/flat_site_relief.py``) and ``footprint_ll`` (the
+    region before its water cut — the plateau's footprint, #1144).  The
+    bake adds ``plateau``."""
     dem = ProductionDem.over_prep(site.frame, site.icao, tile_dem, tile_lat,
                                   tile_lon, water, out=out)
     site = _dc.replace(site, dem=dem)
@@ -121,8 +120,6 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
 
     gate_rings = (_flat._rings(gate) if gate is not None
                   and not gate.is_empty else ())
-    pavement_rings = (_flat._rings(land) if land is not None
-                      and not land.is_empty else ())
     # #1144: the plateau's FOOTPRINT — the same (pavement ∪ runways ∪
     # boundary) ⊕ margin as ``region``, but NOT water-cut: the bake cuts
     # its own water (``flat_site_mode.water_beside_site``), and the
@@ -136,10 +133,8 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
                gate=[[list(map(list, o)), [list(map(list, h)) for h in hs]]
                      for o, hs in gate_rings],
                region_ll=_ll(fv.region),
-               footprint_ll=_ll(footprint_rings),
-               # RULINGS 2026-10-26r: the pavement-grading cut — the only
-               # ground the plateau keeps at Z0 whatever the DEM says.
-               pavement=[[list(map(list, o)), [list(map(list, h)) for h in hs]]
-                         for o, hs in pavement_rings],
-               pavement_ll=_ll(pavement_rings))
+               # #1137: the airport's OWN surfaces in (lon, lat) — the
+               # ground the bake keeps at Z0 whatever the DEM says there.
+               gate_ll=_ll(gate_rings),
+               footprint_ll=_ll(footprint_rings))
     return rec

@@ -25,7 +25,7 @@ struct PatchInspector: View {
     private var title: String? {
         switch model.state {
         case .hidden: return nil
-        case .loading(let icao), .failed(let icao, _), .noPatch(let icao, _): return icao
+        case .loading(let icao), .failed(let icao, _), .noPatch(let icao, _), .checking(let icao): return icao
         case .loaded: return model.document?.icao
         }
     }
@@ -45,6 +45,11 @@ struct PatchInspector: View {
         case .noPatch(_, let tileBuilt):
             Text(tileBuilt ? "No ground shape was built for this airport." : "Build this tile first.")
                 .foregroundStyle(.secondary)
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Checking which tiles are built…").foregroundStyle(.secondary)
+            }
         case .loaded:
             if let doc = model.document { loaded(doc) }
         }

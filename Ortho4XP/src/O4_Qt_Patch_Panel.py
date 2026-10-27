@@ -348,6 +348,7 @@ class PatchPanel(QGroupBox):
         self.setTitle("%s · %s" % (GLOSSARY.TERMS["ground_shape"], icao))
         loaded = c.state == c.LOADED and m.doc is not None
         status = {c.LOADING: "Loading the ground shape…", c.FAILED: c.state_message,
+                  c.CHECKING: "Checking which tiles are built…",
                   c.NO_PATCH: ("No ground shape was built for this airport." if c.tile_built
                                else "Build this tile first.")}.get(c.state, "")
         self.status.setText(status)

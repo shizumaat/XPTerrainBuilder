@@ -220,17 +220,49 @@ def _pack_airports(content_root: str) -> tuple:
     Airports file, not for these.
     """
     apt_dat = os.path.join(content_root, "Earth nav data", "apt.dat")
-    if not os.path.isfile(apt_dat):
+    try:
+        st = os.stat(apt_dat)
+    except OSError:
         return ()
+    identity = (st.st_mtime_ns, st.st_size)
+    cached = _PACK_AIRPORTS.get(apt_dat)
+    if cached is not None and cached[0] == identity:
+        return cached[1]
     try:
         import O4_Airport_Index as APT
 
-        return tuple(
+        airports = tuple(
             PackAirport(entry.code, entry.name, entry.lat, entry.lon)
             for entry in APT.iter_airports(apt_dat)
         )
     except Exception:
         return ()
+    _PACK_AIRPORTS[apt_dat] = (identity, airports)
+    return airports
+
+
+#: ``{apt.dat path: ((mtime_ns, size), airports)}`` -- the Airports card
+#: reads every pack's apt.dat on each selection change (#1414); a file is
+#: re-read when its stat identity moves.
+_PACK_AIRPORTS: dict = {}
+
+
+def iter_airport_packs(scenery_dir: str) -> Iterator[tuple]:
+    """``(name, path, content_root, enabled, airports)`` for every Custom
+    Scenery entry :func:`iter_packs` would list that carries airports --
+    its apt.dat only, without the DSF listings and the kind probe."""
+    if not scenery_dir or not os.path.isdir(scenery_dir):
+        return
+    disabled = disabled_pack_names(scenery_dir)
+    for entry in sorted(os.listdir(scenery_dir)):
+        path = os.path.join(scenery_dir, entry)
+        if (entry in _SKIPPED_PACKS or _OURS_RE.match(entry)
+                or not os.path.isdir(path)):
+            continue
+        content_root = os.path.realpath(path)
+        airports = _pack_airports(content_root)
+        if airports:
+            yield (entry, path, content_root, entry not in disabled, airports)
 
 
 def _terrain_probe(content_root: str) -> Tuple[bool, bool]:

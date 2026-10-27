@@ -162,14 +162,20 @@ def _imagery_date(build_dir: str) -> Optional[float]:
     tex_dir = os.path.join(build_dir, "textures")
     if not os.path.isdir(tex_dir):
         return None
+    # One stat per file (``scandir``'s entry type is free): a tile holds
+    # hundreds of textures and a Custom Scenery of 2,500 tiles held ~850,000,
+    # where isfile + getmtime stat'ed each twice (29 s of a 42 s scan).
     mtimes = []
-    for entry in os.listdir(tex_dir):
-        path = os.path.join(tex_dir, entry)
-        if os.path.isfile(path):
-            try:
-                mtimes.append(os.path.getmtime(path))
-            except OSError:
-                pass
+    try:
+        entries = list(os.scandir(tex_dir))
+    except OSError:
+        return None
+    for entry in entries:
+        try:
+            if entry.is_file():
+                mtimes.append(entry.stat().st_mtime)
+        except OSError:
+            pass
     return max(mtimes) if mtimes else None
 
 

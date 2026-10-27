@@ -8862,6 +8862,68 @@ def test_the_withdrawn_taxi_chord_law_is_registered_and_stamped_from_the_sidecar
     assert not cg.row_adjudicated("within_shape", long_)
 
 
+def test_a_taxiway_chord_is_judged_along_its_route_whatever_face_meets_its_end(
+        census_mod, cg, tmp_path):
+    """RULINGS 2026-10-28f (#805, owner Q210 (a)): a taxiway's longitudinal
+    slope is judged ALONG ITS ROUTE; the straight line across the paved
+    shape is not a taxiway-slope witness.  A chord walked on a taxi-family
+    RING whose end vertex the runway owns (``role_b`` = the senior face,
+    12aj (c)) is read on the published ``taxi_route_pairs`` budget — the
+    v2 verify's reading of the same pair:
+
+    * CURVED: 8.66 m over a 450 m chord (1.92 %, over the 1.5 % cap) on a
+      903 m route budgeted 13.55 m — stamped withdrawn law, 0 adjudicated
+      rows (KCLT taxiway T's approach connector);
+    * a published NULL (no route joins the pair) — no law edge, stamped;
+    * STRAIGHT: the same chord unpublished (its route IS its chord within
+      the publication's tolerance) — the chord row still reports;
+    * OVER ITS ROUTE: 8.66 m on a 400 m route budgeted 6 m — still
+      reports, restated on the route (``taxi_route``, 400 m, 1.5 %);
+    * an APRON ring meeting the runway, and a row without its endpoints,
+      are untouched."""
+    key = cg.WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE
+    osm = tmp_path / "p.osm"
+    osm.write_text("<osm version='0.6'></osm>", encoding="utf-8", newline="")
+
+    def chord(role, wa, lat0, ll=True):
+        r = _FloorRow(de=8.66, grade=1.9259, excess=0.4259, dist=449.65, role=role, wa=wa)
+        r.role_a, r.role_b = role, "runway"
+        r.cap_pct = 1.5
+        r.reading = None
+        if ll:
+            r.ll_a, r.ll_b = (lat0, -80.95), (lat0 + 0.004, -80.95)
+        return r
+
+    curved = chord("cross_connector", "1", 35.20)
+    null = chord("stub", "2", 35.21)
+    straight = chord("cross_connector", "3", 35.22)
+    over = chord("primary_parallel", "4", 35.23)
+    apron = chord("apron", "5", 35.24)
+    bare = chord("stub", "6", 35.25, ll=False)
+    pub = [[list(curved.ll_a), list(curved.ll_b), 13.548679, 903.2453],
+           [list(null.ll_b), list(null.ll_a), None, None],
+           [list(over.ll_a), list(over.ll_b), 6.0, 400.0],
+           [list(apron.ll_a), list(apron.ll_b), 13.5, 900.0]]
+    rows = [curved, null, straight, over, apron, bare]
+    (tmp_path / "p.osm.axes.json").write_text(
+        json.dumps({"axes": [], "taxi_route_pairs": pub}), encoding="utf-8", newline="")
+    got = census_mod.stamp_withdrawn_taxi_chords(osm, cg, {"within_shape": rows})
+    assert [r.out_of_scope for r in rows] == [key, key, None, None, None, None]
+    assert got["stamped"] == 2
+    assert got["by_roles"] == {"cross_connector|runway": 1, "runway|stub": 1}
+    assert got["route_over"] == {"primary_parallel|runway": 1}
+    # the straight chord keeps the chord reading; the over-route row is
+    # restated on its route
+    assert straight.reading is None and straight.distance_m == 449.65
+    assert over.reading == census_mod.TAXI_ROUTE_READING
+    assert over.distance_m == 400.0 and abs(over.cap_pct - 1.5) < 1e-9
+    assert abs(over.grade_pct - 100.0 * 8.66 / 400.0) < 1e-9
+    adj = cg.adjudication([("within_shape", r) for r in rows])
+    assert adj["adjudicated_total"] == 4       # straight, over, apron, bare
+    assert not cg.row_adjudicated("within_shape", curved)
+    assert cg.row_adjudicated("within_shape", straight)
+
+
 def test_the_no_step_rate_reader_reads_a_declared_joint_as_a_step(cg):
     """APRON TERRACE LOCKSTEP for the §1.2 rate reader (RULINGS 06n / 07g):
     a ring station triple whose segment crosses a DECLARED joint reads the

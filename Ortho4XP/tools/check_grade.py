@@ -9702,6 +9702,7 @@ def _check_within_shape(ways: List[Way],
         if _lla is not None and _llb is not None:
             v.lat = (_lla[0] + _llb[0]) / 2.0
             v.lon = (_lla[1] + _llb[1]) / 2.0
+            v.ll_a, v.ll_b = _lla, _llb
         if _box:
             v.reading = "taxi_box"
         if transverse_road_out is not None and c.transverse_road:
@@ -11021,8 +11022,12 @@ OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
         "(a v2 patch under that law) and only on a chord at least "
         "``emit.within_shape.withdrawn_chord_min_m`` long (RULINGS "
         "2026-09-06p (3): a short stub|stub step is priced); a v1 patch is "
-        "untouched.  Counted in its family, reported under this heading, "
-        "never adjudicated",
+        "untouched.  A chord on a taxi-family RING with another face at an "
+        "end (a taxiway vertex welded to a runway) is stamped only where its "
+        "published route holds it (RULINGS 2026-10-28f: a taxiway's slope is "
+        "judged along its route, never straight across the paved shape).  "
+        "Counted in its family, reported under this heading, never "
+        "adjudicated",
     "role_less_host_duplicate":
         "every way of the row is ROLE-LESS ARTICULATION geometry (an "
         "o4_feature way with no role tag) whose HOST shape's vertex set "

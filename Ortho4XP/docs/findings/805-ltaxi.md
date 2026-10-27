@@ -170,3 +170,31 @@ Census against the round-1 build `ltaxi805_KCLT`: adjudicated 4,929 → 5,045.
 | `airside_no_step` | −1 |
 
 This is the replay's diff exactly. All 123 new rows sit at the EAT's approach connector, 35.2294, −80.953. No row changed anywhere else.
+
+## Round 3 — RULINGS 2026-10-28f (owner Q210 (a)): taxiway slope along the route (lane l805r)
+
+**Readers audited.**
+- **Solver:** the taxi family has no pair rows. The chain (`constraints/taxi.taxi_chain`: centreline edges, lateral hops, crossings) implies every route budget. Nothing judges T's connector straight across.
+- **Verify:** `verify/within.within_shape` reads every pair of a taxi-family ring on its published `taxi_route_pairs` budget (05ab). This already obeys 28f.
+- **Census:** this was the straight-across reader. `harness/census.stamp_withdrawn_taxi_chords` withdrew a taxi chord only when the SENIOR face at both ends was taxi-family (`row_roles`, 12aj (c)). T's approach connector `pav11` ends on vertices the runway owns, so its chords read `cross_connector|runway` and stayed adjudicated. These are the 123 rows: 8.66 m over a 450 m chord (1.92 %) against a published route of about 903 m with a 13.5 m budget.
+
+**Change.** `census.read_taxi_ring_route` handles a chord of 30 m or more on a taxi-family RING that has a non-taxi face at an end. It reads the chord on the published route budget, joining the pair by identity key through `Violation.ll_a/ll_b`, which `_check_within_shape` now stamps. This is verify's reading of the same pair:
+- **within the budget, or a null route:** stamped `withdrawn_law_05aa`;
+- **over the budget:** the row stays and is restated on the route (`reading = taxi_route`);
+- **unpublished** (the route equals the chord): the chord row stays.
+
+The both-taxi population keeps its 05aa blanket stamp, unchanged.
+
+**KCLT census, same patches, old census → 28f census:**
+- **round-1 build** `ltaxi805_KCLT`: adjudicated 4,929 → 3,123;
+- **round-2 build** `ltaxi805b_KCLT`: adjudicated 5,045 → 3,116.
+
+Every change is `within_shape` on taxi rings that end on the runway:
+- round 1: 976 `primary_parallel|runway`, 447 `cross_connector|runway` and 383 `runway|stub` rows withdrawn;
+- 282 rows stay, over their route and restated on it (185 / 24 / 73).
+
+Under the 28f census, round 1 → round 2 is `eat_ceiling` −4, `strip_longitudinal` −2, `airside_no_step` −1 and `drainage_minimum` −7. **`within_shape` +0:** the 123 rows at T are gone.
+
+**Closing build** `l805r_KCLT` (merge of origin/main 478b4489a): harness, patch-only, 1,828 s, solve optimal. Its body be9828f5b1dc is identical to `ltaxi805b_KCLT`, so the census change is the only difference. Census: adjudicated 3,116, airside for acceptance 1,354, `pav11` `within_shape` 0.
+
+**Not done (finding).** The both-taxi population is still withdrawn wholesale. On the round-2 build, about 80 of those chords are over even their published route, or unpublished and over their chord. The verify reports them; the census does not. Unifying the two populations is a census-count change for the master to schedule.

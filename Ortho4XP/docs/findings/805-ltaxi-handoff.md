@@ -34,3 +34,7 @@ Branch `claude/ltaxi-805` (PR #1499, still titled for round 1; its body does not
   - census json: `c_kcltctl_emit.json`, `c_kclt27w_emit.json`.
 - Captures (registered): `/Users/noah/XPTerrainBuilderData/.harness/frames/ltaxi/{SPJC,KBOI,KCLT}.pkl`.
 - Scratchpad: `/private/tmp/claude-501/-Users-noah-XPTerrainBuilder--claude-worktrees-elegant-wilson-8530db/06e49073-fa34-4d4e-b09b-e8641564046f/scratchpad/ltaxi/`
+
+## Round 3 (lane l805r, 2026-10-27): RULINGS 2026-10-28f answers the within-shape collision
+- The census reads a taxi-ring chord that ends on a runway-owned vertex along its published route (`census.read_taxi_ring_route`). The 123 rows at T are gone. Details are in `805-ltaxi.md`, round 3.
+- Open item: the both-taxi chord population is still withdrawn wholesale (05aa). About 80 KCLT rows there are over their route. Unifying it is a census-count change for the master.

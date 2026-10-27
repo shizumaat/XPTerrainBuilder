@@ -1,7 +1,8 @@
 """THE ASSEMBLY POST-PASSES (stage-cache spec §4b.1): everything that reads
 ALL of the generators' rows, run once after them — the water and seam
 exemptions, the senior structure datum, the EAT pin's withdrawal, the road
-ramp on a landing run-out, the 5 % ceiling and the universal pavement cap.
+ramp on a landing run-out, the 5 % ceiling, the universal pavement cap and
+the public road's release to its terrain.
 
 ``constraints.generate`` runs the generators and hands their concatenated
 rows here; no generator reads another's rows, so these passes are the only
@@ -15,7 +16,17 @@ import typing as _t
 from ..law import Law
 from ..model.constraints import Diff, Linear, Offset, Pin, Row, pinned_vertices
 from ..model.planar import PlanarMap
-from . import ceiling, eat, pavement_cap, ramp_runout, riser, seams, structures, water
+from . import (
+    ceiling,
+    eat,
+    pavement_cap,
+    public_road_release,
+    ramp_runout,
+    riser,
+    seams,
+    structures,
+    water,
+)
 
 __all__ = ["assemble", "seam_exempt", "water_exempt"]
 
@@ -80,6 +91,12 @@ def assemble(rows: list[Row], counts: dict[str, int], walls: dict[str, float],
         walls[pavement_cap.GEN] = time.perf_counter() - t0
         counts[pavement_cap.GEN] = len(fb)
         rows.extend(fb)
+    # A PUBLIC ROAD FOLLOWS ITS TERRAIN (owner RULINGS 2026-10-22h, #1254):
+    # LAST, so the ceiling's twins and the fallback yield with the rest
+    t0 = time.perf_counter()
+    rows, n_pub = public_road_release.terrain_release(rows, planar, law)
+    walls[public_road_release.GEN] = time.perf_counter() - t0
+    counts[public_road_release.GEN] = n_pub
     return rows
 
 

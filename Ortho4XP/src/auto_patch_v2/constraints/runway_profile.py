@@ -74,7 +74,7 @@ from ..law.tables import (
     runway_transverse_max,
     runway_vertical_curve_bound,
 )
-from ..model.airport import Airport
+from ..model.airport import PIN_OUTVOTED, Airport
 from ..model.constraints import Band, Diff, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
@@ -224,7 +224,9 @@ def end_pin_cases(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, En
       (``law/inset_class.lidar_credible``), an end whose datum line stands
       off the DEM by more than the lidar tier's noise
       (``runway_ends.dem_noise_m.lidar``) follows the DEM (PAAQ 16S/34S:
-      0.9 to 1.7 m under the lidar).
+      0.9 to 1.7 m under the lidar).  An end whose CIFP record the terrain
+      witness outvoted (owner RULINGS 2026-10-26v, ``PIN_OUTVOTED``)
+      follows the lidar with no noise floor.
     * ``datum``: otherwise the datum line (30z (2), unchanged).
 
     These are HARD pins, exactly a CIFP threshold's (``threshold_pins``
@@ -292,7 +294,11 @@ def end_pin_cases(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, En
                 out[v] = EndPin(z, rw.id, end.name, CASE_UNMATCHED, None, dem)
                 continue
             zd = line(v)
-            if lidar and dem is not None and abs(zd - dem) > lidar_noise:
+            # 26v (#1359): an end whose CIFP record the layout and the imagery
+            # outvoted "follows the lidar" — the datum line is no survey,
+            # so no noise floor keeps it (KDIJ 22: 0.41 m under the lidar)
+            outvoted = getattr(end, "pin_flags", "") == PIN_OUTVOTED
+            if lidar and dem is not None and (outvoted or abs(zd - dem) > lidar_noise):
                 out[v] = EndPin(dem, rw.id, end.name, CASE_LIDAR, zd, dem)
             else:
                 out[v] = EndPin(zd, rw.id, end.name, CASE_DATUM, zd, dem)
@@ -581,12 +587,27 @@ def yield_envelope(planar: PlanarMap, law: Law, vw: View, ref: str,
     m = float(law.tables.emit.design.runway_yield_margin)
     src = Source(GEN, "rulesets.runway.longitudinal (§50 yield envelope, "
                  "issue #133)", (f"rwy:{ref}",))
+    # RULINGS 2026-10-26n: a steep runway's envelope follows its DESIGNED
+    # profile (junction flats eased by vertical curves), not the straight
+    # line (``runway_junctions.design``, carried on the record)
+    designed = rc.profile_z or {}
     out: list[Row] = []
     for k in range(i + 1, j):
         da = cum[k] - cum[i]
-        line = za + g * da
+        line = designed.get(st[k], za + g * da)
         w = m * min(da, span - da)
         out.append(Band(st[k], line - w, line + w, src))
+    for jn in rc.junctions:
+        # every ridge chord inside a junction span at that junction's cap
+        # — the joining taxiway's transverse maximum (Q161 (a))
+        jsrc = Source(GEN, "rulesets.runway.longitudinal",
+                      (f"rwy:{ref}", "junction flat (RULINGS 2026-10-26n)",
+                       *(f"face:{f}" for f in jn.faces)))
+        for k in range(i, j):
+            a0, a1 = cum[k] - cum[i], cum[k + 1] - cum[i]
+            d = cum[k + 1] - cum[k]
+            if d > 0.0 and a0 >= jn.u0 - 1e-6 and a1 <= jn.u1 + 1e-6:
+                out.append(Diff(st[k], st[k + 1], jn.t, d, jsrc))
     return out
 
 
@@ -837,6 +858,10 @@ def runway_vertical_curve(planar: PlanarMap, law: Law, airport: Airport) -> list
         st = curve_stations(vw.xy, chs, along, min_d)
         src = Source(GEN, "rulesets.runway.vertical_curve_k_m / max_grade_change "
                      "(§3.1.15-16, 2026-09-06b)", (f"rwy:{rw.id}",))
+        # RULINGS 2026-10-26n: the K a steep runway's junction curves
+        # yielded to (``None``: the law's own)
+        yk = getattr((getattr(planar, "runway_caps", None) or {}).get(rw.id),
+                     "curve_k_m", None)
         # NO GRADE CHANGE IN THE END ZONES (FAA AC 150/5300-13B §3.16.1 C-E
         # std 2; audit §4 M2): a PREFERENCE under the end-zone head — hard
         # at the curve bound, preferring ``g0`` — one escalation group per
@@ -851,7 +876,7 @@ def runway_vertical_curve(planar: PlanarMap, law: Law, airport: Airport) -> list
             if d1 <= 0.0 or d2 <= 0.0:
                 continue
             b = runway_vertical_curve_bound(law, 0.5 * (d1 + d2), rw.code_number,
-                                            rw.code_letter)
+                                            rw.code_letter, yield_k_m=yk)
             if b is None:
                 continue
             terms = ((p, 1.0 / d1), (c, -(1.0 / d1 + 1.0 / d2)), (n, 1.0 / d2))

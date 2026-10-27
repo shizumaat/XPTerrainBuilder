@@ -122,8 +122,11 @@ def no_step_rate(p: Patch) -> list[Row]:
     for sh in p.shapes:
         if sh.role not in roles or len(sh.ids) < 3:
             continue
-        def rate(tc, _r=sh.role, _l=sh.code_letter):
-            return airside_rate_per_m(law, _r, _l, tc)
+        # RULINGS 2026-10-26n: a steep runway's ring reads its yielded curve
+        yk = p.runway_curve_k(sh.ref) if sh.role in ("runway", "runway_crossing") else None
+
+        def rate(tc, _r=sh.role, _l=sh.code_letter, _k=yk):
+            return airside_rate_per_m(law, _r, _l, tc, yield_k_m=_k)
         for a, b, c, change, allowed, dp, dn in rate_breaches(sh.xy, sh.z, True, rate, q, floor):
             if joints and (joints.allowance(sh.xy[a], sh.xy[b]) > 0.0
                            or joints.allowance(sh.xy[b], sh.xy[c]) > 0.0):

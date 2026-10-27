@@ -127,14 +127,14 @@ def _refusals(st):
     return [ln for ln in st.mouths_off_field_nearest if "NOT A TERRAIN TUNNEL" in ln]
 
 
-def test_an_OSM_tunnel_INSIDE_the_fence_under_nothing_is_BUILT(law):
-    """Owner RULINGS 2026-09-27a (4): "an OSM ``tunnel=yes`` way INSIDE the
-    airport boundary IS a terrain-tunnel witness on its own".  SPJC -5724:
-    cover 0.0 m, no crossing, rise 0.00 over its chord, no layer — and
-    both mouths are built."""
+def test_an_OSM_tunnel_INSIDE_the_fence_under_nothing_is_REFUSED(law):
+    """Owner RULINGS 2026-10-27z (#535), narrowing 27a (4): the tag inside
+    the fence is no witness on its own.  SPJC -5724: cover 0.0 m, no
+    crossing, rise 0.00 over its chord, no layer, level approaches, no
+    pack portal — refused (the twins: ``test_fence_witness535.py``)."""
     _cl, tunnels, st = _spjc(law)
-    assert st.bores == 1 and st.tunnels == 2, st.mouths_off_field_nearest
-    assert not _refusals(st)
+    assert st.bores == 1 and st.tunnels == 0, st.mouths_off_field_nearest
+    assert len(_refusals(st)) == 1 and "WITH NO WITNESS" in _refusals(st)[0]
 
 
 def test_the_same_bore_with_NO_fence_or_OUTSIDE_it_is_still_refused(law):
@@ -215,7 +215,9 @@ def test_SUNK_trench_geometry_DECKS_and_TUNNEL_OBJECTS_are_not_buildings(law):
     assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
     deck = _partition(("dsf:obj4", "T3_road.obj", "flag", (_part(0.0, 9.0, EAST_END),)))
     _cl, _t, st = _spjc(law, partition=deck)
-    assert st.tunnels == 2 and not _refusals(st)
+    # not (a)'s building; with no witness of 27z the fence refuses it (#535)
+    assert st.tunnels == 0 and "ENTERS A PACK BUILDING" not in " ".join(_refusals(st))
+    assert "WITH NO WITNESS" in _refusals(st)[0]
     from auto_patch_v2.planar.structure_service import _PackBuildings
     tun = _partition(("dsf:obj14034", "Objects/tunnels/tunnel middle - east.obj",
                       "candidate", (_part(-15.0, 20.0, EAST_END),)))

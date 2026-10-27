@@ -110,7 +110,10 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 10  # issue #382 (lane key382): the header carries the DEM
+CACHE_VERSION = 11  # #1201 (lane l1201): every PlacedObject carries ``walled_plate``
+                    # (RULINGS 2026-10-27t/u) and a walled plate's MSL set is
+                    # no longer ``origin_built``; a v10 payload has neither.
+# was 10:           # issue #382 (lane key382): the header carries the DEM
                     # samples the reading took (``"ground"``) and the
                     # resources resolved OUTSIDE the pack join the pristine
                     # stamps (and the OSM bridge ways the key).  A v9

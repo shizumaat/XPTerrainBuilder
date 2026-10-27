@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["ramp_delta", "runout_profile"]
+__all__ = ["ramp_delta", "runout_profile", "lead_section", "strip_level", "axis_ground"]
 
 
 def ramp_delta(dv: float, zr: float, dr: float, g: float, d: float) -> float:
@@ -52,3 +52,47 @@ def runout_profile(z0: float, dem_at: _t.Callable[[float], float], g: float,
         if abs(z - dv) <= meet_m:
             break
     return out
+
+
+def axis_ground(dem, x0: float, y0: float, dx: float, dy: float
+                ) -> _t.Callable[[float], float]:
+    """``s -> `` the raw ground on a run-out's axis ``s`` metres along its
+    travel from ``(x0, y0)``."""
+    def at(s: float) -> float:
+        return float(dem.z(x0 + dx * s, y0 + dy * s))
+    return at
+
+
+def lead_section(pts: _t.Iterable[tuple[float, float]], bin_m: float = 1.0
+                 ) -> list[tuple[float, float]]:
+    """THE LEAD's long section ``[(s, z)]``: the standing points of a mapped
+    road beside a run-out strip, ``s`` along the strip's travel, one mean
+    level per ``bin_m`` station, sorted."""
+    acc: dict[int, list[tuple[float, float]]] = {}
+    for s, z in pts:
+        acc.setdefault(int(round(s / bin_m)), []).append((float(s), float(z)))
+    return [(sum(p[0] for p in v) / len(v), sum(p[1] for p in v) / len(v))
+            for _k, v in sorted(acc.items())]
+
+
+def strip_level(s: float, z0: float, d0: float, dem_at: _t.Callable[[float], float],
+                g: float, lead: _t.Sequence[tuple[float, float]] = ()) -> float:
+    """A RUN-OUT STRIP's level ``s`` metres along its travel (issues #669 /
+    #1093).  Beside a LEAD — the mapped road that carries the foot's run-out
+    (RULINGS 2026-10-14i), standing when the strip is solved — the strip is
+    that road's shoulder: the lead's level at ``s`` (linear between its
+    stations), and past the lead's last station the ramp law continued off
+    it.  With no lead (fewer than two stations): :func:`ramp_delta` off the
+    strip's start ``z0`` over its ground ``d0`` (14c (5)).  ``dem_at(s)`` is
+    the raw ground on the strip's axis.  MEASURED (KCLT, lane lramp2): the
+    strips beside the departures roadway held their DEM-closing profile while
+    the road between them ran straight to a junction 2.3 m over the DEM —
+    1.5-2.3 m relaxed at the strip's end, and an open edge there."""
+    if len(lead) >= 2 and s >= lead[0][0]:
+        if s <= lead[-1][0]:
+            for (s0, a), (s1, b) in zip(lead, lead[1:], strict=False):
+                if s <= s1:
+                    return a if s1 <= s0 else a + (b - a) * (s - s0) / (s1 - s0)
+        s1, z1 = lead[-1]
+        return z1 + ramp_delta(float(dem_at(s)), z1, float(dem_at(s1)), g, s - s1)
+    return z0 + ramp_delta(float(dem_at(s)), z0, d0, g, s)

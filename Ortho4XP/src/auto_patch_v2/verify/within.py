@@ -197,7 +197,9 @@ def road_frames(p: Patch) -> dict[int, tuple[int, float, float]]:
     for rec in pub:
         v = key_of.get((round(float(rec[0]), 7), round(float(rec[1]), 7)))
         if v is not None:
-            out[v] = (int(rec[2]), float(rec[3]), float(rec[4]))
+            # 27f: the sixth field, the public road (``road_pair_reading``)
+            out[v] = (int(rec[2]), float(rec[3]), float(rec[4]),
+                      (str(rec[5]) or None) if len(rec) > 5 else None)
     return out
 
 

@@ -1377,3 +1377,26 @@ horizontal_ny         = 0.95   # §1 (1): |n_y| >= this is a HORIZONTAL FACE (an
 roof_support_fraction = 0.25   # §1 (1) THE ROOF TEST: a plane whose unit vertices >= [basin] contact_band_m below it have a convex hull covering this fraction of its polygon is a ROOF/DECK/MEZZANINE, never a base (KASE: the shelter roof reads 156 %, FireStation_7's +3.9 lot 0.2 %)
 sloped_min_extent_m   = 20.0   # §1 (2): a member with no base plane over the area floor reads SLOPED only where its contact set spans this far; below it the verdict is FEET (a column-only shelter is not a ramp)
 sloped_max            = 0.08   # §1 (2) + 10-01k Q5: the HARD CEILING on a sloped base's own gradient (m/m).  Steeper geometry is RISER geometry, not a plane (KASE's cut-slope staircase reads 17 %)
+
+# A WALLED PLATE CAPS A RUNWAY'S SAFETY AREA (owner RULINGS 2026-10-27t / 2026-10-27u,
+# #1201; spec docs/specs/walled-plate-rsa-spec.md §3).  A pack object whose flat
+# top crosses the end of a runway's safety area with a wall dropping from its
+# outer edge to lower ground is recognised by GEOMETRY and POSITION alone: the
+# safety area ends at its inner edge, its top sits flush with the safety area,
+# and its feet go where that puts them.
+[walled_plate]
+enabled           = true
+min_area_m2       = 1000.0  # witness 1: the plate bin's near-horizontal face area (KSEA 1,905-5,425 m2)
+bin_m             = 0.5     # the plate bin: faces within this of the largest-area level
+min_s_share       = 0.5     # witness 2: the inner edge at s >= this x the safety-area length L ...
+max_s_beyond_m    = 60.0    # ... and s <= L + this (KSEA: 296.3-302.8 m against L 304.8 m)
+min_cover         = 0.8     # witnesses 2/3: share of the safety-area width the plate (and its wall) covers
+wall_normal_y_max = 0.3     # witness 3: |n_y| below this is a wall face
+wall_min_height_m = 2.0     # witness 3: the outer wall's depth under the plate (retaining_wall_min_height_m)
+step_min_share    = 0.5     # witness 4: DEM step across the outer edge >= this x the wall's height ...
+foot_tol_m        = 0.5     # ... and <= the height + this: a top on the safety area never floats its foot
+step_inside_m     = 5.0     # witness 4: the upper DEM sample, this far inside the inner edge
+step_beyond_m     = 8.0     # witness 4: the lower DEM sample, this far beyond the outer edge
+station_m         = 5.0     # station spacing across the axis
+station_inset_m   = 2.0     # the seat's stations stand this far inside the inner edge (off the lidar smear)
+under_clearance_m = 0.05    # §5 (2): the ground under the plate stays this far below its top

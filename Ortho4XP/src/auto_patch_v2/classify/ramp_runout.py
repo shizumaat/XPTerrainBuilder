@@ -30,6 +30,17 @@ the last stage, junior to every pavement it meets); its profile rows are
 ``constraints/ramp_runout``'s.  A foot whose ground already stands within
 ``[cockpit] visual_m`` of the DEM where the patch ends asks nothing.
 
+THE STRIP ENDS ON THE GROUND (#1093; owner direction RULINGS 2026-10-20aw,
+a trial, for the bar 20ay "no visible edge"): every side and the end of the
+strip that stands on open ground is finished by a 1:3 bank
+``runout:<k>#collar`` (the collar class every bank reader knows) whose width
+at each station is the DAYLIGHT distance — where a 1:3 slope off the strip's
+edge meets the raw ground, never wider than ``[building_pad]
+platform_collar_max_m`` (:func:`_daylight`).  Its vertices take design rows
+off the strip's profile toward the DEM (``constraints/ramp_runout``), so its
+toe lies on the ground (MEASURED, lane l1093b's fixed 15 m bank: the toe had
+no row and stood -2.00 / +2.37 m off the DEM).
+
 A 10-03e LANDING's foot (counted ``landing`` here) runs out in the PLANAR
 stage instead (``planar/landing_runout``, issue #711): the lot it crosses is
 cut back from the strip there and the strip is held against the landing's
@@ -53,7 +64,7 @@ from ..airport.ramp_feet import FOOT_SPAN_M
 from ..law import Law
 from .rules import Rules
 
-__all__ = ["mint_ramp_runouts", "runout_of", "RUNOUT_PREFIX", "MAX_RUN_M"]
+__all__ = ["mint_ramp_runouts", "runout_of", "RUNOUT_PREFIX", "MAX_RUN_M", "BANK_EVIDENCE"]
 
 #: the run-out cell's ref: ``runout:<k>``
 RUNOUT_PREFIX = "runout"
@@ -65,6 +76,12 @@ MAX_RUN_M = 400.0
 #: the stations of the strip's sides (``mint_ramp_runouts``): a vertex on
 #: each side every this many metres along the run
 STATION_M = 10.0
+
+#: the evidence key of a run-out's bank cell (``runout:<k>#collar``)
+BANK_EVIDENCE = "ramp_runout_bank"
+
+#: the daylight search's step along the bank's outward direction (metres)
+DAYLIGHT_STEP_M = 0.5
 
 _KEYS = ("runout_x0", "runout_y0", "runout_dx", "runout_dy", "runout_z0",
          "runout_dem0")
@@ -96,6 +113,50 @@ def _level_at(seg: LineString, xy: np.ndarray, z: np.ndarray,
     return float(np.median(z[near]))
 
 
+def _daylight(z_in: float, px: float, py: float, ux: float, uy: float, dem,
+              k: float, dmax: float, band: float) -> float:
+    """THE BANK'S TOE DISTANCE off the strip's edge point ``(px, py)`` along
+    the outward unit ``(ux, uy)``: 0 where the edge already stands within
+    ``band`` of its ground, else the first ``d`` where a slope of ``k``
+    (1:3) off the edge's level ``z_in`` meets the raw ground —
+    ``|z_in - DEM(p + u d)| <= k d`` — never more than ``dmax``."""
+    if abs(z_in - float(dem.z(px, py))) <= band:
+        return 0.0
+    d = 0.0
+    while d < dmax:
+        d = min(dmax, d + DAYLIGHT_STEP_M)
+        if abs(z_in - float(dem.z(px + ux * d, py + uy * d))) <= k * d:
+            return d
+    return dmax
+
+
+def _bank_ring(x0: float, y0: float, dx: float, dy: float, w: float, run: float,
+               z_at: _t.Callable[[float], float], dem, k: float, dmax: float,
+               band: float) -> "Polygon | None":
+    """The DAYLIGHT polygon of a strip (:func:`_daylight` at every side
+    station, along the end, and diagonally at the two end corners): the
+    region a 1:3 bank off the strip's sides and end covers before it meets
+    the ground.  ``z_at(S)`` is the strip's profile ``S`` metres along."""
+    nx, ny = -dy, dx
+    h = 0.5 * w
+    ss = _stations(0.0, run, STATION_M)
+
+    def toe(S: float, t: float, ux: float, uy: float) -> tuple[float, float]:
+        px, py = x0 + dx * S + nx * t, y0 + dy * S + ny * t
+        d = _daylight(z_at(S), px, py, ux, uy, dem, k, dmax, band)
+        return px + ux * d, py + uy * d
+    r2 = 0.5 ** 0.5
+    left = [toe(S, -h, -nx, -ny) for S in ss]
+    right = [toe(S, h, nx, ny) for S in reversed(ss)]
+    m = max(1, int(_math.ceil(w / STATION_M)))
+    end = [toe(run, -h + w * i / m, dx, dy) for i in range(m + 1)]
+    cl = toe(run, -h, r2 * (dx - nx), r2 * (dy - ny))
+    cr = toe(run, h, r2 * (dx + nx), r2 * (dy + ny))
+    q = Polygon([*left, cl, *end, cr, *right])
+    q = q if q.is_valid else q.buffer(0)
+    return None if q.is_empty else q
+
+
 def _landing_faces(pm):
     """The 10-03e landings and their collars on the solved map: planar pad
     regions (``planar/landing``), never classification cells."""
@@ -112,11 +173,14 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     """``cl`` with a run-out strip minted off every object ramp's graded
     foot (module docstring); ``(cl, report)``."""
     from ..airport.ramp_feet import ramp_feet
+    from ..geom.ramp_profile import axis_ground, lead_section, strip_level
     from ..law.tables import role_side
+    from ..model.planar import COLLAR_SUFFIX, is_lead_face
     from .evidence import polygon_parts
     from .roles import Cell
     rep: dict[str, _t.Any] = {"feet": 0, "ungraded": 0, "landing": 0, "at_grade": 0, "blocked": 0,
-                              "runouts": 0, "run_m": 0.0, "list": []}
+                              "runouts": 0, "run_m": 0.0, "banks": 0, "bank_m2": 0.0,
+                              "list": []}
     dem = getattr(airport, "dem", None)
     frame = getattr(airport, "frame", None)
     if dem is None or frame is None or pm_base is None or z_base is None:
@@ -129,10 +193,19 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     band = float(law.tables.emit.cockpit.visual_m)
     snap = float(rules.cells.snap_grid_m)
     touch = float(law.tables.structures.placement.sunken_ramp_grid_m) or 2.0
+    k_bank = float(law.tables.emit.design.bank_slope)
+    bank_max = float(law.tables.structures.building_pad.platform_collar_max_m)
     ids = sorted(pm_base.vertices)
     xy = np.array([pm_base.vertices[v].xy for v in ids], dtype=float)
     zz = np.array([float(z_base[v]) for v in ids], dtype=float)
     landings = _landing_faces(pm_base)
+    # the mapped roads a strip may ride (``geom/ramp_profile.strip_level``)
+    pads_b = frozenset(getattr(pm_base, "pad_roads", None) or ())
+    runs_b = frozenset(getattr(pm_base, "ramp_runouts", None) or ())
+    lead_v = sorted({v for f in (getattr(pm_base, "faces", None) or {}).values()
+                     if is_lead_face(f, pads_b, runs_b) for v in pm_base.ring_vertices(f.ring)})
+    lead_xy = np.array([pm_base.vertices[v].xy for v in lead_v], dtype=float).reshape(-1, 2)
+    lead_z = np.array([float(z_base[v]) for v in lead_v], dtype=float)
     occupied = unary_union([Polygon(c.ring, c.holes) for c in cl.cells] + [landings])
     cells = list(cl.cells)
     to_ll = frame.transformers()[1]
@@ -193,8 +266,10 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
             rep["blocked"] += 1
             continue
         lat, lon = to_ll(x0, y0)
+        own: list[tuple[int, Polygon]] = []
         for q in parts:
             k = rep["runouts"]
+            own.append((k, q))
             ev = {"pad_road": 1.0, "ramp_runout": 1.0, "runout_x0": x0, "runout_y0": y0,
                   "runout_dx": dx, "runout_dy": dy, "runout_z0": z0, "runout_dem0": dem0,
                   "runout_run_m": run, "runout_width_m": w}
@@ -205,6 +280,37 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
                               "service_road", ev))
             occupied = unary_union([occupied, q])
             rep["runouts"] += 1
+        # THE STRIP ENDS ON THE GROUND (#1093, 20aw / 20ay): its 1:3 bank
+        # to the daylight line, over the open ground beside and beyond it,
+        # after every part stands (a part's bank never takes its sibling's)
+        if k_bank > 0.0 and bank_max >= snap:
+            # the strip's level: its lead's where a mapped road carries the
+            # run-out beside it, else the profile (the rows' own reading)
+            S_ = (lead_xy[:, 0] - x0) * dx + (lead_xy[:, 1] - y0) * dy
+            T_ = -(lead_xy[:, 0] - x0) * dy + (lead_xy[:, 1] - y0) * dx
+            on = (np.abs(T_) <= h + touch) & (S_ >= -touch) & (S_ <= run + touch)
+            lead = lead_section(zip(S_[on], lead_z[on], strict=True))
+
+            def z_at(S: float, x0=x0, y0=y0, dx=dx, dy=dy, z0=z0, dem0=dem0, lead=lead) -> float:
+                return strip_level(S, z0, dem0, axis_ground(dem, x0, y0, dx, dy), g, lead)
+            ring = _bank_ring(x0, y0, dx, dy, w, run, z_at, dem, k_bank, bank_max, band)
+            body = rect(s0 - snap, s0 + run, STATION_M)
+            got = [] if ring is None else polygon_parts(shapely.set_precision(
+                ring.difference(body).difference(occupied), snap))
+            for b in got:
+                if b.area < touch * touch:
+                    continue
+                k, _q = min(own, key=lambda kq: kq[1].distance(b))
+                if _q.distance(b) > snap:
+                    continue
+                cells.append(Cell(len(cells), "building", f"{RUNOUT_PREFIX}:{k}{COLLAR_SUFFIX}",
+                                  tuple(b.exterior.coords)[:-1],
+                                  tuple(tuple(r.coords)[:-1] for r in b.interiors),
+                                  None, None, role_side(law, "building"), "building",
+                                  {BANK_EVIDENCE: 1.0}))
+                occupied = unary_union([occupied, b])
+                rep["banks"] += 1
+                rep["bank_m2"] = round(rep["bank_m2"] + b.area, 1)
         rep["run_m"] = round(rep["run_m"] + run, 1)
         rep["list"].append(f"{f.member} foot {lat:.7f},{lon:.7f} z0 {z0:.2f} dem "
                            f"{dem0:.2f} run {run:.0f} m x {w:.0f} m")

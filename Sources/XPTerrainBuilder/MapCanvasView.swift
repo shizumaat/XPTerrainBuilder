@@ -704,7 +704,12 @@ struct MapCanvasView: View {
     /// overzoom factor (#1315; `MapOverzoom.badgeText`, the Qt badge's text).
     private var zoomChip: some View {
         let viewZL = max(2, Int(ceil(log2(camera.value.scale * 360 / 256) - 1e-6)))
-        let sourceMax = imagery.hasActiveSource ? imagery.activeMaxZL : nil
+        // The ceiling actually drawn at the view centre: past tiles the
+        // server answered "no imagery here" it is lower than declared (#1540).
+        let cam = camera.value
+        let sourceMax = imagery.hasActiveSource
+            ? imagery.drawnMaxZL(lat: cam.centerLat, lon: cam.centerLon) ?? imagery.activeMaxZL
+            : nil
         let atLimit = sourceMax.map { viewZL > $0 } ?? false
         return HStack(spacing: 5) {
             if atLimit {

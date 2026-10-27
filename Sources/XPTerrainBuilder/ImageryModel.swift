@@ -106,6 +106,10 @@ final class ImageryModel: ObservableObject {
     private var fadeTickerRunning = false
     /// Keys that failed to download this session — don't hammer the server.
     private var failed: Set<TileKey> = []
+    /// Tiles the server answered "no imagery here" (its placeholder tile or
+    /// a 404, #1540): the map draws their nearest coarser ancestor instead.
+    /// Kept across source switches — it is a fact about the source.
+    private var empty: Set<TileKey> = []
     private static let memoryLimit = 400
     private static let inflightLimit = 10
     static let fadeDuration: CFTimeInterval = 0.35
@@ -239,16 +243,37 @@ final class ImageryModel: ObservableObject {
     /// The map's tile (#1315): past the resolved source's `maxZL` (a
     /// combined member finer or coarser than the others, or the view
     /// overzoomed) it is the deepest available ancestor, with the
-    /// sub-square of it to crop and scale up. Never schedules a URL above
-    /// `maxZL`.
+    /// sub-square of it to crop and scale up — and past a tile the server
+    /// answered "no imagery here", the next coarser one (#1540). Never
+    /// schedules a URL above `maxZL`.
     func displayImage(z: Int, x: Int, y: Int)
         -> (image: CGImage, alpha: CGFloat, ancestor: MapOverzoom.Ancestor)? {
         guard let spec = resolvedSpec(single: active, combined: activeCombined,
-                                      z: z, x: x, y: y) else { return nil }
-        let anc = MapOverzoom.ancestor(z: z, x: x, y: y, maxZ: spec.maxZL)
-        guard let hit = image(TileKey(code: spec.code, z: anc.z, x: anc.x, y: anc.y),
+                                      z: z, x: x, y: y),
+              let anc = displayAncestor(spec: spec, z: z, x: x, y: y),
+              let hit = image(TileKey(code: spec.code, z: anc.z, x: anc.x, y: anc.y),
                               spec: spec) else { return nil }
         return (hit.image, hit.alpha, anc)
+    }
+
+    /// `MapOverzoom.displayAncestor` over this session's known-empty tiles.
+    private func displayAncestor(spec: ImageryProviderSpec, z: Int, x: Int, y: Int)
+        -> MapOverzoom.Ancestor? {
+        MapOverzoom.displayAncestor(z: z, x: x, y: y, maxZ: spec.maxZL) { az, ax, ay in
+            empty.contains(TileKey(code: spec.code, z: az, x: ax, y: ay))
+        }
+    }
+
+    /// The finest ZL the map draws at a point (#1540): the source's ceiling,
+    /// lowered past the tiles there the server answered "no imagery here" —
+    /// the "max ZL" the zoom badge names. nil with no source there.
+    func drawnMaxZL(lat: Double, lon: Double) -> Int? {
+        let z = min(activeMaxZL, 21)
+        let x = Int(floor(WebMercator.tileX(lon: lon, z: z)))
+        let y = Int(floor(WebMercator.tileY(lat: lat, z: z)))
+        guard let spec = resolvedSpec(single: active, combined: activeCombined,
+                                      z: z, x: x, y: y) else { return nil }
+        return displayAncestor(spec: spec, z: z, x: x, y: y)?.z
     }
 
     private func image(_ key: TileKey, spec: ImageryProviderSpec)
@@ -278,9 +303,9 @@ final class ImageryModel: ObservableObject {
     /// sub-square of it that covers the tile (#1315).
     func cachedDisplayImage(previous: Bool, z: Int, x: Int, y: Int)
         -> (image: CGImage, ancestor: MapOverzoom.Ancestor)? {
-        guard let spec = resolvedSpec(previous: previous, z: z, x: x, y: y) else { return nil }
-        let anc = MapOverzoom.ancestor(z: z, x: x, y: y, maxZ: spec.maxZL)
-        guard let hit = memory[TileKey(code: spec.code, z: anc.z, x: anc.x, y: anc.y)]
+        guard let spec = resolvedSpec(previous: previous, z: z, x: x, y: y),
+              let anc = displayAncestor(spec: spec, z: z, x: x, y: y),
+              let hit = memory[TileKey(code: spec.code, z: anc.z, x: anc.x, y: anc.y)]
         else { return nil }
         return (hit, anc)
     }
@@ -310,42 +335,82 @@ final class ImageryModel: ObservableObject {
     }
 
     private func schedule(_ key: TileKey, spec: ImageryProviderSpec) {
-        guard !inflight.contains(key), !failed.contains(key),
+        guard !inflight.contains(key), !failed.contains(key), !empty.contains(key),
               inflight.count < Self.inflightLimit else { return }
         inflight.insert(key)
         let cachePath = cacheDir?
             .appendingPathComponent(key.code, isDirectory: true)
             .appendingPathComponent(String(key.z), isDirectory: true)
             .appendingPathComponent("\(key.x)_\(key.y).jpg")
+        let url = spec.url(z: key.z, x: key.x, y: key.y)
         Task { [weak self] in
-            // Disk reads and JPEG decode stay off the main actor.
-            var image: CGImage? = await Task.detached(priority: .utility) {
-                cachePath.flatMap { Self.decode(contentsOf: $0) }
+            // Disk reads and JPEG decode stay off the main actor. A cached
+            // "no imagery" tile (written before #1540) is dropped, not drawn:
+            // the server has said it has nothing there.
+            let urlText = url?.absoluteString ?? ""
+            let cached: (image: CGImage?, placeholder: Bool) = await Task.detached(priority: .utility) {
+                guard let cachePath, let data = try? Data(contentsOf: cachePath) else {
+                    return (nil, false)
+                }
+                if Self.isPlaceholder(url: urlText, headers: [:], body: data) {
+                    try? FileManager.default.removeItem(at: cachePath)
+                    return (nil, true)
+                }
+                return (Self.decode(data: data), false)
             }.value
+            var image = cached.image
+            var placeholder = cached.placeholder
             var fresh: Data?
-            if image == nil, let url = spec.url(z: key.z, x: key.x, y: key.y),
-               let session = self?.session {
+            if image == nil, !placeholder, let url, let session = self?.session {
                 var request = URLRequest(url: url)
                 request.setValue(spec.requestUserAgent, forHTTPHeaderField: "User-Agent")
                 // No faked Referer alongside the honest OSM UA.
                 if spec.code != "OSM", let referer = spec.referer {
                     request.setValue(referer, forHTTPHeaderField: "Referer")
                 }
-                if let (data, response) = try? await session.data(for: request),
-                   (response as? HTTPURLResponse).map({ $0.statusCode == 200 }) ?? true {
-                    image = await Task.detached(priority: .utility) {
-                        Self.decode(data: data)
-                    }.value
-                    if image != nil { fresh = data }
+                if let (data, response) = try? await session.data(for: request) {
+                    let http = response as? HTTPURLResponse
+                    var headers: [String: String] = [:]
+                    for (name, value) in http?.allHeaderFields ?? [:] {
+                        headers[String(describing: name)] = String(describing: value)
+                    }
+                    if http?.statusCode == 404
+                        || Self.isPlaceholder(url: urlText, headers: headers, body: data) {
+                        placeholder = true
+                    } else if http.map({ $0.statusCode == 200 }) ?? true {
+                        image = await Task.detached(priority: .utility) {
+                            Self.decode(data: data)
+                        }.value
+                        if image != nil { fresh = data }
+                    }
                 }
             }
             guard let self else { return }
-            self.finish(key, image: image, downloaded: fresh, cachePath: cachePath)
+            self.finish(key, image: image, downloaded: fresh, cachePath: cachePath,
+                        placeholder: placeholder)
         }
     }
 
-    private func finish(_ key: TileKey, image: CGImage?, downloaded: Data?, cachePath: URL?) {
+    /// `MapOverzoom.isPlaceholderTile`, with the body's length standing in
+    /// for a Content-Length the answer (or a cache file) does not carry.
+    private nonisolated static func isPlaceholder(url: String, headers: [String: String],
+                                                  body: Data) -> Bool {
+        var headers = headers
+        if !headers.keys.contains(where: { $0.lowercased() == "content-length" }) {
+            headers["Content-Length"] = String(body.count)
+        }
+        return MapOverzoom.isPlaceholderTile(url: url, headers: headers)
+    }
+
+    private func finish(_ key: TileKey, image: CGImage?, downloaded: Data?, cachePath: URL?,
+                        placeholder: Bool = false) {
         inflight.remove(key)
+        if placeholder {
+            // Redraw: the map now draws this tile's coarser ancestor.
+            empty.insert(key)
+            generation += 1
+            return
+        }
         guard let image else {
             failed.insert(key)
             return
@@ -367,11 +432,6 @@ final class ImageryModel: ObservableObject {
         }
         generation += 1
         startFadeTicker()
-    }
-
-    private nonisolated static func decode(contentsOf url: URL) -> CGImage? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return decode(data: data)
     }
 
     private nonisolated static func decode(data: Data) -> CGImage? {

@@ -67,13 +67,19 @@ final class TerrainPreviewDrape {
         var drew = false
         for (i, t) in plan.tiles.enumerated() where !painted.contains(i) {
             // ImageryModel schedules what it does not hold (disk, then its download)
-            guard let hit = imagery.image(z: plan.zoom, x: t.x, y: t.y) else { continue }
+            // (past a tile the server has no imagery for, its coarser
+            // ancestor's sub-square, scaled up — #1540)
+            guard let hit = imagery.displayImage(z: plan.zoom, x: t.x, y: t.y) else { continue }
             let r = plan.rect(x: t.x, y: t.y)
+            let a = hit.ancestor
+            let side = CGSize(width: r.width / a.subSize, height: r.height / a.subSize)
             context.saveGState()
+            context.clip(to: r)
             // draw the tile upright inside the flipped (top-left) context
-            context.translateBy(x: r.minX, y: r.maxY)
+            context.translateBy(x: r.minX - a.subX * side.width,
+                                y: r.minY - a.subY * side.height + side.height)
             context.scaleBy(x: 1, y: -1)
-            context.draw(hit.image, in: CGRect(x: 0, y: 0, width: r.width, height: r.height))
+            context.draw(hit.image, in: CGRect(origin: .zero, size: side))
             context.restoreGState()
             painted.insert(i)
             drew = true

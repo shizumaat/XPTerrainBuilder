@@ -18,5 +18,15 @@
   {"view_zl": 24, "source": "GO2", "max_zl": 21, "factor": 8, "text": "ZL 24 · overzoom ×8 (GO2 max ZL 21)"},
   {"view_zl": 12, "source": null, "max_zl": null, "factor": 1, "text": "ZL 12"},
   {"view_zl": 23, "source": null, "max_zl": 20, "factor": 8, "text": "ZL 23 · overzoom ×8 (source max ZL 20)"}
+ ],
+ "placeholder": [
+  {"url": "https://ecn.t0.tiles.virtualearth.net/tiles/a12212112210103012231.jpeg?g=15312", "headers": {"Content-Length": "1033", "Content-Type": "image/png", "X-VE-Tile-Info": "no-tile"}, "placeholder": true},
+  {"url": "https://ecn.t0.tiles.virtualearth.net/tiles/a12212112210103012231.jpeg?g=15312", "headers": {"content-length": "1033"}, "placeholder": true},
+  {"url": "https://ecn.t0.tiles.virtualearth.net/tiles/a12212112210103012231.jpeg?g=15312", "headers": {"Content-Length": "18323", "x-ve-tile-info": " No-Tile "}, "placeholder": true},
+  {"url": "https://ecn.t0.tiles.virtualearth.net/tiles/a12212112210103012231.jpeg?g=15312", "headers": {"Content-Length": "18323", "Content-Type": "image/jpeg"}, "placeholder": false},
+  {"url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/20/432206/615763", "headers": {"Content-Length": "2521", "Content-Type": "image/jpeg"}, "placeholder": true},
+  {"url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/20/432206/615763", "headers": {"Content-Length": "20001"}, "placeholder": false},
+  {"url": "http://mt0.google.com/vt/lyrs=s&x=615763&y=432206&z=20", "headers": {"Content-Length": "1033"}, "placeholder": false},
+  {"url": "http://mt0.google.com/vt/lyrs=s&x=615763&y=432206&z=20", "headers": {}, "placeholder": false}
  ]
 }

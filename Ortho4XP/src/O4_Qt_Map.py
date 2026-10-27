@@ -1066,6 +1066,10 @@ class MapView(QGraphicsView):
         path = self._cache_path(code, z, x, y)
         generation = self._generation
         try:
+            if os.path.isfile(path):
+                layer = SOURCES.tile_source(code, z, x, y)
+                if layer and IMG.is_cached_placeholder(path, layer["url"]):
+                    os.remove(path)   # refetch: the parent fallback draws it
             if not os.path.isfile(path):
                 if not self._still_wanted(key):
                     return  # cancelled while queued

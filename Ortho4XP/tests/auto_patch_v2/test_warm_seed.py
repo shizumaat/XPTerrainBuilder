@@ -13,7 +13,6 @@ import types
 
 import numpy as np
 import scipy.sparse as sp
-
 from auto_patch_v2.solve.design_qp import solve_one_sided
 from auto_patch_v2.solve.warm_seed import WarmSeed
 

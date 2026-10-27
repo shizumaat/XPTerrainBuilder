@@ -1,5 +1,13 @@
 {
   "_doc": "The Activity list's row order and status tone (#1341). Read by Ortho4XP/tests/test_activity_order.py (O4_Activity_Order) and Tests/SceneryKitTests/ActivityOrderTests.swift (SceneryKit ActivityOrder). Each sequence starts with no stamps and counter 0; each step lists every row [key, state, label] in the order the rows were made, and the order the list shows after it.",
+  "compact": [
+    {"state": "done", "compact": true},
+    {"state": "error", "compact": false},
+    {"state": "stopped", "compact": false},
+    {"state": "queued", "compact": false},
+    {"state": "active", "compact": false},
+    {"state": "indeterminate", "compact": false}
+  ],
   "finished": [
     {"state": "queued", "label": "queued", "finished": false},
     {"state": "active", "label": "mesh", "finished": false},

@@ -22,6 +22,11 @@ def test_finished(case):
     assert ORDER.is_finished(case["state"], case["label"]) is case["finished"]
 
 
+@pytest.mark.parametrize("case", CASES["compact"])
+def test_compact(case):
+    assert ORDER.is_compact(case["state"]) is case["compact"]
+
+
 @pytest.mark.parametrize("case", CASES["tones"])
 def test_tone(case):
     assert ORDER.status_tone(case["state"], case["label"],

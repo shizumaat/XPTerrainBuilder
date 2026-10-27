@@ -7,12 +7,14 @@ import Foundation
 @Suite struct ActivityOrderTests {
     struct Cases: Decodable {
         struct Finished: Decodable { let state: String; let label: String; let finished: Bool }
+        struct Compact: Decodable { let state: String; let compact: Bool }
         struct ToneCase: Decodable {
             let state: String, label: String, has_issues: Bool, tone: String
         }
         struct Step: Decodable { let rows: [[String]]; let order: [String] }
         struct Sequence: Decodable { let name: String; let steps: [Step] }
         let finished: [Finished]
+        let compact: [Compact]
         let tones: [ToneCase]
         let sequences: [Sequence]
     }
@@ -29,6 +31,13 @@ import Foundation
         for c in Self.cases.finished {
             #expect(ActivityOrder.isFinished(state: c.state, label: c.label) == c.finished,
                     "\(c.state) \(c.label)")
+        }
+    }
+
+    @Test func compactLikeThePythonTwin() {
+        #expect(!Self.cases.compact.isEmpty)
+        for c in Self.cases.compact {
+            #expect(ActivityOrder.isCompact(state: c.state) == c.compact, "\(c.state)")
         }
     }
 

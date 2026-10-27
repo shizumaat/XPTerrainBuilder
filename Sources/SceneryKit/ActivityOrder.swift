@@ -37,6 +37,13 @@ public enum ActivityOrder {
         ["done", "error", "stopped"].contains(state) || label == "stopped"
     }
 
+    /// A row drawn compact (#1542): a tile built (`done`, with or without
+    /// warnings) shows only its title, brightened, and under it its status
+    /// and elapsed time — no progress bar, no steps.
+    public static func isCompact(state: String) -> Bool {
+        state == "done"
+    }
+
     public static func tone(state: String, label: String, hasIssues: Bool) -> Tone {
         switch state {
         case "error": return .failed

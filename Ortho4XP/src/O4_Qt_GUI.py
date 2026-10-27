@@ -195,6 +195,10 @@ WARNING_COLOR = "#D4A017"
 # A status tone (O4_Activity_Order.status_tone) as the row paints it.
 TONE_COLORS = {"live": "gray", "done": "green", "warning": WARNING_COLOR,
                "failed": "red", "stopped": STOPPED_COLOR}
+#: A finished row's dimmed title (#1341), and a built tile's (#1542): that
+#: gray taken 50 % of the way to white (the Mac app's completedTitle).
+FINISHED_TITLE_COLOR = "gray"   # #808080
+COMPLETED_TITLE_COLOR = "#c0c0c0"
 
 def _xplane_above_custom_scenery():
     """The X-Plane folder holding the configured Custom Scenery folder
@@ -4104,6 +4108,7 @@ class MainWindow(QMainWindow):
                 if stale is not None:
                     stale.setVisible(False)
                 bar.setValue(0)
+                bar.setVisible(True)   # a compact row grows back (#1542)
                 status.setText("queued")
                 status.setStyleSheet("color: gray;")
                 status.set_clickable(False)
@@ -4271,6 +4276,16 @@ class MainWindow(QMainWindow):
             return
         STRIP.apply_event(strip, event, time.monotonic())
         QTSTRIP.show(row[2].findChild(QLabel, "tile_steps"), strip)
+        self._fold_row_steps(tile)
+
+    def _fold_row_steps(self, tile):
+        """A built tile's row is compact (#1542): its steps line hides,
+        whatever step event lands after the tile is done."""
+        row = self._tile_rows.get(tile)
+        state = self._progress_states.get(tile, ("queued",))[0]
+        steps = row[2].findChild(QLabel, "tile_steps") if row else None
+        if steps is not None and ACTORDER.is_compact(state):
+            steps.setVisible(False)
 
     def _on_step_progress(self, event):
         tile = (event.lat, event.lon)
@@ -4444,8 +4459,13 @@ class MainWindow(QMainWindow):
             ACTORDER.status_tone(state, label, has_issues)])
         status.set_clickable(has_issues, QTFAIL.REOPEN_TOOLTIP)
         title = row_widget.findChild(QLabel, "tile_title")
+        compact = ACTORDER.is_compact(state)
         if title is not None:
-            title.setStyleSheet("color: gray;" if finished else "")
+            title.setStyleSheet(
+                "color: %s;" % COMPLETED_TITLE_COLOR if compact
+                else "color: %s;" % FINISHED_TITLE_COLOR if finished else "")
+        bar.setVisible(not compact)
+        self._fold_row_steps(tile)
         if state in ("done", "error"):
             # Nothing left to stop and nothing to resume: a finished tile
             # goes back through the Build button.

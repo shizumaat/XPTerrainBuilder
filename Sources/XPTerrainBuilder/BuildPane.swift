@@ -1107,6 +1107,7 @@ struct ActivityBox: View {
             TileProgressRowLines(
                 text: text, statusColor: Self.color(tone),
                 titleDimmed: BuildActivityModel.isFinished(progress),
+                compact: ActivityOrder.isCompact(state: progress.state.rawValue),
                 onStatusTap: hasIssues ? { buildModel.reopenIssues(coord) } : nil,
                 strip: activity.stepStrips[coord]
             ) {

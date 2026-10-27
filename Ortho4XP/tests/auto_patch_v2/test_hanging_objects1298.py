@@ -11,9 +11,6 @@ from __future__ import annotations
 import types
 
 import numpy as np
-from shapely.geometry import LineString
-from shapely.geometry import box as _sbox
-
 from auto_patch_v2.airport import hanging_objects as HO
 from auto_patch_v2.airport import obj8 as O
 from auto_patch_v2.airport import portal_objects as P
@@ -21,6 +18,8 @@ from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import OsmWay
 from auto_patch_v2.planar import covered_ground as CG
 from auto_patch_v2.planar import structure_mouth as SM
+from shapely.geometry import LineString
+from shapely.geometry import box as _sbox
 
 LAW = Law.for_airport("")
 THICK = LAW.tables.structures.basin.min_solid_thickness_m

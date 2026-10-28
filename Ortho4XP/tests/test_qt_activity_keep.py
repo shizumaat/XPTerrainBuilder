@@ -163,16 +163,17 @@ def test_the_warning_status_is_gold_and_reopens_the_dialog(window,
     assert window.activity_list.selected_tiles() == {WARNED}
 
 
-def test_a_newly_queued_tile_goes_on_top(window):
+def test_a_newly_queued_tile_goes_below(window):
+    """#1605: first queued at the top; later and re-queued tiles below."""
     _three_tile_run_one_warned(window)
     window._start_run([NEW], dict(SETTINGS))
-    assert _layout_order(window)[0] == NEW
+    assert _layout_order(window)[0] == NEW  # the only live row
     assert set(window._tile_rows) == {WARNED, PLAIN, LAST, NEW}
     assert _title(window, NEW).styleSheet() == ""
-    # Building a finished tile again puts it back on top, live.
+    # Building a finished tile again appends it below NEW, live.
     window._queue_into_running_build_now(
         [PLAIN], "BI", 15, True, True, False)
-    assert _layout_order(window) == [PLAIN, NEW]
+    assert _layout_order(window) == [NEW, PLAIN]
     assert _title(window, PLAIN).styleSheet() == ""
     assert window._tile_rows[PLAIN][1].text() == "queued"
     # The run report and the retry list describe this run only.

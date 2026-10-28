@@ -5,15 +5,17 @@ import Foundation
 /// the map's tile selection stay one selection (#1537).
 ///
 /// Finished rows (done, built with warnings, failed, stopped) stay in the
-/// list until the app quits. Live rows (queued, running) sit on top, the
-/// newest queued batch first; finished rows follow in the order they
-/// finished, the first finished directly under the live block.
+/// list until the app quits. Live rows (queued, running) sit on top in the
+/// order they were queued (#1605): the first tile queued at the top, later
+/// tiles added below, a running tile staying where it is; finished rows
+/// follow in the order they finished, the first finished directly under
+/// the live block (newest at the bottom).
 ///
 /// Each row carries a `Stamp`: the counter value of the batch that queued
 /// it, and of the moment it finished (nil while it is live). `restamp`
 /// advances the stamps from the rows' current states; `order` reads the
 /// order off them. A finished row queued again is live once more and gets
-/// a fresh queued stamp, so it returns to the top.
+/// a fresh queued stamp, so it joins the bottom of the live block.
 ///
 /// Twin: `Ortho4XP/src/O4_Activity_Order.py`; both read
 /// `Ortho4XP/tests/fixtures/activity_order_cases.json`.
@@ -121,13 +123,13 @@ public enum ActivityOrder {
     }
 
     /// `keys` (in the order the rows were made) as the list shows them:
-    /// live rows newest batch first, then finished rows in finish order.
+    /// live rows first-queued batch first, then finished rows in finish order.
     public static func order<Key: Hashable>(_ keys: [Key], stamps: [Key: Stamp]) -> [Key] {
         let indexed = Array(keys.enumerated())
         let live = indexed.filter { stamps[$0.element]?.finished == nil }
             .sorted {
                 let (a, b) = (stamps[$0.element]?.queued ?? 0, stamps[$1.element]?.queued ?? 0)
-                return a != b ? a > b : $0.offset < $1.offset
+                return a != b ? a < b : $0.offset < $1.offset
             }
         let done = indexed.filter { stamps[$0.element]?.finished != nil }
             .sorted {

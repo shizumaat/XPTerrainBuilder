@@ -95,6 +95,9 @@ def test_a_unit_wholly_a_storey_under_its_pads_plane_takes_its_ground():
     assert _below_its_pad(low, pad, 3.0)
     assert not _below_its_pad(low + [(0, 0, 0.0, 300.7)], pad, 3.0)   # spans both
     assert not _below_its_pad(low, pad, 0.0)                          # disarmed
+    # the surface must read the pad's own plane over its rings
+    assert _below_its_pad(low, pad, 3.0, lambda la, lo: 300.8, {})
+    assert not _below_its_pad(low, pad, 3.0, lambda la, lo: 291.1, {})
 
 
 @pytest.fixture(scope="module")

@@ -288,6 +288,11 @@ class Design:
     #: other foot enters the right-hand side at its previous outer-round
     #: value.  ``one_way_max_rounds`` / ``one_way_tol_m`` bound that lag
     one_way_rulings: tuple[str, ...]
+    #: THE RUNWAY LEADS THE AIRSIDE IN STAGE 1 (issue #1494): the one-way
+    #: heads whose rows stay in §20b stage 1 when every foot is a stage-1
+    #: column — the follower is then airside and the runway leads it.
+    #: Every head must also be in ``one_way_rulings``; may be empty.
+    runway_led_rulings: tuple[str, ...]
     one_way_max_rounds: int
     one_way_tol_m: float
     one_way_relax: float
@@ -483,6 +488,11 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.pad_level_rulings {missing}: every level "
                   f"ruling must also be in one_way_rulings — the pad FOLLOWS "
                   f"the pavement and never pulls it (RULINGS 2026-09-10l)")
+    stray = [r for r in d.runway_led_rulings if r not in d.one_way_rulings]
+    if stray:
+        raise err(f"emit.design.runway_led_rulings {stray}: not in "
+                  "one_way_rulings — the register names which one-way law "
+                  "stage 1 keeps (issue #1494), it makes nothing one-way")
     if not 0.0 < d.bank_slope <= 1.0:
         raise err(f"emit.design.bank_slope {d.bank_slope}: a bank grade in (0, 1]")
     if not d.bank_min_width_m > 0.0:

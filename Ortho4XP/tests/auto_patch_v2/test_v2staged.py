@@ -419,3 +419,40 @@ def test_stage_ones_sheet_carries_no_groundside_face(law):
               if f.role in airside_stage_roles(law)
               and not (set(pm.ring_vertices(f.ring)) & set(drop)))
     assert rep_s.triangles == own, (rep_s.triangles, own)
+
+
+# ── issue #1494: the runway leads the airside IN stage 1 ─────────────────
+
+def test_the_runway_edge_tie_on_a_taxiway_is_stage_ones(law):
+    """RULINGS 2026-09-06p (1): the runway-edge tie binds EVERY vertex abeam
+    a runway edge, a taxiway's included.  The row is ONE-WAY (the vertex
+    follows the edge), and §20b (1b) sent every one-way row to stage 2 —
+    where a taxiway vertex is a constant, so the tie governed nothing on
+    the population it was written for.  MEASURED KDIJ: the parallel
+    taxiway abeam runway 4's end stood 1.91 m under the edge over 52 m
+    against the tie's 1.63 m.  ``[design] runway_led_rulings`` keeps it in
+    stage 1; the empty register is the old split, and drops every one."""
+    from auto_patch_v2.solve.design import assemble
+    from auto_patch_v2.solve.design_report import DesignReport
+    from auto_patch_v2.solve.design_roles import ruling_head
+    tie = "zones.adjacent_ground.runway.band_max_down strip tie"
+    assert tie in law.tables.emit.design.runway_led_rulings
+    cells = _cells() + [Cell(4, "primary_parallel", "taxiA",
+                             _rect(-400.0, 45.0, 400.0, 68.0), (), None, "D",
+                             "airside", "taxi", {})]
+    airport = _airport(law)
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    cs, _c, _w = generate(pm, law, airport)
+    taxi_v = {v for f in pm.faces.values() if f.ref == "taxiA"
+              for v in pm.ring_vertices(f.ring)}
+    on_taxi = [r for r in cs.rows() if ruling_head(r) == tie and r.follows in taxi_v]
+    assert on_taxi, "the fixture's taxiway carries no runway-edge tie"
+
+    def stage_one_ties(lw) -> int:
+        drop, fixed = stage_split(pm, cs, lw)
+        base = assemble(pm, cs, lw, DesignReport(), drop=drop, fixed=fixed)
+        return sum(1 for _t, _b, row in base.one
+                   if ruling_head(row) == tie and row.follows in taxi_v)
+
+    assert stage_one_ties(law) > 0
+    assert stage_one_ties(_law_arm(law, runway_led_rulings=())) == 0

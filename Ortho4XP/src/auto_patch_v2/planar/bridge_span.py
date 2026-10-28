@@ -38,8 +38,10 @@ them.  This module is the ONE derivation, computed once in
   "at the right height").  The object stage seats the object's zero
   there (``pipeline/rebake_inputs``) and the trench beyond the back is
   held at the seat's solved surface less the depth
-  (``constraints/structures``, head ``tunnel.mouth_depth_m``): the
-  trench is never deeper than the object's bottom (point 4).
+  (``constraints/edge_floor``, head ``tunnel.mouth_depth_m``): the
+  trench is never deeper than the object's bottom (point 4).  Between
+  two bridges the floor runs linearly from each one's own bottom to the
+  other's (owner RULINGS 2026-10-28u Q271 (b)), never level at either.
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -52,7 +54,7 @@ from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import nearest_points, unary_union
 
 __all__ = ["EdgeBridge", "edge_bridges", "bridge_crossed", "bridge_pin", "edge_cut",
-           "edge_flat_s", "far_back_s", "floor_bridge"]
+           "edge_flat_s", "far_back_s"]
 
 #: the lateral sampling step of a back (metres)
 _BACK_STEP_M = 1.0
@@ -301,14 +303,6 @@ def far_back_s(br: EdgeBridge, axis: LineString, bridges) -> "tuple[float, tuple
             if best is None or s < best[0]:
                 best = (s, o)
     return None if best is None else (float(best[0]), (best[1],))
-
-
-def floor_bridge(br: EdgeBridge, others=()) -> EdgeBridge:
-    """The bridge a trench meeting ``br`` and ``others`` hangs its floor
-    from: the one with the SHALLOWER bottom (:attr:`EdgeBridge.floor_z`) —
-    the trench is never deeper than an object's bottom (owner sim read
-    2026-10-28T14:26Z points 2 / 4), level back to back (27r)."""
-    return max((br, *others), key=lambda b: b.floor_z)
 
 
 def edge_flat_s(br: EdgeBridge, axis: LineString) -> float:

@@ -1,9 +1,10 @@
 """#1138 round 6 (owner sim read 2026-10-28T14:26Z points 2-5): an EDGE
 BRIDGE's top is flush with the airside at its SEAT, the trench is never
 deeper than an object's bottom, and the open stretch between two bridges is
-one cut as wide as the objects (``planar/bridge_span``,
-``constraints/structures``, ``pipeline/rebake_inputs``,
-``airport/anchor_rule.datum_of``)."""
+one cut as wide as the objects, its floor sloping from each object's bottom
+to the other's (RULINGS 2026-10-28u Q271 (b)) (``planar/bridge_span``,
+``constraints/structures``, ``constraints/edge_floor``,
+``pipeline/rebake_inputs``, ``airport/anchor_rule.datum_of``)."""
 from __future__ import annotations
 
 import dataclasses as _dc
@@ -35,16 +36,6 @@ def _facing(br, dy: float, deck_z: float):
     return _dc.replace(br, object_id="dsf:obj8", back=mv(br.back), plan=mv(br.plan),
                        toward=(0.0, 1.0), cover=Polygon(mv(br.cover.exterior.coords)),
                        deck_z=deck_z, seat=(0.0, dy + 40.0))
-
-
-def test_the_level_stretch_hangs_from_the_shallower_bottom(tmp_path):
-    """Points 2 / 4: between two bridges the floor is the shallower of the
-    two objects' bottoms — never deeper than either."""
-    br = _bridge(tmp_path)
-    up = _facing(br, 100.0, br.deck_z + 2.0)
-    assert BS.floor_bridge(br, (up,)) is up
-    assert BS.floor_bridge(up, (br,)) is up
-    assert BS.floor_bridge(br) is br
 
 
 def test_the_stretch_between_two_bridges_is_one_cut_as_wide_as_the_objects(tmp_path):
@@ -104,3 +95,34 @@ def test_the_span_is_held_level_with_the_airside_abeam(monkeypatch):
     pairs = sorted({tuple(sorted((r.terms[0][0], r.terms[1][0]))) for r in rows})
     assert pairs == [(0, 2), (1, 3)] and len(rows) == 4
     assert all(is_hard(hard_rulings(LAW), r) for r in rows)
+
+
+def _holds(rows, z, tol=1e-9):
+    """Every ``Linear`` row ``lo <= Σ c·z <= hi`` holds at ``z``."""
+    for r in rows:
+        x = sum(c * z[v] for v, c in r.terms)
+        if (r.lo is not None and x < r.lo - tol) or (r.hi is not None and x > r.hi + tol):
+            return False
+    return True
+
+
+def test_a_trench_between_two_bridges_slopes_from_each_bottom_to_the_other():
+    """RULINGS 2026-10-28u Q271 (b): the floor of a trench two edge bridges
+    share runs linearly from the first object's bottom (its seat's surface
+    less its depth) at the end of that object to the second's at its back,
+    and under each object stands at that object's own bottom — never level
+    at the shallower bottom, where the deeper object's walls stood into it."""
+    from auto_patch_v2.constraints.edge_floor import seat_pair, sloped_floor_rows
+    from auto_patch_v2.model.constraints import Source
+    src = Source("test", "tunnel.mouth_depth_m", ())
+    seats = ((10, 26.0), (11, 24.0))                # (seat vertex, depth)
+    z = {10: 300.0, 11: 301.6}                       # bottoms 274.0 and 277.6
+    groups = [(0.0, [1, 2]), (40.0, [3]), (90.0, [4]), (140.0, [5]), (170.0, [6])]
+    rows = sloped_floor_rows(groups, seats, (40.0, 140.0), src)
+    sloped = {**z, 1: 274.0, 3: 274.0, 4: 275.8, 5: 277.6, 6: 277.6}
+    assert _holds(rows, sloped)
+    level = {**z, **{k: 277.6 for k in (1, 3, 4, 5, 6)}}
+    assert not _holds(rows, level)
+    assert all(r.source is src for r in rows) and len(rows) == 2 * len(groups)
+    assert _holds(seat_pair(7, (10, 26.0), src), {7: 274.0, 10: 300.0})
+    assert not _holds(seat_pair(7, (10, 26.0), src), {7: 275.0, 10: 300.0})

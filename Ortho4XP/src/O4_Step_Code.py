@@ -264,6 +264,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.door_wells",
     "auto_patch_v2.airport.dsf",
     "auto_patch_v2.airport.dsf_commands",
+    "auto_patch_v2.airport.dsf_dump_key",
     "auto_patch_v2.airport.dsf_heights",
     "auto_patch_v2.airport.dsf_write",
     "auto_patch_v2.airport.end_pins",

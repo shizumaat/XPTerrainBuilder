@@ -139,6 +139,7 @@ from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
 from . import authored_landing as _al
 from . import backup_state as _bs
 from . import dsf_commands as _cmds
+from . import dsf_dump_key as _dk
 from . import dsf_heights as _dh
 from . import pack_art as _pa
 from . import pack_forests as _pf
@@ -1212,28 +1213,37 @@ def written_body_files(pack_root: str, dsf_path: str,
     return _body_paths(pack_root, entry.get("body_files") or [])
 
 
-def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, dump_sha: str,
-                   drop: _t.Collection[str] = ()
+def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
+                   backup_sha: str, drop: _t.Collection[str] = (),
+                   notes: list[str] | None = None
                    ) -> tuple[list[PlacementPlan], dict[str, dict]]:
     """#25: the OTHER airports' recorded edits of this DSF, as plans to
     compose, plus their record rows to carry forward.
 
     A sibling is re-applied only when its edits were built against THIS
-    pristine dump (``dump_sha256`` equal) and parse; a stale or garbled
-    row is dropped — its bodies become orphans the write removes.  So is
+    pristine dump (``dsf_dump_key.row_is_current``: the dump keyed with
+    its HEIGHTS row excluded, #1584; a row from before that key is
+    re-keyed here) and parse; a stale or garbled row is dropped — with a
+    note — and its bodies become orphans the write removes.  So is
     every airport named in ``drop`` (RULINGS 2026-10-12d: an airport left
     without a patch is no longer seated).
     Sorted by ICAO so the composition is deterministic."""
     airports = entry.get("airports")
     if not isinstance(airports, dict):
         return [], {}
+    key, printed = _dk.dump_key(text), _dk.printed_sha(text)
     plans: list[PlacementPlan] = []
     keep: dict[str, dict] = {}
     for icao in sorted(airports):
         if icao == plan.icao or icao in drop:
             continue
         row = airports.get(icao)
-        if not isinstance(row, dict) or row.get("dump_sha256") != dump_sha:
+        if not isinstance(row, dict) or not _dk.row_is_current(
+                row, entry, key, printed, backup_sha):
+            if notes is not None:
+                notes.append(f"{icao}: its recorded edits were built against "
+                             f"another version of this DSF and were not "
+                             f"re-applied")
             continue
         try:
             sib = PlacementPlan.from_dict({
@@ -1244,7 +1254,7 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, dump_sha: str,
         except (KeyError, ValueError, TypeError):
             continue
         plans.append(sib)
-        keep[icao] = dict(row)
+        keep[icao] = {**row, _dk.KEY_FIELD: key}
     return plans, keep
 
 
@@ -1379,18 +1389,19 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     # sets are re-applied beside this plan's, this plan winning every
     # ordinal it claims; a sibling body no longer named by the composed
     # edit is an orphan and goes after the move.
-    dump_sha = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+    dump_sha = _dk.printed_sha(text)
     # The printed HEIGHTS row follows DSFTool's memory, not the file
     # (``dsf_heights``); the encode builds the elevation pools from it, so
     # the edit starts from the row the FILE gives — a rerun of one plan
-    # writes the same bytes.  ``dump_sha`` stays the printed text's: the
-    # sibling records (#25) were keyed on it.
+    # writes the same bytes.  The sibling records (#25) key the dump with
+    # that row excluded (``dsf_dump_key``, #1584).
     pinned = _dh.pin_heights(text)
     prior_entry = _bs.dsf_entry(_bs.read_record(dsf_path), base)
     backup_sha = sha256_file(backup)
     if forests is None:
         forests = _pf.recorded(prior_entry, backup_sha)
-    siblings, sibling_rows = _sibling_plans(prior_entry, plan, dump_sha, drop)
+    siblings, sibling_rows = _sibling_plans(prior_entry, plan, text,
+                                            backup_sha, drop, notes)
     # #1246: a split DSFTool cannot place (a body off the tile) is undone
     # — the placement is written whole — and never fails the pack.
     undone: dict[int, str] = dict.fromkeys(
@@ -1453,6 +1464,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             "edits": plan.edit_rows(),
             "body_files": own_bodies,
             "dump_sha256": dump_sha,
+            _dk.KEY_FIELD: _dk.dump_key(text),
             "engine_version": engine_version or plan.provenance.engine_version,
             "time": _bs.stamp(),
         }
@@ -1485,7 +1497,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         "backup_sha256": backup_sha,
         "backup_size": bak_stat.st_size,
         "backup_mtime_ns": bak_stat.st_mtime_ns,
-        "dump_sha256": hashlib.sha256(text.encode("utf-8", "replace")).hexdigest(),
+        "dump_sha256": dump_sha,
         "written_sha256": sha256_file(out_dsf),
         "prior_written_sha256": prior,
         "written_size": None,

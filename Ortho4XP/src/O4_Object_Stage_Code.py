@@ -134,6 +134,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.dem_witness",
     "auto_patch_v2.airport.dsf",
     "auto_patch_v2.airport.dsf_commands",
+    "auto_patch_v2.airport.dsf_dump_key",
     "auto_patch_v2.airport.dsf_heights",
     "auto_patch_v2.airport.dsf_write",
     "auto_patch_v2.airport.extension_cache",

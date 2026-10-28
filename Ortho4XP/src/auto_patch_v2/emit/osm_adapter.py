@@ -72,7 +72,7 @@ import shapely
 from ..law.model import Law
 from ..law.tables import role_cap
 from .graded import z_decimals
-from .ring_fold import folded
+from .ring_fold import folded, refuse_moves_that_fold
 from .surface import GradedSurface
 
 __all__ = ["SIDECAR_KEYS", "PatchPaths", "PatchFiles", "write_patch", "render_patch",
@@ -564,6 +564,8 @@ class WeldReport:
     merged: int = 0
     #: sub-spacing merges REFUSED because they would fold a ring (#1275)
     fold_refused: int = 0
+    #: weld snaps / projections / drops REFUSED: they would fold a ring (#1606)
+    weld_refused: int = 0
     worst_mm_before: float = 0.0
     worst_at: tuple[float, float] | None = None
 
@@ -575,7 +577,8 @@ class WeldReport:
                 f"edges, {self.candidates} vertices inside the spacing — "
                 f"{self.snapped} snapped onto a water vertex, {self.dropped} "
                 f"dropped off the shore line, {self.projected} projected onto "
-                f"it, {self.stranded} left beside it; {self.merged} "
+                f"it, {self.stranded} left beside it ({self.weld_refused} of them "
+                f"refused: the move would fold a ring, #1606); {self.merged} "
                 f"sub-spacing segment(s) merged, {self.fold_refused} refused "
                 f"(the merge would fold a ring, #1275)"
                 + at)
@@ -821,6 +824,7 @@ def weld_to_shore(surface: GradedSurface, law: Law,
                 grid.setdefault((cx, cy), []).append(i)
 
     new_ll: dict[int, LL_T] = {}
+    snapped: set[int] = set()
     on_shore: set[int] = set()          # within the spacing of a foreign edge
     interior: set[int] = set()          # ... of its INTERIOR, not its vertices
     nearest_seg: dict[int, int] = {}    # ... and WHICH edge, for the projection
@@ -846,6 +850,7 @@ def weld_to_shore(surface: GradedSurface, law: Law,
             q = fll[int(j)]
             if (round(v.ll[0], dp), round(v.ll[1], dp)) != (round(q[0], dp), round(q[1], dp)):
                 new_ll[v.id] = (float(q[0]), float(q[1]))
+                snapped.add(v.id)
                 rep.snapped += 1
             continue
         interior.add(v.id)
@@ -925,6 +930,8 @@ def weld_to_shore(surface: GradedSurface, law: Law,
                      a_ll[1] + (b_ll[1] - a_ll[1]) * t)
         rep.projected += 1
     rep.stranded = len(stranded) - rep.projected
+    _refuse_weld_folds(seqs, dropped_from, new_ll, vll, snapped, rep,
+                       lambda i: survivor_key(vll[i], dp))
 
     if not new_ll and not dropped_from:
         return surface
@@ -947,6 +954,38 @@ def weld_to_shore(surface: GradedSurface, law: Law,
                   for v in surface.vertices if v.id in live)
     return _dc.replace(surface, vertices=verts, faces=tuple(faces),
                        breaklines=tuple(breaks))
+
+
+def _refuse_weld_folds(seqs, dropped_from: dict, new_ll: dict, vll, snapped: set,
+                       rep: WeldReport, key) -> None:
+    """A WELD MOVE NEVER FOLDS A RING (issue #1606): every snap, projection
+    or drop that turns a simple emitted ring into one the mesh drops is
+    reverted (:func:`ring_fold.refuse_moves_that_fold`) — the vertex stays
+    where the planar map put it and is counted ``stranded``, as a vertex
+    the weld could not place is.  ``dropped_from`` and ``new_ll`` are
+    edited in place."""
+    rings = {(w, o): ids for w, o, ids in seqs if w != "break"}
+    drops = {k: set(rings[k]) - set(kept) for k, kept in dropped_from.items()
+             if k in rings}
+    was_moved = set(new_ll)
+    reverted = refuse_moves_that_fold(rings, drops, new_ll, vll, key)
+    if not reverted:
+        return
+    for k, gone in drops.items():
+        kept = [i for i in rings[k] if i not in gone]
+        if len(kept) == len(rings[k]):
+            dropped_from.pop(k, None)
+        else:
+            dropped_from[k] = kept
+    for i in reverted:
+        if i in snapped:
+            rep.snapped -= 1
+        elif i in was_moved:
+            rep.projected -= 1
+        else:
+            rep.dropped -= 1
+    rep.weld_refused += len(reverted)
+    rep.stranded += len(reverted)
 
 
 #: §39 (iii) / issue #199: the ORDER the sub-spacing merge picks a

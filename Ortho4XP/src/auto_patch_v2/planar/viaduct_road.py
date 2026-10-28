@@ -98,7 +98,7 @@ def _apron_level(airport, law: Law, run: LineString, cells, polys, reach: float
     roles = apron_roles(law)
     zone = run.buffer(reach)
     zs: list[float] = []
-    for c, p in zip(cells, polys):
+    for c, p in zip(cells, polys, strict=True):
         if c.role not in roles or role_side(law, c.role) != "airside" or not p.intersects(zone):
             continue
         ring = p.exterior
@@ -115,7 +115,7 @@ def _graph(roads) -> dict[tuple[int, int], set[XY]]:
     nb: dict[tuple[int, int], set[XY]] = {}
     for w in roads:
         pts = [(float(x), float(y)) for x, y in w.points]
-        for p, q in zip(pts[:-1], pts[1:]):
+        for p, q in zip(pts[:-1], pts[1:], strict=True):
             if p != q:
                 nb.setdefault(_key(p), set()).add(q)
                 nb.setdefault(_key(q), set()).add(p)
@@ -212,7 +212,7 @@ def _straight_m(line: LineString, width: float) -> float:
     :data:`_MAX_TURN_DEG` within every ``width`` of run."""
     pts = list(line.coords)
     heads, ss, s = [], [], 0.0
-    for p, q in zip(pts[:-1], pts[1:]):
+    for p, q in zip(pts[:-1], pts[1:], strict=True):
         d = math.dist(p, q)
         if d > 1e-9:
             heads.append(math.atan2(q[1] - p[1], q[0] - p[0]))

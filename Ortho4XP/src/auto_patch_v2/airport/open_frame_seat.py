@@ -36,7 +36,7 @@ import typing as _t
 __all__ = ["OPEN_KINDS", "rigid_open", "open_zero", "frame_zero", "unit_root",
            "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
-           "GROUP_REASON", "at_zero",
+           "GROUP_REASON", "at_zero", "walled_lead",
            "TOUCH_M"]
 
 #: the deck verdicts that make a member an OPEN structure — a deck
@@ -416,6 +416,20 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
     seated it.  A body carried by one of the unit's files takes it too
     (:func:`body_root`).  A body already within ``tol_m`` of its target is
     left as it is."""
+    lead = walled_lead(record, m)
+    if lead is not None:
+        # #1201 (owner sim read 2026-10-28, KSEA 16L): A WALLED PLATE'S DATUM
+        # LEADS ITS GROUP — every body of its origin set rides the plate,
+        # flush with the safety area (RULINGS 2026-10-27u); the group's median
+        # had sunk 16L's plate 2.7 m under the safety area
+        if any(b.anchor.surface_z is not None and abs(
+                float(b.anchor.surface_z) - float(b.anchor.y_zero) - lead) > tol_m
+               for b in record.bodies):
+            counts["walled_plate_led_groups"] = counts.get("walled_plate_led_groups", 0) + 1
+            return frame_zero(record, m, lead,
+                              f"{GROUP_REASON} led by its walled plate's datum at "
+                              f"{lead:.2f} (RULINGS 2026-10-27u, #1201)")
+        return record
     if not plan_wide or not zeros:
         return record
     roots = {id(b): body_root(b, plan_wide, file_root, root_boxes)
@@ -448,3 +462,17 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                        lambda b, _r=r: roots.get(id(b)) == _r and off(b),
                        f"{GROUP_REASON} {r} at {t:.2f} (RULINGS 2026-10-22o/q)")
     return out
+
+
+def walled_lead(record: _t.Any, m: _t.Any) -> "float | None":
+    """The zero of a RUNWAY-END WALLED PLATE's datum body (#1201, RULINGS
+    2026-10-27u: the plate sits flush with the safety area and every body of
+    its origin set rides it): the first body seated on its datum, for a
+    member marked ``plate_kind == "walled"``; ``None`` otherwise."""
+    if getattr(m, "plate_kind", "") != "walled":
+        return None
+    for b in record.bodies:
+        a = b.anchor
+        if a.surface_z is not None and getattr(a, "datum", False):
+            return float(a.surface_z) - float(a.y_zero)
+    return None

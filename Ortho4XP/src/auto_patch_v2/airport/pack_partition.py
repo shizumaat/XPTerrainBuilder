@@ -68,6 +68,7 @@ from . import line_object as _line
 from . import obj8 as _obj8
 from . import obj8_grade as _obj8_grade
 from . import pack_work as _work
+from .adapted_riders import riders_of_adapted as _riders
 from . import scatter as _scatter
 from . import skirt as _skirt
 from .pack import live_path_of
@@ -184,6 +185,10 @@ class PackPartition:
         # empty and the count is carried through untouched
         counts["multi_anchor"] = int(self.counts.get("multi_anchor", 0))
         dropped_multi: set[str] = set()
+        # #1599: a footless member resting on a terrain-adapted one stays
+        # with it (``adapted_riders``)
+        riders = _riders(self.units, self.member_object, self.contacts,
+                         screen.excluded)
         for ui, u in enumerate(self.units):
             members: list[Member] = []
             for mi, m in enumerate(u.members):
@@ -197,6 +202,12 @@ class PackPartition:
                                        "basin facility / structure member: the terrain "
                                        "adapted to THIS member (08-26; v1 R4; 09q (1): "
                                        "never its anchor family) — never re-seated")
+                    continue
+                if oid in riders:
+                    counts["adapted_riders"] = counts.get("adapted_riders", 0) + 1
+                    skipped.setdefault(opath,
+                                       "footless, resting on a terrain-adapted member "
+                                       "(#1599, 22o): kept with it, never re-seated")
                     continue
                 if oid in screen.facility:
                     counts["below_grade"] += 1

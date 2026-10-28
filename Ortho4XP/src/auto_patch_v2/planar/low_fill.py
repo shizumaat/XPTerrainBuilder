@@ -25,8 +25,10 @@ cells did not see; every piece of the rest thinner than a cell that touches
 the band goes with it.  Left as level, that strip stood the old plate's edge
 beside the road or lot across the band, and the road's cap to it held the
 road on the plate (KMCI ``dsf:objpav781``: 302.42 over band ground 301.0,
-welded 1 m to a 0.5 m strip of ``building26/b1/p1`` at 302.52).  The band leaves the level: the level's regions are what remains,
-and the band is no pad at all -- its ground places it, and the lot beside
+welded 1 m to a 0.5 m strip of ``building26/b1/p1`` at 302.52).
+
+The band leaves the level: the level's regions are what remains, and the
+band is no pad at all -- its ground places it, and the lot beside
 it keeps its own.  A level that would be left under ``[building_pad]
 min_area_m2`` is not cut (counted, ``low_level_fill_kept``).  The level's
 tie, its riser and its block are untouched, so the airside never sees the

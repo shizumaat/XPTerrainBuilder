@@ -20,7 +20,8 @@ __all__ = ["structure_vertices", "Platform", "LANDING_SEP",
            "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
            "datum_vertices", "stage_air_vertices",
-           "HOLD_RULING", "HOLD_DATUM_RULING", "FILL_KINDS", "fill_levels"]
+           "HOLD_RULING", "HOLD_DATUM_RULING", "FILL_KINDS", "fill_levels",
+           "widest_reach"]
 
 #: The head of the FRONTAGE HOLD rows (flat-pad spec §1 (2); RULINGS
 #: 2026-09-30f / 30r): a held block's welded contact at the block's datum.
@@ -129,6 +130,22 @@ def is_landing_ref(ref: object) -> bool:
 FILL_KINDS = ("plate", "piers")
 
 
+def widest_reach(held: _t.Mapping[str, _t.Any]) -> float:
+    """The widest FINITE reach band of a held block's contacts
+    (``samples_reach``, ``planar/pad_blocks.reach``), 0.0 without one.
+
+    A contact with no taxi edge in front of it reaches ``inf``: no taxiway
+    bounds it, so it carries no band of its own and adds nothing to the
+    highest level the datum pin may hold the block at.  Read through the
+    infinity, a block of such contacts published an INFINITE fill level
+    that every road mouth on the fill took as its ramp target (#1577:
+    VHHH's solve returned NaN, 3,581 ``sentinel_elevation`` rows)."""
+    import math
+    sr = held.get("samples_reach")
+    return max((float(r) for r in (sr if sr is not None else ())
+                if math.isfinite(float(r))), default=0.0)
+
+
 def fill_levels(planar: _t.Any, kinds: "_t.Collection[str] | None" = None
                 ) -> dict[str, dict[str, _t.Any]]:
     """``{landing ref: {"block", "y", "z_hi", "vertices"}}`` for every
@@ -147,10 +164,8 @@ def fill_levels(planar: _t.Any, kinds: "_t.Collection[str] | None" = None
         hb = reg.held.get(rec["block"]) or {}
         if hb.get("datum_pred") is None:
             continue
-        sr = hb.get("samples_reach")
-        reach = max((float(r) for r in (sr if sr is not None else ())), default=0.0)
         out[ref] = {"block": rec["block"], "y": float(rec["y"]),
-                    "z_hi": float(hb["datum_pred"]) + reach + float(rec["y"]),
+                    "z_hi": float(hb["datum_pred"]) + widest_reach(hb) + float(rec["y"]),
                     "vertices": set()}
     if not out:
         return out

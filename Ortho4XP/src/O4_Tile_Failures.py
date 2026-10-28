@@ -421,6 +421,7 @@ EXCEPTION_CODES = {
     "RulesError": UNMAPPED_AIRPORT,
     "OrphanShapeError": UNMAPPED_AIRPORT,
     "OutsideMeshError": UNMAPPED_AIRPORT,
+    "NonFiniteDesign": UNMAPPED_AIRPORT,
     "StrippedField": UNMAPPED_AIRPORT,
     "Unreplayable": UNMAPPED_AIRPORT,
     # a stage-cache record that may not be served (#843): caught inside

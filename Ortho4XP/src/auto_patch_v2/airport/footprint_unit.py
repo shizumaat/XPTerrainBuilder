@@ -939,12 +939,15 @@ def _below_its_pad(cc: _t.Sequence[tuple], pad: _t.Any, storey: float,
 
 def _surface_reads_pad(pad: _t.Any, plane: float, storey: float,
                        surface: _t.Any) -> bool:
-    """Is the surface over ``pad``'s rings, at its median, within a storey
-    of the pad's ``plane`` — the pad's own face, not another ground?"""
-    zs = [surface(la, lo) for rg in (getattr(pad, "rings", ()) or (pad.ring,))
-          for la, lo in rg]
-    zs = [float(z) for z in zs if z is not None]
-    return bool(zs) and abs(_median(zs) - plane) < storey
+    """Does the surface read ``pad``'s ``plane`` over at least one of its
+    faces (that face's ring median within a storey of it) — the pad's own
+    face, not another ground under the sampler?"""
+    for rg in (getattr(pad, "rings", ()) or (pad.ring,)):
+        zs = [surface(la, lo) for la, lo in rg]
+        zs = [float(z) for z in zs if z is not None]
+        if zs and abs(_median(zs) - plane) < storey:
+            return True
+    return False
 
 
 def _unit_root(uid: str) -> str:

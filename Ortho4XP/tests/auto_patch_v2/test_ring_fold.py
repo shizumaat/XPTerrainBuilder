@@ -155,3 +155,58 @@ def test_include_patches_names_a_dropped_ring_at_verbosity_zero(monkeypatch):
     assert len(said) == 1
     assert "ERROR" in said[0] and "KMCI_auto.patch.osm" in said[0]
     assert "-10349" in said[0] and "building26/b1" in said[0]
+
+
+# --- issue #1606: a SHORE WELD move never folds a ring -----------------------
+
+#: THE KRNT SLIVER in metres (runway 3's zone-2 strip, 47.5005308,
+#: -122.2164140): the ring's far edge S0 -> S1 runs 0.2 m off the shore and
+#: snaps onto the water's two vertices; the spike R stands 0.3 m off the
+#: same water edge, mid-edge, and the weld projects it onto that edge —
+#: onto the ring's own snapped far edge: a self-touch the mesh drops.
+SLIVER = [(0.0, 1.2), (20.0, 1.2), (20.0, -10.0), (11.0, -10.0), (10.0, 0.7),
+          (9.0, -10.0), (0.0, -10.0)]
+R = 4
+SHORE = ((0.0, 1.0), (20.0, 1.0))
+
+
+def _weld(pts):
+    from auto_patch_v2.emit.osm_adapter import weld_to_shore
+    rep = WeldReport()
+    out = weld_to_shore(_surface(pts, role="graded_strip",
+                                 ref="adjacent_ground:runway:3:zone2#9"),
+                        Law.for_airport("KMCI"),
+                        [(_ll(*SHORE[0]), _ll(*SHORE[1]))], rep)
+    return out, rep
+
+
+def test_the_weld_alone_folds_the_sliver(monkeypatch):
+    """The fixture IS the class: with the refusal off, the weld's snap +
+    projection turn the simple sliver into a ring the mesh drops."""
+    import auto_patch_v2.emit.osm_adapter as oa
+    assert ring_is_simple(SLIVER)
+    monkeypatch.setattr(oa, "refuse_moves_that_fold", lambda *a, **k: [])
+    out, rep = _weld(SLIVER)
+    assert rep.snapped == 2 and rep.projected == 1
+    assert len(ring_folds(out)) == 1
+
+
+def test_the_weld_refuses_the_move_that_folds_a_ring():
+    """A WELD MOVE NEVER FOLDS A RING: the projection is refused, R keeps
+    its coordinate and is counted left beside the shore; the snaps stand."""
+    out, rep = _weld(SLIVER)
+    assert ring_folds(out) == []
+    assert rep.weld_refused == 1
+    assert rep.snapped == 2 and rep.projected == 0 and rep.stranded == 1
+    vll = {v.id: v.ll for v in out.vertices}
+    assert vll[R] == _ll(*SLIVER[R])
+    assert vll[0] == _ll(*SHORE[0])
+
+
+def test_a_projection_that_folds_nothing_still_lands():
+    """The refusal reads the fold, not the move: with the far edge 3 m off
+    the shore the same spike is projected onto the water edge as before."""
+    pts = [(0.0, 3.0), (20.0, 3.0)] + SLIVER[2:]
+    out, rep = _weld(pts)
+    assert rep.weld_refused == 0 and rep.projected == 1
+    assert ring_folds(out) == []

@@ -12,6 +12,9 @@ Two readings live here, one per caller:
 * :func:`folded` — the closed sequences a vertex remap turns from simple
   into NOT simple; ``osm_adapter.merge_sub_spacing`` refuses every merge
   that folds one;
+* :func:`refuse_moves_that_fold` — the same refusal for the SHORE WELD's
+  coordinate moves and drops (issue #1606): ``osm_adapter.weld_to_shore``
+  reverts every snap, projection or drop that folds a ring;
 * :func:`ring_folds` — every emitted face ring and hole of a surface that
   is not simple, as rows; the verify stage fails the airport on one
   (``pipeline/verify_stage``), so an invalid ring never ships silently.
@@ -22,7 +25,8 @@ import typing as _t
 
 from shapely.geometry import Polygon
 
-__all__ = ["ring_is_simple", "collapsed", "folded", "ring_folds", "FAMILY_RING_FOLD"]
+__all__ = ["ring_is_simple", "collapsed", "folded", "refuse_moves_that_fold",
+           "ring_folds", "FAMILY_RING_FOLD"]
 
 #: the DEFECT family a non-simple emitted ring is reported under
 FAMILY_RING_FOLD = "ring_fold"
@@ -71,6 +75,69 @@ def folded(seqs: _t.Sequence[_t.Sequence[int]], remap: _t.Mapping[int, int],
                 and ring_is_simple([pxy[i] for i in ids])):
             out.append(k)
     return out
+
+
+def refuse_moves_that_fold(rings: _t.Mapping[_t.Hashable, _t.Sequence[int]],
+                           drops: dict[_t.Hashable, set[int]],
+                           moved: dict[int, XY], ll: _t.Mapping[int, XY],
+                           key: _t.Callable[[int], _t.Any]) -> list[int]:
+    """A WELD MOVE NEVER FOLDS A RING (issue #1606; the #1275 law for the
+    shore weld).  ``rings`` are the closed sequences by key, ``drops`` the
+    vertices the weld takes out of each, ``moved`` the new ``(lat, lon)``
+    of every vertex it snaps or projects, ``ll`` every vertex's old one.
+
+    MEASURED KRNT (47.5005308, -122.2164140): runway 3's zone-2 strip ran
+    along the shore as a 0.3 m sliver; the weld snapped its far edge onto
+    the water's vertices and projected the near corner onto the same water
+    edge, so the corner stood ON the ring's own far edge — a self-touch the
+    mesh drops, and verify dropped the airport's patch.
+
+    For every ring that was simple before the weld and is not after it,
+    the FIRST change (vertex in ``key`` order) whose refusal alone leaves
+    it simple is reverted, or every change it carries when none does.
+    ``moved`` and ``drops`` are edited in place; a reverted move is undone
+    in every ring sharing the vertex, so no ring tears.  Each pass reverts
+    at least one change, so the loop ends.  Returns the reverted vertices
+    (a move or a drop each)."""
+    def pts(ids: _t.Iterable[int], mv: _t.Mapping[int, XY]) -> list[XY]:
+        out = []
+        for i in ids:
+            q = mv.get(i, ll[i])
+            out.append((float(q[1]), float(q[0])))
+        return out
+
+    def after(k, mv=moved, dr=None) -> list[XY]:
+        gone = drops.get(k, set()) if dr is None else dr
+        return pts((i for i in rings[k] if i not in gone), mv)
+
+    touched = [k for k, ids in rings.items()
+               if drops.get(k) or any(i in moved for i in ids)]
+    was = {k: ring_is_simple(pts(rings[k], {})) for k in touched}
+    reverted: list[int] = []
+    while True:
+        bad = [k for k in touched if was[k] and not ring_is_simple(after(k))]
+        if not bad:
+            return reverted
+        for k in bad:
+            if ring_is_simple(after(k)):
+                continue                    # an earlier revert settled it
+            cand = sorted({("move", i) for i in rings[k] if i in moved}
+                          | {("drop", i) for i in drops.get(k, ())},
+                          key=lambda c: (key(c[1]), c[0]))
+            pick = cand
+            for c in cand:
+                mv = {i: q for i, q in moved.items()
+                      if not (c[0] == "move" and i == c[1])}
+                dr = drops.get(k, set()) - ({c[1]} if c[0] == "drop" else set())
+                if ring_is_simple(after(k, mv, dr)):
+                    pick = [c]
+                    break
+            for what, i in pick:
+                if what == "move":
+                    moved.pop(i, None)
+                else:
+                    drops[k].discard(i)
+                reverted.append(i)
 
 
 def ring_folds(surface) -> list[dict]:

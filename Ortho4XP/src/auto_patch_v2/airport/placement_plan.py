@@ -126,6 +126,7 @@ from .open_frame_seat import (  # noqa: E402
     group_zero as _group_zero, open_zero as _open_zero,
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
     rigid_open as _rigid_open, root_zeros as _root_zeros)
+from .pad_level_group import pad_level_links as _pad_level_links  # noqa: E402
 from .placement_file import (  # noqa: E402,F401
     OWN_GROUND, authored_offset, _carried_file, _cut_and_file,
     _deck_rider, _geom_hull, _geom_pts, _group_bodies,
@@ -984,6 +985,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # as one group, in any frame, at the airside share's zero
         if len(_rboxes) > 1:
             _rmerge = _unchained_links(u, _pw or {}, _rmerge, _gz_air, counts)
+            # 28p (2) (#1572): a unit drawn higher than its pad's largest
+            # unit sinks to that group's level; never floats off the pad
+            _rmerge = _pad_level_links(u, _pw or {}, _rmerge, _gz, _gz_air,
+                                       counts)
         written_of: dict[int, bool] = {}
         # 14at: the FILE a carrier group was actually written as.  A
         # candidate's own ``resource`` is a body SLOT's id — it is

@@ -58,8 +58,7 @@ from shapely.ops import unary_union
 from ..geom.parts import nonempty_polygon_parts
 from ..geom.valid_area import valid_area
 from ..model.planar import STRIP_SUFFIX
-from .low_level import (_densest, _ground, _plane_band, _ring_poly, level_cut,
-                        top_level, unit_share)
+from .low_level import _densest, _ground, _plane_band, _ring_poly, level_cut, top_level, unit_share
 
 __all__ = ["WITNESS", "covered_corridors", "covered_cut_taken", "plan_covered", "trim_uncut"]
 
@@ -150,6 +149,7 @@ def _top(parts, air, airport, law, to_xy, near: float, R) -> "float | None":
     airport, read 241.06 m on the solved apron and stood the trench 2 m
     over its objects) -- else the frontage level (``low_level.top_level``)."""
     import shapely
+
     from ..airport.airside_group_seat import PLANE_MIN_FEET
     from .low_level import walled_feet
     xy, ys = walled_feet(parts, law, to_xy)

@@ -36,7 +36,9 @@ def test_bridge_bore_and_plain_ways_leave_the_pad_whole():
         assert len(out) == 1 and abs(out[0].area - 10000.0) < 1e-6, tags
 
 
-def test_a_building_passage_in_a_cutting_is_still_a_cut():
+def test_a_building_passage_in_a_cutting_stays_in_the_pad_for_the_planar_stage():
+    """#1333: the cut UNDER a building is the building's lower level
+    (``planar/covered_cut``), or trimmed there where none is minted."""
     out = _trim({"railway": "rail", "cutting": "yes",
                  "tunnel": "building_passage"})
-    assert abs(out[0].area - 9300.0) < 1e-6
+    assert abs(out[0].area - 10000.0) < 1e-6

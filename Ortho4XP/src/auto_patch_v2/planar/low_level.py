@@ -78,7 +78,7 @@ from ..model.planar import STRIP_SUFFIX, plane_ref
 from ..model.registries import Registries
 
 __all__ = ["LOW_KIND", "UP_KIND", "level_cut", "low_level_split", "plan_low", "plan_up",
-           "stand_floor", "unit_share", "walled_feet"]
+           "stand_floor", "top_level", "unit_share", "walled_feet"]
 
 #: the ``Registries.landings`` record kind of a lower level (a ramp
 #: landing's record carries no kind)
@@ -231,24 +231,12 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
     parts = _unit_parts(P, airport, to_xy)
     if not parts:
         return None
-    # THE SEAT'S TWO FOOT LEVELS where the airport names its stands (module
-    # docstring, RULINGS 2026-10-23b); else the round-3 frontage reading
-    lv = feet_levels(parts, air, _stands_xy(airport, to_xy), law, to_xy)
-    if lv is not None and lv[1] is not None:
-        t, y_feet = lv
+    top = top_level(parts, air, airport, law, to_xy, near)
+    if top is None:
+        return None
+    t, y_feet = top
+    if y_feet is not None:
         step_min = 2.0 * _plane_band()
-    else:
-        y_feet = None
-        front = air.buffer(near)
-        top_ys = [p.base_y for p, _xy in parts
-                  if any((g := _ring_poly(rg, to_xy)) is not None and g.intersects(front)
-                         for rg in p.rings)]
-        if not top_ys:
-            return None
-        # THE FRONTAGE LEVEL: the base most of the frontage parts stand at (a
-        # canopy edge or a roof trim at the frontage stands ABOVE it, a buried
-        # sill below — neither is the floor the apron meets)
-        t = min(_st.multimode(round(y) for y in top_ys))
     low_parts = [p for p, _xy in parts if p.base_y <= t - step_min]
     if not low_parts:
         return None
@@ -280,6 +268,28 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
            "low_parts": len(low_parts), "area_m2": round(L.area, 1),
            "ground_z": g_lo, "ground_high_z": g_hi}
     return H, L, S, rec
+
+
+def top_level(parts, air, airport, law, to_xy, near: float
+              ) -> "tuple[float, float | None] | None":
+    """``(t, y_feet)``: the TOP level ``t`` a held pad's unit ``parts``
+    meet the airside ``air`` at, and the lower storey's foot plane
+    ``y_feet`` where the stands read one (RULINGS 2026-10-23b, the seat's
+    two foot levels) -- else ``(t, None)`` with ``t`` the round-3
+    FRONTAGE level: the base most of the parts within ``near`` of the
+    airside stand at (a canopy edge or a roof trim at the frontage stands
+    ABOVE it, a buried sill below -- neither is the floor the apron meets).
+    ``None`` where no part fronts the airside."""
+    lv = feet_levels(parts, air, _stands_xy(airport, to_xy), law, to_xy)
+    if lv is not None and lv[1] is not None:
+        return lv
+    front = air.buffer(near)
+    top_ys = [p.base_y for p, _xy in parts
+              if any((g := _ring_poly(rg, to_xy)) is not None and g.intersects(front)
+                     for rg in p.rings)]
+    if not top_ys:
+        return None
+    return min(_st.multimode(round(y) for y in top_ys)), None
 
 
 def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None
@@ -494,6 +504,9 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
             groups.setdefault(ref, []).append(r)
     done: dict[str, list | None] = {}
     floor_of = _group_floors(airport, air_polys, tree, law)
+    from .covered_cut import covered_corridors, plan_covered
+    cov = covered_corridors(airport, law)
+    cov_reach = covered_corridors(airport, law, widen=1.0) if cov is not None else None
     for ref, regs in sorted(groups.items()):
         if held[ref].get("conforming"):
             continue
@@ -508,8 +521,17 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                               and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))])
         try:
             why: list = []
-            got = (plan_low(P, air, airport, law, grid, others, why)
-                   if unit_base(P, airport)[0] == STEPPED else None)
+            # a covered cutting under the pad is its lower level at the
+            # objects' bottom (``planar/covered_cut``, #1333)
+            got = (plan_covered(P, air, airport, law, grid, cov, others, why, cov_reach)
+                   if cov is not None and P.intersects(cov) else None)
+            if why:
+                k = "covered_cut_refused"
+                counts[k] = counts.get(k, 0) + 1
+                counts.setdefault(k + "_list", []).append(f"{ref}: {why[0]}")
+                why = []
+            if got is None and unit_base(P, airport)[0] == STEPPED:
+                got = plan_low(P, air, airport, law, grid, others, why)
             if got is None:
                 # a pad holding ONE level a storey under its group's floor
                 # is the group's lower level (``planar/group_low``, #1214
@@ -564,6 +586,10 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     counts["low_level_list"] = "; ".join(
         f"{k} on {v['block']} band [{v['y_lo']:+.2f}, {v['y_hi']:+.2f}] {v['area_m2']:g} m2"
         for k, v in sorted(reg.landings.items()) if v.get("kind") == LOW_KIND)
+    counts["covered_cut_levels"] = "; ".join(
+        f"{k} on {v['block']} y {v['y_lo']:+.2f} {v['area_m2']:g} m2 (cut {v['cut_m2']:g} m2, "
+        f"{v['feet_on_plane']}/{v['feet_read']} feet on the plane, DEM {v['ground_z']})"
+        for k, v in sorted(reg.landings.items()) if v.get("witness") == "covered_cut")
     counts["upper_levels"] = "; ".join(
         f"{k} on {v['block']} +{v['y']:.2f} {v['area_m2']:g} m2"
         for k, v in sorted(reg.landings.items()) if v.get("kind") == UP_KIND)

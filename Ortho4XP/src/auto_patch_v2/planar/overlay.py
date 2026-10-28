@@ -343,6 +343,13 @@ def build_arrangement(airport: Airport, classification: Classification,
                                                 airport=airport, reg=reg,
                                                 storey=_storey_lots(cells))
             _pad_clip.update(_plat)
+        # #1333: a covered cutting no lower level took leaves every pad
+        # (``planar/covered_cut``; #1179: a pad never fills a cut)
+        from .covered_cut import trim_uncut
+        _cut_counts: dict = {}
+        pad_regions = trim_uncut(pad_regions, airport, law, reg, _cut_counts)
+        if keeps:
+            _pad_clip.update(_cut_counts)
         _arr_memo.hold(fkey, airport, law, {
             "reg": reg, "cells": cells, "weld": weld, "ridges": ridges,
             "regions": regions, "erep": erep, "edge_lines": edge_lines,
@@ -473,9 +480,11 @@ def build_arrangement(airport: Airport, classification: Classification,
     if ribbon_cells:
         from .ribbons import _ribbons_pass_c   # lazy: ribbons imports this module
         nodes_b = _node_coords(noded)
+        from .covered_cut import covered_corridors
         noded, regions, frozen, air_f, base_order = _ribbons_pass_c(
             ribbon_cells, noded, noded, [], regions, bands, law, keeps,
-            float(grid), _ring_lines_of, _pad_clip, reg, air_nodes=air_nodes)
+            float(grid), _ring_lines_of, _pad_clip, reg, air_nodes=air_nodes,
+            cut=covered_corridors(airport, law))
         if frozen is not None:
             _pad_clip.update({f"ribbon_{k}": v for k, v in _renode_counts(
                 nodes_b, _node_coords(noded),

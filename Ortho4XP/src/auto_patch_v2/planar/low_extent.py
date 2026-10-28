@@ -77,7 +77,11 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
     pavement no aircraft reaches once the pads stand -- a piece of it the
     lower footprint meets is the footprint too (19ag, #1302)."""
     from ..model.stage_one import deriving
-    lows = {r: v for r, v in reg.landings.items() if v.get("kind") == LOW_KIND}
+    # a covered cut's level is the cut's, no storey of the group: it extends
+    # along nothing (``planar/covered_cut``, #1333)
+    from .covered_cut import WITNESS as _COVERED
+    lows = {r: v for r, v in reg.landings.items() if v.get("kind") == LOW_KIND
+            and v.get("witness") != _COVERED}
     if not lows or getattr(airport, "partition", None) is None or not air_all:
         return regs
     to_xy = airport.frame.entry()

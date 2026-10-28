@@ -253,8 +253,15 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # moved stage 1 — taxi 294 nodes <= 0.08 m, apron 46 <= 0.10 m)
     _keep = float(law.tables.emit.design.bank_min_width_m)
     air_u = unary_union(list(air_polys))
+    # A LANDING NEVER FILLS A MAPPED CUTTING (#1179 at its second mint,
+    # #1333): a plate over the corridor #1183 cut out of its pad filled it
+    # back up (MEASURED LFLL: 16 fills at 239.3-239.8 m over the 229.5 m TGV
+    # trench under the station), so the corridor is taken like a pad
+    from ..classify.pad_cut_corridor import cutting_corridors
+    _cut = cutting_corridors(airport, law)
     base_hard = unary_union([r.polygon for r in out if r.polygon is not None]
-                            + [air_u.buffer(_keep) if _keep > 0.0 else air_u])
+                            + [air_u.buffer(_keep) if _keep > 0.0 else air_u]
+                            + ([_cut] if _cut is not None else []))
     taken = base_hard
     plats: list = []
     for key, bref, voters, unit, tmpl, pieces in recs:

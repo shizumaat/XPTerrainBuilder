@@ -28,14 +28,17 @@ __all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts", "airside_vertex_set"]
 
 def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law: Law,
                     keeps: bool, grid: float, ring_lines_of, counts: dict, reg,
-                    air_nodes=None):
+                    air_nodes=None, cut=None):
     """RULINGS 2026-09-30aa rules 2, 9-10 (#100) — THE MAPPED-ROAD RIBBONS
     JOIN THE FINISHED AIRSIDE.  The arrangement WITHOUT them (pass A and
     the pads, ``noded``) is finished first — claimed, merged, absorbed and
     its zone slivers dissolved (``_faces_of``) — and its AIRSIDE FACES are
     the union each ribbon is clipped by and welded to (``pad_cut.
     airside_clip``, the pads' own clip: crossings quantised to that
-    arrangement's rim NODES, no stand-off, no sliver).  Finishing first is
+    arrangement's rim NODES, no stand-off, no sliver).  ``cut``: the
+    covered cuttings (``planar/covered_cut``), out of which every ribbon is
+    cut first -- the road over a cut under a building is the building's
+    deck, never ground in the cut (#1333).  Finishing first is
     what makes the airside the same with and without the ribbons: a zone
     sliver the airside absorbs (HECA 05L/23R's zone1#9, 110.9 m²) is
     airside to the ribbon too, so the ribbon never re-cuts it.  Returns the
@@ -64,8 +67,13 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
     keep_out = unary_union([shapely.set_precision(r.polygon, 0.0) for r in regions
                             if r.source == "cell" and r.role not in rolled
                             and not is_rigid_role(law, r.role)])
+    cells = [cell_region(c) for c in ribbon_cells]
+    if cut is not None and not cut.is_empty:
+        cells = [_dc.replace(r, polygon=q) for r in cells
+                 for q in (_grid_parts(r.polygon.difference(cut), grid)
+                           if r.polygon.intersects(cut) else [r.polygon])]
     ribs, rc = airside_clip(
-        [cell_region(c) for c in ribbon_cells],
+        cells,
         law, air=clip_f, nodes=nodes_b, rim=rim_f, select=lambda r: True,
         near_m=rim_f.band, keep_out=keep_out)
     counts.update({f"ribbon_{k}": v for k, v in rc.items()})

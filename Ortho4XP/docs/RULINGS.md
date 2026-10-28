@@ -10498,3 +10498,7 @@ Also (owner, same message): the ThunderBlade drive holds only ortho tiles; every
 - Q272 (A): at the HECA wall bend (#507), the 4.18 m step across the 3.10 m wall is reported as a defect (census reading, #1614). The two-pass stage-1 redesign comes after beta 5.
 - Q273 (a): at KMCI (#1572/#1610), a road inside a lower level's cut-off fill band drops to the band's ground. The owner will verify this in the sim.
 - Q275 (A): the coordinator could not place this question. The answer is recorded as given.
+
+**2026-10-28v: owner answers Q274 and Q276 (Noah, 2026-10-28T19:28:48Z and 19:29:11Z, verbatim: "274: yes wait", "276: b").**
+- Q274 (a): the NZWN car-park work (#1338/#1586) waits until after beta 5. It was dropped from batch AM after the sweep found that it lifts a KCLT terminal lot 18 m.
+- Q276 (b): weekly usage may go about 2 % past the 85 % line, to about 88 %, for exactly two changes before Friday: Q271 (KATL sloped cut floor) and Q273 (KMCI road drops to the cut band's ground). Nothing else.

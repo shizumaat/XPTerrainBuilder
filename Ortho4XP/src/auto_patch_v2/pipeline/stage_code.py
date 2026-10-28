@@ -1451,6 +1451,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.ring_contact_batch
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
+    airport.trench_objects
     airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
@@ -1489,7 +1490,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
-    planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
+    planar.channel_witness planar.chords planar.covered_bores
+    planar.covered_ground planar.door_ramps
     planar.dual_width planar.edges planar.landing planar.landing_runout
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
@@ -1551,6 +1553,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.ring_contact_batch
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
+    airport.trench_objects
     airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
@@ -1602,7 +1605,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
-    planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
+    planar.channel_witness planar.chords planar.covered_bores
+    planar.covered_ground planar.door_ramps
     planar.dual_width planar.edges planar.landing planar.landing_runout
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver

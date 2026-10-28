@@ -15,13 +15,12 @@ runway 25R threshold; every other tunnel reader refused them ("no floor
 plate", "an open ramp", "datum relief") or never screened them.
 
 The object's OUTLINE is the union of its solids' plan (the notch the
-author drew, never a box).  Two readers use it, both owner-ruled:
-
-* ``planar/covered_bores`` — a ``covered=yes`` way with a trench object
-  at an end is a bore (Q255 a, amends 2026-09-11aq A);
-* ``planar/structures`` — the graded zones keep off the outline (Q256 b:
-  "graded terrain should come right up to it on 3 sides with only the
-  road grading down to it's low edge on the front side").
+author drew, never a box).  Its reader is ``planar/covered_bores``: a
+``covered=yes`` way with a trench object at an end is a bore (Q255 a,
+amends 2026-09-11aq A).  Q256 b's "graded terrain should come right up to
+it on 3 sides with only the road grading down to it's low edge on the
+front side" — the zones keeping off the outline — is HELD: measured on
+EDDF it regressed the taxiway the object passes under (spec E3).
 
 The depth stays the survey's or the bore law's (20e: the pack portal sets
 the mouth only where the ground does not already carry the cutting).
@@ -44,7 +43,7 @@ from . import obj8 as _obj8
 from .obj8_clip import _bulk_polys
 from .object_cut import _plan_segments
 
-__all__ = ["TrenchObject", "read_trench_objects", "trench_keepouts", "covered_candidates"]
+__all__ = ["TrenchObject", "read_trench_objects", "covered_candidates"]
 
 
 @_dc.dataclass(frozen=True)
@@ -131,37 +130,3 @@ def read_trench_objects(objects: _t.Sequence[_obj8.PlacedObject],
                      f"{sorted({w for _p, w in at})}, outline {placed.area:.0f} m2")
     out.sort(key=lambda t: t.object_id)
     return out, sorted(notes)
-
-
-def trench_keepouts(trenches: _t.Sequence[TrenchObject], bores, tol_m: float,
-                    cover: _t.Sequence = ()) -> tuple[list, list[str]]:
-    """THE ZONES KEEP OFF A TRENCH OBJECT AT A BORE END (RULINGS 2026-10-28s
-    (6), Q256 b): ``(the outline's polygons, one note per object)`` for each
-    trench object whose outline stands within ``tol_m`` of an end of a bore
-    of ``bores`` (built, refused or survey-decided alike: the pack drew the
-    trench whatever the engine cuts).  The polygons join the structure
-    pass's keepouts — the one region the graded zones stop at — so the
-    terrain meets the object on its sides and the road alone grades to its
-    front edge.
-
-    ``cover`` is the classification's cell polygons (pavement, pads, roads):
-    a keepout is GROUND the zones would have graded, never a cell, so the
-    outline is trimmed by them at this one site.  MEASURED EDDF (replay of
-    the registered l1028 capture): untrimmed, ``Tunnel_4.obj``'s outline
-    took the taxiway ``pav76`` it passes under out of the arrangement — 64
-    ``airside_no_step`` and 22 ``taxi_box`` rows on the taxiway east of
-    the runway 25R threshold (ADJUDICATED 4824 -> 4923)."""
-    ends = [Point(p) for b in bores for p in (b.points[0], b.points[-1])]
-    cut = shapely.union_all(np.array(list(cover), dtype=object)) if len(cover) else None
-    polys: list = []
-    notes: list[str] = []
-    for t in trenches:
-        if not any(t.outline.distance(e) <= tol_m for e in ends):
-            continue
-        ground = t.outline if cut is None else t.outline.difference(cut)
-        parts = [g for g in shapely.get_parts(ground)
-                 if g.geom_type == "Polygon" and not g.is_empty]
-        polys.extend(parts)
-        notes.append(f"{t.object_id} {os.path.basename(t.resource)}: the zones keep off its "
-                     f"outline ({sum(g.area for g in parts):.0f} m2; RULINGS 2026-10-28s (6))")
-    return polys, notes

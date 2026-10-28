@@ -466,10 +466,9 @@ def structure_records(airport, cl, law) -> dict:
         # #1343: the mouths a pack portal pinned, and the ones left to the bore law
         "portal_mouths": list(sstats.portal_mouths),
         "portals_unpinned": list(sstats.portals_unpinned),
-        # 2026-10-28s (5)/(6): covered bores, trench objects, their keepouts
+        # 2026-10-28s (5): covered bores and the trench objects they read
         "covered_bores": list(sstats.covered_bores),
         "trench_objects": list(tstats.trench_notes),
-        "trench_keepouts": list(sstats.trench_keepouts),
         "portals_in_strip": list(sstats.portals_in_strip),
         "crest_from_approach": list(sstats.crest_from_approach),
         # spec §34 (5): the crossings an aeroway bridge stated

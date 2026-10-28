@@ -115,7 +115,6 @@ from .lidar_road import (is_rail_group, survey_design_grade, survey_mouth, surve
                          survey_mouth_refusal, survey_trench, under_airside_pavement)
 from .dual_width import compose_half_fn, dual_half_fn
 from .covered_bores import covered_bore_ways
-from ..airport.trench_objects import trench_keepouts
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, portal_mouth,
                               portal_note, strip_keepout)
 from .zones import shore_region
@@ -1067,10 +1066,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         keepouts = [f for f, k in zip(keepouts, keep) if k]
     stats.tunnels = len(tunnels)
     stats.survey_cuts = len(survey_cuts)
-    # 2026-10-28s (6) Q256 b: the zones keep off a pack trench object at a bore end
-    t_keep, stats.trench_keepouts = trench_keepouts(trenches, bores, tn.object.bore_end_tolerance_m,
-                                                    polys)
-    survey_cuts.extend(t_keep)
     keepouts.extend(survey_cuts)
     if not add_channel_cells(channels, law, new_cells, footprints, keepouts, stats) \
             and not tunnels:

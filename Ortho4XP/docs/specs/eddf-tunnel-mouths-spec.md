@@ -1,6 +1,6 @@
 # EDDF tunnel mouths on the LFPG cuts rules (#1028 part C)
 
-Status: E1, E2 and E3 BUILT (lane `l1028`, branch `claude/l1028-eddf-mouths`,
+Status: E1 and E2 BUILT, E3 MEASURED AND HELD (see E3) (lane `l1028`, branch `claude/l1028-eddf-mouths`,
 PR #1593, stacked on `claude/llfpgcut-cuts-tunnels` 4dd8956cd, PR #1580).
 Q-A and Q-B were ruled by the owner on 2026-10-28T14:52:14Z (RULINGS
 2026-10-28s (5) and (6): Q255 a, Q256 b). Owner scope for beta 5 (2026-10-28): "For beta 5 I would like
@@ -143,33 +143,52 @@ alone. A coarse DEM reads no cut (14f), so there only a trench object
 admits.
 
 **E3 — THE ZONES KEEP OFF A PACK TRENCH OBJECT AT A BORE END (RULINGS
-2026-10-28s (6), Q256 b).** The owner: "if it's a tunnel mouth object, then
-typically graded terrain should come right up to it on 3 sides with only
-the road grading down to it's low edge on the 'front' side."
+2026-10-28s (6), Q256 b). MEASURED AND HELD.** The owner: "if it's a tunnel
+mouth object, then typically graded terrain should come right up to it on 3
+sides with only the road grading down to it's low edge on the 'front'
+side."
 
-A trench object (`airport/trench_objects.read_trench_objects`, read once
-beside the portals in `tunnel_objects.read_corridors`) is a placed pack
-object that meets all of these:
+The trench object (`airport/trench_objects.read_trench_objects`, read once
+beside the portals in `tunnel_objects.read_corridors`, and E2's witness) is
+a placed pack object that meets all of these:
 
 - It is not a stock library object, and no corridor, shell or portal has
   taken it.
 - Its solids hang at least `[tunnel.object] shell_floor_min_m` under its
   zero.
-- They stand no more than `[bridge] clearance_minimum_m` above it (no
-  roof and no building over the road).
+- They stand no more than `[bridge] clearance_minimum_m` above it.
 - Its plan holds a mapped tunnel or covered road end within
   `bore_end_tolerance_m`.
 
-Its OUTLINE is the union of its solids' plan: the plates' polygons and the
-walls' plan segments, the notch as the author drew it. Every trench
-object at an end of a bore of the pass, whether built, refused or decided
-by the survey, adds its outline to the structure pass's keepouts
-(`trench_keepouts`). Those keepouts are R2's region, the one the graded
-zones stop at. So the terrain meets the object on its sides, and only the
-road grades to its front edge. Depth stays the survey's or the bore law's
-(20e).
+Its outline is the union of its solids' plan: the plates and the walls'
+plan segments.
 
-### Consumer census for E2 / E3 (RULINGS 2026-08-30l)
+Built and measured (commits a67117871 / 7ec4cb374): every trench object at
+a bore end added its outline to the structure pass's keepouts (R2's region),
+first whole, then less the classification's cells.
+
+- EDDF closing build `l1028r2` against the control `l1028ctl2`:
+  ADJUDICATED 5280 → 5375, airside 2273 → 2347. CRITICAL motion 1 → 0
+  (the apron | apron step at 50.04414, 8.54181 is gone).
+- The census replay on the registered capture splits it:
+  - E1+E2 arm: 4824.
+  - E1+E2+E3 arm: 4923.
+  - With the cells trimmed out: 4922.
+- The +73 airside rows are 64 `airside_no_step` and 22 `taxi_box` rows
+  inside taxiway `pav76`. That is the cross connector over the `Tunnel_4`
+  trench, about 700 m east of the runway 25R threshold (50.0444, 8.5440).
+
+Reading: the keepout leaves the survey's 7 m trench floor as ground right
+against the taxiway deck's edges, and the solve pulls the deck toward it.
+Nothing declares that edge a wall (20as: "the cut … encompasses the
+object"). The fix is a declared wall at the outline's edge against
+airside pavement, so the zones stop at the object and the taxiway edge is
+the pack's wall. It needs its own spec, and it is over this lane's two
+iterations. `Tunnel_3` and `Tunnel_4` are read as trench objects at EDDF.
+At KATL `tunel_A/B/C` and at LFPG `C1.obj` and `2A_70.obj` are read too,
+the same objects batch AK's `bridge_span` reads at KATL.
+
+### Consumer census for E2 (RULINGS 2026-08-30l)
 
 | reader | reads | E2 / E3 |
 |---|---|---|
@@ -177,9 +196,9 @@ road grades to its front edge. Depth stays the survey's or the bore law's
 | `structure_approach.mouths` / R1 `survey_mouth` / slide / 31h | the bore's two ends | read the covered bore as any bore |
 | `structure_approach.approach`, `road_index`, `crossing_roads`, `bore_continuation.tunnel_ends` | `airport.osm_ways` (the covered way untagged) | unchanged: the covered way is still a road there, so a ramp's own road and the approach walk read it as before |
 | road ribbons (`classify`) | `airport.osm_ways` | unchanged: a covered bore's middle stays the road ribbon under the cover, exactly as a §34 (5) underpass |
-| zones (`zone_regions` keepouts), terrain edge | `classification.keepouts` | E3's outlines join R2's survey trenches there: the one region the zones stop at |
+| zones (`zone_regions` keepouts), terrain edge | `classification.keepouts` | unchanged (E3 held) |
 | `tunnel_objects.read_corridors` / `portal_objects.read_portals` | pack objects | read first. A trench object is never one they took. |
-| basin / sunken-road / door readers | pack objects | unchanged: a trench object stays refused there. E3 is a keepout, not a cut. |
+| basin / sunken-road / door readers | pack objects | unchanged: a trench object stays refused there |
 
 ## 4. How it composes with AK's `bridge_span` (#1138)
 
@@ -234,7 +253,26 @@ The base and branch arms run on one capture taken on the base
   - `road_cross_section` 167 → 165, `strip_arc` 8 → 9, `hairline_pair`
     1315 → 1312.
 
-## 6. Questions (RULED 2026-10-28: Q-A → Q255 a = E2, Q-B → Q256 b = E3)
+### Closing builds (round 2, 2026-10-28)
+
+All were run through the harness after the master's `--refresh-data dem`.
+The negatives that refresh recorded carry engine 1.50.1887, the main
+tree's. The branch sits on #1580's 1.50.1884, so every arm, the control
+included, was built with `O4_Version.py` set to 1.50.1887 in the working
+tree only. The version is a cache and provenance key, not geometry.
+
+| arm (tag) | code | ADJUDICATED | airside | groundside | CRITICAL motion |
+|---|---|---|---|---|---|
+| control `l1028ctl2` | #1580 head 4dd8956cd | 5280 | 2273 | 2998 | 1 |
+| `l1028br2` | + E1 | 5279 | 2274 | 2996 | 1 |
+| `l1028r2` | + E1 + E2 + E3 | 5375 | 2347 | 3019 | 0 |
+| **`l1028r4`** | **+ E1 + E2 (this branch)** | **5277** | **2275** | **2993** | **1** |
+
+The harness flagged `l1028ctl2` and `l1028br2` CONTAMINATED. The flagged
+writes were other lanes' concurrent builds: a KCLT-area OSM clip and
+Global Airports caches.
+
+## 6. Questions (RULED 2026-10-28: Q-A → Q255 a = E2 built; Q-B → Q256 b = E3 held)
 
 **Q-A (F2).** Is a road mapped `covered=yes` along its whole run a bore when
 both of these hold?

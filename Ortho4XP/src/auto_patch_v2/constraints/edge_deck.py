@@ -32,7 +32,7 @@ from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["edge_deck_rows", "airside_nearest", "GEN", "RULING"]
+__all__ = ["edge_deck_rows", "GEN", "RULING"]
 
 GEN = "edge_deck"
 #: the ruling head (``[design] hard_rulings``)

@@ -77,3 +77,21 @@ def test_a_fence_crossing_the_contact_is_no_barrier_along_it():
     # the lot meets the apron on both sides of a fence that runs across it
     across = FenceLine("dsf:fence0", ((70.0, -40.0), (70.0, 40.0)), "lib/fence.fac")
     assert _flip(_airport([TERMINAL], [across]))[0] == "apron"
+
+
+def test_a_lot_that_flipped_does_not_flip_the_lot_beside_it():
+    """Owner RULINGS 2026-10-28q (2), Q248 "a": only real airside pavement
+    flips a lot.  The first lot meets the apron on an open edge and flips;
+    the second meets only the first and stays a lot."""
+    second = box(0.0, 60.0, 100.0, 120.0)
+    final = _final() + [["parking_lot", "lot1", second, None, {}, "parking_lot"]]
+    airside_edge_flip(final, [], LAW, RULES)
+    assert final[1][0] == "apron" and final[2][0] == "parking_lot"
+    # a ROAD that flipped still makes the lot beside it airside (12f)
+    road = box(0.0, 0.0, 100.0, 8.0)
+    lot = box(0.0, 8.0, 100.0, 60.0)
+    final = [["apron", "apron0", APRON, None, {}, "apron"],
+             ["service_road", "road0", road, None, {}, "service_road"],
+             ["parking_lot", "lot0", lot, None, {}, "parking_lot"]]
+    airside_edge_flip(final, [], LAW, RULES)
+    assert final[1][0] == "apron" and final[2][0] == "apron"

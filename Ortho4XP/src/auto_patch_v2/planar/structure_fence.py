@@ -26,7 +26,11 @@ The five witnesses, asked in this order by :func:`fence_witness`:
 4. **over** — any mapped way (road, railway, aeroway, building) other than
    a tunnel crosses the bore's INTERIOR (``terrain_crossing_min_m`` inside
    its ends), at any layer; or a pack building part AT GRADE holds
-   ``terrain_cover_min_m`` of its line (the cover 10i (1) let (d) stand on);
+   ``terrain_cover_min_m`` of its line (the cover 10i (1) let (d) stand on).
+   INSIDE A PACK BUILDING'S FOOTPRINT THE BUILDING IS THE COVER (owner
+   RULINGS 2026-10-28q (3), #1338): a way crossing there, and the building
+   itself, are no witness — only the bore's run outside the pack's
+   footprints is read (``witness(bore, inside)``);
 5. **lidar** — a CREDIBLE lidar inset reads a cut along the bore
    (``channel_geometry._lidar_cut``, §45 (3) (ii)).
 
@@ -68,8 +72,12 @@ def fence_witness(airport, law: Law, on_field, osm_ways, pack=None):
     lidar = _LidarCut(airport, law)
     join_m = float(tn.terrain_crossing_min_m)
 
-    def witness(bore) -> str | None:
+    def witness(bore, inside=None) -> str | None:
+        """``inside``: the pack building footprints over the bore, where
+        the building is the cover and nothing standing over the bore is a
+        witness (owner RULINGS 2026-10-28q (3), #1338)."""
         ln = bore.line
+        open_ln = ln if inside is None else ln.difference(inside)
         own = {id(w) for w in bore.ways}
         rise = _rise_m(airport, ln)
         if rise is not None and rise >= tn.terrain_rise_m:
@@ -80,10 +88,11 @@ def fence_witness(airport, law: Law, on_field, osm_ways, pack=None):
         at = portal.near(bore)
         if at:
             return f"pack portal: {at}"
-        crossed = _over(ln, over, over_tree, own, join_m)
+        crossed = _over(ln, over, over_tree, own, join_m, inside)
         if crossed:
             return "crossed over by " + ", ".join(crossed[:3])
-        held = pack.at_grade_over(ln, tn.terrain_cover_min_m) if pack is not None else None
+        held = pack.at_grade_over(open_ln, tn.terrain_cover_min_m) \
+            if pack is not None and not open_ln.is_empty else None
         if held:
             return f"crossed over by the pack's {held[0]} ({held[1]}) at grade"
         if lidar.cut(ln):
@@ -136,11 +145,17 @@ def _over_geom(w):
     return None if g.is_empty else g
 
 
-def _over(ln, over, tree, own, inside_m) -> list[str]:
-    """Witness 4: the mapped ways standing over the bore's INTERIOR."""
+def _over(ln, over, tree, own, inside_m, inside=None) -> list[str]:
+    """Witness 4: the mapped ways standing over the bore's INTERIOR — outside
+    ``inside``, the pack buildings' footprints (owner RULINGS 2026-10-28q
+    (3): there the building is the cover)."""
     if ln.length <= 2.0 * inside_m:
         return []
     core = substring(ln, inside_m, ln.length - inside_m)
+    if inside is not None:
+        core = core.difference(inside)
+        if core.is_empty:
+            return []
     out = []
     for j in (tree.query(core, predicate="intersects") if tree is not None else ()):
         g, w = over[int(j)]

@@ -93,7 +93,7 @@ SPJC_TAGS = {"highway": "secondary", "lanes": "3", "tunnel": "yes"}
 
 
 def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (335.0, -100.0)),
-          tags=SPJC_TAGS, partition=None, extra_cells=(), dem=None):
+          tags=SPJC_TAGS, partition=None, extra_cells=(), dem=None, more_ways=()):
     """SPJC -5724's shape: a 35 m ``secondary`` bore on a plane falling
     0.53 m, the nearest classified cell off it, inside a fence."""
     frame = Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11)
@@ -107,7 +107,8 @@ def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (33
     (ax, ay), (bx, by) = bore_pts[0], bore_pts[-1]
     road = {"highway": "secondary", "lanes": "3"}
     ways = (bore, OsmWay(-5708, "big_roads", ((ax - 150.0, ay), (ax, ay)), False, road),
-            OsmWay(-5723, "big_roads", ((bx, by), (bx + 150.0, by)), False, road))
+            OsmWay(-5723, "big_roads", ((bx, by), (bx + 150.0, by)), False, road)) \
+        + tuple(more_ways)
     fences = (Boundary("boundary0", fence, ()),) if fence else ()
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     airport = Airport("ZZZZ", "Synthetic", frame, 22.0, (rw,), (), (), {}, (),
@@ -313,12 +314,12 @@ def test_a_NEGATIVE_LAYER_does_not_outrank_the_passage(law):
 def test_a_NEGATIVE_LAYER_with_NO_passage_still_builds_the_bore(law):
     """The layer witness is untouched where the pack shows no passage:
     outside the fence with no pack at all, and a pack part at grade over
-    the line (cover) inside it.  Inside the fence the bore's own layer is
-    the tag's, not a witness (owner RULINGS 2026-10-28p (4), #1338;
-    ``test_fence_tag_not_witness``)."""
+    the line (cover).  Inside the fence the bore's own layer is the tag's
+    and the pack building over it is the cover, neither a witness (owner
+    RULINGS 2026-10-28p (4) / 28q (3), #1338; ``test_fence_tag_not_witness``)."""
     over = _part(0.0, 6.0, _ll_ring(310, -110, 325, -90))      # holds neither end
     tags = dict(SPJC_TAGS, layer="-1")
-    for part, fence in ((None, None), (_link(over), _rect(-800, -800, 800, 800))):
+    for part, fence in ((None, None), (_link(over), None)):
         _cl, _t, st = _spjc(law, partition=part, tags=tags, fence=fence)
         assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
 
@@ -344,12 +345,15 @@ def test_the_passage_reads_a_MAPPED_tunnel_outside_the_fence_too(law):
     assert len(_refusals(st)) == 1 and "PASSES UNDER AN ELEVATED PACK PART" in _refusals(st)[0]
 
 
-def test_a_pack_part_AT_GRADE_over_the_line_is_cover_and_d_stands(law):
-    """An at-grade pack part over the bore's line is cover (the ruling's
-    own list); a part at grade BESIDE the carriageway line is not."""
+def test_a_pack_part_AT_GRADE_over_or_beside_the_line_is_no_fence_witness(law):
+    """An at-grade pack part over the bore's line was 27z's cover witness;
+    inside a pack building's footprint the building is the cover and shows
+    no tunnel (28q (3)).  A part at grade BESIDE the line never was one."""
     over = _part(0.0, 6.0, _ll_ring(310, -110, 325, -90))      # holds neither end
+    # inside the fence the building is the cover, no witness (owner RULINGS
+    # 2026-10-28q (3), #1338): the part over the line no longer builds it
     _cl, _t, st = _spjc(law, partition=_link(over))
-    assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
+    assert st.tunnels == 0 and len(_refusals(st)) == 1, st.mouths_off_field_nearest
     beside = _part(0.0, 6.0, _ll_ring(310, -99.5, 325, -90))
     _cl, _t, st = _spjc(law, partition=_link(beside))
     assert st.tunnels == 0 and len(_refusals(st)) == 1

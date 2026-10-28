@@ -363,7 +363,9 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     meeting it END-ON at the road's mouth (``_is_mouth``).  Slivers never
     flip.  Flips PROPAGATE — a lot beside a road that became apron is
     beside apron — so the pass iterates to a FIXPOINT; it terminates
-    because a role only ever moves groundside -> apron.
+    because a role only ever moves groundside -> apron.  A LOT that flipped
+    is no airside for another lot (owner RULINGS 2026-10-28q (2), #1338:
+    only real airside pavement flips a lot; lots never flip each other).
 
     Returns ``(faces flipped, iterations)``.
 
@@ -426,6 +428,14 @@ def airside_edge_flip(final: list[list], cells, law: Law,
         if not air:
             return flipped, rounds
         tree = STRtree([t[0] for t in air])
+        # ONLY REAL AIRSIDE PAVEMENT FLIPS A LOT (owner RULINGS 2026-10-28q
+        # (2), Q248 "a", #1338): a lot §27 flipped is no airside for the lots
+        # beside it — lots never flip each other
+        real = [(f[2], was_road[i]) for i, f in enumerate(final)
+                if f[0] != "building" and role_side(law, f[0]) == "airside"
+                and not (f[4].get("airside_edge_flip") and not was_road[i])]
+        real = [t for t in real + fixed if not t[0].is_empty]
+        real_tree = STRtree([t[0] for t in real]) if real else None
         moved = 0
         for i, f in enumerate(final):
             role, ref, face, _letter, evid = f[0], f[1], f[2], f[3], f[4]
@@ -436,7 +446,10 @@ def airside_edge_flip(final: list[list], cells, law: Law,
                 continue
             across: list = []
             fenced: list = []
-            shared = _lateral_airside_m(face, was_road[i], tree, air, weld_m,
+            if not was_road[i] and real_tree is None:
+                continue
+            t_i, a_i = (tree, air) if was_road[i] else (real_tree, real)
+            shared = _lateral_airside_m(face, was_road[i], t_i, a_i, weld_m,
                                         factor, cache, road_ctx,
                                         None if storey is None else storey.geom, across,
                                         barrier, fenced)

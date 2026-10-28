@@ -232,21 +232,30 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
         # witnesses (``fence_witness``)
         tagged_in_fence = fence is not None and _osm_tunnel(bore, tn.admitted_values) \
             and fence.covers(ln)
-        roofed = on_field.roofed_run_m(ln) if tagged_in_fence and \
-            hasattr(on_field, "roofed_run_m") else 0.0
+        # INSIDE A PACK BUILDING'S FOOTPRINT THE BUILDING IS THE COVER (owner
+        # RULINGS 2026-10-28q (3), Q249 "a", #1338): a road mapped across a
+        # fenced tagged bore there, and the building over it, show no tunnel —
+        # every witness that reads what stands over the bore reads it OUTSIDE
+        # the pack's footprints (NZWN: the multi-storey car park's own decks
+        # crossed its layer -1 ground floor)
+        inside = pack_bldg.cover_on(ln) if tagged_in_fence else None
+        open_ln = ln if inside is None else ln.difference(inside)
+        roofed = on_field.roofed_run_m(open_ln) if tagged_in_fence and \
+            hasattr(on_field, "roofed_run_m") and not open_ln.is_empty else 0.0
         if cover >= tn.terrain_cover_min_m and (
                 not tagged_in_fence or roofed >= tn.terrain_cover_min_m):
             return True, (f"under the classified cover for {cover:.1f} m"
                           + (f" ({roofed:.1f} m roofed)" if tagged_in_fence else ""))
         if below and not tagged_in_fence:
             return True, f"the bore carries layer {lay}"
-        crossed = _crossings(ln, grade, grade_tree, bore, tn.terrain_crossing_min_m)
+        crossed = _crossings(ln, grade, grade_tree, bore, tn.terrain_crossing_min_m,
+                             inside)
         if crossed:
             return True, ("under " + ", ".join(crossed[:3]) + " at grade")
         if rise is not None and rise >= tn.terrain_rise_m:
             return True, f"the ground over it stands {rise:+.2f} m above its mouth chord"
         if tagged_in_fence:
-            seen = fenced(bore)
+            seen = fenced(bore, inside)
             if seen:
                 return True, (f"an OSM tunnel inside the airport boundary, "
                               f"witnessed by {seen} (§34 (12) (5) (d), owner "
@@ -423,6 +432,14 @@ class _PackBuildings:
                 return res, uid
         return None
 
+    def cover_on(self, line):
+        """The union of the pack building footprints ``line`` meets, or
+        ``None`` (owner RULINGS 2026-10-28q (3): there the building is the
+        cover)."""
+        from shapely.ops import unary_union
+        polys = [poly for poly, _r, _u, _b in self._touching(line)]
+        return unary_union(polys) if polys else None
+
     def _touching(self, geom):
         """``(footprint, resource, unit id, base)`` of every indexed part
         whose footprint meets the frame geometry ``geom``.  The query box
@@ -483,11 +500,12 @@ def _layer_of_bore(bore):
     return min(vals) if vals else None
 
 
-def _crossings(ln, grade, tree, bore, min_inside_m):
+def _crossings(ln, grade, tree, bore, min_inside_m, inside=None):
     """The mapped at-grade ways crossing the bore's INTERIOR, named.  A
     way meeting it at a mouth is the APPROACH, not a crossing — the same
     distinction §34 (12) (4) draws between a deck over the span and one
-    over the approach walk."""
+    over the approach walk.  A crossing inside ``inside`` (the pack
+    buildings' footprints, owner RULINGS 2026-10-28q (3)) is none."""
     from shapely.geometry import Point
     own = {id(w) for w in bore.ways}
     out: list[str] = []
@@ -503,6 +521,8 @@ def _crossings(ln, grade, tree, bore, min_inside_m):
             if p.geom_type != "Point":
                 continue
             s = ln.project(Point(p.coords[0]))
+            if inside is not None and inside.intersects(Point(p.coords[0])):
+                continue
             if min_inside_m < s < ln.length - min_inside_m:
                 t = w.tags or {}
                 out.append(f"{w.id}[{t.get('highway') or t.get('railway')}]")

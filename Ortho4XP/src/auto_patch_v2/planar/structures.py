@@ -115,8 +115,7 @@ from .lidar_road import lidar_road, lidar_road_note, lidar_road_refusal
 from .dual_width import compose_half_fn, dual_half_fn
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
                               portal_mouth, portal_note, strip_keepout)
-from .bridge_span import (bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s,
-                          floor_bridge)
+from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -624,26 +623,22 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         edge_far = None
         edge_seats: tuple = ()
         edge_covers: tuple = ()
-        notes_gov = ""
+        edge_floor: tuple = ()
         if edge is not None:
             # 27r / 28d Q213: the floor stays at the objects' bottom under the
             # whole edge object, then climbs (``bridge_span.edge_flat_s``) —
             # or, running into another edge bridge's back, stays level to it
             climb_from = max(climb_from, edge_flat_s(edge, axis_ln))
             edge_far = far_back_s(edge, axis_ln, edge_bridges)
-            # the trench is never deeper than an object's bottom (owner sim
-            # read 2026-10-28T14:26Z points 2 / 4): level back to back, it
-            # stands at the SHALLOWER of the two bridges' bottoms, hung from
-            # that bridge's seat (``bridge_span.EdgeBridge.seat``)
+            # the floor hangs from each bridge's seat (``EdgeBridge.seat``),
+            # its own first; back to back it runs linearly from this
+            # object's bottom at its end to the other's at its back (owner
+            # RULINGS 2026-10-28u Q271 (b)): never deeper than either
+            # object's bottom, never level at the shallower one
             met = (edge, *(edge_far[1] if edge_far is not None else ()))
-            gov = floor_bridge(edge, met[1:])
-            if gov is not edge:
-                notes_gov = (f"level back to back with the edge bridge {gov.object_id}: the "
-                             f"floor {gov.floor_z:.2f} is the shallower bottom "
-                             f"({edge.object_id}'s {edge.floor_z:.2f})")
-                mouth_z, slid_depth = gov.floor_z, gov.depth_m
-            edge_seats = tuple((b.object_id, b.seat, b.depth_m)
-                               for b in (gov, *(b for b in met if b is not gov)))
+            if edge_far is not None:
+                edge_floor = (min(climb_from, edge_far[0]), edge_far[0])
+            edge_seats = tuple((b.object_id, b.seat, b.depth_m) for b in met)
             edge_covers = tuple(tuple(p.exterior.coords) for b in met
                                 for p in getattr(b.cover, "geoms", [b.cover])
                                 if p.geom_type == "Polygon")
@@ -675,7 +670,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 ss = sorted(ss + [climb_from])      # the resume station beyond the deck
             s_top = g.hull_s
         elif g.climbs and edge_far is not None:
-            # the open stretch between two edge bridges: level back to back
+            # the open stretch between two edge bridges, back to back: one
+            # datum, its slope from bottom to bottom ``constraints/edge_floor``'s
             s_top = max(spacing_g, edge_far[0])
             ss = [spacing_g * k for k in range(int(s_top // spacing_g) + 1)]
             if s_top - ss[-1] > 1e-6:
@@ -941,11 +937,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if far_mid and cap_mid:
             wall_path.append(wall_path[0])          # the O: a closed rim
         notes = list(deck_notes) + ([clear[4]] if clear is not None and clear[4] else []) + (
-            [] if pin is None else [portal_note(pin, mouth_dem, mouth_z if not notes_gov
-                                                else mouth_dem - pin.depth_m)]) + (
+            [] if pin is None else [portal_note(pin, mouth_dem, mouth_z)]) + (
             [] if road_rd is None else [lidar_road_note(road_rd)])
-        if notes_gov:
-            notes.append(notes_gov)
         if collapse_note:
             notes.append(collapse_note)
         if steepen_note:
@@ -982,6 +975,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 extra["edge_back"] = tuple(edge.back)
                 extra["edge_seats"] = edge_seats
                 extra["edge_covers"] = edge_covers
+                if edge_floor:
+                    extra["edge_floor_s"] = edge_floor
         profile_out: tuple = ()
         if c is not None:
             outside = trench_outside_m(ramp_parts, c, grid)

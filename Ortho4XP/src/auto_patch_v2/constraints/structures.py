@@ -80,6 +80,7 @@ from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Sour
 from ..model.frame import XY
 from ..model.planar import Face, PlanarMap
 from ..model.structures import UNDERPASS_NOTE, Basin, Tunnel, profile_z
+from .edge_floor import edge_seats_of, seat_pair, sloped_floor_rows
 from .precedence import view
 from .geometry import nearest_vertex_of_containing_cell
 
@@ -291,7 +292,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     faces_by_ref: dict[str, list[Face]] = {}
     for f in planar.faces.values():
         faces_by_ref.setdefault(f.ref.split("#")[0], []).append(f)
-    seat_of = _edge_seats(planar, law)
+    seats_of = edge_seats_of(planar, law)
     for tn in tunnels:
         inputs = (tn.id, *(f"osm:{w}" for w in tn.ways))
         src_ramp = Source(GEN, "tunnel.ramp_max_grade (2026-08-07 r4; 2026-08-30)", inputs)
@@ -403,6 +404,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         seen: set[int] = set()
         abut: list[tuple[float, list[int]]] = []     # groups beside a deck
         datum_vs: list[int] = []
+        datum_groups: list[tuple[float, list[int]]] = []
         if tn.pinched and tn.source in ("door", WALL_CORRIDOR_SOURCE):
             # A RAMP ITS OBJECTS FRAME (2026-10-07e) IS ONE PLANE, pinned
             # per vertex: no station ties, no descent rows.  A door ramp's
@@ -520,6 +522,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             for s, vs in groups:
                 if s <= tn.climb_from_s + _STATION_CLUSTER_M and src_bottom is None:
                     datum_vs.extend(vs)
+                    datum_groups.append((s, vs))
             if tn.decks:
                 abut.extend(groups)
             # the top: the ground it climbs to (its value where shared,
@@ -544,19 +547,23 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         # ramp_targets``), so the tie cannot lever the ground.
         if datum_vs:
             group = tuple(sorted(set(datum_vs)))
-            if len(group) > 1:
+            seats = seats_of(tn)
+            sloped = len(seats) > 1 and len(getattr(tn, "edge_floor_s", ())) == 2
+            if len(group) > 1 and not sloped:
                 rows.append(Flat(group, src_mouth))
-            seat = seat_of(tn)
-            if seat is not None:
+            if sloped:
+                # A TRENCH TWO EDGE BRIDGES SHARE runs linearly from each
+                # one's own bottom to the other's (owner RULINGS 2026-10-28u
+                # Q271 (b); ``constraints/edge_floor``)
+                rows.extend(sloped_floor_rows(datum_groups, seats[:2], tn.edge_floor_s,
+                                              src_mouth))
+            elif seats:
                 # AN EDGE BRIDGE'S FLOOR HANGS FROM ITS SEAT (owner sim read
                 # 2026-10-28T14:26Z points 2 / 4; RULINGS 2026-10-20am / 20ar):
                 # the solved surface where the object's top meets the
                 # airside, less its walls' bottom — never deeper than the
                 # object; the two-sided pair of the mouth-depth idiom above
-                v_seat, depth = seat
-                terms = ((group[0], 1.0), (v_seat, -1.0))
-                rows.append(Linear(terms, None, -depth, src_mouth))
-                rows.append(Linear(tuple((v, -c) for v, c in terms), None, depth, src_mouth))
+                rows.extend(seat_pair(group[0], seats[0], src_mouth))
             elif tn.source in ("object", "door", "sunken_road") or getattr(tn, "edge_back", ()):
                 # (an EDGE BRIDGE's floor is the object's: its deck level −
                 # its walls' bottom, owner RULINGS 2026-10-20am / 20ar; its
@@ -722,29 +729,6 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                             rows.append(Band(dv, lo, hi, src_ends))
     rows.extend(pins.values())
     return rows
-
-
-def _edge_seats(planar: PlanarMap, law: Law):
-    """``seat_of(tunnel) -> (vertex, depth) | None``: the airside vertex at
-    the seat of the edge bridge an edge trench's floor hangs from
-    (``Tunnel.edge_seats``' first, ``planar/bridge_span``) and that bridge's
-    depth; ``None`` for every other tunnel.  The airside index is built once,
-    on the first edge trench."""
-    memo: list = []
-
-    def seat_of(tn: Tunnel):
-        seats = getattr(tn, "edge_seats", ())
-        if not seats:
-            return None
-        if not memo:
-            from ..model.platform import stage_air_vertices
-            from .geometry import nearest_vertex_fn
-            memo.append(nearest_vertex_fn(planar, stage_air_vertices(planar, law)))
-        if memo[0] is None:
-            return None
-        _oid, (x, y), depth = seats[0]
-        return memo[0](x, y), float(depth)
-    return seat_of
 
 
 def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:

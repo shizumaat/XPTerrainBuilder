@@ -323,12 +323,17 @@ class Tunnel:
     #: (``constraints/edge_deck``)
     edge_back: tuple[XY, ...] = ()
     #: the edge bridges this trench meets, ``(object id, seat xy, depth)``
-    #: (``planar/bridge_span.EdgeBridge.seat``), the one whose bottom the
-    #: floor hangs from FIRST: the floor is that seat's solved surface less
-    #: its depth (``constraints/structures``) and every one's zero is seated
-    #: at its seat (``pipeline/rebake_inputs``; owner sim read
-    #: 2026-10-28T14:26Z points 2 / 4)
+    #: (``planar/bridge_span.EdgeBridge.seat``), its OWN bridge first: the
+    #: floor is the seat's solved surface less the depth
+    #: (``constraints/edge_floor``) and every one's zero is seated at its
+    #: seat (``pipeline/rebake_inputs``; owner sim read 2026-10-28T14:26Z
+    #: points 2 / 4)
     edge_seats: tuple[tuple[str, XY, float], ...] = ()
+    #: a trench SHARED by two edge bridges: the stations ``(s0, s1)`` the
+    #: floor runs linearly between, from the first seat's bottom at the
+    #: end of its own object to the second's at that object's back
+    #: (owner RULINGS 2026-10-28u Q271 (b)); ``()`` otherwise
+    edge_floor_s: tuple[float, ...] = ()
     #: those bridges' COVERS (``EdgeBridge.cover``, exterior rings): the
     #: span between the airside edge and each back, held level with the
     #: airside abeam (``constraints/edge_deck``; RULINGS 28d Q212, sim read

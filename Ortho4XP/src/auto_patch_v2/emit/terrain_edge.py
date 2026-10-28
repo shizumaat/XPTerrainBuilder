@@ -58,7 +58,14 @@ def with_terrain_edges(surface: GradedSurface, planar: PlanarMap,
     next_bl = max((b.id for b in surface.breaklines), default=-1) + 1
     new: list[SurfaceBreakline] = []
     for k, ln in enumerate(lines):
-        near = tree.query(ln.buffer(tol))
+        # #1597: the vertices ON the run (within the snap margin), never
+        # every vertex in the buffer's ENVELOPE — a bare ``query`` is a
+        # bounding-box test, and a staircase run's envelope took the
+        # taxi centreline and the road below the crest into the chain:
+        # KATL ``terrain_edge:23`` chorded 64 m from a road node to a
+        # taxiway node, and the mesher's crossings put that chord's
+        # ramp (298.19) on the shoulder ring (303.6-303.8)
+        near = tree.query(ln, predicate="dwithin", distance=tol)
         chain = []
         for j in near:
             v = ids[int(j)]

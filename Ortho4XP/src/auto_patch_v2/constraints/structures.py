@@ -737,8 +737,9 @@ def _edge_seats(planar: PlanarMap, law: Law):
         if not seats:
             return None
         if not memo:
-            from .edge_deck import airside_nearest
-            memo.append(airside_nearest(planar, law))
+            from ..model.platform import stage_air_vertices
+            from .geometry import nearest_vertex_fn
+            memo.append(nearest_vertex_fn(planar, stage_air_vertices(planar, law)))
         if memo[0] is None:
             return None
         _oid, (x, y), depth = seats[0]

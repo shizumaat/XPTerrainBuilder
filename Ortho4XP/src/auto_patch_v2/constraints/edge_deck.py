@@ -27,8 +27,6 @@ parking lot) stood 2.9 m under to 1.8 m over the runway edge abeam.
 """
 from __future__ import annotations
 
-import numpy as np
-
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
@@ -43,19 +41,10 @@ RULING = "roads.edge bridge deck level with the airside abeam"
 
 def airside_nearest(planar: PlanarMap, law: Law):
     """``nearest(x, y) -> vertex id``: the airside pavement vertex nearest
-    a point (``roads.stage_one_vertices``), or ``None`` with no airside —
-    the vertex a deck level (here) and an edge trench's floor
-    (``constraints/structures``) are tied to."""
+    a point (``roads.stage_one_vertices``), or ``None`` with no airside."""
+    from .geometry import nearest_vertex_fn
     from .roads import stage_one_vertices
-    air = sorted(stage_one_vertices(planar, law))
-    if not air:
-        return None
-    axy = np.array([planar.vertices[v].xy for v in air], dtype=float)
-
-    def nearest(x: float, y: float) -> int:
-        return air[int(np.argmin((axy[:, 0] - x) ** 2 + (axy[:, 1] - y) ** 2))]
-    nearest.air = frozenset(air)
-    return nearest
+    return nearest_vertex_fn(planar, stage_one_vertices(planar, law))
 
 
 def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

@@ -217,6 +217,10 @@ class TunnelObjectStats:
     #: the pack PORTALS over mapped bore ends (``airport/portal_objects``;
     #: #971 "or object if one is provided", #1343): each pins its mouth
     portals: tuple = ()
+    #: the pack TRENCH objects at mapped road ends (``airport/trench_objects``,
+    #: RULINGS 2026-10-28s (5)/(6)) and one note per object read
+    trench_objects: tuple = ()
+    trench_notes: tuple = ()
     refused: list[str] = _dc.field(default_factory=list)
     signature_s: float = 0.0
 
@@ -1020,6 +1024,13 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                                                   for i in c.objects})
     stats.portals = tuple(portals)
     stats.refused.extend(p_refused)
+    # 2026-10-28s (5)/(6): the open walled trench objects at a road's end
+    from .trench_objects import covered_candidates, read_trench_objects
+    trenches, t_notes = read_trench_objects(
+        _object_cut.placement_order(objects), cache, law,
+        tunnel_ways + covered_candidates(airport.osm_ways),
+        claimed_ids | {i for c in out for i in c.objects} | {p.object_id for p in portals})
+    stats.trench_objects, stats.trench_notes = tuple(trenches), tuple(t_notes)
     # the report is order-free too: a refusal LIST whose order depends on
     # the read order cannot be diffed between two arms (lane v2othhdet)
     stats.refused.sort()

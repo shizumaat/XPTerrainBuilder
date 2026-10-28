@@ -91,7 +91,7 @@ from .channel_geometry import _lidar_cut, _lidar_floor
 
 __all__ = ["survey_mouth", "survey_design_grade", "under_airside_pavement",
            "is_rail_group", "survey_mouth_refusal", "survey_mouth_note", "survey_trench",
-           "survey_road_trenches"]
+           "survey_road_trenches", "end_clearance"]
 
 #: the station step along the bore (the §45 cut reading's own lateral step)
 _STEP_M = 5.0
@@ -196,26 +196,57 @@ def under_airside_pavement(members: _t.Sequence, cells, tree, law: Law,
     return False
 
 
+def _bore_cover(airport, law: Law, points: _t.Sequence[XY], end: XY, start_m: float
+                ) -> list[float]:
+    """The cover's levels over one bore's first stations inside ``end``: per
+    station the higher of the axis survey and §45's lower-side top."""
+    reach = 4.0 * float(law.tables.structures.tunnel.mouth_depth_m)
+    fn, length = _bore_fn(points, end)
+    rows: list = []
+    ss = _cover_stations(length, start_m)
+    _lidar_cut(airport, law, fn, ss, reach, rows)
+    tops = {round(s, 6): top for s, _flr, top in rows}
+    vals: list[float] = []
+    for s in ss:
+        z = dem_z_at(airport, fn(s))
+        top = tops.get(round(s, 6), math.nan)
+        got = [v for v in (z, top) if not math.isnan(v)]
+        if got:
+            vals.append(max(got))
+    return vals
+
+
 def _cover(airport, law: Law, members: _t.Sequence, start_m: float) -> float:
     """The cover's level over the group's bores (module doc)."""
-    reach = 4.0 * float(law.tables.structures.tunnel.mouth_depth_m)
     vals: list[float] = []
     for m in members:
         bore = getattr(m, "bore", None)
         if bore is None or len(bore.points) < 2:
             continue
-        fn, length = _bore_fn(bore.points, m.xy)
-        rows: list = []
-        ss = _cover_stations(length, start_m)
-        _lidar_cut(airport, law, fn, ss, reach, rows)
-        tops = {round(s, 6): top for s, _flr, top in rows}
-        for s in ss:
-            z = dem_z_at(airport, fn(s))
-            top = tops.get(round(s, 6), math.nan)
-            got = [v for v in (z, top) if not math.isnan(v)]
-            if got:
-                vals.append(max(got))
+        vals.extend(_bore_cover(airport, law, bore.points, m.xy, start_m))
     return statistics.median(vals) if vals else math.nan
+
+
+def end_clearance(airport, law: Law, points: _t.Sequence[XY], end: XY, width: float,
+                  start_m: float) -> float:
+    """R1's clearance at one mapped END of a way chain (``points``): the
+    cover (the over-bore reading and the surrounding ground, as
+    :func:`survey_mouth`) less the surveyed road on the straight line out
+    of ``end`` — the cut a covered road's end stands in (RULINGS
+    2026-10-28s (5), ``planar/covered_bores``).  ``nan`` where the survey
+    reads nothing."""
+    if len(points) < 2:
+        return math.nan
+    vals = _bore_cover(airport, law, points, end, start_m)
+    got = [v for v in (statistics.median(vals) if vals else math.nan,
+                       _surround(airport, end)) if not math.isnan(v)]
+    if not got:
+        return math.nan
+    a, b = (points[1], points[0]) if end == points[0] else (points[-2], points[-1])
+    L = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
+    d = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
+    road = _road(airport, lambda s: (end[0] + d[0] * s, end[1] + d[1] * s), width)
+    return math.nan if math.isnan(road) else max(got) - road
 
 
 def _surround(airport, xy: XY) -> float:

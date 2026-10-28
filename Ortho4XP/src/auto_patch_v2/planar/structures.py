@@ -115,6 +115,7 @@ from .structure_mouth import mouth_at_pavement as _mouth_at_pavement
 from .lidar_road import (is_rail_group, survey_design_grade, survey_mouth, survey_mouth_note,
                          survey_mouth_refusal, survey_trench, under_airside_pavement)
 from .dual_width import compose_half_fn, dual_half_fn
+from .covered_bores import covered_bore_ways
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
                               portal_mouth, portal_note, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
@@ -151,7 +152,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      run_limits: _t.Mapping[str, tuple[float, str]] | None = None,
                      _pass: int = 0, at_cap: _t.Mapping[str, str] | None = None,
                      overlap_refused: _t.Mapping[str, str] | None = None,
-                     portals: _t.Sequence = (), edge_bridges: _t.Sequence = ()
+                     portals: _t.Sequence = (), edge_bridges: _t.Sequence = (),
+                     trenches: _t.Sequence = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -198,6 +200,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # module doc; the round-1 measurement that forced it is there too).
     up_ways, up_parents, stats.underpasses = _underpass_bores(airport, law, cells, polys)
     tunnel_ways += up_ways
+    # 2026-10-28s (5) Q255 a: a covered road a cut or a pack trench object
+    # shows is a bore; its own §34 (5) underpass pieces give way to it
+    from ..law import inset_class
+    cov, stats.covered_bores = covered_bore_ways(
+        airport, law, inset_class.lidar_credible(airport, law), trenches,
+        tn.wall_gap_m + tn.wall_band_width_m)
+    if cov:
+        cov_ids = {w.id for w in cov}
+        tunnel_ways = [w for w in tunnel_ways if w.id not in cov_ids] + cov
     # R6 (RULINGS 2026-10-28k Q228 a): a road under stacked viaducts inside
     # the airport is an open level a mouth depth below the apron
     via_groups, via_notes, via_refused = viaduct_road_groups(airport, law, cells, polys)
@@ -366,7 +377,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     bridge_tree = STRtree(bridge_lines) if bridge_lines else None
 
     spacing = law.tables.emit.chords.station_spacing_m
-    from ..law import inset_class
     credible = inset_class.lidar_credible(airport, law)    # #1280: lidar_road
     gap = tn.wall_gap_m
     rim_off = tn.wall_gap_m + tn.wall_band_width_m      # an OSM bore's rim stand-off
@@ -1131,7 +1141,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         return build_structures(*args, run_limits={**run_limits, **new_limits},
                                 _pass=_pass + 1, at_cap=caps,
                                 overlap_refused=overlap_refused, portals=portals,
-                                edge_bridges=edge_bridges)
+                                edge_bridges=edge_bridges, trenches=trenches)
     if not all(keep):
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]

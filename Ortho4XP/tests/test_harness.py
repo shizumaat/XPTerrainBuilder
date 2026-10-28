@@ -2457,6 +2457,10 @@ def test_an_authorised_dem_refresh_DERIVES_the_tiles_insets(
     """``--warm-insets ICAO`` needs airports OF THE TILE, which a cold
     tile cannot name — so the TILE entry lives in the refresh.  Both
     derivations are the engine's own tile-prelude calls."""
+    # #1603's base-void pass loads a real raster; these twins are about
+    # the inset passes before it.
+    monkeypatch.setattr(build_mod, "_fetch_base_void_fills",
+                        lambda *a, **k: [])
     import O4_Airport_Elevation_Insets as INSETS
     import O4_DEM_Utils as DEM
     import O4_File_Names as FNAMES
@@ -11405,6 +11409,10 @@ def test_a_dem_refresh_rederives_the_build_airports_PACK_STALE_inset(
     inset again — the refusal's own remedy could not clear it.  With the
     build's ICAO, the refresh re-derives a ``packs`` / ``stale`` inset
     through the ``--warm-insets`` pass, and refuses if it survives."""
+    # #1603's base-void pass loads a real raster; these twins are about
+    # the inset passes before it.
+    monkeypatch.setattr(build_mod, "_fetch_base_void_fills",
+                        lambda *a, **k: [])
     root = _cold_tile_root(tmp_path, monkeypatch, build_mod, 17, -63)
     elev = root / "Elevation_data" / "N10W070"
     (elev / "N17W063_airport_insets").mkdir(parents=True)

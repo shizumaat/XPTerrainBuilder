@@ -2626,6 +2626,7 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
         derived = _refresh_airport_inset(root, state, lat, lon, icao, prog)
         derived += _complete_pending_insets(root, lat, lon, prog,
                                             tile_wide=not icao)
+        derived += _fetch_base_void_fills(lat, lon, prog)
         if not derived:
             prog.note(f"refresh dem: tile {lat:+d}{lon:+d} already has its "
                       f"base raster and its airport insets — nothing to "
@@ -2697,8 +2698,59 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     derived += _refresh_airport_inset(root, after, lat, lon, icao, prog)
     derived += _complete_pending_insets(root, lat, lon, prog,
                                         tile_wide=not icao)
+    derived += _fetch_base_void_fills(lat, lon, prog)
     prog.note(f"refresh dem done: {derived}")
     return {"tile": [lat, lon], "derived": derived}
+
+
+def _fetch_base_void_fills(lat, lon, prog) -> list:
+    """Fetch the fallback rasters that fill the base cell's void posts
+    (#1465), under the ``dem`` authorisation; returns what it derived.
+
+    THE GAP (#1603, LFLL 2026-10-28): the build's DEM load asked
+    Copernicus GLO-30 and GLO-90 for N45E005's void posts and the guard
+    refused both writes, but ``--refresh-data dem --refresh-only`` had
+    judged the frame CURRENT: no pass here asked the void fill at all.
+    So the base cell is loaded HERE the way the build's step 1 loads it
+    (``O4_Vector_Map``: the configured base source, the tile's
+    ``fill_nodata`` and elevation level), and the engine's own
+    rule (``elevation_access.base_voids``) decides which fallback cells
+    it needs and fetches them.  Nothing is copied; a tile whose voids the
+    neighbour fill closes fetches nothing."""
+    import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
+    import O4_Config_Utils as CFG                          # noqa: E402
+    import O4_DEM_Utils as DEM                             # noqa: E402
+    from elevation_access import base_fallback             # noqa: E402
+    from elevation_access.base_tiles import (              # noqa: E402
+        cached_elevation_file_is_valid)
+
+    tile = CFG.Tile(int(lat), int(lon), "")
+    try:
+        tile.read_from_config()
+    except Exception:
+        pass
+    fill_nodata = getattr(tile, "fill_nodata", True) or "to zero"
+    if fill_nodata == "to zero":
+        return []
+    # The base token only: the fill reads the base raster, never the
+    # sub-DEMs and insets a composite appends after it.
+    source = DEM.drop_missing_pinned_files(
+        getattr(tile, "custom_dem", "") or "").split(";")[0]
+    # A fallback raster already cached is recycled, not derived.
+    cached = {path for path in base_fallback.fallback_cache_paths(
+        INSETS.elevation_providers_dict or
+        INSETS.initialize_elevation_providers_dict(), lat, lon).values()
+        if cached_elevation_file_is_valid(path)}
+    dem = DEM.DEM(int(lat), int(lon), source, fill_nodata, info_only=False,
+                  elevation_level=getattr(tile, "elevation_level", "auto"))
+    fills = list(getattr(dem, "base_void_fills", None) or ())
+    fetched = [record for record in fills if record["path"] not in cached]
+    if fills:
+        prog.note(f"refresh dem: the base cell's void posts are filled from "
+                  f"{[r['code'] for r in fills]}; fetched now: "
+                  f"{[r['code'] for r in fetched] or 'none (cached)'}")
+    return [f"{record['path']} [base voids: {record['voids']} posts]"
+            for record in fetched]
 
 
 #: The per-airport inset verdicts a ``dem`` refresh re-derives (#61):

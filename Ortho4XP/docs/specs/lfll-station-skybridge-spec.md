@@ -185,23 +185,36 @@ the object rails smoothly".
 
 Synthetic twins: `tests/auto_patch_v2/test_covered_cut1333.py`.
 
-Capture replay (`LFLL` at b8c456c9, `--from classify --emit --verify`, base and
-lane on one capture), census A/B:
+Capture replay (`LFLL` at b8c456c9; `--from classify --emit --verify`; base =
+main 28cd9b38, lane = this branch, on the same capture), census A/B:
 
 | | base | lane |
 |---|---|---|
-| ground along the rail under the station (450 m) | 239.3–239.8 m (16 fills) | 230.38 m, one level `building8/p1` (53,943 m²) |
-| ground north and south of it (base-mesh lidar) | 228.7–229.7 m | same |
+| ground along the rail under the station (450 m) | 239.3–239.8 m (16 fills) | 230.38 m, one level `building8/p1` (54,130 m²) |
+| north end (lip 45.72304, 5.07606) | 1.4 m step to the base mesh (228.9 m) | `runout:building8/p1`, 230.38 → 228.8 m over about 80 m, then on the lidar |
+| south end | 0.9 m step at the covered end | the open cut between the station's south platforms stays at the platform level, then grades down at the station's south end (`runout:building8/p1#1`) |
 | hard rows relaxed | 280 (pad 251) | 50 (pad 29) |
-| census total / adjudicated | 1,940 / 415 | 1,628 / 161 |
-| airside families (airside_no_step, cross_shape, taxi_box, strip_*) | 21 / 3 / 4 / 17 (seam_tear 2, longitudinal 10, arc 5) | unchanged |
+| census total / adjudicated | 1,840 / 424 | 1,536 / 176 |
+| airside families (airside_no_step, cross_shape, taxi_box, strip_*) | 21 / 3 / 4 / 17 | unchanged |
 | DEFECT families | zero | zero |
 
-Residual (ruled acceptable, 28r (3)): the level stands 0.7–0.9 m over the lidar floor under the
-station (229.4–229.7 m), and 0.5 m over the trench objects at the owner's
-1.0.43x zero.
+New census rows:
+- **+5 `pavement_over_road_cap`, 9.5 m, 45.7161–45.7183, 5.0754–5.0757.**
+  These are the station pad's edge over the south end strip, i.e. the trench
+  walls under the station's southern part. The census did not see them before,
+  because the cut floor had no face.
+- **+1 `pavement_over_road_cap`, 0.54 m.** A road west of the station.
+- **+1 `vertex_to_edge_step` and +1 `mid_edge_step`.** Door ramps and roads,
+  0.5–0.6 m.
 
-The closing LFLL build through the harness is refused until the master runs
-`--refresh-data dem`: 13 FRANCE50CM no-coverage negatives were recorded by an
-older engine version. Then comes the owner's sim read: the station sits with
-the terminal group, and the rail cut is continuous past the station.
+Residual, ruled acceptable by 28r (3): the level stands 0.7–0.9 m over the
+lidar floor under the station, where the objects put it.
+
+The closing LFLL build is still pending, and its harness run was REFUSED and
+flagged CONTAMINATED (2026-10-28). During the build the engine tried to fetch
+the Copernicus GLO-30 and GLO-90 BASE rasters for N45E005 (base-void fill).
+The write guard blocked the replace and the remove, but two `.part` files
+stayed in the shared `Elevation_data/+40+000/` folder. That scope needs a
+`--refresh-data dem` that covers the base rasters. Then comes the owner's
+sim read: the station sits with the terminal group, and the rail cut is
+continuous past the station.

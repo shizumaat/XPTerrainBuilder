@@ -10491,3 +10491,10 @@ Also (owner, same message): the ThunderBlade drive holds only ortho tiles; every
 - Q267 (a): the grading of the safety area past a runway end.
 - Q268: KATL retaining wall with no witness (#1601). The owner says an object there is a retaining wall, identifiable by its shape and size, so the witness is the object's geometry, never its name or the airport.
 - Q269 (a): roads are cut back at a wall's faces (#1600).
+
+**2026-10-28u: owner answers Q270–Q273 and Q275 (Noah, 2026-10-28T19:25:03Z, verbatim: "270. A 271. B 272. A 273. a - but will have to verify in sim 275. A").** The topics follow the coordinator's numbering.
+- Q270 (A): at KATL, the owner site 33.620829, -84.428973 was meant for the taxiway bridge edge objects, which are fixed in #1613. It was not meant for 10/28's north bridge edge.
+- Q271 (B): at KATL, the cut floor between the taxiway and 10/28 slopes from each bridge edge object's own bottom to the other's, about 1.6 m over about 100 m. It does not stay level at the shallower bottom.
+- Q272 (A): at the HECA wall bend (#507), the 4.18 m step across the 3.10 m wall is reported as a defect (census reading, #1614). The two-pass stage-1 redesign comes after beta 5.
+- Q273 (a): at KMCI (#1572/#1610), a road inside a lower level's cut-off fill band drops to the band's ground. The owner will verify this in the sim.
+- Q275 (A): the coordinator could not place this question. The answer is recorded as given.

@@ -38,11 +38,16 @@ from .airport import Airport
 __all__ = ["end_area_lengths", "end_area_length"]
 
 
-def end_area_length(dem, end_xy, unit, law: Law, cn, cl, status: int = 0) -> float:
+def end_area_length(dem, end_xy, unit, law: Law, cn, cl, status: int = 0,
+                    cap_s: float | None = None) -> float:
     """The end area's length past one runway END (module docstring);
     ``unit`` points outward along the extended centreline; ``status`` the
     runway's instrument status (RULINGS 2026-10-15k; ``reference_code.
-    runway_status``, #811)."""
+    runway_status``, #811).  ``cap_s`` (#1201): where a walled plate's inner
+    edge crosses this line — a drop whose crest stands within
+    ``edge_probe_m`` of it, or beyond, is the plate's OWN step (the wall it
+    carries, 27t), not the ground falling away: the line keeps its length
+    and the plate caps it."""
     rsa = runway_safety_area_length_m(law, cn, cl, status)
     if dem is None or rsa <= 0.0:
         return rsa
@@ -70,23 +75,54 @@ def end_area_length(dem, end_xy, unit, law: Law, cn, cl, status: int = 0) -> flo
             crest = d           # not falling steeply into this station
         deficit = (z0 - prof.fall_m(d)) - z
         if deficit > drop and i >= k and (zs[i - k] - z) / probe > grade:
+            if cap_s is not None and crest >= cap_s - probe:
+                return rsa          # the plate's own step (docstring)
             return crest
     return rsa
 
 
-def _end_length(dem, end_xy, unit, law: Law, cn, cl, status: int = 0) -> float:
+def _end_length(dem, end_xy, unit, law: Law, cn, cl, status: int = 0,
+                plate=None) -> float:
     """The end area's length past one END: the SHORTEST over the extended
     centreline and the RSA's two side lines (``zone2_half_width_m`` from it,
     the band's own edges) — an escarpment running OBLIQUELY across the end
     area reaches a side line first (measured CYXY 14L/32R: the centreline
-    keeps 184 m while the band's corner stood 34 m over the valley floor)."""
+    keeps 184 m while the band's corner stood 34 m over the valley floor).
+    ``plate``: the walled plate capping this end, whose inner edge caps
+    each line (:func:`end_area_length`'s ``cap_s``)."""
     from ..law.tables import zone2_half_width_m
     hw = float(zone2_half_width_m(law, "runway", cn, cl, status) or 0.0)
     px, py = -unit[1], unit[0]
-    lens = [end_area_length(dem, (end_xy[0] + px * t, end_xy[1] + py * t), unit, law, cn, cl,
-                            status)
-            for t in (0.0, -hw, hw)]
+    lens = []
+    for t in (0.0, -hw, hw):
+        o = (end_xy[0] + px * t, end_xy[1] + py * t)
+        lens.append(end_area_length(dem, o, unit, law, cn, cl, status,
+                                    _inner_s_on_line(plate, o, unit)))
     return min(lens)
+
+
+def _inner_s_on_line(plate, origin, unit) -> float | None:
+    """The distance along the line from ``origin`` along ``unit`` at which
+    ``plate``'s inner edge stands at that line's offset (the edge read in
+    the end's own frame, held at its nearest end beyond it — a side line a
+    little outside the plate's width reads the plate's corner); ``None``
+    without a plate, its median ``inner_s`` without an inner edge."""
+    if plate is None:
+        return None
+    pts = tuple(plate.inner or ())
+    if len(pts) < 2:
+        return float(plate.inner_s)
+    ox, oy = origin
+    st = sorted((-(x - ox) * unit[1] + (y - oy) * unit[0],
+                 (x - ox) * unit[0] + (y - oy) * unit[1]) for x, y in pts)
+    if st[0][0] >= 0.0:
+        return st[0][1]
+    if st[-1][0] <= 0.0:
+        return st[-1][1]
+    for (t0, s0), (t1, s1) in zip(st, st[1:], strict=False):
+        if t0 <= 0.0 <= t1:
+            return s0 if t1 == t0 else s0 + (s1 - s0) * (0.0 - t0) / (t1 - t0)
+    return float(plate.inner_s)                          # pragma: no cover
 
 
 def end_area_lengths(airport: Airport, law: Law) -> dict[str, tuple[float, float]]:
@@ -94,6 +130,7 @@ def end_area_lengths(airport: Airport, law: Law) -> dict[str, tuple[float, float
     length from the runway END (module docstring)."""
     out: dict[str, tuple[float, float]] = {}
     dem = getattr(airport, "dem", None)
+    plates = tuple(getattr(airport, "walled_plates", ()) or ())
     for rw in airport.runways:
         a, b = rw.ends[0].xy, rw.ends[1].xy
         L = math.hypot(b[0] - a[0], b[1] - a[1])
@@ -101,11 +138,12 @@ def end_area_lengths(airport: Airport, law: Law) -> dict[str, tuple[float, float
             continue
         ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
         cn, cl, ins = rw.code_number, rw.code_letter, runway_status(rw)
-        out[rw.id] = (_end_length(dem, a, (-ux, -uy), law, cn, cl, ins),
-                      _end_length(dem, b, (ux, uy), law, cn, cl, ins))
+        cap = {p.end: p for p in plates if p.runway == rw.id}
+        out[rw.id] = (_end_length(dem, a, (-ux, -uy), law, cn, cl, ins, cap.get(0)),
+                      _end_length(dem, b, (ux, uy), law, cn, cl, ins, cap.get(1)))
     # owner RULINGS 2026-10-27t (#1201): A RUNWAY SAFETY AREA ENDS AT A
     # RECOGNISED WALLED PLATE'S INNER EDGE (``airport/walled_plate``)
-    for p in getattr(airport, "walled_plates", ()) or ():
+    for p in plates:
         if p.runway in out:
             lens = list(out[p.runway])
             lens[p.end] = min(lens[p.end], float(p.inner_s))

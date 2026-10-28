@@ -319,6 +319,11 @@ class AdjacentGround:
     #: the probe of a road's axis reads the DEM at the probe — the road's
     #: half-width, the stand-off and this many DEM postings past them
     road_shadow_dem_cells: float
+    #: THE SERVICE ROAD IN A SAFETY AREA SITS AT GRADE (owner RULINGS
+    #: 2026-10-28p (1), #1201): a road of one of these ``highway`` classes
+    #: through a RUNWAY band's zone 2 is not cut out of it (20c (39) is
+    #: for public roads) — it grades with the safety area
+    rsa_at_grade_highways: tuple[str, ...]
 
 
 @_dc.dataclass(frozen=True)

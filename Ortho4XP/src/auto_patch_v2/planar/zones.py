@@ -283,7 +283,9 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                  shore_wedge_m: float | None = None,
                  pack_walls: tuple = (), runways: tuple = (),
                  carriageways: tuple = (),
-                 yields: list | None = None) -> list[ZoneRegion]:
+                 yields: list | None = None,
+                 rsa_carriageways: tuple | None = None,
+                 plates: tuple = ()) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -300,7 +302,15 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     every road running BESIDE them (owner 2026-10-19, #944), and zone 2
     yields the carriageway of every road running THROUGH it (owner RULINGS
     2026-10-20c, 39); each zone-2 yield is appended to ``yields`` as a
-    :class:`~.road_yield.BandYield`."""
+    :class:`~.road_yield.BandYield`.  A RUNWAY band's zone 2 yields only
+    the ``rsa_carriageways`` (``road_yield.rsa_carriageways``; ``None``
+    reads ``carriageways``): an airport service road through the safety
+    area sits at grade on it (owner RULINGS 2026-10-28p (1), #1201).
+
+    ``plates`` (``Airport.walled_plates``, #1201): a runway-end walled
+    plate's footprint is cut from every band (owner RULINGS 2026-10-27t:
+    the safety area ends at the plate's inner edge, also where that edge is
+    oblique), and the plate's own step is never a terrain-edge crest."""
     ag = law.tables.zones.adjacent_ground
     # groundside pavement (roads, lots) buffered by the stand-off: a zone
     # band never shares a vertex with it — the gap terraces (groundside
@@ -472,7 +482,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # half-width plus the stand-off — the road follows its own ground and
     # the band stops at the road's edge.  Zone 1 keeps the outer cut (13ar:
     # the road there is welded to the lip).
-    beside = through = None
+    beside = through = through_rsa = None
     if carriageways and bands:
         airside = [Polygon(c.ring, c.holes) for c in cells
                    if c.side != "groundside" and len(c.ring) >= 3]
@@ -484,14 +494,26 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         through = road_cut_pieces(carriageways,
                                   unary_union([b[1] for b in bands.values()] + airside),
                                   cut, extent=envelope, cap_style="square")
+        through_rsa = through if rsa_carriageways is None else road_cut_pieces(
+            rsa_carriageways,
+            unary_union([b[1] for b in bands.values()] + airside),
+            cut, extent=envelope, cap_style="square")
+    plate_u = _plate_union(plates)
+    plate_near = (None if plate_u is None else
+                  plate_u.buffer(float(law.tables.emit.design.edge_probe_m), **_MITRE))
     for key, (u, inner, outer) in bands.items():
         fam, cn, cl = key
         z1 = fixed_difference(inner, claimed)
         z2 = fixed_difference(fixed_difference(outer, inner), claimed)
         z1 = fixed_difference(z1, beside)
         z2 = fixed_difference(z2, beside)
-        if through:
-            z2 = _yield_zone2(z2, outer, key, through, yields)
+        mine_through = through_rsa if fam == "runway" else through
+        if mine_through:
+            z2 = _yield_zone2(z2, outer, key, mine_through, yields)
+        if plate_u is not None:
+            # 27t (#1201): the band ends at the plate — no stand-off
+            z1 = fixed_difference(z1, plate_u)
+            z2 = fixed_difference(z2, plate_u)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
             if gap_apron_u is not None and geom.intersects(gap_apron_u):
@@ -519,7 +541,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             # the extent ends at the physical edge, HERE, so every reader
             # downstream sees one trimmed polygon
             clip = clip_to_terrain_edge(geom, seed, dem, roads, law,
-                                        edge_report)
+                                        edge_report, not_crest=plate_near)
             geom = clip.kept
             parts = shapely.get_parts(geom) if geom.geom_type != "Polygon" else [geom]
             # THE BREAK AT THE STRIP'S END (``runway_end_breaks``): the
@@ -563,6 +585,17 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             counters[(fam, cls, zone)] = k
         claimed = canonical_union([claimed, outer])
     return out
+
+
+def _plate_union(plates: tuple):
+    """The union of the walled plates' footprints, or ``None``."""
+    polys = []
+    for p in plates or ():
+        g = Polygon(getattr(p, "footprint", ()) or ())
+        g = g if g.is_valid else g.buffer(0.0)
+        if not g.is_empty and g.area > 0.0:
+            polys.append(g)
+    return canonical_union(polys) if polys else None
 
 
 def _yield_zone2(z2, outer, key, through, yields: list | None):

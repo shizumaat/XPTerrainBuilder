@@ -521,6 +521,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.landing_runout",
         "auto_patch_v2.planar.lidar_road",
         "auto_patch_v2.planar.low_extent",
+        "auto_patch_v2.planar.low_fill",
         "auto_patch_v2.planar.low_level",
         "auto_patch_v2.planar.object_corridor",
         "auto_patch_v2.planar.overlay",
@@ -1540,7 +1541,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low
     airport.walled_plate law.walled_plate_schema model.stage_one model.walled_plate
-    planar.low_extent planar.reach_after_pads
+    planar.low_extent planar.low_fill planar.reach_after_pads
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
         law.runway_ends_schema law.terrain_witness_schema
@@ -1657,7 +1658,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
     airport.walled_plate constraints.walled_plate law.walled_plate_schema
-    model.stage_one model.walled_plate planar.low_extent planar.reach_after_pads
+    model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads
 """)
 CODE_MODULES["emit"] = _mods("""
         constraints.runway_end_report law.runway_ends_schema law.terrain_witness_schema

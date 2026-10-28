@@ -4172,8 +4172,8 @@ class MainWindow(QMainWindow):
         self._active_changed(self.map.active_tile())
 
     def _setup_progress_page(self, todo):
-        """Start a fresh run in the Activity box: its tiles' rows queued below the live rows (#1605),
-        queued; the rows of earlier runs stay under them until the app
+        """Start a fresh run in the Activity box: its tiles' rows queued
+        below the live rows (#1605), queued; the rows of earlier runs stay under them until the app
         quits (#1341), and so do the settings a stopped one resumes with."""
         self._tile_clocks = {}
         self._eta_samples = []

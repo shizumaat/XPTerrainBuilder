@@ -43,7 +43,7 @@ from .structure_approach import carriageway_width_m, under_cover
 if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
     from ..model.airport import Airport
 
-__all__ = ["airside_cut_roles", "deck_witness_for",
+__all__ = ["airside_cut_roles", "deck_witness_for", "stacked_ways",
            "decked_exclusion", "owner_kept", "pad_relief_m",
            "parts", "SURFACE_LINE_KINDS", "terrain_tunnel_witness", "knee_nodes"]
 
@@ -167,6 +167,9 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
         if _layer_of(t, 0) >= 1:
             continue
         grade.append((LineString(w.points), w))
+    # STACKED WAYS ARE A CAR PARK'S DECKS (owner RULINGS 2026-10-28s (4))
+    decks = stacked_ways([w for _ln, w in grade], law)
+    grade = [(ln, w) for ln, w in grade if id(w) not in decks]
     grade_tree = STRtree([ln for ln, _w in grade]) if grade else None
 
     # (d) THE FENCE (owner RULINGS 2026-09-27a (4), issue #5; NARROWED by
@@ -498,6 +501,38 @@ def _layer_of_bore(bore):
     carries one (which is not zero — an untagged way makes no statement)."""
     vals = [v for v in (_layer_of(w.tags or {}) for w in bore.ways) if v is not None]
     return min(vals) if vals else None
+
+
+def stacked_ways(ways, law: Law) -> set[int]:
+    """``id`` of every way STACKED with another on one line — several ways
+    sharing both end points that never stand further apart than ``[tunnel]
+    stacked_spread_frac`` of the shorter one's length are a car park's own
+    DECKS, not independent roads crossing a tagged tunnel, and none of them
+    is a witness that it exists (owner RULINGS 2026-10-28s (4), Q252 "a",
+    #1338; NZWN: the garage's three unclassified ramps across its layer -1
+    ground floor)."""
+    from shapely.geometry import LineString, Point
+    from shapely.strtree import STRtree
+    weld = float(law.tables.emit.identity.weld_spacing_m)
+    frac = float(law.tables.structures.tunnel.stacked_spread_frac)
+    lines = [(LineString(w.points), w) for w in ways if len(w.points) >= 2]
+    lines = [(ln, w) for ln, w in lines if ln.length > 0.0]
+    if len(lines) < 2:
+        return set()
+    starts = STRtree([Point(ln.coords[0]) for ln, _w in lines])
+    out: set[int] = set()
+    for i, (ln, w) in enumerate(lines):
+        a, b = Point(ln.coords[0]), Point(ln.coords[-1])
+        for j in starts.query(a.buffer(weld)).tolist() + starts.query(b.buffer(weld)).tolist():
+            if j == i:
+                continue
+            o, ow = lines[int(j)]
+            oa, ob = Point(o.coords[0]), Point(o.coords[-1])
+            same = (oa.distance(a) <= weld and ob.distance(b) <= weld) or \
+                (oa.distance(b) <= weld and ob.distance(a) <= weld)
+            if same and ln.hausdorff_distance(o) <= frac * min(ln.length, o.length):
+                out.update((id(w), id(ow)))
+    return out
 
 
 def _crossings(ln, grade, tree, bore, min_inside_m, inside=None):

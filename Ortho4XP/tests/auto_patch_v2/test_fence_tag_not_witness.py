@@ -64,3 +64,31 @@ def test_inside_a_pack_building_the_building_is_the_cover(law):
     _cl, _t, st = TW._spjc(law, tags=CAR_PARK, partition=TW._link(garage),
                            more_ways=(road,), fence=None)
     assert st.tunnels == 2
+
+
+def test_stacked_ways_are_a_car_parks_decks(law):
+    """Owner RULINGS 2026-10-28s (4), Q252 "a": several ways stacked on one
+    line — the same two ends, a few metres apart between them — are a car
+    park's own decks, not roads crossing the tunnel: no witness inside the
+    fence and no (c) crossing outside it.  NZWN: the garage's three
+    unclassified ramps (36-37 m, 3.4-6.9 m apart) across its ground floor."""
+    a, b = (317.0, -150.0), (317.0, -50.0)
+    decks = tuple(OsmWay(-9020 - k, "small_roads", (a, (317.0 + 3.0 * k, -100.0), b)
+                         if k % 2 == 0 else (b, (317.0 + 3.0 * k, -100.0), a), False,
+                         {"highway": "unclassified"}) for k in range(3))
+    for fence in (TW._rect(-800, -800, 800, 800), None):
+        _cl, tunnels, st = TW._spjc(law, tags=TW.SPJC_TAGS, more_ways=decks, fence=fence)
+        assert st.tunnels == 0 and not tunnels, (fence, st.mouths_off_field_nearest)
+    # ONE of them alone is a road crossing over it, and builds it
+    _cl, _t, st = TW._spjc(law, tags=TW.SPJC_TAGS, more_ways=decks[:1])
+    assert st.tunnels == 2 and not TW._refusals(st), st.mouths_off_field_nearest
+
+
+def test_two_halves_of_a_roundabout_are_not_decks(law):
+    """Two ways sharing both ends but standing far apart (a roundabout's
+    halves) are independent roads: each crossing still witnesses."""
+    a, b = (317.0, -115.0), (317.0, -85.0)
+    halves = (OsmWay(-9030, "small_roads", (a, (332.0, -100.0), b), False, {"highway": "service"}),
+              OsmWay(-9031, "small_roads", (a, (302.0, -100.0), b), False, {"highway": "service"}))
+    _cl, _t, st = TW._spjc(law, tags=TW.SPJC_TAGS, more_ways=halves)
+    assert st.tunnels == 2 and not TW._refusals(st), st.mouths_off_field_nearest

@@ -30,7 +30,9 @@ The five witnesses, asked in this order by :func:`fence_witness`:
    INSIDE A PACK BUILDING'S FOOTPRINT THE BUILDING IS THE COVER (owner
    RULINGS 2026-10-28q (3), #1338): a way crossing there, and the building
    itself, are no witness — only the bore's run outside the pack's
-   footprints is read (``witness(bore, inside)``);
+   footprints is read (``witness(bore, inside)``).  Several identical ways
+   stacked on one line are a car park's decks and no witness either (owner
+   RULINGS 2026-10-28s (4), ``structure_service.stacked_ways``);
 5. **lidar** — a CREDIBLE lidar inset reads a cut along the bore
    (``channel_geometry._lidar_cut``, §45 (3) (ii)).
 
@@ -46,7 +48,7 @@ from shapely.strtree import STRtree
 
 from ..airport.deck_signature import is_bridge_way, is_tunnel_way
 from ..law import Law
-from .structure_service import _layer_of, _rise_m
+from .structure_service import _layer_of, _rise_m, stacked_ways
 
 __all__ = ["fence_witness"]
 
@@ -65,8 +67,10 @@ def fence_witness(airport, law: Law, on_field, osm_ways, pack=None):
     ways = [w for w in osm_ways if len(w.points) >= 2]
     roads = [w for w in ways if "highway" in (w.tags or {})]
     road_tree = STRtree([LineString(w.points) for w in roads]) if roads else None
+    decks = stacked_ways(ways, law)             # 28s (4): a car park's decks
     over = [(g, w) for w in ways for g in (_over_geom(w),)
-            if g is not None and not is_tunnel_way(w.tags or {}, admitted)]
+            if g is not None and not is_tunnel_way(w.tags or {}, admitted)
+            and id(w) not in decks]
     over_tree = STRtree([g for g, _w in over]) if over else None
     portal = _Portals(airport, law, getattr(on_field, "corridor_prints", ()) or ())
     lidar = _LidarCut(airport, law)

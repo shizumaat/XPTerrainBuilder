@@ -1453,7 +1453,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.terrain_feature airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.object_cut airport.hanging_objects
-    airport.pack airport.pack_partition airport.adapted_riders airport.pack_work airport.pad_block_seat
+    airport.adapted_riders
+    airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
     airport.placement_body airport.placement_boxes airport.placement_carrier
     airport.placement_census airport.placement_cockpit airport.placement_contact
@@ -1555,7 +1556,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.terrain_feature airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.object_cut airport.hanging_objects
-    airport.pack airport.pack_partition airport.adapted_riders airport.pack_work airport.pad_block_seat
+    airport.adapted_riders
+    airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
     airport.placement_body airport.placement_boxes airport.placement_carrier
     airport.placement_census airport.placement_cockpit airport.placement_contact

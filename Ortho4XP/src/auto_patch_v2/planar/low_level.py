@@ -507,6 +507,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     from .covered_cut import covered_corridors, plan_covered
     cov = covered_corridors(airport, law)
     cov_reach = covered_corridors(airport, law, widen=1.0) if cov is not None else None
+    cut_levels: dict[str, tuple] = {}
     for ref, regs in sorted(groups.items()):
         if held[ref].get("conforming"):
             continue
@@ -566,7 +567,18 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                         for q in nonempty_polygon_parts(S)])
         reg.landings[low] = {"block": ref, "y": rec["y_lo"], "deck": None,
                              "kind": LOW_KIND, **rec}
+        if rec.get("witness") == "covered_cut":
+            cut_levels[low] = (L, ref, float(rec["y_lo"]))
     _upper_split(groups, done, out, tree, air_polys, storey_lots, law, grid, reg)
+    if cut_levels:
+        # the cut's ENDS grade to the open cut at the rail grade (28r (3),
+        # ``planar/cut_runout``): landing run-outs of the level
+        from .cut_runout import cut_runouts
+        taken = unary_union([r.polygon for r in out if r.polygon is not None]
+                            + [r.polygon for rs in done.values() if rs for r in rs]
+                            + list(air_polys))
+        reg.landing_runouts.update(cut_runouts(cut_levels, held, airport, law, taken,
+                                               grid, counts))
     if not done:
         return out
     from .low_extent import AirRegion, extend_levels

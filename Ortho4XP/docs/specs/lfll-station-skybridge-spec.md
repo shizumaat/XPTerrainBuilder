@@ -79,7 +79,7 @@ building's pad".
      plane is the densest 1 m plane of the lower parts' walled feet in the
      reach (27h).
 3. The level does not extend over its group's lower footprint
-   (`planar/low_extent`). See Q-A.
+   (`planar/low_extent`). RULINGS 2026-10-28r (1).
 4. What no level takes is trimmed out of every pad (`covered_cut.trim_uncut`,
    in `planar/overlay` after the platform split), as #1183 trims an open cut.
    This covers a covered cut under a pad whose unit has no lower storey along
@@ -88,6 +88,31 @@ building's pad".
 5. The object stage sees no second level. `airport/placement_read` publishes
    the level under its block's plane, so the station stays seated with its
    group (row 1).
+
+**R3. The cut's ends grade to the open cut (RULINGS 2026-10-28r (3)).** The
+level stays where the objects put it. Beyond each end of the station the
+ground grades smoothly to meet it, with no step (`planar/cut_runout`).
+
+An END is where a mapped cutting way crosses the level's ring and runs on
+outside every pad for 20 m. Crossings within 60 m of each other are one end.
+Its lip is their centre and its direction their mean outward tangent.
+
+Off the lip runs a strip as wide as those tracks' corridors (half a
+carriageway either side). It is as long as `geom/ramp_profile.runout_profile`
+needs to meet the raw ground:
+- designed at `[tunnel] rail_ramp_grade` = 1.25 %;
+- never steeper than `rail_ramp_max_grade` = 3.5 % (new law keys, the 28k R5
+  rail grades; source: EU TSI INF §4.2.3.6).
+
+It is a LANDING RUN-OUT (#711, `Registries.landing_runouts`). Its region is
+minted by `planar/landing.landing_cut`, and its rows are
+`constraints/ramp_runout.landing_runout_rows`: never above the level, never
+below the design ramp off it, onto its ground by its end, against the solved
+datum. This is one row family: a viaduct's landing runs out at road grade, a
+cut's level at rail grade.
+
+An end whose ground stands level with the level, or above it (a run-out never
+climbs), asks nothing and is counted (`cut_runout_ends`).
 
 Emittability: the level is a flat pad, and its riser is the existing
 `<block>/p1#strip` (§2 (3)), the cell `solve/wall_cut` cuts, so the heightfield
@@ -105,12 +130,15 @@ level:
 | `planar/platform.platform_split` (held-block plan, datum samples) | pad polygons | strips | one block | unchanged |
 | `planar/landing` deck landings + `pad_fill` plate/pier fills + collars | free ground | filled the corridor (16 fills, 239.3–239.8 m) | corridor taken | **R1** |
 | `planar/low_level.low_level_split` / `plan_low` / `group_low` | held pads | `plan_low` refused | `plan_covered` first; the others are not run on a pad it levels | **R2 (2)** |
-| `planar/low_level._with_roads` (24a: a road over the lower level takes it) | mapped roads | – | **not applied to a covered-cut level**: see Q-B | Q-B |
-| `planar/ribbons._ribbons_pass_c` (mapped-road ribbons, 30aa) | ribbon cells over the corridor | a road stub over the westmost track at the station's north end | every ribbon cell is cut out of the covered corridors first | Q-B |
-| `planar/low_extent.extend_levels` (#1306/#1532) | every `low_level` record | – | skips `witness = covered_cut` | **R2 (3), Q-A** |
+| `planar/low_level._with_roads` (24a: a road over the lower level takes it) | mapped roads | – | **not applied to a covered-cut level**: 28r (2) | 28r (2) |
+| `planar/ribbons._ribbons_pass_c` (mapped-road ribbons, 30aa) | ribbon cells over the corridor | a road stub over the westmost track at the station's north end | every ribbon cell is cut out of the covered corridors first | 28r (2) |
+| `planar/low_extent.extend_levels` (#1306/#1532) | every `low_level` record | – | skips `witness = covered_cut` | **R2 (3)**, 28r (1) |
 | `planar/covered_cut.trim_uncut` (new, `planar/overlay`) | pad regions | – | trims the rest of the covered corridor | **R2 (4)** |
+| `planar/cut_runout.cut_runouts` (new, end of `low_level_split`) | the level's ring, cutting ways, DEM | 0.9–1.4 m step to the base mesh at both ends | a run-out record per end in `Registries.landing_runouts` | **R3** |
+| `planar/landing.landing_cut` / `_runout_regions` | `landing_runouts` | viaduct run-outs only | also mints the cut's end strips (`service_road`, ref `runout:<level>`) | R3 |
+| `constraints/ramp_runout.landing_runout_rows`, `runout_exempt` | `landing_runouts` + faces | viaduct run-outs | the same rows at the record's own `g` / `cap` (the rail grades) | R3 |
 | `constraints/platform.landing_rows` | `low_level` records | – | rigid at D + `y_lo` (the `plan_low` row; no `air_xy`, so not `group_level`) | unchanged consumer |
-| `constraints/group_level` (23f) | records with `air_xy` | – | not used (see Q-C) | – |
+| `constraints/group_level` (23f) | records with `air_xy` | – | not used (28r (3): the block datum) | – |
 | `constraints/riser`, `solve/wall_cut` | `#strip` riser cells | – | the level's riser | unchanged consumer |
 | `airport/placement_read` / object stage | the level under its block's plane | – | station seated with its group | R2 (5) |
 | `planar/structures` (bores), `planar/channel` (§45) | `tunnel=yes` bores, crossings | building_passage is no bore | unchanged | §26 |
@@ -139,41 +167,19 @@ None was changed in this lane. #1298 (roofed pack tunnels) and #1331 (closed)
 are not the class here: LFLL's station is a covered rail cut mapped as
 `building_passage`, not a pack tunnel object.
 
-## 6. Owner questions (the master assigns the numbers)
+## 6. Owner rulings (RULINGS 2026-10-28r, Q257–Q259, 2026-10-28T05:47:49Z)
 
-**Q-A. Does a covered cut's lower level extend over its group's lower footprint
-(#1306/#1532)?** At LFLL the whole pack is one footprint unit, so the
-extension minted 100 further lower pads across the airport the first time the
-station got a level.
-- (a) No: the level is the cut's and extends along nothing. **Recommended; shipped.**
-- (b) Yes, as for a terminal's lower storey.
+"257. A 258. A 259. I think if we did B it would require separating the object
+group right? If so, I would say A, and then grade terrain to meet either end of
+the object rails smoothly".
 
-**Q-B. A mapped road that crosses over the covered cut inside the building
-(LFLL: the tertiary `-11343`, `covered=yes tunnel=building_passage`, under the
-station roof at its north end, 45.72229, 5.07603). Should it take the lower
-level (24a)?**
-- (a) No: the station's objects carry the road over the trench (28k 227a: the
-  trench is cut under a hard deck). The terrain under the road is the trench,
-  and no road ribbon stands in a covered cut: the road's open continuation
-  ends at the cut's edge at the station pad's level. **Recommended; shipped.**
-  Measured (same capture, census A/B against the base replay):
-  `road_cross_section` 20 → 20 and `pavement_over_road_cap` 0 → 1 (0.54 m, a
-  road west of the station).
-- (b) Yes (24a as written). Measured: the open continuation `-6364` is dragged
-  9 m into the trench, giving `road_cross_section` 20 → 50 and
-  `pavement_over_road_cap` 0 → 5 at 45.7223, 5.0758. Leaving the ribbons
-  unclipped gives the same +30.
-
-**Q-C. Where is the level held: the block's datum or the group's zero?** The
-station pad rides the T2 apron 0.47 m over the group's zero, so the block-datum
-reading stands the level 0.5 to 0.7 m over the trench objects and the lidar
-floor. The group-zero tie of 23f (`constraints/group_level`), read over the
-whole LFLL unit, gave 241.06 m and stood it 2.1 m over them.
-- (a) The block's datum + the objects' plane (as every `plan_low` level).
-  **Shipped.**
-- (b) On fresh lidar, the survey's floor under the level (28k R5, "rail follows
-  the survey"). **Recommended** for a rail cut.
-- (c) The group's zero (23f).
+1. **(Q257 A)** The level is the cut's alone and extends over nothing. This is
+   R2 (3).
+2. **(Q258 A)** A road crossing over the covered cut inside the building is
+   carried by the building's objects (28k 227a). The level takes no road (24a
+   is not applied) and no road ribbon stands in a covered cut.
+3. **(Q259 A)** The level is held at the block's datum plus the objects' plane.
+   Its ends grade to the open cut at the rail grades (R3).
 
 ## 7. Acceptance
 
@@ -191,7 +197,7 @@ lane on one capture), census A/B:
 | airside families (airside_no_step, cross_shape, taxi_box, strip_*) | 21 / 3 / 4 / 17 (seam_tear 2, longitudinal 10, arc 5) | unchanged |
 | DEFECT families | zero | zero |
 
-Residual (Q-C): the level stands 0.7–0.9 m over the lidar floor under the
+Residual (ruled acceptable, 28r (3)): the level stands 0.7–0.9 m over the lidar floor under the
 station (229.4–229.7 m), and 0.5 m over the trench objects at the owner's
 1.0.43x zero.
 

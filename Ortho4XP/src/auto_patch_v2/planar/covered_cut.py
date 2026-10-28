@@ -34,11 +34,12 @@ plane under ``t`` (27h; ``constraints/platform.landing_rows``): the densest
 takes no road (24a): a road crossing over the cut inside the building is
 the building's deck (28k 227a), and no road ribbon stands in a covered cut
 (``planar/ribbons``).  It extends over nothing (``planar/low_extent``).
-MEASURED LFLL (capture replay at b8c456c9): ``building8/p1`` 53,943 m2 at
-y -9.06 under t -0.06 (154 of 221 walled feet on the plane), 230.38 m flat
+MEASURED LFLL (capture b8c456c9, replayed on main 28cd9b38 and this
+tree): ``building8/p1`` 54,130 m2 at y -9.06 under t -0.06, 230.38 m flat
 for the 450 m under the station where the fills stood at 239.3-239.8 m;
-hard rows relaxed 280 -> 50, adjudicated census rows 415 -> 161, airside
-families unchanged.
+hard rows relaxed 280 -> 50, adjudicated census rows 424 -> 176, airside
+families unchanged.  Its ends grade to the open cut (``planar/cut_runout``,
+RULINGS 2026-10-28r (3)).
 
 What no level takes -- a covered cutting under a pad whose unit has no
 lower storey along it, a piece the level cut keeps off the airside -- is

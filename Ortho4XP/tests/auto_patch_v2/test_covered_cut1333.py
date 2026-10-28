@@ -18,6 +18,7 @@ from auto_patch_v2.law import Law
 from auto_patch_v2.model.registries import Registries
 from auto_patch_v2.planar import covered_cut as CC
 from shapely.geometry import box
+from shapely.ops import unary_union
 
 LAW = Law.for_airport("HECA")
 NS = types.SimpleNamespace
@@ -169,3 +170,59 @@ def test_a_pad_fill_never_takes_a_mapped_cutting(monkeypatch):
                              {}, reg=reg)
     corr = cutting_corridors(airport, LAW)
     assert got and all(r.polygon.intersection(corr).area < 1e-6 for r in got)
+
+
+# ── 2026-10-28r (3): the cut's ENDS grade to the open cut at the rail grade ──
+
+def _ends_airport(ground):
+    ident = (lambda a, b: (a, b))
+    frame = NS(entry=lambda: ident, transformers=lambda: (ident, lambda x, y: (y, x)))
+    cut = NS(points=[(100.0, -300.0), (100.0, 600.0)],
+             tags={"railway": "rail", "cutting": "yes"})
+    return NS(frame=frame, dem=NS(z=ground), osm_ways=[cut])
+
+
+def test_each_end_of_the_level_runs_out_to_the_open_cut_at_rail_grade():
+    from auto_patch_v2.planar.cut_runout import cut_runouts
+    L = box(90.0, 0.0, 110.0, 300.0)                     # the level, to the pad's ends
+    H = box(0.0, 0.0, 200.0, 300.0).difference(box(88.0, -1.0, 112.0, 301.0))
+    held = {"building8": {"datum_pred": 239.0}}
+    ap = _ends_airport(lambda x, y: 229.0)               # the open cut, 1 m under
+    counts: dict = {}
+    got = cut_runouts({"building8/p1": (L, "building8", -9.0)}, held, ap, LAW,
+                      unary_union([H, L]), 0.5, counts)
+    tn = LAW.tables.structures.tunnel
+    assert len(got) == 2 and counts["cut_runout_ends"]["ends"] == 2
+    for rec in got.values():
+        assert rec["landing"] == "building8/p1" and rec["block"] == "building8"
+        assert (rec["g"], rec["cap"]) == (tn.rail_ramp_grade, tn.rail_ramp_max_grade)
+        # 1 m closed at the 1.25 % design grade: ~80 m of ramp, never a step
+        assert 60.0 <= rec["run_m"] <= 85.0
+        for q in rec["polys"]:
+            assert q.intersection(L).area < 1e-6 and q.distance(L) < 0.5
+    dirs = sorted(round(r["dir"][1]) for r in got.values())
+    assert dirs == [-1, 1]                               # one each way, out of the level
+
+
+def test_an_end_whose_ground_stands_level_or_above_asks_nothing():
+    from auto_patch_v2.planar.cut_runout import cut_runouts
+    L = box(90.0, 0.0, 110.0, 300.0)
+    held = {"building8": {"datum_pred": 239.0}}
+    for z, key in ((230.0, "at_grade"), (232.0, "climbs")):
+        counts: dict = {}
+        got = cut_runouts({"building8/p1": (L, "building8", -9.0)}, held,
+                          _ends_airport(lambda x, y, z=z: z), LAW, L, 0.5, counts)
+        assert got == {} and counts["cut_runout_ends"][key] == 2
+
+
+def test_the_run_out_rows_hold_the_strip_at_or_under_the_level():
+    """The record is a landing run-out: ``constraints/ramp_runout`` reads
+    the fields it reads for a viaduct's landing."""
+    from auto_patch_v2.planar.cut_runout import cut_runouts
+    L = box(90.0, 0.0, 110.0, 300.0)
+    got = cut_runouts({"building8/p1": (L, "building8", -9.0)},
+                      {"building8": {"datum_pred": 239.0}},
+                      _ends_airport(lambda x, y: 229.0), LAW, L, 0.5, {})
+    need = {"landing", "block", "y", "lip", "dir", "width_m", "z0_pred", "reach_m",
+            "g", "cap", "dem0", "ground", "run_m", "polys"}
+    assert got and all(need <= set(r) for r in got.values())

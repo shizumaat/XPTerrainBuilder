@@ -291,6 +291,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     faces_by_ref: dict[str, list[Face]] = {}
     for f in planar.faces.values():
         faces_by_ref.setdefault(f.ref.split("#")[0], []).append(f)
+    seat_of = _edge_seats(planar, law)
     for tn in tunnels:
         inputs = (tn.id, *(f"osm:{w}" for w in tn.ways))
         src_ramp = Source(GEN, "tunnel.ramp_max_grade (2026-08-07 r4; 2026-08-30)", inputs)
@@ -545,7 +546,18 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             group = tuple(sorted(set(datum_vs)))
             if len(group) > 1:
                 rows.append(Flat(group, src_mouth))
-            if tn.source in ("object", "door", "sunken_road") or getattr(tn, "edge_back", ()):
+            seat = seat_of(tn)
+            if seat is not None:
+                # AN EDGE BRIDGE'S FLOOR HANGS FROM ITS SEAT (owner sim read
+                # 2026-10-28T14:26Z points 2 / 4; RULINGS 2026-10-20am / 20ar):
+                # the solved surface where the object's top meets the
+                # airside, less its walls' bottom — never deeper than the
+                # object; the two-sided pair of the mouth-depth idiom above
+                v_seat, depth = seat
+                terms = ((group[0], 1.0), (v_seat, -1.0))
+                rows.append(Linear(terms, None, -depth, src_mouth))
+                rows.append(Linear(tuple((v, -c) for v, c in terms), None, depth, src_mouth))
+            elif tn.source in ("object", "door", "sunken_road") or getattr(tn, "edge_back", ()):
                 # (an EDGE BRIDGE's floor is the object's: its deck level −
                 # its walls' bottom, owner RULINGS 2026-10-20am / 20ar; its
                 # cap stands in the bridge's cover, no rim reads it)
@@ -710,6 +722,28 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                             rows.append(Band(dv, lo, hi, src_ends))
     rows.extend(pins.values())
     return rows
+
+
+def _edge_seats(planar: PlanarMap, law: Law):
+    """``seat_of(tunnel) -> (vertex, depth) | None``: the airside vertex at
+    the seat of the edge bridge an edge trench's floor hangs from
+    (``Tunnel.edge_seats``' first, ``planar/bridge_span``) and that bridge's
+    depth; ``None`` for every other tunnel.  The airside index is built once,
+    on the first edge trench."""
+    memo: list = []
+
+    def seat_of(tn: Tunnel):
+        seats = getattr(tn, "edge_seats", ())
+        if not seats:
+            return None
+        if not memo:
+            from .edge_deck import airside_nearest
+            memo.append(airside_nearest(planar, law))
+        if memo[0] is None:
+            return None
+        _oid, (x, y), depth = seats[0]
+        return memo[0](x, y), float(depth)
+    return seat_of
 
 
 def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:

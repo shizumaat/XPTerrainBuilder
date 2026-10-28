@@ -38,6 +38,7 @@ from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
 from ..model.airport import Airport
 from ..model.registries import Registries
 from .chords import densify, ring_lines, stations
+from .lidar_road import survey_road_trenches
 from .road_yield import road_carriageways, rsa_carriageways
 from .terrain_edge import EdgeReport, road_edges
 from .pad_cut import (_drop_rim_midpoints, _renode_counts, _SHARED_TIE_DP,
@@ -274,6 +275,7 @@ def build_arrangement(airport: Airport, classification: Classification,
         erep = EdgeReport()
         edge_lines: list[LineString] = []
         yields: list = []
+        carriageways = road_carriageways(getattr(airport, "osm_ways", ()), law)
         for z in zone_regions(cells, law, classification.keepouts,
                               getattr(airport, "dem", None),
                               road_edges(getattr(airport, "osm_ways", ()), law), erep,
@@ -281,10 +283,11 @@ def build_arrangement(airport: Airport, classification: Classification,
                               shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0),
                               pack_shore_walls(airport),
                               _runway_records(airport, law),
-                              road_carriageways(getattr(airport, "osm_ways", ()), law),
-                              yields,
+                              carriageways, yields,
                               rsa_carriageways(getattr(airport, "osm_ways", ()), law),
-                              tuple(getattr(airport, "walled_plates", ()) or ())):
+                              tuple(getattr(airport, "walled_plates", ()) or ()),
+                              lambda region: survey_road_trenches(
+                                  airport, law, carriageways, region)):
             regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                                   z.code_letter, role_side(law, "graded_strip"),
                                   "zone", z.zone, z.edge_kind, z.quay,

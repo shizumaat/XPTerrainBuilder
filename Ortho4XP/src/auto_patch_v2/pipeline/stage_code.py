@@ -554,6 +554,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.structures",
         "auto_patch_v2.planar.terrain_edge",
         "auto_patch_v2.planar.unframed_ramp",
+        "auto_patch_v2.planar.viaduct_road",
         "auto_patch_v2.planar.wall_corridor_ramps",
         "auto_patch_v2.planar.weld",
         "auto_patch_v2.planar.zone_pass",
@@ -1518,7 +1519,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.structure_service planar.structure_stats
     planar.structure_underpass planar.structures planar.terrain_edge
-    planar.unframed_ramp planar.wall_corridor_ramps planar.weld planar.zones solve.api
+    planar.unframed_ramp planar.viaduct_road
+    planar.wall_corridor_ramps planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
@@ -1634,7 +1636,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.structure_service planar.structure_stats
     planar.structure_underpass planar.structures planar.terrain_edge
-    planar.unframed_ramp planar.wall_corridor_ramps planar.weld planar.zones solve.api
+    planar.unframed_ramp planar.viaduct_road
+    planar.wall_corridor_ramps planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield

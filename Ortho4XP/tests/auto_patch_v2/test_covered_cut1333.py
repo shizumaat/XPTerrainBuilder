@@ -12,8 +12,11 @@ from __future__ import annotations
 import types
 
 import pytest
-from auto_patch_v2.classify.pad_cut_corridor import (cutting_corridors, _is_covered,
-                                                     trim_cut_corridors)
+from auto_patch_v2.classify.pad_cut_corridor import (
+    _is_covered,
+    cutting_corridors,
+    trim_cut_corridors,
+)
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.registries import Registries
 from auto_patch_v2.planar import covered_cut as CC

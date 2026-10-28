@@ -14,6 +14,7 @@ All variables are planar-map vertex ids; ``z`` is metres.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 import typing as _t
 
 __all__ = [
@@ -259,6 +260,32 @@ class ConstraintSet:
             flats=self.flats + other.flats, bands=self.bands + other.bands,
             offsets=self.offsets + other.offsets,
             linears=self.linears + other.linears)
+
+    def nonfinite_rows(self) -> list[Row]:
+        """Every row no solve can hold (#1577): a NaN anywhere, a pin or a
+        coefficient off the reals, a lower side at ``+inf`` or an upper at
+        ``-inf``.  ``-inf`` / ``+inf`` on their own side read as unbounded."""
+        def bad(x: float | None, side: int = 0) -> bool:
+            if x is None:
+                return False
+            x = float(x)
+            return x != x or (side == 0 and not math.isfinite(x)) or x == side * math.inf
+        out: list[Row] = []
+        for r in self.rows():
+            if isinstance(r, Pin):
+                b = bad(r.z)
+            elif isinstance(r, Diff):
+                b = r.cap != r.cap or r.d != r.d or bad(r.rel)
+            elif isinstance(r, Offset):
+                b = bad(r.min_delta, 1)
+            elif isinstance(r, (Band, Linear)):
+                b = bad(r.lo, 1) or bad(r.hi, -1) or (isinstance(r, Linear) and any(
+                    bad(c) for _v, c in r.terms))
+            else:
+                b = False
+            if b:
+                out.append(r)
+        return out
 
     def to_sparse(self) -> _t.Any:
         """See the class docstring.  The implementation is

@@ -48,7 +48,7 @@ from ..airport.road_ways import ribbon_half_width_m, road_ways
 from ..law import Law
 from ..model.road_yield import RoadYield
 
-__all__ = ["road_carriageways", "road_cut_pieces", "BandYield",
+__all__ = ["road_carriageways", "rsa_carriageways", "road_cut_pieces", "BandYield",
            "road_yield_records", "road_cut_outlines", "road_cut_ground"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
@@ -97,6 +97,23 @@ def road_carriageways(osm_ways, law: Law,
             continue
         out.append((line, ribbon_half_width_m(tags, law)))
     return tuple(out)
+
+
+def rsa_carriageways(osm_ways, law: Law,
+                     highways=None) -> tuple[tuple[LineString, float], ...]:
+    """:func:`road_carriageways` less the classes that sit AT GRADE in a
+    runway safety area (``zones.adjacent_ground.rsa_at_grade_highways``;
+    owner RULINGS 2026-10-28p (1), #1201): the roads a RUNWAY band's zone 2
+    still yields (20c (39), public roads, #951)."""
+    if highways is None:
+        from ..classify.rules import load_rules
+        orr = load_rules().osm_roads
+        if not orr.enabled:
+            return ()
+        highways = orr.ribbon_highways
+    at_grade = set(law.tables.zones.adjacent_ground.rsa_at_grade_highways)
+    return road_carriageways(osm_ways, law,
+                             tuple(h for h in highways if h not in at_grade))
 
 
 def road_cut_pieces(carriageways, envelope, standoff_m: float, extent=None,

@@ -1815,7 +1815,16 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     # exactly as ``preferred_road_z`` is withdrawn under the ramp.
     lane = float(law.tables.emit.road_profile.lane_width_m)
     at_mouth = {v for v, (_a, _b, _u, s_) in contact.items() if s_ <= lane}
-    targets = {v: z for v, z in tg.targets.items() if v not in at_mouth}
+    # #1201 (owner RULINGS 2026-10-27t): a road vertex ON a walled plate
+    # (or on its inner edge) ramps to no DEM — the plate hides that ground
+    # and its ceiling governs it (``constraints/walled_plate``)
+    from .plate_ground import vertices_on_plates
+    on_plate = vertices_on_plates(
+        {v: pm.vertices[v] for v in tg.targets if v in pm.vertices},
+        getattr(airport, "walled_plates", ()),
+        float(law.tables.structures.walled_plate.station_inset_m))
+    targets = {v: z for v, z in tg.targets.items()
+               if v not in at_mouth and v not in on_plate}
     if report is not None:
         report["contact_mouth_withdrawn"] = len(tg.targets) - len(targets)
     # OWNER RULINGS 2026-09-27a (11) (Q-22, TFFJ ``dsf:objpav0#1`` ending
@@ -1901,7 +1910,12 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     if report is not None:
         report["public_road_lifted"] = len(lifted)
         report["public_road_steepest"] = max(lifted.values(), default=0.0)
+    from .plate_ground import under_plate_vertices
+    under = under_plate_vertices(pm, getattr(airport, "walled_plates", ()))
+    from .road_profile import at_grade_rsa_vertices
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,
+                       plate_under=under,
+                       rsa_at_grade=at_grade_rsa_vertices(airport, pm, law),
                        road_contact_edge=contact, road_route_merged=merged,
                        road_reach_seed=seed, preferred_z=keep,
                        road_between_levels=bl, road_terrace=terr,

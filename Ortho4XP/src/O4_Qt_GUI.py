@@ -102,6 +102,7 @@ import O4_Qt_Build_History as QTHIST
 import O4_Qt_Build_Airports as QTAIRPORTS
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Pack_Forests as QTFOREST
+import O4_Qt_Latest_Probe as QTPROBE
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
@@ -740,6 +741,20 @@ def _batch_summary(batch):
     return " — ".join(parts)
 
 
+def _scan_modified_airports(tile, scenery_dir, should_stop):
+    """Worker thread (#1546: holds no window object): which packs did
+    the reseater modify for this tile?  Returns the bridge payload."""
+    try:
+        from auto_patch import object_rebake
+
+        packs = object_rebake.modified_packs(
+            scenery_dir, tile=FNAMES.short_latlon(*tile),
+            should_stop=should_stop)
+    except Exception:
+        packs = []
+    return (tile, packs)
+
+
 class MainWindow(QMainWindow):
     @property
     def build_zl(self):
@@ -841,6 +856,10 @@ class MainWindow(QMainWindow):
         self._session = EngineSession()
         self._session.app_driven = True     # this window has the buttons
         self._bridge = _EngineBridge()
+        # #1546: one reanchor probe in flight per window, newest wins.
+        self._reanchor_probe = QTPROBE.LatestProbe(
+            _scan_modified_airports, self._bridge.reanchor_ready.emit,
+            name="o4-reanchor-probe")
         self._bridge.event.connect(self._on_engine_event)
         self._bridge.reanchor_ready.connect(self._on_reanchor_ready)
         self._bridge.conflicts_ready.connect(self._on_conflicts_ready)
@@ -3056,11 +3075,7 @@ class MainWindow(QMainWindow):
         self._info_layout.setRowVisible(self.modified_airports_row, False)
         self._modified_airport_packs = []
         if CFG.custom_scenery_dir:
-            threading.Thread(
-                target=self._probe_modified_airports,
-                args=(tile, CFG.custom_scenery_dir),
-                daemon=True,
-            ).start()
+            self._reanchor_probe.submit(tile, CFG.custom_scenery_dir)
 
         # The elevation rows populate for built AND unbuilt tiles: what
         # data a build WOULD use matters most before building.
@@ -3197,27 +3212,7 @@ class MainWindow(QMainWindow):
 
         tile = self.map.active_tile()
         if tile is not None and CFG.custom_scenery_dir:
-            threading.Thread(
-                target=self._probe_modified_airports,
-                args=(tile, CFG.custom_scenery_dir), daemon=True).start()
-
-    def _probe_modified_airports(self, tile, scenery_dir):
-        """Worker thread: which packs did the reseater modify for this
-        tile?  Result marshalled to the GUI thread via the bridge."""
-        try:
-            from auto_patch import object_rebake
-
-            packs = object_rebake.modified_packs(
-                scenery_dir, tile=FNAMES.short_latlon(*tile)
-            )
-        except Exception:
-            packs = []
-        # The scan reads every pack's records and can outlive the window
-        # (#1360 made it longer): a result for a closed window is dropped,
-        # never queued to a deleted receiver.
-        if not shiboken6.isValid(self) or getattr(self, "_closed", False):
-            return
-        self._bridge.reanchor_ready.emit((tile, packs))
+            self._reanchor_probe.submit(tile, CFG.custom_scenery_dir)
 
     def _on_reanchor_ready(self, payload):
         tile, packs = payload
@@ -3315,8 +3310,9 @@ class MainWindow(QMainWindow):
                     % (pack["pack_name"], error)
                 )
             if scenery_dir:
-                self._probe_modified_airports(tile, scenery_dir)
+                probe.submit(tile, scenery_dir)
 
+        probe = self._reanchor_probe
         threading.Thread(target=work, daemon=True).start()
 
     def _show_manual_elevation_dialog(self):
@@ -5191,6 +5187,8 @@ class MainWindow(QMainWindow):
         save_prefs(self.prefs)
         self._closed = True
         self._cancel_deferred()
+        # The reanchor probe: no result after close, its worker joined.
+        self._reanchor_probe.close()
         # The 3D preview's building reader runs in a worker process (#753).
         self.patch_editor.engine.close()
         event.accept()

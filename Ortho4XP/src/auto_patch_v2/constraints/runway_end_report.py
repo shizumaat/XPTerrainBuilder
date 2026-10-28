@@ -19,6 +19,7 @@ from ..model.planar import PlanarMap
 from .precedence import view
 from .runway_profile import (
     CASE_FLAGGED,
+    CASE_GROUND,
     CASE_LIDAR,
     _axis,
     _end_vertex,
@@ -70,8 +71,8 @@ def records(planar: PlanarMap, law: Law, airport: Airport) -> list[dict[str, _t.
 
 def lines(icao: str, recs: _t.Iterable[dict[str, _t.Any]]) -> list[str]:
     """The loud line of every end the DEM decided over a survey or a datum:
-    a flagged CIFP end (#1342) and an apt.dat-only end the lidar outvoted
-    (#1394)."""
+    a flagged CIFP end (#1342) and an apt.dat-only end the lidar (#1394)
+    or a fine DEM (#1348, 28m / 28o) outvoted."""
     out = []
     for r in recs:
         if r["source"] == CASE_FLAGGED:
@@ -82,4 +83,8 @@ def lines(icao: str, recs: _t.Iterable[dict[str, _t.Any]]) -> list[str]:
             out.append(f"RUNWAY END GIVES WAY TO THE LIDAR (#1394, RULINGS 2026-10-26e): "
                        f"{icao} {r['runway']} RWY {r['end']}: apt.dat datum {r['datum_m']} m "
                        f"-> lidar {r['pin_m']} m")
+        elif r["source"] == CASE_GROUND:
+            out.append(f"RUNWAY END YIELDS TO THE SURVEY GROUND (#1348, RULINGS 2026-10-28m): "
+                       f"{icao} {r['runway']} RWY {r['end']}: apt.dat datum {r['datum_m']} m "
+                       f"-> DEM {r['pin_m']} m")
     return out

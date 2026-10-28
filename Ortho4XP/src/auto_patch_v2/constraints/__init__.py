@@ -219,4 +219,7 @@ def post_passes(rows: list[Row], counts: dict[str, int], walls: dict[str, float]
     # owner 2026-10-20 (#798): round a sloping building's pad the apron
     # blends at up to the tunnel-ramp cap, except along the door line
     rows = door_pad.relax_apron_caps(rows, planar, law, airport, counts)
+    # #1201: a walled plate is the step between its safety area and the
+    # ground it hides (``walled_plate.release_across``)
+    rows = walled_plate.release_across(rows, planar, airport, counts)
     return assemble(rows, counts, walls, planar, law, only, yielded_out)

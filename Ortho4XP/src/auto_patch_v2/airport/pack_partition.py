@@ -613,7 +613,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     _to_xy, to_ll = airport.frame.transformers()
     to_ll_batch = _batch_to_ll(airport.frame)
     apt = airport.pack.apt_dat_path
-    pack_root = os.path.dirname(os.path.dirname(apt)) if apt else ""
+    pack_root = getattr(airport.pack, "root", "") or (
+        os.path.dirname(os.path.dirname(apt)) if apt else "")
 
     anchors_by_resource: dict[str, set[tuple[float, float, float]]] = {}
     keyed: list[tuple[tuple[float, float, float], _obj8.PlacedObject]] = []

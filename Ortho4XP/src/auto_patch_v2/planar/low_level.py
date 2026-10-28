@@ -183,7 +183,7 @@ def stand_floor(parts, air, stands, law, to_xy) -> "tuple[float, _t.Any, _t.Any,
     at = touch & near
     if int(at.sum()) < ag.PLANE_MIN_FEET:
         return None
-    return -float(ag.floor_plane([-float(y) for y in Y[at]])), X, Y, at
+    return -float(ag.floor_plane([-float(y) for y in Y[at]], ag.storey_m(law))), X, Y, at
 
 
 def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] | None":

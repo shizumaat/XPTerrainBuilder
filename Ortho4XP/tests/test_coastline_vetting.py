@@ -173,3 +173,23 @@ def test_the_bathymetry_band_reads_the_vetted_coastline():
     coast = _real_coast()
     _Tile.dem = _coastal()
     assert BAND._vetted(coast, _Tile()) is coast
+
+
+# --- a witness buffer GEOS returns in parts (#1300) -----------------------
+#: a real 53-vertex closed coastline ring (tile-relative, ~480 m) whose
+#: 150 m witness buffer GEOS returns as a MultiPolygon: the polygon plus
+#: two ~1e-11 deg^2 slivers.  Vetting raised AttributeError on it, which
+#: took the whole tile's coastline (and the emit's shore witness) down.
+_SLIVER_RING = [(0.5024994, 0.4763696), (0.5024994, 0.4763077), (0.5025061, 0.4762696), (0.5025436, 0.4761959), (0.5026013, 0.4761602), (0.5026402, 0.4761257), (0.5026979, 0.4760685), (0.5027435, 0.4760162), (0.5027917, 0.4759484), (0.5028105, 0.4758936), (0.5028762, 0.4758377), (0.5029755, 0.475846), (0.5030734, 0.4759305), (0.5031807, 0.4760198), (0.5032531, 0.4761316), (0.5033174, 0.4762256), (0.503351, 0.4763053), (0.5033644, 0.4764267), (0.5033349, 0.4765802), (0.5033081, 0.4766765), (0.5032759, 0.4768027), (0.5032437, 0.4768717), (0.5031377, 0.4769276), (0.5031109, 0.476955), (0.5030693, 0.4770026), (0.5029768, 0.4769954), (0.5029916, 0.4769312), (0.5029594, 0.4768598), (0.5028521, 0.4767943), (0.5027475, 0.4767717), (0.5026147, 0.4768015), (0.5025302, 0.4768443), (0.5024578, 0.4769109), (0.5024337, 0.4769454), (0.5024042, 0.4770406), (0.5023518, 0.4771108), (0.5023183, 0.477181), (0.5022714, 0.4772072), (0.5022084, 0.4772132), (0.5021788, 0.477181), (0.5022177, 0.4770989), (0.5022808, 0.4770133), (0.5022754, 0.4769383), (0.5023143, 0.4768848), (0.5023626, 0.4768336), (0.502427, 0.4767753), (0.5024685, 0.4767206), (0.5024404, 0.4766325), (0.5024444, 0.4765909), (0.5024699, 0.4765112), (0.502486, 0.4764683), (0.5025088, 0.4764291), (0.5024994, 0.4763696)]
+
+
+def test_a_buffer_returned_in_parts_is_still_witnessed():
+    ring = geometry.LineString(_SLIVER_RING)
+    assert ring.buffer(VET.WITNESS_REACH_M / VET._LAT_TO_M,
+                       quad_segs=4).geom_type == "MultiPolygon"
+    coast = geometry.MultiLineString([ring])
+    kept, dropped = VET.vet_coastline(coast, LAT, LON, _witness(_coastal()))
+    assert kept is coast and dropped == []
+    gone, dropped = VET.vet_coastline(coast, LAT, LON,
+                                      _witness(_highland()))
+    assert gone.is_empty and len(dropped) == 1

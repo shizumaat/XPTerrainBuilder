@@ -269,11 +269,17 @@ def _road_barriers(part: Polygon, seed, crest, roads, law) -> tuple[list, list, 
 
 
 def clip_to_terrain_edge(geom, seed, dem, roads, law: Law,
-                         report: EdgeReport | None = None) -> EdgeClip:
+                         report: EdgeReport | None = None,
+                         not_crest=None) -> EdgeClip:
     """One region geometry clipped by the terrain edge (module docstring).
     ``seed`` is the region's PAVEMENT SIDE (the pavement union for zone 1,
     its lip offset for zone 2): what the kept part must stay connected to,
     and the reference the outward direction is measured from.
+
+    ``not_crest`` (#1201): ground where no cell is a crest — a runway-end
+    walled plate's footprint within ``edge_probe_m``: the probe there reads
+    the plate's OWN step, which is a wall the plate carries (RULINGS
+    2026-10-27t), never the safety area's physical edge.
     """
     rep = report if report is not None else EdgeReport()
     if dem is None or geom is None or geom.is_empty or seed is None or seed.is_empty:
@@ -291,6 +297,8 @@ def clip_to_terrain_edge(geom, seed, dem, roads, law: Law,
             kept_parts.append(part)          # not this region's own ground
             continue
         crest, _cells = _crest_geometry(part, seed, dem, law)
+        if not_crest is not None and not crest.is_empty:
+            crest = crest.difference(not_crest)
         rings, relief, n_runs = _road_barriers(part, seed, crest, roads, law)
         if crest.is_empty and not rings:
             kept_parts.append(part)          # no edge: byte-identical

@@ -40,7 +40,8 @@ import typing as _t
 #: ``o4_v2_rebake_<ICAO>.json`` (``model.rebake.PLAN_FILENAME``) and
 #: nothing else in the patch directory.  A tool's
 #: ``o4_v2_rebake_<ICAO>.seat.json`` is NOT a plan.
-_PLAN_NAME_RE = re.compile(r"^o4_v2_rebake_(?!result_)[A-Za-z0-9]{2,8}\.json$")
+#: ``~<k>``: an objects-only COMPANION pack's plan (``airport/companion``)
+_PLAN_NAME_RE = re.compile(r"^o4_v2_rebake_(?!result_)[A-Za-z0-9]{2,8}(~\d+)?\.json$")
 
 #: Verbosity of the one line the ``modify_custom_airports`` stand-down
 #: prints (issue #42).  ABOVE the default (``O4_UI_Utils.verbosity`` 1), so
@@ -422,7 +423,7 @@ def _art_after_place(art: "_PackArt", plan_, tile, *, written: bool) -> None:
 
 def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                    write_enabled: bool, measure_only: bool,
-                   omit: _t.Sequence = ()) -> dict:
+                   omit: _t.Sequence = (), plan_key: str = "") -> dict:
     """One airport's placement write (RULINGS 2026-09-11e (3)).  Returns
     the counts; raises nothing the caller does not already catch.
     ``omit`` is the missing art the user accepted to build without
@@ -625,7 +626,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             plan, files, _DSFR._dsftool_path() or "DSFTool", patch_dir=patch_dir,
             allow_live_install=True,
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
-            engine_version=_engine_version(), law_digest=digest, omit=omit)
+            engine_version=_engine_version(), law_digest=digest, omit=omit,
+            plan_key=plan_key)
     except BackupUnproven as exc:
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
         # touched — not the DSF, not an object, not a cut file: a pack
@@ -942,12 +944,16 @@ def rebake_after_mesh(tile) -> dict:
                 # THE PLACEMENT PATH (11e (3); the ONLY object stage
                 # since 2026-09-12s) — no seat is computed; served from
                 # the airport's record when nothing it reads changed (#879)
-                def _compute(plan_=plan_, law=law, omit=omit):
+                # ``ICAO`` or ``ICAO~k`` (a companion pack's plan): names the
+                # placement plan written beside it
+                key = os.path.basename(plan_path)[len("o4_v2_rebake_"):-len(".json")]
+
+                def _compute(plan_=plan_, law=law, omit=omit, key=key):
                     return _place_objects(
                         plan_, law,
                         mesh_placement_sampler(mesh_path, plan_.bounds()),
                         tile, patch_dir, write_enabled, measure_only,
-                        omit=omit)
+                        omit=omit, plan_key=key)
                 pc = {}
                 served = reuse.reused if reuse is not None else 0
                 try:

@@ -946,6 +946,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                          "ground_datum_rows": rep.ground_datum_rows,
                          "foot_rows": rep.foot_rows,
                          "active": len(active), "rounds": rep.rounds})
+    _refuse_nonfinite(cs, z)
     cert = residual(cs, z, obj)
     wall = time.perf_counter() - t0
     return (Solution(z=tuple(float(v) for v in z),
@@ -954,3 +955,22 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                      message=f"design surface: {rep.rounds} active-set round(s), "
                              f"{red.n_cols} unknowns, {rep.rows} rows, "
                              f"{method}"), rep)
+
+
+class NonFiniteDesign(ValueError):
+    """The design solve answered NaN / inf (#1577): it is never emitted."""
+
+
+def _refuse_nonfinite(cs: ConstraintSet, z: np.ndarray) -> None:
+    """Refuse a design with a column off the reals, naming the rows no solve
+    can hold (``ConstraintSet.nonfinite_rows``) — the NaN is theirs, and an
+    emitted NaN is a ``sentinel_elevation`` row per vertex downstream."""
+    off = np.flatnonzero(~np.isfinite(np.asarray(z, dtype=float)))
+    if not off.size:
+        return
+    rows = cs.nonfinite_rows()
+    named = "; ".join(f"{type(r).__name__} {r.source.generator}: {r.source.ruling[:60]} "
+                      f"{','.join(r.source.inputs[:1])}" for r in rows[:3])
+    raise NonFiniteDesign(
+        f"design solve: {off.size} vertices off the reals (first v{int(off[0])}); "
+        f"{len(rows)} non-finite row(s){': ' + named if named else ''}")

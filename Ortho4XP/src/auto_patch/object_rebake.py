@@ -2056,7 +2056,8 @@ def pack_status(pack_root: str) -> dict | None:
     return by_tile
 
 
-def modified_packs(scenery_dir: str, tile: str | None = None) -> list[dict]:
+def modified_packs(scenery_dir: str, tile: str | None = None,
+                   should_stop=None) -> list[dict]:
     """Every pack under ``scenery_dir`` the engine modified.
 
     One sidecar stat per pack, plus one ``listdir`` + one stat per bucket
@@ -2071,6 +2072,9 @@ def modified_packs(scenery_dir: str, tile: str | None = None) -> list[dict]:
     never offered it — its minted bodies and its record stayed in the
     pack with no way to get them out.  A pack carrying either is listed;
     one carrying both is listed ONCE, with the counts summed.
+
+    ``should_stop`` (a no-argument callable) is polled per pack: a front
+    end's superseded or closed probe ends the scan early (#1546).
     """
     results: list[dict] = []
     try:
@@ -2078,6 +2082,8 @@ def modified_packs(scenery_dir: str, tile: str | None = None) -> list[dict]:
     except OSError:
         return results
     for name in entries:
+        if should_stop is not None and should_stop():
+            return results
         pack_root = os.path.join(scenery_dir, name)
         if not os.path.isdir(pack_root):
             continue

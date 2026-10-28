@@ -93,13 +93,17 @@ def test_the_witnesses_are_the_feet_in_their_floors_band(law, tmp_path):
     """The object stage seats the group at the HIGHEST dense plane of
     ``airside z - y``; the mean over every stand-side foot read it a metre
     low at LFPG T2.  Only the feet in that plane's band (read on the DEM
-    here, the airside being unsolved) tie the level."""
+    here, the airside being unsolved) tie the level.  Planes less than a
+    storey apart are one level, read on its lowest plane (#1344)."""
     import numpy as np
-    A = _airport(_group(), tmp_path, ground=lambda x, y: 105.0 if x < 120.0 else 103.0)
     X = np.asarray([[100.0, 99.6], [110.0, 99.6], [130.0, 99.6], [140.0, 99.6]] * 10)
     Y = np.zeros(len(X))
-    keep = GL._floor_band(A, X, Y, list(range(len(X))))
+    A = _airport(_group(), tmp_path, ground=lambda x, y: 105.0 if x < 120.0 else 101.0)
+    keep = GL._floor_band(A, law, X, Y, list(range(len(X))))
     assert keep and all(X[i, 0] < 120.0 for i in keep)
+    A = _airport(_group(), tmp_path, ground=lambda x, y: 105.0 if x < 120.0 else 103.0)
+    keep = GL._floor_band(A, law, X, Y, list(range(len(X))))
+    assert keep and all(X[i, 0] > 120.0 for i in keep)
 
 
 def test_between_the_stages_the_tie_becomes_a_pin_on_stage_1s_levels(monkeypatch):

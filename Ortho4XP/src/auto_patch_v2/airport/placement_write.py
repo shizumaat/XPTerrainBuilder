@@ -252,9 +252,14 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     # keeps its authored row — never converted, never re-seated
     from . import terrain_feature as _tf
     features = _tf.feature_rows(dump, pack_root)
-    settled = frozenset(s.placement.index for s in splits) | kept_idx | features
+    # #1201: a placement the stage KEPT because its authored seat lands
+    # (owner RULINGS 2026-10-14g (3)) keeps its authored row — converting
+    # its OBJECT_MSL row to on-ground is not "kept as authored"
+    landed = landed_keeps(ss)
+    settled = (frozenset(s.placement.index for s in splits) | kept_idx
+               | features | landed)
     _rows = list(getattr(dump, "placements", ()) or ())
-    authored_rows = sum(1 for i in kept_idx if 0 <= i < len(_rows)
+    authored_rows = sum(1 for i in kept_idx | landed if 0 <= i < len(_rows)
                         and _rows[i].kind in _dw.CONVERTIBLE_KINDS)
     conversions = tuple(c for c in conversions if c.index not in settled)
     flat = getattr(rebake_plan, "flat", None)
@@ -295,6 +300,14 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     counts.update(_fu.multi_anchor_census(dump, rebake_plan, msl, settled,
                                           ss.unit_seats))
     return conversions, msl, tuple(riders), counts
+
+
+def landed_keeps(ss: _t.Any) -> frozenset[int]:
+    """The DSF row indices the placement stage kept whole because every
+    body would land on its authored seat (``placement_file._cut_and_file``,
+    owner RULINGS 2026-10-14g (3), reason ``authored_seat_lands``)."""
+    return frozenset(k.index for k in (getattr(ss, "kept", ()) or ())
+                     if getattr(k, "reason", "") == "authored_seat_lands")
 
 
 def _agl_rows_kept(dump: _t.Any, msl: tuple, surface: _t.Callable,
@@ -517,8 +530,10 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                work_dir: str | None = None,
                refresh_dump: _t.Callable[[str], str | None] | None = None,
                engine_version: str = "", law_digest: str = "",
-               omit: _t.Sequence = ()) -> PlacementWriteResult:
+               omit: _t.Sequence = (), plan_key: str = "") -> PlacementWriteResult:
     """The writes in the one lawful order (module doc, steps 0-5).
+    ``plan_key`` names the plan JSON (``o4_v2_placement_<key>.json``;
+    default the ICAO — a companion pack's plan is ``ICAO~k``).
 
     §12a (3) row 5: THE DSF IS CLASSIFIED FIRST.  When its write half
     stands down (rows D2 / D8) nothing at all happens — no restore, no
@@ -556,7 +571,7 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
     plan_path = ""
     if patch_dir:
         os.makedirs(patch_dir, exist_ok=True)
-        plan_path = os.path.join(patch_dir, PLAN_FILENAME.format(icao=plan.icao))
+        plan_path = os.path.join(patch_dir, PLAN_FILENAME.format(icao=plan_key or plan.icao))
         with open(plan_path + ".tmp", "w", encoding="utf-8",
                   newline="\n") as fh:
             json.dump(plan.to_dict(), fh, indent=1)

@@ -91,3 +91,16 @@ def test_the_zones_keep_off_a_trench_object_at_a_bore_end(law):
     polys, notes = trench_keepouts([at, away], bores, tol)
     assert len(polys) == 1 and polys[0].equals(at.outline)
     assert len(notes) == 1 and "dsf:obj1" in notes[0]
+
+
+def test_the_keepout_is_ground_never_a_cell(law):
+    """A taxiway crossing the trench object stays pavement: the keepout is
+    the outline less the classification's cells."""
+    tol = law.tables.structures.tunnel.object.bore_end_tolerance_m
+    bores = chains([OsmWay(-1, "small_roads", ((0.0, 0.0), (200.0, 0.0)), False,
+                           {"highway": "tertiary", "tunnel": "yes"})])
+    at = TrenchObject("dsf:obj1", "GP/trench.obj", box(-60.0, -20.0, 0.5, 20.0), 6.0, ())
+    taxiway = box(-40.0, -30.0, -20.0, 30.0)
+    polys, _notes = trench_keepouts([at], bores, tol, [taxiway])
+    assert sum(p.area for p in polys) == pytest.approx(at.outline.area - 20.0 * 40.0)
+    assert not any(p.intersection(taxiway).area > 1e-6 for p in polys)

@@ -1068,7 +1068,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.tunnels = len(tunnels)
     stats.survey_cuts = len(survey_cuts)
     # 2026-10-28s (6) Q256 b: the zones keep off a pack trench object at a bore end
-    t_keep, stats.trench_keepouts = trench_keepouts(trenches, bores, tn.object.bore_end_tolerance_m)
+    t_keep, stats.trench_keepouts = trench_keepouts(trenches, bores, tn.object.bore_end_tolerance_m,
+                                                    polys)
     survey_cuts.extend(t_keep)
     keepouts.extend(survey_cuts)
     if not add_channel_cells(channels, law, new_cells, footprints, keepouts, stats) \

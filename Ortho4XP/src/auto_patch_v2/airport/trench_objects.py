@@ -133,8 +133,8 @@ def read_trench_objects(objects: _t.Sequence[_obj8.PlacedObject],
     return out, sorted(notes)
 
 
-def trench_keepouts(trenches: _t.Sequence[TrenchObject], bores, tol_m: float
-                    ) -> tuple[list, list[str]]:
+def trench_keepouts(trenches: _t.Sequence[TrenchObject], bores, tol_m: float,
+                    cover: _t.Sequence = ()) -> tuple[list, list[str]]:
     """THE ZONES KEEP OFF A TRENCH OBJECT AT A BORE END (RULINGS 2026-10-28s
     (6), Q256 b): ``(the outline's polygons, one note per object)`` for each
     trench object whose outline stands within ``tol_m`` of an end of a bore
@@ -142,14 +142,25 @@ def trench_keepouts(trenches: _t.Sequence[TrenchObject], bores, tol_m: float
     trench whatever the engine cuts).  The polygons join the structure
     pass's keepouts — the one region the graded zones stop at — so the
     terrain meets the object on its sides and the road alone grades to its
-    front edge."""
+    front edge.
+
+    ``cover`` is the classification's cell polygons (pavement, pads, roads):
+    a keepout is GROUND the zones would have graded, never a cell, so the
+    outline is trimmed by them at this one site.  MEASURED EDDF (replay of
+    the registered l1028 capture): untrimmed, ``Tunnel_4.obj``'s outline
+    took the taxiway ``pav76`` it passes under out of the arrangement — 64
+    ``airside_no_step`` and 22 ``taxi_box`` rows on the taxiway east of
+    the runway 25R threshold (ADJUDICATED 4824 -> 4923)."""
     ends = [Point(p) for b in bores for p in (b.points[0], b.points[-1])]
+    cut = shapely.union_all(np.array(list(cover), dtype=object)) if len(cover) else None
     polys: list = []
     notes: list[str] = []
     for t in trenches:
         if not any(t.outline.distance(e) <= tol_m for e in ends):
             continue
-        parts = [g for g in shapely.get_parts(t.outline) if g.geom_type == "Polygon"]
+        ground = t.outline if cut is None else t.outline.difference(cut)
+        parts = [g for g in shapely.get_parts(ground)
+                 if g.geom_type == "Polygon" and not g.is_empty]
         polys.extend(parts)
         notes.append(f"{t.object_id} {os.path.basename(t.resource)}: the zones keep off its "
                      f"outline ({sum(g.area for g in parts):.0f} m2; RULINGS 2026-10-28s (6))")

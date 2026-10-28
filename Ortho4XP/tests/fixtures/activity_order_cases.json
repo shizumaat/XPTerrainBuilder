@@ -1,5 +1,5 @@
 {
-  "_doc": "The Activity list's row order and status tone (#1341), the section a row sits in (#1556) and which rows the list shows selected and the map selection after a list edit (#1537). Read by Ortho4XP/tests/test_activity_order.py (O4_Activity_Order) and Tests/SceneryKitTests/ActivityOrderTests.swift (SceneryKit ActivityOrder). Each sequence starts with no stamps and counter 0; each step lists every row [key, state, label] in the order the rows were made, and the order the list shows after it.",
+  "_doc": "The Activity list's row order and status tone (#1341), the section a row sits in (#1556) and which rows the list shows selected and the map selection after a list edit (#1537). Read by Ortho4XP/tests/test_activity_order.py (O4_Activity_Order) and Tests/SceneryKitTests/ActivityOrderTests.swift (SceneryKit ActivityOrder). Each sequence starts with no stamps and counter 0; each step lists every row [key, state, label] in the order the rows were made, and the order the list shows after it: live rows first-queued at the top, new and re-queued rows appended below (#1605), then finished rows in finish order.",
   "section": [
     {"state": "done", "section": "completed"},
     {"state": "error", "section": "activity"},
@@ -78,22 +78,22 @@
         {"rows": [["A", "done", "built with warnings"], ["B", "error", "failed"], ["C", "done", "done"], ["D", "queued", "queued"]],
          "order": ["D", "A", "B", "C"]},
         {"rows": [["A", "done", "built with warnings"], ["B", "queued", "queued"], ["C", "done", "done"], ["D", "active", "mesh"]],
-         "order": ["B", "D", "A", "C"]},
+         "order": ["D", "B", "A", "C"]},
         {"rows": [["A", "done", "built with warnings"], ["B", "done", "done"], ["C", "done", "done"], ["D", "active", "mesh"]],
          "order": ["D", "A", "C", "B"]}
       ]
     },
     {
-      "name": "stop, queue into the run, and a removed row",
+      "name": "stop, queue into the run (appended below the running tile), a re-queue appended at the bottom, and a removed row",
       "steps": [
         {"rows": [["A", "queued", "queued"], ["B", "queued", "queued"]],
          "order": ["A", "B"]},
         {"rows": [["A", "stopped", "stopped"], ["B", "active", "mesh"]],
          "order": ["B", "A"]},
         {"rows": [["A", "stopped", "stopped"], ["B", "active", "mesh"], ["C", "queued", "queued"], ["D", "queued", "queued"]],
-         "order": ["C", "D", "B", "A"]},
+         "order": ["B", "C", "D", "A"]},
         {"rows": [["A", "queued", "resumes after current run"], ["B", "active", "mesh"], ["C", "queued", "queued"], ["D", "queued", "queued"]],
-         "order": ["A", "C", "D", "B"]},
+         "order": ["B", "C", "D", "A"]},
         {"rows": [["B", "active", "mesh"], ["C", "queued", "stopped"], ["D", "queued", "stopped"]],
          "order": ["B", "C", "D"]}
       ]

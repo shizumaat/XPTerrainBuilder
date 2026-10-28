@@ -82,7 +82,7 @@ final class BuildActivityModel: ObservableObject {
     private var stamps: [BuildModel.TileCoord: ActivityOrder.Stamp] = [:]
     private var stampCounter = 0
 
-    /// Live rows newest batch first, then finished rows in finish order.
+    /// Live rows first-queued at the top (#1605), then finished rows in finish order.
     var displayOrder: [BuildModel.TileCoord] {
         ActivityOrder.order(runOrder.filter { tiles[$0] != nil }, stamps: stamps)
     }

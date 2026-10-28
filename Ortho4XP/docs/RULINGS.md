@@ -10461,3 +10461,9 @@ Asked: applied worldwide, 28m moves 1,909 of 11,192 no-CIFP runways from their a
 (4) Q243 a (#1338 NZWN): inside the airport fence, pavement painted over a tagged tunnel is not by itself a witness that the tunnel exists; it needs one of RULINGS 2026-10-27z's witnesses.
 (5) Q244 a (#1301/#1279 LFPG): an objects-only companion pack (no apt.dat, objects inside the airport boundary) is re-seated together with the main pack. Overlay packs (AEP Overlays, simHeaven and the like) are left alone.
 (6) Q245 Yes (#1559 LFPG cuts, 28k): a taxiway's adjacent-ground zones 1–2 give way to a trench the survey shows inside them. The reduced tunnel counts the 28k rules give elsewhere (LFPG 55→25, EGGW 17→2, KCLT 8→2, NZWN 10→5) land only after the owner's sim read.
+
+**2026-10-28q — KMCI lower pad and NZWN lot and tunnel witnesses (owner Q247–Q249, 2026-10-28T01:10:34Z: "247: c 248: a 249: a").**
+(1) Q247 c (#1572 KMCI, `dsf:objpav662`): where a block's lower pad level stands on fill with nothing airside touching it, and the lot beside it is 2.4–2.7 m lower, the lower level drops toward its own ground. The lot is left alone and the pad is not held up on fill.
+(2) Q248 a (#1338 NZWN): under §27 only real airside pavement can flip a lot to apron. A lot that §27 flipped does not count as airside for the lots next to it, so lots never flip each other.
+(3) Q249 a (#1338 NZWN): inside a pack building's footprint, the building is the cover. A road mapped crossing over a tagged tunnel there is not a 27z witness that the tunnel exists.
+Also (owner, same message): the ThunderBlade drive holds only ortho tiles; every airport is still available without it.

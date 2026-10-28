@@ -342,7 +342,9 @@ def platform_split(base_regions, pad_regions, law: Law,
                                    and (_side(law, r.role) == "airside"
                                         or is_structure_role(law, r.role))],
                           beyond=[r.polygon for r in base_regions if r.polygon is not None
-                                  and BEYOND in str(r.ref)])
+                                  and BEYOND in str(r.ref)],
+                          lots=[r.polygon for r in base_regions if r.polygon is not None
+                                and r.role in LOT_ROLES])
     counts["platforms"] = sum(1 for p in platforms if not p.refused)
     counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(

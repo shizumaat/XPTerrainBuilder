@@ -387,7 +387,6 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.classify",
     "auto_patch_v2.classify.airside_edge",
     "auto_patch_v2.classify.apt_shoulder",
-    "auto_patch_v2.classify.barrier_edge",
     "auto_patch_v2.classify.evidence",
     "auto_patch_v2.classify.facade_mint",
     "auto_patch_v2.classify.gap_apron",

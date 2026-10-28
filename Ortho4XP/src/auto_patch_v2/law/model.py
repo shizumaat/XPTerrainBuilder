@@ -423,12 +423,6 @@ class Tunnel:
     #: not cut (``planar/structure_mouth.clear_mouth``); beyond, the bore
     #: is refused by name.
     mouth_slide_max_m: float
-    #: RAIL GRADES (owner RULINGS 2026-10-28k Q233 a, 2026-10-28r (3); spec
-    #: ``lfpg-cuts-tunnels-rules-spec.md`` R5): a rail cut's ramp is LONGER
-    #: than a road's -- built at ``rail_ramp_grade``, never steeper than
-    #: ``rail_ramp_max_grade`` (the owner's "at most 3.5 %").
-    rail_ramp_grade: float
-    rail_ramp_max_grade: float
 
     @property
     def mouth_depth_m(self) -> float:

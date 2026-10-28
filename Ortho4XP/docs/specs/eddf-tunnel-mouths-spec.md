@@ -151,9 +151,28 @@ The base and branch arms run on one capture taken on the base
   - New: `tunnel:-471+-180@1` (50.05184, 8.55153), the far portal the chain
     used to lose. R1 builds it at floor 104.66, 1.59 m under the surveyed
     road (5.0 m owed, 232 a).
-- **Dry structures, KATL:** IDENTICAL. LFPG: see the PR body.
-- **Census replay** (`v2_solve_replay --replay … --from planar --emit
-  --verify` plus `census.py`, both arms): see the PR body.
+- **Dry structures, KATL:** IDENTICAL (7 → 7).
+- **Dry structures, LFPG:** tunnels 27 → 30; distinct refusals 300 → 241.
+  - Five mouths are the same mouth under a de-doubled id, at the same
+    place and floor (for example `-1719+-235+-1719+-235+-383@0` →
+    `-1719+-235+-383@0`). `-384@0` becomes `-1721+-237+-384@0`, 2 m away.
+  - `-5099+-719@0` → `@3`, at the same bore's other copy-free end.
+  - `-1669+-228@0` (49.0116, 2.5615) is refused. Its R1 cover now reads its
+    own half of the bore: cover 110.17 over road 105.23, clearing 5.0 m
+    (232 a).
+  - New far portals: `-10295+-3555@0` (49.0103, 2.5946), `-35258+-13950@0`
+    (49.0109, 2.5804; §4.3's `-13950`), `-25663+-9581+-7810+-2365@0`
+    (48.9732, 2.5159) and `-33917+-13264@1` (48.9992, 2.5037).
+  - `-10256+-3516@0`'s floor moves 0.05 m.
+- **Census replay, EDDF** (`v2_solve_replay --replay … --from planar --emit
+  --verify` plus `census.py`, both arms on the one capture):
+  - ADJUDICATED 4828 → 4827 (airside 2274 → 2275, groundside 2542 → 2540).
+  - CRITICAL motion 1 → 1, the same site (an apron | apron step at
+    50.04414, 8.54181).
+  - `ramp_in_strip` 3 → 3, all on the `Walls_1` corridor at 50.0453,
+    8.5749, inherited.
+  - `road_cross_section` 167 → 165, `strip_arc` 8 → 9, `hairline_pair`
+    1315 → 1312.
 
 ## 6. Questions for the master (nothing built for them)
 

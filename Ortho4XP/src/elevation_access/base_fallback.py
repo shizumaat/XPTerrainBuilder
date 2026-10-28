@@ -52,6 +52,7 @@ __all__ = [
     "UNREACHABLE_MEMORY_S",
     "cell_file",
     "ensure_tile_or_fallback",
+    "fallback_cache_paths",
     "fallback_definitions",
     "forget_unreachable_sources",
     "read_base_cell",
@@ -127,6 +128,18 @@ def _cache_path(strategy, definition, lat, lon):
     return path_of(definition, lat, lon) if path_of else None
 
 
+def fallback_cache_paths(providers, lat, lon):
+    """``CODE -> cache path`` of every fallback for base cell
+    ``(lat, lon)``, in rank order (a strategy publishing no path is left
+    out)."""
+    paths = {}
+    for definition in fallback_definitions(providers):
+        path = _cache_path(_strategy(definition), definition, lat, lon)
+        if path:
+            paths[definition["code"]] = path
+    return paths
+
+
 def cell_file(configured_path, lat, lon, providers):
     """Which file a build reads for one base cell: ``(path, fallback)``.
 
@@ -137,8 +150,9 @@ def cell_file(configured_path, lat, lon, providers):
     """
     if not configured_path or cached_elevation_file_is_valid(configured_path):
         return (configured_path, None)
+    paths = fallback_cache_paths(providers, lat, lon)
     for definition in fallback_definitions(providers):
-        path = _cache_path(_strategy(definition), definition, lat, lon)
+        path = paths.get(definition["code"])
         if path and cached_elevation_file_is_valid(path):
             return (path, definition)
     return (configured_path, None)

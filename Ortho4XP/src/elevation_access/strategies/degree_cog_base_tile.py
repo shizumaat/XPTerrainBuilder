@@ -10,11 +10,11 @@ Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.
 """
 
-import os
-
+import O4_External_Writes as EXTWRITE
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
+from elevation_access import fetch_scratch
 from elevation_access.base import ProviderUnavailable
 from elevation_access.base_tiles import (
     base_definition_covers_tile,
@@ -110,11 +110,19 @@ class DegreeCogBaseTileStrategy:
         sources = self._sources(definition, lat, lon)
         if not sources:
             return 0
+        # The tile is cut in a private scratch folder and only the
+        # finished raster is moved onto the cache (#1603): GDAL writes
+        # past a Python-level write guard, and a cut beside the cache
+        # whose rename the guard refused left its ``.part`` there for
+        # good.  The cache path is DECLARED first, so an armed guard
+        # refuses the fetch before a byte is asked for.
+        EXTWRITE.declare_external_write(
+            cache_path, writer="the base elevation tile fetch")
         UI.vprint(1, "    Downloading ", cache_path, "from",
                   str(definition.get("display_name") or definition["code"])
                   + ".")
         half_post = 0.5 / (BASE_TILE_POSTS - 1)
-        scratch_path = cache_path + ".part"
+        scratch_path = fetch_scratch.scratch_destination(cache_path)
         reasons = []
         try:
             if not warp_vsicurl_sources_to_geotiff(
@@ -141,8 +149,7 @@ class DegreeCogBaseTileStrategy:
             dataset = None
             if not _geotiff_has_valid_data(scratch_path):
                 return 0
-            os.replace(scratch_path, cache_path)
+            fetch_scratch.land(scratch_path, cache_path)
         finally:
-            if os.path.exists(scratch_path):
-                os.remove(scratch_path)
+            fetch_scratch.discard(scratch_path)
         return 1

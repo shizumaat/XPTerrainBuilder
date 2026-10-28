@@ -36,8 +36,8 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
     the union each ribbon is clipped by and welded to (``pad_cut.
     airside_clip``, the pads' own clip: crossings quantised to that
     arrangement's rim NODES, no stand-off, no sliver).  ``cut``: the
-    covered cuttings (``planar/covered_cut``), out of which every ribbon is
-    cut first -- the road over a cut under a building is the building's
+    covered cuttings with their levels and risers (``planar/covered_cut``),
+    out of which every ribbon is cut first -- the road over a cut under a building is the building's
     deck, never ground in the cut (#1333).  Finishing first is
     what makes the airside the same with and without the ribbons: a zone
     sliver the airside absorbs (HECA 05L/23R's zone1#9, 110.9 m²) is
@@ -67,11 +67,7 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
     keep_out = unary_union([shapely.set_precision(r.polygon, 0.0) for r in regions
                             if r.source == "cell" and r.role not in rolled
                             and not is_rigid_role(law, r.role)])
-    cells = [cell_region(c) for c in ribbon_cells]
-    if cut is not None and not cut.is_empty:
-        cells = [_dc.replace(r, polygon=q) for r in cells
-                 for q in (_grid_parts(r.polygon.difference(cut), grid)
-                           if r.polygon.intersects(cut) else [r.polygon])]
+    cells = _cut_out([cell_region(c) for c in ribbon_cells], cut, grid)
     ribs, rc = airside_clip(
         cells,
         law, air=clip_f, nodes=nodes_b, rim=rim_f, select=lambda r: True,
@@ -227,6 +223,17 @@ def airside_vertex_set(faces, law: Law) -> set:
     return {(float(x), float(y)) for p, r in faces
             if r.role in rolled or is_rigid_role(law, r.role)
             for ring in (p.exterior, *p.interiors) for x, y in ring.coords}
+
+
+def _cut_out(cells: list, cut, grid: float) -> list:
+    """The ribbon ``cells`` less the covered cut ``cut`` (the corridors, the
+    levels and their risers, ``planar/covered_cut.covered_cut_taken``), on
+    the identity grid: a road over the cut is the building's deck."""
+    if cut is None or cut.is_empty:
+        return cells
+    return [_dc.replace(r, polygon=q) for r in cells
+            for q in (_grid_parts(r.polygon.difference(cut), grid)
+                      if r.polygon.intersects(cut) else [r.polygon])]
 
 
 def _grid_parts(g, grid: float) -> list[Polygon]:

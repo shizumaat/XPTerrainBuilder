@@ -292,13 +292,15 @@ def top_level(parts, air, airport, law, to_xy, near: float
     return min(_st.multimode(round(y) for y in top_ys)), None
 
 
-def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None
-              ) -> "tuple[_t.Any, _t.Any, _t.Any] | None":
+def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None,
+              grow: bool = True) -> "tuple[_t.Any, _t.Any, _t.Any] | None":
     """``(high, low, strip)``: the low region ``L0`` cut out of the held pad
     ``P`` as a level -- closed by ``pad_frontage_m``, kept that distance off
     the airside ``air`` and a riser's width off the pads ``others``, at
     least a unit pad's worth of ground -- with its riser strip and the high
-    block left (of at least ``hmin`` m2), or ``None``."""
+    block left (of at least ``hmin`` m2), or ``None``.  ``grow`` takes the
+    block's orphans into the level (:func:`_with_orphans`); a covered cut's
+    level is the cut's alone and never grows (RULINGS 2026-10-28r (1))."""
     from ..law.tables import design as design_law
     near = float(design_law(law).pad_frontage_m)
     pmin = float(law.tables.structures.building_pad.min_area_m2)
@@ -325,7 +327,7 @@ def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None
     # a MITRE buffer can come back self-crossing (MEASURED KMCI
     # ``building26/b1``, #1214 round 6: the riser's cut raised ``Ring edge
     # missing`` and cost the block its lower level) -- its valid area
-    L = _with_orphans(L, P, air, others, w, near, grid)
+    L = _with_orphans(L, P, air, others, w, near, grid, grow)
     Lw = valid_area(L.buffer(w, join_style=2))
     S = valid_area(_overlay(valid_area(_overlay(P, Lw, "intersection", grid)), L,
                             "difference", grid))
@@ -374,7 +376,8 @@ def _with_roads(L, P, airport, law, near: float):
             .buffer(near, join_style=2).buffer(-near, join_style=2))
 
 
-def _with_orphans(L, P, air, others, w: float, near: float, grid: float):
+def _with_orphans(L, P, air, others, w: float, near: float, grid: float,
+                  grow: bool = True):
     """THE BLOCK IS ITS AIRSIDE FRONTAGE (#1291; owner RULINGS 2026-10-24a):
     a piece of the high block the lower level (with its roads) cuts off from
     the frontage -- one that comes no nearer the airside than ``near`` plus
@@ -387,11 +390,19 @@ def _with_orphans(L, P, air, others, w: float, near: float, grid: float):
     The grown level is read by SUBTRACTION -- the pad less the kept block
     and its riser, the airside frontage and the other pads -- so it keeps
     the pad's own edge vertex for vertex (a re-buffered edge minted a
-    0.25 m2 tunnel-ramp sliver against the pad's rim and spiked the ramp)."""
+    0.25 m2 tunnel-ramp sliver against the pad's rim and spiked the ramp).
+
+    Without ``grow`` (a covered cut's level, the cut's alone: RULINGS
+    2026-10-28r (1)) every block part is kept and the level is read by the
+    same subtraction -- it grows by nothing but the slivers of the pad
+    between it and the pad's rim narrower than a riser (MEASURED LFLL
+    capture: a re-buffered end left 0.1-0.5 m riser slivers across both
+    ends of the cut, and the run-out two risers off them never met the
+    level)."""
     H = valid_area(_overlay(P, valid_area(L.buffer(w, join_style=2)), "difference", grid))
     parts = nonempty_polygon_parts(H)
-    keep = [q for q in parts if q.distance(air) <= near + w]
-    if not keep or len(keep) == len(parts):
+    keep = [q for q in parts if q.distance(air) <= near + w] if grow else parts
+    if not keep or (grow and len(keep) == len(parts)):
         return L
     cut = [valid_area(unary_union(keep).buffer(w, join_style=2)),
            valid_area(air.buffer(near, join_style=2))]
@@ -600,6 +611,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         for k, v in sorted(reg.landings.items()) if v.get("kind") == LOW_KIND)
     counts["covered_cut_levels"] = "; ".join(
         f"{k} on {v['block']} y {v['y_lo']:+.2f} {v['area_m2']:g} m2 (cut {v['cut_m2']:g} m2, "
+        f"off {v.get('off_roads', 0)} roads {v.get('off_roads_m2', 0.0):g} m2, "
         f"{v['feet_on_plane']}/{v['feet_read']} feet on the plane, DEM {v['ground_z']})"
         for k, v in sorted(reg.landings.items()) if v.get("witness") == "covered_cut")
     counts["upper_levels"] = "; ".join(

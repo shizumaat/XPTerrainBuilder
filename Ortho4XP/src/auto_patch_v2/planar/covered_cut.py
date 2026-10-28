@@ -35,7 +35,9 @@ takes no road (24a): a road crossing over the cut inside the building is
 the building's deck (28k 227a), and no road ribbon stands in a covered cut
 (``planar/ribbons``).  It extends over nothing (``planar/low_extent``).
 MEASURED LFLL (capture b8c456c9, replayed on main 28cd9b38 and this
-tree): ``building8/p1`` 54,130 m2 at y -9.06 under t -0.06, 230.38 m flat
+tree): ``building8/p1`` at y -9.06 under t -0.06 (21,785 m2 since it
+takes the cut alone, round 3; 54,130 m2 with the forecourt beyond the
+trench grown in, 28r (1)), 230.38 m flat
 for the 450 m under the station where the fills stood at 239.3-239.8 m;
 hard rows relaxed 280 -> 50, adjudicated census rows 424 -> 176, airside
 families unchanged.  Its ends grade to the open cut (``planar/cut_runout``,
@@ -50,7 +52,7 @@ from __future__ import annotations
 
 import typing as _t
 
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
 from ..geom.parts import nonempty_polygon_parts
@@ -59,7 +61,7 @@ from ..model.planar import STRIP_SUFFIX
 from .low_level import (_densest, _ground, _plane_band, _ring_poly, level_cut,
                         top_level, unit_share)
 
-__all__ = ["WITNESS", "covered_corridors", "plan_covered", "trim_uncut"]
+__all__ = ["WITNESS", "covered_corridors", "covered_cut_taken", "plan_covered", "trim_uncut"]
 
 #: the ``witness`` a covered-cut lower level's record carries
 WITNESS = "covered_cut"
@@ -72,6 +74,28 @@ def covered_corridors(airport, law, widen: float = 0.0):
     from ..classify.pad_cut_corridor import cutting_corridors
     C = cutting_corridors(airport, law, covered=True, widen=widen)
     return None if C is None or C.is_empty else valid_area(C)
+
+
+def _cut_refs(reg) -> "tuple[set, set]":
+    """``(levels, levels and their strips)``: the covered-cut level refs."""
+    mine = {ref for ref, rec in reg.landings.items() if rec.get("witness") == WITNESS}
+    return mine, mine | {ref + STRIP_SUFFIX for ref in mine}
+
+
+def covered_cut_taken(airport, law, regions, reg):
+    """The covered corridors with every covered-cut level and its riser
+    strip among ``regions`` (28r (2)): a road over the cut is the building's
+    deck for the whole level and its riser, so no ribbon cell stands in
+    them -- its cells end at the strip's outer edge, the block's rim.
+    MEASURED LFLL: the ``-6364``/``-11343`` crossing's cell between the
+    corridor's edge and the level's ring shared the level's ring node and
+    held a level vertex at 239.37 m.  ``None`` where there is no cut."""
+    C = covered_corridors(airport, law)
+    _mine, keep = _cut_refs(reg)
+    got = [r.polygon for r in regions if str(r.ref) in keep and r.polygon is not None]
+    if not got:
+        return C
+    return valid_area(unary_union(got if C is None else [C, *got]))
 
 
 def _lower_parts(parts, C, R, t: float, step: float, to_xy) -> list:
@@ -138,6 +162,41 @@ def _top(parts, air, airport, law, to_xy, near: float, R) -> "float | None":
     return None if top is None else float(top[0])
 
 
+def _off_the_roads(P, H, L, S, C, airport, law, grid: float):
+    """``(high, low, strip, n, m2)``: the level kept a riser's width ``w``
+    off the carriageway of every mapped road within ``w`` of it that does
+    not cross the cut ``C`` (24a: a road meets the pad at its edge, at the
+    block's level; a road over the cut is the building's deck, 28r (2)),
+    with the strip and the block re-cut from it; ``n`` roads kept off,
+    ``m2`` taken from the level.  MEASURED LFLL closing build (main
+    28cd9b38): the drop-off roads beside the station welded to the level's
+    edge and were dragged 5-8 m down (road_cross_section +17)."""
+    from ..airport.deck_signature import is_tunnel_way
+    from ..airport.road_ways import mapped_width_m
+    tn = law.tables.structures.tunnel
+    admitted = tuple(tn.admitted_values)
+    w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
+    roads = []
+    for way in getattr(airport, "osm_ways", ()) or ():
+        tags = getattr(way, "tags", None) or {}
+        if not tags.get("highway") or len(way.points) < 2 or is_tunnel_way(tags, admitted):
+            continue
+        half = 0.5 * mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
+        c = LineString(way.points).buffer(half, cap_style="flat", join_style=2)
+        if c.distance(L) <= w and not c.intersects(C):
+            roads.append(c.buffer(w, join_style=2))
+    if not roads:
+        return H, L, S, 0, 0.0
+    keep = valid_area(valid_area(unary_union(roads)).difference(C))
+    if keep.is_empty or not keep.intersects(L):
+        return H, L, S, len(roads), 0.0
+    L2 = valid_area(L.difference(keep))
+    Lw = valid_area(L2.buffer(w, join_style=2))
+    S2 = valid_area(valid_area(P.intersection(Lw)).difference(L2))
+    H2 = valid_area(P.difference(Lw))
+    return H2, L2, S2, len(roads), round(L.area - L2.area, 1)
+
+
 def plan_covered(P, air, airport, law, grid: float, cov, others=None, refused=None,
                  cov_reach=None) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
     """``(high, low, strip, record)`` for the held pad ``P`` over the covered
@@ -169,17 +228,22 @@ def plan_covered(P, air, airport, law, grid: float, cov, others=None, refused=No
         return None
     plane, n_on, n_feet = fl
     L0 = valid_area(unary_union([C, *(g for _p, g in low)]))
-    cut = level_cut(P, L0, air, others, law, grid, float(bp.min_area_m2))
+    cut = level_cut(P, L0, air, others, law, grid, float(bp.min_area_m2), grow=False)
     if cut is None:
         if refused is not None:
             refused.append(f"level cut refused ({L0.area:,.0f} m2 asked)")
         return None
-    H, L, S = cut
+    H, L, S, n_roads, roads_m2 = _off_the_roads(P, *cut, C, airport, law, grid)
+    if L.is_empty or L.area < float(law.tables.structures.placement.cluster_pad_min_m2):
+        if refused is not None:
+            refused.append("no level left off the roads")
+        return None
     dem = getattr(airport, "dem", None)
     rec = {"witness": WITNESS, "top_y": round(t, 3), "y_lo": round(plane - t, 3),
            "y_hi": round(-step, 3), "low_parts": len(low), "feet_on_plane": n_on,
            "feet_read": n_feet, "area_m2": round(L.area, 1),
            "cut_m2": round(valid_area(C.intersection(L)).area, 1),
+           "off_roads": n_roads, "off_roads_m2": roads_m2,
            "ground_z": _ground(L, dem, near), "ground_high_z": _ground(H, dem, near)}
     return H, L, S, rec
 
@@ -190,8 +254,7 @@ def trim_uncut(regions: list, airport, law, reg, counts: dict) -> list:
     cov = covered_corridors(airport, law) if airport is not None else None
     if cov is None:
         return regions
-    mine = {ref for ref, rec in reg.landings.items() if rec.get("witness") == WITNESS}
-    keep = mine | {ref + STRIP_SUFFIX for ref in mine}
+    mine, keep = _cut_refs(reg)
     taken = [r.polygon for r in regions if str(r.ref) in mine and r.polygon is not None]
     R = valid_area(cov.difference(unary_union(taken))) if taken else cov
     if R.is_empty:

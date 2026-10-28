@@ -19,8 +19,10 @@ cutting_corridors``, half a carriageway either side) runs along the
 direction as far as the shared ramp law needs to meet the raw ground
 (``geom/ramp_profile.runout_profile``: designed at ``[tunnel]
 rail_ramp_grade`` off the level, never steeper than ``rail_ramp_max_grade``)
-from the highest level the solve may hold it at (the block's predicted
-datum + its widest reach band + the level's ``y``).
+from the block's predicted datum + the level's ``y`` + one plane band
+(``PLANE_BAND_M``, 23c: the datum's miss; the block's contact reach is the
+datum pin's, not a rigid level's lip -- MEASURED LFLL: ``building8``'s
+10.97 m reach ran both strips to the 400 m cap).
 
 The record is a LANDING RUN-OUT (``Registries.landing_runouts``, #711): the
 strip becomes a base region in ``planar/landing.landing_cut`` and its rows
@@ -29,7 +31,8 @@ level, never below the design ramp off it, onto its ground by its end --
 read against the block's SOLVED datum.  One mechanism, one row family: a
 viaduct's landing runs out at road grade, a cut's level at rail grade.
 
-The strip keeps a riser's width off every pad but its level.  An end whose
+The strip keeps two risers off every pad but its level and off the airside
+(the census pairs pavement within one riser, ``PAVCAP_WELD_M``).  An end whose
 ground ahead stands within ``[cockpit] visual_m`` of the
 level, or ABOVE it (the level would climb to it, which a run-out never
 does), or whose strip a pad or the airside takes asks nothing; each is
@@ -113,9 +116,9 @@ def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], air
     """``{run-out ref: record}`` for the ENDS of every covered-cut level
     (module docstring).  ``levels``: ``{level ref: (polygon, block ref,
     y)}``; ``taken``: every pad and the airside, which no strip takes."""
+    from ..airport.airside_group_seat import PLANE_BAND_M
     from ..classify.pad_cut_corridor import cutting_corridors
     from ..geom.ramp_profile import runout_profile
-    from ..model.platform import widest_reach
     from .landing_runout import runout_ref
     frame, dem = getattr(airport, "frame", None), getattr(airport, "dem", None)
     if frame is None or dem is None or not levels:
@@ -147,7 +150,7 @@ def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], air
             if datum is None:
                 stat["no_datum"] += 1
                 continue
-            z0 = float(datum) + float(y) + widest_reach(hb)
+            z0 = float(datum) + float(y) + float(PLANE_BAND_M)
 
             def ground(s: float, _x=lx, _y=ly, _dx=dx, _dy=dy) -> float:
                 return float(dem.z(_x + _dx * s, _y + _dy * s))
@@ -162,10 +165,10 @@ def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], air
             ss = [min(run, k * step) for k in range(int(math.ceil(run / step)) + 1)]
             R = Polygon([(lx + dx * s + nx * lo, ly + dy * s + ny * lo) for s in ss]
                         + [(lx + dx * s + nx * hi, ly + dy * s + ny * hi) for s in reversed(ss)])
-            # a riser's width off every pad but the level: the strip never
-            # shares a vertex with a pad standing at another level
-            S = valid_area(valid_area(R.intersection(corr)).difference(L)
-                           .difference(valid_area(taken.difference(L)).buffer(riser, join_style=2)))
+            # two risers off every pad but the level: the strip never shares
+            # a vertex with, nor pairs against, a pad at another level
+            S = valid_area(valid_area(R.intersection(corr)).difference(L).difference(
+                valid_area(taken.difference(L)).buffer(2.0 * riser, join_style=2)))
             got = [q for q in _parts(S) if q.area >= max(grid * grid, 1.0)
                    and q.distance(L) <= max(grid, 0.5)]
             if not got:
@@ -176,8 +179,8 @@ def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], air
             lat, lon = frame.transformers()[1](lx, ly)
             out[rref] = {"landing": ref, "block": bref, "y": float(y),
                          "lip": (float(lx), float(ly)), "dir": (float(dx), float(dy)),
-                         "width_m": float(hi - lo), "z0_pred": round(z0 - widest_reach(hb), 3),
-                         "reach_m": round(widest_reach(hb), 3), "g": g, "cap": cap,
+                         "width_m": float(hi - lo), "z0_pred": round(z0 - float(PLANE_BAND_M), 3),
+                         "reach_m": float(PLANE_BAND_M), "g": g, "cap": cap,
                          "dem0": round(ground(0.0), 4),
                          "ground": [(float(s_), round(ground(s_) - ground(0.0), 4))
                                     for s_, _z in prof[::2] + prof[-1:]],

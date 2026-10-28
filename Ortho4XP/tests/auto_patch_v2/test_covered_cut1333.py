@@ -17,7 +17,7 @@ from auto_patch_v2.classify.pad_cut_corridor import (cutting_corridors, _is_cove
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.registries import Registries
 from auto_patch_v2.planar import covered_cut as CC
-from shapely.geometry import box
+from shapely.geometry import Point, box
 from shapely.ops import unary_union
 
 LAW = Law.for_airport("HECA")
@@ -198,8 +198,9 @@ def test_each_end_of_the_level_runs_out_to_the_open_cut_at_rail_grade():
     for rec in got.values():
         assert rec["landing"] == "building8/p1" and rec["block"] == "building8"
         assert (rec["g"], rec["cap"]) == (tn.rail_ramp_grade, tn.rail_ramp_max_grade)
-        # 1 m closed at the 1.25 % design grade: ~80 m of ramp, never a step
-        assert 60.0 <= rec["run_m"] <= 85.0
+        # 1 m closed, plus the plane band the datum may miss by, at the
+        # 1.25 % design grade: ~160 m of ramp, never a step
+        assert 140.0 <= rec["run_m"] <= 170.0
         for q in rec["polys"]:
             assert q.intersection(L).area < 1e-6 and q.distance(L) < 0.5
     dirs = sorted(round(r["dir"][1]) for r in got.values())
@@ -210,7 +211,7 @@ def test_an_end_whose_ground_stands_level_or_above_asks_nothing():
     from auto_patch_v2.planar.cut_runout import cut_runouts
     L = box(90.0, 0.0, 110.0, 300.0)
     held = {"building8": {"datum_pred": 239.0}}
-    for z, key in ((230.0, "at_grade"), (232.0, "climbs")):
+    for z, key in ((231.0, "at_grade"), (233.0, "climbs")):   # the level + its band
         counts: dict = {}
         got = cut_runouts({"building8/p1": (L, "building8", -9.0)}, held,
                           _ends_airport(lambda x, y, z=z: z), LAW, L, 0.5, counts)
@@ -228,3 +229,102 @@ def test_the_run_out_rows_hold_the_strip_at_or_under_the_level():
     need = {"landing", "block", "y", "lip", "dir", "width_m", "z0_pred", "reach_m",
             "g", "cap", "dem0", "ground", "run_m", "polys"}
     assert got and all(need <= set(r) for r in got.values())
+
+
+# ── 2026-10-28r (1) (2), round 3: the level is the cut's alone ──
+
+def _plan(ap, air=AIR):
+    cov = CC.covered_corridors(ap, LAW)
+    reach = CC.covered_corridors(ap, LAW, widen=1.0)
+    got = CC.plan_covered(P, air, ap, LAW, 0.5, cov, None, [], reach)
+    assert got is not None
+    return cov, reach, got
+
+
+def test_the_level_never_takes_the_pads_far_side():
+    """LFLL closing build: the trench split the station pad, and the part
+    beyond it -- the forecourt, no airside within reach -- was grown into
+    the level (``low_level._with_orphans``, 29,736 m2 sunk 9 m).  A covered
+    cut's level is the corridor and the lower parts' footprints in reach."""
+    hall = _part(150.0, 100.0, 190.0, 200.0, 0.0, 10.0)        # the far side's hall
+    ap = _airport(FRONT + TRENCH + [hall], [_way(x, -100.0, 400.0) for x, _a, _b in TRACKS],
+                  _cut_ground)
+    _cov, reach, (H, L, _S, _rec) = _plan(ap, air=box(0.0, 300.0, 80.0, 340.0))
+    from auto_patch_v2.law.tables import design as design_law
+    near = float(design_law(LAW).pad_frontage_m)
+    assert L.difference(reach.buffer(near)).area < 1.0
+    assert box(150.0, 100.0, 190.0, 200.0).within(H.buffer(1e-6))
+
+
+def _service(x0, y0, x1, y1):
+    return NS(points=[(x0, y0), (x1, y1)], tags={"highway": "service", "lanes": "1"})
+
+
+def test_a_road_along_the_trench_keeps_its_ground():
+    """24a: a road beside the level meets the pad at its edge -- the level
+    keeps a riser's width off its carriageway (one on it, one 0.4 m from
+    it); a road crossing the tracks is the building's deck (28r (2)) and is
+    never trimmed from the level."""
+    from shapely.geometry import LineString
+    beside, near = _service(113.0, 100.0, 113.0, 140.0), _service(116.15, 180.0, 116.15, 230.0)
+    cross = _service(60.0, 60.0, 140.0, 60.0)
+    ap = _airport(FRONT + TRENCH, [_way(*w) for w in TRACKS] + [beside, near, cross],
+                  _cut_ground)
+    cov, _reach, (_H, L, _S, rec) = _plan(ap)
+    w = max(float(LAW.tables.emit.identity.min_distinct_spacing_m), 1.0)
+    for r in (beside, near):
+        c = LineString(r.points).buffer(1.75, cap_style="flat")
+        assert L.distance(c.difference(cov)) >= w - 1e-6
+    assert rec["off_roads"] == 2 and rec["off_roads_m2"] > 0.0
+    assert L.contains(box(87.0, 58.0, 113.0, 62.0))       # the crossing stays the level
+    assert L.contains(box(95.0, 110.0, 105.0, 190.0))     # the cut stays one level
+
+
+def test_a_road_over_the_level_is_cut_out_of_it_and_its_riser():
+    """28r (2): a road over the cut is the building's deck for the whole
+    level and its riser -- its ribbon cell ends at the strip's outer edge
+    (LFLL ``-6364``/``-11343``: a level vertex at 239.37 m on the crossing's
+    node)."""
+    from auto_patch_v2.model.planar import STRIP_SUFFIX
+    from auto_patch_v2.planar.overlay import Region
+    from auto_patch_v2.planar.ribbons import _cut_out
+    ap = _airport(FRONT + TRENCH, [_way(*w) for w in TRACKS], _cut_ground)
+    _cov, _reach, (H, L, S, _rec) = _plan(ap)
+    reg = Registries()
+    reg.landings["building8/p1"] = {"block": "building8", "witness": CC.WITNESS}
+    pads = [Region("building", "building8", H, None, None, "groundside", "cell"),
+            Region("building", "building8/p1", L, None, None, "groundside", "cell"),
+            Region("building", "building8/p1" + STRIP_SUFFIX, S, None, None,
+                   "groundside", "cell")]
+    cut = CC.covered_cut_taken(ap, LAW, pads, reg)
+    cell = Region("small_roads", "small_roads:-1", box(60.0, 57.0, 140.0, 63.0), None, None,
+                  "groundside", "ribbon")
+    got = _cut_out([cell], cut, 0.5)
+    w = max(float(LAW.tables.emit.identity.min_distinct_spacing_m), 1.0)
+    assert len(got) == 2
+    for r in got:
+        for x, y in r.polygon.exterior.coords:
+            assert L.distance(Point(x, y)) >= w - 0.5 - 1e-6   # the grid's half cell
+
+
+def test_the_run_out_stands_two_risers_off_a_pad_and_its_z0_is_the_levels():
+    """28r (3) with #1183: the run-out starts one plane band over the level
+    (the block's contact reach is the datum pin's, never the level's lip:
+    LFLL's 10.97 m ran both strips to the 400 m cap), and stands two risers
+    off the pads beside it (the census pairs pavement within one)."""
+    from auto_patch_v2.airport.airside_group_seat import PLANE_BAND_M
+    from auto_patch_v2.planar.cut_runout import cut_runouts
+    L = box(90.0, 0.0, 110.0, 300.0)
+    flank = unary_union([box(60.0, -200.0, 94.0, 0.0), box(106.0, -200.0, 140.0, 0.0)])
+    held = {"building8": {"datum_pred": 239.0, "samples_reach": [11.0]}}
+    got = cut_runouts({"building8/p1": (L, "building8", -9.0)}, held,
+                      _ends_airport(lambda x, y: 229.0), LAW, unary_union([L, flank]),
+                      0.5, {})
+    riser = max(float(LAW.tables.emit.identity.min_distinct_spacing_m), 1.0)
+    assert got
+    for rec in got.values():
+        assert rec["z0_pred"] == pytest.approx(230.0)
+        assert rec["reach_m"] == pytest.approx(PLANE_BAND_M)
+        assert rec["run_m"] <= 170.0                     # never the 400 m cap
+        for q in rec["polys"]:
+            assert q.distance(flank) >= 2.0 * riser - 1e-6

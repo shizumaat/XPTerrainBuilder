@@ -480,11 +480,11 @@ def build_arrangement(airport: Airport, classification: Classification,
     if ribbon_cells:
         from .ribbons import _ribbons_pass_c   # lazy: ribbons imports this module
         nodes_b = _node_coords(noded)
-        from .covered_cut import covered_corridors
+        from .covered_cut import covered_cut_taken
         noded, regions, frozen, air_f, base_order = _ribbons_pass_c(
             ribbon_cells, noded, noded, [], regions, bands, law, keeps,
             float(grid), _ring_lines_of, _pad_clip, reg, air_nodes=air_nodes,
-            cut=covered_corridors(airport, law))
+            cut=covered_cut_taken(airport, law, pad_regions, reg))
         if frozen is not None:
             _pad_clip.update({f"ribbon_{k}": v for k, v in _renode_counts(
                 nodes_b, _node_coords(noded),

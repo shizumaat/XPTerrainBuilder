@@ -3573,9 +3573,19 @@ def runway_edge_tie_frame(ways: List[Way], nodes: Dict[str, Tuple[float, float]]
         for i in range(n):
             edges.append((pts[i], pts[(i + 1) % n], ref, cn, cl))
     axes: Dict[str, tuple] = {}
+    # THE RUNWAY'S OWN SLAB where the sidecar publishes it (issue #1494; the
+    # generator's ``constraints.strips.runway_groups`` axis, §40 (1), and the
+    # v2 verify's ``verify.strips.groups``) — never a fit to the runway-role
+    # rings: KDIJ's rings run ~70 m past both slab ends, and the fit read
+    # taxiway vertices BEYOND runway 4's end as abeam it (1.94 m rows the
+    # generator and the verify both leave to the end-corridor law)
+    slabs: Dict[str, tuple] = {}
+    if _ACTIVE_RUNWAY_AXES:
+        from auto_patch_v2.verify.strips import published_slabs
+        slabs = published_slabs(_ACTIVE_RUNWAY_AXES, ll_to_m)
     if _runway_axis_and_width is not None:
         for ref, pts in pts_by_ref.items():
-            ax = _runway_axis_and_width(pts)
+            ax = slabs.get(ref) or _runway_axis_and_width(pts)
             if ax is None:
                 continue
             (ax0, ay0), (bx, by), _w = ax

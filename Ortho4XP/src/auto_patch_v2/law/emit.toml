@@ -1124,6 +1124,20 @@ one_way_rulings = [
   "rulesets.end_skirt.rate end-edge change",                # the same, for the FAA grade-change row against the runway's own last chord (constraints/strips.end_corridor_rate)
   "structures.placement foot_row",                          # §34 (13) (3) (a) (Fable 2026-09-15; RULINGS 2026-09-15ad): an object FOOT row touching AIRSIDE PAVEMENT governs its bare-ground columns only - the foot FOLLOWS the pavement, never holds it (airside is king; the object stage re-seats the body on the solved surface afterwards).  Measured at LEMD pav157: 14 binding foot rows, sum |dual| 42,656 - the heaviest family on the junction's far edge - from two 2.23 m bodies of ONE placement, LEMD_OBJ-Airport_Munoza-LEMD69 b2/b4
 ]
+# THE RUNWAY LEADS THE AIRSIDE IN STAGE 1 (issue #1494): §20b (1b) sends every
+# one-way row to stage 2, where its airside feet are constants.  That is right
+# for a row whose follower CONFORMS (the adjacent ground, a pad), and it threw
+# away the 06p (1) runway-edge tie wherever its follower is itself airside — a
+# taxiway vertex abeam a runway, the tie's motivating population (HECA stubs
+# 170, primary_parallel 35): stage 1 never saw the row and stage 2 held the
+# taxiway as a constant.  A row of a head listed here stays in stage 1 when
+# every foot is a stage-1 column, one-way as stated (the runway leads, the
+# airside vertex follows).  MEASURED KDIJ, the parallel taxiway abeam runway
+# 4's end: the tie missed by 0.27 m (1.91 m under the edge over 52 m against
+# 1.63 m).  Every head must also be in ``one_way_rulings``.
+runway_led_rulings = [
+  "zones.adjacent_ground.runway.band_max_down strip tie",
+]
 # §20a THE LAG IS A CONVERGENCE CONDITION (Fable 2026-09-13, RULINGS
 # 2026-09-13ac): the lag runs to ``one_way_tol_m`` or the report NAMES the
 # failure — which rows still move, the worst row's law, its LEADER vertex

@@ -34,11 +34,12 @@ from .design_edge import cross_section_rows, membrane_rows
 from .design_junction import second_difference, through_junction_rows
 from .design_ground import ground_datum_vertices, ground_rim_vertices
 from .design_stage import _groundside_minter, _welded_faces
-from .design_roles import (bend_class, bend_roles, conforming_rulings,
+from .design_roles import (airside_stage_vertices, bend_class, bend_roles,
+                           conforming_rulings,
                            datum_roles, foot_row_rulings, hard_rulings,
                            is_hard, one_way_rulings, pad_flat_rulings,
                            pad_level_rulings, pavement_roles, ruling_head,
-                           yielded_preference_rulings)
+                           runway_led_rulings, yielded_preference_rulings)
 
 __all__ = ["Base", "assemble"]
 
@@ -365,6 +366,17 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #: them even where every column is airside (a welded pad's skirt and
     #: flatness rows sit between two vertices the apron owns)
     conform = conforming_rulings(law) if drop_f else frozenset()
+    #: issue #1494: a runway-led one-way row whose follower is a vertex of an
+    #: airside-pavement face is stage 1's — the runway leads the airside
+    runway_led = runway_led_rulings(law) if drop_f else frozenset()
+    led_v = airside_stage_vertices(planar, law) if runway_led else frozenset()
+
+    def _conforms(row) -> bool:
+        head = ruling_head(row)
+        fv = getattr(row, "follows", None)
+        if head in runway_led and isinstance(fv, int) and fv in led_v:
+            return False
+        return bool(conform) and (fv is not None or head in conform)
     # §5 THE FRONTING SET'S CAPS ARE HARD (flat-pad spec v2, RULINGS
     # 2026-09-30y (3)): the ONE filter — an airside pair cap whose every
     # foot is on the published fronting set joins the hard set; ``is_hard``
@@ -388,8 +400,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if vs & drop_f:               # §20b: not this stage's problem
             stage_dropped += 1
             continue
-        if conform and (getattr(row, "follows", None) is not None
-                        or ruling_head(row) in conform):
+        if _conforms(row):
             stage_dropped += 1        # §20b (1b): a conforming row is stage 2's
             continue
         if gs_minted is not None and gs_minted(row):
@@ -474,8 +485,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if vs & drop_f:               # §20b: not this stage's problem
             stage_dropped += 1
             continue
-        if conform and (getattr(side[2], "follows", None) is not None
-                        or ruling_head(side[2]) in conform):
+        if _conforms(side[2]):
             stage_dropped += 1        # §20b (1b)
             continue
         if gs_minted is not None and gs_minted(side[2]):

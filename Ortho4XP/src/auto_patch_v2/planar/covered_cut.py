@@ -108,7 +108,7 @@ def _floor(low, R, law, t: float, step: float, to_xy) -> "tuple[float, int, int]
         xs = [xy[0] for xy, _y in got]
         ys = [xy[1] for xy, _y in got]
         inside = shapely.contains_xy(R, xs, ys)
-        return [y for (_xy, y), k in zip(got, inside) if k]
+        return [y for (_xy, y), k in zip(got, inside, strict=True) if k]
 
     ys = feet(True) or feet(False)
     if not ys:
@@ -131,7 +131,7 @@ def _top(parts, air, airport, law, to_xy, near: float, R) -> "float | None":
     xy, ys = walled_feet(parts, law, to_xy)
     if ys:
         off = ~shapely.contains_xy(R, [p[0] for p in xy], [p[1] for p in xy])
-        ys = [y for y, k in zip(ys, off) if k]
+        ys = [y for y, k in zip(ys, off, strict=True) if k]
     if len(ys) >= PLANE_MIN_FEET:
         return float(_densest(sorted(ys), _plane_band())[1])
     top = top_level(parts, air, airport, law, to_xy, near)

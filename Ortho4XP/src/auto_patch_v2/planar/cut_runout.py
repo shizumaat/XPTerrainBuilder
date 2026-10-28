@@ -40,7 +40,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
 from ..geom.parts import nonempty_polygon_parts as _parts

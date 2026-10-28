@@ -88,7 +88,7 @@ def test_the_cut_under_the_station_is_its_lower_level_at_the_objects_bottom():
     assert got is not None
     H, L, S, rec = got
     assert rec["witness"] == CC.WITNESS and rec["top_y"] == 0
-    assert rec["y_lo"] == pytest.approx(-9.1, abs=0.15)      # the walls' floor, never -9.1 - a storey
+    assert rec["y_lo"] == pytest.approx(-9.1, abs=0.15)      # the walls' floor
     # the corridor and the platforms beside it, never the rest of the pad
     # nor the 5 km track bed beyond it
     assert L.contains(box(91.0, 10.0, 109.0, 240.0))       # the tracks
@@ -159,7 +159,8 @@ def test_a_pad_fill_never_takes_a_mapped_cutting(monkeypatch):
     m = NS(id="dsf:obj1", resource="Terminal/side_walk.obj", parts=(plate,),
            deck_kind="", origin=(0.0, 0.0), heading_deg=0.0)
     part = NS(units=(NS(id="unit:0", members=(m,)),))
-    to_xy = (lambda lon, lat: (lon, lat))
+    def to_xy(lon, lat):
+        return (lon, lat)
     cut = NS(points=[(125.0, -50.0), (125.0, 150.0)],
              tags={"railway": "rail", "cutting": "yes"})
     airport = NS(partition=part, frame=NS(entry=lambda: to_xy), osm_ways=[cut])
@@ -175,7 +176,8 @@ def test_a_pad_fill_never_takes_a_mapped_cutting(monkeypatch):
 # ── 2026-10-28r (3): the cut's ENDS grade to the open cut at the rail grade ──
 
 def _ends_airport(ground):
-    ident = (lambda a, b: (a, b))
+    def ident(a, b):
+        return (a, b)
     frame = NS(entry=lambda: ident, transformers=lambda: (ident, lambda x, y: (y, x)))
     cut = NS(points=[(100.0, -300.0), (100.0, 600.0)],
              tags={"railway": "rail", "cutting": "yes"})

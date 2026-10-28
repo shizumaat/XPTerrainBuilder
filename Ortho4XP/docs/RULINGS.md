@@ -10502,3 +10502,5 @@ Also (owner, same message): the ThunderBlade drive holds only ortho tiles; every
 **2026-10-28v: owner answers Q274 and Q276 (Noah, 2026-10-28T19:28:48Z and 19:29:11Z, verbatim: "274: yes wait", "276: b").**
 - Q274 (a): the NZWN car-park work (#1338/#1586) waits until after beta 5. It was dropped from batch AM after the sweep found that it lifts a KCLT terminal lot 18 m.
 - Q276 (b): weekly usage may go about 2 % past the 85 % line, to about 88 %, for exactly two changes before Friday: Q271 (KATL sloped cut floor) and Q273 (KMCI road drops to the cut band's ground). Nothing else.
+
+**2026-10-28w — owner answer Q277 (Noah, 2026-10-28T20:56:52Z, verbatim: "A").** Q277 (a): the LFPG cuts (#1580) and the EDDF tunnels (#1593, round 2 without Q256 b) go into the next test app, so they ship in beta 5 if the sim read passes. They are first built in 1.0.444 (branch `claude/app-444`).

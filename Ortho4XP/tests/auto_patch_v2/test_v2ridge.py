@@ -33,7 +33,7 @@ from auto_patch_v2.planar.build import build
 from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.solve import solve_design
 from auto_patch_v2.verify import census
-from auto_patch_v2.verify.strips import FAMILY_STRIP_TRANSVERSE
+from auto_patch_v2.verify.strips import FAMILY_STRIP_TRANSVERSE, runway_edge_tie
 from tests.auto_patch_v2.test_crown import HALF_WIDTH, _PlaneDem, _rect, _rot
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -501,3 +501,46 @@ def test_the_box_budget_is_the_anisotropic_sum(law):
     assert box.budget(c)[0] == pytest.approx(0.015 * 7.0)
     c = cg.ShapePairConstraint(_W(), "a", "b", 10.0, 0.0, 0.0, 50.0, 0.0, 0.2, 40.0, 0.015, 0.61)
     assert not box.applies(c)          # 40 m: the withdrawn-law stamp's, not the box's
+
+
+def test_the_oracle_reads_abeam_off_the_published_slab_not_the_rings(law, monkeypatch):
+    """Issue #1494: the oracle's tie frame took its abeam axis from a fit to
+    the runway-role RINGS, while the generator (``strips.runway_groups``,
+    §40 (1)) and the v2 verify read the published SLAB.  KDIJ's rings run
+    ~70 m past both slab ends, so the oracle judged parallel-taxiway
+    vertices BEYOND runway 4's end as abeam it (four 1.89–1.94 m
+    ``strip_transverse`` rows neither the generator nor the verify holds
+    there — the end corridor governs them).  With ``runway_axes``
+    published, the axis is the slab's; without it, the fit stays."""
+    from check_grade_lib.rows import Way
+    ring = [(-100.0, -15.0), (1100.0, -15.0), (1100.0, 15.0), (-100.0, 15.0)]
+    taxi = [(-80.0, 40.0), (-20.0, 40.0), (-20.0, 60.0), (-80.0, 60.0)]
+    nodes, ways = {}, []
+    for wid, role, ref, pts, z in (("1", "runway", "09/27", ring, 100.0),
+                                   ("2", "primary_parallel", "taxiA", taxi, 97.0)):
+        nids = []
+        for k, (x, y) in enumerate(pts):
+            nid = f"{wid}{k}"
+            nodes[nid] = (y, x)                    # (lat, lon) in metres
+            nids.append(nid)
+        nids.append(nids[0])
+        ways.append(Way(wid, role, ref, "", nids, [z] * len(nids),
+                        {"role": role, "code_number": "3", "code_letter": "C"}))
+
+    def ll_to_m(lat, lon):
+        return (lon, lat)
+
+    slab = [["09/27", 0.0, 0.0, 0.0, 1000.0, 15.0, 0.0, 0.0]]
+    q = law.tables.emit.instrument.coarse_noise_m
+    tol = law.tables.emit.identity.min_distinct_spacing_m
+    read = {}
+    for published in (None, slab):
+        monkeypatch.setattr(cg, "_ACTIVE_RUNWAY_AXES", published)
+        points, edges, axes, _rw = cg.runway_edge_tie_frame(ways, nodes, ll_to_m, law)
+        a, _u, length = axes["09/27"][:3]
+        read[published is not None] = (round(a[0], 1), round(length, 1),
+                                       len(runway_edge_tie(points, edges, axes, law, q, tol)))
+    assert read[False][:2] == (-100.0, 1200.0), read
+    assert read[True][:2] == (0.0, 1000.0), read
+    # the taxiway beyond the slab end: abeam under the fit, not the slab
+    assert read[False][2] > 0 and read[True][2] == 0, read

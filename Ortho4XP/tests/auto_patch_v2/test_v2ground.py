@@ -147,8 +147,20 @@ def test_the_zone_ring_follows_the_pavement_not_the_terrain(taxi_map, law):  # n
     # THE STRIP FROM THE CENTRELINE (RULINGS 2026-10-15l (1)): the band now
     # ends nearer its pavement, so its deepest vertex reads −0.56 m (was
     # −1.15 m) — still UNDER its own DEM, which is the claim.
-    assert min(z[v] - pm.vertices[v].dem_z for v in strip) < 0.0, \
-        "the staged arm: the sheet keeps no level from the ground"
+    # RE-FOUNDED (issue #1494): the deviation above was the runway-edge
+    # tie (06p (1)) LOST in the stage split — a one-way row, so §20b (1b)
+    # sent it to stage 2, where the taxiway is a constant.  Stage 1 now
+    # carries it (``[design] runway_led_rulings``): the taxiway abeam the
+    # runway is held within the strip bound of the runway edge, so the
+    # staged sheet no longer follows the valley down and its strip is
+    # FILLED clear of its DEM like the joint problem's (measured +2.41 m;
+    # the old split -0.56 m).  The register emptied is the old split.
+    assert min(z[v] - pm.vertices[v].dem_z for v in strip) > 0.0, \
+        "the staged arm: the taxiway follows the runway, the strip is filled"
+    from tests.auto_patch_v2.test_v2staged import _law_arm
+    z_old = np.asarray(_solve(pm, _cs, _law_arm(law, runway_led_rulings=()))[0].z, float)
+    assert min(z_old[v] - pm.vertices[v].dem_z for v in strip) < 0.0, \
+        "the old split: the sheet keeps no level from the ground"
     z0 = np.asarray(_solve(pm, _cs, unstaged(law))[0].z, float)
     # every such vertex is FILLED clear of its DEM sample
     assert min(z0[v] - pm.vertices[v].dem_z for v in strip) > 0.5

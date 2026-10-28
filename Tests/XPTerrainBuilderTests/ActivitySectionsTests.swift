@@ -41,7 +41,8 @@ final class ActivitySectionsTests: XCTestCase {
         XCTAssertEqual(model.rows(in: .completed).count, 2)
         model.queueRows([a])
         XCTAssertEqual(model.rows(in: .completed), [b])
-        XCTAssertEqual(model.rows(in: .activity).first, a)
+        // #1605: a re-queue appends below the tiles already queued.
+        XCTAssertEqual(model.rows(in: .activity).last, a)
     }
 
     func testCompletedStartsCollapsedAndKeepsTheChoice() {

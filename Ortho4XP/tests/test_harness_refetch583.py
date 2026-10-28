@@ -272,6 +272,10 @@ def test_a_dem_refresh_reasks_the_stale_negatives_it_used_to_refuse_on(
     """(B) one command: the airports the pre-flight's own rows name are
     run through the production pass AS A BUILD WOULD (``refresh=False``),
     on an airport build and a tile build alike."""
+    # #1603's base-void pass loads a real raster; these twins are about
+    # the inset passes before it.
+    monkeypatch.setattr(build_mod, "_fetch_base_void_fills",
+                        lambda *a, **k: [])
     root = _warm_tile_root(tmp_path, monkeypatch)
     state = build_mod.dem_cache_state(root, 45, -123)
     assert state["base_raster"] and state["airport_insets"]
@@ -327,6 +331,10 @@ def test_a_dem_refresh_that_leaves_a_row_pending_refuses(
         build_mod, ipf, monkeypatch, tmp_path):
     """A provider that did not answer leaves its negative in place: the
     refresh says so itself, naming the row -- never exit 0."""
+    # #1603's base-void pass loads a real raster; these twins are about
+    # the inset passes before it.
+    monkeypatch.setattr(build_mod, "_fetch_base_void_fills",
+                        lambda *a, **k: [])
     root = _warm_tile_root(tmp_path, monkeypatch)
     negative = ("dem", "index.json [Lehman Field:USGS3DEP]", "still stale")
     monkeypatch.setattr(build_mod, "unverified_inset_negatives",

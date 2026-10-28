@@ -852,6 +852,10 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     pav: dict[str, tuple[float, frozenset]] = {}
     #: 22b: unit root id -> its walls' median authored base, read once
     frame_base: dict[str, float] = {}
+    from ..law import Law
+    from .airside_group_seat import storey_m
+    storey = storey_m(Law.load())
+    pad_read: dict[str, bool] = {}
     for un in units:
         zero: float | None = None
         where = src = ""
@@ -872,7 +876,15 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
             # its zero stands where its perimeter walls' feet meet the pad
             # (or the ground), not where its authored y = 0 would
             base = _wall_base(un, units, parts, wall_min_m, frame_base, frame_of)
-            if p is not None and p.z:
+            if p is not None and p.z and _below_its_pad(cc, p, storey, surface, pad_read):
+                # #1599: every centre stands a storey or more UNDER the
+                # pad's plane — the unit stands wholly on a LOWER LEVEL of
+                # the pad (RULINGS 2026-10-19ai folds the level into its
+                # block for a unit that spans both), so it takes the ground
+                # it stands on; the pad's datum floated KATL's small
+                # building 9.70 m (28p (2): units never float off the pad)
+                zero, where, src = _median([q[3] for q in cc]) - base, "", "ground"
+            elif p is not None and p.z:
                 # §16g (10) (9) (2) AMENDED — ONE PAD DATUM RULE, THE
                 # MEDIAN (owner RULINGS 2026-09-17t: "Pad datum: median,
                 # one rule for both seats").  14az's LOW SIDE reading is
@@ -904,6 +916,38 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         out[un.id] = (zero, where, src)
     from .one_building import one_building_groups
     return one_building_groups(units, out, pav, piece_reach_m, span_max_m)
+
+
+def _below_its_pad(cc: _t.Sequence[tuple], pad: _t.Any, storey: float,
+                   surface: _t.Any = None, memo: "dict | None" = None) -> bool:
+    """#1599: does the surface under EVERY one of ``cc``'s points stand at
+    least one storey (``[building_pad] low_level_min_step_m``) under
+    ``pad``'s plane (its median)?  Read only where the ``surface`` IS the
+    pad's (:func:`_surface_reads_pad`); ``storey`` 0 disarms."""
+    if storey <= 0.0 or not cc:
+        return False
+    plane = _median(list(pad.z))
+    if max(float(q[3]) for q in cc) > plane - storey:
+        return False
+    if surface is None:
+        return True
+    memo = {} if memo is None else memo
+    if pad.ref not in memo:
+        memo[pad.ref] = _surface_reads_pad(pad, plane, storey, surface)
+    return memo[pad.ref]
+
+
+def _surface_reads_pad(pad: _t.Any, plane: float, storey: float,
+                       surface: _t.Any) -> bool:
+    """Does the surface read ``pad``'s ``plane`` over at least one of its
+    faces (that face's ring median within a storey of it) — the pad's own
+    face, not another ground under the sampler?"""
+    for rg in (getattr(pad, "rings", ()) or (pad.ring,)):
+        zs = [surface(la, lo) for la, lo in rg]
+        zs = [float(z) for z in zs if z is not None]
+        if zs and abs(_median(zs) - plane) < storey:
+            return True
+    return False
 
 
 def _unit_root(uid: str) -> str:

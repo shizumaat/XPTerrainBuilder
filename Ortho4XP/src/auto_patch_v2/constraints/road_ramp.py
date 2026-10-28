@@ -694,6 +694,16 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # toward the runway end; the band's ceiling is ``zones.zone_bands``'
     # kerb row, so above the band's grade the band still leads.
     prof = {v: z for v, z in prof.items() if v in floor}
+    # a road a RUNWAY borders is never LIFTED to the runway's level (owner
+    # 2026-10-19, #951: inside a runway band a road sits at or below the
+    # band's grade; sim read 2026-10-28T14:26Z point 6) — the terrace may
+    # still bring it down to the runway, as at NLWF's road −1
+    lifted = 0
+    for v in terr.get("runway") or {}:
+        if v in prof and prof[v] > floor[v]:
+            prof[v] = floor[v]
+            lifted += 1
+    rep["runway_not_lifted"] = lifted
     rep["governed"] = len(prof)
     if not prof:
         return cs, rep

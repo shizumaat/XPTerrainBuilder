@@ -3573,9 +3573,19 @@ def runway_edge_tie_frame(ways: List[Way], nodes: Dict[str, Tuple[float, float]]
         for i in range(n):
             edges.append((pts[i], pts[(i + 1) % n], ref, cn, cl))
     axes: Dict[str, tuple] = {}
+    # THE RUNWAY'S OWN SLAB where the sidecar publishes it (issue #1494; the
+    # generator's ``constraints.strips.runway_groups`` axis, §40 (1), and the
+    # v2 verify's ``verify.strips.groups``) — never a fit to the runway-role
+    # rings: KDIJ's rings run ~70 m past both slab ends, and the fit read
+    # taxiway vertices BEYOND runway 4's end as abeam it (1.94 m rows the
+    # generator and the verify both leave to the end-corridor law)
+    slabs: Dict[str, tuple] = {}
+    if _ACTIVE_RUNWAY_AXES:
+        from auto_patch_v2.verify.strips import published_slabs
+        slabs = published_slabs(_ACTIVE_RUNWAY_AXES, ll_to_m)
     if _runway_axis_and_width is not None:
         for ref, pts in pts_by_ref.items():
-            ax = _runway_axis_and_width(pts)
+            ax = slabs.get(ref) or _runway_axis_and_width(pts)
             if ax is None:
                 continue
             (ax0, ay0), (bx, by), _w = ax
@@ -8877,8 +8887,30 @@ def _seg_point_distance(px: float, py: float, a, b) -> float:
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
+from check_grade_lib.families.wall_outline_step import (  # noqa: E402,I001
+    pair_key as _wall_pair_key,
+    wall_outline_rows as _wall_outline_rows,
+)
+
+
+def _wall_outlines_m(terrace_joints_ll, ll_to_m) -> list:
+    """The pack-wall terraces whose points close into an OUTLINE (not a
+    walled tunnel mouth), as ``(points_m, declared step)`` — reading 3 of
+    :func:`_check_terrace_actual_step`."""
+    out = []
+    for row in (terrace_joints_ll or []):
+        pts = row.get("points") or []
+        if row.get("kind") != WALL_TERRACE_JOINT_KIND or _is_mouth_wall_joint(row) \
+                or len(pts) < 4 or list(pts[0]) != list(pts[-1]):
+            continue
+        out.append(([ll_to_m(float(la), float(lo)) for (la, lo) in pts],
+                    _declared_joint_step(row)))
+    return out
+
+
 def _check_terrace_actual_step(terrace_joints_m, ways, nodes, ll_to_m,
-                               max_grade: float) -> List[Violation]:
+                               max_grade: float,
+                               wall_outlines_m=None) -> List[Violation]:
     """§3(b) THE HONEST INSTRUMENT: the ACTUAL emitted step per declared
     joint, recomputed from the PATCH — never read out of the sidecar.
 
@@ -8895,11 +8927,15 @@ def _check_terrace_actual_step(terrace_joints_m, ways, nodes, ll_to_m,
     2. THE EMITTED JOINT FACE.  An ``apron_terrace_joint`` retaining wall
        IS the vertical step the simulator draws, so its own altitude
        delta is the actual step at its joint, with no window at all.
+    3. A PACK WALL'S WHOLE OUTLINE (``wall_outlines_m``; owner RULINGS
+       2026-10-28s (2), #507): every pair whose segment touches the wall
+       (``check_grade_lib.families.wall_outline_step``) — reading 1 sides
+       a vertex by the outline, and both faces of a wall are outside it.
 
     ``panel_lo``/``panel_hi``/``actual_step_m`` in the sidecar are REPORT
     fields; this check trusts none of them.
     """
-    if not terrace_joints_m:
+    if not terrace_joints_m and not wall_outlines_m:
         return []
     out: List[Violation] = []
     # ── reading 2: the emitted faces ────────────────────────────────
@@ -8971,7 +9007,8 @@ def _check_terrace_actual_step(terrace_joints_m, ways, nodes, ll_to_m,
                 continue
             x, y = ll_to_m(*nodes[nid])
             verts.append((x, y, float(z), w))
-    for (jpts, step) in terrace_joints_m:
+    seen: set = set()
+    for (jpts, step) in (terrace_joints_m or []):
         pos: List[Tuple[float, float, float, Way]] = []
         neg: List[Tuple[float, float, float, Way]] = []
         for (x, y, z, w) in verts:
@@ -9008,6 +9045,11 @@ def _check_terrace_actual_step(terrace_joints_m, ways, nodes, ll_to_m,
                 excess_pct=100.0, distance_m=d, de_m=abs(z1 - z2),
                 way_a=w1, way_b=w2, pt_a=(x1, y1), pt_b=(x2, y2),
                 elev_a=z1, elev_b=z2))
+            seen.add(_wall_pair_key((x1, y1, z1, w1), (x2, y2, z2, w2)))
+    # ── reading 3: a pack wall's whole outline (28s (2), #507) ──────
+    out.extend(_wall_outline_rows(wall_outlines_m or [], verts,
+                                  _TERRACE_STRADDLE_PAIR_M, max_grade,
+                                  _TERRACE_STEP_QUANT_M, seen))
     return out
 
 
@@ -12768,7 +12810,8 @@ def run_checks(
     joint_actual = _fam("terrace_actual_step",
                         _check_terrace_actual_step(
                             terrace_joints_m, ways, nodes, ll_to_m,
-                            max_grade))
+                            max_grade,
+                            _wall_outlines_m(terrace_joints_ll, ll_to_m)))
     _pv("APRON TERRACE ACTUAL step past its DECLARED step (recomputed "
         "from the patch: nearest straddling vertex pairs + the emitted "
         "joint face — never the sidecar's own report fields)",

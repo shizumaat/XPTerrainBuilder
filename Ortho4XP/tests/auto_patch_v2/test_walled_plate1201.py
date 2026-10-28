@@ -348,3 +348,31 @@ def test_the_bending_does_not_reach_under_the_plate():
     pm.road_terrace = {}
     assert pm.plate_under == {1, 2}
     assert wall_cut_edges(pm, [(1, 2, 3)]) == {(1, 3), (2, 3)}
+
+
+def test_the_walled_plates_datum_leads_its_connected_group():
+    """#1201 (owner sim read 2026-10-28, KSEA 16L): a walled plate's bodies
+    ride its datum (RULINGS 2026-10-27u) — the connected group's median zero
+    (22o) sank 16L's plate 2.7 m under the safety area.  The control: the
+    same record on a member that is not a walled plate takes the group zero."""
+    from auto_patch_v2.airport import anchor_rule as AR
+    from auto_patch_v2.airport import open_frame_seat as OFS
+    from auto_patch_v2.airport.placement_record import Body, Split
+
+    def body(i, zero, datum, pids):
+        a = AR.Anchor(AR.OTHER, 47.0, -122.0, 0.5 if datum else 100.0 - zero,
+                      "§16e walled plate" if datum else "§16g unit", 100.0 if not datum
+                      else zero + 0.5, offset=(0.0, 0.0, 0.0), datum=datum)
+        return Body(i, AR.OTHER, (i,), a, f"objects/p__b{i}.obj", pids=pids)
+    rec = Split(0, "dsf:obj1", "objects/p.obj", "/x/objects/p.obj", 47.0, -122.0, 0.0,
+                (body(0, 122.77, True, (1,)), body(1, 119.39, False, (2,))))
+    pw = {1: ("fu:32:1", 120.09), 2: ("fu:32:1", 120.09)}
+    zeros = {OFS.group_key("fu:32:1", "unit:1"): (120.09, 0.0)}
+    walled = types.SimpleNamespace(resource="objects/p.obj", zero_y=0.0, plate_kind="walled")
+    other = types.SimpleNamespace(resource="objects/p.obj", zero_y=0.0, plate_kind="")
+    counts: dict = {}
+    out = OFS.group_zero(rec, walled, pw, zeros, counts, "unit:1")
+    z = [round(b.anchor.surface_z - b.anchor.y_zero, 2) for b in out.bodies]
+    assert z == [122.77, 122.77] and counts["walled_plate_led_groups"] == 1
+    ctl = OFS.group_zero(rec, other, pw, zeros, {}, "unit:1")
+    assert [round(b.anchor.surface_z - b.anchor.y_zero, 2) for b in ctl.bodies] == [120.09, 120.09]

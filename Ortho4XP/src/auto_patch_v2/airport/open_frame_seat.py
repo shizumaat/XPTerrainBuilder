@@ -33,10 +33,10 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["OPEN_KINDS", "rigid_open", "open_zero", "frame_zero", "unit_root",
+__all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "unit_root",
            "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
-           "GROUP_REASON", "at_zero",
+           "GROUP_REASON", "at_zero", "walled_lead",
            "TOUCH_M"]
 
 #: the deck verdicts that make a member an OPEN structure — a deck
@@ -55,19 +55,70 @@ def rigid_open(record: _t.Any, m: _t.Any, open_frame: bool) -> _t.Any:
     always move as a group".  Every body of a placement in an OPEN frame
     takes ONE zero: the deck's datum where a body carries it, else the
     LOWEST of the bodies' own zeros, so no support floats.  A body whose
-    seat tilt is baked into its vertices leaves the placement as it was."""
+    seat tilt is baked into its vertices leaves the placement as it was.
+
+    ONE STRUCTURE IS ONE CONNECTED SET (#1599, 22o: "we only split and
+    seat separately, objects that are clearly at least a couple meters
+    apart with no above ground connecting shape"): one placement may hold
+    many structures — KATL's ``techo1.obj`` is 51 roofs over 600 m, each
+    on its own hall — so the one zero is taken per set of bodies whose
+    geometry boxes touch or come within :data:`TOUCH_M`
+    (:func:`open_sets`); a body alone in its set keeps its own seat, and a
+    set holding a body its building carries rests on that building."""
     bodies = record.bodies
     if not open_frame or len(bodies) < 2:
         return record
     if any(getattr(b.seat, "applied", False) for b in bodies if b.seat is not None):
         return record
-    zs = [float(b.anchor.surface_z) - float(b.anchor.y_zero) for b in bodies
-          if b.anchor.surface_z is not None]
-    if len(zs) < 2 or max(zs) - min(zs) <= 0.05:
-        return record
-    target = open_zero(bodies)
-    return _at_zero(record, m, target, lambda b: True,
-                    f"one rigid open structure at {target:.2f} (RULINGS 2026-10-22c)")
+    out = record
+    for group in open_sets(bodies):
+        zs = [float(b.anchor.surface_z) - float(b.anchor.y_zero) for b in group
+              if b.anchor.surface_z is not None]
+        if len(zs) < 2 or max(zs) - min(zs) <= 0.05:
+            continue
+        target = _set_zero(group)
+        ids = {id(b) for b in group}
+        out = _at_zero(out, m, target, lambda b, _i=ids: id(b) in _i,
+                       f"one rigid open structure at {target:.2f} (RULINGS 2026-10-22c)")
+    return out
+
+
+def _set_zero(group: _t.Sequence[_t.Any]) -> "float | None":
+    """One connected set's zero: :func:`open_zero`, except that a set
+    holding a body CARRIED by a building unit (``merged_into``, and no
+    deck datum) rests on that building (22o) — the lowest such zero."""
+    if not any(b.anchor.datum for b in group if b.anchor.surface_z is not None):
+        held = [float(b.anchor.surface_z) - float(b.anchor.y_zero) for b in group
+                if b.anchor.surface_z is not None and getattr(b, "merged_into", "")]
+        if held:
+            return min(held)
+    return open_zero(group)
+
+
+def open_sets(bodies: _t.Sequence[_t.Any]) -> list[list[_t.Any]]:
+    """The bodies of one placement in CONNECTED SETS: two bodies are one
+    set where their geometry boxes (``geom_box``, else ``plan_box``) touch
+    or come within :data:`TOUCH_M`.  A body with no box joins every set
+    (the reading before #1599), so a record with no boxes is one set."""
+    boxes = [getattr(b, "geom_box", None) or getattr(b, "plan_box", None)
+             for b in bodies]
+    if any(q is None for q in boxes):
+        return [list(bodies)]
+    up = list(range(len(bodies)))
+
+    def find(i: int) -> int:
+        while up[i] != i:
+            up[i] = up[up[i]]
+            i = up[i]
+        return i
+    for i in range(len(bodies)):
+        for j in range(i + 1, len(bodies)):
+            if find(i) != find(j) and _gap_m(tuple(boxes[i]), [boxes[j]]) <= TOUCH_M:
+                up[find(i)] = find(j)
+    sets: dict[int, list[_t.Any]] = {}
+    for i, b in enumerate(bodies):
+        sets.setdefault(find(i), []).append(b)
+    return list(sets.values())
 
 
 def open_zero(bodies: _t.Sequence[_t.Any]) -> "float | None":
@@ -416,6 +467,20 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
     seated it.  A body carried by one of the unit's files takes it too
     (:func:`body_root`).  A body already within ``tol_m`` of its target is
     left as it is."""
+    lead = walled_lead(record, m)
+    if lead is not None:
+        # #1201 (owner sim read 2026-10-28, KSEA 16L): A WALLED PLATE'S DATUM
+        # LEADS ITS GROUP — every body of its origin set rides the plate,
+        # flush with the safety area (RULINGS 2026-10-27u); the group's median
+        # had sunk 16L's plate 2.7 m under the safety area
+        if any(b.anchor.surface_z is not None and abs(
+                float(b.anchor.surface_z) - float(b.anchor.y_zero) - lead) > tol_m
+               for b in record.bodies):
+            counts["walled_plate_led_groups"] = counts.get("walled_plate_led_groups", 0) + 1
+            return frame_zero(record, m, lead,
+                              f"{GROUP_REASON} led by its walled plate's datum at "
+                              f"{lead:.2f} (RULINGS 2026-10-27u, #1201)")
+        return record
     if not plan_wide or not zeros:
         return record
     roots = {id(b): body_root(b, plan_wide, file_root, root_boxes)
@@ -448,3 +513,17 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                        lambda b, _r=r: roots.get(id(b)) == _r and off(b),
                        f"{GROUP_REASON} {r} at {t:.2f} (RULINGS 2026-10-22o/q)")
     return out
+
+
+def walled_lead(record: _t.Any, m: _t.Any) -> "float | None":
+    """The zero of a RUNWAY-END WALLED PLATE's datum body (#1201, RULINGS
+    2026-10-27u: the plate sits flush with the safety area and every body of
+    its origin set rides it): the first body seated on its datum, for a
+    member marked ``plate_kind == "walled"``; ``None`` otherwise."""
+    if getattr(m, "plate_kind", "") != "walled":
+        return None
+    for b in record.bodies:
+        a = b.anchor
+        if a.surface_z is not None and getattr(a, "datum", False):
+            return float(a.surface_z) - float(a.y_zero)
+    return None

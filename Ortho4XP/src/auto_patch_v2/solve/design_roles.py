@@ -20,7 +20,7 @@ from ..law.tables import (airside_stage_roles as _airside_stage_roles,
                           role_side, zone_class)
 from ..model.constraints import Row
 
-__all__ = ['airside_stage_roles', 'conforming_rulings', 'groundside_pin_rulings', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'yielded_preference_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
+__all__ = ['airside_stage_roles', 'conforming_rulings', 'groundside_pin_rulings', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'runway_led_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'yielded_preference_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
 
 def bend_roles(law: Law) -> tuple[str, ...]:
     """The roles whose faces form the SHEETS the bending term shapes: every
@@ -129,6 +129,15 @@ def one_way_rulings(law: Law) -> frozenset[str]:
     one_way_rulings`` (RULINGS 2026-09-09b (2)/(3): the adjacent ground
     follows the pavement edge and never pulls it)."""
     return frozenset(design_law(law).one_way_rulings)
+
+
+def runway_led_rulings(law: Law) -> frozenset[str]:
+    """THE ONE-WAY HEADS STAGE 1 KEEPS — ``[design] runway_led_rulings``
+    (issue #1494): a row of one of them whose every foot is a stage-1
+    column has an AIRSIDE follower, and the runway leads it there; §20b
+    (1b) would otherwise leave it to stage 2, where that follower is a
+    constant and the row governs nothing."""
+    return frozenset(design_law(law).runway_led_rulings)
 
 
 def groundside_pin_rulings(law: Law) -> frozenset[str]:

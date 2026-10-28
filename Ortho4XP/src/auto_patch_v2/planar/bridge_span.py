@@ -30,8 +30,16 @@ them.  This module is the ONE derivation, computed once in
   to deck level").
 * the DEPTH is the object's top minus its walls' bottom (20am / 20ar),
   and ``deck_z`` the covered ground at the back over its bores — the
-  floor's top: the trench beyond the back stands at ``deck_z − depth``,
-  held relationally under the solved rim by ``tunnel.mouth_depth_m``.
+  pre-solve estimate of the floor's top.
+* the SEAT is the airside pavement point nearest the placement's origin:
+  the object's top stands flush with the solved surface there (27r "the
+  top of the objects flush with the airside surface"; owner sim read
+  2026-10-28T14:26Z point 4: the runway's edge object at that seat is
+  "at the right height").  The object stage seats the object's zero
+  there (``pipeline/rebake_inputs``) and the trench beyond the back is
+  held at the seat's solved surface less the depth
+  (``constraints/structures``, head ``tunnel.mouth_depth_m``): the
+  trench is never deeper than the object's bottom (point 4).
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -44,7 +52,7 @@ from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import nearest_points, unary_union
 
 __all__ = ["EdgeBridge", "edge_bridges", "bridge_crossed", "bridge_pin", "edge_cut",
-           "edge_flat_s", "far_back_s"]
+           "edge_flat_s", "far_back_s", "floor_bridge"]
 
 #: the lateral sampling step of a back (metres)
 _BACK_STEP_M = 1.0
@@ -70,6 +78,14 @@ class EdgeBridge:
     deck_z: float
     #: the served bores (``"+".join(way ids)``) whose cut it meets
     bores: tuple[str, ...]
+    #: the SEAT (module doc): the airside pavement point nearest the
+    #: placement's origin, where the object's top meets the solved surface
+    seat: tuple[float, float] = (0.0, 0.0)
+
+    @property
+    def floor_z(self) -> float:
+        """The pre-solve floor estimate: the deck level less the depth."""
+        return self.deck_z - self.depth_m
 
     @property
     def back_line(self) -> LineString:
@@ -187,9 +203,11 @@ def edge_bridges(objects, cache, cuts, pav, law) -> tuple[EdgeBridge, ...]:
                 zs.append(z)
         if not zs:
             continue
+        _a, q = nearest_points(Point(o.xy), pav)
         out.append(EdgeBridge(str(o.id), str(o.path), float(depth), tuple(back),
                               tuple(plan), u, cover, float(max(zs)),
-                              tuple("+".join(str(w.id) for w in cuts[k][0].ways) for k in met)))
+                              tuple("+".join(str(w.id) for w in cuts[k][0].ways) for k in met),
+                              (float(q.x), float(q.y))))
     return tuple(out)
 
 
@@ -242,7 +260,14 @@ def edge_cut(br: EdgeBridge, ramp, outer, rim_off: float, reach: float, others=(
     runs to the back exactly, a skewed one too, and the floor stands the
     rim stand-off ``rim_off`` off it — the wall between is the step."""
     side = unary_union([span_side(b, reach) for b in (br, *others)])
-    plan = Polygon(br.plan)
+    # the open stretch between two bridges is ONE cut as wide as the
+    # objects: the hull of their plans, every carriageway and the median
+    # under both and between (owner sim read 2026-10-28T14:26Z point 3: "it
+    # should stay same width and depth"; point 4: the depth along the
+    # object's road side, no slope left under it; RULINGS 28d Q214)
+    plan = unary_union([Polygon(b.plan) for b in (br, *others)])
+    if others:
+        plan = plan.convex_hull
     ramp2 = unary_union([ramp, plan]).difference(side.buffer(rim_off, join_style="mitre"))
     outer2 = unary_union([outer, plan.buffer(rim_off, join_style="mitre")]).difference(side)
 
@@ -276,6 +301,14 @@ def far_back_s(br: EdgeBridge, axis: LineString, bridges) -> "tuple[float, tuple
             if best is None or s < best[0]:
                 best = (s, o)
     return None if best is None else (float(best[0]), (best[1],))
+
+
+def floor_bridge(br: EdgeBridge, others=()) -> EdgeBridge:
+    """The bridge a trench meeting ``br`` and ``others`` hangs its floor
+    from: the one with the SHALLOWER bottom (:attr:`EdgeBridge.floor_z`) —
+    the trench is never deeper than an object's bottom (owner sim read
+    2026-10-28T14:26Z points 2 / 4), level back to back (27r)."""
+    return max((br, *others), key=lambda b: b.floor_z)
 
 
 def edge_flat_s(br: EdgeBridge, axis: LineString) -> float:

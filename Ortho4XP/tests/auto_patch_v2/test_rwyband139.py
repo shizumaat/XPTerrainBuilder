@@ -185,6 +185,20 @@ def _arms(two_runways, law):
     return airport, pm, cs, ConstraintSet.from_rows([*keep, *pre]), raw, rwv
 
 
+def _band_law(law):
+    """The arms ISOLATE THE BAND (issue #1494): the runway-edge tie now
+    holds the taxiway to the runway in §20b stage 1 (``[design]
+    runway_led_rulings``), which by itself keeps the PRE arm's stub — and
+    through it the ridge — up: the arms' difference fell to 0.023 m.  This
+    twin measures the reach band, so both of its arms hold that register
+    empty; ``test_the_ridge_does_not_come_down`` also reads the shipped
+    law, where the ridge still never comes down."""
+    import dataclasses as _dc
+    d0 = law.tables.emit.design
+    return _dc.replace(law, tables=_dc.replace(law.tables, emit=_dc.replace(
+        law.tables.emit, design=_dc.replace(d0, runway_led_rulings=()))))
+
+
 # ── the derivation site ──────────────────────────────────────────────────
 
 def test_the_runway_family_is_the_bands_source_never_its_subject(two_runways, law):
@@ -314,8 +328,8 @@ def test_the_ridge_does_not_come_down(two_runways, law):
     and the edge is bounded by the transverse row."""
     airport, pm, cs, cs_pre, raw, _rwv = _arms(two_runways, law)
     rw, v, vw = _shared_edge(pm, law)
-    pre_sol, _p = solve_design(pm, cs_pre, law)
-    post_sol, _q = solve_design(pm, cs, law)
+    pre_sol, _p = solve_design(pm, cs_pre, _band_law(law))
+    post_sol, _q = solve_design(pm, cs, _band_law(law))
     assert pre_sol.status in (Status.OPTIMAL, Status.FEASIBLE), pre_sol.message
     assert post_sol.status in (Status.OPTIMAL, Status.FEASIBLE), post_sol.message
     zp, zq = np.asarray(pre_sol.z, float), np.asarray(post_sol.z, float)
@@ -329,6 +343,11 @@ def test_the_ridge_does_not_come_down(two_runways, law):
     foot = runway_profile._foot(vw, v, runway_profile.ridge_chains(vw)[rw.ref])
     _d, a, b, _t = foot
     assert max(zq[a] - zp[a], zq[b] - zp[b]) > 0.05, (zq[a] - zp[a], zq[b] - zp[b])
+    # the SHIPPED law (the runway-led tie on, #1494): still never lower
+    zs_p = np.asarray(solve_design(pm, cs_pre, law)[0].z, float)
+    zs_q = np.asarray(solve_design(pm, cs, law)[0].z, float)
+    assert all(zs_q[u] >= zs_p[u] - tol for u in ridge), \
+        min((zs_q[u] - zs_p[u], u) for u in ridge)
     # THE SHARED EDGE IS NO LONGER PULLED AT THE TAXI CEILING.  A reach
     # band is a priced TARGET, not a hard bound (it is in no
     # ``hard_rulings`` tier; "a TARGET met to the ELEVATION MATERIALITY",
@@ -393,8 +412,8 @@ def test_the_adjacent_stub_follows_the_edge_with_no_grade_break(two_runways, law
               for cyc in (f.ring, *f.holes) for u in pm.ring_vertices(cyc)}
     own_b = stub_b - rwv
     assert own_b
-    pre_sol, _p = solve_design(pm, cs_pre, law)
-    post_sol, _q = solve_design(pm, cs, law)
+    pre_sol, _p = solve_design(pm, cs_pre, _band_law(law))
+    post_sol, _q = solve_design(pm, cs, _band_law(law))
     assert post_sol.status in (Status.OPTIMAL, Status.FEASIBLE), post_sol.message
     zp, zq = np.asarray(pre_sol.z, float), np.asarray(post_sol.z, float)
     tol = law.tables.emit.design.hard_tol_m

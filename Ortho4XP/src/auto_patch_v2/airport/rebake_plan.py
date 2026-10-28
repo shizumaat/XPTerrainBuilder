@@ -364,7 +364,8 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
         plate_clearance = float(rest[0]) if rest else 0.0
         plate_stations = tuple(to_ll(x, y) for x, y in st_xy)
         counts["plate_members"] += 1
-    plate_kind = ""
+    # an EDGE BRIDGE's seat (``pipeline/rebake_inputs._edge_seat_plates``)
+    plate_kind = str(rest[1]) if o.id in plates and len(rest) > 1 else ""
     wp = getattr(o, "walled_plate", None)
     if wp is not None:
         # owner RULINGS 2026-10-27u (#1201): A WALLED PLATE AT A RUNWAY END

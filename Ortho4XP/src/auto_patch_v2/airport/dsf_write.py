@@ -139,6 +139,8 @@ from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
 from . import authored_landing as _al
 from . import backup_state as _bs
 from . import dsf_commands as _cmds
+from . import dsf_dump_key as _dk
+from . import dsf_heights as _dh
 from . import pack_art as _pa
 from . import pack_forests as _pf
 from . import split_guard as _sg
@@ -197,9 +199,6 @@ TOL_ELEV_M = 0.0625
 #: (Global Airports ``+39-095``) — both inside 4.
 POOL_QUANTA_ALLOWED = 4.0
 
-_POOL_LINE = re.compile(r"^#\s*pool\s+\d+:\s+p=(\d+)\s+s=\s*\d+\s+(.*)$")
-
-
 def pool_tolerances(*texts: str) -> tuple[float, float]:
     """``(tol_deg, tol_heading_deg)`` for comparing dumps whose ``# pool``
     headers are in ``texts`` (#60): :data:`POOL_QUANTA_ALLOWED` quanta of
@@ -214,21 +213,7 @@ def pool_tolerances(*texts: str) -> tuple[float, float]:
     span_deg = 0.0
     span_heading = 0.0
     for text in texts:
-        seen = False
-        for line in text.splitlines():
-            if not line.startswith("#"):
-                if seen:
-                    break           # the pool block is the header; stop at the body
-                continue
-            m = _POOL_LINE.match(line)
-            if m is None:
-                continue
-            seen = True
-            try:
-                planes = int(m.group(1))
-                vals = [float(v) for v in m.group(2).split()]
-            except ValueError:
-                continue
+        for planes, vals in _dh.pool_header(text):
             spans = vals[0:2 * planes:2]
             if len(spans) >= 2:
                 span_deg = max(span_deg, abs(spans[0]), abs(spans[1]))
@@ -1228,28 +1213,37 @@ def written_body_files(pack_root: str, dsf_path: str,
     return _body_paths(pack_root, entry.get("body_files") or [])
 
 
-def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, dump_sha: str,
-                   drop: _t.Collection[str] = ()
+def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
+                   backup_sha: str, drop: _t.Collection[str] = (),
+                   notes: list[str] | None = None
                    ) -> tuple[list[PlacementPlan], dict[str, dict]]:
     """#25: the OTHER airports' recorded edits of this DSF, as plans to
     compose, plus their record rows to carry forward.
 
     A sibling is re-applied only when its edits were built against THIS
-    pristine dump (``dump_sha256`` equal) and parse; a stale or garbled
-    row is dropped — its bodies become orphans the write removes.  So is
+    pristine dump (``dsf_dump_key.row_is_current``: the dump keyed with
+    its HEIGHTS row excluded, #1584; a row from before that key is
+    re-keyed here) and parse; a stale or garbled row is dropped — with a
+    note — and its bodies become orphans the write removes.  So is
     every airport named in ``drop`` (RULINGS 2026-10-12d: an airport left
     without a patch is no longer seated).
     Sorted by ICAO so the composition is deterministic."""
     airports = entry.get("airports")
     if not isinstance(airports, dict):
         return [], {}
+    key, printed = _dk.dump_key(text), _dk.printed_sha(text)
     plans: list[PlacementPlan] = []
     keep: dict[str, dict] = {}
     for icao in sorted(airports):
         if icao == plan.icao or icao in drop:
             continue
         row = airports.get(icao)
-        if not isinstance(row, dict) or row.get("dump_sha256") != dump_sha:
+        if not isinstance(row, dict) or not _dk.row_is_current(
+                row, entry, key, printed, backup_sha):
+            if notes is not None:
+                notes.append(f"{icao}: its recorded edits were built against "
+                             f"another version of this DSF and were not "
+                             f"re-applied")
             continue
         try:
             sib = PlacementPlan.from_dict({
@@ -1260,7 +1254,7 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, dump_sha: str,
         except (KeyError, ValueError, TypeError):
             continue
         plans.append(sib)
-        keep[icao] = dict(row)
+        keep[icao] = {**row, _dk.KEY_FIELD: key}
     return plans, keep
 
 
@@ -1395,12 +1389,19 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     # sets are re-applied beside this plan's, this plan winning every
     # ordinal it claims; a sibling body no longer named by the composed
     # edit is an orphan and goes after the move.
-    dump_sha = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+    dump_sha = _dk.printed_sha(text)
+    # The printed HEIGHTS row follows DSFTool's memory, not the file
+    # (``dsf_heights``); the encode builds the elevation pools from it, so
+    # the edit starts from the row the FILE gives — a rerun of one plan
+    # writes the same bytes.  The sibling records (#25) key the dump with
+    # that row excluded (``dsf_dump_key``, #1584).
+    pinned = _dh.pin_heights(text)
     prior_entry = _bs.dsf_entry(_bs.read_record(dsf_path), base)
     backup_sha = sha256_file(backup)
     if forests is None:
         forests = _pf.recorded(prior_entry, backup_sha)
-    siblings, sibling_rows = _sibling_plans(prior_entry, plan, dump_sha, drop)
+    siblings, sibling_rows = _sibling_plans(prior_entry, plan, text,
+                                            backup_sha, drop, notes)
     # #1246: a split DSFTool cannot place (a body off the tile) is undone
     # — the placement is written whole — and never fails the pack.
     undone: dict[int, str] = dict.fromkeys(
@@ -1411,7 +1412,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             sorted(set(undone.values()))))
         composed = plan.compose(siblings)
         _refuse_missing_bodies(pack_root, composed)          # #1214 R1
-        edited, omitted, unused = _edited_text(text, composed, omit, engine_version
+        edited, omitted, unused = _edited_text(pinned, composed, omit, engine_version
                                                or plan.provenance.engine_version)
         edited, renamed = _pf.rename_definitions(edited, forests)
         with open(edited_text, "w", encoding="utf-8",
@@ -1463,6 +1464,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             "edits": plan.edit_rows(),
             "body_files": own_bodies,
             "dump_sha256": dump_sha,
+            _dk.KEY_FIELD: _dk.dump_key(text),
             "engine_version": engine_version or plan.provenance.engine_version,
             "time": _bs.stamp(),
         }
@@ -1495,7 +1497,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         "backup_sha256": backup_sha,
         "backup_size": bak_stat.st_size,
         "backup_mtime_ns": bak_stat.st_mtime_ns,
-        "dump_sha256": hashlib.sha256(text.encode("utf-8", "replace")).hexdigest(),
+        "dump_sha256": dump_sha,
         "written_sha256": sha256_file(out_dsf),
         "prior_written_sha256": prior,
         "written_size": None,

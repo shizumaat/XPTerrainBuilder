@@ -23,6 +23,7 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6")
 
+import O4_Activity_Order as ACTORDER  # noqa: E402
 import O4_Qt_GUI as GUI  # noqa: E402
 import O4_Qt_Tile_Failures as QTFAIL  # noqa: E402
 import O4_Tile_Failures as FAIL  # noqa: E402
@@ -105,14 +106,10 @@ def _three_tile_run_one_warned(window):
     linger()
 
 
-def _layout_order(window, layout=None):
-    """The tiles of one section's rows, top to bottom (Activity unless
-    ``layout`` names another)."""
-    layout = layout or window._rows_layout
-    by_widget = {row[2]: tile for tile, row in window._tile_rows.items()}
-    return [by_widget[layout.itemAt(i).widget()]
-            for i in range(layout.count())
-            if layout.itemAt(i).widget() in by_widget]
+def _layout_order(window, section=ACTORDER.ACTIVITY):
+    """The tiles of one section's rows in the run list, top to bottom
+    (Activity unless ``section`` names another)."""
+    return window.activity_list.section_tiles(section)
 
 
 def _title(window, tile):
@@ -124,13 +121,14 @@ def test_finished_rows_stay_dimmed_in_finish_order(window):
     assert set(window._tile_rows) == {WARNED, PLAIN, LAST}
     # Built tiles sit in Completed (#1556), in finish order.
     assert _layout_order(
-        window, window.completed_section.rows_layout) == [WARNED, PLAIN, LAST]
+        window, ACTORDER.COMPLETED) == [WARNED, PLAIN, LAST]
     for tile in (WARNED, PLAIN, LAST):
         # Built rows: the dimmed gray brightened toward white (#1542).
         assert GUI.COMPLETED_TITLE_COLOR in _title(window, tile).styleSheet()
     # Nothing is left in Activity once the run is over.
-    assert window.activity_group.isHidden()
-    assert not window.completed_section.isHidden()
+    assert window.activity_list.activity_item.isHidden()
+    assert not window.activity_list.completed_item.isHidden()
+    assert not window.activity_group.isHidden()
     # The map's badges belonged to the run; the rows outlive it.
     assert window._map_progress() == {}
 
@@ -155,9 +153,14 @@ def test_the_warning_status_is_gold_and_reopens_the_dialog(window,
     labels = [button.text() for button in box.buttons()]
     assert QTFAIL.REPORT_BUTTON in labels
     box.close()
-    # A click anywhere else on the row keeps select-and-zoom (#816).
+    # A click anywhere else on the row selects it in the list, natively,
+    # and frames its tile (#816, #1537).
+    window.activity_list.set_completed_expanded(True)
+    window.show()
+    QApplication.processEvents()
     QTest.mouseClick(_title(window, WARNED), Qt.LeftButton)
     assert zoomed == [WARNED]
+    assert window.activity_list.selected_tiles() == {WARNED}
 
 
 def test_a_newly_queued_tile_goes_on_top(window):
@@ -181,8 +184,8 @@ def test_a_newly_queued_tile_goes_on_top(window):
 
 def test_a_done_row_is_compact(window):
     """#1542: a built tile's row is its title, brightened 50 % toward
-    white, then "done" and its clock -- no bar, no steps.  #1537: it is
-    filled when selected."""
+    white, then "done" and its clock -- no bar, no steps.  #1537: the
+    list's own selection shows it selected."""
     from PySide6.QtGui import QColor
     _three_tile_run_one_warned(window)
     bar, status, row, _cancel, clock = window._tile_rows[PLAIN]
@@ -197,7 +200,7 @@ def test_a_done_row_is_compact(window):
                  (gray.blue(), mid.blue())):
         assert abs(b - (a + 255) / 2) <= 1
     window.map.set_selection([PLAIN, WARNED])
-    assert row.filled()
+    assert window.activity_list.selected_tiles() == {PLAIN, WARNED}
 
 
 def test_a_requeued_done_row_grows_back(window):
@@ -212,12 +215,13 @@ def test_a_requeued_done_row_grows_back(window):
 # ─── #1556: the Completed section ──────────────────────────────────────────
 
 def _completed(window):
-    return _layout_order(window, window.completed_section.rows_layout)
+    return _layout_order(window, ACTORDER.COMPLETED)
 
 
 def test_done_tiles_move_to_a_collapsed_completed_section(window):
     window._start_run([WARNED, PLAIN, LAST], dict(SETTINGS))
-    section = window.completed_section
+    listed = window.activity_list
+    section = listed.completed_item
     assert section.isHidden()
     _finish(window, WARNED, [FAIL.record(
         "pack_dump_stale", "(build) [v2] stale", airport="AAAA")])
@@ -227,29 +231,29 @@ def test_done_tiles_move_to_a_collapsed_completed_section(window):
     assert _completed(window) == [WARNED]
     assert set(_layout_order(window)) == {PLAIN, LAST}
     assert not section.isHidden()
-    assert not section.expanded()
-    assert section.rows_scroll.isHidden()
-    assert section.toggle.text() == "▸ Completed (1)"
+    assert not listed.completed_expanded()
+    assert section.text(0) == "Completed (1)"
     _finish(window, LAST)
-    assert section.toggle.text() == "▸ Completed (2)"
+    assert section.text(0) == "Completed (2)"
     assert _layout_order(window) == [PLAIN]
 
 
 def test_completed_expands_and_collapses_and_keeps_the_choice(window):
     _three_tile_run_one_warned(window)
-    section = window.completed_section
-    section.toggle.click()
-    assert section.expanded()
-    assert not section.rows_scroll.isHidden()
-    assert section.toggle.text() == "▾ Completed (3)"
+    listed = window.activity_list
+    toggled = []
+    listed.completed_expanded_changed.connect(toggled.append)
+    listed.expandItem(listed.completed_item)    # the native disclosure
+    assert listed.completed_expanded()
+    assert toggled == [True]
+    assert listed.completed_item.text(0) == "Completed (3)"
     # A new run, its tile built: the section is still open.
     window._start_run([NEW], dict(SETTINGS))
     _finish(window, NEW)
-    assert section.expanded()
-    assert section.toggle.text() == "▾ Completed (4)"
-    section.toggle.click()
-    assert not section.expanded()
-    assert section.rows_scroll.isHidden()
+    assert listed.completed_expanded()
+    assert listed.completed_item.text(0) == "Completed (4)"
+    listed.collapseItem(listed.completed_item)
+    assert not listed.completed_expanded()
 
 
 def test_a_requeued_done_tile_moves_back_to_activity(window):
@@ -257,7 +261,8 @@ def test_a_requeued_done_tile_moves_back_to_activity(window):
     window._start_run([PLAIN], dict(SETTINGS))
     assert _layout_order(window) == [PLAIN]
     assert _completed(window) == [WARNED, LAST]
-    assert window.completed_section.toggle.text() == "▸ Completed (2)"
+    assert window.activity_list.completed_item.text(0) == "Completed (2)"
+    assert not window.activity_list.activity_item.isHidden()
     assert not window.activity_group.isHidden()
 
 

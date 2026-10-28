@@ -1,7 +1,8 @@
 import Foundation
 
 /// The Activity list's row order and status tone (issue #1341), which
-/// section a row sits in (#1556) and which rows show selected (#1537).
+/// section a row sits in (#1556), and how the list's native selection and
+/// the map's tile selection stay one selection (#1537).
 ///
 /// Finished rows (done, built with warnings, failed, stopped) stay in the
 /// list until the app quits. Live rows (queued, running) sit on top, the
@@ -51,14 +52,32 @@ public enum ActivityOrder {
         state == "done" ? .completed : .activity
     }
 
-    /// The rows filled as selected (#1537): a row whose tile is in the map
-    /// selection — unless the selection holds every row's tile, or none
-    /// of them: a list lit up wholesale tells the user nothing. `rows` is
-    /// every row of both sections.
-    public static func filledRows<Key: Hashable>(rows: [Key], selected: Set<Key>) -> Set<Key> {
-        let all = Set(rows)
-        let hit = all.intersection(selected)
-        return hit.isEmpty || hit == all ? [] : hit
+    /// The rows the list shows selected (#1537, RULINGS 2026-10-28n):
+    /// every row whose tile is in the map selection. `rows` is every row
+    /// of both sections.
+    public static func shownSelected<Key: Hashable>(rows: [Key], selected: Set<Key>) -> Set<Key> {
+        Set(rows).intersection(selected)
+    }
+
+    /// The map selection after the user changed the list's own selection
+    /// (#1537). `new` is the list's selection now, `shown` what it showed
+    /// before. The list's selection becomes the map selection; the one row
+    /// the edit added becomes the active tile, else the active tile stays
+    /// if it is still selected, else the first. `frame`: the edit left one
+    /// row selected — a click on a row — which frames its tile (#816).
+    public static func listEdit<Key: Hashable & Comparable>(
+        new: Set<Key>, shown: Set<Key>, active: Key?
+    ) -> (selected: Set<Key>, active: Key?, frame: Bool) {
+        let added = new.subtracting(shown)
+        var active = active
+        if added.count == 1 {
+            active = added.first
+        } else if let current = active, new.contains(current) {
+            active = current
+        } else {
+            active = new.min()
+        }
+        return (new, active, new.count == 1)
     }
 
     public static func tone(state: String, label: String, hasIssues: Bool) -> Tone {

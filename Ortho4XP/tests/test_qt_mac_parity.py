@@ -282,7 +282,8 @@ def test_progress_row_title_owns_its_line_status_and_clock_share_the_next(
             row.resize(width, row.sizeHint().height())
             row.show()
             GUI.QApplication.processEvents()
-            inner = row.contentsRect().width() - 12  # 6 px margins
+            margins = row.layout().contentsMargins()
+            inner = row.width() - margins.left() - margins.right()
             assert title.geometry().width() == inner
             assert status.geometry().top() > title.geometry().bottom()
             assert clock.geometry().top() > title.geometry().bottom()
@@ -617,7 +618,7 @@ def test_the_four_ini_edge_rules_match_the_mac_app(tmp_path):
 
 
 # ===========================================================================
-# #816: clicking an Activity row shows its tile (Mac: ActivityBox.showOnMap)
+# #816: clicking an Activity row shows its tile (Mac: ActivityListSelection)
 # ===========================================================================
 def _click(widget, pos=None):
     from PySide6.QtTest import QTest
@@ -631,9 +632,12 @@ def test_clicking_a_progress_row_selects_and_frames_its_tile(make_window):
     window.map.resize(800, 600)
     window._setup_progress_page([(48, -6), (10, 10)])
     window.map.set_selection([(48, -6), (10, 10)])
-    row = window._tile_rows[(10, 10)][2]
-    row.resize(260, 60)
-    _click(row)
+    window.show()
+    GUI.QApplication.processEvents()
+    # A click on the row's title is a click on the list's row (#1537):
+    # the view's own selection takes it, and it frames the tile.
+    _click(window._tile_rows[(10, 10)][2].findChild(GUI.QLabel, "tile_title"))
+    assert window.activity_list.selected_tiles() == {(10, 10)}
     assert window.map.selection() == {(10, 10)}
     assert window.map.active_tile() == (10, 10)
     (lat_lo, lat_hi, lon_lo, lon_hi) = window.map.visible_bounds()

@@ -336,7 +336,9 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
         # released whichever side holds a road — measured on the #715 twin,
         # the band below the wall held the road 3-4 m over its 92 m ground
         zone_row = r.source.generator in _ZONE_LAW_GENERATORS
-        if r.source.generator != "wall_terrace" and len(vs) >= 2 and \
+        # (an edge bridge's road deck is the bridge's slab, level with the
+        # airside across the walled mouth it spans: ``constraints/edge_deck``)
+        if r.source.generator not in ("wall_terrace", "edge_deck") and len(vs) >= 2 and \
                 sum(v in xy for v in vs) >= 2 and crosses(vs, any_side=zone_row):
             rep["released"] += 1
             if zone_row and isinstance(r.follows, int):

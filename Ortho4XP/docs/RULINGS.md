@@ -10481,3 +10481,13 @@ Also (owner, same message): the ThunderBlade drive holds only ortho tiles; every
 (5) Q255 a (#1028 EDDF): a way mapped `covered=yes` is a bore when the survey reads a cut at its mapped ends, or when a pack trench object stands at an end (amends 11aq A for those witnesses).
 (6) Q256 b, with the owner's rule (#1028): where a pack tunnel-mouth object stands at a mouth, graded terrain comes right up to the object on three sides; only the road grades down to the object's low edge on its front side. The graded zones keep off the object's outline, not just the road trench.
 (7) Q253: moot (batch AK lands whole). Q260 a (#953 KTVL): the crash is the AEP-Live plugin's, not our scenery; #953 closes.
+
+**2026-10-28t — owner answers Q262–Q269 (Noah, 2026-10-28T18:06:49Z, verbatim: "262. a 263. a 264. There is pavement there in the sim, check if it's coming from another pack? 265. Same as above, find the pavement source 266. a 267. a 268. There's an object that is a retaining wall, we should be able to ID it by shape and size 269. a").** Question topics as the coordinator numbered them:
+- Q262 (a): KSEA, the b1 piece 400 m north of the plate.
+- Q263 (a): NZWN, a lone road inside a car-park complex. This applies once #1586 is reworked.
+- Q264: KATL hilltop lot (#1598). The owner sees pavement there in the sim, so find its source (another installed pack) before ruling.
+- Q265: KATL service road to the lower lot (#1598). Same as Q264: find the pavement source.
+- Q266 (a): apt.dat truck routes lie at grade in the safety area.
+- Q267 (a): the grading of the safety area past a runway end.
+- Q268: KATL retaining wall with no witness (#1601). The owner says an object there is a retaining wall, identifiable by its shape and size, so the witness is the object's geometry, never its name or the airport.
+- Q269 (a): roads are cut back at a wall's faces (#1600).

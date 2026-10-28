@@ -1,8 +1,9 @@
 # EDDF tunnel mouths on the LFPG cuts rules (#1028 part C)
 
-Status: E1 BUILT (lane `l1028`, branch `claude/l1028-eddf-mouths`, stacked on
-`claude/llfpgcut-cuts-tunnels` 4dd8956cd, PR #1580). Q-A and Q-B are open for
-the master. Owner scope for beta 5 (2026-10-28): "For beta 5 I would like
+Status: E1, E2 and E3 BUILT (lane `l1028`, branch `claude/l1028-eddf-mouths`,
+PR #1593, stacked on `claude/llfpgcut-cuts-tunnels` 4dd8956cd, PR #1580).
+Q-A and Q-B were ruled by the owner on 2026-10-28T14:52:14Z (RULINGS
+2026-10-28s (5) and (6): Q255 a, Q256 b). Owner scope for beta 5 (2026-10-28): "For beta 5 I would like
 LFLL and EDDF tunnels and the KATL highway cut."
 
 EDDF is the TEST CASE. Nothing here asks which airport it builds (RULINGS
@@ -121,6 +122,65 @@ follow-up ("`chains()` should merge coincident ways from two feeds").
 | AK `planar/bridge_span` (`EdgeBridge.bores`, batch AK, not on this base) | served bores as `"+".join(way ids)` | a bore's id string may now hold a copy's id after its original. It joins by geometry, not by id order. To be measured when AK and this branch meet (§4). |
 | census `tunnel_mouth_canonical`, publication `tunnel_mouth_depths` | `Tunnel` records | read the records as built |
 
+**E2 — A COVERED ROAD IS A BORE WHERE A CUT OR A TRENCH OBJECT SAYS SO
+(RULINGS 2026-10-28s (5), Q255 a; amends 11aq A).** A road or railway
+mapped `covered=yes` that carries no `tunnel` value is read as a chain of
+covered ways (`planar/covered_bores.covered_bore_ways`). The chain is a bore
+when either holds at one of its two mapped ends:
+
+- On a credible survey, R1's own clearance there
+  (`lidar_road.end_clearance`: the cover over the chain's first stretch
+  inside the end and the surrounding ground, less the surveyed road on the
+  straight line out of it) is at least `[channel] object_min_depth_m`.
+- A pack trench object (E3) stands within
+  `[tunnel.object] bore_end_tolerance_m` of the end.
+
+The chain's ways enter the bore set as copies tagged `tunnel=yes` and
+`o4_covered=yes`, so R1, the slide, 31h and the rest of the bore law read
+them unchanged. The §34 (5) underpass pieces of the same ways give way to
+them. Any `tunnel` value (`building_passage` and its class) stays 11aq A's
+alone. A coarse DEM reads no cut (14f), so there only a trench object
+admits.
+
+**E3 — THE ZONES KEEP OFF A PACK TRENCH OBJECT AT A BORE END (RULINGS
+2026-10-28s (6), Q256 b).** The owner: "if it's a tunnel mouth object, then
+typically graded terrain should come right up to it on 3 sides with only
+the road grading down to it's low edge on the 'front' side."
+
+A trench object (`airport/trench_objects.read_trench_objects`, read once
+beside the portals in `tunnel_objects.read_corridors`) is a placed pack
+object that meets all of these:
+
+- It is not a stock library object, and no corridor, shell or portal has
+  taken it.
+- Its solids hang at least `[tunnel.object] shell_floor_min_m` under its
+  zero.
+- They stand no more than `[bridge] clearance_minimum_m` above it (no
+  roof and no building over the road).
+- Its plan holds a mapped tunnel or covered road end within
+  `bore_end_tolerance_m`.
+
+Its OUTLINE is the union of its solids' plan: the plates' polygons and the
+walls' plan segments, the notch as the author drew it. Every trench
+object at an end of a bore of the pass, whether built, refused or decided
+by the survey, adds its outline to the structure pass's keepouts
+(`trench_keepouts`). Those keepouts are R2's region, the one the graded
+zones stop at. So the terrain meets the object on its sides, and only the
+road grades to its front edge. Depth stays the survey's or the bore law's
+(20e).
+
+### Consumer census for E2 / E3 (RULINGS 2026-08-30l)
+
+| reader | reads | E2 / E3 |
+|---|---|---|
+| `structures.build_structures` bore set | `tunnel_ways` + underpass pieces | E2 adds the covered chains and drops their own underpass pieces (same way ids) |
+| `structure_approach.mouths` / R1 `survey_mouth` / slide / 31h | the bore's two ends | read the covered bore as any bore |
+| `structure_approach.approach`, `road_index`, `crossing_roads`, `bore_continuation.tunnel_ends` | `airport.osm_ways` (the covered way untagged) | unchanged: the covered way is still a road there, so a ramp's own road and the approach walk read it as before |
+| road ribbons (`classify`) | `airport.osm_ways` | unchanged: a covered bore's middle stays the road ribbon under the cover, exactly as a §34 (5) underpass |
+| zones (`zone_regions` keepouts), terrain edge | `classification.keepouts` | E3's outlines join R2's survey trenches there: the one region the zones stop at |
+| `tunnel_objects.read_corridors` / `portal_objects.read_portals` | pack objects | read first. A trench object is never one they took. |
+| basin / sunken-road / door readers | pack objects | unchanged: a trench object stays refused there. E3 is a keepout, not a cut. |
+
 ## 4. How it composes with AK's `bridge_span` (#1138)
 
 `bridge_span` derives where an EDGE-WALL bridge's cover ends (KATL
@@ -174,7 +234,7 @@ The base and branch arms run on one capture taken on the base
   - `road_cross_section` 167 → 165, `strip_arc` 8 → 9, `hairline_pair`
     1315 → 1312.
 
-## 6. Questions for the master (nothing built for them)
+## 6. Questions (RULED 2026-10-28: Q-A → Q255 a = E2, Q-B → Q256 b = E3)
 
 **Q-A (F2).** Is a road mapped `covered=yes` along its whole run a bore when
 both of these hold?

@@ -22,6 +22,10 @@ class StructureStats:
     #: RULINGS 2026-10-28k R2: the survey's open approach trenches made
     #: keepouts (``lidar_road.survey_trench``) — the zones stop at them.
     survey_cuts: int = 0
+    #: 2026-10-28s (5)/(6): the covered roads admitted as bores, and the
+    #: pack trench objects whose outline the zones keep off
+    covered_bores: list[str] = _dc.field(default_factory=list)
+    trench_keepouts: list[str] = _dc.field(default_factory=list)
     #: spec §29 (2): bores with NO mouth on the field — nothing is built for
     #: them (the old ``bores_uncovered``, whose test was the bore's cover).
     bores_no_mouth: int = 0

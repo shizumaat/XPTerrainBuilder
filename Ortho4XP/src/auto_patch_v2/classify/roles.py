@@ -682,15 +682,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # ── §27: an airside edge makes a lot (and a road) airside ──────
     # (a contact across a unit's own storey is none, owner answer 47 #1099:
     # the lot is cut back along it, ``storey_edge``)
-    # (nor one under a building or along the pack's fence, 28p (3) #1338)
-    from .barrier_edge import barrier_band
     from .storey_edge import knife_storeys, storey_band
     band, storey_cuts = storey_band(airport, law, cells, final), {}
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules, [c.line for c in ev.truck_chains],
                           storey=band, storey_cuts=storey_cuts,
-                          to_xy=None if airport.frame is None else airport.frame.entry(),
-                          barrier=barrier_band(airport, rules))
+                          to_xy=None if airport.frame is None else airport.frame.entry())
     stats["storey_lots"] = knife_storeys(final, storey_cuts, law,
                                          rules.cells.min_area_m2, band)
     # ── 19ag: pavement aircraft cannot reach is groundside (#808) ───

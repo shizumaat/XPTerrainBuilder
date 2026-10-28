@@ -259,8 +259,7 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
                        air: list[tuple[Polygon, bool]], weld_m: float,
                        factor: float, cache: dict | None = None,
                        roads: _Roads | None = None, storey=None,
-                       across: list | None = None, barrier=None,
-                       fenced: list | None = None) -> float:
+                       across: list | None = None) -> float:
     """Metres of ``face``'s boundary running LATERALLY along airside
     pavement, measured WELD-TOLERANT at ``emit.identity.weld_spacing_m``.
 
@@ -278,11 +277,6 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
     footprints of pack parts authored a storey above their unit's airside
     floor (``airport.unit_storey``), widened by the weld — is dropped, and
     appended to ``across`` when one is handed in.
-
-    A contact ACROSS A BARRIER is none either (owner RULINGS 2026-10-28p
-    (3), #1338): the run of it ``barrier`` (``classify.barrier_edge``)
-    reads under a building footprint or along a pack fence is dropped, and
-    appended to ``fenced`` when one is handed in.
     """
     lateral = []
     for j in tree.query(face.buffer(weld_m), predicate="intersects"):
@@ -297,12 +291,6 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
             if across is not None:
                 across.append(contact.intersection(storey))
             contact = contact.difference(storey)
-            if contact.is_empty:
-                continue
-        if barrier is not None:
-            contact, dropped = barrier.split(contact)
-            if fenced is not None and dropped is not None:
-                fenced.append(dropped)
             if contact.is_empty:
                 continue
         lateral.append(contact)
@@ -324,22 +312,11 @@ def _keep_across(final: list[list], i: int, run, storey, cuts, to_xy) -> None:
         cuts[i] = run
 
 
-def _keep_fenced(final: list[list], i: int, fenced: list, shared: float,
-                 min_m: float) -> None:
-    """Record on ``final[i]`` that §27 kept it groundside across a barrier
-    (``classify.barrier_edge``): the barrier run alone stood between it
-    and ``min_m`` of airside edge."""
-    from .barrier_edge import BARRIER_M_KEY
-    run = unary_union(fenced).length if fenced else 0.0
-    if run > 0.0 and shared + run >= min_m:
-        final[i][4] = dict(final[i][4], **{BARRIER_M_KEY: round(float(run), 1)})
-
-
 def airside_edge_flip(final: list[list], cells, law: Law,
                        rules: Rules, roads=(),
                        road_class: _t.AbstractSet[int] | None = None,
                        storey=None, storey_cuts: dict | None = None,
-                       to_xy=None, barrier=None) -> tuple[int, int]:
+                       to_xy=None) -> tuple[int, int]:
     """§27 AN AIRSIDE EDGE MAKES A LOT AIRSIDE (owner RULINGS 2026-09-12c:
     "shapeID 81 ... cannot be groundside because it shares a long edge
     with an apron. Something can only be groundside if it has no
@@ -363,9 +340,7 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     meeting it END-ON at the road's mouth (``_is_mouth``).  Slivers never
     flip.  Flips PROPAGATE — a lot beside a road that became apron is
     beside apron — so the pass iterates to a FIXPOINT; it terminates
-    because a role only ever moves groundside -> apron.  A LOT that flipped
-    is no airside for another lot (owner RULINGS 2026-10-28q (2), #1338:
-    only real airside pavement flips a lot; lots never flip each other).
+    because a role only ever moves groundside -> apron.
 
     Returns ``(faces flipped, iterations)``.
 
@@ -391,12 +366,6 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     ``storey_edge.STOREY_M_KEY`` / ``STOREY_Y_KEY`` (the storey's rise,
     read through ``to_xy``), and its run lands in ``storey_cuts`` (face
     index -> run) for ``storey_edge.knife_storeys``.
-
-    ``barrier`` (``classify.barrier_edge.barrier_band``), when given, is the
-    plan shape of the buildings and the pack's fences: a contact's run
-    inside it is no connection to airside (owner RULINGS 2026-10-28p (3),
-    #1338).  A lot that run alone kept groundside carries
-    ``barrier_edge.BARRIER_M_KEY``.
     """
     min_m = float(rules.lot.airside_edge_min_m)
     frac = float(rules.lot.road_airside_edge_frac)
@@ -428,14 +397,6 @@ def airside_edge_flip(final: list[list], cells, law: Law,
         if not air:
             return flipped, rounds
         tree = STRtree([t[0] for t in air])
-        # ONLY REAL AIRSIDE PAVEMENT FLIPS A LOT (owner RULINGS 2026-10-28q
-        # (2), Q248 "a", #1338): a lot §27 flipped is no airside for the lots
-        # beside it — lots never flip each other
-        real = [(f[2], was_road[i]) for i, f in enumerate(final)
-                if f[0] != "building" and role_side(law, f[0]) == "airside"
-                and not (f[4].get("airside_edge_flip") and not was_road[i])]
-        real = [t for t in real + fixed if not t[0].is_empty]
-        real_tree = STRtree([t[0] for t in real]) if real else None
         moved = 0
         for i, f in enumerate(final):
             role, ref, face, _letter, evid = f[0], f[1], f[2], f[3], f[4]
@@ -445,19 +406,13 @@ def airside_edge_flip(final: list[list], cells, law: Law,
             if per <= 0.0 or face.area / per < _LOT_SLIVER_RADIUS_M:
                 continue
             across: list = []
-            fenced: list = []
-            if not was_road[i] and real_tree is None:
-                continue
-            t_i, a_i = (tree, air) if was_road[i] else (real_tree, real)
-            shared = _lateral_airside_m(face, was_road[i], t_i, a_i, weld_m,
+            shared = _lateral_airside_m(face, was_road[i], tree, air, weld_m,
                                         factor, cache, road_ctx,
-                                        None if storey is None else storey.geom, across,
-                                        barrier, fenced)
+                                        None if storey is None else storey.geom, across)
             if shared < min_m:
                 run = unary_union(across) if across else None
                 if run is not None and run.length >= min_m:
                     _keep_across(final, i, run, storey, storey_cuts, to_xy)
-                _keep_fenced(final, i, fenced, shared, min_m)
                 continue
             # §37 (2) A ROAD FLIPS BY SHARE, A LOT BY EDGE (owner RULINGS
             # 2026-09-13q KCLT item 7, over 13j item 7).  A STRIP-class

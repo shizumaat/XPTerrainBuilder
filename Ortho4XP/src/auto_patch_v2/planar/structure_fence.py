@@ -26,13 +26,7 @@ The five witnesses, asked in this order by :func:`fence_witness`:
 4. **over** — any mapped way (road, railway, aeroway, building) other than
    a tunnel crosses the bore's INTERIOR (``terrain_crossing_min_m`` inside
    its ends), at any layer; or a pack building part AT GRADE holds
-   ``terrain_cover_min_m`` of its line (the cover 10i (1) let (d) stand on).
-   INSIDE A PACK BUILDING'S FOOTPRINT THE BUILDING IS THE COVER (owner
-   RULINGS 2026-10-28q (3), #1338): a way crossing there, and the building
-   itself, are no witness — only the bore's run outside the pack's
-   footprints is read (``witness(bore, inside)``).  Several identical ways
-   stacked on one line are a car park's decks and no witness either (owner
-   RULINGS 2026-10-28s (4), ``structure_service.stacked_ways``);
+   ``terrain_cover_min_m`` of its line (the cover 10i (1) let (d) stand on);
 5. **lidar** — a CREDIBLE lidar inset reads a cut along the bore
    (``channel_geometry._lidar_cut``, §45 (3) (ii)).
 
@@ -48,7 +42,7 @@ from shapely.strtree import STRtree
 
 from ..airport.deck_signature import is_bridge_way, is_tunnel_way
 from ..law import Law
-from .structure_service import _layer_of, _rise_m, stacked_ways
+from .structure_service import _layer_of, _rise_m
 
 __all__ = ["fence_witness"]
 
@@ -67,21 +61,15 @@ def fence_witness(airport, law: Law, on_field, osm_ways, pack=None):
     ways = [w for w in osm_ways if len(w.points) >= 2]
     roads = [w for w in ways if "highway" in (w.tags or {})]
     road_tree = STRtree([LineString(w.points) for w in roads]) if roads else None
-    decks = stacked_ways(ways, law)             # 28s (4): a car park's decks
     over = [(g, w) for w in ways for g in (_over_geom(w),)
-            if g is not None and not is_tunnel_way(w.tags or {}, admitted)
-            and id(w) not in decks]
+            if g is not None and not is_tunnel_way(w.tags or {}, admitted)]
     over_tree = STRtree([g for g, _w in over]) if over else None
     portal = _Portals(airport, law, getattr(on_field, "corridor_prints", ()) or ())
     lidar = _LidarCut(airport, law)
     join_m = float(tn.terrain_crossing_min_m)
 
-    def witness(bore, inside=None) -> str | None:
-        """``inside``: the pack building footprints over the bore, where
-        the building is the cover and nothing standing over the bore is a
-        witness (owner RULINGS 2026-10-28q (3), #1338)."""
+    def witness(bore) -> str | None:
         ln = bore.line
-        open_ln = ln if inside is None else ln.difference(inside)
         own = {id(w) for w in bore.ways}
         rise = _rise_m(airport, ln)
         if rise is not None and rise >= tn.terrain_rise_m:
@@ -92,11 +80,10 @@ def fence_witness(airport, law: Law, on_field, osm_ways, pack=None):
         at = portal.near(bore)
         if at:
             return f"pack portal: {at}"
-        crossed = _over(ln, over, over_tree, own, join_m, inside)
+        crossed = _over(ln, over, over_tree, own, join_m)
         if crossed:
             return "crossed over by " + ", ".join(crossed[:3])
-        held = pack.at_grade_over(open_ln, tn.terrain_cover_min_m) \
-            if pack is not None and not open_ln.is_empty else None
+        held = pack.at_grade_over(ln, tn.terrain_cover_min_m) if pack is not None else None
         if held:
             return f"crossed over by the pack's {held[0]} ({held[1]}) at grade"
         if lidar.cut(ln):
@@ -149,17 +136,11 @@ def _over_geom(w):
     return None if g.is_empty else g
 
 
-def _over(ln, over, tree, own, inside_m, inside=None) -> list[str]:
-    """Witness 4: the mapped ways standing over the bore's INTERIOR — outside
-    ``inside``, the pack buildings' footprints (owner RULINGS 2026-10-28q
-    (3): there the building is the cover)."""
+def _over(ln, over, tree, own, inside_m) -> list[str]:
+    """Witness 4: the mapped ways standing over the bore's INTERIOR."""
     if ln.length <= 2.0 * inside_m:
         return []
     core = substring(ln, inside_m, ln.length - inside_m)
-    if inside is not None:
-        core = core.difference(inside)
-        if core.is_empty:
-            return []
     out = []
     for j in (tree.query(core, predicate="intersects") if tree is not None else ()):
         g, w = over[int(j)]

@@ -170,7 +170,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dem_witness",
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.extension_cache",
-        "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
@@ -235,7 +234,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
-        "auto_patch_v2.classify.barrier_edge",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -330,7 +328,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.door_wells",
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.extension_cache",
-        "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
@@ -414,7 +411,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
-        "auto_patch_v2.classify.barrier_edge",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -752,7 +748,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dem_witness",
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.extension_cache",
-        "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
@@ -817,7 +812,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
-        "auto_patch_v2.classify.barrier_edge",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -1337,7 +1331,6 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
-    classify.barrier_edge airport.facade
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
@@ -1482,7 +1475,6 @@ CODE_MODULES["solve"] = _mods("""
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
-    classify.barrier_edge airport.facade
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
@@ -1586,7 +1578,6 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
-    classify.barrier_edge airport.facade
     classify.facade_mint classify.gap_apron classify.gap_mint classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
     classify.pad_cut_corridor classify.pad_touch
@@ -1699,7 +1690,6 @@ CODE_MODULES["emit"] = _mods("""
     airport.slab_plates airport.topology_cache airport.wall_class classify
     classify.airside_edge classify.evidence classify.facade_mint classify.gap_apron
     classify.apt_shoulder classify.storey_edge airport.unit_storey
-    classify.barrier_edge airport.facade
     classify.gap_mint classify.lot_roads classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch
     classify.retaining_wall classify.ribbon_mint classify.roles
@@ -1775,7 +1765,6 @@ CODE_MODULES["verify"] = _mods("""
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
-    classify.barrier_edge airport.facade
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall

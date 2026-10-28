@@ -43,7 +43,7 @@ from .structure_approach import carriageway_width_m, under_cover
 if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
     from ..model.airport import Airport
 
-__all__ = ["airside_cut_roles", "deck_witness_for", "stacked_ways",
+__all__ = ["airside_cut_roles", "deck_witness_for",
            "decked_exclusion", "owner_kept", "pad_relief_m",
            "parts", "SURFACE_LINE_KINDS", "terrain_tunnel_witness", "knee_nodes"]
 
@@ -75,17 +75,12 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     or the bore's own ``layer`` at or under ``terrain_layer_max``, which
     is OSM's statement that it runs below what it crosses.
     (d) An OSM ``tunnel`` bore lying INSIDE THE AIRPORT BOUNDARY is a
-    terrain tunnel ONLY where it carries ONE of the five witnesses of
+    terrain tunnel where it carries ONE of the five witnesses of
     :func:`planar.structure_fence.fence_witness` — a rise, a road-level
     sign at a mouth, a pack portal, anything crossing over it, a lidar cut
     on a credible inset (owner RULINGS 2026-10-27z, issue #535, narrowing
     2026-09-27a (4)); with none it is NOT built (SPJC -5724, the road at
     ground level under a raised walkway; KDEN -6306, no tunnel there).
-    Pavement painted over it (the classified cover less the building
-    pads, ``FieldRegion.roofed_run_m``) and the bore's own
-    ``layer`` are the tag's, not witnesses (owner RULINGS 2026-10-28p (4),
-    #1338: NZWN's multi-storey car park maps its ground level as
-    ``layer=-1`` tunnels under its own pavement; they were cut to -3.1 m).
     (e) THE PACK'S OPEN PASSAGE OUTRANKS COVER, A CROSSING, A RISE, A
     NEGATIVE LAYER AND THE FENCE (owner RULINGS 2026-10-10q, issue #548;
     extends 10i (1) / 10k, issue #522; the layer since #710): where an ELEVATED pack part stands over a mapped
@@ -167,9 +162,6 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
         if _layer_of(t, 0) >= 1:
             continue
         grade.append((LineString(w.points), w))
-    # STACKED WAYS ARE A CAR PARK'S DECKS (owner RULINGS 2026-10-28s (4))
-    decks = stacked_ways([w for _ln, w in grade], law)
-    grade = [(ln, w) for ln, w in grade if id(w) not in decks]
     grade_tree = STRtree([ln for ln, _w in grade]) if grade else None
 
     # (d) THE FENCE (owner RULINGS 2026-09-27a (4), issue #5; NARROWED by
@@ -228,46 +220,25 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                                f"tag is the road's passage under it, not a terrain "
                                f"tunnel (§34 (12) (5), owner RULINGS 2026-10-10q, "
                                f"#710)")
-        # (d) INSIDE THE FENCE THE TAG IS NOT ITS OWN WITNESS (owner RULINGS
-        # 2026-10-28p (4), Q243 "a", #1338): pavement painted over a tagged
-        # tunnel — the classified cover less its ROOFED half (a pad) — and
-        # the tag's own ``layer`` do not show it; it needs one of 27z's
-        # witnesses (``fence_witness``)
-        tagged_in_fence = fence is not None and _osm_tunnel(bore, tn.admitted_values) \
-            and fence.covers(ln)
-        # INSIDE A PACK BUILDING'S FOOTPRINT THE BUILDING IS THE COVER (owner
-        # RULINGS 2026-10-28q (3), Q249 "a", #1338): a road mapped across a
-        # fenced tagged bore there, and the building over it, show no tunnel —
-        # every witness that reads what stands over the bore reads it OUTSIDE
-        # the pack's footprints (NZWN: the multi-storey car park's own decks
-        # crossed its layer -1 ground floor)
-        inside = pack_bldg.cover_on(ln) if tagged_in_fence else None
-        open_ln = ln if inside is None else ln.difference(inside)
-        roofed = on_field.roofed_run_m(open_ln) if tagged_in_fence and \
-            hasattr(on_field, "roofed_run_m") and not open_ln.is_empty else 0.0
-        if cover >= tn.terrain_cover_min_m and (
-                not tagged_in_fence or roofed >= tn.terrain_cover_min_m):
-            return True, (f"under the classified cover for {cover:.1f} m"
-                          + (f" ({roofed:.1f} m roofed)" if tagged_in_fence else ""))
-        if below and not tagged_in_fence:
+        if cover >= tn.terrain_cover_min_m:
+            return True, f"under the classified cover for {cover:.1f} m"
+        if below:
             return True, f"the bore carries layer {lay}"
-        crossed = _crossings(ln, grade, grade_tree, bore, tn.terrain_crossing_min_m,
-                             inside)
+        crossed = _crossings(ln, grade, grade_tree, bore, tn.terrain_crossing_min_m)
         if crossed:
             return True, ("under " + ", ".join(crossed[:3]) + " at grade")
         if rise is not None and rise >= tn.terrain_rise_m:
             return True, f"the ground over it stands {rise:+.2f} m above its mouth chord"
-        if tagged_in_fence:
-            seen = fenced(bore, inside)
+        if fence is not None and _osm_tunnel(bore, tn.admitted_values) \
+                and fence.covers(ln):
+            seen = fenced(bore)
             if seen:
                 return True, (f"an OSM tunnel inside the airport boundary, "
                               f"witnessed by {seen} (§34 (12) (5) (d), owner "
                               f"RULINGS 2026-10-27z)")
             return False, (f"bore {ids} IS TAGGED A TUNNEL INSIDE THE AIRPORT "
                            f"BOUNDARY WITH NO WITNESS ({ln.length:.0f} m; cover "
-                           f"{cover:.1f} m and layer "
-                           f"{'none' if lay is None else lay} are the tag's own, "
-                           f"28p (4); ground "
+                           f"{cover:.1f} m, ground "
                            f"{'unreadable' if rise is None else f'{rise:+.2f} m'} "
                            f"over its mouth chord, no level sign on a road joined "
                            f"at a mouth, no pack portal, nothing crossing over "
@@ -435,14 +406,6 @@ class _PackBuildings:
                 return res, uid
         return None
 
-    def cover_on(self, line):
-        """The union of the pack building footprints ``line`` meets, or
-        ``None`` (owner RULINGS 2026-10-28q (3): there the building is the
-        cover)."""
-        from shapely.ops import unary_union
-        polys = [poly for poly, _r, _u, _b in self._touching(line)]
-        return unary_union(polys) if polys else None
-
     def _touching(self, geom):
         """``(footprint, resource, unit id, base)`` of every indexed part
         whose footprint meets the frame geometry ``geom``.  The query box
@@ -503,52 +466,11 @@ def _layer_of_bore(bore):
     return min(vals) if vals else None
 
 
-def stacked_ways(ways, law: Law) -> set[int]:
-    """``id`` of every way STACKED with another on one line — several ways
-    sharing both end points that never stand further apart than ``[tunnel]
-    stacked_spread_frac`` of the shorter one's length are a car park's own
-    DECKS, not independent roads crossing a tagged tunnel, and none of them
-    is a witness that it exists (owner RULINGS 2026-10-28s (4), Q252 "a",
-    #1338; NZWN: the garage's three unclassified ramps across its layer -1
-    ground floor).  A way the feeds carry twice — the SAME vertices, read
-    in either direction — is one road mapped twice, never two decks
-    (MEASURED LFPG: the big- and small-roads feeds both carry -48615 /
-    -19838), so each such group is read as one line."""
-    from shapely.geometry import LineString, Point
-    from shapely.strtree import STRtree
-    weld = float(law.tables.emit.identity.weld_spacing_m)
-    frac = float(law.tables.structures.tunnel.stacked_spread_frac)
-    same: dict[tuple, list] = {}
-    for w in ways:
-        pts = tuple((round(x, 2), round(y, 2)) for x, y in w.points)
-        if len(pts) >= 2:
-            same.setdefault(min(pts, pts[::-1]), []).append(w)
-    lines = [(LineString(k), grp) for k, grp in same.items()]
-    lines = [(ln, grp) for ln, grp in lines if ln.length > 0.0]
-    if len(lines) < 2:
-        return set()
-    starts = STRtree([Point(ln.coords[0]) for ln, _w in lines])
-    out: set[int] = set()
-    for i, (ln, w) in enumerate(lines):
-        a, b = Point(ln.coords[0]), Point(ln.coords[-1])
-        for j in starts.query(a.buffer(weld)).tolist() + starts.query(b.buffer(weld)).tolist():
-            if j == i:
-                continue
-            o, og = lines[int(j)]
-            oa, ob = Point(o.coords[0]), Point(o.coords[-1])
-            ends_meet = (oa.distance(a) <= weld and ob.distance(b) <= weld) or \
-                (oa.distance(b) <= weld and ob.distance(a) <= weld)
-            if ends_meet and ln.hausdorff_distance(o) <= frac * min(ln.length, o.length):
-                out.update(id(x) for x in (*w, *og))
-    return out
-
-
-def _crossings(ln, grade, tree, bore, min_inside_m, inside=None):
+def _crossings(ln, grade, tree, bore, min_inside_m):
     """The mapped at-grade ways crossing the bore's INTERIOR, named.  A
     way meeting it at a mouth is the APPROACH, not a crossing — the same
     distinction §34 (12) (4) draws between a deck over the span and one
-    over the approach walk.  A crossing inside ``inside`` (the pack
-    buildings' footprints, owner RULINGS 2026-10-28q (3)) is none."""
+    over the approach walk."""
     from shapely.geometry import Point
     own = {id(w) for w in bore.ways}
     out: list[str] = []
@@ -564,8 +486,6 @@ def _crossings(ln, grade, tree, bore, min_inside_m, inside=None):
             if p.geom_type != "Point":
                 continue
             s = ln.project(Point(p.coords[0]))
-            if inside is not None and inside.intersects(Point(p.coords[0])):
-                continue
             if min_inside_m < s < ln.length - min_inside_m:
                 t = w.tags or {}
                 out.append(f"{w.id}[{t.get('highway') or t.get('railway')}]")

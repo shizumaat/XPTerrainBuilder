@@ -122,7 +122,6 @@ class Lot:
     airside_edge_min_m: float
     mouth_width_factor: float
     road_airside_edge_frac: float
-    fence_contact_m: float
 
 
 @_dc.dataclass(frozen=True)

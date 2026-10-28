@@ -253,12 +253,10 @@ def find_text_dump(mod_cache_root: str, pack_name: str, lat: int,
     return max(hits, key=os.path.getmtime)
 
 
-def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None,
-              line_def: _t.Callable[[str], bool] | None = None) -> DsfDump:
+def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
+              ) -> DsfDump:
     """Parse the dump; ``accept_polygon(def_path)`` limits which polygons
-    are materialised (default: facades and pavement pages only).  An
-    accepted def ``line_def`` says is a LINE (a fence facade, #1338) keeps
-    its two-point windings: a fence segment is a line, never a ring."""
+    are materialised (default: facades and pavement pages only)."""
     object_defs: list[str] = []
     polygon_defs: list[str] = []
     polygons: list[DsfPolygon] = []
@@ -266,7 +264,6 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None,
     cur_def: int | None = None
     cur_param = 0
     cur_cpp = 2
-    min_pts = 3
     windings: list[list[list[str]]] = []
     winding: list[list[str]] | None = None
     accept = accept_polygon or (lambda p: p.lower().endswith((".fac", ".pol")))
@@ -292,8 +289,6 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None,
                     continue
                 if 0 <= idx < len(polygon_defs) and accept(polygon_defs[idx]):
                     cur_def, windings = idx, []
-                    min_pts = 2 if line_def is not None and \
-                        line_def(polygon_defs[idx]) else 3
                 else:
                     cur_def = None
             elif kw == "BEGIN_WINDING" and cur_def is not None:
@@ -305,7 +300,7 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None,
                 winding = None
             elif kw == "END_POLYGON" and cur_def is not None:
                 rings = tuple(r for r in (_flatten(w, cur_cpp, cur_param) for w in windings)
-                              if len(r) >= min_pts)
+                              if len(r) >= 3)
                 if rings:
                     polygons.append(DsfPolygon(
                         polygon_defs[cur_def], cur_param, rings, cur_cpp,

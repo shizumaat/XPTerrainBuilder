@@ -537,53 +537,26 @@ def placed_edges(fac: FacadeDef, height_m: float,
 LOT_SOURCE = "dsf:lot:fac"
 
 
-_DEF_OF: dict[tuple[str, str | None], FacadeDef | None] = {}
-
-
-def _def_of(def_path: str, pack_root: str | None,
-            index: _t.Mapping[str, str] | None) -> FacadeDef | None:
-    if not def_path.lower().endswith(".fac"):
-        return None
-    key = (def_path, pack_root)
-    if key not in _DEF_OF:
-        from .obj8 import resolve_resource
-        phys = resolve_resource(def_path, pack_root, index)
-        try:
-            # the CLASS needs no object: parsed without the index, so a
-            # tile's hundred fence defs open no ``.obj``
-            _DEF_OF[key] = None if phys is None else parse_facade(phys)
-        except OSError:
-            _DEF_OF[key] = None
-    return _DEF_OF[key]
-
-
-def _def_class(def_path: str, pack_root: str | None,
-              index: _t.Mapping[str, str] | None) -> str | None:
-    """:func:`facade_class` of a ``POLYGON_DEF``'s own FILE, or ``None``
-    when it is no ``.fac`` or does not resolve (cached per def and pack)."""
-    fac = _def_of(def_path, pack_root, index)
-    return None if fac is None else facade_class(fac)
-
-
-def def_closed(def_path: str, pack_root: str | None,
-               index: _t.Mapping[str, str] | None) -> bool:
-    """Whether a ``POLYGON_DEF``'s facade closes its ring (``RING 1``)."""
-    fac = _def_of(def_path, pack_root, index)
-    return fac is not None and fac.ring
+_IS_LOT: dict[tuple[str, str | None], bool] = {}
 
 
 def is_lot_def(def_path: str, pack_root: str | None,
                index: _t.Mapping[str, str] | None) -> bool:
     """Whether a ``POLYGON_DEF`` is a facade whose FILE is an open lot."""
-    return _def_class(def_path, pack_root, index) == LOT
-
-
-def is_line_def(def_path: str, pack_root: str | None,
-                index: _t.Mapping[str, str] | None) -> bool:
-    """Whether a ``POLYGON_DEF`` is a facade whose FILE draws only walls —
-    a fence or a wall on the ground (owner RULINGS 2026-10-28p (3), #1338:
-    the pack's own fence; ``model.airport.FenceLine``)."""
-    return _def_class(def_path, pack_root, index) == LINE
+    if not def_path.lower().endswith(".fac"):
+        return False
+    key = (def_path, pack_root)
+    if key not in _IS_LOT:
+        from .obj8 import resolve_resource
+        phys = resolve_resource(def_path, pack_root, index)
+        try:
+            # the CLASS needs no object: parsed without the index, so a
+            # tile's hundred fence defs open no ``.obj``
+            _IS_LOT[key] = phys is not None and \
+                facade_class(parse_facade(phys)) == LOT
+        except OSError:
+            _IS_LOT[key] = False
+    return _IS_LOT[key]
 
 
 def read_placed(poly: _t.Any, pack_root: str | None,

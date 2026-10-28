@@ -330,17 +330,12 @@ def test_the_class_table_read_on_a_real_map():
     # sliver they leave beside the apron at 30.1250, 31.4061 (361 m2, a
     # road piece) clears the area floor as gap:36: the pack's pieces go
     # 41 -> 42, every later gap ref moves up by one (slabs 41.. -> 42..)
-    # RE-RECORDED (lane l1338, owner RULINGS 2026-10-28q (2), #1338): a lot
-    # §27 flipped no longer flips the lot beside it, so dsf:objpav430
-    # (30.1137, 31.4025, 13,499 m2), objpav82, objpav100 and objpav111 stay
-    # lots; the seam beside them becomes one more gap apron (gap:19), the
-    # pack's pieces go 42 -> 43 and every later gap ref moves up by one
-    assert len(pieces) + len(aprons) == 43 + n_slab == cl.stats["gap_pieces"]
+    assert len(pieces) + len(aprons) == 42 + n_slab == cl.stats["gap_pieces"]
     assert sorted(int(c.ref.split(":")[1]) for c in pieces
-                  if c.evidence.get("base_slab")) == list(range(43, 43 + n_slab))
+                  if c.evidence.get("base_slab")) == list(range(42, 42 + n_slab))
     road = sorted(int(c.ref.split(":")[1]) for c in pieces
                   if c.evidence.get("touches_apron") == 1.0)
-    assert road == [0, 2, 4, 7, 11, 12, 16, 30, 31, 37]      # (#798: + gap:36; 28q (2): +1)
+    assert road == [0, 2, 4, 7, 11, 12, 16, 29, 30, 36]      # (#798: + gap:36)
     assert all(c.evidence["road_evidence"] == 1.0 for c in pieces
                if c.evidence.get("touches_apron") == 1.0)
     by = {False: [], True: []}
@@ -350,7 +345,7 @@ def test_the_class_table_read_on_a_real_map():
     # (regL3 round 2: the taxi faces lettered by their pavement width move
     # the road evidence of gap:19 / gap:22 / gap:20 / gap:21 — refs only)
     # (#798: the gap refs after gap:36 move up by one — 38 -> 39, 39 -> 40)
-    assert sorted(by[False]) == [17, 22, 40]                       # no road evidence
+    assert sorted(by[False]) == [17, 21, 39]                       # no road evidence
     # (lane xplat399: the §43 opening read on ``cells.opening_grid_m`` cuts
     # different necks/arms at HECA, so the gap pieces between them move —
     # gap:35 -> gap:34 in the share, gap:33 grows; refs only here)
@@ -358,9 +353,9 @@ def test_the_class_table_read_on_a_real_map():
     # gap piece at -2751, -156 — that piece and gapapron:7's gap:24 swap
     # numbers, 24 -> 23; refs only)
     # (#808: gap:19 is gone; the refs after it move down by one)
-    assert sorted(by[True]) == [13, 15, 18, 19, 21, 23, 32, 33, 34, 36, 41]  # §37 (2)'s share
-    assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(14)]
-    assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (14, 10)
+    assert sorted(by[True]) == [13, 15, 18, 20, 22, 31, 32, 33, 35, 40]  # §37 (2)'s share
+    assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(13)]
+    assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (13, 10)
     # the owner's sites stand in ROAD pieces (#430 / #292: gap:7; #358: gap:0)
     to_xy = airport.frame.transformers()[0]
     for (lat, lon), ref in {(30.1154841, 31.4105884): "gap:7", (30.1159784, 31.4106264): "gap:7",
@@ -399,12 +394,11 @@ def test_the_class_table_read_on_a_real_map():
                            + [flush[int(j)] for j in ftree.query(reach, predicate="intersects")])
         assert _unwelded_m2(part, near, weld, keep) < 1.0, c.ref
         grew += part.area > c.evidence["area_m2"] - 1e-6 and part.is_valid
-    assert grew == 14                                            # (28q (2): + gap:19)
+    assert grew == 13
     # the spec's sliver site (the census's apron|apron step, gap:30 | pav39
     # when recorded; gap:32 since the regL3 re-record) is inside the part now
     site = Point(*to_xy(31.4046286, 30.1278259))
-    # (#808: 8 -> 7; 28q (2): the new gap apron sorts before it, 7 -> 8)
-    assert [a.ref for a in aprons if Polygon(a.ring, a.holes).contains(site)] == ["gapapron:8"]
+    assert Polygon(aprons[7].ring, aprons[7].holes).contains(site)     # (#808: 8 -> 7)
 
 
 # ── S5: the sidecar's ``gap_pieces`` carries both kinds (§59 (4) row 17) ──

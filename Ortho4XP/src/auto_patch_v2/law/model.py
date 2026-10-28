@@ -390,7 +390,6 @@ class Tunnel:
     #: terrain_tunnel_witness``) and (a)'s enclosure class.
     terrain_cover_min_m: float
     terrain_crossing_min_m: float
-    stacked_spread_frac: float
     terrain_rise_m: float
     terrain_layer_max: int
     enclosure_parking_values: tuple[str, ...]

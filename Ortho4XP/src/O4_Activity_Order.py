@@ -3,16 +3,18 @@ section a row sits in (#1556), and how the list's native selection and
 the map's tile selection stay one selection (#1537).
 
 Finished rows (done, built with warnings, failed, stopped) stay in the
-list until the app quits.  Live rows (queued, running) sit on top, the
-newest queued batch first; finished rows follow in the order they
-finished, the first finished directly under the live block.
+list until the app quits.  Live rows (queued, running) sit on top in the
+order they were queued (#1605): the first tile queued at the top, later
+tiles added below, a running tile staying where it is; finished rows
+follow in the order they finished, the first finished directly under the
+live block (newest at the bottom).
 
 Each row carries a STAMP ``[queued, finished]``: the counter value of the
 batch that queued it, and of the moment it finished (``None`` while it is
 live).  :func:`restamp` advances the stamps from the rows' current states;
 :func:`display_order` reads the order off them.  A finished row queued
 again (resume, "Build failed tiles again", a new Build) is live once more
-and gets a fresh queued stamp, so it returns to the top.
+and gets a fresh queued stamp, so it joins the bottom of the live block.
 
 Pure, no Qt.  Twin: ``Sources/SceneryKit/ActivityOrder.swift``; both read
 ``tests/fixtures/activity_order_cases.json``.
@@ -113,12 +115,12 @@ def restamp(rows, stamps, counter):
 
 def display_order(keys, stamps):
     """``keys`` (in the order the rows were made) as the list shows them:
-    live rows newest batch first, then finished rows in finish order."""
+    live rows first-queued batch first, then finished rows in finish order."""
     indexed = list(enumerate(keys))
     live = [(pos, key) for pos, key in indexed
             if (stamps.get(key) or [0, None])[1] is None]
     done = [(pos, key) for pos, key in indexed
             if (stamps.get(key) or [0, None])[1] is not None]
-    live.sort(key=lambda item: (-(stamps.get(item[1]) or [0])[0], item[0]))
+    live.sort(key=lambda item: ((stamps.get(item[1]) or [0])[0], item[0]))
     done.sort(key=lambda item: (stamps[item[1]][1], item[0]))
     return [key for _pos, key in live + done]

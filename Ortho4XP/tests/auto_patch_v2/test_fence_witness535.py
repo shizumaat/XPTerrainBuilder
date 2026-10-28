@@ -112,10 +112,13 @@ def test_a_pack_TUNNEL_CORRIDOR_at_a_mouth_is_a_witness(law):
     assert _ask(law, prints=(box(345.0, -110.0, 360.0, -90.0),)) is None
 
 
-def test_a_pack_part_AT_GRADE_over_the_line_is_a_witness(law):
+def test_a_pack_part_AT_GRADE_over_the_line_is_NO_witness_inside_the_fence(law):
+    """Owner RULINGS 2026-10-28q (3), #1338 (narrows 27z's pack form of
+    witness 4): inside a pack building's footprint the building is the
+    cover — and cover alone shows no tunnel (28p (4))."""
     over = TW._part(0.0, 6.0, TW._ll_ring(310, -110, 325, -90))
     _cl, _t, st = TW._spjc(law, partition=TW._link(over))
-    assert st.tunnels == 2 and not TW._refusals(st), st.mouths_off_field_nearest
+    assert st.tunnels == 0 and len(TW._refusals(st)) == 1, st.mouths_off_field_nearest
 
 
 def test_OUTSIDE_the_fence_nothing_changes(law):

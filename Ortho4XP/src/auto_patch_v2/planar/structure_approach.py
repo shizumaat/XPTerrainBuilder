@@ -37,7 +37,7 @@ _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 __all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
-           "mouths", "FieldRegion", "cover_polygons", "standing_cover", "cut_gap_cells", "wall_field", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge",
+           "mouths", "FieldRegion", "cover_polygons", "roofed_cover", "standing_cover", "cut_gap_cells", "wall_field", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge",
            "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground",
            "road_index", "road_end_m", "crossing_roads"]
 
@@ -453,7 +453,8 @@ def under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
 
 
 def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
-                     corridors: _t.Sequence = ()) -> "FieldRegion":
+                     corridors: _t.Sequence = (),
+                     roofed: _t.Sequence[Polygon] = ()) -> "FieldRegion":
     """THE REGION A MOUTH MAY STAND IN, assembled in ONE place: the
     classified cover (with the roofed corridors' footprints, which the
     caller passes in ``polys``) ⊕ ``[tunnel] mouth_standoff_m``, union
@@ -462,7 +463,8 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     (``airport.tunnel_objects.Corridor``) whose footprints ``polys``
     carries — §34 (12) (5) (a)'s pack-building reading never takes their
     objects for buildings nor refuses a mouth inside one (owner RULINGS
-    2026-09-27a (3))."""
+    2026-09-27a (3)).  ``roofed`` is the cover among ``polys`` that is not
+    pavement (:func:`roofed_cover`), the corridors' footprints joining it."""
     region = FieldRegion(list(polys),
                          law.tables.structures.tunnel.mouth_standoff_m,
                          approach_corridor_of(airport, law),
@@ -470,6 +472,7 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
                          airport)
     region.corridor_prints = [c.footprint for c in corridors]
     region.corridor_objects = {i for c in corridors for i in c.objects}
+    region.set_roofed(list(roofed) + [c.footprint for c in corridors])
     return region
 
 
@@ -575,6 +578,15 @@ def cover_polygons(classification) -> list[Polygon]:
             if not is_gap_ref(c.ref) and not is_road_reach(c)]
 
 
+def roofed_cover(classification) -> list[Polygon]:
+    """The :func:`cover_polygons` that are NOT PAVEMENT: the building pads
+    (owner RULINGS 2026-10-28p (4), #1338 — inside the fence pavement
+    painted over a tagged tunnel is no witness that it exists)."""
+    return [Polygon(c.ring, c.holes) for c in classification.cells
+            if c.role == "building" and not is_gap_ref(c.ref)
+            and not is_road_reach(c)]
+
+
 def _late(c) -> bool:
     """A cell that FOLLOWS the structures: a gap piece, or a road-reach
     ribbon that is not a pad road."""
@@ -668,6 +680,11 @@ class FieldRegion:
         #: standing in one, nor takes their objects for buildings
         self.corridor_prints: list = []
         self.corridor_objects: set = set()
+        #: THE ROOFED COVER among ``polys`` — the building pads and the roofed
+        #: corridors' footprints, the cover that is NOT pavement: inside the
+        #: fence pavement painted over a tagged tunnel is no witness (owner
+        #: RULINGS 2026-10-28p (4), #1338) and only this half speaks
+        self._roofed_tree = None
         self.corridor = corridor
         rings = list(corridor.rings()) if corridor is not None else []
         self._corridor_tree = (STRtree([Polygon(r) for r in rings])
@@ -721,6 +738,21 @@ class FieldRegion:
             return 0.0
         parts = [line.intersection(self._polys[int(j)])
                  for j in self._tree.query(line, predicate="intersects")]
+        parts = [g for g in parts if not g.is_empty]
+        return float(unary_union(parts).length) if parts else 0.0
+
+    def set_roofed(self, polys: _t.Sequence[Polygon]) -> None:
+        """Hand in the ROOFED cover (``field_region_for``'s ``roofed``)."""
+        self._roofed_tree = STRtree(list(polys)) if len(polys) else None
+
+    def roofed_run_m(self, line) -> float:
+        """Metres of ``line`` under the ROOFED cover alone (the pads and the
+        roofed corridors, never pavement; owner RULINGS 2026-10-28p (4))."""
+        if self._roofed_tree is None:
+            return 0.0
+        polys = self._roofed_tree.geometries
+        parts = [line.intersection(polys[int(j)])
+                 for j in self._roofed_tree.query(line, predicate="intersects")]
         parts = [g for g in parts if not g.is_empty]
         return float(unary_union(parts).length) if parts else 0.0
 

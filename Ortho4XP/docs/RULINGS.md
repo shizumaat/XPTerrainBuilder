@@ -10467,3 +10467,8 @@ Asked: applied worldwide, 28m moves 1,909 of 11,192 no-CIFP runways from their a
 (2) Q248 a (#1338 NZWN): under §27 only real airside pavement can flip a lot to apron. A lot that §27 flipped does not count as airside for the lots next to it, so lots never flip each other.
 (3) Q249 a (#1338 NZWN): inside a pack building's footprint, the building is the cover. A road mapped crossing over a tagged tunnel there is not a 27z witness that the tunnel exists.
 Also (owner, same message): the ThunderBlade drive holds only ortho tiles; every airport is still available without it.
+
+**2026-10-28r — the LFLL station's covered rail cut (#1333; owner Q257–Q259, 2026-10-28T05:47:49Z, verbatim): "257. A 258. A 259. I think if we did B it would require separating the object group right? If so, I would say A, and then grade terrain to meet either end of the object rails smoothly".**
+(1) Q257 A: a covered cutting's lower level belongs to the cut alone. It does not spread over the terminal group's lower footprint.
+(2) Q258 A: a road crossing over the covered cut inside the station is carried by the station's objects and is not lowered to the cut's level (28k 227a).
+(3) Q259 A: the cut's level is held where the station's objects put it (the block datum plus the objects' plane). Holding it at the lidar floor (B) would leave the rigid object group standing above it, unless the group were split, so A is ruled. Beyond each end of the station, the terrain grades to meet the object rails' ends smoothly, with no step down to the open cut.

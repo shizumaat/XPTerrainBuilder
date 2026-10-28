@@ -411,6 +411,12 @@ class Tunnel:
     #: not cut (``planar/structure_mouth.clear_mouth``); beyond, the bore
     #: is refused by name.
     mouth_slide_max_m: float
+    #: RAIL GRADES (owner RULINGS 2026-10-28k Q233 a, 2026-10-28r (3); spec
+    #: ``lfpg-cuts-tunnels-rules-spec.md`` R5): a rail cut's ramp is LONGER
+    #: than a road's -- built at ``rail_ramp_grade``, never steeper than
+    #: ``rail_ramp_max_grade`` (the owner's "at most 3.5 %").
+    rail_ramp_grade: float
+    rail_ramp_max_grade: float
 
     @property
     def mouth_depth_m(self) -> float:
@@ -1216,6 +1222,11 @@ def _check_cross_refs(t: LawTables) -> None:
         raise LawError(
             f"structures.tunnel.ramp_grade {t.structures.tunnel.ramp_grade} is not in "
             f"(0, ramp_max_grade {t.structures.tunnel.ramp_max_grade}] (RULINGS 2026-10-08c (1))")
+    tn = t.structures.tunnel
+    if not 0.0 < tn.rail_ramp_grade <= tn.rail_ramp_max_grade + 1e-12:
+        raise LawError(
+            f"structures.tunnel.rail_ramp_grade {tn.rail_ramp_grade} is not in "
+            f"(0, rail_ramp_max_grade {tn.rail_ramp_max_grade}] (RULINGS 2026-10-28k Q233)")
     # RULINGS 2026-10-09c (2b): the same law for the groundside road's ramp —
     # its design grade stands at or under every road role's own cap
     road_caps = [t.common.roles[r].longitudinal

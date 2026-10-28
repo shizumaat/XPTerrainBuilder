@@ -17,7 +17,15 @@ THE FILL BAND.  Over the level's area, every cell whose DEM lies more than
 under the level's OWN GROUND (the median DEM over its area,
 ``low_level._ground``) is fill; the connected pieces of that fill that come
 within ``pad_frontage_m`` of a lot (``planar/landing.LOT_ROLES``) are the
-BAND.  The band leaves the level: the level's regions are what remains,
+BAND.  THE BAND REACHES THE LEVEL'S EDGE (owner RULINGS 2026-10-28u, Q273
+a: "a road inside a lower level's cut-off fill band drops to the band's
+ground"): the cells are read at their centres, so the strip of the level
+between the last cell and its outline -- under one cell wide -- is fill the
+cells did not see; every piece of the rest thinner than a cell that touches
+the band goes with it.  Left as level, that strip stood the old plate's edge
+beside the road or lot across the band, and the road's cap to it held the
+road on the plate (KMCI ``dsf:objpav781``: 302.42 over band ground 301.0,
+welded 1 m to a 0.5 m strip of ``building26/b1/p1`` at 302.52).  The band leaves the level: the level's regions are what remains,
 and the band is no pad at all -- its ground places it, and the lot beside
 it keeps its own.  A level that would be left under ``[building_pad]
 min_area_m2`` is not cut (counted, ``low_level_fill_kept``).  The level's
@@ -87,7 +95,18 @@ def fill_band(L: Polygon, lots: Polygon, dem, grid: float, margin_m: float,
             if q.intersects(reach) and q.area >= 4.0 * h * h]
     if not band:
         return None
-    return unary_union(band)
+    return _with_edge_strips(L, unary_union(band), h)
+
+
+def _with_edge_strips(L: Polygon, band, h: float):
+    """``band`` and every piece of ``L`` less it thinner than one cell
+    ``h`` that touches it (module doc: THE BAND REACHES THE LEVEL'S EDGE)."""
+    rest = L.difference(band)
+    core = rest.buffer(-0.5 * h, join_style=2).buffer(0.5 * h, join_style=2)
+    near = band.buffer(1e-6)
+    thin = [q for q in nonempty_polygon_parts(rest.difference(core))
+            if q.intersects(near)]
+    return unary_union([band, *thin]).intersection(L) if thin else band
 
 
 def cut_fill_bands(res: list, reg, lots: _t.Sequence[Polygon], airport, law,

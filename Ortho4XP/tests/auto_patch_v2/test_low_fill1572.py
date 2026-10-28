@@ -8,7 +8,7 @@ import types
 
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar.low_fill import cut_fill_bands, fill_band
-from shapely.geometry import box
+from shapely.geometry import LineString, Polygon, box
 
 
 class _Dem:
@@ -62,3 +62,29 @@ def test_the_cut_leaves_the_level_its_high_part_and_records_it():
     assert lvl and max(r.polygon.bounds[3] for r in lvl) <= 84.0
     assert [r for r in got if r.ref == "b"][0].polygon.equals(res[1].polygon)
     assert counts["low_level_fill_cut"] == 1 and reg.landings["b/p1"]["fill_cut_m2"] > 0
+
+
+class _SlantDem:
+    """Ground 302 to 6 m short of a slanted edge, falling 2.5 m to it."""
+
+    def z(self, x, y):
+        d = 100.0 + 0.3 * x - y                  # metres-ish to the edge
+        return 302.0 if d > 20.0 else 299.5 + 2.5 * d / 20.0
+
+
+SLANT = Polygon([(0.0, 0.0), (200.0, 0.0), (200.0, 160.0), (0.0, 100.0)])
+LOT_SLANT = Polygon([(0.0, 100.7), (200.0, 160.7), (200.0, 200.0), (0.0, 200.0)])
+
+
+def test_the_band_reaches_a_slanted_edge():
+    """28u (Q273 a): the cells read at their centres miss the strip of the
+    level along its edge; no piece of the level is left beside the lot
+    across the band, so a road there is not held on the plate."""
+    band = fill_band(SLANT, LOT_SLANT, _SlantDem(), 1.3, 0.3, 3.0)
+    assert band is not None
+    rest = SLANT.difference(band)
+    edge = LineString([(0.0, 100.0), (200.0, 160.0)])
+    assert rest.distance(edge) >= 5.0
+    # the level's high part keeps its outline
+    assert rest.area >= 0.8 * SLANT.area - 1.0
+    assert rest.buffer(-1e-6).contains(box(1.0, 1.0, 199.0, 70.0))

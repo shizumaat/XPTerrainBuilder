@@ -345,3 +345,36 @@ def test_a_ribbon_kerb_in_a_band_is_capped_by_the_band_never_lifted(law):
     z0 = {pm0.vertices[v].xy: sol0.z[v] for v in airside_stage_vertices(pm0, law)}
     at1 = {pm1.vertices[v].xy: v for v in range(len(pm1.vertices))}
     assert z0 and all(abs(sol1.z[at1[xy]] - zz) <= 1e-9 for xy, zz in z0.items())
+
+
+class _EmbankmentDem:
+    """The runway on an EMBANKMENT: the ground falls 0.5 m per metre south
+    of y = -20 (the road at y = -30 stands 5 m under the runway edge)."""
+    provenance = {"base": "synthetic"}
+
+    def z(self, x: float, y: float) -> float:
+        return 100.0 - max(0.0, -20.0 - y) * 0.5
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def test_a_road_a_runway_borders_is_never_lifted_to_the_runway(law):
+    """Owner sim read 2026-10-28T14:26Z point 6 (#951: a road inside a
+    runway band sits at or below its grade): the NLWF class's mirror — the
+    runway on an embankment, a road in its strip on the ground 5 m under
+    it.  The road is BORDERED by the runway (``road_terrace``'s
+    ``runway``) and the terrace does not lift it: it stays on its own
+    ground, metres under the runway, and airside is untouched."""
+    from auto_patch_v2.model.planar import is_osm_ribbon_ref
+    a1 = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_EmbankmentDem())
+    pm1, sol1, rep1 = _solve(a1, law)
+    terr = pm1.road_terrace
+    rib = {v for f in pm1.faces.values() if is_osm_ribbon_ref(f.ref)
+           for v in pm1.ring_vertices(f.ring)}
+    held = set(terr["runway"]) & rib
+    assert held and all(terr["foot"][v][3] == "09/27" for v in held)
+    z = sol1.z
+    for v in held:
+        a, b, u, _ref = terr["foot"][v]
+        assert (1 - u) * z[a] + u * z[b] - z[v] > 3.0, (v, z[v])

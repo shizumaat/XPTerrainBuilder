@@ -644,3 +644,20 @@ def nearest_vertex_of_containing_cell(planar: PlanarMap, vw, v: int, structure_r
             if best is None or d < best[0]:
                 best = (d, u)
     return None if best is None else best[1]
+
+
+def nearest_vertex_fn(planar: PlanarMap, vertices: _t.Iterable[int]):
+    """``nearest(x, y) -> vertex id`` over ``vertices`` (ids of ``planar``),
+    with the set itself on ``nearest.air``; ``None`` for an empty set —
+    the airside index an edge trench's floor and its span are tied to
+    (``constraints/structures``, ``constraints/edge_deck``)."""
+    import numpy as np
+    ids = sorted(vertices)
+    if not ids:
+        return None
+    xy = np.array([planar.vertices[v].xy for v in ids], dtype=float)
+
+    def nearest(x: float, y: float) -> int:
+        return ids[int(np.argmin((xy[:, 0] - x) ** 2 + (xy[:, 1] - y) ** 2))]
+    nearest.air = frozenset(ids)
+    return nearest

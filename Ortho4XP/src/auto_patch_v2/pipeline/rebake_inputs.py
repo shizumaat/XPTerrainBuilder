@@ -76,6 +76,7 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
             # is the bore law's, its crest still goes flush (2026-09-06c)
             out[oid] = (float(tn.plate_y_m or tn.depth_m), pts,
                         float((seats.get(oid) or {}).get("proud_m") or 0.0))
+    out.update(_edge_seat_plates(pm, kept))
     if law.tables.structures.basin.seat != "floor_plate":
         return out
     for b in pm.basins:
@@ -101,6 +102,28 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
             # seat without it would chase the object straight back down.
             out.setdefault(b.witness_id, (float(b.plate_y_m), pts,
                                           float(law.tables.structures.basin.floor_clearance_m)))
+    return out
+
+
+#: the plate kind of an EDGE BRIDGE's seat (``anchor_rule.datum_of``)
+EDGE_PLATE = "edge"
+
+
+def _edge_seat_plates(pm, kept) -> dict[str, tuple]:
+    """Placement id -> ``(0.0, [seat], 0.0, EDGE_PLATE)`` for every edge
+    bridge an edge trench meets (``Tunnel.edge_seats``,
+    ``planar/bridge_span``): its ZERO — the deck its top is — sits on the
+    solved surface at its seat, the airside pavement it edges (owner
+    RULINGS 2026-10-27r "the top of the objects flush with the airside
+    surface"; sim read 2026-10-28T14:26Z point 2: a single-placement edge
+    object re-cut as a BASIN body took its zero from the trench's rim, 8-10
+    m under the taxiway).  The anchor reads it FIRST (§16e's datum,
+    ``anchor_rule.datum_of``), ahead of the basin rim."""
+    out: dict[str, tuple] = {}
+    for tn in pm.structures:
+        for oid, seat, _depth in getattr(tn, "edge_seats", ()) or ():
+            if oid not in kept:
+                out.setdefault(oid, (0.0, [tuple(seat)], 0.0, EDGE_PLATE))
     return out
 
 

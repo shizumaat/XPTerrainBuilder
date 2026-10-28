@@ -1148,6 +1148,14 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     * ``station`` — ``v -> (route, s)`` for every ribbon-owned vertex the
       route frame answers (bordered or bare), and every ribbon vertex the
       ribbon shares with a zone band (``kerb``, see below).
+    * ``runway`` — the ``foot`` vertices whose foot is a RUNWAY-family
+      pavement: a road inside a runway's band sits at or below the band's
+      grade (owner 2026-10-19, #951), so the terrace may cut it down to the
+      runway's level and never lift it there
+      (``constraints/road_ramp.terrace_rewrite``; owner sim read
+      2026-10-28T14:26Z point 6: a road beside a runway on a 17 m
+      embankment "does not rise up to the runway height ... cut into the
+      embankment with a retaining wall").
 
     ``walls`` — the WALL-CLASS pack pieces (plan polygons,
     ``airport/wall_class.wall_class_components``): a road vertex whose
@@ -1163,7 +1171,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     (:func:`_across_retaining`)."""
     from ..law.tables import airside_stage_roles
     out: dict[str, dict] = {"foot": {}, "pad": {}, "station": {}, "kerb": {},
-                            "meet": {}}
+                            "meet": {}, "runway": {}}
+    runway_fam = frozenset(law.tables.precedence.runway_family.members)
     decks = deck_refs(pm)
     roads = _road_roles(law)
     ribbon_v: set[int] = set()          # every ROAD vertex (#291), decks out
@@ -1294,6 +1303,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
         if lev:
             d, ref, a, b, u = lev[0]
             out["foot"][v] = (a, b, u, ref)
+            if feet.role_of.get(ref) in runway_fam:
+                out["runway"][v] = True
             continue
         pad = sorted((d, ref) for ref, (d, *_x) in fs.items()
                      if feet.role_of.get(ref) in pads)
@@ -1759,7 +1770,7 @@ def wall_keyed(terr: _t.Mapping[str, _t.Mapping],
                        for lo, hi, _h in spans.get(int(r), ()))
     gone = {v for v in own if left(v)}
     out = dict(terr)
-    for key in ("foot", "pad", "station", "kerb", "meet", "walled"):
+    for key in ("foot", "pad", "station", "kerb", "meet", "walled", "runway"):
         out[key] = {v: x for v, x in (terr.get(key) or {}).items()
                     if v not in gone}
     out["meet"] = _road_leads(out["meet"], own)

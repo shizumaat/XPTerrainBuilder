@@ -322,6 +322,18 @@ class Tunnel:
     #: a terrain deck over it is level with the airside abeam
     #: (``constraints/edge_deck``)
     edge_back: tuple[XY, ...] = ()
+    #: the edge bridges this trench meets, ``(object id, seat xy, depth)``
+    #: (``planar/bridge_span.EdgeBridge.seat``), the one whose bottom the
+    #: floor hangs from FIRST: the floor is that seat's solved surface less
+    #: its depth (``constraints/structures``) and every one's zero is seated
+    #: at its seat (``pipeline/rebake_inputs``; owner sim read
+    #: 2026-10-28T14:26Z points 2 / 4)
+    edge_seats: tuple[tuple[str, XY, float], ...] = ()
+    #: those bridges' COVERS (``EdgeBridge.cover``, exterior rings): the
+    #: span between the airside edge and each back, held level with the
+    #: airside abeam (``constraints/edge_deck``; RULINGS 28d Q212, sim read
+    #: 2026-10-28T14:26Z points 4 / 5: "flat ... no gap between them")
+    edge_covers: tuple[tuple[XY, ...], ...] = ()
 
 
 @_dc.dataclass(frozen=True)

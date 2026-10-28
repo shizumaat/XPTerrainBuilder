@@ -92,3 +92,14 @@ def test_two_halves_of_a_roundabout_are_not_decks(law):
               OsmWay(-9031, "small_roads", (a, (302.0, -100.0), b), False, {"highway": "service"}))
     _cl, _t, st = TW._spjc(law, tags=TW.SPJC_TAGS, more_ways=halves)
     assert st.tunnels == 2 and not TW._refusals(st), st.mouths_off_field_nearest
+
+
+def test_one_road_the_feeds_carry_twice_is_not_decks(law):
+    """The SAME vertices under two ids (two OSM feeds carrying one way,
+    measured LFPG -48615 / -19838) are one road crossing over the bore, and
+    it still witnesses."""
+    pts = ((317.0, -150.0), (317.0, -50.0))
+    twice = (OsmWay(-9040, "big_roads", pts, False, {"highway": "unclassified"}),
+             OsmWay(-9041, "small_roads", pts[::-1], False, {"highway": "unclassified"}))
+    _cl, _t, st = TW._spjc(law, tags=TW.SPJC_TAGS, more_ways=twice)
+    assert st.tunnels == 2 and not TW._refusals(st), st.mouths_off_field_nearest

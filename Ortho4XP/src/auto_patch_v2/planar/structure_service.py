@@ -510,13 +510,21 @@ def stacked_ways(ways, law: Law) -> set[int]:
     DECKS, not independent roads crossing a tagged tunnel, and none of them
     is a witness that it exists (owner RULINGS 2026-10-28s (4), Q252 "a",
     #1338; NZWN: the garage's three unclassified ramps across its layer -1
-    ground floor)."""
+    ground floor).  A way the feeds carry twice — the SAME vertices, read
+    in either direction — is one road mapped twice, never two decks
+    (MEASURED LFPG: the big- and small-roads feeds both carry -48615 /
+    -19838), so each such group is read as one line."""
     from shapely.geometry import LineString, Point
     from shapely.strtree import STRtree
     weld = float(law.tables.emit.identity.weld_spacing_m)
     frac = float(law.tables.structures.tunnel.stacked_spread_frac)
-    lines = [(LineString(w.points), w) for w in ways if len(w.points) >= 2]
-    lines = [(ln, w) for ln, w in lines if ln.length > 0.0]
+    same: dict[tuple, list] = {}
+    for w in ways:
+        pts = tuple((round(x, 2), round(y, 2)) for x, y in w.points)
+        if len(pts) >= 2:
+            same.setdefault(min(pts, pts[::-1]), []).append(w)
+    lines = [(LineString(k), grp) for k, grp in same.items()]
+    lines = [(ln, grp) for ln, grp in lines if ln.length > 0.0]
     if len(lines) < 2:
         return set()
     starts = STRtree([Point(ln.coords[0]) for ln, _w in lines])
@@ -526,12 +534,12 @@ def stacked_ways(ways, law: Law) -> set[int]:
         for j in starts.query(a.buffer(weld)).tolist() + starts.query(b.buffer(weld)).tolist():
             if j == i:
                 continue
-            o, ow = lines[int(j)]
+            o, og = lines[int(j)]
             oa, ob = Point(o.coords[0]), Point(o.coords[-1])
-            same = (oa.distance(a) <= weld and ob.distance(b) <= weld) or \
+            ends_meet = (oa.distance(a) <= weld and ob.distance(b) <= weld) or \
                 (oa.distance(b) <= weld and ob.distance(a) <= weld)
-            if same and ln.hausdorff_distance(o) <= frac * min(ln.length, o.length):
-                out.update((id(w), id(ow)))
+            if ends_meet and ln.hausdorff_distance(o) <= frac * min(ln.length, o.length):
+                out.update(id(x) for x in (*w, *og))
     return out
 
 

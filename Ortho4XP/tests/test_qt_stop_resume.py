@@ -777,7 +777,7 @@ def test_both_apps_show_the_engines_sentence_and_word_none_themselves():
         "model": os.path.join(root, "Sources", "XPTerrainBuilder",
                               "BuildModel.swift"),
         "pane": os.path.join(root, "Sources", "XPTerrainBuilder",
-                             "BuildPane.swift"),
+                             "ActivityRow.swift"),
         "qt": os.path.join(os.path.dirname(__file__), "..", "src",
                            "O4_Qt_GUI.py"),
     }

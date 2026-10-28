@@ -5,8 +5,8 @@ The active tile: a solid ring with a soft outer glow; other selected
 tiles: dashed.  The colour is the
 palette's highlight, so it follows the desktop's selection colour (the
 Mac app: the system accent colour, ``TileSelectionRing.swift``).  The
-Activity rows of selected tiles are filled instead
-(``O4_Qt_Click_Row.fill_color``).
+run list shows the same selection with the view's own highlight
+(``O4_Qt_Activity_List``).
 """
 
 from PySide6.QtGui import QColor, QPalette, QPen

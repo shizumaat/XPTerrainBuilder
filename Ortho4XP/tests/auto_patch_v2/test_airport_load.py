@@ -849,3 +849,61 @@ def test_object_sheets_number_before_page_sheets(tmp_path, monkeypatch):
         ("dsf:gapsheet0", "objects/sheet.obj"),
         ("dsf:gapsheet1", "Ground/Poly/ASPH1.pol")]
     assert rep.dsf_gap_sheets == 1                       # the pages only
+
+
+# ── #1160: the pack's own draped pavement counts before the borrow ───────
+# (owner RULINGS 2026-10-20al (1), 20bb; spec docs/findings/1160-lpackpave.md)
+def _scenery_fixture(tmp_path: Path, def_idx: int, n_pages: int,
+                     side: float = 0.004):
+    """A pack with NO row-110 (the KATL shape) whose DSF dump draws
+    ``n_pages`` of the Global block's four squares as ``_SHEET_DEFS
+    [def_idx]`` pages; ``ASPH1.pol`` is the SURFACE-only gap sheet."""
+    root = _borrow_root(tmp_path, "", _GLOBAL_FOUR)
+    pol = root / "Custom Scenery" / "AAA Pack" / "Ground" / "Poly" / "ASPH1.pol"
+    pol.parent.mkdir(parents=True, exist_ok=True)
+    pol.write_text("A\n850\nDRAPED_POLYGON\nLAYER_GROUP runways +1\n"
+                   "TEXTURE a.png\nSURFACE asphalt\n", encoding="utf-8", newline="")
+    rows = [f"POLYGON_DEF {d}" for d in _SHEET_DEFS]
+    for k in range(n_pages):
+        rows += _dump_poly(def_idx, _LA + 0.004 * k, _LO, side)
+    dump = tmp_path / "t.dsf.text"
+    dump.write_text("\n".join(rows + [""]), encoding="utf-8", newline="")
+    inputs = _dcx.replace(_borrow_inputs(root), dsf_dump_path=str(dump))
+    return load_with_report(_BORROW_ICAO, inputs, _borrow_law())
+
+
+def test_packs_own_pages_withdraw_the_borrow(tmp_path):
+    """Two of Global's four squares drawn as ``.pol`` pages (50 % >= 25 %):
+    nothing borrowed — no Global pavement, no Global boundary, no borrowed
+    path in the signature — and the pack's pages are its pavement."""
+    a, rep = _scenery_fixture(tmp_path, 0, 2)
+    assert [p.id for p in a.pavements] == ["dsf:pol0", "dsf:pol1"]
+    assert a.boundaries == ()
+    assert a.pack.borrowed_apt_dat_path == "" and a.pack.borrowed_block_sha256 == ""
+    ps = rep.pavement_source
+    assert ps["borrowed_from"] is None and ps["borrowed_pavements"] == 0
+    assert ps["borrowed_boundary"] is False and ps["coverage"] == 0.0
+    assert ps["scenery_pavements"] == 2 and 0.45 < ps["scenery_coverage"] < 0.55
+    assert "nothing BORROWED" in rep.pavement_borrow_line
+
+
+def test_gap_sheets_do_not_count_toward_coverage(tmp_path):
+    """20bb: the same squares as SURFACE-only gap sheets leave the
+    pack with no pavement source — the borrow stands."""
+    a, rep = _scenery_fixture(tmp_path, 1, 2)
+    assert len(a.gap_sheets) == 2
+    assert rep.pavement_source["borrowed_pavements"] == 4
+    assert rep.pavement_source["scenery_coverage"] is None
+    assert len([p for p in a.pavements if p.source == "global_airports"]) == 4
+    assert "BORROWED from" in rep.pavement_borrow_line
+
+
+def test_scenery_under_the_key_keeps_the_borrow(tmp_path):
+    """One page a quarter of one Global square (1/16 of Global, 6 %):
+    the borrow stands, and the report names the coverage measured."""
+    a, rep = _scenery_fixture(tmp_path, 0, 1, side=0.002)
+    ps = rep.pavement_source
+    assert ps["borrowed_pavements"] == 4 and ps["borrowed_from"]
+    assert ps["scenery_pavements"] == 1 and 0.05 < ps["scenery_coverage"] < 0.08
+    assert len([p for p in a.pavements if p.source == "global_airports"]) == 4
+    assert "dsf:pol0" in {p.id for p in a.pavements}

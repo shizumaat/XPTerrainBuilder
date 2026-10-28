@@ -77,6 +77,7 @@ class WallCorridor:
     corridor_floor_slab_cover_min: float        # (ii): ...over this share of the corridor's length
     max_wall_height_m: float     # #12: a band whose OWN component rises past this above the zero is a building/bridge wall (foundations), not a kerb
     min_headroom_m: float        # the lowest near-horizontal face over the corridor above its floor
+    headroom_cover_min: float    # #414: ...a covered slot only under a plate over this share of it
     max_authored_grade: float    # a descending wall bottom steeper than this is refused (= the garage_ramp cap)
     station_m: float             # ramp station spacing
     seat: str                    # "none": the family never re-seats
@@ -132,4 +133,6 @@ def check_cutout(co: Cutout, err: type[Exception], garage_cap: float | None = No
                   "must be > 0 with min_width_m < max_width_m")
     if not (0.0 < wc.end_cap_cover_min <= 1.0):
         raise err("structures.cutout.wall_corridor.end_cap_cover_min must lie in (0, 1]")
+    if not (0.0 < wc.headroom_cover_min <= 1.0):
+        raise err("structures.cutout.wall_corridor.headroom_cover_min must lie in (0, 1]")
     # RULINGS 2026-09-10z (b''): the groundside-mouth test's window

@@ -51,7 +51,16 @@ deck's edge at the pavement's end, that stretch of the edge is published
 (:attr:`CoveredGround.mouth_walls`, ``PlanarMap.mouth_walls``) as a wall
 that retains its height — ``airport/road_ramp`` reads it like a pack
 retaining wall: the road past the mouth is released from the deck's level
-and runs at its own floor, and the step across the edge is declared."""
+and runs at its own floor, and the step across the edge is declared.
+
+AN EDGE BRIDGE'S COVER IS COVERED GROUND (owner RULINGS 2026-10-27l / 27r,
+2026-10-28d Q212 / Q213): where a pack models the bridge by its edges, the
+one reading of where its cover ends is ``planar/bridge_span`` (computed
+once in ``planar/build``).  Its cover — the span from the airside pavement
+to the bridge's back — joins the pavement in the clip and is lifted like it
+(inside the cut's ribbon or not), and its back is ONE walled mouth
+(:func:`_bridge_piece`): the back line and the ground beyond it, the
+object's whole plan, the object's depth tall."""
 from __future__ import annotations
 
 import dataclasses as _dc
@@ -70,7 +79,7 @@ from .structure_approach import (Bore, carriageway_width_m, chains, is_tunnel,
                                  standing_cover)
 from .structure_service import airside_cut_roles
 
-__all__ = ["CoveredGround", "covered_ground"]
+__all__ = ["CoveredGround", "covered_ground", "covered_cuts", "ground_beside"]
 
 #: the across-axis sampling step of a cut's section (metres)
 _STEP_M = 1.0
@@ -232,19 +241,67 @@ def _ground_at(p: Point, ln: LineString, secs: list[_Section]) -> float | None:
     return zr + t * (zl - zr)
 
 
+def ground_beside(at, ln: LineString, secs: list[_Section]) -> float | None:
+    """THE GROUND BESIDE THE COVER at ``at`` (a point or ``(x, y)``) over
+    the bore ``ln`` read by ``secs`` (:func:`covered_cuts`) — the one
+    reading every lift and the edge bridge's deck level
+    (``planar/bridge_span``) take."""
+    if not secs:
+        return None
+    if len(secs) == 1:
+        return max(secs[0].zl, secs[0].zr)
+    return _ground_at(at if isinstance(at, Point) else Point(at), ln, secs)
+
+
 #: half the width of a walled mouth edge's strip (metres): the identity
 #: grid's own tolerance, so a vertex ON the pavement's edge stands in it
 _EDGE_HALF_M = _PAVEMENT_TOL_M
 
 
-def _mouth_walls(cuts, pav, objects, depth_min: float):
-    """The walled mouths: per mouth (the deck's edge at the pavement's end)
-    where a pack object reaching ``depth_min`` under its own zero (a
-    portal) stands within the cut, ONE piece — that edge (a strip the
-    identity tolerance wide: the deck's last vertices stand in it) and the
-    OPEN CUT beyond it off the pavement, as wide as the cut's own section
-    there (rim to rim, :class:`_Section`): the road in it runs at its
-    floor.  ``[(ring, depth, resource)]``."""
+def _bridge_piece(br, ribs, covers):
+    """An EDGE BRIDGE's walled mouth (owner RULINGS 2026-10-27r, 2026-10-28d
+    Q213 / Q214; ``planar/bridge_span``): its BACK (a strip the identity
+    tolerance wide) and the open cut beyond it — the object's whole plan
+    (the back long, where no highway runs beneath too) and the cut its
+    bores' ribbons read past the back (both carriageways and the median) —
+    off the cover.  One piece per back.  Never further: a road bridge over
+    the trench beyond the object is a deck, not the ground below the
+    wall."""
+    back = br.back_line
+    ux, uy = br.toward
+    reach = max((-(x - back.coords[0][0]) * ux - (y - back.coords[0][1]) * uy
+                 for x, y in br.plan), default=0.0) + 1.0
+    far = max([g.length for g in ribs.values()] or [0.0]) + reach
+    ext = Polygon(list(back.coords) + [(x - ux * far, y - uy * far)
+                                       for x, y in reversed(back.coords)]).buffer(0)
+    cut = unary_union([rib for bid, rib in ribs.items() if bid in br.bores]
+                      or [Polygon()]).intersection(ext)
+    beyond = unary_union([Polygon(br.plan), cut]).difference(covers)
+    piece = unary_union([back.buffer(_EDGE_HALF_M), beyond])
+    parts = [g for g in getattr(piece, "geoms", [piece])
+             if g.geom_type == "Polygon" and g.area > 0.0 and g.intersects(back)]
+    return [([(round(x, 2), round(y, 2)) for x, y in g.exterior.coords],
+             round(br.depth_m, 2), br.resource) for g in parts]
+
+
+def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None, ribs=None):
+    """The walled mouths: per mouth (the deck's edge where the pavement and
+    the edge bridges' cover end) where a pack object reaching ``depth_min``
+    under its own zero (a portal) stands within the cut, ONE piece — that
+    edge (a strip the identity tolerance wide: the deck's last vertices
+    stand in it) and the OPEN CUT beyond it off the cover, as wide as the
+    cut's own section there (rim to rim, :class:`_Section`): the road in it
+    runs at its floor.  An edge bridge's back is ONE piece of its own
+    (:func:`_bridge_piece`).  ``[(ring, depth, resource)]``."""
+    covered = pav if covers is None or covers.is_empty else unary_union([pav, covers])
+    # ``cuts`` are clipped to the PAVEMENT (the deck): a mouth is where the
+    # pavement ends and no edge bridge's cover carries the deck on
+    out = []
+    backs = []
+    for br in bridges:
+        out.extend(_bridge_piece(br, ribs or {}, covered))
+        backs.append(br.back_line.buffer(1.0))
+    backs_u = unary_union(backs) if backs else None
     deep = []
     for o in objects or ():
         box = getattr(o, "plan_bbox", None)
@@ -255,17 +312,18 @@ def _mouth_walls(cuts, pav, objects, depth_min: float):
         if depth >= depth_min:
             deep.append((box, depth, str(o.path)))
     if not deep:
-        return []
-    end = pav.boundary.buffer(0.1)
-    out = []
+        return out
+    end = covered.boundary.buffer(0.1)
     for _b, secs, rib, _pr in cuts:
         mouth = rib.boundary.intersection(end)
         for seg in getattr(mouth, "geoms", [mouth]):
             if seg.is_empty or seg.length < 1.0:
                 continue
+            if backs_u is not None and seg.difference(backs_u).length < 1.0:
+                continue                    # an edge bridge's back: its own piece
             sec = min(secs, key=lambda c: seg.distance(Point(c.foot))) if secs else None
             reach = max(sec.dl, sec.dr) if sec is not None else 0.0
-            cut = seg.buffer(reach).difference(pav) if reach > 0.0 else None
+            cut = seg.buffer(reach).difference(covered) if reach > 0.0 else None
             walls = [(d, p) for box, d, p in deep
                      if box.intersects(seg) or (cut is not None and box.intersects(cut))]
             if not walls:
@@ -279,19 +337,19 @@ def _mouth_walls(cuts, pav, objects, depth_min: float):
     return out
 
 
-def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.ndarray,
-                   zs: np.ndarray, objects=()) -> tuple[np.ndarray, CoveredGround]:
-    """``zs`` with every vertex inside the covered footprint lifted to the
-    ground beside the cover (never lowered), and the report (with the
-    walled mouth edges, :func:`_mouth_walls`, read off ``objects`` —
-    ``planar/basins.read_objects``)."""
-    rep = CoveredGround()
+def covered_cuts(airport, classification, law: Law):
+    """``(cuts, pav)``: every mapped bore under airside pavement whose DEM
+    reads a cut the mouth depth deep — ``(bore, sections, ribbon)``, the
+    ribbon rim to rim and NOT yet clipped — and the airside pavement union
+    (grown by the identity tolerance) they are clipped to; ``([], None)``
+    where there is none.  The edge bridges (``planar/bridge_span``) and
+    :func:`covered_ground` read the same cuts."""
     dem = getattr(airport, "dem", None)
     tn = law.tables.structures.tunnel
     ways = [w for w in getattr(airport, "osm_ways", ())
             if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
     if dem is None or not ways or not classification.cells:
-        return zs, rep
+        return [], None
     roles = set(airside_cut_roles(law))
     cells, _gap, polys = standing_cover(classification)
     airside = [p for p, c in zip(polys, cells) if c.role in roles]
@@ -303,14 +361,43 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
         if rib is not None:
             cuts.append((b, secs, rib))
     if not cuts:
+        return [], None
+    return cuts, unary_union(airside).buffer(_PAVEMENT_TOL_M)
+
+
+def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.ndarray,
+                   zs: np.ndarray, objects=(), bridges=()) -> tuple[np.ndarray, CoveredGround]:
+    """``zs`` with every vertex inside the covered footprint lifted to the
+    ground beside the cover (never lowered), and the report (with the
+    walled mouth edges, :func:`_mouth_walls`, read off ``objects`` —
+    ``planar/basins.read_objects`` — and the edge ``bridges``,
+    ``planar/bridge_span.edge_bridges``, whose cover is covered ground
+    too)."""
+    rep = CoveredGround()
+    tn = law.tables.structures.tunnel
+    cuts, pav = covered_cuts(airport, classification, law)
+    if not cuts:
         return zs, rep
     # THE COVER ENDS WHERE ITS PAVEMENT ENDS: the cut's ribbon is clipped to
     # the airside pavement over it (grown by the identity grid), so the open
     # cut beyond the deck's edge — the road at its floor, the bank — keeps
-    # the DEM even where the mapped bore ends a few metres past the portal
-    pav = unary_union(airside).buffer(_PAVEMENT_TOL_M)
-    cuts = [(b, secs, rib.intersection(pav)) for b, secs, rib in cuts]
-    cuts = [(b, secs, rib, prep(rib)) for b, secs, rib in cuts if not rib.is_empty]
+    # the DEM even where the mapped bore ends a few metres past the portal.
+    # ...AND WHERE AN EDGE BRIDGE'S SPAN ENDS: its cover (the ground between
+    # the pavement and the bridge's back, owner RULINGS 2026-10-27l / 27r,
+    # 2026-10-28d Q212) is covered ground over every bore it edges, inside
+    # the ribbon or not
+    covers = unary_union([br.cover for br in bridges]) if bridges else None
+    ribs = {"+".join(str(w.id) for w in b.ways): rib for b, _secs, rib in cuts}
+    region = []
+    paved = []
+    for b, secs, rib in cuts:
+        bid = "+".join(str(w.id) for w in b.ways)
+        own = [br.cover for br in bridges if bid in br.bores]
+        under = rib.intersection(pav)
+        region.append((b, secs, unary_union([under, *own])))
+        if not under.is_empty:
+            paved.append((b, secs, under, None))
+    cuts = [(b, secs, r, prep(r)) for b, secs, r in region if not r.is_empty]
     if not cuts:
         return zs, rep
     fp = unary_union([c[2] for c in cuts])
@@ -318,13 +405,15 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
     rep.rings = [[(round(x, 2), round(y, 2)) for x, y in g.exterior.coords]
                  for g in getattr(fp, "geoms", [fp]) if g.geom_type == "Polygon"]
     rep.bores = ["+".join(str(w.id) for w in b.ways) for b, *_r in cuts]
-    rep.mouth_walls = _mouth_walls(cuts, pav, objects, float(tn.mouth_depth_m))
+    rep.mouth_walls = _mouth_walls(paved, pav, objects, float(tn.mouth_depth_m), bridges,
+                                   covers, ribs)
     out = np.array(zs, dtype=float, copy=True)
     minx, miny, maxx, maxy = fp.bounds
     box = (xs >= minx) & (xs <= maxx) & (ys >= miny) & (ys <= maxy)
     for v in np.nonzero(box)[0]:
         p = Point(float(xs[v]), float(ys[v]))
-        zs_in = [_ground_at(p, b.line, secs) for b, secs, _rib, pr in cuts if pr.contains(p)]
+        zs_in = [ground_beside(p, b.line, secs) for b, secs, _rib, pr in cuts
+                 if pr.contains(p)]
         zs_in = [z for z in zs_in if z is not None]
         if not zs_in:
             continue

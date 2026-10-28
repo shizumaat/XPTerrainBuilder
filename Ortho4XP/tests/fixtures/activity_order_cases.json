@@ -1,5 +1,5 @@
 {
-  "_doc": "The Activity list's row order and status tone (#1341), the section a row sits in (#1556) and the rows filled as selected (#1537, every row of both sections). Read by Ortho4XP/tests/test_activity_order.py (O4_Activity_Order) and Tests/SceneryKitTests/ActivityOrderTests.swift (SceneryKit ActivityOrder). Each sequence starts with no stamps and counter 0; each step lists every row [key, state, label] in the order the rows were made, and the order the list shows after it.",
+  "_doc": "The Activity list's row order and status tone (#1341), the section a row sits in (#1556) and which rows the list shows selected and the map selection after a list edit (#1537). Read by Ortho4XP/tests/test_activity_order.py (O4_Activity_Order) and Tests/SceneryKitTests/ActivityOrderTests.swift (SceneryKit ActivityOrder). Each sequence starts with no stamps and counter 0; each step lists every row [key, state, label] in the order the rows were made, and the order the list shows after it.",
   "section": [
     {"state": "done", "section": "completed"},
     {"state": "error", "section": "activity"},
@@ -8,23 +8,37 @@
     {"state": "active", "section": "activity"},
     {"state": "indeterminate", "section": "activity"}
   ],
-  "filled": [
-    {"name": "subset: the selected rows fill",
-     "rows": ["a", "b", "c"], "selected": ["a", "b"], "filled": ["a", "b"]},
-    {"name": "every row selected: none fill",
-     "rows": ["a", "b"], "selected": ["a", "b"], "filled": []},
-    {"name": "every row selected plus tiles off the list: none fill",
-     "rows": ["a", "b"], "selected": ["a", "b", "z"], "filled": []},
-    {"name": "nothing selected: none fill",
-     "rows": ["a", "b"], "selected": [], "filled": []},
-    {"name": "selection off the list: none fill",
-     "rows": ["a", "b"], "selected": ["z"], "filled": []},
-    {"name": "selection partly off the list: the selected row fills",
-     "rows": ["a", "b"], "selected": ["a", "z"], "filled": ["a"]},
-    {"name": "a lone row: never fills",
-     "rows": ["a"], "selected": ["a"], "filled": []},
+  "shown": [
+    {"name": "subset: the selected rows show selected",
+     "rows": ["a", "b", "c"], "selected": ["a", "b"], "shown": ["a", "b"]},
+    {"name": "every row selected: every row shows it",
+     "rows": ["a", "b"], "selected": ["a", "b"], "shown": ["a", "b"]},
+    {"name": "tiles off the list are not rows",
+     "rows": ["a", "b"], "selected": ["a", "z"], "shown": ["a"]},
+    {"name": "nothing selected",
+     "rows": ["a", "b"], "selected": [], "shown": []},
     {"name": "no rows",
-     "rows": [], "selected": ["a"], "filled": []}
+     "rows": [], "selected": ["a"], "shown": []}
+  ],
+  "list_edit": [
+    {"name": "a click on one row selects it alone, active, framed",
+     "new": ["b"], "shown": ["a"], "active": "a",
+     "selected": ["b"], "to_active": "b", "frame": true},
+    {"name": "a click on a row already shown among others: alone, framed",
+     "new": ["a"], "shown": ["a", "b"], "active": "b",
+     "selected": ["a"], "to_active": "a", "frame": true},
+    {"name": "command-click adds a row: it becomes active",
+     "new": ["a", "c"], "shown": ["a"], "active": "a",
+     "selected": ["a", "c"], "to_active": "c", "frame": false},
+    {"name": "command-click removes the active row: the first stays active",
+     "new": ["b", "c"], "shown": ["a", "b", "c"], "active": "a",
+     "selected": ["b", "c"], "to_active": "b", "frame": false},
+    {"name": "shift-click adds a range: the active tile stays",
+     "new": ["a", "b", "c"], "shown": ["a"], "active": "a",
+     "selected": ["a", "b", "c"], "to_active": "a", "frame": false},
+    {"name": "deselect everything",
+     "new": [], "shown": ["a"], "active": "a",
+     "selected": [], "to_active": null, "frame": false}
   ],
   "finished": [
     {"state": "queued", "label": "queued", "finished": false},

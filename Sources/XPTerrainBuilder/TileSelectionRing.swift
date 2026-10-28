@@ -5,8 +5,8 @@ import SwiftUI
 /// ring with a soft outer glow (the macOS focus-ring look); other selected
 /// tiles: dashed. The colour is the system accent colour, so it follows
 /// System Settings (Qt: the palette highlight, `O4_Qt_Selection_Ring`).
-/// The Activity rows of selected tiles are filled instead
-/// (`ActivityRowFill`, #1537).
+/// The Activity list shows the same selection with its own native
+/// highlight (`ActivityListSelection`, #1537).
 enum TileSelectionRing {
     static var color: Color { .accentColor }
 

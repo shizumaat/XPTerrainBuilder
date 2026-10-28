@@ -43,6 +43,7 @@ from shapely.strtree import STRtree
 from ..model.frame import XY
 from . import frame_entry as _fe
 from . import obj8 as _obj8
+from .hanging_objects import edge_wall_reading, flush_hanging
 from .obj8_clip import _bulk_polys
 from .object_cut import _face_normals_y, _plan_area
 
@@ -63,6 +64,18 @@ class Portal:
     roof_area_m2: float
     #: the placement's anchor (frame xy): where X-Plane draws its zero
     anchor_xy: XY = (0.0, 0.0)
+    #: owner RULINGS 2026-10-26p Q168 / 2026-10-20am-at: a HANGING portal
+    #: (``airport/hanging_objects``) — a face or bridge-edge walls hanging
+    #: from a top flush with the ground, no floor: ``depth_m`` is its walls'
+    #: bottom under its top, and the cut takes in its whole plan
+    #: (``plan_xy``): the mouth stands at its back
+    hanging: bool = False
+    plan_xy: tuple = ()
+    #: owner RULINGS 2026-10-27l: an EDGE-WALL BRIDGE's pin
+    #: (``planar/bridge_span.bridge_pin``) — its back line; the mouth stands
+    #: at it (``planar/structure_mouth.edge_wall_mouth``).  Empty for every
+    #: portal this module reads.
+    edge_walls: tuple = ()
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -117,6 +130,31 @@ def roof_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
     return float(ymax[up][sel].max()), float(bins[top]), plan
 
 
+def hanging_reading(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, law
+                    ) -> "tuple[float, tuple] | None":
+    """``(depth, placed plan hull)`` of a HANGING portal — a BARE FACE (Q168):
+    ``hanging_objects.flush_hanging`` and no plate of a plate's worth
+    anywhere — else ``None``.  Bridge-edge walls carrying a deck plate (KATL
+    ``tunel_*``, #1138) are an edge-wall bridge (``hanging_objects.
+    edge_wall_reading``, owner RULINGS 2026-10-27l), not this: read as a
+    bare face, their hull's back sent KATL's mouths 68-135 m into the span."""
+    from shapely.geometry import MultiPoint
+    hung = flush_hanging(g, law)
+    if hung is None:
+        return None
+    top, bottom = hung
+    v, t = g.vertices, g.solid
+    plates = _face_normals_y(v, t) >= law.tables.structures.tunnel.object.plate_normal_y_min
+    if plates.any() and float(_plan_area(v, t)[plates].sum()) >= \
+            law.tables.structures.tunnel.object.plate_min_area_m2:
+        return None
+    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
+    pts = [(a * x + b * z + xo, d * x + e * z + yo) for x, _y, z in v[np.unique(t)]]
+    hull = MultiPoint(pts).convex_hull
+    ring = list(hull.exterior.coords) if hull.geom_type == "Polygon" else list(hull.coords)
+    return top - bottom, tuple((float(x), float(y)) for x, y in ring)
+
+
 def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                  law, tunnel_ways, taken: _t.AbstractSet[str] = frozenset()
                  ) -> tuple[list[Portal], list[str]]:
@@ -135,11 +173,34 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
         if (o.resolved is None or o.id in taken or not hasattr(o.plan_bbox, "buffer")
                 or _obj8.is_stock_library_resource(o.path)):
             continue
-        near = [int(j) for j in tree.query(o.plan_bbox.buffer(tol), predicate="intersects")]
+        # (twice the tolerance: a bare face's line may stand it off either side)
+        near = [int(j) for j in tree.query(o.plan_bbox.buffer(2.0 * tol),
+                                           predicate="intersects")]
         if not near:
             continue
+        g = cache.geometry(o.resolved)
+        if g is not None and edge_wall_reading(o, g, law) is not None:
+            # an EDGE-WALL BRIDGE pins by its back's CROSSING, never by an
+            # end's distance (``planar/bridge_span``, owner RULINGS 2026-10-28d)
+            continue
+        hung = hanging_reading(o, g, law) if g is not None else None
+        if hung is not None:
+            depth, plan_xy = hung
+            from shapely.geometry import LineString as _LS
+            from shapely.geometry import Polygon as _Poly
+            shape = (_Poly(plan_xy) if len(plan_xy) >= 4 else
+                     _LS(plan_xy) if len(plan_xy) >= 2 else None)
+            # a bare FACE is a line in plan: the mapped end may stand the
+            # tolerance off it on either side (EGGW ``eggw_tex14``: 4.4-9.3 m)
+            reach = tol if shape is not None and shape.geom_type == "Polygon" else 2.0 * tol
+            for j in [int(i) for i in tree.query(o.plan_bbox.buffer(reach),
+                                                 predicate="intersects")]:
+                if shape is not None and shape.distance(Point(ends[j][0])) <= reach:
+                    xy, wid = ends[j]
+                    out.append(Portal(o.id, o.path, xy, wid, depth, 0.0,
+                                      (float(o.xy[0]), float(o.xy[1])), True, plan_xy))
+            continue
         if o.path not in readings:
-            g = cache.geometry(o.resolved)
             readings[o.path] = (roof_reading(g, cache.genuine(o.resolved), law)
                                 if g is not None else "unreadable OBJ8")
         r = readings[o.path]

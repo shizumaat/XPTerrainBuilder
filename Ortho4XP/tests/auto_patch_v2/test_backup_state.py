@@ -1108,6 +1108,7 @@ def test_25_a_sibling_recorded_against_another_dump_is_not_reapplied(
     PW.apply_plan(p1, f1, tool, patch_dir=patch, work_dir=str(tmp_path / "w1"))
     doc = _record_doc(dsf)
     doc["dsfs"]["+18-064.dsf"]["airports"]["TNCM"]["dump_sha256"] = "0" * 64
+    doc["dsfs"]["+18-064.dsf"]["airports"]["TNCM"]["dump_key"] = "0" * 64
     (dsf.parent / "o4_placement_provenance.json").write_text(json.dumps(doc), encoding="utf-8", newline="")
     B.invalidate_memo()
     p2, f2 = _tffg(pack, dsf)

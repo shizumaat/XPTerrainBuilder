@@ -317,6 +317,11 @@ class Tunnel:
     #: mapped bore's mouth (``airport/portal_objects``), or ``""``; its cut
     #: may stand inside the runway strip keep-out
     portal: str = ""
+    #: owner RULINGS 2026-10-27l / 2026-10-28d: the BACK line of the edge
+    #: bridge that pinned this trench (``planar/bridge_span``), or ``()`` —
+    #: a terrain deck over it is level with the airside abeam
+    #: (``constraints/edge_deck``)
+    edge_back: tuple[XY, ...] = ()
 
 
 @_dc.dataclass(frozen=True)

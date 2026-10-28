@@ -386,8 +386,12 @@ def structure_records(airport, cl, law) -> dict:
     channels, chstats = channels_after_basins(
         airport, cl, law, objects, corridors, extra, plates, cache, orep,
         hard_claims, frozenset(tstats.shell_claimed), synth_claims)
+    from .bridge_span import edge_bridges
+    from .covered_ground import covered_cuts
+    bridges = edge_bridges(objects, cache, *covered_cuts(airport, cl, law), law)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
-                                            plates, channels, portals=tstats.portals)
+                                            plates, channels, portals=tstats.portals,
+                                            edge_bridges=bridges)
     # the rim diagnostics are read HERE, on demand (owner RULINGS
     # 2026-10-04x (2)): a build's basin notes carry neither
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,

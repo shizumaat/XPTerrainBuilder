@@ -78,7 +78,7 @@ def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
     """``(min, max)`` vertex pairs of the triangle edges across a declared
     wall terrace (module docstring); empty without one."""
     tris = list(tris)
-    out_r = _riser_edges(planar, tris)
+    out_r = _riser_edges(planar, tris) | _plate_edges(planar, tris)
     walls = _walls(planar)
     if not walls:
         return out_r
@@ -105,6 +105,23 @@ def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
                     for k in map(int, hit)):
                 out.add(key)
     return frozenset(out) | out_r
+
+
+def _plate_edges(planar: PlanarMap, tris) -> frozenset[tuple[int, int]]:
+    """#1201 (owner RULINGS 2026-10-27t): A WALLED PLATE IS THE STEP — the
+    bending skips every triangle edge from a vertex UNDER a runway-end
+    walled plate (``PlanarMap.plate_under``) to one that is not.  MEASURED
+    KSEA replay: bent across the plate's inner edge, the ground the plate
+    hides held 16C's safety area 1.8 m under the plate's top."""
+    under = getattr(planar, "plate_under", None) or frozenset()
+    if not under:
+        return frozenset()
+    out: set[tuple[int, int]] = set()
+    for a, b, c in tris:
+        for i, j in ((a, b), (b, c), (c, a)):
+            if (i in under) != (j in under):
+                out.add((min(i, j), max(i, j)))
+    return frozenset(out)
 
 
 def _riser_edges(planar: PlanarMap, tris) -> frozenset[tuple[int, int]]:

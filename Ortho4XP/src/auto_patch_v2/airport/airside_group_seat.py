@@ -31,7 +31,7 @@ import typing as _t
 # package (``constraints/group_level``, #1214 round 7)
 from ..geom.foot_planes import PLANE_BAND_M, PLANE_MIN_FEET, PLANE_SHARE, floor_plane, ground_plane
 
-__all__ = ["airside_zeros", "airside_pavement", "floor_plane", "ground_plane", "stands_of",
+__all__ = ["airside_zeros", "airside_pavement", "floor_plane", "ground_plane", "stands_of", "storey_m",
            "stands_in",
            "STAND_M",
            "TOUCH_M",
@@ -133,6 +133,13 @@ def _near_stand(stands: _t.Sequence[tuple[float, float]]
     return near
 
 
+def storey_m(law: _t.Any) -> float:
+    """One storey (``[building_pad] low_level_min_step_m``): the feet
+    planes less than this apart are ONE level (#1344, :func:`floor_plane`)."""
+    return float(getattr(law.tables.structures.building_pad,
+                         "low_level_min_step_m", 0.0) or 0.0)
+
+
 def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
                   surface: _t.Any, key_of: _t.Callable[[str, str], str],
                   own_ground: "dict[str, float] | None" = None
@@ -158,6 +165,7 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
     # the WALLED parts (``[placement] chain_min_height_m``): a foundation or
     # a curb wall meets the apron; a floor slab, a sign or a bollard does not
     wall_min = float(Law.load().tables.structures.placement.chain_min_height_m)
+    storey = storey_m(Law.load())
     for u in plan.units:
         for m in u.members:
             for p in m.parts:
@@ -210,7 +218,7 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
             if len(near_zs) < PLANE_MIN_FEET:
                 continue
             zs = near_zs
-        z = floor_plane(zs)
+        z = floor_plane(zs, storey)
         if z is not None:
             out[k] = (z, len(zs))
     if own_ground is not None:

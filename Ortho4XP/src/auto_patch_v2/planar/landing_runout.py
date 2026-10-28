@@ -43,6 +43,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..geom.parts import nonempty_polygon_parts as _parts
+from ..model.platform import widest_reach
 
 __all__ = ["RUNOUT_REF_PREFIX", "runout_ref", "landing_runouts"]
 
@@ -105,8 +106,7 @@ def landing_runouts(plats: _t.Sequence[tuple], held: _t.Mapping[str, dict], airp
         # the datum pin clips it into (``planar/pad_blocks``).  The strip's
         # rows read the SOLVED datum (``constraints/ramp_runout``), so a
         # strip longer than its descent lies on its own ground beyond it.
-        reach_hi = max((float(r) for r in (hb.get("samples_reach") if hb.get(
-            "samples_reach") is not None else ())), default=0.0)
+        reach_hi = widest_reach(hb)
         def ground(s: float) -> float:
             return float(dem.z(lx + dx * s, ly + dy * s))
         prof = runout_profile(z0 + reach_hi, ground, g, cap, MAX_RUN_M)

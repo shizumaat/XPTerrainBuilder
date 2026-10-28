@@ -10472,3 +10472,12 @@ Also (owner, same message): the ThunderBlade drive holds only ortho tiles; every
 (1) Q257 A: a covered cutting's lower level belongs to the cut alone. It does not spread over the terminal group's lower footprint.
 (2) Q258 A: a road crossing over the covered cut inside the station is carried by the station's objects and is not lowered to the cut's level (28k 227a).
 (3) Q259 A: the cut's level is held where the station's objects put it (the block datum plus the objects' plane). Holding it at the lidar floor (B) would leave the rigid object group standing above it, unless the group were split, so A is ruled. Beyond each end of the station, the terrain grades to meet the object rails' ends smoothly, with no step down to the open cut.
+
+**2026-10-28s — six site rules (owner, 2026-10-28T14:52:14Z, verbatim: "238. yes 250. A 251. a 252. a 253. a 255. a 256. b - if it's a tunnel mouth object, then typically graded terrain should come right up to it on 3 sides with only the road grading down to it's low edge on the "front" side. 260. a").**
+(1) Q238 (#1537): the native Activity list keeps the platform's own selection behaviour; every selected row is highlighted, including when every row is selected.
+(2) Q250 a (#507 HECA): across a declared pack wall with airside pavement on both sides, the lower side is bounded to no more than the wall's height below the upper side, in the geometry (amends 19ao, which bounded it in the census only).
+(3) Q251 a (#1572 KMCI): the part of a block-held lower pad level that stands on fill along a lot edge is cut off from the level and drops to its own ground. The terminal's airside level does not move.
+(4) Q252 a (#1338 NZWN): several identical ways stacked on one line are a car park's own decks, not independent roads crossing a tagged tunnel, so they are not a 27z witness.
+(5) Q255 a (#1028 EDDF): a way mapped `covered=yes` is a bore when the survey reads a cut at its mapped ends, or when a pack trench object stands at an end (amends 11aq A for those witnesses).
+(6) Q256 b, with the owner's rule (#1028): where a pack tunnel-mouth object stands at a mouth, graded terrain comes right up to the object on three sides; only the road grades down to the object's low edge on its front side. The graded zones keep off the object's outline, not just the road trench.
+(7) Q253: moot (batch AK lands whole). Q260 a (#953 KTVL): the crash is the AEP-Live plugin's, not our scenery; #953 closes.

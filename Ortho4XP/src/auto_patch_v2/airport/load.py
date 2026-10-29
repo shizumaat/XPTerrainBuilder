@@ -470,117 +470,43 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     # write minted (LEMD: 3,934 placements against a 3,021-row pristine
     # dump) and the write half refuses it.
     pack_dsf = _dw.pristine_dsf_path(_dsf.dsf_path_in_pack(sel.root, *tile))
-    dump_path = inputs.dsf_dump_path or (
-        _dsf.find_text_dump(inputs.mod_cache_root, sel.name, *tile,
-                            dsf_path=pack_dsf)
-        if inputs.mod_cache_root else None)
+    dump_path = inputs.dsf_dump_path or _pack_dump(icao, inputs, rep, sel.name, sel.root, tile)
     rep.dsf_dump_path = dump_path
-    if (dump_path is None and inputs.mod_cache_root
-            and os.path.isfile(pack_dsf)):
-        rep.dsf_dump_stale = True
-        # THE REAL CONDITION, in plain words (#560).  This said "the pack
-        # DSF is newer than every cached text dump" for every cause — on
-        # 2026-10-11 for a 0-byte dump of an UNCHANGED file.  A DSFTool
-        # failure is raised earlier, by the refresh itself
-        # (``engine_v2.fresh_pack_dump``); what reaches here is a dump
-        # nobody made, an empty one, or dumps of another version.
-        cache_dir = _dsf.mod_cache_dir(inputs.mod_cache_root, sel.name)
-        raise PackDumpStale(
-            sel.name,
-            f"{icao}: the scenery pack file {pack_dsf} cannot be read: "
-            f"{_dsf.missing_dump_reason(cache_dir, pack_dsf)}. The pack's "
-            "objects are never read from a dump of another version of the "
-            "file (RULINGS 2026-09-11m). The app makes this dump before "
-            "each build and re-makes an empty one; with the harness, run "
-            "build_airport.py --refresh-data airport_mod_cache.")
-    n_fac = n_obj = n_pol = n_agp = n_lot = 0
-    dsf_pavements: list[Pavement] = []
-    pol_sheets: list[Pavement] = []
+    # #1630 (owner Q284 (a)): an OBJECT PACK replaces Global Airports'
+    # objects only — the pavement pages X-Plane still draws are read from
+    # the pack that serves them (``PackSelection.pages_root``)
+    split = sel.pages_root != sel.root
+    pages_path = (_pack_dump(icao, inputs, rep, sel.pages_name, sel.pages_root, tile)
+                  if split else dump_path)
+    n_fac = n_obj = n_agp = n_lot = 0
     # THE ADMISSION GATE (RULINGS 2026-09-06a): the tile DSF carries EVERY
     # airport's pavement pages; a page is this airport's only within
     # ``identity.dsf_pavement_admission_m`` of its own apt.dat extent.
     own_extent = _own_extent(runways, pavements, boundaries,
                              law.tables.emit.identity.dsf_pavement_admission_m)
-    n_far = 0
-    if dump_path and os.path.isfile(dump_path):
-        # THE LIBRARY INDEX, read-only (M4b): ``lib/...`` placements
-        # resolve through v1's cached merged index; absent = unresolved.
-        # Read BEFORE the polygons: the pavement gate asks an
-        # abbreviation-named ``.pol`` (``conc_3.pol``) for its own SURFACE
-        # declaration (RULINGS 2026-10-04d (2)), and the facade reader
-        # resolves each ``.fac`` and its attached objects through it (§52).
+    # THE LIBRARY INDEX, read-only (M4b): ``lib/...`` placements resolve
+    # through v1's cached merged index; absent = unresolved.  Read BEFORE
+    # the polygons: the pavement gate asks an abbreviation-named ``.pol``
+    # (``conc_3.pol``) for its own SURFACE declaration (RULINGS
+    # 2026-10-04d (2)), and the facade reader resolves each ``.fac`` and
+    # its attached objects through it (§52).
+    have = dump_path and os.path.isfile(dump_path)
+    have_pages = split and pages_path and os.path.isfile(pages_path)
+    index = None
+    if have or have_pages:
         lib_path = _obj8.library_index_path(inputs.mod_cache_root, inputs.xplane_root) \
             if inputs.mod_cache_root and inputs.xplane_root else ""
         index = _obj8.read_library_index(lib_path)
         rep.library_index_path = lib_path if index is not None else None
-        is_pavement = _dsf.pavement_gate(
-            lambda p: _obj8.resolve_resource(p, sel.root, index))
-
-        def _named(p: str) -> bool:
-            return _dsf.building_role_for_def(p) is not None \
-                or is_pavement(p)[0] is not None
-
-        # §52 (RULINGS 2026-10-04d (3) (c)): an OPEN-LOT facade is read by
-        # what its FILE says, never by name — the only class the name gate
-        # does not already carry that this stage admits
-        dump = _dsf.read_dump(
-            dump_path, lambda p: _named(p) or _facade.is_lot_def(p, sel.root, index))
-        i = -1          # the id index counts the NAME-GATED polygons, as before
-        # §60: a page admitted by its own SURFACE is a GAP SHEET.  It is
-        # consumed BEFORE the index advances, so no ``dsf:pol<i>`` /
-        # ``dsf:fac<i>`` id moves; it is numbered after the object sheets.
-        for poly in dump.polygons:
-            if not _named(poly.def_path):
-                ring = _ring(poly.windings[0], to_xy)
-                if own_extent is None or own_extent.intersects(_shape_of(ring)):
-                    buildings.append(Building(
-                        f"dsf:faclot{n_lot}", ring,
-                        tuple(_ring(h, to_xy) for h in poly.windings[1:]),
-                        _facade.LOT_SOURCE, None, None, None,
-                        FacadeRead(poly.def_path, _facade.LOT)))
-                    n_lot += 1
-                continue
-            if is_pavement(poly.def_path)[0] == _dsf.SHEET:
-                ring = _ring(poly.windings[0], to_xy)
-                if own_extent is not None and not own_extent.intersects(
-                        _shape_of(ring)):
-                    n_far += 1
-                    continue
-                pol_sheets.append(Pavement(
-                    "", normalise_surface(_dsf.pavement_surface_code(
-                        poly.def_path, is_pavement(poly.def_path)[1])),
-                    ring, tuple(_ring(h, to_xy) for h in poly.windings[1:]),
-                    poly.def_path))
-                continue
-            i += 1
-            if is_pavement(poly.def_path)[0] == _dsf.SOURCE:
-                if own_extent is not None and not own_extent.intersects(
-                        _shape_of(_ring(poly.windings[0], to_xy))):
-                    n_far += 1
-                    continue
-                # Draped stock/material pavement pages ARE pavement (v1
-                # ``read_dsf_pavements``): 136k m2 of CYXY's aprons ship
-                # only as ``.pol`` polygons in the custom pack's DSF.
-                # The overlay gate (a page painted ON apt.dat pavement)
-                # is classification's, in ``classify/evidence.py``.
-                dsf_pavements.append(Pavement(
-                    f"dsf:pol{i}", normalise_surface(
-                        _dsf.pavement_surface_code(
-                            poly.def_path, is_pavement(poly.def_path)[1])),
-                    _ring(poly.windings[0], to_xy),
-                    tuple(_ring(h, to_xy) for h in poly.windings[1:]),
-                    poly.def_path))
-                n_pol += 1
-                continue
-            role = _dsf.building_role_for_def(poly.def_path) or "building"
-            if role == "bridge":
-                continue
-            buildings.append(Building(
-                f"dsf:fac{i}", _ring(poly.windings[0], to_xy),
-                tuple(_ring(h, to_xy) for h in poly.windings[1:]),
-                f"dsf:fac:{role}", None, None, None,
-                _facade.read_placed(poly, sel.root, index, to_xy)))
-            n_fac += 1
+    polys = _DsfPolygons(to_xy, own_extent)
+    if have_pages:
+        polys.read(pages_path, sel.pages_root, index, pages=True, rest=False)
+    dump = (polys.read(dump_path, sel.root, index, pages=not split, rest=True)
+            if have else None)
+    buildings.extend(polys.buildings)
+    dsf_pavements, pol_sheets = polys.pavements, polys.sheets
+    n_fac, n_lot, n_far = polys.n_fac, polys.n_lot, polys.n_far
+    if dump is not None:
         for i, pl in enumerate(dump.placements):
             if not pl.def_path.lower().endswith((".obj", ".agp")):
                 continue
@@ -629,7 +555,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                         None, None, dsf_objects[-1]))
                     n_agp += 1
     rep.buildings_by_source["dsf:agp"] = n_agp
-    rep.dsf_pavements = n_pol
+    rep.dsf_pavements = len(dsf_pavements)
     rep.dsf_pavements_far = n_far
     # issue #713: the sidecar the pack refresh writes for the PRISTINE DSF
     # (``engine_v2.fresh_object_footprints``) — named, as v1 names it, by
@@ -1019,6 +945,119 @@ def _projection_recorder():
     if mod is None or not mod.projection_armed():
         return None
     return mod
+
+
+def _pack_dump(icao: str, inputs: Inputs, rep: LoadReport, name: str, root: str,
+               tile: tuple[int, int]) -> str | None:
+    """The cached text dump of pack ``name``'s PRISTINE tile DSF; a pack
+    DSF with none REFUSES the build (``PackDumpStale``)."""
+    pack_dsf = _dw.pristine_dsf_path(_dsf.dsf_path_in_pack(root, *tile))
+    dump_path = (_dsf.find_text_dump(inputs.mod_cache_root, name, *tile,
+                                     dsf_path=pack_dsf)
+                 if inputs.mod_cache_root else None)
+    if (dump_path is None and inputs.mod_cache_root
+            and os.path.isfile(pack_dsf)):
+        rep.dsf_dump_stale = True
+        # THE REAL CONDITION, in plain words (#560).  This said "the pack
+        # DSF is newer than every cached text dump" for every cause — on
+        # 2026-10-11 for a 0-byte dump of an UNCHANGED file.  A DSFTool
+        # failure is raised earlier, by the refresh itself
+        # (``engine_v2.fresh_pack_dump``); what reaches here is a dump
+        # nobody made, an empty one, or dumps of another version.
+        cache_dir = _dsf.mod_cache_dir(inputs.mod_cache_root, name)
+        raise PackDumpStale(
+            name,
+            f"{icao}: the scenery pack file {pack_dsf} cannot be read: "
+            f"{_dsf.missing_dump_reason(cache_dir, pack_dsf)}. The pack's "
+            "objects are never read from a dump of another version of the "
+            "file (RULINGS 2026-09-11m). The app makes this dump before "
+            "each build and re-makes an empty one; with the harness, run "
+            "build_airport.py --refresh-data airport_mod_cache.")
+    return dump_path
+
+
+class _DsfPolygons:
+    """The polygons of a pack's tile DSF dump as the load reads them: the
+    pavement PAGES (``dsf:pol`` sources and §60 gap sheets) and the REST
+    (facades and open lots).  #1630: an object pack's dump is read for the
+    rest and the serving pack's for the pages, so each read says which."""
+
+    def __init__(self, to_xy, own_extent):
+        self.to_xy, self.own_extent = to_xy, own_extent
+        self.pavements: list[Pavement] = []
+        self.sheets: list[Pavement] = []
+        self.buildings: list[Building] = []
+        self.n_fac = self.n_lot = self.n_far = 0
+
+    def _near(self, ring) -> bool:
+        return self.own_extent is None or self.own_extent.intersects(_shape_of(ring))
+
+    def read(self, dump_path: str, root: str, index, *, pages: bool, rest: bool):
+        """Read ``dump_path`` (resources resolve in ``root``); returns the dump."""
+        to_xy = self.to_xy
+        is_pavement = _dsf.pavement_gate(
+            lambda p: _obj8.resolve_resource(p, root, index))
+
+        def _named(p: str) -> bool:
+            return _dsf.building_role_for_def(p) is not None \
+                or is_pavement(p)[0] is not None
+
+        # §52 (RULINGS 2026-10-04d (3) (c)): an OPEN-LOT facade is read by
+        # what its FILE says, never by name — the only class the name gate
+        # does not already carry that this stage admits
+        dump = _dsf.read_dump(
+            dump_path, lambda p: _named(p) or (rest and _facade.is_lot_def(p, root, index)))
+        i = -1          # the id index counts the NAME-GATED polygons, as before
+        # §60: a page admitted by its own SURFACE is a GAP SHEET.  It is
+        # consumed BEFORE the index advances, so no ``dsf:pol<i>`` /
+        # ``dsf:fac<i>`` id moves; it is numbered after the object sheets.
+        for poly in dump.polygons:
+            ring = _ring(poly.windings[0], to_xy)
+            holes = tuple(_ring(h, to_xy) for h in poly.windings[1:])
+            if not _named(poly.def_path):
+                if rest and self._near(ring):
+                    self.buildings.append(Building(
+                        f"dsf:faclot{self.n_lot}", ring, holes,
+                        _facade.LOT_SOURCE, None, None, None,
+                        FacadeRead(poly.def_path, _facade.LOT)))
+                    self.n_lot += 1
+                continue
+            kind, code = is_pavement(poly.def_path)
+            if kind == _dsf.SHEET:
+                if not pages:
+                    continue
+                if not self._near(ring):
+                    self.n_far += 1
+                    continue
+                self.sheets.append(Pavement(
+                    "", normalise_surface(_dsf.pavement_surface_code(poly.def_path, code)),
+                    ring, holes, poly.def_path))
+                continue
+            i += 1
+            if kind == _dsf.SOURCE:
+                if not pages:
+                    continue
+                if not self._near(ring):
+                    self.n_far += 1
+                    continue
+                # Draped stock/material pavement pages ARE pavement (v1
+                # ``read_dsf_pavements``): 136k m2 of CYXY's aprons ship
+                # only as ``.pol`` polygons in the custom pack's DSF.
+                # The overlay gate (a page painted ON apt.dat pavement)
+                # is classification's, in ``classify/evidence.py``.
+                self.pavements.append(Pavement(
+                    f"dsf:pol{i}", normalise_surface(
+                        _dsf.pavement_surface_code(poly.def_path, code)),
+                    ring, holes, poly.def_path))
+                continue
+            role = _dsf.building_role_for_def(poly.def_path) or "building"
+            if role == "bridge" or not rest:
+                continue
+            self.buildings.append(Building(
+                f"dsf:fac{i}", ring, holes, f"dsf:fac:{role}", None, None, None,
+                _facade.read_placed(poly, root, index, to_xy)))
+            self.n_fac += 1
+        return dump
 
 
 def _ring(pts: _t.Sequence[tuple[float, float]],

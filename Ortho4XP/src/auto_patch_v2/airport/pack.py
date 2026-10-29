@@ -90,6 +90,21 @@ class PackSelection:
     custom: bool
     borrow: _borrow.BorrowDecision = _dc.field(
         default_factory=_borrow.BorrowDecision)
+    #: #1630 (owner Q284 (a)): the pack whose tile DSF's PAVEMENT PAGES
+    #: feed the patch when it is not ``root`` — an OBJECT PACK replaces
+    #: Global Airports' objects only, and X-Plane still draws Global's
+    #: pages; ``""`` = ``root``'s own pages
+    pages_from: str = ""
+
+    @property
+    def pages_root(self) -> str:
+        """The pack folder the pavement pages are read from."""
+        return self.pages_from or self.root
+
+    @property
+    def pages_name(self) -> str:
+        """That pack's folder name (its ``Airport_mod_cache`` directory)."""
+        return os.path.basename(self.pages_from) if self.pages_from else self.name
 
     @property
     def borrowed_apt_dat_path(self) -> str:
@@ -106,7 +121,9 @@ def select_pack(xplane_root: str, icao: str, law=None) -> PackSelection | None:
 
     #1630: when that apt.dat is Global Airports', the pack drawn above it
     that places its own objects inside the airport (``object_pack.find``)
-    is the selection's ``root``/``name``; ``apt_dat_path`` stays Global's.
+    is the selection's ``root``/``name``; ``apt_dat_path`` stays Global's,
+    and so do the pavement pages (``pages_from``, owner Q284 (a)): the
+    object pack replaces Global's OBJECTS only.
 
     ``law`` is optional because a caller that needs only the pack's ROOT
     or NAME (``auto_patch/engine_v2._pack_dump_path``, the DSF dump) has
@@ -126,7 +143,8 @@ def select_pack(xplane_root: str, icao: str, law=None) -> PackSelection | None:
         if obj_root:
             return PackSelection(os.path.basename(obj_root), obj_root, apt, True,
                                  _borrow.BorrowDecision(
-                                     reason="the block is Global Airports' own"))
+                                     reason="the block is Global Airports' own"),
+                                 pages_from=root)
     # §44 (5) THE ONE DERIVATION SITE.  A pack that IS Global Airports (or
     # the stock default) has nothing to borrow from.
     dec = _borrow.decide(xplane_root, icao, apt, law) if (law and custom) \
@@ -151,6 +169,9 @@ def signature(sel: PackSelection, block: list[str], lat: int,
     update invalidates everything keyed on this signature."""
     dsf = tile_dsf_path(sel.root, lat, lon)
     paths = (dsf,) if dsf else ()
+    # #1630: the pages' DSF too, when another pack serves them
+    pages = tile_dsf_path(sel.pages_root, lat, lon) if sel.pages_from else None
+    paths += (pages,) if pages and pages != dsf else ()
     # #1630: an OBJECT PACK's folder is not the apt.dat's; name it
     own = os.path.dirname(os.path.dirname(sel.apt_dat_path))
     return SceneryPack(sel.name, sel.apt_dat_path, block_sha256(block),

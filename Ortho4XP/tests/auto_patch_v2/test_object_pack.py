@@ -165,3 +165,62 @@ def test_names_above_global_airports_follows_the_ini(tmp_path):
     assert SP.names_above_global_airports(str(scenery)) == ["new", "above"]
     # parse_ini is unchanged by the Global row
     assert SP.parse_ini(str(scenery / "scenery_packs.ini")) == (["above", "below"], {"off"})
+
+
+# ── owner Q284 (a): the object pack replaces Global Airports' OBJECTS only ──
+PAGE = "lib/airport/pavement/asphalt_1L.pol"
+TERMINAL = "lib/airport/Modern_Airports/Terminal_kit/term_building_1.fac"
+
+
+def _polygon_dump(polys):
+    """A DSF text dump of draped polygons ``(def, [(lon, lat), ...])``."""
+    defs = sorted({d for d, _r in polys})
+    lines = ["I", "800", "DSF2TEXT", ""] + [f"POLYGON_DEF {d}" for d in defs]
+    for d, ring in polys:
+        lines += [f"BEGIN_POLYGON {defs.index(d)} 0 2", "BEGIN_WINDING"]
+        lines += [f"POLYGON_POINT {lo:.9f} {la:.9f}" for lo, la in ring]
+        lines += ["END_WINDING", "END_POLYGON"]
+    return "\n".join(lines) + "\n"
+
+
+def _square(lon, lat, d=0.001):
+    return [(lon, lat), (lon + d, lat), (lon + d, lat + d), (lon, lat + d)]
+
+
+def test_the_pavement_pages_stay_global_airports(tmp_path, monkeypatch):
+    xp, mods = _install(tmp_path, ABOVE)
+    root = _pack(xp, mods, "region pack", TOWER, apt=OTHER_APT)
+    glob = os.path.join(xp, "Global Scenery", "Global Airports")
+    _write(os.path.join(glob, "Earth nav data", BLOCK), "synthetic global dsf")
+    sel = _select(xp, mods, monkeypatch)
+    assert sel.root == root
+    # the pages are read from the pack that serves them, and the signature
+    # names that DSF too, so a Global Airports update invalidates the plan
+    assert (sel.pages_root, sel.pages_name) == (glob, "Global Airports")
+    block = A.read_airport_block(sel.apt_dat_path, "ZQQA")
+    assert P.signature(sel, block, *TILE).dsf_paths == (
+        os.path.join(root, "Earth nav data", BLOCK),
+        os.path.join(glob, "Earth nav data", BLOCK))
+    # a pack serving its own airport reads its own pages, as before
+    own = _select(xp, mods, monkeypatch, icao="ZQQB")
+    assert (own.pages_root, own.pages_name, own.pages_from) == (root, "region pack", "")
+
+
+def test_the_load_reads_pages_from_one_dump_and_the_rest_from_the_other(tmp_path):
+    from auto_patch_v2.airport.load import _DsfPolygons
+    pages = tmp_path / "global.text"
+    pages.write_text(_polygon_dump([(TERMINAL, _square(-122.28, 47.90)),
+                                    (PAGE, _square(-122.27, 47.91))]), encoding="utf-8")
+    objects = tmp_path / "pack.text"
+    objects.write_text(_polygon_dump([(PAGE, _square(-122.29, 47.90)),
+                                      (TERMINAL, _square(-122.28, 47.92))]),
+                       encoding="utf-8")
+    polys = _DsfPolygons(lambda lo, la: (lo * 1e5, la * 1e5), None)
+    polys.read(str(pages), str(tmp_path), None, pages=True, rest=False)
+    polys.read(str(objects), str(tmp_path), None, pages=False, rest=True)
+    # Global's page keeps the id it had when Global served the whole read
+    assert [p.id for p in polys.pavements] == ["dsf:pol1"]
+    assert polys.pavements[0].outer[0] == (-122.27 * 1e5, 47.91 * 1e5)
+    # the facades are the object pack's alone
+    assert [(b.id, b.outer[0]) for b in polys.buildings] == [
+        ("dsf:fac1", (-122.28 * 1e5, 47.92 * 1e5))]

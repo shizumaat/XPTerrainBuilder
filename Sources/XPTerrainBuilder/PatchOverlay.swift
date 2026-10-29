@@ -95,7 +95,12 @@ struct PatchOverlay: View {
     private var layer: some View {
         if model.isShowing, let geometry = model.geometry, let document = model.document {
             let skip = model.dragSkip
+            let siblings = model.siblingGeometry
             Canvas(rendersAsynchronously: false) { context, size in
+                // The airport's patches on other tiles (#1646), read-only.
+                for sibling in siblings {
+                    Self.draw(sibling, camera: camera.value, skip: nil, in: context, size: size)
+                }
                 Self.draw(geometry, camera: camera.value, skip: skip, in: context, size: size)
             }
             .allowsHitTesting(false)

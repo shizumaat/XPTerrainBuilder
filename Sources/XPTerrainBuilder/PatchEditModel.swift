@@ -38,6 +38,10 @@ final class PatchEditModel: ObservableObject {
     @Published private(set) var grid: PatchSpatialGrid?
     /// The document projected for drawing (one entry per shape).
     @Published private(set) var geometry: PatchMapGeometry?
+    /// The shown airport's patches on OTHER tiles, drawn read-only beside
+    /// the open document (#1646; PatchEditModel+Siblings.swift).
+    @Published var siblingGeometry: [PatchMapGeometry] = []
+    var siblings: [String: PatchMapGeometry?] = [:]
     /// The patch file's modification date (the source line's "built …").
     @Published var fileDate: Date?
     /// The View / Edit segmented control on the map.
@@ -203,6 +207,9 @@ final class PatchEditModel: ObservableObject {
         }.filter { $0.entry.bbox.intersects(viewport.box) }
         if let chosen = nearest(candidates, to: viewport) {
             show(chosen.entry, tile: chosen.tile, client: client)
+            showSiblings(Self.siblingIndices(candidates.map { ($0.tile, $0.entry.icao) },
+                                             tile: chosen.tile, icao: chosen.entry.icao)
+                .map { candidates[$0] }, client: client)
         } else if pending {
             return // decide once the listing lands
         } else if let airport = Self.nearestAirport(in: viewport.box, overlays: viewport.overlays,

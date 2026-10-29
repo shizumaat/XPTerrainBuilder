@@ -95,3 +95,43 @@ def test_the_object_stage_reads_a_companion_plan():
     assert _PLAN_NAME_RE.match("o4_v2_rebake_LFPG~1.json")
     assert _PLAN_NAME_RE.match("o4_v2_rebake_LFPG.json")
     assert not _PLAN_NAME_RE.match("o4_v2_rebake_LFPG.screen.json")
+
+
+def test_a_companion_plan_reads_the_airports_stands(tmp_path, monkeypatch):
+    """#1639 (LFPG 1.0.444, T1 floated 8 m): a companion ships no apt.dat,
+    so the stands its airside floor is read at (RULINGS 2026-10-23b) are
+    the AIRPORT's -- the plan carries the serving pack's apt.dat."""
+    import dataclasses as dc
+
+    from auto_patch_v2.airport import basin_witness, pack_partition, rebake_plan
+    from auto_patch_v2.airport.airside_group_seat import stands_of
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.rebake import RebakePlan
+
+    apt = tmp_path / "main" / "Earth nav data" / "apt.dat"
+    apt.parent.mkdir(parents=True)
+    apt.write_text("I\n1100 Version\n\n1 1000 0 0 ZZZZ Test\n"
+                   "1300 49.0001 2.0002 90.0 gate jets A1\n\n99\n",
+                   encoding="utf-8", newline="")
+
+    @dc.dataclass(frozen=True)
+    class _Airport:
+        frame: object
+        pack: object
+        dsf_objects: tuple = ()
+
+    frame = types.SimpleNamespace(transformers=lambda: (lambda lo, la: (lo, la), None))
+    airport = _Airport(frame, types.SimpleNamespace(apt_dat_path=str(apt)))
+    monkeypatch.setattr(C, "_objects", lambda c, to_xy: ())
+    monkeypatch.setattr(basin_witness, "read_objects", lambda site, law, cache: ((), None))
+    monkeypatch.setattr(pack_partition, "partition_pack", lambda *a, **k: None)
+    monkeypatch.setattr(rebake_plan, "plan", lambda site, *a, **k: RebakePlan(
+        "ZZZZ", "terminals", site.pack.root, (), (), {}))
+    comp = types.SimpleNamespace(name="terminals", root=str(tmp_path / "terminals"))
+    (got,) = C.plans(airport, Law.load(), [comp])
+    assert got.apt_dat == str(apt) and got.pack_root == comp.root
+    assert stands_of(got) == [(49.0001, 2.0002)]
+    # the field round-trips, and a plan with none writes no key (the main
+    # pack's plan is unchanged)
+    assert RebakePlan.from_json(got.to_json()).apt_dat == str(apt)
+    assert "apt_dat" not in dc.replace(got, apt_dat="").to_dict()

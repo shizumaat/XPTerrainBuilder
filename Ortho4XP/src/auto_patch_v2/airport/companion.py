@@ -209,7 +209,11 @@ def plans(airport, law, companions: _t.Sequence[Companion]) -> list:
                               quantum(law))
         objs, _rep = read_objects(site, law, cache)
         part = partition_pack(site, objs, cache, law)
-        out.append(rebake_plan(site, objs, cache, law, partition=part))
+        # the stands its airside floor is read at are the AIRPORT's (#1639):
+        # a companion ships no apt.dat, and with no stands every foot near
+        # an apron voted -- LFPG T1's lower-storey walls floated it 8 m
+        out.append(_dc.replace(rebake_plan(site, objs, cache, law, partition=part),
+                               apt_dat=str(airport.pack.apt_dat_path or "")))
     return out
 
 

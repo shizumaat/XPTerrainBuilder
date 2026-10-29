@@ -918,6 +918,9 @@ class ParallelBuildRun:
         # invariant).
         self._warm_token_held = False
         self._lock = threading.Lock()
+        # Every tile admitted to this run, whichever press queued it
+        # (#1641): the boundary check's "a tile this build is building".
+        self._run_cells: set = set()
         self._children: list = []
         self._next_child_index = 0
         self._done = 0
@@ -978,9 +981,6 @@ class ParallelBuildRun:
                             missing_art, overrides=None):
         admitted = []
         queued = set(self._queue)              # a planet queue: O(1) checks
-        # ONE list for the whole batch, shared by its tiles: a copy per
-        # tile was quadratic (3,000 queued tiles held ~0.8 GB, #1225).
-        boundary_batch = [[int(t[0]), int(t[1])] for t in tiles]
         carried = {child.tile for child in self._children}
         for tile in tiles:
             if (tile in queued or tile in self._next_step_index
@@ -988,6 +988,7 @@ class ParallelBuildRun:
                 continue
             queued.add(tile)
             admitted.append(tile)
+            self._run_cells.add((int(tile[0]), int(tile[1])))
             # A new attempt (#1326), with a clock that starts at zero: a
             # stopped or finished tile queued again must not inherit the
             # previous attempt's wall clock.
@@ -1002,10 +1003,6 @@ class ParallelBuildRun:
                 # child receives it in its build command and lands it on
                 # its own tile object (spec §C.3).
                 "boundary_policy": boundary_policy,
-                # THE PRESS'S OWN TILE SET (issue #51): the child builds
-                # one tile per command, so without this every sibling of
-                # the batch reads as "a tile this build is not building".
-                "boundary_batch": boundary_batch,
                 # #433: the batch's missing-art answer, per batch likewise
                 "missing_art": missing_art,
             }
@@ -1353,7 +1350,9 @@ class ParallelBuildRun:
             return False
         if not self._memory_admits_locked(child.tile, step_key):
             return False
-        arguments = self._tile_arguments[child.tile]
+        arguments = dict(self._tile_arguments[child.tile],
+                         boundary_batch=self._boundary_batch_locked(
+                             child.tile))
         prefetch = self._may_prefetch_locked(child.tile, step_key)
         if prefetch:
             arguments = dict(arguments, prefetch=True)
@@ -1372,6 +1371,25 @@ class ParallelBuildRun:
                 self._memory_in_use += estimate
             return True
         return False
+
+    def run_cells(self):
+        """Every tile admitted to this run so far, as ``(lat, lon)``."""
+        with self._lock:
+            return frozenset(self._run_cells)
+
+    def _boundary_batch_locked(self, tile):
+        """``[[lat, lon], ...]`` the child's boundary check counts as built
+        (issue #51, #1641): the tile and every tile of THIS RUN in the 3×3
+        block around it, whichever press queued it — two presses into one
+        run are one run.  Read at dispatch, so a tile queued after its
+        neighbour was admitted still counts; only the neighbourhood is
+        sent, since an airport claim crosses into adjacent cells only and
+        a planet-sized run must not ride in every step command (#1225)."""
+        (lat, lon) = (int(tile[0]), int(tile[1]))
+        return [[lat + dlat, lon + dlon]
+                for dlat in (-1, 0, 1) for dlon in (-1, 0, 1)
+                if (dlat, dlon) == (0, 0)
+                or (lat + dlat, lon + dlon) in self._run_cells]
 
     def _may_prefetch_locked(self, tile, step_key):
         """Whether this tile's vector step may download its likely

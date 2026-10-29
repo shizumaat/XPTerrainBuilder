@@ -128,6 +128,7 @@ def test_the_switches_reach_a_worker_childs_tile_arguments():
     run._children = []
     run._queue = []
     run._total = 0
+    run._run_cells = set()
     parallel.ParallelBuildRun._admit_batch_locked(
         run, [(38, -10)], "BI", 16, "", (True, False, False),
         overrides={"auto_patch": False})

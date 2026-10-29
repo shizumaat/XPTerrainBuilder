@@ -43,6 +43,19 @@ def test_extent_not_a_degree_box():
     assert win.n_outside == 1 and win.n_rival == 0
 
 
+def test_old_box_is_admitted_beside_the_extent():
+    """Beta 5: a placement in the old degree box OR the extent is read;
+    outside both it is not; with no extent the box alone decides."""
+    extent = box(-7000, -100, 7000, 100)
+    win = W.Window("ZQQA", extent, extent)
+    got = win.admits([(6500.0, 0.0), (0.0, 300.0), (0.0, 900.0)],
+                     also=[False, True, False])
+    assert list(got) == [True, True, False]
+    assert win.n_outside == 1
+    assert list(W.Window("ZQQA", None, None).admits(
+        [(0.0, 0.0), (1.0, 1.0)], also=[True, False])) == [True, False]
+
+
 def test_nearest_airport_of_the_pack_keeps_it(tmp_path):
     p = os.path.join(tmp_path, "apt.dat")
     with open(p, "w", encoding="utf-8", newline="\n") as fh:

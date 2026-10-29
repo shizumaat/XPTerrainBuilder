@@ -10,7 +10,9 @@ account every object in the scenery pack."
 THE RULE.  A placement is read when it lies inside the airport's OWN
 extent — the extent the pavement pages are admitted by
 (``load._own_extent``: runways, 110 pavements, 130 boundaries, grown by
-``identity.dsf_pavement_admission_m``) — never a degree box.
+``identity.dsf_pavement_admission_m``) — never a degree box alone.
+FOR BETA 5 the old box is admitted beside it (``also=``): a placement
+inside EITHER is read, so no build reads fewer placements than before.
 
 A PACK OF SEVERAL AIRPORTS (one DSF, several apt.dat blocks: a regional
 pack, a city pack) gives each placement to ONE airport: the one whose
@@ -31,7 +33,7 @@ from . import apt_dat as _apt
 from .apt_dat import airports_in
 from .object_pack import region_in
 
-__all__ = ["Window", "pack_apt_dat", "rivals"]
+__all__ = ["Window", "box_xy", "pack_apt_dat", "rivals"]
 
 #: neighbours whose reference point is farther than this (deg) cannot reach
 #: this airport's extent and are not projected (a pre-filter only)
@@ -48,16 +50,22 @@ class Window:
         self.rivals = tuple(rivals)
         self.n_outside = self.n_rival = 0
 
-    def admits(self, xy: _t.Sequence[tuple[float, float]]) -> np.ndarray:
-        """One bool per point: inside the extent and nearest this airport.
-        Counts the refusals on ``n_outside`` / ``n_rival``."""
+    def admits(self, xy: _t.Sequence[tuple[float, float]],
+               also: _t.Sequence[bool] | None = None) -> np.ndarray:
+        """One bool per point: inside the extent (or flagged in ``also``)
+        and nearest this airport.  Counts the refusals on ``n_outside`` /
+        ``n_rival``."""
         import shapely
         if not len(xy):
             return np.zeros(0, dtype=bool)
         pts = np.asarray(xy, dtype=float)
         if self.extent is None:
-            return np.ones(len(pts), dtype=bool)
-        keep = shapely.contains_xy(self.extent, pts[:, 0], pts[:, 1])
+            keep = np.ones(len(pts), dtype=bool) if also is None \
+                else np.asarray(also, dtype=bool).copy()
+        else:
+            keep = shapely.contains_xy(self.extent, pts[:, 0], pts[:, 1])
+            if also is not None:
+                keep |= np.asarray(also, dtype=bool)
         self.n_outside += int((~keep).sum())
         if self.rivals and keep.any() and self.own is not None:
             idx = np.flatnonzero(keep)
@@ -69,6 +77,14 @@ class Window:
                 keep[idx[lost]] = False
             self.n_rival += int(len(idx) - keep[idx].sum())
         return keep
+
+
+def box_xy(to_xy, lat0: float, lon0: float, r: float):
+    """The ``r``-degree box about ``(lat0, lon0)`` in ``to_xy``'s frame
+    (the rivals' reach only; admission tests the box in degrees)."""
+    from shapely.geometry import Polygon
+    return Polygon([to_xy(lon0 + dx, lat0 + dy)
+                    for dx, dy in ((-r, -r), (r, -r), (r, r), (-r, r))])
 
 
 def pack_apt_dat(pack_root: str) -> str | None:

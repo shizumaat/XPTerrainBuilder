@@ -517,13 +517,22 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         # #1653: the placements inside the airport's OWN extent (the
         # pages' admission extent), each given to the nearest airport of
         # its pack — never a degree box about the reference point
+        placed = [(i, pl) for i, pl in enumerate(dump.placements)
+                  if pl.def_path.lower().endswith((".obj", ".agp"))]
+        # beta 5 (#1653): the old ``radius_deg`` box is KEPT beside the
+        # extent, so nothing a build read before is dropped; the rival-
+        # airport guard that would retire it is filed after beta 5
+        r = inputs.radius_deg
+        in_box = [abs(pl.lat - lat0) <= r and abs(pl.lon - lon0) <= r
+                  for _i, pl in placed]
+        box_xy = _window.box_xy(to_xy, lat0, lon0, r)
+        reach = box_xy if own_extent is None else own_extent.union(box_xy)
         window = _window.Window(
             icao, own_extent, _object_pack.region_in(apt, to_xy),
             _window.rivals(_window.pack_apt_dat(sel.root) if sel.custom else None,
-                           icao, (lat0, lon0), to_xy, own_extent))
-        placed = [(i, pl) for i, pl in enumerate(dump.placements)
-                  if pl.def_path.lower().endswith((".obj", ".agp"))]
-        admitted = window.admits([to_xy(pl.lon, pl.lat) for _i, pl in placed])
+                           icao, (lat0, lon0), to_xy, reach))
+        admitted = window.admits([to_xy(pl.lon, pl.lat) for _i, pl in placed],
+                                 also=in_box)
         rep.objects_outside_extent = window.n_outside
         rep.objects_nearer_other_airport = window.n_rival
         for (i, pl), ok in zip(placed, admitted, strict=True):

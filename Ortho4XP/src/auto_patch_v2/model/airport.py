@@ -349,10 +349,20 @@ class SceneryPack:
     #: X-Plane to flatten the airport (owner answer 65, 2026-10-20: "a
     #: strong clue the author was not planning for terrain")
     flatten_declared: bool = False
-    #: the pack's folder when it carries no apt.dat to derive it from (an
-    #: objects-only COMPANION, ``airport/companion``); ``""`` = the folder
-    #: two levels above ``apt_dat_path``
+    #: the pack's folder when it is not the one holding ``apt_dat_path``
+    #: (an objects-only COMPANION, ``airport/companion``; an OBJECT PACK
+    #: serving a Global Airports block, ``airport/object_pack``, #1630);
+    #: ``""`` = the folder two levels above ``apt_dat_path``
     root: str = ""
+
+    @property
+    def pack_root(self) -> str:
+        """The folder the pack's DSF and objects resolve in: ``root``, else
+        the folder two levels above ``apt_dat_path`` (``""`` with neither)."""
+        if self.root or not self.apt_dat_path:
+            return self.root
+        import os
+        return os.path.dirname(os.path.dirname(self.apt_dat_path))
 
 
 @_dc.dataclass(frozen=True)

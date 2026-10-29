@@ -56,6 +56,7 @@ __all__ = [
     "custom_scenery_dir_for",
     "pack_state",
     "filter_enabled",
+    "names_above_global_airports",
 ]
 
 INI_FILENAME = "scenery_packs.ini"
@@ -85,7 +86,7 @@ _CUSTOM_SCENERY = "Custom Scenery"
 # same-length rewrite inside one timestamp tick from no rewrite at all, so
 # the key is the CONTENT.  The ini is small and the bytes are read anyway
 # to parse it, so a hit now costs one read plus one sha1.
-_INI_CACHE: dict[tuple, tuple[tuple[str, ...], frozenset]] = {}
+_INI_CACHE: dict[tuple, tuple[tuple[str, ...], frozenset, int | None]] = {}
 
 
 def _split_components(raw: str) -> list[str]:
@@ -129,21 +130,32 @@ def parse_ini(ini_path: str) -> tuple[list[str], set[str]]:
     callers read as "the ini governs nothing", i.e. every pack on disk is
     enabled.  Duplicate enabled rows keep their first position.
     """
+    ordered, disabled, _global_at = _read_ini(ini_path)
+    return (list(ordered), set(disabled))
+
+
+def _read_ini(ini_path: str) -> tuple[tuple[str, ...], frozenset, int | None]:
+    """``(enabled names in ini order, disabled names, how many enabled
+    names precede the Global Airports row)`` — the last ``None`` when the
+    ini lists no Global Airports row.  Cached on the ini's BYTES."""
     try:
         with open(ini_path, "rb") as handle:
             raw = handle.read()
     except OSError:
-        return ([], set())
+        return ((), frozenset(), None)
     key = (os.path.abspath(ini_path), hashlib.sha1(raw).hexdigest())
     cached = _INI_CACHE.get(key)
     if cached is not None:
-        return (list(cached[0]), set(cached[1]))
+        return cached
     ordered: list[str] = []
     disabled: set[str] = set()
+    global_at: int | None = None
     for line in raw.decode("utf-8", "replace").splitlines():
         tokens = line.strip().split(None, 1)
         if len(tokens) != 2:
             continue
+        if global_at is None and _is_global_airports_row(tokens[1]):
+            global_at = len(ordered)
         name = pack_name_from_ini_path(tokens[1])
         if not name:
             continue
@@ -154,8 +166,30 @@ def parse_ini(ini_path: str) -> tuple[list[str], set[str]]:
         elif tokens[0] == _ENABLED_TOKEN and name not in ordered:
             ordered.append(name)
     _INI_CACHE.clear()
-    _INI_CACHE[key] = (tuple(ordered), frozenset(disabled))
-    return (list(ordered), set(disabled))
+    _INI_CACHE[key] = (tuple(ordered), frozenset(disabled), global_at)
+    return _INI_CACHE[key]
+
+
+def _is_global_airports_row(raw: str) -> bool:
+    """X-Plane 12's virtual ``*GLOBAL_AIRPORTS*`` row, or an X-Plane 11
+    ``Custom Scenery/Global Airports/`` one."""
+    parts = _split_components(raw)
+    return bool(parts) and parts[-1] in ("*GLOBAL_AIRPORTS*", "Global Airports")
+
+
+def names_above_global_airports(custom_scenery_dir: str) -> list[str]:
+    """The ENABLED packs X-Plane draws ABOVE Global Airports, highest
+    priority first (#1630): the packs on disk the ini does not list (X-Plane
+    adds a new pack at the top), then the enabled rows listed before the
+    Global Airports row.  An ini with no such row (or no ini) puts every
+    enabled pack above it — X-Plane 12 draws Custom Scenery over Global
+    Scenery."""
+    enabled = enabled_pack_names(custom_scenery_dir)
+    ordered, _disabled, global_at = _read_ini(
+        os.path.join(custom_scenery_dir or "", INI_FILENAME))
+    above = ordered if global_at is None else ordered[:global_at]
+    return (sorted(enabled - set(ordered) - NEVER_FILTERED)
+            + [name for name in above if name in enabled])
 
 
 def disabled_pack_names(custom_scenery_dir: str) -> set[str]:

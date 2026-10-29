@@ -699,6 +699,8 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.verify.structures",
     "auto_patch_v2.verify.transverse",
     "auto_patch_v2.verify.within",
+    "auto_patch_v2.airport.object_pack",
+    "auto_patch_v2.airport.pack_local",
     "elevation_access",
     "elevation_access.base",
     "elevation_access.base_fallback",

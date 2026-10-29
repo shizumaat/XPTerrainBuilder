@@ -73,7 +73,8 @@ class FlatSiteInputs:
     boundaries: tuple[_Poly, ...]
     dem: _t.Any = None
     #: the pack :func:`load.read_apt` selected — where DEM prep reads the
-    #: pack's draped pavement pages (``pack_pavement``, #1208)
+    #: pack's draped pavement pages (``pack_pavement``, #1208) — the
+    #: selection's ``pages_root``, Global's under an object pack (#1630)
     pack_root: str = ""
     pack_name: str = ""
 
@@ -119,7 +120,7 @@ def site_inputs(icao: str, xplane_root: str, cifp_path: str | None, law: Law,
                              tuple(_ring(h, to_xy) for h in b.rings[1:]))
                        for b in apt.boundaries)
     return FlatSiteInputs(icao.upper(), frame, runways, pavements, boundaries,
-                          pack_root=sel.root, pack_name=sel.name)
+                          pack_root=sel.pages_root, pack_name=sel.pages_name)
 
 
 def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,

@@ -49,6 +49,7 @@ import typing as _t
 from ..model.airport import DsfObject, SceneryPack
 from . import dsf as _dsf
 from .pack import authored_source
+from .pack_local import admitted, ships_objects
 
 __all__ = ["COMPANION_PLAN", "dump_candidates", "find",
            "plans", "place"]
@@ -67,14 +68,6 @@ class Companion:
     root: str
     dump_path: str
     rows: tuple[tuple[int, _t.Any], ...]
-
-
-def _inside(path: str, root: str) -> bool:
-    real = os.path.realpath(root)
-    try:
-        return os.path.commonpath([os.path.realpath(path), real]) == real
-    except ValueError:
-        return False
 
 
 def _candidates(main_root: str, lat: int, lon: int) -> list[str]:
@@ -100,41 +93,11 @@ def _candidates(main_root: str, lat: int, lon: int) -> list[str]:
     return out
 
 
-def _ships_objects(root: str) -> bool:
-    """Does the pack ship any ``.obj`` of its own (outside its DSFs)?  The
-    cheap gate before a DSF is dumped: an overlay that places only
-    library objects ships none and is never dumped."""
-    for here, dirs, files in os.walk(root):
-        if os.path.basename(here) == "Earth nav data":
-            dirs[:] = []
-            continue
-        if any(f.lower().endswith(".obj") for f in files):
-            return True
-    return False
-
-
 def dump_candidates(main_root: str, lat: int, lon: int) -> list[str]:
     """The candidate packs (``_candidates``) that ship objects of their
     own: the packs whose tile DSF the pre-build refresh dumps
     (``engine_v2.fresh_pack_dump``) so :func:`find` can read them."""
-    return [r for r in _candidates(main_root, lat, lon) if _ships_objects(r)]
-
-
-def admitted(dump, root: str, inside: _t.Callable[[float, float], bool]
-             ) -> list[tuple[int, _t.Any]]:
-    """The rows of ``dump`` a companion adopts: ``.obj`` placements whose
-    resource is a file ``root`` ships and whose anchor ``(lon, lat)`` is
-    ``inside`` the airport."""
-    rows = []
-    for i, pl in enumerate(dump.placements):
-        if not pl.def_path.lower().endswith(".obj"):
-            continue
-        path = os.path.join(root, pl.def_path)
-        if not (os.path.isfile(path) and _inside(path, root)):
-            continue
-        if inside(pl.lon, pl.lat):
-            rows.append((i, pl))
-    return rows
+    return [r for r in _candidates(main_root, lat, lon) if ships_objects(r)]
 
 
 def _region(airport):
@@ -154,7 +117,7 @@ def find(airport, mod_cache_root: str, lat: int, lon: int,
     from shapely.geometry import Point
     from shapely.prepared import prep
     from .dsf_write import pristine_dsf_path
-    main_root = os.path.dirname(os.path.dirname(airport.pack.apt_dat_path or ""))
+    main_root = airport.pack.pack_root
     region = _region(airport) if main_root and mod_cache_root else None
     if region is None:
         return []

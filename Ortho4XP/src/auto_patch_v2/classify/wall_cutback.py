@@ -26,6 +26,7 @@ import typing as _t
 
 from shapely.geometry import LineString, Polygon
 
+from ..airport.wall_sides import WallSides
 from ..geom.parts import line_parts
 from .evidence import polygon_parts
 
@@ -36,7 +37,7 @@ _MIN_LINE_M = 1.0
 
 
 def cut_roads_at_walls(cells: _t.Sequence, roles: _t.Collection[str],
-                       walls: _t.Sequence, min_area_m2: float, grow_m: float = 0.0
+                       walls: _t.Sequence[WallSides], min_area_m2: float, grow_m: float = 0.0
                        ) -> tuple[list, dict[str, float]]:
     """``cells`` with every cell of ``roles`` cut back at ``walls``
     (``Airport.retaining_walls``; the footprints grown by ``grow_m``, the
@@ -78,7 +79,7 @@ def cut_roads_at_walls(cells: _t.Sequence, roles: _t.Collection[str],
     return [_dc.replace(c, id=i) for i, c in enumerate(out)], stats
 
 
-def cut_lines_at_walls(cut: _t.Sequence, walls: _t.Sequence
+def cut_lines_at_walls(cut: _t.Sequence, walls: _t.Sequence[WallSides]
                        ) -> tuple[list, dict[str, float]]:
     """``cut`` with every ``road_centerline`` line split at the walls'
     footprints (module doc).  Returns the lines and

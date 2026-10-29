@@ -6,7 +6,7 @@ A pack wall that retains its own height (``airport/wall_class``,
 ever answered, merged or graded from the other.  This module is the ONE
 reading of a retaining wall's two sides that every reader shares:
 
-* :func:`wall_faces` — the wall's two long faces: its footprint ring split
+* :func:`_wall_faces` — the wall's two long faces: its footprint ring split
   at its two END edges (the pair of short edges that halves the ring);
 * :class:`WallSides` — per retaining piece: the footprint, the band
   ``smear`` wide beside each face (single-sided, so a bent wall's inside
@@ -27,9 +27,10 @@ reading of a retaining wall's two sides that every reader shares:
   station there reads the ground ``smear`` out along its own perpendicular,
   on its own side (the lower of the two on the lower side, the higher on
   the upper — ``constraints/wall_zone.foot_ground``'s rule, mirrored);
-* :func:`top_z` — the wall's TOP as seated (owner option (a), #1633 spec
-  §3 (1)): the lower level plus the object's extent above its zero, never
-  over the upper ground past the smear.
+* :func:`band_setbacks` — the cut a graded band takes ``smear`` short of a
+  wall's upper face (spec §3 (2)); the released ground between grades down
+  to the wall's top as seated (owner option (a): the lower level plus
+  :attr:`WallSides.top_y`, never over the upper ground past the smear).
 
 Derived once beside :attr:`Airport.wall_shade` (``airport/wall_shade``)
 and carried as :attr:`Airport.retaining_walls`."""
@@ -46,8 +47,8 @@ from shapely.ops import nearest_points, unary_union
 
 from ..model.wall_reach import BEHIND_SHARE, wall_reach_m, wall_smear_m
 
-__all__ = ["WallSides", "wall_faces", "wall_sides", "far_side_cut",
-           "crosses_wall", "smear_sampler", "top_z", "band_setbacks"]
+__all__ = ["WallSides", "wall_sides", "far_side_cut", "crosses_wall",
+           "smear_sampler", "band_setbacks"]
 
 
 @_dc.dataclass(frozen=True)
@@ -69,7 +70,7 @@ class WallSides:
     #: quarter of its width): a segment ACROSS the wall reaches it, a kerb
     #: vertex standing on the face (snapped a little in) does not
     core: _t.Any = None
-    #: the UPPER face line (``wall_faces``), outward on its right
+    #: the UPPER face line (``_wall_faces``), outward on its right
     upper_face: _t.Any = None
 
     def side_of(self, xy) -> str | None:
@@ -83,7 +84,7 @@ class WallSides:
         return None
 
 
-def wall_faces(poly: Polygon) -> tuple[LineString, LineString] | None:
+def _wall_faces(poly: Polygon) -> tuple[LineString, LineString] | None:
     """The two long faces of a thin footprint: its ring split at the pair
     of edges no longer than a few widths that halves it best (the ends),
     each face oriented with the footprint on its LEFT.  ``None`` for a
@@ -163,7 +164,7 @@ def wall_sides(airport, cfg, comps=None) -> tuple[WallSides, ...]:
             continue
         smear = wall_smear_m(h)
         for g in w.pieces:
-            faces = wall_faces(g)
+            faces = _wall_faces(g)
             if faces is None:
                 continue
             a, b = (_face_band(f, g, smear) for f in faces)
@@ -257,21 +258,11 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
                 continue
             a = np.asarray(at, float)
             past = np.asarray(sample(a[:, 0], a[:, 1]), dtype=float)
-            for (i, side), zp in zip(fix, past):
+            for (i, side), zp in zip(fix, past, strict=True):
                 if np.isfinite(zp):
                     z[i] = min(z[i], zp) if side == "lower" else max(z[i], zp)
         return z
     return _sample
-
-
-def top_z(w: WallSides, lower_z: float, upper_z: float) -> float:
-    """THE WALL'S TOP AS SEATED (owner option (a), spec §3 (1)): the lower
-    level ``lower_z`` plus the object's extent above its zero, never over
-    the upper ground past the smear ``upper_z``; the upper ground where the
-    extent is not read."""
-    if w.top_y is None:
-        return float(upper_z)
-    return float(min(upper_z, lower_z + w.top_y))
 
 
 def band_setbacks(walls: _t.Sequence[WallSides]) -> tuple[tuple, ...]:

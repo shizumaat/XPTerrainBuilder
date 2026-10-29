@@ -10,12 +10,11 @@ import types
 
 import numpy as np
 import pytest
-from shapely.geometry import LineString, Point, Polygon, box
-
 from auto_patch_v2.airport import wall_sides as WS
 from auto_patch_v2.airport.road_profile import ROUTE, RoadProfiles, Way
 from auto_patch_v2.airport.road_ramp import merge_routes
 from auto_patch_v2.law import Law
+from shapely.geometry import LineString, Point, Polygon, box
 
 WALL = box(60.0, -100.0, 65.0, 100.0)
 
@@ -39,7 +38,7 @@ class _StepDem:
 
 
 def _walls():
-    a, b = WS.wall_faces(WALL)
+    a, b = WS._wall_faces(WALL)
     up = box(40.0, -100.0, 60.0, 100.0)
     lo = box(65.0, -100.0, 85.0, 100.0)
     return (WS.WallSides(WALL, 20.0, 20.0, up, lo, 6.8, "synthetic",
@@ -47,10 +46,10 @@ def _walls():
 
 
 def test_the_two_faces_of_a_thin_wall():
-    a, b = WS.wall_faces(WALL)
+    a, b = WS._wall_faces(WALL)
     assert {round(a.length), round(b.length)} == {200}
     bent = Polygon([(0, 0), (100, 0), (100, 50), (95, 50), (95, 5), (0, 5)])
-    f = WS.wall_faces(bent)
+    f = WS._wall_faces(bent)
     assert f is not None and abs(f[0].length - f[1].length) < 12.0
 
 
@@ -143,14 +142,6 @@ def test_the_road_beside_the_wall_reads_past_the_smear():
     assert z[2] == pytest.approx(280.0)
 
 
-def test_the_wall_top_as_seated():
-    (w,) = _walls()
-    assert WS.top_z(w, 280.0, 300.0) == pytest.approx(286.8)
-    assert WS.top_z(w._replace(top_y=None) if hasattr(w, "_replace")
-                    else __import__("dataclasses").replace(w, top_y=None),
-                    280.0, 300.0) == 300.0
-
-
 def test_the_band_stops_smear_short_of_the_wall(law):
     """§3 (2): a runway 40 m from a wall's upper face — its band ends 20 m
     (the smear) short of the face; a wall AT the pavement edge keeps the
@@ -159,7 +150,9 @@ def test_the_band_stops_smear_short_of_the_wall(law):
     from auto_patch_v2.planar.zones import zone_regions
     pav = ((-40.0, -500.0), (0.0, -500.0), (0.0, 500.0), (-40.0, 500.0))
     cells = (Cell(0, "runway", "09/27", pav, (), 4, None, "airside", "runway", {}),)
-    def reach(walls, probe=box(0.0, -90.0, 39.9, 90.0)):
+    probe = box(0.0, -90.0, 39.9, 90.0)
+
+    def reach(walls):
         regs = zone_regions(cells, law, (), None, (), None,
                             wall_setbacks=WS.band_setbacks(walls))
         got = [r.polygon.intersection(probe) for r in regs]

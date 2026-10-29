@@ -1353,7 +1353,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.retaining_wall airport.wall_sides classify.wall_cutback model.wall_reach
+    classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
+    airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter classify.wall_clip constraints constraints.apron constraints.apron_shelf
     constraints.assembly constraints.ceiling constraints.channel constraints.cluster_pad
@@ -1499,7 +1500,9 @@ CODE_MODULES["solve"] = _mods("""
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
-    classify.retaining_wall airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles classify.rules
+    classify.retaining_wall
+    airport.wall_sides classify.wall_cutback model.wall_reach
+    classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.taxi_letter classify.wall_clip constraints.apron
     constraints.apron_shelf
     constraints.ceiling constraints.cluster_pad constraints.contiguity
@@ -1602,7 +1605,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.facade_mint classify.gap_apron classify.gap_mint classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
     classify.pad_cut_corridor classify.pad_touch
-    classify.ramp_runout classify.retaining_wall airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint
+    classify.ramp_runout classify.retaining_wall
+    airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint
     classify.roles classify.rules classify.sources classify.taxi_letter classify.wall_clip
     constraints
     constraints.apron constraints.apron_shelf constraints.assembly constraints.ceiling
@@ -1713,7 +1717,8 @@ CODE_MODULES["emit"] = _mods("""
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.gap_mint classify.lot_roads classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch
-    classify.retaining_wall airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
+    classify.retaining_wall
+    airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
     classify.rules classify.sources classify.taxi_letter classify.wall_clip constraints.apron
     constraints.apron_shelf constraints.apron_trend constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
@@ -1788,7 +1793,8 @@ CODE_MODULES["verify"] = _mods("""
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.retaining_wall airport.wall_sides classify.wall_cutback model.wall_reach
+    classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
+    airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter classify.wall_clip constraints.apron constraints.ceiling
     constraints.channel

@@ -777,8 +777,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # Q269 (a) (issue #1633, RULINGS 2026-10-28t): EVERY road-family cell
     # is CUT BACK at a retaining wall's faces, here, once — the footprint
     # and the far side are never its (``classify/wall_cutback``)
-    from .wall_cutback import cut_lines_at_walls, cut_roads_at_walls
     from ..law.tables import road_family_roles
+    from .wall_cutback import cut_lines_at_walls, cut_roads_at_walls
     _walls = tuple(getattr(airport, "retaining_walls", ()) or ())
     cells, _wstats = cut_roads_at_walls(cells, frozenset(road_family_roles(law)),
                                         _walls, rules.cells.min_area_m2,

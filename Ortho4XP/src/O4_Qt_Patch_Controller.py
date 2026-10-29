@@ -26,7 +26,7 @@ from o4_engine import patch_edit as PE
 from O4_Qt_Patch_Model import LoadedPatch, PatchEditModel
 
 __all__ = ["PatchController", "MAX_VIEW_SPAN_DEG", "ask_unsaved_dialog",
-           "unsaved_prompt_text", "sibling_entries"]
+           "unsaved_prompt_text"]
 
 #: The view must be narrower than this (degrees of longitude) before any
 #: patch is listed or drawn.

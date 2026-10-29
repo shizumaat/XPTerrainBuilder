@@ -66,7 +66,8 @@ def world(tmp_path_factory):
             _placement(root, "dsf:obj6", "twice.obj", (300.0, 0.0)),
             _placement(root, "dsf:obj7", "twice.obj", (320.0, 0.0)),
             _placement(root, "dsf:obj8", "missing.obj", (0.0, 300.0))]
-    pack = NS(name="pack", apt_dat_path=str(root / "Earth nav data" / "apt.dat"))
+    pack = NS(name="pack", apt_dat_path=str(root / "Earth nav data" / "apt.dat"),
+              pack_root=str(root))
     air = NS(icao="ZZZZ", frame=Frame("ZZZZ", (60.0, -135.0), 11), pack=pack)
     return NS(root=root, objs=objs, air=air)
 

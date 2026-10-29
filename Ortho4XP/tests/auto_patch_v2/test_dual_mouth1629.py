@@ -19,17 +19,15 @@ Law values are read from the tables, never retyped."""
 from __future__ import annotations
 
 import pytest
-from shapely.geometry import LineString, Polygon
-
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import zone2_half_width_m
 from auto_patch_v2.model.airport import Airport, OsmWay, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar.structure_approach import Mouth, merge_duals
-from auto_patch_v2.planar.structure_mouth import (covered_stretch, own_road_blade,
-                                                   road_over_mouth)
+from auto_patch_v2.planar.structure_mouth import covered_stretch, own_road_blade, road_over_mouth
 from auto_patch_v2.planar.structures import build_structures
+from shapely.geometry import LineString, Polygon
 
 
 class _FlatDem:

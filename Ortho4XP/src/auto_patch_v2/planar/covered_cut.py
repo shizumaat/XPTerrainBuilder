@@ -29,9 +29,26 @@ and those footprints, cut out of the pad as a level
 the airside and a riser's width off the other pads, at least a unit pad's
 worth), are ``<block>/p1``, a LOWER LEVEL (``low_level.LOW_KIND``, record
 ``witness`` :data:`WITNESS`) held rigid at the block's datum + the objects'
-plane under ``t`` (27h; ``constraints/platform.landing_rows``): the densest
-``PLANE_BAND_M`` plane of the lower parts' walled feet in the reach.  It
-takes no road (24a): a road crossing over the cut inside the building is
+FLOOR under ``t`` (27h; ``constraints/platform.landing_rows``).
+
+THE FLOOR IS THE ONE THE CUT'S OWN OBJECTS STATE (owner ruling Q287 (a),
+#1635): the lowest walkable top surface of the unit's objects inside the
+corridor -- the pack's liner and its track beds -- never the plane the
+station's lower parts stand on (:func:`_cut_floor`).  Each member holding a
+part a storey under ``t`` whose footprint meets the corridor is rastered on
+its own top surface (``airport/sunken_ramp._top_surface``, the highest
+solid over each ``sunken_ramp_grid_m`` cell); each cell keeps the LOWEST
+member top over it, and the floor is the lowest substantial plane of those
+cells a storey under ``t`` (``geom/foot_planes.ground_plane``).  MEASURED
+LFLL (capture b8c456c9 replayed on e0f4a3e0): all 3,672 cells of the covered
+corridor at y -10.11 (liner ``GROUND_TERRAIN_rough_14``, track
+``TGV_LY_13``), 0.38 s; the lower parts' walled feet (``TGV_LY_25``) read
+-9.13, and on main the level stood 1.33 m over the liner.  Where no
+member is read (a hermetic airport, an unreadable file) the floor is the
+densest ``PLANE_BAND_M`` plane of the lower parts' walled feet in the reach
+(:func:`_floor`).
+
+The level takes no road (24a): a road crossing over the cut inside the building is
 the building's deck (28k 227a), and no road ribbon stands in a covered cut
 (``planar/ribbons``).  It extends over nothing (``planar/low_extent``).
 MEASURED LFLL (capture b8c456c9, replayed on main 28cd9b38 and this
@@ -52,6 +69,7 @@ from __future__ import annotations
 
 import typing as _t
 
+import numpy as np
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
@@ -140,6 +158,73 @@ def _floor(low, R, law, t: float, step: float, to_xy) -> "tuple[float, int, int]
     return med, n, len(ys)
 
 
+def _floor_members(unit, C, t: float, step: float, to_xy) -> list:
+    """The members of ``unit`` holding a part a storey (``step``) under
+    ``t`` whose footprint meets the corridor ``C``: the cut's own objects."""
+    out = []
+    for m in getattr(unit, "members", ()) or ():
+        for p in getattr(m, "parts", ()) or ():
+            if getattr(p, "line", False) or float(p.base_y) > t - step:
+                continue
+            if any(g is not None and g.intersects(C)
+                   for g in (_ring_poly(rg, to_xy) for rg in p.rings)):
+                out.append(m)
+                break
+    return out
+
+
+def _member_top(m, unit, xs, ys, inside, box, to_xy):
+    """The member's top surface over the cells (NaN where none), or
+    ``None`` where its file cannot be read."""
+    from ..airport.sunken_ramp import _member_tris, _top_surface
+    org = getattr(m, "origin", None) or getattr(unit, "anchor", None)
+    if org is None or not getattr(m, "live_path", None):
+        return None
+    tris = _member_tris(m, org, to_xy)
+    if tris is None or not len(tris):
+        return None
+    lo, hi = tris[:, :, :2].min(axis=1), tris[:, :, :2].max(axis=1)
+    keep = ((hi[:, 0] >= box[0]) & (lo[:, 0] <= box[2])
+            & (hi[:, 1] >= box[1]) & (lo[:, 1] <= box[3]))
+    return _top_surface(tris[keep], xs, ys, inside)
+
+
+def _cut_floor(airport, ui, C, law, t: float, step: float, to_xy
+               ) -> "tuple[float, int, int] | None":
+    """``(plane, cells on it, cells read)``: THE FLOOR THE CUT'S OWN
+    OBJECTS STATE (module docstring; Q287 (a)) over the corridor ``C``, or
+    ``None`` where no member's top surface is read a storey under ``t``."""
+    import shapely
+
+    from ..airport.sunken_ramp import _law
+    from ..geom.foot_planes import ground_plane
+    grid = _law(law)[0]
+    part = getattr(airport, "partition", None)
+    if ui is None or part is None or grid <= 0.0 or C.is_empty:
+        return None
+    unit = part.units[ui]
+    b = C.bounds
+    xs = np.arange(b[0] + 0.5 * grid, b[2], grid)
+    ys = np.arange(b[1] + 0.5 * grid, b[3], grid)
+    if not len(xs) or not len(ys):
+        return None
+    X, Y = np.meshgrid(xs, ys)
+    inside = shapely.contains_xy(C, X, Y)
+    low = None
+    for m in _floor_members(unit, C, t, step, to_xy):
+        T = _member_top(m, unit, xs, ys, inside, b, to_xy)
+        if T is not None:
+            low = T if low is None else np.fmin(low, T)
+    if low is None:
+        return None
+    v = low[inside & ~np.isnan(low)]
+    v = [float(y) for y in v if y <= t - step]
+    plane = ground_plane(v)
+    if plane is None:
+        return None
+    return plane, sum(1 for y in v if abs(y - plane) <= _plane_band()), len(v)
+
+
 def _top(parts, air, airport, law, to_xy, near: float, R) -> "float | None":
     """The block's TOP level in the objects' frame: the densest
     ``PLANE_BAND_M`` plane of the walled feet of the unit's share of the
@@ -212,7 +297,7 @@ def plan_covered(P, air, airport, law, grid: float, cov, others=None, refused=No
     from ..law.tables import design as design_law
     near = float(design_law(law).pad_frontage_m)
     to_xy = airport.frame.entry()
-    parts = unit_share(P, airport, to_xy)[1]
+    ui, parts = unit_share(P, airport, to_xy)
     R = valid_area(valid_area(cov_reach.intersection(P)).union(C)) if cov_reach is not None else C
     t = _top(parts, air, airport, law, to_xy, near, R) if parts else None
     if t is None:
@@ -221,7 +306,11 @@ def plan_covered(P, air, airport, law, grid: float, cov, others=None, refused=No
         return None
     step = 2.0 * _plane_band()
     low = _lower_parts(parts, C, R, t, step, to_xy)
-    fl = _floor(low, R, law, t, step, to_xy) if low else None
+    fl = floor = None
+    if low:
+        fl, floor = _cut_floor(airport, ui, C, law, t, step, to_xy), "top surface"
+        if fl is None:
+            fl, floor = _floor(low, R, law, t, step, to_xy), "walled feet"
     if fl is None:
         if refused is not None:
             refused.append(f"no part a storey under y {t:+.2f} along the covered cut")
@@ -240,8 +329,8 @@ def plan_covered(P, air, airport, law, grid: float, cov, others=None, refused=No
         return None
     dem = getattr(airport, "dem", None)
     rec = {"witness": WITNESS, "top_y": round(t, 3), "y_lo": round(plane - t, 3),
-           "y_hi": round(-step, 3), "low_parts": len(low), "feet_on_plane": n_on,
-           "feet_read": n_feet, "area_m2": round(L.area, 1),
+           "y_hi": round(-step, 3), "low_parts": len(low), "floor": floor,
+           "feet_on_plane": n_on, "feet_read": n_feet, "area_m2": round(L.area, 1),
            "cut_m2": round(valid_area(C.intersection(L)).area, 1),
            "off_roads": n_roads, "off_roads_m2": roads_m2,
            "ground_z": _ground(L, dem, near), "ground_high_z": _ground(H, dem, near)}

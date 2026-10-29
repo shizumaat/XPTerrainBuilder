@@ -617,7 +617,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     counts["covered_cut_levels"] = "; ".join(
         f"{k} on {v['block']} y {v['y_lo']:+.2f} {v['area_m2']:g} m2 (cut {v['cut_m2']:g} m2, "
         f"off {v.get('off_roads', 0)} roads {v.get('off_roads_m2', 0.0):g} m2, "
-        f"{v['feet_on_plane']}/{v['feet_read']} feet on the plane, DEM {v['ground_z']})"
+        f"{v['feet_on_plane']}/{v['feet_read']} {v.get('floor') or 'walled feet'} "
+        f"on the plane, DEM {v['ground_z']})"
         for k, v in sorted(reg.landings.items()) if v.get("witness") == "covered_cut")
     counts["upper_levels"] = "; ".join(
         f"{k} on {v['block']} +{v['y']:.2f} {v['area_m2']:g} m2"

@@ -139,3 +139,61 @@ def test_the_roof_witness_reads_part_boxes_not_the_hull():
     senior, _c = ATOM.unit_rigid([north, south, roof], [(1, 2), (2, 3)],
                                  bind_ground_m=0.5, roof_bind_m=1.0)
     assert senior[1] == -1, senior
+
+
+# ── #1635: over the atom bound, the NEAREST atoms ask together ──────────
+
+_DLON = 1.0 / (111320.0 * 0.766)                   # ~1 m of longitude at 40 N
+
+
+def _row(n, x0_m, step_m):
+    """``n`` 1 m plan boxes along a parallel, ``step_m`` apart."""
+    return [(40.0, -3.0 + (x0_m + k * step_m) * _DLON,
+             40.000009, -3.0 + (x0_m + k * step_m + 1.0) * _DLON) for k in range(n)]
+
+
+def test_atoms_over_the_bound_are_joined_by_plan_proximity_never_across_the_reach():
+    """LFLL ``OBJECTS_LY_27``: 62 roof pieces over one building and a row
+    of lamp heads 600 m long were one carrier question past the bound, and
+    the roof rode the lamps' group 1.48 m over its walls."""
+    roof, lamps = _row(60, 0.0, 3.0), _row(6, 400.0, 150.0)
+    got = PB._near_atoms(roof + lamps, PB.CARRIED_ATOMS_MAX, 100.0)
+    assert got is not None and len(got) == 7
+    assert sorted(len(g) for g in got) == [1] * 6 + [60]
+    assert sorted(got, key=len)[-1] == list(range(60))          # the roof, whole
+    # no gap within the reach brings it under the bound: the old answer
+    assert PB._near_atoms(_row(70, 0.0, 150.0), PB.CARRIED_ATOMS_MAX, 100.0) is None
+    assert PB._near_atoms(roof + lamps, PB.CARRIED_ATOMS_MAX, 0.0) is None
+
+
+def test_a_carried_body_over_the_atom_bound_asks_per_near_group(monkeypatch):
+    boxes = _row(60, 0.0, 3.0) + _row(6, 400.0, 150.0)
+
+    class _Cut:
+        def part_tris(self, parts):
+            return tuple((3 * k, 3 * k + 1, 3 * k + 2) for k in range(len(boxes)))
+
+        def _comp_blocks(self, tris):
+            return [[k] for k in range(len(tris))]
+
+        def comp_of(self, tris):
+            return [-1] * len(tris)
+
+        def plan_box_of_tris(self, tris):
+            ks = [t[0] // 3 for t in tris]
+            return (min(boxes[k][0] for k in ks), min(boxes[k][1] for k in ks),
+                    max(boxes[k][2] for k in ks), max(boxes[k][3] for k in ks))
+
+        def part_tops(self, raw):
+            return [[4.0]]
+
+    monkeypatch.setattr(PB, "_geom_ground", lambda *a: ((), (), None))
+    part = types.SimpleNamespace(pid=1, comp=0, box=boxes[0], base_y=4.0, feet=())
+    raw0 = ([part], "building", _ar.Anchor("building", 40.0, -3.0, 0.0, "", 200.0),
+            (), True, (), (), None)
+    st = types.SimpleNamespace(cutter=_Cut(), raw=[raw0], boxes=[None],
+                               part_boxes=[[boxes[0], boxes[-1]]],
+                               geom_boxes=None, part_tops=None, surface=None)
+    out = PB._atom_targets(st, [0], reach_m=100.0)
+    assert len(out) == 7 and len(st.raw) == 8
+    assert sorted(len(st.raw[g[0]][5]) for g in out) == [1] * 6 + [60]

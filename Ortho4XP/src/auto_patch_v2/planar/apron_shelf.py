@@ -85,7 +85,7 @@ def _outlines(airport, law: Law, min_m2: float):
     cluster-pad bar, through the pad mint's own closing and gates
     (``classify/evidence._cluster_pads``) — the ONE outline, never a second."""
     from ..airport.slab_faces import witness_faces
-    from ..geom import cluster_building_evidence, cluster_outlines
+    from ..geom import cluster_building_evidence, cluster_outlines, pad_shade_extra
     from ..geom.base_slab import pad_shades
     from ..law.tables import base_slab_law, pad_admission
     st = law.tables.structures.placement
@@ -97,7 +97,7 @@ def _outlines(airport, law: Law, min_m2: float):
     to_xy = airport.frame.entry()
     lw = base_slab_law(law)
     shades = pad_shades(getattr(airport, "partition", None), to_xy, lw,
-                        getattr(airport, "sunken_ramps", None),
+                        pad_shade_extra(airport),
                         witness_faces(lw))
     got, _counts = cluster_outlines(
         small, to_xy, float(st.footprint_touch_m), airside=None,

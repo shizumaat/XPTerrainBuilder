@@ -158,6 +158,17 @@ def with_shade(shades, extra):
     return extra if shades is None else unary_union([shades, extra])
 
 
+def pad_shade_extra(airport):
+    """What the AIRPORT itself takes out of every pad outline, beside the
+    partition's own deck and slab shades: issue #516's sunken ramps
+    (``Airport.sunken_ramps``) and issue #1633's retaining walls
+    (``Airport.wall_shade``: a wall that retains its height is two levels,
+    never a flat pad).  The ``extra`` every pad reader hands
+    ``base_slab.pad_shades``; ``None`` where there is neither."""
+    return with_shade(getattr(airport, "sunken_ramps", None),
+                      getattr(airport, "wall_shade", None))
+
+
 #: v1's EVIDENCE SOURCE (a) population: which ``model.airport.Building``
 #: source spelling is an OSM footprint.  ``airport/load.py`` :339 writes
 #: exactly ``"osm"`` for a closed OSM way passing its ``_is_building``

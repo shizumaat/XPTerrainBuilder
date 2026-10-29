@@ -38,7 +38,7 @@ import typing as _t
 from . import apt_dat as _apt
 from . import dsf as _dsf
 
-__all__ = ["candidates", "find", "region_of"]
+__all__ = ["candidates", "find", "region_in", "region_of"]
 
 
 def candidates(xplane_root: str, lat: int, lon: int) -> list[str]:
@@ -64,12 +64,19 @@ def region_of(block: _t.Sequence[str], icao: str):
     """``(region, to_xy)``: the airport's boundary (row 130), else the
     union of its runways and pavements, in a metre frame at its reference
     point; ``(None, None)`` when the block carries neither."""
-    from shapely.geometry import Polygon
-    from shapely.ops import unary_union
-
     from ..model.frame import Frame
     apt = _apt.parse_airport_block(list(block))
     to_xy = Frame(icao, apt.reference_point(), 9).transformers()[0]
+    region = region_in(apt, to_xy)
+    return (region, to_xy) if region is not None else (None, None)
+
+
+def region_in(apt: "_apt.AptAirport", to_xy):
+    """:func:`region_of`'s region of the parsed ``apt`` in the caller's
+    ``to_xy`` frame (#1653: a neighbour's region in this airport's frame),
+    or ``None`` when it carries neither a boundary nor a pavement."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
     rings = [[to_xy(lo, la) for lo, la in b.rings[0]] for b in apt.boundaries if b.rings]
     if not rings:
         rings = [[to_xy(lo, la) for lo, la in p.rings[0]] for p in apt.pavements if p.rings]
@@ -79,9 +86,7 @@ def region_of(block: _t.Sequence[str], icao: str):
         if len(ring) >= 3:
             poly = Polygon(ring)
             parts.append(poly if poly.is_valid else poly.buffer(0))
-    if not parts:
-        return None, None
-    return unary_union(parts), to_xy
+    return unary_union(parts) if parts else None
 
 
 def _runway_rect(rw, to_xy) -> list[tuple[float, float]]:

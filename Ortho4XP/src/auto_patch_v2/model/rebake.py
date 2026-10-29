@@ -383,6 +383,11 @@ class RebakePlan:
     #: written before the field; the object stage then keeps its own
     #: staged connector reading and SAYS SO.
     connectors: "tuple[_t.Mapping[str, _t.Any], ...] | None" = None
+    #: THE AIRPORT'S apt.dat where the plan's pack ships none (an objects-only
+    #: COMPANION, ``airport/companion``; #1639): the stands the airside floor
+    #: is read at are the AIRPORT's (``airside_group_seat.stands_of``), not
+    #: the pack's.  ``""`` = ``<pack_root>/Earth nav data/apt.dat``.
+    apt_dat: str = ""
 
     def bounds(self) -> tuple[float, float, float, float]:
         """``(min_lon, min_lat, max_lon, max_lat)`` over every witness."""
@@ -413,6 +418,7 @@ class RebakePlan:
             "connectors": (None if self.connectors is None
                            else [dict(c) for c in self.connectors]),
             "flat": None if self.flat is None else self.flat.to_dict(),
+            **({"apt_dat": self.apt_dat} if self.apt_dat else {}),
             "units": [{
                 "id": u.id, "anchor": [u.anchor[0], u.anchor[1]], "agl_m": u.agl_m,
                 "members": [{
@@ -558,7 +564,8 @@ class RebakePlan:
                    authored_seats=tuple(dict(r) for r in d.get("authored_seats", ())),
                    connectors=(None if d.get("connectors") is None else
                                tuple(dict(c) for c in d["connectors"])),
-                   flat=None if d.get("flat") is None else FlatDatum.from_dict(d["flat"]))
+                   flat=None if d.get("flat") is None else FlatDatum.from_dict(d["flat"]),
+                   apt_dat=str(d.get("apt_dat") or ""))
 
     @classmethod
     def from_json(cls, text: str) -> "RebakePlan":

@@ -468,7 +468,8 @@ def _dem_twin(prof, per_face):
     twin = {id(w): _dc.replace(w, z=w.dem) for w in prof.all_ways}
     dem_prof = RoadProfiles(prof.cap, prof.station_m, prof.lane_width_m,
                             prof.radius_m,
-                            tuple(twin[id(w)] for w in prof.ways))
+                            tuple(twin[id(w)] for w in prof.ways),
+                            walls=getattr(prof, "walls", ()))
     dem_prof.axes = {fid: twin[id(w)] for fid, w in prof.axes.items()}
     per_face_dem = {fid: [(twin[id(w)], r) for w, r in lst]
                     for fid, lst in per_face.items()}
@@ -477,7 +478,8 @@ def _dem_twin(prof, per_face):
 
 def merge_routes(ways: _t.Sequence, raw: _t.Mapping[int, tuple[int, float, float]],
                  xy: _t.Mapping[int, tuple[float, float]],
-                 lateral_m: float, overlap_m: float, slack_m: float
+                 lateral_m: float, overlap_m: float, slack_m: float,
+                 walls: _t.Sequence = ()
                  ) -> tuple[dict[int, int], list[dict[str, _t.Any]]]:
     """§37 (10) (2) TWO ROUTES ARE ONE CARRIAGEWAY WHEN THEIR CORRIDORS
     INTERPENETRATE (owner RULINGS 2026-09-13cs item 4).
@@ -501,9 +503,10 @@ def merge_routes(ways: _t.Sequence, raw: _t.Mapping[int, tuple[int, float, float
     meeting at a point, no arc together) and two roads with ground
     between them stay two routes.
     """
-    from shapely.geometry import Point
+    from shapely.geometry import Point, box
     from shapely.strtree import STRtree
 
+    from .wall_sides import crosses_wall
     vs = [v for v in raw if v in xy]
     if len(vs) < 2:
         return {}, []
@@ -511,12 +514,23 @@ def merge_routes(ways: _t.Sequence, raw: _t.Mapping[int, tuple[int, float, float
     tree = STRtree(pts)
     span: dict[tuple[int, int], list[float]] = {}
     hits = tree.query(pts, predicate="dwithin", distance=lateral_m)
+    # the vertices a pair from could cross a wall: within the pairing
+    # distance of a wall's footprint box
+    by_wall = set()
+    for w in walls:
+        x0, y0, x1, y1 = w.poly.bounds
+        by_wall.update(int(k) for k in tree.query(
+            box(x0 - lateral_m, y0 - lateral_m, x1 + lateral_m, y1 + lateral_m)))
     for i, j in zip(hits[0].tolist(), hits[1].tolist()):
         if i == j:
             continue
         ra, sa, _ = raw[vs[i]]
         rb, sb, _ = raw[vs[j]]
         if ra == rb:
+            continue
+        # two ways ACROSS a retaining wall are never one carriageway (#1633
+        # round 3, spec §1 (3): the wall is 5.3 m wide, the pairing 6 m)
+        if i in by_wall and crosses_wall(xy[vs[i]], xy[vs[j]], walls):
             continue
         span.setdefault((ra, rb), []).append(sa)
     cand: set[tuple[int, int]] = set()
@@ -631,7 +645,8 @@ def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
     rc = law.tables.emit.road_contact
     all_ways = prof.all_ways
     into, merged = merge_routes(all_ways, out, xy, rc.pair_lateral_m,
-                                rc.pair_overlap_m, prof.lane_width_m)
+                                rc.pair_overlap_m, prof.lane_width_m,
+                                getattr(prof, "walls", ()))
     if into:
         lines = {r: all_ways[r].line for r in set(into.values())}
         for v, (r, s_, t_) in list(out.items()):
@@ -1450,6 +1465,9 @@ class WallPiece(_t.NamedTuple):
     #: a walled tunnel MOUTH's piece (:func:`mouth_wall_pieces`): its outline
     #: bounds the open cut too, so it declares only the step it carries
     mouth: bool = False
+    #: the UPPER face's line of a wall that retains its height
+    #: (``airport/wall_sides``, #1633 round 3), ``None`` where not read
+    upper_face: _t.Any = None
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1468,13 +1486,15 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
             or cfg is None:
         return ()
     from .wall_class import wall_class_components
+    sides = tuple(getattr(airport, "retaining_walls", ()) or ())
     out = []
     for c in wall_class_components(airport, cfg):
         for g in c.pieces:
             if _piece_length(g) >= float(c.height_m):
+                face = next((w.upper_face for w in sides if w.poly.equals(g)), None)
                 out.append(WallPiece(g, float(c.height_m),
                                      f"{c.resource}#comp{c.comp}",
-                                     bool(c.retains)))
+                                     bool(c.retains), False, face))
     return tuple(out)
 
 
@@ -1689,6 +1709,8 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         out[k] = {"line": [tuple(c) for c in ring], "height_m": w.height_m,
                   "label": w.label, "retains": bool(w.retains),
                   "mouth": bool(w.mouth),
+                  "upper_face": (None if getattr(w, "upper_face", None) is None
+                                 else [tuple(c) for c in w.upper_face.coords]),
                   "upper": upper, "lower": lower,
                   "lots": lots, "pairs": pairs}
     return out

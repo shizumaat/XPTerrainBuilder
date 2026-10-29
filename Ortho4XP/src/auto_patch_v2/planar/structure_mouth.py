@@ -280,8 +280,8 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
     a road passing under a taxiway.  ``floor_at(s)`` is that profile;
     ``s_g`` the first station, out from under the pavement, where the
     ground has come down to it (``None`` within the slide cap plus the
-    longest ramp).  ``floor`` is a SURVEYED road's blended floor at the
-    portal (``lidar_road``, RULINGS 2026-10-27g): the profile starts there,
+    longest ramp).  ``floor`` is a SURVEY MOUTH's floor at the
+    portal (``lidar_road.survey_mouth``, RULINGS 2026-10-28k R1): the profile starts there,
     and under the pavement it holds ``extra`` (the depth owed) under the DEM
     — which reads that road — instead of ``mouth_depth_m``."""
     from .structure_approach import approach_ground
@@ -389,8 +389,15 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         def half_fn(s: float, _hw=hw) -> tuple[float, float]:
             a, b = _hw.get(s, (half, half))
             return (max(half, a), max(half, b))
-        geom = ring_for(None, fn, ss, half, rim_off, group.inward, grid, group, half_fn)
-        return None if geom is None else geom.outer
+        # #1639: and the ring AT the trace's own widths, as the ramp builds it
+        # (``dual_width.compose_half_fn``) -- a trace narrower than the lanes
+        # at the mouth snaps its rim corner out past the lanes' ring (LFPG,
+        # 0.23 m from the taxiway the mouth slid 0.5 m out of: refused)
+        rings = [g.outer for g in (ring_for(None, fn, ss, half, rim_off, group.inward, grid,
+                                            group, f)
+                                   for f in (half_fn, lambda s, _hw=hw: _hw.get(s, (half, half))))
+                 if g is not None]
+        return None if not rings else unary_union(rings)
 
     if pinned:
         got = _pinned(group, axis, cells, polys, pads, law, cut_roles, half, rim_off,

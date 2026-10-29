@@ -133,3 +133,38 @@ def test_a_lot_beside_the_ramp_is_never_trimmed_its_own_road_is(law):
     assert east, st.refused
     assert _area(cl2, "lot") == pytest.approx(200.0 * 56.0, abs=1e-6)   # not one m2 trimmed
     assert _area(cl2, "own") < 840.0 * 7.0 - 100.0                      # the ramp IS this road
+
+
+def test_a_mouth_slid_clear_of_a_taxiway_keeps_its_ramp(law):
+    """#1639: the slide's probe is the ring the RAMP builds.  A mouth beside
+    a taxiway corner, its approach paved narrower than its lanes (a 3-lane
+    road traced at ~4 m half width): the slide cleared the corner with the
+    ring at the lanes' width, the ramp's ring at the trace's width snapped
+    its rim corner 0.23 m from the taxiway, and the mouth was refused as
+    "stands against pavement" -- the bore emitted no cut at that end."""
+    t = {"highway": "primary", "tunnel": "yes", "lanes": "3", "layer": "-1"}
+    r = {"highway": "primary", "lanes": "3", "layer": "-1"}
+    ways = (OsmWay(-101, "big_roads", ((-74.7, -73.8), (-72.3, -70.2), (-62.0, -55.0),
+                                       (-44.7, -32.2), (-22.7, -12.6), (0.0, 0.0)), False, t),
+            OsmWay(-201, "big_roads", ((0.0, 0.0), (36.2, 11.3), (233.4, 40.0)), False, r),
+            OsmWay(-202, "big_roads", ((-74.7, -73.8), (-300.0, -300.0)), False, r))
+    twy = tuple((x + 0.75, y) for x, y in (
+        (-60.4, -28.0), (-56.4, -22.5), (-52.4, -25.5), (-34.4, -7.9), (-27.4, -2.4),
+        (-19.9, 2.1), (-11.4, 6.6), (1.6, -8.9), (-14.9, -20.5), (-13.9, -22.0),
+        (42.6, -14.0), (60.0, -11.4), (60.0, -25.3), (28.1, -30.0), (-26.4, -38.0),
+        (-80.0, -45.9), (-80.0, -31.2)))
+    cells = _base_cells() + [
+        Cell(1, "secondary_parallel", "twy", twy, (), None, "D", "airside", "taxiway", {}),
+        Cell(2, "service_road", "approach", ((-0.9, 3.6), (1.1, -3.9), (14.1, 0.1), (11.6, 7.6)),
+             (), None, None, "groundside", "road", {}),
+        Cell(3, "service_road", "approach#1", ((14.1, 0.1), (37.1, 7.6), (35.1, 15.1),
+                                              (11.6, 7.6)), (), None, None, "groundside",
+             "road", {})]
+    ap = _airport(law)
+    import dataclasses as dc
+    ap = dc.replace(ap, osm_ways=ways)
+    cl = Classification(tuple(cells), (), {}, ())
+    _cl2, tunnels, st = build_structures(ap, cl, law)
+    assert not [x for x in st.refused if "stands against pavement twy" in x], st.refused
+    assert any(abs(tt.axis[0][0]) < 5.0 and abs(tt.axis[0][1]) < 5.0 for tt in tunnels), \
+        ([tt.axis[0] for tt in tunnels], st.refused)

@@ -54,6 +54,9 @@ class WallComponent:
     #: its own zero where it stands proud (:func:`_depth_under_zero`); 0.0
     #: where it retains none
     retained_m: float = 0.0
+    #: the part's extent ABOVE its object's zero (``base_y + height``,
+    #: #1633: the wall's top as seated), ``None`` where the reading has none
+    top_y: float | None = None
 
 
 #: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
@@ -128,9 +131,12 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 retains = retained > 0.0
                 if wide > float(cfg.retaining_wall_max_width_m) and not retains:
                     continue
+                by = getattr(p, "base_y", None)
                 out.append(WallComponent(tuple(polys), float(p.height_m),
                                          m.resource, int(p.comp), retains,
-                                         float(retained)))
+                                         float(retained),
+                                         None if by is None else
+                                         float(by) + float(p.height_m)))
     return out
 
 

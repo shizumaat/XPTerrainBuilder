@@ -68,7 +68,7 @@ from ..geom.core_clamp import ENGINE_DIR, core_vector_utils
 from ..geom.coverage import coverage_polygon
 from ..law import Law
 from ..model.frame import rotated_rectangle
-from ..law.tables import family, role_cap, senior_role
+from ..law.tables import road_family_roles, role_cap, senior_role
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import PlanarMap
@@ -323,6 +323,9 @@ class RoadProfiles:
     #: carried on the object so a second reader of the SAME profiles does
     #: not rebuild them — ``airport/road_ramp.py``, §37 (6))
     per_face: dict[int, list[tuple[Way, float]]] = _dc.field(default_factory=dict)
+    #: the retaining walls (``Airport.retaining_walls``): a way never
+    #: answers a vertex ACROSS one (#1633 round 3, spec §1 (3))
+    walls: tuple = ()
     _tree: STRtree | None = _dc.field(default=None, repr=False)
     _lines: list[LineString] = _dc.field(default_factory=list, repr=False)
 
@@ -396,6 +399,8 @@ class RoadProfiles:
         radius = np.fromiter((r for _w, r in cands), float, len(cands))
         osm = np.fromiter((w.kind == OSM for w, _r in cands), bool, len(cands))
         ok = lat_all <= radius
+        if self.walls and ok.any():
+            ok = self._same_side(pt, cands, s_all, lat_all, ok)
         if not ok.any():
             return Answer(float(dem), None, None, math.inf)
         rank = np.where(osm & (lat_all <= self.radius_m), 0, 1)
@@ -406,6 +411,28 @@ class RoadProfiles:
         s, lat = float(s_all[k]), float(lat_all[k])
         return Answer(w.at(s), w.kind, w.ref, lat, w, s,
                       _signed_offset(self._line(w), s, pt))
+
+    def _same_side(self, pt: XY, cands, s_all, lat_all, ok) -> np.ndarray:
+        """``ok`` less every candidate whose way lies ACROSS a retaining
+        wall from ``pt``: the segment from the vertex to its projection on
+        the way reaches the wall (``airport/wall_sides.crosses_wall``) — the
+        foot road never answers the ground beyond the wall's back (KATL
+        ``muro_27R.obj``: face ``route10`` v18120, 2-10 m behind the wall,
+        held at ``osm:-7``'s level 10 m under its DEM)."""
+        from .wall_sides import crosses_wall
+        far = float(np.max(lat_all[ok]))
+        x, y = float(pt[0]), float(pt[1])
+        near = [w for w in self.walls
+                if w.core is not None and w.core.bounds[0] - far <= x <= w.core.bounds[2] + far
+                and w.core.bounds[1] - far <= y <= w.core.bounds[3] + far]
+        if not near:
+            return ok
+        ok = ok.copy()
+        for k in np.flatnonzero(ok):
+            q = self._line(cands[k][0]).interpolate(float(s_all[k]))
+            if crosses_wall((x, y), (q.x, q.y), near):
+                ok[k] = False
+        return ok
 
     def _table(self, ways: _t.Sequence[Way]) -> StationTable:
         """The station table of ``ways`` in order, built once per
@@ -436,14 +463,6 @@ class RoadProfiles:
                 "max_lift_m": round(lift, 4), "max_cut_m": round(cut, 4),
                 "cap": self.cap, "station_m": self.station_m,
                 "lane_width_m": self.lane_width_m, "answer_radius_m": self.radius_m}
-
-
-def road_family_roles(law: Law) -> tuple[str, ...]:
-    """The roles whose vertices prefer the core profile: the road
-    cross-section family (service_road, service_junction) and the
-    groundside classes ``roads.road_within_shape`` prices with them."""
-    return tuple(family(law, "road_cross_section").roles) + \
-        ("groundside_pavement", "parking_lot")
 
 
 def axis_roles(law: Law) -> tuple[str, ...]:
@@ -573,7 +592,11 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     rp = law.tables.emit.road_profile
     cap_ = float(cap) if cap is not None else role_cap(law, "service_road").longitudinal
     lw = float(lane_width_m) if lane_width_m is not None else rp.lane_width_m
-    sample = _sample_fn(airport)
+    # #1633 round 3 (spec §2): beside a retaining wall a station reads the
+    # ground PAST the lidar's smear of the step, on its own side
+    from .wall_sides import smear_sampler
+    walls = tuple(getattr(airport, "retaining_walls", ()) or ())
+    sample = smear_sampler(_sample_fn(airport), walls)
     inside = _inside_fn(airport)
     # THE BAND v2 CLAMPS UNDER (spec §2-SUPPLEMENT S.2 (b)): the patch
     # coverage at the SAME ``lane_width + 2`` offset the core's ribbon is
@@ -601,7 +624,7 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
         ways.extend(clamp_way(ROUTE, f"{b.ref}#{b.id}", pts, sample, cap_,
                               rp.station_m, inside))
     prof = RoadProfiles(cap_, rp.station_m, lw, rp.answer_radius_lane_widths * lw,
-                        tuple(ways))
+                        tuple(ways), walls=walls)
     axis_set = set(axis_roles(law))
     per_face: dict[int, list[tuple[Way, float]]] = {}
     for fid, f in pm.faces.items():

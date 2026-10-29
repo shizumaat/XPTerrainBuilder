@@ -391,7 +391,8 @@ def structure_records(airport, cl, law) -> dict:
     bridges = edge_bridges(objects, cache, *covered_cuts(airport, cl, law), law)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
                                             plates, channels, portals=tstats.portals,
-                                            edge_bridges=bridges)
+                                            edge_bridges=bridges,
+                                            trenches=tstats.trench_objects)
     # the rim diagnostics are read HERE, on demand (owner RULINGS
     # 2026-10-04x (2)): a build's basin notes carry neither
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,
@@ -469,6 +470,9 @@ def structure_records(airport, cl, law) -> dict:
         # #1343: the mouths a pack portal pinned, and the ones left to the bore law
         "portal_mouths": list(sstats.portal_mouths),
         "portals_unpinned": list(sstats.portals_unpinned),
+        # 2026-10-28s (5): covered bores and the trench objects they read
+        "covered_bores": list(sstats.covered_bores),
+        "trench_objects": list(tstats.trench_notes),
         "portals_in_strip": list(sstats.portals_in_strip),
         "crest_from_approach": list(sstats.crest_from_approach),
         # spec §34 (5): the crossings an aeroway bridge stated

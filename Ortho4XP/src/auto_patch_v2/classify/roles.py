@@ -639,7 +639,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         from . import retaining_wall as _rw
         lane_m = float(rules.service.retaining_wall_reach_m)
         _rpieces = _rw.retaining_pieces(airport, road, lane_m, rules.service)
-        road = unary_union([road, _rw.road_extension(_rpieces, road, lane_m)])
+        road = unary_union([road, _rw.road_extension(
+            _rpieces, road, lane_m, tuple(getattr(airport, "retaining_walls", ()) or ()))])
         stats.update({f"retaining_{k}": v for k, v in _rw.STATS.items()})
         road = road.difference(ev.pavement_union)
         if not ev.pad_union.is_empty:
@@ -773,6 +774,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     stats["truck_chains"] = len(ev.truck_chains)
     stats["terminal_present"] = float(ev.terminal_present)
 
+    # Q269 (a) (issue #1633, RULINGS 2026-10-28t): EVERY road-family cell
+    # is CUT BACK at a retaining wall's faces, here, once — the footprint
+    # and the far side are never its (``classify/wall_cutback``)
+    from ..law.tables import road_family_roles
+    from .wall_cutback import cut_lines_at_walls, cut_roads_at_walls
+    _walls = tuple(getattr(airport, "retaining_walls", ()) or ())
+    cells, _wstats = cut_roads_at_walls(cells, frozenset(road_family_roles(law)),
+                                        _walls, rules.cells.min_area_m2,
+                                        snap_margin_m(law))
+    stats.update(_wstats)
     cut: list[CutLine] = []
     for ln, c in taxi_parts:
         cut.append(CutLine("taxi_centerline", f"taxi{c.id}", tuple(ln.coords),
@@ -801,6 +812,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         outside = c.line.difference(ev.pavement_union)
         for ln in line_parts(outside):
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
+    # ...and so is every road centreline: each part is its own breakline
+    cut, _lstats = cut_lines_at_walls(cut, _walls)
+    stats.update(_lstats)
     base = None
     if ev.base_pads is not None:
         n0 = len(cells)

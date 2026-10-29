@@ -47,7 +47,8 @@ THE FINGERPRINT covers everything the reading is a function of:
 * the LAW TABLES (``law_tables_digest``'s sha256) and the ruleset key;
 * the FRAME the geometry is placed in (its CRS and origin) — every
   coordinate in the result is in it;
-* the placement window (``radius_deg``) and the airport;
+* the OSM window (``radius_deg``), the airport, and the PLACEMENT WINDOW
+  (#1653): a digest of the admitted placement ids (:func:`_window_digest`);
 * THE RESOLVED-PLACEMENT SET (issue #88): the count and a sha256 of the
   sorted ``(def_path, resolved_path)`` pairs of the airport's placements
   that resolved — pack-relative OR through the library index.  The pack
@@ -518,7 +519,10 @@ def fingerprint(airport, law, *, dump_path: str | None,
     fr = getattr(airport, "frame", None)
     h.update(f"frame:{getattr(fr, 'crs', None)}:"
              f"{getattr(fr, 'lat0', None)}:{getattr(fr, 'lon0', None)}|".encode())
-    h.update(f"icao:{getattr(airport, 'icao', '')}|radius:{radius_deg}|".encode())
+    # #1653: the placement window is the airport's own extent, not the
+    # OSM box ``radius_deg`` names — the admitted placement ids are keyed
+    h.update(f"icao:{getattr(airport, 'icao', '')}|radius:{radius_deg}|"
+             f"window:{_window_digest(airport)}|".encode())
     h.update(f"pack:{pack_root}|".encode())
     # §44 (4) (owner RULINGS 2026-09-15f): the BORROWED Global Airports
     # block, so a Global update invalidates the cached reading — the pack
@@ -536,6 +540,13 @@ def fingerprint(airport, law, *, dump_path: str | None,
     _DEMS[fp] = getattr(airport, "dem", None)
     _TAKEN[(os.path.abspath(pack_root), str(getattr(airport, "icao", "") or ""))] = fp
     return fp
+
+
+def _window_digest(airport) -> str:
+    """sha256 of the sorted ``dsf_objects`` ids: which placements the
+    load's window admitted (#1653, ``airport/object_window``)."""
+    ids = sorted(str(getattr(o, "id", "")) for o in (getattr(airport, "dsf_objects", ()) or ()))
+    return hashlib.sha256("\n".join(ids).encode()).hexdigest()[:16]
 
 
 def pristine_stamps(pack_root: str) -> list[tuple[str, int, float, str]] | None:

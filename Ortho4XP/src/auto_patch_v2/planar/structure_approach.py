@@ -158,20 +158,48 @@ class Bore:
         return LineString(self.points)
 
 
+def _copies(ways: _t.Sequence[OsmWay]) -> dict[int, list[OsmWay]]:
+    """THE SECOND FEED'S COPY IS THE SAME WAY (issue #1028, spec
+    ``eddf-tunnel-mouths-spec.md`` E1): ``{index of the first way: [its
+    coincident copies]}`` — a way whose nodes are another's node for node
+    (``NODE_TOL``), in either direction.  Two OSM feeds (the big-roads and
+    the airport-roads extracts) carry the same tunnel; chained, the copy
+    ran the bore out and back, so both its "ends" stood at ONE portal and
+    the real far portal was lost in the chain's middle (MEASURED EDDF: 118
+    of 282 tunnel ways are such copies; ``-9780`` / ``-17626`` built two
+    mouths at 50.034989, 8.520647 whose corridors overlapped each other)."""
+    first: dict[tuple, int] = {}
+    out: dict[int, list[OsmWay]] = {}
+    for i, w in enumerate(ways):
+        k = tuple(_key(p) for p in w.points)
+        j = first.get(k, first.get(tuple(reversed(k))))
+        if j is None:
+            first[k] = i
+        else:
+            out.setdefault(j, []).append(w)
+    return out
+
+
 def chains(ways: list[OsmWay]) -> list[Bore]:
-    """Join tunnel ways end to end where exactly two of them meet."""
+    """Join tunnel ways end to end where exactly two of them meet.  A
+    second feed's coincident copy (:func:`_copies`) is no way of its own:
+    it rides in its original's ``Bore.ways`` and never joins a chain."""
+    copies = _copies(ways)
+    copy_ids = {id(c) for cs in copies.values() for c in cs}
     ends: dict[tuple[int, int], list[int]] = {}
     for i, w in enumerate(ways):
+        if id(w) in copy_ids:
+            continue
         ends.setdefault(_key(w.points[0]), []).append(i)
         ends.setdefault(_key(w.points[-1]), []).append(i)
-    used = [False] * len(ways)
+    used = [id(w) in copy_ids for w in ways]
     out: list[Bore] = []
     for i, w in enumerate(ways):
         if used[i]:
             continue
         used[i] = True
         pts = list(w.points)
-        members = [w]
+        members = [w] + copies.get(i, [])
         for direction in (1, -1):
             while True:
                 end = pts[-1] if direction == 1 else pts[0]
@@ -187,7 +215,7 @@ def chains(ways: list[OsmWay]) -> list[Bore]:
                     pts.extend(nxt[1:])
                 else:
                     pts = list(reversed(nxt[1:])) + pts
-                members.append(ways[j])
+                members.extend([ways[j]] + copies.get(j, []))
         out.append(Bore(members, pts))
     return out
 

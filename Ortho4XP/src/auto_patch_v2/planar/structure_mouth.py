@@ -277,8 +277,8 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
     a road passing under a taxiway.  ``floor_at(s)`` is that profile;
     ``s_g`` the first station, out from under the pavement, where the
     ground has come down to it (``None`` within the slide cap plus the
-    longest ramp).  ``floor`` is a SURVEYED road's blended floor at the
-    portal (``lidar_road``, RULINGS 2026-10-27g): the profile starts there,
+    longest ramp).  ``floor`` is a SURVEY MOUTH's floor at the
+    portal (``lidar_road.survey_mouth``, RULINGS 2026-10-28k R1): the profile starts there,
     and under the pavement it holds ``extra`` (the depth owed) under the DEM
     — which reads that road — instead of ``mouth_depth_m``."""
     from .structure_approach import approach_ground
@@ -522,6 +522,32 @@ def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
 
 #: :func:`strip_keepout`'s verdicts
 STRIP_REFUSED, STRIP_PORTAL = "refused", "portal"
+
+
+def runway_strip(cells, polys, law, runways):
+    """THE RUNWAY STRIP KEEP-OUT region (RULINGS 2026-08-21d): every runway
+    cell buffered by its zone-2 half width — the one derivation
+    :func:`strip_keepout` and ``planar/dual_trench`` read; ``None`` with no
+    runway.  §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
+    region.  It is runway pavement (so every surface reader keeps it) but
+    the strip keep-out is drawn around the RUNWAY, which the shoulder lies
+    inside; buffering the shoulder too drew a second keep-out nothing ruled
+    and refused VHHH's road tunnel at 22.30368, 113.92917 (84,000 + 8,040 +
+    6,228 m2 of shoulder by 75 m).  The census of every runway-family
+    reader is the spec's §40 (4) MEASURED table."""
+    from shapely.ops import unary_union
+    from ..classify.roles import is_runway_shoulder
+    from ..law.reference_code import ref_status, status_by_ref
+    from ..law.tables import zone2_half_width_m
+    strip = []
+    status_of = status_by_ref(runways)    # #811
+    for p, c in zip(polys, cells, strict=True):
+        if c.role in ("runway", "runway_crossing") and not is_runway_shoulder(c):
+            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter,
+                                    ref_status(status_of, c.ref))
+            if hw:
+                strip.append(p.buffer(hw, join_style="mitre", mitre_limit=2.0))
+    return unary_union(strip) if strip else None
 
 
 def strip_keepout(wall, strip_u, pin) -> str:

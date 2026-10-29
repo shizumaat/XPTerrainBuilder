@@ -34,7 +34,8 @@ MAX_OVERLAP_PASSES = 8
 
 def unframed_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: float,
                  spacing: float, *, within: float | None = None,
-                 max_len: float | None = None
+                 max_len: float | None = None, design: float | None = None,
+                 cap: float | None = None
                  ) -> tuple[float | None, float | None, list[float]]:
     """``(grade, s_top, stations)`` of a ramp NO OBJECT FRAMES (a mapped
     bore's approach) — THE CAP IS A CEILING, NEVER THE GRADE A RAMP IS
@@ -56,9 +57,15 @@ def unframed_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from
     Measured (sweep ``sww``, 2026-10-08): with the cap read as the climb,
     raising it 8 → 10 % shortened EVERY mapped approach (SPJC 120 → 84 m)
     though none needed the grade; KASE's ``tunnel:-549@0``, which never
-    met the ground in 600 m, is the ramp the cap is for (9.84 %)."""
+    met the ground in 600 m, is the ramp the cap is for (9.84 %).
+
+    ``design`` / ``cap`` are a group's own (a RAIL bore's ``rail_ramp_grade``
+    / ``rail_ramp_max_grade``, a survey mouth's R4 grade — RULINGS
+    2026-10-28k); the tunnel's ``ramp_grade`` / ``ramp_max_grade`` else."""
     tn = law.tables.structures.tunnel
     bound = tn.max_ramp_length_m if max_len is None else max_len
+    design = tn.ramp_grade if design is None else design
+    cap = tn.ramp_max_grade if cap is None else cap
 
     def _run() -> _t.Iterator[tuple[float, float]]:
         s = 0.0
@@ -73,10 +80,10 @@ def unframed_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from
                 return
             yield s - climb_from, d - mouth_z
 
-    grade = built_grade(least_grade(_run()), tn.ramp_grade, tn.ramp_max_grade)
+    grade = built_grade(least_grade(_run()), design, cap)
     if grade is None:
         return None, None, ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing,
-                                    grade=tn.ramp_max_grade, max_len=max_len)[1]
+                                    grade=cap, max_len=max_len)[1]
     # the ulp of slack only makes the LEAST grade's own station read as met
     s_top, ss = ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing,
                          grade=grade * GRADE_SLACK, max_len=max_len)
@@ -85,30 +92,35 @@ def unframed_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from
 
 def unframed_climb(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: float,
                    spacing: float, run_ends: _t.Sequence[tuple[float, str]],
-                   max_len: float | None = None, *, strict: bool = False
+                   max_len: float | None = None, *, strict: bool = False,
+                   design: float | None = None, cap: float | None = None
                    ) -> tuple[float | None, float | None, list[float], str]:
     """``(grade, s_top, stations, note)`` — :func:`unframed_top` within the
     NEAREST of ``run_ends`` (``(station, what ends the run there)``).  Where
     no grade up to the cap tops out in that run the ramp is read WITHOUT
     it — refused, or built past it, exactly as before the cap was a
     ceiling — unless ``strict`` (the caller keeps what it had).  ``note``
-    names why a ramp is steeper than its design grade ("" when it is not)."""
+    names why a ramp is steeper than its design grade ("" when it is not).
+    ``design`` / ``cap``: :func:`unframed_top`'s."""
     tn = law.tables.structures.tunnel
+    design = tn.ramp_grade if design is None else design
+    cap = tn.ramp_max_grade if cap is None else cap
     end, what = min(run_ends)
     got, s_top, ss = unframed_top(airport, law, axis_fn, mouth_z, climb_from, spacing,
-                                  within=end, max_len=max_len)
+                                  within=end, max_len=max_len, design=design, cap=cap)
     free = (None, None, ss) if strict else unframed_top(
-        airport, law, axis_fn, mouth_z, climb_from, spacing, max_len=max_len)
+        airport, law, axis_fn, mouth_z, climb_from, spacing, max_len=max_len,
+        design=design, cap=cap)
     if got is None:
         got, s_top, ss = free
         what = ""
-    if got is None or got <= tn.ramp_grade + 1e-9:
+    if got is None or got <= design + 1e-9:
         return got, s_top, ss, ""
     why = (f"no ground within {tn.max_ramp_length_m:.0f} m at the design grade"
            if not what or free[0] == got else f"{what} at {end:.0f} m")
     return got, s_top, ss, (
-        f"ramp steepened {100.0 * tn.ramp_grade:.1f} -> {100.0 * got:.2f} % (cap "
-        f"{100.0 * tn.ramp_max_grade:.0f} %): {why} (owner RULINGS 2026-10-08c (1) / 08d (1): "
+        f"ramp steepened {100.0 * design:.1f} -> {100.0 * got:.2f} % (cap "
+        f"{100.0 * cap:g} %): {why} (owner RULINGS 2026-10-08c (1) / 08d (1): "
         f"the cap gives flex only where it is needed)")
 
 

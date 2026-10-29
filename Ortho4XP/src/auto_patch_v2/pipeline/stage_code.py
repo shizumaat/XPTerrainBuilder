@@ -398,6 +398,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.thin_plates",
         "auto_patch_v2.airport.topology_cache",
+        "auto_patch_v2.airport.trench_objects",
         "auto_patch_v2.airport.tunnel_objects",
         "auto_patch_v2.airport.tunnel_walls",
         "auto_patch_v2.airport.unit_storey",
@@ -508,10 +509,11 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.channel_geometry",
         "auto_patch_v2.planar.channel_witness",
         "auto_patch_v2.planar.chords",
-        "auto_patch_v2.planar.covered_cut",
+    "auto_patch_v2.planar.covered_bores", "auto_patch_v2.planar.covered_cut",
         "auto_patch_v2.planar.covered_ground",
         "auto_patch_v2.planar.cut_runout",
         "auto_patch_v2.planar.door_ramps",
+        "auto_patch_v2.planar.dual_trench",
         "auto_patch_v2.planar.dual_width",
         "auto_patch_v2.planar.edges",
         "auto_patch_v2.planar.fill_riser",
@@ -559,6 +561,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.structures",
         "auto_patch_v2.planar.terrain_edge",
         "auto_patch_v2.planar.unframed_ramp",
+        "auto_patch_v2.planar.viaduct_road",
         "auto_patch_v2.planar.wall_corridor_ramps",
         "auto_patch_v2.planar.weld",
         "auto_patch_v2.planar.zone_pass",
@@ -1477,6 +1480,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.ring_contact_batch
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
+    airport.trench_objects
     airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
@@ -1515,12 +1519,13 @@ CODE_MODULES["solve"] = _mods("""
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
-    planar.bridge_span planar.channel_witness planar.chords planar.covered_cut
-    planar.covered_ground planar.cut_runout planar.door_ramps planar.dual_width
-    planar.edges planar.landing planar.landing_runout planar.lidar_road planar.low_level
-    planar.object_corridor planar.overlay planar.pack_reads planar.pad_blocks
-    planar.pad_cut planar.pad_fill planar.pad_sliver planar.pad_terrace
-    planar.plate_bays planar.platform planar.ribbon_weld planar.ribbons
+    planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
+    planar.covered_cut planar.covered_ground planar.cut_runout planar.door_ramps
+    planar.dual_trench planar.dual_width planar.edges planar.landing planar.landing_runout
+    planar.lidar_road planar.low_level planar.object_corridor planar.overlay
+    planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
+    planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
+    planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_fence
@@ -1528,7 +1533,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.structure_service planar.structure_stats
     planar.structure_underpass planar.structures planar.terrain_edge
-    planar.unframed_ramp planar.wall_corridor_ramps planar.weld planar.zones solve.api
+    planar.unframed_ramp planar.viaduct_road
+    planar.wall_corridor_ramps planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
@@ -1580,6 +1586,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.ring_contact_batch
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
+    airport.trench_objects
     airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
@@ -1632,12 +1639,13 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
-    planar.bridge_span planar.channel_witness planar.chords planar.covered_cut
-    planar.covered_ground planar.cut_runout planar.door_ramps planar.dual_width
-    planar.edges planar.landing planar.landing_runout planar.lidar_road planar.low_level
-    planar.object_corridor planar.overlay planar.pack_reads planar.pad_blocks
-    planar.pad_cut planar.pad_fill planar.pad_sliver planar.pad_terrace
-    planar.plate_bays planar.platform planar.ribbon_weld planar.ribbons
+    planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
+    planar.covered_cut planar.covered_ground planar.cut_runout planar.door_ramps
+    planar.dual_trench planar.dual_width planar.edges planar.landing planar.landing_runout
+    planar.lidar_road planar.low_level planar.object_corridor planar.overlay
+    planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
+    planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
+    planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_fence
@@ -1645,7 +1653,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.structure_service planar.structure_stats
     planar.structure_underpass planar.structures planar.terrain_edge
-    planar.unframed_ramp planar.wall_corridor_ramps planar.weld planar.zones solve.api
+    planar.unframed_ramp planar.viaduct_road
+    planar.wall_corridor_ramps planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield

@@ -82,10 +82,9 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..classify.roles import Cell, Classification, is_runway_shoulder
+from ..classify.roles import Cell, Classification
 from ..law import Law
-from ..law.reference_code import ref_status, status_by_ref
-from ..law.tables import role_family, role_side, zone2_half_width_m
+from ..law.tables import role_family, role_side
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..model.structures import Channel, Deck, Tunnel
@@ -94,6 +93,8 @@ from .channel_claims import add_channel_cells, channel_yields
 from .bore_continuation import walked_m
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
+from .viaduct_road import viaduct_road_groups
+from .dual_trench import DualTrenches, absorb_mouths, dual_trench_groups, yield_groups
 from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
                                   full_wall_ramp, road_true_edge,
                                   wall_corridor_note, wall_corridor_profile)
@@ -111,10 +112,12 @@ from .structure_overlap import resolve_overlaps
 from ..airport.portal_objects import portal_of
 from .structure_mouth import face_top_z, road_end_after_slide
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement
-from .lidar_road import lidar_road, lidar_road_note, lidar_road_refusal
+from .lidar_road import (is_rail_group, survey_design_grade, survey_mouth, survey_mouth_note,
+                         survey_mouth_refusal, survey_trench, under_airside_pavement)
 from .dual_width import compose_half_fn, dual_half_fn
+from .covered_bores import covered_bore_ways
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
-                              portal_mouth, portal_note, strip_keepout)
+                              portal_mouth, portal_note, runway_strip, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
@@ -149,7 +152,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      run_limits: _t.Mapping[str, tuple[float, str]] | None = None,
                      _pass: int = 0, at_cap: _t.Mapping[str, str] | None = None,
                      overlap_refused: _t.Mapping[str, str] | None = None,
-                     portals: _t.Sequence = (), edge_bridges: _t.Sequence = ()
+                     portals: _t.Sequence = (), edge_bridges: _t.Sequence = (),
+                     trenches: _t.Sequence = (), _levels: tuple[tuple, DualTrenches] | None = None
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -187,6 +191,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     tunnel_ways = [w for w in airport.osm_ways
                    if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
     cells, gap_cells, polys = standing_cover(classification)   # §53 (18): a gap piece never leads
+    strip_u = runway_strip(cells, polys, law, getattr(airport, "runways", ()))
     # A BRIDGE STATES THE CROSSING (spec §34 (5); ARMED at round 2,
     # RULINGS 2026-09-13ai): an ``aeroway`` ``bridge=yes layer >= 1`` way
     # over a road seeds a bore the OSM data never tagged — neither measured
@@ -196,6 +201,28 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # module doc; the round-1 measurement that forced it is there too).
     up_ways, up_parents, stats.underpasses = _underpass_bores(airport, law, cells, polys)
     tunnel_ways += up_ways
+    # 2026-10-28s (5) Q255 a: a covered road a cut or a pack trench object
+    # shows is a bore; its own §34 (5) underpass pieces give way to it
+    from ..law import inset_class
+    cov, stats.covered_bores = covered_bore_ways(
+        airport, law, inset_class.lidar_credible(airport, law), trenches,
+        tn.wall_gap_m + tn.wall_band_width_m)
+    if cov:
+        cov_ids = {w.id for w in cov}
+        tunnel_ways = [w for w in tunnel_ways if w.id not in cov_ids] + cov
+    # R6 (RULINGS 2026-10-28k Q228 a): a road under stacked viaducts inside
+    # the airport is an open level a mouth depth below the apron
+    # (read once: an overlap pass re-enters with the same map, ``_levels``)
+    levels = _levels if _levels is not None else (
+        viaduct_road_groups(airport, law, cells, polys), dual_trench_groups(airport, law, strip_u))
+    (via_groups, via_notes, via_refused), dual = levels
+    # #1638: a dual roadway through the airport is ONE trench at one depth;
+    # the R6 levels and the mouths inside it are its (``planar/dual_trench``)
+    via_groups, via_yielded = yield_groups(via_groups, dual.footprint)
+    extra_groups += via_groups + list(dual.groups)
+    stats.viaduct_roads = via_notes
+    stats.dual_trenches = list(dual.notes)
+    stats.refused.extend(via_refused + via_yielded + list(dual.refused))
     tunnel_ways, corridors, extra_groups = channel_yields(  # §45 (1)/(6)/(7)
         channels, tunnel_ways, corridors, extra_groups, stats.refused)  # noqa: E501
     if (not tunnel_ways and not corridors and not extra_groups and not channels) or not classification.cells:
@@ -287,6 +314,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 stats.bore_precedence.append(f"bore {ids}: no object at either mouth — OSM ramps "
                                              f"stand")
         mouth_list = kept
+    mouth_list, absorbed = absorb_mouths(mouth_list, dual.footprint)    # #1638
+    stats.dual_trenches.extend(absorbed)
     stats.mouths = len(mouth_list)
     # an EDGE BRIDGE pins the mouths whose line crosses its back, and the
     # carriageways one back stops are ONE cut (owner RULINGS 2026-10-28d
@@ -335,30 +364,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
              for p, c in zip(polys, cells)
              if c.kind != "structure" and c.role not in RUNWAY_FAMILY]
     stop_tree = STRtree([p for p, _r in stops]) if stops else None
-    strip: list[Polygon] = []
-    status_of = status_by_ref(getattr(airport, "runways", ()))    # #811
-    for p, c in zip(polys, cells):
-        # §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
-        # region.  It is runway pavement (so every surface reader above
-        # keeps it) but the strip keep-out is drawn around the RUNWAY,
-        # which the shoulder lies inside; buffering the shoulder too drew
-        # a second keep-out nothing ruled and refused VHHH's road tunnel
-        # at 22.30368, 113.92917 (84,000 + 8,040 + 6,228 m2 of shoulder
-        # by 75 m).  The census of every RUNWAY_FAMILY reader is the
-        # spec's §40 (4) MEASURED table.
-        if c.role in RUNWAY_FAMILY and not is_runway_shoulder(c):
-            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter,
-                                    ref_status(status_of, c.ref))
-            if hw:
-                strip.append(p.buffer(hw, **_MITRE))
-    strip_u = unary_union(strip) if strip else None
     roads_ix = road_index(airport.osm_ways, tn.admitted_values)     # #1028
     bridges = [w for w in airport.osm_ways if is_bridge(w) and len(w.points) >= 2]
     bridge_lines = [LineString(w.points) for w in bridges]
     bridge_tree = STRtree(bridge_lines) if bridge_lines else None
 
     spacing = law.tables.emit.chords.station_spacing_m
-    from ..law import inset_class
     credible = inset_class.lidar_credible(airport, law)    # #1280: lidar_road
     gap = tn.wall_gap_m
     rim_off = tn.wall_gap_m + tn.wall_band_width_m      # an OSM bore's rim stand-off
@@ -369,6 +380,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     hull_knives: list[Polygon] = []
     knee_chords: list[LineString] = []     # §34 (7): every emitted cross-chord
     keepouts: list[Polygon] = []
+    survey_cuts: list[Polygon] = []      # R2: the open trenches the survey carries
     seen_ids: dict[str, int] = {}
     for g in groups:
         members, mouth, inward, width, axis_path = g.members, g.mouth, g.inward, g.width, g.axis
@@ -406,14 +418,31 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                            "bridge's back" if edge is not None else
                                            f", mouth {moved:.1f} m into the bore to the "
                                            "portal's anchor") if moved else ""))
-        # #1280 / RULINGS 2026-10-27g: the road a credible lidar reads under the
-        # cover is kept where it clears; else only the depth owed is cut
-        road_rd = None if c is not None or pin is not None else lidar_road(
-            airport, law, members, credible, rim_off)
-        if road_rd is not None and road_rd.extra <= 0.0:
-            stats.refused.append(f"{tid}: {lidar_road_refusal(road_rd)}")
+        # RULINGS 2026-10-28k R1 (``lidar_road``): on a credible survey the
+        # mouth is measured from the COVER, never from ground already inside
+        # the cut — no sign / a road the survey carries cuts nothing
+        rail = c is None and is_rail_group(members)
+        design_g = tn.rail_ramp_grade if rail else tn.ramp_grade
+        cap_g = tn.rail_ramp_max_grade if rail else tn.ramp_max_grade
+        if rail:
+            grade_g = min(grade_g, cap_g)
+
+        def portal_fn(s: float, _ln=axis_ln) -> XY:
+            p = _ln.interpolate(min(s, _ln.length))
+            return (p.x, p.y)
+        road_rd = None if c is not None or pin is not None else survey_mouth(
+            airport, law, members, portal_fn, width, credible, rim_off,
+            under_airside_pavement(members, cells, cell_tree, law, odecks))
+        if road_rd is not None:      # R2: the zones never grade across the survey's trench
+            trench = survey_trench(airport, law, road_rd, axis_ln, width, rim_off)
+            if trench is not None:
+                survey_cuts.append(trench)
+        if road_rd is not None and road_rd.verdict:
+            stats.refused.append(f"{tid}: {survey_mouth_refusal(road_rd)}")
             continue
-        road_f = None if road_rd is None else road_rd.mouth_floor
+        road_f = None if road_rd is None else road_rd.floor
+        if road_rd is not None:      # R4: the ramp closes the depth along the surveyed road
+            design_g = survey_design_grade(airport, law, portal_fn, road_rd, design_g, cap_g)
         clear = None if c is not None else _mouth_at_pavement(   # #971: stop AT the pavement
             g, axis_ln, cells, polys, pads, law, _cut_roles, half, rim_off, gap, spacing_g,
             grid, [d[3] for d in deck_intervals(
@@ -514,6 +543,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             slid_depth = mouth_dem - mouth_z
         elif clear is not None and clear[5] is not None and clear[5] > mouth_z:
             mouth_z, slid_depth = clear[5], mouth_dem - clear[5]
+        elif road_rd is not None:
+            # R1's ONE value: the constraint ties the floor to its cap by it,
+            # the census reads it (``publication.tunnel_mouth_depths``)
+            slid_depth = mouth_dem - mouth_z
+            if slid_depth <= tol_m:
+                stats.refused.append(
+                    f"{tid}: {survey_mouth_refusal(_dc.replace(road_rd, verdict='kept'))}")
+                continue
         # decks across the corridor.  TWO orthogonal readings at one
         # call: §34 (12) (4) decides WHETHER a deck severs (15ap, the
         # cutting witness), §33 (6) C3' its LATERAL EXTENT (the pack's
@@ -535,7 +572,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # mapped bridge way over it mints no terrain deck (08-30d)
             ou = unary_union([dp for _o, _s0, _s1, dp, _z in obj_ivals])
             deck_ivals = [d for d in deck_ivals if not d[3].intersects(ou)]
-        design_grade = g.design_grade if c is not None else tn.ramp_grade
+        design_grade = g.design_grade if c is not None else design_g
         pav_ivals: list = []
         if c is not None and g.kind == WALL_KIND:
             # A WALL CORRIDOR (Law C, spec §6a rows 12/13): the floor is the
@@ -688,11 +725,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 # that cannot top out in its run (2026-10-08c (1) / 08d (1))
                 if tid in at_cap:           # 2026-10-14j: the overlap tie-break, at the cap
                     s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from,
-                                          spacing_g, grade=tn.ramp_max_grade, max_len=max_len_g)
-                    design_grade, steepen_note = tn.ramp_max_grade, _cap_note(law, at_cap[tid])
+                                          spacing_g, grade=cap_g, max_len=max_len_g)
+                    design_grade, steepen_note = cap_g, _cap_note(law, at_cap[tid])
                 else:
                     got, s_top, ss, steepen_note = _unframed_climb(
-                        airport, law, axis_fn, mouth_z, climb_from, spacing_g, run_ends, max_len_g)
+                        airport, law, axis_fn, mouth_z, climb_from, spacing_g, run_ends, max_len_g,
+                        design=design_g, cap=cap_g)
                     design_grade = got if got is not None else design_grade
             else:
                 s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing_g,
@@ -801,7 +839,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # to the cap that tops out BEFORE the stop builds the ramp whole
             got, s_fit, _ss, note = _unframed_climb(
                 airport, law, axis_fn, mouth_z, climb_from, spacing_g,
-                [(s_top, f"{clipped_by} stops the ramp")], strict=True)
+                [(s_top, f"{clipped_by} stops the ramp")], strict=True,
+                design=design_g, cap=cap_g)
             ss_fit = [s for s in ss if got is not None and s <= s_fit + 1e-9]
             geom_fit = _ring(ss_fit) if len(ss_fit) >= 2 else None
             if geom_fit is not None and _pad_hit(geom_fit.outer, osm_stops, osm_tree, gap) is None:
@@ -938,7 +977,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             wall_path.append(wall_path[0])          # the O: a closed rim
         notes = list(deck_notes) + ([clear[4]] if clear is not None and clear[4] else []) + (
             [] if pin is None else [portal_note(pin, mouth_dem, mouth_z)]) + (
-            [] if road_rd is None else [lidar_road_note(road_rd)])
+            [] if road_rd is None else [survey_mouth_note(road_rd, design_grade)])
         if collapse_note:
             notes.append(collapse_note)
         if steepen_note:
@@ -1095,15 +1134,20 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         return build_structures(*args, run_limits={**run_limits, **new_limits},
                                 _pass=_pass + 1, at_cap=caps,
                                 overlap_refused=overlap_refused, portals=portals,
-                                edge_bridges=edge_bridges)
+                                edge_bridges=edge_bridges, trenches=trenches, _levels=levels)
     if not all(keep):
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]
         footprints = [f for f, k in zip(footprints, keep) if k]
         keepouts = [f for f, k in zip(keepouts, keep) if k]
     stats.tunnels = len(tunnels)
+    stats.survey_cuts = len(survey_cuts)
+    keepouts.extend(survey_cuts)
     if not add_channel_cells(channels, law, new_cells, footprints, keepouts, stats) \
             and not tunnels:
+        if survey_cuts:          # R2: nothing built, the survey's trenches still keep out
+            return _dc.replace(classification, keepouts=tuple(classification.keepouts) + tuple(
+                tuple(k.exterior.coords)[:-1] for k in survey_cuts)), (), stats
         return classification, (), stats
 
     # cut the pavement the structures run through (never the runway

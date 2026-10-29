@@ -19,6 +19,11 @@ class StructureStats:
     """What the structure pass found, made and refused."""
 
     bores: int = 0
+    #: RULINGS 2026-10-28k R2: the survey's open approach trenches made
+    #: keepouts (``lidar_road.survey_trench``) — the zones stop at them.
+    survey_cuts: int = 0
+    #: 2026-10-28s (5): the covered roads admitted as bores
+    covered_bores: list[str] = _dc.field(default_factory=list)
     #: spec §29 (2): bores with NO mouth on the field — nothing is built for
     #: them (the old ``bores_uncovered``, whose test was the bore's cover).
     bores_no_mouth: int = 0
@@ -98,6 +103,12 @@ class StructureStats:
     #: spec §34 (5): the UNDERPASSES stated by an aeroway bridge — one line
     #: per deck way naming the roads bored under it.
     underpasses: list[str] = _dc.field(default_factory=list)
+    #: R6 (RULINGS 2026-10-28k Q228 a): one line per road run lowered
+    #: under stacked viaducts (``planar/viaduct_road``).
+    viaduct_roads: list[str] = _dc.field(default_factory=list)
+    #: #1638 (``planar/dual_trench``): the dual-roadway trenches and the
+    #: mouths they carry
+    dual_trenches: list[str] = _dc.field(default_factory=list)
     #: §33 (6) B AMENDED (3) (c) (owner RULINGS 2026-09-15br): the SURFACE
     #: ELEMENTS excluded from the terrain solve inside an object-decked
     #: trench outline — one line per outline (its open m², the pavement m²

@@ -58,6 +58,14 @@ def test_a_wall_far_from_the_pavement_keeps_the_band_law():
     assert side is None and kept is r
 
 
+def test_the_lower_side_runs_flat_to_the_foot_from_afar():
+    # ...while below the wall (east, the lower side) the ground between a
+    # far pavement and the wall's foot stays one plane (#1600's "front")
+    pave = box(30.0, 0.0, 40.0, 100.0)
+    side, kept = _split(_row(1, [(2, 1.0)]), {1: (10.0, 50.0), 2: (30.0, 50.0)}, pave)
+    assert side == "before" and kept.lo == 0.0 and kept.hi == 0.0
+
+
 def test_a_floor_only_row_never_becomes_the_plane():
     pave = box(-40.0, 0.0, -30.0, 100.0)
     r = _row(1, [(2, 1.0)], lo=None, hi=-0.2)

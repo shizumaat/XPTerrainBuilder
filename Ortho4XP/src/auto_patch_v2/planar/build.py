@@ -288,7 +288,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,
                                                        portals=tstats.portals,
-                                                       edge_bridges=bridges)
+                                                       edge_bridges=bridges,
+                                                       trenches=tstats.trench_objects)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
     # 2026-09-15; RULINGS 2026-09-15y): the ONE road-family face the
     # structures stage mints — a mapped way whose two ENDS are mouths.

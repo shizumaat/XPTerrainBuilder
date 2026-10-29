@@ -78,6 +78,10 @@ class EdgeReport:
     shore_cut_m2: float = 0.0
     shore_edge_m: float = 0.0
     shore_regions: int = 0
+    #: Q245 (owner 2026-10-27): the survey's open trenches the TAXIWAY zones
+    #: gave way to (``lidar_road.survey_road_trenches``), and the area cut.
+    survey_trenches: int = 0
+    trench_cut_m2: float = 0.0
 
     def line(self) -> str:
         shore = "" if self.shore_regions == 0 else (
@@ -88,7 +92,9 @@ class EdgeReport:
                 f"{self.trimmed_road} at a ROAD ({self.roads_governing} road run(s)), "
                 f"{self.emptied} emptied; {self.area_cut_m2:,.0f} m² beyond the "
                 f"edge given back to the DEM, {self.edge_length_m:,.0f} m of edge"
-                + shore)
+                + shore + ("" if self.survey_trenches == 0 else
+                           f"; {self.survey_trenches} surveyed trench(es) cut "
+                           f"{self.trench_cut_m2:,.0f} m² out of the taxiway zones (Q245)"))
 
 
 def road_lines(osm_ways=()) -> tuple[LineString, ...]:

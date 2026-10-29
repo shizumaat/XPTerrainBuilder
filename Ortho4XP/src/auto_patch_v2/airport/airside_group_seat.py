@@ -74,14 +74,16 @@ ROW_JETWAY = "1500"
 def stands_of(plan: _t.Any) -> list[tuple[float, float]]:
     """The airport's aircraft STANDS and JETWAYS as ``(lat, lon)``: the
     apt.dat 1300 startups of kind :data:`STAND_KINDS` and the 1500 jetway
-    rows of the pack's own ``Earth nav data/apt.dat`` (``plan.pack_root``,
-    ``plan.icao``).  Empty where the pack carries none."""
+    rows of the airport's apt.dat -- ``plan.apt_dat`` where the plan names
+    it (an objects-only companion pack ships none, #1639), else the pack's
+    own ``Earth nav data/apt.dat`` (``plan.pack_root``, ``plan.icao``).
+    Empty where neither carries the airport."""
     import os
+    apt = str(getattr(plan, "apt_dat", "") or "")
     root = str(getattr(plan, "pack_root", "") or "")
-    if not root:
-        return []
-    return stands_in(os.path.join(root, "Earth nav data", "apt.dat"),
-                     str(getattr(plan, "icao", "") or ""))
+    if not apt and root:
+        apt = os.path.join(root, "Earth nav data", "apt.dat")
+    return stands_in(apt, str(getattr(plan, "icao", "") or ""))
 
 
 def stands_in(apt_dat: str, icao: str) -> list[tuple[float, float]]:

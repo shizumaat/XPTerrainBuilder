@@ -75,7 +75,7 @@ from . import tile_time_model
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
-    _predict_step_seconds, build_done, plan_steps, prediction_features,
+    _predict_step_seconds, build_done, last_outcome_counts, plan_steps, prediction_features,
     reweight_plan_by_seconds, stopped_tile_state,
 )
 
@@ -922,6 +922,11 @@ class ParallelBuildRun:
         self._next_child_index = 0
         self._done = 0
         self._errors = 0
+        # #1624: each tile's LAST outcome (True built) — a tile re-queued
+        # after a fixable failure that then builds counts as built in
+        # ``RunDone``, not also as failed; the attempt counters above
+        # still pace the progress line.
+        self._last_ok: dict = {}
         self._cancel_all = False
         self._finished = False
         self._t0 = time.time()
@@ -1770,6 +1775,7 @@ class ParallelBuildRun:
                 self._tile_warnings[tile] = (list(event.warnings),
                                              list(event.notes))
             with self._lock:
+                self._last_ok[tile] = bool(event.ok)
                 if event.ok:
                     self._done += 1
                 else:
@@ -2002,6 +2008,7 @@ class ParallelBuildRun:
                 self._tile_step_seconds.pop(child.tile, None)
                 child.tile = None
                 self._errors += 1
+                self._last_ok[crashed_tile] = False
                 respawn = bool(self._queue) and not self._cancel_all
             self._dispatch_locked()
         if stopped_tile is not None:
@@ -2255,7 +2262,7 @@ class ParallelBuildRun:
                 return
             self._finished = True
             children = list(self._children)
-            done, errors = self._done, self._errors
+            done, errors = last_outcome_counts(self._last_ok)
             cancelled = self._cancel_all
         # The session leaves its "building" state BEFORE the bounded
         # child reaping below: a Build click landing the moment the last

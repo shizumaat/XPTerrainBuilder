@@ -114,7 +114,10 @@ def box_texts(events, requeued=()) -> tuple:
     entries = [pair for event in events for pair in _entries(event)]
     if not entries:
         return None
-    failed = sum(1 for event in events if not getattr(event, "ok", False))
+    # #1624: a re-queued failure is not counted — its retry is the tile's
+    # last attempt and reports itself (built, or a new failed event).
+    failed = sum(1 for event in events if not getattr(event, "ok", False)
+                 and id(event) not in requeued)
     warned = sum(1 for event in events if getattr(event, "ok", False)
                  and _entries(event))
     parts = []
@@ -123,6 +126,8 @@ def box_texts(events, requeued=()) -> tuple:
                      % (failed, " was" if failed == 1 else "s were"))
     if warned:
         parts.append("%d built with warnings" % warned)
+    if not parts:
+        parts.append("Every tile was built")
     body = "\n\n".join(
         "%s: %s\n%s\n%s" % (severity_label(warning, e), e.get("what", ""),
                             e.get("why", ""), e.get("remedy", ""))

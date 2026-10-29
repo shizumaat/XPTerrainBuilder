@@ -47,7 +47,7 @@ __all__ = [
     "AptTaxiNode", "AptTaxiEdge", "AptStartup", "AptAirport",
     "read_airport_block", "parse_airport_block", "find_apt_dat",
     "select_apt_dat",
-    "global_candidates", "file_has_airport", "block_sha256",
+    "global_candidates", "file_has_airport", "block_sha256", "airports_in",
 ]
 
 # Row types (apt.dat 1100 / 1200).
@@ -381,6 +381,12 @@ def _scan_airport_block(path: str, icao: str) -> list[str] | None:
             if inside:
                 out.append(line.rstrip("\n"))
     return out or None
+
+
+def airports_in(path: str) -> tuple[str, ...]:
+    """Every ICAO with a block in ``path``, sorted (#1653: the airports of
+    one pack); ``()`` when the file cannot be read."""
+    return tuple(sorted(_block_index(path) or {}))
 
 
 def file_has_airport(path: str, icao: str) -> bool:

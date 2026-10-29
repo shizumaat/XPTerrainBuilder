@@ -38,6 +38,8 @@ from . import dsf as _dsf
 from . import dsf_write as _dw
 from . import facade as _facade
 from . import obj8 as _obj8
+from . import object_pack as _object_pack
+from . import object_window as _window
 from . import object_pavement as _objpav
 from . import osm as _osm
 from . import pack as _pack
@@ -182,6 +184,11 @@ class LoadReport:
     footprint_cache_path: str | None = None
     unresolved_objects: int = 0
     objects_resolved: int = 0
+    #: #1653: ``.obj`` / ``.agp`` placements of the dump outside the
+    #: airport's own extent, and those inside it nearer another airport
+    #: of the same pack (``object_window``) — neither is read
+    objects_outside_extent: int = 0
+    objects_nearer_other_airport: int = 0
     #: placements whose geometry was read from ``<obj>.anchor_bak`` — the
     #: pack's AUTHORED state, restored for the read (RULINGS 04f-1)
     objects_restored_for_read: int = 0
@@ -507,11 +514,20 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     dsf_pavements, pol_sheets = polys.pavements, polys.sheets
     n_fac, n_lot, n_far = polys.n_fac, polys.n_lot, polys.n_far
     if dump is not None:
-        for i, pl in enumerate(dump.placements):
-            if not pl.def_path.lower().endswith((".obj", ".agp")):
-                continue
-            if abs(pl.lat - lat0) > inputs.radius_deg or \
-                    abs(pl.lon - lon0) > inputs.radius_deg:
+        # #1653: the placements inside the airport's OWN extent (the
+        # pages' admission extent), each given to the nearest airport of
+        # its pack — never a degree box about the reference point
+        window = _window.Window(
+            icao, own_extent, _object_pack.region_in(apt, to_xy),
+            _window.rivals(_window.pack_apt_dat(sel.root) if sel.custom else None,
+                           icao, (lat0, lon0), to_xy, own_extent))
+        placed = [(i, pl) for i, pl in enumerate(dump.placements)
+                  if pl.def_path.lower().endswith((".obj", ".agp"))]
+        admitted = window.admits([to_xy(pl.lon, pl.lat) for _i, pl in placed])
+        rep.objects_outside_extent = window.n_outside
+        rep.objects_nearer_other_airport = window.n_rival
+        for (i, pl), ok in zip(placed, admitted, strict=True):
+            if not ok:
                 continue
             resolved = _obj8.resolve_resource(pl.def_path, sel.root, index)
             if resolved is None:

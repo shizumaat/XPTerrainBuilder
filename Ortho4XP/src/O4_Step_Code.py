@@ -700,6 +700,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.verify.transverse",
     "auto_patch_v2.verify.within",
     "auto_patch_v2.airport.object_pack",
+    "auto_patch_v2.airport.object_window",
     "auto_patch_v2.airport.pack_local",
     "elevation_access",
     "elevation_access.base",

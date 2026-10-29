@@ -35,7 +35,7 @@ from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
 from ..geom.slope_pad import slope_witness
-from ..geom import cluster_building_evidence, cluster_outlines
+from ..geom import cluster_building_evidence, cluster_outlines, pad_shade_extra
 from ..law import Law
 from ..geom.base_slab import pad_shades, registered_faces
 from ..law.tables import base_slab_law, pad_admission, rolled_on_roles
@@ -164,7 +164,7 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             # ...the base slabs' open parts (issue #229, 10o (B)) and issue
             # #516's sunken ramps (``airport/sunken_ramp``): the ONE path
             shades=pad_shades(getattr(airport, "partition", None), to_xy,
-                              slab_law, getattr(airport, "sunken_ramps", None),
+                              slab_law, pad_shade_extra(airport),
                               registered_faces(slab_law)),
             # issue #73 rule 2a: the SAME post close the mint applied
             bridge_m=bridge_m,

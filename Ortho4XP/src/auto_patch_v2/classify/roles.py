@@ -642,6 +642,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         road = unary_union([road, _rw.road_extension(_rpieces, road, lane_m)])
         stats.update({f"retaining_{k}": v for k, v in _rw.STATS.items()})
         road = road.difference(ev.pavement_union)
+        # Q269 (a) (issue #1633, RULINGS 2026-10-28t): a road is CUT BACK
+        # at a retaining wall's faces — the footprint is the step between
+        # the two levels, never road; each side keeps its own level
+        _walls = getattr(airport, "wall_shade", None)
+        if _walls is not None:
+            road = road.difference(_walls)
         if not ev.pad_union.is_empty:
             road = road.difference(ev.pad_union)
         if not ev.runway_union.is_empty:

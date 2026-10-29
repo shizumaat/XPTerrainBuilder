@@ -97,7 +97,8 @@ def retaining_pieces(airport: Airport, ribbon, lane_m: float, cfg
 def road_extension(pieces: _t.Sequence[RetainingPiece], ribbon, lane_m: float):
     """THE ROAD'S GRADED STRIP EXTENDED TO THE WALL: per retaining piece,
     the convex hull of the piece and the ribbon within ``gap + lane`` of
-    it, less the piece and the ribbon — the bare ground the road retains.
+    it, held within ``gap + lane`` of the piece, less the piece and the
+    ribbon — the bare ground the road retains.
     Empty when nothing retains."""
     if not pieces:
         STATS.update(extension_m2=0.0)
@@ -109,6 +110,13 @@ def road_extension(pieces: _t.Sequence[RetainingPiece], ribbon, lane_m: float):
         if bit.is_empty:
             continue
         hull = unary_union([rp.poly, bit]).convex_hull
+        # the hull is the GAP, never the inside of a bend (#1633): held to
+        # the piece's own reach, so a long bent wall does not take the
+        # ground its curve encloses (KATL ``muro_27R.obj``, 430 m: the hull
+        # reached 58 m up the safety area past the 27R end, and that
+        # hillside stood at the road's level — the crease and the exposed
+        # wall back)
+        hull = hull.intersection(rp.poly.buffer(reach))
         parts.append(hull.difference(rp.poly))
     ext = unary_union(parts).difference(ribbon) if parts else Polygon()
     # only what JOINS the road extends it: a hull remnant standing apart

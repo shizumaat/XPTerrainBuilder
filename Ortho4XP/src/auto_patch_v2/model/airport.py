@@ -459,6 +459,12 @@ class Airport:
     #: its CENSUS (``constraints``, which may not import ``airport``) both
     #: read THIS.  ``None`` = not derived (a capture written before it).
     sunken_ramps: _t.Any = None
+    #: issue #1633 THE RETAINING WALLS' FOOTPRINTS (``airport/wall_shade``):
+    #: a wall that retains its own height is a step between two levels,
+    #: never a flat pad, so its footprint leaves every pad outline like a
+    #: deck shade.  Same reader rule as ``sunken_ramps``; ``None`` = none,
+    #: or not derived (a capture written before it).
+    wall_shade: _t.Any = None
     #: owner RULINGS 2026-10-27t/u (#1201): THE RUNWAY-END WALLED PLATES
     #: (``model.walled_plate.WalledPlate``, recognised on the pack reading by
     #: ``airport/walled_plate``): the end area stops at each one's inner edge

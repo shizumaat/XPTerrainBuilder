@@ -28,6 +28,7 @@ import typing as _t
 
 from ..model.airport import SceneryPack
 from . import borrow as _borrow
+from . import object_pack as _object_pack
 from .apt_dat import block_sha256, find_apt_dat
 from .file_hash import sha256_file
 
@@ -103,6 +104,10 @@ def select_pack(xplane_root: str, icao: str, law=None) -> PackSelection | None:
     """The pack whose apt.dat serves ``icao`` (see module docstring), and
     — when ``law`` is given — §44's PAVEMENT BORROW decided for it.
 
+    #1630: when that apt.dat is Global Airports', the pack drawn above it
+    that places its own objects inside the airport (``object_pack.find``)
+    is the selection's ``root``/``name``; ``apt_dat_path`` stays Global's.
+
     ``law`` is optional because a caller that needs only the pack's ROOT
     or NAME (``auto_patch/engine_v2._pack_dump_path``, the DSF dump) has
     no use for the borrow and should not pay its Global-block read; the
@@ -114,6 +119,14 @@ def select_pack(xplane_root: str, icao: str, law=None) -> PackSelection | None:
     name = os.path.basename(root)
     custom = os.path.basename(os.path.dirname(root)) == "Custom Scenery" \
         and name != "Global Airports"
+    if not custom:
+        # #1630: the block is Global Airports'; a pack drawn above it that
+        # places its own objects inside the airport is the OBJECT PACK
+        obj_root = _object_pack.find(xplane_root, icao, apt)
+        if obj_root:
+            return PackSelection(os.path.basename(obj_root), obj_root, apt, True,
+                                 _borrow.BorrowDecision(
+                                     reason="the block is Global Airports' own"))
     # §44 (5) THE ONE DERIVATION SITE.  A pack that IS Global Airports (or
     # the stock default) has nothing to borrow from.
     dec = _borrow.decide(xplane_root, icao, apt, law) if (law and custom) \
@@ -138,10 +151,14 @@ def signature(sel: PackSelection, block: list[str], lat: int,
     update invalidates everything keyed on this signature."""
     dsf = tile_dsf_path(sel.root, lat, lon)
     paths = (dsf,) if dsf else ()
+    # #1630: an OBJECT PACK's folder is not the apt.dat's; name it
+    own = os.path.dirname(os.path.dirname(sel.apt_dat_path))
     return SceneryPack(sel.name, sel.apt_dat_path, block_sha256(block),
                        paths, tuple(sha256_file(p) for p in paths),
                        sel.borrow.apt_dat_path, sel.borrow.block_sha256,
-                       flatten_declared=flatten_declared(block))
+                       flatten_declared=flatten_declared(block),
+                       root="" if os.path.normpath(sel.root) == os.path.normpath(own)
+                       else sel.root)
 
 
 def flatten_declared(block: _t.Sequence[str]) -> bool:

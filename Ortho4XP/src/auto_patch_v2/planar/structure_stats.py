@@ -106,6 +106,9 @@ class StructureStats:
     #: R6 (RULINGS 2026-10-28k Q228 a): one line per road run lowered
     #: under stacked viaducts (``planar/viaduct_road``).
     viaduct_roads: list[str] = _dc.field(default_factory=list)
+    #: #1638 (``planar/dual_trench``): the dual-roadway trenches and the
+    #: mouths they carry
+    dual_trenches: list[str] = _dc.field(default_factory=list)
     #: §33 (6) B AMENDED (3) (c) (owner RULINGS 2026-09-15br): the SURFACE
     #: ELEMENTS excluded from the terrain solve inside an object-decked
     #: trench outline — one line per outline (its open m², the pavement m²

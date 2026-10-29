@@ -82,10 +82,9 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..classify.roles import Cell, Classification, is_runway_shoulder
+from ..classify.roles import Cell, Classification
 from ..law import Law
-from ..law.reference_code import ref_status, status_by_ref
-from ..law.tables import role_family, role_side, zone2_half_width_m
+from ..law.tables import role_family, role_side
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..model.structures import Channel, Deck, Tunnel
@@ -95,6 +94,7 @@ from .bore_continuation import walked_m
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
 from .viaduct_road import viaduct_road_groups
+from .dual_trench import DualTrenches, absorb_mouths, dual_trench_groups, yield_groups
 from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
                                   full_wall_ramp, road_true_edge,
                                   wall_corridor_note, wall_corridor_profile)
@@ -117,7 +117,7 @@ from .lidar_road import (is_rail_group, survey_design_grade, survey_mouth, surve
 from .dual_width import compose_half_fn, dual_half_fn
 from .covered_bores import covered_bore_ways
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
-                              portal_mouth, portal_note, strip_keepout)
+                              portal_mouth, portal_note, runway_strip, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
@@ -153,7 +153,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      _pass: int = 0, at_cap: _t.Mapping[str, str] | None = None,
                      overlap_refused: _t.Mapping[str, str] | None = None,
                      portals: _t.Sequence = (), edge_bridges: _t.Sequence = (),
-                     trenches: _t.Sequence = ()
+                     trenches: _t.Sequence = (), _levels: tuple[tuple, DualTrenches] | None = None
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -191,6 +191,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     tunnel_ways = [w for w in airport.osm_ways
                    if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
     cells, gap_cells, polys = standing_cover(classification)   # §53 (18): a gap piece never leads
+    strip_u = runway_strip(cells, polys, law, getattr(airport, "runways", ()))
     # A BRIDGE STATES THE CROSSING (spec §34 (5); ARMED at round 2,
     # RULINGS 2026-09-13ai): an ``aeroway`` ``bridge=yes layer >= 1`` way
     # over a road seeds a bore the OSM data never tagged — neither measured
@@ -211,10 +212,17 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         tunnel_ways = [w for w in tunnel_ways if w.id not in cov_ids] + cov
     # R6 (RULINGS 2026-10-28k Q228 a): a road under stacked viaducts inside
     # the airport is an open level a mouth depth below the apron
-    via_groups, via_notes, via_refused = viaduct_road_groups(airport, law, cells, polys)
-    extra_groups += via_groups
+    # (read once: an overlap pass re-enters with the same map, ``_levels``)
+    levels = _levels if _levels is not None else (
+        viaduct_road_groups(airport, law, cells, polys), dual_trench_groups(airport, law, strip_u))
+    (via_groups, via_notes, via_refused), dual = levels
+    # #1638: a dual roadway through the airport is ONE trench at one depth;
+    # the R6 levels and the mouths inside it are its (``planar/dual_trench``)
+    via_groups, via_yielded = yield_groups(via_groups, dual.footprint)
+    extra_groups += via_groups + list(dual.groups)
     stats.viaduct_roads = via_notes
-    stats.refused.extend(via_refused)
+    stats.dual_trenches = list(dual.notes)
+    stats.refused.extend(via_refused + via_yielded + list(dual.refused))
     tunnel_ways, corridors, extra_groups = channel_yields(  # §45 (1)/(6)/(7)
         channels, tunnel_ways, corridors, extra_groups, stats.refused)  # noqa: E501
     if (not tunnel_ways and not corridors and not extra_groups and not channels) or not classification.cells:
@@ -306,6 +314,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 stats.bore_precedence.append(f"bore {ids}: no object at either mouth — OSM ramps "
                                              f"stand")
         mouth_list = kept
+    mouth_list, absorbed = absorb_mouths(mouth_list, dual.footprint)    # #1638
+    stats.dual_trenches.extend(absorbed)
     stats.mouths = len(mouth_list)
     # an EDGE BRIDGE pins the mouths whose line crosses its back, and the
     # carriageways one back stops are ONE cut (owner RULINGS 2026-10-28d
@@ -354,23 +364,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
              for p, c in zip(polys, cells)
              if c.kind != "structure" and c.role not in RUNWAY_FAMILY]
     stop_tree = STRtree([p for p, _r in stops]) if stops else None
-    strip: list[Polygon] = []
-    status_of = status_by_ref(getattr(airport, "runways", ()))    # #811
-    for p, c in zip(polys, cells):
-        # §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
-        # region.  It is runway pavement (so every surface reader above
-        # keeps it) but the strip keep-out is drawn around the RUNWAY,
-        # which the shoulder lies inside; buffering the shoulder too drew
-        # a second keep-out nothing ruled and refused VHHH's road tunnel
-        # at 22.30368, 113.92917 (84,000 + 8,040 + 6,228 m2 of shoulder
-        # by 75 m).  The census of every RUNWAY_FAMILY reader is the
-        # spec's §40 (4) MEASURED table.
-        if c.role in RUNWAY_FAMILY and not is_runway_shoulder(c):
-            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter,
-                                    ref_status(status_of, c.ref))
-            if hw:
-                strip.append(p.buffer(hw, **_MITRE))
-    strip_u = unary_union(strip) if strip else None
     roads_ix = road_index(airport.osm_ways, tn.admitted_values)     # #1028
     bridges = [w for w in airport.osm_ways if is_bridge(w) and len(w.points) >= 2]
     bridge_lines = [LineString(w.points) for w in bridges]
@@ -1141,7 +1134,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         return build_structures(*args, run_limits={**run_limits, **new_limits},
                                 _pass=_pass + 1, at_cap=caps,
                                 overlap_refused=overlap_refused, portals=portals,
-                                edge_bridges=edge_bridges, trenches=trenches)
+                                edge_bridges=edge_bridges, trenches=trenches, _levels=levels)
     if not all(keep):
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]

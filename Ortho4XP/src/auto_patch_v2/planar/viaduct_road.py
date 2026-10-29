@@ -46,7 +46,8 @@ from .door_ramps import RampCorridor
 from .object_corridor import Group
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
 
-__all__ = ["viaduct_road_groups", "ID_PREFIX"]
+__all__ = ["viaduct_road_groups", "ID_PREFIX", "aerodrome_boundary",
+           "road_graph", "walk_route", "level_side", "level_half", "layer_of"]
 
 ID_PREFIX = "viaduct-road"
 #: the station step the covered run is read at (the §45 lateral step)
@@ -55,14 +56,14 @@ _STEP_M = 5.0
 _KIND = "sunken_road"
 
 
-def _layer(tags: _t.Mapping[str, str]) -> int:
+def layer_of(tags: _t.Mapping[str, str]) -> int:
     try:
         return int(float(str(tags.get("layer", "0")).strip()))
     except ValueError:
         return 0
 
 
-def _boundary(airport):
+def aerodrome_boundary(airport):
     from ..classify.evidence import polygon_from
     bs = [polygon_from(b.outer, b.holes) for b in getattr(airport, "boundaries", ()) or ()]
     bs = [b for b in bs if b is not None and not b.is_empty]
@@ -109,7 +110,7 @@ def _apron_level(airport, law: Law, run: LineString, cells, polys, reach: float
     return statistics.median(zs) if zs else None
 
 
-def _graph(roads) -> dict[tuple[int, int], set[XY]]:
+def road_graph(roads) -> dict[tuple[int, int], set[XY]]:
     """Every mapped node of ``roads`` → its neighbouring nodes (a junction
     at a way's INTERIOR node joins it: the forecourt's ways meet there)."""
     nb: dict[tuple[int, int], set[XY]] = {}
@@ -126,7 +127,7 @@ def _key(p: XY) -> tuple[int, int]:
     return (round(p[0] * 20.0), round(p[1] * 20.0))      # 5 cm: one OSM node
 
 
-def _walk(start: XY, heading: XY, nb, reach: float, cos_max: float) -> list[XY]:
+def walk_route(start: XY, heading: XY, nb, reach: float, cos_max: float) -> list[XY]:
     """The mapped route from node ``start`` along ``heading``: at every node
     the continuation with the least turn, none over the tunnel's
     ``approach_turn_max_deg`` (the approach walk's heading law, spec §34
@@ -158,8 +159,8 @@ def _route(w, nb, law: Law) -> LineString:
     reach = 4.0 * tn.max_ramp_length_m
     cos_max = math.cos(math.radians(tn.approach_turn_max_deg))
     pts = [(float(x), float(y)) for x, y in w.points]
-    fwd = _walk(pts[-1], unit(pts[-2], pts[-1]), nb, reach, cos_max)
-    back = _walk(pts[0], unit(pts[1], pts[0]), nb, reach, cos_max)
+    fwd = walk_route(pts[-1], unit(pts[-2], pts[-1]), nb, reach, cos_max)
+    back = walk_route(pts[0], unit(pts[1], pts[0]), nb, reach, cos_max)
     line = list(reversed(back[1:])) + pts + fwd[1:]
     out = [line[0]]
     for p in line[1:]:
@@ -228,8 +229,8 @@ def _straight_m(line: LineString, width: float) -> float:
     return line.length
 
 
-def _side(route: LineString, mid: float, end: float, floor: float, half_w: float,
-          airport, law: Law) -> tuple[LineString, float, float] | None:
+def level_side(route: LineString, mid: float, end: float, floor: float, half_w: float,
+               airport, law: Law) -> tuple[LineString, float, float] | None:
     """One half's ``(axis from the midpoint, where the level ends, the top
     z)``: the climb beyond the run's ``end`` along the mapped route (R4's
     design grade); where no mapped road carries it (or the road curls
@@ -264,25 +265,31 @@ def _side(route: LineString, mid: float, end: float, floor: float, half_w: float
     return run, run.length - rise / g, ground
 
 
-def _half(axis_ln: LineString, flat_m: float, top_z: float, floor: float, rid: str,
-          sib: str, half_w: float, law: Law, ground: float, notes: tuple) -> Group:
+def level_half(axis_ln: LineString, flat_m: float, top_z: float, floor: float, rid: str,
+               sib: str, half_w: float, law: Law, ground: float, notes: tuple,
+               half_at: _t.Callable[[float], float] | None = None,
+               resource: str = f"{ID_PREFIX} (OSM, R6)") -> Group:
     """One half: s = 0 at the run's midpoint, level at ``floor`` to
-    ``flat_m``, climbing to ``top_z`` at the axis end."""
+    ``flat_m``, climbing to ``top_z`` at the axis end.  ``half_at(s)`` is
+    the half width by station where it varies (a dual roadway's span,
+    ``planar/dual_trench``); ``half_w`` is then its largest."""
     tn = law.tables.structures.tunnel
     rim = tn.wall_gap_m + tn.wall_band_width_m
     axis = [(float(x), float(y)) for x, y in axis_ln.coords]
     length = axis_ln.length
     profile = ((0.0, floor), (flat_m, floor), (length, top_z))
     u0 = unit(axis[0], axis[1])
-    trench = axis_ln.buffer(half_w, cap_style="flat")
-    foot = axis_ln.buffer(half_w + rim, cap_style="flat")
+    trench = _band(axis_ln, half_at, 0.0) if half_at else axis_ln.buffer(half_w, cap_style="flat")
+    foot = _band(axis_ln, half_at, rim) if half_at else \
+        axis_ln.buffer(half_w + rim, cap_style="flat")
     mid_xy: XY = axis[0]
-    c = RampCorridor(rid, f"{ID_PREFIX} (OSM, R6)", (), tuple(axis), length, 2.0 * half_w,
+    c = RampCorridor(rid, resource, (), tuple(axis), length, 2.0 * half_w,
                      rim, rim, "cut", ground, floor, foot, trench, foot, mid_xy, ground, 0.0,
                      ground - floor, notes, mouth_closed=False)
 
-    def half_fn(s: float, _h=half_w) -> tuple[float, float]:
-        return (_h, _h)
+    def half_fn(s: float, _h=half_w, _f=half_at) -> tuple[float, float]:
+        h = _f(s) if _f is not None else _h
+        return (h, h)
 
     def rim_fn(s: float, _r=rim) -> tuple[float, float]:
         return (_r, _r)
@@ -291,14 +298,27 @@ def _half(axis_ln: LineString, flat_m: float, top_z: float, floor: float, rid: s
                  kind=_KIND, spacing_m=_STEP_M, profile=profile, mouth_strip=False, sibling=sib)
 
 
+def _band(axis_ln: LineString, half_at: _t.Callable[[float], float], extra: float):
+    """The band ``half_at(s) + extra`` either side of ``axis_ln``, flat at
+    both ends: every station's disc, joined along the axis at the narrowest
+    width (never an offset ring, which folds where a wide band bends)."""
+    n = max(2, int(axis_ln.length // _STEP_M) + 1)
+    ss = [axis_ln.length * k / (n - 1) for k in range(n)]
+    hs = [half_at(s) + extra for s in ss]
+    discs = [axis_ln.interpolate(s).buffer(h) for s, h in zip(ss, hs, strict=True)]
+    band = unary_union(discs + [axis_ln.buffer(min(hs), cap_style="flat")])
+    band = band.intersection(axis_ln.buffer(max(hs) + 1.0, cap_style="flat"))
+    return band if band.geom_type == "Polygon" else max(band.geoms, key=lambda g: g.area)
+
+
 def viaduct_road_groups(airport, law: Law, cells, polys
                         ) -> tuple[list[Group], list[str], list[str]]:
     """``(groups, notes, refused)`` — the R6 build groups (module doc)."""
     tn = law.tables.structures.tunnel
     ways = list(getattr(airport, "osm_ways", ()) or ())
     vias = [w for w in ways if len(w.points) >= 2 and is_bridge(w)
-            and _layer(w.tags or {}) >= tn.viaduct_min_layer]
-    inside = _boundary(airport) if vias else None
+            and layer_of(w.tags or {}) >= tn.viaduct_min_layer]
+    inside = aerodrome_boundary(airport) if vias else None
     if not vias or inside is None:
         return [], [], []
     deck = unary_union([LineString(w.points).buffer(carriageway_width_m(w.tags, law) / 2.0)
@@ -306,7 +326,7 @@ def viaduct_road_groups(airport, law: Law, cells, polys
     roads, seen = [], set()
     for w in ways:          # one road per geometry: the feeds carry duplicates
         if len(w.points) < 2 or not (w.tags or {}).get("highway") or is_bridge(w) \
-                or is_tunnel(w, tn.admitted_values) or _layer(w.tags or {}) > 0:
+                or is_tunnel(w, tn.admitted_values) or layer_of(w.tags or {}) > 0:
             continue
         key = tuple((round(x, 2), round(y, 2)) for x, y in w.points)
         if key in seen or key[::-1] in seen:
@@ -334,8 +354,8 @@ def viaduct_road_groups(airport, law: Law, cells, polys
                            f"{floor:.2f} (apron {apron:.2f} − {tn.mouth_depth_m})")
             continue
         mid = 0.5 * (s0 + s1)
-        up = _side(route, mid, s1, floor, half_w, airport, law)
-        dn = _side(route, mid, s0, floor, half_w, airport, law)
+        up = level_side(route, mid, s1, floor, half_w, airport, law)
+        dn = level_side(route, mid, s0, floor, half_w, airport, law)
         if up is None or dn is None:
             refused.append(f"{rid} ({ids}): the {100.0 * tn.ramp_grade:.0f} % climb from "
                            f"{floor:.2f} fits neither on the mapped road beyond the run's "
@@ -351,8 +371,8 @@ def viaduct_road_groups(airport, law: Law, cells, polys
                 f"grade {100.0 * tn.ramp_grade:.1f} %, steeper up to the cap only inside the "
                 f"run)",)
         a, b = f"{rid}/a", f"{rid}/b"
-        groups.append(_half(up[0], up[1], up[2], floor, a, b, half_w, law, g_mid, note))
-        groups.append(_half(dn[0], dn[1], dn[2], floor, b, a, half_w, law, g_mid, note))
+        groups.append(level_half(up[0], up[1], up[2], floor, a, b, half_w, law, g_mid, note))
+        groups.append(level_half(dn[0], dn[1], dn[2], floor, b, a, half_w, law, g_mid, note))
         notes.append(note[0])
     return groups, notes, refused
 
@@ -365,7 +385,7 @@ def _runs(roads, deck, inside, law: Law) -> list[tuple]:
     tn = law.tables.structures.tunnel
     used: set[int] = set()
     found: list[tuple] = []
-    nb = _graph(roads)
+    nb = road_graph(roads)
     for w in sorted(roads, key=lambda r: -LineString(r.points).length):
         if id(w) in used or not LineString(w.points).intersects(deck):
             continue

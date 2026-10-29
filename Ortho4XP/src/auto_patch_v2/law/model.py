@@ -396,6 +396,13 @@ class Tunnel:
     viaduct_min_layer: int
     viaduct_min_run_m: float
     viaduct_apron_reach_m: float
+    #: #1638: a DUAL ROADWAY THROUGH THE AIRPORT IS ONE TRENCH — two
+    #: carriageways of a ``dual_trench_highways`` road within
+    #: ``dual_trench_max_separation_m`` whose below-grade stretch inside the
+    #: aerodrome boundary runs ``dual_trench_min_run_m`` (``planar/dual_trench``).
+    dual_trench_min_run_m: float
+    dual_trench_max_separation_m: float
+    dual_trench_highways: tuple[str, ...]
     #: §34 (12) (5) (owner RULINGS 2026-09-16d): A TERRAIN TUNNEL PASSES
     #: UNDER SOMETHING AT GRADE.  The four witnesses a bore with an
     #: on-field mouth is admitted by (``planar/structure_service.

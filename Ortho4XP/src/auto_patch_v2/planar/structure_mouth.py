@@ -524,6 +524,32 @@ def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
 STRIP_REFUSED, STRIP_PORTAL = "refused", "portal"
 
 
+def runway_strip(cells, polys, law, runways):
+    """THE RUNWAY STRIP KEEP-OUT region (RULINGS 2026-08-21d): every runway
+    cell buffered by its zone-2 half width — the one derivation
+    :func:`strip_keepout` and ``planar/dual_trench`` read; ``None`` with no
+    runway.  §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
+    region.  It is runway pavement (so every surface reader keeps it) but
+    the strip keep-out is drawn around the RUNWAY, which the shoulder lies
+    inside; buffering the shoulder too drew a second keep-out nothing ruled
+    and refused VHHH's road tunnel at 22.30368, 113.92917 (84,000 + 8,040 +
+    6,228 m2 of shoulder by 75 m).  The census of every runway-family
+    reader is the spec's §40 (4) MEASURED table."""
+    from shapely.ops import unary_union
+    from ..classify.roles import is_runway_shoulder
+    from ..law.reference_code import ref_status, status_by_ref
+    from ..law.tables import zone2_half_width_m
+    strip = []
+    status_of = status_by_ref(runways)    # #811
+    for p, c in zip(polys, cells, strict=True):
+        if c.role in ("runway", "runway_crossing") and not is_runway_shoulder(c):
+            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter,
+                                    ref_status(status_of, c.ref))
+            if hw:
+                strip.append(p.buffer(hw, join_style="mitre", mitre_limit=2.0))
+    return unary_union(strip) if strip else None
+
+
 def strip_keepout(wall, strip_u, pin) -> str:
     """THE RUNWAY STRIP KEEP-OUT for one corridor's wall ring (RULINGS
     2026-08-21d, ``retaining_wall.in_runway_strip = false``): ``""`` when

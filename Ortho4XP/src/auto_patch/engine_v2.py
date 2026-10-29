@@ -206,6 +206,7 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         from auto_patch_v2.airport.pack import select_pack
         from . import dsf_reader as _DSFR
         from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+        _fresh_object_pack_dumps(xplane_root, icao, lat, lon)
         sel = select_pack(xplane_root, icao)
         if sel is None:
             return None
@@ -233,6 +234,8 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
                                           raise_on_failure=True)
         if dump:
             fresh_object_footprints(dsf_path, cache_dir, xplane_root)
+        if getattr(sel, "pages_from", ""):   # #1630: the pages' pack (Global Airports)
+            _fresh_dumps([sel.pages_root], lat, lon)
         _fresh_companion_dumps(sel.root, lat, lon)
         return dump
     except DsfToolError as exc:
@@ -251,16 +254,46 @@ def _fresh_companion_dumps(main_root: str, lat: int, lon: int) -> None:
     """The text dumps of the airport's candidate COMPANION packs (owner
     RULINGS 2026-10-28p (5); ``airport/companion``), made where the serving
     pack's is.  A failure is logged and only leaves that pack unread."""
+    try:
+        from auto_patch_v2.airport import companion as _companion
+        roots = _companion.dump_candidates(main_root, lat, lon)
+    except Exception as exc:                # noqa: BLE001 — never fails a build
+        import logging
+        logging.getLogger(__name__).warning("companion dumps skipped: %s", exc)
+        return
+    _fresh_dumps(roots, lat, lon)
+
+
+def _fresh_object_pack_dumps(xplane_root: str, icao: str, lat: int, lon: int) -> None:
+    """#1630: when no Custom Scenery apt.dat defines ``icao``, the text dumps
+    of the packs that could be its OBJECT PACK (``airport/object_pack``),
+    made BEFORE ``select_pack`` decides, which reads only made dumps."""
+    try:
+        from auto_patch_v2.airport import apt_dat as _apt
+        from auto_patch_v2.airport import object_pack as _object_pack
+        apt = _apt.find_apt_dat(xplane_root, icao)
+        if not apt or os.path.realpath(apt) not in {
+                os.path.realpath(p) for p in _apt.global_candidates(xplane_root)}:
+            return
+        roots = _object_pack.candidates(xplane_root, lat, lon)
+    except Exception as exc:                # noqa: BLE001 — never fails a build
+        import logging
+        logging.getLogger(__name__).warning("object pack dumps skipped: %s", exc)
+        return
+    _fresh_dumps(roots, lat, lon)
+
+
+def _fresh_dumps(roots, lat: int, lon: int) -> None:
+    """The mod-cache text dump of each pack's PRISTINE tile DSF; a failure is
+    logged and only leaves that pack unread."""
     import logging
     try:
         import O4_File_Names as FNAMES
-        from auto_patch_v2.airport import companion as _companion
         from auto_patch_v2.airport import dsf as _dsf2
         from auto_patch_v2.airport.dsf_write import pristine_dsf_path
         from . import dsf_reader as _DSFR
-        roots = _companion.dump_candidates(main_root, lat, lon)
     except Exception as exc:                # noqa: BLE001 — never fails a build
-        logging.getLogger(__name__).warning("companion dumps skipped: %s", exc)
+        logging.getLogger(__name__).warning("pack dumps skipped: %s", exc)
         return
     for root in roots:
         try:
@@ -270,7 +303,7 @@ def _fresh_companion_dumps(main_root: str, lat: int, lon: int) -> None:
                                     os.path.basename(root)))
         except Exception as exc:            # noqa: BLE001
             logging.getLogger(__name__).warning(
-                "companion dump skipped for %s: %s", root, exc)
+                "pack dump skipped for %s: %s", root, exc)
 
 
 def fresh_object_footprints(dsf_path: str, cache_dir: str,

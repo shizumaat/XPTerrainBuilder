@@ -143,6 +143,7 @@ def test_the_policy_reaches_a_worker_childs_tile_arguments():
     run._children = []
     run._queue = []
     run._total = 0
+    run._run_cells = set()
     admitted = parallel.ParallelBuildRun._admit_batch_locked(
         run, [(38, -10)], "BI", 16, "", (True, False, False),
         boundary_policy="neighbour")

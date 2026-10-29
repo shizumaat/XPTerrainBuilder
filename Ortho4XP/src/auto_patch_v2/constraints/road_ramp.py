@@ -500,7 +500,8 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                     levels: _t.Mapping[int, float],
                     floor: _t.Mapping[int, float], cap: float,
                     anchors: _t.Mapping[int, float] | None = None, *,
-                    design: float | None = None, lane: float = 0.0
+                    design: float | None = None, lane: float = 0.0,
+                    ceil: _t.Mapping[int, float] | None = None
                     ) -> tuple[dict[int, float], dict[str, _t.Any]]:
     """OWNER RULINGS 2026-10-03b: THE RIBBON'S PROFILE, per route, from
     ``PlanarMap.road_terrace`` (``airport/road_ramp.road_terrace``) and
@@ -537,6 +538,19 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       at 89.6 m four metres from its join pinned at 96.89 m — a 12.98 m
       hard conflict of the ramp ceiling against the pin).
 
+    * a ``ceil`` vertex's foot level is capped at ``ceil[v]`` (a road a
+      RUNWAY borders, :func:`terrace_rewrite`: the runway never lifts it)
+      BEFORE the runs beside it are read, so a bare exit climbs from the
+      capped level, never the runway's; and a run LINKED to a capped foot
+      keeps its own ``floor`` — it is not drawn straight between two
+      grounds through the relief between them.  MEASURED on the KATL
+      capture (#1631): a road 80 m off 10/28's edge held at its ground
+      while the bare runs beside it climbed from the runway's level and
+      humped 11-13 m over the level lidar; with the cap alone a linked run
+      south of 27L was cut 3-6 m under its ground's hump; with the capped
+      feet dropped instead, a reach seed lifted another road 4.5 m.  A foot
+      at or below ``ceil[v]`` still brings the road down to it.
+
     Returns ``{v: target}`` for every vertex it governs and the report."""
     foot = terrace.get("foot") or {}
     pad = terrace.get("pad") or {}
@@ -550,9 +564,16 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     bare: dict[tuple[int, bool], tuple[float, list[tuple[float, int, float]]]] = {}
     anchors = anchors or {}
     lev: dict[int, float] = {}
+    ceil = ceil or {}
+    capped: set[int] = set()
+    rep["ceiled"] = 0
     for v, (a, b, u, _ref) in foot.items():
         if a in levels and b in levels:
             lev[v] = (1.0 - u) * float(levels[a]) + u * float(levels[b])
+            if v in ceil and lev[v] > float(ceil[v]):
+                lev[v] = float(ceil[v])
+                capped.add(v)
+                rep["ceiled"] += 1
         else:
             rep["unlevelled"] += 1
     by_route: dict[int, list[tuple[float, int]]] = {}
@@ -562,6 +583,7 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     for r, items in sorted(by_route.items()):
         items.sort()
         known = [(s_, lev[v]) for s_, v in items if v in lev]
+        held = [v in capped for _s, v in items if v in lev]
         if not known:
             continue
         rep["routes"] += 1
@@ -587,6 +609,10 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
             if v in own and v in pad:
                 continue        # #291: a 1206 / DSF road is its pad's frontage
             i = bisect.bisect_left(ks, s_)
+            if 0 < i < len(ks) and (held[i - 1] or held[i]) and v in floor:
+                out[v] = float(floor[v])        # linked to a capped foot
+                rep["linked"] += 1
+                continue
             if 0 < i < len(ks):
                 (s0, z0), (s1, z1) = known[i - 1], known[i]
                 t = (s_ - s0) / (s1 - s0) if s1 > s0 else 0.0
@@ -681,10 +707,17 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     for v in terr.get("meet") or {}:
         if v in floor and v not in joins:
             joins[v] = floor[v]
+    # a road a RUNWAY borders is never LIFTED to the runway's level (owner
+    # 2026-10-19, #951: inside a runway band a road sits at or below the
+    # band's grade; sim read 2026-10-28T14:26Z point 6) — the terrace may
+    # still bring it down to the runway, as at NLWF's road −1.  The cap is
+    # on the bordered LEVEL, so the runs beside it never take the runway's
+    # level either (#1631)
+    ceil = {v: floor[v] for v in terr.get("runway") or {} if v in floor}
     prof, rep = terrace_profile(
         terr, levels, floor, cap, joins,
         design=float(law.tables.emit.road_contact.ramp_grade),
-        lane=float(law.tables.emit.road_profile.lane_width_m))
+        lane=float(law.tables.emit.road_profile.lane_width_m), ceil=ceil)
     # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
     # row and NO terrace target: a road inside a band beats the band at or
     # below the band's grade (owner 2026-10-19, #951 — "as long as they are
@@ -694,16 +727,7 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # toward the runway end; the band's ceiling is ``zones.zone_bands``'
     # kerb row, so above the band's grade the band still leads.
     prof = {v: z for v, z in prof.items() if v in floor}
-    # a road a RUNWAY borders is never LIFTED to the runway's level (owner
-    # 2026-10-19, #951: inside a runway band a road sits at or below the
-    # band's grade; sim read 2026-10-28T14:26Z point 6) — the terrace may
-    # still bring it down to the runway, as at NLWF's road −1
-    lifted = 0
-    for v in terr.get("runway") or {}:
-        if v in prof and prof[v] > floor[v]:
-            prof[v] = floor[v]
-            lifted += 1
-    rep["runway_not_lifted"] = lifted
+    rep["runway_not_lifted"] = rep.pop("ceiled")
     rep["governed"] = len(prof)
     if not prof:
         return cs, rep

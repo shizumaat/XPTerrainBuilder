@@ -834,7 +834,13 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
 
 def _parallel(a: Mouth, b: Mouth, sep_max: float) -> bool:
     """31h's test: mouths within the dual separation, approaches parallel
-    and holding that separation 50 m out."""
+    and holding that separation 50 m out — OR CLOSING IT (issue #1629): a
+    dual carriageway that splits into two bores rejoins its single way on
+    the approach, so its carriageways converge.  Only approaches that
+    PART (two roads going different ways) fail; converging ones are one
+    road, and refusing them left one bore built alone, its mouth slid out
+    of its sibling's carriageway and held at bore depth under it (KSEA: a
+    7.2 m step at the mouth)."""
     if b.bore is a.bore:
         return False
     d0 = math.hypot(a.xy[0] - b.xy[0], a.xy[1] - b.xy[1])
@@ -844,7 +850,7 @@ def _parallel(a: Mouth, b: Mouth, sep_max: float) -> bool:
         return False
     pa, pb = resample(a.approach, [50.0])[0], resample(b.approach, [50.0])[0]
     d1 = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
-    return abs(d1 - d0) <= 0.5 * d0 + 2.0
+    return d1 - d0 <= 0.5 * d0 + 2.0
 
 
 def merge_duals(mouths: list[Mouth], law: Law, stats, same=None

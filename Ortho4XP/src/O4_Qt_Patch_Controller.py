@@ -73,6 +73,14 @@ def absence(tile_built: bool, scanning: bool) -> str:
     return PatchController.NO_PATCH
 
 
+def sibling_entries(candidates, tile: str, icao: str) -> list:
+    """The other tiles' patches of the airport on show (#1646): an airport
+    whose patch spans several tiles has one file per tile, and the map
+    draws every one (only ``tile``'s is the editable document)."""
+    return sorted(((t, e) for t, e in candidates if e["icao"] == icao and t != tile),
+                  key=lambda item: item[0])
+
+
 def tile_key(lat: int, lon: int) -> str:
     return "%+03d%+04d" % (lat, lon)
 
@@ -81,6 +89,7 @@ class PatchController(QObject):
     """Viewport → airport → document, and save / revert / rebuild."""
 
     state_changed = Signal()
+    siblings_changed = Signal()
 
     # LoadState names (the Mac enum's cases)
     HIDDEN, LOADING, LOADED, FAILED, NO_PATCH = "hidden", "loading", "loaded", "failed", "no_patch"
@@ -106,6 +115,10 @@ class PatchController(QObject):
         self._loading_key: str | None = None
         self._reload_document = False
         self._dismissed_key: str | None = None
+        #: The shown airport's patches on OTHER tiles, read-only (#1646):
+        #: ``"tile|path"`` → PatchDoc (None while its load runs).
+        self.siblings: dict[str, PE.PatchDoc | None] = {}
+        self._sibling_loading: set[str] = set()
         #: ``rebuild(tile_key) -> error sentence | None`` (the window's build path).
         self.rebuild: _t.Callable[[str], str | None] = lambda _tile: "The build path is not connected."
         self.is_building: _t.Callable[[], bool] = lambda: False
@@ -178,6 +191,7 @@ class PatchController(QObject):
         chosen = self._nearest(candidates, c_lat, c_lon)
         if chosen is not None:
             self._show(*chosen)
+            self._show_siblings(sibling_entries(candidates, chosen[0], chosen[1]["icao"]))
         elif pending:
             return
         else:
@@ -260,6 +274,25 @@ class PatchController(QObject):
             self.file_mtime = _mtime(reply["path"])
             self._set_state(self.LOADED)
         self.engine.call("patch_load", done, tile=tile, icao=entry["icao"])
+
+    def _show_siblings(self, entries) -> None:
+        """Load the shown airport's patches on the other tiles in view."""
+        keys = {"%s|%s" % (t, e["path"]): (t, e) for t, e in entries}
+        if set(keys) != set(self.siblings):
+            self.siblings = {k: self.siblings.get(k) for k in keys}
+            self.siblings_changed.emit()
+        for key, (tile, entry) in keys.items():
+            if self.siblings[key] is not None or key in self._sibling_loading:
+                continue
+            self._sibling_loading.add(key)
+
+            def done(reply, error, key=key):
+                self._sibling_loading.discard(key)
+                if error is not None or key not in self.siblings:
+                    return
+                self.siblings[key] = PE.PatchDoc.from_wire(reply["nodes"], reply["ways"])
+                self.siblings_changed.emit()
+            self.engine.call("patch_load", done, tile=tile, icao=entry["icao"])
 
     # ─── unsaved edits ─────────────────────────────────────────────────
     def _hold_for_unsaved(self, icao: str, key: str) -> bool:

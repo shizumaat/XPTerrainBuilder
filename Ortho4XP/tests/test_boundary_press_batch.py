@@ -168,7 +168,7 @@ def test_build_takes_the_batch_keyword():
     assert parameters["boundary_batch"].default is None
 
 
-def test_the_batch_reaches_a_worker_childs_tile_arguments():
+def _bare_run():
     from o4_engine import parallel
 
     class _Bare(parallel.ParallelBuildRun):
@@ -183,11 +183,91 @@ def test_the_batch_reaches_a_worker_childs_tile_arguments():
     run._children = []
     run._queue = []
     run._total = 0
+    run._run_cells = set()
+    run._lock = __import__("threading").Lock()
+    return run
+
+
+def _batch(run, tile):
+    return {tuple(cell) for cell in run._boundary_batch_locked(tile)}
+
+
+def test_the_batch_reaches_a_worker_childs_step_command():
+    from o4_engine import parallel
+
+    run = _bare_run()
     parallel.ParallelBuildRun._admit_batch_locked(
         run, [HOME, WEST], "BI", 16, "", (True, False, False))
     for tile in (HOME, WEST):
-        assert run._tile_arguments[tile]["boundary_batch"] == [
-            list(HOME), list(WEST)]
+        assert _batch(run, tile) == {HOME, WEST}
+
+
+def test_two_presses_into_one_parallel_run_are_one_batch():
+    """#1641 (app 1.0.444, +49+008 then +50+008 queued as two presses):
+    each tile's step command counts the OTHER press's tile as built, so
+    the airport crossing between them is patched once, by its owner."""
+    from o4_engine import parallel
+
+    run = _bare_run()
+    for press in ([WEST], [HOME]):
+        parallel.ParallelBuildRun._admit_batch_locked(
+            run, press, "BI", 16, "", (True, False, False))
+    assert _batch(run, HOME) == {HOME, WEST}
+    assert _batch(run, WEST) == {HOME, WEST}
+    assert run.run_cells() == frozenset({HOME, WEST})
+
+
+def test_a_neighbour_outside_the_run_stays_out_of_the_batch():
+    """The control: a cell no press queued is still "not built"."""
+    from o4_engine import parallel
+
+    run = _bare_run()
+    parallel.ParallelBuildRun._admit_batch_locked(
+        run, [HOME, (0, 0)], "BI", 16, "", (True, False, False))
+    assert _batch(run, HOME) == {HOME}      # (0, 0) is not adjacent
+
+
+def _in_process_session(queued):
+    import threading
+    from collections import deque
+
+    from o4_engine.session import EngineSession
+
+    session = EngineSession.__new__(EngineSession)
+    session._work_queue_lock = threading.Lock()
+    session._work_queue = deque((tile, "BI", 16, "", []) for tile in queued)
+    session._active_tile = None
+    session._building = True
+    session._parallel = None
+    session._eta = None
+    session._tile_overrides = {}
+    session._cancelled_tiles = set()
+    session.new_tile_attempt = lambda tile: None
+    return session
+
+
+def test_a_second_in_process_press_joins_the_live_run(monkeypatch):
+    """The serial path: enqueueing HOME while WEST is queued records ONE
+    batch holding both, not HOME alone (#1641)."""
+    import O4_UI_Utils as UI
+
+    monkeypatch.setattr(VMAP, "BOUNDARY_BATCHES", {}, raising=False)
+    monkeypatch.setattr(UI, "red_flag", False, raising=False)
+    session = _in_process_session([WEST])
+    VMAP.note_boundary_batch([WEST])
+    added = session._enqueue_in_process([HOME], "BI", 16, "",
+                                        True, False, False)
+    assert added == 1
+    assert VMAP.boundary_batch_of(*HOME) == frozenset({HOME, WEST})
+    assert VMAP.boundary_batch_of(*WEST) == frozenset({HOME, WEST})
+
+
+def test_the_preflight_counts_the_live_runs_tiles():
+    """The dialog does not ask about a neighbour the run already holds."""
+    session = _in_process_session([WEST])
+    assert session._live_run_cells() == {WEST}
+    session._building = False
+    assert session._live_run_cells() == set()
 
 
 def test_a_child_lands_the_json_batch(monkeypatch):

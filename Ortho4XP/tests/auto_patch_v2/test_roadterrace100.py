@@ -378,3 +378,45 @@ def test_a_road_a_runway_borders_is_never_lifted_to_the_runway(law):
     for v in held:
         a, b, u, _ref = terr["foot"][v]
         assert (1 - u) * z[a] + u * z[b] - z[v] > 3.0, (v, z[v])
+
+
+def test_a_runway_bordered_level_is_capped_before_the_runs_beside_it():
+    """#1631 (KATL, the road south of 10/28's west part): stations 0-2 are
+    bordered by a RUNWAY standing 19 m over the road's level ground (floor
+    283); 3-12 are bare.  The bordered stations already held their floor;
+    the bare run climbed from the RUNWAY's level, so the road humped 11-13 m
+    over the level lidar beside them.  With the runway foot's level capped
+    at the road's floor (``ceil``) the whole road reads its own ground."""
+    st = _route(13)
+    foot, lv = _feet({0: 302.0, 1: 302.0, 2: 302.0})
+    floor = {v: 283.0 for v in st}
+    old, _r = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP)
+    assert max(old[v] for v in range(3, 13)) > 290.0          # the hump
+    out, rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                               ceil={v: floor[v] for v in (0, 1, 2)})
+    assert all(out.get(v, floor[v]) == pytest.approx(283.0) for v in st)
+    assert rep["ceiled"] == 3
+
+
+def test_a_run_between_two_dropped_runway_feet_keeps_its_own_ground():
+    """#1631 (south of 27L): a run LINKED between two capped runway feet is
+    not cut straight between their floors through the ground's hump — it
+    keeps its own floor."""
+    st = _route(9)
+    foot, lv = _feet({0: 301.0, 8: 301.0})
+    floor = {v: 295.0 + (6.0 - abs(v - 4) * 1.5) for v in st}      # a 6 m hump
+    out, _rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                                ceil={0: floor[0], 8: floor[8]})
+    assert all(out.get(v, floor[v]) == pytest.approx(floor[v]) for v in st)
+
+
+def test_a_runway_bordered_level_below_its_floor_still_brings_the_road_down():
+    """The cap only LOWERS: a runway BELOW the road's floor (NLWF's road −1)
+    still brings the bordered stations, and the runs linked to them, down."""
+    st = _route(5)
+    foot, lv = _feet({0: 95.0, 4: 95.0})
+    floor = {v: 100.0 for v in st}
+    out, rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                               ceil={0: 100.0, 4: 100.0})
+    assert all(out[v] == pytest.approx(95.0) for v in st)
+    assert rep["ceiled"] == 0

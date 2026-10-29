@@ -588,10 +588,12 @@ def _stamps_hold(fp: str, header: _t.Any) -> bool:
 
 
 def _pack_root(airport) -> str:
-    apt = getattr(getattr(airport, "pack", None), "apt_dat_path", None)
-    if not apt:
-        return ""
-    return os.path.dirname(os.path.dirname(apt))
+    pack = getattr(airport, "pack", None)
+    root = getattr(pack, "pack_root", None)        # a SceneryPack (#1630)
+    if root is None:            # a bare record: the folder above its apt.dat
+        apt = getattr(pack, "apt_dat_path", None)
+        root = os.path.dirname(os.path.dirname(apt)) if apt else ""
+    return root
 
 
 def cache_path(airport, mod_cache_root: str | None,

@@ -406,7 +406,8 @@ def test_r2_a_deck_placed_at_n_anchors_is_n_placements_not_skipped(tmp_path):
             place("dsf:obj1", "deck.obj", (400.0, 40.0), "signature"),
             place("dsf:obj2", "twice.obj", (300.0, 0.0)),
             place("dsf:obj3", "twice.obj", (320.0, 0.0))]
-    pack = NS(name="pack", apt_dat_path=str(root / "Earth nav data" / "apt.dat"))
+    pack = NS(name="pack", apt_dat_path=str(root / "Earth nav data" / "apt.dat"),
+              pack_root=str(root))
     air = NS(icao="ZZZZ", frame=Frame("ZZZZ", (60.0, -135.0), 11), pack=pack)
     cache = O.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
     part = PPa.partition_pack(air, objs, cache, law)

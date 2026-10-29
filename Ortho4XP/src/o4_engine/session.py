@@ -1182,11 +1182,15 @@ class EngineSession:
                 self._work_queue.append(
                     (tile, provider, zoomlevel, custom_build_dir, plan))
             if fresh:
-                # This press's own tile set (issue #51), as ``build`` does.
+                # THE RUN'S tile set (issue #51, #1641): this press joins
+                # the tiles still queued or building, so a neighbour
+                # queued by an earlier press is not "not built".
                 try:
                     import O4_Vector_Map as _VMAP
 
-                    _VMAP.note_boundary_batch(tiles)
+                    _VMAP.note_boundary_batch(
+                        self._live_run_cells_locked() | set(
+                            (int(t[0]), int(t[1])) for t in tiles))
                 except Exception:                        # pragma: no cover
                     pass
             if fresh and self._eta is not None:
@@ -1201,6 +1205,30 @@ class EngineSession:
                 }
                 self._eta.add_tiles(fresh, estimates, planned_keys)
         return len(fresh)
+
+    def _live_run_cells_locked(self):
+        """The in-process run's queued and building tiles (caller holds
+        ``_work_queue_lock``)."""
+        cells = {(int(item[0][0]), int(item[0][1]))
+                 for item in self._work_queue}
+        if self._active_tile is not None:
+            cells.add((int(self._active_tile[0]), int(self._active_tile[1])))
+        return cells
+
+    def _live_run_cells(self):
+        """Every tile the live run holds, whichever press queued it
+        (#1641): the boundary preflight counts them as built, exactly as
+        the build-time check does.  Empty when no run is live."""
+        parallel_run = getattr(self, "_parallel", None)
+        if parallel_run is not None:
+            return set(parallel_run.run_cells())
+        lock = getattr(self, "_work_queue_lock", None)
+        if lock is None:                 # a session that never built
+            return set()
+        with lock:
+            if not self._building:
+                return set()
+            return self._live_run_cells_locked()
 
     def _prepare_in_process_eta(self, tiles, plan, provider, zoomlevel,
                                 custom_build_dir):
@@ -2325,6 +2353,8 @@ class EngineSession:
         from auto_patch import selection as SELECTION
 
         selected = set(cells)
+        # A tile the live run already holds is being built too (#1641).
+        in_run = selected | self._live_run_cells()
         airports = []
         add_tiles = set()
         for (lat, lon) in cells:
@@ -2336,7 +2366,7 @@ class EngineSession:
                 continue
             record = []
             (is_cold, siblings) = VMAP.boundary_cold_predicate(
-                (lat, lon), selected)
+                (lat, lon), in_run)
             SELECTION.select_patch_airports(
                 tile, cifp, SELECTION.resolved_auto_patch_mode(tile),
                 manual_icaos=VMAP.manual_patch_icaos(tile),

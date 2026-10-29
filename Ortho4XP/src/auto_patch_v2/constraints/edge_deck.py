@@ -20,19 +20,33 @@ trench, ``constraints/structures``), so the taxiway is never pulled.
 THE SPAN TOO (RULINGS 28d Q212 "lifted to deck level"; owner sim read
 2026-10-28T14:26Z points 4 / 5: "Runway edge should be flat and paved to
 the edge of the tunnel object, no gap between them"): every vertex inside
-an edge bridge's COVER (``Tunnel.edge_covers``), off the back by the rim
-stand-off and on no trench face, takes the same pair to its nearest airside
-vertex — measured on the KATL capture, ``tunel_A`` south's span (a pack
-parking lot) stood 2.9 m under to 1.8 m over the runway edge abeam.
+an edge bridge's COVER (``Tunnel.edge_covers``) and on its BACK — the rim
+stand-off band along the back line, the top edge of the objects — that is
+on no trench floor takes the same pair to its nearest airside vertex —
+measured on the KATL capture, ``tunel_A`` south's span (a pack parking lot)
+stood 2.9 m under to 1.8 m over the runway edge abeam.
+
+TO THE TOP EDGE (#1632, owner sim read of 1.0.444: "the ground should be
+flat airside all the way to the top edge of those tunnel bridge objects").
+The span stopped the rim stand-off short of the back, and the trench's rim
+along the back was pinned at its own DEM (``constraints/structures``): on
+the KATL capture the rim stood 8.8-20.7 m under the cover 0.2-0.7 m away,
+and a road piece inside the cover kept its ramp to the bare-earth DEM
+11 m down, its hard ceiling winning the pair.  The governed vertices now
+reach the back, and :func:`release_governed` withdraws the rows that held
+them elsewhere — the rim's DEM pin and the road ramp's target and ceiling
+— so the pair is the one level they carry.
 """
 from __future__ import annotations
 
+import math
+
 from ..law import Law
 from ..model.airport import Airport
-from ..model.constraints import Linear, Row, Source
+from ..model.constraints import Band, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["edge_deck_rows", "GEN", "RULING"]
+__all__ = ["edge_deck_rows", "release_governed", "GEN", "RULING"]
 
 GEN = "edge_deck"
 #: the ruling head (``[design] hard_rulings``)
@@ -82,27 +96,75 @@ def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     return rows
 
 
-#: the roles of an edge trench's own faces: never part of its span
-_TRENCH_ROLES = frozenset({"tunnel_ramp", "retaining_wall"})
+#: the role of an edge trench's FLOOR: never part of its span (the rim
+#: along the back is — it is the objects' top edge)
+_FLOOR_ROLES = frozenset({"tunnel_ramp"})
 
 
 def _span_vertices(planar: PlanarMap, law: Law, tn) -> set[int]:
-    """The vertices inside ``tn``'s edge covers, at least the rim stand-off
-    (``wall_gap_m + wall_band_width_m``) inside each, on no trench face
-    (module doc)."""
+    """The vertices inside ``tn``'s edge covers or on its back — within the
+    rim stand-off (``wall_gap_m + wall_band_width_m``) of the back line
+    run on ``wall_gap_m`` past each end (the rim's corner vertex there),
+    flat-capped — on no trench floor (module doc)."""
     covers = getattr(tn, "edge_covers", ()) or ()
     if not covers:
         return set()
-    from shapely.geometry import Point, Polygon
+    from shapely.geometry import LineString, Point, Polygon
+    from shapely.ops import unary_union
     from shapely.prepared import prep
     t = law.tables.structures.tunnel
-    inner = [prep(q) for q in (Polygon(c).buffer(-(t.wall_gap_m + t.wall_band_width_m))
-                               for c in covers if len(c) >= 4) if not q.is_empty]
-    if not inner:
+    parts = [Polygon(c).buffer(0.0) for c in covers if len(c) >= 4]
+    if len(getattr(tn, "edge_back", ()) or ()) >= 2:
+        parts.append(LineString(_run_on(tn.edge_back, t.wall_gap_m)).buffer(
+            t.wall_gap_m + t.wall_band_width_m, cap_style="flat"))
+    span = unary_union([q for q in parts if not q.is_empty])
+    if span.is_empty:
         return set()
+    inside = prep(span)
     out: set[int] = set()
     for v, vx in planar.vertices.items():
-        if any(c.contains(Point(vx.xy)) for c in inner) and \
-                not _TRENCH_ROLES & set(planar.roles_at(v)):
+        if inside.contains(Point(vx.xy)) and not _FLOOR_ROLES & set(planar.roles_at(v)):
             out.add(v)
+    return out
+
+
+def _run_on(line, d: float) -> list:
+    """``line`` (points) run on ``d`` metres past each end along its end
+    segments."""
+    pts = [tuple(p) for p in line]
+
+    def past(a, b):
+        n = math.dist(a, b)
+        return b if n <= 1e-9 else (b[0] + (b[0] - a[0]) * d / n, b[1] + (b[1] - a[1]) * d / n)
+    return [past(pts[1], pts[0]), *pts[1:-1], past(pts[-2], pts[-1])] if len(pts) > 2 else \
+        [past(pts[1], pts[0]), past(pts[0], pts[1])]
+
+
+#: the generators whose one-vertex rows a governed vertex no longer
+#: carries: the trench rim's DEM pin (``constraints/structures``) and the
+#: road ramp's target and hard ceiling (``constraints/road_ramp``)
+_RELEASED = frozenset({"structures", "road_ramp"})
+
+
+def release_governed(rows: list[Row], counts: dict[str, int] | None = None) -> list[Row]:
+    """THE PAIR IS THE LEVEL (#1632, module doc): every vertex this module
+    holds to the airside abeam (the first term of its pairs) sheds the
+    one-vertex rows of :data:`_RELEASED` — a ``Pin``, a ``Band`` or a
+    one-term ``Linear`` — that held it at the DEM or at a road's ramp.
+    Pair rows (grades, steps) are kept: they bind it to its neighbours."""
+    gov = {r.terms[0][0] for r in rows
+           if isinstance(r, Linear) and r.source.generator == GEN and r.terms[0][1] > 0.0}
+    if not gov:
+        return rows
+    out: list[Row] = []
+    n = 0
+    for r in rows:
+        if r.source.generator in _RELEASED and (
+                (isinstance(r, (Pin, Band)) and r.v in gov)
+                or (isinstance(r, Linear) and len(r.terms) == 1 and r.terms[0][0] in gov)):
+            n += 1
+            continue
+        out.append(r)
+    if counts is not None:
+        counts["edge_deck.released"] = n
     return out

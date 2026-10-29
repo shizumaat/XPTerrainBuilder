@@ -126,3 +126,42 @@ def test_a_trench_between_two_bridges_slopes_from_each_bottom_to_the_other():
     assert all(r.source is src for r in rows) and len(rows) == 2 * len(groups)
     assert _holds(seat_pair(7, (10, 26.0), src), {7: 274.0, 10: 300.0})
     assert not _holds(seat_pair(7, (10, 26.0), src), {7: 275.0, 10: 300.0})
+
+
+def test_the_span_runs_to_the_top_edge_and_sheds_the_rows_that_held_it_off(monkeypatch):
+    """#1632 (owner sim read of 1.0.444: "the ground should be flat airside
+    all the way to the top edge of those tunnel bridge objects"): a ground
+    vertex inside the cover AT the back, and the trench's rim ON the back,
+    take the airside abeam's pair; the trench floor and a rim vertex past the
+    back's end do not.  A governed vertex sheds its rim DEM pin and its road
+    ramp target and ceiling; a pair row and an ungoverned vertex's ramp
+    stay."""
+    import auto_patch_v2.constraints.roads as R
+    from auto_patch_v2.constraints import edge_deck as ED
+    from auto_patch_v2.model.constraints import Band, Diff, Linear, Pin, Source
+    from test_hanging_objects1298 import LAW
+    v = {0: (0.0, 0.0), 1: (50.0, 0.0), 2: (30.0, 19.5), 3: (25.0, 20.2),
+         4: (25.0, 21.5), 5: (55.0, 20.2), 6: (10.0, 19.0)}
+    roles = {0: ("runway",), 1: ("runway",), 2: ("graded_strip",),
+             3: ("retaining_wall",), 4: ("retaining_wall", "tunnel_ramp"),
+             5: ("retaining_wall",), 6: ("service_road",)}
+    tn = types.SimpleNamespace(id="tunnel:-1@0", portal="dsf:obj7", decks=(),
+                               edge_back=((0.0, 20.0), (50.0, 20.0)),
+                               edge_covers=(((0.0, 0.0), (50.0, 0.0), (50.0, 20.0),
+                                             (0.0, 20.0), (0.0, 0.0)),))
+    pm = types.SimpleNamespace(
+        structures=(tn,), faces={},
+        vertices={k: types.SimpleNamespace(xy=p) for k, p in v.items()},
+        ring_vertices=lambda ring: ring, roles_at=lambda k: roles[k])
+    monkeypatch.setattr(R, "stage_one_vertices", lambda _pm, _law: frozenset({0, 1}))
+    rows = ED.edge_deck_rows(pm, LAW, None)
+    assert {r.terms[0][0] for r in rows if r.terms[0][1] > 0} == {2, 3, 6}
+    rim = Source("structures", "tunnel.crest = dem", ())
+    ramp = Source("road_ramp", ED.RULING, ())
+    other = [Pin(3, 290.0, rim), Pin(5, 290.0, rim), Band(6, None, 291.5, ramp),
+             Linear(((6, 1.0),), 291.0, 291.0, ramp), Linear(((5, 1.0),), 280.0, 280.0, ramp),
+             Diff(6, 2, 0.1, 5.0, ramp)]
+    counts: dict = {}
+    kept = ED.release_governed(rows + other, counts)
+    assert counts["edge_deck.released"] == 3
+    assert [r for r in kept if r in other] == [other[1], other[4], other[5]]

@@ -265,7 +265,8 @@ def _pack(workers: int, root: str, say) -> tuple:
              ("bushes.obj", (-200.0, 80.0), 33.0), ("deck.obj", (100.0, 40.0), 70.0)]
     names += [(f"shed{k:02d}.obj", (300.0 + 40.0 * k, -60.0), 7.0 * k) for k in range(12)]
     objs = [placed(k, *row) for k, row in enumerate(names)]
-    pack = _NS(name="pack", apt_dat_path=os.path.join(root, "Earth nav data", "apt.dat"))
+    pack = _NS(name="pack", apt_dat_path=os.path.join(root, "Earth nav data", "apt.dat"),
+               pack_root=root)
     air = _NS(icao="ZZZZ", frame=Frame("ZZZZ", (60.0, -135.0), 11), pack=pack)
     # the build's own cache (``pipeline/build.pack_stage``): the §51 (6) quantum
     cache = O.ResourceCache(law.tables.structures.basin.min_solid_thickness_m,

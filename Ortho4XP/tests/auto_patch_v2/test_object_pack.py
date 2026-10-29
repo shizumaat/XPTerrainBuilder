@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from auto_patch_v2.airport import apt_dat as A
 from auto_patch_v2.airport import dsf as D
 from auto_patch_v2.airport import object_pack as OP
@@ -209,12 +208,11 @@ def test_the_pavement_pages_stay_global_airports(tmp_path, monkeypatch):
 def test_the_load_reads_pages_from_one_dump_and_the_rest_from_the_other(tmp_path):
     from auto_patch_v2.airport.load import _DsfPolygons
     pages = tmp_path / "global.text"
-    pages.write_text(_polygon_dump([(TERMINAL, _square(-122.28, 47.90)),
-                                    (PAGE, _square(-122.27, 47.91))]), encoding="utf-8")
+    _write(str(pages), _polygon_dump([(TERMINAL, _square(-122.28, 47.90)),
+                                      (PAGE, _square(-122.27, 47.91))]))
     objects = tmp_path / "pack.text"
-    objects.write_text(_polygon_dump([(PAGE, _square(-122.29, 47.90)),
-                                      (TERMINAL, _square(-122.28, 47.92))]),
-                       encoding="utf-8")
+    _write(str(objects), _polygon_dump([(PAGE, _square(-122.29, 47.90)),
+                                        (TERMINAL, _square(-122.28, 47.92))]))
     polys = _DsfPolygons(lambda lo, la: (lo * 1e5, la * 1e5), None)
     polys.read(str(pages), str(tmp_path), None, pages=True, rest=False)
     polys.read(str(objects), str(tmp_path), None, pages=False, rest=True)

@@ -234,7 +234,7 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
                                           raise_on_failure=True)
         if dump:
             fresh_object_footprints(dsf_path, cache_dir, xplane_root)
-        if sel.pages_from:          # #1630: the pages' pack (Global Airports)
+        if getattr(sel, "pages_from", ""):   # #1630: the pages' pack (Global Airports)
             _fresh_dumps([sel.pages_root], lat, lon)
         _fresh_companion_dumps(sel.root, lat, lon)
         return dump

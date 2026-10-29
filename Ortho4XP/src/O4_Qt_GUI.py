@@ -27,6 +27,7 @@ from PySide6.QtCore import (
     QObject,
     QPointF,
     QRectF,
+    QSettings,
     QSize,
     Qt,
     QTimer,
@@ -137,6 +138,11 @@ MAX_CONSOLE_LINES = 5000
 #: Quiet time after a Build-box change before the cost estimate is asked
 #: for (#820): one request per burst of clicks, an answer within ~1 s.
 PLAN_ESTIMATE_DEBOUNCE_MS = 250
+# The divider above the Activity list (#1625): its QSettings key and handle
+# width; the Mac app's RunListLayout keeps the same height in AppStorage.
+ACTIVITY_SPLIT_KEY = "panel/activity_split"
+ACTIVITY_HANDLE_PX = 9
+ACTIVITY_SETTINGS = ("XPTerrainBuilder", "Ortho4XP")
 
 # Prefs keys for the restored tile selection (docs/specs/qt-parity-
 # selection-stop-resume-spec.md §Q1).  The selected set is a list of
@@ -1478,15 +1484,36 @@ class MainWindow(QMainWindow):
         self.activity_group.setVisible(False)
         self._activity_shown = False
 
-        pv.addWidget(build_group)
-        pv.addWidget(self.patch_editor.panel)
+        # The boxes and the run list share a splitter (#1625): its wide
+        # handle drags to resize the list, and the sizes are kept in
+        # QSettings between launches.
+        boxes = QWidget()
+        bv = QVBoxLayout(boxes)
+        bv.setContentsMargins(0, 0, 0, 0)
+        bv.addWidget(build_group)
+        bv.addWidget(self.patch_editor.panel)
+        bv.addStretch(1)
+        self.activity_split = QSplitter(Qt.Vertical)
+        self.activity_split.setChildrenCollapsible(False)
+        self.activity_split.setHandleWidth(ACTIVITY_HANDLE_PX)
+        self.activity_split.setStyleSheet(
+            "QSplitter::handle { background: palette(mid);"
+            " margin: 3px 0px; }")
+        self.activity_split.addWidget(boxes)
+        self.activity_split.addWidget(self.activity_group)
+        self.activity_split.setStretchFactor(0, 0)
+        self.activity_split.setStretchFactor(1, 1)
+        saved = QSettings(*ACTIVITY_SETTINGS).value(ACTIVITY_SPLIT_KEY)
+        if isinstance(saved, QByteArray):
+            self.activity_split.restoreState(saved)
+        self.activity_split.splitterMoved.connect(self._save_activity_split)
         # While visible, the run list absorbs ALL free panel height (its
         # rows scroll internally; the Mac app's RunListLayout).  The
         # trailing spacer keeps the boxes top-aligned while it is hidden
         # — and is zeroed while it shows (_sync_run_list), otherwise the
         # spacer keeps its share and the list stops growing with the
         # window.
-        pv.addWidget(self.activity_group, 1)
+        pv.addWidget(self.activity_split, 1)
         pv.addStretch(1)
         self._panel_layout = pv
         self._panel_spacer_index = pv.count() - 1
@@ -3689,6 +3716,11 @@ class MainWindow(QMainWindow):
         self.activity_group.setVisible(shows)
         layout = self._panel_layout
         layout.setStretch(self._panel_spacer_index, 0 if shows else 1)
+
+    def _save_activity_split(self, *_args):
+        """Keep the dragged Activity height between launches (#1625)."""
+        QSettings(*ACTIVITY_SETTINGS).setValue(ACTIVITY_SPLIT_KEY,
+                             self.activity_split.saveState())
 
     def _list_selection_edited(self, tiles):
         """The user changed the run list's selection (#1537): it becomes

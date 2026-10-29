@@ -341,7 +341,9 @@ def test_qt_run_sections_are_the_manifest(window):
     import O4_Qt_Activity_List as QTACT
 
     listed = window.activity_list
-    assert window._panel_layout.indexOf(window.activity_group) != -1
+    assert window._panel_layout.indexOf(window.activity_split) != -1
+    assert window.activity_split.indexOf(window.activity_group) == 1
+    assert window.activity_split.handleWidth() >= 9   # Mac: 9 pt band
     sections = [getattr(listed, attr) for _key, _marker, attr in RUN_SECTIONS]
     assert listed.sections() == sections
     assert QTACT.completed_title(COMPLETED_TITLE[2]) == COMPLETED_TITLE[1]

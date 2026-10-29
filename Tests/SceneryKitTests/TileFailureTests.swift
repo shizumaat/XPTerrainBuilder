@@ -314,4 +314,24 @@ struct LinkFixQueueTests {
         #expect(report.tiles[1].requeued)
         #expect(O4TileFailureCopy.requeuedLine == "Fixed and re-queued.")
     }
+
+    /// #1624: six link failures, all fixed, re-queued and built — the
+    /// report's title counts no tile as not built.
+    @Test func requeuedFailuresThatBuildAreNotCounted() throws {
+        var log = O4RunIssueLog()
+        for lon in 0..<6 {
+            let key = "+30+03\(lon)"
+            log.add(failedTile(key, lat: 30, lon: 30 + lon, link: "/v\(lon)"))
+            log.markRequeued(tileKey: key)
+        }
+        log.add(failedTile("+29+030", lat: 29, lon: 30, link: "/w"))
+        let finished = log.finish()
+        let report = try #require(finished)
+        #expect(report.title == "1 tile was not built")
+        var all = O4RunIssueLog()
+        all.add(failedTile("+28+030", lat: 28, lon: 30, link: "/x"))
+        all.markRequeued(tileKey: "+28+030")
+        let allFinished = all.finish()
+        #expect(try #require(allFinished).title == "Every tile was built")
+    }
 }

@@ -86,6 +86,15 @@ STEP_FAILURE_NOUNS = {
 BUILT_WITH_WARNINGS = "built with warnings"
 
 
+def last_outcome_counts(last_ok):
+    """``(built, failed)`` for ``RunDone`` from each tile's LAST outcome
+    (#1624): a tile re-queued after a fixable failure (a Custom Scenery
+    link to an unmounted drive, #695) that then builds is built, not
+    also failed."""
+    built = sum(1 for ok in last_ok.values() if ok)
+    return built, len(last_ok) - built
+
+
 def build_done(lat, lon, ok, records, app_driven=False, notes=(),
                degraded=()):
     """A tile's ``BuildDone`` from its raw failure ``records``
@@ -1357,7 +1366,7 @@ class EngineSession:
             "imagery": TILE.build_tile,
             "overlays": lambda t: OVL.build_overlay(t.lat, t.lon),
         }
-        done = errors = 0
+        last_ok = {}  # #1624: each tile's last outcome
         run_completed = False
         while not UI.red_flag:
             with self._work_queue_lock:
@@ -1490,7 +1499,7 @@ class EngineSession:
                 if not self._stepwise_run:
                     UI.total_bottom_line(lat, lon)
                 if failed_step_keys:
-                    errors += 1
+                    last_ok[(lat, lon)] = False
                     if self._eta:
                         self._eta.tile_terminal((lat, lon))
                     self._emit(TileState(lat=lat, lon=lon, state="error",
@@ -1512,7 +1521,7 @@ class EngineSession:
                                           self._take_tile_failures(),
                                           self.app_driven))
                 else:
-                    done += 1
+                    last_ok[(lat, lon)] = True
                     # #564: the airports this tile's MESH was built
                     # without, from the record the vector step published —
                     # a sidecar, because under the parallel orchestrator
@@ -1584,7 +1593,7 @@ class EngineSession:
                 traceback.print_exc()
                 UI.logprint("Step failed for tile lat=", lat, ", lon=",
                             lon, "with an exception:\n" + _trace)
-                errors += 1
+                last_ok[(lat, lon)] = False
                 if self._eta:
                     self._eta.tile_terminal((lat, lon))
                 self._emit(TileState(lat=lat, lon=lon, state="error",
@@ -1606,6 +1615,7 @@ class EngineSession:
             with self._work_queue_lock:
                 self._work_queue.clear()
                 self._run_finished()
+        done, errors = last_outcome_counts(last_ok)
         self._emit(RunDone(done_count=done, error_count=errors,
                            cancelled=cancelled))
 

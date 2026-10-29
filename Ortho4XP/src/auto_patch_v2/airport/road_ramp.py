@@ -1465,6 +1465,9 @@ class WallPiece(_t.NamedTuple):
     #: a walled tunnel MOUTH's piece (:func:`mouth_wall_pieces`): its outline
     #: bounds the open cut too, so it declares only the step it carries
     mouth: bool = False
+    #: the UPPER face's line of a wall that retains its height
+    #: (``airport/wall_sides``, #1633 round 3), ``None`` where not read
+    upper_face: _t.Any = None
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1483,13 +1486,15 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
             or cfg is None:
         return ()
     from .wall_class import wall_class_components
+    sides = tuple(getattr(airport, "retaining_walls", ()) or ())
     out = []
     for c in wall_class_components(airport, cfg):
         for g in c.pieces:
             if _piece_length(g) >= float(c.height_m):
+                face = next((w.upper_face for w in sides if w.poly.equals(g)), None)
                 out.append(WallPiece(g, float(c.height_m),
                                      f"{c.resource}#comp{c.comp}",
-                                     bool(c.retains)))
+                                     bool(c.retains), False, face))
     return tuple(out)
 
 
@@ -1704,6 +1709,8 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         out[k] = {"line": [tuple(c) for c in ring], "height_m": w.height_m,
                   "label": w.label, "retains": bool(w.retains),
                   "mouth": bool(w.mouth),
+                  "upper_face": (None if getattr(w, "upper_face", None) is None
+                                 else [tuple(c) for c in w.upper_face.coords]),
                   "upper": upper, "lower": lower,
                   "lots": lots, "pairs": pairs}
     return out

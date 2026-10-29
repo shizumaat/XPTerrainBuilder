@@ -69,6 +69,8 @@ class WallSides:
     #: quarter of its width): a segment ACROSS the wall reaches it, a kerb
     #: vertex standing on the face (snapped a little in) does not
     core: _t.Any = None
+    #: the UPPER face line (``wall_faces``), outward on its right
+    upper_face: _t.Any = None
 
     def side_of(self, xy) -> str | None:
         """``"upper"`` / ``"lower"`` for a point in one of the bands, else
@@ -175,7 +177,8 @@ def wall_sides(airport, cfg, comps=None) -> tuple[WallSides, ...]:
             wide = 2.0 * g.area / g.length
             core = g.buffer(-min(0.5, wide / 4.0))
             out.append(WallSides(g, h, smear, up, lo, w.top_y, w.resource,
-                                 None if core.is_empty else core))
+                                 None if core.is_empty else core,
+                                 faces[0] if za >= zb else faces[1]))
     return tuple(out)
 
 

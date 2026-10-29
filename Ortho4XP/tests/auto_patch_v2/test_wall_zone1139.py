@@ -117,3 +117,16 @@ def test_a_one_wall_object_retains_its_depth_under_its_zero():
         assert wall_class._retains_its_height(ap, whole, 1.46, 16.64, cfg, 10.52)
     finally:
         wall_class._step_across = orig
+
+
+def test_the_upper_face_line_names_the_foot_side():
+    # #1633 round 3: with the wall's upper face (``airport/wall_sides``)
+    # on the record, a far foot facing it takes the band law; a far foot
+    # below the wall keeps the plane to the foot
+    from shapely.geometry import LineString
+    w = WALL._replace(side={}, upper_face=LineString([(-2.0, 0.0), (-2.0, 100.0)]))
+    up = wz.split(_row(1, [(2, 1.0)]), {1: (-10.0, 50.0), 2: (-30.0, 50.0)}, [w],
+                  lambda v: frozenset(), lambda _r: box(-40.0, 0.0, -30.0, 100.0))
+    lo = wz.split(_row(1, [(2, 1.0)]), {1: (10.0, 50.0), 2: (30.0, 50.0)}, [w],
+                  lambda v: frozenset(), lambda _r: box(30.0, 0.0, 40.0, 100.0))
+    assert up[0] is None and lo[0] == "before"

@@ -50,11 +50,14 @@ class RetainingLine(_t.NamedTuple):
     smear: float
     #: the record's labelled sides: vertex -> ``"upper"`` / ``"lower"``
     side: dict
+    #: the wall's UPPER face line (``airport/wall_sides``), ``None`` when
+    #: the record carries none
+    upper_face: _t.Any = None
 
 
 def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
     """One :class:`RetainingLine` per pack retaining wall (no mouth)."""
-    from shapely.geometry import Polygon
+    from shapely.geometry import LineString, Polygon
     out = []
     for _k, r in sorted(walls.items()):
         if not r.get("retains") or r.get("mouth") or len(r.get("line") or ()) < 4:
@@ -64,7 +67,9 @@ def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
         side = {int(v): "upper" for v in r.get("upper") or ()}
         side.update({int(v): "lower" for v in r.get("lower") or ()})
         out.append(RetainingLine(g if g.is_valid else g.buffer(0.0),
-                                 wall_reach_m(h), wall_smear_m(h), side))
+                                 wall_reach_m(h), wall_smear_m(h), side,
+                                 LineString(r["upper_face"]) if r.get("upper_face")
+                                 else None))
     return out
 
 
@@ -110,6 +115,18 @@ def _behind(w: RetainingLine, f: tuple[float, float], g: int,
     if (q.x - f[0]) * (gx - f[0]) + (q.y - f[1]) * (gy - f[1]) >= 0.0:
         return False
     return bool(under.buffer(-0.5).contains(q)) and _on_lower_side(w, g, xy)
+
+
+def _foot_upper(w: RetainingLine, f: tuple[float, float], g: int,
+                xy: _t.Mapping[int, tuple[float, float]]) -> bool:
+    """The pavement foot ``f`` faces the wall's UPPER face: its nearest
+    point of the footprint lies on that face (``RetainingLine.upper_face``);
+    without one, ``g`` does not see the record's lower side."""
+    from shapely.geometry import Point
+    if w.upper_face is None:
+        return not _on_lower_side(w, g, xy)
+    p = Point(f)
+    return w.upper_face.distance(p) <= w.poly.exterior.distance(p) + 1e-6
 
 
 def _ahead(poly, f: tuple[float, float], g: tuple[float, float], reach: float) -> bool:
@@ -187,7 +204,7 @@ def split(r: Linear, xy: _t.Mapping[int, tuple[float, float]],
     if kept.lo is not None and kept.hi is not None and \
             any(_ahead(w.poly, f, xy[g], w.reach)
                 and (w.poly.distance(Point(f)) <= BEHIND_SHARE * w.reach
-                     or _on_lower_side(w, g, xy))
+                     or not _foot_upper(w, f, g, xy))
                 for w in lines):
         return "before", flat(kept)
     return None, kept

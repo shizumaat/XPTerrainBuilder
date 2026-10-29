@@ -88,9 +88,11 @@ from ..airport.dem import dem_z_at
 from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_family, role_side
 from ..model.frame import rotated_rectangle
+from ..model.planar import ROAD_ROLES
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
-           "road_end_after_slide", "covered_stretch", "own_road_blade", "portal_note",
+           "road_end_after_slide", "covered_stretch", "own_road_blade", "road_over_mouth",
+           "portal_note",
            "PORTAL_YIELDS", "strip_keepout",
            "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth", "edge_wall_mouth", "face_top_z"]
 
@@ -486,6 +488,38 @@ def own_road_blade(c, p: Polygon, law: Law, stretches, grid: float):
     hit = [poly for poly, routes, reach in stretches
            if p.intersects(poly) and any(_own_road(r, p, reach, grid) for r in routes)]
     return unary_union(hit) if hit else None
+
+
+#: The least run (m) a bore must pass under a road for the road to cross over it.
+_DECK_RUN_M = 1.0
+
+
+def road_over_mouth(bores: _t.Sequence[LineString], mouth: tuple[float, float], cells,
+                    polys, reach: float) -> str:
+    """THE ROAD THAT DECKS THE MOUTH (owner Q286, issue #1629): the ref of a
+    road face that crosses OVER a bore at its mapped mouth — it stands within
+    the corridor's mouth ``reach`` of the mouth point without holding it, and
+    the bore passes under it (``_DECK_RUN_M`` or more) and out beyond it — or
+    ``""``.  The owner: "the service road running north/south runs over the
+    top of the tunnel, so the tunnel ramp stops just short of that service
+    road".  The mouth stops at the road's near edge as at any pavement over
+    the bore (clause 2); the road is the deck over the opening, so the
+    runway strip keep-out neither pushes the mouth back off it nor refuses
+    its walls (26k's reading: a tunnel under the safety area does not
+    compromise it).  The ramp's own approach road ends at the portal and is
+    never one: it holds the mouth, or the bore does not pass on beyond it."""
+    mp = Point(mouth)
+    for p, c in zip(polys, cells):
+        if c.role not in ROAD_ROLES or p.distance(mp) > reach or p.buffer(1e-6).contains(mp):
+            continue
+        for b in bores:
+            if b.intersection(p).length < _DECK_RUN_M:
+                continue
+            far = Point(b.coords[-1] if mp.distance(Point(b.coords[0])) <
+                        mp.distance(Point(b.coords[-1])) else b.coords[0])
+            if not p.buffer(1e-6).contains(far):
+                return c.ref
+    return ""
 
 
 def road_end_after_slide(portal_axis: LineString, axis: LineString, index, reach: float,

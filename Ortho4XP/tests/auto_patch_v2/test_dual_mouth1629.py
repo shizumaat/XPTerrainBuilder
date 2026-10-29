@@ -10,7 +10,10 @@ step and two stray road pieces.  Three rules, one twin each:
 
 * converging approaches are a dual (only PARTING ones are two roads);
 * a mouth slides out of the runway strip keep-out as out of pavement;
-* a slid mouth's covered stretch cuts the ramp's own road there.
+* a slid mouth's covered stretch cuts the ramp's own road there;
+* a road crossing over the bore at its mouth is the mouth's deck (owner
+  Q286): the mouth stops just short of it, and the strip keep-out neither
+  pushes it back nor refuses it.
 
 Law values are read from the tables, never retyped."""
 from __future__ import annotations
@@ -24,7 +27,8 @@ from auto_patch_v2.law.tables import zone2_half_width_m
 from auto_patch_v2.model.airport import Airport, OsmWay, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar.structure_approach import Mouth, merge_duals
-from auto_patch_v2.planar.structure_mouth import covered_stretch, own_road_blade
+from auto_patch_v2.planar.structure_mouth import (covered_stretch, own_road_blade,
+                                                   road_over_mouth)
 from auto_patch_v2.planar.structures import build_structures
 
 
@@ -133,3 +137,40 @@ def test_the_mouth_slides_out_of_the_strip_and_its_roof_carries_no_road(law):
     on_roof = sum(Polygon(c.ring, c.holes).intersection(roof).area for c in cl2.cells
                   if c.ref.split("#")[0] in ("big_roads:-201", "big_roads:-202"))
     assert on_roof < 1.0
+
+
+def test_a_road_over_the_mouth_is_found_the_approach_road_is_not():
+    """``road_over_mouth``: a road the bore passes under and out beyond, at
+    the mouth, decks it; the approach road that holds the mouth does not,
+    nor a road the bore ends inside."""
+    bore = LineString([(0.0, 0.0), (400.0, 0.0)])
+    over = Cell(0, "service_road", "over", ((2, -60), (7, -60), (7, 60), (2, 60)), (), None,
+                None, "groundside", "road", {})
+    own = Cell(1, "service_road", "own", ((-60, -4), (1, -4), (1, 4), (-60, 4)), (), None,
+               None, "groundside", "road", {})
+    far = Cell(2, "service_road", "far", ((60, -60), (65, -60), (65, 60), (60, 60)), (), None,
+               None, "groundside", "road", {})
+    cells = [own, far, over]
+    polys = [Polygon(c.ring) for c in cells]
+    assert road_over_mouth([bore], (0.0, 0.0), cells, polys, 12.0) == "over"
+    assert road_over_mouth([bore], (0.0, 0.0), cells[:2], polys[:2], 12.0) == ""
+
+
+def test_a_road_over_the_mouth_holds_it_inside_the_strip(law):
+    """Owner Q286: a service road crossing over the bores 2 m inside the
+    portals, within the strip keep-out.  The dual's mouth stops just short
+    of the road (never pushed out of the strip), and is built there."""
+    hw = max(zone2_half_width_m(law, "runway", 3, "D", s) for s in (0, 1))
+    airport, x0 = _airport(law, hw)
+    tn = law.tables.structures.tunnel
+    cells = [Cell(0, "runway", "09/27", ((x0, -22.5), (x0 + 1800, -22.5), (x0 + 1800, 22.5),
+                                         (x0, 22.5)), (), 3, "D", "airside", "runway", {}),
+             Cell(1, "service_road", "deck", ((2, -80), (8, -80), (8, 80), (2, 80)), (), None,
+                  None, "groundside", "road", {})]
+    cl = Classification(tuple(cells), (), {}, ())
+    _cl2, tunnels, st = build_structures(airport, cl, law)
+    west = [t for t in tunnels if t.axis[0][0] < 100.0]
+    assert len(west) == 1, st.refused
+    reach = 2.0 * (tn.wall_gap_m + tn.wall_band_width_m) + tn.wall_gap_m
+    assert -reach - 1.0 <= west[0].axis[0][0] <= 0.0          # just short of the road
+    assert any("deck" in n for n in st.portals_in_strip), st.portals_in_strip

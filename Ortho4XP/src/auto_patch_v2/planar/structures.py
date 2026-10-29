@@ -109,7 +109,8 @@ from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
 from .structure_overlap import resolve_overlaps
 from ..airport.portal_objects import portal_of
-from .structure_mouth import covered_stretch, face_top_z, own_road_blade, road_end_after_slide
+from .structure_mouth import (covered_stretch, face_top_z, own_road_blade, road_end_after_slide,
+                              road_over_mouth)
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement
 from .lidar_road import lidar_road, lidar_road_note, lidar_road_refusal
 from .dual_width import compose_half_fn, dual_half_fn
@@ -415,6 +416,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             stats.refused.append(f"{tid}: {lidar_road_refusal(road_rd)}")
             continue
         road_f = None if road_rd is None else road_rd.mouth_floor
+        # Q286 (#1629): a road crossing over the bore at its mouth is its deck
+        decked_by = road_over_mouth([m.bore.line for m in members], g.mouth, cells, polys,
+                                    half + 2.0 * rim_off + gap) \
+            if c is None and pin is None and edge is None else ""
         clear = None if c is not None else _mouth_at_pavement(   # #971: stop AT the pavement
             g, axis_ln, cells, polys, pads, law, _cut_roles, half, rim_off, gap, spacing_g,
             grid, [d[3] for d in deck_intervals(
@@ -431,7 +436,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                                if len(getattr(m, "approach", ()) or ()) >= 2],
             own_area=None if edge is None else Polygon(edge.plan).buffer(rim_off),
             keep_out=[(strip_u, "runway_strip")] if strip_u is not None and pin is None
-            and edge is None else ())
+            and edge is None and not decked_by else ())
         if pin is not None and clear is not None and clear[4].startswith(PORTAL_YIELDS):
             stats.portals_unpinned.append(f"{tid}: {pin.object_id} — {clear[4]}"
                                           + (" (a hanging face keeps its depth: 20am / 20ar)"
@@ -873,6 +878,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # before the test, so every §34 (5) underpass — LEMD F-6, KCLT
         # taxiway U — passes exactly as it did.
         verdict = strip_keepout(wall, strip_u, pin)
+        if verdict == STRIP_REFUSED and decked_by:
+            verdict = ""
+            stats.portals_in_strip.append(f"{tid}: road {decked_by} decks the mouth inside the "
+                                          f"runway strip keep-out (owner Q286, #1629)")
         if verdict == STRIP_REFUSED:
             stats.refused.append(f"{tid}: the wall would stand inside the runway strip "
                                  f"keep-out (retaining_wall.in_runway_strip = false)")

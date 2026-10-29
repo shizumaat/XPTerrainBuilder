@@ -149,23 +149,51 @@ class JointIndex:
     def __bool__(self) -> bool:
         return bool(self.grid)
 
-    def allowance(self, a, b) -> float:
-        if not self.grid:
-            return 0.0
+    def _segments(self, x0, y0, x1, y1):
         cell = self.cell
-        (x0, y0), (x1, y1) = a, b
-        hit: set[int] = set()
         for gx in range(int(math.floor(min(x0, x1) / cell)), int(math.floor(max(x0, x1) / cell)) + 1):
             for gy in range(int(math.floor(min(y0, y1) / cell)), int(math.floor(max(y0, y1) / cell)) + 1):
-                for j, k in self.grid.get((gx, gy), ()):
-                    if j in hit:
-                        continue
-                    pts = self.joints[j][0]
-                    if _cross(a, b, pts[k], pts[k + 1]):
-                        hit.add(j)
+                yield from self.grid.get((gx, gy), ())
+
+    def crossed(self, a, b) -> set[int]:
+        """The joints the segment ``a``-``b`` crosses."""
+        hit: set[int] = set()
+        for j, k in self._segments(a[0], a[1], b[0], b[1]):
+            if j not in hit:
+                pts = self.joints[j][0]
+                if _cross(a, b, pts[k], pts[k + 1]):
+                    hit.add(j)
+        return hit
+
+    def touched(self, p, tol_m: float) -> set[int]:
+        """The joints with a segment within ``tol_m`` of the point ``p``."""
+        hit: set[int] = set()
+        for j, k in self._segments(p[0] - tol_m, p[1] - tol_m, p[0] + tol_m, p[1] + tol_m):
+            if j not in hit:
+                pts = self.joints[j][0]
+                if _point_segment_m(p, pts[k], pts[k + 1]) <= tol_m:
+                    hit.add(j)
+        return hit
+
+    def allowance(self, a, b, on_line_m: float | None = None) -> float:
+        """``on_line_m``: a joint within that of either END counts as
+        crossed (:class:`WallSteps`)."""
+        if not self.grid:
+            return 0.0
+        hit = self.crossed(a, b)
+        if on_line_m is not None:
+            hit |= self.touched(a, on_line_m) | self.touched(b, on_line_m)
         if self.largest:
             return max((self.joints[j][1] for j in hit), default=0.0)
         return sum(self.joints[j][1] for j in hit)
+
+
+def _point_segment_m(p, a, b) -> float:
+    """The distance from ``p`` to the segment ``a``-``b``."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    n2 = dx * dx + dy * dy
+    u = 0.0 if n2 <= 0.0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / n2))
+    return math.hypot(p[0] - a[0] - u * dx, p[1] - a[1] - u * dy)
 
 
 #: the joint kind a placed or walled-mouth wall publishes
@@ -198,7 +226,13 @@ class WallSteps:
     the published ``terrace_joints`` records of kind ``wall_terrace``
     (``[{"kind", "points": [[lat, lon], ...], "step_m"}]``) in the frame
     ``to_m`` gives; ``allowance(xa, ya, xb, yb)`` is the LARGEST declared
-    step a chord crosses (never the sum)."""
+    step a chord crosses (never the sum) — or starts or ends ON, within
+    :attr:`ON_LINE_M` (#1633 round 3 spec §4: the wall's own outline vertex
+    is on the line, and a chord from it crosses the step it declares)."""
+
+    #: the identity lattice (``emit.identity``, 0.5 m) — the census's
+    #: ``DeclaredWallSteps.ON_LINE_M``
+    ON_LINE_M = 0.5
 
     def __init__(self, records, to_m) -> None:
         joints = []
@@ -211,7 +245,7 @@ class WallSteps:
         self._index = JointIndex(joints, largest=True)
 
     def allowance(self, xa: float, ya: float, xb: float, yb: float) -> float:
-        return self._index.allowance((xa, ya), (xb, yb))
+        return self._index.allowance((xa, ya), (xb, yb), self.ON_LINE_M)
 
 
 def joint_index(p: Patch) -> JointIndex:

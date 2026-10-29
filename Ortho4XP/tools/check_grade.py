@@ -6953,6 +6953,26 @@ class _JointSegments:
                 hit.append(j)
         return hit
 
+    def touched(self, p, tol_m: float) -> list:
+        """The joints with a segment within ``tol_m`` of the point ``p``,
+        ascending, each once."""
+        near = ((self.x_lo - tol_m <= p[0]) & (self.x_hi + tol_m >= p[0])
+                & (self.y_lo - tol_m <= p[1]) & (self.y_hi + tol_m >= p[1]))
+        hit: list = []
+        for i in near.nonzero()[0].tolist():
+            j, a, b = self.seg[i]
+            if (not hit or hit[-1] != j) and _point_segment_m(p, a, b) <= tol_m:
+                hit.append(j)
+        return hit
+
+
+def _point_segment_m(p, a, b) -> float:
+    """The distance from ``p`` to the segment ``a``-``b`` (metres)."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    n2 = dx * dx + dy * dy
+    u = 0.0 if n2 <= 0.0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / n2))
+    return math.hypot(p[0] - a[0] - u * dx, p[1] - a[1] - u * dy)
+
 
 #: the one joint list a census run prices (identity-keyed, as
 #: ``auto_patch_v2.verify.steps._INDEX`` is)
@@ -6993,13 +7013,23 @@ class DeclaredWallSteps:
         self.joints = _terrace_joints_to_m(rows, ll_to_m)
         self._index = _JointSegments(self.joints) if self.joints else None
 
+    #: metres: a chord END this close to a declared line STARTS on it —
+    #: the identity lattice (``emit.identity`` 0.5 m; at most
+    #: ``emit.terrace.straddle_perp_m``).  #1633 round 3 spec §4: the wall's
+    #: own outline vertex (KATL ``muro_concreto5``, 33.640676,-84.421729,
+    #: the 10.66 m declared step read as a 10.28 m ``adjacent_ground_step``)
+    #: is on the line, and a chord from it crosses the step it declares.
+    ON_LINE_M = 0.5
+
     def allowance(self, xa, ya, xb, yb) -> float:
-        """The declared step a chord ``a``-``b`` crosses (0.0 if none)."""
+        """The declared step a chord ``a``-``b`` crosses, or starts or ends
+        on (0.0 if none)."""
         if self._index is None:
             return 0.0
-        return max((self.joints[j][1]
-                    for j in self._index.crossed((xa, ya), (xb, yb))),
-                   default=0.0)
+        hit = set(self._index.crossed((xa, ya), (xb, yb)))
+        hit.update(self._index.touched((xa, ya), self.ON_LINE_M))
+        hit.update(self._index.touched((xb, yb), self.ON_LINE_M))
+        return max((self.joints[j][1] for j in hit), default=0.0)
 
 
 # ── THE TUNNEL-TRENCH DECLARED-STEP LAW — the census half ───────────

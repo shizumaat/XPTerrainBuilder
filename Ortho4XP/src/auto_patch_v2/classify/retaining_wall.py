@@ -40,6 +40,7 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
+from ..airport.wall_sides import far_side_cut
 from ..model.airport import Airport
 
 __all__ = ["RetainingPiece", "WallComponent", "retaining_pieces",
@@ -94,11 +95,16 @@ def retaining_pieces(airport: Airport, ribbon, lane_m: float, cfg
     return out
 
 
-def road_extension(pieces: _t.Sequence[RetainingPiece], ribbon, lane_m: float):
+def road_extension(pieces: _t.Sequence[RetainingPiece], ribbon, lane_m: float,
+                   walls: _t.Sequence = ()):
     """THE ROAD'S GRADED STRIP EXTENDED TO THE WALL: per retaining piece,
     the convex hull of the piece and the ribbon within ``gap + lane`` of
     it, held within ``gap + lane`` of the piece, less the piece and the
-    ribbon — the bare ground the road retains.
+    ribbon — the bare ground the road retains.  ONE-SIDED at a wall that
+    retains its own height (``walls``: ``Airport.retaining_walls``; #1633
+    round 3): the band beside the face the ribbon is not on is never the
+    road's (``airport/wall_sides.far_side_cut``) — the hull of a bent
+    wall reached round its ends to the far side.
     Empty when nothing retains."""
     if not pieces:
         STATS.update(extension_m2=0.0)
@@ -117,7 +123,7 @@ def road_extension(pieces: _t.Sequence[RetainingPiece], ribbon, lane_m: float):
         # hillside stood at the road's level — the crease and the exposed
         # wall back)
         hull = hull.intersection(rp.poly.buffer(reach))
-        parts.append(hull.difference(rp.poly))
+        parts.append(far_side_cut(hull.difference(rp.poly), walls, judge=ribbon))
     ext = unary_union(parts).difference(ribbon) if parts else Polygon()
     # only what JOINS the road extends it: a hull remnant standing apart
     # from the ribbon is not the road's strip (closing build hecaroad_close1:

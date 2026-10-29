@@ -28,15 +28,17 @@ from shapely.ops import unary_union
 __all__ = ["wall_shade", "attach_wall_shade"]
 
 
-def wall_shade(airport, cfg):
+def wall_shade(airport, cfg, comps=None):
     """The planar-frame union of every retaining wall's footprint, or
     ``None``.  ``cfg`` is ``classify/rules.toml``'s ``[service]`` record,
-    supplied by the caller (``airport`` may not read ``classify``)."""
+    supplied by the caller (``airport`` may not read ``classify``);
+    ``comps`` the wall-class components when the caller has them."""
     if cfg is None or getattr(airport, "partition", None) is None:
         return None
-    from .wall_class import wall_class_components
-    polys = [g for c in wall_class_components(airport, cfg) if c.retains
-             for g in c.pieces]
+    if comps is None:
+        from .wall_class import wall_class_components
+        comps = wall_class_components(airport, cfg)
+    polys = [g for c in comps if c.retains for g in c.pieces]
     if not polys:
         return None
     got = unary_union(polys)
@@ -46,9 +48,17 @@ def wall_shade(airport, cfg):
 
 
 def attach_wall_shade(airport, cfg):
-    """``airport`` with :attr:`Airport.wall_shade` derived — called once
-    beside :func:`airport.sunken_ramp.attach_sunken_ramps` (``pipeline/
-    build``, the replay)."""
+    """``airport`` with :attr:`Airport.wall_shade` and
+    :attr:`Airport.retaining_walls` (``airport/wall_sides``) derived — one
+    wall-class reading, called once beside
+    :func:`airport.sunken_ramp.attach_sunken_ramps` (``pipeline/build``,
+    the replay)."""
     if getattr(airport, "frame", None) is None:
         return airport
-    return _dc.replace(airport, wall_shade=wall_shade(airport, cfg))
+    comps = None
+    if cfg is not None and getattr(airport, "partition", None) is not None:
+        from .wall_class import wall_class_components
+        comps = wall_class_components(airport, cfg)
+    from .wall_sides import wall_sides
+    return _dc.replace(airport, wall_shade=wall_shade(airport, cfg, comps),
+                       retaining_walls=wall_sides(airport, cfg, comps))

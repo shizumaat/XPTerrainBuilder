@@ -26,6 +26,7 @@ __all__ = [
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds", "generator_slack_m",
     "runway_zone_edge_offset_m", "zone_edge_offset_m", "runway_safety_area_length_m",
     "runway_end_zone_length_m", "EndProfile", "runway_end_profile", "end_profile_noise_m", "family", "families_for_role",
+    "road_family_roles",
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
     "gap_standoff_m",
     "Cockpit", "cockpit", "cliff_grade", "rolled_on_roles",
@@ -890,6 +891,17 @@ def runway_end_zone_length_m(law: Law, runway_length_m: float) -> float:
 def family(law: Law, key: str) -> Family:
     """One registered law family."""
     return law.tables.families[key]
+
+
+def road_family_roles(law: Law) -> tuple[str, ...]:
+    """The roles whose vertices prefer the core profile: the road
+    cross-section family (service_road, service_junction) and the
+    groundside classes ``roads.road_within_shape`` prices with them.
+    (Read here, below ``classify``, so the road cut-back at a retaining
+    wall — ``classify/wall_cutback``, #1633 — names the same set as the
+    road profile, ``airport/road_profile``, which re-exports it.)"""
+    return tuple(family(law, "road_cross_section").roles) + \
+        ("groundside_pavement", "parking_lot")
 
 
 def families_for_role(law: Law, role: str) -> tuple[Family, ...]:

@@ -2172,8 +2172,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         from auto_patch_v2.airport.sunken_ramp import attach_sunken_ramps
         airport = attach_sunken_ramps(airport, law)
     # issue #1633: likewise ``Airport.wall_shade`` (the retaining walls no
-    # pad takes), derived off the capture's own partition and DEM
-    if getattr(airport, "wall_shade", None) is None:
+    # pad takes) and ``Airport.retaining_walls`` (their two sides, round 3),
+    # derived off the capture's own partition and DEM
+    if getattr(airport, "wall_shade", None) is None or \
+            not getattr(airport, "retaining_walls", ()):
         from auto_patch_v2.airport.wall_shade import attach_wall_shade
         from auto_patch_v2.classify import load_rules as _load_rules
         airport = attach_wall_shade(airport, _load_rules().service)

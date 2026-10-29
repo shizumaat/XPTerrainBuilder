@@ -43,9 +43,19 @@ def test_a_wall_under_the_far_edge_keeps_the_upper_zone():
 
 
 def test_ground_between_the_pavement_and_the_wall_is_flat():
-    pave = box(-40.0, 0.0, -30.0, 100.0)
-    side, kept = _split(_row(1, [(2, 1.0)]), {1: (-10.0, 50.0), 2: (-30.0, 50.0)}, pave)
+    # the wall AT the pavement edge (4 m out, within BEHIND_SHARE x reach)
+    pave = box(-16.0, 0.0, -6.0, 100.0)
+    side, kept = _split(_row(1, [(2, 1.0)]), {1: (-4.0, 50.0), 2: (-6.0, 50.0)}, pave)
     assert side == "before" and kept.lo == 0.0 and kept.hi == 0.0
+
+
+def test_a_wall_far_from_the_pavement_keeps_the_band_law():
+    # #1633 round 3 spec §3 (2): 28 m out the wall is met by the band's own
+    # law (the band stops short of it in ``planar/zones``), never a plane
+    pave = box(-40.0, 0.0, -30.0, 100.0)
+    r = _row(1, [(2, 1.0)])
+    side, kept = _split(r, {1: (-10.0, 50.0), 2: (-30.0, 50.0)}, pave)
+    assert side is None and kept is r
 
 
 def test_a_floor_only_row_never_becomes_the_plane():
@@ -57,9 +67,9 @@ def test_a_floor_only_row_never_becomes_the_plane():
 
 def test_a_blended_foot_below_the_wall_is_dropped():
     # feet: a taxiway edge west (same side) and a pad rim east, below the wall
-    xy = {1: (-10.0, 50.0), 2: (-30.0, 50.0), 3: (8.0, 50.0)}
+    xy = {1: (-4.0, 50.0), 2: (-6.0, 50.0), 3: (8.0, 50.0)}
     r = _row(1, [(2, 0.5), (3, 0.5)])
-    side, kept = _split(r, xy, box(-40.0, 0.0, -30.0, 100.0),
+    side, kept = _split(r, xy, box(-16.0, 0.0, -6.0, 100.0),
                         {2: frozenset({"pav14"}), 3: frozenset()})
     assert side == "before"
     assert [v for v, _c in kept.terms] == [1, 2]

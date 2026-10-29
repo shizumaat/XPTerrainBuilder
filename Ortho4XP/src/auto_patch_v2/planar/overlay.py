@@ -35,6 +35,7 @@ from ..geom.proportions import inscribed_width_m
 from ..law import Law
 from ..law.reference_code import runway_status
 from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
+from ..airport.wall_sides import band_setbacks
 from ..model.airport import Airport
 from ..model.registries import Registries
 from .chords import densify, ring_lines, stations
@@ -284,7 +285,9 @@ def build_arrangement(airport: Airport, classification: Classification,
                               road_carriageways(getattr(airport, "osm_ways", ()), law),
                               yields,
                               rsa_carriageways(getattr(airport, "osm_ways", ()), law),
-                              tuple(getattr(airport, "walled_plates", ()) or ())):
+                              tuple(getattr(airport, "walled_plates", ()) or ()),
+                              band_setbacks(tuple(getattr(airport, "retaining_walls", ())
+                                                  or ()))):
             regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                                   z.code_letter, role_side(law, "graded_strip"),
                                   "zone", z.zone, z.edge_kind, z.quay,

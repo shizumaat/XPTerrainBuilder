@@ -285,7 +285,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                  carriageways: tuple = (),
                  yields: list | None = None,
                  rsa_carriageways: tuple | None = None,
-                 plates: tuple = ()) -> list[ZoneRegion]:
+                 plates: tuple = (),
+                 wall_setbacks: tuple = ()) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -310,7 +311,11 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     ``plates`` (``Airport.walled_plates``, #1201): a runway-end walled
     plate's footprint is cut from every band (owner RULINGS 2026-10-27t:
     the safety area ends at the plate's inner edge, also where that edge is
-    oblique), and the plate's own step is never a terrain-edge crest."""
+    oblique), and the plate's own step is never a terrain-edge crest.
+
+    ``wall_setbacks`` (``airport/wall_sides.band_setbacks``, #1633 round
+    3): a band whose pavement stands back from a retaining wall stops
+    ``smear`` short of the wall's upper face."""
     ag = law.tables.zones.adjacent_ground
     # groundside pavement (roads, lots) buffered by the stand-off: a zone
     # band never shares a vertex with it — the gap terraces (groundside
@@ -514,6 +519,11 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             # 27t (#1201): the band ends at the plate — no stand-off
             z1 = fixed_difference(z1, plate_u)
             z2 = fixed_difference(z2, plate_u)
+        for wcut, foot, near_m in wall_setbacks:
+            # spec §3 (2): only a band whose pavement stands back from it
+            if u.distance(foot) > near_m:
+                z1 = fixed_difference(z1, wcut)
+                z2 = fixed_difference(z2, wcut)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
             if gap_apron_u is not None and geom.intersects(gap_apron_u):

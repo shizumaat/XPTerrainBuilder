@@ -32,12 +32,10 @@ import math
 import typing as _t
 
 from ..model.constraints import Linear
+from ..model.wall_reach import BEHIND_SHARE, wall_reach_m, wall_smear_m
 
-__all__ = ["RetainingLine", "retaining_lines", "split", "flat", "foot_ground"]
-
-#: how far behind a pavement edge a wall still stands "at" that edge: the
-#: share of the wall's own reach (``max(4 h, 20 m)``) — 5 m for a short wall
-BEHIND_SHARE = 0.25
+__all__ = ["RetainingLine", "retaining_lines", "split", "flat", "foot_ground",
+           "BEHIND_SHARE"]
 
 
 class RetainingLine(_t.NamedTuple):
@@ -66,7 +64,7 @@ def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
         side = {int(v): "upper" for v in r.get("upper") or ()}
         side.update({int(v): "lower" for v in r.get("lower") or ()})
         out.append(RetainingLine(g if g.is_valid else g.buffer(0.0),
-                                 max(4.0 * h, 20.0), max(3.0, h), side))
+                                 wall_reach_m(h), wall_smear_m(h), side))
     return out
 
 
@@ -177,8 +175,16 @@ def split(r: Linear, xy: _t.Mapping[int, tuple[float, float]],
         return "beyond", r
     # a floor-only or ceiling-only row (a farther pavement's floor, a road
     # kerb's cap) is not the band and never becomes the plane
+    # ...and only for a wall AT the pavement edge (#1139: within
+    # ``BEHIND_SHARE x reach`` of the foot).  A wall farther out is met by
+    # the band's own law and the band stops ``smear`` short of its upper
+    # face (``planar/zones``, #1633 round 3 spec §3 (2)): held flat to the
+    # wall, the 27R safety area stood a 17 m mesh cliff over the road band
+    from shapely.geometry import Point
     if kept.lo is not None and kept.hi is not None and \
-            any(_ahead(w.poly, f, xy[g], w.reach) for w in lines):
+            any(_ahead(w.poly, f, xy[g], w.reach)
+                and w.poly.distance(Point(f)) <= BEHIND_SHARE * w.reach
+                for w in lines):
         return "before", flat(kept)
     return None, kept
 

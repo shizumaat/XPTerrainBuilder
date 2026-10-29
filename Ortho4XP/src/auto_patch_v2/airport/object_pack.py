@@ -46,6 +46,7 @@ def candidates(xplane_root: str, lat: int, lon: int) -> list[str]:
     ``(lat, lon)``, highest priority first: enabled, drawn above Global
     Airports, a DSF for the tile, and objects of their own."""
     import O4_Scenery_Packs as _SP
+
     from .pack_local import ships_objects
     scenery = os.path.join(xplane_root, "Custom Scenery")
     if not os.path.isdir(scenery):
@@ -118,7 +119,7 @@ def find(xplane_root: str, icao: str, apt_dat_path: str,
 
 def pristine_dump(mod_cache_root: str, root: str, lat: int, lon: int) -> str | None:
     """The mod-cache text dump of ``root``'s PRISTINE tile DSF, or ``None``."""
-    from .backup_state import classify_dsf      # dsf_write.pristine_dsf_path's rule
+    from .backup_state import classify_dsf  # dsf_write.pristine_dsf_path's rule
     pristine = classify_dsf(_dsf.dsf_path_in_pack(root, lat, lon)).read_path
     return _dsf.find_text_dump(mod_cache_root, os.path.basename(root), lat, lon,
                                dsf_path=pristine)

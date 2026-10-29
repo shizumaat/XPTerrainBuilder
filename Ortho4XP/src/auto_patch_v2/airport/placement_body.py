@@ -666,6 +666,50 @@ def _carrier_pieces(st: "_Staged", grp: list[int],
 #: (1)'s single question.
 CARRIED_ATOMS_MAX = 64
 
+#: #1635: over :data:`CARRIED_ATOMS_MAX` the atoms are joined by PLAN
+#: PROXIMITY, nearest first, at gaps ``reach / 2**k`` for ``k`` from this
+#: down to 0 -- the finest grouping the bound admits (:func:`_near_atoms`)
+NEAR_ATOM_HALVINGS = 6
+
+
+def _near_atoms(boxes: "_t.Sequence[tuple]", bound: int, reach_m: float
+                ) -> "list[list[int]] | None":
+    """#1635: the atoms (their plan boxes ``boxes``) joined by plan
+    proximity into at most ``bound`` groups -- at the smallest gap of the
+    ladder ``reach_m / 2**k`` (:data:`NEAR_ATOM_HALVINGS`) whose single
+    linkage leaves no more than ``bound`` -- as lists of atom indices;
+    ``None`` where even ``reach_m`` leaves more.  Atoms farther apart than
+    the gap are never one group, so a roof's pieces over one building and
+    a lamp row's heads 600 m off ask apart (MEASURED LFLL: 92 atoms of
+    ``OBJECTS_LY_27`` -- 62 roof pieces at 45.71398, 5.07600 and 16 lamp
+    heads to 5.0831 -- asked ONE carrier question and the roof rode the
+    lamps' group 1.48 m over its walls)."""
+    if reach_m <= 0.0 or not boxes:
+        return None
+    import shapely
+    from shapely.strtree import STRtree
+
+    from ..geom.union_find import find_root
+    lat0 = 0.5 * (min(b[0] for b in boxes) + max(b[2] for b in boxes))
+    ml, mo = _ar._m_per_deg(lat0)
+    geoms = shapely.box([b[1] * mo for b in boxes], [b[0] * ml for b in boxes],
+                        [b[3] * mo for b in boxes], [b[2] * ml for b in boxes])
+    tree = STRtree(geoms)
+    for k in range(NEAR_ATOM_HALVINGS, -1, -1):
+        gap = reach_m / (2 ** k)
+        parent = list(range(len(boxes)))
+        a, b = tree.query(geoms, predicate="dwithin", distance=gap)
+        for i, j in zip(a.tolist(), b.tolist(), strict=True):
+            ri, rj = find_root(parent, i), find_root(parent, j)
+            if ri != rj:
+                parent[max(ri, rj)] = min(ri, rj)
+        groups: dict[int, list[int]] = {}
+        for i in range(len(boxes)):
+            groups.setdefault(find_root(parent, i), []).append(i)
+        if len(groups) <= bound:
+            return [groups[r] for r in sorted(groups)]
+    return None
+
 
 def _atom_targets(st: "_t.Any", grp: "list[int]",
                   reach_m: float = 0.0) -> "list[list[int]]":
@@ -717,7 +761,15 @@ def _atom_targets(st: "_t.Any", grp: "list[int]",
     if not tris:
         return [grp]
     blocks = cutter._comp_blocks(tris)
-    if len(blocks) < 2 or len(blocks) > CARRIED_ATOMS_MAX:
+    if len(blocks) > CARRIED_ATOMS_MAX:
+        # #1635: over the bound, the atoms NEAREST each other ask together
+        # -- never the whole body at one zero
+        near = _near_atoms([cutter.plan_box_of_tris(tuple(tris[j] for j in blk))
+                            for blk in blocks], CARRIED_ATOMS_MAX, reach_m)
+        if near is None:
+            return [grp]
+        blocks = [[j for i in g for j in blocks[i]] for g in near]
+    if len(blocks) < 2:
         return [grp]
     parts = [p for i in grp for p in st.raw[i][0]]
     senior = st.raw[max(grp, key=lambda i: len(st.raw[i][0]))]

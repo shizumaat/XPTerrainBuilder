@@ -331,3 +331,44 @@ def test_the_run_out_stands_two_risers_off_a_pad_and_its_z0_is_the_levels():
         assert rec["run_m"] <= 170.0                     # never the 400 m cap
         for q in rec["polys"]:
             assert q.distance(flank) >= 2.0 * riser - 1e-6
+
+
+def _sheet(x0, y0, x1, y1, z):
+    """Two solid triangles of a horizontal sheet, ``(x, y, authored y)``."""
+    import numpy as np
+    a, b, c, d = (x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)
+    return np.array([[a, b, c], [a, c, d]], dtype=float)
+
+
+def test_the_level_is_the_floor_the_cuts_own_objects_state(monkeypatch):
+    """Q287 (a) (#1635): the level goes down to the pack's liner and track
+    floor -- the lowest walkable top surface of the objects inside the
+    corridor -- never the plane the station's lower parts stand on (their
+    walled feet at y -9.1 / -9.0).  The platform's top at -8.0 over the
+    liner is a member's TOP, and each cell keeps the lowest one."""
+    import numpy as np
+    from auto_patch_v2.airport import sunken_ramp
+    liner = _part(85.0, -2000.0, 115.0, 3000.0, -10.0, 8.0)
+    tops = {"liner": np.concatenate([_sheet(85.0, -100.0, 115.0, 400.0, -10.0),
+                                     _sheet(85.0, -100.0, 86.0, 400.0, -2.0)]),
+            "platform": _sheet(86.0, 20.0, 92.0, 260.0, -8.0)}
+    members = [NS(parts=FRONT, live_path="front.obj", origin=(0.0, 0.0)),
+               NS(parts=[liner], live_path="liner.obj", origin=(0.0, 0.0)),
+               NS(parts=TRENCH, live_path="platform.obj", origin=(0.0, 0.0))]
+    monkeypatch.setattr(sunken_ramp, "_member_tris",
+                        lambda m, org, to_xy, cache=None: tops.get(m.live_path[:-4]))
+    ap = _airport([], [_way(*w) for w in TRACKS], _cut_ground)
+    ap.partition.units[0].members = members
+    got = CC.plan_covered(P, AIR, ap, LAW, 0.5, CC.covered_corridors(ap, LAW), None, [],
+                          CC.covered_corridors(ap, LAW, widen=1.0))
+    assert got is not None
+    rec = got[3]
+    assert rec["floor"] == "top surface"
+    assert rec["y_lo"] == pytest.approx(-10.0, abs=0.01)       # the liner, not -9.1
+    assert rec["feet_on_plane"] == rec["feet_read"] > 0
+    # no member read: the lower parts' walled feet, as before
+    monkeypatch.setattr(sunken_ramp, "_member_tris", lambda m, org, to_xy, cache=None: None)
+    rec = CC.plan_covered(P, AIR, ap, LAW, 0.5, CC.covered_corridors(ap, LAW), None, [],
+                          CC.covered_corridors(ap, LAW, widen=1.0))[3]
+    assert rec["floor"] == "walled feet"
+    assert rec["y_lo"] == pytest.approx(-9.1, abs=0.15)

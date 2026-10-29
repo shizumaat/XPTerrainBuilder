@@ -109,7 +109,7 @@ from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
 from .structure_overlap import resolve_overlaps
 from ..airport.portal_objects import portal_of
-from .structure_mouth import face_top_z, road_end_after_slide
+from .structure_mouth import covered_stretch, face_top_z, own_road_blade, road_end_after_slide
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement
 from .lidar_road import lidar_road, lidar_road_note, lidar_road_refusal
 from .dual_width import compose_half_fn, dual_half_fn
@@ -369,6 +369,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     hull_knives: list[Polygon] = []
     knee_chords: list[LineString] = []     # §34 (7): every emitted cross-chord
     keepouts: list[Polygon] = []
+    covered: dict[str, tuple] = {}          # #1629: a slid mouth's covered stretch
     seen_ids: dict[str, int] = {}
     for g in groups:
         members, mouth, inward, width, axis_path = g.members, g.mouth, g.inward, g.width, g.axis
@@ -428,7 +429,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             road_extra=0.0 if road_rd is None else road_rd.extra, slide=edge is None,
             own_lines=() if edge is None else [LineString(m.approach) for m in members
                                                if len(getattr(m, "approach", ()) or ()) >= 2],
-            own_area=None if edge is None else Polygon(edge.plan).buffer(rim_off))
+            own_area=None if edge is None else Polygon(edge.plan).buffer(rim_off),
+            keep_out=[(strip_u, "runway_strip")] if strip_u is not None and pin is None
+            and edge is None else ())
         if pin is not None and clear is not None and clear[4].startswith(PORTAL_YIELDS):
             stats.portals_unpinned.append(f"{tid}: {pin.object_id} — {clear[4]}"
                                           + (" (a hanging face keeps its depth: 20am / 20ar)"
@@ -441,6 +444,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             continue
         portal_axis = axis_ln
         axis_ln, mouth = (clear[0], clear[1]) if clear is not None else (axis_ln, mouth)
+        stretch = None if clear is None else covered_stretch(
+            portal_axis, axis_ln, [portal_axis] + [LineString(m.approach) for m in members
+                                                   if len(getattr(m, "approach", ()) or ()) >= 2],
+            half + rim_off, grid)
+        if stretch is not None:
+            covered[tid] = stretch
         # where a ramp NOTHING frames must have topped out: its road's own end
         # (#1028: where the axis leaves the mapped road, not its straight extension)
         # (a bore whose approach walked no mapped way at all follows its own line),
@@ -1126,8 +1135,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                   c.code_number, c.code_letter, c.side, c.kind,
                                   dict(c.evidence, structure_cut=1.0)))
 
+    stretches = [covered[t.id] for t in tunnels if t.id in covered]
     for c, p in zip(cells, polys):
-        _cut(c, p, hull_knife if c.role == "building" else knife)
+        own = own_road_blade(c, p, law, stretches, grid) if stretches else None
+        blade = hull_knife if c.role == "building" else knife
+        _cut(c, p, blade if own is None else (own if blade is None else blade.union(own)))
     # §33 (6) B AMENDED (3) (c) (owner RULINGS 2026-09-15br): the surface
     # elements over an OBJECT-DECKED trench RIDE THE OBJECT — the cut lines
     # are trimmed at each such outline's rim, one derivation site

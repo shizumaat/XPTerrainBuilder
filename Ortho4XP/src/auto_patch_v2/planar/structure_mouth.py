@@ -90,7 +90,7 @@ from ..law.tables import is_structure_role, is_value_role, role_family, role_sid
 from ..model.frame import rotated_rectangle
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
-           "road_end_after_slide", "portal_note", "PORTAL_YIELDS", "strip_keepout",
+           "road_end_after_slide", "covered_stretch", "own_road_blade", "portal_note", "PORTAL_YIELDS", "strip_keepout",
            "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth", "edge_wall_mouth", "face_top_z"]
 
 #: Passes of the slide (each re-reads the stops from the new mouth).
@@ -324,7 +324,8 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       spacing: float, grid: float, decked: _t.Sequence[Polygon],
                       airport=None, crossing: _t.Sequence[tuple[Polygon, str]] = (),
                       pinned: bool = False, road_floor: float | None = None,
-                      road_extra: float = 0.0, slide: bool = True, own_lines=(), own_area=None):
+                      road_extra: float = 0.0, slide: bool = True, own_lines=(), own_area=None,
+                      keep_out: _t.Sequence[tuple[Polygon, str]] = ()):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
     axis starting at the mouth that stands clear of the pavement (the
@@ -358,7 +359,15 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     slid the merged mouth 140 m out of the cut it stops), and the roads its
     carriageways run ALONG (``own_lines``, their approaches) and the road
     pieces the bridge stands over (``own_area``, its plan) are the cut's
-    own: one cut across both carriageways never stops at either's lanes."""
+    own: one cut across both carriageways never stops at either's lanes.
+
+    ``keep_out`` — ground a corridor's wall may never stand in (the runway
+    strip keep-out, ``retaining_wall.in_runway_strip = false``; issue
+    #1629): the mouth slides out of it as out of pavement, and the road's
+    profile is held at bore depth beneath it (the bore is covered there),
+    but it never stops the ramp's top — a wall standing in it beyond the
+    mouth is still refused by ``strip_keepout``.  Before this a mouth whose
+    mapped portal stands in the strip was refused outright."""
     from .structure_approach import pavement_half_widths
     from .structure_geometry import ring_for
     def ring_of(s0: float):
@@ -401,10 +410,10 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         mouth = here.coords[0] if total > 0.0 else group.mouth
         stops = mouth_stops(cells, polys, law, cut_roles, here, mouth, half, rim_off, decked,
                             grid, _routes(group)) + list(crossing)
-        s0, ref = clear_mouth(here, stops, half, rim_off, gap, spacing, grid,
+        s0, ref = clear_mouth(here, stops + list(keep_out), half, rim_off, gap, spacing, grid,
                               lambda s, _t=total: ring_of(_t + s),
                               law.tables.structures.tunnel.mouth_slide_max_m - total)
-        cover.extend(p for p, _r in stops)
+        cover.extend(p for p, _r in stops + list(keep_out))
         if math.isnan(s0) or s0 <= 0.0:
             break
         total += s0
@@ -444,6 +453,38 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         f"portal (#971; the stretch between is covered bore"
         + ("" if floor is None else f", climbing on the road's own profile to floor {floor:.2f} "
            f"at the mouth, #1028") + ")"), floor
+
+
+def covered_stretch(portal_axis: LineString, axis: LineString, routes: _t.Sequence[LineString],
+                    reach: float, grid: float):
+    """THE COVERED STRETCH OF A SLID MOUTH (issue #1629): ``(polygon, routes,
+    reach)`` — the corridor, rim to rim, between the mapped portal and the
+    mouth it slid to — or ``None`` for a mouth that did not slide.  Over it
+    the bore is covered, and the pavement over the bore keeps its surface
+    (#971); but the ramp's OWN road there (:func:`own_road_blade`) is the
+    road INTO the bore, which no longer runs at grade, and is cut."""
+    total = portal_axis.length - axis.length
+    if total <= grid:
+        return None
+    seg = substring(portal_axis, 0.0, total)
+    return seg.buffer(reach, cap_style="flat"), tuple(routes), reach
+
+
+def own_road_blade(c, p: Polygon, law: Law, stretches, grid: float):
+    """The covered stretches (:func:`covered_stretch`) that cut cell ``c``
+    (polygon ``p``): those it stands in as the ramp's OWN road — clause 4's
+    test (:func:`_own_road`) against the axis or a dual member's route,
+    groundside only, as :func:`mouth_stops` exempts it.  Without this a slid
+    mouth left its approach carriageways standing at grade on the bore's
+    roof up to the mapped portal, a lip beyond the open trench (KSEA: two
+    road pieces 7.4 m above the slid mouth's floor).  ``None`` when none
+    does."""
+    if role_side(law, c.role) == "airside" or not is_value_role(law, c.role) \
+            or is_structure_role(law, c.role) or c.role == "building":
+        return None
+    hit = [poly for poly, routes, reach in stretches
+           if p.intersects(poly) and any(_own_road(r, p, reach, grid) for r in routes)]
+    return unary_union(hit) if hit else None
 
 
 def road_end_after_slide(portal_axis: LineString, axis: LineString, index, reach: float,

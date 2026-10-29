@@ -9439,7 +9439,11 @@ def test_the_tie_reads_one_declared_wall_step_in_both_readers(cg):
                   (0.0, 0.1, 0.0, 0.3)]:
         assert census.allowance(*chord) == verify.allowance(*chord)
     assert verify.allowance(0.0, -0.5, 0.0, 0.8) == 23.7        # the largest, never the sum
-    assert verify.allowance(0.0, 0.7, 0.0, 0.3) == round(3.1 + 0.01, 4)
+    # #1633 round 3 spec §4: a chord END within the identity lattice (0.5 m)
+    # of a declared line crosses it — this chord starts on the mouth's line
+    assert verify.allowance(0.0, 0.7, 0.0, 0.3) == 23.7
+    assert verify.allowance(0.0, 1.1, 0.0, 0.8) == round(3.1 + 0.01, 4)   # 0.3 m off the strip
+    assert verify.allowance(0.0, 2.0, 0.0, 1.5) == 0.0 == census.allowance(0.0, 2.0, 0.0, 1.5)
     assert "declared_walls" in inspect.signature(cg._check_runway_edge_tie).parameters
 
 

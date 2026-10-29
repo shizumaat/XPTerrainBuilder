@@ -14,11 +14,13 @@ from .cluster_outline import (CACHE_VOUCHED_SOURCE, CLUSTER_EVIDENCE_SOURCES,
                               OSM_BUILDING_SOURCE, OUTLINE_SIMPLIFY_M,
                               AirsideRim, airside_vertex_snap,
                               cluster_outlines, deck_shades, with_shade,
+                              pad_shade_extra,
                               cluster_building_evidence,
                               osm_building_evidence)
 from .triangulate import face_triangles
 
 __all__ = ["face_triangles", "cluster_outlines", "deck_shades", "with_shade",
+           "pad_shade_extra",
            "OUTLINE_SIMPLIFY_M",
            "AirsideRim", "airside_vertex_snap", "osm_building_evidence",
            "OSM_BUILDING_SOURCE", "CACHE_VOUCHED_SOURCE",

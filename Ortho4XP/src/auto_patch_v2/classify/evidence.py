@@ -19,7 +19,7 @@ from shapely.strtree import STRtree
 
 from ..geom.slope_pad import slope_witness
 from ..geom import (cluster_building_evidence, cluster_outlines,
-                    osm_building_evidence)
+                    osm_building_evidence, pad_shade_extra)
 from ..airport.slab_faces import witness_faces
 from ..geom.base_slab import pad_shades, slab_polygons
 from ..law.tables import base_slab_law, pad_admission
@@ -600,7 +600,7 @@ def _cluster_pads(airport: Airport, law, airside=None,
     # ``geom.base_slab.pad_shades``, the ONE shade path the census takes too
     _lw = base_slab_law(law)
     shades = pad_shades(getattr(airport, "partition", None), to_xy, _lw,
-                        getattr(airport, "sunken_ramps", None),
+                        pad_shade_extra(airport),
                         witness_faces(_lw))
     # §16g (10) (12), issue #101 (owner RULINGS 2026-10-02v (3)): v1's two
     # PAD-ADMISSION gates.  The thresholds come from the ONE reading the
@@ -742,7 +742,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
         _lw = base_slab_law(law)
         _shades = pad_shades(getattr(airport, "partition", None),
                              airport.frame.entry(), _lw,
-                             getattr(airport, "sunken_ramps", None),
+                             pad_shade_extra(airport),
                              witness_faces(_lw))
         if _shades is not None:
             trimmed = []

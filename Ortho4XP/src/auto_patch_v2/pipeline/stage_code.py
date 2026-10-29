@@ -232,6 +232,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_plate",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
@@ -254,6 +255,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
         "auto_patch_v2.classify.wall_clip",
+        "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.cluster_outline",
@@ -298,6 +300,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.rebake",
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.structures",
+        "auto_patch_v2.model.wall_reach",
         "auto_patch_v2.model.walled_plate",
     ),
     "planar": (
@@ -412,6 +415,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_family",
         "auto_patch_v2.airport.wall_geometry",
         "auto_patch_v2.airport.wall_mouth",
+        "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_plate",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
@@ -435,6 +439,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
         "auto_patch_v2.classify.wall_clip",
+        "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.cluster_outline",
@@ -496,6 +501,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.road_yield",
         "auto_patch_v2.model.stage_one",
         "auto_patch_v2.model.structures",
+        "auto_patch_v2.model.wall_reach",
         "auto_patch_v2.model.walled_plate",
         "auto_patch_v2.planar",
         "auto_patch_v2.planar.apron_shelf",
@@ -609,8 +615,11 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
     "road_profile": (
         "auto_patch_v2",
         "auto_patch_v2.airport",
+        "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_stations",
+        "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.core_clamp",
         "auto_patch_v2.geom.coverage",
@@ -643,6 +652,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.planar",
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.structures",
+        "auto_patch_v2.model.wall_reach",
     ),
     "channels": (
         "auto_patch_v2",
@@ -657,6 +667,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.road_ramp",
         "auto_patch_v2.airport.road_stations",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.constraints",
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_trend",
@@ -730,6 +741,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.platform",
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.structures",
+        "auto_patch_v2.model.wall_reach",
     ),
     "shapes": (
         "auto_patch_v2",
@@ -819,6 +831,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_plate",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
@@ -841,6 +854,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
         "auto_patch_v2.classify.wall_clip",
+        "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.constraints",
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_shelf",
@@ -963,6 +977,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.stage_one",
         "auto_patch_v2.model.structures",
         "auto_patch_v2.model.threshold_datum",
+        "auto_patch_v2.model.wall_reach",
         "auto_patch_v2.model.walled_plate",
         "auto_patch_v2.pipeline",
         "auto_patch_v2.pipeline.shapes",
@@ -1191,7 +1206,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.map_memo model.platform model.threshold_datum
     """),
     "ramp_runout": _mods(_GENERATOR_CORE + """
-        constraints.wall_zone
+        constraints.wall_zone model.wall_reach
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_ramp constraints.pad_relief
         constraints.pad_warning constraints.pads constraints.platform
@@ -1203,7 +1218,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.group_level constraints.face_index
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
-        constraints.wall_zone
+        constraints.wall_zone model.wall_reach
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
@@ -1348,6 +1363,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
+    airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter classify.wall_clip constraints constraints.apron constraints.apron_shelf
     constraints.assembly constraints.ceiling constraints.channel constraints.cluster_pad
@@ -1496,7 +1512,9 @@ CODE_MODULES["solve"] = _mods("""
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
-    classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
+    classify.retaining_wall
+    airport.wall_sides classify.wall_cutback model.wall_reach
+    classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.taxi_letter classify.wall_clip constraints.apron
     constraints.apron_shelf
     constraints.ceiling constraints.cluster_pad constraints.contiguity
@@ -1603,7 +1621,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.facade_mint classify.gap_apron classify.gap_mint classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
     classify.pad_cut_corridor classify.pad_touch
-    classify.ramp_runout classify.retaining_wall classify.ribbon_mint
+    classify.ramp_runout classify.retaining_wall
+    airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint
     classify.roles classify.rules classify.sources classify.taxi_letter classify.wall_clip
     constraints
     constraints.apron constraints.apron_shelf constraints.assembly constraints.ceiling
@@ -1717,7 +1736,8 @@ CODE_MODULES["emit"] = _mods("""
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.gap_mint classify.lot_roads classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch
-    classify.retaining_wall classify.ribbon_mint classify.roles
+    classify.retaining_wall
+    airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
     classify.rules classify.sources classify.taxi_letter classify.wall_clip constraints.apron
     constraints.apron_shelf constraints.apron_trend constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
@@ -1794,6 +1814,7 @@ CODE_MODULES["verify"] = _mods("""
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
+    airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter classify.wall_clip constraints.apron constraints.ceiling
     constraints.channel

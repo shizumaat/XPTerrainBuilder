@@ -87,3 +87,17 @@ def test_an_extension_piece_apart_from_the_road_is_dropped(cfg):
                                                "w.obj", 0, 2.0)], RIBBON, LANE)
     for g in getattr(ext, "geoms", [ext]):
         assert isinstance(g, Polygon) and g.distance(RIBBON) < 1e-6
+
+
+def test_a_bent_wall_does_not_give_the_road_the_ground_its_curve_encloses(cfg):
+    """#1633 (KATL 27R end, ``muro_27R.obj``): the road runs along an
+    L-shaped wall; the convex hull of the two reached the inside of the
+    bend, 58 m up the safety area, and that ground stood at the road's
+    level.  The extension is held to the piece's own reach."""
+    from shapely.geometry import Polygon
+    ell = Polygon([(0, 5), (100, 5), (100, 60), (99.7, 60), (99.7, 5.3), (0, 5.3)])
+    p = rw.RetainingPiece(ell, 3.1, "w.obj", 0, 2.0)
+    ext = rw.road_extension([p], RIBBON, LANE)
+    assert ext.contains(Point(50.0, 4.0))            # the gap is still road
+    assert not ext.intersects(Point(60.0, 30.0))     # the bend's inside is not
+    assert ext.intersection(ell).area == pytest.approx(0.0, abs=1e-6)

@@ -10504,3 +10504,17 @@ Also (owner, same message): the ThunderBlade drive holds only ortho tiles; every
 - Q276 (b): weekly usage may go about 2 % past the 85 % line, to about 88 %, for exactly two changes before Friday: Q271 (KATL sloped cut floor) and Q273 (KMCI road drops to the cut band's ground). Nothing else.
 
 **2026-10-28w — owner answer Q277 (Noah, 2026-10-28T20:56:52Z, verbatim: "A").** Q277 (a): the LFPG cuts (#1580) and the EDDF tunnels (#1593, round 2 without Q256 b) go into the next test app, so they ship in beta 5 if the sim read passes. They are first built in 1.0.444 (branch `claude/app-444`).
+
+**2026-10-29a: owner answers Q262–Q299, recorded together (Noah, 2026-10-29, verbatim where quoted).** Earlier entries in this set (Q278–Q294, owner messages of 2026-10-29) record which work goes into beta 5 and how much usage it may take: #1625 (a), #1624 (a), #1629 (a), Q284 (a), #1635 (a), Q286 ("The tunnel mouth should be here: 47.434626023, -122.309127238. The service road running north/south runs over the top of the tunnel. So the tunnel ramp stops just short of that service road."), Q287 (a), Q290 (a), Q291 (a), #1645 (a), #1646 (a), Q294 (b), and "We can use some usage credits to complete beta 5 if needed". Law from that set:
+- **Q284 (a):** when an object pack serves an airport whose apt.dat block is Global Airports', it replaces only Global's objects. Global's pavement pages still feed the patch.
+- **Q286:** a road that runs over a bore at its mapped mouth decks the mouth. The ramp stops just short of that road (#1629).
+- **Q287 (a):** a covered rail cut's level is the floor its own pack objects state, which is the liner and track floor (#1635).
+- **Q294 (b):** for beta 5 the tile-edge seam strip keeps the raw elevation. After beta 5 it carries the graded surface over airside pavement and pads, and every tile solves from the airport's whole pack (#1645).
+
+Owner answers 2026-10-29T20:05:11Z, verbatim:
+- **Q295 (a):** the dual-roadway trench (#1638) is held out of beta 5. Its third round comes after Friday, under Q296–Q298.
+- **Q296:** "Airside cannot cross a road unless it's a bridge or a tunnel, so the trench certainly can cut through airside"
+- **Q297:** "If no bridge object is provided, then we have to provide a graded taxiway across the trench, if an object is provided then the trench continues through uninterrupted and the bridge carries the taxiway over it."
+- **Q298:** "Trench depth is preferably determined by adjacent objects, the two level buildings identify the airside vs. groundside depths. When no objects are provided, then the depth would come from lidar if available, with a minimum of 5m, if it's less than 5m, or lidar is not available, default to 7.5m."
+- **Q299 (a):** the top of a retaining wall, which the hill grades down to, is the wall object's top edge as it sits. The grass embankment above it is graded ground, and the back of the wall is buried (#1633, KATL 27R).
+- **On #1653:** "We have been seating objects at large airports for a long time, please confirm #1653. I expect us to take into account every object in the scenery pack."

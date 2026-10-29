@@ -90,7 +90,8 @@ from ..law.tables import is_structure_role, is_value_role, role_family, role_sid
 from ..model.frame import rotated_rectangle
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
-           "road_end_after_slide", "covered_stretch", "own_road_blade", "portal_note", "PORTAL_YIELDS", "strip_keepout",
+           "road_end_after_slide", "covered_stretch", "own_road_blade", "portal_note",
+           "PORTAL_YIELDS", "strip_keepout",
            "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth", "edge_wall_mouth", "face_top_z"]
 
 #: Passes of the slide (each re-reads the stops from the new mouth).

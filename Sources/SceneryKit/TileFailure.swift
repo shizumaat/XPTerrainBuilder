@@ -165,13 +165,16 @@ public struct O4RunIssues: Sendable, Equatable, Identifiable {
 
     /// "1 tile was not built, 1 built with warnings" — the Qt box's title.
     public var title: String {
-        let failed = tiles.filter { !$0.built }.count
+        // #1624: a re-queued failure is not counted — its retry is the
+        // tile's last attempt and reports itself.
+        let failed = tiles.filter { !$0.built && !$0.requeued }.count
         let warned = tiles.filter { $0.built }.count
         var parts: [String] = []
         if failed > 0 {
             parts.append("\(failed) tile\(failed == 1 ? " was" : "s were") not built")
         }
         if warned > 0 { parts.append("\(warned) built with warnings") }
+        if parts.isEmpty { parts.append("every tile was built") }
         let text = parts.joined(separator: ", ")
         return text.prefix(1).uppercased() + text.dropFirst()
     }

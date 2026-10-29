@@ -225,4 +225,7 @@ def post_passes(rows: list[Row], counts: dict[str, int], walls: dict[str, float]
     # #1201: a walled plate is the step between its safety area and the
     # ground it hides (``walled_plate.release_across``)
     rows = walled_plate.release_across(rows, planar, airport, counts)
+    # #1632: a vertex held level with the airside abeam over an edge bridge
+    # sheds its DEM pin and road ramp (``edge_deck.release_governed``)
+    rows = edge_deck.release_governed(rows, counts)
     return assemble(rows, counts, walls, planar, law, only, yielded_out)

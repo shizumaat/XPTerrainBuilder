@@ -509,7 +509,7 @@ def road_over_mouth(bores: _t.Sequence[LineString], mouth: tuple[float, float], 
     compromise it).  The ramp's own approach road ends at the portal and is
     never one: it holds the mouth, or the bore does not pass on beyond it."""
     mp = Point(mouth)
-    for p, c in zip(polys, cells):
+    for p, c in zip(polys, cells, strict=True):
         if c.role not in ROAD_ROLES or p.distance(mp) > reach or p.buffer(1e-6).contains(mp):
             continue
         for b in bores:

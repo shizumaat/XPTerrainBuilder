@@ -138,7 +138,11 @@ class PatchOverlay:
         self.toolbar = None             # O4_Qt_Patch_Toolbar, pinned top-left
         self.index: PatchScreenIndex | None = None
         self._shapes: list[_Shape] = []
+        self._sibling_shapes: list[tuple[str, bool, QPainterPath, bool]] = []
         self.model.document_changed.connect(self._rebuild)
+        siblings_changed = getattr(controller, "siblings_changed", None)
+        if siblings_changed is not None:
+            siblings_changed.connect(self._rebuild_siblings)
         self.model.selection_changed.connect(self.update)
         self.model.status_changed.connect(self.update)
         controller.state_changed.connect(self.update)
@@ -171,6 +175,25 @@ class PatchOverlay:
                                  below_grade(way.tags)))
         rank = {s: k for k, s in enumerate(DRAW_ORDER)}
         self._shapes = sorted(shapes, key=lambda s: (rank[s.style], s.way))
+        self.update()
+
+    def _rebuild_siblings(self) -> None:
+        """The shown airport's patches on other tiles (#1646), drawn
+        read-only under the open document."""
+        shapes = []
+        for doc in self.controller.siblings.values():
+            if doc is None or not doc.nodes:
+                continue
+            ids = list(doc.nodes)
+            xs, ys = scene_xy([doc.nodes[i][1] for i in ids], [doc.nodes[i][2] for i in ids],
+                              QTMAP.SCENE_ZL)
+            at = {i: QPointF(float(x), float(y)) for i, x, y in zip(ids, xs, ys, strict=True)}
+            for way in doc.ways:
+                path = self.way_path(way.refs, at.get)
+                if path is not None:
+                    shapes.append((style_class(way.tags), way.closed, path, below_grade(way.tags)))
+        rank = {s: k for k, s in enumerate(DRAW_ORDER)}
+        self._sibling_shapes = sorted(shapes, key=lambda s: rank[s[0]])
         self.update()
 
     def _scene(self, nid: int) -> QPointF | None:
@@ -222,6 +245,8 @@ class PatchOverlay:
             self.outlines.paint(painter, view_t)
         painter.save()
         painter.setTransform(view_t)
+        paint_styled(painter, (s for s in self._sibling_shapes
+                               if s[2].boundingRect().intersects(visible)), self.hatch_phase())
         paint_styled(painter, ((s.style, s.closed, s.path, s.below) for s in self._shapes
                                if (skip is None or s.way not in skip.ways)
                                and s.bounds.intersects(visible)), self.hatch_phase())

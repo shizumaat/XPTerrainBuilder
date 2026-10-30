@@ -264,6 +264,25 @@ a = Analysis(
 # codesign pass can reach.  Dropped at the derivation site.
 a.datas = [d for d in a.datas if not d[0].lower().endswith('.whl')]
 
+# SLIM BUNDLE (owner 2026-10-30): the engine reads nothing below, so it does
+# not ship. PROJ's optional datum/geoid grids (*.tif, ~760 MB of proj-data)
+# -- the engine never asks PROJ for a grid shift; proj.db stays.  The Tk-era
+# Earth preview tiles (two identical ~22 MB copies, read by no module).  The
+# Triangle C sources and build files under Utils (the GPL source offer is
+# the release's source archive, not the bundle).
+def _shipped(dest):
+    d = dest.replace('\\', '/')
+    if d.startswith('osgeo/data/proj/') and d.lower().endswith('.tif'):
+        return False
+    for drop in ('Ortho4XP_Data/Utils/Earth/', 'Ortho4XP_Data/Previews/Earth/',
+                 'Ortho4XP_Data/Utils/src/', 'Ortho4XP_Data/Utils/toolchains/'):
+        if d.startswith(drop):
+            return False
+    return d != 'Ortho4XP_Data/Utils/CMakeLists.txt'
+
+a.datas = [d for d in a.datas if _shipped(d[0])]
+
+
 pyz = PYZ(a.pure)
 
 exe = EXE(

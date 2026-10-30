@@ -204,7 +204,11 @@ esac
 # that ships is the signed one, so it is the one asked.
 SIGNED_ENGINE="$STAGE/Contents/Resources/Engine/Ortho4XP"
 if [[ -x "$SIGNED_ENGINE" ]]; then
-    GDAL_SELFCHECK="$("$SIGNED_ENGINE" --import-selfcheck osgeo.gdal 2>&1 | head -1)"
+    # Read the whole output first: `| head -1` under pipefail kills the
+    # script silently (SIGPIPE) when the engine prints more than one line.
+    GDAL_OUT="$("$SIGNED_ENGINE" --import-selfcheck osgeo.gdal 2>&1)" || true
+    GDAL_SELFCHECK="$(printf '%s\n' "$GDAL_OUT" | grep -m1 'osgeo.gdal' || true)"
+    [[ -n "$GDAL_SELFCHECK" ]] || GDAL_SELFCHECK="$(printf '%s\n' "$GDAL_OUT" | sed -n 1p)"
     case "$GDAL_SELFCHECK" in
         "osgeo.gdal: ok"*) echo "Signed engine loads GDAL ($GDAL_SELFCHECK)" ;;
         *) echo "ERROR: the signed engine cannot load GDAL: $GDAL_SELFCHECK" >&2

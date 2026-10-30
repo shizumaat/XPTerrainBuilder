@@ -607,6 +607,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.planar.covered_bores",
     "auto_patch_v2.planar.covered_cut",
     "auto_patch_v2.planar.covered_ground",
+    "auto_patch_v2.planar.deck_bridge",
     "auto_patch_v2.planar.cut_runout",
     "auto_patch_v2.planar.door_ramps",
     "auto_patch_v2.planar.dual_width",

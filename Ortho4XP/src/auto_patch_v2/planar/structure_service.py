@@ -739,7 +739,7 @@ def decked_exclusion(cut_lines, tunnels, footprints, cells, polys, cut_roles,
              if str(t.id).startswith(OBJECT_CUT_PREFIX)]
     # 2026-10-30a: a HARD-DECK BRIDGE's cut is object-decked too — its deck
     # carries the taxiway over the trench, and the centreline ends at its rim
-    pairs += [(t.id, f) for t, f in zip(tunnels, footprints, strict=True)
+    pairs += [(t.id, f) for t, f in zip(tunnels, footprints, strict=False)
               if getattr(t, "deck_bridge", "")]
     if not pairs:
         return list(cut_lines)

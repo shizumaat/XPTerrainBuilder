@@ -80,7 +80,14 @@ echo "Installing engine packages into $VENV …"
 rm -f "$CORE_REQS"
 if [[ -n "$GDAL_REQ" ]]; then
   echo "Installing optional GDAL bindings…"
-  "$PY" -m pip install $(echo "$GDAL_REQ" | head -1 | cut -d';' -f1) \
+  GDAL_PIN="$(echo "$GDAL_REQ" | head -1 | cut -d';' -f1)"
+  # The bindings must match the libgdal they build against: where
+  # gdal-config exists (Homebrew), take its version, not the pin.
+  if command -v gdal-config >/dev/null 2>&1; then
+    GDAL_PIN="gdal==$(gdal-config --version)"
+  fi
+  echo "  $GDAL_PIN"
+  "$PY" -m pip install "$GDAL_PIN" \
     || echo "WARNING: GDAL install failed — airport elevation insets will be disabled (engine handles this gracefully)."
 fi
 "$PY" -m pip install pyinstaller

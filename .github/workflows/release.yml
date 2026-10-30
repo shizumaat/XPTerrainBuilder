@@ -39,6 +39,14 @@ jobs:
       - name: PROJ for GDAL's proj data lookup
         run: brew install proj
 
+      # The engine's lidar insets need GDAL; make_engine.sh builds the
+      # bindings against Homebrew's libgdal (version from gdal-config), and
+      # make_app.sh's signed-engine gate refuses an app without it.
+      - name: GDAL for the engine's elevation insets
+        run: |
+          brew install gdal
+          gdal-config --version
+
       # macos-15 runners default to Xcode 16.4, whose SDK predates macOS 26;
       # the app needs the macOS 26 SDK.
       - name: Select Xcode 26

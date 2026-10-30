@@ -192,7 +192,9 @@ def smoothest_grades(d: _t.Sequence[float], dz: float,
     lam = 1.0
     blocks, rhs = [], []
     if ground is not None and wavelength_m:
-        lam = (float(wavelength_m) / (2.0 * math.pi)) ** 4
+        r = float(wavelength_m) / (2.0 * math.pi)
+        r2 = r * r
+        lam = r2 * r2       # never ``** 4``: the C library's pow differs per platform
         C = np.zeros((n + 1, n))
         for k in range(1, n + 1):
             C[k, :k] = dd[:k]

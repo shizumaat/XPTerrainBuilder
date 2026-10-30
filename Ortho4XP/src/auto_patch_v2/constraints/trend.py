@@ -19,9 +19,28 @@ from __future__ import annotations
 
 import bisect as _bisect
 import dataclasses as _dc
+import math as _math
 import typing as _t
 
 __all__ = ["Trend", "poly_at_zero", "trend_of", "shift_through"]
+
+
+def _tricube(u: float) -> float:
+    """The tricube weight ``(1 - |u|^3)^3``, by MULTIPLICATION ONLY.
+
+    ``x ** 3`` on a float is the C library's ``pow``, and that is not one
+    function on every platform: macOS, glibc and the Windows CRT round
+    about one cube in seven hundred to different last bits (measured
+    2026-10-29, release dry run 41005579641).  Every runway crossing pin
+    and DEM end pin is read off this kernel, so the last-bit noise reached
+    a YIELDED runway cap (§50) and through it 23,000 constraint rows: the
+    §46 (7) gate saw three programmes.  ``*`` and ``-`` are IEEE-exact
+    roundings, identical everywhere, so the weight is too (§46 (3):
+    identical doubles in, identical doubles out)."""
+    a = abs(u)
+    c = 1.0 - a * a * a
+    return c * c * c
+
 
 @_dc.dataclass(frozen=True)
 class Trend:
@@ -73,7 +92,7 @@ class Trend:
         else:
             us = [(self.s[i] - q) / self.window_m for i in range(lo, hi)]
             zs = [self.z[i] for i in range(lo, hi)]
-            ws = [(1.0 - abs(u) ** 3) ** 3 for u in us]
+            ws = [_tricube(u) for u in us]
             # THE DEGREE IS BOUNDED BY WHAT THE SAMPLES CAN RESOLVE.  A
             # quadratic is a LONG-WAVE statement only when the samples
             # actually span the window: through four points 40 m apart it
@@ -146,7 +165,9 @@ def trend_of(samples: _t.Iterable[tuple[float, float]], window_m: float,
     if len(by_s) < min_samples:
         return None
     ss = sorted(by_s)
-    return Trend(tuple(ss), tuple(sum(by_s[s]) / len(by_s[s]) for s in ss),
+    # ``fsum``: the exact sum, so the mean of a station's samples does not
+    # depend on the order the chains handed them in
+    return Trend(tuple(ss), tuple(_math.fsum(by_s[s]) / len(by_s[s]) for s in ss),
                  float(window_m))
 
 

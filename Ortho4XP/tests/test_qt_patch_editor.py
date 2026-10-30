@@ -307,6 +307,25 @@ def test_box_select_and_escape_and_delete_keys(editor):
     assert ed.model.undo_stack.undoText() == "Delete Node"
 
 
+def test_ctrl_s_saves_the_patch_through_the_save_button_action(editor, monkeypatch):
+    # #1694: Ctrl/⌘S runs the Save button's action while a patch is edited
+    from PySide6.QtGui import QKeySequence
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    saved = []
+    monkeypatch.setattr(ed.controller, "save", lambda: saved.append(1))
+    save = ed.menu_actions(view)["save"]
+    assert save.shortcut() == QKeySequence(QKeySequence.Save)
+    assert save.shortcutContext() == Qt.ApplicationShortcut
+    ed.model.set_mode("Edit")
+    ed.model.set_selection([-5])
+    ed.model.delete_selection()
+    assert save.isEnabled()
+    save.trigger()
+    assert saved == [1]
+
+
 def test_footprints_turn_with_the_heading():
     import base64
     import numpy as np

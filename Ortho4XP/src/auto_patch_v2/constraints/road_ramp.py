@@ -69,6 +69,24 @@ def _run_grade(level: float, ends: _t.Iterable[tuple[float, float]],
     return built_grade(need, design, cap) or cap
 
 
+def _link_level(straight: float, fl: float | None, depth: float,
+                ends: _t.Iterable[tuple[float, float]], g: float) -> float:
+    """#1678: a run LINKED between two bordered stations continues the cut
+    terrace of the pavements it joins, never deeper: it is straight between
+    their levels wherever that line stands no more than ``depth`` — the
+    end terraces' own cuts (their target ``floor`` less their level),
+    tapered straight between the two ends as the level is — under the
+    road's own target ``fl``; under that, the line
+    is cutting through relief no structure states, so the road climbs toward
+    ``fl - depth`` at the built grade ``g`` from each end, as a bare exit
+    climbs (RULINGS 2026-10-03b: a run bordering no airside pavement climbs
+    from the last bordered level).  A dip keeps the straight line."""
+    if fl is None or straight >= float(fl) - depth:
+        return straight
+    reach = min(z + g * d for d, z in ends)
+    return max(straight, min(float(fl) - depth, reach))
+
+
 def _far_end(run: _t.Sequence[tuple[float, float]], lane: float
              ) -> list[tuple[float, float]]:
     """The END of a run of ``(distance, level)``: the vertices within one
@@ -512,8 +530,12 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       leads, nothing airside moves);
     * a run between two bordered stations of ONE route — a pad's frontage,
       or a stretch inside the airport between two pavements — runs
-      STRAIGHT between their two levels (it never climbs away from the
-      pavements it links);
+      STRAIGHT between their two levels, cut no deeper under its own target
+      than the terraces it joins are cut (that depth tapered straight from
+      one end to the other); deeper, the road climbs from each
+      end at the built grade (:func:`_link_level`, #1678 — KGCN
+      ``small_roads:-67#2``, drawn 1.27 km straight between two aprons, stood
+      10 m under its lidar ground);
     * a run beyond the LAST bordered station of its route, past any pad
       frontage that continues it (held flat), is BARE: it climbs from that
       level toward its own §37 (6) target ``floor`` (the road exit, 29y /
@@ -567,6 +589,8 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     ceil = ceil or {}
     capped: set[int] = set()
     rep["ceiled"] = 0
+    rep["link_lifted"] = 0
+    g0 = cap if design is None else design
     for v, (a, b, u, _ref) in foot.items():
         if a in levels and b in levels:
             lev[v] = (1.0 - u) * float(levels[a]) + u * float(levels[b])
@@ -583,6 +607,7 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     for r, items in sorted(by_route.items()):
         items.sort()
         known = [(s_, lev[v]) for s_, v in items if v in lev]
+        kv = [v for _s, v in items if v in lev]
         held = [v in capped for _s, v in items if v in lev]
         if not known:
             continue
@@ -616,8 +641,14 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
             if 0 < i < len(ks):
                 (s0, z0), (s1, z1) = known[i - 1], known[i]
                 t = (s_ - s0) / (s1 - s0) if s1 > s0 else 0.0
-                out[v] = z0 + t * (z1 - z0)
+                v0, v1 = kv[i - 1], kv[i]
+                c0, c1 = (max(0.0, float(floor[e]) - lev[e]) if e in floor
+                          else 0.0 for e in (v0, v1))
+                depth = c0 + t * (c1 - c0)
+                out[v] = _link_level(z0 + t * (z1 - z0), floor.get(v), depth,
+                                     ((s_ - s0, z0), (s1 - s_, z1)), g0)
                 rep["linked"] += 1
+                rep["link_lifted"] += out[v] > z0 + t * (z1 - z0) + 1e-9
                 if s1 > s0:
                     rep["max_link_grade"] = max(rep["max_link_grade"],
                                                 abs(z1 - z0) / (s1 - s0))
@@ -635,7 +666,6 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                 continue
             bare.setdefault((r, i == 0), (z_e, []))[1].append((d, v, float(fl)))
             rep["bare"] += 1
-    g0 = cap if design is None else design
     for _key, (z_e, run) in sorted(bare.items()):
         g = _run_grade(z_e, _far_end([(d, fl) for d, _v, fl in run], lane), g0, cap, lane)
         rep["bare_steepened"] += g > g0 + 1e-9

@@ -96,6 +96,40 @@ def test_a_run_between_two_bordered_runs_is_straight_and_a_pad_frontage_is_held(
     assert rep["linked"] == 5 and rep["pad_held"] == 2
 
 
+def _long_link(end_cut: float):
+    """#1678 (found at KGCN, ``small_roads:-67#2``): a road bordered only at
+    its two ends (levels 100 / 112, 1.27 km apart), each end terrace cut
+    ``end_cut`` under its target, over ground rising to 118 between them,
+    with one dip (station 64) under the straight line."""
+    n = 128
+    st = _route(n)
+    foot, lv = _feet({0: 100.0, n - 1: 112.0})
+    floor = {v: min(118.0, 100.0 + end_cut + 0.5 * v,
+                    112.0 + end_cut + 0.5 * (n - 1 - v)) for v in st}
+    floor[64] = 90.0
+    out, rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                               design=DESIGN, lane=LANE)
+    line = {v: 100.0 + 12.0 * v / (n - 1) for v in st}
+    return n, floor, out, rep, line
+
+
+@pytest.mark.parametrize("end_cut", [0.0, 2.0])  # both ends cut alike: the taper is flat
+def test_a_long_run_between_two_pavements_is_cut_no_deeper_than_their_terraces(end_cut):
+    """The link is not drawn straight through the hill (10 m under its own
+    target at the crest): it climbs from each end at the built grade and
+    stands no deeper under its target than the end terraces are cut; the
+    dip keeps the straight line."""
+    n, floor, out, rep, line = _long_link(end_cut)
+    for v in range(1, n - 1):
+        if v == 64:
+            assert out[v] == pytest.approx(line[v])
+            continue
+        reach = min(100.0 + DESIGN * 10.0 * v, 112.0 + DESIGN * 10.0 * (n - 1 - v))
+        assert out[v] == pytest.approx(max(line[v], min(floor[v] - end_cut, reach)))
+    assert out[40] == pytest.approx(118.0 - end_cut)
+    assert rep["linked"] == n - 2 and rep["link_lifted"] > 100
+
+
 def test_a_coverage_join_is_reached_at_the_cap():
     """A §37 (9) join pinned at 110 two stations past a bordered run at 100:
     the join is never governed, and the road leaves the terrace at the cap

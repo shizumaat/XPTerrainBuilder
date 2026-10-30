@@ -39,7 +39,7 @@ the object stage's plate):
   faces rising from its bottom along the road), the floor runs to the
   walls' inner faces — under the deck and along the open stretch to the
   next deck — and the rim stands ``wall_gap_m`` behind them
-  (:func:`walled_trench`); the bank stands only where there is no wall.
+  (:func:`_walled_trench`); the bank stands only where there is no wall.
   KBNA's taxiway-L frame: walls 31.7 m apart, the carriageway's banks
   had climbed 6 m up them.
 
@@ -60,7 +60,7 @@ from ..airport.airside_deck_seat import facing_contacts
 from .deck_walls import inner_faces, wall_faces, wall_strip
 
 __all__ = ["deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
-           "deck_cut", "deck_pin", "walled_trench"]
+           "deck_cut", "deck_pin"]
 
 XY = tuple[float, float]
 
@@ -386,14 +386,14 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     ``inset`` inside its edge — the bank from the road edge up to the deck
     (Q-A as ruled) — or, under a WALLED deck, the floor runs to the walls'
     inner faces and the rim stands ``inset`` behind them
-    (:func:`walled_trench`, RULINGS 2026-10-30f (3))."""
+    (:func:`_walled_trench`, RULINGS 2026-10-30f (3))."""
     big = 10.0 * (axis.length + 1000.0)
     ahead = axis.interpolate(min(axis.length, 1.0))
     keep = _half_plane(_mid_line(db), (ahead.x, ahead.y), big)
     if other is not None:
         c = db.polygon.centroid
         keep = keep.intersection(_half_plane(_gap_line(db, other), (c.x, c.y), big))
-    walled = walled_trench(db, inset, other)
+    walled = _walled_trench(db, inset, other)
     if walled is not None:
         # 30f (3): the floor runs to the walls' inner faces, the rim stands
         # ``inset`` behind them — no bank climbs the walls
@@ -412,7 +412,7 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     return one(ramp, ramp), one(outer, outer)
 
 
-def walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = None
+def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = None
                   ) -> "tuple[Polygon, Polygon] | None":
     """``(floor, rim)`` of a WALLED deck (``planar/deck_walls``; RULINGS
     2026-10-30f (3)): the floor is the strip between the walls' inner faces

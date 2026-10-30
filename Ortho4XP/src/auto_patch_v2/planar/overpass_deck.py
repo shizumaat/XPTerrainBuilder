@@ -39,13 +39,13 @@ import dataclasses as _dc
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
 
-__all__ = ["Overpass", "road_overpasses"]
+__all__ = ["road_overpasses"]
 
 XY = tuple[float, float]
 
 
 @_dc.dataclass(frozen=True)
-class Overpass:
+class _Overpass:
     """One road overpass deck piece (module doc)."""
 
     #: the deck placement's id (the plate's member) and resource
@@ -85,7 +85,7 @@ def _road_under(piece, ways, step: float) -> tuple[tuple[XY, ...], tuple[int, ..
 
 
 def road_overpasses(objects, cache, classification, airport, law, decks=()
-                    ) -> tuple[tuple[Overpass, ...], list[str]]:
+                    ) -> tuple[tuple[_Overpass, ...], list[str]]:
     """``(every road overpass deck piece, one note per piece read)``
     (module doc).  ``decks`` are the hard-deck bridges already read."""
     from .deck_bridge import CellRoles, _beside_a_building, _frames, _slab
@@ -97,7 +97,7 @@ def road_overpasses(objects, cache, classification, airport, law, decks=()
     taken = {str(d.object_id) for d in decks or ()}
     roles = CellRoles(classification, airport)
     ways = [w for w in airport.osm_ways or () if len(w.points) >= 2]
-    out: list[Overpass] = []
+    out: list[_Overpass] = []
     notes: list[str] = []
     for dks, frame in _frames(objects, tol):
         d = dks[0]
@@ -118,7 +118,7 @@ def road_overpasses(objects, cache, classification, airport, law, decks=()
             if _beside_a_building(frame, piece, roles):
                 notes.append(f"{name}: a building stands beside it in its frame (22n)")
                 continue
-            out.append(Overpass(str(d.id), str(d.path), tuple(piece.exterior.coords[:-1]),
+            out.append(_Overpass(str(d.id), str(d.path), tuple(piece.exterior.coords[:-1]),
                                 st, ids, float(top)))
             c = Point(st[len(st) // 2])
             notes.append(f"{name}: a road overpass over way(s) {list(ids)}, deck y "

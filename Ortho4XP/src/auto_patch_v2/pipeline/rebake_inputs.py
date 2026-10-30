@@ -76,7 +76,7 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
             # is the bore law's, its crest still goes flush (2026-09-06c)
             out[oid] = (float(tn.plate_y_m or tn.depth_m), pts,
                         float((seats.get(oid) or {}).get("proud_m") or 0.0))
-    out.update(_edge_seat_plates(pm, kept))
+    out.update(_edge_seat_plates(pm, kept, law))
     if law.tables.structures.basin.seat != "floor_plate":
         return out
     for b in pm.basins:
@@ -109,7 +109,7 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
 EDGE_PLATE = "edge"
 
 
-def _edge_seat_plates(pm, kept) -> dict[str, tuple]:
+def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
     """Placement id -> ``(0.0, [seat], 0.0, EDGE_PLATE)`` for every edge
     bridge an edge trench meets (``Tunnel.edge_seats``,
     ``planar/bridge_span``): its ZERO — the deck its top is — sits on the
@@ -120,6 +120,10 @@ def _edge_seat_plates(pm, kept) -> dict[str, tuple]:
     m under the taxiway).  The anchor reads it FIRST (§16e's datum,
     ``anchor_rule.datum_of``), ahead of the basin rim."""
     out: dict[str, tuple] = {}
+    seats_of = None
+    if law is not None and any(getattr(t, "deck_bridge", "") for t in pm.structures):
+        from ..constraints.edge_floor import edge_seats_of
+        seats_of = edge_seats_of(pm, law, combine=False)
     for ov in getattr(pm, "overpasses", ()) or ():
         # a ROAD OVERPASS (``planar/overpass_deck``, RULINGS 2026-10-30f
         # (5)): its zero on the road beneath, every deck piece's stations
@@ -129,7 +133,7 @@ def _edge_seat_plates(pm, kept) -> dict[str, tuple]:
                                           if tuple(p) not in st], *rest)
     for tn in pm.structures:
         if getattr(tn, "deck_bridge", ""):
-            _deck_plate(out, tn, kept)
+            _deck_plate(out, tn, kept, pm, seats_of)
             continue
         for oid, seat, _depth in getattr(tn, "edge_seats", ()) or ():
             if oid not in kept:
@@ -144,20 +148,31 @@ DECK_PLATE = "deck"
 OVERPASS_PLATE = "overpass"
 
 
-def _deck_plate(out: dict, tn, kept) -> None:
+def _deck_plate(out: dict, tn, kept, pm=None, seats_of=None) -> None:
     """A HARD-DECK BRIDGE's deck member (owner RULINGS 2026-10-30a (1),
     ``planar/deck_bridge``): ``(deck top y, every end line's stations, 0.0,
     DECK_PLATE)`` — its zero is the solved surface at its end lines less its
     top, ONE zero for the whole frame (``airside_deck_seat.airside_zero``
     reads it first); the stations of every deck piece of the object, the
-    pieces a trench meets on its way included."""
+    pieces a trench meets on its way included.
+
+    #1692: the stations are the SEAT VERTICES the design solve held flush
+    (``constraints/edge_floor.edge_seats_of``, ``seats_of``) — the pavement
+    the end lines name — never the raw ring points: a facing contact that
+    wraps the deck's corner stands its last stations on the side edge
+    beside the trench, and KBNA's walled cut read them 166.6-171.6 m, the
+    zero 0.53 m under the taxiway."""
     oid = tn.deck_bridge
     if oid in kept:
         return
     y, st, *rest = out.get(oid, (float(tn.deck_top_y), [], 0.0, DECK_PLATE))
-    for o, stations, _depth in tn.edge_seats:
-        if o == oid:
-            st = st + [tuple(p) for p in stations if tuple(p) not in st]
+    got = seats_of(tn) if seats_of is not None else ()
+    for k, (o, stations, _depth) in enumerate(tn.edge_seats):
+        if o != oid:
+            continue
+        pts = ([tuple(pm.vertices[v].xy) for v, _w in got[k][0]] if k < len(got)
+               else [tuple(p) for p in stations])
+        st = st + [p for p in pts if p not in st]
     out[oid] = (y, st, *rest)
 
 

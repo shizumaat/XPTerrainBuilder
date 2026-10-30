@@ -432,7 +432,7 @@ class PlanarMap:
     channels: tuple[Channel, ...] = ()
     #: THE ROAD OVERPASSES (owner RULINGS 2026-10-30f (1) / (5), #1692,
     #: additive): every pack hard deck over a mapped road no airside
-    #: pavement crosses (``planar/overpass_deck.Overpass``), read before
+    #: pavement crosses (``planar/overpass_deck._Overpass``), read before
     #: the solve; the object stage seats each on the road beneath.
     overpasses: tuple = ()
     #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,

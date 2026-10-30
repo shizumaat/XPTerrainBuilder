@@ -93,7 +93,7 @@ def test_the_overpass_plate_seats_the_frame_on_the_road_beneath_off_the_map_too(
     """The deck member's plate is the road beneath (y 0.0); class A reads
     the zero there and every body rides it — a body whose own anchor reads
     no surface (an abutment off the map) is anchored at the plate's seat."""
-    ov = OD.Overpass("dsf:obj9", "objects/crossing.obj", (), ((0.0, 1.0), (5.0, 1.0)), (-7,), 7.5)
+    ov = OD._Overpass("dsf:obj9", "objects/crossing.obj", (), ((0.0, 1.0), (5.0, 1.0)), (-7,), 7.5)
     plates = RI._edge_seat_plates(types.SimpleNamespace(structures=(), overpasses=(ov,)), set())
     y, st, clear, kind = plates["dsf:obj9"]
     assert (y, clear, kind) == (0.0, 0.0, RI.OVERPASS_PLATE) and len(st) == 2

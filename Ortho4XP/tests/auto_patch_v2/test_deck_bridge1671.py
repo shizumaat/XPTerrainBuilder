@@ -167,7 +167,7 @@ def test_a_walled_deck_cuts_the_floor_to_the_walls_inner_faces(tmp_path):
     db = _bridge(tmp_path, walls=True)
     r, n, faces = db.walls
     assert abs(abs(r[1]) - 1.0) < 1e-6 and faces
-    floor, rim = DB.walled_trench(db, 0.6)
+    floor, rim = DB._walled_trench(db, 0.6)
     assert abs(floor.bounds[0] + 17.0) < 1e-6 and abs(floor.bounds[2] - 17.0) < 1e-6
     assert abs(rim.bounds[0] + 17.6) < 1e-6 and abs(rim.bounds[2] - 17.6) < 1e-6
     axis, _d = DB.deck_mouth(LineString([(0.0, 23.0), (0.0, 120.0)]), (0.0, -1.0), db)
@@ -175,7 +175,7 @@ def test_a_walled_deck_cuts_the_floor_to_the_walls_inner_faces(tmp_path):
     r2, o2 = DB.deck_cut(db, axis, ramp, ramp.buffer(1.6, join_style="mitre"), 0.6)
     assert abs(r2.bounds[0] + 17.0) < 1e-6 and abs(r2.bounds[2] - 17.0) < 1e-6
     assert abs(o2.bounds[0] + 17.6) < 1e-6 and abs(r2.bounds[1]) < 1e-6
-    assert DB.walled_trench(_bridge(tmp_path), 0.6) is None     # piers are no wall
+    assert DB._walled_trench(_bridge(tmp_path), 0.6) is None     # piers are no wall
 
 
 def test_between_two_decks_the_trench_stays_at_the_floors_to_the_halfway_line(tmp_path):

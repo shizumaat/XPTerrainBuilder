@@ -55,3 +55,17 @@ def test_trend_is_free_of_the_samples_order():
         got = T.trend_of(shuffled, 500.0)
         assert got.s == ref.s and got.z == ref.z
         assert [got.at(q) for q in probes] == want
+
+
+def test_trend_reads_on_the_micrometre_grid():
+    """A last-bit difference in a DEM sample (PROJ's inverse differs per
+    platform) must not reach a pin: the trend's value is on the 1e-6 m
+    grid, and a sample nudged by an ulp reads the same value."""
+    rng = random.Random(11)
+    samples = [(float(i) * 12.0, 690.0 + rng.random() * 30.0) for i in range(200)]
+    ref = T.trend_of(samples, 500.0)
+    nudged = T.trend_of([(s, z + z * 2.0 ** -51) for s, z in samples], 500.0)
+    for q in (rng.uniform(0.0, 2400.0) for _ in range(100)):
+        v = ref.at(q)
+        assert v == round(v, T.TREND_DP)
+        assert nudged.at(q) == v

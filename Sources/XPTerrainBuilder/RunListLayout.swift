@@ -3,55 +3,45 @@ import AppKit
 
 /// The Build pane's body (#1537): its boxes scroll, and under them, while a
 /// run or its rows are there, the run's native list (`ActivitySections`).
-/// A wide divider between the two (#1625) drags to resize the list; its
-/// height is kept between launches. Qt: the panel's QSplitter
+/// The two sit in a standard AppKit split (`RestorableSplit`, thin divider,
+/// #1625): the user drags the divider to resize the list, and NSSplitView's
+/// autosave keeps its height between launches. Qt: the panel's QSplitter
 /// (O4_Qt_GUI.ACTIVITY_SPLIT_KEY) does the same.
 struct RunListLayout<Boxes: View>: View {
     @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var activity: BuildActivityModel
     @EnvironmentObject var controller: AnalysisController
-    @AppStorage("activityPaneHeight") private var listHeight: Double = 260
-    @State private var dragStart: Double?
     let boxes: Boxes
 
-    static var minListHeight: Double { 80 }
-    static var maxListHeight: Double { 2000 }
+    static var minListHeight: CGFloat { 80 }
+    static var minBoxesHeight: CGFloat { 120 }
 
     init(@ViewBuilder boxes: () -> Boxes) {
         self.boxes = boxes()
     }
 
     var body: some View {
-        let shows = ActivitySections.shows(building: buildModel.isBuilding, activity: activity)
-        ScrollView { boxes }
-            .frame(maxHeight: .infinity)
-        if shows {
-            divider
-            ActivitySections()
-                .frame(height: listHeight)
+        if ActivitySections.shows(building: buildModel.isBuilding, activity: activity) {
+            // Hosted panes don't inherit this view's environment, so the
+            // objects are re-injected per pane (as MapMainView's split does).
+            RestorableSplit(orientation: .vertical, autosaveName: "BuildPane.ActivitySplit",
+                            firstMin: Self.minBoxesHeight, secondMin: Self.minListHeight) {
+                injected(ScrollView { boxes })
+            } second: {
+                injected(ActivitySections())
+            }
+        } else {
+            ScrollView { boxes }
+                .frame(maxHeight: .infinity)
         }
     }
 
-    /// The drag handle: a 9 pt band with a grip, easy to see and grab.
-    private var divider: some View {
-        ZStack {
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
-            Capsule().fill(Color.secondary.opacity(0.5)).frame(width: 36, height: 4)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 9)
-        .contentShape(Rectangle())
-        .onHover { inside in
-            if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
-        }
-        .gesture(DragGesture(minimumDistance: 1)
-            .onChanged { drag in
-                let start = dragStart ?? listHeight
-                dragStart = start
-                listHeight = min(Self.maxListHeight,
-                                 max(Self.minListHeight, start - drag.translation.height))
-            }
-            .onEnded { _ in dragStart = nil })
-        .accessibilityLabel("Resize Activity")
+    private func injected<V: View>(_ view: V) -> some View {
+        view
+            .environmentObject(controller)
+            .environmentObject(controller.progress)
+            .environmentObject(buildModel)
+            .environmentObject(activity)
+            .environmentObject(buildModel.imagery)
     }
 }

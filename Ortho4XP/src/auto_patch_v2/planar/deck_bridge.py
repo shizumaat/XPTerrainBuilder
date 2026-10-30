@@ -48,9 +48,10 @@ the object stage's plate):
   over the same road — that no cell owns once the corridors are cut (behind
   a walled trench's rim, between it and the pavement) is a face of the
   design surface (:func:`deck_ground`), so the deck span rows
-  (``constraints/edge_deck``) hold it flush and the mesh carries that value.  Left unowned it was bare ground, and the mesh gave
-  its vertices and the rim's the DEM: KBNA's taxiway-L east end line stood
-  a ridge 1.14 m over the deck top 2 m behind the pavement.
+  (``constraints/edge_deck``) hold it flush and the mesh carries that
+  value.  Left unowned it was bare ground, and the mesh gave its vertices
+  and the rim's the DEM: KBNA's taxiway-L east end line stood a ridge
+  1.14 m over the deck top 2 m behind the pavement.
 
 Nothing here names a pack, a resource or an airport.
 """

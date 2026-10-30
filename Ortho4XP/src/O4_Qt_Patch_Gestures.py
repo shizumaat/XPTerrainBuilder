@@ -33,6 +33,7 @@ import typing as _t
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QKeySequence, QPen, QShortcut
+from PySide6.QtWidgets import QApplication, QLineEdit
 
 import O4_Qt_Patch_ShapePick as PICK
 from O4_Qt_Patch_Geometry import SNAP_RADIUS_PX, below_grade, style_class
@@ -73,6 +74,9 @@ class PatchGestures:
         self.pressed_edge: tuple[int, int] | None = None
         self.skip: DragSkip | None = None
         overlay.gestures = self
+        # #1693: a selection takes keyboard focus off a text field (the
+        # search box) so Delete / Backspace reach the selection.
+        self.model.selection_changed.connect(self.focus_map_on_selection)
 
     # ─── helpers ───────────────────────────────────────────────────────
     def _index(self):
@@ -244,6 +248,14 @@ class PatchGestures:
         s.activated.connect(lambda: self.key("escape"))
         made.append(s)
         return made
+
+    def focus_map_on_selection(self) -> None:
+        """Move focus from a text field to the map when Edit mode selects
+        something (#1693)."""
+        if not (self.overlay._editing() and self.model.has_selection):
+            return
+        if isinstance(QApplication.focusWidget(), QLineEdit):
+            self.overlay.map.setFocus(Qt.OtherFocusReason)
 
     def key(self, which: str) -> bool:
         """Whether Edit mode consumed the key."""

@@ -34,7 +34,7 @@ __all__ = [
     "role_preferred_cap",
     "runway_transverse_max", "runway_transverse_bound", "runway_shoulder_cap",
     "runway_vertical_curve_bound", "strip_transverse_bound",
-    "yielded_curve_rate", "strip_arc_rate_per_m",
+    "yielded_curve_rate", "strip_arc_rate_per_m", "strip_longitudinal_cap",
     "taxi_half_width_m", "airside_rate_per_m",
     "runway_end_zone_cap", "runway_end_zone_grade_change", "runway_mean_slope_max",
     "flat_site", "flat_datum_group", "flat_declared", "flat_pack", "runway_ends",
@@ -256,6 +256,20 @@ def yielded_curve_rate(law: Law, yield_k_m: float | None) -> float | None:
     if yield_k_m is None or yield_k_m <= 0.0:
         return None
     return float(law.tables.common.vertical_curve_k_grade_unit) / float(yield_k_m)
+
+
+def strip_longitudinal_cap(law: Law, code_number: int | None, code_letter: str | None,
+                           yield_cap: float | None = None) -> float | None:
+    """THE STRIP'S LONGITUDINAL CAP (``<ruleset>.strip.longitudinal`` by
+    code), raised to the runway's YIELDED cap where the strip lies along a
+    runway whose own cap yielded (owner RULINGS 2026-10-30d, under
+    2026-09-18d / #1342; ``yield_cap`` is that runway's ``runway_caps[].cap``
+    with ``yielded``).  ``None`` where the ruleset states no strip cap.
+    ONE accessor: the generator (``constraints.strips``) and v2 verify."""
+    own = law.ruleset.strip.longitudinal.value(code_number, code_letter)
+    if own is None:
+        return None
+    return float(own) if yield_cap is None else max(float(own), float(yield_cap))
 
 
 def strip_arc_rate_per_m(law: Law, yield_k_m: float | None = None) -> float:

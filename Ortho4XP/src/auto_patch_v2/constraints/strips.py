@@ -60,7 +60,7 @@ from ..law.reference_code import (NON_INSTRUMENT, VISUAL, raoa_applies, runway_c
                                   status_by_ref)
 from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m,
                           runway_end_profile, runway_safety_area_length_m, strip_arc_rate_per_m,
-                          zone2_half_width_m)
+                          strip_longitudinal_cap, zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.end_area import end_area_lengths
 from ..model.threshold_datum import threshold_datums
@@ -70,7 +70,7 @@ from .geometry import (XY, longitudinal_runs, point_in_rect_ring,
                        principal_axis, rect_ring)
 from .end_lip import (end_lip_vertices, natural_bank_vertices, nonrunway_pavement_roles,
                       pavement_edge_junction)
-from .precedence import View, curve_k_of, view
+from .precedence import View, curve_k_of, view, yield_cap_of
 
 __all__ = ["RunwayGroup", "runway_groups",
            "pavement_ring_vertices", "strip_longitudinal_pairs",
@@ -292,7 +292,9 @@ def strip_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     bank = natural_bank_vertices(vw)          # Q52: the bank yields
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     for g in runway_groups(vw, airport):
-        cap = law.ruleset.strip.longitudinal.value(g.code_number, g.code_letter)
+        # RULINGS 2026-10-30d: the strip along a yielded runway yields with it
+        cap = strip_longitudinal_cap(law, g.code_number, g.code_letter,
+                                     yield_cap_of(planar, g.ref))
         if cap is None:
             continue
         src = Source(GEN, "rulesets.strip.longitudinal (reg-set 2026-08-08)",

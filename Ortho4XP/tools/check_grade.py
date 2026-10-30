@@ -3953,6 +3953,27 @@ def _curve_rate_of(ref: Optional[str]) -> float:
         return 0.0
     return max((_ACTIVE_RUNWAY_CURVE_RATE.get(r, 0.0) for r in str(ref).split("+")),
                default=0.0)
+#: RULINGS 2026-10-30d: runway ref -> the longitudinal cap a runway's own
+#: pins YIELDED it to (sidecar ``runway_caps[]`` with ``yielded``) — the
+#: cap the graded strip along it is read at, where that is the looser.
+_ACTIVE_RUNWAY_YIELD_CAP: Dict[str, float] = {}
+
+
+def _runway_yield_caps(runway_caps: Optional[list]) -> Dict[str, float]:
+    """``{ref: cap}`` off the published ``runway_caps`` records that yielded."""
+    return {str(r["ref"]): float(r["cap"]) for r in (runway_caps or ())
+            if isinstance(r, dict) and r.get("ref") and r.get("yielded")
+            and r.get("cap") is not None}
+
+
+def _yield_cap_of(ref: Optional[str]) -> Optional[float]:
+    """The yielded longitudinal cap of runway ``ref`` (a crossing's
+    ``A+B``: the loosest), or ``None``."""
+    if not ref or not _ACTIVE_RUNWAY_YIELD_CAP:
+        return None
+    vals = [_ACTIVE_RUNWAY_YIELD_CAP[r] for r in str(ref).split("+")
+            if r in _ACTIVE_RUNWAY_YIELD_CAP]
+    return max(vals) if vals else None
 _MIN_END_LEN_M = 0.01
 
 
@@ -4224,7 +4245,7 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m,
     reader's population "strip GROUND", which is what G-2 is about."""
     if _runway_strip_longitudinal_runs is None or not _STRIP_PRECEDENCE:
         return [], 0, 0
-    groups = _runway_strip_groups(ways, nodes, ll_to_m)
+    groups = _runway_strip_groups(ways, nodes, ll_to_m, with_ref=True)
     if not groups:
         return [], 0, 0
     pavement_nids: set = set()
@@ -4256,7 +4277,7 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m,
         allow = _pair_quant_noise_m(w)
         if allow < SLOPED_QUAD_ROUNDING_NOISE_M:
             allow = SLOPED_QUAD_ROUNDING_NOISE_M
-        for rings, axis, code, _length, letter in groups:
+        for ref, (rings, axis, code, _length, letter) in groups:
             # BETWEEN THE ENDS only: ``rings[0]`` is the lateral graded
             # strip; the end corridors carry the runway-END regime's own
             # longitudinal law (FAA §3.16.5 items 2-4), read elsewhere.
@@ -4264,8 +4285,10 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m,
                       for px, py in pts]
             if not any(inside):
                 continue
+            # RULINGS 2026-10-30d: the strip along a yielded runway
+            # yields with it
             cap, arc_rate = _strip_longitudinal_law(
-                code, letter, _ACTIVE_RULESET)
+                code, letter, _ACTIVE_RULESET, yield_cap=_yield_cap_of(ref))
             for run in _strip_station_runs(pts, axis, inside,
                                            closed):
                 for a, b in zip(run, run[1:]):
@@ -12453,6 +12476,8 @@ def run_checks(
     _ACTIVE_RUNWAY_AXES = runway_axes_ll
     global _ACTIVE_RUNWAY_CURVE_RATE
     _ACTIVE_RUNWAY_CURVE_RATE = _runway_curve_rates(runway_caps)
+    global _ACTIVE_RUNWAY_YIELD_CAP
+    _ACTIVE_RUNWAY_YIELD_CAP = _runway_yield_caps(runway_caps)
 
     # PER-FAMILY CENSUS (see ``LAW_FAMILIES``).  When ``family_out`` is a
     # dict, every family records its OWN rows here as it is produced — so a

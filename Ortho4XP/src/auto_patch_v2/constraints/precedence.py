@@ -22,7 +22,8 @@ from ..model.constraints import Diff, Flat, Linear, Offset, Pin, Row
 from ..model.planar import Face, PlanarMap, face_vertex_ids, vertex_tier
 from .geometry import ring_vertex_ids
 
-__all__ = ["cap_of", "curve_k_of", "taxi_cap_for", "face_cap", "View", "view", "row_tier"]
+__all__ = ["cap_of", "curve_k_of", "yield_cap_of", "taxi_cap_for", "face_cap", "View", "view",
+           "row_tier"]
 
 
 def cap_of(pm: PlanarMap | None, law: Law, ref: str,
@@ -62,6 +63,19 @@ def curve_k_of(pm: PlanarMap | None, ref: str) -> float | None:
     ks = [float(k) for r in ref.split("+") if r in caps
           and (k := getattr(caps[r], "curve_k_m", None)) is not None]
     return min(ks) if ks else None
+
+
+def yield_cap_of(pm: PlanarMap | None, ref: str) -> float | None:
+    """RULINGS 2026-10-30d THE SOLVE-SIDE ACCESSOR of a runway's YIELDED
+    longitudinal cap (``pm.runway_caps[ref].cap`` where ``.yielded``), or
+    ``None`` where no runway of ``ref`` yielded.  A crossing (``"A+B"``)
+    reads the loosest.  The graded strip along it follows that grade."""
+    caps = getattr(pm, "runway_caps", None) if pm is not None else None
+    if not caps:
+        return None
+    vals = [float(caps[r].cap) for r in ref.split("+")
+            if r in caps and getattr(caps[r], "yielded", False)]
+    return max(vals) if vals else None
 
 
 def taxi_cap_for(table_cap: float, yielded: float | None) -> float:

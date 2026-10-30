@@ -360,17 +360,48 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
     return float(m.deck_datum_z) - top, "the solved airside surface (ring median)"
 
 
-def _is_the_bridge(staged: _t.Sequence[_t.Any], deck: _t.Any) -> bool:
+def _maybe_a_building(st: _t.Any, i: int, surface: _ar.Surface) -> bool:
+    """Can body ``i`` of ``st`` be a BUILDING — does it stand on an emitted
+    object PAD, the class rule's own witness (``placement_plan`` §6:
+    ``building`` when a body stands inside an emitted object pad)?  Read at
+    its hull box's centre; a body with no box, or a surface with no roles,
+    cannot be cleared and counts as one."""
+    roles = getattr(surface, "roles", None)
+    boxes = list(getattr(st, "boxes", ()) or ())
+    if roles is None or i >= len(boxes) or boxes[i] is None:
+        return True
+    from .placement_read import PAD_FACE_ROLE
+    b = boxes[i]
+    got = roles.roles_many([0.5 * (b[0] + b[2])], [0.5 * (b[1] + b[3])])
+    return got[0] == PAD_FACE_ROLE
+
+
+def _is_the_bridge(staged: _t.Sequence[_t.Any], deck: _t.Any,
+                   surface: "_ar.Surface | None" = None) -> bool:
     """§16e (3)'s ``Staged.bridge``: every OTHER member's every body stands
     inside ``deck``'s model footprint (the rails, the piers, the abutments)
-    — the frame IS the bridge."""
+    or, outside it, on no emitted object PAD — the frame IS the bridge.
+
+    22n's exception is "a frame that also holds a BUILDING beside it"
+    (KBNA's terminal-satellite floor plate), and a building is what stands
+    on a pad (:func:`_maybe_a_building`).  An abutment, a wing wall or an
+    approach rail reaching past the deck's ring is still the bridge: KBNA's
+    taxiway-L frame (six placements, one flag deck over two roads, its
+    approach walls 60-86 m past the ring) was refused as a building frame
+    and its every body sat at the strip's median ground, the deck 6 m over
+    the taxiway (#1671)."""
     res = str(deck.m.resource)
     for st in staged:
         if st is deck:
             continue
         keys = list(getattr(st, "bridge", ()) or ())
-        if not keys or not all(str(k).split("#", 1)[0] == res for k in keys):
+        if not keys and surface is None:    # nothing to clear it by
             return False
+        for i, k in enumerate(keys):
+            if str(k).split("#", 1)[0] == res:
+                continue
+            if surface is None or _maybe_a_building(st, i, surface):
+                return False
     return True
 
 
@@ -386,7 +417,7 @@ def refused_bridge(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
     placements, one flag deck, its supports inside the deck's footprint)."""
     for st in staged:
         if _airside_witness(st.m, decks, surface) is not None:
-            return st if _is_the_bridge(staged, st) else None
+            return st if _is_the_bridge(staged, st, surface) else None
     return None
 
 
@@ -410,7 +441,7 @@ def airside_frame(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
             break
     if deck is None:
         return None
-    if not _is_the_bridge(staged, deck[0]):
+    if not _is_the_bridge(staged, deck[0], surface):
         counts["airside_deck_in_a_building_frame"] = \
             counts.get("airside_deck_in_a_building_frame", 0) + 1
         return None

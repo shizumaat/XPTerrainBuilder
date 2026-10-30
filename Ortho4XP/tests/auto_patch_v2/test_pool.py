@@ -190,6 +190,35 @@ def test_budget_rules(monkeypatch):
     assert P.budget() == 12                       # pytest in sys.modules is not read
 
 
+def test_the_share_follows_the_siblings_still_running(monkeypatch):
+    """issue #1706: with the driver's live count the share is the airport
+    builds STILL RUNNING (never above the declared siblings), so a tile's
+    long pole widens as its siblings finish; a dead counter reads the
+    declared share."""
+    import multiprocessing as mp
+    monkeypatch.setattr(P.os, "cpu_count", lambda: 18)
+    monkeypatch.setattr(P, "_share", [1])
+    monkeypatch.setattr(P, "_live", [None])
+    monkeypatch.setattr(P, "_explicit", [None])
+    monkeypatch.setattr(P, "physical_ram_gb", lambda: None)
+    live = mp.get_context("spawn").Value("i", 13)
+    P.set_share(13, live)
+    assert P.share() == 13 and P.budget_bound() == (1, "share")
+    live.value = 1                                # twelve siblings done
+    assert P.share() == 1 and P.budget_bound() == (18, "cores")
+    live.value = 40                               # never above the declared n
+    assert P.share() == 13
+    live.value = 0
+    assert P.share() == 1
+
+    class _Gone:
+        @property
+        def value(self):
+            raise OSError("the driver is gone")
+    P.set_share(6, _Gone())
+    assert P.share() == 6 and P.budget_bound() == (3, "share")
+
+
 def test_the_memory_bound(monkeypatch):
     """The workers are bounded by this build's share of the physical memory
     less the parent's reserve, at one allowance a worker — never below 1 —

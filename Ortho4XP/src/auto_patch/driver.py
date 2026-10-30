@@ -936,7 +936,7 @@ _SLOT_HELD_BY_PARENT = False
 
 
 def _init_worker(dem, progress_queue, siblings: int = 1,
-                 slot_held: bool = False) -> None:
+                 slot_held: bool = False, live=None) -> None:
     """ProcessPool initializer: set the shared tile DEM AND route this worker's
     per-phase build progress to the shared queue the main process drains, so the
     Ortho4XP window keeps updating live while airports build in the background.
@@ -945,14 +945,16 @@ def _init_worker(dem, progress_queue, siblings: int = 1,
     (``auto_patch_v2/airport/pool.py``, issue #362) takes ``cores //
     siblings`` so N airports in one tile do not each claim every core.
     ``slot_held``: the parent took this worker's machine slot before it
-    started the process (:func:`_run_slot_gated`)."""
+    started the process (:func:`_run_slot_gated`).  ``live``: the parent's
+    count of airport builds still running (issue #1706), so a long pole's
+    pools widen as its siblings finish (``pool.set_share``)."""
     global _SLOT_HELD_BY_PARENT
     _SLOT_HELD_BY_PARENT = bool(slot_held)
     _v2_pool.exit_with_parent()            # an engine that is killed takes its builds
     _set_worker_dem(dem)
     from . import progress as _progress
     _progress.set_worker_queue(progress_queue)
-    _v2_pool.set_share(siblings)
+    _v2_pool.set_share(siblings, live)
 
 
 def _start_manager(ctx):
@@ -1256,13 +1258,22 @@ def _run_airport_builds(tasks: list, dem, _report_terminal) -> list:
             # unbounded ``shutdown(wait=True)`` of a ``with`` block (tile
             # +40-004, 2026-09-03: a worker that could not exit wedged the
             # tile with every result in hand).
+            # issue #1706: the airport builds still running — each child's
+            # pools take ``cores // live`` (``pool.set_share``), not
+            # ``cores // n`` for the whole of a long pole's build
+            live = ctx.Value("i", 0)
+
             def _start(t):
+                with live.get_lock():
+                    live.value += 1
                 ex = _cf.ProcessPoolExecutor(
                     max_workers=1, mp_context=ctx, initializer=_init_worker,
-                    initargs=(dem, pq, n, True))
+                    initargs=(dem, pq, n, True, live))
                 return ex, ex.submit(_build_write_verify_one, t)
 
             def _done(t, fut):
+                with live.get_lock():
+                    live.value -= 1
                 # THE DEAD FUTURE KEEPS ITS AIRPORT'S NAME (H1): a hard
                 # worker death (SIGKILL / OOM / segfault) escapes Python
                 # and its result would carry no icao.

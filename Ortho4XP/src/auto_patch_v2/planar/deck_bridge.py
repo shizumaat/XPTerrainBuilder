@@ -44,13 +44,14 @@ the object stage's plate):
   had climbed 6 m up them.
 * THE GROUND THE DECK RESTS ON (RULINGS 2026-10-30b "the deck still rests
   on ground at its edges", 30f (4) no bump at a deck's edge; #1692 round 5):
-  every part of the deck's ring that no cell owns once the corridors are cut
-  — behind a walled trench's rim, between it and the pavement that drives
-  onto the deck — is a face of the design surface (:func:`deck_ground`), so
-  the deck span rows (``constraints/edge_deck``) hold it flush and the mesh
-  carries that value.  Left unowned it was bare ground, and the mesh gave
-  its vertices and the rim's the DEM: KBNA's taxiway-L east end line stood
-  a ridge 1.14 m over the deck top 2 m behind the pavement.
+  every part of the deck's ring — and of the open stretch to the next deck
+  over the same road — that no cell owns once the corridors are cut (behind
+  a walled trench's rim, between it and the pavement) is a face of the
+  design surface (:func:`deck_ground`), so the deck span rows
+  (``constraints/edge_deck``) hold it flush and the mesh carries that
+  value.  Left unowned it was bare ground, and the mesh gave its vertices
+  and the rim's the DEM: KBNA's taxiway-L east end line stood a ridge
+  1.14 m over the deck top 2 m behind the pavement.
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -70,6 +71,7 @@ from ..classify.roles import Cell
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
 from ..law.tables import role_side
+from ..model.structures import DECK_GROUND_REF, deck_reach
 from .deck_walls import inner_faces, wall_faces, wall_strip
 
 __all__ = ["deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
@@ -455,24 +457,21 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     return unary_union(floors), unary_union(rims)
 
 
-#: the ref prefix of the ground a hard deck rests on (:func:`deck_ground`)
-DECK_GROUND_REF = "deck_ground"
-
-
 def deck_ground(classification, tunnels, law) -> tuple:
     """``(classification with the deck-ground cells, notes)`` (module doc,
-    THE GROUND THE DECK RESTS ON): for each hard-deck ring a corridor was
-    cut under, the part of the ring no cell owns becomes a ``graded_strip``
+    THE GROUND THE DECK RESTS ON): for each hard deck a corridor was cut
+    under, the part of its reach (``model/structures.deck_reach``: the ring,
+    and the open stretch to the next deck over the same road) no cell owns
+    becomes a ``graded_strip``
     cell ``deck_ground:<object>`` — ground, never pavement; its level is the
     deck span's (``constraints/edge_deck``), so it carries no zone class.
     A piece narrower than the identity spacing is a seam of the overlay,
     not ground, and is dropped."""
     rings: dict[tuple, Polygon] = {}
     for t in tunnels:
-        oid, ring = getattr(t, "deck_bridge", ""), tuple(getattr(t, "deck_ring", ()) or ())
-        if oid and len(ring) >= 3:
-            p = Polygon(ring)
-            rings.setdefault((oid, ring), p if p.is_valid else p.buffer(0.0))
+        reach = deck_reach(t)
+        if reach is not None and reach.geom_type == "Polygon":
+            rings.setdefault((t.deck_bridge, tuple(reach.exterior.coords)), reach)
     if not rings:
         return classification, []
     cells = list(classification.cells)

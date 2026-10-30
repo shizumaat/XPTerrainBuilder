@@ -25,7 +25,7 @@ import dataclasses as _dc
 from .frame import XY
 
 __all__ = ["Deck", "Tunnel", "Basin", "Channel", "ChannelWall",
-           "profile_z", "deck_z_on_faces", "CHANNEL_FLOOR_ROLE",
+           "profile_z", "deck_z_on_faces", "deck_reach", "DECK_GROUND_REF", "CHANNEL_FLOOR_ROLE",
            "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM"]
 
 #: §45 (8) EMISSION: the channel's floor faces carry ``tunnel_trench``
@@ -350,6 +350,28 @@ class Tunnel:
     #: object stage seats its zero at the end lines' solved surface less it
     #: (``pipeline/rebake_inputs._edge_seat_plates``)
     deck_top_y: float = 0.0
+
+
+#: the ref prefix of the ground a hard deck rests on (``planar/deck_bridge.
+#: deck_ground``; held flush by ``constraints/edge_deck``)
+DECK_GROUND_REF = "deck_ground"
+
+
+def deck_reach(tn: Tunnel):
+    """THE GROUND A HARD-DECK BRIDGE OWNS (owner RULINGS 2026-10-30b /
+    30f (3)-(4), #1692): the convex hull of the deck's ring and every end
+    line station the trench seats on — its own deck's and, where the trench
+    runs on under another deck of the frame (``planar/deck_bridge.
+    deck_seats``), that deck's too, so the open stretch between the two is
+    the bridge's.  A shapely Polygon, or ``None`` for a trench under no
+    hard deck."""
+    if not getattr(tn, "deck_bridge", "") or len(tn.deck_ring) < 3:
+        return None
+    from shapely.geometry import MultiPoint
+    pts = [tuple(p) for p in tn.deck_ring]
+    for _oid, stations, _depth in getattr(tn, "edge_seats", ()) or ():
+        pts.extend(tuple(q) for q in stations)
+    return MultiPoint(pts).convex_hull
 
 
 @_dc.dataclass(frozen=True)

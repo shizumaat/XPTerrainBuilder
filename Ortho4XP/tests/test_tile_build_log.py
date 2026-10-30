@@ -97,8 +97,11 @@ def test_record_row_schema_round_trip(tmp_path):
 def test_built_by_text_from_record_and_dsf_agent():
     with open(FIXTURE, encoding="utf-8") as handle:
         row = json.load(handle)["builds"][0]
-    assert TILELOG.built_by_text(row) == (
-        "XPTerrainBuilder 1.0.430, engine 1.50.1880")
+    assert TILELOG.built_by_text(row) == "XPTerrainBuilder 1.0.430"
+    # A build that did not know its app version names the engine, never "dev".
+    dev = {"builder": {"tool": "XPTerrainBuilder", "app_version": "dev",
+                       "engine_version": "1.50.1894"}}
+    assert TILELOG.built_by_text(dev) == "XPTerrainBuilder, engine 1.50.1894"
     assert TILELOG.built_by_text(agent="Ortho4XP") == (
         "Ortho4XP (older build, version unknown)")
     assert TILELOG.built_by_text(agent="WorldEditor 2.5") == "WorldEditor 2.5"

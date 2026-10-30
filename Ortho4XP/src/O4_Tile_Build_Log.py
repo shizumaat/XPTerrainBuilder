@@ -133,10 +133,16 @@ def built_by_text(record=None, agent=None):
     neither is known."""
     who = (record or {}).get("builder") or {}
     if who.get("tool"):
-        text = "%s %s" % (who["tool"], who.get("app_version") or "")
+        # The app version, as the user knows the build (owner 2026-10-30);
+        # the engine version stays in the record and the DSF agent.  A
+        # record from a build that did not know its app version names the
+        # engine instead of "dev".
+        app = who.get("app_version") or ""
+        if app and app != "dev":
+            return ("%s %s" % (who["tool"], app)).strip()
         if who.get("engine_version"):
-            text += ", engine %s" % who["engine_version"]
-        return text.strip()
+            return "%s, engine %s" % (who["tool"], who["engine_version"])
+        return ("%s %s" % (who["tool"], app)).strip()
     agent = (agent or "").strip()
     if agent == "Ortho4XP":
         return "Ortho4XP (older build, version unknown)"

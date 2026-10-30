@@ -113,6 +113,10 @@ else
     --exclude 'Geotiffs/' --exclude '.DS_Store' \
     "$ROOT/Ortho4XP/" "$STAGE/Contents/Resources/Engine/"
 fi
+# The engine reports the APP version too (tile info "Built by", bug
+# reports): its VERSION.txt carries the app/engine/sha triple
+# (O4_Build_Info), not the bare engine number make_engine.sh writes.
+bash "$ROOT/scripts/write_version_txt.sh" "$STAGE/Contents/Resources/Engine/VERSION.txt"
 
 # App icon: the classic Ortho4XP tile-map artwork — the same icon the
 # Windows/Linux Qt app ships (full 16→1024 icns). The Liquid Glass pipeline

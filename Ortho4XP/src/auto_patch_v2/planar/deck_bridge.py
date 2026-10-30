@@ -42,6 +42,15 @@ the object stage's plate):
   (:func:`_walled_trench`); the bank stands only where there is no wall.
   KBNA's taxiway-L frame: walls 31.7 m apart, the carriageway's banks
   had climbed 6 m up them.
+* THE GROUND THE DECK RESTS ON (RULINGS 2026-10-30b "the deck still rests
+  on ground at its edges", 30f (4) no bump at a deck's edge; #1692 round 5):
+  every part of the deck's ring that no cell owns once the corridors are cut
+  — behind a walled trench's rim, between it and the pavement that drives
+  onto the deck — is a face of the design surface (:func:`deck_ground`), so
+  the deck span rows (``constraints/edge_deck``) hold it flush and the mesh
+  carries that value.  Left unowned it was bare ground, and the mesh gave
+  its vertices and the rim's the DEM: KBNA's taxiway-L east end line stood
+  a ridge 1.14 m over the deck top 2 m behind the pavement.
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -57,10 +66,14 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..airport.airside_deck_seat import facing_contacts
+from ..classify.roles import Cell
+from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
+from ..geom.parts import polygon_parts_with_area
+from ..law.tables import role_side
 from .deck_walls import inner_faces, wall_faces, wall_strip
 
 __all__ = ["deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
-           "deck_cut", "deck_pin"]
+           "deck_cut", "deck_pin", "deck_ground", "DECK_GROUND_REF"]
 
 XY = tuple[float, float]
 
@@ -440,6 +453,52 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
                 floors.append(wall_strip(r, n, va, vb, g0, g1))
                 rims.append(wall_strip(r, n, va - inset, vb + inset, g0, g1))
     return unary_union(floors), unary_union(rims)
+
+
+#: the ref prefix of the ground a hard deck rests on (:func:`deck_ground`)
+DECK_GROUND_REF = "deck_ground"
+
+
+def deck_ground(classification, tunnels, law) -> tuple:
+    """``(classification with the deck-ground cells, notes)`` (module doc,
+    THE GROUND THE DECK RESTS ON): for each hard-deck ring a corridor was
+    cut under, the part of the ring no cell owns becomes a ``graded_strip``
+    cell ``deck_ground:<object>`` — ground, never pavement; its level is the
+    deck span's (``constraints/edge_deck``), so it carries no zone class.
+    A piece narrower than the identity spacing is a seam of the overlay,
+    not ground, and is dropped."""
+    rings: dict[tuple, Polygon] = {}
+    for t in tunnels:
+        oid, ring = getattr(t, "deck_bridge", ""), tuple(getattr(t, "deck_ring", ()) or ())
+        if oid and len(ring) >= 3:
+            p = Polygon(ring)
+            rings.setdefault((oid, ring), p if p.is_valid else p.buffer(0.0))
+    if not rings:
+        return classification, []
+    cells = list(classification.cells)
+    polys = [Polygon(c.ring, c.holes) for c in cells if len(c.ring) >= 3]
+    taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys])
+    spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
+    out: list = []
+    notes: list[str] = []
+    for (oid, _ring), deck in sorted(rings.items(), key=lambda kv: kv[0]):
+        free = [q for q in polygon_parts_with_area(fixed_difference(deck, taken))
+                if not is_hairline(q, spacing)]
+        for k, part in enumerate(free):
+            out.append(Cell(0, "graded_strip", f"{DECK_GROUND_REF}:{oid}" + (f"#{k}" if k else ""),
+                            tuple(part.exterior.coords)[:-1],
+                            tuple(tuple(h.coords)[:-1] for h in part.interiors),
+                            None, None, role_side(law, "graded_strip"), "structure",
+                            {"deck_ground": 1.0, "area_m2": part.area}))
+        if free:
+            taken = canonical_union([taken, *free])
+            notes.append(f"{oid}: the ground the deck rests on, {len(free)} face(s) "
+                         f"{sum(q.area for q in free):.0f} m2 no cell owned under its ring, "
+                         f"held flush (RULINGS 2026-10-30b / 30f (4))")
+    if not out:
+        return classification, notes
+    merged = [_dc.replace(c, id=i) for i, c in enumerate(cells + out)]
+    return _dc.replace(classification, cells=tuple(merged)), notes
 
 
 def deck_pin(db: DeckBridge, mouth):

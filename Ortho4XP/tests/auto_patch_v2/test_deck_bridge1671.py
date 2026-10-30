@@ -253,3 +253,43 @@ def test_the_object_stage_seats_the_one_zero_at_the_end_lines():
                               plate_stations=((36.0, -86.0), (36.1, -86.0)))
     zero, where, _seat = ADS.airside_zero(m, (), lambda la, lo: 110.0 if la < 36.05 else 111.0)
     assert abs(zero - 104.5) < 1e-9 and "hard-deck bridge" in where
+
+
+def test_the_ground_a_deck_rests_on_is_a_face_once_the_corridor_is_cut():
+    """#1692 round 5, RULINGS 2026-10-30b / 30f (4): the part of a hard
+    deck's ring no cell owns once its corridor is cut — behind the walled
+    trench's rim, short of the pavement that drives onto the deck — is a
+    ``graded_strip`` face of the deck (the deck span rows hold it flush);
+    left unowned the mesh gave it, and the rim beside it, the DEM (KBNA's
+    taxiway-L east end line: a ridge 1.14 m over the deck top).  One face
+    set per deck, however many corridors run under it; never over a cell;
+    a seam narrower than the identity spacing is no ground."""
+    import dataclasses
+
+    from shapely.geometry import Polygon
+
+    @dataclasses.dataclass(frozen=True)
+    class _Cl:
+        cells: tuple
+    ring = _sbox(-20.0, -20.0, 20.0, 20.0)
+    ramp = _sbox(-8.0, -40.0, 8.0, 40.0)
+    cells = (_cell(0, TAXI, _sbox(-100.0, -10.0, -12.0, 10.0)),
+             _cell(1, "apron", _sbox(9.05, -20.0, 100.0, 20.0)),     # a 0.05 m seam at x = 9
+             _cell(2, "tunnel_ramp", ramp),
+             _cell(3, "retaining_wall", _sbox(-9.0, -40.0, -8.0, 40.0)),
+             _cell(4, "retaining_wall", _sbox(8.0, -40.0, 9.0, 40.0)))
+    cl = _Cl(cells)
+    tunnel = types.SimpleNamespace(deck_bridge="dsf:obj7",
+                                   deck_ring=tuple(ring.exterior.coords)[:-1])
+    out, notes = DB.deck_ground(cl, [tunnel, tunnel], LAW)
+    ground = [c for c in out.cells if c.ref.startswith(f"{DB.DECK_GROUND_REF}:dsf:obj7")]
+    assert ground and all(c.role == "graded_strip" for c in ground) and len(notes) == 1
+    polys = [Polygon(c.ring, c.holes) for c in ground]
+    taken = [Polygon(c.ring, c.holes) for c in cells]
+    assert all(g.intersection(t).area < 1e-6 for g in polys for t in taken)
+    # behind the west wall, short of the taxiway: 11 x 40 m less the 8 x 20 m
+    # the taxiway drives under the deck; the east seam is dropped
+    assert len(polys) == 1 and abs(polys[0].area - 280.0) < 1e-3
+    assert [c.id for c in out.cells] == list(range(len(out.cells)))
+    bare = types.SimpleNamespace(deck_bridge="", deck_ring=())
+    assert DB.deck_ground(cl, [bare], LAW) == (cl, [])

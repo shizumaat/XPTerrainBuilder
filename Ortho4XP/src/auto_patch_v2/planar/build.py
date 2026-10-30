@@ -45,7 +45,7 @@ from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
 from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
-from .deck_bridge import deck_bridges
+from .deck_bridge import deck_bridges, deck_ground
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
@@ -299,6 +299,10 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        trenches=tstats.trench_objects,
                                                        deck_bridges=decks)
     sstats.hard_decks.extend(deck_notes)
+    # the ground each hard deck rests on, once its corridors are cut
+    # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
+    classification, ground_notes = deck_ground(classification, tunnels, law)
+    sstats.hard_decks.extend(ground_notes)
     # THE ROAD OVERPASSES, read ONCE before the solve too (owner RULINGS
     # 2026-10-30f (1) / (5), ``planar/overpass_deck``): the object stage
     # seats each deck's zero on the road beneath

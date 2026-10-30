@@ -21,9 +21,8 @@ from auto_patch_v2.model.constraints import Linear, Pin, Source
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.pipeline import rebake_inputs as RI
 from auto_patch_v2.planar import deck_bridge as DB
-from shapely.geometry import LineString
+from shapely.geometry import LineString, MultiPoint
 from shapely.geometry import box as _sbox
-from shapely.geometry import MultiPoint
 
 LAW = Law.for_airport("")
 THICK = LAW.tables.structures.basin.min_solid_thickness_m

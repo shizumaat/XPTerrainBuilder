@@ -328,7 +328,7 @@ class Tunnel:
     #: (``constraints/edge_floor``) and every one's zero is seated at its
     #: seat (``pipeline/rebake_inputs``; owner sim read 2026-10-28T14:26Z
     #: points 2 / 4)
-    edge_seats: tuple[tuple[str, XY, float], ...] = ()
+    edge_seats: tuple[tuple[str, object, float], ...] = ()
     #: a trench SHARED by two edge bridges: the stations ``(s0, s1)`` the
     #: floor runs linearly between, from the first seat's bottom at the
     #: end of its own object to the second's at that object's back
@@ -339,6 +339,17 @@ class Tunnel:
     #: airside abeam (``constraints/edge_deck``; RULINGS 28d Q212, sim read
     #: 2026-10-28T14:26Z points 4 / 5: "flat ... no gap between them")
     edge_covers: tuple[tuple[XY, ...], ...] = ()
+    #: owner RULINGS 2026-10-30a: the HARD-DECK BRIDGE this trench passes
+    #: under (``planar/deck_bridge``; its placement id), else ``""``.  Its
+    #: ``edge_seats`` are then the deck's two END LINES, A then B — the seat
+    #: of each a tuple of stations — and the far deck's two where the
+    #: trench runs on to another; ``deck_ring`` is the deck's outline
+    deck_bridge: str = ""
+    deck_ring: tuple[XY, ...] = ()
+    #: that deck's authored top (its mean over the two end lines): the
+    #: object stage seats its zero at the end lines' solved surface less it
+    #: (``pipeline/rebake_inputs._edge_seat_plates``)
+    deck_top_y: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

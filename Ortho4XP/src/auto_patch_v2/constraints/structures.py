@@ -80,7 +80,7 @@ from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Sour
 from ..model.frame import XY
 from ..model.planar import Face, PlanarMap
 from ..model.structures import UNDERPASS_NOTE, Basin, Tunnel, profile_z
-from .edge_floor import edge_seats_of, seat_pair, sloped_floor_rows
+from .edge_floor import DECK_FLOOR, edge_seats_of, seat_pair, sloped_floor_rows
 from .precedence import view
 from .geometry import nearest_vertex_of_containing_cell
 
@@ -548,6 +548,8 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if datum_vs:
             group = tuple(sorted(set(datum_vs)))
             seats = seats_of(tn)
+            if getattr(tn, "deck_bridge", ""):
+                src_mouth = Source(GEN, DECK_FLOOR, inputs)
             sloped = len(seats) > 1 and len(getattr(tn, "edge_floor_s", ())) == 2
             if len(group) > 1 and not sloped:
                 rows.append(Flat(group, src_mouth))
@@ -597,6 +599,11 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 pin(group[0], tn.mouth_z, src_mouth)
         # ── decks ───────────────────────────────────────────────────
         for d in tn.decks:
+            if d.datum == "deck_top" and getattr(tn, "deck_bridge", "") \
+                    and 0.0 < tn.depth_m < br_law.clearance_m:
+                # 2026-10-30a / 20ar: a hard-deck bridge states its own
+                # clearance (its bottom is the floor); the law's number stands down
+                continue
             if d.datum == "deck_top":
                 # THE OBJECT BRIDGE: the ramp under the footprint stays
                 # bridge.clearance_m under the object's deck top

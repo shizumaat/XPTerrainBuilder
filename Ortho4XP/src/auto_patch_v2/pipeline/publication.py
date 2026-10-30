@@ -1237,8 +1237,12 @@ def tunnel_mouth_depths(planar: PlanarMap, airport: Airport) -> list[dict[str, _
         if tn.source != "osm" or tn.depth_m <= 0.0 or not tn.axis:
             continue
         la, lo = to_ll(*tn.axis[0])
-        out.append({"id": tn.id, "mouth_ll": [round(la, 8), round(lo, 8)],
-                    "depth_m": round(float(tn.depth_m), 3)})
+        rec = {"id": tn.id, "mouth_ll": [round(la, 8), round(lo, 8)],
+               "depth_m": round(float(tn.depth_m), 3)}
+        if getattr(tn, "deck_bridge", ""):
+            # 2026-10-30a: the depth is the hard-deck bridge's own (its bottom)
+            rec["deck_bridge"] = tn.deck_bridge
+        out.append(rec)
     return out
 
 

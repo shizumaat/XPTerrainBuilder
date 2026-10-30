@@ -472,6 +472,7 @@ def structure_records(airport, cl, law) -> dict:
         "portals_unpinned": list(sstats.portals_unpinned),
         # 2026-10-28s (5): covered bores and the trench objects they read
         "covered_bores": list(sstats.covered_bores),
+        "hard_decks": list(sstats.hard_decks),
         "trench_objects": list(tstats.trench_notes),
         "portals_in_strip": list(sstats.portals_in_strip),
         "crest_from_approach": list(sstats.crest_from_approach),

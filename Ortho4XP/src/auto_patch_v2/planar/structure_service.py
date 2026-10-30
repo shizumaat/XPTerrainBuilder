@@ -121,6 +121,7 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     classification means.
     """
     from shapely.geometry import LineString, Point, Polygon
+    from shapely.ops import unary_union
     from shapely.strtree import STRtree
     from ..airport.deck_signature import is_enclosure_way, is_tunnel_way
     tn = law.tables.structures.tunnel
@@ -146,7 +147,9 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     # entering an OSM building
     pack_bldg = _PackBuildings(airport, law,
                                getattr(on_field, "corridor_prints", ()) or (),
-                               getattr(on_field, "corridor_objects", ()) or ())
+                               getattr(on_field, "corridor_objects", ()) or (),
+                               getattr(on_field, "deck_objects", ()) or ())
+    deck_polys = list(getattr(on_field, "deck_polys", ()) or ())
 
     # (b)/(c) the roads and railways AT GRADE.  A `bridge` way, or one at
     # `layer >= 1`, is the sim's elevated road and is not a crossing.
@@ -197,6 +200,8 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                                f"(§34 (12) (5) (a) extended, owner RULINGS "
                                f"2026-09-27a (3))")
         cover = on_field.cover_run_m(ln) if on_field is not None else 0.0
+        if deck_polys:      # 2026-10-30a: a hard deck over it is cover
+            cover = max(cover, unary_union([ln.intersection(p) for p in deck_polys]).length)
         lay = _layer_of_bore(bore)
         below = lay is not None and lay <= tn.terrain_layer_max
         rise = _rise_m(airport, ln)
@@ -284,12 +289,15 @@ class _PackBuildings:
       object's by §33's precedence (RULINGS 2026-09-05n-3), and its 20 m
       bounding solid (OTHH ``tunnel middle - east``, base -15 m) is the
       tunnel, not a building.
+    * no member of its unit is a HARD-DECK BRIDGE's (``deck_objects``,
+      ``planar/deck_bridge``; owner RULINGS 2026-10-30a): the frame IS the
+      bridge (§16e (3)), and its soffit is no elevated part (e) reads.
 
     Line and scatter parts never count.  A caller with no partition (the
     fixtures, ``explain``) refuses nothing here."""
 
     def __init__(self, airport, law: Law, corridor_prints=(),
-                 corridor_objects=()) -> None:
+                 corridor_objects=(), deck_objects=()) -> None:
         from shapely.geometry import box
         from shapely.strtree import STRtree
         from ..airport.placement_family import member_is_deck
@@ -304,8 +312,11 @@ class _PackBuildings:
         #: elevated_base_m``): what :meth:`passage` calls clear space
         self._elevated = float(law.tables.structures.rebake.elevated_base_m)
         skip = set(corridor_objects)
+        decked = set(deck_objects)
         boxes = []
         for u in part.units:
+            if decked and any(m.id in decked for m in u.members):
+                continue    # §16e (3): a HARD-DECK BRIDGE's frame IS the bridge
             for m in u.members:
                 if getattr(m, "scatter", False) or member_is_deck(m) \
                         or m.id in skip:
@@ -726,6 +737,10 @@ def decked_exclusion(cut_lines, tunnels, footprints, cells, polys, cut_roles,
     from .structure_geometry import OBJECT_CUT_PREFIX
     pairs = [(t.id, f) for t, f in zip(tunnels, footprints)
              if str(t.id).startswith(OBJECT_CUT_PREFIX)]
+    # 2026-10-30a: a HARD-DECK BRIDGE's cut is object-decked too — its deck
+    # carries the taxiway over the trench, and the centreline ends at its rim
+    pairs += [(t.id, f) for t, f in zip(tunnels, footprints, strict=True)
+              if getattr(t, "deck_bridge", "")]
     if not pairs:
         return list(cut_lines)
     outlines = [f for _ref, f in pairs]

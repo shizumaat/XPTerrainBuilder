@@ -121,10 +121,34 @@ def _edge_seat_plates(pm, kept) -> dict[str, tuple]:
     ``anchor_rule.datum_of``), ahead of the basin rim."""
     out: dict[str, tuple] = {}
     for tn in pm.structures:
+        if getattr(tn, "deck_bridge", ""):
+            _deck_plate(out, tn, kept)
+            continue
         for oid, seat, _depth in getattr(tn, "edge_seats", ()) or ():
             if oid not in kept:
                 out.setdefault(oid, (0.0, [tuple(seat)], 0.0, EDGE_PLATE))
     return out
+
+
+#: the plate kind of a HARD-DECK BRIDGE's end lines (``airside_deck_seat``)
+DECK_PLATE = "deck"
+
+
+def _deck_plate(out: dict, tn, kept) -> None:
+    """A HARD-DECK BRIDGE's deck member (owner RULINGS 2026-10-30a (1),
+    ``planar/deck_bridge``): ``(deck top y, every end line's stations, 0.0,
+    DECK_PLATE)`` — its zero is the solved surface at its end lines less its
+    top, ONE zero for the whole frame (``airside_deck_seat.airside_zero``
+    reads it first); the stations of every deck piece of the object, the
+    pieces a trench meets on its way included."""
+    oid = tn.deck_bridge
+    if oid in kept:
+        return
+    y, st, *rest = out.get(oid, (float(tn.deck_top_y), [], 0.0, DECK_PLATE))
+    for o, stations, _depth in tn.edge_seats:
+        if o == oid:
+            st = st + [tuple(p) for p in stations if tuple(p) not in st]
+    out[oid] = (y, st, *rest)
 
 
 def plate_stations(footprint, standoff_m: float, step_m: float, rim_path=(),

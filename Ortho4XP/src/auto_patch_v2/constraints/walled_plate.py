@@ -66,7 +66,9 @@ def under_plate_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
 
 
 def release_across(rows: list[Row], planar: PlanarMap, airport: Airport,
-                   counts: dict[str, int] | None = None) -> list[Row]:
+                   counts: dict[str, int] | None = None, under=None, inside=None,
+                   keep: frozenset = frozenset(), key: str = "walled_plate_released"
+                   ) -> list[Row]:
     """THE PLATE IS THE STEP (#1201 l1201c; RULINGS 2026-10-27t): every
     pair row (``Diff``, ``Offset``, a multi-term ``Linear``) joining a vertex
     UNDER a walled plate (the ceiling's own set) to one that is not is
@@ -74,17 +76,27 @@ def release_across(rows: list[Row], planar: PlanarMap, airport: Airport,
     across it is two surfaces, the safety area's on top and the ground at
     the wall's foot.  MEASURED (KSEA replay): the road grade rows from the
     under-plate vertices pulled 16R's safety area 0.8 m and 16C's 4.0 m
-    under the plate's top at the inner edge."""
-    under = frozenset(v for _p, vs in _under(planar, airport) for v in vs)
+    under the plate's top at the inner edge.
+
+    ``under`` given, the set is the caller's — a HARD-DECK BRIDGE's trench
+    floor (``edge_deck.deck_floor``, owner RULINGS 2026-10-30a: the outline
+    is the step) — and a row is withdrawn where it joins a vertex of it to
+    one outside ``inside`` (the trench), save the rows of the ``keep``
+    generators (the trench's own law)."""
+    if under is None:
+        under = frozenset(v for _p, vs in _under(planar, airport) for v in vs)
     if not under:
         return rows
+    inside = under if inside is None else inside
 
     def mixed(vs) -> bool:
-        inside = [v in under for v in vs]
-        return any(inside) and not all(inside)
+        return any(v in under for v in vs) and not all(v in inside for v in vs)
     out: list[Row] = []
     n = 0
     for r in rows:
+        if r.source.generator in keep:
+            out.append(r)
+            continue
         if isinstance(r, (Diff, Offset)):
             vs = (r.a, r.b)
         elif isinstance(r, Linear) and len(r.terms) > 1:
@@ -97,7 +109,7 @@ def release_across(rows: list[Row], planar: PlanarMap, airport: Airport,
             continue
         out.append(r)
     if counts is not None:
-        counts["walled_plate_released"] = n
+        counts[key] = n
     return out
 
 

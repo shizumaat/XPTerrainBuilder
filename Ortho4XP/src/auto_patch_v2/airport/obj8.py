@@ -757,6 +757,14 @@ class ObjReport:
     #: path -> (placements, deepest datum drop, deepest depth read,
     #: shallowest AUTHORED depth under the placement's own datum).
     datum_relief: dict[str, tuple[int, float, float, float]] = _dc.field(default_factory=dict)
+    #: A PART NO GROUND HOLDS (issue #1685): path -> (placements, deepest
+    #: AUTHORED depth, under the placement's own render datum).  A component
+    #: authored more than ``depth_max_m`` (``emit.cockpit.sentinel_drop_m``,
+    #: the margin of the solve's ground envelope) under its own y = 0 is a
+    #: stray authoring part, never a depth: KIAH's AeroX ground markings carry
+    #: boxes extruded 280-4,800 m under their y = 0 (``18A.obj`` to
+    #: -2029.11 m), and a basin cut to it put the solve 2 km off the ground.
+    implausible_depth: dict[str, tuple[int, float]] = _dc.field(default_factory=dict)
     #: A THING STANDING ON THE GROUND (issue #551; design spec §47 (8)): path
     #: -> (placements, top above the ground, deepest plate below it, share
     #: of that plate roofed by the object's own solids).  An object whose
@@ -797,6 +805,9 @@ class ReadLaw:
     #: §47 (8): the share of its own floor plate an object must roof for
     #: the plate to read as a ROOM under it (law ``basin.basement_cover_min``)
     basement_cover_min: float = 1.0
+    #: #1685: a component authored deeper than this is no witness
+    #: and no deep part (law ``emit.cockpit.sentinel_drop_m``; inf = never)
+    depth_max_m: float = math.inf
 
 
 #: One placement to read: ``(id, def path, resolved path, xy, heading, agl,
@@ -923,6 +934,18 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
                 # the component's rendered floor vs the ground under it
                 z_min = base + comp.min_y
                 depth = z_min - local
+                # A DEPTH NO GROUND HOLDS IS NOT GEOMETRY (issue #1685): the
+                # floor is AUTHORED farther under the object's own y = 0
+                # than the solve's ground envelope reaches past the ground
+                # (KIAH's ground marking: a box to -2029 m), so no cut could
+                # ever hold it — a stray authoring part, named and never
+                # read as a depth.  Read on the authored depth, as 09ag
+                # reads the datum: a skin over real relief (#942) is not
+                # stray, its own rule refuses it.
+                if base - z_min > law.depth_max_m:
+                    n, d0 = rep.implausible_depth.get(dpath, (0, math.inf))
+                    rep.implausible_depth[dpath] = (n + 1, min(d0, z_min - base))
+                    continue
                 # THE DEPTH IS AUTHORED (RULINGS 2026-09-09ag, spec
                 # §13): a below-grade facility is a SUNKEN SOLID, so its
                 # floor stands ``law.authored_depth_min_m`` under the
@@ -1130,6 +1153,9 @@ def _absorb(rep: "ObjReport", sub: "ObjReport") -> None:
     for path, (n, d, z) in sub.no_floor.items():
         n0, d0, z0 = rep.no_floor.get(path, (0, math.inf, math.inf))
         rep.no_floor[path] = (n0 + n, min(d0, d), min(z0, z))
+    for path, (n, d) in sub.implausible_depth.items():
+        n0, d0 = rep.implausible_depth.get(path, (0, math.inf))
+        rep.implausible_depth[path] = (n0 + n, min(d0, d))
     for path, (n, t, d, r) in sub.standing.items():
         n0, t0, d0, r0 = rep.standing.get(path, (0, -math.inf, math.inf, 1.0))
         rep.standing[path] = (n0 + n, max(t0, t), min(d0, d), min(r0, r))
@@ -1145,6 +1171,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         authored_depth_min_m: float = 0.0,
                         authored_rim_tol_m: float = 0.0,
                         basement_cover_min: float = 1.0,
+                        depth_max_m: float = math.inf,
                         ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None,
                         msl_tol_m: float = 0.3
                         ) -> tuple[list[PlacedObject], ObjReport]:
@@ -1181,7 +1208,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     law = ReadLaw(admission_depth_m, contact_band_m, shell_reaches_grade,
                   floor_plate_normal_y_min, rim_reaches_grade,
                   rim_protrusion_max_fraction, authored_depth_min_m, authored_rim_tol_m,
-                  basement_cover_min)
+                  basement_cover_min, depth_max_m)
     rep = ObjReport(placements=len(placements))
     out: list = []
     jobs: list[tuple[int, PlacementJob]] = []

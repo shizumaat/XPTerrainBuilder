@@ -253,3 +253,20 @@ def test_the_object_stage_seats_the_one_zero_at_the_end_lines():
                               plate_stations=((36.0, -86.0), (36.1, -86.0)))
     zero, where, _seat = ADS.airside_zero(m, (), lambda la, lo: 110.0 if la < 36.05 else 111.0)
     assert abs(zero - 104.5) < 1e-9 and "hard-deck bridge" in where
+
+
+def test_a_runway_vertex_on_the_trench_outline_is_never_the_floor():
+    """the LFPG batch-AR regression (09L/27R over obj13017): a runway-family
+    cell inside a hard-deck outline is NOT cut (the knife's 08-07 ruling 4
+    exemption), so a runway vertex the trench ramp shares is the runway's,
+    never the floor's — its runway rows to the crown are not released."""
+    ring = ((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0))
+    roles = {1: ("tunnel_ramp",), 2: ("tunnel_ramp", "runway"), 3: ("runway",),
+             4: ("tunnel_ramp", "runway_crossing"), 5: ("tunnel_ramp", "service_road")}
+    pm = types.SimpleNamespace(
+        structures=(types.SimpleNamespace(deck_bridge="dsf:obj1", deck_ring=ring),),
+        vertices={v: types.SimpleNamespace(xy=(5.0, 5.0)) for v in roles},
+        roles_at=lambda v: roles[v])
+    floor, trench = ED.deck_floor(pm)
+    assert floor == {1, 5}
+    assert trench == {1, 2, 4, 5}

@@ -74,13 +74,47 @@ def _platform_dir() -> tuple[str, str]:
     return "lin", ""
 
 
+def _signature_offset(head: bytes) -> int | None:
+    """Where a thin 64-bit Mach-O's code signature starts, or ``None``.
+
+    Signing (``make_app.sh``) rewrites the signature blob on every app
+    build: a new timestamp, the same code (the CDHash is unchanged).  The
+    stamp hashes the code, not the signature, so a re-signed identical tool
+    keeps every patch (owner 2026-10-30: 1.0.447 -> 1.0.448 rebuilt them all).
+    """
+    import struct
+    if len(head) < 32 or head[:4] != b"\xcf\xfa\xed\xfe":   # MH_MAGIC_64, LE
+        return None
+    ncmds, sizeofcmds = struct.unpack_from("<II", head, 16)
+    off, end = 32, min(len(head), 32 + sizeofcmds)
+    for _ in range(ncmds):
+        if off + 8 > end:
+            return None
+        cmd, size = struct.unpack_from("<II", head, off)
+        if cmd == 0x1D and off + 16 <= end:            # LC_CODE_SIGNATURE
+            return struct.unpack_from("<I", head, off + 8)[0]
+        if size <= 0:
+            return None
+        off += size
+    return None
+
+
 def _tool_identity(path: str) -> str:
-    """``sha256`` of the file at ``path``, or ``absent``."""
+    """``sha256`` of the tool at ``path`` up to its code signature (the
+    whole file when it carries none), or ``absent``."""
     digest = hashlib.sha256()
     try:
         with open(path, "rb") as handle:
+            stop = _signature_offset(handle.read(1 << 16))
+            handle.seek(0)
+            left = stop
             for chunk in iter(lambda: handle.read(_CHUNK), b""):
+                if left is not None:
+                    chunk = chunk[:left]
+                    left -= len(chunk)
                 digest.update(chunk)
+                if left == 0:
+                    break
     except OSError:
         return "absent"
     return digest.hexdigest()

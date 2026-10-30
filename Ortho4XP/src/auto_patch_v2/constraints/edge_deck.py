@@ -54,6 +54,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Band, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
+from ..model.structures import DECK_GROUND_REF, deck_reach
 
 __all__ = ["edge_deck_rows", "release_governed", "deck_floor", "GEN", "RULING", "RIGID"]
 
@@ -134,12 +135,17 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
             continue
         ring = Polygon(tn.deck_ring).buffer(0.5)
         inside = prep(ring)
+        reach = deck_reach(tn)
+        beyond = prep(reach.buffer(0.5)) if reach is not None else inside
         src = Source(GEN, RULING, (tn.id, tn.deck_bridge, "deck span"))
         under = Source(GEN, RIGID, (tn.id, tn.deck_bridge, "under the deck"))
         flush = float(law.tables.structures.bridge.deck_flush_m)
         for v, vx in planar.vertices.items():
-            if v in seat_vs or _FLOOR_ROLES & set(planar.roles_at(v)) \
-                    or not inside.contains(Point(vx.xy)):
+            if v in seat_vs or _FLOOR_ROLES & set(planar.roles_at(v)):
+                continue
+            p = Point(vx.xy)
+            if not inside.contains(p) and not (beyond.contains(p)
+                                               and _bridge_ground(planar, vx)):
                 continue
             x, y = vx.xy
             a = min(seat_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
@@ -170,26 +176,46 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     return rows
 
 
+def _bridge_ground(planar: PlanarMap, vx) -> bool:
+    """A vertex of the bridge's own ground beyond its rings — every face it
+    touches is a trench's void or the deck's ground (``planar/deck_bridge.
+    deck_ground``): the open stretch's rim and the ground behind it, never a
+    zone band's or a pavement's vertex, which keep their own law there."""
+    faces = [planar.faces.get(f) for f in vx.incident_faces]
+    return bool(faces) and all(
+        f is not None and (f.role == "retaining_wall"
+                           or str(f.ref).startswith(DECK_GROUND_REF + ":"))
+        for f in faces)
+
+
 def _station_rows(oid: str, ends: list, flush: float) -> list[Row]:
     """EVERY STATION FLUSH (owner RULINGS 2026-10-30a (1), 30f (4); #1692):
-    each end line's every seat vertex stands within ``flush`` of the deck
-    top there, read from the ONE zero the first end line's mean carries —
-    ``z[v] − mean z[S_0] ∈ top_k − top_0 ± flush``.  The rigid row holds
-    the MEANS; a taxiway's cross-fall left the stations of one end line
-    0.76 m apart under a flat deck (KBNA, the bank's rim 0.37 m over the
-    deck top).  Hard, under :data:`RIGID`."""
-    base, top0 = ends[0]
+    each seat vertex of every end line stands within ``flush`` of the deck
+    top there, read from the ONE zero the object stage seats the deck at —
+    the mean over every station, each once (``pipeline/rebake_inputs.
+    _deck_plate``: ``zero = mean z[S] − mean top[S]``) — so
+    ``z[v] − mean z[S] ∈ top(v) − mean top[S] ± flush``.  Read from the
+    first end line's mean instead, a station could stand 0.07 m over the
+    deck the plate set (KBNA round 5).  The rigid row holds the end means;
+    a taxiway's cross-fall left the stations of one end line 0.76 m apart
+    under a flat deck (KBNA round 4).  Hard, under :data:`RIGID`."""
+    top_of: dict[int, float] = {}
+    for terms, top in ends:
+        for v, _w in terms:
+            top_of.setdefault(v, float(top))
+    if not top_of:
+        return []
+    n = len(top_of)
+    mean_top = sum(top_of.values()) / n
     rows: list[Row] = []
-    for k, (terms, top) in enumerate(ends):
-        rhs = top - top0
-        for v in sorted({v for v, _w in terms}):
-            acc: dict[int, float] = {v: 1.0}
-            for u, w in base:
-                acc[u] = acc.get(u, 0.0) - w
-            ts = tuple((u, c) for u, c in sorted(acc.items()) if abs(c) > 1e-12)
-            if ts:
-                rows.append(Linear(ts, rhs - flush, rhs + flush,
-                                   Source(GEN, RIGID, (oid, f"end {k} station v{v}"))))
+    for v in sorted(top_of):
+        acc = {u: -1.0 / n for u in top_of}
+        acc[v] += 1.0
+        ts = tuple((u, c) for u, c in sorted(acc.items()) if abs(c) > 1e-12)
+        rhs = top_of[v] - mean_top
+        if ts:
+            rows.append(Linear(ts, rhs - flush, rhs + flush,
+                               Source(GEN, RIGID, (oid, f"station v{v}"))))
     return rows
 
 

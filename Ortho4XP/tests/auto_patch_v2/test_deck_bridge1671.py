@@ -201,14 +201,18 @@ def test_every_end_line_station_is_held_flush_with_the_deck():
     """#1692, RULINGS 2026-10-30a (1) / 30f (4): every station of every end
     line stands within ``[bridge] deck_flush_m`` of the deck top read from
     the one zero — not only the means (a taxiway's cross-fall left one end
-    line 0.76 m from end to end under a flat deck)."""
+    line 0.76 m from end to end under a flat deck).  The zero is the one
+    the object stage seats the deck at, the mean over EVERY station (round
+    6: read from the first end line's mean, a station stood 0.07 m over
+    the deck the plate set)."""
     ends = [(((1, 0.5), (2, 0.5)), 6.0), (((3, 0.5), (4, 0.5)), 6.1)]
     rows = ED._station_rows("dsf:obj7", ends, 0.04)
     assert len(rows) == 4 and all(r.source.ruling == ED.RIGID for r in rows)
-    r3 = next(r for r in rows if dict(r.terms).get(3) == 1.0)
-    assert abs(r3.lo - 0.06) < 1e-9 and abs(r3.hi - 0.14) < 1e-9
-    r1 = next(r for r in rows if "end 0 station v1" in r.source.inputs[1])
-    assert dict(r1.terms) == {1: 0.5, 2: -0.5} and abs(r1.hi - 0.04) < 1e-9
+    r3 = next(r for r in rows if "station v3" in r.source.inputs[1])
+    assert dict(r3.terms) == {1: -0.25, 2: -0.25, 3: 0.75, 4: -0.25}
+    assert abs(r3.lo - 0.01) < 1e-9 and abs(r3.hi - 0.09) < 1e-9
+    r1 = next(r for r in rows if "station v1" in r.source.inputs[1])
+    assert abs(r1.lo + 0.09) < 1e-9 and abs(r1.hi + 0.01) < 1e-9
 
 
 def test_the_floor_hangs_from_the_mean_of_both_end_lines_and_an_edge_seat_is_unchanged():
@@ -253,6 +257,14 @@ def test_the_object_stage_seats_the_one_zero_at_the_end_lines():
                               plate_stations=((36.0, -86.0), (36.1, -86.0)))
     zero, where, _seat = ADS.airside_zero(m, (), lambda la, lo: 110.0 if la < 36.05 else 111.0)
     assert abs(zero - 104.5) < 1e-9 and "hard-deck bridge" in where
+    # a deck whose ends stand at different tops: the plate's y is the
+    # stations' own mean top, each station once — the reference the
+    # station rows hold every station flush from (round 6)
+    sloped = types.SimpleNamespace(deck_bridge="dsf:obj8", deck_top_y=6.0, edge_seats=(
+        ("dsf:obj8", ((0.0, 1.0), (0.0, 2.0)), 6.2), ("dsf:obj8", ((5.0, 1.0),), 6.4)))
+    y, st, _c, _k = RI._edge_seat_plates(types.SimpleNamespace(structures=(sloped,)),
+                                         set())["dsf:obj8"]
+    assert len(st) == 3 and abs(y - (5.9 + 5.9 + 6.1) / 3.0) < 1e-9
 
 
 def test_the_ground_a_deck_rests_on_is_a_face_once_the_corridor_is_cut():
@@ -293,3 +305,32 @@ def test_the_ground_a_deck_rests_on_is_a_face_once_the_corridor_is_cut():
     assert [c.id for c in out.cells] == list(range(len(out.cells)))
     bare = types.SimpleNamespace(deck_bridge="", deck_ring=())
     assert DB.deck_ground(cl, [bare], LAW) == (cl, [])
+
+
+def test_the_open_stretch_between_two_decks_over_one_road_is_the_bridges_ground():
+    """#1692 round 6: a trench that runs on under a second deck of the frame
+    seats on that deck's end lines too, and the ground between the two
+    decks beside the trench is the bridge's (``model/structures.
+    deck_reach``): a deck-ground face, its rim held flush — left unowned,
+    the open stretch's rim took the DEM, 1.02 m off the design."""
+    import dataclasses
+
+    from auto_patch_v2.model.structures import deck_reach
+    from shapely.geometry import Polygon
+
+    @dataclasses.dataclass(frozen=True)
+    class _Cl:
+        cells: tuple
+    ring = _sbox(-20.0, -20.0, 20.0, 20.0)
+    far = (((-20.0, 50.0), (20.0, 50.0)), ((-20.0, 90.0), (20.0, 90.0)))
+    tunnel = types.SimpleNamespace(
+        deck_bridge="dsf:obj7", deck_ring=tuple(ring.exterior.coords)[:-1],
+        edge_seats=tuple(("dsf:obj7", st, 6.0) for st in
+                         (((-20.0, -20.0), (20.0, -20.0)), ((-20.0, 20.0), (20.0, 20.0))) + far))
+    reach = deck_reach(tunnel)
+    assert abs(reach.area - 40.0 * 110.0) < 1e-6
+    assert deck_reach(types.SimpleNamespace(deck_bridge="", deck_ring=())) is None
+    ramp = _sbox(-8.0, -200.0, 8.0, 200.0)
+    out, _notes = DB.deck_ground(_Cl((_cell(0, "tunnel_ramp", ramp),)), [tunnel], LAW)
+    ground = [Polygon(c.ring, c.holes) for c in out.cells if c.role == "graded_strip"]
+    assert abs(sum(g.area for g in ground) - 2 * 12.0 * 110.0) < 1e-3

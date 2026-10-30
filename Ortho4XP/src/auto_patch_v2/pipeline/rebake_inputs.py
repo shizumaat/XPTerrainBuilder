@@ -131,13 +131,20 @@ def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
             y, st, *rest = out.get(ov.object_id, (0.0, [], 0.0, OVERPASS_PLATE))
             out[ov.object_id] = (y, st + [tuple(p) for p in ov.stations
                                           if tuple(p) not in st], *rest)
+    tops: dict[str, dict] = {}
     for tn in pm.structures:
         if getattr(tn, "deck_bridge", ""):
-            _deck_plate(out, tn, kept, pm, seats_of)
+            _deck_plate(out, tn, kept, pm, seats_of, tops)
             continue
         for oid, seat, _depth in getattr(tn, "edge_seats", ()) or ():
             if oid not in kept:
                 out.setdefault(oid, (0.0, [tuple(seat)], 0.0, EDGE_PLATE))
+    for oid, by_pt in tops.items():
+        # the deck's y is the stations' own mean top, each station once —
+        # the reference ``constraints/edge_deck._station_rows`` holds every
+        # station flush from (RULINGS 2026-10-30a (1))
+        y, st, *rest = out[oid]
+        out[oid] = (sum(by_pt.values()) / len(by_pt), st, *rest)
     return out
 
 
@@ -148,7 +155,8 @@ DECK_PLATE = "deck"
 OVERPASS_PLATE = "overpass"
 
 
-def _deck_plate(out: dict, tn, kept, pm=None, seats_of=None) -> None:
+def _deck_plate(out: dict, tn, kept, pm=None, seats_of=None,
+                tops: "dict | None" = None) -> None:
     """A HARD-DECK BRIDGE's deck member (owner RULINGS 2026-10-30a (1),
     ``planar/deck_bridge``): ``(deck top y, every end line's stations, 0.0,
     DECK_PLATE)`` — its zero is the solved surface at its end lines less its
@@ -167,11 +175,18 @@ def _deck_plate(out: dict, tn, kept, pm=None, seats_of=None) -> None:
         return
     y, st, *rest = out.get(oid, (float(tn.deck_top_y), [], 0.0, DECK_PLATE))
     got = seats_of(tn) if seats_of is not None else ()
-    for k, (o, stations, _depth) in enumerate(tn.edge_seats):
+    # the frame's bottom: the deck top less its two ends' mean depth
+    own = [float(d) for o, _s, d in tn.edge_seats[:2] if o == oid]
+    bottom = float(tn.deck_top_y) - sum(own) / len(own) if own else None
+    for k, (o, stations, depth) in enumerate(tn.edge_seats):
         if o != oid:
             continue
         pts = ([tuple(pm.vertices[v].xy) for v, _w in got[k][0]] if k < len(got)
                else [tuple(p) for p in stations])
+        if tops is not None and bottom is not None:
+            by_pt = tops.setdefault(oid, {})
+            for p in pts:
+                by_pt.setdefault(p, bottom + float(depth))
         st = st + [p for p in pts if p not in st]
     out[oid] = (y, st, *rest)
 

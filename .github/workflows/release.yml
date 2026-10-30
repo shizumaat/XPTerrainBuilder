@@ -55,8 +55,14 @@ jobs:
           sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
           swift --version
 
+      # Freeze with Homebrew's Python, as the local app builds do: its
+      # libcrypto/libssl are Homebrew's openssl@3, the same ones Homebrew's
+      # GDAL (via libs2n) links. setup-python's older libcrypto made the
+      # bundled libgdal fail to load (release dry run 41004649378).
       - name: Freeze engine
-        run: PYTHON=python3 scripts/make_engine.sh
+        run: |
+          brew install python@3.14
+          PYTHON="$(brew --prefix python@3.14)/bin/python3.14" scripts/make_engine.sh
 
       # The frozen bundle must read the proj.db it shipped with, whatever the
       # user's shell exports (docs/specs/proj-runtime-robustness-spec.md D6).

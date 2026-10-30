@@ -874,17 +874,44 @@ def _scenery_fixture(tmp_path: Path, def_idx: int, n_pages: int,
 
 def test_packs_own_pages_withdraw_the_borrow(tmp_path):
     """Two of Global's four squares drawn as ``.pol`` pages (50 % >= 25 %):
-    nothing borrowed — no Global pavement, no Global boundary, no borrowed
-    path in the signature — and the pack's pages are its pavement."""
+    no Global PAVEMENT is borrowed and the pack's pages are its pavement.
+    The pack authors no row-130 boundary, so the Global boundary §44 (3)
+    took STAYS (#1671: 20al rules on pavement; KBNA's field shrank to its
+    pavement without it, the roads by its taxiway bridges left the patch
+    and a pad by a tunnel portal rose 9.4 m), and so does the path it came
+    from in the signature, the header and the freshness gate."""
     a, rep = _scenery_fixture(tmp_path, 0, 2)
     assert [p.id for p in a.pavements] == ["dsf:pol0", "dsf:pol1"]
-    assert a.boundaries == ()
-    assert a.pack.borrowed_apt_dat_path == "" and a.pack.borrowed_block_sha256 == ""
+    assert [b.source for b in a.boundaries] == ["global_airports"]
+    assert a.pack.borrowed_apt_dat_path and a.pack.borrowed_block_sha256
     ps = rep.pavement_source
-    assert ps["borrowed_from"] is None and ps["borrowed_pavements"] == 0
-    assert ps["borrowed_boundary"] is False and ps["coverage"] == 0.0
+    assert ps["borrowed_from"] and ps["borrowed_pavements"] == 0
+    assert ps["borrowed_boundary"] is True and ps["coverage"] == 0.0
     assert ps["scenery_pavements"] == 2 and 0.45 < ps["scenery_coverage"] < 0.55
-    assert "nothing BORROWED" in rep.pavement_borrow_line
+    assert "only the row-130 BOUNDARY is BORROWED" in rep.pavement_borrow_line
+
+
+def test_a_withdrawn_borrow_keeps_only_a_boundary_it_took():
+    """The scenery stage withdraws PAVEMENT only (#1671): a Global boundary
+    §44 (3) took (the pack has none) stays with the path it came from; a
+    pack's own boundary is the pack's, and nothing of Global stays named
+    (#1160 as before)."""
+    from auto_patch_v2.airport import apt_dat as _apt
+
+    def sq(h):
+        return [(((0.0, 0.0), (10.0, 0.0), (10.0, h), (0.0, h)), ())]
+    d = B.BorrowDecision(apt_dat_path="/g/apt.dat", block_sha256="s",
+                         reason="coverage", coverage_max=0.25)
+    for took in (True, False):
+        apt = _apt.AptAirport("ZZQQ", "", 0.0, {}, (), (), ("global pav",), (),
+                              ("a boundary",), {}, (), (), ())
+        got = B.yield_to_scenery(B.BorrowResult(apt, 0, 1, took, d),
+                                 sq(10.0), sq(20.0), 1)
+        assert got.withdrawn and got.borrowed_pavements == 0
+        assert got.airport.pavements == () and got.airport.boundaries == ("a boundary",)
+        assert got.borrowed is took and got.borrowed_boundary is took
+        assert (got.decision.apt_dat_path == "/g/apt.dat") is took
+        assert ("only the row-130 BOUNDARY" in got.line("ZZQQ")) is took
 
 
 def test_gap_sheets_do_not_count_toward_coverage(tmp_path):

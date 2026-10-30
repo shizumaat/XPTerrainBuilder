@@ -895,6 +895,7 @@ hard_rulings = [
   "common.roles.apron frontage chord",                   # the same (§5, `constraints/apron.py:214-220`)
   "common.roles.apron on the shared edge portion",       # the same (RULINGS 2026-09-30bj #149 disposition: the hard apron set is ring edges, frontage chords, edge portions, stationed chords and plane_gradient on apron faces; the STRICT 60 m body chords are PRICED and promoted pair by pair only where the solve misses one — `apron_promote_on_miss_rulings`)
   "apron body chord, stationed across the face",         # the same
+  "structures.hard-deck bridge: one zero, flush at both end lines",   # owner RULINGS 2026-10-30a (1) (#1671): a pack hard-deck bridge has ONE zero, so its end lines' seat sets differ by the deck-top difference (constraints/edge_deck, the rigid row) - MEASURED as a post-solve read (class A) on the KBNA capture: the two end lines solved 2.2 m apart (171.95 / 174.18)
   "roads.edge bridge deck level with the airside abeam",   # owner RULINGS 2026-10-28d Q211 a (#1138): a road deck over an edge bridge's trench is level with the airside pavement abeam (constraints/edge_deck) - MEASURED one-way at the law weight on the KATL capture: 1.8-7.8 m under the taxiway
   "tunnel.mouth_depth_m",                                 # §33 (5) (Fable 2026-09-15; RULINGS 2026-09-15h): the mouth's floor is `rim - mouth_depth_m` HOWEVER its station was taken.  MEASURED soft at LEMD tunnel:-15327@0 (owner 15e item 5, "doesn't seem to be providing the right depth"): the datum equality LOST 2.17 m - floor 599.25 against its own 597.08, under a rim solving 602.16 = the DEM it is pinned at - and the census named it 32 times (`tunnel_mouth_canonical`).  A weight contest is not a law
   "gap_piece follows its standing neighbour across the stand-off",   # spec §53 (13): a Band on a piece vertex against a CONSTANT of the earlier stages (last stage only)
@@ -942,7 +943,8 @@ hard_conflict_ranks = [
    "rulesets.taxi.longitudinal centreline", "rulesets.taxi.transverse lateral hop, chain",
    "rulesets.taxi.transverse raw pair", "rulesets.taxi.transverse",
    "rulesets.common.pavement_max_grade ceiling", "rulesets.common.road_max_grade pavement fallback",
-   "door airside give"],                                              # #798: the airside give ranks with the taxi caps (19ac)
+   "door airside give",                                               # #798: the airside give ranks with the taxi caps (19ac)
+   "structures.hard-deck bridge: one zero, flush at both end lines"],  # 30a (1): ranks with the taxi caps; a conflict is a finding
   ["common.roles.apron ring edge", "common.roles.apron frontage chord",
    "common.roles.apron on the shared edge portion",
    "apron body chord, stationed across the face", "plane_gradient", "apron body chord, strict",

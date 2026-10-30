@@ -453,7 +453,7 @@ def under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
 
 
 def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
-                     corridors: _t.Sequence = ()) -> "FieldRegion":
+                     corridors: _t.Sequence = (), decks: _t.Sequence = ()) -> "FieldRegion":
     """THE REGION A MOUTH MAY STAND IN, assembled in ONE place: the
     classified cover (with the roofed corridors' footprints, which the
     caller passes in ``polys``) ⊕ ``[tunnel] mouth_standoff_m``, union
@@ -462,7 +462,10 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     (``airport.tunnel_objects.Corridor``) whose footprints ``polys``
     carries — §34 (12) (5) (a)'s pack-building reading never takes their
     objects for buildings nor refuses a mouth inside one (owner RULINGS
-    2026-09-27a (3))."""
+    2026-09-27a (3)).  ``decks`` are the HARD-DECK BRIDGES
+    (``planar/deck_bridge``, RULINGS 2026-10-30a): their frames are the
+    bridge, never a building or an elevated part over the bore, and their
+    decks are cover (§34 (12) (5) (c))."""
     region = FieldRegion(list(polys),
                          law.tables.structures.tunnel.mouth_standoff_m,
                          approach_corridor_of(airport, law),
@@ -470,6 +473,8 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
                          airport)
     region.corridor_prints = [c.footprint for c in corridors]
     region.corridor_objects = {i for c in corridors for i in c.objects}
+    region.deck_objects = {i for d in decks for i in d.members}
+    region.deck_polys = [d.polygon for d in decks]
     return region
 
 
@@ -748,6 +753,16 @@ class FieldRegion:
         return d
 
 
+def _at_deck(on_field, end: XY, law: Law) -> bool:
+    """A bore end at a HARD-DECK BRIDGE (``planar/deck_bridge``, RULINGS
+    2026-10-30a): the open stretch between two decks over one road is open
+    sky, never the road going on underground (#1028) — the deck's opening."""
+    polys = getattr(on_field, "deck_polys", None) or ()
+    tol = law.tables.structures.tunnel.object.bore_end_tolerance_m
+    pt = Point(end)
+    return any(p.distance(pt) <= tol for p in polys)
+
+
 def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
            on_field=None) -> tuple[list[Mouth], int]:
     """The mapped ends of every bore, as mouths — GATED BY THE FIELD (spec
@@ -802,7 +817,8 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
                             law.tables.structures.tunnel.admitted_values,
                             law.tables.structures.tunnel.approach_turn_max_deg)
             m = Mouth(b, end, inward, width, path, wids)
-            why = continues_underground(b, inward, path, t_ends, law, reach_m)
+            why = None if _at_deck(on_field, end, law) else \
+                continues_underground(b, inward, path, t_ends, law, reach_m)
             if why is not None:
                 no_portal.append(why)
                 continue

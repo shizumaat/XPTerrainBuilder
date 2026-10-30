@@ -16,7 +16,13 @@ declared the joints, ``planar/shapes.py``) and the constraint generators.
    endpoints carry two shapes is dropped here — never per generator —
    counted per generator.  A ``Flat`` row (a pad, a plate: one rigid
    value) is never dropped — a pad belongs to one shape (07c (3), the
-   majority relabel) — and any that would straddle is counted.
+   majority relabel) — and any that would straddle is counted.  A HARD-DECK
+   BRIDGE's rigid row (``constraints/edge_deck.RIGID``, owner RULINGS
+   2026-10-30a (1): one zero, flush at both end lines) is never dropped
+   either, nor its floor rows (``constraints/edge_floor.DECK_FLOOR``): the
+   deck is one rigid plate whose two ends land on the two shapes its cut
+   separates — dropped here, the two end lines solved 0.11-0.15 m off the
+   one zero on the KBNA capture and the floor fell back to its plan.
 3. (RULINGS 2026-09-08t) THE YIELDING TRANSFORM IS DELETED: under the
    design surface every law row is a one-sided quadratic TARGET, so the
    priority the yield classes encoded is the objective's, not a re-minting
@@ -37,6 +43,8 @@ import typing as _t
 
 from ..classify.roles import Classification
 from ..constraints import generate
+from ..constraints.edge_deck import RIGID as _DECK_RIGID
+from ..constraints.edge_floor import DECK_FLOOR as _DECK_FLOOR
 from ..constraints.no_step import reach_band_values
 from ..constraints.roads import road_family_roles
 from ..law import Law
@@ -122,7 +130,7 @@ def apply_joints(cs: ConstraintSet, stage: ShapeStage) -> ConstraintSet:
     out: list[Row] = []
     for r in cs.rows():
         ids = row_vertices(r)
-        if isinstance(r, Flat):
+        if isinstance(r, Flat) or r.source.ruling in (_DECK_RIGID, _DECK_FLOOR):
             if straddles(pm, ids):
                 flats += 1
             out.append(r)

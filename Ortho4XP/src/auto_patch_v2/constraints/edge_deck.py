@@ -36,6 +36,15 @@ and a road piece inside the cover kept its ramp to the bare-earth DEM
 reach the back, and :func:`release_governed` withdraws the rows that held
 them elsewhere — the rim's DEM pin and the road ramp's target and ceiling
 — so the pair is the one level they carry.
+
+A HARD-DECK BRIDGE (``planar/deck_bridge``; owner RULINGS 2026-10-30a (1))
+has ONE zero, flush at both end lines: per object, every end line's seat set
+is held to the first one's by the deck-top difference between them —
+``mean z[S_k] − mean z[S_0] = top_k − top_0`` — a two-sided pair under
+:data:`RIGID` (``[design] hard_rulings``).  The taxiway on each side is
+graded to the deck; the deck never tilts or shears.  The ground under the
+deck that is no trench floor — the bank's top along its edge — takes the
+span pair to its nearest seat (:func:`_deck_span`).
 """
 from __future__ import annotations
 
@@ -46,11 +55,14 @@ from ..model.airport import Airport
 from ..model.constraints import Band, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["edge_deck_rows", "release_governed", "GEN", "RULING"]
+__all__ = ["edge_deck_rows", "release_governed", "deck_floor", "GEN", "RULING", "RIGID"]
 
 GEN = "edge_deck"
 #: the ruling head (``[design] hard_rulings``)
 RULING = "roads.edge bridge deck level with the airside abeam"
+#: the hard-deck bridge's rigid row's head (``[design] hard_rulings``)
+RIGID = ("structures.hard-deck bridge: one zero, flush at both end lines "
+         "(RULINGS 2026-10-30a (1))")
 
 
 def airside_nearest(planar: PlanarMap, law: Law):
@@ -67,12 +79,14 @@ def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     tunnels = [t for t in getattr(planar, "structures", ()) or ()
                if getattr(t, "edge_back", ()) and (
                    getattr(t, "edge_covers", ()) or any(d.datum != "deck_top" for d in t.decks))]
-    if not tunnels:
+    decked = [t for t in getattr(planar, "structures", ()) or ()
+              if getattr(t, "deck_bridge", "")]
+    if not tunnels and not decked:
         return []
     nearest = airside_nearest(planar, law)
     if nearest is None:
         return []
-    rows: list[Row] = []
+    rows: list[Row] = _deck_rows(planar, law, decked, nearest.air) if decked else []
     for tn in tunnels:
         src = Source(GEN, RULING, (tn.id, tn.portal, "span"))
         for v in _span_vertices(planar, law, tn) - nearest.air:
@@ -99,6 +113,53 @@ def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 #: the role of an edge trench's FLOOR: never part of its span (the rim
 #: along the back is — it is the objects' top edge)
 _FLOOR_ROLES = frozenset({"tunnel_ramp"})
+
+
+def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
+    """The hard-deck bridges' rigid rows and spans (module doc)."""
+    from shapely.geometry import Point, Polygon
+    from shapely.prepared import prep
+
+    from .edge_floor import edge_seats_of
+    seats_of = edge_seats_of(planar, law, combine=False)
+    rows: list[Row] = []
+    by_obj: dict[str, dict] = {}
+    for tn in tunnels:
+        got = seats_of(tn)
+        for (oid, st, depth), (terms, _d) in zip(tn.edge_seats, got, strict=True):
+            top = float(depth)                  # depth = top − bottom: the bottom cancels
+            by_obj.setdefault(oid, {}).setdefault(tuple(st), (terms, top))
+        seat_vs = sorted({v for terms, _d in got for v, _w in terms})
+        if not seat_vs:
+            continue
+        ring = Polygon(tn.deck_ring).buffer(0.5)
+        inside = prep(ring)
+        src = Source(GEN, RULING, (tn.id, tn.deck_bridge, "deck span"))
+        for v, vx in planar.vertices.items():
+            if v in air or v in seat_vs or _FLOOR_ROLES & set(planar.roles_at(v)) \
+                    or not inside.contains(Point(vx.xy)):
+                continue
+            x, y = vx.xy
+            a = min(seat_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
+                    + (planar.vertices[s].xy[1] - y) ** 2)
+            rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
+            rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))
+    for oid in sorted(by_obj):
+        ends = list(by_obj[oid].values())
+        for k, (terms, top) in enumerate(ends[1:], 1):
+            src = Source(GEN, RIGID, (oid, f"end {k}"))
+            acc: dict[int, float] = {}
+            for v, w in terms:
+                acc[v] = acc.get(v, 0.0) + w
+            for v, w in ends[0][0]:
+                acc[v] = acc.get(v, 0.0) - w
+            ts = tuple((v, c) for v, c in sorted(acc.items()) if abs(c) > 1e-12)
+            if not ts:
+                continue
+            rhs = top - ends[0][1]
+            rows.append(Linear(ts, None, rhs, src))
+            rows.append(Linear(tuple((v, -c) for v, c in ts), None, -rhs, src))
+    return rows
 
 
 def _span_vertices(planar: PlanarMap, law: Law, tn) -> set[int]:
@@ -153,7 +214,8 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None) -> l
     one-term ``Linear`` — that held it at the DEM or at a road's ramp.
     Pair rows (grades, steps) are kept: they bind it to its neighbours."""
     gov = {r.terms[0][0] for r in rows
-           if isinstance(r, Linear) and r.source.generator == GEN and r.terms[0][1] > 0.0}
+           if isinstance(r, Linear) and r.source.generator == GEN and r.terms[0][1] > 0.0
+           and r.source.ruling != RIGID}
     if not gov:
         return rows
     out: list[Row] = []
@@ -168,3 +230,27 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None) -> l
     if counts is not None:
         counts["edge_deck.released"] = n
     return out
+
+
+def deck_floor(planar: PlanarMap) -> tuple[frozenset, frozenset]:
+    """``(floor, trench)``: the vertices of a HARD-DECK BRIDGE's trench
+    floor under its deck, and every vertex of a trench (its ramps and its
+    void) — ``walled_plate.release_across``'s sets (owner RULINGS
+    2026-10-30a: the outline is the step; nothing outside the trench pulls
+    the floor)."""
+    rings = [t.deck_ring for t in getattr(planar, "structures", ()) or ()
+             if getattr(t, "deck_bridge", "") and len(t.deck_ring) >= 3]
+    if not rings:
+        return frozenset(), frozenset()
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    inside = prep(unary_union([Polygon(r).buffer(0.5) for r in rings]))
+    floor, trench = set(), set()
+    for v, vx in planar.vertices.items():
+        roles = set(planar.roles_at(v))
+        if roles & (_FLOOR_ROLES | {"retaining_wall"}):
+            trench.add(v)
+            if roles & _FLOOR_ROLES and inside.contains(Point(vx.xy)):
+                floor.add(v)
+    return frozenset(floor), frozenset(trench)

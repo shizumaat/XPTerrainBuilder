@@ -225,6 +225,13 @@ def post_passes(rows: list[Row], counts: dict[str, int], walls: dict[str, float]
     # #1201: a walled plate is the step between its safety area and the
     # ground it hides (``walled_plate.release_across``)
     rows = walled_plate.release_across(rows, planar, airport, counts)
+    # 2026-10-30a: a hard-deck bridge's floor is pulled by nothing outside
+    # its trench, save the trench's own law (``edge_deck.deck_floor``)
+    floor, trench = edge_deck.deck_floor(planar)
+    if floor:
+        rows = walled_plate.release_across(
+            rows, planar, airport, counts, under=floor, inside=trench,
+            keep=frozenset({"structures", edge_deck.GEN}), key="deck_floor_released")
     # #1632: a vertex held level with the airside abeam over an edge bridge
     # sheds its DEM pin and road ramp (``edge_deck.release_governed``)
     rows = edge_deck.release_governed(rows, counts)

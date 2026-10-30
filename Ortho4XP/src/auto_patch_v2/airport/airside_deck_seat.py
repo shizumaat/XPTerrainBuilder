@@ -38,7 +38,7 @@ from .bridge_approach import _median
 
 __all__ = ["deck_owns_its_datum", "airside_zero", "airside_frame",
            "airside_deck", "airside_role", "airside_end_ground", "slab_points",
-           "end_tops", "pavement_runs_across", "refused_bridge"]
+           "end_tops", "pavement_runs_across", "facing_contacts", "refused_bridge"]
 
 
 def deck_owns_its_datum(m: _t.Any) -> bool:
@@ -193,6 +193,13 @@ def _contacts(flags: _t.Sequence[bool]) -> list[list[int]]:
 
 def pavement_runs_across(ring: _t.Sequence[tuple[float, float]],
                          surface: _ar.Surface, step_m: float) -> bool:
+    """:func:`facing_contacts` found a pair (its doc carries the law)."""
+    return facing_contacts(ring, surface, step_m) is not None
+
+
+def facing_contacts(ring: _t.Sequence[tuple[float, float]],
+                    surface: _ar.Surface, step_m: float
+                    ) -> "tuple[list[tuple[float, float]], list[tuple[float, float]]] | None":
     """Owner RULINGS 2026-10-27c (Q183, #1471; narrows 10-22n class A): A
     STRUCTURE IS A TAXIWAY BRIDGE ONLY IF THE AIRPORT'S OWN TAXIWAY OR
     APRON PAVEMENT RUNS ACROSS ITS DECK, not just touching it at one end.
@@ -210,13 +217,18 @@ def pavement_runs_across(ring: _t.Sequence[tuple[float, float]],
     the chord between them stands inside the ring.  One contact (KLAX's
     people-mover rail meets the apron at one end), two on one side, and a
     ring wholly surrounded by pavement (nothing passes under it) are not.
-    No number is chosen: the step is the law's, the tests are signs."""
+    No number is chosen: the step is the law's, the tests are signs.
+
+    The answer is the first facing pair's two contacts as their ON-EDGE
+    stations ``(lat, lon)`` — the deck's END LINES where the taxiway
+    drives onto it (``planar/deck_bridge`` seats the deck there) — or
+    ``None``."""
     roles = getattr(surface, "roles", None)
     if roles is None or step_m <= 0.0 or len(ring) < 3:
-        return False
+        return None
     per = _perimeter(ring, step_m)
     if not per:
-        return False
+        return None
     from shapely.geometry import Point, Polygon
 
     from .airside_group_seat import airside_pavement
@@ -225,7 +237,7 @@ def pavement_runs_across(ring: _t.Sequence[tuple[float, float]],
     got = roles.roles_many([q[2] for q in per], [q[3] for q in per])
     runs = _contacts([pave(r) for r in got])
     if len(runs) < 2:
-        return False
+        return None
     ml, mo = _mpd(sum(float(q[0]) for q in ring) / len(ring))
     xy = [(q[1] * mo, q[0] * ml, (q[3] - q[1]) * mo, (q[2] - q[0]) * ml) for q in per]
     deck = Polygon([(float(q[1]) * mo, float(q[0]) * ml) for q in ring])
@@ -239,14 +251,16 @@ def pavement_runs_across(ring: _t.Sequence[tuple[float, float]],
         ny = sum(xy[i][3] for i in r)
         ends.append((cx, cy, nx, ny))
     for i, a in enumerate(ends):
-        for b in ends[i + 1:]:
+        for j in range(i + 1, len(ends)):
+            b = ends[j]
             dx, dy = b[0] - a[0], b[1] - a[1]
             if (a[2] * b[2] + a[3] * b[3] < 0.0
                     and dx * a[2] + dy * a[3] < 0.0
                     and -dx * b[2] - dy * b[3] < 0.0
                     and deck.contains(Point(a[0] + 0.5 * dx, a[1] + 0.5 * dy))):
-                return True
-    return False
+                return ([(per[k][0], per[k][1]) for k in runs[i]],
+                        [(per[k][0], per[k][1]) for k in runs[j]])
+    return None
 
 
 def slab_points(m: _t.Any, origin: "tuple[float, float] | None"
@@ -339,7 +353,16 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
     surface at its end lines — or ``None`` (not class A).  A deck over
     airside that the airport's pavement does not run across (RULINGS
     2026-10-27c, :func:`pavement_runs_across`) is not class A: counted
-    ``airside_deck_touch_only``."""
+    ``airside_deck_touch_only``.
+
+    A member carrying a HARD-DECK BRIDGE's plate (``plate_kind == "deck"``,
+    ``pipeline/rebake_inputs._deck_plate``; owner RULINGS 2026-10-30a (1))
+    is read off it alone: the planar stage found the pavement across it and
+    the design solve graded both end lines to one zero, so the zero is the
+    solved surface at the plate's stations less the deck top."""
+    plated = _plate_zero(m, surface)
+    if plated is not None:
+        return plated
     w = _airside_witness(m, decks, surface)
     if w is None:
         return None
@@ -360,17 +383,62 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
     return float(m.deck_datum_z) - top, "the solved airside surface (ring median)"
 
 
-def _is_the_bridge(staged: _t.Sequence[_t.Any], deck: _t.Any) -> bool:
+def _plate_zero(m: _t.Any, surface: _ar.Surface) -> "tuple[float, str] | None":
+    """``(zero, where)`` off a hard-deck bridge's plate, or ``None``."""
+    st = tuple(getattr(m, "plate_stations", ()) or ())
+    y = getattr(m, "plate_y", None)
+    if getattr(m, "plate_kind", "") != "deck" or not st or y is None:
+        return None
+    zs = [float(z) for z in (surface(float(q[0]), float(q[1])) for q in st) if z is not None]
+    if not zs:
+        return None
+    zero = sum(zs) / len(zs) - float(y)
+    return zero, (f"the hard-deck bridge's end lines {min(zs):.2f}..{max(zs):.2f} over "
+                  f"{len(zs)} stations (deck top y {float(y):+.2f}; RULINGS 2026-10-30a)")
+
+
+def _maybe_a_building(st: _t.Any, i: int, surface: _ar.Surface) -> bool:
+    """Can body ``i`` of ``st`` be a BUILDING — does it stand on an emitted
+    object PAD, the class rule's own witness (``placement_plan`` §6:
+    ``building`` when a body stands inside an emitted object pad)?  Read at
+    its hull box's centre; a body with no box, or a surface with no roles,
+    cannot be cleared and counts as one."""
+    roles = getattr(surface, "roles", None)
+    boxes = list(getattr(st, "boxes", ()) or ())
+    if roles is None or i >= len(boxes) or boxes[i] is None:
+        return True
+    from .placement_read import PAD_FACE_ROLE
+    b = boxes[i]
+    got = roles.roles_many([0.5 * (b[0] + b[2])], [0.5 * (b[1] + b[3])])
+    return got[0] == PAD_FACE_ROLE
+
+
+def _is_the_bridge(staged: _t.Sequence[_t.Any], deck: _t.Any,
+                   surface: "_ar.Surface | None" = None) -> bool:
     """§16e (3)'s ``Staged.bridge``: every OTHER member's every body stands
     inside ``deck``'s model footprint (the rails, the piers, the abutments)
-    — the frame IS the bridge."""
+    or, outside it, on no emitted object PAD — the frame IS the bridge.
+
+    22n's exception is "a frame that also holds a BUILDING beside it"
+    (KBNA's terminal-satellite floor plate), and a building is what stands
+    on a pad (:func:`_maybe_a_building`).  An abutment, a wing wall or an
+    approach rail reaching past the deck's ring is still the bridge: KBNA's
+    taxiway-L frame (six placements, one flag deck over two roads, its
+    approach walls 60-86 m past the ring) was refused as a building frame
+    and its every body sat at the strip's median ground, the deck 6 m over
+    the taxiway (#1671)."""
     res = str(deck.m.resource)
     for st in staged:
         if st is deck:
             continue
         keys = list(getattr(st, "bridge", ()) or ())
-        if not keys or not all(str(k).split("#", 1)[0] == res for k in keys):
+        if not keys and surface is None:    # nothing to clear it by
             return False
+        for i, k in enumerate(keys):
+            if str(k).split("#", 1)[0] == res:
+                continue
+            if surface is None or _maybe_a_building(st, i, surface):
+                return False
     return True
 
 
@@ -386,7 +454,7 @@ def refused_bridge(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
     placements, one flag deck, its supports inside the deck's footprint)."""
     for st in staged:
         if _airside_witness(st.m, decks, surface) is not None:
-            return st if _is_the_bridge(staged, st) else None
+            return st if _is_the_bridge(staged, st, surface) else None
     return None
 
 
@@ -410,7 +478,7 @@ def airside_frame(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
             break
     if deck is None:
         return None
-    if not _is_the_bridge(staged, deck[0]):
+    if not _is_the_bridge(staged, deck[0], surface):
         counts["airside_deck_in_a_building_frame"] = \
             counts.get("airside_deck_in_a_building_frame", 0) + 1
         return None

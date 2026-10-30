@@ -108,7 +108,7 @@ def test_a_deck_the_taxiway_drives_across_is_a_bridge_seated_at_its_two_end_line
     assert all(-10.5 <= y <= 10.5 for _x, y in db.seats_a + db.seats_b)
     assert abs(db.top_a - 6.0) < 1e-6 and abs(db.top_b - 6.0) < 1e-6
     assert abs(db.bottom_y + 0.2) < 1e-6 and abs(db.depth_m - 6.2) < 1e-6
-    assert not db.walled and db.members == ("dsf:obj7",)
+    assert db.members == ("dsf:obj7",)
 
 
 def test_a_deck_the_taxiway_only_touches_is_no_bridge(tmp_path):
@@ -116,16 +116,16 @@ def test_a_deck_the_taxiway_only_touches_is_no_bridge(tmp_path):
     assert got == () and "no pavement runs across it" in notes[0]
 
 
-def test_a_co_placed_trench_object_states_the_bottom_and_the_walls(tmp_path):
-    """EDDF ``Bridge_3`` + ``Tunnel_3``: the trench object's walls' bottom
-    (6.0 under the shared zero) is the floor, and its walls are the cut."""
+def test_a_co_placed_trench_object_states_the_walls_and_the_walls_define_the_cut(tmp_path):
+    """Q-A as ruled (EDDF ``Bridge_3`` + ``Tunnel_3``): where the pack
+    models walls, the walls define the cut — the frame is the trench
+    object's, never a hard-deck bridge here."""
     deck = _placed(_deck(tmp_path), "dsf:obj7")
     trench = _placed(_deck(tmp_path), "dsf:obj8", kind="")
     trench.path = "objects/trench.obj"
     t = types.SimpleNamespace(object_id="dsf:obj8", depth_m=6.0)
-    (db,), _n = _read(tmp_path, objs=[deck, trench], trenches=[t])
-    assert db.walled and abs(db.bottom_y + 6.0) < 1e-6 and abs(db.depth_m - 12.0) < 1e-6
-    assert set(db.members) == {"dsf:obj7", "dsf:obj8"}
+    got, notes = _read(tmp_path, objs=[deck, trench], trenches=[t])
+    assert got == () and "they define the cut" in notes[0]
 
 
 def _bridge(tmp_path):

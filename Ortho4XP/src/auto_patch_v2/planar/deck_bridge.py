@@ -22,18 +22,18 @@ the object stage's plate):
   the deck — and their stations (every ``[bridge] abutment_sample_step_m``
   along the ring) are the SEATS the deck's zero is graded to (30a (1): one
   zero, flush at both end lines; ``constraints/edge_deck``);
-* the DEPTH at each end is the deck top there less the frame's BOTTOM: a
-  co-placed trench object's walls' bottom where one stands
-  (``airport/trench_objects``), else the frame members' lowest genuine solid
-  (30a (2), 20am "the bottom of the object is at the road", Q167);
+* the DEPTH at each end is the deck top there less the frame's BOTTOM, its
+  members' lowest genuine solid (30a (2), 20am "the bottom of the object is
+  at the road", Q167);
 * THE CUT (owner 2026-10-30, Q-A as ruled: "the cut should be the road
   width, then a bank sloping from the road edge up to just short of the
   bridge width"): the floor is the carriageway at the bottom, and the
   ground on each side banks up from the road edge to the deck, ending
   ``[tunnel] wall_gap_m`` inside the deck's edge (:func:`deck_cut`): the
   corridor's VOID face spans that ground, its rim at deck level, and the
-  mesh makes the bank.  A frame whose trench object states walls keeps the
-  corridor's own band (the walls are the cut).
+  mesh makes the bank.  A frame whose co-placed trench object states its
+  walls is no hard-deck bridge here: the walls define the cut, and the
+  trench object's own reading governs (``planar/covered_bores``).
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -75,8 +75,6 @@ class DeckBridge:
     bottom_y: float
     #: the pre-solve rendered deck top: the estimate a mouth plans from
     deck_z: float
-    #: a co-placed trench object states the walls (the cut is its own)
-    walled: bool = False
 
     @property
     def depth_a(self) -> float:
@@ -169,7 +167,8 @@ def _top_at(slab, seats, reach: float, top: float) -> float:
 
 def _bottom_y(cache, frame, trenches) -> tuple[float, bool]:
     """``(the frame's bottom y, walled)``: a co-placed trench object's walls'
-    bottom, else the lowest genuine solid of the frame's placements."""
+    bottom (``walled``: the frame is then the trench object's), else the
+    lowest genuine solid of the frame's placements."""
     ids = {str(q.id) for q in frame}
     tr = [t for t in trenches or () if str(t.object_id) in ids]
     if tr:
@@ -211,6 +210,12 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=()
         if top is None or d.deck_top_z is None:
             continue
         bottom, walled = _bottom_y(cache, frame, trenches)
+        if walled:
+            # Q-A AS RULED: where the pack models walls the walls define the
+            # cut — the co-placed trench object's own reading governs
+            notes.append(f"{d.id} {str(d.path).rsplit('/', 1)[-1]}: a co-placed trench "
+                         f"object states its walls — they define the cut (Q-A as ruled)")
+            continue
         mine: list[DeckBridge] = []
         for piece in sorted(getattr(u, "geoms", [u]), key=lambda p: -p.area):
             if piece.geom_type != "Polygon" or piece.area < 1.0:
@@ -229,8 +234,8 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=()
             ta, tb = _top_at(slab, sa, reach, top), _top_at(slab, sb, reach, top)
             mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
                                    tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
-                                   float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb),
-                                   walled))
+                                   float(bottom),
+                                   float(d.deck_top_z) - top + 0.5 * (ta + tb)))
         # ONE zero per object (30a (1)): every piece plans from one estimate
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
         out.extend(db if z is None else _dc.replace(db, deck_z=z) for db in mine)
@@ -357,18 +362,16 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     toward ``other`` deck over the same road, to its own side of the line
     halfway across the open stretch; the footprint takes in the deck ring
     ``inset`` inside its edge — the bank from the road edge up to the deck
-    (Q-A as ruled) — unless a trench object states the walls
-    (``db.walled``)."""
+    (Q-A as ruled)."""
     big = 10.0 * (axis.length + 1000.0)
     ahead = axis.interpolate(min(axis.length, 1.0))
     keep = _half_plane(_mid_line(db), (ahead.x, ahead.y), big)
     if other is not None:
         c = db.polygon.centroid
         keep = keep.intersection(_half_plane(_gap_line(db, other), (c.x, c.y), big))
-    if not db.walled:
-        bank = db.polygon.buffer(-inset, join_style="mitre")
-        if not bank.is_empty:
-            outer = unary_union([outer, bank])
+    bank = db.polygon.buffer(-inset, join_style="mitre")
+    if not bank.is_empty:
+        outer = unary_union([outer, bank])
 
     def one(g, fallback):
         g = g.intersection(keep)

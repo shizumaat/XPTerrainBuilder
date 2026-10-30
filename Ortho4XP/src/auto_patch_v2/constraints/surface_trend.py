@@ -124,7 +124,11 @@ class SurfaceTrend:
         v = (self.y[None, :] - qy[:, None]) / w_m
         d = np.sqrt(u * u + v * v)
         inside = d <= 1.0
-        w = np.where(inside, (1.0 - np.minimum(d, 1.0) ** 3) ** 3, 0.0)
+        # the tricube by multiplication only (``trend._tricube``: ``** 3``
+        # is the C library's pow, which rounds differently per platform)
+        m = np.minimum(d, 1.0)
+        c = 1.0 - m * m * m
+        w = np.where(inside, c * c * c, 0.0)
         z = np.broadcast_to(self.z[None, :], u.shape)
         n_in = inside.sum(axis=1)
         # the samples' own SPAN inside the window, as the diameter of the

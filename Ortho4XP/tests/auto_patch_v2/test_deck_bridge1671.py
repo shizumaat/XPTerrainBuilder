@@ -23,6 +23,7 @@ from auto_patch_v2.pipeline import rebake_inputs as RI
 from auto_patch_v2.planar import deck_bridge as DB
 from shapely.geometry import LineString
 from shapely.geometry import box as _sbox
+from shapely.geometry import MultiPoint
 
 LAW = Law.for_airport("")
 THICK = LAW.tables.structures.basin.min_solid_thickness_m
@@ -350,7 +351,7 @@ def test_the_open_stretch_between_two_decks_over_one_road_is_the_bridges_ground(
         deck_bridge="dsf:obj7", deck_ring=tuple(ring.exterior.coords)[:-1],
         edge_seats=tuple(("dsf:obj7", st, 6.0) for st in
                          (((-20.0, -20.0), (20.0, -20.0)), ((-20.0, 20.0), (20.0, 20.0))) + far))
-    reach = deck_reach(tunnel)
+    reach = MultiPoint(deck_reach(tunnel)).convex_hull
     assert abs(reach.area - 40.0 * 110.0) < 1e-6
     assert deck_reach(types.SimpleNamespace(deck_bridge="", deck_ring=())) is None
     ramp = _sbox(-8.0, -200.0, 8.0, 200.0)

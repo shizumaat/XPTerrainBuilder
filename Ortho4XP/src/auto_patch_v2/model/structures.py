@@ -359,19 +359,19 @@ DECK_GROUND_REF = "deck_ground"
 
 def deck_reach(tn: Tunnel):
     """THE GROUND A HARD-DECK BRIDGE OWNS (owner RULINGS 2026-10-30b /
-    30f (3)-(4), #1692): the convex hull of the deck's ring and every end
-    line station the trench seats on — its own deck's and, where the trench
-    runs on under another deck of the frame (``planar/deck_bridge.
-    deck_seats``), that deck's too, so the open stretch between the two is
-    the bridge's.  A shapely Polygon, or ``None`` for a trench under no
-    hard deck."""
+    30f (3)-(4), #1692): the points whose convex hull it is — the deck's
+    ring and every end line station the trench seats on — its own deck's
+    and, where the trench runs on under another deck of the frame
+    (``planar/deck_bridge.deck_seats``), that deck's too, so the open
+    stretch between the two is the bridge's.  A tuple of points (the
+    model holds no geometry; consumers take the hull), or ``None`` for a
+    trench under no hard deck."""
     if not getattr(tn, "deck_bridge", "") or len(tn.deck_ring) < 3:
         return None
-    from shapely.geometry import MultiPoint
     pts = [tuple(p) for p in tn.deck_ring]
     for _oid, stations, _depth in getattr(tn, "edge_seats", ()) or ():
         pts.extend(tuple(q) for q in stations)
-    return MultiPoint(pts).convex_hull
+    return tuple(pts)
 
 
 @_dc.dataclass(frozen=True)

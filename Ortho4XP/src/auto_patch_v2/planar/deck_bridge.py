@@ -62,7 +62,7 @@ import math
 import types
 import typing as _t
 
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -469,7 +469,8 @@ def deck_ground(classification, tunnels, law) -> tuple:
     not ground, and is dropped."""
     rings: dict[tuple, Polygon] = {}
     for t in tunnels:
-        reach = deck_reach(t)
+        pts = deck_reach(t)
+        reach = MultiPoint(pts).convex_hull if pts is not None else None
         if reach is not None and reach.geom_type == "Polygon":
             rings.setdefault((t.deck_bridge, tuple(reach.exterior.coords)), reach)
     if not rings:

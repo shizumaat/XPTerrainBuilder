@@ -121,7 +121,7 @@ _RUNWAY_FAMILY = frozenset({"runway", "runway_crossing"})
 
 def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     """The hard-deck bridges' rigid rows and spans (module doc)."""
-    from shapely.geometry import Point, Polygon
+    from shapely.geometry import MultiPoint, Point, Polygon
     from shapely.prepared import prep
 
     from .edge_floor import edge_seats_of
@@ -139,7 +139,8 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
             continue
         ring = Polygon(tn.deck_ring).buffer(0.5)
         inside = prep(ring)
-        reach = deck_reach(tn)
+        pts = deck_reach(tn)
+        reach = MultiPoint(pts).convex_hull if pts is not None else None
         beyond = prep(reach.buffer(0.5)) if reach is not None else inside
         src = Source(GEN, RULING, (tn.id, tn.deck_bridge, "deck span"))
         under = Source(GEN, RIGID, (tn.id, tn.deck_bridge, "under the deck"))

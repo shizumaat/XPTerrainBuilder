@@ -22,7 +22,20 @@ import dataclasses as _dc
 import math as _math
 import typing as _t
 
-__all__ = ["Trend", "poly_at_zero", "trend_of", "shift_through"]
+__all__ = ["Trend", "TREND_DP", "poly_at_zero", "trend_of", "shift_through"]
+
+#: THE TREND IS READ ON A MICROMETRE GRID (§46 (7)).  Its samples are DEM
+#: values read at an inverse-projected lat/lon, and PROJ's inverse rounds
+#: the last bits differently on macOS, Linux and Windows, so the fit
+#: carried ~1e-12 m of platform noise into every runway crossing pin and
+#: DEM end pin, hence into a yielded §50 runway cap and ~23,000 rows that
+#: carry it (release dry runs 41005579641 / 41008242277: CYXY 14R/32L).
+#: Rounding the fit's value to 1e-6 m — six orders under the DEM's own
+#: resolution and the long-wave meaning of a trend — makes the noise land
+#: on one value; a sample within 1e-12 m of a half-micrometre is the only
+#: way left to differ (about one in a million per read).  Python's
+#: ``round`` is the correctly rounded decimal, the same on every platform.
+TREND_DP = 6
 
 
 def _tricube(u: float) -> float:
@@ -114,6 +127,8 @@ class Trend:
             if val is None:
                 sw = sum(ws) or float(len(zs))
                 val = sum(w * z for w, z in zip(ws, zs)) / sw
+        if val is not None:
+            val = round(val, TREND_DP)
         self._memo[key] = val
         return val
 

@@ -293,3 +293,20 @@ def test_the_ground_a_deck_rests_on_is_a_face_once_the_corridor_is_cut():
     assert [c.id for c in out.cells] == list(range(len(out.cells)))
     bare = types.SimpleNamespace(deck_bridge="", deck_ring=())
     assert DB.deck_ground(cl, [bare], LAW) == (cl, [])
+
+
+def test_a_runway_vertex_on_the_trench_outline_is_never_the_floor():
+    """the LFPG batch-AR regression (09L/27R over obj13017): a runway-family
+    cell inside a hard-deck outline is NOT cut (the knife's 08-07 ruling 4
+    exemption), so a runway vertex the trench ramp shares is the runway's,
+    never the floor's — its runway rows to the crown are not released."""
+    ring = ((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0))
+    roles = {1: ("tunnel_ramp",), 2: ("tunnel_ramp", "runway"), 3: ("runway",),
+             4: ("tunnel_ramp", "runway_crossing"), 5: ("tunnel_ramp", "service_road")}
+    pm = types.SimpleNamespace(
+        structures=(types.SimpleNamespace(deck_bridge="dsf:obj1", deck_ring=ring),),
+        vertices={v: types.SimpleNamespace(xy=(5.0, 5.0)) for v in roles},
+        roles_at=lambda v: roles[v])
+    floor, trench = ED.deck_floor(pm)
+    assert floor == {1, 5}
+    assert trench == {1, 2, 4, 5}

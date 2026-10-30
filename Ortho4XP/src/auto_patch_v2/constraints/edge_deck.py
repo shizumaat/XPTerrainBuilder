@@ -113,6 +113,9 @@ def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 #: the role of an edge trench's FLOOR: never part of its span (the rim
 #: along the back is — it is the objects' top edge)
 _FLOOR_ROLES = frozenset({"tunnel_ramp"})
+#: ``runway_profile.RUNWAY_FAMILY`` (not imported: its closure is not this
+#: generator's stage key)
+_RUNWAY_FAMILY = frozenset({"runway", "runway_crossing"})
 
 
 def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
@@ -268,7 +271,12 @@ def deck_floor(planar: PlanarMap) -> tuple[frozenset, frozenset]:
     floor under its deck, and every vertex of a trench (its ramps and its
     void) — ``walled_plate.release_across``'s sets (owner RULINGS
     2026-10-30a: the outline is the step; nothing outside the trench pulls
-    the floor)."""
+    the floor).  A vertex carrying a RUNWAY-family role is never floor: a
+    runway cell inside the outline is not cut (the knife's 08-07 ruling 4
+    exemption, ``planar/structure_service``), so its rows stay — MEASURED
+    (LFPG 09L/27R over a hard-deck road underpass, batch AR): the release
+    withdrew the runway's transverse rows at the trench outline and the
+    runway edge fell 1.02 m off its crown (3.34 % against 1.52 %)."""
     rings = [t.deck_ring for t in getattr(planar, "structures", ()) or ()
              if getattr(t, "deck_bridge", "") and len(t.deck_ring) >= 3]
     if not rings:
@@ -282,6 +290,7 @@ def deck_floor(planar: PlanarMap) -> tuple[frozenset, frozenset]:
         roles = set(planar.roles_at(v))
         if roles & (_FLOOR_ROLES | {"retaining_wall"}):
             trench.add(v)
-            if roles & _FLOOR_ROLES and inside.contains(Point(vx.xy)):
+            if roles & _FLOOR_ROLES and not roles & _RUNWAY_FAMILY \
+                    and inside.contains(Point(vx.xy)):
                 floor.add(v)
     return frozenset(floor), frozenset(trench)

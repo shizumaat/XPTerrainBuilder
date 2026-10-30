@@ -266,6 +266,11 @@ def _no_floor_refusals(rep: obj8.ObjReport | None, bl) -> list[str]:
                    f"{drop:.2f} m under that ground — a slab sitting on datum relief, not a sunken "
                    f"solid: the depth is the pack's flat plane over real relief, never authored "
                    f"(2026-09-09ag rule 5b)")
+    for path, (n, depth) in sorted(rep.implausible_depth.items(), key=lambda kv: kv[1][1]):
+        out.append(f"{os.path.basename(path)} x{n}: a solid part is authored {-depth:.2f} m "
+                   f"under its own datum, farther than the ground envelope's margin "
+                   f"(emit.cockpit.sentinel_drop_m) — a stray authoring part no ground holds, "
+                   f"never a basin floor (issue #1685)")
     for path, (n, depth, z_min) in sorted(rep.no_floor.items(), key=lambda kv: kv[1][1]):
         out.append(f"{os.path.basename(path)} x{n}: genuine solids reach {depth:.2f} m under "
                    f"the local ground (rendered {z_min:.2f}) but carry NO floor plate "

@@ -125,6 +125,7 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     seats_of = edge_seats_of(planar, law, combine=False)
     rows: list[Row] = []
     by_obj: dict[str, dict] = {}
+    ceilings: list[tuple] = []
     for tn in tunnels:
         got = seats_of(tn)
         for (oid, st, depth), (terms, _d) in zip(tn.edge_seats, got, strict=True):
@@ -152,11 +153,16 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
                     + (planar.vertices[s].xy[1] - y) ** 2)
             if v in air:
                 # #1692: the pavement under the deck never stands through it
-                rows.append(Linear(((v, 1.0), (a, -1.0)), None, flush, under))
+                # — read from the deck's own zero (round 6: from the nearest
+                # seat it stood 0.08 m through)
+                ceilings.append((tn.deck_bridge, v, a, under))
                 continue
             rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
             rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))
     flush = float(law.tables.structures.bridge.deck_flush_m)
+    for oid, v, a, src in ceilings:
+        top_of = _station_tops(list(by_obj[oid].values()))
+        rows.append(_from_zero(v, top_of, top_of.get(a), None, flush, src))
     for oid in sorted(by_obj):
         ends = list(by_obj[oid].values())
         rows.extend(_station_rows(oid, ends, flush))
@@ -199,24 +205,33 @@ def _station_rows(oid: str, ends: list, flush: float) -> list[Row]:
     deck the plate set (KBNA round 5).  The rigid row holds the end means;
     a taxiway's cross-fall left the stations of one end line 0.76 m apart
     under a flat deck (KBNA round 4).  Hard, under :data:`RIGID`."""
+    top_of = _station_tops(ends)
+    return [_from_zero(v, top_of, top_of[v], -flush, flush,
+                       Source(GEN, RIGID, (oid, f"station v{v}"))) for v in sorted(top_of)]
+
+
+def _station_tops(ends: list) -> dict[int, float]:
+    """Every station vertex of a deck's end lines, each once, with its end
+    line's top (the first end line naming it)."""
     top_of: dict[int, float] = {}
     for terms, top in ends:
         for v, _w in terms:
             top_of.setdefault(v, float(top))
-    if not top_of:
-        return []
+    return top_of
+
+
+def _from_zero(v: int, top_of: dict, top: "float | None", lo: "float | None",
+               hi: float, src: Source) -> Row:
+    """``z[v] − mean z[S] − (top − mean top[S]) ∈ [lo, hi]``: ``v`` against
+    the deck top ``top`` above it, read from the zero the object stage
+    seats (:func:`_station_rows`); ``top`` ``None`` reads the mean top."""
     n = len(top_of)
     mean_top = sum(top_of.values()) / n
-    rows: list[Row] = []
-    for v in sorted(top_of):
-        acc = {u: -1.0 / n for u in top_of}
-        acc[v] += 1.0
-        ts = tuple((u, c) for u, c in sorted(acc.items()) if abs(c) > 1e-12)
-        rhs = top_of[v] - mean_top
-        if ts:
-            rows.append(Linear(ts, rhs - flush, rhs + flush,
-                               Source(GEN, RIGID, (oid, f"station v{v}"))))
-    return rows
+    acc = {u: -1.0 / n for u in top_of}
+    acc[v] = acc.get(v, 0.0) + 1.0
+    ts = tuple((u, c) for u, c in sorted(acc.items()) if abs(c) > 1e-12)
+    rhs = (mean_top if top is None else top) - mean_top
+    return Linear(ts, None if lo is None else rhs + lo, rhs + hi, src)
 
 
 def _span_vertices(planar: PlanarMap, law: Law, tn) -> set[int]:

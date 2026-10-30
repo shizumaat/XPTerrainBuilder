@@ -213,6 +213,12 @@ def test_every_end_line_station_is_held_flush_with_the_deck():
     assert abs(r3.lo - 0.01) < 1e-9 and abs(r3.hi - 0.09) < 1e-9
     r1 = next(r for r in rows if "station v1" in r.source.inputs[1])
     assert abs(r1.lo + 0.09) < 1e-9 and abs(r1.hi + 0.01) < 1e-9
+    # pavement under the deck beside station 3 never stands through the
+    # deck the same zero sets (from the nearest seat it stood 0.08 m over)
+    tops = ED._station_tops(ends)
+    c9 = ED._from_zero(9, tops, tops[3], None, 0.04, r1.source)
+    assert c9.lo is None and abs(c9.hi - 0.09) < 1e-9
+    assert dict(c9.terms) == {1: -0.25, 2: -0.25, 3: -0.25, 4: -0.25, 9: 1.0}
 
 
 def test_the_floor_hangs_from_the_mean_of_both_end_lines_and_an_edge_seat_is_unchanged():

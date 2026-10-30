@@ -46,6 +46,7 @@ from .structures import StructureStats, build_structures, ramp_targets
 from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
 from .deck_bridge import deck_bridges
+from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
 from .structure_approach import wall_field
@@ -298,6 +299,12 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        trenches=tstats.trench_objects,
                                                        deck_bridges=decks)
     sstats.hard_decks.extend(deck_notes)
+    # THE ROAD OVERPASSES, read ONCE before the solve too (owner RULINGS
+    # 2026-10-30f (1) / (5), ``planar/overpass_deck``): the object stage
+    # seats each deck's zero on the road beneath
+    overpasses, over_notes = road_overpasses(objects, cache, classification, airport,
+                                             law, decks)
+    sstats.hard_decks.extend(over_notes)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
     # 2026-09-15; RULINGS 2026-09-15y): the ONE road-family face the
     # structures stage mints — a mapped way whose two ENDS are mouths.
@@ -416,7 +423,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     seam = _seam_vertices(arr, vertices_xy)
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins,
-                   channels=tuple(channels),
+                   channels=tuple(channels), overpasses=tuple(overpasses),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)
                                          for b in arr.seam_bands),

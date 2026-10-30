@@ -430,6 +430,11 @@ class PlanarMap:
     #: ``verify/channel.py`` judges the emitted surface against the SAME
     #: record — neither re-derives the corridor (§45 (2)).
     channels: tuple[Channel, ...] = ()
+    #: THE ROAD OVERPASSES (owner RULINGS 2026-10-30f (1) / (5), #1692,
+    #: additive): every pack hard deck over a mapped road no airside
+    #: pavement crosses (``planar/overpass_deck.Overpass``), read before
+    #: the solve; the object stage seats each on the road beneath.
+    overpasses: tuple = ()
     #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,
     #: additive): vertex id -> the elevation the objective pulls it to.
     #: A road-family vertex prefers the CORE's clamped, laterally-levelled

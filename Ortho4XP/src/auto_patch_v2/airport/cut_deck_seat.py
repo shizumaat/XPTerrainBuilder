@@ -122,7 +122,7 @@ def seat_cut_decks(record: _t.Any, m: _t.Any, origin: "tuple[float, float] | Non
     is class A's, never this reading's."""
     if (not cuts or step_m <= 0.0 or str(getattr(m, "deck_kind", "") or "") != "flag"
             or getattr(m, "deck_top_y", None) is None
-            or getattr(m, "plate_kind", "") == "deck"):
+            or getattr(m, "plate_kind", "") in ("deck", "overpass")):
         return record
     slab = _ads.slab_points(m, origin)
     if len(slab) < 3:

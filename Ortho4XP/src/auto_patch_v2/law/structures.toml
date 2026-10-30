@@ -433,6 +433,11 @@ deck_end_reach_m    = 25.0
 # abutment: LEMD's deck ways run 35-467 m and the crossings 7-24 m.
 deck_cut_witness_m  = 0.5
 deck_abutment_m     = 40.0
+# A HARD-DECK BRIDGE IS FLUSH AT EVERY STATION (owner RULINGS 2026-10-30a (1)
+# "flush within 4cm with the graded taxi surface on either side", 30f (4); #1692):
+# each end-line station of the pavement driving onto the deck stands within this
+# of the deck top (constraints/edge_deck, one zero per object).
+deck_flush_m        = 0.04
 # ONE DECK FOR PARALLEL CARRIAGEWAYS (spec §33 (4) as amended, Fable
 # 2026-09-14, RULINGS 2026-09-14bp item 10; owner 2026-09-14bl item 10 "should
 # be a single smooth bridge, no small gap here").  Two mapped bridge ways that

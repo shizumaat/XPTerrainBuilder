@@ -135,17 +135,25 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
         ring = Polygon(tn.deck_ring).buffer(0.5)
         inside = prep(ring)
         src = Source(GEN, RULING, (tn.id, tn.deck_bridge, "deck span"))
+        under = Source(GEN, RIGID, (tn.id, tn.deck_bridge, "under the deck"))
+        flush = float(law.tables.structures.bridge.deck_flush_m)
         for v, vx in planar.vertices.items():
-            if v in air or v in seat_vs or _FLOOR_ROLES & set(planar.roles_at(v)) \
+            if v in seat_vs or _FLOOR_ROLES & set(planar.roles_at(v)) \
                     or not inside.contains(Point(vx.xy)):
                 continue
             x, y = vx.xy
             a = min(seat_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
                     + (planar.vertices[s].xy[1] - y) ** 2)
+            if v in air:
+                # #1692: the pavement under the deck never stands through it
+                rows.append(Linear(((v, 1.0), (a, -1.0)), None, flush, under))
+                continue
             rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
             rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))
+    flush = float(law.tables.structures.bridge.deck_flush_m)
     for oid in sorted(by_obj):
         ends = list(by_obj[oid].values())
+        rows.extend(_station_rows(oid, ends, flush))
         for k, (terms, top) in enumerate(ends[1:], 1):
             src = Source(GEN, RIGID, (oid, f"end {k}"))
             acc: dict[int, float] = {}
@@ -159,6 +167,29 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
             rhs = top - ends[0][1]
             rows.append(Linear(ts, None, rhs, src))
             rows.append(Linear(tuple((v, -c) for v, c in ts), None, -rhs, src))
+    return rows
+
+
+def _station_rows(oid: str, ends: list, flush: float) -> list[Row]:
+    """EVERY STATION FLUSH (owner RULINGS 2026-10-30a (1), 30f (4); #1692):
+    each end line's every seat vertex stands within ``flush`` of the deck
+    top there, read from the ONE zero the first end line's mean carries —
+    ``z[v] − mean z[S_0] ∈ top_k − top_0 ± flush``.  The rigid row holds
+    the MEANS; a taxiway's cross-fall left the stations of one end line
+    0.76 m apart under a flat deck (KBNA, the bank's rim 0.37 m over the
+    deck top).  Hard, under :data:`RIGID`."""
+    base, top0 = ends[0]
+    rows: list[Row] = []
+    for k, (terms, top) in enumerate(ends):
+        rhs = top - top0
+        for v in sorted({v for v, _w in terms}):
+            acc: dict[int, float] = {v: 1.0}
+            for u, w in base:
+                acc[u] = acc.get(u, 0.0) - w
+            ts = tuple((u, c) for u, c in sorted(acc.items()) if abs(c) > 1e-12)
+            if ts:
+                rows.append(Linear(ts, rhs - flush, rhs + flush,
+                                   Source(GEN, RIGID, (oid, f"end {k} station v{v}"))))
     return rows
 
 

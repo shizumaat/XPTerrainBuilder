@@ -34,6 +34,14 @@ the object stage's plate):
   mesh makes the bank.  A frame whose co-placed trench object states its
   walls is no hard-deck bridge here: the walls define the cut, and the
   trench object's own reading governs (``planar/covered_bores``).
+* WALLS (owner RULINGS 2026-10-30f (3), #1692): where the frame itself
+  models abutment walls under the deck (``planar/deck_walls``: vertical
+  faces rising from its bottom along the road), the floor runs to the
+  walls' inner faces — under the deck and along the open stretch to the
+  next deck — and the rim stands ``wall_gap_m`` behind them
+  (:func:`walled_trench`); the bank stands only where there is no wall.
+  KBNA's taxiway-L frame: walls 31.7 m apart, the carriageway's banks
+  had climbed 6 m up them.
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -49,9 +57,10 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..airport.airside_deck_seat import facing_contacts
+from .deck_walls import inner_faces, wall_faces, wall_strip
 
 __all__ = ["deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
-           "deck_cut", "deck_pin"]
+           "deck_cut", "deck_pin", "walled_trench"]
 
 XY = tuple[float, float]
 
@@ -75,6 +84,11 @@ class DeckBridge:
     bottom_y: float
     #: the pre-solve rendered deck top: the estimate a mouth plans from
     deck_z: float
+    #: the frame's WALLS under the deck, ``(r_w, n_w, faces)``: their own
+    #: direction, across it, and each face as ``(u, s0, s1)`` in that frame
+    #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3)); ``()``
+    #: for a deck the pack models no wall under
+    walls: tuple = ()
 
     @property
     def depth_a(self) -> float:
@@ -232,10 +246,12 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=()
             sa, sb = (tuple(to_xy(lo, la) for la, lo in e) for e in pair)
             reach = max(2.0 * step, 3.0)
             ta, tb = _top_at(slab, sa, reach, top), _top_at(slab, sb, reach, top)
-            mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
-                                   tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
-                                   float(bottom),
-                                   float(d.deck_top_z) - top + 0.5 * (ta + tb)))
+            db = DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
+                            tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
+                            float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb))
+            r, n = _road_dir(db), _across_dir(db)
+            mine.append(_dc.replace(db, walls=wall_faces(cache, frame, float(bottom),
+                                                         0.5 * (ta + tb), r, n)))
         # ONE zero per object (30a (1)): every piece plans from one estimate
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
         out.extend(db if z is None else _dc.replace(db, deck_z=z) for db in mine)
@@ -278,6 +294,12 @@ def _road_dir(db: DeckBridge) -> XY:
     by = sum(p[1] for p in db.seats_b) / len(db.seats_b)
     n = math.hypot(bx - ax, by - ay) or 1.0
     return (-(by - ay) / n, (bx - ax) / n)
+
+
+def _across_dir(db: DeckBridge) -> XY:
+    """The unit direction from end A to end B — across the road."""
+    rx, ry = _road_dir(db)
+    return (ry, -rx)
 
 
 def _across(ring, r: XY) -> tuple[float, float]:
@@ -362,22 +384,62 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     toward ``other`` deck over the same road, to its own side of the line
     halfway across the open stretch; the footprint takes in the deck ring
     ``inset`` inside its edge — the bank from the road edge up to the deck
-    (Q-A as ruled)."""
+    (Q-A as ruled) — or, under a WALLED deck, the floor runs to the walls'
+    inner faces and the rim stands ``inset`` behind them
+    (:func:`walled_trench`, RULINGS 2026-10-30f (3))."""
     big = 10.0 * (axis.length + 1000.0)
     ahead = axis.interpolate(min(axis.length, 1.0))
     keep = _half_plane(_mid_line(db), (ahead.x, ahead.y), big)
     if other is not None:
         c = db.polygon.centroid
         keep = keep.intersection(_half_plane(_gap_line(db, other), (c.x, c.y), big))
-    bank = db.polygon.buffer(-inset, join_style="mitre")
-    if not bank.is_empty:
-        outer = unary_union([outer, bank])
+    walled = walled_trench(db, inset, other)
+    if walled is not None:
+        # 30f (3): the floor runs to the walls' inner faces, the rim stands
+        # ``inset`` behind them — no bank climbs the walls
+        floor, rim = walled
+        ramp = unary_union([ramp, floor])
+        outer = unary_union([outer, rim, floor])
+    else:
+        bank = db.polygon.buffer(-inset, join_style="mitre")
+        if not bank.is_empty:
+            outer = unary_union([outer, bank])
 
     def one(g, fallback):
         g = g.intersection(keep)
         parts = [q for q in getattr(g, "geoms", [g]) if q.geom_type == "Polygon" and q.area > 0]
         return max(parts, key=lambda q: q.area) if parts else fallback
     return one(ramp, ramp), one(outer, outer)
+
+
+def walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = None
+                  ) -> "tuple[Polygon, Polygon] | None":
+    """``(floor, rim)`` of a WALLED deck (``planar/deck_walls``; RULINGS
+    2026-10-30f (3)): the floor is the strip between the walls' inner faces
+    under the deck — and, toward ``other`` deck over the same road, along
+    the open stretch to it, between that stretch's own inner faces — and
+    the rim the same strip ``inset`` wider (behind the walls), inside the
+    deck's ring under it.  ``None`` where either side of the deck has no
+    wall: the 30b bank stands there."""
+    if not db.walls:
+        return None
+    r, n, faces = db.walls
+    u_lo, u_hi = _across(db.ring, n)
+    s_lo, s_hi = _across(db.ring, r)
+    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi))
+    if ua is None or ub is None:
+        return None
+    floors = [wall_strip(r, n, ua, ub, s_lo, s_hi)]
+    rims = [wall_strip(r, n, ua - inset, ub + inset, s_lo, s_hi).intersection(db.polygon)]
+    if other is not None:
+        o_lo, o_hi = _across(other.ring, r)
+        g0, g1 = (s_hi, o_lo) if o_lo >= s_hi else (o_hi, s_lo)
+        if g1 > g0:
+            va, vb = inner_faces(faces, g0, g1, 0.5 * (u_lo + u_hi))
+            if va is not None and vb is not None:
+                floors.append(wall_strip(r, n, va, vb, g0, g1))
+                rims.append(wall_strip(r, n, va - inset, vb + inset, g0, g1))
+    return unary_union(floors), unary_union(rims)
 
 
 def deck_pin(db: DeckBridge, mouth):

@@ -347,8 +347,8 @@ def _airside_witness(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface
 
 def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
                  step_m: float = 0.0, origin: "tuple[float, float] | None" = None,
-                 counts: "dict | None" = None) -> "tuple[float, str] | None":
-    """``(zero, where)`` of an AIRSIDE hard-deck member — the world height
+                 counts: "dict | None" = None) -> "tuple | None":
+    """``(zero, where[, seat])`` of an AIRSIDE hard-deck member — the world height
     of its authored ``y = 0`` that puts its deck top on the solved airside
     surface at its end lines — or ``None`` (not class A).  A deck over
     airside that the airport's pavement does not run across (RULINGS
@@ -359,7 +359,10 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
     ``pipeline/rebake_inputs._deck_plate``; owner RULINGS 2026-10-30a (1))
     is read off it alone: the planar stage found the pavement across it and
     the design solve graded both end lines to one zero, so the zero is the
-    solved surface at the plate's stations less the deck top."""
+    solved surface at the plate's stations less the deck top.  A ROAD
+    OVERPASS's plate (``"overpass"``, RULINGS 2026-10-30f (5)) is read the
+    same way: its stations are the road beneath, its y the zero's own.  A
+    plate's reading carries its ``seat`` (:func:`_plate_zero`)."""
     plated = _plate_zero(m, surface)
     if plated is not None:
         return plated
@@ -383,18 +386,35 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
     return float(m.deck_datum_z) - top, "the solved airside surface (ring median)"
 
 
-def _plate_zero(m: _t.Any, surface: _ar.Surface) -> "tuple[float, str] | None":
-    """``(zero, where)`` off a hard-deck bridge's plate, or ``None``."""
+#: the plate kinds class A reads the zero off alone: a hard-deck bridge's
+#: end lines (``pipeline/rebake_inputs.DECK_PLATE``) and a road overpass's
+#: road beneath (``OVERPASS_PLATE``, RULINGS 2026-10-30f (5))
+_PLATED = {"deck": "the hard-deck bridge's end lines {lo:.2f}..{hi:.2f} over {n} stations "
+                   "(deck top y {y:+.2f}; RULINGS 2026-10-30a)",
+           "overpass": "the road beneath the overpass {lo:.2f}..{hi:.2f} over {n} stations "
+                       "(its zero on the road, y {y:+.2f}; RULINGS 2026-10-30f (5))"}
+
+
+def _plate_zero(m: _t.Any, surface: _ar.Surface) -> "tuple[float, str, tuple] | None":
+    """``(zero, where, seat)`` off a hard-deck bridge's or a road
+    overpass's plate, or ``None``; ``seat`` is the station ``(lat, lon,
+    z)`` nearest the stations' middle — where a body of the frame whose own
+    anchor reads no surface is anchored (:func:`airside_deck`)."""
     st = tuple(getattr(m, "plate_stations", ()) or ())
     y = getattr(m, "plate_y", None)
-    if getattr(m, "plate_kind", "") != "deck" or not st or y is None:
+    kind = getattr(m, "plate_kind", "")
+    if kind not in _PLATED or not st or y is None:
         return None
-    zs = [float(z) for z in (surface(float(q[0]), float(q[1])) for q in st) if z is not None]
-    if not zs:
+    read = [(float(q[0]), float(q[1]), surface(float(q[0]), float(q[1]))) for q in st]
+    read = [(la, lo, float(z)) for la, lo, z in read if z is not None]
+    if not read:
         return None
+    zs = [z for _la, _lo, z in read]
     zero = sum(zs) / len(zs) - float(y)
-    return zero, (f"the hard-deck bridge's end lines {min(zs):.2f}..{max(zs):.2f} over "
-                  f"{len(zs)} stations (deck top y {float(y):+.2f}; RULINGS 2026-10-30a)")
+    cla = sum(r[0] for r in read) / len(read)
+    clo = sum(r[1] for r in read) / len(read)
+    seat = min(read, key=lambda r: (r[0] - cla) ** 2 + (r[1] - clo) ** 2)
+    return zero, _PLATED[kind].format(lo=min(zs), hi=max(zs), n=len(zs), y=float(y)), seat
 
 
 def _maybe_a_building(st: _t.Any, i: int, surface: _ar.Surface) -> bool:
@@ -495,11 +515,19 @@ def airside_deck(record: _t.Any, m: _t.Any, airside: "tuple[float, str] | None",
     named_body``)."""
     if airside is None:
         return record
-    from .placement_file import named_body
-    zero, where = airside
+    from .placement_file import authored_offset, named_body
+    zero, where, *seat = airside
     out = []
     for b in record.bodies:
         a = b.anchor
+        if a.surface_z is None and seat:
+            # #1692: a body whose own anchor reads no surface (an abutment
+            # off the map) rides the frame: anchored at the plate's seat
+            la, lo, sz = seat[0]
+            y0 = float(sz) - zero
+            a = _dc.replace(a, lat=la, lon=lo, surface_z=float(sz), y_zero=y0,
+                            offset=authored_offset(la, lo, y0, record.lat, record.lon,
+                                                   record.heading))
         if a.surface_z is None:
             out.append(b)
             continue
@@ -507,7 +535,7 @@ def airside_deck(record: _t.Any, m: _t.Any, airside: "tuple[float, str] | None",
         off = tuple(a.offset)
         a2 = _dc.replace(a, y_zero=y0, offset=(off[0], y0, off[2]), datum=True,
                          reason=f"airside deck on {where}: flush at zero {zero:.2f} "
-                                f"(RULINGS 2026-10-22n; was: {a.reason})")
+                                f"(RULINGS 2026-10-22n; was: {b.anchor.reason})")
         out.append(named_body(m, b, anchor=a2))
     counts["airside_deck_placements"] = counts.get("airside_deck_placements", 0) + 1
     return _dc.replace(record, bodies=tuple(out))

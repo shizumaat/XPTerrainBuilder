@@ -120,6 +120,13 @@ def _edge_seat_plates(pm, kept) -> dict[str, tuple]:
     m under the taxiway).  The anchor reads it FIRST (§16e's datum,
     ``anchor_rule.datum_of``), ahead of the basin rim."""
     out: dict[str, tuple] = {}
+    for ov in getattr(pm, "overpasses", ()) or ():
+        # a ROAD OVERPASS (``planar/overpass_deck``, RULINGS 2026-10-30f
+        # (5)): its zero on the road beneath, every deck piece's stations
+        if ov.object_id not in kept:
+            y, st, *rest = out.get(ov.object_id, (0.0, [], 0.0, OVERPASS_PLATE))
+            out[ov.object_id] = (y, st + [tuple(p) for p in ov.stations
+                                          if tuple(p) not in st], *rest)
     for tn in pm.structures:
         if getattr(tn, "deck_bridge", ""):
             _deck_plate(out, tn, kept)
@@ -132,6 +139,9 @@ def _edge_seat_plates(pm, kept) -> dict[str, tuple]:
 
 #: the plate kind of a HARD-DECK BRIDGE's end lines (``airside_deck_seat``)
 DECK_PLATE = "deck"
+#: the plate kind of a ROAD OVERPASS's road beneath (``airside_deck_seat``):
+#: its y is the zero's own, 0.0
+OVERPASS_PLATE = "overpass"
 
 
 def _deck_plate(out: dict, tn, kept) -> None:

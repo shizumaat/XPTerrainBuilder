@@ -55,13 +55,19 @@ def _write(path, comps, hard=()):
     return str(path)
 
 
-def _deck(tmp_path, y0=0.0):
+def _deck(tmp_path, y0=0.0, walls=True):
     """A 40 x 40 m deck plate (top y 6.0) on two abutment blocks reaching
-    0.2 m under the zero, centred on the anchor (frame -20..20 both ways)."""
-    return _write(tmp_path / "deck.obj",
-                  [_box(-20.0, -20.0, 40.0, 40.0, 0.3, y0=5.7 + y0),
-                   _box(-20.0, -20.0, 3.0, 40.0, 5.9, y0=-0.2 + y0),
-                   _box(17.0, -20.0, 3.0, 40.0, 5.9, y0=-0.2 + y0)], hard=(0,))
+    0.2 m under the zero, centred on the anchor (frame -20..20 both ways) —
+    WALLS along the road under it (inner faces x = -17 / +17) — or, with
+    ``walls`` false, on four 2 m piers at its corners (no wall)."""
+    if walls:
+        legs = [_box(-20.0, -20.0, 3.0, 40.0, 5.9, y0=-0.2 + y0),
+                _box(17.0, -20.0, 3.0, 40.0, 5.9, y0=-0.2 + y0)]
+    else:
+        legs = [_box(x, z, 2.0, 2.0, 5.9, y0=-0.2 + y0)
+                for x in (-20.0, 18.0) for z in (-20.0, 18.0)]
+    return _write(tmp_path / ("deck.obj" if walls else "piers.obj"),
+                  [_box(-20.0, -20.0, 40.0, 40.0, 0.3, y0=5.7 + y0)] + legs, hard=(0,))
 
 
 def _placed(path, oid, kind="flag", xy=(0.0, 0.0)):
@@ -90,8 +96,8 @@ def _classification(both_ends=True, dy=0.0):
 AIRPORT = types.SimpleNamespace(frame=FRAME)
 
 
-def _read(tmp_path, objs=None, cl=None, trenches=()):
-    o = _placed(_deck(tmp_path), "dsf:obj7")
+def _read(tmp_path, objs=None, cl=None, trenches=(), walls=True):
+    o = _placed(_deck(tmp_path, walls=walls), "dsf:obj7")
     return DB.deck_bridges(objs or [o], O.ResourceCache(THICK), cl or _classification(),
                            AIRPORT, LAW, trenches)
 
@@ -128,8 +134,8 @@ def test_a_co_placed_trench_object_states_the_walls_and_the_walls_define_the_cut
     assert got == () and "they define the cut" in notes[0]
 
 
-def _bridge(tmp_path):
-    (db,), _n = _read(tmp_path)
+def _bridge(tmp_path, walls=False):
+    (db,), _n = _read(tmp_path, walls=walls)
     return db
 
 
@@ -152,6 +158,26 @@ def test_the_mouth_stands_at_the_deck_midline_and_the_cut_banks_to_its_edge(tmp_
     assert [s[0] for s in seats] == ["dsf:obj7", "dsf:obj7"] and len(seats[0][1]) >= 3
 
 
+def test_a_walled_deck_cuts_the_floor_to_the_walls_inner_faces(tmp_path):
+    """#1692, RULINGS 2026-10-30f (3): where the frame models walls under
+    the deck (its abutment blocks' inner faces at x = -17 / +17, rising from
+    its bottom to the deck), the floor runs to them and the rim stands
+    ``wall_gap_m`` behind them — no bank climbs the walls; a deck on piers
+    keeps the 30b bank."""
+    db = _bridge(tmp_path, walls=True)
+    r, n, faces = db.walls
+    assert abs(abs(r[1]) - 1.0) < 1e-6 and faces
+    floor, rim = DB.walled_trench(db, 0.6)
+    assert abs(floor.bounds[0] + 17.0) < 1e-6 and abs(floor.bounds[2] - 17.0) < 1e-6
+    assert abs(rim.bounds[0] + 17.6) < 1e-6 and abs(rim.bounds[2] - 17.6) < 1e-6
+    axis, _d = DB.deck_mouth(LineString([(0.0, 23.0), (0.0, 120.0)]), (0.0, -1.0), db)
+    ramp = _sbox(-4.0, -10.0, 4.0, 100.0)
+    r2, o2 = DB.deck_cut(db, axis, ramp, ramp.buffer(1.6, join_style="mitre"), 0.6)
+    assert abs(r2.bounds[0] + 17.0) < 1e-6 and abs(r2.bounds[2] - 17.0) < 1e-6
+    assert abs(o2.bounds[0] + 17.6) < 1e-6 and abs(r2.bounds[1]) < 1e-6
+    assert DB.walled_trench(_bridge(tmp_path), 0.6) is None     # piers are no wall
+
+
 def test_between_two_decks_the_trench_stays_at_the_floors_to_the_halfway_line(tmp_path):
     """Q271 b: two decks over one road 20 m apart (KBNA's taxiway-L pair):
     each mouth's trench runs from its deck's midline to the line halfway
@@ -169,6 +195,20 @@ def test_between_two_decks_the_trench_stays_at_the_floors_to_the_halfway_line(tm
     assert abs(level - 30.0) < 1e-6 and abs(climb - 30.0) < 1e-6
     assert abs(stretch[0] - 20.0) < 1e-6 and abs(stretch[1] - 40.0) < 1e-6
     assert len(seats) == 4
+
+
+def test_every_end_line_station_is_held_flush_with_the_deck():
+    """#1692, RULINGS 2026-10-30a (1) / 30f (4): every station of every end
+    line stands within ``[bridge] deck_flush_m`` of the deck top read from
+    the one zero — not only the means (a taxiway's cross-fall left one end
+    line 0.76 m from end to end under a flat deck)."""
+    ends = [(((1, 0.5), (2, 0.5)), 6.0), (((3, 0.5), (4, 0.5)), 6.1)]
+    rows = ED._station_rows("dsf:obj7", ends, 0.04)
+    assert len(rows) == 4 and all(r.source.ruling == ED.RIGID for r in rows)
+    r3 = next(r for r in rows if dict(r.terms).get(3) == 1.0)
+    assert abs(r3.lo - 0.06) < 1e-9 and abs(r3.hi - 0.14) < 1e-9
+    r1 = next(r for r in rows if "end 0 station v1" in r.source.inputs[1])
+    assert dict(r1.terms) == {1: 0.5, 2: -0.5} and abs(r1.hi - 0.04) < 1e-9
 
 
 def test_the_floor_hangs_from_the_mean_of_both_end_lines_and_an_edge_seat_is_unchanged():
@@ -211,5 +251,5 @@ def test_the_object_stage_seats_the_one_zero_at_the_end_lines():
     assert (y, clear, kind) == (6.0, 0.0, RI.DECK_PLATE) and len(st) == 3
     m = types.SimpleNamespace(plate_kind="deck", plate_y=6.0,
                               plate_stations=((36.0, -86.0), (36.1, -86.0)))
-    zero, where = ADS.airside_zero(m, (), lambda la, lo: 110.0 if la < 36.05 else 111.0)
+    zero, where, _seat = ADS.airside_zero(m, (), lambda la, lo: 110.0 if la < 36.05 else 111.0)
     assert abs(zero - 104.5) < 1e-9 and "hard-deck bridge" in where

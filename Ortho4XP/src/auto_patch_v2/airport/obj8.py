@@ -99,7 +99,35 @@ class ObjGeometry:
 
     @property
     def hard_deck(self) -> np.ndarray:
-        return self.solid[self.hardness == HARD_DECK]
+        """The DECK's triangles: those flagged ``ATTR_hard_deck`` — or,
+        where every flagged triangle stands edge-on in plan (the author put
+        the flag on the deck's vertical side faces), the ``ATTR_hard``
+        triangles that bear plan: the surface the flagged body is driven on
+        (with none, the flagged set as it stands).
+        KIAH's taxiway bridges flag only their 2 m side faces and carry the
+        taxiway on an ``ATTR_hard`` plate; read as flagged, the deck had no
+        outline and no bridge was read (owner 2026-10-30, kiahdeck)."""
+        deck = self.solid[self.hardness == HARD_DECK]
+        if not deck.shape[0] or _plan_bearing(self.vertices, deck).any():
+            return deck
+        hard = self.solid[self.hardness == HARD]
+        plate = hard[_plan_bearing(self.vertices, hard)]
+        return plate if plate.shape[0] else deck
+
+
+#: a triangle whose plan (x, z) area is at most this stands edge-on: a
+#: vertical face, which covers no ground
+PLAN_EDGE_ON_M2 = 1e-6
+
+
+def _plan_bearing(vertices: np.ndarray, tri: np.ndarray) -> np.ndarray:
+    """Per triangle of ``tri``, whether its plan (x, z) area exceeds
+    :data:`PLAN_EDGE_ON_M2`."""
+    if not tri.shape[0]:
+        return np.zeros(0, dtype=bool)
+    p = vertices[tri][:, :, [0, 2]]
+    a, b = p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]
+    return 0.5 * np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]) > PLAN_EDGE_ON_M2
 
 
 def parse_obj8(path: str) -> ObjGeometry:

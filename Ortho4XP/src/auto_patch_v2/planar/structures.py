@@ -85,7 +85,7 @@ from shapely.strtree import STRtree
 from ..classify.roles import Cell, Classification, is_runway_shoulder
 from ..law import Law
 from ..law.reference_code import ref_status, status_by_ref
-from ..law.tables import role_family, role_side, zone2_half_width_m
+from ..law.tables import role_family, role_side, rolled_on_roles, zone2_half_width_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..model.structures import Channel, Deck, Tunnel
@@ -346,6 +346,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # §34 (12) (3)'s protected set (``structure_service``); an OSM bore's
     # ramp STOPS SHORT of these, a pack-stated corridor is never bound
     _cut_roles = set(airside_cut_roles(law))
+    deck_paved = None     # the rolled-on pavement over a deck's open stretch, read once
     # §34 (12) (2): the water a structure may not stand on (one witness)
     sea_cut = shore_region(tuple(cells), getattr(airport, "dem", None))
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
@@ -710,8 +711,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # 2026-10-30a (2): the floor is level under the whole deck at its
             # bottom and climbs beyond its edge — or stays at the floors to
             # the next deck over the same road (``deck_bridge.deck_seats``)
+            if deck_paved is None:
+                deck_paved = unary_union([p for p, c in zip(polys, cells, strict=False)
+                                          if c.role in rolled_on_roles(law)])
             flat_to, level_to, edge_floor, edge_seats, deck_next = deck_seats(
-                deck, axis_ln, deck_bridges, gap)
+                deck, axis_ln, deck_bridges, gap, deck_paved)
             climb_from = max(climb_from, flat_to)
         if edge is not None:
             # 27r / 28d Q213: the floor stays at the objects' bottom under the

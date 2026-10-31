@@ -357,3 +357,68 @@ def test_the_open_stretch_between_two_decks_over_one_road_is_the_bridges_ground(
     out, _notes = DB.deck_ground(_Cl((_cell(0, "tunnel_ramp", ramp),)), [tunnel], LAW)
     ground = [Polygon(c.ring, c.holes) for c in out.cells if c.role == "graded_strip"]
     assert abs(sum(g.area for g in ground) - 2 * 12.0 * 110.0) < 1e-3
+
+
+def _slab_obj(tmp_path):
+    """A 40 x 40 m slab 0.12 m thick (top y 1.48) carried on an ``ATTR_hard``
+    plate, its two 2 m side faces (x = -20 / +20, standing edge-on in plan)
+    the only ``ATTR_hard_deck`` triangles — the kiahdeck authoring."""
+    top, bot, rail = 1.48, 1.36, 3.42
+    plate = [(-20.0, top, -20.0), (20.0, top, -20.0), (20.0, top, 20.0),
+             (-20.0, top, -20.0), (20.0, top, 20.0), (-20.0, top, 20.0)]
+    under = [(-20.0, bot, -20.0), (20.0, bot, 20.0), (20.0, bot, -20.0),
+             (-20.0, bot, -20.0), (-20.0, bot, 20.0), (20.0, bot, 20.0)]
+    sides = [p for x in (-20.0, 20.0) for p in
+             ((x, bot, -20.0), (x, rail, -20.0), (x, rail, 20.0),
+              (x, bot, -20.0), (x, rail, 20.0), (x, bot, 20.0))]
+    verts = under + plate + sides
+    out = ["A", "800", "OBJ", "", f"POINT_COUNTS {len(verts)} 0 0 {len(verts)}"]
+    out += [f"VT {v[0]:.4f} {v[1]:.4f} {v[2]:.4f} 0 1 0 0 0" for v in verts]
+    out += [f"IDX {i}" for i in range(len(verts))]
+    out += ["TRIS 0 6", "ATTR_hard", "TRIS 6 6", "ATTR_no_hard", "ATTR_hard_deck",
+            f"TRIS 12 {len(sides)}"]
+    path = tmp_path / "slab.obj"
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
+    return str(path)
+
+
+def test_a_deck_flagged_only_on_its_edge_on_faces_is_its_hard_plate(tmp_path):
+    """kiahdeck: the author put ``ATTR_hard_deck`` on the slab's vertical side
+    faces, which cover no ground; the deck is the ``ATTR_hard`` plate the
+    flagged body is driven on — and a deck whose flagged faces bear plan is
+    read as flagged, unchanged."""
+    g = O.parse_obj8(_slab_obj(tmp_path))
+    ys = {round(float(g.vertices[i][1]), 2) for t in g.hard_deck for i in t}
+    assert len(g.hard_deck) == 2 and ys == {1.48}
+    flagged = O.parse_obj8(_deck(tmp_path))
+    assert (flagged.hard_deck == flagged.solid[flagged.hardness == O.HARD_DECK]).all()
+
+
+def _slab_read(tmp_path, airport):
+    o = _placed(_slab_obj(tmp_path), "dsf:obj9")
+    o.deck_top_z = 101.48
+    return DB.deck_bridges([o], O.ResourceCache(THICK), _classification(), airport, LAW, ())
+
+
+def test_a_slab_deck_floor_stands_the_clearance_under_it(tmp_path):
+    """30a (2) / 27g: a frame stopping 0.12 m under its deck states no road
+    level — the floor is ``[tunnel] clearance_m`` under the deck, and the
+    side faces rising above the deck are no walls under it (30b banks)."""
+    (db,), notes = _slab_read(tmp_path, AIRPORT)
+    clear = LAW.tables.structures.tunnel.clearance_m
+    assert abs(db.depth_m - clear) < 1e-6 and db.walls == ()
+    assert "short of the road" in notes[0] and "clearance_m" in notes[0]
+
+
+def test_a_slab_deck_over_a_deeper_surveyed_road_keeps_the_survey(tmp_path):
+    """27g: where the credible survey carries the road deeper than the
+    clearance under the deck, the floor is the surveyed road."""
+    dem = types.SimpleNamespace(z=lambda x, y: 93.0 if abs(x) < 8.0 else 100.0)
+    road = types.SimpleNamespace(id=-1, points=((0.0, -60.0), (0.0, 60.0)),
+                                 tags={"highway": "trunk"})
+    airport = types.SimpleNamespace(
+        frame=FRAME, dem=dem, osm_ways=(road,),
+        flat_site=types.SimpleNamespace(signals={"s2_source_class": "lidar"}))
+    (db,), notes = _slab_read(tmp_path, airport)
+    assert abs(db.depth_m - (db.deck_z - 93.0)) < 1e-6 and db.depth_m > 5.0
+    assert "the surveyed road" in notes[0]

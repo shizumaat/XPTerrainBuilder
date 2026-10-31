@@ -236,13 +236,28 @@ _COVERAGE_BUFFER_DEGREES = 0.01
 _REDUNDANT_COVER_AREA = 1e-9
 
 
+_logged_cover_reasons: set = set()
+
+
+def _log_cover_reason(bounding_box, reason: str,
+                      verdict: str = "uses Overpass, not a regional extract"
+                      ) -> None:
+    """One log line per box and reason: why it is (not) extract-served."""
+    key = (tuple(round(float(v), 3) for v in bounding_box), reason)
+    if key in _logged_cover_reasons:
+        return
+    _logged_cover_reasons.add(key)
+    UI.vprint(1, "      OSM box", key[0], verdict + ":", reason + ".")
+
+
 def covering_regions(bounding_box) -> Optional[list]:
     """[(region_id, pbf_url)] of leaves covering the bbox, or ``None``.
 
     ``bounding_box`` is (lat_min, lon_min, lat_max, lon_max).  ``None``
     means the tile is not extract-servable: no index yet, or the
-    intersecting leaves do not jointly contain the bbox (open ocean,
-    index gaps) — the caller keeps using Overpass.
+    intersecting leaves leave more than a sliver of it uncovered and
+    the offline land witness cannot show that remainder is sea (index
+    gaps, an uncached DEM) — the caller keeps using Overpass.
 
     The result is a MINIMAL cover, not every intersecting leaf: the
     Geofabrik index declares each United States state's parent as
@@ -273,6 +288,7 @@ def covering_regions(bounding_box) -> Optional[list]:
             if region_geometry.intersects(bbox_polygon)
         ]
         if not intersecting:
+            _log_cover_reason(bounding_box, "no regional extract reaches it")
             return None
         # All coverage arithmetic happens inside the bbox neighbourhood,
         # so clip once: region polygons carry whole coastlines the
@@ -314,7 +330,25 @@ def covering_regions(bounding_box) -> Optional[list]:
         uncovered = bbox_polygon.difference(
             union.buffer(_COVERAGE_BUFFER_DEGREES))
         if uncovered.area > 0.10 * bbox_polygon.area:
-            return None
+            # An island or coastal box: most of it is sea outside every
+            # region polygon.  Serve it locally only when the offline
+            # land witness (#1731) says that remainder holds no land.
+            import O4_Land_Witness as LAND
+
+            land = LAND.holds_land(uncovered)
+            if land is not False:
+                share = round(100 * uncovered.area / bbox_polygon.area)
+                _log_cover_reason(
+                    bounding_box,
+                    f"{share}% of it lies outside every regional extract"
+                    + (" and holds land" if land else
+                       " and no cached elevation shows it is sea"))
+                return None
+            _log_cover_reason(
+                bounding_box,
+                f"{round(100 * uncovered.area / bbox_polygon.area)}% of it"
+                " lies outside them and cached elevation shows it is sea",
+                verdict="can use regional extract(s)")
         return sorted(
             (region_id, pbf_url) for (region_id, pbf_url, _g) in kept
         )

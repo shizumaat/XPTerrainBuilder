@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import typing as _t
+import weakref
 
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -72,9 +73,38 @@ def _parts(g) -> list[Polygon]:
             and not q.is_empty]
 
 
+#: issue #1706: ``id(partition) -> (weak reference, its prints)`` — one
+#: build's prefix runs (the main map, the ribbon-free map, the last stage's
+#: derives) read the SAME partition object, so its prints, and the memos
+#: they carry (``deck_components``' pieces: 94 s of EDDF's 923 s planar
+#: stage), are derived once per partition instead of once per run
+_PRINTS: dict[int, tuple] = {}
+
+
 def _prints(part) -> list:
     """The deck model footprints of the pack partition (``bridge_family.
-    deck_prints`` over the partition, each deck parsed once)."""
+    deck_prints`` over the partition, each deck parsed once), held for as
+    long as the partition object lives (:data:`_PRINTS`)."""
+    held = _PRINTS.get(id(part))
+    if held is not None and held[0]() is part:
+        return held[1]
+    prints = _derive_prints(part)
+    try:
+        ref = weakref.ref(part, _forget)
+    except TypeError:                         # not weakly referable: not held
+        return prints
+    _PRINTS[id(part)] = (ref, prints)
+    return prints
+
+
+def _forget(ref) -> None:
+    """A held partition died: drop its prints (only its own entry)."""
+    for k, held in list(_PRINTS.items()):
+        if held[0] is ref:
+            del _PRINTS[k]
+
+
+def _derive_prints(part) -> list:
     from ..airport import bridge_family as _bf
     from ..airport.placement_cut import _LineCutter
 

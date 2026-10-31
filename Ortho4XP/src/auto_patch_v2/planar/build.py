@@ -45,6 +45,8 @@ from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
 from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
+from .deck_bridge import deck_bridges, deck_ground
+from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
 from .structure_approach import wall_field
@@ -285,11 +287,28 @@ def build(airport: Airport, classification: Classification, law: Law,
     # covered ground — the structure pass and the covered ground read one
     # record
     bridges = edge_bridges(objects, cache, *covered_cuts(airport, classification, law), law)
+    # THE HARD-DECK BRIDGES, read ONCE (owner RULINGS 2026-10-30a,
+    # ``planar/deck_bridge``): the witness, the corridor and the rows read one
+    # record
+    decks, deck_notes = deck_bridges(objects, cache, classification, airport, law,
+                                     tstats.trench_objects)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,
                                                        portals=tstats.portals,
                                                        edge_bridges=bridges,
-                                                       trenches=tstats.trench_objects)
+                                                       trenches=tstats.trench_objects,
+                                                       deck_bridges=decks)
+    sstats.hard_decks.extend(deck_notes)
+    # the ground each hard deck rests on, once its corridors are cut
+    # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
+    classification, ground_notes = deck_ground(classification, tunnels, law)
+    sstats.hard_decks.extend(ground_notes)
+    # THE ROAD OVERPASSES, read ONCE before the solve too (owner RULINGS
+    # 2026-10-30f (1) / (5), ``planar/overpass_deck``): the object stage
+    # seats each deck's zero on the road beneath
+    overpasses, over_notes = road_overpasses(objects, cache, classification, airport,
+                                             law, decks)
+    sstats.hard_decks.extend(over_notes)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
     # 2026-09-15; RULINGS 2026-09-15y): the ONE road-family face the
     # structures stage mints — a mapped way whose two ENDS are mouths.
@@ -386,7 +405,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # #714: over a mapped bore under airside pavement the ground is the
     # ground BESIDE the cover, not the road floor a bare-earth DEM carries
     zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs,
-                                              objects, bridges)
+                                              objects, bridges, decks)
     if stats.covered_ground.rings:
         print(f"  [planar] {stats.covered_ground.line()}")
     # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads
@@ -408,7 +427,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     seam = _seam_vertices(arr, vertices_xy)
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins,
-                   channels=tuple(channels),
+                   channels=tuple(channels), overpasses=tuple(overpasses),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)
                                          for b in arr.seam_bands),

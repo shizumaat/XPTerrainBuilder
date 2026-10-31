@@ -659,11 +659,12 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             [(p.outer, p.holes) for p in pavements
              if p.source == _borrow.BORROWED_SOURCE],
             len(dsf_pavements))
-        if not bres.borrowed:
+        if bres.withdrawn:
             pavements = tuple(p for p in pavements
                               if p.source != _borrow.BORROWED_SOURCE)
-            boundaries = tuple(b for b in boundaries
-                               if b.source != _borrow.BORROWED_SOURCE)
+            if not bres.borrowed_boundary:
+                boundaries = tuple(b for b in boundaries
+                                   if b.source != _borrow.BORROWED_SOURCE)
             sel = _dc.replace(sel, borrow=bres.decision)
         rep.pavement_source = bres.record(sel.name)
         rep.pavement_borrow_line = bres.line(icao)

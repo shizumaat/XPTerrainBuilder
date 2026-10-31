@@ -38,7 +38,7 @@ from .bridge_approach import _median
 
 __all__ = ["deck_owns_its_datum", "airside_zero", "airside_frame",
            "airside_deck", "airside_role", "airside_end_ground", "slab_points",
-           "end_tops", "pavement_runs_across", "refused_bridge"]
+           "end_tops", "pavement_runs_across", "facing_contacts", "refused_bridge"]
 
 
 def deck_owns_its_datum(m: _t.Any) -> bool:
@@ -193,6 +193,17 @@ def _contacts(flags: _t.Sequence[bool]) -> list[list[int]]:
 
 def pavement_runs_across(ring: _t.Sequence[tuple[float, float]],
                          surface: _ar.Surface, step_m: float) -> bool:
+    """:func:`facing_contacts` found a pair (its doc carries the law)."""
+    return facing_contacts(ring, surface, step_m) is not None
+
+
+#: a ``(lat, lon)`` station
+LL = tuple[float, float]
+
+
+def facing_contacts(ring: _t.Sequence[tuple[float, float]],
+                    surface: _ar.Surface, step_m: float, every: bool = False
+                    ) -> "tuple[list[LL], list[LL]] | list | None":
     """Owner RULINGS 2026-10-27c (Q183, #1471; narrows 10-22n class A): A
     STRUCTURE IS A TAXIWAY BRIDGE ONLY IF THE AIRPORT'S OWN TAXIWAY OR
     APRON PAVEMENT RUNS ACROSS ITS DECK, not just touching it at one end.
@@ -210,13 +221,19 @@ def pavement_runs_across(ring: _t.Sequence[tuple[float, float]],
     the chord between them stands inside the ring.  One contact (KLAX's
     people-mover rail meets the apron at one end), two on one side, and a
     ring wholly surrounded by pavement (nothing passes under it) are not.
-    No number is chosen: the step is the law's, the tests are signs."""
+    No number is chosen: the step is the law's, the tests are signs.
+
+    The answer is the first facing pair's two contacts as their ON-EDGE
+    stations ``(lat, lon)`` — the deck's END LINES where the taxiway
+    drives onto it (``planar/deck_bridge`` seats the deck there) — or
+    ``None``; with ``every``, the list of every facing pair in that order
+    (``planar/deck_bridge`` picks the one the road under it runs along)."""
     roles = getattr(surface, "roles", None)
     if roles is None or step_m <= 0.0 or len(ring) < 3:
-        return False
+        return [] if every else None
     per = _perimeter(ring, step_m)
     if not per:
-        return False
+        return [] if every else None
     from shapely.geometry import Point, Polygon
 
     from .airside_group_seat import airside_pavement
@@ -225,7 +242,7 @@ def pavement_runs_across(ring: _t.Sequence[tuple[float, float]],
     got = roles.roles_many([q[2] for q in per], [q[3] for q in per])
     runs = _contacts([pave(r) for r in got])
     if len(runs) < 2:
-        return False
+        return [] if every else None
     ml, mo = _mpd(sum(float(q[0]) for q in ring) / len(ring))
     xy = [(q[1] * mo, q[0] * ml, (q[3] - q[1]) * mo, (q[2] - q[0]) * ml) for q in per]
     deck = Polygon([(float(q[1]) * mo, float(q[0]) * ml) for q in ring])
@@ -238,15 +255,21 @@ def pavement_runs_across(ring: _t.Sequence[tuple[float, float]],
         nx = sum(xy[i][2] for i in r)
         ny = sum(xy[i][3] for i in r)
         ends.append((cx, cy, nx, ny))
+    pairs = []
     for i, a in enumerate(ends):
-        for b in ends[i + 1:]:
+        for j in range(i + 1, len(ends)):
+            b = ends[j]
             dx, dy = b[0] - a[0], b[1] - a[1]
             if (a[2] * b[2] + a[3] * b[3] < 0.0
                     and dx * a[2] + dy * a[3] < 0.0
                     and -dx * b[2] - dy * b[3] < 0.0
                     and deck.contains(Point(a[0] + 0.5 * dx, a[1] + 0.5 * dy))):
-                return True
-    return False
+                pair = ([(per[k][0], per[k][1]) for k in runs[i]],
+                        [(per[k][0], per[k][1]) for k in runs[j]])
+                if not every:
+                    return pair
+                pairs.append(pair)
+    return pairs if every else None
 
 
 def slab_points(m: _t.Any, origin: "tuple[float, float] | None"
@@ -333,13 +356,25 @@ def _airside_witness(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface
 
 def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
                  step_m: float = 0.0, origin: "tuple[float, float] | None" = None,
-                 counts: "dict | None" = None) -> "tuple[float, str] | None":
-    """``(zero, where)`` of an AIRSIDE hard-deck member — the world height
+                 counts: "dict | None" = None) -> "tuple | None":
+    """``(zero, where[, seat])`` of an AIRSIDE hard-deck member — the world height
     of its authored ``y = 0`` that puts its deck top on the solved airside
     surface at its end lines — or ``None`` (not class A).  A deck over
     airside that the airport's pavement does not run across (RULINGS
     2026-10-27c, :func:`pavement_runs_across`) is not class A: counted
-    ``airside_deck_touch_only``."""
+    ``airside_deck_touch_only``.
+
+    A member carrying a HARD-DECK BRIDGE's plate (``plate_kind == "deck"``,
+    ``pipeline/rebake_inputs._deck_plate``; owner RULINGS 2026-10-30a (1))
+    is read off it alone: the planar stage found the pavement across it and
+    the design solve graded both end lines to one zero, so the zero is the
+    solved surface at the plate's stations less the deck top.  A ROAD
+    OVERPASS's plate (``"overpass"``, RULINGS 2026-10-30f (5)) is read the
+    same way: its stations are the road beneath, its y the zero's own.  A
+    plate's reading carries its ``seat`` (:func:`_plate_zero`)."""
+    plated = _plate_zero(m, surface)
+    if plated is not None:
+        return plated
     w = _airside_witness(m, decks, surface)
     if w is None:
         return None
@@ -360,17 +395,79 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
     return float(m.deck_datum_z) - top, "the solved airside surface (ring median)"
 
 
-def _is_the_bridge(staged: _t.Sequence[_t.Any], deck: _t.Any) -> bool:
+#: the plate kinds class A reads the zero off alone: a hard-deck bridge's
+#: end lines (``pipeline/rebake_inputs.DECK_PLATE``) and a road overpass's
+#: road beneath (``OVERPASS_PLATE``, RULINGS 2026-10-30f (5))
+_PLATED = {"deck": "the hard-deck bridge's end lines {lo:.2f}..{hi:.2f} over {n} stations "
+                   "(deck top y {y:+.2f}; RULINGS 2026-10-30a)",
+           "overpass": "the road beneath the overpass {lo:.2f}..{hi:.2f} over {n} stations "
+                       "(its zero on the road, y {y:+.2f}; RULINGS 2026-10-30f (5))"}
+
+
+def _plate_zero(m: _t.Any, surface: _ar.Surface) -> "tuple[float, str, tuple] | None":
+    """``(zero, where, seat)`` off a hard-deck bridge's or a road
+    overpass's plate, or ``None``; ``seat`` is the station ``(lat, lon,
+    z)`` nearest the stations' middle — where a body of the frame whose own
+    anchor reads no surface is anchored (:func:`airside_deck`)."""
+    st = tuple(getattr(m, "plate_stations", ()) or ())
+    y = getattr(m, "plate_y", None)
+    kind = getattr(m, "plate_kind", "")
+    if kind not in _PLATED or not st or y is None:
+        return None
+    read = [(float(q[0]), float(q[1]), surface(float(q[0]), float(q[1]))) for q in st]
+    read = [(la, lo, float(z)) for la, lo, z in read if z is not None]
+    if not read:
+        return None
+    zs = [z for _la, _lo, z in read]
+    zero = sum(zs) / len(zs) - float(y)
+    cla = sum(r[0] for r in read) / len(read)
+    clo = sum(r[1] for r in read) / len(read)
+    seat = min(read, key=lambda r: (r[0] - cla) ** 2 + (r[1] - clo) ** 2)
+    return zero, _PLATED[kind].format(lo=min(zs), hi=max(zs), n=len(zs), y=float(y)), seat
+
+
+def _maybe_a_building(st: _t.Any, i: int, surface: _ar.Surface) -> bool:
+    """Can body ``i`` of ``st`` be a BUILDING — does it stand on an emitted
+    object PAD, the class rule's own witness (``placement_plan`` §6:
+    ``building`` when a body stands inside an emitted object pad)?  Read at
+    its hull box's centre; a body with no box, or a surface with no roles,
+    cannot be cleared and counts as one."""
+    roles = getattr(surface, "roles", None)
+    boxes = list(getattr(st, "boxes", ()) or ())
+    if roles is None or i >= len(boxes) or boxes[i] is None:
+        return True
+    from .placement_read import PAD_FACE_ROLE
+    b = boxes[i]
+    got = roles.roles_many([0.5 * (b[0] + b[2])], [0.5 * (b[1] + b[3])])
+    return got[0] == PAD_FACE_ROLE
+
+
+def _is_the_bridge(staged: _t.Sequence[_t.Any], deck: _t.Any,
+                   surface: "_ar.Surface | None" = None) -> bool:
     """§16e (3)'s ``Staged.bridge``: every OTHER member's every body stands
     inside ``deck``'s model footprint (the rails, the piers, the abutments)
-    — the frame IS the bridge."""
+    or, outside it, on no emitted object PAD — the frame IS the bridge.
+
+    22n's exception is "a frame that also holds a BUILDING beside it"
+    (KBNA's terminal-satellite floor plate), and a building is what stands
+    on a pad (:func:`_maybe_a_building`).  An abutment, a wing wall or an
+    approach rail reaching past the deck's ring is still the bridge: KBNA's
+    taxiway-L frame (six placements, one flag deck over two roads, its
+    approach walls 60-86 m past the ring) was refused as a building frame
+    and its every body sat at the strip's median ground, the deck 6 m over
+    the taxiway (#1671)."""
     res = str(deck.m.resource)
     for st in staged:
         if st is deck:
             continue
         keys = list(getattr(st, "bridge", ()) or ())
-        if not keys or not all(str(k).split("#", 1)[0] == res for k in keys):
+        if not keys and surface is None:    # nothing to clear it by
             return False
+        for i, k in enumerate(keys):
+            if str(k).split("#", 1)[0] == res:
+                continue
+            if surface is None or _maybe_a_building(st, i, surface):
+                return False
     return True
 
 
@@ -386,7 +483,7 @@ def refused_bridge(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
     placements, one flag deck, its supports inside the deck's footprint)."""
     for st in staged:
         if _airside_witness(st.m, decks, surface) is not None:
-            return st if _is_the_bridge(staged, st) else None
+            return st if _is_the_bridge(staged, st, surface) else None
     return None
 
 
@@ -410,7 +507,7 @@ def airside_frame(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
             break
     if deck is None:
         return None
-    if not _is_the_bridge(staged, deck[0]):
+    if not _is_the_bridge(staged, deck[0], surface):
         counts["airside_deck_in_a_building_frame"] = \
             counts.get("airside_deck_in_a_building_frame", 0) + 1
         return None
@@ -427,11 +524,19 @@ def airside_deck(record: _t.Any, m: _t.Any, airside: "tuple[float, str] | None",
     named_body``)."""
     if airside is None:
         return record
-    from .placement_file import named_body
-    zero, where = airside
+    from .placement_file import authored_offset, named_body
+    zero, where, *seat = airside
     out = []
     for b in record.bodies:
         a = b.anchor
+        if a.surface_z is None and seat:
+            # #1692: a body whose own anchor reads no surface (an abutment
+            # off the map) rides the frame: anchored at the plate's seat
+            la, lo, sz = seat[0]
+            y0 = float(sz) - zero
+            a = _dc.replace(a, lat=la, lon=lo, surface_z=float(sz), y_zero=y0,
+                            offset=authored_offset(la, lo, y0, record.lat, record.lon,
+                                                   record.heading))
         if a.surface_z is None:
             out.append(b)
             continue
@@ -439,7 +544,7 @@ def airside_deck(record: _t.Any, m: _t.Any, airside: "tuple[float, str] | None",
         off = tuple(a.offset)
         a2 = _dc.replace(a, y_zero=y0, offset=(off[0], y0, off[2]), datum=True,
                          reason=f"airside deck on {where}: flush at zero {zero:.2f} "
-                                f"(RULINGS 2026-10-22n; was: {a.reason})")
+                                f"(RULINGS 2026-10-22n; was: {b.anchor.reason})")
         out.append(named_body(m, b, anchor=a2))
     counts["airside_deck_placements"] = counts.get("airside_deck_placements", 0) + 1
     return _dc.replace(record, bodies=tuple(out))

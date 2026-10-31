@@ -2235,13 +2235,21 @@ def airside_arc_rate_per_m(ruleset=None):
     return ruleset_strip_arc_rate_per_m(ruleset)
 
 
-def strip_longitudinal_law(code_number, code_letter=None, ruleset=None):
+def strip_longitudinal_law(code_number, code_letter=None, ruleset=None,
+                           yield_cap=None):
     """``(max_slope, arc_rate_per_m)`` — the strip's complete
     longitudinal law for one runway class under one ruleset.  ONE
-    resolver for the march's trigger, the clamp and the validator."""
-    return (ruleset_strip_max_longitudinal_slope(
-                code_number, code_letter, ruleset),
-            ruleset_strip_arc_rate_per_m(ruleset))
+    resolver for the march's trigger, the clamp and the validator.
+
+    ``yield_cap`` (owner RULINGS 2026-10-30d): the runway's own YIELDED
+    longitudinal cap (sidecar ``runway_caps[]`` with ``yielded``, under
+    2026-09-18d / #1342) — the strip along it yields to the same grade
+    where that is the looser (the generator's ``tables.strip_
+    longitudinal_cap``)."""
+    cap = ruleset_strip_max_longitudinal_slope(code_number, code_letter, ruleset)
+    if yield_cap is not None and cap is not None:
+        cap = max(float(cap), float(yield_cap))
+    return (cap, ruleset_strip_arc_rate_per_m(ruleset))
 
 
 def raoa_footprint_ring(threshold_xy, inward_axis, ruleset=None):

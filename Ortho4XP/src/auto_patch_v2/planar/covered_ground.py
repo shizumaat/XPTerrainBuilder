@@ -121,14 +121,20 @@ class CoveredGround:
                 f"{len(self.mouth_walls)} walled mouth edge(s)")
 
 
-def _served(bores: list[Bore], airside: list[Polygon], min_m: float) -> list[Bore]:
-    """The bores whose plan line runs at least ``min_m`` under airside pavement."""
+def _served(bores: list[Bore], airside: list[Polygon], min_m: float,
+            decks: _t.Sequence = ()) -> list[Bore]:
+    """The bores whose plan line runs at least ``min_m`` under airside
+    pavement — never one under a HARD-DECK BRIDGE (``decks``,
+    ``planar/deck_bridge``; owner RULINGS 2026-10-30a): its cover is the
+    deck, not ground, and the road there is the deck's cut."""
     if not airside:
         return []
     tree = STRtree(airside)
     out = []
     for b in bores:
         ln = b.line
+        if any(ln.intersects(d.polygon) for d in decks):
+            continue
         parts = [ln.intersection(airside[int(j)]) for j in tree.query(ln, predicate="intersects")]
         parts = [g for g in parts if not g.is_empty]
         if parts and unary_union(parts).length >= min_m:
@@ -337,7 +343,7 @@ def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None, 
     return out
 
 
-def covered_cuts(airport, classification, law: Law):
+def covered_cuts(airport, classification, law: Law, decks: _t.Sequence = ()):
     """``(cuts, pav)``: every mapped bore under airside pavement whose DEM
     reads a cut the mouth depth deep — ``(bore, sections, ribbon)``, the
     ribbon rim to rim and NOT yet clipped — and the airside pavement union
@@ -353,7 +359,7 @@ def covered_cuts(airport, classification, law: Law):
     roles = set(airside_cut_roles(law))
     cells, _gap, polys = standing_cover(classification)
     airside = [p for p, c in zip(polys, cells) if c.role in roles]
-    served = _served(chains(ways), airside, float(tn.terrain_cover_min_m))
+    served = _served(chains(ways), airside, float(tn.terrain_cover_min_m), decks)
     cuts = []
     for b in served:
         secs = _sections(dem, b, law)
@@ -366,7 +372,8 @@ def covered_cuts(airport, classification, law: Law):
 
 
 def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.ndarray,
-                   zs: np.ndarray, objects=(), bridges=()) -> tuple[np.ndarray, CoveredGround]:
+                   zs: np.ndarray, objects=(), bridges=(), decks=()
+                   ) -> tuple[np.ndarray, CoveredGround]:
     """``zs`` with every vertex inside the covered footprint lifted to the
     ground beside the cover (never lowered), and the report (with the
     walled mouth edges, :func:`_mouth_walls`, read off ``objects`` —
@@ -375,7 +382,7 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
     too)."""
     rep = CoveredGround()
     tn = law.tables.structures.tunnel
-    cuts, pav = covered_cuts(airport, classification, law)
+    cuts, pav = covered_cuts(airport, classification, law, decks)
     if not cuts:
         return zs, rep
     # THE COVER ENDS WHERE ITS PAVEMENT ENDS: the cut's ribbon is clipped to

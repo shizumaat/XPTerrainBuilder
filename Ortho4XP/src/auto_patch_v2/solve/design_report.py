@@ -791,7 +791,8 @@ class DesignReport:
         if tr.get("governed"):
             out += (f"road terrace (10-03b): {tr['governed']} ribbon vertices — "
                     f"{tr.get('bordered', 0)} at their bordering pavement's "
-                    f"level, {tr.get('linked', 0)} straight between two, "
+                    f"level, {tr.get('linked', 0)} between two "
+                    f"({tr.get('link_lifted', 0)} lifted off a cut, #1678), "
                     f"{tr.get('pad_held', 0)} held along a pad frontage, "
                     f"{tr.get('anchored', 0)} reaching a coverage join at the cap, "
                     f"{tr.get('bare', 0)} leaving the last bordered level in "

@@ -93,6 +93,8 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
                                          authored_depth_min_m=bl.authored_depth_min_m,
                                          authored_rim_tol_m=bl.authored_rim_tol_m,
                                          basement_cover_min=bl.basement_cover_min,
+                                         depth_max_m=float(
+                                             law.tables.emit.cockpit.sentinel_drop_m),
                                          msl_tol_m=float(
                                              law.tables.structures.placement.split_tol_m),
                                          ahead=lambda jobs, rl: _work.placements_ahead(

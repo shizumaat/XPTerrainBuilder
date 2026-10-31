@@ -250,6 +250,17 @@ class Patch:
               and r.get("curve_k_m") is not None]
         return min(ks) if ks else None
 
+    def runway_yield_cap(self, ref: str) -> float | None:
+        """RULINGS 2026-10-30d THE PUBLISHED-SIDE ACCESSOR of a runway's
+        YIELDED longitudinal cap (``runway_caps[].cap`` with ``yielded``),
+        or ``None``; a crossing (``"A+B"``) reads the loosest."""
+        recs = self.publication.get("runway_caps") or ()
+        want = set(str(ref).split("+"))
+        vals = [float(r["cap"]) for r in recs
+                if isinstance(r, dict) and r.get("ref") in want
+                and r.get("yielded") and r.get("cap") is not None]
+        return max(vals) if vals else None
+
     def _runway_cap(self, sh: Shape) -> float | None:
         """§50.1 (4): the published EFFECTIVE cap of a runway-family
         shape (``runway_caps``, the MAX over a crossing's refs), or

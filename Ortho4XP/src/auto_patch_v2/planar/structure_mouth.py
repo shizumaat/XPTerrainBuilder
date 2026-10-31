@@ -328,7 +328,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       airport=None, crossing: _t.Sequence[tuple[Polygon, str]] = (),
                       pinned: bool = False, road_floor: float | None = None,
                       road_extra: float = 0.0, slide: bool = True, own_lines=(), own_area=None,
-                      keep_out: _t.Sequence[tuple[Polygon, str]] = ()):
+                      keep_out: _t.Sequence[tuple[Polygon, str]] = (), own_cut=None):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
     axis starting at the mouth that stands clear of the pavement (the
@@ -363,6 +363,9 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     carriageways run ALONG (``own_lines``, their approaches) and the road
     pieces the bridge stands over (``own_area``, its plan) are the cut's
     own: one cut across both carriageways never stops at either's lanes.
+    ``own_cut`` (a HARD-DECK BRIDGE's ring, ``planar/deck_bridge``; owner
+    RULINGS 2026-10-30a, Q296/Q297): the pavement inside it is the deck's —
+    the cut takes it, and only what stands beyond it stops the ramp.
 
     ``keep_out`` — ground a corridor's wall may never stand in (the runway
     strip keep-out, ``retaining_wall.in_runway_strip = false``; issue
@@ -402,7 +405,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     if pinned:
         got = _pinned(group, axis, cells, polys, pads, law, cut_roles, half, rim_off,
                       decked, grid, crossing, ring_of(0.0), taxi_yields=slide,
-                      own_lines=own_lines, own_area=own_area)
+                      own_lines=own_lines, own_area=own_area, own_cut=own_cut)
         if isinstance(got, tuple):
             return got
         # clause 1 stands over the portal: a taxiway face at its opening
@@ -560,7 +563,7 @@ PORTAL_YIELDS = "the pack portal yields to taxiway"
 
 def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, half: float,
             rim_off: float, decked, grid: float, crossing, mouth_ring, taxi_yields: bool = True,
-            own_lines=(), own_area=None):
+            own_lines=(), own_area=None, own_cut=None):
     """:func:`mouth_at_pavement` for a mouth a pack PORTAL pins: never
     slid.  The stops are read at the mapped mouth; those the mouth's own
     end (its cap and first spacing of ramp, ``mouth_ring``) stands in are
@@ -571,6 +574,10 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     mouth = tuple(axis.coords[0])            # the portal's own mouth (``portal_mouth``)
     stops = mouth_stops(cells, polys, law, cut_roles, axis, mouth, half, rim_off,
                         decked, grid, _routes(group)) + list(crossing)
+    if own_cut is not None:
+        stops = [(q, r) for q, r in ((p.difference(own_cut), r) for p, r in stops)
+                 if not q.is_empty and q.area > 0.0]
+        mouth_ring = None
     if mouth_ring is not None:
         taxi = {c.ref for c in cells if role_family(law, c.role) == "taxi"}
         hit = [r for p, r in stops if r in taxi and p.intersects(mouth_ring)]

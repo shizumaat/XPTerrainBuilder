@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import typing as _t
 
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 
 import O4_Geo_Utils as GEO
@@ -95,6 +95,8 @@ class PatchEditor:
         redo.setShortcuts([QKeySequence("Ctrl+Shift+Z"), QKeySequence.Redo])
         save = QAction(GLOSSARY.TERMS["save_edits"], window)
         save.setShortcut(QKeySequence.Save)
+        # #1694: Ctrl/⌘S reaches Save from any window of the app.
+        save.setShortcutContext(Qt.ApplicationShortcut)
         save.triggered.connect(self.controller.save)
 
         def enable_save() -> None:

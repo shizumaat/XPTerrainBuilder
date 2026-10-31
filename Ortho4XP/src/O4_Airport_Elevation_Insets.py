@@ -8615,22 +8615,8 @@ BASE_CLASS_INSET_RATIO = 0.9
 WORKING_GRID_IDEAL_TOLERANCE_M = 1.0
 
 # Number of steepest-gradient probes derived per inset for tiles/airports
-# without a hand-seeded probe list.
+# (every airport alike; #1701 removed the per-airport seed table).
 DERIVED_PROBE_COUNT = 8
-
-# Hand-seeded acceptance probes keyed by ICAO (spec section 5 seed set).
-# Each probe is (latitude, longitude) in EPSG:4326 degrees.  Airports not
-# listed here derive probes generically from the steepest-gradient cells
-# of their inset footprint (see derive_acceptance_probes).
-SEED_ACCEPTANCE_PROBES = {
-    "KBNA": (
-        (36.1374844, -86.6760939),  # 45 m gantry south-west foot
-        (36.1376421, -86.6759065),  # gantry anchor
-        (36.1377853, -86.6757619),  # 45 m gantry north-east foot
-        (36.13715, -86.67650),      # taxiway M plateau
-    ),
-}
-
 
 def parse_working_grid_arc_seconds(value):
     """Parse the ``working_grid_arc_seconds`` config into a decision.
@@ -8825,7 +8811,7 @@ PROBE_TERRAIN_SCALE_M = 30.0
 def derive_acceptance_probes(inset_path, count=DERIVED_PROBE_COUNT):
     """Generic acceptance probes: the steepest TERRAIN-SCALE cells of an inset.
 
-    Airports without a hand-seeded probe list (every non-KBNA tile) still
+    Every airport (there is no per-airport seed table, #1701) still
     need a sensible grid decision, so we probe where the inset's
     terrain-scale relief is steepest -- exactly the engineered embankments
     a coarse working grid smears worst, and the cells densifying actually
@@ -8902,31 +8888,13 @@ def derive_acceptance_probes(inset_path, count=DERIVED_PROBE_COUNT):
 def acceptance_probes_with_source(inset_path):
     """The acceptance probes for one inset plus whether they are seeded.
 
-    Returns ``(probes, is_seeded)``.  A hand-seeded ICAO probe set (spec
-    section 5) is used when the file's airport key matches AND the probes
-    fall inside the inset footprint (``is_seeded=True``); otherwise probes
-    are derived from the steepest terrain-scale cells (``is_seeded=False``).
-    Seeded probes are the airport's acceptance requirement and always drive
-    the grid decision; derived probes drive it only where densification can
-    actually bring them within tolerance (see resolve_working_grid_factor).
+    Returns ``(probes, is_seeded)``.  Probes are derived from the steepest
+    terrain-scale cells of every inset alike; ``is_seeded`` is always False
+    since the per-airport seed table was removed (#1701, RULINGS 2026-10-05e:
+    no table keyed by an airport).  Derived probes drive the grid decision
+    only where densification can bring them within tolerance (see
+    resolve_working_grid_factor).
     """
-    icao = _inset_icao_from_path(inset_path)
-    seeded = SEED_ACCEPTANCE_PROBES.get(icao)
-    if seeded:
-        (array, geotransform, nodata) = _open_inset_array(inset_path)
-        if array is not None:
-            rows, columns = array.shape
-            west = geotransform[0]
-            north = geotransform[3]
-            east = west + columns * geotransform[1]
-            south = north + rows * geotransform[5]
-            inside = [
-                (latitude, longitude)
-                for (latitude, longitude) in seeded
-                if west <= longitude <= east and south <= latitude <= north
-            ]
-            if inside:
-                return (inside, True)
     return (derive_acceptance_probes(inset_path), False)
 
 
@@ -8991,26 +8959,7 @@ def _acceptance_probes_with_source_from_index(inset_path, airport_record):
     decision reads them back -- trusting them only when ``"probes_for"``
     matches the file's current identity -- and falls back to a full
     derivation otherwise (legacy records upgrade on the next fetch pass).
-    Seeded probes (the curated KBNA set) are re-checked against the inset
-    footprint from the GeoTIFF HEADER alone: same decision, no decode.
     """
-    icao = _inset_icao_from_path(inset_path)
-    seeded = SEED_ACCEPTANCE_PROBES.get(icao)
-    if seeded:
-        header = _inset_header_geometry(inset_path)
-        if header is not None:
-            (geotransform, rows, columns) = header
-            west = geotransform[0]
-            north = geotransform[3]
-            east = west + columns * geotransform[1]
-            south = north + rows * geotransform[5]
-            inside = [
-                (latitude, longitude)
-                for (latitude, longitude) in seeded
-                if west <= longitude <= east and south <= latitude <= north
-            ]
-            if inside:
-                return (inside, True)
     stored = (airport_record or {}).get("probes")
     if stored and (
         airport_record.get("probes_for") == _inset_file_identity(inset_path)

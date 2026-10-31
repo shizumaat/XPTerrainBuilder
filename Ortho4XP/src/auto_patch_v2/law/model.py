@@ -493,6 +493,7 @@ class Bridge:
     #: cutting; and how far along the deck an abutment is sampled.
     deck_cut_witness_m: float
     deck_abutment_m: float
+    deck_flush_m: float
     deck_group_gap_max_m: float
     deck_datum: str
     mapped_deck_cuttable: bool

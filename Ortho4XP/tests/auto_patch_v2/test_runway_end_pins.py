@@ -221,6 +221,36 @@ def test_zero_ft_cifp_is_a_placeholder_whatever_the_dem(law):
     assert {p.case for p in end_pin_cases(pm, law, airport).values()} == {CASE_FLAGGED}
 
 
+def test_a_lone_cifp_end_at_the_field_elevation_off_the_dem_is_a_placeholder(law):
+    """Rule (e) (owner 2026-10-30, #1679; 1Z1's class): the runway's CIFP
+    joined at ONE end only, that end = the field elevation, the lidar there
+    18 m lower — flagged, and with no source cached both ends follow the
+    DEM (the flagged end ``flagged``, its partner ``unmatched``)."""
+    dem = _Lidar(0.03)
+    airport, pm = _site(law, dem, (700.0, None), elev=700.0)
+    airport, recs, lines = EP.verify(_cifp_airport(airport), law)
+    rw = airport.runways[0]
+    assert [e.pin_source for e in rw.ends] == ["dem", ""]
+    assert rw.ends[0].threshold_elev_m is None and rw.ends[0].cifp_elev_m == 700.0
+    assert rw.ends[0].pin_flags == "e" and len(lines) == 1 and "rule (e)" in lines[0]
+    assert [r["flags"] for r in recs] == [["e"], []]
+    cases = end_pin_cases(pm, law, airport)
+    assert sorted(p.case for p in cases.values()) == sorted([CASE_FLAGGED, CASE_UNMATCHED])
+    vw = view(pm, law)
+    for v, p in cases.items():
+        assert p.z == pytest.approx(dem.z(*vw.xy[v]), abs=0.3), (v, p)
+
+
+def test_a_lone_cifp_end_stands_off_the_field_on_the_dem_or_unclassed(law):
+    """Rule (e) needs all three witnesses: a lone end 10 m off the field
+    elevation, one within the lidar's tolerance of the ground, or a DEM of
+    unknown quality each leave the CIFP pin standing."""
+    for dem, elev in ((_Lidar(0.03), 710.0), (_Lidar(0.0), 700.0), (_PlaneDem(), 700.0)):
+        airport, _pm = _site(law, dem, (700.0, None), elev=elev)
+        airport, recs, lines = EP.verify(_cifp_airport(airport), law)
+        assert lines == [] and airport.runways[0].ends[0].threshold_elev_m == 700.0, dem
+
+
 # ── apt.dat-only ends (#1394, 26e) and the unmatched end (22a) ───────────
 
 def test_an_apt_dat_only_end_gives_way_to_the_lidar(law):

@@ -1,0 +1,424 @@
+"""#1671 / #1640 twins (owner RULINGS 2026-10-30a; Q-A as ruled 2026-10-30:
+"the cut should be the road width, then a bank sloping from the road edge up
+to just short of the bridge width"): ONE reading of a pack hard deck the
+taxiway drives across (``planar/deck_bridge``), read by the structure pass,
+the floor rows (``constraints/edge_floor``), the rigid row and the floor's
+release (``constraints/edge_deck``, ``walled_plate.release_across``), the
+object stage's plate (``pipeline/rebake_inputs``, ``airside_deck_seat``) and
+the portal reading (``airport/portal_objects``)."""
+from __future__ import annotations
+
+import types
+
+from auto_patch_v2.airport import airside_deck_seat as ADS
+from auto_patch_v2.airport import obj8 as O
+from auto_patch_v2.classify.roles import Cell
+from auto_patch_v2.constraints import edge_deck as ED
+from auto_patch_v2.constraints import edge_floor as EF
+from auto_patch_v2.constraints import walled_plate as WP
+from auto_patch_v2.law import Law
+from auto_patch_v2.model.constraints import Linear, Pin, Source
+from auto_patch_v2.model.frame import Frame
+from auto_patch_v2.pipeline import rebake_inputs as RI
+from auto_patch_v2.planar import deck_bridge as DB
+from shapely.geometry import LineString, MultiPoint
+from shapely.geometry import box as _sbox
+
+LAW = Law.for_airport("")
+THICK = LAW.tables.structures.basin.min_solid_thickness_m
+FRAME = Frame("ZZZZ", origin=(36.0, -86.0), identity_dp=11)
+TAXI = "primary_parallel"
+
+
+def _box(x, z, w, d, h, y0=0.0):
+    x1, z1, y1 = x + w, z + d, y0 + h
+    v = [(x, y0, z), (x1, y0, z), (x1, y0, z1), (x, y0, z1),
+         (x, y1, z), (x1, y1, z), (x1, y1, z1), (x, y1, z1)]
+    faces = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7),
+             (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5),
+             (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7)]
+    return [(v[a], v[b], v[c]) for a, b, c in faces]
+
+
+def _write(path, comps, hard=()):
+    verts = [p for comp in comps for tri in comp for p in tri]
+    out = ["A", "800", "OBJ", "", f"POINT_COUNTS {len(verts)} 0 0 {len(verts)}"]
+    out += [f"VT {v[0]:.4f} {v[1]:.4f} {v[2]:.4f} 0 1 0 0 0" for v in verts]
+    out += [f"IDX {i}" for i in range(len(verts))]
+    k = 0
+    for i, comp in enumerate(comps):
+        if i in hard:
+            out.append("ATTR_hard_deck concrete")
+        out.append(f"TRIS {k} {3 * len(comp)}")
+        k += 3 * len(comp)
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
+    return str(path)
+
+
+def _deck(tmp_path, y0=0.0, walls=True):
+    """A 40 x 40 m deck plate (top y 6.0) on two abutment blocks reaching
+    0.2 m under the zero, centred on the anchor (frame -20..20 both ways) —
+    WALLS along the road under it (inner faces x = -17 / +17) — or, with
+    ``walls`` false, on four 2 m piers at its corners (no wall)."""
+    if walls:
+        legs = [_box(-20.0, -20.0, 3.0, 40.0, 5.9, y0=-0.2 + y0),
+                _box(17.0, -20.0, 3.0, 40.0, 5.9, y0=-0.2 + y0)]
+    else:
+        legs = [_box(x, z, 2.0, 2.0, 5.9, y0=-0.2 + y0)
+                for x in (-20.0, 18.0) for z in (-20.0, 18.0)]
+    return _write(tmp_path / ("deck.obj" if walls else "piers.obj"),
+                  [_box(-20.0, -20.0, 40.0, 40.0, 0.3, y0=5.7 + y0)] + legs, hard=(0,))
+
+
+def _placed(path, oid, kind="flag", xy=(0.0, 0.0)):
+    deck = _sbox(-20.0 + xy[0], -20.0 + xy[1], 20.0 + xy[0], 20.0 + xy[1])
+    return types.SimpleNamespace(
+        id=oid, path=f"objects/{oid}.obj", resolved=path, xy=xy, heading_deg=0.0,
+        kind="OBJECT", anchor_z=100.0, agl_m=0.0, deck_kind=kind,
+        hard_deck=deck if kind else None, deck_top_z=106.0 if kind else None,
+        plan_bbox=deck)
+
+
+def _cell(i, role, poly):
+    return Cell(i, role, f"{role}:{i}", tuple(poly.exterior.coords)[:-1], (), None, None,
+                "airside", "pavement", {})
+
+
+def _classification(both_ends=True, dy=0.0):
+    """A taxiway running E-W across the deck (y -10..10), on both sides of
+    it or (``both_ends`` false) only to its west."""
+    cells = [_cell(0, TAXI, _sbox(-100.0, -10.0 + dy, -20.0, 10.0 + dy))]
+    if both_ends:
+        cells.append(_cell(1, TAXI, _sbox(20.0, -10.0 + dy, 100.0, 10.0 + dy)))
+    return types.SimpleNamespace(cells=tuple(cells))
+
+
+AIRPORT = types.SimpleNamespace(frame=FRAME)
+
+
+def _read(tmp_path, objs=None, cl=None, trenches=(), walls=True):
+    o = _placed(_deck(tmp_path, walls=walls), "dsf:obj7")
+    return DB.deck_bridges(objs or [o], O.ResourceCache(THICK), cl or _classification(),
+                           AIRPORT, LAW, trenches)
+
+
+def test_a_deck_the_taxiway_drives_across_is_a_bridge_seated_at_its_two_end_lines(tmp_path):
+    """27c / 30a (1): the pavement runs across the deck; its END LINES are
+    the two facing contacts (x = -20 and x = +20, where the taxiway drives
+    on); the depth is the deck top less the frame's lowest solid."""
+    (db,), notes = _read(tmp_path)
+    assert not notes
+    xs_a = {round(x) for x, _y in db.seats_a}
+    xs_b = {round(x) for x, _y in db.seats_b}
+    assert {xs_a.pop(), xs_b.pop()} == {-20, 20} and not xs_a and not xs_b
+    assert all(-10.5 <= y <= 10.5 for _x, y in db.seats_a + db.seats_b)
+    assert abs(db.top_a - 6.0) < 1e-6 and abs(db.top_b - 6.0) < 1e-6
+    assert abs(db.bottom_y + 0.2) < 1e-6 and abs(db.depth_m - 6.2) < 1e-6
+    assert db.members == ("dsf:obj7",)
+
+
+def test_a_deck_the_taxiway_only_touches_is_no_bridge(tmp_path):
+    got, notes = _read(tmp_path, cl=_classification(both_ends=False))
+    assert got == () and "no pavement runs across it" in notes[0]
+
+
+def test_a_co_placed_trench_object_states_the_walls_and_the_walls_define_the_cut(tmp_path):
+    """Q-A as ruled (EDDF ``Bridge_3`` + ``Tunnel_3``): where the pack
+    models walls, the walls define the cut — the frame is the trench
+    object's, never a hard-deck bridge here."""
+    deck = _placed(_deck(tmp_path), "dsf:obj7")
+    trench = _placed(_deck(tmp_path), "dsf:obj8", kind="")
+    trench.path = "objects/trench.obj"
+    t = types.SimpleNamespace(object_id="dsf:obj8", depth_m=6.0)
+    got, notes = _read(tmp_path, objs=[deck, trench], trenches=[t])
+    assert got == () and "they define the cut" in notes[0]
+
+
+def _bridge(tmp_path, walls=False):
+    (db,), _n = _read(tmp_path, walls=walls)
+    return db
+
+
+def test_the_mouth_stands_at_the_deck_midline_and_the_cut_banks_to_its_edge(tmp_path):
+    """Q-A as ruled: each mouth of the bore cuts half the deck (no end cap
+    across the trench); the floor is the road's width, the footprint the
+    deck ring ``wall_gap_m`` inside its edge — the bank from the road edge
+    up to just short of the deck."""
+    db = _bridge(tmp_path)
+    axis = LineString([(0.0, 23.0), (0.0, 120.0)])
+    moved, d = DB.deck_mouth(axis, (0.0, -1.0), db)
+    assert abs(d - 23.0) < 1e-6 and abs(moved.coords[0][1]) < 1e-6
+    ramp = _sbox(-4.0, -10.0, 4.0, 100.0)
+    outer = ramp.buffer(1.6, join_style="mitre")
+    r2, o2 = DB.deck_cut(db, moved, ramp, outer, 0.6)
+    assert abs(r2.bounds[1]) < 1e-6 and abs(o2.bounds[1]) < 1e-6      # the midline
+    assert abs(o2.bounds[0] + 19.4) < 1e-6 and abs(o2.bounds[2] - 19.4) < 1e-6
+    climb, level, stretch, seats, other = DB.deck_seats(db, moved, (db,), 0.6)
+    assert abs(climb - 20.6) < 1e-6 and level is None and stretch == () and other is None
+    assert [s[0] for s in seats] == ["dsf:obj7", "dsf:obj7"] and len(seats[0][1]) >= 3
+
+
+def test_a_walled_deck_cuts_the_floor_to_the_walls_inner_faces(tmp_path):
+    """#1692, RULINGS 2026-10-30f (3): where the frame models walls under
+    the deck (its abutment blocks' inner faces at x = -17 / +17, rising from
+    its bottom to the deck), the floor runs to them and the rim stands
+    ``wall_gap_m`` behind them — no bank climbs the walls; a deck on piers
+    keeps the 30b bank."""
+    db = _bridge(tmp_path, walls=True)
+    r, n, faces = db.walls
+    assert abs(abs(r[1]) - 1.0) < 1e-6 and faces
+    floor, rim = DB._walled_trench(db, 0.6)
+    assert abs(floor.bounds[0] + 17.0) < 1e-6 and abs(floor.bounds[2] - 17.0) < 1e-6
+    assert abs(rim.bounds[0] + 17.6) < 1e-6 and abs(rim.bounds[2] - 17.6) < 1e-6
+    axis, _d = DB.deck_mouth(LineString([(0.0, 23.0), (0.0, 120.0)]), (0.0, -1.0), db)
+    ramp = _sbox(-4.0, -10.0, 4.0, 100.0)
+    r2, o2 = DB.deck_cut(db, axis, ramp, ramp.buffer(1.6, join_style="mitre"), 0.6)
+    assert abs(r2.bounds[0] + 17.0) < 1e-6 and abs(r2.bounds[2] - 17.0) < 1e-6
+    assert abs(o2.bounds[0] + 17.6) < 1e-6 and abs(r2.bounds[1]) < 1e-6
+    assert DB._walled_trench(_bridge(tmp_path), 0.6) is None     # piers are no wall
+
+
+def test_between_two_decks_the_trench_stays_at_the_floors_to_the_halfway_line(tmp_path):
+    """Q271 b: two decks over one road 20 m apart (KBNA's taxiway-L pair):
+    each mouth's trench runs from its deck's midline to the line halfway
+    across the open stretch, the floor linear between the two decks'
+    bottoms; never a climb."""
+    a = _placed(_deck(tmp_path), "dsf:obj7")
+    b = _placed(_deck(tmp_path), "dsf:obj7b", xy=(0.0, -60.0))
+    cl = types.SimpleNamespace(cells=_classification().cells + _classification(dy=-60.0).cells)
+    dbs, _n = DB.deck_bridges([a, b], O.ResourceCache(THICK), cl, AIRPORT, LAW)
+    assert len(dbs) == 2
+    top = next(d for d in dbs if d.object_id == "dsf:obj7")
+    axis, _d = DB.deck_mouth(LineString([(0.0, -23.0), (0.0, -200.0)]), (0.0, 1.0), top)
+    climb, level, stretch, seats, other = DB.deck_seats(top, axis, dbs, 0.6)
+    assert other is not None and other.object_id == "dsf:obj7b"
+    assert abs(level - 30.0) < 1e-6 and abs(climb - 30.0) < 1e-6
+    assert abs(stretch[0] - 20.0) < 1e-6 and abs(stretch[1] - 40.0) < 1e-6
+    assert len(seats) == 4
+
+
+def test_every_end_line_station_is_held_flush_with_the_deck():
+    """#1692, RULINGS 2026-10-30a (1) / 30f (4): every station of every end
+    line stands within ``[bridge] deck_flush_m`` of the deck top read from
+    the one zero — not only the means (a taxiway's cross-fall left one end
+    line 0.76 m from end to end under a flat deck).  The zero is the one
+    the object stage seats the deck at, the mean over EVERY station (round
+    6: read from the first end line's mean, a station stood 0.07 m over
+    the deck the plate set)."""
+    ends = [(((1, 0.5), (2, 0.5)), 6.0), (((3, 0.5), (4, 0.5)), 6.1)]
+    rows = ED._station_rows("dsf:obj7", ends, 0.04)
+    assert len(rows) == 4 and all(r.source.ruling == ED.RIGID for r in rows)
+    r3 = next(r for r in rows if "station v3" in r.source.inputs[1])
+    assert dict(r3.terms) == {1: -0.25, 2: -0.25, 3: 0.75, 4: -0.25}
+    assert abs(r3.lo - 0.01) < 1e-9 and abs(r3.hi - 0.09) < 1e-9
+    r1 = next(r for r in rows if "station v1" in r.source.inputs[1])
+    assert abs(r1.lo + 0.09) < 1e-9 and abs(r1.hi + 0.01) < 1e-9
+    # pavement under the deck beside station 3 never stands through the
+    # deck the same zero sets (from the nearest seat it stood 0.08 m over)
+    tops = ED._station_tops(ends)
+    c9 = ED._from_zero(9, tops, tops[3], None, 0.04, r1.source)
+    assert c9.lo is None and abs(c9.hi - 0.09) < 1e-9
+    assert dict(c9.terms) == {1: -0.25, 2: -0.25, 3: -0.25, 4: -0.25, 9: 1.0}
+
+
+def test_the_floor_hangs_from_the_mean_of_both_end_lines_and_an_edge_seat_is_unchanged():
+    """30a (2): a seat SET carries its mean; a deck's own seat is half of
+    each end line's; one vertex is the edge bridge's row byte for byte."""
+    src = Source("structures", "tunnel.mouth_depth_m (2026-09-03b)", ())
+    one = EF.sloped_floor_rows([(5.0, [9])], ((3, 6.0), (4, 2.0)), (0.0, 10.0), src)
+    assert one[0].terms == ((9, 1.0), (3, -0.5), (4, -0.5)) and one[0].hi == -4.0
+    a = EF._mean_terms([1, 2])
+    b = EF._mean_terms([3])
+    seat = EF._mean_terms([], ((a, 0.5), (b, 0.5)))
+    assert seat == ((1, 0.25), (2, 0.25), (3, 0.5))
+    rows = EF.seat_pair(9, (seat, 6.2), src)
+    assert dict(rows[0].terms) == {9: 1.0, 1: -0.25, 2: -0.25, 3: -0.5}
+    assert abs(rows[0].hi + 6.2) < 1e-12 and abs(rows[1].hi - 6.2) < 1e-12
+
+
+def test_the_rigid_row_never_releases_the_airside_and_the_floor_is_pulled_by_nothing_outside():
+    """30a (1) / §4 (3): the rigid row's first vertex is airside — never a
+    governed vertex; a pair row joining the floor to a vertex outside the
+    trench is withdrawn, the trench's own law kept."""
+    rigid = Linear(((1, 0.5), (2, -0.5)), None, 0.0, Source(ED.GEN, ED.RIGID, ()))
+    pin = Pin(1, 100.0, Source("structures", "x", ()))
+    assert ED.release_governed([rigid, pin]) == [rigid, pin]
+    road = Linear(((10, 1.0), (20, -1.0)), None, 0.1, Source("road_grade", "r", ()))
+    inner = Linear(((10, 1.0), (11, -1.0)), None, 0.1, Source("road_grade", "r", ()))
+    own = Linear(((10, 1.0), (1, -1.0)), None, -6.0, Source("structures", "t", ()))
+    got = WP.release_across([road, inner, own], None, None, None, under=frozenset({10}),
+                            inside=frozenset({10, 11}), keep=frozenset({"structures"}))
+    assert got == [inner, own]
+
+
+def test_the_object_stage_seats_the_one_zero_at_the_end_lines():
+    """§3 (3): the deck member carries a DECK plate — its top and every end
+    line's stations — and class A reads the zero off it alone."""
+    tn = types.SimpleNamespace(deck_bridge="dsf:obj7", deck_top_y=6.0, edge_seats=(
+        ("dsf:obj7", ((0.0, 1.0), (0.0, 2.0)), 6.2), ("dsf:obj7", ((5.0, 1.0),), 6.2)))
+    plates = RI._edge_seat_plates(types.SimpleNamespace(structures=(tn,)), set())
+    y, st, clear, kind = plates["dsf:obj7"]
+    assert (y, clear, kind) == (6.0, 0.0, RI.DECK_PLATE) and len(st) == 3
+    m = types.SimpleNamespace(plate_kind="deck", plate_y=6.0,
+                              plate_stations=((36.0, -86.0), (36.1, -86.0)))
+    zero, where, _seat = ADS.airside_zero(m, (), lambda la, lo: 110.0 if la < 36.05 else 111.0)
+    assert abs(zero - 104.5) < 1e-9 and "hard-deck bridge" in where
+    # a deck whose ends stand at different tops: the plate's y is the
+    # stations' own mean top, each station once — the reference the
+    # station rows hold every station flush from (round 6)
+    sloped = types.SimpleNamespace(deck_bridge="dsf:obj8", deck_top_y=6.0, edge_seats=(
+        ("dsf:obj8", ((0.0, 1.0), (0.0, 2.0)), 6.2), ("dsf:obj8", ((5.0, 1.0),), 6.4)))
+    y, st, _c, _k = RI._edge_seat_plates(types.SimpleNamespace(structures=(sloped,)),
+                                         set())["dsf:obj8"]
+    assert len(st) == 3 and abs(y - (5.9 + 5.9 + 6.1) / 3.0) < 1e-9
+
+
+def test_the_ground_a_deck_rests_on_is_a_face_once_the_corridor_is_cut():
+    """#1692 round 5, RULINGS 2026-10-30b / 30f (4): the part of a hard
+    deck's ring no cell owns once its corridor is cut — behind the walled
+    trench's rim, short of the pavement that drives onto the deck — is a
+    ``graded_strip`` face of the deck (the deck span rows hold it flush);
+    left unowned the mesh gave it, and the rim beside it, the DEM (KBNA's
+    taxiway-L east end line: a ridge 1.14 m over the deck top).  One face
+    set per deck, however many corridors run under it; never over a cell;
+    a seam narrower than the identity spacing is no ground."""
+    import dataclasses
+
+    from shapely.geometry import Polygon
+
+    @dataclasses.dataclass(frozen=True)
+    class _Cl:
+        cells: tuple
+    ring = _sbox(-20.0, -20.0, 20.0, 20.0)
+    ramp = _sbox(-8.0, -40.0, 8.0, 40.0)
+    cells = (_cell(0, TAXI, _sbox(-100.0, -10.0, -12.0, 10.0)),
+             _cell(1, "apron", _sbox(9.05, -20.0, 100.0, 20.0)),     # a 0.05 m seam at x = 9
+             _cell(2, "tunnel_ramp", ramp),
+             _cell(3, "retaining_wall", _sbox(-9.0, -40.0, -8.0, 40.0)),
+             _cell(4, "retaining_wall", _sbox(8.0, -40.0, 9.0, 40.0)))
+    cl = _Cl(cells)
+    tunnel = types.SimpleNamespace(deck_bridge="dsf:obj7",
+                                   deck_ring=tuple(ring.exterior.coords)[:-1])
+    out, notes = DB.deck_ground(cl, [tunnel, tunnel], LAW)
+    ground = [c for c in out.cells if c.ref.startswith(f"{DB.DECK_GROUND_REF}:dsf:obj7")]
+    assert ground and all(c.role == "graded_strip" for c in ground) and len(notes) == 1
+    polys = [Polygon(c.ring, c.holes) for c in ground]
+    taken = [Polygon(c.ring, c.holes) for c in cells]
+    assert all(g.intersection(t).area < 1e-6 for g in polys for t in taken)
+    # behind the west wall, short of the taxiway: 11 x 40 m less the 8 x 20 m
+    # the taxiway drives under the deck; the east seam is dropped
+    assert len(polys) == 1 and abs(polys[0].area - 280.0) < 1e-3
+    assert [c.id for c in out.cells] == list(range(len(out.cells)))
+    bare = types.SimpleNamespace(deck_bridge="", deck_ring=())
+    assert DB.deck_ground(cl, [bare], LAW) == (cl, [])
+
+
+def test_a_runway_vertex_on_the_trench_outline_is_never_the_floor():
+    """the LFPG batch-AR regression (09L/27R over obj13017): a runway-family
+    cell inside a hard-deck outline is NOT cut (the knife's 08-07 ruling 4
+    exemption), so a runway vertex the trench ramp shares is the runway's,
+    never the floor's — its runway rows to the crown are not released."""
+    ring = ((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0))
+    roles = {1: ("tunnel_ramp",), 2: ("tunnel_ramp", "runway"), 3: ("runway",),
+             4: ("tunnel_ramp", "runway_crossing"), 5: ("tunnel_ramp", "service_road")}
+    pm = types.SimpleNamespace(
+        structures=(types.SimpleNamespace(deck_bridge="dsf:obj1", deck_ring=ring),),
+        vertices={v: types.SimpleNamespace(xy=(5.0, 5.0)) for v in roles},
+        roles_at=lambda v: roles[v])
+    floor, trench = ED.deck_floor(pm)
+    assert floor == {1, 5}
+    assert trench == {1, 2, 4, 5}
+
+
+def test_the_open_stretch_between_two_decks_over_one_road_is_the_bridges_ground():
+    """#1692 round 6: a trench that runs on under a second deck of the frame
+    seats on that deck's end lines too, and the ground between the two
+    decks beside the trench is the bridge's (``model/structures.
+    deck_reach``): a deck-ground face, its rim held flush — left unowned,
+    the open stretch's rim took the DEM, 1.02 m off the design."""
+    import dataclasses
+
+    from auto_patch_v2.model.structures import deck_reach
+    from shapely.geometry import Polygon
+
+    @dataclasses.dataclass(frozen=True)
+    class _Cl:
+        cells: tuple
+    ring = _sbox(-20.0, -20.0, 20.0, 20.0)
+    far = (((-20.0, 50.0), (20.0, 50.0)), ((-20.0, 90.0), (20.0, 90.0)))
+    tunnel = types.SimpleNamespace(
+        deck_bridge="dsf:obj7", deck_ring=tuple(ring.exterior.coords)[:-1],
+        edge_seats=tuple(("dsf:obj7", st, 6.0) for st in
+                         (((-20.0, -20.0), (20.0, -20.0)), ((-20.0, 20.0), (20.0, 20.0))) + far))
+    reach = MultiPoint(deck_reach(tunnel)).convex_hull
+    assert abs(reach.area - 40.0 * 110.0) < 1e-6
+    assert deck_reach(types.SimpleNamespace(deck_bridge="", deck_ring=())) is None
+    ramp = _sbox(-8.0, -200.0, 8.0, 200.0)
+    out, _notes = DB.deck_ground(_Cl((_cell(0, "tunnel_ramp", ramp),)), [tunnel], LAW)
+    ground = [Polygon(c.ring, c.holes) for c in out.cells if c.role == "graded_strip"]
+    assert abs(sum(g.area for g in ground) - 2 * 12.0 * 110.0) < 1e-3
+
+
+def _slab_obj(tmp_path):
+    """A 40 x 40 m slab 0.12 m thick (top y 1.48) carried on an ``ATTR_hard``
+    plate, its two 2 m side faces (x = -20 / +20, standing edge-on in plan)
+    the only ``ATTR_hard_deck`` triangles — the kiahdeck authoring."""
+    top, bot, rail = 1.48, 1.36, 3.42
+    plate = [(-20.0, top, -20.0), (20.0, top, -20.0), (20.0, top, 20.0),
+             (-20.0, top, -20.0), (20.0, top, 20.0), (-20.0, top, 20.0)]
+    under = [(-20.0, bot, -20.0), (20.0, bot, 20.0), (20.0, bot, -20.0),
+             (-20.0, bot, -20.0), (-20.0, bot, 20.0), (20.0, bot, 20.0)]
+    sides = [p for x in (-20.0, 20.0) for p in
+             ((x, bot, -20.0), (x, rail, -20.0), (x, rail, 20.0),
+              (x, bot, -20.0), (x, rail, 20.0), (x, bot, 20.0))]
+    verts = under + plate + sides
+    out = ["A", "800", "OBJ", "", f"POINT_COUNTS {len(verts)} 0 0 {len(verts)}"]
+    out += [f"VT {v[0]:.4f} {v[1]:.4f} {v[2]:.4f} 0 1 0 0 0" for v in verts]
+    out += [f"IDX {i}" for i in range(len(verts))]
+    out += ["TRIS 0 6", "ATTR_hard", "TRIS 6 6", "ATTR_no_hard", "ATTR_hard_deck",
+            f"TRIS 12 {len(sides)}"]
+    path = tmp_path / "slab.obj"
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
+    return str(path)
+
+
+def test_a_deck_flagged_only_on_its_edge_on_faces_is_its_hard_plate(tmp_path):
+    """kiahdeck: the author put ``ATTR_hard_deck`` on the slab's vertical side
+    faces, which cover no ground; the deck is the ``ATTR_hard`` plate the
+    flagged body is driven on — and a deck whose flagged faces bear plan is
+    read as flagged, unchanged."""
+    g = O.parse_obj8(_slab_obj(tmp_path))
+    ys = {round(float(g.vertices[i][1]), 2) for t in g.hard_deck for i in t}
+    assert len(g.hard_deck) == 2 and ys == {1.48}
+    flagged = O.parse_obj8(_deck(tmp_path))
+    assert (flagged.hard_deck == flagged.solid[flagged.hardness == O.HARD_DECK]).all()
+
+
+def _slab_read(tmp_path, airport):
+    o = _placed(_slab_obj(tmp_path), "dsf:obj9")
+    o.deck_top_z = 101.48
+    return DB.deck_bridges([o], O.ResourceCache(THICK), _classification(), airport, LAW, ())
+
+
+def test_a_slab_deck_floor_stands_the_clearance_under_it(tmp_path):
+    """30a (2) / 27g: a frame stopping 0.12 m under its deck states no road
+    level — the floor is ``[tunnel] clearance_m`` under the deck, and the
+    side faces rising above the deck are no walls under it (30b banks)."""
+    (db,), notes = _slab_read(tmp_path, AIRPORT)
+    clear = LAW.tables.structures.tunnel.clearance_m
+    assert abs(db.depth_m - clear) < 1e-6 and db.walls == ()
+    assert "short of the road" in notes[0] and "clearance_m" in notes[0]
+
+
+def test_a_slab_deck_over_a_deeper_surveyed_road_keeps_the_survey(tmp_path):
+    """27g: where the credible survey carries the road deeper than the
+    clearance under the deck, the floor is the surveyed road."""
+    dem = types.SimpleNamespace(z=lambda x, y: 93.0 if abs(x) < 8.0 else 100.0)
+    road = types.SimpleNamespace(id=-1, points=((0.0, -60.0), (0.0, 60.0)),
+                                 tags={"highway": "trunk"})
+    airport = types.SimpleNamespace(
+        frame=FRAME, dem=dem, osm_ways=(road,),
+        flat_site=types.SimpleNamespace(signals={"s2_source_class": "lidar"}))
+    (db,), notes = _slab_read(tmp_path, airport)
+    assert abs(db.depth_m - (db.deck_z - 93.0)) < 1e-6 and db.depth_m > 5.0
+    assert "the surveyed road" in notes[0]

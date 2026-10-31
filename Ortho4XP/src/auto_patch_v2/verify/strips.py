@@ -59,6 +59,7 @@ from shapely.geometry import Point as _ShPoint
 
 from ..law.reference_code import PA, raoa_applies
 from ..law.tables import (end_profile_noise_m, runway_end_profile, strip_arc_rate_per_m,
+                          strip_longitudinal_cap,
                           runway_safety_area_length_m, runway_zone_edge_offset_m,
                           snap_margin_m, strip_transverse_bound, zone2_half_width_m,
                           zone_bounds)
@@ -397,8 +398,9 @@ def strip_longitudinal(p: Patch) -> list[Row]:
     bank = natural_shore_geometry(p.publication.get("natural_shore"), p.to_m, law)
     out: list[Row] = []
     seen: set = set()
-    for rings, unit, code, L, letter, _a, _b in groups(p):
-        cap = law.ruleset.strip.longitudinal.value(code, letter)
+    for ref, rings, unit, code, L, letter, _a, _b in groups(p, with_ref=True):
+        # RULINGS 2026-10-30d: the strip along a yielded runway yields with it
+        cap = strip_longitudinal_cap(law, code, letter, p.runway_yield_cap(ref))
         if cap is None:
             continue
         for sh in _strips(p):

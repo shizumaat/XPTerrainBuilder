@@ -36,6 +36,15 @@ and a road piece inside the cover kept its ramp to the bare-earth DEM
 reach the back, and :func:`release_governed` withdraws the rows that held
 them elsewhere — the rim's DEM pin and the road ramp's target and ceiling
 — so the pair is the one level they carry.
+
+A HARD-DECK BRIDGE (``planar/deck_bridge``; owner RULINGS 2026-10-30a (1))
+has ONE zero, flush at both end lines: per object, every end line's seat set
+is held to the first one's by the deck-top difference between them —
+``mean z[S_k] − mean z[S_0] = top_k − top_0`` — a two-sided pair under
+:data:`RIGID` (``[design] hard_rulings``).  The taxiway on each side is
+graded to the deck; the deck never tilts or shears.  The ground under the
+deck that is no trench floor — the bank's top along its edge — takes the
+span pair to its nearest seat (:func:`_deck_span`).
 """
 from __future__ import annotations
 
@@ -45,12 +54,16 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Band, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
+from ..model.structures import DECK_GROUND_REF, deck_reach
 
-__all__ = ["edge_deck_rows", "release_governed", "GEN", "RULING"]
+__all__ = ["edge_deck_rows", "release_governed", "deck_floor", "GEN", "RULING", "RIGID"]
 
 GEN = "edge_deck"
 #: the ruling head (``[design] hard_rulings``)
 RULING = "roads.edge bridge deck level with the airside abeam"
+#: the hard-deck bridge's rigid row's head (``[design] hard_rulings``)
+RIGID = ("structures.hard-deck bridge: one zero, flush at both end lines "
+         "(RULINGS 2026-10-30a (1))")
 
 
 def airside_nearest(planar: PlanarMap, law: Law):
@@ -67,12 +80,14 @@ def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     tunnels = [t for t in getattr(planar, "structures", ()) or ()
                if getattr(t, "edge_back", ()) and (
                    getattr(t, "edge_covers", ()) or any(d.datum != "deck_top" for d in t.decks))]
-    if not tunnels:
+    decked = [t for t in getattr(planar, "structures", ()) or ()
+              if getattr(t, "deck_bridge", "")]
+    if not tunnels and not decked:
         return []
     nearest = airside_nearest(planar, law)
     if nearest is None:
         return []
-    rows: list[Row] = []
+    rows: list[Row] = _deck_rows(planar, law, decked, nearest.air) if decked else []
     for tn in tunnels:
         src = Source(GEN, RULING, (tn.id, tn.portal, "span"))
         for v in _span_vertices(planar, law, tn) - nearest.air:
@@ -99,6 +114,128 @@ def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 #: the role of an edge trench's FLOOR: never part of its span (the rim
 #: along the back is — it is the objects' top edge)
 _FLOOR_ROLES = frozenset({"tunnel_ramp"})
+#: ``runway_profile.RUNWAY_FAMILY`` (not imported: its closure is not this
+#: generator's stage key)
+_RUNWAY_FAMILY = frozenset({"runway", "runway_crossing"})
+
+
+def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
+    """The hard-deck bridges' rigid rows and spans (module doc)."""
+    from shapely.geometry import MultiPoint, Point, Polygon
+    from shapely.prepared import prep
+
+    from .edge_floor import edge_seats_of
+    seats_of = edge_seats_of(planar, law, combine=False)
+    rows: list[Row] = []
+    by_obj: dict[str, dict] = {}
+    ceilings: list[tuple] = []
+    for tn in tunnels:
+        got = seats_of(tn)
+        for (oid, st, depth), (terms, _d) in zip(tn.edge_seats, got, strict=True):
+            top = float(depth)                  # depth = top − bottom: the bottom cancels
+            by_obj.setdefault(oid, {}).setdefault(tuple(st), (terms, top))
+        seat_vs = sorted({v for terms, _d in got for v, _w in terms})
+        if not seat_vs:
+            continue
+        ring = Polygon(tn.deck_ring).buffer(0.5)
+        inside = prep(ring)
+        pts = deck_reach(tn)
+        reach = MultiPoint(pts).convex_hull if pts is not None else None
+        beyond = prep(reach.buffer(0.5)) if reach is not None else inside
+        src = Source(GEN, RULING, (tn.id, tn.deck_bridge, "deck span"))
+        under = Source(GEN, RIGID, (tn.id, tn.deck_bridge, "under the deck"))
+        flush = float(law.tables.structures.bridge.deck_flush_m)
+        for v, vx in planar.vertices.items():
+            if v in seat_vs or _FLOOR_ROLES & set(planar.roles_at(v)):
+                continue
+            p = Point(vx.xy)
+            if not inside.contains(p) and not (beyond.contains(p)
+                                               and _bridge_ground(planar, vx)):
+                continue
+            x, y = vx.xy
+            a = min(seat_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
+                    + (planar.vertices[s].xy[1] - y) ** 2)
+            if v in air:
+                # #1692: the pavement under the deck never stands through it
+                # — read from the deck's own zero (round 6: from the nearest
+                # seat it stood 0.08 m through)
+                ceilings.append((tn.deck_bridge, v, a, under))
+                continue
+            rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
+            rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))
+    flush = float(law.tables.structures.bridge.deck_flush_m)
+    for oid, v, a, src in ceilings:
+        top_of = _station_tops(list(by_obj[oid].values()))
+        rows.append(_from_zero(v, top_of, top_of.get(a), None, flush, src))
+    for oid in sorted(by_obj):
+        ends = list(by_obj[oid].values())
+        rows.extend(_station_rows(oid, ends, flush))
+        for k, (terms, top) in enumerate(ends[1:], 1):
+            src = Source(GEN, RIGID, (oid, f"end {k}"))
+            acc: dict[int, float] = {}
+            for v, w in terms:
+                acc[v] = acc.get(v, 0.0) + w
+            for v, w in ends[0][0]:
+                acc[v] = acc.get(v, 0.0) - w
+            ts = tuple((v, c) for v, c in sorted(acc.items()) if abs(c) > 1e-12)
+            if not ts:
+                continue
+            rhs = top - ends[0][1]
+            rows.append(Linear(ts, None, rhs, src))
+            rows.append(Linear(tuple((v, -c) for v, c in ts), None, -rhs, src))
+    return rows
+
+
+def _bridge_ground(planar: PlanarMap, vx) -> bool:
+    """A vertex of the bridge's own ground beyond its rings — every face it
+    touches is a trench's void or the deck's ground (``planar/deck_bridge.
+    deck_ground``): the open stretch's rim and the ground behind it, never a
+    zone band's or a pavement's vertex, which keep their own law there."""
+    faces = [planar.faces.get(f) for f in vx.incident_faces]
+    return bool(faces) and all(
+        f is not None and (f.role == "retaining_wall"
+                           or str(f.ref).startswith(DECK_GROUND_REF + ":"))
+        for f in faces)
+
+
+def _station_rows(oid: str, ends: list, flush: float) -> list[Row]:
+    """EVERY STATION FLUSH (owner RULINGS 2026-10-30a (1), 30f (4); #1692):
+    each seat vertex of every end line stands within ``flush`` of the deck
+    top there, read from the ONE zero the object stage seats the deck at —
+    the mean over every station, each once (``pipeline/rebake_inputs.
+    _deck_plate``: ``zero = mean z[S] − mean top[S]``) — so
+    ``z[v] − mean z[S] ∈ top(v) − mean top[S] ± flush``.  Read from the
+    first end line's mean instead, a station could stand 0.07 m over the
+    deck the plate set (KBNA round 5).  The rigid row holds the end means;
+    a taxiway's cross-fall left the stations of one end line 0.76 m apart
+    under a flat deck (KBNA round 4).  Hard, under :data:`RIGID`."""
+    top_of = _station_tops(ends)
+    return [_from_zero(v, top_of, top_of[v], -flush, flush,
+                       Source(GEN, RIGID, (oid, f"station v{v}"))) for v in sorted(top_of)]
+
+
+def _station_tops(ends: list) -> dict[int, float]:
+    """Every station vertex of a deck's end lines, each once, with its end
+    line's top (the first end line naming it)."""
+    top_of: dict[int, float] = {}
+    for terms, top in ends:
+        for v, _w in terms:
+            top_of.setdefault(v, float(top))
+    return top_of
+
+
+def _from_zero(v: int, top_of: dict, top: "float | None", lo: "float | None",
+               hi: float, src: Source) -> Row:
+    """``z[v] − mean z[S] − (top − mean top[S]) ∈ [lo, hi]``: ``v`` against
+    the deck top ``top`` above it, read from the zero the object stage
+    seats (:func:`_station_rows`); ``top`` ``None`` reads the mean top."""
+    n = len(top_of)
+    mean_top = sum(top_of.values()) / n
+    acc = {u: -1.0 / n for u in top_of}
+    acc[v] = acc.get(v, 0.0) + 1.0
+    ts = tuple((u, c) for u, c in sorted(acc.items()) if abs(c) > 1e-12)
+    rhs = (mean_top if top is None else top) - mean_top
+    return Linear(ts, None if lo is None else rhs + lo, rhs + hi, src)
 
 
 def _span_vertices(planar: PlanarMap, law: Law, tn) -> set[int]:
@@ -153,7 +290,8 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None) -> l
     one-term ``Linear`` — that held it at the DEM or at a road's ramp.
     Pair rows (grades, steps) are kept: they bind it to its neighbours."""
     gov = {r.terms[0][0] for r in rows
-           if isinstance(r, Linear) and r.source.generator == GEN and r.terms[0][1] > 0.0}
+           if isinstance(r, Linear) and r.source.generator == GEN and r.terms[0][1] > 0.0
+           and r.source.ruling != RIGID}
     if not gov:
         return rows
     out: list[Row] = []
@@ -168,3 +306,33 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None) -> l
     if counts is not None:
         counts["edge_deck.released"] = n
     return out
+
+
+def deck_floor(planar: PlanarMap) -> tuple[frozenset, frozenset]:
+    """``(floor, trench)``: the vertices of a HARD-DECK BRIDGE's trench
+    floor under its deck, and every vertex of a trench (its ramps and its
+    void) — ``walled_plate.release_across``'s sets (owner RULINGS
+    2026-10-30a: the outline is the step; nothing outside the trench pulls
+    the floor).  A vertex carrying a RUNWAY-family role is never floor: a
+    runway cell inside the outline is not cut (the knife's 08-07 ruling 4
+    exemption, ``planar/structure_service``), so its rows stay — MEASURED
+    (LFPG 09L/27R over a hard-deck road underpass, batch AR): the release
+    withdrew the runway's transverse rows at the trench outline and the
+    runway edge fell 1.02 m off its crown (3.34 % against 1.52 %)."""
+    rings = [t.deck_ring for t in getattr(planar, "structures", ()) or ()
+             if getattr(t, "deck_bridge", "") and len(t.deck_ring) >= 3]
+    if not rings:
+        return frozenset(), frozenset()
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    inside = prep(unary_union([Polygon(r).buffer(0.5) for r in rings]))
+    floor, trench = set(), set()
+    for v, vx in planar.vertices.items():
+        roles = set(planar.roles_at(v))
+        if roles & (_FLOOR_ROLES | {"retaining_wall"}):
+            trench.add(v)
+            if roles & _FLOOR_ROLES and not roles & _RUNWAY_FAMILY \
+                    and inside.contains(Point(vx.xy)):
+                floor.add(v)
+    return frozenset(floor), frozenset(trench)

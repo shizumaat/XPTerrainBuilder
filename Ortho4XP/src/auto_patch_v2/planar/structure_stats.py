@@ -24,6 +24,9 @@ class StructureStats:
     survey_cuts: int = 0
     #: 2026-10-28s (5): the covered roads admitted as bores
     covered_bores: list[str] = _dc.field(default_factory=list)
+    #: 2026-10-30a: the hard-deck bridges read (``planar/deck_bridge``), and
+    #: the deck pieces refused as none
+    hard_decks: list[str] = _dc.field(default_factory=list)
     #: spec §29 (2): bores with NO mouth on the field — nothing is built for
     #: them (the old ``bores_uncovered``, whose test was the bore's cover).
     bores_no_mouth: int = 0

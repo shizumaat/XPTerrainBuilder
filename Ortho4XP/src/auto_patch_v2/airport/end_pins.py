@@ -22,6 +22,12 @@ ONE derivation, at load, on the Airport every reader takes:
       by more than a few feet (``airport/runway_refs``);
   (d) ZERO PLACEHOLDER (owner RULINGS 2026-10-26j) — both CIFP ends read
       0 ft (92 runways in the census, 08VA: DEM 311.7 / 296.7 m).
+  (e) LONE PLACEHOLDER (owner 2026-10-30, #1679) — the runway's CIFP is
+      joined at ONE end only (the other record refused or absent), that
+      end equals the field elevation, and the DEM there disagrees with it
+      by more than the tier's grade tolerance: (a)'s witness with one end
+      (1Z1 16: CIFP 1249.7 m = the field, lidar 1230.4 m; its 34 record
+      lies 390 m beyond the apt.dat end and the join refuses it).
   A flagged runway's CIFP is not truth: each source of 26a's order whose
   end-to-end difference agrees with the DEM's supplies the ends — and a
   runway flagged by (c) ALONE keeps its CIFP unless the source fits the
@@ -215,6 +221,13 @@ def _flags(rw: Runway, field_m: float, cifp: dict[int, float], dem_pin, refs,
             flags.append("a")
         if abs(d_cifp - d_dem) > tol:
             flags.append("b")
+    # (e) LONE PLACEHOLDER (#1679): one CIFP end, at the field elevation,
+    # off a classed DEM there beyond the tier's tolerance
+    if klass is not None and len(cifp) == 1:
+        (k, z), = cifp.items()
+        if (dem_pin[k] is not None and abs(z - field_m) <= t.field_equal_ft * FT + 1e-6
+                and abs(z - dem_pin[k]) > tol):
+            flags.append("e")
     for src, got in _ref_pair(rw, refs):
         for k, r in got.items():
             seen.setdefault(src, {})[rw.ends[k].name] = round(r.elevation_m, 3)

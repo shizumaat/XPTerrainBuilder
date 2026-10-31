@@ -25,7 +25,7 @@ import dataclasses as _dc
 from .frame import XY
 
 __all__ = ["Deck", "Tunnel", "Basin", "Channel", "ChannelWall",
-           "profile_z", "deck_z_on_faces", "CHANNEL_FLOOR_ROLE",
+           "profile_z", "deck_z_on_faces", "deck_reach", "DECK_GROUND_REF", "CHANNEL_FLOOR_ROLE",
            "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM"]
 
 #: §45 (8) EMISSION: the channel's floor faces carry ``tunnel_trench``
@@ -328,7 +328,7 @@ class Tunnel:
     #: (``constraints/edge_floor``) and every one's zero is seated at its
     #: seat (``pipeline/rebake_inputs``; owner sim read 2026-10-28T14:26Z
     #: points 2 / 4)
-    edge_seats: tuple[tuple[str, XY, float], ...] = ()
+    edge_seats: tuple[tuple[str, object, float], ...] = ()
     #: a trench SHARED by two edge bridges: the stations ``(s0, s1)`` the
     #: floor runs linearly between, from the first seat's bottom at the
     #: end of its own object to the second's at that object's back
@@ -339,6 +339,39 @@ class Tunnel:
     #: airside abeam (``constraints/edge_deck``; RULINGS 28d Q212, sim read
     #: 2026-10-28T14:26Z points 4 / 5: "flat ... no gap between them")
     edge_covers: tuple[tuple[XY, ...], ...] = ()
+    #: owner RULINGS 2026-10-30a: the HARD-DECK BRIDGE this trench passes
+    #: under (``planar/deck_bridge``; its placement id), else ``""``.  Its
+    #: ``edge_seats`` are then the deck's two END LINES, A then B — the seat
+    #: of each a tuple of stations — and the far deck's two where the
+    #: trench runs on to another; ``deck_ring`` is the deck's outline
+    deck_bridge: str = ""
+    deck_ring: tuple[XY, ...] = ()
+    #: that deck's authored top (its mean over the two end lines): the
+    #: object stage seats its zero at the end lines' solved surface less it
+    #: (``pipeline/rebake_inputs._edge_seat_plates``)
+    deck_top_y: float = 0.0
+
+
+#: the ref prefix of the ground a hard deck rests on (``planar/deck_bridge.
+#: deck_ground``; held flush by ``constraints/edge_deck``)
+DECK_GROUND_REF = "deck_ground"
+
+
+def deck_reach(tn: Tunnel):
+    """THE GROUND A HARD-DECK BRIDGE OWNS (owner RULINGS 2026-10-30b /
+    30f (3)-(4), #1692): the points whose convex hull it is — the deck's
+    ring and every end line station the trench seats on — its own deck's
+    and, where the trench runs on under another deck of the frame
+    (``planar/deck_bridge.deck_seats``), that deck's too, so the open
+    stretch between the two is the bridge's.  A tuple of points (the
+    model holds no geometry; consumers take the hull), or ``None`` for a
+    trench under no hard deck."""
+    if not getattr(tn, "deck_bridge", "") or len(tn.deck_ring) < 3:
+        return None
+    pts = [tuple(p) for p in tn.deck_ring]
+    for _oid, stations, _depth in getattr(tn, "edge_seats", ()) or ():
+        pts.extend(tuple(q) for q in stations)
+    return tuple(pts)
 
 
 @_dc.dataclass(frozen=True)

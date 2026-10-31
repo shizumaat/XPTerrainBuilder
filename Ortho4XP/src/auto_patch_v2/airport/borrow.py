@@ -102,6 +102,15 @@ class BorrowResult:
     def borrowed(self) -> bool:
         return bool(self.decision.apt_dat_path)
 
+    @property
+    def withdrawn(self) -> bool:
+        """The scenery stage WITHDREW the borrowed pavement (#1160): the
+        pack's own draped pavement covers Global's at or above the key.
+        A borrowed BOUNDARY can outlive it (:func:`yield_to_scenery`)."""
+        d = self.decision
+        return (self.borrowed_pavements == 0 and d.scenery_coverage is not None
+                and d.scenery_coverage >= d.coverage_max)
+
     def record(self, pack_name: str) -> dict[str, _t.Any]:
         """``report.load.pavement_source`` (§44 (4))."""
         d = self.decision
@@ -121,16 +130,19 @@ class BorrowResult:
         """THE ONE log line (§44 (4)); ``""`` when nothing was borrowed
         and the scenery stage did not withdraw a borrow (#1160)."""
         d = self.decision
-        if not self.borrowed:
-            if d.scenery_coverage is None:
-                return ""
+        if self.withdrawn:
+            tail = (f"only the row-130 BOUNDARY is BORROWED from {d.apt_dat_path} "
+                    "(the pack authors none; §44 (3), #1671)"
+                    if self.borrowed_boundary else "nothing BORROWED (§44, #1160)")
             return (f"{icao}: the pack's apt.dat carries {self.custom_pavements} "
                     f"pavement(s) covering {100 * d.coverage:.1f} % of Global "
                     f"Airports' {d.global_pavements}, but its scenery's "
                     f"{d.scenery_pavements} draped pavement(s) bring it to "
                     f"{100 * d.scenery_coverage:.1f} % (>= "
                     f"{100 * d.coverage_max:.0f} %): the pack's own pavement "
-                    "stands, nothing BORROWED (§44, #1160)")
+                    f"stands, {tail}")
+        if not self.borrowed:
+            return ""
         what = "pavement + boundary" if self.borrowed_boundary else "pavement"
         return (f"{icao}: the pack's apt.dat carries {self.custom_pavements} "
                 f"pavement(s) covering {100 * d.coverage:.1f} % of Global "
@@ -322,9 +334,12 @@ def yield_to_scenery(result: BorrowResult, own: _t.Sequence[tuple],
     §60 gap sheet, 20bb); ``borrowed`` the Global polygons stage 1
     appended, in the same frame; ``scenery_count`` how many of ``own``
     the scenery supplied.  At or above the key the borrow is WITHDRAWN:
-    the returned result borrows nothing (``airport`` is the custom block
-    again) and its decision says why.  A result that borrowed nothing is
-    returned unchanged — the scenery can only withdraw a borrow."""
+    the returned result borrows no pavement (``airport`` is the custom
+    block again, plus the Global boundary when §44 (3) took one: 20al
+    rules on pavement, and a pack with no row-130 boundary still has
+    none — #1671) and its decision says why.  A result that borrowed
+    nothing is returned unchanged — the scenery can only withdraw a
+    borrow."""
     d = result.decision
     if not result.borrowed or scenery_count <= 0:
         return result
@@ -337,10 +352,19 @@ def yield_to_scenery(result: BorrowResult, own: _t.Sequence[tuple],
             d, scenery_pavements=scenery_count, scenery_coverage=cov))
     apt = result.airport
     kept = apt.pavements[:result.custom_pavements]
-    bounds = () if result.borrowed_boundary else apt.boundaries
+    why = "the pack's scenery pavement at or above the key"
+    if result.borrowed_boundary:
+        # 20al withdraws the borrowed PAVEMENT; the row-130 BOUNDARY §44 (3)
+        # took because the pack authors none stays, and so does the path
+        # it came from (the header and the freshness gate name it).  #1671:
+        # withdrawing it too shrank the field to the pack's pavement, so the
+        # roads beside a pack's taxiway bridges left the patch and a pad by
+        # a tunnel portal rose 9.4 m, dragging its road up with it.
+        return BorrowResult(
+            _dc.replace(apt, pavements=kept), result.custom_pavements, 0, True,
+            _dc.replace(d, reason=why + "; the boundary stays (the pack has none)",
+                        scenery_pavements=scenery_count, scenery_coverage=cov))
     return BorrowResult(
-        _dc.replace(apt, pavements=kept, boundaries=bounds),
-        result.custom_pavements, 0, False,
-        _dc.replace(d, apt_dat_path="", block_sha256="",
-                    reason="the pack's scenery pavement at or above the key",
+        _dc.replace(apt, pavements=kept), result.custom_pavements, 0, False,
+        _dc.replace(d, apt_dat_path="", block_sha256="", reason=why,
                     scenery_pavements=scenery_count, scenery_coverage=cov))

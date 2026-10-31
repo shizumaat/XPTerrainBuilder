@@ -531,8 +531,11 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                            tree.query(P.buffer(50.0), predicate="intersects")])
         if air.is_empty:
             continue
+        # the 1 m reach buffered ONCE per group (issue #1706: once per
+        # region of ``out`` was 737 k buffers, 78 s of EDDF's planar stage)
+        P1 = P.buffer(1.0)
         others = unary_union([r.polygon for r in out if str(r.ref) != ref
-                              and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))])
+                              and r.polygon is not None and r.polygon.intersects(P1)])
         try:
             why: list = []
             # a covered cutting under the pad is its lower level at the

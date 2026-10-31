@@ -117,9 +117,12 @@ def seat_cut_decks(record: _t.Any, m: _t.Any, origin: "tuple[float, float] | Non
                    on_fraction: float, counts: dict) -> _t.Any:
     """``record`` with every deck body of ``m`` that stands over a pack cut
     seated flush with the surface it carries at its end lines (module doc);
-    every other body, and every other member, as it was."""
+    every other body, and every other member, as it was.  A hard-deck
+    bridge's plated member (``plate_kind == "deck"``, RULINGS 2026-10-30a)
+    is class A's, never this reading's."""
     if (not cuts or step_m <= 0.0 or str(getattr(m, "deck_kind", "") or "") != "flag"
-            or getattr(m, "deck_top_y", None) is None):
+            or getattr(m, "deck_top_y", None) is None
+            or getattr(m, "plate_kind", "") in ("deck", "overpass")):
         return record
     slab = _ads.slab_points(m, origin)
     if len(slab) < 3:

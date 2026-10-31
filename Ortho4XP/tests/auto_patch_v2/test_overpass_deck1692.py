@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import types
 
-from shapely.geometry import box as _sbox
-
 from auto_patch_v2.airport import airside_deck_seat as ADS
 from auto_patch_v2.airport import anchor_rule as AR
 from auto_patch_v2.airport import obj8 as O
@@ -20,6 +18,7 @@ from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.pipeline import rebake_inputs as RI
 from auto_patch_v2.planar import overpass_deck as OD
 from auto_patch_v2.planar.deck_bridge import deck_bridges
+from shapely.geometry import box as _sbox
 
 LAW = Law.for_airport("")
 THICK = LAW.tables.structures.basin.min_solid_thickness_m

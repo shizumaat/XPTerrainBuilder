@@ -10538,3 +10538,9 @@ Owner answers 2026-10-29T20:05:11Z, verbatim:
 - (3) Where the bridge object provides walls, the trench is cut wide enough to expose the walls' inside faces fully. The banks of 2026-10-30b apply only where the object has no walls.
 - (4) There is no bump at a deck's top edge: the ground and taxiway meet the deck flush (2026-10-30a).
 - (5) A road bridge object sits on its road.
+
+**2026-10-30g: the road under a flat hard deck has at least the tunnel clearance (owner, Noah, 2026-10-31T01:26:16Z, verbatim):** "A". He answered this question, put to him with the KIAH finding (#1712): "How deep should the road go under a flat deck? (a) At least 5 m of clearance, or the surveyed road if deeper, at every airport. LFPG's trenches get deeper too. (b) The object's own bottom. KIAH would get almost no cut. (c) 5 m only for thin slabs, and LFPG stays as it is in 1.0.452."
+- (1) A hard-deck bridge frame that ends less than `[tunnel] clearance_m` (5.0 m) under its deck does not set the road level. Its floor is that clearance, or the credible survey's road under the deck where that lies deeper.
+- (2) A frame that reaches the clearance keeps its own bottom (2026-10-30a).
+- (3) This applies at every airport. LFPG's flat-deck floors deepen from 0.7–2.9 m to 5–7 m.
+- (4) Where a pack flags only a slab's edge-on side faces as `ATTR_hard_deck`, the deck is its ground-covering `ATTR_hard` surface.

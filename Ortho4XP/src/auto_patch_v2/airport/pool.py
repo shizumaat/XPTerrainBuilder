@@ -163,6 +163,8 @@ WORKER_ALLOWANCE_GB = 2.0
 
 _explicit: list = [None]
 _share: list = [1]
+#: the driver's live sibling count (:func:`set_share`), or None
+_live: list = [None]
 #: the state ``setup`` built in THIS process when it is a pool worker
 _STATE: list = [None]
 
@@ -173,16 +175,31 @@ def configure(workers: int | None) -> None:
     _explicit[0] = None if workers is None else max(1, int(workers))
 
 
-def set_share(n: int) -> None:
+def set_share(n: int, live: _t.Any = None) -> None:
     """``n`` airport builds share this machine (the airport pool's worker
-    count): each takes ``cores // n``."""
+    count): each takes ``cores // n``.
+
+    ``live`` (issue #1706): the tile driver's count of its airport builds
+    STILL RUNNING (a ``multiprocessing.Value``).  With it the share is that
+    count, never above ``n``: a tile's long pole (EDDF: 12 of 13 siblings
+    done within 5 min of a 70 min build) was held at ``cores // 13`` = one
+    core for its whole build, every pool serial, while the machine sat
+    idle.  The machine slots (``O4_Machine_Slots``) still decide what a
+    pool actually gets; this only stops a finished sibling from counting."""
     _share[0] = max(1, int(n))
+    _live[0] = live
 
 
 def share() -> int:
-    """How many airport builds this process was told share the machine
-    (:func:`set_share`; 1 when nobody said)."""
-    return _share[0]
+    """How many airport builds share the machine NOW: :func:`set_share`'s
+    ``n``, or its ``live`` count while one is set (1 when nobody said)."""
+    live = _live[0]
+    if live is None:
+        return _share[0]
+    try:
+        return max(1, min(_share[0], int(live.value)))
+    except Exception:                     # the driver is gone: the declared share
+        return _share[0]
 
 
 class _MemoryStatusEx(ctypes.Structure):
@@ -224,14 +241,14 @@ def budget_bound() -> tuple[int, str]:
             return 1, "pinned"             # a daemonic process has no children
     except Exception:
         return 1, "pinned"
-    share = _share[0]
-    by_cores = max(1, (os.cpu_count() or 1) // share)
+    n = share()
+    by_cores = max(1, (os.cpu_count() or 1) // n)
     ram = physical_ram_gb()
     if ram is not None:
-        by_memory = max(1, int((ram / share - PARENT_RESERVE_GB) // WORKER_ALLOWANCE_GB))
+        by_memory = max(1, int((ram / n - PARENT_RESERVE_GB) // WORKER_ALLOWANCE_GB))
         if by_memory < by_cores:
             return by_memory, "memory"
-    return by_cores, "share" if share > 1 else "cores"
+    return by_cores, "share" if n > 1 else "cores"
 
 
 def budget() -> int:

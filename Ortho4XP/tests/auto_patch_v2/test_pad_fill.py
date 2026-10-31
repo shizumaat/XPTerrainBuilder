@@ -87,6 +87,9 @@ class _Deck:
     def contains(self, lat, lon):
         return self.area.contains(box(lon - 1e-6, lat - 1e-6, lon + 1e-6, lat + 1e-6))
 
+    def contains_many(self, lats, lons):
+        return [self.contains(la, lo) for la, lo in zip(lats, lons, strict=True)]
+
 
 def _piers(xs, y=-0.29):
     return [_part(i, box(x, 110, x + 2, 140), base_y=y, h=0.7,

@@ -138,24 +138,29 @@ def pier_fills(vias: _t.Mapping[str, tuple], partition: _t.Any, to_xy,
     out: list[Fill] = []
     for key, (bref, _voters, frame, p) in sorted(vias.items()):
         prints: list[tuple[Polygon, float]] = []
-        for ui, u in enumerate(partition.units):
-            for mi, m in enumerate(u.members):
-                if _bf.frame_of(m) != frame or (ui, mi) == (p.unit, p.member):
-                    continue
-                for q in m.parts:
-                    b = q.box
-                    if not p.contains(0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])):
-                        continue
-                    ys = _foot_ys(q, band)
-                    if not ys or abs(float(getattr(q, "base_y", 0.0))) > band:
-                        continue
-                    g = _print(q, to_xy)
-                    if g is None:
-                        continue
-                    off = g.difference(allb)
-                    if off.is_empty or off.area <= 0.0:
-                        continue
-                    prints.append((off, min(ys)))
+        # issue #1706: the part centres of the deck's frame asked in ONE
+        # batch (``DeckPrint.contains_many``, the SAME booleans as one
+        # ``contains`` each) — one call per part ran 36 M times at EDDF,
+        # 405 s of a 923 s planar stage
+        own = [q for ui, u in enumerate(partition.units)
+               for mi, m in enumerate(u.members)
+               if _bf.frame_of(m) == frame and (ui, mi) != (p.unit, p.member)
+               for q in m.parts]
+        hit = p.contains_many([0.5 * (q.box[0] + q.box[2]) for q in own],
+                              [0.5 * (q.box[1] + q.box[3]) for q in own])
+        for q, inside in zip(own, hit, strict=True):
+            if not inside:
+                continue
+            ys = _foot_ys(q, band)
+            if not ys or abs(float(getattr(q, "base_y", 0.0))) > band:
+                continue
+            g = _print(q, to_xy)
+            if g is None:
+                continue
+            off = g.difference(allb)
+            if off.is_empty or off.area <= 0.0:
+                continue
+            prints.append((off, min(ys)))
         if not prints:
             continue
         # one fill per group of prints within ``join_m`` of each other

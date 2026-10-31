@@ -208,22 +208,67 @@ def _leaf_regions() -> Optional[list]:
             (feature.get("properties") or {}).get("parent")
             for feature in features
         }
-        leaves = []
+        (leaves, parent_regions) = ([], [])
         for feature in features:
             properties = feature.get("properties") or {}
             region_id = properties.get("id")
             pbf_url = (properties.get("urls") or {}).get("pbf")
-            if not region_id or not pbf_url or region_id in parents:
+            if not region_id or not pbf_url:
                 continue
             try:
                 region_geometry = shape(feature["geometry"])
             except Exception:
                 continue
-            leaves.append((region_id, pbf_url, region_geometry))
+            (parent_regions if region_id in parents else leaves).append(
+                (region_id, pbf_url, region_geometry))
+        _leaf_regions.parents = parent_regions
         _leaf_regions.cache = leaves
         return leaves
     except Exception:
         return None
+
+
+def _parent_regions() -> list:
+    """[(region_id, pbf_url, geometry)] for the index's PARENT regions
+    (those some leaf names as parent), parsed with :func:`_leaf_regions`."""
+    if _leaf_regions() is None:
+        return []
+    return getattr(_leaf_regions, "parents", [])
+
+
+# The largest parent region (polygon area, degrees squared) that may
+# serve a box whose leaves miss land (#1731, owner 2026-10-31 "(b)").
+# Index polygon area is the size proxy (the index carries no pbf
+# sizes).  1500 admits country/sub-continent parents — central-america
+# 663, china 1077, brazil 1189, nunavut 1267 — and refuses every
+# continent-scale extract: canada 3070, europe 3170, russia 5526 and
+# the continents above (south-america 6343 ... asia 11756).
+PARENT_FALLBACK_MAX_AREA = 1500.0
+
+
+def _parent_cover(bbox_polygon) -> Optional[tuple]:
+    """(region_id, pbf_url, area) of the smallest parent region, within
+    the cap, whose polygon holds every land post of the box; ``None``
+    when the land is not known or no lawful parent holds it."""
+    import O4_Land_Witness as LAND
+    import shapely
+
+    land = LAND.land_points(bbox_polygon)
+    if land is None or not land[0].size:
+        return None
+    (lons, lats) = land
+    candidates = sorted(
+        (region_geometry.area, region_id, pbf_url, region_geometry)
+        for (region_id, pbf_url, region_geometry) in _parent_regions()
+        if region_geometry.area <= PARENT_FALLBACK_MAX_AREA
+        and region_geometry.intersects(bbox_polygon))
+    for (area, region_id, pbf_url, region_geometry) in candidates:
+        holder = region_geometry.intersection(
+            bbox_polygon.buffer(2 * _COVERAGE_BUFFER_DEGREES)
+        ).buffer(_COVERAGE_BUFFER_DEGREES)
+        if shapely.contains_xy(holder, lons, lats).all():
+            return (region_id, pbf_url, area)
+    return None
 
 
 # Region-boundary tolerance for coverage tests, in degrees (~1 km):
@@ -257,7 +302,10 @@ def covering_regions(bounding_box) -> Optional[list]:
     means the tile is not extract-servable: no index yet, or the
     intersecting leaves leave more than a sliver of it uncovered and
     the offline land witness cannot show that remainder is sea (index
-    gaps, an uncached DEM) — the caller keeps using Overpass.
+    gaps, an uncached DEM) — the caller keeps using Overpass.  Where
+    that remainder holds land, the smallest parent region under
+    ``PARENT_FALLBACK_MAX_AREA`` holding all the box's land serves it
+    alone (Turks and Caicos: only ``central-america`` has it).
 
     The result is a MINIMAL cover, not every intersecting leaf: the
     Geofabrik index declares each United States state's parent as
@@ -336,8 +384,18 @@ def covering_regions(bounding_box) -> Optional[list]:
             import O4_Land_Witness as LAND
 
             land = LAND.holds_land(uncovered)
+            share = round(100 * uncovered.area / bbox_polygon.area)
+            parent = _parent_cover(bbox_polygon) if land else None
+            if parent is not None:
+                _log_cover_reason(
+                    bounding_box,
+                    f"{share}% of it lies outside every leaf extract and"
+                    f" holds land; {parent[0]} is the smallest parent"
+                    f" region holding all of its land ({parent[2]:.0f}"
+                    f" deg2, cap {PARENT_FALLBACK_MAX_AREA:.0f})",
+                    verdict="uses a parent regional extract")
+                return [(parent[0], parent[1])]
             if land is not False:
-                share = round(100 * uncovered.area / bbox_polygon.area)
                 _log_cover_reason(
                     bounding_box,
                     f"{share}% of it lies outside every regional extract"

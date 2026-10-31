@@ -49,6 +49,34 @@ def _land_posts(lat: int, lon: int):
     return None
 
 
+def land_points(geometry):
+    """(lons, lats) of every sampled land post inside ``geometry``, or
+    ``None`` when any cell it touches has no readable elevation."""
+    try:
+        import shapely
+
+        if geometry.is_empty:
+            return (numpy.empty(0), numpy.empty(0))
+        (lon_min, lat_min, lon_max, lat_max) = geometry.bounds
+        shapely.prepare(geometry)
+        (all_lons, all_lats) = ([], [])
+        for lat in range(math.floor(lat_min), math.ceil(lat_max)):
+            for lon in range(math.floor(lon_min), math.ceil(lon_max)):
+                posts = _land_posts(lat, lon)
+                if posts is None:
+                    return None
+                (lons, lats) = posts
+                if lons.size:
+                    inside = shapely.contains_xy(geometry, lons, lats)
+                    all_lons.append(lons[inside])
+                    all_lats.append(lats[inside])
+        if not all_lons:
+            return (numpy.empty(0), numpy.empty(0))
+        return (numpy.concatenate(all_lons), numpy.concatenate(all_lats))
+    except Exception:
+        return None
+
+
 def holds_land(geometry) -> Optional[bool]:
     """True / False / None (unknown) for land inside ``geometry``."""
     try:

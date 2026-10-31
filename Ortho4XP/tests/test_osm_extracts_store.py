@@ -96,13 +96,23 @@ class TestSeaRemainder:
     """#1731: an island/coastal box whose remainder outside every leaf
     is sea is extract-served; land or no witness keeps Overpass."""
 
-    def test_all_sea_remainder_serves_from_extract(self, store, monkeypatch):
-        _witness_posts(monkeypatch, [(-9.0, 38.5)])   # land inside portugal
+    def test_leaves_preferred_when_they_hold_the_land(self, store, monkeypatch):
+        _witness_posts(monkeypatch, [(-9.0, 38.5)])   # remainder is sea
         regions = EXTRACTS.covering_regions((38, -11, 39, -9.5))
         assert [region_id for (region_id, _u) in regions] == ["portugal"]
 
-    def test_land_remainder_returns_none(self, store, monkeypatch):
-        _witness_posts(monkeypatch, [(-10.5, 38.5)])  # land outside leaves
+    def test_land_outside_every_region_returns_none(self, store, monkeypatch):
+        _witness_posts(monkeypatch, [(-12.3, 38.5)])  # west of europe too
+        assert EXTRACTS.covering_regions((38, -12.5, 39, -9.5)) is None
+
+    def test_parent_chosen_when_leaves_miss_land(self, store, monkeypatch):
+        _witness_posts(monkeypatch, [(-10.5, 38.5), (-9.0, 38.5)])
+        regions = EXTRACTS.covering_regions((38, -11, 39, -9.5))
+        assert [region_id for (region_id, _u) in regions] == ["europe"]
+
+    def test_no_parent_above_the_cap(self, store, monkeypatch):
+        _witness_posts(monkeypatch, [(-10.5, 38.5)])
+        monkeypatch.setattr(EXTRACTS, "PARENT_FALLBACK_MAX_AREA", 100.0)
         assert EXTRACTS.covering_regions((38, -11, 39, -9.5)) is None
 
     def test_unknown_witness_returns_none(self, store):

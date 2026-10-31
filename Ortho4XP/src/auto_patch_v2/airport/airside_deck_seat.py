@@ -197,9 +197,13 @@ def pavement_runs_across(ring: _t.Sequence[tuple[float, float]],
     return facing_contacts(ring, surface, step_m) is not None
 
 
+#: a ``(lat, lon)`` station
+LL = tuple[float, float]
+
+
 def facing_contacts(ring: _t.Sequence[tuple[float, float]],
-                    surface: _ar.Surface, step_m: float
-                    ) -> "tuple[list[tuple[float, float]], list[tuple[float, float]]] | None":
+                    surface: _ar.Surface, step_m: float, every: bool = False
+                    ) -> "tuple[list[LL], list[LL]] | list | None":
     """Owner RULINGS 2026-10-27c (Q183, #1471; narrows 10-22n class A): A
     STRUCTURE IS A TAXIWAY BRIDGE ONLY IF THE AIRPORT'S OWN TAXIWAY OR
     APRON PAVEMENT RUNS ACROSS ITS DECK, not just touching it at one end.
@@ -222,13 +226,14 @@ def facing_contacts(ring: _t.Sequence[tuple[float, float]],
     The answer is the first facing pair's two contacts as their ON-EDGE
     stations ``(lat, lon)`` — the deck's END LINES where the taxiway
     drives onto it (``planar/deck_bridge`` seats the deck there) — or
-    ``None``."""
+    ``None``; with ``every``, the list of every facing pair in that order
+    (``planar/deck_bridge`` picks the one the road under it runs along)."""
     roles = getattr(surface, "roles", None)
     if roles is None or step_m <= 0.0 or len(ring) < 3:
-        return None
+        return [] if every else None
     per = _perimeter(ring, step_m)
     if not per:
-        return None
+        return [] if every else None
     from shapely.geometry import Point, Polygon
 
     from .airside_group_seat import airside_pavement
@@ -237,7 +242,7 @@ def facing_contacts(ring: _t.Sequence[tuple[float, float]],
     got = roles.roles_many([q[2] for q in per], [q[3] for q in per])
     runs = _contacts([pave(r) for r in got])
     if len(runs) < 2:
-        return None
+        return [] if every else None
     ml, mo = _mpd(sum(float(q[0]) for q in ring) / len(ring))
     xy = [(q[1] * mo, q[0] * ml, (q[3] - q[1]) * mo, (q[2] - q[0]) * ml) for q in per]
     deck = Polygon([(float(q[1]) * mo, float(q[0]) * ml) for q in ring])
@@ -250,6 +255,7 @@ def facing_contacts(ring: _t.Sequence[tuple[float, float]],
         nx = sum(xy[i][2] for i in r)
         ny = sum(xy[i][3] for i in r)
         ends.append((cx, cy, nx, ny))
+    pairs = []
     for i, a in enumerate(ends):
         for j in range(i + 1, len(ends)):
             b = ends[j]
@@ -258,9 +264,12 @@ def facing_contacts(ring: _t.Sequence[tuple[float, float]],
                     and dx * a[2] + dy * a[3] < 0.0
                     and -dx * b[2] - dy * b[3] < 0.0
                     and deck.contains(Point(a[0] + 0.5 * dx, a[1] + 0.5 * dy))):
-                return ([(per[k][0], per[k][1]) for k in runs[i]],
+                pair = ([(per[k][0], per[k][1]) for k in runs[i]],
                         [(per[k][0], per[k][1]) for k in runs[j]])
-    return None
+                if not every:
+                    return pair
+                pairs.append(pair)
+    return pairs if every else None
 
 
 def slab_points(m: _t.Any, origin: "tuple[float, float] | None"

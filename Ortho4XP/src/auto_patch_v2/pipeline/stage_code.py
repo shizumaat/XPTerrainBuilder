@@ -522,6 +522,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
     "auto_patch_v2.planar.covered_bores", "auto_patch_v2.planar.covered_cut",
         "auto_patch_v2.planar.covered_ground",
         "auto_patch_v2.planar.cut_runout",
+        "auto_patch_v2.planar.deck_bores",
         "auto_patch_v2.planar.deck_bridge",
         "auto_patch_v2.planar.deck_walls",
         "auto_patch_v2.planar.door_ramps",
@@ -1550,7 +1551,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
-    planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge planar.deck_walls
+    planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
+    planar.deck_bridge planar.deck_walls
     planar.door_ramps planar.dual_width planar.edges planar.landing planar.landing_runout
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
@@ -1672,7 +1674,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
-    planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge planar.deck_walls
+    planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
+    planar.deck_bridge planar.deck_walls
     planar.door_ramps planar.dual_width planar.edges planar.landing planar.landing_runout
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver

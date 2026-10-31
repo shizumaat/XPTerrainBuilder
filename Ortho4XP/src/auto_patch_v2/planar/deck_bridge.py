@@ -75,7 +75,8 @@ from ..model.structures import DECK_GROUND_REF, deck_reach
 from .deck_walls import inner_faces, wall_faces, wall_strip
 
 __all__ = ["deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
-           "deck_cut", "deck_pin", "deck_ground", "DECK_GROUND_REF"]
+           "deck_cut", "deck_pin", "deck_ground", "DECK_GROUND_REF", "across_dir",
+           "mid_line", "project_span"]
 
 XY = tuple[float, float]
 
@@ -250,8 +251,10 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=()
             if piece.geom_type != "Polygon" or piece.area < 1.0:
                 continue
             ring_ll = [to_ll(x, y) for x, y in piece.exterior.coords[:-1]]
-            pair = facing_contacts(ring_ll, surface, step)
+            pairs = facing_contacts(ring_ll, surface, step, every=True)
             where = f"{d.id} {str(d.path).rsplit('/', 1)[-1]} piece {piece.area:,.0f} m2"
+            pair = _end_pair(pairs, _roads_under(airport, law, piece)
+                             if len(pairs) > 1 else None, to_xy)
             if pair is None:
                 notes.append(f"{where}: no pavement runs across it (RULINGS 2026-10-27c)")
                 continue
@@ -268,10 +271,54 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=()
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
         for db in (db if z is None else _dc.replace(db, deck_z=z) for db in mine):
             db = _road_floor(db, airport, law, notes)
-            r, n = _road_dir(db), _across_dir(db)
+            r, n = _road_dir(db), across_dir(db)
             out.append(_dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
                                                         0.5 * (db.top_a + db.top_b), r, n)))
     return tuple(out), notes
+
+
+def _roads_under(airport, law, ring: Polygon) -> "XY | None":
+    """The direction the mapped roads under ``ring`` run: the length-weighted
+    mean of their stretches inside it (``structure_underpass.bore_roads``),
+    ``None`` where none passes under — the witness :func:`_end_pair` picks
+    the end lines by.  MEASURED kiahdeck2 (KIAH): a deck the airport's
+    pavement meets along its long sides as well as at its ends read the
+    FIRST facing pair as its end lines — ``KIAH_Bridge1`` obj24549 its
+    south side and east end (the road under it 10° askew, the deck's
+    midline at its north edge over one carriageway, the cut's rim on the
+    road beyond), obj24551 its two long sides (the road read along the deck
+    instead of across it)."""
+    from .structure_underpass import bore_roads
+    sx = sy = 0.0
+    for w in bore_roads(airport, law):
+        x = LineString(w.points).intersection(ring)
+        for g in getattr(x, "geoms", [x]):
+            if g.geom_type != "LineString" or g.length <= 1.0:
+                continue
+            (x0, y0), (x1, y1) = g.coords[0], g.coords[-1]
+            if (x1 - x0) * sx + (y1 - y0) * sy < 0.0:
+                x0, y0, x1, y1 = x1, y1, x0, y0
+            sx, sy = sx + x1 - x0, sy + y1 - y0
+    n = math.hypot(sx, sy)
+    return None if n <= 1.0 else (sx / n, sy / n)
+
+
+def _end_pair(pairs, road: "XY | None", to_xy):
+    """The facing contacts that are the deck's END LINES: the first pair
+    (``facing_contacts``), or where a mapped road runs under the deck the
+    pair whose contacts run most nearly along it — an end line is parallel
+    to the road the bridge crosses, a long side across it."""
+    if not pairs:
+        return None
+    if road is None or len(pairs) == 1:
+        return pairs[0]
+
+    def skew(stations) -> float:
+        (x0, y0), (x1, y1) = to_xy(stations[0][1], stations[0][0]), \
+            to_xy(stations[-1][1], stations[-1][0])
+        L = math.hypot(x1 - x0, y1 - y0)
+        return 1.0 if L <= 0.0 else abs((x1 - x0) * road[1] - (y1 - y0) * road[0]) / L
+    return min(pairs, key=lambda p: skew(p[0]) + skew(p[1]))
 
 
 def _road_floor(db: DeckBridge, airport, law, notes: list[str]) -> DeckBridge:
@@ -345,7 +392,14 @@ def _deck_z(airport, seats, rendered: "float | None") -> "float | None":
 def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float) -> "DeckBridge | None":
     """The hard-deck bridge a mouth's BORE runs under: its line crosses the
     deck's ring and the mapped end stands within ``reach`` of it — the
-    nearest such."""
+    nearest such.  A bore §34 (5) SYNTHESISED under an aeroway bridge
+    (``structure_underpass.UNDERPASS_TAG``) is the crossing the deck makes,
+    wherever its clip ribbon put its ends: the deck object states the
+    crossing (kiahdeck2: a service road's ribbon off taxiway way −67 ended
+    beyond ``reach`` of ``KIAH_Bridge1`` obj24549, and its own ramp ran
+    into the next deck's cut)."""
+    from .structure_underpass import UNDERPASS_TAG
+    stated = all(UNDERPASS_TAG in (w.tags or {}) for w in getattr(mouth.bore, "ways", ()) or ())
     best = None
     pt = Point(mouth.xy)
     for db in decks:
@@ -353,7 +407,7 @@ def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float) -> "DeckBrid
         if mouth.bore.line.intersection(poly).length <= 1.0:
             continue
         d = 0.0 if poly.contains(pt) else poly.exterior.distance(pt)
-        if d <= reach and (best is None or d < best[0]):
+        if (d <= reach or stated) and (best is None or d < best[0]):
             best = (d, db)
     return None if best is None else best[1]
 
@@ -369,23 +423,24 @@ def _road_dir(db: DeckBridge) -> XY:
     return (-(by - ay) / n, (bx - ax) / n)
 
 
-def _across_dir(db: DeckBridge) -> XY:
+def across_dir(db: DeckBridge) -> XY:
     """The unit direction from end A to end B — across the road."""
     rx, ry = _road_dir(db)
     return (ry, -rx)
 
 
-def _across(ring, r: XY) -> tuple[float, float]:
+def project_span(ring, r: XY) -> tuple[float, float]:
+    """``(least, greatest)`` of the ring's points projected on ``r``."""
     vals = [q[0] * r[0] + q[1] * r[1] for q in ring]
     return min(vals), max(vals)
 
 
-def _mid_line(db: DeckBridge) -> tuple[XY, float]:
+def mid_line(db: DeckBridge) -> tuple[XY, float]:
     """``(normal, offset)`` of the deck's MIDLINE: the line between its end
     lines' directions halfway across the deck along the road — one line,
     whichever mouth reads it."""
     r = _road_dir(db)
-    lo, hi = _across(db.ring, r)
+    lo, hi = project_span(db.ring, r)
     return r, 0.5 * (lo + hi)
 
 
@@ -396,16 +451,16 @@ def _gap_line(db: DeckBridge, other: DeckBridge) -> tuple[XY, float]:
     ca, cb = a.polygon.centroid, b.polygon.centroid
     n = math.hypot(cb.x - ca.x, cb.y - ca.y) or 1.0
     r = ((cb.x - ca.x) / n, (cb.y - ca.y) / n)
-    return r, 0.5 * (_across(a.ring, r)[1] + _across(b.ring, r)[0])
+    return r, 0.5 * (project_span(a.ring, r)[1] + project_span(b.ring, r)[0])
 
 
 def deck_mouth(axis: LineString, inward: XY, db: DeckBridge) -> tuple[LineString, float]:
     """``(axis, metres moved)``: the mouth of a bore under ``db`` stands at
-    the deck's MIDLINE (:func:`_mid_line`) — the two mouths of one bore
+    the deck's MIDLINE (:func:`mid_line`) — the two mouths of one bore
     each cut half the deck, flat at its floor, and climb beyond its edge."""
     from .structure_mouth import _moved_in
     m = axis.coords[0]
-    r, off = _mid_line(db)
+    r, off = mid_line(db)
     dot = inward[0] * r[0] + inward[1] * r[1]
     if abs(dot) <= 1e-6:
         return axis, 0.0
@@ -464,7 +519,8 @@ def _half_plane(line: tuple[XY, float], toward: XY, big: float) -> Polygon:
 
 
 def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
-             other: "DeckBridge | None" = None):
+             other: "DeckBridge | None" = None,
+             band: "tuple[float, float] | None" = None):
     """``(ramp, outer)`` of a corridor under ``db`` (module doc): clipped to
     its own side of the deck's midline (the mouth line — the bore's other
     mouth cuts the rest, so no end cap stands across the trench) and,
@@ -473,13 +529,18 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     ``inset`` inside its edge — the bank from the road edge up to the deck
     (Q-A as ruled) — or, under a WALLED deck, the floor runs to the walls'
     inner faces and the rim stands ``inset`` behind them
-    (:func:`_walled_trench`, RULINGS 2026-10-30f (3))."""
+    (:func:`_walled_trench`, RULINGS 2026-10-30f (3)).  ``band`` is this
+    corridor's LANE of the deck — ``(lo, hi)`` across the road
+    (``planar/deck_bores.lane_band``): the bank stops halfway to the next
+    carriageway's own cut."""
     big = 10.0 * (axis.length + 1000.0)
     ahead = axis.interpolate(min(axis.length, 1.0))
-    keep = _half_plane(_mid_line(db), (ahead.x, ahead.y), big)
+    keep = _half_plane(mid_line(db), (ahead.x, ahead.y), big)
     if other is not None:
         c = db.polygon.centroid
         keep = keep.intersection(_half_plane(_gap_line(db, other), (c.x, c.y), big))
+    if band is not None:
+        keep = keep.intersection(_lane_strip(db, band, big))
     walled = _walled_trench(db, inset, other)
     if walled is not None:
         # 30f (3): the floor runs to the walls' inner faces, the rim stands
@@ -499,6 +560,15 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     return one(ramp, ramp), one(outer, outer)
 
 
+def _lane_strip(db: DeckBridge, band: tuple[float, float], big: float) -> Polygon:
+    """The strip ``band[0] <= u <= band[1]`` across the road (``across_dir``),
+    ``big`` long along it."""
+    r, n = _road_dir(db), across_dir(db)
+    lo, hi = max(band[0], -big), min(band[1], big)
+    return Polygon([(r[0] * s + n[0] * u, r[1] * s + n[1] * u)
+                    for s, u in ((-big, lo), (big, lo), (big, hi), (-big, hi))])
+
+
 def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = None
                   ) -> "tuple[Polygon, Polygon] | None":
     """``(floor, rim)`` of a WALLED deck (``planar/deck_walls``; RULINGS
@@ -511,15 +581,15 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     if not db.walls:
         return None
     r, n, faces = db.walls
-    u_lo, u_hi = _across(db.ring, n)
-    s_lo, s_hi = _across(db.ring, r)
+    u_lo, u_hi = project_span(db.ring, n)
+    s_lo, s_hi = project_span(db.ring, r)
     ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi))
     if ua is None or ub is None:
         return None
     floors = [wall_strip(r, n, ua, ub, s_lo, s_hi)]
     rims = [wall_strip(r, n, ua - inset, ub + inset, s_lo, s_hi).intersection(db.polygon)]
     if other is not None:
-        o_lo, o_hi = _across(other.ring, r)
+        o_lo, o_hi = project_span(other.ring, r)
         g0, g1 = (s_hi, o_lo) if o_lo >= s_hi else (o_hi, s_lo)
         if g1 > g0:
             va, vb = inner_faces(faces, g0, g1, 0.5 * (u_lo + u_hi))

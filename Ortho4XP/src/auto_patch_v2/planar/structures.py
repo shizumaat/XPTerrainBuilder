@@ -121,6 +121,7 @@ from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_w
                               portal_mouth, portal_note, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
 from .deck_bridge import deck_cut, deck_mouth, deck_pin, deck_seats, deck_side, deck_under
+from .deck_bores import deck_bores, deck_lanes, lane_band
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -131,7 +132,7 @@ from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
                              object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
 from .structure_underpass import (underpass_bores as _underpass_bores,
-                                  approach_along, mouth_parent, UNDERPASS_TAG,
+                                  approach_along, bore_roads, mouth_parent, UNDERPASS_TAG,
                                   UNDERPASS_NOTE)
 from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
                                  pad_hit as _pad_hit,
@@ -211,6 +212,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     if cov:
         cov_ids = {w.id for w in cov}
         tunnel_ways = [w for w in tunnel_ways if w.id not in cov_ids] + cov
+    if deck_bridges:
+        # 2026-10-30a (2) / 30f (1): a hard deck bores the road under it
+        # that nothing else bores (``planar/deck_bores``)
+        d_ways, d_parents, d_notes = deck_bores(deck_bridges, bore_roads(airport, law),
+                                                tunnel_ways, law, UNDERPASS_TAG)
+        tunnel_ways += d_ways
+        up_parents.update(d_parents)
+        stats.hard_decks.extend(d_notes)
     # R6 (RULINGS 2026-10-28k Q228 a): a road under stacked viaducts inside
     # the airport is an open level a mouth depth below the apron
     via_groups, via_notes, via_refused = viaduct_road_groups(airport, law, cells, polys)
@@ -320,12 +329,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     deck_of = {id(m): deck_under(m, deck_bridges, tn.object.bore_end_tolerance_m + tn.wall_gap_m
                                  + tn.wall_band_width_m)
                for m in mouth_list if edge_of.get(id(m)) is None} if deck_bridges else {}
+    # ...but only the carriageways that are one road (``deck_bores.deck_lanes``)
+    lane_of, lane_cs = deck_lanes(mouth_list, deck_of, tn.dual_carriageway_max_separation_m)
 
     def _edge_key(m):
         br = edge_of.get(id(m))
         db = deck_of.get(id(m))
         return br.object_id if br is not None else None if db is None else \
-            f"deck:{deck_bridges.index(db)}:{deck_side(db, m.inward)}"
+            f"deck:{deck_bridges.index(db)}:{deck_side(db, m.inward)}:{lane_of.get(id(m), 0)}"
     groups = [Group(list(m), xy, inw, w, list(ax))
               for m, xy, inw, w, ax in (merge_duals(mouth_list, law, stats, _edge_key)
                                         if mouth_list else [])]
@@ -940,7 +951,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                    edge_far[1] if edge_far is not None else ())
         if deck is not None:
             # Q-A AS RULED: the road width, banked up to just short of the deck
-            ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next)
+            ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next,
+                                   lane_band(deck, lane_cs.get(id(deck), ()),
+                                             lane_of.get(id(members[0]), 0)))
         if c is not None and not g.capped and g.mouth_strip:
             # an OPEN mouth: a one-spacing strip beyond the mouth line
             # cuts the covering ground back (09-01c/e; 09-08a)

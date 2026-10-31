@@ -50,7 +50,7 @@ from .structure_service import airside_cut_roles
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 __all__ = ["underpass_bores", "approach_along", "crossing_pieces", "mouth_parent", "is_aeroway_bridge",
-           "strip_half_width_m", "UNDERPASS_TAG", "UNDERPASS_NOTE"]
+           "strip_half_width_m", "UNDERPASS_TAG", "UNDERPASS_NOTE", "bore_roads"]
 
 #: §34 (5) (b) (Fable 2026-09-15; RULINGS 2026-09-15h): the RUNWAY family
 #: for the strip derivation — the same two role names ``planar/zones``
@@ -170,6 +170,15 @@ def aeroway_decks(airport: Airport, law: Law) -> list[OsmWay]:
     return out
 
 
+def bore_roads(airport: Airport, law: Law) -> list[OsmWay]:
+    """The mapped roads a synthesised bore may follow: ``highway`` ways that
+    are neither a mapped tunnel nor a bridge."""
+    tn = law.tables.structures.tunnel
+    return [w for w in getattr(airport, "osm_ways", None) or ()
+            if (getattr(w, "tags", None) or {}).get("highway") and len(w.points) >= 2
+            and not is_tunnel_way(w.tags, tn.admitted_values) and not is_bridge(w)]
+
+
 def underpass_bores(airport: Airport, law: Law, cells, polys
                     ) -> tuple[list[OsmWay], dict[int, LineString], list[str]]:
     """A BRIDGE STATES THE CROSSING (spec §34 (5); Fable 2026-09-13i,
@@ -213,9 +222,7 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
     # stops at — §34 (12) (3)'s own derivation, imported, never
     # re-spelled (the census-wrapper precedent).
     cut_roles = airside_cut_roles(law)
-    roads = [w for w in airport.osm_ways
-             if (getattr(w, "tags", None) or {}).get("highway") and len(w.points) >= 2
-             and not is_tunnel_way(w.tags, tn.admitted_values) and not is_bridge(w)]
+    roads = bore_roads(airport, law)
     for w in decks:
         ln = LineString(w.points)
         half = carriageway_width_m(w.tags, law) / 2.0

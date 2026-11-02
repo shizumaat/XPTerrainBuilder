@@ -37,7 +37,6 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-import numpy as np
 import shapely
 from shapely.geometry import MultiPoint, Polygon
 
@@ -153,12 +152,9 @@ def _exteriors(geom) -> list:
 def _rim_hits(below: _t.Sequence, exteriors: _t.Sequence, tol: float) -> list[bool]:
     """Per below-zero piece, whether it comes within ``tol`` of any
     footprint exterior (it REACHES the perimeter)."""
-    # §B.3 (#28): one prepared ``dwithin`` per exterior over every piece
-    # (``bulk_geos.within_distance`` is exactly ``e.distance(g) <= tol``)
-    hit = np.zeros(len(below), dtype=bool)
-    for e in exteriors:
-        hit |= _bulk.within_distance(e, below, tol)
-    return hit.tolist()
+    # §B.3 (#28): prepared ``dwithin`` (exactly ``e.distance(g) <= tol``),
+    # asked only of the pieces near each exterior (#1709)
+    return _bulk.any_within_distance(exteriors, below, tol).tolist()
 
 
 def reading(cache: _obj8.ResourceCache, path: str, law) -> SkirtReading:
@@ -218,7 +214,7 @@ def below_zero_reading(cache: _obj8.ResourceCache, path: str, law) -> SkirtReadi
     if not bu.is_valid:
         bu = shapely.make_valid(bu)
     band = bu.buffer(tol)
-    on_rim = sum(e.intersection(band).length for e in _exteriors(fp))
+    on_rim = sum(_bulk.intersection_lengths(_exteriors(fp), band))
     frac = min(1.0, on_rim / per)
     # the depths of the pieces that actually REACH the perimeter: a deep
     # lift pit inside a skirted building is not the skirt's depth

@@ -665,7 +665,8 @@ def preferred_road_z(airport: Airport, pm: PlanarMap, law: Law,
     keep ``dem_z`` — and are counted per role in the report)."""
     profiles, per_face = core_profiles(airport, pm, law, cap, lane_width_m)
     owned = road_family_vertices(pm, law)
-    at_grade = at_grade_rsa_vertices(airport, pm, law)
+    from .plate_ground import plated_end_areas
+    at_grade = at_grade_rsa_vertices(airport, pm, law, within=plated_end_areas(airport, law))
     preferred: dict[int, float] = {}
     by_role: dict[str, dict[str, int]] = {}
     moved = 0
@@ -679,6 +680,13 @@ def preferred_road_z(airport: Airport, pm: PlanarMap, law: Law,
         a = profiles.answer(vx.xy, vx.dem_z or 0.0, through)
         rec = by_role.setdefault(owned[v], {"vertices": 0, OSM: 0, ROUTE: 0, AXIS: 0, "dem": 0})
         rec["vertices"] += 1
+        # owner RULINGS 2026-11-02a (3) (Q310, #1754 / #1727): EVERY ring
+        # vertex of a road ribbon takes the road's own profile at its
+        # station, an at-grade safety-area road too.  Only where a walled
+        # plate holds the safety area off its ground (28p (1), #1201) does
+        # the road take the safety area's level instead: withdrawn over the
+        # whole safety area, its kerb on the band had no level term and
+        # sagged 1.9-2.5 m under its ground (LIRF, KBWI short of 33R)
         if a.kind is None or v in at_grade:
             rec["dem"] += 1
             continue
@@ -695,14 +703,17 @@ def preferred_road_z(airport: Airport, pm: PlanarMap, law: Law,
     return preferred, report, profiles
 
 
-def at_grade_rsa_vertices(airport: Airport, pm: PlanarMap, law: Law) -> frozenset:
+def at_grade_rsa_vertices(airport: Airport, pm: PlanarMap, law: Law,
+                          within: _t.Sequence[Polygon] | None = None) -> frozenset:
     """Owner RULINGS 2026-10-28p (1) (#1201): the vertices of every mapped
     road ribbon of an AT-GRADE class (``zones.adjacent_ground.
     rsa_at_grade_highways``: airport service roads) that meets a RUNWAY
     band's face — the road sits at grade on the safety area, so its own
     route profile is no fit target there (the vertex keeps the ground fit
     the band's own vertices take).  MEASURED KSEA: the profile of the road
-    along 16C's plate edge held the safety area 3.7 m under the plate."""
+    along 16C's plate edge held the safety area 3.7 m under the plate.
+    ``within``: only the ribbons that reach one of these areas (the road
+    profile's withdrawal, :func:`preferred_road_z`: a plated end area)."""
     from ..model.planar import is_osm_ribbon_ref
     classes = set(law.tables.zones.adjacent_ground.rsa_at_grade_highways)
     if not classes:
@@ -719,11 +730,19 @@ def at_grade_rsa_vertices(airport: Airport, pm: PlanarMap, law: Law) -> frozense
            if f.role == "graded_strip" and str(f.ref).startswith("adjacent_ground:runway:")}
     if not rsa:
         return frozenset()
+    if within is not None:
+        if not within:
+            return frozenset()
+        from shapely.prepared import prep
+        areas = [prep(a) for a in within]
     out: set[int] = set()
     for f in pm.faces.values():
         if not is_osm_ribbon_ref(f.ref) or way_class(f.ref) not in classes:
             continue
         vs = {int(v) for c in (f.ring, *f.holes) for v in pm.ring_vertices(c)}
+        if within is not None and not any(
+                a.contains(Point(pm.vertices[v].xy)) for a in areas for v in vs):
+            continue
         if any(fid in rsa for v in vs for fid in pm.vertices[v].incident_faces):
             out |= vs
     return frozenset(out)

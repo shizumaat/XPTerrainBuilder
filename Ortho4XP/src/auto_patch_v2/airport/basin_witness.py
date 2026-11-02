@@ -98,7 +98,8 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
                                          msl_tol_m=float(
                                              law.tables.structures.placement.split_tol_m),
                                          ahead=lambda jobs, rl: _work.placements_ahead(
-                                             pool, jobs, rl))
+                                             pool, jobs, rl),
+                                         dem_many=getattr(airport.dem, "z_many", None))
     # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a
     # mapped bridge way are decks; ``ATTR_hard_deck`` stays primary
     objs, drep = deck_signature.classify(objs, cache, law,

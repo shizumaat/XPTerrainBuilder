@@ -632,6 +632,12 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         if o.resolved is None:
             counts["unresolved"] += 1
             continue
+        if o.terrain_fit is not None and not o.terrain_feature:
+            counts["terrain_shaped"] = counts.get("terrain_shaped", 0) + 1
+            skipped.setdefault(o.path, "terrain-shaped hard deck (#1730, "
+                                       "terrain_shaped): one rigid body, seated "
+                                       f"by its DEM fit at {o.terrain_fit.z0:.2f} m")
+            continue
         if o.terrain_feature:
             counts["terrain_feature"] = counts.get("terrain_feature", 0) + 1
             skipped.setdefault(o.path, "terrain feature (RULINGS 2026-10-20aq, "

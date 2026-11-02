@@ -6,9 +6,8 @@ the weld tolerance (real pavement, not a sliver the weld made).  MEASURED
 at LIRF (Aerosoft pack): a 36,655 m2 parallel taxiway came back as
 28,163 + 8,056 m2 and the 8,056 m2 piece was graded as runway strip.
 """
-from shapely.geometry import LineString, Polygon
-
 from auto_patch_v2.planar import weld
+from shapely.geometry import LineString, Polygon
 
 # two pavement squares joined by a 0.8 m neck; a senior edge runs along
 # the neck's middle, so projecting the neck onto it pinches the cell in two

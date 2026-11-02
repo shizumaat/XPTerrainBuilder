@@ -501,7 +501,13 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
         return x, rep
     red: _Reduction = base.red
     one: list[_Side] = base.one
-    hard = np.asarray(base.hard, dtype=np.int64)
+    # the RUNWAY-FIRST hold (``solve/runway_first``, RULINGS 2026-11-02a (4))
+    # is not a runway law: it orders the solve, the design solve met it or
+    # §5a demoted it, and this projection settles the runway's OWN rows
+    from .runway_first import HOLD_RULING
+    hard = np.asarray([k for k in base.hard
+                       if one[k][2].source.ruling.split(" (")[0].strip() != HOLD_RULING],
+                      dtype=np.int64)
     if not hard.size or red.n_cols == 0:
         return x, rep
     S = runway_family_vertices(planar, law)

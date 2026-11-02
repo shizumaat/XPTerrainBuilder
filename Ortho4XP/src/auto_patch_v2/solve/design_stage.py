@@ -24,7 +24,8 @@ from .rows import _Reduction, _reduce
 __all__ = ["stage_split"]
 
 
-def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
+def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law,
+                stage_v: _t.AbstractSet[int] | None = None
                 ) -> tuple[frozenset[int], dict[int, float]]:
     """§20b STAGE 1's SPLIT: the vertices whose columns are FOREIGN to the
     airside problem, and the dummy values they are fixed at.
@@ -58,9 +59,13 @@ def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
     own ramp and ceiling rows, ``road_cross_section``, and whatever is minted
     next.  The airside vertex solves FREE and the road conforms in stage 2.
 
-    AN UNHELD DATUM COLUMN IS FOREIGN (spec §61 (11), :func:`_unheld_datums`)."""
+    AN UNHELD DATUM COLUMN IS FOREIGN (spec §61 (11), :func:`_unheld_datums`).
+
+    ``stage_v`` names a narrower stage's own vertices in place of the
+    airside's — STAGE 0, the runway family alone (``solve/runway_first``,
+    owner RULINGS 2026-11-02a (4)); the split is otherwise the same."""
     red0 = _reduce(planar, cs, {})
-    air_v = airside_stage_vertices(planar, law)
+    air_v = airside_stage_vertices(planar, law) if stage_v is None else stage_v
     air_cols = {int(red0.col[v]) for v in air_v if red0.col[v] >= 0}
     air_cols -= _unheld_datums(planar, cs, law, red0)
     foreign: dict[int, float] = dict(

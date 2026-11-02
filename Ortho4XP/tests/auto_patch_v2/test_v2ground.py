@@ -158,7 +158,11 @@ def test_the_zone_ring_follows_the_pavement_not_the_terrain(taxi_map, law):  # n
     assert min(z[v] - pm.vertices[v].dem_z for v in strip) > 0.0, \
         "the staged arm: the taxiway follows the runway, the strip is filled"
     from tests.auto_patch_v2.test_v2staged import _law_arm
-    z_old = np.asarray(_solve(pm, _cs, _law_arm(law, runway_led_rulings=()))[0].z, float)
+    # the old split is ALSO the joint runway (#1742, RULINGS 2026-11-02a (4)):
+    # a runway solved first holds the taxiway up by itself, so the arm frees
+    # it (a slack no pull reaches) as well as emptying the register
+    z_old = np.asarray(_solve(pm, _cs, _law_arm(law, runway_led_rulings=(),
+                                                runway_first_slack_m=1.0e6))[0].z, float)
     assert min(z_old[v] - pm.vertices[v].dem_z for v in strip) < 0.0, \
         "the old split: the sheet keeps no level from the ground"
     z0 = np.asarray(_solve(pm, _cs, unstaged(law))[0].z, float)

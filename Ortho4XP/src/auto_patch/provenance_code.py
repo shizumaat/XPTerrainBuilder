@@ -846,6 +846,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.solve.project",
     "auto_patch_v2.solve.project_strip",
     "auto_patch_v2.solve.rows",
+    "auto_patch_v2.solve.runway_first",
     "auto_patch_v2.solve.wall_cut",
     "auto_patch_v2.solve.warm_seed",
     "auto_patch_v2.verify",

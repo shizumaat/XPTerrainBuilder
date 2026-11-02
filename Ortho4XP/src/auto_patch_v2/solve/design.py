@@ -218,7 +218,15 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             return got
         return _s1_once(_dc.replace(pm_x, taxi_trend_z=dict(tz)), cs_x)
 
+    # STAGE 0, THE RUNWAY FIRST (owner RULINGS 2026-11-02a (4); ``solve/
+    # runway_first``): solved once, then held within its slack in stage 1
+    from .runway_first import RunwayFirst
+    first = RunwayFirst(law, lambda pm0, cs0, d0, f0, lv0: _solve_stage(
+        pm0, cs0, law, options, method=method, low_rank=low_rank, drop=d0,
+        fixed=f0, levelled_out=lv0, stage_roles=runway_stage_roles(law)))
+
     def _s1_once(pm_x: PlanarMap, cs_x: ConstraintSet):
+        cs_x = first.held(pm_x, cs_x)
         d_x, f_x = stage_split(pm_x, cs_x, law)
         lv: dict[int, float] = {}
         sz: dict = {}
@@ -335,6 +343,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               "rounds": rep2.rounds, "wall_s": round(w2, 3)}}
     if pass1a is not None:
         rep2.stages["stage1a"] = pass1a
+    rep2.stages["stage0"] = first.bend(levels if stage1 is None else levels1)
     if stage1 is not None:
         rep2.stages["stage1_map"] = dict(stage1.report)   # #100 option (c)
     rep2.stages["stage1"]["hard_feasibility"] = publish_stages(rep1, rep2, pass1a=pass1a, law=law)

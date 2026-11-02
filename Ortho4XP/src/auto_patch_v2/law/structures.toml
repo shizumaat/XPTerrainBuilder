@@ -176,6 +176,12 @@ merge_gap_m         = 3.0           # two corridors whose ground ends face withi
 # 0.00 -> -0.91 -> -1.71 -> -6.01).
 shell_floor_min_m    = 2.0
 cover_flush_m        = 1.0
+# A SHELL IS BELOW GRADE (#1726): plates standing at or above its zero
+# (lowest vertex no deeper than cover_flush_m) may cover at most this share
+# of its trench outline.  Measured: VHHH tunnel1..5_done 1.7-5.7 %, sea_X
+# 0-18 %; buildings that hang a few metres below their zero read 74-100 %
+# (KBWI BWI_New_Interior 100 %, KATL Techos_Terminales 82 %).
+shell_at_zero_max_fraction = 0.5
 cover_placement_tol_m = 1.0
 cover_station_m      = 25.0
 # C — THIN SURFACE WALLS AND PARAPETS (LEMD).  Solids under

@@ -276,6 +276,23 @@ def _ring_ends(interior: Polygon, wall, probe_m: float) -> tuple[list[list[int]]
     return runs, ring
 
 
+def _graded_share(v: np.ndarray, plates: np.ndarray, interior: Polygon, ob) -> float:
+    """The share of the trench outline ``interior`` that plates standing AT
+    OR ABOVE the object's zero (lowest vertex no deeper than
+    ``cover_flush_m``) cover.  A shell's plan is its floor and its ramps,
+    all below grade (VHHH ``tunnel1..5_done``: 2-6 %); a building's is its
+    floors and roofs (#1726, KBWI ``BWI_New_Interior``: 100 %, its 4,140
+    m2 of sub-grade plates under 89,751 m2 of floors)."""
+    if not len(plates):
+        return 0.0
+    ymin = v[plates, 1].min(axis=1)
+    sel = plates[ymin >= -ob.cover_flush_m]
+    if not len(sel):
+        return 0.0
+    at = _fe.union(_bulk_polys(v, sel), "object_cut._graded_share")
+    return float(at.intersection(interior).area / interior.area) if not at.is_empty else 0.0
+
+
 def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
                   law, floor_y: "float | None" = None,
                   walls_to_floor: bool = False,
@@ -341,6 +358,14 @@ def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component]
                                        "object_cut.shell_reading"))
     if interior is None or interior.area < ob.plate_min_area_m2:
         return "the shell's non-vertical faces have no plan area"
+    if deep is not None:
+        graded = _graded_share(v, tris[horiz if interior_from is None
+                                       else (horiz & interior_from)], interior, ob)
+        if graded > ob.shell_at_zero_max_fraction:
+            return (f"a building, not a trench: plates at or above its zero cover "
+                    f"{graded:.0%} of the trench outline (> shell_at_zero_max_fraction "
+                    f"{ob.shell_at_zero_max_fraction:.0%}) — a trench states its geometry "
+                    f"below grade over its floor footprint")
     # a split shell's walls are its COVER's: the floor object's own slab
     # edges stand on its ring and close no end
     wall_tris = tris[~horiz] if interior_from is None else tris[~horiz & ~interior_from]

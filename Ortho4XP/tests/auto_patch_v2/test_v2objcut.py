@@ -636,3 +636,19 @@ def test_the_pavement_inside_an_outline_is_measured_and_a_runway_is_NAMED():
     assert st.decked_pavement_m2 == pytest.approx(1000.0, abs=1e-6)   # the junction only
     assert len(st.decked_runway_family) == 1
     assert "rw07L" in st.decked_runway_family[0] and "NOT cut" in st.decked_runway_family[0]
+
+
+def test_a_building_hanging_below_its_zero_is_not_a_shell(law):
+    """#1726 (KBWI ``BWI_New_Interior``): a building whose few sub-grade
+    plates and walls reach under its zero reads like a shell, but its own
+    floors stand AT its zero over the whole outline.  A trench states its
+    geometry below grade over its floor footprint, so the reading is
+    refused by the law key it failed; the plain shell still reads."""
+    L, W = 120.0, 30.0
+    quads = _box_shell(length=L, width=W)
+    quads.append([(0.0, 0.0, 0.0), (L, 0.0, 0.0), (L, 0.0, W), (0.0, 0.0, W)])
+    g = _geom(quads)
+    r = object_cut.shell_reading(g, _components(g), law)
+    assert isinstance(r, str) and "shell_at_zero_max_fraction" in r, r
+    g = _geom(_box_shell(length=L, width=W))
+    assert not isinstance(object_cut.shell_reading(g, _components(g), law), str)

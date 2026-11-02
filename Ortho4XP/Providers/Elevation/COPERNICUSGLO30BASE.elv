@@ -29,6 +29,11 @@ resolution_arc_seconds=1
 # Asked first when the configured base source is down.
 fallback_rank=1
 
+# It publishes a tile for every cell holding land, so its "no tile" is a
+# water witness: a cell every source has no tile for is built as sea
+# (issue #1721, elevation_access/sea_cell.py).
+land_complete=True
+
 vertical_datum=EGM2008
 license=ESA Copernicus DEM licence (free use, modification and distribution with attribution)
 attribution=Produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA

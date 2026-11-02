@@ -36,11 +36,19 @@ never tighter than the raw metric's: the narrowing only ever loosens,
 and only on runway-family vertices.
 
 THE FIXTURE is two runways joined only through the taxi network: 09/27
-with both thresholds at 700 m, and a lower 09L/27R at 689.5 m reachable
+with both thresholds at 700 m, and a lower 09L/27R at 688.0 m reachable
 from it only along ``stubC → taxiA → stubB``, whose far end is the
-shared ``runway|stub`` edge vertex of 09/27.  The ceiling 689.5 delivers
+shared ``runway|stub`` edge vertex of 09/27.  The ceiling 688.0 delivers
 there is ~3.6 m under 09/27's own thresholds — a LOW TAXI BAND CEILING,
 and the fixture's whole point.
+
+RE-SCOPED for #1742 (the runway CROWN FLOOR is hard): 09L/27R's edge at
+stubC may no longer rise above its ridge toward the stub, which lent
+the taxi network 0.34 m.  On the old geometry (stubC 47 m, 09L/27R at
+689.5 m) the network's own hard rows then held 09/27's edge BELOW the
+band's ceiling in both arms, and the band — this twin's subject — was
+moot (the arms read identical to 1e-10).  stubC is 100 m longer and
+09L/27R 1.5 m lower: the same ~3.6 m ceiling, a slack network.
 
 THE PRE-FIX SET is reconstructed, not re-run: the old derivation is
 exactly today's plus a ``Band`` at every runway-family vertex of the raw
@@ -70,7 +78,7 @@ from tests.auto_patch_v2.test_crown import HALF_WIDTH, _rect, _rot
 #: 09/27's two thresholds (flat: its own law puts the whole ridge here).
 HIGH_M = 700.0
 #: 09L/27R's two thresholds — the LOW complex the band's ceiling comes from.
-LOW_M = 689.5
+LOW_M = 688.0
 #: The fixture's terrain, flat and above both runways (they are cut into
 #: it), so nothing in the DEM pulls the ridge down.
 DEM_M = 706.0
@@ -94,14 +102,14 @@ def law():
 @pytest.fixture(scope="module")
 def two_runways(law):
     """09/27 at 700 m with a stub on its north edge, a parallel taxiway,
-    a second stub, and 09L/27R at 689.5 m — the ONLY route between the
+    a second stub, and 09L/27R at 688.0 m — the ONLY route between the
     two runways runs through the taxi network."""
     r = _rot(90.0)
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
     hi = (RunwayEnd("09", r((-300.0, 0.0)), (60.5, -135.5), 0.0, 0.0, HIGH_M, "fixture"),
           RunwayEnd("27", r((300.0, 0.0)), (60.5, -135.5), 0.0, 0.0, HIGH_M, "fixture"))
-    lo = (RunwayEnd("09L", r((-300.0, 172.5)), (60.5, -135.5), 0.0, 0.0, LOW_M, "fixture"),
-          RunwayEnd("27R", r((300.0, 172.5)), (60.5, -135.5), 0.0, 0.0, LOW_M, "fixture"))
+    lo = (RunwayEnd("09L", r((-300.0, 272.5)), (60.5, -135.5), 0.0, 0.0, LOW_M, "fixture"),
+          RunwayEnd("27R", r((300.0, 272.5)), (60.5, -135.5), 0.0, 0.0, LOW_M, "fixture"))
     rw_hi = Runway("09/27", 45.0, 1, hi, 3, "D")
     rw_lo = Runway("09L/27R", 45.0, 1, lo, 3, "D")
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
@@ -114,14 +122,14 @@ def two_runways(law):
              "D", "airside", "taxi", {}),
         Cell(2, "stub", "stubB", _rect(r, -11.5, HALF_WIDTH, 11.5, 80), (), None,
              "D", "airside", "taxi", {}),
-        Cell(3, "stub", "stubC", _rect(r, -11.5, 103, 11.5, 150), (), None,
+        Cell(3, "stub", "stubC", _rect(r, -11.5, 103, 11.5, 250), (), None,
              "D", "airside", "taxi", {}),
-        Cell(4, "runway", "09L/27R", _rect(r, -300, 150, 300, 195), (), 3, "D",
+        Cell(4, "runway", "09L/27R", _rect(r, -300, 250, 300, 295), (), 3, "D",
              "airside", "runway", {}),
     )
     cuts = (CutLine("taxi_centerline", "taxiA", (r((-250.0, 91.5)), r((250.0, 91.5)))),
             CutLine("taxi_centerline", "stubB", (r((0.0, HALF_WIDTH)), r((0.0, 91.5)))),
-            CutLine("taxi_centerline", "stubC", (r((0.0, 91.5)), r((0.0, 150.0)))))
+            CutLine("taxi_centerline", "stubC", (r((0.0, 91.5)), r((0.0, 250.0)))))
     pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
     return airport, pm
 

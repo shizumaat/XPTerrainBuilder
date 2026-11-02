@@ -40,7 +40,8 @@ from .frame import Patch, Row, Shape, row
 __all__ = ["FAMILY_SEAM_RESIDUAL", "FAMILY_ROAD_COVERAGE_JOIN",
            "FAMILY_SENTINEL", "JOIN_DP", "SENTINEL_FLOOR_PCTL",
            "SENTINEL_MIN_NODES", "ROAD_JOIN_TOL_M", "seam_residual",
-           "road_coverage_join", "sentinel_elevation", "sentinel_floor_m"]
+           "road_coverage_join", "sentinel_elevation", "sentinel_floor_m",
+           "seam_pin_vertices"]
 
 FAMILY_SEAM_RESIDUAL = "seam_residual"
 FAMILY_ROAD_COVERAGE_JOIN = "road_coverage_join"
@@ -92,6 +93,18 @@ def _by_ll(p: Patch) -> dict[tuple[float, float], tuple[float, Shape]]:
                             round(float(ll[1]), JOIN_DP)),
                            (float(p.z[vid]), sh))
     return out
+
+
+def seam_pin_vertices(p: Patch) -> set[int]:
+    """The vertex ids the sidecar's ``seam_pins`` name (§38), joined
+    through the canonical coordinate as :func:`_pin_rows` joins them."""
+    want = {(round(float(r[0]), JOIN_DP), round(float(r[1]), JOIN_DP))
+            for r in (p.publication.get("seam_pins") or ())
+            if isinstance(r, _t.Sequence) and len(r) >= 2}
+    if not want:
+        return set()
+    return {vid for vid, ll in p.ll.items()
+            if (round(float(ll[0]), JOIN_DP), round(float(ll[1]), JOIN_DP)) in want}
 
 
 def _pin_rows(p: Patch, key: str, family: str, tol_m: float) -> list[Row]:

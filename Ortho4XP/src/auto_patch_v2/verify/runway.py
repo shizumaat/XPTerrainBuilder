@@ -26,6 +26,21 @@ band, so a row can only come from a solver / emit defect.  Rows at a
 ``runway_crossing`` (or a node welded to one) are out of scope (§3.1.19)
 and are not minted.
 
+Crown floor (issue #1742): the same vertex whose built fall is SHORT of
+``law.tables.runway_crown_floor`` (``crown × d`` within the half-width) by more than
+the envelope — an edge risen toward a neighbour, the crown flattened or
+inverted — is a DEFECT row of the same family (``reading =
+"crown_floor"``, ``magnitude_m`` the shortfall, no cap: the excess IS the
+shortfall).  The generator states the floor as the band's lower side.
+``runway_crown`` above could not see it: it judges each vertex against
+the drop the sidecar DECLARES, and the sidecar declares the BUILT drop
+(``constraints.runway_profile.crown_drops`` with the solved ``z``) — an
+inverted edge declares a negative drop and requires nothing.  A shoulder
+vertex beyond the half-width takes its own slope from the edge either
+way, as the upper side prices it.  A published tile-seam pin keeps no
+floor (§38: the seam is the DEM and outranks everything, RULINGS
+2026-10-26b), as in the generator.
+
 Vertical curve (RULINGS 2026-09-06b law 1): along each ``crown_spine``
 feature (a runway's profile chain), the grade change between
 consecutive chords over ``tables.runway_vertical_curve_bound`` by more
@@ -48,11 +63,13 @@ from ..constraints.geometry import principal_axis, project_to_chain
 from ..constraints.runway_profile import curve_stations
 from ..law.tables import (
     cliff_grade,
+    runway_crown_floor,
     runway_shoulder_cap,
     runway_transverse_bound,
     runway_vertical_curve_bound,
 )
 from .frame import Patch, Row, noise_m, row
+from .pins import seam_pin_vertices
 from .steps import _edges, _step_rows
 from .within import crown_by_vertex
 
@@ -189,6 +206,7 @@ def runway_transverse(p: Patch) -> list[Row]:
                for r in (p.publication.get("runway_axes") or []) if len(r) >= 6}
     crossed = crossed_shoulder_caps_of(p)       # RULINGS 2026-10-16a (i)
     owner = _transverse_owners(p, own, spines, half_of)
+    seam = seam_pin_vertices(p)                 # §38: the seam outranks the crown
     for sh in p.shapes:
         if sh.role != "runway":
             continue
@@ -211,13 +229,25 @@ def runway_transverse(p: Patch) -> list[Row]:
             cap = bound / dist
             fall = ridge_z - p.z[v]
             over = abs(fall) - bound - noise
-            if over <= 0.0:
+            if over > 0.0:
+                r = row(FAMILY_TRANSVERSE, (sh.role, sh.role), p.side(sh.role),
+                        abs(fall), 100 * fall / dist, 100 * cap, dist,
+                        (x, y), foot, sh.key, sh.key)
+                r.update({"reading": "transverse_max", "face": sh.key,
+                          "direction": "fall" if fall > 0.0 else "rise"})
+                out.append(r)
+                continue
+            if v in seam:
+                continue
+            short = min(bound, runway_crown_floor(law, dist, half, sh.code_letter,
+                                                  sh.code_number, crossed.get(v))) - fall
+            if short - noise <= 0.0:
                 continue
             r = row(FAMILY_TRANSVERSE, (sh.role, sh.role), p.side(sh.role),
-                    abs(fall), 100 * fall / dist, 100 * cap, dist,
+                    short, 100 * fall / dist, None, dist,
                     (x, y), foot, sh.key, sh.key)
-            r.update({"reading": "transverse_max", "face": sh.key,
-                      "direction": "fall" if fall > 0.0 else "rise"})
+            r.update({"reading": "crown_floor", "face": sh.key,
+                      "direction": "rise" if fall < 0.0 else "flat"})
             out.append(r)
     return out
 

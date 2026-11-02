@@ -35,7 +35,7 @@ from auto_patch_v2.pipeline.publication import publication
 from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.solve import solve_design
 from auto_patch_v2.verify import census
-from auto_patch_v2.verify.census import DEFECT_KEYS, FAMILY_TRANSVERSE
+from auto_patch_v2.verify.census import DEFECT_KEYS, FAMILY_TRANSVERSE, defect_excess_m
 from tests.auto_patch_v2.test_crown import (HALF_WIDTH, Airport, Cell, Classification,
                                             CutLine, Frame, Runway, RunwayEnd,
                                             SceneryPack, _PlaneDem, _rect, _rot, build)
@@ -122,7 +122,10 @@ def test_generator_states_a_two_sided_hard_band_in_the_runway_tier(shared_edge, 
     rows = runway_profile.runway_transverse(pm, law, airport)
     rw, v, vw = _shared_edge_vertex(pm, law)
     assert rows and all(isinstance(r, Linear) and r.soft is None for r in rows)
-    assert all(r.lo is not None and r.hi is not None and r.lo == -r.hi for r in rows)
+    # #1742: the lower side is the CROWN FLOOR abeam the ridge (the edge
+    # never rises toward a neighbour), ``-hi`` only off the chain's ends
+    assert all(r.lo is not None and r.hi is not None and -r.hi <= r.lo <= r.hi
+               for r in rows)
     cap = T.runway_transverse_max(law, rw.code_letter, rw.code_number)
     chains = runway_profile.ridge_chains(vw)
     off: set[int] = set()
@@ -134,6 +137,9 @@ def test_generator_states_a_two_sided_hard_band_in_the_runway_tier(shared_edge, 
     assert v in by_v
     d = runway_profile._foot(vw, v, runway_profile.ridge_chains(vw)[rw.ref])[0]
     assert by_v[v].hi == pytest.approx(cap * d)
+    assert by_v[v].lo == pytest.approx(
+        T.runway_crown_floor(law, d, HALF_WIDTH, rw.code_letter, rw.code_number))
+    assert by_v[v].lo > 0.0
     tt = T.tiers(law)
     tier_of = {r: k for k, t in enumerate(tt) for r in t}
     assert all(row_tier(pm, r, tier_of, len(tt) - 1) == 0 for r in rows)
@@ -248,6 +254,71 @@ def test_with_the_generator_the_edge_holds_within_the_cap(shared_edge, law):
     pub = publication(pm, law, airport, sol.z)
     rows = census(surf, law, pub, roads.road_law_caps(pm, law))
     assert rows[FAMILY_TRANSVERSE] == []
+
+
+#: The neighbour's LIFT on the shared edge vertex (#1742, EPWA 11/29: a
+#: primary parallel and an apron held the south edge 0.29 m above its
+#: ridge).  Half the runway's crown drop at the edge plus as much again:
+#: under the old ``-cap * d`` lower side the edge rose above the ridge.
+LIFT_M = 0.5
+
+
+def test_without_the_floor_a_lifted_edge_inverts_and_verify_flags_it(shared_edge, law):
+    """#1742: an edge vertex shared with a stub lifted ABOVE its ridge,
+    the transverse generator off: verify reads the inverted crown as a
+    ``crown_floor`` DEFECT row of the ``runway_transverse`` family —
+    ``runway_crown`` judges the DECLARED (built) drop and requires nothing."""
+    airport, pm, rw, v, cs, sol, rep = _solve_with_pin(shared_edge, law, -LIFT_M,
+                                                  with_generator=False, hold_ridge=True)
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
+    fall, _bound = _built_falls(pm, law, airport, sol.z)[v]
+    assert fall < 0.0, fall                                   # the edge stands above the ridge
+    surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
+    pub = publication(pm, law, airport, sol.z)
+    rows = census(surf, law, pub, roads.road_law_caps(pm, law))
+    got = [r for r in rows[FAMILY_TRANSVERSE] if r["reading"] == "crown_floor"]
+    assert got, rows[FAMILY_TRANSVERSE]
+    assert any(r["direction"] == "rise" for r in got)
+    assert all(r["cap_pct"] is None and defect_excess_m(r) == r["magnitude_m"]
+               for r in got)
+
+
+def test_with_the_floor_the_lifted_edge_keeps_its_crown(shared_edge, law):
+    """#1742: the same lift WITH the generator — the edge keeps at least
+    the crown drop under its ridge; the profile and the stub conform."""
+    airport, pm, rw, v, cs, sol, rep = _solve_with_pin(shared_edge, law, -LIFT_M,
+                                                  with_generator=True)
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
+    tol_h = law.tables.emit.design.hard_tol_m
+    vw = view(pm, law)
+    chs = runway_profile.ridge_chains(vw)[rw.ref]
+    d = runway_profile._foot(vw, v, chs)[0]
+    fall, bound = _built_falls(pm, law, airport, sol.z)[v]
+    floor = T.runway_crown_floor(law, d, HALF_WIDTH, rw.code_letter, rw.code_number)
+    assert floor - tol_h - 1e-9 <= fall <= bound + tol_h + 1e-9, (fall, floor, bound)
+    surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
+    pub = publication(pm, law, airport, sol.z)
+    rows = census(surf, law, pub, roads.road_law_caps(pm, law))
+    assert rows[FAMILY_TRANSVERSE] == []
+
+
+def test_the_crown_floor_is_the_crown_to_the_edge_then_the_shoulder(law):
+    """The floor's ONE reading: ``crown * d`` within the half-width, the
+    shoulder's own slope beyond it either way (the bound's second term)."""
+    crown = law.tables.common.runway_crown_transverse
+    half = 22.5
+    assert T.runway_crown_floor(law, 10.0, half, "D", 3) == pytest.approx(crown * 10.0)
+    assert T.runway_crown_floor(law, half, half, "D", 3) == pytest.approx(crown * half)
+    sh = T.runway_shoulder_cap(law, "D", 3)
+    assert T.runway_crown_floor(law, half + 4.0, half, "D", 3) == \
+        pytest.approx(crown * half - sh * 4.0)
+    # a taxi route crossing the shoulder: its cap, never below the runway's
+    assert T.runway_crown_floor(law, half + 4.0, half, "D", 3, 0.015) == \
+        pytest.approx(crown * half - 0.015 * 4.0)
+    # never above the band's upper side
+    for d in (0.0, 5.0, half, half + 10.0):
+        assert T.runway_crown_floor(law, d, half, "D", 3) <= \
+            T.runway_transverse_bound(law, d, half, "D", 3)
 
 
 def test_pulled_beyond_the_profile_the_iis_names_the_pin(shared_edge, law):

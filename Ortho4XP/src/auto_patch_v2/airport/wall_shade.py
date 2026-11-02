@@ -62,12 +62,14 @@ def attach_wall_shade(airport, cfg, cache=None):
         comps = wall_class_components(airport, cfg)
     from .wall_sides import wall_sides
     return _dc.replace(airport, wall_shade=wall_shade(airport, cfg, comps),
-                       retaining_walls=wall_sides(airport, cfg, comps, _top_of(airport, cache)))
+                       retaining_walls=wall_sides(airport, cfg, comps, *_readers(airport, cache)))
 
 
-def _top_of(airport, cache):
-    """The walls' top reader (``airport/wall_top.top_profile``) bound to
-    ``airport``'s frame and the build's ``ResourceCache``."""
-    from .wall_top import top_profile
+def _readers(airport, cache):
+    """The walls' top and foot readers (``airport/wall_top.top_profile`` /
+    ``foot_profile``) bound to ``airport``'s frame and the build's
+    ``ResourceCache``."""
+    from .wall_top import foot_profile, top_profile
     to_xy = airport.frame.entry()
-    return lambda comp, piece, face: top_profile(comp, piece, face, to_xy, cache)
+    return (lambda comp, piece, face: top_profile(comp, piece, face, to_xy, cache),
+            lambda comp, piece, face: foot_profile(comp, piece, face, to_xy, cache))

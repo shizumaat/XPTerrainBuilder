@@ -2805,7 +2805,8 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     ``rebake_after_mesh``, which only the object-stage step
     (``O4_Object_Stage.run``) calls; that step is run only by a TILE build
     (``O4_Mesh_Utils.build_mesh``) or a tile-bundle import on the user's
-    own install (``tile_bundle.importer``, #1699 phase 1).  The v2 AIRPORT pipeline reaches none of it — its
+    own install (``tile_bundle.importer``, #1699 phase 1).  The v2 AIRPORT
+    pipeline reaches none of it — its
     rebake stage writes ``<out>/<ICAO>.rebake.json`` and nothing else.
     If a later change gives the airport path a pack write, this twin is
     where it must be argued.

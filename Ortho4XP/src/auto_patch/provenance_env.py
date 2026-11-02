@@ -136,6 +136,9 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_ARTIFACT_LEDGER_MAX_MB": "the artifact ledger's size cap",
     "O4_CENSUS_CACHE_DIR": "where census results are cached",
     "O4_LANE_CACHE_ROOT": "where a lane's private caches are kept",
+    "O4_LANE_CACHE_PRUNE_DAYS":
+        "how old an unused lane-cache entry is before a run deletes it "
+        "(the next run re-seeds it; no patch reads the age)",
     "O4_MAIN_REPO": "where the main checkout is, for the lane ritual",
     "O4_DATA_REPO":
         "where the data repo is; every file read from it is stamped by "

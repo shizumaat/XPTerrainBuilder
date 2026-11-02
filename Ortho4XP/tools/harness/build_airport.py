@@ -4721,6 +4721,23 @@ def resolve_tile_for(icao: str, root: Path):
     return None
 
 
+def _prune_lane_cache(root, prog) -> None:
+    """#1723: the tree's ``tmp/engine_caches`` entries unused for 7 days
+    go after a good run (``tmp_prune.prune_cache_after_run``; the main
+    checkout is never torn down, so nothing else ever drops them)."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import tmp_prune
+        n, freed = tmp_prune.prune_cache_after_run(
+            root, os.environ.get("O4_DATA_REPO", str(CS.SHARED_DATA_REPO_DEFAULT)),
+            str(Path(__file__).resolve().parents[3] / "docs" / "frames.jsonl"))
+        if n:
+            prog.note(f"lane cache: pruned {n} entries unused for 7+ days "
+                      f"({freed / 1e6:.0f} MB private)")
+    except Exception as exc:                          # never fail a good build
+        prog.note(f"lane cache: prune skipped ({exc!r})")
+
+
 def main(argv=None) -> int:
     # NO ``O4_SUITE_ALLOW_NETWORK`` HERE (#177).  This used to set it:
     # lane las130's consumer-side workaround for #146, when importing
@@ -5100,7 +5117,7 @@ def main(argv=None) -> int:
         lat, lon = tile if tile else (None, None)
 
     frame = {"dem_cache_before": None, "requested_constant_dem": args.dem,
-             "data_repo": str(DATA_REPO), "data_mounts": mounts,
+             "data_repo": str(CS.SHARED_DATA_REPO_DEFAULT), "data_mounts": mounts,
              "refresh_authorised": sorted(requested)}
     # ``corpus`` rides every frame; ``corpus_snapshot`` ONLY a snapshot
     # build's (the ledger's corpus stamp keys it in when present, so every
@@ -5719,6 +5736,7 @@ def main(argv=None) -> int:
     if args.tile:
         require_no_swallowed_write_block(
             guard.blocked, allow_degraded=args.allow_degraded_dem, prog=prog)
+    _prune_lane_cache(root, prog)
     prog.note(f"EXIT {tag} rc=0 wall={result['wall_seconds']}s")
     for line in closing_lines(out_dir, tag, result, tile=bool(args.tile)):
         print(line)

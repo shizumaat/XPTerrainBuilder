@@ -301,3 +301,21 @@ def test_bundle_member_hashes_are_of_the_bundled_bytes(machines):
     members.pop("ATTRIBUTION.txt")
     assert {n: hashlib.sha256(d).hexdigest() for n, d in members.items()} == \
         {n: f["sha256"] for n, f in manifest["files"].items()}
+
+
+def test_sources_name_the_provider_that_delivered_each_inset(machines):
+    """The inset's file name carries the ladder's root code; its sidecar
+    names the rung that delivered it and the layers filled into it — the
+    manifest credits those (KPDX: Oregon DOGAMI lidar in a
+    ``_usgs3dep.tif``)."""
+    a, _b, _staged = machines
+    (a.root / "insets" / "KXXX_usgs3dep.json").write_text(json.dumps({
+        "provider": "OREGONDOGAMI",
+        "fills": {"layers": [{"provider": "COPERNICUSGLO30"}]}}),
+        encoding="utf-8", newline="\n")
+    manifest = json.loads(_members(_export(a)["path"])["manifest.json"])
+    named = {s["provider"]: s for s in manifest["sources"]
+             if s["kind"] == "elevation"}
+    assert "OREGONDOGAMI" in named and "COPERNICUSGLO30" in named
+    assert "USGS3DEP" not in named
+    assert "DOGAMI" in named["OREGONDOGAMI"]["credit"]

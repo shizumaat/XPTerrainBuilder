@@ -58,19 +58,42 @@ def _require_current(tile) -> None:
                 "the tile again, then export it." % (_STEP_NOUNS[step], why))
 
 
+def _inset_providers(path: str) -> list:
+    """The elevation providers one cached inset holds: the provider that
+    DELIVERED it, from its sidecar (``<stem>.json``), and the surround or
+    fill layers assembled into it.  The file name carries the ladder's
+    ROOT code (``_usgs3dep.tif``), not the rung that delivered: KPDX's
+    inset is Oregon DOGAMI lidar under a ``_usgs3dep`` name.  Only a
+    raster with no readable sidecar is named by its file name."""
+    try:
+        with open(os.path.splitext(path)[0] + ".json",
+                  encoding="utf-8") as handle:
+            meta = json.load(handle)
+    except (OSError, ValueError):
+        meta = None
+    if not isinstance(meta, dict) or not meta.get("provider"):
+        stem = os.path.splitext(os.path.basename(path))[0]
+        return [stem.rsplit("_", 1)[1].upper()] if "_" in stem else []
+    layers = [meta.get("surround") or {}] + list(
+        (meta.get("fills") or {}).get("layers") or ())
+    codes = [meta["provider"]] + [layer.get("provider") for layer in layers
+                                  if isinstance(layer, dict)]
+    return [str(code).upper() for code in codes if code]
+
+
 def _provider_sources(inset_paths) -> list:
     """The elevation providers of the cached insets, with their licences
     (``Providers/Elevation/<CODE>.elv``)."""
     import O4_Airport_Elevation_Insets as INSETS
-    definitions = INSETS.initialize_elevation_providers_dict()
+    definitions = {code.upper(): definition for code, definition
+                   in INSETS.initialize_elevation_providers_dict().items()}
     found = {}
     for path in inset_paths:
-        base = os.path.basename(path).lower()
-        for code, definition in definitions.items():
-            if base.endswith("_" + code.lower() + ".tif"):
-                found[code] = {"kind": "elevation", "provider": code,
-                               "licence": definition.get("license", ""),
-                               "credit": definition.get("attribution", "")}
+        for code in _inset_providers(path):
+            definition = definitions.get(code) or {}
+            found[code] = {"kind": "elevation", "provider": code,
+                           "licence": definition.get("license", ""),
+                           "credit": definition.get("attribution", "")}
     return [found[c] for c in sorted(found)]
 
 

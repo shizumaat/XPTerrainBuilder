@@ -233,6 +233,17 @@ STEP_RATE_BARS = {"vector": (1,), "masks": (1,), "imagery": (1, 2, 3)}
 REUSED_STEP_SECONDS = 1.0
 
 
+def _clear_boundary_skips():
+    """A new run starts with no tile's airport selection recorded (#1643,
+    ``O4_Vector_Map.BOUNDARY_SKIPPED_INTO``)."""
+    try:
+        import O4_Vector_Map as _VMAP
+
+        _VMAP.BOUNDARY_SKIPPED_INTO.clear()
+    except Exception:                                    # pragma: no cover
+        pass
+
+
 def _predict_step_seconds(lat, lon, features, steps):
     """Learned per-step estimates, or static-weight-scaled defaults when the
     time model is unavailable (module optional during bring-up).  A step
@@ -748,6 +759,9 @@ class EngineSession:
         # the queue AND the building flag transition, so a batch can
         # never be appended into a run that just decided to finish.
         self._work_queue: deque = deque()
+        # #1643: each tile this in-process run took off the queue, as the
+        # queue item, so a tile can be queued again with its own batch.
+        self._run_items: dict = {}
         self._work_queue_lock = threading.Lock()
         # tile -> its batch's per-build switches (#818, build(overrides=)).
         self._tile_overrides: dict = {}
@@ -1084,6 +1098,8 @@ class EngineSession:
                          custom_build_dir, plan):
         with self._work_queue_lock:
             self._work_queue.clear()
+            self._run_items = {}
+            _clear_boundary_skips()
             for tile in tiles:
                 self.new_tile_attempt(tile)
                 self._work_queue.append(
@@ -1193,18 +1209,62 @@ class EngineSession:
                             (int(t[0]), int(t[1])) for t in tiles))
                 except Exception:                        # pragma: no cover
                     pass
-            if fresh and self._eta is not None:
-                planned_keys = [key for (key, _b, _w) in plan]
-                estimates = {
-                    tile: _predict_step_seconds(
-                        tile[0], tile[1],
-                        prediction_features(tile[0], tile[1], provider,
-                                            zoomlevel, custom_build_dir),
-                        planned_keys)
-                    for tile in fresh
-                }
-                self._eta.add_tiles(fresh, estimates, planned_keys)
+            self._eta_add_tiles(fresh, provider, zoomlevel,
+                                custom_build_dir, plan)
+            if fresh:
+                # #1643: a tile this run built that skipped an airport
+                # into one of these is built again (the active tile is
+                # judged when it ends, ``_requeue_boundary_skips``).
+                self._requeue_boundary_skips(
+                    fresh, [t for t in self._run_items
+                            if t != self._active_tile])
         return len(fresh)
+
+    def _eta_add_tiles(self, tiles, provider, zoomlevel, custom_build_dir,
+                       plan):
+        """Price newly queued tiles into the in-process run's clock."""
+        if not tiles or self._eta is None:
+            return
+        planned_keys = [key for (key, _b, _w) in plan]
+        estimates = {
+            tile: _predict_step_seconds(
+                tile[0], tile[1],
+                prediction_features(tile[0], tile[1], provider,
+                                    zoomlevel, custom_build_dir),
+                planned_keys)
+            for tile in tiles
+        }
+        self._eta.add_tiles(tiles, estimates, planned_keys)
+
+    def _requeue_boundary_skips(self, cells, candidates):
+        """#1643, the in-process run: queue again each of *candidates*
+        (tiles this run built) whose airport selection skipped an airport
+        crossing into one of *cells*, now part of the run, so its next
+        selection counts the cell as built.  Caller holds
+        ``_work_queue_lock``."""
+        import O4_Vector_Map as _VMAP
+
+        # A stand-in pipeline (tests) records nothing: nothing to judge.
+        skips = getattr(_VMAP, "BOUNDARY_SKIPPED_INTO", None)
+        if not skips:
+            return
+        cells = {(int(c[0]), int(c[1])) for c in cells}
+        queued = {item[0] for item in self._work_queue}
+        for tile in candidates:
+            into = skips.get(tile, frozenset()) & cells
+            if not into or tile in queued or tile not in self._run_items:
+                continue
+            skips.pop(tile, None)
+            UI.vprint(0, "Tile %s: an airport crosses into %s, queued after "
+                         "its airports were chosen; building it again to "
+                         "patch it." % (FNAMES.short_latlon(*tile),
+                                        ", ".join(FNAMES.short_latlon(*c)
+                                                  for c in sorted(into))))
+            item = self._run_items[tile]
+            self._cancelled_tiles.discard(tile)
+            self.new_tile_attempt(tile)
+            self._work_queue.append(item)
+            self._eta_add_tiles([tile], *item[1:])
 
     def _live_run_cells_locked(self):
         """The in-process run's queued and building tiles (caller holds
@@ -1402,8 +1462,9 @@ class EngineSession:
                     self._run_finished()
                     run_completed = True
                     break
-                (tile_key, provider, zoomlevel, custom_build_dir,
-                 plan) = self._work_queue.popleft()
+                item = self._work_queue.popleft()
+                self._run_items[item[0]] = item
+            (tile_key, provider, zoomlevel, custom_build_dir, plan) = item
             (lat, lon) = tile_key
             if (lat, lon) in self._cancelled_tiles:
                 # Cancelled while queued: never started, reported stopped.
@@ -1550,6 +1611,10 @@ class EngineSession:
                                           self.app_driven))
                 else:
                     last_ok[(lat, lon)] = True
+                    with self._work_queue_lock:
+                        self._requeue_boundary_skips(
+                            self._live_run_cells_locked() - {(lat, lon)},
+                            [(lat, lon)])
                     # #564: the airports this tile's MESH was built
                     # without, from the record the vector step published —
                     # a sidecar, because under the parallel orchestrator
@@ -2348,9 +2413,9 @@ class EngineSession:
     def _boundary_preflight(self, request_id, cells):
         """The worker half of :meth:`boundary_airports`."""
         import O4_Config_Utils as CFG
-        import O4_Settings_Model as SETTINGS
         import O4_Vector_Map as VMAP
-        from auto_patch import selection as SELECTION
+
+        from .boundary_reselect import boundary_record
 
         selected = set(cells)
         # A tile the live run already holds is being built too (#1641).
@@ -2358,22 +2423,10 @@ class EngineSession:
         airports = []
         add_tiles = set()
         for (lat, lon) in cells:
-            tile = CFG.Tile(lat, lon, "")
-            tile.read_from_config()
-            cifp = SETTINGS.resolve_cifp_dir(CFG.cifp_data_path,
-                                             CFG.custom_scenery_dir)
-            if not cifp:
+            judged = boundary_record(lat, lon, in_run)
+            if judged is None:
                 continue
-            record = []
-            (is_cold, siblings) = VMAP.boundary_cold_predicate(
-                (lat, lon), in_run)
-            SELECTION.select_patch_airports(
-                tile, cifp, SELECTION.resolved_auto_patch_mode(tile),
-                manual_icaos=VMAP.manual_patch_icaos(tile),
-                boundary=SELECTION.boundary_skipper(
-                    lat, lon, is_cold=is_cold,
-                    reach_m=SELECTION.ask_reach_m(),
-                    record=record))
+            (record, siblings) = judged
             # DECLARED for the scheduler's fetch admission (spec §D.2):
             # the frames this tile's step 1 may warm.
             VMAP.declare_boundary_cells(

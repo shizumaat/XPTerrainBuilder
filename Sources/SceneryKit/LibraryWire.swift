@@ -93,6 +93,27 @@ public struct O4LibraryFreed: Decodable, Equatable, Sendable {
     }
 }
 
+/// `library_export_bundle` result (#1699 phase 1, `tile_bundle.export`):
+/// the bundle written, its size and its match key.
+public struct O4LibraryBundleExport: Decodable, Equatable, Sendable {
+    public let path: String
+    public let bytes: Int64
+    public let key: String
+    public let files: Int
+    public let seconds: Double
+}
+
+/// `library_import_bundle` result (#1699 phase 1, `tile_bundle.importer`):
+/// the tile imported and the steps its next build reuses.
+public struct O4LibraryBundleImport: Decodable, Equatable, Sendable {
+    public let tile: String
+    public let key: String
+    public let airports: [String]
+    public let bytes: Int64
+    public let reused: [String]
+    public let seconds: Double
+}
+
 extension OrthoEngineClient {
     /// Every Library command replies `{"status": "started"}` and the
     /// `LibraryReady` event naming its id carries the result or the error
@@ -143,5 +164,22 @@ extension OrthoEngineClient {
             "tiles": tiles.map { [$0.lat, $0.lon] }, "working_dir": workingDir,
             "scenery_dir": sceneryDir, "confirm": true,
         ])
+    }
+
+    /// Writes one built tile's tile bundle into `outDir` (#1699). The engine
+    /// refuses a tile another tool built, one not current with its last
+    /// build, or one built with other than the default mesh settings.
+    public func libraryExportBundle(lat: Int, lon: Int, workingDir: String,
+                                    outDir: String) async throws -> O4LibraryBundleExport {
+        try await libraryRequest("library_export_bundle", [
+            "lat": lat, "lon": lon, "working_dir": workingDir, "out_dir": outDir,
+        ])
+    }
+
+    /// Imports a tile bundle into the tiles folder (#1699). Nothing is
+    /// downloaded; the engine refuses a bundle that does not match this
+    /// installation. The tile's next build finishes it with the user's imagery.
+    public func libraryImportBundle(path: String, workingDir: String) async throws -> O4LibraryBundleImport {
+        try await libraryRequest("library_import_bundle", ["path": path, "working_dir": workingDir])
     }
 }

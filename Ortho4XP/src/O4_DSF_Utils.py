@@ -605,13 +605,19 @@ def _raster_sub_atoms(raster_int16) -> bytes:
     )
 
 
-def _tile_elevation_post_grid(tile):
+def tile_elevation_post_grid(tile):
     """The tile's smoothed base DEM on the DSF post grid (row 0 = south).
 
     Reuses ``tile.dem`` when a step already loaded it; otherwise loads the
     same source the masks step would (``custom_dem`` head, else the
     default base).  Returns an int16 ``1201 x 1201`` array or ``None``.
+    A tile laid down from a tile bundle reads the bundle's grid instead
+    (``O4_DSF_Data_Inputs``, #1699): it has no DEM.
     """
+    import O4_DSF_Data_Inputs as DSFDATA
+    carried = DSFDATA.bundled(tile)
+    if carried is not None:
+        return carried["elevation"]
     dem = getattr(tile, "dem", None)
     if dem is None:
         try:
@@ -652,6 +658,24 @@ def _tile_elevation_post_grid(tile):
     )
 
 
+def _measured_band(tile):
+    """``(has a band, the band on the DSF post grid | None)``: the
+    measured coastal bathymetry the DSF rasters splice in — a tile
+    bundle's when the tile was laid down from one (``O4_DSF_Data_Inputs``,
+    #1699: the band reads the tile's OSM coastline and elevation cells),
+    else the band's own."""
+    import O4_Bathymetry_Band as BATHYBAND
+    import O4_DSF_Data_Inputs as DSFDATA
+    carried = DSFDATA.bundled(tile)
+    if carried is not None:
+        return carried["band"], carried["measured"]
+    band_vrt = BATHYBAND.ensure_bathymetry_band(tile)
+    if band_vrt is None:
+        return False, None
+    return True, BATHYBAND.warp_band_to_post_grid(
+        band_vrt, tile.lat, tile.lon, DSF_RASTER_POSTS)
+
+
 def synthesize_elevation_and_bathymetry_data(tile):
     """Build the DSF ``elevation`` + ``sea_level`` rasters from scratch.
 
@@ -662,12 +686,10 @@ def synthesize_elevation_and_bathymetry_data(tile):
     data.  Returns ``(b"", b"")`` (the legacy no-donor result) when the
     band or the DEM is unavailable.
     """
-    import O4_Bathymetry_Band as BATHYBAND
-
-    band_vrt = BATHYBAND.ensure_bathymetry_band(tile)
-    if band_vrt is None:
+    (has_band, measured) = _measured_band(tile)
+    if not has_band:
         return (b"", b"")
-    elevation = _tile_elevation_post_grid(tile)
+    elevation = tile_elevation_post_grid(tile)
     if elevation is None:
         return (b"", b"")
     UI.vprint(
@@ -676,9 +698,6 @@ def synthesize_elevation_and_bathymetry_data(tile):
         " measured bathymetry.",
     )
     sea_level = (elevation - 2).astype(numpy.int16)
-    measured = BATHYBAND.warp_band_to_post_grid(
-        band_vrt, tile.lat, tile.lon, DSF_RASTER_POSTS
-    )
     if measured is not None:
         valid_water = (measured > -32000.0) & (measured <= 0.0)
         sea_level[valid_water] = numpy.clip(
@@ -702,15 +721,8 @@ def splice_measured_bathymetry(tile, bDEMN, bDEMS):
     preserved byte-identically; on any mismatch (no band, unexpected
     raster shape) the donor bytes are returned untouched.
     """
-    import O4_Bathymetry_Band as BATHYBAND
-
-    band_vrt = BATHYBAND.ensure_bathymetry_band(tile)
-    if band_vrt is None or not bDEMS:
-        return (bDEMN, bDEMS)
-    measured = BATHYBAND.warp_band_to_post_grid(
-        band_vrt, tile.lat, tile.lon, DSF_RASTER_POSTS
-    )
-    if measured is None:
+    (has_band, measured) = _measured_band(tile)
+    if not has_band or not bDEMS or measured is None:
         return (bDEMN, bDEMS)
 
     def measured_over_the_sea(elevation, sea_level):

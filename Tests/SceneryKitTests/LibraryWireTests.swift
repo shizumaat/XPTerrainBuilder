@@ -58,4 +58,26 @@ struct LibraryWireTests {
             let _: O4LibraryFreed = try OrthoEngineClient.decodeLibraryReady(nil).get()
         }
     }
+
+    /// #1699 phase 1: the export and import results, as the engine sends
+    /// them (`tile_bundle.export` / `tile_bundle.importer`; the import's
+    /// object-stage counts and stale reasons ride along undecoded).
+    @Test func bundleResultsDecode() throws {
+        let exported = O4JSON.from(["event": "LibraryReady", "command": "library_export_bundle",
+                                    "error": "", "result": [
+                                        "path": "/out/XPTerrainBuilder_+45-123.xptbundle",
+                                        "bytes": 72_801_612, "key": "c5ec45c2", "files": 37,
+                                        "seconds": 119.2] as [String: Any]] as [String: Any])
+        let done: O4LibraryBundleExport = try OrthoEngineClient.decodeLibraryReady(exported).get()
+        #expect(done.bytes == 72_801_612 && done.files == 37)
+        let imported = O4JSON.from(["event": "LibraryReady", "command": "library_import_bundle",
+                                    "error": "", "result": [
+                                        "tile": "+45-123", "key": "c5ec45c2", "airports": ["KPDX"],
+                                        "bytes": 282_662_654, "reused": ["vector", "mesh", "masks"],
+                                        "object_stage": ["airports": 7] as [String: Any],
+                                        "stale": ["vector": NSNull()] as [String: Any],
+                                        "seconds": 34.3] as [String: Any]] as [String: Any])
+        let got: O4LibraryBundleImport = try OrthoEngineClient.decodeLibraryReady(imported).get()
+        #expect(got.tile == "+45-123" && got.reused == ["vector", "mesh", "masks"])
+    }
 }

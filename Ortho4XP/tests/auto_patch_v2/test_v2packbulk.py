@@ -155,6 +155,30 @@ def test_intersecting_pairs_order():
     assert list(zip(qi.tolist(), ti.tolist())) == want
 
 
+
+def test_rim_hits_envelope_prefilter_at_tolerance():
+    """#1709: the STRtree prefilter keeps a piece whose envelope sits
+    exactly ``tol`` (and one ulp either side) off a ring's envelope."""
+    ext = skirt._exteriors(shapely.union_all([box(0, 0, 4, 4), box(10, 0, 14, 4)]))
+    tol = 0.5
+    below = [box(4 + d, 1, 5 + d, 2) for d in
+             (float(np.nextafter(tol, 0.0)), tol, float(np.nextafter(tol, 1.0)))]
+    below += [box(20, 20, 21, 21), box(14.4, -0.6, 15, -0.1), box(1, 1, 2, 2)]
+    assert skirt._rim_hits(below, ext, tol) == _ref_rim_hits(below, ext, tol)
+
+
+def test_intersection_lengths_equal_per_part():
+    """#1709: each ring against only the band parts its envelope meets
+    reads what the whole band reads (none met: 0.0)."""
+    band = shapely.MultiPolygon([box(0, 0, 3, 3), box(5, 0, 8, 3), box(30, 30, 31, 31)])
+    lines = [box(1, 1, 6, 2).exterior, box(2, 2, 2.5, 2.5).exterior,
+             box(10, 10, 12, 12).exterior, box(-1, -1, 9, 4).exterior,
+             LineString([(3, 1), (5, 1)])]
+    want = [ln.intersection(band).length for ln in lines]
+    assert bulk_geos.intersection_lengths(lines, band) == want
+    assert bulk_geos.intersection_lengths(lines[:1], box(0, 0, 3, 3)) == \
+        [lines[0].intersection(box(0, 0, 3, 3)).length]
+
 # ── the REAL inputs (registered TNCM capture harvest) ────────────────────
 
 _HARVEST = Path(os.environ.get(

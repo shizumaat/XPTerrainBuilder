@@ -31,7 +31,7 @@ from shapely.strtree import STRtree
 
 from ..model.planar import is_gap_ref
 
-__all__ = ["CentrelineGap", "GapReport", "centreline_pavement_gaps"]
+__all__ = ["centreline_pavement_gaps"]
 
 #: a centreline within this of a held cell is on it (the slice's own
 #: snapping and the cell-edge tolerance are below a metre)
@@ -41,7 +41,7 @@ MIN_GAP_M = 10.0
 
 
 @_dc.dataclass(frozen=True)
-class CentrelineGap:
+class _CentrelineGap:
     """One connected stretch of taxi centreline over unheld ground."""
 
     length_m: float
@@ -54,12 +54,12 @@ class CentrelineGap:
 
 
 @_dc.dataclass(frozen=True)
-class GapReport:
+class _GapReport:
     """Every gap, longest first, and the network it was read over."""
 
     taxi_m: float
     gap_m: float
-    gaps: tuple[CentrelineGap, ...]
+    gaps: tuple[_CentrelineGap, ...]
 
     def lines(self, icao: str, top: int = 8) -> list[str]:
         """The build log's say-lines: one summary, then the longest gaps."""
@@ -119,7 +119,7 @@ def _parts(g) -> list[LineString]:
     return [q for q in getattr(g, "geoms", ()) if q.geom_type == "LineString"]
 
 
-def centreline_pavement_gaps(airport, cells) -> GapReport:
+def centreline_pavement_gaps(airport, cells) -> _GapReport:
     """The taxi centreline of ``airport``'s 1202 network (runway edges
     excluded) over ground no held cell of ``cells`` covers."""
     xy = {nid: n.xy for nid, n in airport.taxi_nodes.items()}
@@ -128,7 +128,7 @@ def centreline_pavement_gaps(airport, cells) -> GapReport:
              if not e.is_runway and e.a in xy and e.b in xy and xy[e.a] != xy[e.b]]
     taxi_m = float(sum(ln.length for ln, _n in edges))
     if not edges:
-        return GapReport(0.0, 0.0, ())
+        return _GapReport(0.0, 0.0, ())
     lines = [ln for ln, _n in edges]
     off = unary_union(lines).difference(_held_near(cells, lines))
     merged = linemerge(_parts(off)) if not off.is_empty else off
@@ -138,7 +138,7 @@ def centreline_pavement_gaps(airport, cells) -> GapReport:
     sheet_tree = STRtree(sheet_polys) if sheets else None
     edge_tree = STRtree(lines)
     to_ll = airport.frame.transformers()[1]
-    gaps: list[CentrelineGap] = []
+    gaps: list[_CentrelineGap] = []
     for part in _parts(merged):
         if part.length < MIN_GAP_M:
             continue
@@ -149,7 +149,7 @@ def centreline_pavement_gaps(airport, cells) -> GapReport:
         pages = sorted({sheets[int(i)].description or sheets[int(i)].id
                         for i in sheet_tree.query(part, predicate="intersects")}
                        ) if sheet_tree is not None else []
-        gaps.append(CentrelineGap(float(part.length), (float(lat), float(lon)),
+        gaps.append(_CentrelineGap(float(part.length), (float(lat), float(lon)),
                                   tuple(names), tuple(pages)))
     gaps.sort(key=lambda g: -g.length_m)
-    return GapReport(taxi_m, float(sum(g.length_m for g in gaps)), tuple(gaps))
+    return _GapReport(taxi_m, float(sum(g.length_m for g in gaps)), tuple(gaps))

@@ -338,6 +338,19 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # the role its geometry earns (and its `neck_ev` says so).
         sh = (None if neck_ev.get("shoulder_beyond_band")
               else _runway_shoulder(face, rw_edges, rules))
+        if sh is None and not neck_ev.get("shoulder_beyond_band") \
+                and not neck_ev.get("shoulder_page_split"):
+            # §40 (1) PAGE BY PAGE (RULINGS 2026-11-02a (2), #1686): a narrow
+            # page along the runway edge welded to a deep page is still the
+            # runway's shoulder (``_page_shoulders``)
+            on_pages, rest = _page_shoulders(face, ev.pavement_polys, pav_tree,
+                                             rw_edges, rules)
+            if on_pages:
+                stats["shoulder_page_splits"] = \
+                    stats.get("shoulder_page_splits", 0) + 1
+                queue.extend((p, dict(neck_ev, shoulder_page_split=1.0))
+                             for p in on_pages + rest)
+                continue
         if sh is not None:
             # §40 (5) (1)/(2) THE SHOULDER IS A BAND, NOT A CELL: the cell
             # is the runway's only within the runway's graded strip half
@@ -1493,6 +1506,40 @@ def _runway_shoulder(face: Polygon, rw_edges, rules: Rules):
         if best is None or shared > best[1]:
             best = (rw, shared)
     return best
+
+
+def _page_shoulders(face: Polygon, pages, page_tree, rw_edges, rules: Rules
+                    ) -> tuple[list[Polygon], list[Polygon]]:
+    """§40 (1) READ PAGE BY PAGE (owner RULINGS 2026-11-02a (2): "A narrow
+    strip along a runway edge should be identified as a shoulder and
+    graded with the runway"; #1686).  The slice face is cut from the
+    pavement UNION, so a narrow page running along the runway that a deep
+    taxiway page touches is welded into one deep face, and
+    :func:`_runway_shoulder`'s ribbon test refuses the whole of it.  The
+    face's part on each source page it overlaps is read by the SAME test;
+    ``(shoulders, rest)`` are the admitted page parts and what remains of
+    the face, ``([], [])`` when the face lies on fewer than two pages or
+    no page part is admitted.  MEASURED (KIND, DominicDesignTeam): with
+    the pack's ``ConcreteLight`` taxiway pages admitted (#1686), 9,909 m2
+    of narrow shoulder pages read welded and left the runway."""
+    hits = sorted(int(i) for i in page_tree.query(face, predicate="intersects"))
+    if len(hits) < 2:
+        return [], []
+    floor = rules.cells.min_area_m2
+    taken = Polygon()
+    shoulders: list[Polygon] = []
+    for i in hits:
+        part = face.intersection(pages[i][1])
+        if not taken.is_empty:
+            part = part.difference(taken)
+        for p in polygon_parts(part):
+            if p.area >= floor and _runway_shoulder(p, rw_edges, rules) is not None:
+                shoulders.append(p)
+                taken = unary_union([taken, p])
+    if not shoulders:
+        return [], []
+    return shoulders, [p for p in polygon_parts(face.difference(taken))
+                       if p.area >= floor]
 
 
 def shoulder_band(rw, law: Law, *, end_cap: bool = True):

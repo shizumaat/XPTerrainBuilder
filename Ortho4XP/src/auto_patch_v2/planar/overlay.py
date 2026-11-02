@@ -34,7 +34,8 @@ from ..geom.containment import sets_inside_one_ring
 from ..geom.proportions import inscribed_width_m
 from ..law import Law
 from ..law.reference_code import runway_status
-from ..law.tables import authority_rank, chord_cap_m, input_quantum_m, is_rigid_role, role_side
+from ..law.tables import (authority_rank, chord_cap_m, input_quantum_m, is_rigid_role,
+                          role_side, snap_margin_m)
 from ..airport.wall_sides import band_setbacks
 from ..model.airport import Airport
 from ..model.registries import Registries
@@ -301,10 +302,13 @@ def build_arrangement(airport: Airport, classification: Classification,
         # #1661 (Q299 (a)): the hill over a retaining wall's upper face is
         # graded ground of its own, held at the wall's top (``wall_slope``)
         for ref, g in wall_slopes(tuple(getattr(airport, "retaining_walls", ()) or ()),
-                                  [r.polygon for r in regions]
-                                  + [Polygon(k).buffer(0.0) for k in classification.keepouts
+                                  [r.polygon for r in regions if r.source == "zone"],
+                                  [r.polygon for r in regions if r.source != "zone"]
+                                  + [Polygon(c.ring, c.holes) for c in ribbon_cells]
+                                  + [Polygon(k) for k in classification.keepouts
                                      if len(k) >= 3],
-                                  2.0 * input_quantum_m(law)):
+                                  law.tables.zones.adjacent_ground.groundside_cutback_m
+                                  + snap_margin_m(law), 2.0 * input_quantum_m(law)):
             regions.append(Region("graded_strip", ref, g, None, None,
                                   role_side(law, "graded_strip"), "zone"))
 

@@ -48,6 +48,20 @@ def test_the_top_follows_the_object_edge(monkeypatch):
     assert abs(mid - 283.0) < 0.1
 
 
+def test_a_proud_wall_is_capped_at_what_it_retains(monkeypatch):
+    from auto_patch_v2.airport import sunken_ramp
+    monkeypatch.setattr(sunken_ramp, "_member_tris", lambda *a, **k: _tris())
+    # 21 m solid, top at +6, retaining only the 15 m under its zero: the
+    # upper ground is AT the zero and the 6 m above it is a parapet
+    comp = types.SimpleNamespace(seat_z=280.0, member=object(), origin=(0.0, 0.0),
+                                 height_m=21.0, retained_m=15.0, top_y=6.0)
+    a = np.asarray(WT.top_profile(comp, WALL, _upper_face(), None), float)
+    assert float(a[:, 1].max()) == 280.0
+    full = types.SimpleNamespace(seat_z=280.0, member=object(), origin=(0.0, 0.0),
+                                 height_m=21.0, retained_m=21.0, top_y=6.0)
+    assert float(np.asarray(WT.top_profile(full, WALL, _upper_face(), None))[:, 1].max()) > 285.9
+
+
 def test_no_seat_no_top():
     comp = types.SimpleNamespace(seat_z=None, member=object(), origin=(0.0, 0.0))
     assert WT.top_profile(comp, WALL, _upper_face(), None) is None
@@ -68,16 +82,45 @@ def test_only_the_upper_face_takes_the_top():
     assert WZ.face_top([_line(None)], (60.0, 0.0)) is None   # no top read
 
 
+def test_a_station_that_retains_no_hill_takes_no_top():
+    face = _upper_face()
+    half = face.length / 2.0
+    prof = ((0.0, None), (half - 1.0, None), (half, 290.0), (face.length, 290.0))
+    lines = [_line(prof)]
+    p_end = face.interpolate(1.0).coords[0]
+    p_mid = face.interpolate(half + 20.0).coords[0]
+    assert WZ.face_top(lines, p_end) is None
+    assert WZ.face_top(lines, p_mid) == 290.0
+
+
+def test_the_lower_level_round_the_end_withdraws_the_top():
+    class _Dem:
+        # the upper ground 300 m, except past y = 50 where the lower level
+        # (280 m) wraps round the wall's end
+        def z_many(self, xs, ys):
+            return np.where(np.asarray(ys, float) > 50.0, 280.0, 300.0)
+    face = _upper_face()
+    prof = tuple((float(s), 300.0) for s in np.arange(0.0, face.length + 1.0, 10.0))
+    got = WS._retaining_stations(_Dem(), face, prof, 20.0, 20.0)
+    for s, z in got:
+        y = face.interpolate(s).y
+        assert (z is None) == (y > 50.0)
+
+
 def test_the_slope_is_the_upper_band_no_region_holds():
     up = box(40.0, -100.0, 60.0, 100.0)
     w = WS.WallSides(WALL, 20.0, 20.0, up, box(65.0, -100.0, 85.0, 100.0), 6.0, "w",
                      WALL.buffer(-0.5), _upper_face(), ((0.0, 290.0), (200.0, 290.0)))
-    got = wall_slopes([w], [box(30.0, 50.0, 70.0, 120.0)], 0.02)
+    got = wall_slopes([w], [box(30.0, 50.0, 70.0, 120.0)], [], 1.0, 0.02)
     assert len(got) == 1 and is_wall_slope_ref(got[0][0])
     assert got[0][0].startswith(WALL_SLOPE_REF_PREFIX)
     assert abs(got[0][1].area - 20.0 * 150.0) < 1.0
     unread = WS.WallSides(WALL, 20.0, 20.0, up, None, 6.0, "w", None, _upper_face(), None)
-    assert wall_slopes([unread], [], 0.02) == []
+    assert wall_slopes([unread], [], [], 1.0, 0.02) == []
+    # a road past the wall's end keeps its stand-off: no shared vertex
+    road = box(30.0, -120.0, 70.0, -110.0)
+    got = wall_slopes([w], [], [road], 15.0, 0.02)
+    assert got and all(g.distance(road) >= 15.0 - 1e-6 for _r, g in got)
 
 
 def test_a_slope_vertex_on_the_face_is_held_at_the_top():

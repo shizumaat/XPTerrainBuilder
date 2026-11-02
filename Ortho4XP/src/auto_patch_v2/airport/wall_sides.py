@@ -74,8 +74,9 @@ class WallSides:
     upper_face: _t.Any = None
     #: THE WALL'S TOP AS IT SITS, absolute (owner RULINGS 2026-10-29a Q299
     #: (a), #1661): ``((s, z), ...)`` along :attr:`upper_face`
-    #: (``airport/wall_top``) — the level the hill's ground meets there;
-    #: ``None`` where unread
+    #: (``airport/wall_top``) — the level the hill's ground meets there,
+    #: ``z`` None at a station that retains no hill
+    #: (:func:`_retaining_stations`); ``None`` where unread
     top_profile: tuple | None = None
 
     def side_of(self, xy) -> str | None:
@@ -186,9 +187,33 @@ def wall_sides(airport, cfg, comps=None, top_of=None) -> tuple[WallSides, ...]:
             core = g.buffer(-min(0.5, wide / 4.0))
             uf = faces[0] if za >= zb else faces[1]
             top = top_of(w, g, uf) if top_of is not None else None
+            if top is not None:
+                top = _retaining_stations(dem, uf, top, smear, h)
             out.append(WallSides(g, h, smear, up, lo, w.top_y, w.resource,
                                  None if core.is_empty else core,
                                  uf, top))
+    return tuple(out)
+
+
+def _retaining_stations(dem, face: LineString, profile: tuple, smear: float,
+                        h: float) -> tuple:
+    """``profile`` with the top withdrawn (``(s, None)``) at every station
+    whose ground ``smear`` out on the upper side stands more than half the
+    retained height ``h`` under the top: the lower level wraps round the
+    wall there (its end), and no hill meets that top (#1661, measured KATL
+    ``muro_concreto``: 12 m under the top at its north end, a pad and a road
+    at the lower level beside it)."""
+    from .dem import dem_z_many
+    off = face.offset_curve(-smear, join_style="mitre", mitre_limit=2.0)
+    if off.is_empty or off.length <= 0.0:
+        return profile
+    lines = [ln for ln in getattr(off, "geoms", [off]) if ln.length > 0.0]
+    out = []
+    for s_, z in profile:
+        p = face.interpolate(s_)
+        q = min((ln.interpolate(ln.project(p)) for ln in lines), key=p.distance)
+        g = float(dem_z_many(dem, np.array([q.x]), np.array([q.y]))[0])
+        out.append((s_, None if math.isfinite(g) and g < z - 0.5 * h else z))
     return tuple(out)
 
 

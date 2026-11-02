@@ -10,7 +10,14 @@ their edges sampled every :data:`EDGE_STEP_M`, the samples inside the
 footprint projected onto the face, the highest per :data:`BIN_M` station —
 plus the member's seat (``WallComponent.seat_z``: DEM at its origin plus
 its ``agl``), so each station is absolute (read back at a point by
-``constraints/wall_zone.face_top``).  Geometry only; no airport is named (RULINGS 2026-10-05e)."""
+``constraints/wall_zone.face_top``).
+
+A wall that retains only the depth under its own zero and stands proud of
+it (``wall_class._depth_under_zero``, #1139: ``retained_m`` under its solid
+height — KATL ``muro_ladrillo.obj``, 10.52 m retained of 16.64 m, a 6.1 m
+parapet) retains its upper ground AT that zero: the profile is capped
+there (:func:`_retaining_cap`), so the hill never climbs a parapet.
+Geometry only; no airport is named (RULINGS 2026-10-05e)."""
 from __future__ import annotations
 
 import math
@@ -64,6 +71,17 @@ def top_profile(comp, piece, face, to_xy, cache=None) -> tuple | None:
     np.maximum.at(top, k, pts[:, 2])
     ok = np.isfinite(top)
     st = np.arange(n) * BIN_M
-    z = np.interp(st, st[ok], top[ok])
+    z = np.minimum(np.interp(st, st[ok], top[ok]), _retaining_cap(comp))
     return tuple((float(a), float(seat) + float(b)) for a, b in zip(st, z, strict=True))
 
+
+def _retaining_cap(comp) -> float:
+    """The highest authored ``y`` the wall retains to: its zero plus the
+    part of its solid height it retains (``top_y - height + retained``) for
+    a wall that retains less than its height; unbounded otherwise."""
+    h = float(getattr(comp, "height_m", 0.0) or 0.0)
+    kept = float(getattr(comp, "retained_m", 0.0) or 0.0)
+    top_y = getattr(comp, "top_y", None)
+    if top_y is None or kept <= 0.0 or kept >= h - 1e-6:
+        return math.inf
+    return float(top_y) - h + kept

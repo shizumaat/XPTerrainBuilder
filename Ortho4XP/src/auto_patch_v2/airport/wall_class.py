@@ -151,7 +151,7 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                                          float(retained),
                                          None if by is None else
                                          float(by) + float(p.height_m),
-                                         seat, tuple(m.origin or u.anchor), m))
+                                         seat, _origin(u, m), m))
     return out
 
 
@@ -160,9 +160,10 @@ def _seat_z(airport: Airport, unit, member, to_xy) -> float | None:
     (:attr:`WallComponent.seat_z`): the DEM at its origin plus the unit's
     authored ``agl``; ``None`` for a member on a converted MSL zero."""
     dem = getattr(airport, "dem", None)
-    lat, lon = getattr(member, "origin", None) or unit.anchor
-    if dem is None or float(getattr(member, "zero_y", 0.0) or 0.0) != 0.0:
+    org = _origin(unit, member)
+    if dem is None or org is None or float(getattr(member, "zero_y", 0.0) or 0.0) != 0.0:
         return None
+    lat, lon = org
     import numpy as np
 
     from .dem import dem_z_many
@@ -170,7 +171,13 @@ def _seat_z(airport: Airport, unit, member, to_xy) -> float | None:
     z = float(dem_z_many(dem, np.array([x]), np.array([y]))[0])
     if not math.isfinite(z):
         return None
-    return z + float(unit.agl_m or 0.0)
+    return z + float(getattr(unit, "agl_m", 0.0) or 0.0)
+
+
+def _origin(unit, member) -> tuple | None:
+    """The placement's ``(lat, lon)`` origin, ``None`` when unread."""
+    org = getattr(member, "origin", None) or getattr(unit, "anchor", None)
+    return None if org is None else tuple(org)
 
 
 #: the share of a wall's outline that must step by its height: the 90th

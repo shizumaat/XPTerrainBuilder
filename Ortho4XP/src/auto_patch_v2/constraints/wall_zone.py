@@ -232,7 +232,8 @@ def split(r: Linear, xy: _t.Mapping[int, tuple[float, float]],
 def face_top(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> float | None:
     """The wall's top as it sits (``RetainingLine.top_profile``) at ``xy``
     where it stands ON a wall's UPPER face — within :data:`TOP_FACE_M` of
-    it and nearer it than the rest of the outline; ``None`` elsewhere."""
+    it and nearer it than the rest of the outline — at a station that
+    retains a hill; ``None`` elsewhere."""
     import numpy as np
     from shapely.geometry import Point
     p = Point(xy)
@@ -241,8 +242,13 @@ def face_top(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> floa
             continue
         d = w.upper_face.distance(p)
         if d <= TOP_FACE_M and d <= w.poly.exterior.distance(p) + 1e-6:
-            a = np.asarray(w.top_profile, float)
-            return float(np.interp(w.upper_face.project(p), a[:, 0], a[:, 1]))
+            s_ = w.upper_face.project(p)
+            st = [t for t in w.top_profile if t[1] is not None]
+            near = min(w.top_profile, key=lambda t: abs(t[0] - s_))
+            if near[1] is None or not st:
+                return None     # a station that retains no hill
+            a = np.asarray(st, float)
+            return float(np.interp(s_, a[:, 0], a[:, 1]))
     return None
 
 

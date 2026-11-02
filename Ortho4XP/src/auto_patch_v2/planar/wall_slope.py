@@ -29,17 +29,25 @@ from ..model.wall_reach import WALL_SLOPE_REF_PREFIX
 __all__ = ["wall_slopes"]
 
 
-def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, hairline_m: float
-                ) -> list[tuple[str, _t.Any]]:
+def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
+                cut_m: float, hairline_m: float) -> list[tuple[str, _t.Any]]:
     """``(ref, polygon)`` per wall-slope piece: every retaining wall's upper
     band (``WallSides.upper``) whose top is read (``top_profile``), less
-    its footprint and every polygon in ``taken`` (the regions already
-    standing, the structure keep-outs)."""
+    its footprint, every polygon in ``taken`` (the zone bands: the slope
+    welds to their edge) and every polygon in ``apart`` grown by ``cut_m``
+    (the cells — pavement, pads, roads —, the late road ribbons and the
+    structure keep-outs, at the zones' groundside stand-off): a slope
+    shares no vertex with a cell, whose level is its own law — a road or a
+    pad past the wall's end stands at the lower level, and the gap
+    terraces (measured KATL replay: a slope vertex shared with a road past
+    ``muro_concreto``'s end held it 11.7 m over its own run)."""
     live = [w for w in walls if getattr(w, "top_profile", None)
             and w.upper is not None and not w.upper.is_empty]
     if not live:
         return []
-    held = canonical_union([g for g in taken if g is not None and not g.is_empty])
+    held = canonical_union([g for g in taken if g is not None and not g.is_empty]
+                           + [g.buffer(cut_m, join_style="mitre", mitre_limit=2.0)
+                              for g in apart if g is not None and not g.is_empty])
     out: list[tuple[str, _t.Any]] = []
     k = 0
     for w in live:

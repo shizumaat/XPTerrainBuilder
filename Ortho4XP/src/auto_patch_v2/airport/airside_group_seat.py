@@ -175,8 +175,8 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
     law = Law.load()
     wall_min = float(law.tables.structures.placement.chain_min_height_m)
     storey = storey_m(law)
-    from ..geom.support_members import is_support, support_lift_on
-    lift = support_lift_on(law)   # EXPERIMENT #1726 (geom/support_members)
+    from ..geom.foot_planes import is_support, support_lift_on
+    lift = support_lift_on(law)   # EXPERIMENT #1726 (geom/foot_planes)
     for u in plan.units:
         for m in u.members:
             for p in m.parts:
@@ -236,7 +236,7 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
             zs = near_zs
         z = floor_plane(zs, storey)
         if z is not None and k in support:
-            from ..geom.support_members import support_plane
+            from ..geom.foot_planes import support_plane
             sp = support_plane(support[k], PLANE_BAND_M)
             if sp is not None and sp[1] >= PLANE_MIN_FEET and sp[0] > z:
                 SUPPORT_LIFTS[k] = (round(sp[0] - z, 3), sp[1])

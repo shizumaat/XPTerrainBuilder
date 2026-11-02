@@ -1,14 +1,14 @@
 """#1726 EXPERIMENT (owner 2026-11-02T22:33Z-22:37Z, awaiting his sim read):
 a building group's slender SUPPORT members (poles, piers under it) found no
 storey and, with ``[building_pad] support_lift`` on, the group is lifted so
-their densest foot plane stands at grade (``geom/support_members``).  The
+their densest foot plane stands at grade (``geom/foot_planes``).  The
 knob is OFF by default; off, the storey readers are unchanged."""
 from __future__ import annotations
 
 import dataclasses as _dc
 import types
 
-from auto_patch_v2.geom import support_members as SM
+from auto_patch_v2.geom import foot_planes as SM
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar import low_level as LL
 

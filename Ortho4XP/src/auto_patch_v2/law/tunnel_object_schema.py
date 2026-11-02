@@ -44,7 +44,9 @@ class TunnelObject:
     # (owner RULINGS 2026-09-15e/15g, Fable 2026-09-15j; lane v2objcut)
     shell_floor_min_m: float           # B: the SHELL's largest horizontal plate stands at least this far below the object's zero — that plate IS the floor and its level is the AUTHORED depth
     cover_flush_m: float               # B: the COVER's HARD_DECK plate is FLUSH — |y| at most this
-    shell_at_zero_max_fraction: float      # B: a SHELL's plates at or above its zero cover at most this share of its trench outline — more is a building (#1726)
+    # B: a SHELL's plates at or above its zero cover at most this share of
+    # its trench outline; more is a building (#1726)
+    shell_at_zero_max_fraction: float
     cover_placement_tol_m: float       # B: the cover stands at the SAME placement — position within this, same heading
     cover_station_m: float             # B: the cover's descending profile is binned this fine along the axis; each bin's LOWEST y is a ramp station
     parapet_max_height_m: float        # C: a thin surface wall is shorter than this

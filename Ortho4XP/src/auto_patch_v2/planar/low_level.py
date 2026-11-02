@@ -147,10 +147,14 @@ def _densest(ys: _t.Sequence[float], band: float) -> "tuple[int, float]":
 def walled_feet(parts, law, to_xy) -> "tuple[list, list]":
     """``(frame xy, y)`` of the ground-contact feet of the WALLED parts of
     ``parts`` (``[(part, xy)]``; ``[placement] chain_min_height_m``)."""
+    from ..geom.foot_planes import is_support, support_lift_on
     wall_min = float(law.tables.structures.placement.chain_min_height_m)
+    lift = support_lift_on(law)   # EXPERIMENT #1726: a support founds no storey
     xy, ys = [], []
     for p, _xy in parts:
         if getattr(p, "line", False) or float(getattr(p, "height_m", 0.0) or 0.0) < wall_min:
+            continue
+        if lift and is_support(p, law):
             continue
         for f in getattr(p, "feet", ()) or ():
             xy.append(to_xy(float(f[1]), float(f[0])))

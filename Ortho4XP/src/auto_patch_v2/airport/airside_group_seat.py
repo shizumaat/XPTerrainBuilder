@@ -142,6 +142,11 @@ def storey_m(law: _t.Any) -> float:
                          "low_level_min_step_m", 0.0) or 0.0)
 
 
+#: EXPERIMENT #1726: ``key -> (lift m, support feet)`` of every share the
+#: support lift raised in the last :func:`airside_zeros` (the report's)
+SUPPORT_LIFTS: dict[str, tuple[float, int]] = {}
+
+
 def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
                   surface: _t.Any, key_of: _t.Callable[[str, str], str],
                   own_ground: "dict[str, float] | None" = None
@@ -157,6 +162,7 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
     when given, is filled with every share's OWN-GROUND zero: the
     :func:`ground_plane` of ``ground - y`` over all its feet.  Line objects (their feet are
     drape stations) are not read."""
+    SUPPORT_LIFTS.clear()
     roles = getattr(surface, "roles", None)
     if roles is None or not plan_wide:
         return {}
@@ -166,8 +172,11 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
     from ..law import Law
     # the WALLED parts (``[placement] chain_min_height_m``): a foundation or
     # a curb wall meets the apron; a floor slab, a sign or a bollard does not
-    wall_min = float(Law.load().tables.structures.placement.chain_min_height_m)
-    storey = storey_m(Law.load())
+    law = Law.load()
+    wall_min = float(law.tables.structures.placement.chain_min_height_m)
+    storey = storey_m(law)
+    from ..geom.foot_planes import is_support, support_lift_on
+    lift = support_lift_on(law)   # EXPERIMENT #1726 (geom/foot_planes)
     for u in plan.units:
         for m in u.members:
             for p in m.parts:
@@ -176,9 +185,10 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
                     continue
                 k = key_of(seat[0], str(u.id))
                 walled = float(getattr(p, "height_m", 0.0) or 0.0) >= wall_min
+                sup = lift and is_support(p, law)
                 for f in getattr(p, "feet", ()) or ():
                     feet.append((k, float(f[0]), float(f[1]), float(f[2]), walled,
-                                 str(m.id)))
+                                 "support" if sup else str(m.id)))
     if not feet:
         return {}
     pts: list[tuple[float, float]] = []
@@ -193,11 +203,15 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
     has_stands = bool(_stands)
     near = _near_stand(_stands)
     ground: dict[str, list[float]] = {}
-    for i, (k, la, lo, y, walled, _mid) in enumerate(feet):
+    support: dict[str, list[float]] = {}
+    for i, (k, la, lo, y, walled, mid) in enumerate(feet):
         g = surface(la, lo)
         if g is not None:
             ground.setdefault(k, []).append(float(g) - y)
-        if not walled:
+            if mid == "support":
+                support.setdefault(k, []).append(float(g) - y)
+                continue
+        if not walled or mid == "support":
             continue
         hit = next((j for j in range(n) if airside_role(got[i * n + j])), None)
         if hit is None:
@@ -221,6 +235,12 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
                 continue
             zs = near_zs
         z = floor_plane(zs, storey)
+        if z is not None and k in support:
+            from ..geom.foot_planes import support_plane
+            sp = support_plane(support[k], PLANE_BAND_M)
+            if sp is not None and sp[1] >= PLANE_MIN_FEET and sp[0] > z:
+                SUPPORT_LIFTS[k] = (round(sp[0] - z, 3), sp[1])
+                z = sp[0]
         if z is not None:
             out[k] = (z, len(zs))
     if own_ground is not None:

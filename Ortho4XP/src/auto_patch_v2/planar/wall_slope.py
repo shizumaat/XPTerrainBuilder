@@ -35,7 +35,13 @@ import shapely
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..model.wall_reach import WALL_SLOPE_REF_PREFIX
 
-__all__ = ["wall_slopes"]
+__all__ = ["wall_slopes", "SLOPE_VERTEX_M"]
+
+#: the longest ring edge of a wall-slope piece: its face edge carries a
+#: vertex at least this often, so the ground follows the wall's top / foot
+#: profile between them (#1662, measured KATL ``muro_concreto``: one face
+#: edge 56 m long ran straight across the foot's 8 m fall at the wall's end)
+SLOPE_VERTEX_M = 5.0
 
 
 def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
@@ -73,6 +79,7 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
             if part.geom_type != "Polygon" or part.area < 1.0 \
                     or is_hairline(part, hairline_m):
                 continue
-            out.append((f"{WALL_SLOPE_REF_PREFIX}{w.resource}#{k}", part))
+            out.append((f"{WALL_SLOPE_REF_PREFIX}{w.resource}#{k}",
+                        shapely.segmentize(part, SLOPE_VERTEX_M)))
             k += 1
     return out

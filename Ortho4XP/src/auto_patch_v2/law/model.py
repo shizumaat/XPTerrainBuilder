@@ -558,6 +558,11 @@ class BuildingPad:
     #: that cannot bank down takes the ground to every road strip within
     #: this; ``0`` disarms it (WORKING VALUE, awaiting the owner)
     fill_road_reach_m: float = 0.0
+    #: EXPERIMENT (#1726, awaiting the owner's sim read; ``geom/support_members``):
+    #: a building group is lifted so its slender support members (plan box
+    #: at most ``support_max_extent_m``) stand at grade; no lower pad for them
+    support_lift: bool = False
+    support_max_extent_m: float = 2.5
 
 
 @_dc.dataclass(frozen=True)

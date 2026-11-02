@@ -301,3 +301,25 @@ def test_bundle_member_hashes_are_of_the_bundled_bytes(machines):
     members.pop("ATTRIBUTION.txt")
     assert {n: hashlib.sha256(d).hexdigest() for n, d in members.items()} == \
         {n: f["sha256"] for n, f in manifest["files"].items()}
+
+
+def test_twin_a_windows_bundle_imports_on_posix_and_back():
+    """#1761: separators are spelled ``/`` in a bundle whatever machine
+    wrote it, and with the importing machine's own separator on import."""
+    win = "C:\\Users\\someone\\X-Plane 12\\Custom Scenery"
+    pack = win + "\\PackA\\Earth nav data\\apt.dat"
+    text = "%s|%s|%s" % (pack, urllib.parse.quote(pack, safe="/"),
+                         urllib.parse.quote(pack, safe=""))
+    token = PATHS.tokenise_text(text, [("custom_scenery", win)])
+    assert "\\" not in token and "%5C" not in token and "C:" not in token
+    assert "{custom_scenery|q}/PackA/Earth%20nav%20data/apt.dat" in token
+    mac = "/Users/other/X-Plane 12/Custom Scenery"
+    back = PATHS.detokenise_text(token, [("custom_scenery", mac)],
+                                 {"PackA": "PackB"}, sep="/")
+    want = mac + "/PackB/Earth nav data/apt.dat"
+    # a Windows path holds no "/", so its two quoted spellings are one
+    # string and both come back in the "/"-kept spelling (unquoted alike)
+    assert back == "%s|%s|%s" % (want, urllib.parse.quote(want, safe="/"),
+                                 urllib.parse.quote(want, safe="/"))
+    again = PATHS.detokenise_text(token, [("custom_scenery", win)], sep="\\")
+    assert again == text

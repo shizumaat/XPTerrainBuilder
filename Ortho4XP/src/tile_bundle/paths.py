@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.parse
 
 __all__ = ["TOKENS", "roots", "tokenise_text", "detokenise_text",
@@ -82,25 +83,64 @@ def _token(name: str, suffix: str) -> str:
     return "{%s%s}" % (name, "|" + suffix if suffix else "")
 
 
+#: What a path after a token may run through, by spelling: a quoted
+#: spelling holds no blank, the plain one may ("Earth nav data").
+_TAIL = {"": r"[^\"'<>|{\n]*", "q": r"[^\"'<>|{\s]*",
+         "qq": r"[^\"'<>|{\s]*"}
+
+#: A path's separator in each spelling: ``(separator, its spelling)``.
+_SEPS = {"": (("\\", "/"),), "q": (("%5C", "/"), ("%5c", "/")),
+         "qq": (("%5C", "%2F"), ("%5c", "%2F"))}
+
+
+#: A token, with its spelling suffix in group 1.
+_TOKEN_RE = re.compile(r"\{[a-z_]+(?:/[^{}|\"'<>\s]+)?(?:\|(qq?))?\}")
+
+
+def _respell_tails(text: str, to_local: bool, sep: str) -> str:
+    """Every path after a token with its separators in the BUNDLE's
+    spelling (``/``) or, ``to_local``, in this machine's (``sep``): a
+    bundle a Windows machine wrote imports on a Mac, and the reverse."""
+    out, at = [], 0
+    for match in _TOKEN_RE.finditer(text):
+        if match.start() < at:
+            continue
+        suffix = match.group(1) or ""
+        tail = re.compile(_TAIL[suffix]).match(text, match.end())
+        rest = tail.group(0)
+        if to_local:
+            if sep != "/":
+                rest = rest.replace(_SEPS[suffix][0][1], _SPELLINGS[suffix](sep))
+        else:
+            for spelled, canon in _SEPS[suffix]:
+                rest = rest.replace(spelled, canon)
+        out.append(text[at:match.end()] + rest)
+        at = tail.end()
+    return "".join(out) + text[at:]
+
+
 def tokenise_text(text: str, pairs) -> str:
     """``text`` with every root of ``pairs`` (in each spelling) replaced
-    by its token."""
+    by its token, and the path after it spelled with ``/``."""
     for name, root in pairs:
         for suffix, spell in _SPELLINGS.items():
             spelled = spell(root)
             if spelled in text:
                 text = text.replace(spelled, _token(name, suffix))
-    return text
+    return _respell_tails(text, False, "/")
 
 
-def detokenise_text(text: str, pairs, renames=None) -> str:
+def detokenise_text(text: str, pairs, renames=None, sep: str = os.sep) -> str:
     """The inverse of :func:`tokenise_text` with THIS machine's roots
     (``pairs``: one root per token); ``renames`` maps a pack folder name
-    the bundle names to the one installed here."""
+    the bundle names to the one installed here; ``sep`` is this
+    machine's path separator."""
+    text = _respell_tails(text, False, "/")    # a bundle from before #1761
     for old, new in (renames or {}).items():
         for suffix, spell in _SPELLINGS.items():
             text = text.replace(_token("custom_scenery", suffix) + spell("/" + old),
                                 _token("custom_scenery", suffix) + spell("/" + new))
+    text = _respell_tails(text, True, sep)
     for name, root in pairs:
         for suffix, spell in _SPELLINGS.items():
             text = text.replace(_token(name, suffix), spell(root))

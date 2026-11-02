@@ -256,8 +256,11 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     # (owner RULINGS 2026-10-14g (3)) keeps its authored row — converting
     # its OBJECT_MSL row to on-ground is not "kept as authored"
     landed = landed_keeps(ss)
+    # issue #1730: a terrain-shaped hard deck's row is seated at its DEM fit
+    from . import terrain_shaped as _ts
+    terrain = _ts.row_seats(dump, _records)
     settled = (frozenset(s.placement.index for s in splits) | kept_idx
-               | features | landed)
+               | features | landed | frozenset(m.index for m in terrain))
     _rows = list(getattr(dump, "placements", ()) or ())
     authored_rows = sum(1 for i in kept_idx | landed if 0 <= i < len(_rows)
                         and _rows[i].kind in _dw.CONVERTIBLE_KINDS)
@@ -282,7 +285,7 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     feet, conversions = _mf.feet_seats(dump, conversions, surface, pack_root,
                                        ss.unit_seats, tol_m=feet_tol_m,
                                        drape_tol_m=tol_m, counts=msl_counts)
-    msl = tuple(msl) + feet
+    msl = tuple(msl) + feet + terrain
     # owner RULINGS 2026-10-22f (#1214): a lifted row inside a re-seated
     # frame moves with the frame (KMCI's 614 terminal seats)
     from .frame_riders import frame_rider_seats
@@ -294,7 +297,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
                               "authored_rows_kept": authored_rows,
                               "msl_seats": len(msl),
                               "agl_rows_kept_unchanged": agl_kept,
-                              "terrain_feature_rows_kept": len(features)}
+                              "terrain_feature_rows_kept": len(features),
+                              "terrain_shaped_rows_seated": len(terrain)}
     counts.update(msl_counts)
     counts.update(_riders.rider_census(riders))
     counts.update(_fu.multi_anchor_census(dump, rebake_plan, msl, settled,

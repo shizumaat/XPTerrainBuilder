@@ -488,6 +488,12 @@ class Airport:
     #: (``constraints/walled_plate``).  Empty = none (or a capture written
     #: before them).
     walled_plates: tuple = ()
+    #: issue #1730: THE TERRAIN-SHAPED HARD DECKS (``geom.terrain_deck.
+    #: TerrainFit``, recognised on the pack reading by ``airport/
+    #: terrain_shaped``): each is one rigid body at its DEM fit, and the
+    #: ground under it is drawn to its surface (``constraints/
+    #: terrain_shaped``).  Empty = none (or a capture written before them).
+    terrain_decks: tuple = ()
     #: THE FEET OF THE PACK'S OBJECT RAMPS (issue #669; owner RULINGS
     #: 2026-10-14c (5); ``airport/ramp_feet``): derived at load beside the
     #: sunken ramps on the build's ``ResourceCache``; the run-out mint

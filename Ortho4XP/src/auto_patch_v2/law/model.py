@@ -563,6 +563,9 @@ class BuildingPad:
     #: at most ``support_max_extent_m``) stand at grade; no lower pad for them
     support_lift: bool = False
     support_max_extent_m: float = 0.0
+    #: EXPERIMENT (#1726 option B; ``airport/support_raise``): a terrain-
+    #: adapted structure whose supports would be buried is raised onto them
+    support_raise_members: bool = False
 
 
 @_dc.dataclass(frozen=True)

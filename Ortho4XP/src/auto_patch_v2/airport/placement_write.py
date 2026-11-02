@@ -165,6 +165,14 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     replaced outright (``dsf_write.edit_dump`` refuses the overlap), so
     the conversions are filtered by the split indices here, where the two
     lists are first seen together."""
+    # EXPERIMENT #1726 option B (``support_raise``): a raised origin frame
+    # is never split; its rows are seated whole by ``dump_rows``
+    from . import support_raise as _sr
+    from ..law import Law as _Law
+    _rc: dict = {}
+    raised = _sr.raised_rows(dump, rebake_plan, surface, pack_root, _Law.load(),
+                             split_tol_m, _rc)
+    rebake_plan = _sr.without_rows(rebake_plan, raised)
     ss = _pp.build_splits(rebake_plan, surface, pads, rims, write=write_cuts,
                           split_tol_m=split_tol_m, elevated_base_m=elevated_base_m,
                           line_segment_m=line_segment_m,
@@ -197,7 +205,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,
         pads=pads, jetway_strips=jetway_strips, gate_m=jetway_strip_m,
-        keep_tol_m=authored_keep_tol_m, feet_tol_m=split_tol_m)
+        keep_tol_m=authored_keep_tol_m, feet_tol_m=split_tol_m, raised=raised)
+    counts_extra.update(_rc)
     files = tuple(f for s in ss.splits for f in s.files)
     counts = dict(ss.counts)
     counts.update(counts_extra)
@@ -216,7 +225,9 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
               pads: _t.Sequence = (), jetway_strips: _t.Sequence = (),
               gate_m: float | None = None,
               keep_tol_m: float = 0.0,
-              feet_tol_m: float = 0.3) -> tuple[tuple, tuple, tuple, dict]:
+              feet_tol_m: float = 0.3,
+              raised: "_t.Mapping[int, float] | None" = None
+              ) -> tuple[tuple, tuple, tuple, dict]:
     """THE ROW HALF of the plan — ``(conversions, msl seats, riders,
     counts)``: what becomes of every DSF row the SPLIT did not replace.
     ONE implementation, two callers (:func:`build_plan` and
@@ -243,7 +254,10 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
       (:func:`_agl_rows_kept`; 0 disarms);
     * owner answer 48 (#1102): a converted ``OBJECT_MSL`` row is seated
       on its row with its geometry's feet on the surface under them
-      (``msl_feet.feet_seats``) instead of converted."""
+      (``msl_feet.feet_seats``) instead of converted;
+    * EXPERIMENT #1726: the ``raised`` rows (``support_raise.raised_rows``,
+      row -> elevation; the caller removed their members from the split)
+      are seated ``OBJECT_MSL`` there and settled."""
     _records = getattr(rebake_plan, "authored_seats", ()) or ()
     conversions, _kept = _dw.conversions_for_dump(
         dump, pack_root, convert_agl=_seat.reseated_rows(_records))
@@ -256,8 +270,9 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     # (owner RULINGS 2026-10-14g (3)) keeps its authored row — converting
     # its OBJECT_MSL row to on-ground is not "kept as authored"
     landed = landed_keeps(ss)
-    settled = (frozenset(s.placement.index for s in splits) | kept_idx
-               | features | landed)
+    _split_ix = frozenset(s.placement.index for s in splits)
+    raised = {i: z for i, z in (raised or {}).items() if i not in _split_ix}
+    settled = _split_ix | kept_idx | features | landed | frozenset(raised)
     _rows = list(getattr(dump, "placements", ()) or ())
     authored_rows = sum(1 for i in kept_idx | landed if 0 <= i < len(_rows)
                         and _rows[i].kind in _dw.CONVERTIBLE_KINDS)
@@ -289,6 +304,9 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     _taken = (settled | frozenset(m.index for m in msl)
               | frozenset(c.index for c in conversions))
     msl = msl + frame_rider_seats(dump, splits, surface, _taken, msl_counts)
+    if raised:
+        from .support_raise import raise_seats
+        msl = msl + raise_seats(dump, raised)
     from . import riders as _riders
     counts: dict[str, int] = {"conversions": len(conversions),
                               "authored_rows_kept": authored_rows,

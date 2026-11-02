@@ -45,6 +45,40 @@ final class ActivitySectionsTests: XCTestCase {
         XCTAssertEqual(model.rows(in: .activity).last, a)
     }
 
+    /// #1736: a tile building step after step stays in Activity, and on
+    /// the map as building, until its terminal — whatever DSF is on disk.
+    func testABuildingTileStaysInActivityUntilItsTerminal() {
+        let model = model()
+        for step in ["vector", "mesh", "masks", "imagery"] {
+            model.tiles[a] = TileProgress(state: .active, label: step, percent: 50)
+            XCTAssertEqual(model.rows(in: .completed), [], step)
+            XCTAssertTrue(model.rows(in: .activity).contains(a), step)
+            XCTAssertTrue(model.isBuilding(a), step)
+        }
+        set(model, a, .done)
+        XCTAssertEqual(model.rows(in: .completed), [a])
+        XCTAssertFalse(model.isBuilding(a))
+        // Stopped, failed and never-queued tiles are not building either.
+        set(model, b, .stopped)
+        set(model, c, .error)
+        XCTAssertFalse(model.isBuilding(b))
+        XCTAssertFalse(model.isBuilding(c))
+        XCTAssertFalse(model.isBuilding(BuildModel.TileCoord(lat: 1, lon: 1)))
+        // Queued again, a built tile is building again.
+        model.queueRows([a])
+        XCTAssertTrue(model.isBuilding(a))
+    }
+
+    /// #1736: a row that changes section takes a new list identity, so the
+    /// list removes it from one section and inserts it in the other.
+    func testARowsIdentityIncludesItsSection() {
+        let live = ActivitySections.rowIDs([a, b], in: .activity)
+        let done = ActivitySections.rowIDs([a], in: .completed)
+        XCTAssertEqual(live.map(\.coord), [a, b])
+        XCTAssertNotEqual(live[0].id, done[0].id)
+        XCTAssertEqual(live[0].coord, done[0].coord)
+    }
+
     func testCompletedStartsCollapsedAndKeepsTheChoice() {
         let model = model()
         XCTAssertFalse(model.completedExpanded)

@@ -108,6 +108,13 @@ final class BuildActivityModel: ObservableObject {
         }
     }
 
+    /// The tile has a live row (#1736): queued or building in this run.
+    /// The map draws it as building, whatever is on disk — a DSF from an
+    /// earlier build is not this build's outcome.
+    func isBuilding(_ coord: BuildModel.TileCoord) -> Bool {
+        tiles[coord].map { !Self.isFinished($0) } ?? false
+    }
+
     nonisolated static func isFinished(_ row: TileProgress) -> Bool {
         ActivityOrder.isFinished(state: row.state.rawValue, label: row.label)
     }

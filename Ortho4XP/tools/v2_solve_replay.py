@@ -2175,7 +2175,8 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     # pad takes) and ``Airport.retaining_walls`` (their two sides, round 3),
     # derived off the capture's own partition and DEM
     if getattr(airport, "wall_shade", None) is None or \
-            not getattr(airport, "retaining_walls", ()):
+            not getattr(airport, "retaining_walls", ()) or \
+            any(getattr(w, "top_profile", None) is None for w in airport.retaining_walls):
         from auto_patch_v2.airport.wall_shade import attach_wall_shade
         from auto_patch_v2.classify import load_rules as _load_rules
         airport = attach_wall_shade(airport, _load_rules().service)

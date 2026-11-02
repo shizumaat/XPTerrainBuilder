@@ -28,9 +28,9 @@ reading of a retaining wall's two sides that every reader shares:
   on its own side (the lower of the two on the lower side, the higher on
   the upper — ``constraints/wall_zone.foot_ground``'s rule, mirrored);
 * :func:`band_setbacks` — the cut a graded band takes ``smear`` short of a
-  wall's upper face (spec §3 (2)); the released ground between grades down
-  to the wall's top as seated (owner option (a): the lower level plus
-  :attr:`WallSides.top_y`, never over the upper ground past the smear).
+  wall's upper face (spec §3 (2)); the upper band is graded ground of its
+  own (``planar/wall_slope``), its face vertices at the wall's top as it
+  sits (:attr:`WallSides.top_profile`, Q299 (a), #1661).
 
 Derived once beside :attr:`Airport.wall_shade` (``airport/wall_shade``)
 and carried as :attr:`Airport.retaining_walls`."""
@@ -72,6 +72,11 @@ class WallSides:
     core: _t.Any = None
     #: the UPPER face line (``_wall_faces``), outward on its right
     upper_face: _t.Any = None
+    #: THE WALL'S TOP AS IT SITS, absolute (owner RULINGS 2026-10-29a Q299
+    #: (a), #1661): ``((s, z), ...)`` along :attr:`upper_face`
+    #: (``airport/wall_top``) — the level the hill's ground meets there;
+    #: ``None`` where unread
+    top_profile: tuple | None = None
 
     def side_of(self, xy) -> str | None:
         """``"upper"`` / ``"lower"`` for a point in one of the bands, else
@@ -144,12 +149,14 @@ def _median_ground(dem, face: LineString, out_m: float) -> float:
     return float(np.median(z)) if z.size else math.nan
 
 
-def wall_sides(airport, cfg, comps=None) -> tuple[WallSides, ...]:
+def wall_sides(airport, cfg, comps=None, top_of=None) -> tuple[WallSides, ...]:
     """Every retaining piece of ``airport``'s pack walls (``wall_class``,
     ``retains``, its retained step over ``[service] retaining_wall_clear_
     step_m``) read as two levels.  ``cfg`` is ``classify/rules.toml``'s
     ``[service]`` record, supplied by the caller; ``comps`` the wall-class
-    components when the caller has them."""
+    components when the caller has them; ``top_of(comp, piece, face)`` the
+    wall's top along its upper face (``airport/wall_top.top_profile``,
+    bound by ``airport/wall_shade``), none read without it."""
     dem = getattr(airport, "dem", None)
     if cfg is None or dem is None or getattr(airport, "partition", None) is None:
         return ()
@@ -177,9 +184,11 @@ def wall_sides(airport, cfg, comps=None) -> tuple[WallSides, ...]:
             up, lo = (a, b) if za >= zb else (b, a)
             wide = 2.0 * g.area / g.length
             core = g.buffer(-min(0.5, wide / 4.0))
+            uf = faces[0] if za >= zb else faces[1]
+            top = top_of(w, g, uf) if top_of is not None else None
             out.append(WallSides(g, h, smear, up, lo, w.top_y, w.resource,
                                  None if core.is_empty else core,
-                                 faces[0] if za >= zb else faces[1]))
+                                 uf, top))
     return tuple(out)
 
 
@@ -271,9 +280,10 @@ def band_setbacks(walls: _t.Sequence[WallSides]) -> tuple[tuple, ...]:
     the end box, a taxi zone) whose pavement stands farther than ``near_m``
     (``BEHIND_SHARE x reach``) from the footprint loses ``cut``, the
     footprint and its upper band (``smear`` wide): the hill between the
-    band's new edge and the wall's back is released ground and grades
-    down to the wall's top.  A wall AT the pavement edge keeps #1139's
-    plane (``constraints/wall_zone.split``)."""
+    band's new edge and the wall's back is the wall slope
+    (``planar/wall_slope``, #1661) and grades to the wall's top.  A wall
+    AT the pavement edge keeps #1139's plane (``constraints/wall_zone.
+    split``)."""
     return tuple((unary_union([w.poly, w.upper]), w.poly,
                   BEHIND_SHARE * wall_reach_m(w.height_m)) for w in walls
                  if w.upper is not None and not w.upper.is_empty)

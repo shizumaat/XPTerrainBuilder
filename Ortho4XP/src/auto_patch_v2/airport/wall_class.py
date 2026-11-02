@@ -25,6 +25,8 @@ it, so every caller's import path is unchanged.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
+import typing as _t
 import unicodedata as _ud
 
 from shapely.geometry import Polygon
@@ -57,6 +59,15 @@ class WallComponent:
     #: the part's extent ABOVE its object's zero (``base_y + height``,
     #: #1633: the wall's top as seated), ``None`` where the reading has none
     top_y: float | None = None
+    #: the ABSOLUTE elevation of the object's zero as it sits — its DEM at
+    #: the placement origin plus the authored ``agl`` (``obj8.PlacedObject``'s
+    #: rendered reading), ``None`` without a DEM there or for a member
+    #: standing on a converted MSL zero (#1661: ``airport/wall_top``)
+    seat_z: float | None = None
+    #: the placement: its ``(lat, lon)`` origin and the member it places
+    #: (``airport/wall_top`` reads the member's triangles), ``None`` unread
+    origin: tuple | None = _dc.field(default=None, compare=False)
+    member: _t.Any = _dc.field(default=None, compare=False, repr=False)
 
 
 #: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
@@ -98,6 +109,7 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
         for m in u.members:
             if _not_a_wall(m.resource):
                 continue                    # 29h (Q-72b): a fence is no wall
+            seat = None
             for p in m.parts:
                 if not p.rings or getattr(p, "line", False) or \
                         p.height_m < float(cfg.retaining_wall_min_height_m):
@@ -132,12 +144,33 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 if wide > float(cfg.retaining_wall_max_width_m) and not retains:
                     continue
                 by = getattr(p, "base_y", None)
+                if seat is None:
+                    seat = _seat_z(airport, u, m, to_xy)
                 out.append(WallComponent(tuple(polys), float(p.height_m),
                                          m.resource, int(p.comp), retains,
                                          float(retained),
                                          None if by is None else
-                                         float(by) + float(p.height_m)))
+                                         float(by) + float(p.height_m),
+                                         seat, tuple(m.origin or u.anchor), m))
     return out
+
+
+def _seat_z(airport: Airport, unit, member, to_xy) -> float | None:
+    """The absolute elevation of ``member``'s zero as it sits
+    (:attr:`WallComponent.seat_z`): the DEM at its origin plus the unit's
+    authored ``agl``; ``None`` for a member on a converted MSL zero."""
+    dem = getattr(airport, "dem", None)
+    lat, lon = getattr(member, "origin", None) or unit.anchor
+    if dem is None or float(getattr(member, "zero_y", 0.0) or 0.0) != 0.0:
+        return None
+    import numpy as np
+
+    from .dem import dem_z_many
+    x, y = to_xy(float(lon), float(lat))
+    z = float(dem_z_many(dem, np.array([x]), np.array([y]))[0])
+    if not math.isfinite(z):
+        return None
+    return z + float(unit.agl_m or 0.0)
 
 
 #: the share of a wall's outline that must step by its height: the 90th

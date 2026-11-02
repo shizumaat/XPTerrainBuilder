@@ -16,6 +16,15 @@ runway or taxiway grades stops short of it (spec §3 (2),
 class — the zone law binds no foot to it).  Its outer ring meets the band or the mesh at their
 level; its ring on the upper face is held at the wall's top
 (``constraints/wall_zone.face_top``, ``constraints/road_ramp.wall_release``).
+
+THE FOOT, the mirror (issue #1662): the LOWER band (``WallSides.lower``) of
+a wall whose foot is read (``foot_profile``) is graded ground the same way,
+its ring on the lower face held at the wall's bottom edge
+(``constraints/wall_zone.face_foot``; owner RULINGS 2026-10-03c "terrain
+should be flattened out to the bottom of the wall").  MEASURED KATL
+``muro_concreto`` (capture on f82de7dfe): the strip between pad
+``building46/p5`` (289.29 m) and the foot (289.5 m) was left to a slumped
+mesh at 296-301 m, and pavement draped there showed through the wall.
 Geometry only; no airport is named (RULINGS 2026-10-05e)."""
 from __future__ import annotations
 
@@ -32,7 +41,9 @@ __all__ = ["wall_slopes"]
 def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
                 cut_m: float, hairline_m: float) -> list[tuple[str, _t.Any]]:
     """``(ref, polygon)`` per wall-slope piece: every retaining wall's upper
-    band (``WallSides.upper``) whose top is read (``top_profile``), less
+    band (``WallSides.upper``) whose top is read (``top_profile``) and its
+    lower band (``WallSides.lower``) whose foot is read (``foot_profile``,
+    #1662), less
     its footprint, every polygon in ``taken`` (the zone bands: the slope
     welds to their edge) and every polygon in ``apart`` grown by ``cut_m``
     (the cells — pavement, pads, roads —, the late road ribbons and the
@@ -41,8 +52,10 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
     pad past the wall's end stands at the lower level, and the gap
     terraces (measured KATL replay: a slope vertex shared with a road past
     ``muro_concreto``'s end held it 11.7 m over its own run)."""
-    live = [w for w in walls if getattr(w, "top_profile", None)
-            and w.upper is not None and not w.upper.is_empty]
+    live = [(w, band) for w in walls for band, read in
+            ((w.upper, getattr(w, "top_profile", None)),
+             (getattr(w, "lower", None), getattr(w, "foot_profile", None)))
+            if read and band is not None and not band.is_empty]
     if not live:
         return []
     held = canonical_union([g for g in taken if g is not None and not g.is_empty]
@@ -50,10 +63,12 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
                               for g in apart if g is not None and not g.is_empty])
     out: list[tuple[str, _t.Any]] = []
     k = 0
-    for w in live:
-        g = fixed_difference(w.upper, w.poly)
+    for w, band in live:
+        g = fixed_difference(band, w.poly)
         if held is not None and not held.is_empty:
             g = fixed_difference(g, held)
+        if out:     # two walls' bands meet: the first piece holds the overlap
+            g = fixed_difference(g, canonical_union([p for _r, p in out]))
         for part in shapely.get_parts(g):
             if part.geom_type != "Polygon" or part.area < 1.0 \
                     or is_hairline(part, hairline_m):

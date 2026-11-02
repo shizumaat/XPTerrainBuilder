@@ -28,6 +28,7 @@ def test_parallel_run_done_reports_last_outcomes():
     session = SimpleNamespace(_emit=emitted.append,
                               _run_finished=lambda: None)
     run = parallel.ParallelBuildRun.__new__(parallel.ParallelBuildRun)
+    run._judging = 0   # #1749: boundary re-checks in flight
     run._lock = parallel.threading.Lock()
     run._finished = False
     run._queue = []

@@ -70,6 +70,7 @@ import O4_Machine_Slots
 import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 
+from . import boundary_reselect as BOUNDARY
 from . import events as EVENTS
 from . import tile_time_model
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
@@ -921,6 +922,12 @@ class ParallelBuildRun:
         # Every tile admitted to this run, whichever press queued it
         # (#1641): the boundary check's "a tile this build is building".
         self._run_cells: set = set()
+        # #1643: the boundary batch each tile's CURRENT attempt sent with
+        # its vector step (where its airports are chosen), and the tiles
+        # that must run that step again once their step in flight ends.
+        self._vector_batches: dict = {}
+        self._reselect: dict = {}
+        self._judging = 0          # judgements in flight hold the run open
         self._children: list = []
         self._next_child_index = 0
         self._done = 0
@@ -993,6 +1000,8 @@ class ParallelBuildRun:
             # stopped or finished tile queued again must not inherit the
             # previous attempt's wall clock.
             self._start_attempt(tile)
+            self._vector_batches.pop(tile, None)
+            self._reselect.pop(tile, None)
             self._tile_first_started.pop(tile, None)
             self._tile_final_elapsed.pop(tile, None)
             self._tile_arguments[tile] = {
@@ -1156,7 +1165,76 @@ class ParallelBuildRun:
             threading.Thread(target=self._osm_cache_warmer,
                              daemon=True).start()
         self._broadcast_sibling_count()
+        with self._lock:
+            self._judging += 1
+        threading.Thread(target=self._reselect_neighbours, args=(admitted,),
+                         daemon=True, name="o4-boundary-reselect").start()
         return len(admitted)
+
+    # -- #1643: a neighbour that joins after a tile chose its airports ---
+    def _reselect_neighbours(self, admitted):
+        """Judge again every tile whose airports were chosen against a
+        batch lacking one of the *admitted* tiles (``boundary_reselect``):
+        one that skipped an airport into it runs its vector step again.
+        The judgement reads CIFP and apt.dat (seconds on a real tile), so
+        it runs on its own thread, never on the command's or under the
+        lock, and holds the run open until it lands (``_judging``)."""
+        try:
+            with self._lock:
+                chosen = dict(self._vector_batches)
+            skipped = {}
+            for (tile, batch) in chosen.items():
+                icaos = BOUNDARY.airports_skipped_into(tile, batch, admitted)
+                if icaos:
+                    skipped[tile] = icaos
+            with self._lock:
+                for (tile, icaos) in sorted(skipped.items()):
+                    self._reselect_tile_locked(tile, icaos)
+                if skipped:
+                    self._dispatch_locked()
+        finally:
+            with self._lock:
+                self._judging -= 1
+            self._maybe_finish()
+
+    def _reselect_tile_locked(self, tile, icaos):
+        """A tile still on its program re-runs from its vector step when
+        its step in flight ends; a FINISHED, built tile is queued again; a
+        queued attempt reads the run afresh at its own vector dispatch."""
+        if self._vector_batches.get(tile) is None:
+            return                          # re-chosen already, or anew
+        carried = any(child.tile == tile for child in self._children)
+        if tile in self._queue:
+            return
+        line = ("Tile %s: %s crosses into a tile queued after its airports "
+                "were chosen; building its vector step again to patch it."
+                % (_short_latlon(tile), ", ".join(icaos)))
+        print(line)
+        self.tile_log_line(tile, line)
+        if carried or tile in self._next_step_index:
+            self._reselect[tile] = icaos
+        elif self._last_ok.get(tile):
+            self._readmit_locked(tile)
+
+    def _rewind_to_vector_locked(self, tile):
+        """Point a carried tile back at its vector step: every step from
+        there runs again on the patch it now builds."""
+        self._next_step_index[tile] = self._programs[tile].index("vector")
+        self._vector_batches.pop(tile, None)
+        self._tile_warnings.pop(tile, None)
+        self._percent_high_water.pop(tile, None)
+
+    def _readmit_locked(self, tile):
+        """Queue a finished tile again with its own batch's arguments."""
+        program = list(self._programs[tile])
+        windows = self._static_windows[tile]
+        full_plan = [(key,) + tuple(windows[key]) for key in program]
+        arguments = self._tile_arguments[tile]
+        self._total += len(self._admit_tiles_locked(
+            [tile], full_plan, program, arguments["provider"],
+            arguments["zoomlevel"], arguments["custom_build_dir"],
+            arguments.get("boundary_policy"), arguments.get("missing_art"),
+            arguments.get("overrides")))
 
     def _spawn_child(self):
         """Spawn one worker (blocks on the handshake; never called while
@@ -1361,6 +1439,9 @@ class ParallelBuildRun:
                 self._class_active["imagery"] += 1
                 child.prefetch_token = True
             self._step_started_at[(child.tile, step_key)] = time.time()
+            if step_key == "vector":
+                self._vector_batches[child.tile] = frozenset(
+                    tuple(cell) for cell in arguments["boundary_batch"])
             self._tile_first_started.setdefault(child.tile, time.time())
             self._class_active[step_class] += 1
             child.step_class = step_class
@@ -1922,8 +2003,14 @@ class ParallelBuildRun:
                 self._forget_cache_state_locked(child.tile)
                 self._next_step_index[child.tile] = (
                     self._next_step_index.get(child.tile, 0) + 1)
-                if (self._next_step_index[child.tile]
-                        >= len(self._programs.get(child.tile, ()))):
+                # #1643: a neighbour joined after this tile chose its
+                # airports, and one of them crosses into it.
+                rerun = self._reselect.pop(child.tile, None)
+                finishing = (self._next_step_index[child.tile]
+                             >= len(self._programs.get(child.tile, ())))
+                if rerun and not finishing:
+                    self._rewind_to_vector_locked(child.tile)
+                if finishing:
                     # Tile complete (its final BuildDone was forwarded).
                     # The per-tile total the children cannot print (each
                     # sees one step): dispatched-step seconds summed by
@@ -1942,7 +2029,9 @@ class ParallelBuildRun:
                         self.tile_log_line(child.tile, line)
                     self._next_step_index.pop(child.tile, None)
                     self._percent_high_water.pop(child.tile, None)
-                    child.tile = None
+                    (finished, child.tile) = (child.tile, None)
+                    if rerun and self._last_ok.get(finished):
+                        self._readmit_locked(finished)
             self._dispatch_locked()
         if stopped is not None:
             self._report_released_stop(*stopped)
@@ -2276,7 +2365,7 @@ class ParallelBuildRun:
                 for child in self._children
                 if not child.retired
             )
-            if self._queue or busy:
+            if self._queue or busy or self._judging:
                 return
             self._finished = True
             children = list(self._children)

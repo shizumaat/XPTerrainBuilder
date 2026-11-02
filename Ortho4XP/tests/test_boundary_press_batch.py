@@ -138,10 +138,12 @@ def test_a_later_one_tile_press_replaces_the_earlier_batch(home_tile,
 # ── one spelling at both call sites ───────────────────────────────────
 def test_the_preflight_and_the_build_time_check_share_one_is_cold():
     """No lambda re-spells ``is_cold`` at either call site."""
-    from o4_engine import session
+    from o4_engine import boundary_reselect, session
 
-    preflight = inspect.getsource(session.EngineSession._boundary_preflight)
+    preflight = inspect.getsource(boundary_reselect.boundary_record)
     build_time = inspect.getsource(VMAP.derive_auto_patch_selection)
+    assert "boundary_record(" in inspect.getsource(
+        session.EngineSession._boundary_preflight)
     assert "VMAP.boundary_cold_predicate(" in preflight
     assert "boundary_cold_predicate(" in build_time
     for source in (preflight, build_time):
@@ -242,6 +244,7 @@ def _in_process_session(queued):
     session._eta = None
     session._tile_overrides = {}
     session._cancelled_tiles = set()
+    session._run_items = {}
     session.new_tile_attempt = lambda tile: None
     return session
 
@@ -302,3 +305,16 @@ def test_an_outside_neighbour_is_warmed_only_on_build_adjacent():
                                boundary_siblings=[WEST])
     assert [c for (c, _r) in VMAP.boundary_cells_to_warm(adjacent)] == [
         outside, WEST]
+
+
+# ── #1643: the selection records what it skipped into ─────────────────
+def test_the_selection_records_the_cells_it_skipped_into(home_tile,
+                                                         monkeypatch):
+    monkeypatch.setattr(VMAP, "BOUNDARY_SKIPPED_INTO", {}, raising=False)
+    VMAP.note_boundary_batch([HOME])
+    VMAP.derive_auto_patch_selection(home_tile)
+    assert VMAP.BOUNDARY_SKIPPED_INTO[HOME] == frozenset({WEST})
+
+    VMAP.note_boundary_batch([HOME, WEST])
+    VMAP.derive_auto_patch_selection(home_tile)
+    assert VMAP.BOUNDARY_SKIPPED_INTO[HOME] == frozenset()

@@ -921,6 +921,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "elevation_access.vertical_units",
     "elevation_access.warp",
     "o4_engine",
+    "o4_engine.boundary_reselect",
     "o4_engine.download_meter",
     "o4_engine.events",
     "o4_engine.parallel",

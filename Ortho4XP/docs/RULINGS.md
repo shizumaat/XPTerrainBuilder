@@ -10544,3 +10544,9 @@ Owner answers 2026-10-29T20:05:11Z, verbatim:
 - (2) A frame that reaches the clearance keeps its own bottom (2026-10-30a).
 - (3) This applies at every airport. LFPG's flat-deck floors deepen from 0.7–2.9 m to 5–7 m.
 - (4) Where a pack flags only a slab's edge-on side faces as `ATTR_hard_deck`, the deck is its ground-covering `ATTR_hard` surface.
+
+**2026-11-02a: four Beta 7 grading rules (Q308–Q311) (owner, Noah, 2026-11-02T19:23:49Z, verbatim):** "308. Yes / 309. A narrow strip along a runway edge should be identified as a shoulder and graded with the runway. We should already have rules and logic for this. / 310. A / 311. Mostly a, but runways (like at HECA) do sometimes bend a bit to allow the whole taxi network to solve"
+- (1) Q308, LOWW #1740 (PR #1750): an end-around-taxiway dip is refused within `segment_gap_m` (75 m), measured along the corridor, of another runway's pavement. The runway profile is senior to an EAT ceiling.
+- (2) Q309, KIND #1686 (PR #1751): a narrow pavement strip along a runway edge is the runway's shoulder and is graded with the runway, under the existing shoulder rules. It is never merged into the taxiway pages beside it.
+- (3) Q310, #1754 / #1727: a service road's height is held by its own smooth longitudinal road profile along its length, as the centreline already uses. This covers its ribbon ring vertices too, and it is not a pull toward the DEM.
+- (4) Q311, EPWA #1742 / KBWI #1728 (PR #1755): the runway is solved first, and its neighbours fit to it. It may still bend a little when the whole taxi network needs that to solve, as at HECA.

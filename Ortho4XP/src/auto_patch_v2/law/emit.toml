@@ -371,6 +371,7 @@ bend_strip    = 30.0
 bend_road     = 1.0
 chord         = 300.0  # the runway's PROFILE target per ridge station (``constraints/runway_chord.py``, published through ``PlanarMap.preferred_z``): the runway sits on its target profile and FILLS or CUTS to it, it never fits the DEM per vertex.  The row is the same row under 09-10q/10r/10t — only its TARGET changed from the straight threshold chord to the ground's long-wave trend through the pins (spec §21)
 runway_flex_share = 0.20  # flat-pad spec v2 §1 (owner RULINGS 2026-09-30as, Q-128: "the runway gives 20 % of the flex, 80 % in the taxi routes"): a PULLED runway (a held pad's route lands on it) may translate between its pins by at most beta_R = this x the largest lift Lambda_c = |D_b - z1a_c| a hold demands of a contact whose least-budget route lands on it — ONE hard Band(z1a +/- beta_R) per runway column (head `rulesets.runway.flex_budget` in hard_rulings).  A VALUE, never a switch: 0.0 holds today's runway (pass 1a) as the origin.  Read ONLY in `constraints/no_step.hold_interval`
+runway_first_slack_m = 0.05  # THE RUNWAY IS SOLVED FIRST (owner RULINGS 2026-11-02a (4), Q311, #1742: "Mostly a, but runways (like at HECA) do sometimes bend a bit to allow the whole taxi network to solve"): stage 0 solves the runway family alone (`solve/runway_first`), and stage 1 holds every free runway column within +/- this of its stage-0 value by ONE hard Band (head `rulesets.runway.first_hold`), ranked in the LAST conflict tier so §5a demotes exactly the hold rows a conflict with any airside hard law needs — the runway bends only where the network cannot otherwise be solved.  0.05 m because it is the cockpit's MOTION bar (`[cockpit] motion_step_m`, §31 (1)): inside it a runway's drift off its own profile is below what the aircraft feels; larger lets a neighbour's priced targets lift the runway (EPWA 11/29 rose 0.49 m at its 29 end toward higher taxiways under the joint solve), smaller sits at the solve's own held bar (`hard_tol_m` 0.02) and leaves the QP no room
 # THE PAIR GRAPH's ROWS (flat-pad spec v2 §2): the ruling HEADS of the
 # stage-1 `Diff` CAP rows between airside columns that are the edges of the
 # feasibility interval's pair graph (`constraints/no_step.pair_graph`) —
@@ -909,6 +910,7 @@ hard_rulings = [
   "rulesets.apron terrace plane at a steep runway",
   "door airside give",                                   # #798 round 3 (owner RULINGS 2026-10-19ac): an airside vertex a door pad's hard rows reach is solved in stage 2 within door_airside_give_m of its stage-1 level (constraints/door_pad.blend_release)
   "structures.walled_plate under-plate cap",            # owner RULINGS 2026-10-27t/u (#1201): the ground under a runway-end walled plate never rises through its top (constraints/walled_plate)
+  "rulesets.runway.first_hold",                          # owner RULINGS 2026-11-02a (4) (#1742): each runway column within runway_first_slack_m of its stage-0 value (solve/runway_first) - the LAST conflict tier, so it yields to every airside hard law
 ]
 # THE APRON'S PLANE ROW IS HARD ON THE APRON ONLY (flat-pad spec v2 §5, owner
 # RULINGS 2026-09-30be/30bf): ``plane_gradient`` is minted on EVERY governed
@@ -960,7 +962,8 @@ hard_conflict_ranks = [
    "gap lot terrace holds the road's level across",                    # §55 (3) 4
    "gap slab welds to the pavement beside it across the stand-off",   # #712: with the follow rows
    "rulesets.common.pavement_max_grade ceiling, last stage",           # §55 (5): below the follow and lot rows — bounded by the terrace floor the cut welds
-   "rulesets.common.road_max_grade pavement fallback, last stage"],
+   "rulesets.common.road_max_grade pavement fallback, last stage",
+   "rulesets.runway.first_hold"],                                     # 11-02a (4): stage 1 carries no groundside row, so in stage 1 the hold is the LOWEST law - it bends before any airside hard law yields
 ]
 # the price ratio between two adjacent tiers in the elastic LP's objective
 # (min SUM w_tier * s): the relaxation lands on the lowest tier a conflict

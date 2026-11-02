@@ -96,7 +96,14 @@ class _FlatDem:
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    """The JOINT runway (#1742): this twin reads the reach band on two
+    runways the taxi network contradicts by ~3.6 m, and its claims are what
+    the band does to a runway the network can MOVE.  Solved first (RULINGS
+    2026-11-02a (4)) neither runway moves past its slack and the whole
+    contradiction lands in the taxi rows — ``test_runway_first`` reads that
+    law; here the hold's slack is one no pull reaches."""
+    from tests.auto_patch_v2.test_v2staged import _law_arm
+    return _law_arm(Law.for_airport("ZZZZ"), runway_first_slack_m=1.0e6)
 
 
 @pytest.fixture(scope="module")

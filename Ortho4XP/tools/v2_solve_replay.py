@@ -2651,6 +2651,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         print(f"[{icao}] PASS 1a (hold rows dropped): {_s1a}")
         print(f"[{icao}] stage 1 (pass 1b) wall {rep.stages['stage1'].get('wall_s')} s "
               f"= pass 1a {_s1a.get('wall_s')} s + interval {_s1a.get('interval_s')} s + pass 1b")
+    # owner RULINGS 2026-11-02a (4): stage 0 (the runway first) and its bend
+    _s0 = (getattr(rep, "stages", None) or {}).get("stage0")
+    if _s0:
+        print(f"[{icao}] STAGE 0 (runway first): {_s0}")
     for _f in getattr(rep, "runway_flex", None) or ():
         print(f"[{icao}] RUNWAY FLEX {_f}")
     n_shapes = len({v for v in pm.shape_of_vertex.values() if v >= 0})

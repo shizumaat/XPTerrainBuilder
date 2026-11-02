@@ -391,9 +391,15 @@ def shipped_conflicts(*reps: _t.Any) -> list[dict[str, _t.Any]]:
     """The SHIPPED surface's ``hard_conflict`` records (the sidecar key) —
     every conflict of the final stages' reports, in stage order, copied.
     ``solve_design`` returns them as ``DesignReport.hard_conflict``
-    (v2-stage-cache spec §3b: a record field, no module global)."""
+    (v2-stage-cache spec §3b: a record field, no module global).
+
+    A relaxed RUNWAY-FIRST hold (``solve/runway_first``, RULINGS 2026-11-02a
+    (4)) is not a law conflict: it is the bend the owner allows where the
+    network needs it, reported as the runway's bend (``stages["stage0"]``)."""
+    from .runway_first import HOLD_RULING
     feas = [getattr(r, "hard_feasibility", None) for r in reps]
-    return [dict(c) for f in feas if f is not None for c in f.conflicts]
+    return [dict(c) for f in feas if f is not None for c in f.conflicts
+            if c.get("row") != HOLD_RULING]
 
 
 def publish_stages(*reps: _t.Any, pass1a: "dict | None" = None,

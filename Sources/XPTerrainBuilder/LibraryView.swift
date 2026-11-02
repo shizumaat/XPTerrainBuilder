@@ -1,5 +1,7 @@
+import AppKit
 import SwiftUI
 import SceneryKit
+import UniformTypeIdentifiers
 
 /// The Library window (#824): every built tile with its size, zoom level,
 /// imagery source, built date, graded airports, modified packs and the
@@ -8,9 +10,12 @@ import SceneryKit
 /// folder walks; the Qt app's `O4_Qt_Library` shows the same columns.
 /// A tile built by another tool is read-only: it can be linked into
 /// X-Plane or out of it, never rebuilt or deleted. Deleting and freeing
-/// space ask first.
+/// space ask first. Export / Import Library Bundle carry a built tile to
+/// another installation (#1699 phase 1; the Qt dialog has the same two).
 enum Library {
     static let windowID = "library"
+    /// A tile bundle's file extension (`tile_bundle.export.BUNDLE_SUFFIX`).
+    static let bundleExtension = "xptbundle"
 
     static func size(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
@@ -79,6 +84,49 @@ final class LibraryModel: ObservableObject {
             } catch {
                 status = "\(error)"
             }
+            refresh(buildModel)
+        }
+    }
+
+    func exportBundle(_ row: O4LibraryTile, _ buildModel: BuildModel) {
+        guard let context = buildModel.libraryContext() else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Export Library Bundle"
+        panel.prompt = "Export Here"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        status = "Exporting \(row.tile)…"
+        Task {
+            do {
+                let done = try await context.client.libraryExportBundle(
+                    lat: row.lat, lon: row.lon, workingDir: context.workingDir, outDir: folder.path)
+                status = "Exported \(row.tile) (\(Library.size(done.bytes)))."
+            } catch {
+                status = "\(error)"
+            }
+        }
+    }
+
+    func importBundle(_ buildModel: BuildModel) {
+        guard let context = buildModel.libraryContext() else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Import Library Bundle"
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: Library.bundleExtension) ?? .data]
+        guard panel.runModal() == .OK, let file = panel.url else { return }
+        status = "Importing \(file.lastPathComponent)…"
+        Task {
+            do {
+                let done = try await context.client.libraryImportBundle(
+                    path: file.path, workingDir: context.workingDir)
+                status = "Imported \(done.tile). Build it to add your imagery."
+            } catch {
+                status = "\(error)"
+            }
+            buildModel.rescan()
             refresh(buildModel)
         }
     }
@@ -231,6 +279,14 @@ struct LibraryView: View {
             Button("Restore Originals…") { confirmRestore = true }
                 .help("Put back the original object files of the custom packs these tiles' builds modified")
                 .disabled(selectedPacks.isEmpty || buildModel.isBuilding)
+            Button("Export Library Bundle…") {
+                if let row = selectedRows.first { model.exportBundle(row, buildModel) }
+            }
+            .help("Write this tile's mesh, masks and solved airports to a bundle another installation can import")
+            .disabled(selectedRows.count != 1 || !writable || buildModel.isBuilding)
+            Button("Import Library Bundle…") { model.importBundle(buildModel) }
+                .help("Import a tile bundle: the tile's next build needs only your imagery")
+                .disabled(buildModel.isBuilding)
             Spacer()
             Text(model.status)
                 .foregroundStyle(.secondary)

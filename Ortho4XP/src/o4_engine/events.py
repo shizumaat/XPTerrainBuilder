@@ -127,7 +127,11 @@ from typing import Any, Optional
 # installed tile's ``terrain/*.ter`` files name that its ``textures/``
 # folder lacks (``O4_Tile_Texture_Check``); the tile pane warns and offers
 # "Rebuild Tile".  An older engine refuses it and the app shows nothing.
-PROTOCOL_VERSION = "1.22"
+# 1.23 (2026-11-02, additive, #1699 phase 1): ``library_export_bundle``
+# and ``library_import_bundle`` — a built tile carried to another
+# installation as a tile bundle (``tile_bundle``), completed through
+# LibraryReady like the other Library commands.
+PROTOCOL_VERSION = "1.23"
 
 
 @dataclass(frozen=True)
@@ -638,8 +642,9 @@ class PackObjectsReady(EngineEvent):
 class LibraryReady(EngineEvent):
     """The completion half of the Library commands (#824:
     ``library_scan``, ``cache_sizes``, ``free_cache``, ``library_delete``,
+    and #1699's ``library_export_bundle`` / ``library_import_bundle``,
     ``o4_engine.library``): each replies ``{"status": "started"}`` and
-    walks its folders on a worker thread.
+    does its work on a worker thread.
 
     ``request`` is the ``id`` of the command it answers, ``command`` its
     name; ``result`` is the command's return value or ``None``, with

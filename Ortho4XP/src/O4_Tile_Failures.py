@@ -383,6 +383,9 @@ CATALOGUE = {
 # ask.  Every exception class defined under ``src/`` is listed (the twin
 # walks them); one that says nothing more specific maps to a fallback.
 EXCEPTION_CODES = {
+    # a tile bundle (#1699) that does not match: said in its own words by
+    # the Library command, never raised inside a build step
+    "BundleRefused": "unexpected_error",
     # geometry (shapely's GEOSException covers TopologyException, #559)
     "GEOSException": "airport_geometry",
     "TopologicalError": "airport_geometry",

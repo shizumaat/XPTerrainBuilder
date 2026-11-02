@@ -4527,9 +4527,16 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
       geometry-only *airport* frame is a different entry —
       ``--geometry-only`` refuses at the arg check (not wired for v2).
 
+    * a step that ENDED with its outputs on disk gets its step-reuse
+      record, as the app's step loop cuts it (``O4_Step_Reuse.record``,
+      #838): a harness tile is then a tile the app — and a tile bundle's
+      export (#1699) — reads like its own.  A ``--trace-reads`` trace is
+      marked with the step's name, so its census is per step.
+
     Returns ``(timings, skipped)``: per-step seconds for the steps that
     ran, and the recorded skip reasons.
     """
+    import O4_Step_Reuse as REUSE
     import O4_UI_Utils as UI
     timings, skipped = {}, {}
     for name, step in plan:
@@ -4538,6 +4545,7 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
             prog.note(f"step {name} SKIPPED — {skip_steps[name]}")
             continue
         prog.note(f"step {name} START")
+        CS.mark_phase(name)
         t0 = time.time()
         result = step(tile)
         dt = round(time.time() - t0, 1)
@@ -4555,7 +4563,17 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
                 f"(``skip_steps``), never an attempted run.")
         timings[name] = dt
         prog.note(f"step {name} DONE {dt}s")
+        reuse_key = TILE_STEP_REUSE_KEYS.get(name)
+        if reuse_key:
+            CS.mark_phase(f"{name} (step record)")
+            REUSE.record(tile, reuse_key)
+    CS.mark_phase("")
     return timings, skipped
+
+
+#: The release steps whose end cuts a step-reuse record (``run_tile_steps``).
+TILE_STEP_REUSE_KEYS = {"1 vector": "vector", "2 mesh": "mesh",
+                        "3 masks": "masks"}
 
 
 def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
@@ -5048,6 +5066,8 @@ def main(argv=None) -> int:
             CS.SHARED_DATA_REPO_DEFAULT,
             (man.get("source_corpus") or {}).get("install_root")]).start()
     trace = CS.ReadTrace().start() if args.trace_reads else None
+    if trace is not None:
+        CS.ACTIVE_TRACE.append(trace)
 
     cfg_diff = require_cfg_frame(root, allow_degraded=args.allow_degraded_dem)
     if cfg_diff:

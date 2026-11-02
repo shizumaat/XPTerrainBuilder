@@ -307,10 +307,10 @@ def test_a_record_that_still_holds_the_engine_version_is_reused(tile,
     reads without it — no forced rebuild — and a code change still
     stales it with the old words."""
     import O4_Step_Code as STEPCODE
-    current = REUSE._code_identity
+    current = REUSE.code_identity
     _write_outputs(tile)
     with monkeypatch.context() as old_engine:
-        old_engine.setattr(REUSE, "_code_identity",
+        old_engine.setattr(REUSE, "code_identity",
                            lambda step: dict(current(step), engine="1.0.400"))
         _complete_build(tile)
     assert all("engine" in entry["inputs"]
@@ -325,7 +325,7 @@ def test_a_step_without_its_digest_keys_on_the_whole_tree(tile, monkeypatch):
     import O4_Step_Code as STEPCODE
     from auto_patch import provenance_code
     monkeypatch.setattr(STEPCODE, "_DIGESTS", {})
-    assert REUSE._code_identity("mesh")["code"] == provenance_code.code_digest()
+    assert REUSE.code_identity("mesh")["code"] == provenance_code.code_digest()
 
 
 def test_mesh_records_the_pack_dsfs_its_object_stage_rewrote(tile, tmp_path,

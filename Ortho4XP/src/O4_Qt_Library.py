@@ -9,6 +9,9 @@ Folder walks run on a daemon thread; results come back through a queued
 signal (never touch widgets from a worker thread).  A tile built by
 another tool is read-only: it can be linked into X-Plane or out of it,
 never rebuilt or deleted.  Deleting and freeing space ask first.
+"Export library bundle…" and "Import library bundle…" carry a built tile
+to another installation (#1699 phase 1, ``tile_bundle``; the Mac app's
+Library has the same two buttons).
 """
 
 import threading
@@ -16,10 +19,12 @@ import time
 
 import O4_Scenery_Links as LINKS
 from o4_engine import library as LIB
+from tile_bundle.export import BUNDLE_SUFFIX
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -154,8 +159,19 @@ class LibraryDialog(QDialog):
             "Put back the original object files of the custom packs these "
             "tiles' builds modified")
         self.restore_btn.clicked.connect(self._restore_originals)
+        self.export_btn = QPushButton("Export library bundle…")
+        self.export_btn.setToolTip(
+            "Write this tile's mesh, masks and solved airports to a bundle "
+            "another installation can import")
+        self.export_btn.clicked.connect(self._export_bundle)
+        self.import_btn = QPushButton("Import library bundle…")
+        self.import_btn.setToolTip(
+            "Import a tile bundle: the tile's next build needs only your "
+            "imagery")
+        self.import_btn.clicked.connect(self._import_bundle)
         for button in (self.install_btn, self.uninstall_btn, self.rebuild_btn,
-                       self.delete_btn, self.restore_btn):
+                       self.delete_btn, self.restore_btn, self.export_btn,
+                       self.import_btn):
             actions.addWidget(button)
         actions.addStretch(1)
         self.status_label = QLabel("")
@@ -274,6 +290,8 @@ class LibraryDialog(QDialog):
         self.delete_btn.setEnabled(writable and not busy)
         self.restore_btn.setEnabled(
             not busy and any(r["packs_modified"] for r in rows))
+        self.export_btn.setEnabled(len(rows) == 1 and writable and not busy)
+        self.import_btn.setEnabled(not busy)
         for button in self.free_buttons.values():
             button.setEnabled(not busy)
 
@@ -356,6 +374,38 @@ class LibraryDialog(QDialog):
                 self._restore_pack(path)
             return "Restored %d pack%s." % (len(packs), "" if len(packs) == 1 else "s")
         self._run(work, self.done)
+
+    def _export_bundle(self):
+        rows = self.selected_rows()
+        if len(rows) != 1 or rows[0]["read_only"]:
+            return
+        folder = self.choose_folder("Export library bundle")
+        if not folder:
+            return
+        row = rows[0]
+        self.status_label.setText("Exporting %s…" % row["tile"])
+        self._run(lambda: "Exported %s (%s)." % (row["tile"], fmt_size(
+            LIB.library_export_bundle(row["lat"], row["lon"], self.working_dir,
+                                      folder)["bytes"])), self.done)
+
+    def _import_bundle(self):
+        path = self.choose_bundle("Import library bundle")
+        if not path:
+            return
+        self.status_label.setText("Importing…")
+        self._run(lambda: "Imported %s. Build it to add your imagery." % (
+            LIB.library_import_bundle(path, self.working_dir)["tile"]),
+            self.done)
+
+    def choose_folder(self, title):
+        """The folder to export into (a seam: tests answer without a modal)."""
+        return QFileDialog.getExistingDirectory(self, title)
+
+    def choose_bundle(self, title):
+        """The bundle to import (a seam: tests answer without a modal)."""
+        path, _filter = QFileDialog.getOpenFileName(
+            self, title, "", "Tile bundles (*%s)" % BUNDLE_SUFFIX)
+        return path
 
     def _on_done(self, result):
         self.status_label.setText(str(result))

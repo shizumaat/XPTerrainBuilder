@@ -187,6 +187,13 @@ CATALOGUE = {
         "The detailed elevation for this airport was not in the app's "
         "cache, and this build did not download it.",
         "retry"),
+    # issue #1743: the area's base elevation file, not the airport's
+    # detailed inset, was what the cache lacked
+    "airport_base_elevation_missing": Entry(
+        "the ground elevation around {airports} was not available.",
+        "The elevation file for this area was not in the app's cache when "
+        "the airport was shaped, and this build did not download it.",
+        "retry"),
     "airport_elevation_offline": Entry(
         "elevation data for {airports} was not available.",
         "The download of the detailed elevation for this airport failed.",

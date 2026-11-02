@@ -238,6 +238,20 @@ def test_the_next_build_asks_the_configured_source_again(world):
         configured_path, None)
 
 
+def test_cached_reads_only_asks_nobody_and_reads_the_cached_fallback(world):
+    """Issue #1743: the auto-patch's production frame reads the cell the
+    tile build substituted, without asking the configured source again."""
+    assert _ensure() == 1                            # the tile build
+    base_fallback.forget_unreachable_sources()      # the pool child
+    (_Configured.calls, _Fallback.calls) = ([], [])
+    with base_fallback.cached_reads_only():
+        assert _ensure() == 1
+        assert _ensure((47, -123)) == 0              # nothing cached: no ask
+    assert _Configured.calls == [] and _Fallback.calls == []
+    assert _ensure() == 1                            # outside: asked again
+    assert _Configured.calls == [CELL]
+
+
 def test_a_dead_host_is_asked_once_per_run_then_again_later(
         world, monkeypatch, capsys):
     assert _ensure((48, -123)) == 1

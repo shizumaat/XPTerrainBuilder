@@ -33,6 +33,7 @@ SEAM.  A substituted cell is tied to its cached configured neighbours
 (``base_seam``) when it is read.
 """
 
+import contextlib
 import os
 import time
 from urllib.parse import urlparse
@@ -50,6 +51,7 @@ from elevation_access.registry import ACCESS_STRATEGIES
 __all__ = [
     "FALLBACK_RANK_KEY",
     "UNREACHABLE_MEMORY_S",
+    "cached_reads_only",
     "cell_file",
     "ensure_tile_or_fallback",
     "fallback_cache_paths",
@@ -75,6 +77,29 @@ UNREACHABLE_MEMORY_S = 600.0
 _unreachable = {}
 # host -> whether that failure was a PROXY's refusal (O4_Tile_Failures).
 _proxied = {}
+
+
+# True inside :func:`cached_reads_only` (a one-element list: no rebinding).
+_cached_only = [False]
+
+
+@contextlib.contextmanager
+def cached_reads_only():
+    """Within this block a base cell is read from the cache and NOTHING is
+    asked: a cell whose configured file is absent is served by its cached
+    fallback file, without asking the configured source again first.
+
+    For a reader that must never fetch (the auto-patch's production DEM
+    frame, issue #1743): it reads the cells the tile build already
+    resolved, on the same chain (:func:`cell_file`).  A tile build never
+    enters it, so the configured source is still asked on every build.
+    """
+    previous = _cached_only[0]
+    _cached_only[0] = True
+    try:
+        yield
+    finally:
+        _cached_only[0] = previous
 
 
 def forget_unreachable_sources():
@@ -263,6 +288,9 @@ def ensure_tile_or_fallback(strategy, definition, lat, lon, verbose,
     cache_path = _cache_path(strategy, definition, lat, lon)
     if cache_path and cached_elevation_file_is_valid(cache_path):
         return strategy.ensure_tile(definition, lat, lon, verbose)
+    if _cached_only[0]:
+        return int(any(cached_elevation_file_is_valid(path) for path in
+                       fallback_cache_paths(providers, lat, lon).values()))
     host = _source_host(strategy, definition, lat, lon)
     failure = _remembered_failure(host)
     absent = False

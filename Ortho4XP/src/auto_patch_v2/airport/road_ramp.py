@@ -1468,6 +1468,9 @@ class WallPiece(_t.NamedTuple):
     #: the UPPER face's line of a wall that retains its height
     #: (``airport/wall_sides``, #1633 round 3), ``None`` where not read
     upper_face: _t.Any = None
+    #: the wall's top as it sits along its upper face, absolute
+    #: (``WallSides.top_profile``, #1661)
+    top_profile: tuple | None = None
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1491,10 +1494,12 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
     for c in wall_class_components(airport, cfg):
         for g in c.pieces:
             if _piece_length(g) >= float(c.height_m):
-                face = next((w.upper_face for w in sides if w.poly.equals(g)), None)
+                side = next((w for w in sides if w.poly.equals(g)), None)
                 out.append(WallPiece(g, float(c.height_m),
                                      f"{c.resource}#comp{c.comp}",
-                                     bool(c.retains), False, face))
+                                     bool(c.retains), False,
+                                     getattr(side, "upper_face", None),
+                                     getattr(side, "top_profile", None)))
     return tuple(out)
 
 
@@ -1711,6 +1716,8 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   "mouth": bool(w.mouth),
                   "upper_face": (None if getattr(w, "upper_face", None) is None
                                  else [tuple(c) for c in w.upper_face.coords]),
+                  "top_profile": (None if getattr(w, "top_profile", None) is None
+                                  else [tuple(t) for t in w.top_profile]),
                   "upper": upper, "lower": lower,
                   "lots": lots, "pairs": pairs}
     return out

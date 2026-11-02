@@ -349,7 +349,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     airport = attach_sunken_ramps(airport, law, ocache)
     # issue #1633: the retaining walls' footprints, which no pad takes
     from ..airport.wall_shade import attach_wall_shade
-    airport = attach_wall_shade(airport, load_rules().service)
+    airport = attach_wall_shade(airport, load_rules().service, ocache)
     # THE FLAT-PACK WITNESS (owner direction 2026-10-20, answers 59-66; spec
     # ``flat-pack-terracing-spec.md`` §1): read once the partition is, a
     # REPORT in phase 1 (``law/flat_pack.toml`` ``terrace = false``).

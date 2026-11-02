@@ -22,6 +22,15 @@ piece excluded — it bounds the open cut, ``airport/road_ramp``):
   and that ground is ONE PLANE at the edge's level (the band at exactly
   zero, §37 (11) (2)'s quay): flat over to the wall, whichever level the
   pavement is.
+* AT THE WALL'S TOP (#1661) — a vertex of a WALL SLOPE (``planar/
+  wall_slope``: the graded ground over a wall's upper face) standing on that
+  face is held at the wall's top as it sits (:func:`face_top`, the wall's
+  ``top_profile``; owner RULINGS 2026-10-29a Q299 (a): "the top of a
+  retaining wall, which the hill grades down to, is the wall object's top
+  edge as it sits ... the back of the wall is buried").  MEASURED KATL
+  ``muro_27R.obj`` (capture on f82de7dfe): its top runs 283.8-292.1 m along
+  the face, 0.2-8.1 m over the lidar DEM there — the smeared step the
+  released mesh followed.
 
 Geometry only, read off the published wall records; the rows' own
 generators are untouched."""
@@ -35,7 +44,11 @@ from ..model.constraints import Linear
 from ..model.wall_reach import BEHIND_SHARE, wall_reach_m, wall_smear_m
 
 __all__ = ["RetainingLine", "retaining_lines", "split", "flat", "foot_ground",
-           "BEHIND_SHARE"]
+           "face_top", "BEHIND_SHARE", "TOP_FACE_M"]
+
+#: how near the upper face a vertex stands ON it: the identity grid's snap
+#: (a ring vertex of the wall slope lies on the footprint, snapped)
+TOP_FACE_M = 1.0
 
 
 class RetainingLine(_t.NamedTuple):
@@ -53,6 +66,10 @@ class RetainingLine(_t.NamedTuple):
     #: the wall's UPPER face line (``airport/wall_sides``), ``None`` when
     #: the record carries none
     upper_face: _t.Any = None
+    #: the wall's top as it sits along :attr:`upper_face`, absolute
+    #: (``airport/wall_top``: ``(s, z)`` stations), ``None`` when the record
+    #: carries none
+    top_profile: tuple | None = None
 
 
 def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
@@ -69,7 +86,9 @@ def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
         out.append(RetainingLine(g if g.is_valid else g.buffer(0.0),
                                  wall_reach_m(h), wall_smear_m(h), side,
                                  LineString(r["upper_face"]) if r.get("upper_face")
-                                 else None))
+                                 else None,
+                                 None if not r.get("top_profile")
+                                 else tuple(map(tuple, r["top_profile"]))))
     return out
 
 
@@ -208,6 +227,29 @@ def split(r: Linear, xy: _t.Mapping[int, tuple[float, float]],
                 for w in lines):
         return "before", flat(kept)
     return None, kept
+
+
+def face_top(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> float | None:
+    """The wall's top as it sits (``RetainingLine.top_profile``) at ``xy``
+    where it stands ON a wall's UPPER face — within :data:`TOP_FACE_M` of
+    it and nearer it than the rest of the outline — at a station that
+    retains a hill; ``None`` elsewhere."""
+    import numpy as np
+    from shapely.geometry import Point
+    p = Point(xy)
+    for w in lines:
+        if not w.top_profile or w.upper_face is None:
+            continue
+        d = w.upper_face.distance(p)
+        if d <= TOP_FACE_M and d <= w.poly.exterior.distance(p) + 1e-6:
+            s_ = w.upper_face.project(p)
+            st = [t for t in w.top_profile if t[1] is not None]
+            near = min(w.top_profile, key=lambda t: abs(t[0] - s_))
+            if near[1] is None or not st:
+                return None     # a station that retains no hill
+            a = np.asarray(st, float)
+            return float(np.interp(s_, a[:, 0], a[:, 1]))
+    return None
 
 
 def flat(r: Linear) -> Linear:

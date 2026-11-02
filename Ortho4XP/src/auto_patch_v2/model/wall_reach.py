@@ -1,10 +1,16 @@
 """HOW FAR A RETAINING WALL READS ITS GROUND — the numbers the adjacent
-ground (``constraints/wall_zone``) and the band set-back
-(``planar/zones``, ``airport/wall_sides``; #1633 round 3) share, in one
+ground (``constraints/wall_zone``), the band set-back (``planar/zones``,
+``airport/wall_sides``; #1633 round 3) and the wall slope (``planar/
+wall_slope``, #1661) share, in one
 place because neither layer may read the other's."""
 from __future__ import annotations
 
-__all__ = ["BEHIND_SHARE", "wall_reach_m", "wall_smear_m"]
+__all__ = ["BEHIND_SHARE", "wall_reach_m", "wall_smear_m", "WALL_SLOPE_REF_PREFIX",
+           "is_wall_slope_ref"]
+
+#: the face ref of a wall-slope piece (``planar/wall_slope``, #1661):
+#: ``adjacent_ground:wall:<resource>#<k>``
+WALL_SLOPE_REF_PREFIX = "adjacent_ground:wall:"
 
 #: how far behind a pavement edge a wall still stands "at" that edge: the
 #: share of the wall's own reach (``max(4 h, 20 m)``) — 5 m for a short wall
@@ -21,3 +27,8 @@ def wall_smear_m(height_m: float) -> float:
     ring (``airport/wall_class._retains_its_height``), at least 3 m, the
     wall's height out."""
     return max(3.0, float(height_m))
+
+
+def is_wall_slope_ref(ref: str) -> bool:
+    """A wall-slope piece's face ref (:data:`WALL_SLOPE_REF_PREFIX`)."""
+    return str(ref or "").startswith(WALL_SLOPE_REF_PREFIX)

@@ -74,7 +74,7 @@ class WeldStats:
     cells_welded: int = 0
     vertices_projected: int = 0
     vertices_inserted: int = 0
-    cells_refused: int = 0     # a weld that would have collapsed the cell
+    cells_refused: int = 0     # a weld that would have collapsed the cell, or split off pavement
     nodes_seen: int = 0        # breakline nodes on a senior boundary, read as its vertices
     passes_max: int = 0        # the most passes one cell took to converge
 
@@ -210,6 +210,14 @@ def _weld_one(poly: Polygon, ref, tol: float, frozen=None,
         if not parts:
             return None, 0, 0, passes
         q = max(parts, key=lambda g: g.area)
+        # #1741: A WELD NEVER DROPS PAVEMENT.  The bent ring may pinch into
+        # parts; only the largest is kept, so every other part must be a
+        # SLIVER the weld itself made (mean width 2A/L within ``tol``).  A
+        # wider part is real pavement — MEASURED LIRF (Aerosoft pack): a
+        # 36,655 m2 parallel taxiway came back as 28,163 + 8,056 m2 and the
+        # 8,056 m2 piece was graded as runway strip, 4 m pit in it.
+        if any(g is not q and 2.0 * g.area > tol * g.length for g in parts):
+            return None, 0, 0, passes
     if q.area < 0.5 * poly.area:
         return None, 0, 0, passes
     return q, moved, max(0, inserted), passes

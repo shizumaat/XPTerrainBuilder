@@ -55,12 +55,13 @@ import functools
 import os
 import typing as _t
 
+from ..model.airport import Surface
 from ..model.frame import Frame
 from . import apt_dat as _apt
 
 __all__ = ["BorrowDecision", "BorrowResult", "decide", "compose",
            "yield_to_scenery", "global_block", "find_global_block",
-           "BORROWED_SOURCE"]
+           "BORROWED_SOURCE", "counts_as_pavement"]
 
 #: what a borrowed :class:`~..model.airport.Pavement` /
 #: :class:`~..model.airport.Boundary` says of itself (§44 (3))
@@ -220,13 +221,23 @@ def _union_xy(rings: _t.Iterable[tuple[_t.Sequence, _t.Sequence]]):
     return None if u.is_empty else u
 
 
+def counts_as_pavement(surface: int) -> bool:
+    """Whether a row-110 polygon of this surface code is pavement the pack
+    supplies (issue #1687): a TRANSPARENT polygon (code 15) paints and
+    grades nothing — classify drops it — so it covers nothing either.
+    KIND (DominicDesignTeam) authors every row-110 polygon transparent and
+    read 0.966 coverage, so the borrow never fired."""
+    return int(surface) != int(Surface.TRANSPARENT)
+
+
 def _union(pavements: _t.Sequence[_apt.AptPavement],
            to_xy: _t.Callable[[float, float], tuple[float, float]]):
-    """The row-110 union in the airport frame, or ``None`` when empty."""
+    """The row-110 union in the airport frame, or ``None`` when empty;
+    transparent polygons are not counted (:func:`counts_as_pavement`)."""
     return _union_xy(
         ([to_xy(lo, la) for lo, la in p.rings[0]],
          [[to_xy(lo, la) for lo, la in r] for r in p.rings[1:]])
-        for p in pavements)
+        for p in pavements if counts_as_pavement(p.surface))
 
 
 def _covered(own, gu) -> float:

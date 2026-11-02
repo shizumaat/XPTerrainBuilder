@@ -290,3 +290,40 @@ def test_visible_texture_still_admits(tmp_path):
     assert _gate(tmp_path)("g/hard_surface.pol") == (S.SHEET, "concrete")
     # a missing texture is no witness
     assert S.pol_declaration(_pol(tmp_path, "g/x.pol", "concrete")).invisible is False
+
+
+# ── #1686: a material's SHADE is not a light fixture ─────────────────────
+
+@pytest.mark.parametrize("rel", [
+    "Polygons/ConcreteLight.pol", "Polygons/AsphaltLight.pol",    # KIND
+    "Polygons/DarkAsphaltLighter.pol", "pols/light_concrete.pol",
+    "pols/asphalt-lightest.pol",
+])
+def test_a_material_shade_is_a_source(tmp_path, rel):
+    """``light`` written against a material word is its colour: the page
+    is a pavement SOURCE by its name, its file not consulted."""
+    assert S.pavement_verdict(rel.lower()) == S.SOURCE
+    assert _gate(tmp_path)(rel.lower()) == (S.SOURCE, None)
+
+
+@pytest.mark.parametrize("rel", [
+    "pols/taxi_light.pol", "pols/light_glow.pol",
+    "pols/concrete_lines.pol", "pols/asphalt_skid_light.pol",
+])
+def test_a_fixture_or_paint_word_still_refuses_the_name(rel):
+    """A ``light`` with no material beside it, and any other paint word
+    beside a shade, still refuses the NAME (the file may then admit a
+    sheet, as before)."""
+    assert S.pavement_verdict(rel) is None
+    assert S.names_decoration(rel)
+
+
+def test_a_shade_name_yields_to_a_paint_layer(tmp_path):
+    """A name that is a material only once its shade is read still yields
+    to a file that draws it in the markings group; a plain material name
+    is settled without opening its file, as before."""
+    rel = "textures/concrete_light.pol"
+    _pol(tmp_path, rel, "concrete", "LAYER_GROUP markings +1")
+    assert _gate(tmp_path)(rel.lower()) == (None, "concrete")
+    _pol(tmp_path, "textures/asphalt_new.pol", "concrete", "LAYER_GROUP markings +1")
+    assert _gate(tmp_path)("textures/asphalt_new.pol") == (S.SOURCE, None)

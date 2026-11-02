@@ -2224,6 +2224,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         cl = _classify(airport, law, _load_rules(), cache=_ocache)
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
+        # RULINGS 2026-10-30e (#1686): the build's missed-pavement reading
+        from auto_patch_v2.classify.centreline_gaps import centreline_pavement_gaps
+        for _ln in centreline_pavement_gaps(airport, cl.cells).lines(icao):
+            print(_ln)
     def _rest(cl, stage_one: bool = True) -> dict:
         """THE PRELUDE FROM THE PLANAR BUILD ON, for one classification: the
         map, the target channels, the shape stage and the constraint set.

@@ -625,6 +625,19 @@ def test_borrow_fires_under_the_coverage_key(tmp_path):
     assert "pavement + boundary BORROWED from" in rep.pavement_borrow_line
 
 
+def test_transparent_pavement_covers_nothing(tmp_path):
+    """#1687 (KIND): a row-110 polygon of surface 15 (transparent) paints
+    and grades nothing, so it counts toward no coverage — a pack whose
+    apt.dat pavement is all transparent borrows Global's."""
+    body = "".join(_sq(_LA + 0.004 * k, _LO, 0.004) for k in range(4))
+    root = _borrow_root(tmp_path, body.replace("110 1 ", "110 15 "),
+                        _GLOBAL_FOUR)
+    sel = P.select_pack(str(root), _BORROW_ICAO, _borrow_law())
+    assert sel is not None and sel.borrow_reason == "coverage"
+    assert sel.borrow.coverage == 0.0
+    assert B.counts_as_pavement(1) and not B.counts_as_pavement(15)
+
+
 def test_borrow_sha_is_in_the_partition_key(tmp_path):
     """§44 (4) C5: a Global Airports update invalidates the cache."""
     from auto_patch_v2.airport import partition_cache as PC

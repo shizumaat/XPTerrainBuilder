@@ -130,11 +130,17 @@ def tokenise_text(text: str, pairs) -> str:
     return _respell_tails(text, False, "/")
 
 
-def detokenise_text(text: str, pairs, renames=None, sep: str = os.sep) -> str:
+def detokenise_text(text: str, pairs, renames=None, sep: str = None) -> str:
     """The inverse of :func:`tokenise_text` with THIS machine's roots
     (``pairs``: one root per token); ``renames`` maps a pack folder name
-    the bundle names to the one installed here; ``sep`` is this
-    machine's path separator."""
+    the bundle names to the one installed here; ``sep`` is the separator
+    the tails are written with — by default the one the local roots are
+    spelled with (a backslash only where they use backslashes alone), so
+    a tail always matches the root it is joined to."""
+    if sep is None:
+        roots = [root for _name, root in pairs]
+        sep = "\\" if any("\\" in r for r in roots) and not any(
+            "/" in r for r in roots) else "/"
     text = _respell_tails(text, False, "/")    # a bundle from before #1761
     for old, new in (renames or {}).items():
         for suffix, spell in _SPELLINGS.items():

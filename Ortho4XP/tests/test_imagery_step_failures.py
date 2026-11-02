@@ -70,6 +70,23 @@ def test_build_tile_rejects_empty_provider(tmp_path, monkeypatch):
     assert tile.config_writes == 0
 
 
+def test_build_tile_default_xplane_needs_no_provider(tmp_path, monkeypatch):
+    """Default X-Plane texture mode reads no orthophoto, so an unset
+    provider passes the pre-flight check (the harness's ``--texture-mode
+    default_xplane`` tile with no per-tile cfg)."""
+    import O4_Imagery_Utils as IMG
+    monkeypatch.setattr(UI, "is_working", False)
+    monkeypatch.setattr(IMG, "initialize_local_combined_providers_dict",
+                        lambda tile: 0)       # stop right after the check
+    build_dir = str(tmp_path)
+    _make_mesh_file(build_dir)
+    tile = _StubTile(build_dir, default_website="")
+    tile.texture_mode = "default_xplane"
+
+    assert TILE.build_tile(tile) == 0
+    assert tile.config_writes == 1            # got past the provider check
+
+
 def test_download_textures_counts_permanent_failures(monkeypatch):
     """A texture that fails all three attempts lands in ``stats['failed']``
     and never reaches the convert queue; the queue still drains cleanly."""

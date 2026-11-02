@@ -64,10 +64,13 @@ class XyzTextTileStrategy:
     STAC anywhere in its stack): anonymous 256x256 text tiles in Web
     Mercator, one elevation per cell, the letter ``e`` for nodata.
     Fetch computes the covering tiles at ``tile_zoom``, assembles them
-    into an EPSG:3857 mosaic, and (when any primary tile is missing --
-    the 5 m lidar is not wall-to-wall) underlays a second mosaic from
+    into an EPSG:3857 mosaic, and (when any primary tile is missing OR
+    a fetched primary tile carries nodata cells -- the 5 m lidar is not
+    wall-to-wall, and reclaimed land and piers come as ``e`` cells
+    inside tiles that exist, #1733) underlays a second mosaic from
     ``fallback_url_template`` at ``fallback_zoom``, the server-side
-    priority-merged nationwide composite.  Both land as temporary
+    priority-merged nationwide composite, so every primary nodata cell
+    is filled from it, resampled to the output grid.  Both land as temporary
     GeoTIFFs beside the destination and go through the same warp core
     as every other strategy (mosaic order makes the primary win where
     it has data).
@@ -91,8 +94,10 @@ class XyzTextTileStrategy:
     ):
         """Fetch all covering tiles at ``zoom`` into one local GeoTIFF.
 
-        Returns ``(path, missing_tile_count)`` or ``(None, 0)`` when
-        nothing at all was retrieved (outside the dataset).
+        Returns ``(path, missing_tile_count, nodata_cell_count)`` --
+        the last counts the ``e`` cells inside tiles that WERE fetched
+        -- or ``(None, missing_tile_count, 0)`` when nothing at all was
+        retrieved (outside the dataset).
         """
         (x_min, y_min, x_max, y_max) = self._tile_range(
             bounding_box_wgs84, zoom
@@ -106,12 +111,13 @@ class XyzTextTileStrategy:
                 columns * rows,
                 "tiles exceeds the cap - skipping this source.",
             )
-            return (None, 0)
+            return (None, 0, 0)
         values = numpy.full(
             (rows * 256, columns * 256), -32768.0, dtype=numpy.float32
         )
         fetched = 0
         missing = 0
+        nodata_cells = 0
         for tile_y in range(y_min, y_max + 1):
             for tile_x in range(x_min, x_max + 1):
                 url = (
@@ -148,9 +154,12 @@ class XyzTextTileStrategy:
                 values[row0 : row0 + 256, column0 : column0 + 256] = (
                     tile_values
                 )
+                nodata_cells += int(
+                    numpy.count_nonzero(tile_values <= -32768.0)
+                )
                 fetched += 1
         if not fetched:
-            return (None, missing)
+            return (None, missing, 0)
         tile_size_m = 2.0 * _WEB_MERCATOR_HALF_CIRCUMFERENCE / (2 ** zoom)
         origin_x = x_min * tile_size_m - _WEB_MERCATOR_HALF_CIRCUMFERENCE
         origin_y = _WEB_MERCATOR_HALF_CIRCUMFERENCE - y_min * tile_size_m
@@ -174,7 +183,7 @@ class XyzTextTileStrategy:
         band.WriteArray(values)
         band.FlushCache()
         dataset = None
-        return (temporary_path, missing)
+        return (temporary_path, missing, nodata_cells)
 
     def fetch(
         self,
@@ -192,7 +201,7 @@ class XyzTextTileStrategy:
         session = requests.Session()
         os.makedirs(os.path.dirname(destination_path), exist_ok=True)
         primary_zoom = int(float(definition.get("tile_zoom", 15)))
-        (primary_path, missing) = self._mosaic_to_geotiff(
+        (primary_path, missing, nodata_cells) = self._mosaic_to_geotiff(
             session,
             definition["tile_url_template"],
             primary_zoom,
@@ -201,8 +210,10 @@ class XyzTextTileStrategy:
         )
         fallback_path = None
         fallback_template = definition.get("fallback_url_template")
-        if fallback_template and (primary_path is None or missing):
-            (fallback_path, _fallback_missing) = self._mosaic_to_geotiff(
+        if fallback_template and (
+            primary_path is None or missing or nodata_cells
+        ):
+            (fallback_path, _missing, _nodata) = self._mosaic_to_geotiff(
                 session,
                 fallback_template,
                 int(float(definition.get("fallback_zoom", 14))),
@@ -210,7 +221,8 @@ class XyzTextTileStrategy:
                 destination_path + ".fallback.tif",
             )
         # Later inputs win where they carry data: the primary (finer)
-        # mosaic overlays the fallback composite.
+        # mosaic overlays the fallback composite, whose cells show
+        # through every primary nodata cell (missing tile or ``e``).
         warp_inputs = [
             path for path in (fallback_path, primary_path) if path
         ]
@@ -223,6 +235,7 @@ class XyzTextTileStrategy:
             vertical_unit=_raster_vertical_unit(definition),
             provider_code=definition.get("code"),
         )
+        fallback_used = fallback_path is not None
         for path in (primary_path, fallback_path):
             if path:
                 try:
@@ -240,7 +253,8 @@ class XyzTextTileStrategy:
         return {
             "provider": definition.get("code"),
             "access_strategy": definition.get("access_strategy"),
-            "source_urls": [definition.get("tile_url_template")],
+            "source_urls": [definition.get("tile_url_template")]
+            + ([fallback_template] if fallback_used else []),
             "native_resolution_m": definition.get("native_resolution_m"),
             "license": definition.get("license"),
             "attribution": definition.get("attribution"),

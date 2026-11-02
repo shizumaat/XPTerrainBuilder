@@ -14,11 +14,10 @@ No network: the strategies are fakes.
 import bz2
 import os
 
-import pytest
-
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
+import pytest
 from elevation_access import base_fallback, sea_cell
 from elevation_access import registry as ea_registry
 

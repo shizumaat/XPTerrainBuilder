@@ -17,7 +17,6 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from auto_patch_v2.airport import dsf as S
 
 D = S.PolDeclaration

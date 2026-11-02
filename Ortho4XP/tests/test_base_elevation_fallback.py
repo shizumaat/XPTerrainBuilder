@@ -13,12 +13,11 @@ No network: the transports are fakes, the strategies write local files.
 import os
 
 import numpy
-import pytest
-
 import O4_Airport_Elevation_Insets as INSETS
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
+import pytest
 from auto_patch import provenance
 from elevation_access import base_fallback, base_seam, warp
 from elevation_access import registry as ea_registry

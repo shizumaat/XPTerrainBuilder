@@ -48,7 +48,6 @@ import typing as _t
 from pathlib import Path
 
 import numpy as np
-
 from O4_Airport_Modes import DEFAULT_MODE as _MODE_VALUED_KEYS
 from O4_Airport_Modes import mode_admits, normalize_mode, resolved_inset_mode
 

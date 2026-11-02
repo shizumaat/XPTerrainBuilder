@@ -39,10 +39,9 @@ import threading
 import time
 from typing import Optional
 
-import requests
-
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
+import requests
 
 INDEX_URL = "https://download.geofabrik.de/index-v1.json"
 INDEX_REFRESH_DAYS = 7.0

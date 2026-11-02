@@ -32,6 +32,7 @@ as it was.  No GUI-toolkit imports (core-module rule).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -347,8 +348,14 @@ def covering_regions(bounding_box) -> Optional[list]:
             for (region_id, _u, region_geometry) in intersecting
         }
         # Reverse-delete pruning, largest region first (geometry area is
-        # the proxy for extract size), so aggregates fall before the
-        # smaller regions that duplicate them.
+        # the proxy for extract size: the index carries no pbf sizes), so
+        # aggregates fall before the smaller regions that duplicate them.
+        # A region whose unique part of the box is SEA serves no land the
+        # others miss and falls too (#1735): a grouping region's polygon
+        # is sea-buffered wider than its leaves', and on a coastal box
+        # that buffer alone kept the 6 GB dach over the German states.
+        import O4_Land_Witness as LAND
+
         intersecting.sort(
             key=lambda entry: (-entry[2].area, entry[0]))
         kept = list(intersecting)
@@ -362,7 +369,8 @@ def covering_regions(bounding_box) -> Optional[list]:
             ])
             unique = clipped[region_id].intersection(bbox_polygon) \
                 .difference(others.buffer(_COVERAGE_BUFFER_DEGREES))
-            if unique.area <= _REDUNDANT_COVER_AREA:
+            if (unique.area <= _REDUNDANT_COVER_AREA
+                    or LAND.holds_land(unique) is False):
                 kept.remove(entry)
         union = unary_union(
             [clipped[region_id] for (region_id, _u, _g) in kept]
@@ -380,8 +388,6 @@ def covering_regions(bounding_box) -> Optional[list]:
             # An island or coastal box: most of it is sea outside every
             # region polygon.  Serve it locally only when the offline
             # land witness (#1731) says that remainder holds no land.
-            import O4_Land_Witness as LAND
-
             land = LAND.holds_land(uncovered)
             share = round(100 * uncovered.area / bbox_polygon.area)
             parent = _parent_cover(bbox_polygon) if land else None
@@ -636,22 +642,20 @@ def osm_xml_from_local_extracts(statements, bounding_box,
             return None
         import O4_OSM_Extract_Filter as FILTER
 
-        source_files = [_region_file(region_id) for (region_id, _url) in regions]
+        label = f" ({request_description})" if request_description else ""
         clip_files = _clip_for_query(regions, boxes)
         if clip_files is not None:
-            # Same first-file-wins order as the full extracts they were
-            # cut from — the filter's multi-file semantics carry over.
-            source_files = clip_files
-        label = f" ({request_description})" if request_description else ""
+            served = _filter_through_clip(
+                regions, boxes, clip_files, statements, label)
+            if served is not None:
+                return served
         UI.vprint(
             1,
-            f"      Filtering OSM data{label} from",
-            "the clipped area cache" if clip_files is not None
-            else "regional extract(s): "
-            + ", ".join(region_id for (region_id, _url) in regions),
+            f"      Filtering OSM data{label} from regional extract(s):",
+            ", ".join(region_id for (region_id, _url) in regions),
         )
         return FILTER.filter_extracts_to_osm_xml(
-            source_files,
+            [_region_file(region_id) for (region_id, _url) in regions],
             statements,
             boxes,
         )
@@ -903,33 +907,91 @@ def _clip_path(regions, clip_box) -> str:
     extract files it was cut from (id, size, mtime): a re-downloaded
     extract changes the key, so stale clips can never serve.  The cache
     itself is ``<base>-part<N>.osm.pbf`` per extract plus the
-    ``<base>.parts.json`` completeness manifest."""
+    ``<base>.parts.json`` completeness manifest.
+
+    The base is ``clip_<corner>_<area>-<stamp>``: ``<area>`` digests the
+    clip box and the region ids, ``<stamp>`` the extract files' sizes
+    and mtimes, so a clip is SUPERSEDED only by one with the same
+    ``<area>`` and a newer ``<stamp>`` (:func:`_prune_stale_clips`)."""
     import hashlib
 
-    digest = hashlib.sha1()
+    area = hashlib.sha1()
+    stamp = hashlib.sha1()
     for region_id, _url in regions:
         stat = os.stat(_region_file(region_id))
-        digest.update(("%s|%d|%d;" % (
+        area.update(("%s;" % region_id).encode())
+        stamp.update(("%s|%d|%d;" % (
             region_id, stat.st_size, int(stat.st_mtime))).encode())
-    digest.update(repr(clip_box).encode())
+    area.update(repr(clip_box).encode())
     prefix = "clip_%+04d%+05d" % (
         int(round(clip_box[0] + _CLIP_PAD_DEGREES)),
         int(round(clip_box[1] + _CLIP_PAD_DEGREES)))
     return os.path.join(
         _clip_directory(),
-        "%s_%s" % (prefix, digest.hexdigest()[:12]))
+        "%s_%s-%s" % (prefix, area.hexdigest()[:12], stamp.hexdigest()[:12]))
+
+
+# Clip bases a filter of THIS process is reading now (base -> readers):
+# the prune never removes one (#1734).  Another process whose clip is
+# pruned under it recovers through :func:`_filter_through_clip`.
+_clips_in_use: dict = {}
+_clips_in_use_lock = threading.Lock()
+# A clip in the pre-#1734 naming (no ``<area>-<stamp>`` split, or the
+# single-file layout) is removed only once untouched this long: an older
+# engine process may still be reading it.
+_LEGACY_CLIP_AGE_SECONDS = 3600.0
+
+
+@contextlib.contextmanager
+def _clip_in_use(base: str):
+    with _clips_in_use_lock:
+        _clips_in_use[base] = _clips_in_use.get(base, 0) + 1
+    try:
+        yield
+    finally:
+        with _clips_in_use_lock:
+            _clips_in_use[base] -= 1
+            if not _clips_in_use[base]:
+                del _clips_in_use[base]
+
+
+def _clip_base_of_name(name: str) -> str:
+    """The clip base a cache file name belongs to (parts, manifest,
+    its lock, a legacy single-file clip)."""
+    for marker in ("-part", ".parts.json", ".osm.pbf"):
+        if marker in name:
+            return name[:name.index(marker)]
+    return name
 
 
 def _prune_stale_clips(keep_base: str) -> None:
-    """Drop other clips for the same area (superseded by a re-download,
-    or the pre-parts single-file layout)."""
-    prefix = os.path.basename(keep_base).rsplit("_", 1)[0]
+    """Drop clips ``keep_base`` supersedes: the SAME area and regions cut
+    from older extract files (a re-download), never a clip of another
+    area or region set — two cuts sharing a corner used to evict each
+    other mid-read (#1734) — and never one a filter here is reading.
+    Legacy-named clips go once they are an hour old."""
     keep_name = os.path.basename(keep_base)
+    (prefix, keep_key) = keep_name.rsplit("_", 1)
+    area_prefix = "%s_%s-" % (prefix, keep_key.split("-")[0])
+    with _clips_in_use_lock:
+        in_use = set(_clips_in_use)
     try:
         for name in os.listdir(_clip_directory()):
-            if name.startswith(prefix + "_") and not name.startswith(
-                    keep_name):
-                os.remove(os.path.join(_clip_directory(), name))
+            if not name.startswith(prefix + "_"):
+                continue
+            base = _clip_base_of_name(name)
+            if base == keep_name or os.path.join(
+                    _clip_directory(), base) in in_use:
+                continue
+            path = os.path.join(_clip_directory(), name)
+            legacy = "-" not in base[len(prefix) + 1:]
+            if legacy:
+                if time.time() - os.path.getmtime(path) \
+                        < _LEGACY_CLIP_AGE_SECONDS:
+                    continue
+            elif not name.startswith(area_prefix):
+                continue
+            os.remove(path)
     except OSError:
         pass
 
@@ -1088,6 +1150,38 @@ def _clip_for_query(regions, boxes) -> Optional[list]:
             "full extracts." % error,
         )
         return None
+
+
+def _filter_through_clip(regions, boxes, clip_files, statements,
+                         label) -> Optional[bytes]:
+    """Filter the statements from the area clip (same first-file-wins
+    order as the extracts it was cut from), or ``None`` to filter the
+    full extracts.  A clip whose part vanished under the read (another
+    process pruned or re-cut it, #1734) is re-cut from the extracts on
+    disk and read once more — never an Overpass fallback while the
+    extract is present.  Any other filter error propagates."""
+    import O4_OSM_Extract_Filter as FILTER
+
+    for attempt in (0, 1):
+        UI.vprint(1, f"      Filtering OSM data{label} from",
+                  "the clipped area cache")
+        base = clip_files[0][:clip_files[0].rindex("-part")]
+        try:
+            with _clip_in_use(base):
+                return FILTER.filter_extracts_to_osm_xml(
+                    clip_files, statements, boxes)
+        except Exception:
+            if UI.red_flag or all(os.path.isfile(p) for p in clip_files):
+                raise
+        UI.vprint(1, "      The clipped OSM cache for this area went"
+                  " missing during the read; cutting it again from the"
+                  " extract(s) on disk.")
+        if attempt:
+            return None
+        clip_files = _clip_for_query(regions, boxes)
+        if clip_files is None:
+            return None
+    return None
 
 
 def _foreground_index_refresh_once() -> bool:

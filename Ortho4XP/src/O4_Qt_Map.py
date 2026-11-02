@@ -18,6 +18,7 @@ import threading
 import time
 from collections import deque
 
+import O4_Activity_Order as ACTORDER
 import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
@@ -1259,8 +1260,16 @@ class MapView(QGraphicsView):
             pen.setWidth(2)
             painter.setPen(pen)
 
+    def is_building(self, tile):
+        """The tile has a live run row (#1736): queued or building.  The map
+        draws it as building, whatever is on disk -- a DSF an earlier build
+        left is not this build's outcome (BuildActivityModel.isBuilding)."""
+        progress = self._progress.get(tile)
+        return bool(progress) and not ACTORDER.is_finished(progress[0],
+                                                           progress[1])
+
     def _draw_tile_overlay(self, painter, tile, scale):
-        built = self._built.get(tile)
+        built = None if self.is_building(tile) else self._built.get(tile)
         selected = tile in self._selection
         active = tile == self._active
         progress = self._progress.get(tile)

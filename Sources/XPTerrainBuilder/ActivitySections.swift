@@ -17,6 +17,22 @@ struct ActivitySections: View {
 
     static func completedTitle(_ count: Int) -> String { "Completed (\(count))" }
 
+    /// A row's identity in the list is its tile AND its section (#1736): a
+    /// tile that changes section leaves one and enters the other, never
+    /// "moves" with its old identity — the outline the sidebar list draws
+    /// can then never keep showing a row in the section it left. The
+    /// selection stays keyed by tile (`.tag`).
+    struct RowID: Hashable, Identifiable {
+        let section: ActivityOrder.Section
+        let coord: BuildModel.TileCoord
+        var id: Self { self }
+    }
+
+    static func rowIDs(_ coords: [BuildModel.TileCoord],
+                       in section: ActivityOrder.Section) -> [RowID] {
+        coords.map { RowID(section: section, coord: $0) }
+    }
+
     /// Whether the pane shows the list at all: a run, or rows left over.
     static func shows(building: Bool, activity: BuildActivityModel) -> Bool {
         building || !activity.displayOrder.isEmpty
@@ -28,8 +44,8 @@ struct ActivitySections: View {
         List(selection: selection) {
             if buildModel.isBuilding || !live.isEmpty {
                 Section {
-                    ForEach(live, id: \.self) { coord in
-                        ActivityRow(coord: coord, compact: false).tag(coord)
+                    ForEach(Self.rowIDs(live, in: .activity)) { row in
+                        ActivityRow(coord: row.coord, compact: false).tag(row.coord)
                     }
                 } header: {
                     Text("Activity")
@@ -39,8 +55,8 @@ struct ActivitySections: View {
             }
             if !completed.isEmpty {
                 Section(isExpanded: $activity.completedExpanded) {
-                    ForEach(completed, id: \.self) { coord in
-                        ActivityRow(coord: coord, compact: true).tag(coord)
+                    ForEach(Self.rowIDs(completed, in: .completed)) { row in
+                        ActivityRow(coord: row.coord, compact: true).tag(row.coord)
                     }
                 } header: {
                     Text(Self.completedTitle(completed.count))

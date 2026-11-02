@@ -435,7 +435,9 @@ struct MapCanvasView: View {
         // Built tiles: green border (no fill — it obscures the imagery
         // preview); installed adds the double (inset) border. The imagery
         // label is drawn with the tile labels (MapCanvasLabels, #817).
-        for coord in buildModel.built.keys where visible(coord) {
+        // A tile being built draws as building only (#1736): its progress
+        // badge, never the border of the DSF an earlier build left.
+        for coord in buildModel.built.keys where visible(coord) && !buildActivity.isBuilding(coord) {
             let r = rect(coord)
             // The Build History date filter dims built tiles outside its
             // period (#1226).

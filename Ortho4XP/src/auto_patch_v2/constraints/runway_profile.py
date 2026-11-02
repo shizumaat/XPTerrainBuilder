@@ -804,7 +804,9 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
             continue
         half = half_of.get(f.ref, 0.0)
         own_ridge = {v for c in chs for v in c}
-        ends = {c[0] for c in chs if c} | {c[-1] for c in chs if c}
+        # each chain END -> the chain's OTHER end: the along-axis direction
+        ends = {**{c[0]: c[-1] for c in chs if len(c) >= 2},
+                **{c[-1]: c[0] for c in chs if len(c) >= 2}}
         src = Source(GEN, "rulesets.runway.transverse_max (2026-09-05o)",
                      (f"face:{f.id}", f.ref))
         for v in vw.face_vertices(f.id):
@@ -840,17 +842,24 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     return rows
 
 
-def _abeam(vw: View, v: int, a: int, b: int, t: float, ends: set[int],
+def _abeam(vw: View, v: int, a: int, b: int, t: float, ends: dict[int, int],
            law: Law) -> bool:
     """Is ``v`` ABEAM its ridge — its foot ``(a, b, t)`` a perpendicular
     one, not a foot clamped at a chain END with ``v`` lying beyond it
     along the axis by more than the emit identity floor?  The verify reads
     interior feet only (``verify.runway._nearest_ridge``); the crown floor
-    binds on the same population."""
+    binds on the same population.
+
+    "Along the axis" is the CHAIN's own direction (``ends``: each end ->
+    the chain's other end), never the last segment's: a short skewed end
+    segment (HECA 05L/23R's 23R end, 1.1 m with 0.4 m of lateral drift)
+    read a corner vertex 0.7 m INSIDE the end as ~10 m beyond it, and the
+    corner kept no floor while the verify, reading the emitted spine,
+    flagged it (a 0.28 m ``crown_floor`` DEFECT)."""
     end = a if t <= 0.0 else (b if t >= 1.0 else None)
     if end is None or end not in ends:
         return True
-    other = b if end == a else a
+    other = ends[end]
     (ex, ey), (ox, oy), (px, py) = vw.xy[end], vw.xy[other], vw.xy[v]
     ux, uy = ex - ox, ey - oy
     n = math.hypot(ux, uy)

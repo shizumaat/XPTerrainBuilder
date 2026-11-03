@@ -44,7 +44,7 @@ from ..law import Law
 from .unframed_ramp import overlap_yield
 from .wall_corridor_ramps import KIND as WALL_KIND
 
-__all__ = ["resolve_overlaps", "deck_partner", "run_stop_s", "run_side", "run_group"]
+__all__ = ["resolve_overlaps", "deck_partner", "run_floor", "run_stop_s", "run_side", "run_group"]
 
 XY = tuple[float, float]
 #: two cuts face each other along one road when each one's axis heads at
@@ -64,11 +64,27 @@ class _Run:
     #: ``structures`` from the pass that paired them: two decks over one road
     #: hang their floor between their seats (Q271 b, ``deck_bridge.deck_seats``)
     partner_deck: _t.Any = _dc.field(default=None, compare=False)
+    #: the partner's floor on the pass that paired them: the run takes ONE
+    #: floor, the lowest of its halves' (owner 2026-11-03, KPHX picture)
+    partner_floor: "float | None" = _dc.field(default=None, compare=False)
 
 
 def _unit(a: XY, b: XY) -> XY | None:
     d = math.hypot(b[0] - a[0], b[1] - a[1])
     return None if d <= 1e-9 else ((b[0] - a[0]) / d, (b[1] - a[1]) / d)
+
+
+def _floor(t) -> "float | None":
+    """A cut's floor at its mouth: its profile's first station, else its datum."""
+    prof = tuple(getattr(t, "profile", ()) or ())
+    z = prof[0][1] if prof else getattr(t, "mouth_z", None)
+    return None if z is None else float(z)
+
+
+def run_floor(own: float, run: "_Run") -> float:
+    """The ONE floor of a run-through: the lowest of its halves' floors (the
+    deepest the ladder gives; owner 2026-11-03)."""
+    return own if run.partner_floor is None else min(own, run.partner_floor)
 
 
 def _covered_end(t) -> XY:
@@ -106,7 +122,8 @@ def _run_pair(ti, tj, paved=None) -> "tuple[_Run, _Run] | None":
         return None
     mid = (0.5 * (ci[0] + cj[0]), 0.5 * (ci[1] + cj[1]))
     off = mid[0] * u[0] + mid[1] * u[1]
-    return _Run(tj.id, u, off, mi), _Run(ti.id, u, off, mj)
+    return (_Run(tj.id, u, off, mi, partner_floor=_floor(tj)),
+            _Run(ti.id, u, off, mj, partner_floor=_floor(ti)))
 
 
 def deck_partner(db, axis: LineString, decks: _t.Sequence, paved=None):
@@ -195,9 +212,10 @@ def run_group(g, run: _Run, gap: float):
         q = p.intersection(side)
         parts = [x for x in getattr(q, "geoms", [q]) if x.geom_type == "Polygon" and x.area > 0]
         return max(parts, key=lambda x: x.area) if parts else p
-    floor = float(profile[0][1])
+    floor = run_floor(float(profile[0][1]), run)
     c2 = _dc.replace(c, axis=tuple(axis), length_m=stop, walls=cut(c.walls),
-                     trench=cut(c.trench), footprint=cut(c.footprint), far_closed=False)
+                     trench=cut(c.trench), footprint=cut(c.footprint), far_closed=False,
+                     floor_z=floor, depth_m=c.mouth_dem_z - floor)
     return _dc.replace(g, axis=axis, corridor=c2, hull_s=stop,
                        profile=((0.0, floor), (stop, floor)))
 

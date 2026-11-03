@@ -254,6 +254,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                          f"{ob.mouth_depth!r} / ramp_end {ob.ramp_end!r}: only 'ground' / "
                          f"'floor_slab' / 'wall_end' are generated")
     rows: list[Row] = []
+    run_datum: dict[str, int] = {}      # a run-through half's mouth datum vertex
     #: spec §34 (6) as amended: the design solve's own HELD residual, which
     #: a row targeted AT its cap emits over.
     hard_tol = float(law.tables.emit.design.hard_tol_m)
@@ -594,7 +595,14 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 depth = tn.depth_m if tn.depth_m > 0.0 else tn_law.mouth_depth_m
                 terms = ((group[0], 1.0), (cap_reps[0], -1.0))
                 rows.append(Linear(terms, None, -depth, src_mouth))
-                rows.append(Linear(tuple((v, -c) for v, c in terms), None, depth, src_mouth))
+                if not tn.run_partner or tn.run_lead:
+                    rows.append(Linear(tuple((v, -c) for v, c in terms), None, depth, src_mouth))
+                # a RUN-THROUGH has ONE floor (owner 2026-11-03; RULINGS
+                # 2026-11-03b Q342 a): the lead half's floor IS depth under
+                # its cap, every other half's at least that deep under its own
+                # (the floors are held level below)
+                if tn.run_partner:
+                    run_datum[tn.id] = group[0]
             else:
                 pin(group[0], tn.mouth_z, src_mouth)
         # ── decks ───────────────────────────────────────────────────
@@ -735,6 +743,12 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                         for dv in grp:
                             rows.append(Band(dv, lo, hi, src_ends))
     rows.extend(pins.values())
+    for tn in tunnels:
+        other = run_datum.get(tn.run_partner) if tn.run_partner else None
+        if other is not None and tn.id in run_datum and tn.id < tn.run_partner:
+            rows.append(Flat((run_datum[tn.id], other), Source(
+                GEN, "a run-through's one floor (owner RULINGS 2026-11-03b Q340 a / Q342 a; "
+                "owner 2026-11-03, #1717)", (tn.id, tn.run_partner))))
     return rows
 
 

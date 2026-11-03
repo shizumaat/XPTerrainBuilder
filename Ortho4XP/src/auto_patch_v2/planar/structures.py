@@ -110,7 +110,8 @@ from .structure_approach import (FieldRegion, apply_plates, cover_polygons, stan
 from .unframed_ramp import (BEND_CAP, MAX_OVERLAP_PASSES, bend_note as _bend_note,
                             cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
-from .structure_overlap import deck_partner, resolve_overlaps, run_group, run_side, run_stop_s
+from .structure_overlap import (deck_partner, resolve_overlaps, run_floor, run_group,
+                                run_side, run_stop_s)
 from ..airport.portal_objects import portal_of
 from .structure_mouth import (covered_stretch, face_top_z, own_road_blade, road_end_after_slide,
                               road_over_mouth)
@@ -431,6 +432,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         else:
             tid = g.tid
         rt = runs.get(tid)
+        run_own = None        # this half's own floor before the run takes the lowest
         if rt is not None and c is not None:
             # 2026-11-03b Q340 a: a profile corridor runs through to its
             # partner at its floor (``structure_overlap.run_group``)
@@ -628,7 +630,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # run-through's floor is the airport's level B under the airside
             # beside its mouth, over every object's own rung — the depth the
             # solve ties the floor to its cap by (``Tunnel.depth_m``)
-            mouth_z, slid_depth = mouth_dem - level_b, level_b
+            run_own = mouth_dem - level_b
+            mouth_z, slid_depth = run_floor(run_own, rt), level_b
         # decks across the corridor.  TWO orthogonal readings at one
         # call: §34 (12) (4) decides WHETHER a deck severs (15ap, the
         # cutting witness), §33 (6) C3' its LATERAL EXTENT (the pack's
@@ -1195,7 +1198,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               tuple(notes), top_pinned, clipped_by,
                               (cap_mid[0], cap_mid[2]) if cap_mid else None,
                               cap_mid[1] if cap_mid else None, design_grade=design_grade,
-                              pinched=pinched, **extra))
+                              pinched=pinched, **extra,
+                              **({} if rt is None else dict(
+                                  run_partner=rt.partner,
+                                  run_lead=_run_lead(tid, mouth_z if run_own is None
+                                                     else run_own, rt)))))
         if clipped_by:
             # THE PORTAL FACE AT THE PAD EDGE (08-07 ruling 3): the clipped
             # ramp's top edge stands off the ground beyond it by the gap
@@ -1351,3 +1358,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "mouths_replaced_by_object": stats.mouths_replaced_by_object})
     return cl, tuple(tunnels), stats
 
+
+def _run_lead(tid: str, own: float, rt) -> bool:
+    """Whether this half's own floor is the run's lowest (the half whose
+    floor the solve ties to its cap; ties go to the lesser id)."""
+    if rt.partner_floor is None:
+        return True
+    return own < rt.partner_floor - 1e-6 or (abs(own - rt.partner_floor) <= 1e-6
+                                            and tid < rt.partner)

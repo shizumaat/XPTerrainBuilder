@@ -317,6 +317,14 @@ class Tunnel:
     #: mapped bore's mouth (``airport/portal_objects``), or ``""``; its cut
     #: may stand inside the runway strip keep-out
     portal: str = ""
+    #: owner RULINGS 2026-11-03b Q340 a (#1717): the half this one RUNS
+    #: THROUGH to on one road (``planar/structure_overlap``), or ``""``.  The
+    #: run has ONE floor (owner 2026-11-03, KPHX): its halves' floors are
+    #: held level (``constraints/structures``), the LEAD half's floor
+    #: ``depth_m`` under its solved cap and every other half's at least that
+    #: deep under its own (Q342 a: depth under the airside beside it)
+    run_partner: str = ""
+    run_lead: bool = False
     #: owner RULINGS 2026-10-27l / 2026-10-28d: the BACK line of the edge
     #: bridge that pinned this trench (``planar/bridge_span``), or ``()`` —
     #: a terrain deck over it is level with the airside abeam

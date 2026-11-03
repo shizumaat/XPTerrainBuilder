@@ -83,7 +83,7 @@ def test_exact_is_the_ieee_spelling():
     b = np.array([rng.uniform(-1e3, 1e3) for _ in range(500)])
     got = exact.hypot_array(a, b)
     assert [float(g) for g in got] == [exact.hypot(float(x), float(y))
-                                       for x, y in zip(a, b)]
+                                       for x, y in zip(a, b, strict=True)]
 
 
 def test_the_road_ramp_targets_publish_on_the_read_grid():

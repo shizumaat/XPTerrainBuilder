@@ -682,6 +682,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.geom.containment",
     "auto_patch_v2.geom.core_clamp",
     "auto_patch_v2.geom.coverage",
+    "auto_patch_v2.geom.exact",
     "auto_patch_v2.geom.feet_graph",
     "auto_patch_v2.geom.feet_mst",
     "auto_patch_v2.geom.fixed_overlay",

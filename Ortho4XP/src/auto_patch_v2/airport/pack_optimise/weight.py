@@ -12,7 +12,6 @@ threshold :data:`OFFER_TRIANGLES` sits well clear of the references.
 """
 from __future__ import annotations
 
-import math
 import os
 import typing as _t
 
@@ -44,17 +43,17 @@ def _obj_triangles(path: str) -> int:
     return 0
 
 
-def path_of(pack_root: str, declared: str) -> str:
-    """The pack file a declared path names."""
-    return os.path.join(pack_root, *declared.replace("\\", "/").split("/"))
-
-
-def _reach(path: str) -> float:
-    """How far an object file is drawn: its farthest ``ATTR_LOD``, else
-    without limit."""
+def _tris_at(path: str, distance: float) -> int:
+    """The triangles an object file draws at ``distance`` metres."""
     from .shape import read_shape
     s = read_shape(path)
-    return math.inf if s is None or s.lod_far is None else s.lod_far
+    return 0 if s is None else s.tris_at(distance)
+
+
+def _lods_at(lods: _t.Sequence[_t.Sequence[float]], tris: int, distance: float) -> int:
+    if not lods:
+        return tris
+    return int(sum(n for near, far, n in lods if near <= distance < far))
 
 
 def estimate(pack_root: str, lines: _t.Sequence[str],
@@ -71,7 +70,9 @@ def estimate(pack_root: str, lines: _t.Sequence[str],
     placements, path)`` (``tools/pack_weight.py``).  ``far_m`` adds
     ``"far_before"`` / ``"far_after"``: the triangles still drawn beyond
     ``far_m`` metres (an object's draw distance: its own ``ATTR_LOD``, its
-    copy's (``copies``, O2), the library object's for a swap)."""
+    copy's (``copies``, O2), the library object's for a swap).  An
+    object's LOD blocks are read for what each draws, so a lights-only
+    tail block draws nothing."""
     defs = declared_definitions(lines)["object"]
     tris: dict[int, int] = {}
     uses: dict[int, int] = {}
@@ -79,7 +80,7 @@ def estimate(pack_root: str, lines: _t.Sequence[str],
     copies = copies or {}
     before = after = placements = swapped = 0
     far_before = far_after = 0
-    reach: dict[int, float] = {}
+    far_tris: dict[int, int] = {}
     for o, _i, toks in placement_rows(lines):
         d = int(toks[1])
         if d not in tris:
@@ -91,10 +92,11 @@ def estimate(pack_root: str, lines: _t.Sequence[str],
         placements += 1
         uses[d] = uses.get(d, 0) + 1
         before += tris[d]
-        if far_m is not None and d not in reach:
-            reach[d] = _reach(path_of(pack_root, defs[d]))
-        if far_m is not None and reach[d] > far_m:
-            far_before += tris[d]
+        if far_m is not None and d not in far_tris:
+            far_tris[d] = _tris_at(os.path.join(pack_root, *defs[d].replace(
+                "\\", "/").split("/")), far_m)
+        if far_m is not None:
+            far_before += far_tris[d]
         if o in drop:
             continue
         sw = swaps.get(defs[d])
@@ -102,14 +104,13 @@ def estimate(pack_root: str, lines: _t.Sequence[str],
             swapped += 1
             lib_tris = int((sw.get("tris") or (0, 0))[1])
             after += lib_tris
-            if far_m is not None and (sw.get("far") or math.inf) > far_m:
-                far_after += lib_tris
+            if far_m is not None:
+                far_after += _lods_at(sw.get("lods") or (), lib_tris, far_m)
             continue
         after += tris[d]
         if far_m is not None:
             lod = (copies.get(defs[d]) or {}).get("lod")
-            if (lod or reach[d]) > far_m:
-                far_after += tris[d]
+            far_after += (0 if far_m >= lod else tris[d]) if lod else far_tris[d]
     out: dict[str, _t.Any] = {"tris_before": before, "tris_after": after,
                               "placements": placements, "swapped": swapped}
     if far_m is not None:

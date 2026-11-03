@@ -13,21 +13,24 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
 
 import pack_optimise_fixture as FX  # noqa: E402
-from test_pack_optimise_swap import obj  # noqa: E402
-
 from auto_patch import optimise_stage as OS  # noqa: E402
 from auto_patch_v2.airport import pack_optimise as PO  # noqa: E402
 from auto_patch_v2.airport.pack_optimise import objcopy as OC  # noqa: E402
+from test_pack_optimise_swap import obj  # noqa: E402
 
 SHINY = obj((0, 2), (0, 1.5), (-4, 0), tris=60).replace(
     "TRIS 0 180", "TRIS 0 90\nATTR_shiny_rat 0.6\nTRIS 90 90") + (
     "LIGHT_NAMED headlight 0 1 -0.1\n")
 
 
+def _plan(root, defs, uses, skip):
+    return OC.plan_objects(root, OC.placed_objects(root, defs, uses, skip))
+
+
 def _pack(tmp_path, text):
     p = tmp_path / "p"
     (p / "o").mkdir(parents=True)
-    (p / "o" / "Cone.obj").write_text(text, encoding="utf-8")
+    (p / "o" / "Cone.obj").write_text(text, encoding="utf-8", newline="")
     return p
 
 
@@ -35,11 +38,11 @@ def test_the_plan_gives_specular_to_a_repeated_object_and_lod_to_a_heavy_one(
         tmp_path, monkeypatch):
     p = _pack(tmp_path, SHINY)
     monkeypatch.setattr(OC, "MIN_WEIGHT", 1000)
-    got = OC.plan_objects(str(p), ["o/Cone.obj"], {0: 20}, set())
+    got = _plan(str(p), ["o/Cone.obj"], {0: 20}, set())
     assert got == {"o/Cone.obj": {"specular": 0.6, "lod": 1500}}, "4 m x 1000 clamps to 1500"
-    assert OC.plan_objects(str(p), ["o/Cone.obj"], {0: 1}, set()) == {}, \
+    assert _plan(str(p), ["o/Cone.obj"], {0: 1}, set()) == {}, \
         "one placement instances nothing and weighs too little"
-    assert OC.plan_objects(str(p), ["o/Cone.obj"], {0: 20}, {"o/Cone.obj"}) == {}, \
+    assert _plan(str(p), ["o/Cone.obj"], {0: 20}, {"o/Cone.obj"}) == {}, \
         "a swapped object has no copy"
 
 
@@ -47,14 +50,14 @@ def test_small_and_big_and_lodded_objects(tmp_path, monkeypatch):
     monkeypatch.setattr(OC, "MIN_WEIGHT", 1)
     for size, want in ((0.3, 400), (0.9, 900), (11.0, 1500), (13.0, None)):
         p = _pack(tmp_path / str(size), obj((0, size), (0, 0.2), (0, 0.2)))
-        got = OC.plan_objects(str(p), ["o/Cone.obj"], {0: 1}, set())
+        got = _plan(str(p), ["o/Cone.obj"], {0: 1}, set())
         assert (got.get("o/Cone.obj") or {}).get("lod") == want, size
     p = _pack(tmp_path / "lod", obj((0, 1), (0, 1), (0, 1)) + "ATTR_LOD 0 900\n")
-    assert OC.plan_objects(str(p), ["o/Cone.obj"], {0: 9}, set()) == {}, \
+    assert _plan(str(p), ["o/Cone.obj"], {0: 9}, set()) == {}, \
         "the author's own draw distance stays"
     p = _pack(tmp_path / "anim", obj((0, 1), (0, 1), (0, 1)) +
               "ANIM_begin\nLIGHT_NAMED beacon 0 1 0\nANIM_end\n")
-    assert OC.plan_objects(str(p), ["o/Cone.obj"], {0: 9}, set()) == {}, \
+    assert _plan(str(p), ["o/Cone.obj"], {0: 9}, set()) == {}, \
         "a light inside an animation keeps the object without a draw distance"
 
 
@@ -92,7 +95,7 @@ def test_rename_rows_points_the_dsf_at_the_copy():
 
 def test_written_reapplied_and_undone(tmp_path, monkeypatch):
     rp = FX.make_pack(tmp_path, monkeypatch)
-    (rp.pack / "objects" / "van.obj").write_text(SHINY, encoding="utf-8")
+    (rp.pack / "objects" / "van.obj").write_text(SHINY, encoding="utf-8", newline="")
     monkeypatch.setattr(OC, "MIN_WEIGHT", 1)
     original = rp.dsf.read_bytes()
     recipe = PO.build_recipe(str(rp.pack), FX.DUMP.splitlines(keepends=True), None)

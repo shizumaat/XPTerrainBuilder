@@ -27,6 +27,8 @@ The operations, one module each (spec
 * O1 + O2 ``objcopy`` — a lighter copy of a pack object: its specular
   made global so it instances, a size-derived draw distance with its
   lights kept beyond it; the DSF names the copy (D3).
+* O4 ``textures`` — its textures compressed, halved for small props and
+  read once when byte-identical; the copies name them.
 * ``weight`` — the triangles the pack's own objects draw, before and
   after: what the offer is made on.
 
@@ -45,6 +47,7 @@ import typing as _t
 from . import dedupe as _dd
 from . import objcopy as _oc
 from . import swap as _sw
+from . import textures as _tx
 
 __all__ = ["RECORD_KEY", "RECIPE_VERSION", "default_recipe", "build_recipe",
            "record", "recorded", "drop_ordinals", "apply_rows",
@@ -54,7 +57,8 @@ __all__ = ["RECORD_KEY", "RECIPE_VERSION", "default_recipe", "build_recipe",
 #: the key of the record row (``o4_placement_provenance.json``)
 RECORD_KEY = "pack_optimise"
 #: the recipe's shape; recorded with it so a later phase can read an
-#: older row (1: dedupe only; 2: + library swaps; 3: + object copies)
+#: older row (1: dedupe only; 2: + library swaps; 3: + object copies
+#: and textures)
 RECIPE_VERSION = 3
 #: every file the recipe writes beside the vendor's carries this in its name
 GENERATED_MARK = ".o4opt"
@@ -85,9 +89,16 @@ def build_recipe(pack_root: str, lines: _t.Sequence[str],
              if exports_of is not None else {})
     if swaps:
         recipe["swap"] = swaps
-    copies = _oc.plan_objects(pack_root, defs, uses, set(swaps))
+    placed = _oc.placed_objects(pack_root, defs, uses, set(swaps))
+    copies = _oc.plan_objects(pack_root, placed)
+    textures, rewrites = _tx.plan_textures(
+        pack_root, [(p, max(s.size)) for p, (s, _n) in placed.items()])
+    for path, tex in rewrites.items():
+        copies.setdefault(path, {"specular": None, "lod": None})["tex"] = tex
     if copies:
         recipe["objects"] = copies
+    if textures:
+        recipe["textures"] = textures
     return recipe
 
 
@@ -183,6 +194,9 @@ def write_generated(pack_root: str, recipe: _t.Mapping[str, _t.Any]
         _write_if_changed(os.path.join(pack_root, *rel.replace("\\", "/").split("/")),
                           text)
         out.append(rel.replace("\\", "/"))
+    for rel, plan in sorted(((recipe or {}).get("textures") or {}).items()):
+        _tx.write_texture(pack_root, rel, plan)      # before a copy names it
+        out.append(str(plan["to"]))
     for path, params in sorted(((recipe or {}).get("objects") or {}).items()):
         src = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
         rel = _oc.copy_path(path).replace("\\", "/")

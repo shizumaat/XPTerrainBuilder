@@ -86,9 +86,13 @@ class PackWeight(_t.NamedTuple):
 
 
 def check(pack_root: str, lat: int, lon: int, *,
-          read_only: bool) -> PackWeight | None:
+          read_only: bool, full: bool = False) -> PackWeight | None:
     """THE CHECK for one pack's tile DSF, or ``None`` when there is
-    nothing to judge (``object_stage.pack_dump``)."""
+    nothing to judge (``object_stage.pack_dump``).  The whole recipe (the
+    library swaps, the object and texture copies: every placed object
+    file read) is made only for a pack heavy enough to be offered, or
+    with ``full`` (the user said Optimise); any other pack is weighed on
+    its duplicates alone, from the OBJ headers."""
     from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import pack_optimise as _po
     from auto_patch_v2.airport.file_hash import sha256_file
@@ -102,13 +106,16 @@ def check(pack_root: str, lat: int, lon: int, *,
         return None
     with open(pd.dump_path, encoding="utf-8", errors="surrogateescape") as fh:
         lines = fh.read().splitlines(keepends=True)
-    exports = _agp.export_files(pd.xroot) if pd.xroot else None
-    recipe = _po.build_recipe(
-        pack_root, lines,
-        (lambda v: _agp.files_at(exports.get(v.lower(), ()), lat, lon))
-        if exports else None)
+    recipe = _po.default_recipe()
     drop, counts = _po.drop_ordinals(lines, recipe, frozenset())
-    est = _w.estimate(pack_root, lines, drop, swaps=recipe.get("swap"))
+    est = _w.estimate(pack_root, lines, drop)
+    if full or est["tris_before"] > _w.OFFER_TRIANGLES:
+        exports = _agp.export_files(pd.xroot) if pd.xroot else None
+        recipe = _po.build_recipe(
+            pack_root, lines,
+            (lambda v: _agp.files_at(exports.get(v.lower(), ()), lat, lon))
+            if exports else None)
+        est = _w.estimate(pack_root, lines, drop, swaps=recipe.get("swap"))
     optimised = {}
     if os.path.isfile(pd.pristine) and pd.pristine != pd.dsf_path:
         entry = _bs.dsf_entry(_bs.read_record(pd.dsf_path),
@@ -195,8 +202,10 @@ def optimise_stage(plan_, tile, *, writes: bool) -> str:
     ``"current"`` — for the log and the twins.  Never raises."""
     import O4_UI_Utils as UI
     pack_root = getattr(plan_, "pack_root", "") or ""
+    choice = STORE.choice(pack_root)
     try:
-        pw = check(pack_root, tile.lat, tile.lon, read_only=not writes)
+        pw = check(pack_root, tile.lat, tile.lon, read_only=not writes,
+                   full=writes and choice == "update")
     except Exception as exc:
         UI.vprint(1, f"  [pack] optimise check skipped ({exc})")
         UI.vprint(2, traceback.format_exc())
@@ -205,7 +214,6 @@ def optimise_stage(plan_, tile, *, writes: bool) -> str:
         return ""
     if pw.current:
         return "current"
-    choice = STORE.choice(pack_root)
     if choice == "never":
         return "never"
     if writes and choice == "update":
@@ -249,7 +257,7 @@ def optimise_choice(pack_root: str, action: str, lat: int | None = None,
         else:
             STORE.remember(pack_root, "update")
             pw = check(pack_root, int(lat or 0), int(lon or 0),
-                       read_only=False)
+                       read_only=False, full=True)
             if pw is not None and pw.can_optimise and not pw.current:
                 out["state"] = _optimise(pw, pack_root, int(lat or 0),
                                          int(lon or 0))

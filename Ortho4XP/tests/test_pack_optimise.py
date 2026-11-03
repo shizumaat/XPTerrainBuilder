@@ -54,7 +54,7 @@ def stage(monkeypatch, choices):
     """Stub the check and the write; collect what the UI hook was told."""
     seen = {"events": [], "writes": [], "pw": None, "raise": None}
 
-    def fake_check(pack_root, lat, lon, *, read_only):
+    def fake_check(pack_root, lat, lon, *, read_only, full=False):
         seen["read_only"] = read_only
         return seen["pw"]
 

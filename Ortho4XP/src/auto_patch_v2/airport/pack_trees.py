@@ -43,7 +43,7 @@ from .obj8 import _to_frame, parse_obj8, resolve_resource
 from .pack_art import MissingDef, declared_definitions, omit_definitions
 from .pack_trees_map import FAMILIES, LOCAL_FOREST, NAME_FAMILY, TREE_WORDS
 
-__all__ = ["FlatTrees", "flat_trees", "local_forest_target",
+__all__ = ["FlatTrees", "flat_trees", "local_forest_target", "name_words",
            "convert_objects", "body_base", "POINT_FOREST"]
 
 #: quads whose plan centres are this close are one tree
@@ -79,7 +79,7 @@ class FlatTrees:
     trees: tuple[tuple[float, float, float], ...]
 
 
-def _name_words(path: str) -> set[str]:
+def name_words(path: str) -> set[str]:
     """The lower-cased words of a file name's stem (``KIDA_Veg_Fir_01``
     -> kida, veg, fir; ``TreeOak`` -> tree, oak)."""
     stem = os.path.splitext(os.path.basename(path.replace("\\", "/")))[0]
@@ -185,9 +185,9 @@ _MEMO: dict[tuple[str, int, int], FlatTrees | None] = {}
 
 
 def _read_trees(path: str) -> FlatTrees | None:
-    words = _name_words(path)
+    words = name_words(path)
     tex = _texture(path)
-    if not (words | _name_words(tex)) & TREE_WORDS:
+    if not (words | name_words(tex)) & TREE_WORDS:
         return None
     q = _quads(path)
     if q is None:
@@ -200,7 +200,7 @@ def _read_trees(path: str) -> FlatTrees | None:
     if not trees:
         return None
     heights = [t[3] - t[2] for t in trees]
-    fam = _family(sorted(words) + sorted(_name_words(tex)), q, heights)
+    fam = _family(sorted(words) + sorted(name_words(tex)), q, heights)
     return FlatTrees(fam, tuple((t[0], t[1], t[3] - t[2]) for t in trees))
 
 

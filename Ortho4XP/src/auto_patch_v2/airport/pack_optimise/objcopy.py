@@ -15,6 +15,7 @@ names instead (D3, :func:`rename_rows`):
 * O1 — every ``ATTR_shiny_rat`` goes and the file's specular becomes
   one ``GLOBAL_specular`` (the largest it used), so the object can be
   instanced;
+* O4 — its texture rows name the lighter textures (``textures``);
 * O2 — an object under :data:`SMALL_M` with no draw distance of its own
   gets ``ATTR_LOD 0 D``, ``D`` = :data:`LOD_PER_M` x its size clamped to
   :data:`LOD_MIN_M`-:data:`LOD_MAX_M`, and its lights outside any
@@ -36,8 +37,8 @@ import typing as _t
 from . import shape as _sh
 
 __all__ = ["COPY_SUFFIX", "SMALL_M", "LOD_PER_M", "LOD_MIN_M", "LOD_MAX_M",
-           "MIN_WEIGHT", "plan_objects", "copy_path", "copy_text",
-           "rename_rows"]
+           "MIN_WEIGHT", "placed_objects", "plan_objects", "copy_path",
+           "copy_text", "rename_rows"]
 
 #: the copy of ``<stem>.obj``
 COPY_SUFFIX = ".o4opt.obj"
@@ -96,23 +97,35 @@ def _scan(phys: str) -> tuple[list[float], list[float], bool, bool]:
     return shiny, glob, lod, anim_light
 
 
-def plan_objects(pack_root: str, defs: _t.Sequence[str],
-                 uses: _t.Mapping[int, int], skip: _t.AbstractSet[str]
-                 ) -> dict[str, dict[str, _t.Any]]:
-    """``{declared path: {"specular": value | None, "lod": D | None}}``
-    for every placed pack object (not in ``skip``, not one of our body
-    files) the copy changes: O1 for an object placed more than once, O2
-    for one drawing at least :data:`MIN_WEIGHT` triangles on the tile."""
-    out: dict[str, dict[str, _t.Any]] = {}
+def placed_objects(pack_root: str, defs: _t.Sequence[str],
+                   uses: _t.Mapping[int, int], skip: _t.AbstractSet[str]
+                   ) -> dict[str, tuple[_sh.Shape, int]]:
+    """``{declared path: (shape, placements)}`` of the placed pack objects
+    a copy may be made of: the pack's own ``.obj`` files, not in ``skip``,
+    not one of our body files or copies."""
+    out: dict[str, tuple[_sh.Shape, int]] = {}
     for d, n in sorted(uses.items()):
         path = defs[d]
-        if (path in out or path in skip or not path.lower().endswith(".obj")
+        if (path in skip or not path.lower().endswith(".obj")
                 or "__b" in os.path.basename(path) or ".o4opt" in path):
             continue
         phys = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
         s = _sh.read_shape(phys) if os.path.isfile(phys) else None
-        if s is None:
-            continue
+        if s is not None:
+            prev = out.get(path)
+            out[path] = (s, n + (prev[1] if prev else 0))
+    return out
+
+
+def plan_objects(pack_root: str, placed: _t.Mapping[str, tuple[_sh.Shape, int]]
+                 ) -> dict[str, dict[str, _t.Any]]:
+    """``{declared path: {"specular": value | None, "lod": D | None}}``
+    for every placed object (:func:`placed_objects`) the copy changes: O1
+    for an object placed more than once, O2 for one drawing at least
+    :data:`MIN_WEIGHT` triangles on the tile."""
+    out: dict[str, dict[str, _t.Any]] = {}
+    for path, (s, n) in sorted(placed.items()):
+        phys = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
         shiny, glob, has_lod, anim_light = _scan(phys)
         spec = round(max(shiny + glob), 4) if shiny and n >= 2 else None
         size = max(s.size)
@@ -146,11 +159,25 @@ def copy_text(phys: str, params: _t.Mapping[str, _t.Any]) -> str:
         pc = next(i for i, ln in enumerate(lines)
                   if ln.split()[:1] == ["POINT_COUNTS"])
         lines.insert(pc, f"GLOBAL_specular {spec:g}")
+    tex = params.get("tex") or {}
+    if tex:
+        lines = [_retextured(ln, tex) for ln in lines]
     lod = params.get("lod")
     if lod:
         lines = _with_lod(lines, int(lod))
     head = lines[:3] + [f"# o4opt {stamp(phys, params)}"] + lines[3:]
     return eol.join(head)
+
+
+def _retextured(line: str, tex: _t.Mapping[str, str]) -> str:
+    """A ``TEXTURE`` / ``TEXTURE_LIT`` row naming the O4 texture (O4,
+    ``textures``) instead of the vendor's; any other row as it is."""
+    toks = line.split(None, 1)
+    if len(toks) == 2 and toks[0] in ("TEXTURE", "TEXTURE_LIT"):
+        ref = toks[1].strip()
+        if ref in tex:
+            return f"{toks[0]}\t{tex[ref]}"
+    return line
 
 
 def _with_lod(lines: list[str], lod: int) -> list[str]:

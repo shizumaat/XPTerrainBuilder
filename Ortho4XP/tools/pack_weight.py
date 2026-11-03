@@ -53,6 +53,20 @@ def weigh(pack: str, lines, top: int, exports_of=None,
     row = {**WT.estimate(pack, lines, drop, top=top, swaps=recipe.get("swap"),
                          far_m=far_m, copies=recipe.get("objects")), **counts}
     row["copies"] = len(recipe.get("objects") or ())
+    row["textures"] = len(recipe.get("textures") or ())
+    if exports_of is not None:
+        from auto_patch_v2.airport.dsf_write import placement_rows
+        from auto_patch_v2.airport.pack_art import declared_definitions
+        from auto_patch_v2.airport.pack_optimise import objcopy as OC
+        from auto_patch_v2.airport.pack_optimise import textures as TX
+        defs = declared_definitions(lines)["object"]
+        placed = {defs[int(t[1])] for _o, _i, t in placement_rows(lines)}
+        mine = OC.placed_objects(pack, defs, {i: 1 for i in range(len(defs))
+                                              if defs[i] in placed}, set())
+        swapped = set(recipe.get("swap") or ())
+        row["vram_before"], row["vram_after"] = TX.estimate_vram(
+            pack, list(mine), [p for p in mine if p not in swapped],
+            recipe.get("textures") or {})
     row["offered"] = (row["tris_before"] > WT.OFFER_TRIANGLES
                       and (row.get("dropped", 0) > 0 or row["swapped"] > 0))
     return row
@@ -111,6 +125,9 @@ def main(argv=None) -> int:
               f"{r.get('dropped', 0):,} ({r.get('groups', 0):,} groups), "
               f"{r['swapped']:,} swapped, {r['copies']} copies -> "
               f"{r['tris_after'] / 1e6:.1f} M; offered: {r['offered']}")
+        if "vram_before" in r:
+            print(f"  object textures (est. VRAM): {r['vram_before'] / 1e6:,.0f} MB -> "
+                  f"{r['vram_after'] / 1e6:,.0f} MB ({r['textures']} rewritten)")
         if "far_before" in r:
             print(f"  beyond {a.far:g} m: {r['far_before'] / 1e6:.1f} M -> "
                   f"{r['far_after'] / 1e6:.1f} M")

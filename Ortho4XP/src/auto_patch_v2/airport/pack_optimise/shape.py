@@ -24,7 +24,6 @@ from __future__ import annotations
 import dataclasses as _dc
 import math
 import os
-import typing as _t
 
 import numpy as np
 
@@ -61,6 +60,15 @@ class Shape:
                                    default_factory=lambda: np.zeros((0, 3)))
     header: tuple[str, ...] = ()       # TEXTURE / TEXTURE_LIT rows
     lod_far: float | None = None       # its farthest ATTR_LOD; None = none
+    #: ``(near, far, triangles)`` per ``ATTR_LOD`` block; ``()`` = none
+    lods: tuple[tuple[float, float, int], ...] = ()
+
+    def tris_at(self, distance: float) -> int:
+        """The triangles drawn at ``distance`` metres (every LOD block
+        whose range holds it; all of them without LODs)."""
+        if not self.lods:
+            return self.tris
+        return sum(n for near, far, n in self.lods if near <= distance < far)
 
     @property
     def size(self) -> tuple[float, float, float]:
@@ -109,6 +117,7 @@ def _read(path: str) -> Shape | None:
     heads: list[tuple[float, float]] = []
     tails: list[tuple[float, float]] = []
     far: float | None = None
+    lods: list[list[float]] = []
     with open(path, encoding="utf-8", errors="replace") as fh:
         for raw in fh:
             toks = raw.split()
@@ -124,7 +133,14 @@ def _read(path: str) -> Shape | None:
                 header.append(raw.strip())
             elif kw == "ATTR_LOD" and len(toks) >= 3:
                 try:
-                    far = max(far or 0.0, float(toks[2]))
+                    near_far = [float(toks[1]), float(toks[2])]
+                except ValueError:
+                    continue
+                far = max(far or 0.0, near_far[1])
+                lods.append(near_far + [0])
+            elif kw == "TRIS" and lods and len(toks) >= 3:
+                try:
+                    lods[-1][2] += int(toks[2]) // 3
                 except ValueError:
                     pass
             elif kw in _UNCOPYABLE:
@@ -137,7 +153,8 @@ def _read(path: str) -> Shape | None:
                 if kw == "LIGHT_NAMED" and len(toks) >= 5:
                     _witness(toks[1].lower(), toks[2], toks[4], heads, tails)
     return Shape(path, int(tri.shape[0]), box, animated, tuple(lights),
-                 uncopyable, _front(heads, tails), pts, tuple(header), far)
+                 uncopyable, _front(heads, tails), pts, tuple(header), far,
+                 tuple((a, b, int(n)) for a, b, n in lods))
 
 
 def _witness(name: str, x: str, z: str, heads: list, tails: list) -> None:

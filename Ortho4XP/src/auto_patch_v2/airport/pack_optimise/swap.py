@@ -43,11 +43,11 @@ from __future__ import annotations
 
 import math
 import os
-import re
 import typing as _t
 
 import numpy as np
 
+from ..pack_trees import name_words
 from . import shape as _sh
 from .swap_map import CLASSES
 
@@ -69,16 +69,6 @@ SQUARE = 1.15
 PROFILE_DECISIVE = 0.8
 #: metres per degree on the sphere ``dsf_write``'s duplicate test reads
 _M_DEG = math.radians(1.0) * 6371008.8
-
-_WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+")
-
-
-def name_words(path: str) -> set[str]:
-    """The lower-case words of a file's stem: ``BaggageCar1`` -> ``baggage
-    car``, ``T1BusRed`` -> ``t bus red``."""
-    stem = os.path.splitext(os.path.basename(path.replace("\\", "/")))[0]
-    return {w.lower() for w in _WORD.findall(stem)}
-
 
 def _class_of(path: str) -> tuple[str, tuple[str, ...]] | None:
     words = name_words(path)
@@ -118,12 +108,12 @@ def _misfit(a: tuple[float, float, float], b: tuple[float, float, float]
     """Sum of the log size ratios, ``None`` when a dimension is past
     :data:`SIZE_RATIO` and more than :data:`SIZE_SLACK_M` apart (a flat
     dolly 0.2 m tall is a 0.6 m one's equal)."""
-    if any(not (x > 0 and y > 0) for x, y in zip(a, b)):
+    if any(not (x > 0 and y > 0) for x, y in zip(a, b, strict=True)):
         return None
     if any(not (1 / SIZE_RATIO <= x / y <= SIZE_RATIO) and abs(x - y) > SIZE_SLACK_M
-           for x, y in zip(a, b)):
+           for x, y in zip(a, b, strict=True)):
         return None
-    return float(sum(abs(math.log(x / y)) for x, y in zip(a, b)))
+    return float(sum(abs(math.log(x / y)) for x, y in zip(a, b, strict=True)))
 
 
 def _rotate(points: np.ndarray, turn: int) -> np.ndarray:
@@ -210,7 +200,7 @@ def plan_swaps(pack_root: str, defs: _t.Sequence[str], uses: _t.Mapping[int, int
                      "to_c": [round(v, 4) for v in lib.centre],
                      "dy": round(pack.box[2] - lib.box[2], 4),
                      "tris": [pack.tris, _heaviest.tris],
-                     "far": lib.lod_far,
+                     "lods": [list(x) for x in _heaviest.lods],
                      "lights": (_lights_path(path) if pack.lights else "")}
     return out
 
@@ -238,10 +228,6 @@ def _offset(c: _t.Sequence[float], heading: float) -> tuple[float, float]:
     h = math.radians(heading)
     return (c[0] * math.cos(h) - c[1] * math.sin(h),
             -(c[0] * math.sin(h) + c[1] * math.cos(h)))
-
-
-def _num(x: float, places: int) -> str:
-    return f"{x:.{places}f}"
 
 
 def apply(text: str, swaps: _t.Mapping[str, _t.Mapping[str, _t.Any]]
@@ -312,8 +298,8 @@ def _moved(toks: _t.Sequence[str], sw: _t.Mapping[str, _t.Any]) -> str:
     el, nl = _offset(sw["to_c"], new_h)
     lat2 = lat + (na - nl) / _M_DEG
     lon2 = lon + (ea - el) / (_M_DEG * math.cos(math.radians(lat)))
-    row = [toks[0], toks[1], _num(lon2, 9), _num(lat2, 9)]
+    row = [toks[0], toks[1], f"{lon2:.9f}", f"{lat2:.9f}"]
     if not on_ground:
-        row.append(_num(float(toks[4]) + float(sw.get("dy", 0.0)), 4))
-    row.append(_num(new_h, 6))
+        row.append(f"{float(toks[4]) + float(sw.get('dy', 0.0)):.4f}")
+    row.append(f"{new_h:.6f}")
     return " ".join(row)

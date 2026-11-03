@@ -26,7 +26,6 @@ import typing as _t
 # 2026-09-10).
 import O4_Scenery_Packs as _scenery_packs
 
-
 # Memoized library index, keyed by absolute xplane_root.  Built once per
 # process and shared by every airport / caller — scanning the thousands
 # of library.txt EXPORT entries is the one genuinely expensive disk step

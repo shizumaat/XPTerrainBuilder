@@ -59,7 +59,7 @@ def lib(tmp_path):
     def add(virtual, text, name=None):
         p = tmp_path / "lib" / (name or os.path.basename(virtual))
         p.parent.mkdir(exist_ok=True)
-        p.write_text(text, encoding="utf-8")
+        p.write_text(text, encoding="utf-8", newline="")
         files.setdefault(virtual.lower(), []).append(str(p))
     return files, add, (lambda v: files.get(v.lower(), ()))
 
@@ -67,7 +67,7 @@ def lib(tmp_path):
 def put(root, rel, text):
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(text, encoding="utf-8")
+    p.write_text(text, encoding="utf-8", newline="")
 
 
 # ── the match ───────────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ def test_export_files_reads_every_directive(tmp_path):
         "EXPORT_BACKUP lib/v.obj objects/empty.obj\n"
         "REGION_DEFINE all\nREGION_ALL\nREGION all\n"
         "EXPORT_RATIO 3 lib/v.obj objects/a.obj\n"
-        "EXPORT_EXCLUDE lib/v.obj objects/Blank.obj\n", encoding="utf-8")
+        "EXPORT_EXCLUDE lib/v.obj objects/Blank.obj\n", encoding="utf-8", newline="")
     AGP._EXPORT_FILES_CACHE.clear()
     rows = AGP.export_files(str(root))["lib/v.obj"]
     assert [(r[0], os.path.basename(r[1]), r[2]) for r in rows] == [
@@ -204,10 +204,10 @@ def test_a_lights_copy_rides_on_the_same_row():
 
 def _swap_pack(tmp_path, monkeypatch):
     rp = FX.make_pack(tmp_path, monkeypatch)
-    (rp.pack / "objects" / "car.obj").write_text(CAR, encoding="utf-8")
+    (rp.pack / "objects" / "car.obj").write_text(CAR, encoding="utf-8", newline="")
     monkeypatch.setattr(SW, "MIN_SAVING", 1)
     lib_file = tmp_path / "libcar.obj"
-    lib_file.write_text(LIB_CAR, encoding="utf-8")
+    lib_file.write_text(LIB_CAR, encoding="utf-8", newline="")
     recipe = PO.build_recipe(str(rp.pack), FX.DUMP.splitlines(keepends=True),
                              lambda v: [str(lib_file)] if v == CAR_LIB else [])
     return rp, recipe
@@ -260,3 +260,22 @@ def test_remove_generated_never_touches_a_vendor_file(tmp_path):
     assert PO.remove_generated(str(tmp_path / "p"), [
         "a.obj", "a.o4opt-lights.obj", "../p/a.obj"]) == ["a.o4opt-lights.obj"]
     assert (tmp_path / "p" / "a.obj").is_file()
+
+
+def test_a_light_pack_is_weighed_without_reading_its_objects(tmp_path, monkeypatch):
+    """The check reads every object file (the whole recipe) only for a pack
+    heavy enough to be offered, or when the user said Optimise."""
+    from auto_patch import object_stage as OST
+    from auto_patch import optimise_stage as OS
+    rp = FX.make_pack(tmp_path, monkeypatch)
+    dump = tmp_path / "dump.txt"
+    dump.write_text(FX.DUMP, encoding="utf-8", newline="")
+    monkeypatch.setattr(OST, "pack_dump", lambda *a, **k: OST._PackDump(
+        rp.pack.name, str(rp.dsf), str(rp.dsf), str(dump), str(tmp_path)))
+    built = []
+    real = PO.build_recipe
+    monkeypatch.setattr(PO, "build_recipe", lambda *a: built.append(1) or real(*a))
+    pw = OS.check(str(rp.pack), 25, 51, read_only=False)
+    assert built == [] and pw.wanted == PO.default_recipe()
+    OS.check(str(rp.pack), 25, 51, read_only=False, full=True)
+    assert built == [1]

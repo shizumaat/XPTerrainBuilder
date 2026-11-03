@@ -533,6 +533,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.dual_width",
         "auto_patch_v2.planar.edges",
+        "auto_patch_v2.planar.end_witness",
         "auto_patch_v2.planar.fill_riser",
         "auto_patch_v2.planar.fill_road",
         "auto_patch_v2.planar.group_low",
@@ -565,6 +566,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.shape_parts",
         "auto_patch_v2.planar.shapes",
         "auto_patch_v2.planar.shore",
+        "auto_patch_v2.planar.station_level",
         "auto_patch_v2.planar.strip_keepout",
         "auto_patch_v2.planar.structure_approach",
         "auto_patch_v2.planar.structure_deck",
@@ -1572,14 +1574,14 @@ CODE_MODULES["solve"] = _mods("""
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     planar.deck_bridge planar.deck_walls
-    planar.door_ramps planar.dual_width planar.edges planar.landing planar.landing_runout
-    planar.level_depth
+    planar.door_ramps planar.dual_width planar.edges planar.end_witness planar.landing
+    planar.landing_runout planar.level_depth
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
     planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
     planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
-    planar.shape_parts planar.shapes planar.shore planar.strip_keepout
+    planar.shape_parts planar.shapes planar.shore planar.station_level planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_fence
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
@@ -1698,14 +1700,14 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     planar.deck_bridge planar.deck_walls
-    planar.door_ramps planar.dual_width planar.edges planar.landing planar.landing_runout
-    planar.level_depth
+    planar.door_ramps planar.dual_width planar.edges planar.end_witness planar.landing
+    planar.landing_runout planar.level_depth
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
     planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
     planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
-    planar.shape_parts planar.shapes planar.shore planar.strip_keepout
+    planar.shape_parts planar.shapes planar.shore planar.station_level planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_fence
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road

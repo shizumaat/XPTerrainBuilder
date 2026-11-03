@@ -225,7 +225,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     if deck_bridges:
         # 2026-10-30a (2) / 30f (1): a hard deck bores the road under it
         # that nothing else bores (``planar/deck_bores``)
-        d_ways, d_parents, d_notes = deck_bores(deck_bridges, bore_roads(airport, law),
+        d_ways, d_parents, d_notes = deck_bores(deck_bridges, bore_roads(airport, law, rail=True),
                                                 tunnel_ways, law, UNDERPASS_TAG)
         tunnel_ways += d_ways
         up_parents.update(d_parents)

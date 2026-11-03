@@ -494,6 +494,11 @@ class Airport:
     #: ground under it is drawn to its surface (``constraints/
     #: terrain_shaped``).  Empty = none (or a capture written before them).
     terrain_decks: tuple = ()
+    #: RULINGS 2026-11-03 (answer 4 to Q-D, #1738): an installed COMPANION
+    #: TERRAIN MESH's below-grade regions (``airport/terrain_mesh_witness``),
+    #: read at load from the pre-build dump.  ``None`` = none installed (or a
+    #: capture written before it).
+    terrain_mesh: _t.Any = None
     #: THE FEET OF THE PACK'S OBJECT RAMPS (issue #669; owner RULINGS
     #: 2026-10-14c (5); ``airport/ramp_feet``): derived at load beside the
     #: sunken ramps on the build's ``ResourceCache``; the run-out mint

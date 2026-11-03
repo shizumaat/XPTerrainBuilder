@@ -293,7 +293,7 @@ def _roads_under(airport, law, ring: Polygon) -> "XY | None":
     instead of across it)."""
     from .structure_underpass import bore_roads
     sx = sy = 0.0
-    for w in bore_roads(airport, law):
+    for w in bore_roads(airport, law, rail=True):
         x = LineString(w.points).intersection(ring)
         for g in getattr(x, "geoms", [x]):
             if g.geom_type != "LineString" or g.length <= 1.0:

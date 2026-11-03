@@ -349,6 +349,16 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     airport = _dc.replace(airport, terrain_decks=tuple(
         o.terrain_fit for o in pack_objects if getattr(o, "terrain_fit", None) is not None))
     _say("  " + _terrain_shaped.log_line(icao, airport.terrain_decks), out)
+    # RULINGS 2026-11-03 (answer 4, #1738): a companion terrain mesh's cuts
+    # are a portal witness (``airport/terrain_mesh_witness``)
+    from ..airport import terrain_mesh_witness as _tmw
+    try:
+        _mesh = _tmw.read(airport, law, inputs.mod_cache_root)
+    except (OSError, ValueError) as exc:             # an unreadable mesh: no witness
+        _mesh = None
+        _say(f"  [terrain-mesh] {icao}: unread ({type(exc).__name__}: {exc})", out)
+    airport = _dc.replace(airport, terrain_mesh=_mesh)
+    _say("  " + _tmw.log_line(icao, _mesh), out)
     # issue #516: the sunken ramps' ground, beside the clusters it trims
     from ..airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law, ocache)

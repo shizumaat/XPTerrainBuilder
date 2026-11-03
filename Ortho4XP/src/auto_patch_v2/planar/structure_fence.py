@@ -180,16 +180,24 @@ class _Portals:
 
     def near(self, bore) -> str | None:
         for end in (bore.points[0], bore.points[-1]):
-            pt = Point(end)
-            for p in self._prints:
-                if p.distance(pt) <= self._tol:
-                    return f"a pack tunnel corridor at {end[0]:.0f},{end[1]:.0f}"
-            for j in (self._tree.query(pt.buffer(self._tol))
-                      if self._tree is not None else ()):
-                poly, res, base = self._parts[int(j)]
-                if poly.distance(pt) <= self._tol:
-                    return (f"{res} stands {base:.1f} m under its zero at "
-                            f"{end[0]:.0f},{end[1]:.0f}")
+            got = self.at_end(end)
+            if got:
+                return got
+        return None
+
+    def at_end(self, end) -> str | None:
+        """Witness 3 at ONE end (``planar/end_witness``, RULINGS 2026-11-03b
+        (6): a rail end is opened per end)."""
+        pt = Point(end)
+        for p in self._prints:
+            if p.distance(pt) <= self._tol:
+                return f"a pack tunnel corridor at {end[0]:.0f},{end[1]:.0f}"
+        for j in (self._tree.query(pt.buffer(self._tol))
+                  if self._tree is not None else ()):
+            poly, res, base = self._parts[int(j)]
+            if poly.distance(pt) <= self._tol:
+                return (f"{res} stands {base:.1f} m under its zero at "
+                        f"{end[0]:.0f},{end[1]:.0f}")
         return None
 
 

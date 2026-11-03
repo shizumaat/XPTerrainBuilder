@@ -3,7 +3,8 @@ really a tunnel there, or it's steeper, or the shape is wrong").
 
 A mapped tunnel way's end is a mouth only where the road comes up out of the
 ground.  It is NOT one where the road goes on UNDERGROUND: another tunnel way
-leaves the end's node within the approach turn cap, either straight away
+leaves the end's node (its end, or an interior node: a switch, #1738) within
+the approach turn cap, either straight away
 (a second OSM feed's copy of the same tunnel, which splits
 ``structure_approach.chains`` because four ways meet at the node) or after
 an open stretch of road shorter than the shortest lawful ramp
@@ -33,13 +34,23 @@ __all__ = ["tunnel_ends", "continues_underground", "walked_m"]
 
 def tunnel_ends(osm: _t.Sequence[OsmWay], admitted: _t.Sequence[str]
                 ) -> dict[tuple[int, int], list[tuple[OsmWay, XY, XY]]]:
-    """Every tunnel way's two ends by node key: ``(way, end, next point)``."""
+    """Every tunnel way's continuations by node key: ``(way, node, next
+    point)`` -- its two ends, and each INTERIOR node in both directions
+    (RULINGS 2026-11-03b (6), #1738: a branch piece drawn ending on the
+    through piece's interior node, a switch, goes on underground there;
+    MEASURED ENGM: six such switch ends built 7.5 m rail ramps over the
+    tunnel)."""
     out: dict[tuple[int, int], list[tuple[OsmWay, XY, XY]]] = {}
     for w in osm:
-        if len(w.points) < 2 or not is_tunnel(w, admitted):
+        pts = w.points
+        if len(pts) < 2 or not is_tunnel(w, admitted):
             continue
-        out.setdefault(_key(w.points[0]), []).append((w, w.points[0], w.points[1]))
-        out.setdefault(_key(w.points[-1]), []).append((w, w.points[-1], w.points[-2]))
+        out.setdefault(_key(pts[0]), []).append((w, pts[0], pts[1]))
+        out.setdefault(_key(pts[-1]), []).append((w, pts[-1], pts[-2]))
+        for i in range(1, len(pts) - 1):
+            k = _key(pts[i])
+            out.setdefault(k, []).append((w, pts[i], pts[i + 1]))
+            out[k].append((w, pts[i], pts[i - 1]))
     return out
 
 
@@ -73,7 +84,9 @@ def continues_underground(bore, inward: XY, path: _t.Sequence[XY], ends, law: La
     if got is None:
         return None
     walked, last, heading = got
-    if walked >= tn.mouth_depth_m / tn.ramp_max_grade:
+    cap = tn.rail_ramp_max_grade if any("railway" in (w.tags or {}) for w in bore.ways) \
+        else tn.ramp_max_grade
+    if walked >= tn.mouth_depth_m / cap:
         return None
     own = {id(w) for w in bore.ways}
     cos_max = math.cos(math.radians(tn.approach_turn_max_deg))

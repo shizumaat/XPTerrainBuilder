@@ -170,12 +170,16 @@ def aeroway_decks(airport: Airport, law: Law) -> list[OsmWay]:
     return out
 
 
-def bore_roads(airport: Airport, law: Law) -> list[OsmWay]:
+def bore_roads(airport: Airport, law: Law, rail: bool = False) -> list[OsmWay]:
     """The mapped roads a synthesised bore may follow: ``highway`` ways that
-    are neither a mapped tunnel nor a bridge."""
+    are neither a mapped tunnel nor a bridge.  ``rail`` takes ``railway``
+    ways too -- the HARD DECK's reading (owner RULINGS 2026-11-03, answer to
+    R2: a hard deck over a railway bores the rail under it; MEASURED ENGM:
+    ``Ham3.obj`` over the north rail portal bored nothing, highways only)."""
     tn = law.tables.structures.tunnel
+    keys = ("highway", "railway") if rail else ("highway",)
     return [w for w in getattr(airport, "osm_ways", None) or ()
-            if (getattr(w, "tags", None) or {}).get("highway") and len(w.points) >= 2
+            if any((getattr(w, "tags", None) or {}).get(k) for k in keys) and len(w.points) >= 2
             and not is_tunnel_way(w.tags, tn.admitted_values) and not is_bridge(w)]
 
 

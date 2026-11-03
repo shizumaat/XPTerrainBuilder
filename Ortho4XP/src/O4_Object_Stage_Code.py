@@ -36,7 +36,8 @@ DIGEST_FILENAME = "object_stage_code.sha256"
 #: The closure follows imports into these top-level packages only.
 CLOSURE_PREFIXES: tuple[str, ...] = ("auto_patch", "auto_patch_v2")
 
-#: Where ``O4_Mesh_Utils._auto_patch_post_mesh_rebake`` enters the stage.
+#: Where ``O4_Object_Stage.run`` (the end of the mesh step, and a tile
+#: bundle's import) enters the stage.
 ENTRY_MODULES: tuple[str, ...] = ("auto_patch.object_stage",)
 
 try:

@@ -349,7 +349,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     airport = attach_sunken_ramps(airport, law, ocache)
     # issue #1633: the retaining walls' footprints, which no pad takes
     from ..airport.wall_shade import attach_wall_shade
-    airport = attach_wall_shade(airport, load_rules().service)
+    airport = attach_wall_shade(airport, load_rules().service, ocache)
     # THE FLAT-PACK WITNESS (owner direction 2026-10-20, answers 59-66; spec
     # ``flat-pack-terracing-spec.md`` §1): read once the partition is, a
     # REPORT in phase 1 (``law/flat_pack.toml`` ``terrace = false``).
@@ -502,6 +502,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # ``pad_refusals``, put back on a hit (and, unchanged, on a miss)
     _front.install_classify_side_state(_cl_side)
     wall["classify"] = time.perf_counter() - t
+    # RULINGS 2026-10-30e (#1686): a taxi centreline over ground no cell
+    # holds names a missed pavement source — a reading, never a law
+    from ..classify.centreline_gaps import centreline_pavement_gaps
+    _cgaps = centreline_pavement_gaps(airport, cl.cells)
+    for _line in _cgaps.lines(icao):
+        _say(_line, out)
     # spec §55 (4), (9) THE GAP PIECES JOIN IN THE LAST STAGE: with a §53
     # gap piece minted, every stage below runs on the classification
     # WITHOUT the pieces (the BASE — the build an airport with no gap sheet
@@ -744,6 +750,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                  "vertices": off_ground[:50],
                                  "count": len(off_ground)}},
     }
+    report["centreline_gaps"] = _cgaps.record()
     if _late_report is not None:
         report["late_stage"] = _late_report
     paths = None

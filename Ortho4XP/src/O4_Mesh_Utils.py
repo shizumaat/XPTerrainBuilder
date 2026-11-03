@@ -10,6 +10,7 @@ import O4_Console_Encoding as CONSOLE
 import O4_DEM_Utils as DEM
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
+import O4_Object_Stage as OBJECT_STAGE
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
@@ -2393,21 +2394,10 @@ def _auto_patch_post_mesh_rebake(tile):
     # just written (docs/dsf_object_integration_spec.md, amendment A4 —
     # the hook lives at the END of build_mesh / sort_mesh, not in their
     # callers, so the GUI's per-step Mesh button and Shift-click sort are
-    # covered too).  Lazy import: the long-running GUI caches auto_patch
-    # modules, so source edits need an Ortho4XP restart.  No-op unless
-    # O4_DSF_OBJECT_REANCHOR=1.  Must NEVER fail the tile.
-    try:
-        # THE RE-SEAT IS V2'S (RULINGS 2026-09-04i 04f-1; v1 retired
-        # 2026-09-13au, so there is no engine dispatch left here): v2's own
-        # seat law over the tile's o4_v2_rebake_<ICAO>.json plans, the
-        # legacy writer; one baker per pack per build.
-        from auto_patch import object_stage as AUTO_PATCH_OBJECT_STAGE
-
-        AUTO_PATCH_OBJECT_STAGE.rebake_after_mesh(tile)
-    except Exception as exception:
-        UI.vprint(
-            1, "auto_patch post-mesh object re-anchor failed:", exception
-        )
+    # covered too).  The stage is a step of its own (O4_Object_Stage,
+    # #1699): a tile bundle's import runs it alone over the mesh it laid
+    # down.  Must NEVER fail the tile.
+    OBJECT_STAGE.run(tile)
 
 
 ################################################################################

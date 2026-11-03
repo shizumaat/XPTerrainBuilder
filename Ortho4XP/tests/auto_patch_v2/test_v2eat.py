@@ -425,16 +425,18 @@ def test_a_vertex_of_a_runway_face_is_never_governed(law):
     of a runway face — a connector at the edge of a second runway that
     crosses the extended centreline — pins none of them: the rect's value
     is ~9 m under the ground, and a pin there is a pin on the runway's own
-    surface.  A crossing with vertices of its own beside it is untouched."""
+    surface.  Since #1740 the crossing beside it — within segment_gap_m of
+    that runway's pavement — is refused whole: the runway it is welded to
+    is senior, and a ceiling a tail under it bends it (LOWW 16/34)."""
     ap = _airport(law)
     pm = _map([_crossing(), _crossing(d0=510.0, d1=540.0, role="stub")])
-    own, shared = pm.faces[1], pm.faces[2]
+    shared = pm.faces[2]
     other_runway = Face(3, "runway", "pav-other", shared.ring, (), 4, "E")
     pm2 = PlanarMap("KCLT", pm.vertices, pm.edges,
                     {**pm.faces, 3: other_runway}, {})
-    rows = eat.eat_pins(pm2, law, ap)
-    assert {r.v for r in rows} == set(pm.ring_vertices(own.ring))
+    assert eat.eat_pins(pm2, law, ap) == []
     assert eat.STATS["eat_pins"]["runway_vertices_excluded"] == 4
+    assert eat.STATS["eat_pins"]["refused_other_runway"] == 1
     # the same map without the second runway pins both faces
     assert len(eat.eat_pins(pm, law, ap)) == 8
     assert eat.STATS["eat_pins"]["runway_vertices_excluded"] == 0
@@ -634,3 +636,30 @@ def test_the_replay_can_drop_the_reach_alone(tmp_path):
     text = src.read_text(encoding="utf-8")
     assert "eat_ramp_reach" in text
     assert '("eat", "withdraw_trend_over_reach")' in text
+
+
+def test_another_runways_pavement_in_the_crossing_refuses_the_rect(law):
+    """#1740 (LOWW): a taxiway crossing the extended centreline beside
+    ANOTHER runway's pavement — within ``segment_gap_m`` along the corridor
+    — is that runway's parallel, not an end-around taxiway: the ceiling
+    would bend the senior runway it is welded to.  The same crossing with
+    the other runway beyond the gap is still pinned."""
+    import dataclasses
+    other = Runway("09/27", 45.0, 1,
+                   (RunwayEnd("09", (-1500.0, 2530.0), (35.2, -80.95), 0.0,
+                              0.0, None, "fixture"),
+                    RunwayEnd("27", (1500.0, 2530.0), (35.2, -80.95), 0.0,
+                              0.0, None, "fixture")), 4, "E")
+    ap = _airport(law, cross_s=480.0)
+    ap = dataclasses.replace(ap, runways=ap.runways + (other,))
+    near = _map([_crossing(470.0, 500.0),
+                 ("runway", _quad(-20.0, 2507.5, 20.0, 2552.5))])
+    near.faces[2] = dataclasses.replace(near.faces[2], ref="09/27")
+    assert eat.eat_pins(near, law, ap) == []
+    st = eat.STATS["eat_pins"]
+    assert st["refused_other_runway"] == 1 and st["rects_accepted"] == 0
+    far = _map([_crossing(470.0, 500.0),
+                ("runway", _quad(-20.0, 2657.5, 20.0, 2702.5))])
+    far.faces[2] = dataclasses.replace(far.faces[2], ref="09/27")
+    assert len(eat.eat_pins(far, law, ap)) == 4
+    assert eat.STATS["eat_pins"]["refused_other_runway"] == 0

@@ -435,6 +435,29 @@ def names_soft_ground(path: str) -> bool:
 DECORATIVE_TOKENS = ("paint", "line", "marking", "light", "decal", "sign",
                      "logo", "grunge", "stain", "skid", "crack_line")
 THIRD_PARTY_SKIP = PAVEMENT_SKIP + SOFT_NAME_TOKENS + DECORATIVE_TOKENS
+#: A SHADE OF A MATERIAL (issue #1686): ``light`` names a light FIXTURE,
+#: but written against a material word it is the material's colour —
+#: ``ConcreteLight``, ``AsphaltLight``, ``DarkAsphaltLighter``,
+#: ``light_concrete``.  MEASURED (KIND, DominicDesignTeam): three such
+#: pages (187 polygons) carry 23.4 km of the ~45 km of taxi centreline;
+#: read as decorative they were gap sheets and those taxiways were never
+#: graded.
+#: The shade is removed from the name before the decorative test, so a
+#: fixture name with no material beside it still refuses.
+_MATERIAL_ALT = "|".join(sorted((re.escape(t) for t in MATERIAL_TOKENS),
+                                key=len, reverse=True))
+MATERIAL_SHADE_RE = re.compile(
+    rf"(?:(?:{_MATERIAL_ALT})[ _\-]?light(?:er|est)?)"
+    rf"|(?:light(?:er|est)?[ _\-]?(?:{_MATERIAL_ALT}))")
+
+
+def names_decoration(path: str) -> bool:
+    """Whether a (lower-cased) path names a paint / sign / fixture word
+    (:data:`DECORATIVE_TOKENS`) once every material shade
+    (:data:`MATERIAL_SHADE_RE`) is read as the material it qualifies."""
+    p = MATERIAL_SHADE_RE.sub(lambda m: "_" + next(
+        t for t in MATERIAL_TOKENS if t in m.group(0)) + "_", path)
+    return any(s in p for s in DECORATIVE_TOKENS)
 
 
 #: MATERIAL ABBREVIATIONS, matched as a WORD (owner RULINGS 2026-10-04d
@@ -570,7 +593,9 @@ def pavement_verdict(path: str, decl: PolDeclaration | None = None) -> str | Non
     2. a decorative NAMESPACE (``PAVEMENT_SKIP``) or a terrain word
        (:func:`names_soft_ground`) refuses, whatever the file says;
     3. a material-token name with no paint/sign word is a source, as it
-       always was — its file is not consulted;
+       always was — its file is not consulted, except that a name which
+       is a material only once its SHADE is read (``ConcreteLight``,
+       :func:`names_decoration`, issue #1686) yields to a paint layer;
     4. THE FILE (04e (1)): a paint layer group refuses; ``SURFACE
        asphalt|concrete`` admits, and beats a paint/sign word in the name
        when the file names its own non-paint layer group (the word
@@ -588,9 +613,13 @@ def pavement_verdict(path: str, decl: PolDeclaration | None = None) -> str | Non
     if (not p.endswith(".pol") or any(s in p for s in PAVEMENT_SKIP)
             or names_soft_ground(p)):
         return None
-    decorative = any(s in p for s in DECORATIVE_TOKENS)
+    decorative = names_decoration(p)
     if not decorative and any(t in p for t in MATERIAL_TOKENS):
-        return SOURCE
+        # a name that is a material only once its shade is read (#1686)
+        # still yields to a file that draws it in a paint layer group
+        shaded = any(s in p for s in DECORATIVE_TOKENS)
+        return None if shaded and decl is not None and decl.layer == PAINT \
+            else SOURCE
     named = not decorative and bool(ABBREV_TOKEN_RE.search(p))
     if decl is not None:
         if decl.layer == PAINT:
@@ -621,11 +650,12 @@ def pavement_gate(resolve: _t.Callable[[str], str | None]
     def gate(path: str) -> tuple[str | None, str | None]:
         hit = memo.get(path)
         if hit is None:
-            # the name settles it when a soft and a hard declaration
-            # agree; whatever they change is what the file may decide
+            # the name settles it when a soft, a hard and a paint-layer
+            # declaration agree; whatever they change the file may decide
             soft = pavement_verdict(path, PolDeclaration("soft"))
             if soft == pavement_verdict(
-                    path, PolDeclaration(HARD_SURFACES[0], "x")):
+                    path, PolDeclaration(HARD_SURFACES[0], "x")) == \
+                    pavement_verdict(path, PolDeclaration(HARD_SURFACES[0], PAINT)):
                 hit = (soft, None)
             else:
                 decl = pol_declaration(resolve(path))

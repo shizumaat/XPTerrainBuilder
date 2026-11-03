@@ -2175,7 +2175,8 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     # pad takes) and ``Airport.retaining_walls`` (their two sides, round 3),
     # derived off the capture's own partition and DEM
     if getattr(airport, "wall_shade", None) is None or \
-            not getattr(airport, "retaining_walls", ()):
+            not getattr(airport, "retaining_walls", ()) or \
+            any(getattr(w, "top_profile", None) is None for w in airport.retaining_walls):
         from auto_patch_v2.airport.wall_shade import attach_wall_shade
         from auto_patch_v2.classify import load_rules as _load_rules
         airport = attach_wall_shade(airport, _load_rules().service)
@@ -2224,6 +2225,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         cl = _classify(airport, law, _load_rules(), cache=_ocache)
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
+        # RULINGS 2026-10-30e (#1686): the build's missed-pavement reading
+        from auto_patch_v2.classify.centreline_gaps import centreline_pavement_gaps
+        for _ln in centreline_pavement_gaps(airport, cl.cells).lines(icao):
+            print(_ln)
     def _rest(cl, stage_one: bool = True) -> dict:
         """THE PRELUDE FROM THE PLANAR BUILD ON, for one classification: the
         map, the target channels, the shape stage and the constraint set.
@@ -2651,6 +2656,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         print(f"[{icao}] PASS 1a (hold rows dropped): {_s1a}")
         print(f"[{icao}] stage 1 (pass 1b) wall {rep.stages['stage1'].get('wall_s')} s "
               f"= pass 1a {_s1a.get('wall_s')} s + interval {_s1a.get('interval_s')} s + pass 1b")
+    # owner RULINGS 2026-11-02a (4): stage 0 (the runway first) and its bend
+    _s0 = (getattr(rep, "stages", None) or {}).get("stage0")
+    if _s0:
+        print(f"[{icao}] STAGE 0 (runway first): {_s0}")
     for _f in getattr(rep, "runway_flex", None) or ():
         print(f"[{icao}] RUNWAY FLEX {_f}")
     n_shapes = len({v for v in pm.shape_of_vertex.values() if v >= 0})

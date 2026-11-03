@@ -187,6 +187,13 @@ CATALOGUE = {
         "The detailed elevation for this airport was not in the app's "
         "cache, and this build did not download it.",
         "retry"),
+    # issue #1743: the area's base elevation file, not the airport's
+    # detailed inset, was what the cache lacked
+    "airport_base_elevation_missing": Entry(
+        "the ground elevation around {airports} was not available.",
+        "The elevation file for this area was not in the app's cache when "
+        "the airport was shaped, and this build did not download it.",
+        "retry"),
     "airport_elevation_offline": Entry(
         "elevation data for {airports} was not available.",
         "The download of the detailed elevation for this airport failed.",
@@ -383,6 +390,9 @@ CATALOGUE = {
 # ask.  Every exception class defined under ``src/`` is listed (the twin
 # walks them); one that says nothing more specific maps to a fallback.
 EXCEPTION_CODES = {
+    # a tile bundle (#1699) that does not match: said in its own words by
+    # the Library command, never raised inside a build step
+    "BundleRefused": "unexpected_error",
     # geometry (shapely's GEOSException covers TopologyException, #559)
     "GEOSException": "airport_geometry",
     "TopologicalError": "airport_geometry",

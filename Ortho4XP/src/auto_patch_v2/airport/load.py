@@ -655,7 +655,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         bres = _borrow.yield_to_scenery(
             bres,
             [(p.outer, p.holes) for p in pavements
-             if p.source != _borrow.BORROWED_SOURCE],
+             if p.source != _borrow.BORROWED_SOURCE
+             and _borrow.counts_as_pavement(p.surface)],
             [(p.outer, p.holes) for p in pavements
              if p.source == _borrow.BORROWED_SOURCE],
             len(dsf_pavements))

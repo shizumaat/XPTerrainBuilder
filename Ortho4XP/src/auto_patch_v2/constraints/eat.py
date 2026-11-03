@@ -67,6 +67,14 @@ recognition that broke; every refusal is NAMED in :data:`RECTS`):
   end profile governs the ground, and a taxiway crossing the end itself is
   not a loop around it (LEMD 36L wraps 71 m out and would be pinned 23 m
   under its end);
+* ANOTHER RUNWAY IN THE CROSSING (#1740): a rect within
+  ``segment_gap_m`` along the corridor of ANOTHER runway's pavement
+  (:func:`_other_runway_stations`) is that runway's environment, not an
+  end-around taxiway.  The runway profile is senior — an EAT ceiling must
+  never bend it — and an aircraft on that runway already stands under the
+  surface; a taxiway welded to it a tail height lower bends it instead
+  (LOWW: 16/34's west parallel 536 m past the 29 end, pinned 9.7 m under
+  credible lidar, dragged 16/34 8.6 m under its ground);
 * clause 4, CREDIBLE LIDAR IS THE WITNESS (owner RULINGS 2026-10-15e (2),
   the §45 (19)(b) precedent): where the inset is credible lidar (the ONE
   reading, ``law/inset_class.lidar_credible``) a recognised rect is
@@ -423,7 +431,8 @@ def _recognise(planar: PlanarMap, law: Law, airport: Airport
         "refused_near_crossing": 0, "refused_no_cut": 0,
         "recognised_by_shape": 0, "lidar_cut_witness": 0,
         "lidar_route_witness": 0,
-        "refused_along_corridor": 0, "runway_vertices_excluded": 0, "pins": 0,
+        "refused_along_corridor": 0, "refused_other_runway": 0,
+        "runway_vertices_excluded": 0, "pins": 0,
     }
     surface = getattr(law.ruleset, "eat", None)
     if surface is None:                    # the authority states no surface
@@ -443,10 +452,13 @@ def _recognise(planar: PlanarMap, law: Law, airport: Airport
         straight, runway_crossings(planar, law, airport, straight))
     rwy = set(law.tables.precedence.runway_family.members)
     rwy_vertices: set[int] = set()
+    rwy_refs: dict[int, str] = {}           # vertex -> its runway's id
     for f in planar.faces.values():
         if f.role in rwy:
             for ring in (f.ring, *f.holes):
-                rwy_vertices.update(planar.ring_vertices(ring))
+                for v in planar.ring_vertices(ring):
+                    rwy_vertices.add(v)
+                    rwy_refs.setdefault(v, str(f.ref))
     specs, (n_small, n_no_anchor, n_no_letter) = _ends(
         airport, law, chords, rec, planar, vw, rwy_vertices)
     stats["ends"] = len(specs)
@@ -462,7 +474,8 @@ def _recognise(planar: PlanarMap, law: Law, airport: Airport
         members = _corridor_members(spec, faces, vw, rwy_vertices,
                                     excluded, rec, stats)
         out.extend(_judge_clusters(spec, members, planar, airport, surface,
-                                   rec, lidar, stats, law))
+                                   rec, lidar, stats, law,
+                                   _other_runway_stations(spec, rwy_refs, vw)))
     stats["runway_vertices_excluded"] = len(excluded)
     return out
 
@@ -524,9 +537,28 @@ def _corridor_members(spec: dict, faces, vw, rwy_vertices, excluded: set,
     return members
 
 
+def _other_runway_stations(spec: dict, rwy_refs: dict[int, str], vw
+                           ) -> list[tuple[float, str]]:
+    """``(s, runway)`` of every vertex of ANOTHER runway's face inside this
+    end's corridor beyond the end (``s > 0``, ``|q| <=`` the declared half
+    width) — the pavement of a runway the extended centreline crosses
+    (LOWW: 16/34's ring 555 m past the 29 end, on the very taxiway face
+    the rect was cut from)."""
+    half = spec["half_width_m"]
+    out: list[tuple[float, str]] = []
+    for v, ref in rwy_refs.items():
+        if ref == spec["runway"]:
+            continue
+        s, q = _project(spec, *vw.xy[v])
+        if s > 0.0 and abs(q) <= half:
+            out.append((s, ref))
+    return out
+
+
 def _judge_clusters(spec: dict, members, planar: PlanarMap,
                     airport: Airport, surface, rec, lidar: bool,
-                    stats: dict, law: Law
+                    stats: dict, law: Law,
+                    others: _t.Sequence[tuple[float, str]] = ()
                     ) -> list[tuple[dict, list[int], float]]:
     """Cluster one end's corridor vertices into rects and apply the
     clauses (module docstring) to each, in order: along-corridor, the far
@@ -580,6 +612,14 @@ def _judge_clusters(spec: dict, members, planar: PlanarMap,
             refusal = ("refused_along_corridor",
                        f"runs along the corridor ({s_hi - s_lo:.0f} m "
                        f"> rect_max_along_m {max_along:.0f})")
+        elif hit := min(((s, r) for s, r in others
+                         if s_lo - gap <= s <= s_hi + gap),
+                        key=lambda h: abs(h[0] - d_mid), default=None):
+            refusal = ("refused_other_runway",
+                       f"runway {hit[1]}'s pavement lies in the crossing "
+                       f"({hit[0]:.0f} m, within segment_gap_m {gap:.0f} "
+                       "of the rect): its profile is senior and an EAT "
+                       "ceiling must never bend it (#1740)")
         elif s_lo > d_far:
             refusal = ("refused_far_bound",
                        f"beyond {far_rule} = {d_far:.0f} m "

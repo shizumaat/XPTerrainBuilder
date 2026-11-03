@@ -16,6 +16,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import O4_Land_Witness as LAND  # noqa: E402
 import O4_OSM_Extracts as EXTRACTS  # noqa: E402
 
 # A minimal byte string that passes the store's pbf content probe
@@ -50,6 +51,9 @@ def store(tmp_path, monkeypatch):
     # Keep the store tests hermetic: never spawn a host osmium-tool
     # binary from here (the clip cutter tests below opt back in).
     monkeypatch.setattr(EXTRACTS, "_osmium_binary", lambda: None)
+    # ...and never read the corpus DEM: the land witness answers
+    # "unknown" (the pre-#1731 behaviour) unless a test says otherwise.
+    monkeypatch.setattr(LAND, "_land_posts", lambda lat, lon: None)
     EXTRACTS._leaf_regions.cache = None
     # Synthetic Geofabrik index: europe is a parent (excluded), portugal
     # and spain are adjacent leaves meeting at lon -7.4.  iberia is an
@@ -73,6 +77,83 @@ def store(tmp_path, monkeypatch):
         json.dump(index, index_file)
     yield directory
     EXTRACTS._leaf_regions.cache = None
+
+
+def _witness_posts(monkeypatch, land_points):
+    """The land witness sees exactly ``land_points`` [(lon, lat)]."""
+    import numpy
+
+    def posts(lat, lon):
+        inside = [(x, y) for (x, y) in land_points
+                  if lon <= x < lon + 1 and lat <= y < lat + 1]
+        return (numpy.array([x for (x, _y) in inside], dtype=float),
+                numpy.array([y for (_x, y) in inside], dtype=float))
+
+    monkeypatch.setattr(LAND, "_land_posts", posts)
+
+
+class TestSeaRemainder:
+    """#1731: an island/coastal box whose remainder outside every leaf
+    is sea is extract-served; land or no witness keeps Overpass."""
+
+    def test_leaves_preferred_when_they_hold_the_land(self, store, monkeypatch):
+        _witness_posts(monkeypatch, [(-9.0, 38.5)])   # remainder is sea
+        regions = EXTRACTS.covering_regions((38, -11, 39, -9.5))
+        assert [region_id for (region_id, _u) in regions] == ["portugal"]
+
+    def test_land_outside_every_region_returns_none(self, store, monkeypatch):
+        _witness_posts(monkeypatch, [(-12.3, 38.5)])  # west of europe too
+        assert EXTRACTS.covering_regions((38, -12.5, 39, -9.5)) is None
+
+    def test_parent_chosen_when_leaves_miss_land(self, store, monkeypatch):
+        _witness_posts(monkeypatch, [(-10.5, 38.5), (-9.0, 38.5)])
+        regions = EXTRACTS.covering_regions((38, -11, 39, -9.5))
+        assert [region_id for (region_id, _u) in regions] == ["europe"]
+
+    def test_no_parent_above_the_cap(self, store, monkeypatch):
+        _witness_posts(monkeypatch, [(-10.5, 38.5)])
+        monkeypatch.setattr(EXTRACTS, "PARENT_FALLBACK_MAX_AREA", 100.0)
+        assert EXTRACTS.covering_regions((38, -11, 39, -9.5)) is None
+
+    def test_unknown_witness_returns_none(self, store):
+        assert EXTRACTS.covering_regions((38, -11, 39, -9.5)) is None
+
+    def test_no_intersecting_leaf_returns_none(self, store, monkeypatch):
+        _witness_posts(monkeypatch, [])
+        assert EXTRACTS.covering_regions((20, -40, 21, -39)) is None
+
+    def test_witness_unknown_when_any_cell_unread(self, monkeypatch):
+        import numpy
+        from shapely.geometry import box
+
+        sea = (numpy.empty(0), numpy.empty(0))
+        monkeypatch.setattr(
+            LAND, "_land_posts",
+            lambda lat, lon: None if lon == -10 else sea)
+        assert LAND.holds_land(box(-11, 38, -10.5, 39)) is False
+        assert LAND.holds_land(box(-11, 38, -9.5, 39)) is None
+
+    def test_witness_reads_cached_hgt(self, tmp_path, monkeypatch):
+        import numpy
+        import O4_DEM_Utils as DEM
+        import O4_File_Names as FNAMES
+        from shapely.geometry import box
+
+        posts = numpy.zeros((4, 4), dtype=">i2")
+        posts[0, 0] = 5                     # the NW corner is land
+        path = tmp_path / "N38W011.hgt"
+        posts.tofile(str(path))
+        monkeypatch.setattr(FNAMES, "generic_tif",
+                            lambda lat, lon: str(tmp_path / "absent.tif"))
+        monkeypatch.setattr(FNAMES, "viewfinderpanorama",
+                            lambda lat, lon: str(path))
+        monkeypatch.setattr(DEM, "tile_is_land", lambda lat, lon: True)
+        LAND._land_posts.cache_clear()
+        try:
+            assert LAND.holds_land(box(-11.1, 38.9, -10.9, 39.1)) is True
+            assert LAND.holds_land(box(-10.5, 38.1, -10.2, 38.4)) is False
+        finally:
+            LAND._land_posts.cache_clear()
 
 
 class TestCoveringRegions:

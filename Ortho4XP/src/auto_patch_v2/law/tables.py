@@ -32,7 +32,8 @@ __all__ = [
     "Cockpit", "cockpit", "cliff_grade", "rolled_on_roles",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "role_preferred_cap",
-    "runway_transverse_max", "runway_transverse_bound", "runway_shoulder_cap",
+    "runway_transverse_max", "runway_transverse_bound", "runway_crown_floor",
+    "runway_shoulder_cap",
     "runway_vertical_curve_bound", "strip_transverse_bound",
     "yielded_curve_rate", "strip_arc_rate_per_m", "strip_longitudinal_cap",
     "taxi_half_width_m", "airside_rate_per_m",
@@ -412,6 +413,40 @@ def runway_transverse_bound(law: Law, lateral_m: float, half_width_m: float,
     sh = runway_shoulder_cap(law, code_letter, code_number) if shoulder_cap is None \
         else max(cap, float(shoulder_cap))
     return cap * half_width_m + sh * (d - half_width_m)
+
+
+def runway_crown_floor(law: Law, lateral_m: float, half_width_m: float,
+                       code_letter: str | None,
+                       code_number: int | None = None,
+                       shoulder_cap: float | None = None) -> float:
+    """THE ONE READING of the least lawful crown FALL of a runway-family
+    vertex abeam its own ridge at lateral distance ``d = lateral_m``, in
+    METRES (issue #1742) — the LOWER side of the band whose upper side is
+    :func:`runway_transverse_bound`:
+
+        floor(d) = crown · min(d, half) − cap_sh · max(0, d − half)
+
+    The runway between its own edges falls from the ridge by at least the
+    crown (``common.runway_crown_transverse``, RULINGS 2026-08-05); a
+    SHOULDER beyond the edge keeps the edge's datum and takes its own
+    slope from it, either way, exactly as the upper side prices it
+    (§40 (2) as amended, RULINGS 2026-09-30ak; ``shoulder_cap`` the taxi
+    route's cap where one crosses, 2026-10-16a (i)).  So a runway's crown
+    and edges never yield to a non-runway neighbour at a junction — the
+    neighbour meets the edge (EPWA 11/29: a primary parallel and an apron
+    held the south edge ABOVE the ridge, the crown inverted, under a lower
+    side of ``−cap · d`` that read a rise at the cap as lawful).  The
+    generator (``constraints.runway_profile.
+    runway_transverse``) and the v2 verify (``verify.runway.
+    runway_transverse``) both call it."""
+    crown = float(law.tables.common.runway_crown_transverse)
+    d = max(0.0, float(lateral_m))
+    if half_width_m <= 0.0 or d <= half_width_m:
+        return crown * d
+    cap = law.ruleset.runway.transverse_max.value(code_number, code_letter) or 0.0
+    sh = runway_shoulder_cap(law, code_letter, code_number) if shoulder_cap is None \
+        else max(cap, float(shoulder_cap))
+    return crown * half_width_m - (sh or 0.0) * (d - half_width_m)
 
 
 def authority_rank(law: Law, role: str) -> int:

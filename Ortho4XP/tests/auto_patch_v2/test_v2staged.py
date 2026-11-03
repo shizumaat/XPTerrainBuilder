@@ -195,6 +195,14 @@ def test_stage_two_carries_no_airside_column(law, built):
     column — the unknown does not exist and no row can move it."""
     pm, cs = built
     lw = _law_arm(law, staged_solve=True)
+    # the set stage 1 solves carries the RUNWAY-FIRST hold (owner RULINGS
+    # 2026-11-02a (4), ``solve/runway_first``): stage 0 solved as
+    # ``solve_design`` solves it, then held
+    from auto_patch_v2.solve.flex import runway_stage_roles
+    from auto_patch_v2.solve.runway_first import RunwayFirst
+    cs = RunwayFirst(lw, lambda pm0, cs0, d0, f0, lv0: _solve_stage(
+        pm0, cs0, lw, drop=d0, fixed=f0, levelled_out=lv0,
+        stage_roles=runway_stage_roles(lw))).held(pm, cs)
     drop, foreign = stage_split(pm, cs, lw)
     levels: dict[int, float] = {}
     _sol1, _rep1 = _solve_stage(pm, cs, lw, drop=drop, fixed=foreign,
@@ -229,7 +237,10 @@ def test_the_shipped_airside_value_is_stage_ones(law, built, arms):
     dcol = set(datum_vertices(pm, lw).values())
     air = sorted(set(airside_stage_vertices(pm, lw)) - dcol)
     d = max(abs(z_staged[v] - levels[v]) for v in air if v in levels)
-    assert d <= 1e-9, d
+    # 1e-8 since the runway-first hold (#1742): the reference re-solves
+    # stage 0 and stage 1 cold where ``solve_design`` warm-seeds them —
+    # measured 3.7e-9, the QP's own tolerance, not a stage-2 move
+    assert d <= 1e-8, d
 
 
 def test_the_single_solve_puts_airside_somewhere_else(law, built, arms):

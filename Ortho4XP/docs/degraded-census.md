@@ -54,7 +54,7 @@ function (docstrings excluded).
 | O4_Imagery_Utils.py | initialize_providers_dict | 1 | config | | an unreadable provider file is skipped |
 | O4_Imagery_Utils.py | convert_texture | 1 | failure | texture_convert_failed | #903: an unconverted texture fails the tile, which is not activated |
 | O4_DSF_Utils.py | zone_list_to_ortho_dico | 1 | uncoded | | airport zoom upgrade not applied (the airport file is missing) |
-| O4_DSF_Utils.py | _tile_elevation_post_grid | 1 | uncoded | | the synthesized DSF raster has no elevation source |
+| O4_DSF_Utils.py | tile_elevation_post_grid | 1 | uncoded | | the synthesized DSF raster has no elevation source |
 | O4_DSF_Utils.py | _build_dsf_body | 1 | uncoded | | default_xplane mode substituted a projected terrain |
 | O4_DEM_Utils.py | drop_missing_pinned_files | 1 | uncoded | | a pinned elevation file is missing, so the default sources are used |
 | O4_DEM_Utils.py | read_elevation_from_file | 4 | uncoded | | assumed no-data or EPSG, unsupported raster read as zero altitude |

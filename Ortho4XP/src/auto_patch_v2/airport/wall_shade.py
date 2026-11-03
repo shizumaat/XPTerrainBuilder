@@ -47,12 +47,13 @@ def wall_shade(airport, cfg, comps=None):
     return None if got.is_empty else got
 
 
-def attach_wall_shade(airport, cfg):
+def attach_wall_shade(airport, cfg, cache=None):
     """``airport`` with :attr:`Airport.wall_shade` and
     :attr:`Airport.retaining_walls` (``airport/wall_sides``) derived — one
     wall-class reading, called once beside
     :func:`airport.sunken_ramp.attach_sunken_ramps` (``pipeline/build``,
-    the replay)."""
+    the replay); ``cache`` the build's ``ResourceCache`` (the walls' tops,
+    ``airport/wall_top``)."""
     if getattr(airport, "frame", None) is None:
         return airport
     comps = None
@@ -61,4 +62,12 @@ def attach_wall_shade(airport, cfg):
         comps = wall_class_components(airport, cfg)
     from .wall_sides import wall_sides
     return _dc.replace(airport, wall_shade=wall_shade(airport, cfg, comps),
-                       retaining_walls=wall_sides(airport, cfg, comps))
+                       retaining_walls=wall_sides(airport, cfg, comps, _top_of(airport, cache)))
+
+
+def _top_of(airport, cache):
+    """The walls' top reader (``airport/wall_top.top_profile``) bound to
+    ``airport``'s frame and the build's ``ResourceCache``."""
+    from .wall_top import top_profile
+    to_xy = airport.frame.entry()
+    return lambda comp, piece, face: top_profile(comp, piece, face, to_xy, cache)

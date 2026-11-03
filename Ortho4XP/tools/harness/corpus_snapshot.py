@@ -123,13 +123,33 @@ _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
 class ReadTrace:
     """Record every file opened for READING and every directory listed, via
     ``sys.addaudithook`` (in-process only; hooks cannot be removed, so the
-    hook checks :attr:`active`).  Cheap: one set insert per open."""
+    hook checks :attr:`active`).  Cheap: one set insert per open.
+
+    PER STEP, WITH THE NETWORK (#1699 phase 1, the scenery-file step's
+    census): :meth:`mark` names the PHASE every later event belongs to
+    (the harness marks each tile step), and beside the reads the trace
+    keeps every outgoing connection (``socket.connect`` / ``getaddrinfo``
+    / ``urllib.Request``) and every child process started
+    (``subprocess.Popen`` — DSFTool, 7-Zip and Triangle read files no
+    audit hook sees).  :meth:`record` adds them, by phase, as
+    ``phases``; the flat ``reads`` / ``listed`` are as before."""
 
     def __init__(self):
         self.reads: set = set()
         self.listed: set = set()
         self.active = False
+        self.phase = ""
+        self.by_phase: dict = {}
         self._cwd = os.getcwd()
+
+    def mark(self, phase: str) -> None:
+        """Every event from now on belongs to ``phase``."""
+        self.phase = str(phase)
+
+    def _bucket(self) -> dict:
+        return self.by_phase.setdefault(self.phase, {
+            "reads": set(), "listed": set(), "network": set(),
+            "processes": []})
 
     def _hook(self, event, args):
         if not self.active:
@@ -144,12 +164,22 @@ class ReadTrace:
                         return
                 elif isinstance(flags, int) and flags & _WRITE_FLAGS:
                     return
-                self.reads.add(os.fsdecode(path) if not isinstance(path, str)
-                               else path)
+                path = os.fsdecode(path)
+                self.reads.add(path)
+                self._bucket()["reads"].add(path)
             elif event in ("os.listdir", "os.scandir"):
                 path = args[0] if args else "."
                 if isinstance(path, (str, bytes, os.PathLike)):
                     self.listed.add(os.fsdecode(path))
+                    self._bucket()["listed"].add(os.fsdecode(path))
+            elif event in _NETWORK_EVENTS:
+                self._bucket()["network"].add(_network_target(event, args))
+            elif event == "subprocess.Popen":
+                argv = args[1] if len(args) > 1 else args[0]
+                argv = [os.fsdecode(a) if isinstance(a, (bytes, os.PathLike))
+                        else str(a) for a in (argv if isinstance(
+                            argv, (list, tuple)) else [argv])]
+                self._bucket()["processes"].append(argv)
         except Exception:
             pass
 
@@ -162,18 +192,26 @@ class ReadTrace:
     def stop(self) -> None:
         self.active = False
 
+    def _real(self, p):
+        p = p if os.path.isabs(p) else os.path.join(self._cwd, p)
+        try:
+            return os.path.realpath(p)
+        except OSError:
+            return p
+
     def record(self) -> dict:
-        def _real(p):
-            p = p if os.path.isabs(p) else os.path.join(self._cwd, p)
-            try:
-                return os.path.realpath(p)
-            except OSError:
-                return p
+        _real = self._real
         return {
             "reads": sorted({_real(p) for p in self.reads}),
             "listed": sorted({_real(p) for p in self.listed}),
             "overlays": {env: os.path.realpath(os.environ[env])
                          for env in OVERLAY_ENVS if os.environ.get(env)},
+            "phases": {name: {
+                "reads": sorted({_real(p) for p in b["reads"]}),
+                "listed": sorted({_real(p) for p in b["listed"]}),
+                "network": sorted(b["network"]),
+                "processes": b["processes"]}
+                for name, b in sorted(self.by_phase.items())},
         }
 
     def save(self, path, extra=None) -> dict:
@@ -182,6 +220,33 @@ class ReadTrace:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_text(json.dumps(rec, indent=1))
         return rec
+
+
+#: The audit events of an outgoing network request (``ReadTrace``).
+_NETWORK_EVENTS = ("socket.connect", "socket.getaddrinfo", "urllib.Request")
+
+
+def _network_target(event: str, args) -> str:
+    """One network event as ``"<event> <host:port or url>"``."""
+    if event == "urllib.Request":
+        return f"{event} {args[0]}"
+    if event == "socket.getaddrinfo":
+        return f"{event} {args[0]}:{args[1]}"
+    address = args[1] if len(args) > 1 else args
+    if isinstance(address, tuple) and len(address) >= 2:
+        return f"{event} {address[0]}:{address[1]}"
+    return f"{event} {address}"
+
+
+#: THE ACTIVE TRACE of this process (``--trace-reads``), so the step loop
+#: can :func:`mark_phase` it without being handed it.
+ACTIVE_TRACE: list = []
+
+
+def mark_phase(phase: str) -> None:
+    """Name the phase of the process's active :class:`ReadTrace`, if any."""
+    for trace in ACTIVE_TRACE:
+        trace.mark(phase)
 
 
 class LeakWatch:

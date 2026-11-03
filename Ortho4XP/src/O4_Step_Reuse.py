@@ -70,6 +70,19 @@ that safe:
   process killed while writing it leaves the record as it was, and one
   that cannot be read reads as no record.
 
+A RECORD A TILE BUNDLE LAID DOWN (#1699 phase 1).  A tile bundle carries
+a built tile's mesh and masks to a machine that never downloaded the
+tile's OpenStreetMap data or elevation.  Its importer writes the vector
+step's record with :func:`adopt_bundle_record`: every input key as THIS
+machine reads it (settings, code, packs, ``scenery_packs.ini``), except
+:data:`BUNDLE_TRUSTED_KEYS` — the data inputs, whose recorded hashes the
+bundle vouches for — and, as outputs, everything except
+:func:`bundle_absent_outputs` (the mesh step's own inputs, which the
+bundle does not carry).  :func:`stale_reason` then reads that record
+like any other with those keys and files left out, so the mesh and the
+masks the bundle laid down are reused, and any change this machine owns
+(a patch edit, a pack update, a setting, the code) still reruns the step.
+
 ``O4_STEP_REUSE=0`` turns reuse off (every selected step runs).
 
 Never raises: a record that cannot be read or written means "run the
@@ -86,9 +99,10 @@ import urllib.parse
 
 import O4_File_Names as FNAMES
 
-__all__ = ["REUSABLE_STEPS", "stale_reason", "predicted_reuse", "record",
-           "forget_from", "reused_label", "edit_only_changes",
-           "committed_entry"]
+__all__ = ["REUSABLE_STEPS", "BUNDLE_TRUSTED_KEYS", "stale_reason",
+           "predicted_reuse", "record", "forget_from", "reused_label",
+           "edit_only_changes", "committed_entry", "adopt_bundle_record",
+           "bundle_absent_outputs", "live_settings", "code_identity"]
 
 # 2026-10-14: pack DSFs keyed as the build's input and scenery_packs.ini
 # by content (#615 self-invalidation); a 2026-10-13 record reads as none.
@@ -102,6 +116,11 @@ SCHEMA = "2026-10-26b"
 
 #: the steps whose output can be reused, in build order
 REUSABLE_STEPS = ("vector", "mesh", "masks")
+
+#: The vector step's input keys a tile bundle's record VOUCHES FOR (#1699):
+#: the OpenStreetMap files and the airport elevation insets the receiving
+#: machine never downloaded.  Everything else it checks itself.
+BUNDLE_TRUSTED_KEYS = ("osm", "insets")
 
 #: app-level settings that choose the data the vector step reads
 _VECTOR_APP_VARS = ("osm_regional_extracts", "base_elevation_source",
@@ -169,6 +188,12 @@ def _step_settings(step: str) -> tuple:
     if step == "vector":
         names += list(_VECTOR_APP_VARS)
     return tuple(names)
+
+
+def live_settings(tile, step: str) -> dict:
+    """The settings ``step``'s key reads, as recorded (``repr`` of each
+    live value) — the tile bundle's mesh profile is made of them."""
+    return {name: repr(_setting(tile, name)) for name in _step_settings(step)}
 
 
 def _patch_files(tile) -> list:
@@ -257,7 +282,7 @@ def _inset_files(tile) -> list:
 _RETIRED_KEYS = ("engine",)
 
 
-def _code_identity(step: str) -> dict:
+def code_identity(step: str) -> dict:
     """The engine half of ``step``'s key: the digest of the code ``step``
     runs through (``O4_Step_Code``, #836 — the step's own import closure
     and the law tables, not the whole tree; the whole-tree digest only
@@ -275,9 +300,8 @@ def _inputs(tile, step: str, previous_digest: str, osm_files=None) -> dict:
     folder (the masks step's reef and tidal-flat layers) is not one the
     vector step read, and does not make it stale."""
     inputs = {"step": step, "previous": previous_digest,
-              "settings": {name: repr(_setting(tile, name))
-                           for name in _step_settings(step)}}
-    inputs.update(_code_identity(step))
+              "settings": live_settings(tile, step)}
+    inputs.update(code_identity(step))
     if step == "vector":
         inputs["osm"] = _identity(
             _osm_files(tile) if osm_files is None else osm_files)
@@ -373,15 +397,43 @@ def _worklist_row(path: str, known=()) -> list:
             hashlib.sha256(text).hexdigest()]
 
 
-def _outputs(tile, step: str, pack_dsfs=(), known=()) -> list:
+def _outputs(tile, step: str, pack_dsfs=(), known=(), excused=()) -> list:
     """``step``'s output files by content; ``known``: the rows recorded
-    for them, whose digests a file with an unchanged stat keeps."""
+    for them, whose digests a file with an unchanged stat keeps;
+    ``excused``: files left out (a bundle record's, :func:`_excused`)."""
     from auto_patch import provenance
-    rows = provenance.content_identity_list(
-        _output_files(tile, step, pack_dsfs), known)
+    files = [f for f in _output_files(tile, step, pack_dsfs)
+             if f not in excused]
+    rows = provenance.content_identity_list(files, known)
     if step == "vector":
         rows.append(_worklist_row(_worklist_path(tile), known))
     return rows
+
+
+def bundle_absent_outputs(tile) -> tuple:
+    """The vector step's outputs a tile bundle does NOT carry: the inputs
+    of the mesh step's triangulation (the ``.node`` / ``.poly`` / ``.alt``
+    — 464 MB of elevation grid on one tile — the z-provenance log and the
+    levelled-roads sidecar).  Only a mesh step reads them, and a bundle's
+    mesh step is already done."""
+    import O4_ZProv as ZPROV
+    node_file = FNAMES.input_node_file(tile)
+    return (node_file, FNAMES.input_poly_file(tile), FNAMES.alt_file(tile),
+            ZPROV.zprov_file(node_file),
+            os.path.join(tile.build_dir, FNAMES.LEVELLED_ROADS_SIDECAR))
+
+
+def _excused(tile, entry: dict) -> tuple:
+    """The output files a record leaves out: a bundle record's
+    :func:`bundle_absent_outputs`, else none."""
+    return bundle_absent_outputs(tile) if entry.get("bundle") else ()
+
+
+def _trusted(entry: dict) -> tuple:
+    """The input keys a record's bundle vouches for (none for a record
+    this machine wrote by running the step)."""
+    bundle = entry.get("bundle") or {}
+    return tuple(bundle.get("trusted") or ())
 
 
 def _outputs_digest(rows) -> str:
@@ -454,11 +506,12 @@ def stale_reason(tile, step: str) -> str | None:
                        entry.get("osm_files"))
         recorded = {k: v for k, v in (entry.get("inputs") or {}).items()
                     if k not in _RETIRED_KEYS}
+        trusted = _trusted(entry)
         for key in sorted(set(live) | set(recorded)):
-            if live.get(key) != recorded.get(key):
+            if key not in trusted and live.get(key) != recorded.get(key):
                 return _changed_words(key, live.get(key), recorded.get(key))
         rows = _outputs(tile, step, entry.get("pack_dsfs") or (),
-                        entry.get("outputs") or ())
+                        entry.get("outputs") or (), _excused(tile, entry))
         if _outputs_digest(rows) != entry.get("outputs_digest"):
             return "its output files changed or are missing"
         return None
@@ -569,6 +622,34 @@ def record(tile, step: str, osm_files=None) -> None:
         _write(tile, {"committed": committed})
     except Exception:
         pass
+
+
+def adopt_bundle_record(tile, step: str, bundle_key: str,
+                        trusted: dict) -> None:
+    """A tile bundle laid ``step``'s files down (#1699): its record, as
+    :func:`record` would cut it on this machine, except the
+    :data:`BUNDLE_TRUSTED_KEYS` inputs, which are the bundle's recorded
+    ``trusted`` values, and the outputs, which leave out
+    :func:`bundle_absent_outputs`.  The record names the bundle, so
+    :func:`stale_reason` reads it with the same keys and files left out.
+    Only the vector step is adopted: the mesh and masks steps' inputs are
+    all this machine's, and their records are cut by :func:`record` once
+    their files are in place."""
+    if step != "vector":
+        raise ValueError("only the vector step's record is adopted from a "
+                         "tile bundle, not %r" % (step,))
+    unknown = sorted(set(trusted) - set(BUNDLE_TRUSTED_KEYS))
+    if unknown:
+        raise ValueError("a tile bundle cannot vouch for %s" % unknown)
+    doc = _read(tile)
+    inputs = _inputs(tile, step, _previous_digest(doc, step), [])
+    inputs.update(trusted)
+    entry = {"bundle": {"key": bundle_key, "trusted": sorted(trusted)}}
+    rows = _outputs(tile, step, (), (), _excused(tile, entry))
+    entry.update({"inputs": inputs, "digest": _digest(inputs),
+                  "osm_files": [], "pack_dsfs": [], "outputs": rows,
+                  "outputs_digest": _outputs_digest(rows)})
+    _write(tile, {"committed": {step: entry}})
 
 
 def forget_from(tile, step: str) -> None:

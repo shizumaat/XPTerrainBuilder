@@ -124,3 +124,54 @@ def test_a_real_scan_fills_the_window(app, tmp_path, monkeypatch):
         time.sleep(0.02)
     assert [r["tile"] for r in dialog.rows] == ["+45-123"]
     assert dialog.rows[0]["read_only"]
+
+
+def _select(dialog, tile):
+    dialog.table.clearSelection()
+    for i in range(dialog.table.rowCount()):
+        if dialog._row_of(i)["tile"] == tile:
+            dialog.table.selectRow(i)
+
+
+def _settle(app, dialog, before):
+    deadline = time.time() + 10
+    while dialog.status_label.text() == before and time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.02)
+
+
+def test_export_and_import_library_bundle_call_the_engine(app, monkeypatch):
+    """#1699 phase 1: the two buttons the Mac app's Library has too —
+    export one tile of this app's into a chosen folder, import a chosen
+    bundle into the tiles folder."""
+    calls = []
+    monkeypatch.setattr(QTLIB.LIB, "library_export_bundle", lambda lat, lon, wd, out: (
+        calls.append(("export", lat, lon, wd, out)) or {"bytes": 2048}))
+    monkeypatch.setattr(QTLIB.LIB, "library_import_bundle", lambda path, wd: (
+        calls.append(("import", path, wd)) or {"tile": "+45-123"}))
+    dialog = _dialog()
+    dialog.refresh = lambda: None                     # no real scan after
+    _select(dialog, "+46-123")
+    assert not dialog.export_btn.isEnabled()          # another tool's tile
+    dialog.table.selectAll()
+    assert not dialog.export_btn.isEnabled()          # one tile at a time
+    _select(dialog, "+45-123")
+    assert dialog.export_btn.isEnabled() and dialog.import_btn.isEnabled()
+    dialog.choose_folder = lambda title: "/out"
+    dialog.export_btn.click()
+    _settle(app, dialog, "Exporting +45-123…")
+    assert calls[-1] == ("export", 45, -123, "/tiles", "/out")
+    assert "Exported +45-123 (2.0 KB)" in dialog.status_label.text()
+    dialog.choose_bundle = lambda title: "/b/XPTerrainBuilder_+45-123.xptbundle"
+    dialog.import_btn.click()
+    _settle(app, dialog, "Importing…")
+    assert calls[-1] == ("import", "/b/XPTerrainBuilder_+45-123.xptbundle", "/tiles")
+    dialog.choose_bundle = lambda title: ""             # cancelled: nothing runs
+    dialog.import_btn.click()
+    assert len(calls) == 2
+
+
+def test_no_bundle_while_a_build_runs(app):
+    dialog = _dialog(building=lambda: True)
+    _select(dialog, "+45-123")
+    assert not dialog.export_btn.isEnabled() and not dialog.import_btn.isEnabled()

@@ -1682,6 +1682,13 @@ def boundary_cold_predicate(home, batch):
 BOUNDARY_DECLARED = {}
 
 
+#: The neighbour cells each home cell's LAST selection skipped airports
+#: for, per process (#1643): ``(lat, lon) -> frozenset`` — empty when it
+#: skipped nothing (or answered "build adjacent").  The in-process run reads
+#: it to queue a tile again when one of those cells joins the run later.
+BOUNDARY_SKIPPED_INTO = {}
+
+
 def declare_boundary_cells(home, siblings=(), outside=()):
     home = (int(home[0]), int(home[1]))
     BOUNDARY_DECLARED[home] = (
@@ -1953,6 +1960,8 @@ def derive_auto_patch_selection(tile):
     tile.boundary_policy_source = policy_source
     tile.boundary_neighbours = sorted(neighbours)
     tile.boundary_siblings = sorted(siblings)
+    BOUNDARY_SKIPPED_INTO[home] = frozenset(
+        neighbours if policy == "skip" else ())
     if neighbours and policy == "skip":
         # SAY WHOSE DECISION IT WAS (issue #45).  "by your boundary
         # choice" is true of a remembered "Skip those airports' patches"

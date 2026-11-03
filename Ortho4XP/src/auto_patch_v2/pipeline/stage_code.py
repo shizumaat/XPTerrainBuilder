@@ -384,6 +384,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_seat_tilt",
         "auto_patch_v2.airport.placement_targets",
         "auto_patch_v2.airport.plate_frame",
+        "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.portal_objects",
         "auto_patch_v2.airport.ramp_feet",
@@ -576,6 +577,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.unframed_ramp",
         "auto_patch_v2.planar.viaduct_road",
         "auto_patch_v2.planar.wall_corridor_ramps",
+        "auto_patch_v2.planar.wall_slope",
         "auto_patch_v2.planar.weld",
         "auto_patch_v2.planar.zone_pass",
         "auto_patch_v2.planar.zones",
@@ -620,6 +622,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2",
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.dem",
+        "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_stations",
         "auto_patch_v2.airport.wall_class",
@@ -1502,7 +1505,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
-    airport.placement_seat_tilt airport.placement_targets airport.plate_frame airport.pool
+    airport.placement_seat_tilt airport.placement_targets airport.plate_frame
+    airport.plate_ground airport.pool
     airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
     airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
@@ -1566,11 +1570,11 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_mouth planar.structure_service planar.structure_stats
     planar.structure_underpass planar.structures planar.terrain_edge
     planar.unframed_ramp planar.viaduct_road
-    planar.wall_corridor_ramps planar.weld planar.zones solve.api
+    planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.wall_cut solve.warm_seed
+    solve.project solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
@@ -1612,7 +1616,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
-    airport.placement_seat_tilt airport.placement_targets airport.plate_frame airport.pool
+    airport.placement_seat_tilt airport.placement_targets airport.plate_frame
+    airport.plate_ground airport.pool
     airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
     airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
@@ -1689,11 +1694,11 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_mouth planar.structure_service planar.structure_stats
     planar.structure_underpass planar.structures planar.terrain_edge
     planar.unframed_ramp planar.viaduct_road
-    planar.wall_corridor_ramps planar.weld planar.zones solve.api
+    planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.wall_cut solve.warm_seed
+    solve.project solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
@@ -1779,7 +1784,7 @@ CODE_MODULES["emit"] = _mods("""
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
     solve.flex solve.ground_band solve.linear solve.pin_yield solve.project
-    solve.project_strip solve.rows solve.wall_cut solve.warm_seed verify.roads
+    solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed verify.roads
     classify.reachability
     geom.slope_pad
     airport.riser_wall

@@ -33,6 +33,7 @@ SEAM.  A substituted cell is tied to its cached configured neighbours
 (``base_seam``) when it is read.
 """
 
+import contextlib
 import os
 import time
 from urllib.parse import urlparse
@@ -42,7 +43,7 @@ import O4_File_Names as FNAMES
 import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 
-from elevation_access import base_seam
+from elevation_access import base_seam, sea_cell
 from elevation_access.base_tiles import cached_elevation_file_is_valid
 from elevation_access.definitions import ROLE_BASE, _parse_float
 from elevation_access.registry import ACCESS_STRATEGIES
@@ -50,6 +51,7 @@ from elevation_access.registry import ACCESS_STRATEGIES
 __all__ = [
     "FALLBACK_RANK_KEY",
     "UNREACHABLE_MEMORY_S",
+    "cached_reads_only",
     "cell_file",
     "ensure_tile_or_fallback",
     "fallback_cache_paths",
@@ -75,6 +77,29 @@ UNREACHABLE_MEMORY_S = 600.0
 _unreachable = {}
 # host -> whether that failure was a PROXY's refusal (O4_Tile_Failures).
 _proxied = {}
+
+
+# True inside :func:`cached_reads_only` (a one-element list: no rebinding).
+_cached_only = [False]
+
+
+@contextlib.contextmanager
+def cached_reads_only():
+    """Within this block a base cell is read from the cache and NOTHING is
+    asked: a cell whose configured file is absent is served by its cached
+    fallback file, without asking the configured source again first.
+
+    For a reader that must never fetch (the auto-patch's production DEM
+    frame, issue #1743): it reads the cells the tile build already
+    resolved, on the same chain (:func:`cell_file`).  A tile build never
+    enters it, so the configured source is still asked on every build.
+    """
+    previous = _cached_only[0]
+    _cached_only[0] = True
+    try:
+        yield
+    finally:
+        _cached_only[0] = previous
 
 
 def forget_unreachable_sources():
@@ -258,11 +283,14 @@ def ensure_tile_or_fallback(strategy, definition, lat, lon, verbose,
 
     Raises ``O4_DEM_Utils.ElevationDownloadRefused`` exactly where the
     strategy alone did, except for a transport failure or an absent land
-    cell that a fallback source could cover.
+    cell that a fallback source could cover, and a sea cell (``0``).
     """
     cache_path = _cache_path(strategy, definition, lat, lon)
     if cache_path and cached_elevation_file_is_valid(cache_path):
         return strategy.ensure_tile(definition, lat, lon, verbose)
+    if _cached_only[0]:
+        return int(any(cached_elevation_file_is_valid(path) for path in
+                       fallback_cache_paths(providers, lat, lon).values()))
     host = _source_host(strategy, definition, lat, lon)
     failure = _remembered_failure(host)
     absent = False
@@ -300,6 +328,10 @@ def _take_fallback(configured, lat, lon, configured_failure, verbose,
     # Whether EVERY source that was asked was refused by a proxy: the
     # user's own proxy or VPN, not the servers (the refusal then says so).
     proxied = [configured_proxied]
+    # #1721: the fallbacks that LOOKED and found no tile (a water witness
+    # when land-complete), and whether any fallback failed otherwise.
+    water_witnesses = []
+    every_answer_clean = True
     for definition in fallback_definitions(providers):
         label = source_label(definition)
         strategy = _strategy(definition)
@@ -314,6 +346,7 @@ def _take_fallback(configured, lat, lon, configured_failure, verbose,
         except Exception as error:
             failures.append((label, "%s: %s" % (type(error).__name__, error)))
             proxied.append(FAIL.is_proxy_refusal(error))
+            every_answer_clean = False
             continue
         if obtained:
             UI.lvprint(
@@ -325,6 +358,11 @@ def _take_fallback(configured, lat, lon, configured_failure, verbose,
                    source_label(configured), configured_failure))
             return 1
         failures.append((label, "has no data for this cell"))
+        if sea_cell.is_land_complete(definition):
+            water_witnesses.append(label)
+    if absent and every_answer_clean and water_witnesses:
+        if _take_as_sea(cell, lat, lon, failures, water_witnesses):
+            return 0
     refused = DEM.ElevationAbsentRefused if absent else (
         DEM.ElevationTransportRefused)
     advice = ("" if absent else " Check the network connection (a proxy, "
@@ -338,3 +376,24 @@ def _take_fallback(configured, lat, lon, configured_failure, verbose,
     if all(proxied):
         refusal.failure_code = "proxy_refused"
     raise refusal
+
+
+def _take_as_sea(cell, lat, lon, failures, water_witnesses):
+    """The sea verdict of ``elevation_access.sea_cell``: True (and said
+    on one log line) unless a cached OSM coastline witnesses land."""
+    answers = " ".join("%s: %s." % (label, str(text).rstrip("."))
+                       for (label, text) in failures)
+    land = sea_cell.osm_land_witness(lat, lon)
+    if land is not None:
+        UI.lvprint(
+            1, "    Elevation cell %s: %s publish no tile for it, but its "
+            "OSM coastline (%s) shows land, so it is not taken as sea. %s"
+            % (cell, " and ".join(water_witnesses), land, answers))
+        return False
+    UI.lvprint(
+        1, "    Elevation cell %s is taken as SEA and zero-filled: every "
+        "source looked and has no tile for it, and %s publish a tile for "
+        "every cell holding land (Utils/world_tiles.png marks it land; "
+        "that mask is coarse). %s"
+        % (cell, " and ".join(water_witnesses), answers))
+    return True

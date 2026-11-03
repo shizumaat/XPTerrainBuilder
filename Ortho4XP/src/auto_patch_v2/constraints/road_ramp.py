@@ -238,6 +238,9 @@ def _wall_step_rows(planar: PlanarMap, walls: _t.Mapping[int, _t.Mapping]) -> li
 #: The ruling of the raw-ground row on zone ground beyond a declared wall.
 BEYOND_WALL_RULING = ("zones.adjacent_ground beyond the wall "
                       "(owner RULINGS 2026-10-15g (B): the zone goes straight to DEM)")
+#: The ruling of the wall-top row on a wall slope's face vertex (#1661).
+WALL_TOP_RULING = ("zones.adjacent_ground at the wall's top (owner RULINGS "
+                   "2026-10-29a Q299 (a): the hill grades to the wall object's top as it sits)")
 #: The generators whose rows tie a ground vertex to its pavement foot — the
 #: zone law (``constraints/zones``) and the runway end profile
 #: (``constraints/strips``) — released across a declared wall either way.
@@ -311,6 +314,7 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
     # is released (``constraints/wall_zone``)
     from .wall_zone import retaining_lines, split
     held = retaining_lines(walls)
+    tops = _wall_tops(planar, held, xy)     # wall-slope ground at the top
     rep["zone_flat"] = 0
     pave = frozenset(r for r, spec in law.tables.precedence.roles.items()
                      if spec.value and spec.side == "airside")
@@ -335,6 +339,9 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
         return unary_union([face_poly[f] for f in fids]) if fids else None
     for r in cs.linears:
         vs = [v for v, _c in r.terms]
+        if r.source.generator in _ZONE_LAW_GENERATORS and r.follows in tops:
+            rep["released"] += 1        # the wall's top holds it (#1661)
+            continue
         if held and r.source.generator in _ZONE_LAW_GENERATORS and \
                 all(v in xy for v in vs):
             side, kept = split(r, xy, held, paved, paved_area)
@@ -363,7 +370,7 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
                 beyond.add(int(r.follows))
             continue
         linears.append(r)
-    if not rep["released"]:
+    if not rep["released"] and not tops:
         return (_dc.replace(cs, linears=tuple(linears))
                 if rep["zone_flat"] or rep.get("zone_trimmed") else cs), rep
     # ...and that ground IS the raw DEM (15g (B): "let it go straight to DEM
@@ -382,8 +389,34 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
         bands.append(Band(v, dz, dz,
                           Source("wall_terrace", BEYOND_WALL_RULING, (f"vertex:{v}",))))
     rep["beyond_wall_ground"] = len(bands) - len(cs.bands)
+    # #1661 (Q299 (a)): the wall slope's face vertices at the wall's top
+    for v, tz in sorted(tops.items()):
+        if v not in beyond:
+            bands.append(Band(v, tz, tz, Source("wall_terrace", WALL_TOP_RULING,
+                                                (f"vertex:{v}",))))
+    rep["wall_top_ground"] = len(bands) - len(cs.bands) - rep["beyond_wall_ground"]
     return _dc.replace(cs, diffs=tuple(diffs), linears=tuple(linears),
                        bands=tuple(bands)), rep
+
+
+def _wall_tops(planar: PlanarMap, held: _t.Sequence, xy: _t.Mapping[int, tuple]
+               ) -> dict[int, float]:
+    """#1661 (Q299 (a)): every vertex only wall slopes hold
+    (``planar/wall_slope``) that stands on a wall's upper face, -> the
+    wall's top as it sits there (``wall_zone.face_top``)."""
+    from ..model.wall_reach import is_wall_slope_ref
+    from .wall_zone import face_top
+    if not any(getattr(w, "top_profile", None) for w in held):
+        return {}
+    out: dict[int, float] = {}
+    for v, p in xy.items():
+        inc = planar.vertices[v].incident_faces
+        if not inc or not all(is_wall_slope_ref(planar.faces[f].ref) for f in inc):
+            continue
+        z = face_top(held, p)
+        if z is not None:
+            out[v] = z
+    return out
 
 
 def airside_joins(planar: PlanarMap, law: Law) -> frozenset[int]:

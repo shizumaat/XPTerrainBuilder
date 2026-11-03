@@ -390,6 +390,14 @@ def test_bench_style_instance_round_trip(law):
     ``timing``, deselected by default), never here."""
     pm, rows, chain = _bench_instance()
     cs = ConstraintSet.from_rows(rows)
+    # THE JOINT RUNWAY (#1742): this fixture's "runway" is a strip of faces
+    # ACROSS the pinned chain with no pin, threshold or chord of its own, so
+    # solved first (RULINGS 2026-11-02a (4)) it follows its DEM hump and
+    # the chain's priced 1.25 % rows are 2.75 m out across it.  A real
+    # runway always carries its own datum (CIFP or apt.dat pins); this twin
+    # reads the certificate, so its runway is held at a slack nothing reaches
+    from tests.auto_patch_v2.test_v2staged import _law_arm
+    law = _law_arm(law, runway_first_slack_m=1.0e6)
     sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     # 08t: the law rows are TARGETS of a least-squares solve, so the

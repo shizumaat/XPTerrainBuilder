@@ -182,9 +182,13 @@ def test_chain_trace_reaches_the_runway_pin_through_the_taxi_families(prepared):
             # sits further past its bound — measured 0.141 m here.  The
             # claim is unchanged (the step is AT its bound, not through it);
             # the tolerance is the SOLVE's.
+            # RE-SCOPED a third time (#1742, lane b1742): the runway's crown
+            # floor is HARD, so the runway edge this chain leaves no longer
+            # rises toward the taxiway to meet it and the taxi-side target
+            # absorbs the difference — measured 0.173 m here.  Same claim.
             assert s.dz == pytest.approx(
                 s.bound_m,
-                abs=16.0 * prepared.law.tables.emit.materiality.elevation_m), s
+                abs=20.0 * prepared.law.tables.emit.materiality.elevation_m), s
 
 
 def test_bindings_have_zero_slack_and_name_successors(prepared):

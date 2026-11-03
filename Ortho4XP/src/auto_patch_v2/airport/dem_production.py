@@ -48,7 +48,6 @@ import typing as _t
 from pathlib import Path
 
 import numpy as np
-
 from O4_Airport_Modes import DEFAULT_MODE as _MODE_VALUED_KEYS
 from O4_Airport_Modes import mode_admits, normalize_mode, resolved_inset_mode
 
@@ -57,7 +56,7 @@ from .dem import hgt_name, resolve_dem_files
 
 __all__ = ["ColdDemFrame", "ProductionDem", "load_production_dem",
            "frame_state", "TileWater", "cold_frame_code",
-           "COLD_CACHE_CODE", "FETCH_FAILED_CODE"]
+           "COLD_CACHE_CODE", "FETCH_FAILED_CODE", "BASE_MISSING_CODE"]
 
 #: Posts per axis the inland-body level is sampled on (the median of a
 #: body's own DEM cells; a 32x32 grid inside the body is plenty for a
@@ -115,12 +114,17 @@ def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
     short = f"{lat:+03d}{lon:+04d}"
     ins_dir = os.path.join(elevation_root, block, stem + "_airport_insets")
     layer = os.path.join(osm_root, block, short, short + "_airports.osm.bz2")
-    state = {"tile": [lat, lon], "tile_stem": stem, "base_raster": hgt,
-             "base_raster_present": os.path.isfile(hgt),
+    (base, fallback) = _base_raster(hgt, lat, lon)
+    state = {"tile": [lat, lon], "tile_stem": stem, "base_raster": base,
+             "base_raster_present": os.path.isfile(base),
              "airport_insets_dir": ins_dir,
              "airport_insets_present": os.path.isdir(ins_dir),
              "airport_inset": tif, "airports_layer": layer,
              "airports_layer_present": os.path.isfile(layer)}
+    if fallback is not None:
+        # Issue #1743: the tile build read this cell from a fallback
+        # source (#561/#1603), so the frame is warm on THAT raster.
+        state["base_raster_fallback"] = fallback
     problems: list[str] = []
     if not state["base_raster_present"]:
         problems.append(f"NO base raster {hgt} — the core would DOWNLOAD it "
@@ -184,6 +188,38 @@ def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
     return state, problems
 
 
+def _base_raster(hgt: str, lat: int, lon: int) -> tuple[str, str | None]:
+    """The base file the tile build reads for cell ``(lat, lon)``, and the
+    fallback CODE when it is a substituted cell (``None`` otherwise).
+
+    THE SAME CHAIN the core's reader walks
+    (``elevation_access.base_fallback.cell_file``, issue #1743): the
+    configured ``.hgt`` when it is on disk, else the first ranked fallback
+    whose own cache file is valid, in the same block directory.  A cell
+    the tile build meshed on its Copernicus stand-in is therefore warm,
+    and the patch solves on the ground the mesh drapes on.  Pure path
+    inspection: never a fetch.
+    """
+    if os.path.isfile(hgt):
+        return (hgt, None)
+    try:
+        import O4_Airport_Elevation_Insets as PROVIDERS
+        from elevation_access import base_fallback
+        from elevation_access.base_tiles import cached_elevation_file_is_valid
+        if not PROVIDERS.elevation_providers_dict:
+            PROVIDERS.initialize_elevation_providers_dict()
+        paths = base_fallback.fallback_cache_paths(
+            PROVIDERS.elevation_providers_dict, lat, lon)
+    except Exception:              # no core on the path: the .hgt alone
+        return (hgt, None)
+    folder = os.path.dirname(hgt)
+    for (code, path) in paths.items():
+        candidate = os.path.join(folder, os.path.basename(path))
+        if cached_elevation_file_is_valid(candidate):
+            return (candidate, code)
+    return (hgt, None)
+
+
 #: The refusal codes of a cold frame (``O4_Tile_Failures.CATALOGUE``):
 #: the cache was never filled for this airport, or a download was tried
 #: and failed.  A provider with no coverage is not cold at all
@@ -191,14 +227,20 @@ def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
 #: airport outside the inset selection (§A.6).
 COLD_CACHE_CODE = "airport_elevation_missing"
 FETCH_FAILED_CODE = "airport_elevation_offline"
+#: Issue #1743: the BASE cell under the airport, not its detailed inset,
+#: is what was missing — the message must not blame the inset.
+BASE_MISSING_CODE = "airport_base_elevation_missing"
 
 
 def cold_frame_code(state: dict, tried: str | None = None) -> str:
     """The catalogue code naming WHY a frame is cold: a download that was
     tried and failed (a recorded warm attempt, or an inset index record
-    with an unanswered provider) or a cache this build never filled."""
+    with an unanswered provider), a base cell that is not on disk, or an
+    inset cache this build never filled."""
     if tried or state.get("airport_inset_fetch_failed"):
         return FETCH_FAILED_CODE
+    if state and not state.get("base_raster_present", True):
+        return BASE_MISSING_CODE
     return COLD_CACHE_CODE
 
 
@@ -1022,7 +1064,14 @@ class ProductionDem:
                 self.provenance[f"context_only:{stem}"] = ", ".join(fresh)
             elif fresh:
                 self._degrade(stem, fresh, state)
-        dem = VMAP.compose_tile_dem_from_disk(tile, dico, write_alt_file=False)
+        # Issue #1743: from the CACHE only — a cell the tile build read
+        # from a fallback source is read from it again, and the configured
+        # source is not asked (no fetch in the pool child, §C.6).
+        from elevation_access import base_fallback
+        with base_fallback.cached_reads_only():
+            dem = VMAP.compose_tile_dem_from_disk(tile, dico,
+                                                  write_alt_file=False)
+        self._record_base_fallback(stem, state)
         return self._bake(lat, lon, dem, stem, state, tile=tile,
                           airports_smoothed=len(dico), how="composed")
 
@@ -1085,8 +1134,16 @@ class ProductionDem:
         stem = state["tile_stem"]
         if problems:
             self._degrade(stem, problems, state)
+        self._record_base_fallback(stem, state)
         return self._bake(lat, lon, dem, stem, state, tile=None,
                           airports_smoothed=None, how="host-seeded")
+
+    def _record_base_fallback(self, stem: str, state: dict) -> None:
+        """Name a base cell read from a fallback source on the provenance
+        (issue #1743) — a key only such a frame carries."""
+        if state.get("base_raster_fallback"):
+            self.provenance[f"base:{stem}"] = (
+                f"{state['base_raster_fallback']} {state['base_raster']}")
 
     def _bake(self, lat: int, lon: int, dem: _t.Any, stem: str, state: dict, *,
               tile: _t.Any, airports_smoothed: int | None, how: str) -> _BakedTile:

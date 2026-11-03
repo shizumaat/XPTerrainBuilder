@@ -156,6 +156,7 @@ def _ortho4xp_version() -> str:
 #: is given the command's ``id`` as ``request``.
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "library_scan", "cache_sizes",
                                "free_cache", "library_delete",
+                               "library_export_bundle", "library_import_bundle",
                                "plan_estimate", "build_airports"})
 
 
@@ -284,12 +285,15 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # the reply says pending until it is ready.
         "terrain_relief": terrain_relief,
         # Library view (#824): built tiles with sizes, the caches, freeing
-        # a cache, deleting tiles.  Each replies {"status": "started"} and
-        # completes with LibraryReady carrying this command's id; deleting
-        # needs confirm=true and is refused while a build runs.
+        # a cache, deleting tiles; exporting and importing a tile bundle
+        # (#1699).  Each replies {"status": "started"} and completes with
+        # LibraryReady carrying this command's id; deleting needs
+        # confirm=true, and deleting, exporting and importing are refused
+        # while a build runs.
         **{name: _library_handler(session, name)
            for name in ("library_scan", "cache_sizes", "free_cache",
-                        "library_delete")},
+                        "library_delete", "library_export_bundle",
+                        "library_import_bundle")},
         # Build cost (protocol 1.15, #820): download, disk and time ranges
         # for the tiles about to be built.  Replies {"status": "started"};
         # PlanEstimateReady carrying this command's id completes it.

@@ -69,6 +69,7 @@ from ..law.tables import (
     FLAT_CLASS_FINE,
     FLAT_CLASS_LIDAR,
     role_cap,
+    runway_crown_floor,
     runway_end_zone_cap,
     runway_end_zone_grade_change,
     runway_end_zone_length_m,
@@ -768,9 +769,20 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     foot ``(a, b, t)`` at lateral distance ``d`` on
     its OWN ridge chain (the crown's ``_foot``), one two-sided ``Linear``
 
-        −cap·d ≤ (1 − t)·z_a + t·z_b − z_v ≤ cap·d
+        floor(d) ≤ (1 − t)·z_a + t·z_b − z_v ≤ bound(d)
 
-    (``cap = rulesets.runway.transverse_max`` by code letter).  The row
+    (``bound`` = ``law.tables.runway_transverse_bound``, ``cap =
+    rulesets.runway.transverse_max`` by code letter within the half-width;
+    the lower side is the CROWN FLOOR, ``law.tables.runway_crown_floor``
+    — ``crown·d`` within the half-width — issue
+    #1742: the edge never rises toward a neighbour — EPWA 11/29's south
+    edge stood 0.29 m above its ridge where a parallel taxiway and an
+    apron join, under the old ``−cap·d`` lower side).  The floor binds
+    only ABEAM the ridge (a foot clamped at a chain end prices an
+    along-axis offset, :func:`_abeam`; there the lower side stays
+    ``−cap·d``, as on a tile-seam pin, §38: the seam outranks the crown);
+    beyond the half-width the shoulder takes its own slope from the edge
+    either way, as the upper side prices it.  The row
     carries the runway face, so the tier machinery holds it in tier 0 and
     the last resort never relaxes it; a taxiway sharing the edge conforms
     and carries the relief into its body at its own cap (owner 03k/04i).
@@ -792,6 +804,9 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
             continue
         half = half_of.get(f.ref, 0.0)
         own_ridge = {v for c in chs for v in c}
+        # each chain END -> the chain's OTHER end: the along-axis direction
+        ends = {**{c[0]: c[-1] for c in chs if len(c) >= 2},
+                **{c[-1]: c[0] for c in chs if len(c) >= 2}}
         src = Source(GEN, "rulesets.runway.transverse_max (2026-09-05o)",
                      (f"face:{f.id}", f.ref))
         for v in vw.face_vertices(f.id):
@@ -819,8 +834,39 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                 terms = ((b, 1.0), (v, -1.0))
             else:
                 terms = ((a, 1.0 - t), (b, t), (v, -1.0))
-            rows.append(Linear(terms, -bound, bound, src))
+            lo = -bound
+            if v not in planar.seam_vertices and _abeam(vw, v, a, b, t, ends, law):
+                lo = min(bound, runway_crown_floor(law, d, half, f.code_letter,
+                                                   f.code_number, crossed.get(v)))
+            rows.append(Linear(terms, lo, bound, src))
     return rows
+
+
+def _abeam(vw: View, v: int, a: int, b: int, t: float, ends: dict[int, int],
+           law: Law) -> bool:
+    """Is ``v`` ABEAM its ridge — its foot ``(a, b, t)`` a perpendicular
+    one, not a foot clamped at a chain END with ``v`` lying beyond it
+    along the axis by more than the emit identity floor?  The verify reads
+    interior feet only (``verify.runway._nearest_ridge``); the crown floor
+    binds on the same population.
+
+    "Along the axis" is the CHAIN's own direction (``ends``: each end ->
+    the chain's other end), never the last segment's: a short skewed end
+    segment (HECA 05L/23R's 23R end, 1.1 m with 0.4 m of lateral drift)
+    read a corner vertex 0.7 m INSIDE the end as ~10 m beyond it, and the
+    corner kept no floor while the verify, reading the emitted spine,
+    flagged it (a 0.28 m ``crown_floor`` DEFECT)."""
+    end = a if t <= 0.0 else (b if t >= 1.0 else None)
+    if end is None or end not in ends:
+        return True
+    other = ends[end]
+    (ex, ey), (ox, oy), (px, py) = vw.xy[end], vw.xy[other], vw.xy[v]
+    ux, uy = ex - ox, ey - oy
+    n = math.hypot(ux, uy)
+    if n <= 0.0:
+        return False
+    beyond = ((px - ex) * ux + (py - ey) * uy) / n
+    return beyond <= law.tables.emit.identity.min_distinct_spacing_m
 
 
 def curve_stations(xy: _t.Sequence[tuple[float, float]], chains: _t.Sequence[_t.Sequence[int]],

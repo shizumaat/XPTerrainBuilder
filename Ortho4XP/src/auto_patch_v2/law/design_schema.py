@@ -64,6 +64,10 @@ class Design:
     #: this share of the largest lift its pulling route carries
     #: (``constraints/no_step.hold_interval``, the ONE reader).
     runway_flex_share: float
+    #: THE RUNWAY IS SOLVED FIRST (owner RULINGS 2026-11-02a (4)): how far
+    #: stage 1 may move a runway column off its stage-0 value before the
+    #: hold is a conflict §5a names (``solve/runway_first``, the ONE reader).
+    runway_first_slack_m: float
     #: the ruling HEADS whose stage-1 ``Diff`` cap rows are the pair
     #: graph's edges (flat-pad spec v2 §2; ``constraints/no_step.pair_graph``)
     interval_pair_rulings: tuple[str, ...]
@@ -460,6 +464,10 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.runway_flex_share {d.runway_flex_share}: a "
                   "share of the pull in [0, 1] (flat-pad spec v2 §1, RULINGS "
                   "2026-09-30as)")
+    if not d.runway_first_slack_m >= d.hard_tol_m:
+        raise err(f"emit.design.runway_first_slack_m {d.runway_first_slack_m}: "
+                  "metres, at or above hard_tol_m — a band inside the solve's own "
+                  "held bar is a pin (owner RULINGS 2026-11-02a (4))")
     if d.stand_zone_radius_m < 0.0 or d.stand_zone_startup_reach_m < 0.0:
         raise err("emit.design.stand_zone_radius_m / stand_zone_startup_reach_m: "
                   "plan distances in metres, never negative (flat-pad spec v2 §3)")

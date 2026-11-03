@@ -2802,8 +2802,11 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     pack's DSF, re-bakes its ``.obj`` bodies and leaves the
     ``.anchor_bak`` backups — in the OWNER'S install.  Its only engine
     caller is ``auto_patch.object_stage._place_objects``, reached only from
-    ``rebake_after_mesh``, which only ``O4_Mesh_Utils.build_mesh`` calls:
-    a TILE build.  The v2 AIRPORT pipeline reaches none of it — its
+    ``rebake_after_mesh``, which only the object-stage step
+    (``O4_Object_Stage.run``) calls; that step is run only by a TILE build
+    (``O4_Mesh_Utils.build_mesh``) or a tile-bundle import on the user's
+    own install (``tile_bundle.importer``, #1699 phase 1).  The v2 AIRPORT
+    pipeline reaches none of it — its
     rebake stage writes ``<out>/<ICAO>.rebake.json`` and nothing else.
     If a later change gives the airport path a pack write, this twin is
     where it must be argued.
@@ -2815,9 +2818,15 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     assert callers == {"auto_patch/object_stage.py"}, callers
     rebake_callers = {
         p.relative_to(src).as_posix() for p in src.rglob("*.py")
-        if "AUTO_PATCH_OBJECT_STAGE.rebake_after_mesh(" in p.read_text(
-            errors="replace", encoding="utf-8")}
-    assert rebake_callers == {"O4_Mesh_Utils.py"}, rebake_callers
+        if ".rebake_after_mesh(" in p.read_text(errors="replace",
+                                                  encoding="utf-8")}
+    assert rebake_callers == {"O4_Object_Stage.py"}, rebake_callers
+    stage_callers = {
+        p.relative_to(src).as_posix() for p in src.rglob("*.py")
+        if "OBJECT_STAGE.run(" in p.read_text(errors="replace",
+                                              encoding="utf-8")}
+    assert stage_callers == {"O4_Mesh_Utils.py", "tile_bundle/importer.py"}, (
+        stage_callers)
     for p in (src / "auto_patch_v2" / "pipeline").rglob("*.py"):
         body = p.read_text(errors="replace", encoding="utf-8")
         assert "placement_write" not in body and "apply_plan" not in body, (

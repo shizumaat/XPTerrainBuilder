@@ -6,6 +6,9 @@ on disk, zoom level, imagery source, built date, the airports it graded,
 the custom packs the build modified, whether X-Plane loads it, and who
 built it.  ``cache_sizes`` sizes the three download caches, ``free_cache``
 empties one, and ``library_delete`` deletes built tiles.
+``library_export_bundle`` and ``library_import_bundle`` carry a built
+tile to another installation as a tile bundle (#1699 phase 1,
+``tile_bundle``).
 
 TWO RULES THE APPS RELY ON.  A tile built by another tool (no stamped
 tile config and no step record of this app in its folder) is listed
@@ -36,7 +39,8 @@ import O4_Text_Files as TEXT
 import O4_Tile_Info as TINFO
 
 __all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "library_scan",
-           "cache_sizes", "free_cache", "library_delete", "start"]
+           "cache_sizes", "free_cache", "library_delete",
+           "library_export_bundle", "library_import_bundle", "start"]
 
 #: ``built_by`` of a tile this app built
 BUILT_HERE = "XPTerrainBuilder"
@@ -270,6 +274,52 @@ def library_delete(tiles, working_dir: str, scenery_dir: str = "",
     return {"deleted": deleted, "freed_bytes": freed}
 
 
+def _custom_build_dir(working_dir: str) -> str:
+    """The ``custom_build_dir`` of a tile folder inside ``working_dir``
+    (``""`` for the data root's own ``Tiles``)."""
+    if not working_dir or os.path.normpath(working_dir) == os.path.normpath(
+            FNAMES.Tile_dir):
+        return ""
+    return os.path.join(working_dir, "")
+
+
+def library_export_bundle(lat, lon, working_dir: str, out_dir: str) -> dict:
+    """ENGINE COMMAND ``library_export_bundle`` (#1699 phase 1): write the
+    built tile's TILE BUNDLE into ``out_dir`` (``tile_bundle.export``).
+    Refused for a tile another tool built, one not current with its last
+    build, or one built with other than the default mesh settings.
+
+    :returns: ``{"path", "bytes", "key", "files", "seconds"}``
+    """
+    lat, lon = int(lat), int(lon)
+    build_dir = FNAMES.build_dir(lat, lon, _custom_build_dir(working_dir))
+    if _built_by(build_dir, lat, lon) != BUILT_HERE:
+        raise ValueError("tile %s was not built by this app; it has no "
+                         "bundle to export" % FNAMES.short_latlon(lat, lon))
+    from tile_bundle import export
+    return export.export_tile(lat, lon, out_dir, _custom_build_dir(working_dir))
+
+
+def library_import_bundle(path: str, working_dir: str) -> dict:
+    """ENGINE COMMAND ``library_import_bundle`` (#1699 phase 1): import a
+    tile bundle into ``working_dir`` (``tile_bundle.importer``).  Nothing
+    is downloaded; refused when the bundle does not match this
+    installation's packs, mesh settings or engine.  The tile's next build
+    finishes it with the user's imagery.
+
+    :returns: ``{"tile", "key", "airports", "bytes", "object_stage",
+        "reused", "stale", "seconds"}``
+    """
+    from tile_bundle import importer
+    return importer.import_bundle(path, _custom_build_dir(working_dir))
+
+
+#: What a command must not do while a build runs (:func:`start`).
+_REFUSED_WHILE_BUILDING = {
+    "free_cache": "deleting anything", "library_delete": "deleting anything",
+    "library_export_bundle": "exporting a tile",
+    "library_import_bundle": "importing a tile"}
+
 #: The commands :func:`start` runs, and the checks each makes on the read
 #: loop so a refusal is the command's own ``ok: false`` reply.
 _COMMANDS: dict = {
@@ -282,6 +332,8 @@ _COMMANDS: dict = {
                        lambda kw: _check_delete(kw.get("tiles"),
                                                 kw.get("working_dir", ""),
                                                 bool(kw.get("confirm")))),
+    "library_export_bundle": (library_export_bundle, None),
+    "library_import_bundle": (library_import_bundle, None),
 }
 
 
@@ -294,9 +346,9 @@ def start(emit: _t.Callable[[_t.Any], None], command: str,
     on the read loop, and is the command's ``ok: false`` reply."""
     from .events import LibraryReady
     function, check = _COMMANDS[command]
-    if command in ("free_cache", "library_delete") and busy():
+    if command in _REFUSED_WHILE_BUILDING and busy():
         raise ValueError("A build is running; stop it or let it finish "
-                         "before deleting anything.")
+                         "before %s." % _REFUSED_WHILE_BUILDING[command])
     if check is not None:
         check(kwargs)
 

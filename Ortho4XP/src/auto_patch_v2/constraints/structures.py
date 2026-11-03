@@ -734,8 +734,41 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     if hi >= lo:
                         for dv in grp:
                             rows.append(Band(dv, lo, hi, src_ends))
+    rows.extend(_follow_flat_floors(planar, law, airport, tunnels, pins))
     rows.extend(pins.values())
     return rows
+
+
+#: the sunken-road floor pins that follow a flat-built group's block
+_FLOOR_HEADS = ("cutout.sunken_road: the floor", "cutout.sunken_road: the cut")
+
+
+def _follow_flat_floors(planar: PlanarMap, law: Law, airport: Airport,
+                        tunnels: _t.Sequence[Tunnel], pins: dict[int, Pin]) -> list[Row]:
+    """A sunken road under a FLAT-BUILT group's block follows the block
+    (``constraints/flat_floor``, #1717 row 17): its floor pins leave
+    ``pins`` and come back as rows against the block's datum column."""
+    from .flat_floor import follow_rows, follower
+    from .platform import GEN as PGEN
+    from .platform import PLANE_RULING
+    out: list[Row] = []
+    for tn in tunnels:
+        if tn.source != "sunken_road":
+            continue
+        fol = follower(planar, law, airport, tn)
+        if fol is None:
+            continue
+        for v, p in sorted(pins.items()):
+            src = p.source
+            if src.inputs and src.inputs[0] == tn.id and src.ruling.startswith(_FLOOR_HEADS):
+                # the block's own level + the plate's own y: a pack object's
+                # level held to its block, the landing's hard row
+                # (``platform.landing_rows``' head)
+                out.extend(follow_rows(v, p.z, fol, Source(
+                    PGEN, PLANE_RULING + " (#1717 row 17, owner O-F5: a sunken-road floor "
+                    "of a flat-built block follows the block; " + src.ruling + ")", src.inputs)))
+                del pins[v]
+    return out
 
 
 def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:

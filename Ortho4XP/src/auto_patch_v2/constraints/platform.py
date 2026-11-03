@@ -41,7 +41,7 @@ from ..model.platform import HOLD_DATUM_RULING, HOLD_RULING, datum_vertices
 from .pad_warning import stamp_warning
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "coplanar_rows", "frontage_hold_rows",
-           "datum_groups", "datum_group_rows", "flat_group_level",
+           "datum_groups", "datum_group_rows", "flat_group_level", "per_block_levels",
            "landing_rows", "landing_vertices",
            "TERRACE_RULING", "HOLD_RULING", "HOLD_DATUM_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
@@ -1060,7 +1060,8 @@ def datum_groups(planar: PlanarMap, law: Law, airport: Airport | None,
 
 
 def flat_group_level(blocks: _t.Mapping[str, _t.Mapping[str, _t.Any]], lead: str,
-                     members: _t.Sequence[str]) -> "tuple[float | None, dict]":
+                     members: _t.Sequence[str],
+                     zero: "float | None" = None) -> "tuple[float | None, dict]":
     """THE HIGHEST LAWFUL LEVEL OF A FLAT-BUILT GROUP (owner Q370 a and
     O-F1 a, 2026-11-03T13:58:37Z: "most accurate airside ... that retains
     correct runways, grade laws"; #1717): ``(D, report)``.  The group's
@@ -1068,8 +1069,9 @@ def flat_group_level(blocks: _t.Mapping[str, _t.Mapping[str, _t.Any]], lead: str
     admissible set of their own, of each block's pair-graph interval
     (``I0``: what its frontage contacts reach within the caps from the
     held runways and pins) and its reach intersection; ``D`` is the lead's
-    own frontage level (the group's zero) clamped into it -- the highest
-    lawful level where the zero stands above it.  ``None`` where the
+    own frontage level (or ``zero``, the group's zero where the caller
+    reads it) clamped into it -- the highest lawful level where the zero
+    stands above it.  ``None`` where the
     interval is empty (the blocks keep their own preferences and the tie,
     as any datum group)."""
     lo, hi, used, skipped = -math.inf, math.inf, [], []
@@ -1084,7 +1086,8 @@ def flat_group_level(blocks: _t.Mapping[str, _t.Mapping[str, _t.Any]], lead: str
             continue
         used.append(ref)
         lo, hi = max(lo, lo_b), min(hi, hi_b)
-    zero = float(blocks[lead]["D"]) if lead in blocks else None
+    if zero is None:
+        zero = float(blocks[lead]["D"]) if lead in blocks else None
     rep = {"lead": lead, "zero": zero, "lawful": [lo, hi], "blocks": len(used),
            "own_empty": skipped}
     if zero is None or lo > hi:
@@ -1093,6 +1096,30 @@ def flat_group_level(blocks: _t.Mapping[str, _t.Mapping[str, _t.Any]], lead: str
     d = min(max(zero, lo), hi)
     rep["level"] = d
     return d, rep
+
+
+def per_block_levels(blocks: _t.Mapping[str, _t.Mapping[str, _t.Any]],
+                     refs: _t.Iterable[str], zero: "float | None") -> dict[str, float]:
+    """THE FALLBACK OF A FLAT-BUILT GROUP NO ONE LEVEL SERVES (owner O-F5,
+    2026-11-03T15:01Z: "That's a better fallback then leaving buildings
+    floating by several meters ... any modifications on a tile boundary
+    have caused problems"): ``{ref: D}`` -- each block with an admissible
+    set of its own (``I0`` met with its reach intersection) flat at the
+    point of it nearest the group's ``zero``.  One target for every block,
+    so two neighbours step only by what their own intervals force.  A
+    block with no admissible set keeps its own preference (absent)."""
+    out: dict[str, float] = {}
+    if zero is None:
+        return out
+    for ref in refs:
+        b = blocks.get(ref)
+        if b is None:
+            continue
+        lo = max(b["I0"][0], b["reach_isect"][0])
+        hi = min(b["I0"][1], b["reach_isect"][1])
+        if lo <= hi:
+            out[ref] = min(max(float(zero), lo), hi)
+    return out
 
 
 def datum_group_rows(groups: _t.Mapping[str, _t.Sequence[str]],

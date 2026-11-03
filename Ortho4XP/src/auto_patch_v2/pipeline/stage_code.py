@@ -883,6 +883,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.edge_floor",
         "auto_patch_v2.constraints.end_lip",
         "auto_patch_v2.constraints.face_index",
+        "auto_patch_v2.constraints.flat_floor",
         "auto_patch_v2.constraints.flat_site",
         "auto_patch_v2.constraints.foot_rows",
         "auto_patch_v2.constraints.geometry",
@@ -1125,7 +1126,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.foot_rows
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
-        constraints.edge_floor constraints.structures geom.base_slab geom.cluster_outline
+        constraints.edge_floor constraints.structures
+        constraints.flat_floor geom.base_slab geom.cluster_outline
         geom.containment
         geom.feet_graph geom.feet_mst geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.ground_fit model.islands model.map_memo model.platform
@@ -1164,7 +1166,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.group_level constraints.face_index
     """),
     "no_step": _mods(_GENERATOR_CORE + """
-        law.inset_class
+        law.inset_class geom.foot_planes
         constraints.apron constraints.ceiling constraints.cluster_pad
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.groundside constraints.no_step constraints.pad_frontage_gs
@@ -1312,6 +1314,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
         constraints.platform constraints.precedence constraints.edge_floor constraints.structures
+        constraints.flat_floor
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
@@ -1403,7 +1406,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.threshold_seam
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
-    constraints.strips constraints.edge_floor constraints.structures constraints.taxi
+    constraints.strips constraints.edge_floor constraints.structures
+    constraints.flat_floor constraints.taxi
     constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones geom geom.base_slab
@@ -1675,7 +1679,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.runway_yield constraints.runway_junctions constraints.seams
     constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips
-    constraints.edge_floor constraints.structures constraints.taxi constraints.taxi_trend
+    constraints.edge_floor constraints.structures
+    constraints.flat_floor constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones emit.graded emit.surface
     geom geom.base_slab geom.cluster_outline geom.containment geom.core_clamp

@@ -99,8 +99,12 @@ features (`gh issue list`, `gh issue view N`). It is PUBLIC.
 
 - Start of session: `gh issue list --label blocker` and
   `gh issue list --milestone "Beta 2"` — before trusting a memory note.
-- A bug or feature the owner mentions, or a defect a lane finds and does not
-  fix, gets an issue the same turn: labels `bug`/`feature`, one or more
+- A lane FIXES a bug it finds in its own PR and lists it in its report
+  (owner 2026-11-03, RULINGS 2026-11-03c). It gets an issue only when it needs
+  an owner decision or review, lies in files another running lane is
+  changing, or is too large for that change.
+- A bug or feature the owner mentions, or a defect that falls under one of
+  those three, gets an issue the same turn: labels `bug`/`feature`, one or more
   `area:*`, plus `blocker` / `regression` / `performance` / `needs-owner` /
   `needs-sim-read` as they apply; owner sites as `lat, lon` in the title.
 - A merge that fixes one says `Fixes #N` in its merge commit (closes on push);

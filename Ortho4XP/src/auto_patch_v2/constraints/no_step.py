@@ -452,6 +452,34 @@ class HoldInterval:
     face_widen: dict = _dc.field(default_factory=dict)
 
 
+def _rr(x: "float | None") -> "float | None":
+    """A finite value rounded to the millimetre, else ``None``."""
+    return round(float(x), 3) if x is not None and math.isfinite(float(x)) else None
+
+
+def _flat_binding(planar: PlanarMap, ar, blocks, refs, rw_v, pins) -> dict:
+    """Where a flat-built group's lawful interval closes (#1717): per side,
+    the block, its contact and the ANCHOR whose reach binds it (a runway
+    column, or a stage-1 pin and its ruling), read off the interval graph."""
+    import numpy as np
+    head = {int(p.v): p.source.ruling.split(" (")[0] for p in pins}
+    out: dict = {}
+    for side, pick in (("lo", max), ("hi", min)):
+        vals = [(float(getattr(ar, side)[c]), c, r) for r in refs if r in blocks
+                for c in (blocks[r].get("front_c") or blocks[r]["weld"])
+                if np.isfinite(getattr(ar, side)[c])]
+        if not vals:
+            continue
+        z, c, r = pick(vals)
+        path = ar.binding(c, side) or [c]
+        a = int(path[0])
+        out[side] = {"z": round(z, 3), "block": r, "contact": list(planar.vertices[c].key),
+                     "anchor": list(planar.vertices[a].key),
+                     "anchor_kind": "runway" if a in rw_v else head.get(a, "?"),
+                     "hops": len(path) - 1}
+    return out
+
+
 def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                   z1a: _t.Mapping[int, float],
                   rw_cols: _t.Mapping[int, int],
@@ -721,8 +749,27 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # EVERY frontage hold to one level and the aprons grade to it; a weld
     # no one level can hold within the caps is released by the elastic LP
     # and warned exactly as a single block's is — never two levels
-    from .platform import datum_group_rows, datum_groups
+    from .platform import datum_group_rows, datum_groups, flat_group_level
     groups = datum_groups(planar, law, airport, blocks)
+    # A FLAT-BUILT GROUP STANDS AT ITS HIGHEST LAWFUL LEVEL (owner Q370 a /
+    # O-F1 a, #1717): every block's datum preference is that one level, so
+    # the tie and the preferences agree and no weld is released.  A group no
+    # one lawful level serves is NOT tied (its blocks keep their own levels)
+    # and the report names the anchors that close it
+    flat_levels: dict[str, dict] = {}
+    for lead, members in groups.items():
+        if (held_reg.get(lead) or {}).get("flat_group"):
+            d_g, rep = flat_group_level(blocks, lead, members)
+            rep["binding"] = _flat_binding(planar, ar0, blocks, (lead, *members),
+                                           rw_v, cs.pins)
+            flat_levels[lead] = rep
+            if d_g is not None:
+                for ref in (lead, *members):
+                    if ref in blocks:
+                        blocks[ref]["D"] = d_g
+    unserved = {k for k, v in flat_levels.items() if v["level"] is None}
+    if unserved:
+        groups = datum_groups(planar, law, airport, blocks, skip_flat=unserved)
     group_rows = datum_group_rows(groups, {p: b["dv"] for p, b in blocks.items()})
     for lead, members in groups.items():
         blocks[lead]["group"] = lead
@@ -859,6 +906,8 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         h["reach_eval"] = b["eval"]
         h["reach_unreached"] = b["unreached"]
         h["datum_chosen"] = round(float(b["D"]), 3)
+        if b.get("group") in flat_levels:
+            h["flat_group_level"] = flat_levels[b["group"]]["level"]
         rl, rh = b["reach_isect"]
         h["reach_isect"] = [_r(rl), _r(rh)]
         h["reach_isect_empty"] = bool(rl > rh)
@@ -928,6 +977,11 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                  fronting_cap_infeasible_vertices=len(infeasible))
     stats.update(blocks=len(blocks),
                  datum_groups=len(groups), datum_group_rows=len(group_rows),
+                 flat_groups={k: {"zero": _rr(v["zero"]), "level": _rr(v["level"]),
+                                  "lawful": [_rr(v["lawful"][0]), _rr(v["lawful"][1])],
+                                  "blocks": v["blocks"], "own_empty": v["own_empty"],
+                                  "binding": v["binding"]}
+                              for k, v in flat_levels.items()},
                  held=sum(1 for b in blocks.values() if b["held"]),
                  held_eval_ii=sum(1 for b in blocks.values() if b["eval"] == "ii"),
                  residual=sum(1 for b in blocks.values() if not b["held"]),

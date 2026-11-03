@@ -282,3 +282,71 @@ S1/O1), not to this rule.
   are drawn as they are today.
 - Pictures: `/private/tmp/claude-501/flatA/lfpg-flatA-sections.png` and
   `lfpg-flatA-levelmap.png` (lane scratch).
+
+## 9. Owner answers (2026-11-03T13:58:37Z) and round 2 as built: STOPPED at LFPG
+
+Owner, verbatim: "LFPG, recommendations accepted, goals is most accurate
+airside with necessary accommodations for poorly modeled airports that
+retains correct runways, grade laws, and looks authentic from a pilots
+view." Accepted: O-F1 (a), O-F2 (a), and O-F3 (master, per group).
+
+**Built (branch `claude/flatA-spec`).**
+- `planar/flat_group.flat_groups` is the §1 witness. It writes
+  `held[b]["flat_group"] = {lead, group, feet, share, relief_m, y_plane}`.
+- In `planar/pad_cut.plateau_cut`, a flat-built group's blocks hold every
+  apron body that they alone touch as a whole plateau (H2).
+- `constraints/platform.datum_groups` adds the flat group as an entry,
+  keyed by its lead (H1). `skip_flat` withdraws it.
+- `constraints/platform.flat_group_level` is the highest lawful level (H3).
+  It is the intersection, over the group's blocks, of each block's
+  pair-graph interval `I0` and reach intersection. Blocks whose own
+  admissible set is empty are left out. The lead's frontage level is
+  clamped into it. No new constant.
+- `constraints/no_step.hold_interval` sets every member's datum preference
+  to that level. A group that no lawful level serves is not tied, and its
+  blocks keep their own levels. `_flat_binding` reports the anchor that
+  closes each side. Report field `stats.interval.flat_groups`; held field
+  `flat_group_level`.
+
+**The engine's own reading at LFPG contradicts §4's raster.** Replay of
+`lfpg6/LFPG.pkl` from the planar stage, branch against main 7c18b338b:
+- T2 group: 58 blocks, 26 with welds.
+- Lawful interval: **[106.08, 100.14], EMPTY**.
+- So the tie is withdrawn, and T2's levels stay as they are today:
+  0.9 ha moved by more than 0.5 m, from the whole-body plateaus at each
+  block's own datum.
+
+The interval closes on two anchors that §4's runway-only cone did not
+model:
+- **Low side, 106.94 m.** The 2A–2C contact at 49.00331, 2.56468 is one
+  hop from a `cutout.sunken_road` pin at 49.00357, 2.56444. This is the
+  pinned plate floor of a pack sunken road under the hall (Law B), and its
+  height is fixed at planar time. It is a pack object of the T2 group, but
+  it does not follow the group's level. This is a consumer the §3 census
+  missed: row 17, pack plate-floor pins.
+- **High side, 100.14 m.** The 2E/2F south apron contact at 49.00108,
+  2.59098 is seven hops from a **tile seam DEM pin** at 49.00007, 2.59008.
+  The 49° N tile edge crosses LFPG about 110 m south of the 2E/2F apron.
+  The patch has to meet the neighbouring tile's mesh there.
+
+KATL terminal F (replay of `b1661/KATL.pkl`, branch against main):
+- Flat group of 7 blocks, lead `building29`. Zero 301.54 m. Lawful
+  interval [294.68, 305.36], bound by runway columns on both sides.
+- Tied at 301.54. The solved terminal F level moves from 300.80 to
+  300.88 m, about 0.1 m. Datum-group rows go from 6 to 16. Aprons beside it
+  move −0.10 and −0.15 m.
+- Control already held terminal F at one level, through its cluster datum
+  group.
+
+Owner questions this raises:
+- **O-F5.** With the 49° N tile seam pinned to the survey 110 m south of
+  2E/2F, T2 can be one flat level only at 100.1 m or less. That is 4.7 m
+  under the objects' level today, and up to 7 m of cut into the 107 m
+  survey at 2A–2D.
+  - (a) Accept ≤ 100.1. This also needs the pack plate-floor pins to follow
+    the group's level (census row 17).
+  - (b) Keep T2 as it is today: a flat level where lawful, the rest
+    following the survey, and 2E/2F objects about 4.5 m above their apron.
+  - (c) Let the patch's tile-seam pin give way inside the aerodrome
+    boundary. That is a new seam law, and the mesh must still close at the
+    seam.

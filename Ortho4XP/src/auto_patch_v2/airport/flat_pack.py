@@ -47,7 +47,7 @@ from ..law.inset_class import dem_source_class
 from ..law.tables import flat_pack, flat_relief_floor_m, flat_site
 from ..model.airport import Airport, FlatPackVerdict
 
-__all__ = ["VERDICTS", "detect", "record", "log_line"]
+__all__ = ["VERDICTS", "detect", "record", "log_line", "relief_floor"]
 
 FLAT_ASSUMED = "flat_assumed"
 FOLLOWS_TERRAIN = "follows_terrain"
@@ -119,7 +119,7 @@ def _level_window(levels: np.ndarray, width_m: float) -> tuple[int, int]:
     return best_i, best_i + best
 
 
-def _floor_m(airport: Airport, law: Law) -> tuple[float, str | None]:
+def relief_floor(airport: Airport, law: Law) -> tuple[float, str | None]:
     """The relief floor of the DEM's source class (fine for lidar or an
     unknown class) and the class."""
     klass, _pixel, _whence = dem_source_class(airport.dem, law)
@@ -149,7 +149,7 @@ def detect(airport: Airport, law: Law) -> FlatPackVerdict:
     level = float(np.median(levels[a:b]))
     ground = np.array([g for _lv, gs in at for g in gs])
     relief = float(np.percentile(ground, _P_HI) - np.percentile(ground, _P_LO))
-    floor, klass = _floor_m(airport, law)
+    floor, klass = relief_floor(airport, law)
     miss = float(np.median([abs(lv - float(np.median(gs))) for lv, gs in at]))
     seats = bool(share > det.level_share_min and relief > floor)
     signals.update({"level_window_m": width, "level_objects": b - a,

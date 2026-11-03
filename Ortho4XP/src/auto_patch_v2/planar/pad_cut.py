@@ -482,6 +482,39 @@ def _stand_zone(parts: list, close_m: float, span, outline, ident: float):
     return unary_union(keep) if keep else None
 
 
+def _flat_group_bodies(base_regions, outline, held, airport, law, held_reg,
+                       grid: float, ident: float) -> dict:
+    """``{block: the apron bodies it holds whole}`` for the blocks of a
+    flat-built group (``planar/flat_group``; each block's record is
+    written to ``held_reg[b]["flat_group"]``): an apron body is held whole
+    by the first group block (by ref) whose outline touches it, where no
+    held block outside that group touches it."""
+    from .flat_group import flat_groups
+    for b in held:
+        held_reg[b].pop("flat_group", None)
+    if airport is None:
+        return {}
+    fg = flat_groups({b: outline[b] for b in held}, airside_union(base_regions, law), airport, law)
+    if not fg:
+        return {}
+    for b, rec in fg.items():
+        held_reg[b]["flat_group"] = rec
+    from shapely.strtree import STRtree
+    keys = list(held)
+    tree = STRtree([outline[k].buffer(max(grid, ident)) for k in keys])
+    out: dict[str, list] = {}
+    for r in base_regions:
+        if r.role != "apron" or r.polygon is None or r.polygon.is_empty:
+            continue
+        touch = sorted({keys[int(i)] for i in tree.query(r.polygon, predicate="intersects")})
+        if not touch or any(k not in fg for k in touch):
+            continue
+        if len({fg[k]["lead"] for k in touch}) != 1:
+            continue
+        out.setdefault(touch[0], []).append(r.polygon)
+    return {b: unary_union(v) for b, v in out.items()}
+
+
 def plateau_cut(base_regions, pad_regions, law, airport,
                 grid: float = 0.0, *, reg: Registries) -> tuple[list, dict]:
     """flat-pad spec v2 §3 (owner RULINGS 2026-09-30y addendum) — THE STAND
@@ -542,6 +575,12 @@ def plateau_cut(base_regions, pad_regions, law, airport,
     held = [b for b in sorted(held_reg) if b in outline]
     if not held:
         return base_regions, counts
+    # A FLAT-BUILT TERMINAL GROUP holds its WHOLE fronting apron (owner Q370
+    # a, #1717; ``planar/flat_group``): each apron body a group block's
+    # outline touches, and no block outside the group touches, is that
+    # block's plateau whole -- one level for the group's frontage
+    whole = _flat_group_bodies(base_regions, outline, held, airport, law, held_reg, grid, ident)
+    counts["flat_group_blocks"] = sum(1 for b in held if held_reg[b].get("flat_group"))
     # (a) THE RIDERS and their hosts
     riders_of: dict[str, list] = {}
     if D > 0.0:
@@ -575,7 +614,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
         h = held_reg[b]
         span = _held_span(h.get("samples_xy"), h.get("samples_ramp"),
                           max(D, reach_s + Rz))
-        if span is None:
+        if span is None and b not in whole:
             continue
         parts = []
         src = set()
@@ -628,9 +667,11 @@ def plateau_cut(base_regions, pad_regions, law, airport,
                     else:
                         parts.append(p.buffer(Rz, quad_segs=2))
                     src.add("startups")
-        if not parts:
-            continue
-        zone = _stand_zone(parts, 0.5 * Rz, span, outline[b], ident)
+        zone = (_stand_zone(parts, 0.5 * Rz, span, outline[b], ident)
+                if parts and span is not None else None)
+        if b in whole:
+            zone = whole[b] if zone is None else unary_union([zone, whole[b]])
+            src.add("flat_group")
         if zone is None:
             continue
         zones[b] = (zone, "+".join(sorted(src)))

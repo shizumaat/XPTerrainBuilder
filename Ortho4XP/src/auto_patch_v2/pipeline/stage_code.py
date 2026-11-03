@@ -336,6 +336,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.file_hash",
+        "auto_patch_v2.airport.flat_pack",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
         "auto_patch_v2.airport.footprint_seats",
@@ -535,6 +536,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.edges",
         "auto_patch_v2.planar.fill_riser",
         "auto_patch_v2.planar.fill_road",
+        "auto_patch_v2.planar.flat_group",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
@@ -1491,6 +1493,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    airport.flat_pack planar.flat_group
         law.runway_ends_schema law.terrain_witness_schema
     airport classify constraints model pipeline planar solve airport.anchor_rule
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
@@ -1603,6 +1606,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.low_extent planar.low_fill planar.reach_after_pads
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    airport.flat_pack planar.flat_group
         law.runway_ends_schema law.terrain_witness_schema
     airport classify emit model pipeline planar solve airport.anchor_rule
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state

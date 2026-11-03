@@ -41,7 +41,7 @@ from ..model.platform import HOLD_DATUM_RULING, HOLD_RULING, datum_vertices
 from .pad_warning import stamp_warning
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "coplanar_rows", "frontage_hold_rows",
-           "datum_groups", "datum_group_rows",
+           "datum_groups", "datum_group_rows", "flat_group_level",
            "landing_rows", "landing_vertices",
            "TERRACE_RULING", "HOLD_RULING", "HOLD_DATUM_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
@@ -994,7 +994,8 @@ def hold_row(o: int, dv: int, pref: str, residual: bool = False,
 
 
 def datum_groups(planar: PlanarMap, law: Law, airport: Airport | None,
-                 prefs: _t.Iterable[str]) -> dict[str, list[str]]:
+                 prefs: _t.Iterable[str],
+                 skip_flat: _t.Container[str] = ()) -> dict[str, list[str]]:
     """THE HELD BLOCKS OF ONE CONNECTED COMPLEX SHARE ONE LEVEL (owner
     RULINGS 2026-10-12l (1), applying 10n (1) at the design surface; #608):
     ``{leader ref: [the other held refs of its plane entry]}`` over
@@ -1006,18 +1007,92 @@ def datum_groups(planar: PlanarMap, law: Law, airport: Airport | None,
     the stage-1 solve seats the complex at ONE level its aprons can reach
     and every frontage welds to that level (the contacts' hold rows are
     the blocks' own, unchanged).  Empty without an airport (no cluster
-    relation) or where every entry holds at most one held block."""
-    if airport is None:
-        return {}
-    from .cluster_pad import plane_groups
+    relation) or where every entry holds at most one held block.  A
+    FLAT-BUILT GROUP (``held[ref]["flat_group"]``, ``planar/flat_group``)
+    is one more entry, keyed by its lead, unless its lead is in
+    ``skip_flat`` (a group no one lawful level serves:
+    ``no_step.hold_interval``)."""
     want = set(prefs)
-    out: dict[str, list[str]] = {}
-    for _fid, _ref, _group, fids in plane_groups(planar, law, airport):
-        refs = sorted({str(planar.faces[q].ref) for q in fids
-                       if q in planar.faces} & want)
+    entries: list[list[str]] = []
+    if airport is not None:
+        from .cluster_pad import plane_groups
+        for _fid, _ref, _group, fids in plane_groups(planar, law, airport):
+            refs = sorted({str(planar.faces[q].ref) for q in fids
+                           if q in planar.faces} & want)
+            if len(refs) > 1:
+                entries.append(refs)
+    # A FLAT-BUILT TERMINAL GROUP IS ONE COMPLEX (owner Q370 a, #1717;
+    # ``planar/flat_group``, read off the held registry): its held blocks
+    # are one entry, led by its lead block
+    leads: dict[str, str] = {}
+    flat: dict[str, list[str]] = {}
+    for ref in sorted(want):
+        rec = (planar.registries.held.get(ref) or {}).get("flat_group")
+        if rec and rec.get("lead") in want and rec["lead"] not in skip_flat:
+            flat.setdefault(str(rec["lead"]), []).append(ref)
+    for lead, refs in flat.items():
         if len(refs) > 1:
-            out[refs[0]] = refs[1:]
+            entries.append(sorted(refs))
+            for r in refs:
+                leads[r] = lead
+    # entries sharing a block are one complex (union-find)
+    par: dict[str, str] = {}
+
+    def find(a: str) -> str:
+        while par.setdefault(a, a) != a:
+            par[a] = par[par[a]]
+            a = par[a]
+        return a
+    for refs in entries:
+        for r in refs[1:]:
+            a, b = find(refs[0]), find(r)
+            if a != b:
+                par[max(a, b)] = min(a, b)
+    comps: dict[str, list[str]] = {}
+    for r in list(par):
+        comps.setdefault(find(r), []).append(r)
+    out: dict[str, list[str]] = {}
+    for refs in comps.values():
+        refs = sorted(refs)
+        lead = next((leads[r] for r in refs if r in leads), refs[0])
+        out[lead] = [r for r in refs if r != lead]
     return out
+
+
+def flat_group_level(blocks: _t.Mapping[str, _t.Mapping[str, _t.Any]], lead: str,
+                     members: _t.Sequence[str]) -> "tuple[float | None, dict]":
+    """THE HIGHEST LAWFUL LEVEL OF A FLAT-BUILT GROUP (owner Q370 a and
+    O-F1 a, 2026-11-03T13:58:37Z: "most accurate airside ... that retains
+    correct runways, grade laws"; #1717): ``(D, report)``.  The group's
+    LAWFUL interval is the intersection, over its blocks with a non-empty
+    admissible set of their own, of each block's pair-graph interval
+    (``I0``: what its frontage contacts reach within the caps from the
+    held runways and pins) and its reach intersection; ``D`` is the lead's
+    own frontage level (the group's zero) clamped into it -- the highest
+    lawful level where the zero stands above it.  ``None`` where the
+    interval is empty (the blocks keep their own preferences and the tie,
+    as any datum group)."""
+    lo, hi, used, skipped = -math.inf, math.inf, [], []
+    for ref in (lead, *members):
+        b = blocks.get(ref)
+        if b is None:
+            continue
+        lo_b = max(b["I0"][0], b["reach_isect"][0])
+        hi_b = min(b["I0"][1], b["reach_isect"][1])
+        if lo_b > hi_b:
+            skipped.append(ref)
+            continue
+        used.append(ref)
+        lo, hi = max(lo, lo_b), min(hi, hi_b)
+    zero = float(blocks[lead]["D"]) if lead in blocks else None
+    rep = {"lead": lead, "zero": zero, "lawful": [lo, hi], "blocks": len(used),
+           "own_empty": skipped}
+    if zero is None or lo > hi:
+        rep["level"] = None
+        return None, rep
+    d = min(max(zero, lo), hi)
+    rep["level"] = d
+    return d, rep
 
 
 def datum_group_rows(groups: _t.Mapping[str, _t.Sequence[str]],

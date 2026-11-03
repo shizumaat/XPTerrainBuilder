@@ -249,6 +249,12 @@ CATALOGUE = {
         "the detailed elevation for {airports} could not be downloaded.",
         "{inset_source} did not answer, so the ground there was shaped from "
         "the standard elevation data.", "network", severity="degraded"),
+    # the user's "Use coarser data" on a slow approach-ring download
+    # (#1351, ``O4_Vector_Map._record_coarsened_rings``)
+    "elevation_coarsened": Entry(
+        "part of the detailed elevation around its airports was skipped.",
+        "You chose to finish without it, so the standard elevation data "
+        "shapes {areas} there.", "rebuild_later", severity="degraded"),
     "mask_extent_missing": Entry(
         "its water masks were built without the custom extent you chose.",
         "The extent “{extent}” was not found in the app's Extents folder, "
@@ -646,6 +652,7 @@ def _describe(code: str, tile: str, airports: list, params: dict,
         "inset_source": params.get("source")
                         or "The detailed elevation source",
         "extent": params.get("extent") or "?",
+        "areas": params.get("areas") or "some areas",
         "category": _CATEGORY_WORDS.get(params.get("category", ""),
                                         "reefs or tidal flats"),
     }

@@ -939,6 +939,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "o4_engine.events",
     "o4_engine.parallel",
     "o4_engine.session",
+    "o4_engine.slow_step",
     "o4_engine.task_meter",
     "o4_engine.tile_time_model",
 )

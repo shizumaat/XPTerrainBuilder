@@ -329,6 +329,9 @@ public enum O4Event: Sendable, Equatable {
     /// the outcome of a build or a `pack_forests` command. See
     /// `O4PackOldForests`.
     case packOldForests(O4PackOldForests)
+    /// One step of one tile is slow (protocol 1.24, #1351): what, why, an
+    /// ETA and the answers it supports. See `O4SlowStep`.
+    case slowStep(O4SlowStep)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -506,6 +509,9 @@ public enum O4Event: Sendable, Equatable {
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
+        // `class SlowStep` in Ortho4XP/src/o4_engine/events.py.
+        case "SlowStep":
+            return .slowStep(O4SlowStep.parse(object))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -936,6 +942,16 @@ public final class OrthoEngineClient: @unchecked Sendable {
             arguments["lon"] = lon
         }
         send(command: "pack_forests", arguments: arguments)
+    }
+
+    // MARK: - Slow-step alert (protocol 1.24)
+
+    /// The user's answer to a tile's `slowStep` alert (#1351): "continue"
+    /// or "coarser" ("cancel" is the per-tile stop, `cancel_tile`). An
+    /// engine older than 1.24 refuses it: nothing changes.
+    public func slowStepChoice(lat: Int, lon: Int, choice: String) {
+        send(command: "slow_step_choice",
+             arguments: ["lat": lat, "lon": lon, "choice": choice])
     }
 
     // MARK: - Stream handling

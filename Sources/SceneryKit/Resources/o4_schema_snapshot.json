@@ -15,6 +15,7 @@
    "max_download_slots",
    "max_convert_slots",
    "max_build_slots",
+   "slow_step_alert_minutes",
    "check_tms_response",
    "http_timeout",
    "max_connect_retries",
@@ -1480,6 +1481,28 @@
    "module": "TILE",
    "name": "skip_downloads",
    "type": "bool"
+  },
+  "slow_step_alert_minutes": {
+   "default": 5,
+   "hint": "When one build step of a tile runs longer than this, and longer than this machine's earlier builds of that step, the app says what the step is doing, why it is slow and when it should finish, and offers to continue, to finish on coarser data where the step can, or to cancel the tile. Off never asks.",
+   "name": "slow_step_alert_minutes",
+   "type": "int",
+   "valueLabels": {
+    "0": "Off",
+    "10": "10 minutes",
+    "15": "15 minutes",
+    "30": "30 minutes",
+    "5": "5 minutes",
+    "60": "1 hour"
+   },
+   "values": [
+    "0",
+    "5",
+    "10",
+    "15",
+    "30",
+    "60"
+   ]
   },
   "terrain_casts_shadows": {
    "default": true,

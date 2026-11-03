@@ -152,6 +152,8 @@ _LAYOUT: list = [
          "Auto suits most connections."),
         ("max_convert_slots", "How many imagery files should be converted at once?", "app", False,
          "Auto uses every processor core but two."),
+        ("slow_step_alert_minutes", "When should a slow build step ask what to do?", "app", False,
+         "A step that runs this long, and past its earlier builds, says why and asks."),
         ("overpass_server_choice", "Map data server", "app", False,
          "Where map data downloads from when no stored regional copy covers the tile."),
         ("osm_regional_extracts", "Use stored regional map data when available?", "app", False,

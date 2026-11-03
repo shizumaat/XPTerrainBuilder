@@ -131,7 +131,12 @@ from typing import Any, Optional
 # and ``library_import_bundle`` — a built tile carried to another
 # installation as a tile bundle (``tile_bundle``), completed through
 # LibraryReady like the other Library commands.
-PROTOCOL_VERSION = "1.23"
+# 1.24 (2026-11-02, additive, #1351): SlowStep — one step of one tile ran
+# past its alert threshold: what it is doing, why it is slow and an ETA,
+# with the options the step supports; the ``slow_step_choice`` command
+# answers it ("continue" / "coarser" / "cancel").  An older front end
+# drops the event; an older engine refuses the command.
+PROTOCOL_VERSION = "1.24"
 
 
 @dataclass(frozen=True)
@@ -241,6 +246,38 @@ class StepProgress(EngineEvent):
     label: str = ""
     percent: float = 0.0
     indeterminate: bool = False
+    attempt: int = 0
+
+
+@dataclass(frozen=True)
+class SlowStep(EngineEvent):
+    """One step of one tile ran past its slow-step threshold (#1351).
+
+    The ENGINE writes every word (``o4_engine.slow_step``): ``title`` and
+    ``message`` (what the step is doing, why it is slow, the ETA at the
+    current rate) are shown verbatim, ``options`` are the answers the
+    step supports — ``"continue"``, ``"coarser"`` (only where the running
+    phase can finish on coarser data), ``"cancel"`` — with their button
+    words in ``option_labels``, in order.  A front end shows it
+    NON-MODALLY, replaces an open alert of the same tile and step with a
+    later event (the ETA refreshes), closes it on ``resolved`` (the step
+    ended or was answered), and answers with ``slow_step_choice``.
+    ``reason`` is the engine's short reason code; ``eta_seconds`` is
+    ``None`` while there is no estimate.  ``attempt``: as on ``TileState``.
+    """
+
+    lat: int = 0
+    lon: int = 0
+    step_key: str = ""
+    title: str = ""
+    message: str = ""
+    reason: str = ""
+    options: tuple = ()
+    option_labels: tuple = ()
+    elapsed_seconds: float = 0.0
+    expected_seconds: Optional[float] = None
+    eta_seconds: Optional[float] = None
+    resolved: bool = False
     attempt: int = 0
 
 

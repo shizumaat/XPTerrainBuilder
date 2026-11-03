@@ -81,13 +81,29 @@ rm -f "$CORE_REQS"
 if [[ -n "$GDAL_REQ" ]]; then
   echo "Installing optional GDAL bindings…"
   GDAL_PIN="$(echo "$GDAL_REQ" | head -1 | cut -d';' -f1)"
+  GDAL_PIP_ARGS=()
+  # THE SLIM GDAL (#1675): on macOS the bindings build against a GDAL with
+  # no optional format libraries (scripts/build_slim_gdal.sh) instead of
+  # Homebrew's full-feature one — ~100 MB of Arrow, SFCGAL, Poppler, HDF5,
+  # HEIF, Xerces … the engine never opens.  XPTB_SLIM_GDAL=0 falls back to
+  # Homebrew's libgdal.  A failed slim build stops the freeze: shipping the
+  # full GDAL by accident is not a graceful degrade.
+  if [[ "$(uname -s)" == "Darwin" && "${XPTB_SLIM_GDAL:-1}" != "0" ]]; then
+    SLIM_GDAL="$(PYTHON="$PYTHON_BOOT" GDAL_VERSION="${GDAL_PIN#gdal==}" \
+      "$ROOT/scripts/build_slim_gdal.sh")"
+    export PATH="$SLIM_GDAL/bin:$PATH"
+    # Built from source against it: a cached wheel would carry the
+    # previous libgdal's install name.
+    GDAL_PIP_ARGS=(--no-binary gdal --no-cache-dir --force-reinstall --no-deps)
+    echo "  slim GDAL: $SLIM_GDAL"
+  fi
   # The bindings must match the libgdal they build against: where
-  # gdal-config exists (Homebrew), take its version, not the pin.
+  # gdal-config exists (slim or Homebrew), take its version, not the pin.
   if command -v gdal-config >/dev/null 2>&1; then
     GDAL_PIN="gdal==$(gdal-config --version)"
   fi
   echo "  $GDAL_PIN"
-  "$PY" -m pip install "$GDAL_PIN" \
+  "$PY" -m pip install "${GDAL_PIP_ARGS[@]}" "$GDAL_PIN" \
     || echo "WARNING: GDAL install failed — airport elevation insets will be disabled (engine handles this gracefully)."
 fi
 "$PY" -m pip install pyinstaller
@@ -142,7 +158,7 @@ if [[ -d "$BUNDLE_DIR/osgeo" ]]; then
   GDAL_LIB="$(basename "${GDAL_LINK:-missing}")"
   if [[ ! -f "$BUNDLE_DIR/$GDAL_LIB" ]]; then
     echo "ERROR: the frozen engine's GDAL bindings link $GDAL_LINK, which is not in the bundle." >&2
-    echo "       Match requirements.txt's Darwin gdal pin to Homebrew's GDAL (gdal-config --version)." >&2
+    echo "       Match requirements.txt's Darwin gdal pin to the GDAL it builds against (gdal-config --version)." >&2
     exit 1
   fi
   # ONE COPY OF EACH SHARED LIBRARY (2026-10-26, app 1.0.430): Pillow ships

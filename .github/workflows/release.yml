@@ -39,13 +39,14 @@ jobs:
       - name: PROJ for GDAL's proj data lookup
         run: brew install proj
 
-      # The engine's lidar insets need GDAL; make_engine.sh builds the
-      # bindings against Homebrew's libgdal (version from gdal-config), and
+      # The engine's lidar insets need GDAL; make_engine.sh builds a SLIM
+      # libgdal from source (scripts/build_slim_gdal.sh, #1675) against
+      # these Homebrew libraries and the bindings against it, and
       # make_app.sh's signed-engine gate refuses an app without it.
-      - name: GDAL for the engine's elevation insets
+      - name: Libraries for the slim GDAL (elevation insets)
         run: |
-          brew install gdal
-          gdal-config --version
+          brew install proj libtiff libgeotiff sqlite libpng jpeg-turbo \
+            zstd libdeflate liblerc geos
 
       # macos-15 runners default to Xcode 16.4, whose SDK predates macOS 26;
       # the app needs the macOS 26 SDK.
@@ -56,9 +57,9 @@ jobs:
           swift --version
 
       # Freeze with Homebrew's Python, as the local app builds do: its
-      # libcrypto/libssl are Homebrew's openssl@3, the same ones Homebrew's
-      # GDAL (via libs2n) links. setup-python's older libcrypto made the
-      # bundled libgdal fail to load (release dry run 41004649378).
+      # libcrypto/libssl are Homebrew's openssl@3 (the slim GDAL links no
+      # openssl; Homebrew's full GDAL did, and setup-python's older
+      # libcrypto made it fail to load — release dry run 41004649378).
       - name: Freeze engine
         run: |
           brew install python@3.14

@@ -87,6 +87,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from ..geom import exact
 from .geometry import project_to_chain
 from .precedence import view
 from .trend import Trend as _Trend, trend_of as _trend_of
@@ -404,7 +405,7 @@ def _surfaces(airport: Airport, crossings: list[Crossing]) -> list[list[int]]:
             if not ra & rb or ra == rb:
                 continue
             reach = min(half.get(r, 0.0) for r in ra | rb)
-            if (a.xy[0] - b.xy[0]) ** 2 + (a.xy[1] - b.xy[1]) ** 2 < reach ** 2:
+            if exact.sq(a.xy[0] - b.xy[0]) + exact.sq(a.xy[1] - b.xy[1]) < exact.sq(reach):
                 parent[root(j)] = root(i)
     groups: dict[int, list[int]] = {}
     for i in range(len(crossings)):
@@ -557,11 +558,11 @@ def _crossing_pin_map(pm: PlanarMap, law: Law, airport: Airport, vw,
         ridge = [v for ch in chains.get(x.other, []) for v in ch]
         if c is None or not ridge:
             continue
-        v = min(ridge, key=lambda q: (vw.xy[q][0] - x.xy[0]) ** 2
-                + (vw.xy[q][1] - x.xy[1]) ** 2)
+        v = min(ridge, key=lambda q: exact.sq(vw.xy[q][0] - x.xy[0])
+                + exact.sq(vw.xy[q][1] - x.xy[1]))
         if v in thresholds:
             continue      # the node IS a CIFP threshold: it is already pinned
-        d = ((vw.xy[v][0] - x.xy[0]) ** 2 + (vw.xy[v][1] - x.xy[1]) ** 2) ** 0.5
+        d = exact.hypot(vw.xy[v][0] - x.xy[0], vw.xy[v][1] - x.xy[1])
         if v in best and best[v][0] <= d:
             continue
         best[v] = (d, c.z(c.station(*vw.xy[v])), x)

@@ -57,9 +57,9 @@ same mesh edges at the same nearest-stretch cap
 """
 from __future__ import annotations
 
-import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import snap_margin_m
 from ..model.airport import Airport
@@ -200,7 +200,7 @@ def nearest_axis(p: XY, axes: _t.Sequence[Axis], tie_m: float = 1e-6
             continue
         d, k, _t_, _s = project_to_chain(p, pts)
         (ax, ay), (bx, by) = pts[k], pts[k + 1]
-        n = math.hypot(bx - ax, by - ay)
+        n = exact.hypot(bx - ax, by - ay)
         if n < 1e-12:
             continue
         u = ((bx - ax) / n, (by - ay) / n)

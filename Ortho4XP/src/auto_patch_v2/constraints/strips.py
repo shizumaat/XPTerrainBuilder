@@ -52,9 +52,9 @@ Rows over ``graded_strip`` rings (the ground the strip law governs):
 from __future__ import annotations
 
 import dataclasses as _dc
-import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.reference_code import (NON_INSTRUMENT, VISUAL, raoa_applies, runway_code_number,
                                   status_by_ref)
@@ -175,7 +175,7 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         if ax is None:
             continue
         a, b, width = ax
-        length = math.hypot(b[0] - a[0], b[1] - a[1])
+        length = exact.hypot(b[0] - a[0], b[1] - a[1])
         if length < 1.0:
             continue
         unit = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
@@ -732,7 +732,7 @@ def _end_feet(vw: View, g: RunwayGroup, end_edges, seen: set[tuple[int, int]]
                 t = ((x - ax) * ex + (y - ay) * ey) / l2
                 t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
                 dx, dy = x - (ax + t * ex), y - (ay + t * ey)
-                cands.append((math.hypot(dx, dy), a, b, t, end))
+                cands.append((exact.hypot(dx, dy), a, b, t, end))
             # the NEAREST edge states the law; a nearer edge whose (vertex,
             # foot) pair is ALREADY stated yields to the next one rather
             # than dropping the vertex — the pre-§35 loop walked the edges

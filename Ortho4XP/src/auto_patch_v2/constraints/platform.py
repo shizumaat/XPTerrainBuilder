@@ -28,9 +28,9 @@ groundside terrace law prices a bank: a one-sided design penalty at the
 law's weight, never a hard row."""
 from __future__ import annotations
 
-import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
@@ -270,7 +270,7 @@ def _bank_rows(planar: PlanarMap, law: Law,
             key = (o, i)
             if key in seen or o == i:
                 return
-            d = math.hypot(xy[o][0] - xy[i][0], xy[o][1] - xy[i][1])
+            d = exact.hypot(xy[o][0] - xy[i][0], xy[o][1] - xy[i][1])
             if d <= 0.0:
                 return
             seen.add(key)
@@ -417,11 +417,11 @@ def _basis(xy: dict[int, tuple[float, float]], vs: list[int]
     degrees of freedom.  ``None`` where ``vs`` is collinear."""
     cx = sum(xy[v][0] for v in vs) / len(vs)
     cy = sum(xy[v][1] for v in vs) / len(vs)
-    a = max(vs, key=lambda v: (xy[v][0] - cx) ** 2 + (xy[v][1] - cy) ** 2)
-    b = max(vs, key=lambda v: (xy[v][0] - xy[a][0]) ** 2 + (xy[v][1] - xy[a][1]) ** 2)
+    a = max(vs, key=lambda v: exact.sq(xy[v][0] - cx) + exact.sq(xy[v][1] - cy))
+    b = max(vs, key=lambda v: exact.sq(xy[v][0] - xy[a][0]) + exact.sq(xy[v][1] - xy[a][1]))
     ax, ay = xy[a]
     bx, by = xy[b]
-    L = math.hypot(bx - ax, by - ay)
+    L = exact.hypot(bx - ax, by - ay)
     if L <= 0.0:
         return None
     c = max(vs, key=lambda v: abs((bx - ax) * (xy[v][1] - ay) - (by - ay) * (xy[v][0] - ax)))
@@ -1120,7 +1120,7 @@ def platform_records(planar: PlanarMap, law: Law,
         rec: dict = {"ref": pref,
                      "level": round(float(co[2]), 3),
                      "grad": [round(float(co[0]), 6), round(float(co[1]), 6)],
-                     "tilt_pct": round(100.0 * math.hypot(co[0], co[1]), 3),
+                     "tilt_pct": round(100.0 * exact.hypot(co[0], co[1]), 3),
                      "plane_residual_max_m": round(float(res.max()), 3),
                      "platform_vertices": len(inner), "welded": len(weld),
                      "centroid_ll": _ll_of(planar, inner, c0)}
@@ -1198,7 +1198,7 @@ def platform_records(planar: PlanarMap, law: Law,
                 rec.update({"plateau_vertices": len(pv),
                             "plateau_within_tol": (int((np.abs(Zp - float(z[dv])) <= tol_p + 1e-6).sum())
                                                    if dv is not None else None),
-                            "plateau_tilt_pct": round(100.0 * math.hypot(cp[0], cp[1]), 3),
+                            "plateau_tilt_pct": round(100.0 * exact.hypot(cp[0], cp[1]), 3),
                             "plateau_area_m2": pr.get("area_m2"),
                             "stand_zone_source": pr.get("source")})
             if "reach_band" in h:
@@ -1246,7 +1246,7 @@ def _landing_records(planar: PlanarMap, law: Law, z) -> list[dict]:
         rec: dict = {"ref": pref, "collar_m": collar_width(planar, cfids, pfids),
                      "level": round(float(co[2]), 3),
                      "grad": [round(float(co[0]), 6), round(float(co[1]), 6)],
-                     "tilt_pct": round(100.0 * math.hypot(co[0], co[1]), 3),
+                     "tilt_pct": round(100.0 * exact.hypot(co[0], co[1]), 3),
                      "plane_residual_max_m": round(float(res.max()), 3),
                      "platform_vertices": len(inner), "welded": len(weld),
                      "centroid_ll": _ll_of(planar, inner, c0)}
@@ -1326,7 +1326,7 @@ def _conforming_records(planar: PlanarMap, law: Law, z) -> list[dict]:
         held_v = [v for v, _x in (h.get("hold_contacts") or ())]
         hm = np.array([abs(float(z[v]) - D) for v in held_v]) if held_v else np.zeros(0)
         rec = {"ref": r, "conforming": True, "datum": round(D, 3),
-               "vertices": len(vs), "tilt_pct": round(100.0 * math.hypot(co[0], co[1]), 3),
+               "vertices": len(vs), "tilt_pct": round(100.0 * exact.hypot(co[0], co[1]), 3),
                "held_contacts": int(hm.size),
                "held_within_tol": int((hm <= tol + 1e-6).sum()) if hm.size else 0,
                "held_miss_max_m": round(float(hm.max()), 3) if hm.size else None,
@@ -1380,6 +1380,6 @@ def collar_width(planar: PlanarMap, cfids, pfids) -> float:
 def _ll_of(planar: PlanarMap, vs, xy) -> list:
     """The canonical lat/lon of the vertex of ``vs`` nearest ``xy`` (the
     frame's own identity — no projection here)."""
-    v = min(vs, key=lambda q: (planar.vertices[q].xy[0] - xy[0]) ** 2
-            + (planar.vertices[q].xy[1] - xy[1]) ** 2)
+    v = min(vs, key=lambda q: exact.sq(planar.vertices[q].xy[0] - xy[0])
+            + exact.sq(planar.vertices[q].xy[1] - xy[1]))
     return list(planar.vertices[v].key)

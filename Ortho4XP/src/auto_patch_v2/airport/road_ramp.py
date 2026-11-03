@@ -66,6 +66,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.reference_code import ref_status
 from ..law.tables import (
@@ -258,7 +259,7 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             vs = pm.ring_vertices(cyc)
             for a, b in zip(vs, list(vs[1:]) + [vs[0]]):
                 pa, pb = pm.vertices[a].xy, pm.vertices[b].xy
-                if math.dist(pa, pb) < 1e-6:
+                if exact.dist(pa, pb) < 1e-6:
                     continue
                 segs.append(LineString([pa, pb]))
                 ends.append((a, b))
@@ -388,7 +389,7 @@ def _graph(pm: PlanarMap, nodes: _t.AbstractSet[int]
     for e in pm.edges.values():
         if e.a not in nodes or e.b not in nodes:
             continue
-        d = math.dist(pm.vertices[e.a].xy, pm.vertices[e.b].xy)
+        d = exact.dist(pm.vertices[e.a].xy, pm.vertices[e.b].xy)
         adj.setdefault(e.a, []).append((e.b, d))
         adj.setdefault(e.b, []).append((e.a, d))
     return adj
@@ -975,7 +976,7 @@ class _FeetIndex:
             u = 0.0 if l2 < 1e-18 else max(0.0, min(
                 1.0, ((p[0] - ax) * vx + (p[1] - ay) * vy) / l2))
             fx, fy = ax + u * vx, ay + u * vy
-            d = math.hypot(p[0] - fx, p[1] - fy)
+            d = exact.hypot(p[0] - fx, p[1] - fy)
             if d > h or d < 1e-6:
                 continue
             if ref not in best or d < best[ref][0]:
@@ -1446,7 +1447,7 @@ def _way_crosses(pm: PlanarMap, v: int, a: int, b: int, u: float,
     (ax, ay), (bx, by) = pm.vertices[a].xy, pm.vertices[b].xy
     p = pm.vertices[v].xy
     q = (ax + (bx - ax) * u, ay + (by - ay) * u)
-    if math.dist(p, q) < 1e-9:
+    if exact.dist(p, q) < 1e-9:
         q = (p[0] + 1e-6, p[1])
     seg = LineString([p, q]).buffer(0.5)
     return any(retaining[int(j)].intersects(seg)
@@ -1541,7 +1542,7 @@ def wall_midline(g) -> list[tuple[float, float]]:
     cs = list(rotated_rectangle(g).exterior.coords)
     if len(cs) < 5:
         return []
-    e = sorted(((cs[i], cs[i + 1]) for i in range(4)), key=lambda ab: -math.dist(*ab))
+    e = sorted(((cs[i], cs[i + 1]) for i in range(4)), key=lambda ab: -exact.dist(*ab))
     (a0, a1), (b0, b1) = e[0], e[1]
     return [((a0[0] + b1[0]) / 2, (a0[1] + b1[1]) / 2),
             ((a1[0] + b0[0]) / 2, (a1[1] + b0[1]) / 2)]
@@ -1688,7 +1689,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
 
         def nearest(v: int, pool: list[int]) -> int:
             x, y = pm.vertices[v].xy
-            return min(pool, key=lambda q: (math.hypot(pm.vertices[q].xy[0] - x,
+            return min(pool, key=lambda q: (exact.hypot(pm.vertices[q].xy[0] - x,
                                                        pm.vertices[q].xy[1] - y), q))
         # the LOWER side: lot vertices whose nearest airside-level vertex is
         # across the wall; the UPPER side: airside-level vertices whose

@@ -48,6 +48,7 @@ import typing as _t
 
 import numpy as np
 
+from ..geom import exact
 from ..law import Law
 from ..model.planar import PlanarMap, is_osm_ribbon_ref
 
@@ -153,7 +154,7 @@ def _tangent(w, s: float) -> np.ndarray:
     a = ln.interpolate(max(0.0, s - 2.0))
     b = ln.interpolate(min(ln.length, s + 2.0))
     v = np.array([b.x - a.x, b.y - a.y])
-    n = float(np.hypot(*v))
+    n = float(exact.hypot_array(*v))
     return v / n if n > 0 else v
 
 

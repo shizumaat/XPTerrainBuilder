@@ -46,9 +46,9 @@ pavement and its rows mint nothing: the adjacent ground is a law surface
 """
 from __future__ import annotations
 
-import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import is_structure_role, is_value_role
 from ..model.constraints import Diff, Linear, Row, Source
@@ -83,7 +83,7 @@ def _span(terms: _t.Sequence[tuple[int, float]],
     hx, hy = xy[hv]
     fx = sum(-c * xy[v][0] for v, c in neg) / hc
     fy = sum(-c * xy[v][1] for v, c in neg) / hc
-    d = math.hypot(hx - fx, hy - fy)
+    d = exact.hypot(hx - fx, hy - fy)
     return (hc, d) if d > 0.0 else None
 
 

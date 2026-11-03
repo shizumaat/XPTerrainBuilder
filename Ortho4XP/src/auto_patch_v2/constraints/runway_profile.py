@@ -64,6 +64,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law, inset_class
 from ..law.tables import (
     FLAT_CLASS_FINE,
@@ -137,8 +138,8 @@ def _end_vertex(vw: View, all_ids: list[int], rw, end, ux: float, uy: float) -> 
     d = end.pin_along() if hasattr(end, "pin_along") else float(end.displaced_m)
     tx = end.xy[0] + sign * ux * d
     ty = end.xy[1] + sign * uy * d
-    return min(all_ids, key=lambda v: (vw.xy[v][0] - tx) ** 2
-               + (vw.xy[v][1] - ty) ** 2)
+    return min(all_ids, key=lambda v: exact.sq(vw.xy[v][0] - tx)
+               + exact.sq(vw.xy[v][1] - ty))
 
 
 def _datum_slope_cap(law: Law, rw) -> float | None:
@@ -586,8 +587,8 @@ def yield_envelope(planar: PlanarMap, law: Law, vw: View, ref: str,
             return st.index(v)
         except ValueError:                # merged by the identity floor
             return min(range(len(st)),
-                       key=lambda k: (vw.xy[st[k]][0] - vw.xy[v][0]) ** 2
-                       + (vw.xy[st[k]][1] - vw.xy[v][1]) ** 2)
+                       key=lambda k: exact.sq(vw.xy[st[k]][0] - vw.xy[v][0])
+                       + exact.sq(vw.xy[st[k]][1] - vw.xy[v][1]))
 
     i, j = station(rc.pin_a.vertex), station(rc.pin_b.vertex)
     za, zb = float(rc.pin_a.z), float(rc.pin_b.z)
@@ -862,7 +863,7 @@ def _abeam(vw: View, v: int, a: int, b: int, t: float, ends: dict[int, int],
     other = ends[end]
     (ex, ey), (ox, oy), (px, py) = vw.xy[end], vw.xy[other], vw.xy[v]
     ux, uy = ex - ox, ey - oy
-    n = math.hypot(ux, uy)
+    n = exact.hypot(ux, uy)
     if n <= 0.0:
         return False
     beyond = ((px - ex) * ux + (py - ey) * uy) / n
@@ -883,7 +884,7 @@ def curve_stations(xy: _t.Sequence[tuple[float, float]], chains: _t.Sequence[_t.
     out: list[int] = []
     for ch in chs:
         for v in ch:
-            if out and (v == out[-1] or math.dist(xy[v], xy[out[-1]]) < min_d):
+            if out and (v == out[-1] or exact.dist(xy[v], xy[out[-1]]) < min_d):
                 continue
             out.append(v)
     return out

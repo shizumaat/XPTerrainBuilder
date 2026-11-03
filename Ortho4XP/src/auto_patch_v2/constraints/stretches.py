@@ -55,9 +55,9 @@ Pure over the planar map and the law; read by ``taxi``, ``transverse``,
 from __future__ import annotations
 
 import dataclasses as _dc
-import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import role_cap, role_family
 from ..model.planar import PlanarMap
@@ -233,7 +233,7 @@ def compose_pairs(xy: _t.Mapping[int, XY], verts: _t.Sequence[int],
         sa = on.get(a)
         for j in range(i + 1, n):
             b = verts[j]
-            d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
+            d = exact.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
             if d < min_d:
                 continue
             cap = base_cap
@@ -306,7 +306,7 @@ class AxisIndex:
         self.grid: dict[tuple[int, int], list[int]] = {}
         for pts, cap_l, cap_t in axes:
             for (ax, ay), (bx, by) in zip(pts, pts[1:]):
-                ln = math.hypot(bx - ax, by - ay)
+                ln = exact.hypot(bx - ax, by - ay)
                 if ln <= 0.0:
                     continue
                 k = len(self.segs)
@@ -325,7 +325,7 @@ class AxisIndex:
         for k in ks:
             ax, ay, ux, uy, ln, cl, ct = self.segs[k]
             t = max(0.0, min(ln, (x - ax) * ux + (y - ay) * uy))
-            d = math.hypot(x - (ax + t * ux), y - (ay + t * uy))
+            d = exact.hypot(x - (ax + t * ux), y - (ay + t * uy))
             if best is None or d < best[0] - self.tie_m or \
                     (abs(d - best[0]) <= self.tie_m and cl < best[3]):
                 best = (d, ux, uy, cl, ct)
@@ -377,7 +377,7 @@ class AxisIndex:
         for k in self._within(x, y, d0 + self.tie_m):
             ax, ay, ux, uy, ln, cl, ct = segs[k]
             t = max(0.0, min(ln, (x - ax) * ux + (y - ay) * uy))
-            if abs(math.hypot(x - (ax + t * ux), y - (ay + t * uy)) - d0) <= self.tie_m:
+            if abs(exact.hypot(x - (ax + t * ux), y - (ay + t * uy)) - d0) <= self.tie_m:
                 out.append((ux, uy, cl, ct))
         return out
 

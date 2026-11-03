@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import family, role_cap
 from ..model.airport import Airport
@@ -275,7 +276,7 @@ def junction_raw_transverse(planar: PlanarMap, law: Law, airport: Airport
             continue                     # one row per pair, not per station
         ax_, ay_ = vw.xy[a]
         bx_, by_ = vw.xy[b]
-        d = ((ax_ - bx_) ** 2 + (ay_ - by_) ** 2) ** 0.5
+        d = exact.hypot(ax_ - bx_, ay_ - by_)
         if d < min_d:
             continue
         a_run, b_run = a in on_runway, b in on_runway

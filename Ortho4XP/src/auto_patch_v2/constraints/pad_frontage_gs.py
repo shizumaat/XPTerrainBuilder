@@ -31,13 +31,13 @@ polygon, ONE of the frontage radius, and ONE of the groundside pavement roles
 """
 from __future__ import annotations
 
-import math
 import statistics
 import typing as _t
 
 from shapely.geometry import Point, Polygon
 from shapely.strtree import STRtree
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import pavement_roles, role_side
 from ..model.airport import Airport
@@ -425,7 +425,7 @@ def groundside_frontage(planar: PlanarMap, law: Law
             for cyc in [vw.rings[gid], *vw.holes[gid]]:
                 for a, b in zip(cyc, cyc[1:] + cyc[:1]):
                     if a in front and b in front:
-                        length += math.hypot(xy[a][0] - xy[b][0],
+                        length += exact.hypot(xy[a][0] - xy[b][0],
                                              xy[a][1] - xy[b][1])
             got.append((pid, pref, length, sorted(front), list(pgroup)))
         if got:
@@ -505,7 +505,7 @@ def groundside_frontage_level(planar: PlanarMap, law: Law, airport: Airport
         claim: dict[int, tuple[float, int]] = {}
         for pid, _pref, _L, front, pgroup in fronted:
             for v in front:
-                d = min(math.hypot(xy[v][0] - xy[u][0], xy[v][1] - xy[u][1])
+                d = min(exact.hypot(xy[v][0] - xy[u][0], xy[v][1] - xy[u][1])
                         for u in pgroup)
                 if v not in claim or d < claim[v][0]:
                     claim[v] = (d, pid)
@@ -522,7 +522,7 @@ def groundside_frontage_level(planar: PlanarMap, law: Law, airport: Airport
                          (f"face:{gid}", gface.ref, f"pad:{pid}", ref_of[pid]))
             pgroup = rim[pid]
             for v in sorted(vs):
-                near = sorted((math.hypot(xy[v][0] - xy[u][0],
+                near = sorted((exact.hypot(xy[v][0] - xy[u][0],
                                           xy[v][1] - xy[u][1]), u)
                               for u in pgroup)[:_GS_LEADER_K]
                 inv = [1.0 / max(1e-3, dd) for dd, _u in near]

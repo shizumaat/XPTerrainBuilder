@@ -762,6 +762,39 @@ def _record_run_capabilities(airport_record, code, definition):
     capabilities[code] = record
 
 
+def _foreign_negative_settled(airport_record, code, definition,
+                              bounding_box):
+    """Does this out-of-country negative already stand as recorded?
+
+    True when the record already says ``no-coverage`` for ``code`` with a
+    capability stamp under the current query law, and neither re-probe
+    predicate (13b's :func:`negative_is_unverified`, 15aq (4)'s
+    :func:`negative_is_version_stale`) would call it into question.  The
+    fetch loop then leaves the record alone instead of re-stamping the
+    running engine version on it: that re-stamp is a MATERIAL index
+    change, and on a warm corpus it became a write into the shared data
+    repo on every engine version bump (#1776 -- KPDX SWISSALTI3D, BIKF).
+    A negative a predicate WOULD question is still stamped, exactly once
+    per version, as #1238 requires.
+    """
+    if not isinstance(airport_record, dict):
+        return False
+    if airport_record.get(code) != NO_COVERAGE:
+        return False
+    capabilities = airport_record.get("capabilities")
+    if not isinstance(capabilities, dict) or not isinstance(
+            capabilities.get(code), dict):
+        return False
+    if negative_predates_query_law(airport_record, code):
+        return False
+    return not (
+        negative_is_unverified(airport_record, code, definition,
+                               bounding_box)
+        or negative_is_version_stale(airport_record, code, definition,
+                                     bounding_box)
+    )
+
+
 def negative_predates_query_law(airport_record, code):
     """Was this ``no-coverage`` written before :data:`NEGATIVE_LAW`?
 
@@ -4705,6 +4738,9 @@ def ensure_airport_insets(
             destination = FNAMES.airport_inset_dem(lat, lon, icao, code)
             if not provider_serves_country(definition, country):
                 _set_aside_foreign_inset(destination, icao, code, country)
+                if _foreign_negative_settled(airport_record, code,
+                                             definition, bounding_box):
+                    continue
                 airport_record[code] = NO_COVERAGE
                 airport_record["checked"] = checked_stamp
                 # stamp THIS engine on the negative: unstamped, 15aq (4)'s

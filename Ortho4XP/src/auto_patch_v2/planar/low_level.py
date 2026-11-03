@@ -144,17 +144,18 @@ def _densest(ys: _t.Sequence[float], band: float) -> "tuple[int, float]":
     return best, med
 
 
-def walled_feet(parts, law, to_xy) -> "tuple[list, list]":
+def walled_feet(parts, law, to_xy, supports: bool = True) -> "tuple[list, list]":
     """``(frame xy, y)`` of the ground-contact feet of the WALLED parts of
-    ``parts`` (``[(part, xy)]``; ``[placement] chain_min_height_m``)."""
-    from ..geom.foot_planes import is_support, support_lift_on
+    ``parts`` (``[(part, xy)]``; ``[placement] chain_min_height_m``) --
+    without the SUPPORTS' (``geom/foot_planes.is_support``: poles, piers)
+    when ``supports`` is false."""
+    from ..geom.foot_planes import is_support
     wall_min = float(law.tables.structures.placement.chain_min_height_m)
-    lift = support_lift_on(law)   # EXPERIMENT #1726: a support founds no storey
     xy, ys = [], []
     for p, _xy in parts:
         if getattr(p, "line", False) or float(getattr(p, "height_m", 0.0) or 0.0) < wall_min:
             continue
-        if lift and is_support(p, law):
+        if not supports and is_support(p, law):
             continue
         for f in getattr(p, "feet", ()) or ():
             xy.append(to_xy(float(f[1]), float(f[0])))
@@ -197,17 +198,36 @@ def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] |
     ``y_low`` the lower storey's plane or ``None`` (one level) -- or
     ``None`` where too few walled feet touch the airside near a stand to
     read one (``stands``: frame xy; ``to_xy(lon, lat)`` the frame's
-    entry)."""
-    from ..airport import airside_group_seat as ag
+    entry).
+
+    A SUPPORT FOUNDS NO STOREY (#1726, ``geom/foot_planes``): the lower
+    storey must be read on the walls that are not supports; where they
+    read one, its plane is that of all the walled feet -- the supports
+    standing on that storey's floor included.  MEASURED KBWI
+    ``BWI_Terminal_new``: only its poles read a level 6.15 m down (a lower
+    pad 5.7 m under the apron the owner saw as "everything floating");
+    KMCI ``building26/b1``: walls at y -10.5 witness the lower storey, and
+    its plane stays at -8.2 with the columns on it."""
     got = stand_floor(parts, air, stands, law, to_xy)
     if got is None:
         return None
     t, _X, Y, _at = got
-    ys = Y.tolist()
-    low = sorted(float(y) for y in Y if y <= t - 2.0 * ag.PLANE_BAND_M)
+    own = _low_plane(walled_feet(parts, law, to_xy, supports=False)[1], t)
+    if own is None:
+        return t, None
+    low = _low_plane(Y.tolist(), t)
+    return t, (low if low is not None else own)
+
+
+def _low_plane(ys: _t.Sequence[float], t: float) -> "float | None":
+    """The densest ``PLANE_BAND_M`` plane of the feet ``ys`` at least two
+    bands under ``t``, where it holds ``PLANE_SHARE`` of them (at least
+    ``PLANE_MIN_FEET``), else ``None``."""
+    from ..airport import airside_group_seat as ag
+    low = sorted(float(y) for y in ys if y <= t - 2.0 * ag.PLANE_BAND_M)
     need = max(ag.PLANE_MIN_FEET, int(ag.PLANE_SHARE * len(ys) + 0.999999))
     n, med = _densest(low, ag.PLANE_BAND_M) if low else (0, 0.0)
-    return t, (med if n >= need else None)
+    return med if n >= need else None
 
 
 def plan_low(P, air, airport, law, grid: float, others=None, refused=None

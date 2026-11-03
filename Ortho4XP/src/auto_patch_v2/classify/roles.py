@@ -797,6 +797,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                                         _walls, rules.cells.min_area_m2,
                                         snap_margin_m(law))
     stats.update(_wstats)
+    # 14a (2) / 14h (c), issue #684: a mapped road's stretch ALONG a lot is
+    # the lot — relabelled HERE, after every mint, weld and wall cut, so no
+    # earlier reader saw anything but the road (``classify/lot_roads``)
+    from .lot_roads import relabel_lot_stretches
+    cells, _rstats = relabel_lot_stretches(cells, airport, law, rules)
+    stats.update(_rstats)
     cut: list[CutLine] = []
     for ln, c in taxi_parts:
         cut.append(CutLine("taxi_centerline", f"taxi{c.id}", tuple(ln.coords),

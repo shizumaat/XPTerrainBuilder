@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import enum
+import re
 import typing as _t
 
 from .frame import XY, Key
@@ -46,7 +47,7 @@ __all__ = ["NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Face", "Brea
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
-           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "GAP_APRON_PREFIX",
+           "is_late_ref", "LOT_ROAD_MARK", "GAP_PREFIX", "is_gap_ref", "GAP_APRON_PREFIX",
            "is_gap_apron_ref", "gap_part_kind", "gap_parts_across_knife",
            "gap_step_part", "shares_gap_part",
            "bears_shape",
@@ -1243,10 +1244,25 @@ def drop_edges(pm) -> frozenset[frozenset[int]]:
                      if r.get("road_edge") for a, b in (r.get("kerb") or ()))
 
 
+#: RULINGS 2026-10-14a (2) / 14h (c), issue #684: the ref suffix of a mapped
+#: road's stretch along a lot, relabelled as that lot
+#: (``classify/lot_roads.relabel_lot_stretches``) — ``<lot ref>#road<k>``, so
+#: a reader joining on ``ref.split("#")[0]`` reads it as its lot.
+LOT_ROAD_MARK = "#road"
+_LOT_ROAD_RE = re.compile(re.escape(LOT_ROAD_MARK) + r"\d+$")
+
+
+def _is_lot_road_ref(ref) -> bool:
+    """A mapped road's stretch along a lot, now that lot (issue #684)."""
+    return _LOT_ROAD_RE.search(str(ref or "")) is not None
+
+
 def is_late_ref(ref) -> bool:
     """A LATE cell's ref: a face that JOINS THE FINISHED MAP (pass C,
     ``planar/ribbons``) and is absent from the stage-1 map — the mapped-road
-    ribbons (30aa), the §52 facade cells and the §53 gap pieces.  The
-    ARRANGEMENT asks this; the road laws keep asking
-    :func:`is_osm_ribbon_ref`."""
-    return is_osm_ribbon_ref(ref) or is_facade_ref(ref) or is_gap_ref(ref)
+    ribbons (30aa), their stretches along a lot (:func:`_is_lot_road_ref`,
+    issue #684: stage 1 never reads a groundside lot's road), the §52
+    facade cells and the §53 gap pieces.  The ARRANGEMENT asks this; the
+    road laws keep asking :func:`is_osm_ribbon_ref`."""
+    return (is_osm_ribbon_ref(ref) or _is_lot_road_ref(ref) or is_facade_ref(ref)
+            or is_gap_ref(ref))

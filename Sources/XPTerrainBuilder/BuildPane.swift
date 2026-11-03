@@ -51,6 +51,7 @@ struct BuildPane: View {
     /// The active tile's customized settings (#1350), from the engine.
     @State private var customizations: [O4TileCustomization] = []
     @State private var textureCheck: O4TileTextureCheck?
+    @State private var imageryFreshness: O4ImageryFreshness?
     @Environment(\.openSettings) private var openSettings
 
     /// The tile pane's customized-settings words; the Qt pane uses the
@@ -119,6 +120,13 @@ struct BuildPane: View {
                 return await buildModel.tileTextureCheck(for: coord)
             },
             check: $textureCheck))
+        .modifier(TileImageryFreshnessTask(
+            key: buildModel.imageryFreshnessKey(for: buildModel.activeTile),
+            load: { [buildModel] in
+                guard let coord = buildModel.activeTile else { return nil }
+                return await buildModel.imageryFreshness(for: coord)
+            },
+            freshness: $imageryFreshness))
         .task(id: customizationsKey) {
             guard let coord = buildModel.activeTile else {
                 customizations = []
@@ -233,6 +241,13 @@ struct BuildPane: View {
             detailRow(O4Glossary.term("detail"), zlText(info))
             detailRow("Ground shaped", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))
+            if info != nil {
+                // Does the source still serve this imagery (#1666; the Qt
+                // pane: the same row)?
+                TileImageryFreshnessRow(freshness: imageryFreshness) {
+                    await buildModel.updateImagery(active)
+                }
+            }
             if let info {
                 // Who built it (#1226, owner Q95): from the build record,
                 // else the tile's DSF.

@@ -105,11 +105,13 @@ class DeckBridge:
     #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3)); ``()``
     #: for a deck the pack models no wall under
     walls: tuple = ()
-    #: a SLAB deck (:func:`_road_floor`: the frame stops short of the road
-    #: and models nothing under its plate): the ground under it is KEPT at
-    #: the deck and the road's cut stops at its edges (owner
-    #: 2026-11-03T16:39:23Z: "keep terrain under them and just cut to either
-    #: side like a tunnel ramp")
+    #: a SLAB deck (:func:`_is_slab`: its plate is ``ATTR_hard``, solid from
+    #: the ground up, the ``ATTR_hard_deck`` flag only on edge-on faces —
+    #: ``airport/obj8.ObjGeometry.hard_plate``): the ground under it is KEPT
+    #: at the deck and the road's cut stops at its edges (owner
+    #: 2026-11-03T16:39:23Z: "if the bridge surface is not a hard deck ...
+    #: keep terrain under them and just cut to either side like a tunnel
+    #: ramp")
     slab: bool = False
 
     @property
@@ -180,9 +182,9 @@ def _frames(objects, tol: float) -> list[tuple[list, list]]:
     return out
 
 
-def _slab(cache, decks) -> list[tuple[float, float, float]]:
-    """Every deck placement's ``ATTR_hard_deck`` vertex as ``(x, y, top y)``
-    in the frame."""
+def _plate(cache, decks) -> list[tuple[float, float, float]]:
+    """Every deck placement's deck-plate vertex (``ObjGeometry.hard_deck``)
+    as ``(x, y, top y)`` in the frame."""
     from ..airport.obj8 import _to_frame
     out = []
     for d in decks:
@@ -195,34 +197,49 @@ def _slab(cache, decks) -> list[tuple[float, float, float]]:
     return out
 
 
-def _end_top(slab, seats, reach: float, top: float) -> float:
+def _is_slab(cache, decks) -> bool:
+    """THE SLAB WITNESS (round 3 §1): a deck placement's plate is the
+    ``ATTR_hard`` plate (``ObjGeometry.hard_plate``) — a hard surface solid
+    from the ground up, which aircraft drive on and nothing passes under.
+    A plate flagged ``ATTR_hard_deck`` is a deck the road passes under,
+    however thin its frame (LFPG's plate-only decks: one 13 m plate)."""
+    for d in decks:
+        g = cache.geometry(d.resolved) if d.resolved else None
+        if g is not None and g.hard_plate:
+            return True
+    return False
+
+
+def _end_top(plate, seats, reach: float, top: float) -> float:
     """A SLAB's top AT its end line: the mean over the seat stations of the
     plate vertex nearest each, within ``reach`` — the end taper the plate
     authors (KIAH_Bridge1: 0.13 m) stated, never the plate's crown."""
     tops = []
     for s in seats:
-        near = min(slab, key=lambda q: math.hypot(q[0] - s[0], q[1] - s[1]), default=None)
+        near = min(plate, key=lambda q: math.hypot(q[0] - s[0], q[1] - s[1]), default=None)
         if near is not None and math.hypot(near[0] - s[0], near[1] - s[1]) <= reach:
             tops.append(near[2])
     return sum(tops) / len(tops) if tops else top
 
 
-def _top_at(slab, seats, reach: float, top: float) -> float:
-    near = [y for x, yy, y in slab if any(math.hypot(x - s[0], yy - s[1]) <= reach
+def _top_at(plate, seats, reach: float, top: float) -> float:
+    near = [y for x, yy, y in plate if any(math.hypot(x - s[0], yy - s[1]) <= reach
                                           for s in seats)]
     return max(near) if near else top
 
 
-def _bottom_y(cache, frame, trenches) -> tuple[float, bool]:
+def _bottom_y(cache, frame, trenches, top: float) -> tuple[float, bool]:
     """``(the frame's bottom y, walled)``: a co-placed trench object's walls'
     bottom (``walled``: the frame is then the trench object's), else the
-    lowest genuine solid of the frame's placements."""
+    lowest genuine solid of the frame's placements, else ``top``: a frame
+    modelling nothing but its plate states no level under it (round 3 §1
+    twin B, LFPG's plate-only decks: the authored y = 0 plane is no floor)."""
     ids = {str(q.id) for q in frame}
     tr = [t for t in trenches or () if str(t.object_id) in ids]
     if tr:
         return -max(float(t.depth_m) for t in tr), True
     ys = [c.min_y for q in frame if q.resolved for c in cache.genuine(q.resolved)]
-    return (min(ys) if ys else 0.0), False
+    return (min(ys) if ys else top), False
 
 
 def _beside_a_building(frame, ring: Polygon, roles: CellRoles) -> bool:
@@ -256,11 +273,12 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
     for decks, frame in _frames(objects, tol):
         d = decks[0]
         u = unary_union([q.hard_deck for q in decks])
-        slab = _slab(cache, decks)
-        top = max((y for _x, _y, y in slab), default=None)
+        plate = _plate(cache, decks)
+        solid = _is_slab(cache, decks)
+        top = max((y for _x, _y, y in plate), default=None)
         if top is None or d.deck_top_z is None:
             continue
-        bottom, walled = _bottom_y(cache, frame, trenches)
+        bottom, walled = _bottom_y(cache, frame, trenches, top)
         if walled:
             # Q-A AS RULED: where the pack models walls the walls define the
             # cut — the co-placed trench object's own reading governs
@@ -285,7 +303,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                 continue
             sa, sb = (tuple(to_xy(lo, la) for la, lo in e) for e in pair)
             reach = max(2.0 * step, 3.0)
-            ta, tb = _top_at(slab, sa, reach, top), _top_at(slab, sb, reach, top)
+            ta, tb = _top_at(plate, sa, reach, top), _top_at(plate, sb, reach, top)
             mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
                                    tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
                                    float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb)))
@@ -293,10 +311,15 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
         for db in (db if z is None else _dc.replace(db, deck_z=z) for db in mine):
             db = _road_floor(db, law, notes, level_b, _carries_movement(db, roles))
-            if db.slab:
+            if solid:
+                notes.append(f"{db.object_id} {db.resource.rsplit('/', 1)[-1]}: an ATTR_hard "
+                             f"plate (ATTR_hard_deck only on its edge-on faces) — a SLAB: the "
+                             f"ground under it is kept at the deck and the cut stops at its "
+                             f"edges (owner 2026-11-03T16:39Z)")
+                db = _dc.replace(db, slab=True)
                 reach = max(2.0 * step, 3.0)
-                db = _dc.replace(db, top_a=_end_top(slab, db.seats_a, reach, db.top_a),
-                                 top_b=_end_top(slab, db.seats_b, reach, db.top_b))
+                db = _dc.replace(db, top_a=_end_top(plate, db.seats_a, reach, db.top_a),
+                                 top_b=_end_top(plate, db.seats_b, reach, db.top_b))
             r, n = _road_dir(db), across_dir(db)
             out.append(_dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
                                                         0.5 * (db.top_a + db.top_b), r, n)))
@@ -394,13 +417,14 @@ def _crossed_pair(pairs, routes, to_xy):
 def _road_floor(db: DeckBridge, law, notes: list[str], level_b: "float | None",
                 movement: bool) -> DeckBridge:
     """``db`` with the floor the road passes at under it (RULINGS 2026-10-30a
-    (2): the road "passes completely under it").  A frame reaching
-    ``[tunnel] clearance_m`` or more under its deck top reaches the road: its
-    bottom is the floor (30g (2), KBNA's walled frame) -- the object states
-    it.  A frame stopping short of it is a SLAB whose bottom is its own
-    underside, which states no road level (KIAH's taxiway bridges: 0.12 m
-    from top to bottom).  Its floor is the lower level's ladder (RULINGS
-    2026-11-03b Q344 a, spec two-level-regions §13): the airport's level B
+    (2): the road "passes completely under it").  It sets ONLY the floor;
+    whether the deck is a slab is the plate's own witness (:func:`_is_slab`).
+    A frame reaching ``[tunnel] clearance_m`` or more under its deck top
+    reaches the road: its bottom is the floor (30g (2), KBNA's walled frame)
+    -- the object states it.  A frame stopping short of it states no road
+    level (LFPG's plate-only decks; KIAH's slabs: 0.12 m from top to
+    bottom).  Its floor is the lower level's ladder (RULINGS 2026-11-03b
+    Q344 a, spec two-level-regions §13): the airport's level B
     (``level_b``), else ``[tunnel] mouth_depth_m`` under a deck carrying a
     runway or taxiway (``movement``), else the clearance (30g) -- never
     shallower than the clearance, and never the survey, which reads the deck
@@ -419,9 +443,8 @@ def _road_floor(db: DeckBridge, law, notes: list[str], level_b: "float | None",
     notes.append(f"{db.object_id} {db.resource.rsplit('/', 1)[-1]}: the frame stops "
                  f"{top - db.bottom_y:.2f} m under its deck, short of the road; the floor "
                  f"stands {depth:.2f} m under the deck ({why}, RULINGS 2026-11-03b / "
-                 f"2026-10-30g); a SLAB: the ground under it is kept at the deck and "
-                 f"the cut stops at its edges (owner 2026-11-03T16:39Z)")
-    return _dc.replace(db, bottom_y=top - depth, slab=True)
+                 f"2026-10-30g)")
+    return _dc.replace(db, bottom_y=top - depth)
 
 
 def _carries_movement(db: DeckBridge, roles: "CellRoles") -> bool:
@@ -691,30 +714,84 @@ def deck_ground(classification, tunnels, law) -> tuple:
             rings.setdefault((t.deck_bridge, tuple(reach.exterior.coords)), reach)
     if not rings:
         return classification, []
-    cells = list(classification.cells)
+    cells, notes = _slab_ground(list(classification.cells), tunnels, law)
     polys = [Polygon(c.ring, c.holes) for c in cells if len(c.ring) >= 3]
     taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys])
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
     out: list = []
-    notes: list[str] = []
     for (oid, _ring), deck in sorted(rings.items(), key=lambda kv: kv[0]):
         free = [q for q in polygon_parts_with_area(fixed_difference(deck, taken))
                 if not is_hairline(q, spacing)]
-        for k, part in enumerate(free):
-            out.append(Cell(0, "graded_strip", f"{DECK_GROUND_REF}:{oid}" + (f"#{k}" if k else ""),
-                            tuple(part.exterior.coords)[:-1],
-                            tuple(tuple(h.coords)[:-1] for h in part.interiors),
-                            None, None, role_side(law, "graded_strip"), "structure",
-                            {"deck_ground": 1.0, "area_m2": part.area}))
+        out.extend(_ground_cell(law, oid, k, part) for k, part in enumerate(free))
         if free:
             taken = canonical_union([taken, *free])
             notes.append(f"{oid}: the ground the deck rests on, {len(free)} face(s) "
                          f"{sum(q.area for q in free):.0f} m2 no cell owned under its ring, "
                          f"held flush (RULINGS 2026-10-30b / 30f (4))")
-    if not out:
+    if not out and not notes:
         return classification, notes
     merged = [_dc.replace(c, id=i) for i, c in enumerate(cells + out)]
     return _dc.replace(classification, cells=tuple(merged)), notes
+
+
+def _ground_cell(law, oid: str, k: int, part: Polygon) -> Cell:
+    """One ``deck_ground:<object>[#k]`` face: ground, never pavement."""
+    return Cell(0, "graded_strip", f"{DECK_GROUND_REF}:{oid}" + (f"#{k}" if k else ""),
+                tuple(part.exterior.coords)[:-1],
+                tuple(tuple(h.coords)[:-1] for h in part.interiors),
+                None, None, role_side(law, "graded_strip"), "structure",
+                {"deck_ground": 1.0, "area_m2": part.area})
+
+
+def _slab_ground(cells: list, tunnels, law) -> tuple[list, list[str]]:
+    """``(cells, notes)`` with the ground UNDER A SLAB the deck's (round 3
+    §3): inside a slab's ring every cell aircraft do not roll on
+    (``law.tables.rolled_on_roles``; never a road name list) becomes deck
+    ground ``deck_ground:<object>#k``, so its vertices carry only the deck's
+    span pair (``constraints/edge_deck``) — a mapped road or strip kept
+    under the slab held its own rows and lifted the end line's seat
+    (KIAH ``obj24551`` end B, 39 pairs on one seat)."""
+    from ..law.tables import rolled_on_roles
+    slabs: dict[str, Polygon] = {}
+    for t in tunnels:
+        if getattr(t, "deck_slab", False) and len(t.deck_ring) >= 3:
+            ring = Polygon(t.deck_ring)
+            slabs.setdefault(t.deck_bridge, ring if ring.is_valid else ring.buffer(0.0))
+    if not slabs:
+        return cells, []
+    keep = rolled_on_roles(law) | {"tunnel_ramp", "retaining_wall"}
+    spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
+    out: list = []
+    taken: dict[str, list] = {}
+    for c in cells:
+        if c.role in keep or len(c.ring) < 3 or str(c.ref).startswith(DECK_GROUND_REF + ":"):
+            out.append(c)
+            continue
+        p = Polygon(c.ring, c.holes)
+        p = p if p.is_valid else p.buffer(0.0)
+        hit = [(oid, r) for oid, r in sorted(slabs.items()) if p.intersects(r)
+               and p.intersection(r).area > 0.25]
+        if not hit:
+            out.append(c)
+            continue
+        rest = p
+        for oid, r in hit:
+            under = [q for q in polygon_parts_with_area(rest.intersection(r))
+                     if not is_hairline(q, spacing)]
+            taken.setdefault(oid, []).extend(under)
+            rest = fixed_difference(rest, r)
+        for k, part in enumerate(q for q in polygon_parts_with_area(rest)
+                                 if not is_hairline(q, spacing)):
+            out.append(_dc.replace(c, ref=c.ref if k == 0 else f"{c.ref}#{k}",
+                                   ring=tuple(part.exterior.coords)[:-1],
+                                   holes=tuple(tuple(h.coords)[:-1] for h in part.interiors)))
+    notes = []
+    for oid, parts in sorted(taken.items()):
+        out.extend(_ground_cell(law, oid, 100 + k, q) for k, q in enumerate(parts))
+        notes.append(f"{oid}: under the SLAB, {len(parts)} face(s) "
+                     f"{sum(q.area for q in parts):.0f} m2 of ground the aircraft do not roll "
+                     f"on are the deck's ground (round 3 §3)")
+    return out, notes
 
 
 def deck_pin(db: DeckBridge, mouth):

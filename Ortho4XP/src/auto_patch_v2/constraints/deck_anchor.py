@@ -20,8 +20,8 @@ with_runway_chord`` and published as ``PlanarMap.deck_anchors``):
 * the PINNED VERTEX of an end is where the CARRIED ROUTE leaves the deck —
   a runway deck: the end of the runway's ridge where the cut trimmed it
   (``planar/overlay._ridges_off_cuts``), else its ridge vertex nearest the
-  end line; a taxi deck: the taxi centreline's vertex on the end line, else
-  the seat station nearest the line's middle;
+  end line; a taxi deck: the seat station nearest where the carried taxi
+  centreline crosses the end line, else the one nearest its middle;
 * the PROFILE there is read with the bridge window BLIND — the runway's
   re-fit chord (``runway_chord._chords``, its trend fitted without the DEM
   inside the deck rings and the trench outlines) or the carried taxi
@@ -69,8 +69,8 @@ YIELD_RULING = f"{YIELD_HEAD} (RULINGS 2026-11-03c Q2 a)"
 
 _RUNWAY = ("runway", "runway_crossing")
 _TAXI_CENTERLINE = "taxi_centerline"
-#: how near the end line a taxi centreline vertex must stand to be the
-#: route's own vertex there (m); beyond it the seat station is pinned
+#: the plan tolerance (m) a route's vertex stands "on" an end line within
+#: (the runway ridge's reach, the carried chain's search)
 _ON_LINE_M = 1.5
 
 
@@ -187,13 +187,32 @@ def _carried(vw, taxi, ends) -> "tuple | None":
 
 
 def _taxi_vertex(vw, ch, stations, seats) -> int:
-    """The carried chain's vertex on the end line, else the seat station
-    nearest the line's middle."""
-    on = [q for q in (ch or ()) if _off_line(vw.xy[q], stations) <= _ON_LINE_M]
-    if on:
-        return min(on, key=lambda q: _off_line(vw.xy[q], stations))
-    mx, my = _mid(stations)
+    """The pinned vertex of a taxi end line is a SEAT STATION (round 3 §3):
+    the one nearest where the carried chain crosses the end line, else the
+    one nearest the line's middle — never a junction vertex beside the line
+    (KIAH ``obj24551`` end B pinned ``v12883``, off every station)."""
+    mx, my = _crossing(vw, ch, stations) or _mid(stations)
     return min(seats, key=lambda v: math.hypot(vw.xy[v][0] - mx, vw.xy[v][1] - my))
+
+
+def _crossing(vw, ch, stations) -> "tuple[float, float] | None":
+    """Where the carried chain ``ch`` crosses the end line (its stations'
+    polyline, run on a station spacing past each end), ``None`` for no
+    crossing."""
+    if not ch or len(ch) < 2 or len(stations) < 2:
+        return None
+    from shapely.geometry import LineString
+    pts = [tuple(p) for p in stations]
+    (x0, y0), (x1, y1) = pts[0], pts[-1]
+    n = math.hypot(x1 - x0, y1 - y0) or 1.0
+    run = n / max(1, len(pts) - 1)
+    ux, uy = (x1 - x0) / n * run, (y1 - y0) / n * run
+    line = LineString([(x0 - ux, y0 - uy), *pts, (x1 + ux, y1 + uy)])
+    x = line.intersection(LineString([vw.xy[q] for q in ch]))
+    if x.is_empty:
+        return None
+    c = x.centroid
+    return (c.x, c.y)
 
 
 def _chain_profile(pm: PlanarMap, vw, ch, xy, inside, window: float) -> "float | None":

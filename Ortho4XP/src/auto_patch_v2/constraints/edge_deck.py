@@ -130,30 +130,47 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     corridor runs under included; ``tunnels``: the trenches under one."""
     from .deck_lines import end_lines
     flush = float(law.tables.structures.bridge.deck_flush_m)
+    lines = end_lines(planar, law)
+    seats_of = {oid: {v for e in es for v, _w in e.terms} for oid, es in lines.items()}
     rows: list[Row] = []
-    for oid, es in sorted(end_lines(planar, law).items()):
+    done: set[int] = set()
+    for oid, es in sorted(lines.items()):
         ends = [(e.terms, e.depth) for e in es]
-        rows.extend(_span_rows(planar, oid, es, [t for t in tunnels if t.deck_bridge == oid],
-                               air, ends, flush))
+        under = [t for t in tunnels if t.deck_bridge == oid]
+        # THE TRENCH'S SEATS (deck redesign PR B, attributing PR A's LFPG
+        # strip_seam_tear 27 -> 106): the open stretch a trench runs on to the
+        # next deck is graded to the nearest seat of EVERY deck the trench
+        # seats on (``Tunnel.edge_seats``), as each trench read it before the
+        # rows went per object — read off this object's seats alone, the
+        # deck ground beside H18r's neighbour obj13020 stood 3.04 m over it
+        pool = set(seats_of[oid]).union(*(seats_of.get(o, set()) for t in under
+                                          for o, _s, _d in t.edge_seats))
+        rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done))
         rows.extend(_station_rows(oid, ends, flush, _held_levels(planar, oid, es)))
         rows.extend(_rigid_rows(oid, ends))
     return rows
 
 
-def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float) -> list[Row]:
+def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float,
+               pool: "_t.Sequence[int] | None" = None, done: "set[int] | None" = None
+               ) -> list[Row]:
     """The object's SPAN: every vertex inside its deck rings — or, on the
     bridge's own ground (:func:`_bridge_ground`), inside the reach of a
     trench under it (``model/structures.deck_reach``) — that is no seat and
     no trench floor takes the pair to its nearest seat; an airside vertex
     there a ceiling from the deck's zero instead (#1692: the pavement under
     the deck never stands through it), flush both ways over a SLAB (the
-    pavement inside its ring IS the deck's surface)."""
+    pavement inside its ring IS the deck's surface).  ``pool``: the seats a
+    span vertex may take (the object's own and its trenches' other decks');
+    ``done``: the vertices an earlier object already spans (each once)."""
     from shapely.geometry import MultiPoint, Point, Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
     seat_vs = sorted({v for e in es for v, _w in e.terms})
     if not seat_vs:
         return []
+    near_vs = list(pool) if pool else seat_vs
+    done = set() if done is None else done
     decks = list({tuple(e.deck.ring): e.deck for e in es}.values())
     inside = prep(unary_union([Polygon(d.ring).buffer(0.5) for d in decks]))
     slabs = [Polygon(d.ring).buffer(0.5) for d in decks if d.cut == "slab"]
@@ -163,7 +180,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     src = Source(GEN, RULING, (oid, oid, "deck span"))
     under = Source(GEN, RIGID, (oid, oid, "under the deck"))
     top_of = _station_tops(ends)
-    seats = set(seat_vs)
+    seats = set(seat_vs) | set(near_vs)
     rows: list[Row] = []
     for v, vx in planar.vertices.items():
         if v in seats or _FLOOR_ROLES & set(planar.roles_at(v)):
@@ -172,8 +189,11 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         if not inside.contains(p) and not (beyond.contains(p) and _bridge_ground(planar, vx)):
             continue
         x, y = vx.xy
-        a = min(seat_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
+        a = min(near_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
                 + (planar.vertices[s].xy[1] - y) ** 2)
+        if v not in air and v in done:
+            continue
+        done.add(v)
         if v in air:
             both = on_slab is not None and on_slab.contains(p)
             rows.append(_from_zero(v, top_of, top_of.get(a), -flush if both else None, flush,
@@ -214,6 +234,7 @@ def _rigid_rows(oid: str, ends: list) -> list[Row]:
         rows.append(Linear(ts, None, rhs, src))
         rows.append(Linear(tuple((v, -c) for v, c in ts), None, -rhs, src))
     return rows
+
 
 
 def _bridge_ground(planar: PlanarMap, vx) -> bool:

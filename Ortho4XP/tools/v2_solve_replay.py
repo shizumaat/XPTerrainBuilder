@@ -2645,6 +2645,12 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                      else ()), *rep.pin_yield], print)
     except (ImportError, AttributeError):
         pass
+    try:
+        # deck redesign §5 (b): the build's own post-solve deck levels
+        from auto_patch_v2.pipeline.emit_stage import with_deck_levels
+        pm = with_deck_levels(icao, pm, sol, print)
+    except ImportError:
+        pass
     print(f"[{icao}] {rep.jetway_strip.line()}")
     for _s in rep.jetway_strip.strips:
         print(f"    strip {_s['id']} pad {_s['pad_ref']} frontage resid "

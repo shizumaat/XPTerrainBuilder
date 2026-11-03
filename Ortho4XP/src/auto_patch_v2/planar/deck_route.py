@@ -32,7 +32,11 @@ _STRAIGHT_DEG = 45.0
 
 def carried_route(airport, piece: Polygon) -> tuple[str, tuple[XY, ...], str]:
     """``(family, route, runway id)`` of the deck piece ``piece`` (module
-    doc); ``("taxi", (), "")`` where no route of the airport crosses it."""
+    doc); ``("road", (), "")`` where no apt.dat runway or taxi route crosses
+    it — a ROAD (or other) deck, never a taxi bridge (owner 2026-11-03T23:02Z:
+    "If its ends touch airside they should stay flush with airside
+    pavement, but which part of the object is flush depends on the
+    situation"; KLAX ``Misc/Road_Bridge.obj``, LFPG ``H16.obj``)."""
     best = None
     for rw in getattr(airport, "runways", ()) or ():
         if len(rw.ends) != 2:
@@ -44,7 +48,8 @@ def carried_route(airport, piece: Polygon) -> tuple[str, tuple[XY, ...], str]:
     if best is not None:
         rw = best[1]
         return "runway", (tuple(rw.ends[0].xy), tuple(rw.ends[1].xy)), str(rw.id)
-    return "taxi", _taxi_route(airport, piece), ""
+    route = _taxi_route(airport, piece)
+    return ("taxi" if route else "road"), route, ""
 
 
 def _taxi_route(airport, piece: Polygon) -> tuple[XY, ...]:

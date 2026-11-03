@@ -435,8 +435,9 @@ class DeckBridge:
     #: signature plate) or ``slab`` (an ``ATTR_hard`` plate)
     witness: str = "hard_deck"
     #: the deck's family, from the most senior route it carries: ``runway``
-    #: where a runway axis crosses it, else ``taxi`` (one per DECK, never
-    #: voted per end line)
+    #: where a runway axis crosses it, ``taxi`` where row-1202 taxi edges do,
+    #: else ``road`` (no apt.dat route: a road or other deck, owner
+    #: 2026-11-03T23:02Z) — one per DECK, never voted per end line
     family: str = "taxi"
     #: the CARRIED ROUTE: the apt.dat runway axis, or the row-1202 taxi
     #: edges through the deck run on ~600 m each way (frame xy polyline);

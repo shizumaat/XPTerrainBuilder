@@ -260,6 +260,13 @@
    "evidence": "snippet",
    "summary": "CC BY 4.0 with the dataset citation; no registration."
   },
+  "JAPAN5M": {
+   "licence": "GSI Content Usage Terms (free with attribution)",
+   "attribution": "Geospatial Information Authority of Japan (GSI)",
+   "terms": "https://www.gsi.go.jp/ENGLISH/page_e30286.html",
+   "evidence": "read",
+   "summary": "Public Data License 1.0 with credit and an edited note. Owner allowed it for the library (Q333 b, 2026-11-03)."
+  },
   "LOWERSAXONY1M": {
    "licence": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
    "attribution": "LGLN Niedersachsen",
@@ -634,13 +641,6 @@
    "terms": "",
    "evidence": "none-found",
    "summary": "GEOBASES/IJSN publish no blanket licence; varies per dataset."
-  },
-  "JAPAN5M": {
-   "licence": "GSI Content Usage Terms (free with attribution)",
-   "attribution": "Geospatial Information Authority of Japan (GSI)",
-   "terms": "https://www.gsi.go.jp/ENGLISH/page_e30286.html",
-   "evidence": "read",
-   "summary": "Public Data License 1.0 with credit and an edited note, but the Survey Act approval question for redistributed DEM tiles is open (owner)."
   },
   "LITHUANIA1M": {
    "licence": "Lithuanian open geodata",

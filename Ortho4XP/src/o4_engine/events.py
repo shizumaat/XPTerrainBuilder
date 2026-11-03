@@ -131,7 +131,13 @@ from typing import Any, Optional
 # and ``library_import_bundle`` — a built tile carried to another
 # installation as a tile bundle (``tile_bundle``), completed through
 # LibraryReady like the other Library commands.
-PROTOCOL_VERSION = "1.23"
+# 1.24 (2026-11-02, additive, #1729): ``tile_mesh_order`` — the packs
+# above a tile in X-Plane's scenery order that ship a base mesh for it
+# (``hidden_by``) and the local meshes below it the tile hides
+# (``hides``); ``apply_mesh_order`` moves the tile above / below a pack or
+# disables it in scenery_packs.ini.  A built tile's ``BuildDone.warnings``
+# name the same (codes ``scenery_hidden_by_mesh`` / ``scenery_hides_mesh``).
+PROTOCOL_VERSION = "1.24"
 
 
 @dataclass(frozen=True)

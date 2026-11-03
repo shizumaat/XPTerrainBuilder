@@ -95,6 +95,16 @@ def last_outcome_counts(last_ok):
     return built, len(last_ok) - built
 
 
+def _mesh_order_rows(lat, lon, tile) -> list:
+    """The built tile's scenery-order warnings (#1729): another pack's
+    ground drawn instead of it, or it drawn over a local mesh."""
+    import O4_Config_Utils as CFG
+    import O4_Mesh_Order as MESHORDER
+    return MESHORDER.degraded_rows(
+        getattr(CFG, "custom_scenery_dir", "") or "", lat, lon,
+        getattr(tile, "build_dir", "") or "")
+
+
 def build_done(lat, lon, ok, records, app_driven=False, notes=(),
                degraded=()):
     """A tile's ``BuildDone`` from its raw failure ``records``
@@ -1629,7 +1639,8 @@ class EngineSession:
                         notes=FAIL.from_substitutions(
                             UNPATCHED.read_substitutions(tile)),
                         degraded=FAIL.from_degraded(
-                            UNPATCHED.read_degraded(tile)))
+                            UNPATCHED.read_degraded(tile)
+                            + _mesh_order_rows(lat, lon, tile)))
                     self._emit(TileState(
                         lat=lat, lon=lon, state="done", percent=100.0,
                         label=(BUILT_WITH_WARNINGS

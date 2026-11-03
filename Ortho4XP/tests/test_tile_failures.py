@@ -848,8 +848,12 @@ def test_every_warning_print_of_a_step_module_is_in_the_census():
                         and isinstance(n.value, str)}
     assert census_codes <= strings
     # the other degraded codes are the airport-pack warnings, published by
-    # their own sidecar keys (#564, #668), not by a step's census row
+    # their own sidecar keys (#564, #668), and the scenery-order check the
+    # engine runs at the end of a built tile (#1729, O4_Mesh_Order) — not
+    # by a step's census row
     degraded = {c for c, e in FAIL.CATALOGUE.items()
                 if e.severity == "degraded"}
     assert degraded - census_codes == {"pack_restore_unproven",
-                                       "airport_pack_unmounted"}
+                                       "airport_pack_unmounted",
+                                       "scenery_hidden_by_mesh",
+                                       "scenery_hides_mesh"}

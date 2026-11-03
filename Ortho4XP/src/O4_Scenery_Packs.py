@@ -57,6 +57,7 @@ __all__ = [
     "pack_state",
     "filter_enabled",
     "names_above_global_airports",
+    "load_order",
 ]
 
 INI_FILENAME = "scenery_packs.ini"
@@ -184,12 +185,24 @@ def names_above_global_airports(custom_scenery_dir: str) -> list[str]:
     Global Airports row.  An ini with no such row (or no ini) puts every
     enabled pack above it — X-Plane 12 draws Custom Scenery over Global
     Scenery."""
+    return load_order(custom_scenery_dir, stop_at_global_airports=True)
+
+
+def load_order(custom_scenery_dir: str,
+               stop_at_global_airports: bool = False) -> list[str]:
+    """The ENABLED packs on disk in X-Plane's priority order, highest
+    first: the packs the ini does not list (X-Plane adds a new pack at the
+    top), then the enabled rows in ini order.  With
+    ``stop_at_global_airports`` the list ends at the Global Airports row
+    (:func:`names_above_global_airports`).  For a tile, the first pack in
+    this order that ships a base-mesh DSF is the one X-Plane draws (#1729)."""
     enabled = enabled_pack_names(custom_scenery_dir)
     ordered, _disabled, global_at = _read_ini(
         os.path.join(custom_scenery_dir or "", INI_FILENAME))
-    above = ordered if global_at is None else ordered[:global_at]
-    return (sorted(enabled - set(ordered) - NEVER_FILTERED)
-            + [name for name in above if name in enabled])
+    unlisted = sorted(enabled - set(ordered) - NEVER_FILTERED)
+    if stop_at_global_airports and global_at is not None:
+        ordered = ordered[:global_at]
+    return unlisted + [name for name in ordered if name in enabled]
 
 
 def disabled_pack_names(custom_scenery_dir: str) -> set[str]:

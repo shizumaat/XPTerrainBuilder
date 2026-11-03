@@ -93,6 +93,7 @@ import O4_Tile_Info as TINFO
 import O4_Settings_Selection as SEL
 import O4_Qt_Imagery_Menu as QTIMENU
 import O4_Qt_Map as QTMAP
+import O4_Qt_Mesh_Order as QTMESHORDER
 import O4_Qt_Missing_Textures as QTMISSING
 from o4_engine import EngineSession
 from o4_engine import events as EV
@@ -1191,6 +1192,10 @@ class MainWindow(QMainWindow):
         self.missing_textures_row.rebuild_requested.connect(
             self._rebuild_tile_missing_textures)
         ig.addRow(self.missing_textures_row)
+        # Another pack's ground drawn instead of the tile, or the tile drawn
+        # over a local mesh (#1729; mac-app parity: TileMeshOrderRow).
+        self.mesh_order_row = QTMESHORDER.MeshOrderRow()
+        ig.addRow(self.mesh_order_row)
         self.info_zl = ElidedRowLabel("—")
         ig.addRow("%s:" % GLOSSARY.TERMS["detail"], self.info_zl)
         self.info_mesh = ElidedRowLabel("—")
@@ -3141,6 +3146,11 @@ class MainWindow(QMainWindow):
         self.missing_textures_row.check(
             tile if info is not None else None,
             getattr(info, "build_dir", "") if info is not None else "")
+        import O4_Config_Utils as CFG
+        self.mesh_order_row.check(
+            tile if info is not None else None,
+            getattr(info, "build_dir", "") if info is not None else "",
+            getattr(CFG, "custom_scenery_dir", "") or "")
         if info is None:
             # While a scan streams in, absence only means "not scanned
             # yet" — a built tile must not flash as "(not built)".

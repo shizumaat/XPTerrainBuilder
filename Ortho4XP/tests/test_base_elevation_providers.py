@@ -158,6 +158,8 @@ def test_shipped_definitions_parse(shipped_registry):
         "CORALATLAS",
         "SCOTLANDTIDAL",
         "LOWERSAXONYTIDAL",
+        # Iceland's national 2 m model (#1744).
+        "ISLANDSDEM",
         "SCHLESWIGHOLSTEINTIDAL",
         "HRDEMTIDAL",
         "NEWZEALANDTIDAL",
@@ -286,6 +288,22 @@ def test_shipped_definitions_parse(shipped_registry):
     assert shipped_registry["SAARLAND18M"]["enabled"] is False
     assert (
         shipped_registry["HAMBURG1M"]["access_strategy"] == "xyz_archive_drop"
+    )
+    # Iceland's IslandsDEM (#1744): the download grid's WFS answered as
+    # one GeoJSON catalog, Iceland's airports only, licence as published.
+    islandsdem = shipped_registry["ISLANDSDEM"]
+    assert islandsdem["access_strategy"] == "geojson_tile_index"
+    assert islandsdem["role"] == "airport_inset"
+    assert islandsdem["country"] == "ISL"
+    assert islandsdem["url_property"] == "dem"
+    assert "srsName=EPSG:4326" in islandsdem["index_url"]
+    assert islandsdem["native_resolution_m"] == 2
+    assert islandsdem["license"] == "Attribution 4.0 International (CC BY 4.0)"
+    assert "Polar Geospatial Center" in islandsdem["attribution"]
+    assert ea_definitions.provider_serves_country(islandsdem, "ISL")
+    assert not ea_definitions.provider_serves_country(islandsdem, "NOR")
+    assert ea_definitions._coverage_bbox_intersects(
+        islandsdem, (-22.66, 63.96, -22.55, 64.01)  # Keflavik
     )
     # France's WFS-indexed LiDAR HD tiles.
     assert (
@@ -892,9 +910,9 @@ def test_zero_byte_cache_file_is_not_recycled(tmp_path, monkeypatch):
 # =====================================================================
 def test_manual_setup_entries_per_region(tmp_path, monkeypatch, shipped_registry):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    # Icelandic tile (in Sonny's coverage, no automatic inset
-    # provider): the drop-folder source applies (base role).
-    entries = INSETS.manual_elevation_setup_for_tile(64, -20)
+    # Greek tile (in Sonny's coverage, no automatic inset provider):
+    # the drop-folder source applies (base role).
+    entries = INSETS.manual_elevation_setup_for_tile(38, 23)
     codes = [entry["code"] for entry in entries]
     assert codes == ["SONNY1"]
     entry = entries[0]
@@ -925,15 +943,17 @@ def test_manual_setup_suppressed_by_finer_automatic_source(
     # The Alps 1 arc-second Viewfinderpanoramas zone equals Sonny's
     # resolution -- equivalent is not better, so still suppressed.
     assert INSETS.manual_elevation_setup_for_tile(46, 7) == []
-    # Iceland: best automatic is the 90 m worldwide base -- Sonny's
+    # Greece: best automatic is the 90 m worldwide base -- Sonny's
     # 1 arc-second lidar genuinely improves it, so it IS offered.
+    # Iceland lost the suggestion to the 2 m IslandsDEM (#1744).
     # Germany, France and Italy are now automatically covered (the
     # Laender, LiDAR HD and TINITALY providers), so the suggestion is
     # gone there.
     assert [
         entry["code"]
-        for entry in INSETS.manual_elevation_setup_for_tile(64, -20)
+        for entry in INSETS.manual_elevation_setup_for_tile(38, 23)
     ] == ["SONNY1"]
+    assert INSETS.manual_elevation_setup_for_tile(64, -20) == []
     assert INSETS.manual_elevation_setup_for_tile(43, 12) == []
     assert INSETS.manual_elevation_setup_for_tile(47, 2) == []
     assert INSETS.manual_elevation_setup_for_tile(51, 10) == []
@@ -945,13 +965,13 @@ def test_manual_setup_reports_dropped_state(tmp_path, monkeypatch, shipped_regis
     os.makedirs(drop_directory)
     # Empty folder still counts as not set up.
     assert (
-        INSETS.manual_elevation_setup_for_tile(64, -20)[0]["already_dropped"]
+        INSETS.manual_elevation_setup_for_tile(38, 23)[0]["already_dropped"]
         is False
     )
     with open(os.path.join(drop_directory, "Germany_1s.zip"), "wb") as f:
         f.write(b"x")
     assert (
-        INSETS.manual_elevation_setup_for_tile(64, -20)[0]["already_dropped"]
+        INSETS.manual_elevation_setup_for_tile(38, 23)[0]["already_dropped"]
         is True
     )
 
@@ -1008,3 +1028,52 @@ def test_the_two_viewfinder_providers_are_https():
     for code in ("VIEWFINDER1", "VIEWFINDER3"):
         template = providers[code]["download_url_template"]
         assert template.startswith("https://"), code
+
+
+# =====================================================================
+# IslandsDEM (#1744): the download grid's WFS answer is the catalog
+# =====================================================================
+def test_islandsdem_reads_the_wfs_download_grid(
+        shipped_registry, tmp_path, monkeypatch):
+    """The shipped definition reads a GeoServer GetFeature answer (extra
+    ``id``/``bbox``/``crs`` keys, the tile URL under ``dem``) as its one
+    catalog and picks Keflavik's tile -- no network."""
+    import types
+
+    import requests
+
+    def _cell(number, west, south, east, north):
+        ring = [[west, south], [east, south], [east, north],
+                [west, north], [west, south]]
+        return {
+            "type": "Feature", "id": "islandsdem_footprint.%d" % number,
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+            "geometry_name": "geom",
+            "properties": {
+                "nr_reits": str(number),
+                "dem": "https://tiles.test/IslandsDEMv1.0_2x2m_zmasl_"
+                       "isn2016_%d.tif" % number,
+            },
+            "bbox": [west, south, east, north],
+        }
+
+    answer = {
+        "type": "FeatureCollection",
+        "features": [_cell(56, -23.3429, 63.8599, -22.2578, 64.3345),
+                     _cell(57, -22.3111, 63.8866, -21.2408, 64.3543)],
+        "totalFeatures": 2,
+        "crs": {"type": "name",
+                "properties": {"name": "urn:ogc:def:crs:EPSG::4326"}},
+    }
+    asked = []
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(
+        requests, "get",
+        lambda url, timeout=None: asked.append(url) or types.SimpleNamespace(
+            status_code=200, json=lambda: answer))
+    definition = shipped_registry["ISLANDSDEM"]
+    sources = _strategy_for(definition).discover(
+        definition, (-22.66, 63.96, -22.55, 64.01))
+    assert asked == [definition["index_url"]]
+    assert [entry["url"] for entry in sources] == [
+        "https://tiles.test/IslandsDEMv1.0_2x2m_zmasl_isn2016_56.tif"]

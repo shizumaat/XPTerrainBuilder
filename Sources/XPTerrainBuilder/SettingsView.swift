@@ -681,6 +681,11 @@ private struct CategoryPane: View {
         let overriddenNames = buildModel.selected.isEmpty ? [] : buildModel.overriddenNames()
         let overridden = known.filter { $0.scope == .tile && overriddenNames.contains($0.name) }
         Form {
+            // Storage (#1724): the data folder's sizes and Clear buttons
+            // above the cleanup settings (Qt: O4_Qt_Settings_Storage).
+            if category.key == "storage" {
+                StorageSection()
+            }
             // The selection's customizations for this category, pinned on
             // top with one-click revert (Qt's "This tile" section).
             if !overridden.isEmpty {

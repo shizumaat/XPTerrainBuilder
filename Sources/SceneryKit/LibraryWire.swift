@@ -119,7 +119,7 @@ extension OrthoEngineClient {
     /// `LibraryReady` event naming its id carries the result or the error
     /// (`class LibraryReady` in Ortho4XP/src/o4_engine/events.py). An
     /// engine without the commands answers "unknown command".
-    private func libraryRequest<T: Decodable & Sendable>(_ command: String,
+    func libraryRequest<T: Decodable & Sendable>(_ command: String,
                                                          _ arguments: [String: Any]) async throws -> T {
         let once = O4ResumeOnce<T>()
         return try await withCheckedThrowingContinuation { continuation in

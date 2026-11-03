@@ -110,6 +110,40 @@ cfg_app_vars = {
         "default": 180.0,
         "hint": "How old, in days, a stored regional extract may grow before background maintenance re-downloads it at application start. OpenStreetMap edits reach scenery slowly, so the default trades roughly half a year of staleness for far fewer multi-hundred-megabyte downloads.",
     },
+    # Settings > Storage (#1724): the automatic cleanup, off by default.
+    "storage_auto_clean_days": {
+        "type": int,
+        "default": 0,
+        "values": (0, 30, 60, 90, 180, 365),
+        "value_labels": {
+            0: "Never",
+            30: "30 days",
+            60: "60 days",
+            90: "90 days",
+            180: "180 days",
+            365: "1 year",
+        },
+        "hint": (
+            "Deletes cache files (orthophotos, textures, elevation, map data, "
+            "airport pack caches, masks, previews, temporary files and logs) "
+            "that no build has used for this long. It runs when the app starts "
+            "and after a build, never during one. Built tiles, airport patches, "
+            "overlays, configs and pack backups are never deleted; every "
+            "deletion is written to logs/storage.log."
+        ),
+    },
+    "storage_cache_caps_gb": {
+        "type": str,
+        "default": "",
+        "hint": (
+            "Optional size limits, in GB, for single caches, as kind=GB pairs "
+            "separated by commas, for example imagery=100, osm_extracts=20, "
+            "dds=20. The kinds are imagery, dds, elevation, osm_extracts, osm, "
+            "airport_mod, dsf_dumps, masks, previews, tmp and logs. A cache "
+            "over its limit loses its least recently used files first, when the "
+            "app starts and after a build. Empty: no limits."
+        ),
+    },
     "base_elevation_source": {
         "module": "DEM",
         "type": str,
@@ -820,6 +854,8 @@ list_app_vars = [
     "max_baddata_retries",
     "ovl_exclude_pol",
     "ovl_exclude_net",
+    "storage_auto_clean_days",
+    "storage_cache_caps_gb",
     "custom_scenery_dir",
     "custom_overlay_src",
     "custom_overlay_src_alternate",

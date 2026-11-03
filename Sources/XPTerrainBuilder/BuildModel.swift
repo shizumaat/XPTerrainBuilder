@@ -734,6 +734,7 @@ final class BuildModel: ObservableObject {
             rescan()
             refreshAirportIndex()
             loadImagerySources()
+            runStorageAutoClean()
         } catch {
             engineError = "Could not start the engine session: \(error.localizedDescription)"
             console.append("ERROR: \(engineError!)")
@@ -1094,6 +1095,7 @@ final class BuildModel: ObservableObject {
         case .runDone(let done, let errors, let cancelled):
             isBuilding = false
             isStopping = false
+            runStorageAutoClean()
             var parts = ["\(done) tile\(done == 1 ? "" : "s") built"]
             let warned = runIssueLog.warnedCount
             if warned > 0 { parts.append("\(warned) with warnings") }

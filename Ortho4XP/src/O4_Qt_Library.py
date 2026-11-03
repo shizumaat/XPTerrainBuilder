@@ -55,6 +55,23 @@ SIZE_COLUMN = 1
 IN_XPLANE_COLUMN = 7
 
 
+def emit_from_thread(work, signal, name):
+    """``work()`` on a daemon thread named ``name``; its result (or the
+    exception, shown and never raised on a thread) is emitted on
+    ``signal`` (Settings > Storage uses it too).  A window closed before
+    the work finished drops the result."""
+    def run():
+        try:
+            result = work()
+        except Exception as error:
+            result = error
+        try:
+            signal.emit(result)
+        except RuntimeError:                # its widget is gone
+            pass
+    threading.Thread(target=run, daemon=True, name=name).start()
+
+
 def fmt_size(nbytes):
     """``1.5 GB`` — the main window's size format."""
     value = float(nbytes or 0)
@@ -204,15 +221,7 @@ class LibraryDialog(QDialog):
 
     # ── loading ──────────────────────────────────────────────────────────
     def _run(self, work, signal):
-        """``work()`` on a daemon thread; its result (or error sentence)
-        is emitted on ``signal``."""
-        def run():
-            try:
-                result = work()
-            except Exception as error:      # shown, never raised on a thread
-                result = error
-            signal.emit(result)
-        threading.Thread(target=run, daemon=True, name="o4-qt-library").start()
+        emit_from_thread(work, signal, "o4-qt-library")
 
     def refresh(self):
         self.status_label.setText("Reading tiles…")

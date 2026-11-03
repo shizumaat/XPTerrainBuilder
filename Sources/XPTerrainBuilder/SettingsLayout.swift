@@ -194,6 +194,12 @@ enum SettingsLayout {
             SettingItem("ovl_exclude_pol", "Exclude overlay polygon types", .app, expert: true),
             SettingItem("ovl_exclude_net", "Exclude overlay road types", .app, expert: true),
         ]),
+        // Settings > Storage (#1724): the pane adds the data folder's sizes
+        // and the Clear buttons (StorageSection) above these rows.
+        SettingCategory(key: "storage", title: "Storage", icon: "internaldrive", items: [
+            SettingItem("storage_auto_clean_days", "Delete cache files no build has used for how long?", .app, summary: "Never keeps them. Built tiles and patches are never deleted."),
+            SettingItem("storage_cache_caps_gb", "Cache size limits (GB)", .app, expert: true),
+        ]),
     ]
 
     /// Every row that participates in search: the General engine rows plus

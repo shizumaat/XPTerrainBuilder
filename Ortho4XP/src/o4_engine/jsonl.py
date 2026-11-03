@@ -157,7 +157,9 @@ def _ortho4xp_version() -> str:
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "library_scan", "cache_sizes",
                                "free_cache", "library_delete",
                                "library_export_bundle", "library_import_bundle",
-                               "plan_estimate", "build_airports"})
+                               "plan_estimate", "build_airports",
+                               "storage_scan", "storage_clear",
+                               "storage_auto_clean"})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -301,6 +303,15 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
            for name in ("library_scan", "cache_sizes", "free_cache",
                         "library_delete", "library_export_bundle",
                         "library_import_bundle")},
+        # Settings > Storage (#1724): the data folder's caches with their
+        # freeable sizes, clearing them, and the automatic cleanup the apps
+        # run at launch and after a build.  Library commands: they reply
+        # {"status": "started"} and LibraryReady completes them; clearing
+        # needs confirm=true (or dry_run=true) and is refused while a build
+        # runs, and a build that starts mid-sweep stops it.
+        **{name: _library_handler(session, name)
+           for name in ("storage_scan", "storage_clear",
+                        "storage_auto_clean")},
         # Build cost (protocol 1.15, #820): download, disk and time ranges
         # for the tiles about to be built.  Replies {"status": "started"};
         # PlanEstimateReady carrying this command's id completes it.
@@ -317,9 +328,14 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
 
 
 def _library_handler(session: EngineSession, name: str) -> Callable:
-    from . import library
+    from . import library, storage
+
+    def building() -> bool:
+        return bool(session._building)
+    extra = ({"abort": building} if name in storage.REFUSED_WHILE_BUILDING
+             else {})
     return lambda **kw: library.start(
-        session._emit, name, busy=lambda: bool(session._building), **kw)
+        session._emit, name, busy=building, **extra, **kw)
 
 
 def command_table(session: EngineSession) -> Dict[str, Callable]:

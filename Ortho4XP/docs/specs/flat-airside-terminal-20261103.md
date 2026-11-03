@@ -350,3 +350,47 @@ Owner questions this raises:
   - (c) Let the patch's tile-seam pin give way inside the aerodrome
     boundary. That is a new seam law, and the mesh must still close at the
     seam.
+
+## 10. O-F5 answered (2026-11-03T15:01Z): per-block fallback, as built round 3, and why it does not deliver yet
+
+The owner chose a fallback for a group with no single lawful level: each
+block is held flat at its own lawful level nearest the group's zero, and
+the tile seam is never touched.
+
+**Built**
+- `platform.per_block_levels`: each block's own admissible set is `I0`
+  met with its reach band. The group's zero is clamped into it.
+- The group's zero is the median of `z - y` over the stand-side witnesses
+  on the pass-1a airside (`no_step._group_zero`; the witnesses live in
+  `held[b].flat_group.air_xy/air_y`). The object stage's `floor_plane`
+  storey rule was tried for this and refused: on KATL terminal F it read
+  298.96 m, against 300.80 today.
+- Row 17: a sunken road under a flat-built block now follows that block's
+  datum column through the hard `platform plane` head
+  (`constraints/flat_floor`, `structures._follow_flat_floors`).
+
+**Measured** (replay of `lfpg6`, branch a04f9fd80; control is a main
+7c18b338b build):
+- Group zero 105.40.
+- Per-block preferences: most blocks 105.40. building16 106.08,
+  building31 105.76, building33 104.81, building7 101.37,
+  building18 101.90, building8 (2E) 100.14 (capped by the tile seam).
+- The solved levels hardly move: every block is within 0.13 m of today
+  (2E building8 101.81, 2F building9 100.32).
+
+Two reasons it does not take hold:
+1. **The block datum's preference is a SOFT Band.** The solve keeps each
+   pad near its own apron, whatever preference it is given.
+2. **The low-side anchor is not a pack object.** It is a `viaduct-road`
+   sunken road (`viaduct-road:0/a`, 49.00358, 2.56346). It has no objects,
+   so row 17 does not apply to it.
+
+Owed before the owner can see the fallback in the sim:
+- **(i)** The flat-group block datum must become a HARD band at its
+  per-block level. The pad tier stays relaxable by the elastic LP.
+- **(ii)** The object stage (`airside_group_seat.airside_zeros` /
+  `open_frame_seat.unchained_links`, RULINGS 23e) must seat each block's
+  objects at its block's level. Today it seats the whole T2 group at one
+  zero, so 2E/2F's objects stay about 4.5 m above their apron even when
+  the apron steps.
+- **(iii)** A viaduct-road floor must follow its block.

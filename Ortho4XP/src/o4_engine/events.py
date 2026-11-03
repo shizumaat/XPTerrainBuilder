@@ -131,7 +131,15 @@ from typing import Any, Optional
 # and ``library_import_bundle`` — a built tile carried to another
 # installation as a tile bundle (``tile_bundle``), completed through
 # LibraryReady like the other Library commands.
-PROTOCOL_VERSION = "1.23"
+# 1.24 (2026-11-03, additive, #1707 phase 1): PackOptimise + the
+# ``pack_optimise`` command — an airport pack the build modifies whose own
+# objects draw too many triangles and carry duplicate placements is named,
+# the user is asked whether to optimise it (Optimise / Not now / Never for
+# this pack), the recipe is re-applied on every later write of the DSF,
+# and the pack row's Optimise / Undo optimise act on it; the
+# ``reanchor_status`` pack entries carry ``optimised`` (duplicate
+# placements dropped).
+PROTOCOL_VERSION = "1.24"
 
 
 @dataclass(frozen=True)
@@ -613,6 +621,51 @@ class PackOldForests(EngineEvent):
     unmapped: int = 0
     first_unmapped: list = field(default_factory=list)
     can_update: bool = False
+    files: list = field(default_factory=list)
+    state: str = "found"
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class PackOptimise(EngineEvent):
+    """An airport pack "Optimise pack" can lighten (issue #1707).
+
+    Emitted by the object stage (``auto_patch.optimise_stage``) for a pack
+    the build modifies, and again as the completion of a ``pack_optimise``
+    command (which replies ``{"status": "started"}`` at once and works on
+    a worker thread).  ``state``:
+
+    * ``"found"`` — nothing was changed.  The front end asks, once per
+      pack, tile and count: **Optimise** sends ``pack_optimise`` with
+      ``action="update"``, **Never for this pack** with
+      ``action="never"``, **Not now** sends nothing (the next build asks
+      again).  Only when ``can_optimise``.
+    * ``"optimised"`` — the DSF now carries the recipe (``files`` lists
+      what was rewritten; the pristine DSF stays as ``.anchor_bak``, and
+      every later write re-applies it).  Also sent by a build for a pack
+      the user already said Optimise for.
+    * ``"undone"`` — (command) the original placements are back.
+    * ``"never"`` — (command) the answer is remembered; nothing written.
+    * ``"failed"`` — ``error`` says why; the pack is as it was.
+    * ``"none"`` — (command) nothing to do.
+
+    ``dedupe`` is the duplicate placements the recipe drops;
+    ``est_tris_before`` / ``est_tris_after`` the triangles the pack's own
+    objects draw on the tile without and with it.
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
+    pack: str = ""
+    pack_root: str = ""
+    lat: int = 0
+    lon: int = 0
+    dedupe: int = 0
+    est_tris_before: int = 0
+    est_tris_after: int = 0
+    can_optimise: bool = False
     files: list = field(default_factory=list)
     state: str = "found"
     error: str = ""

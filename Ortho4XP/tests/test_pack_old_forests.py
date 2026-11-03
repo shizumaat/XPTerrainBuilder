@@ -253,7 +253,7 @@ def test_undo_restores_the_original_byte_for_byte(real_pack):
     assert rp.dsf.read_bytes() == original
     assert FS.pack_choice(str(rp.pack)) == "", "the answer is forgotten"
     from auto_patch import object_rebake as OR
-    assert OR.forest_upgraded_dsfs(str(rp.pack)) == []
+    assert OR.recorded_dsfs(str(rp.pack), PF.RECORD_KEY) == []
     assert rp.events[-1]["state"] == "undone"
 
 

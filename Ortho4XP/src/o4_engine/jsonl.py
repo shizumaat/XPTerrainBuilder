@@ -231,6 +231,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # and completes through PackOldForests — DSFTool may not run on
         # THIS thread.
         "pack_forests": session.pack_forests,
+        # Optimise pack (protocol 1.24, #1707): the same shape, completing
+        # through PackOptimise.
+        "pack_optimise": session.pack_optimise,
         # Failure report (#565, RULINGS 2026-10-12b): the REDACTED report
         # for one tile, its prefilled new-issue URL and, with
         # ``save_path``, the report file.  Synchronous — it reads the end
@@ -582,7 +585,8 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             capabilities=("scan", "build", "enqueue_build", "cancel",
                           "tile_info", "config", "links", "siblings",
                           "secrets", "tile_settings_write",
-                          "missing_art", "library", "pack_forests"))))
+                          "missing_art", "library", "pack_forests",
+                          "pack_optimise"))))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

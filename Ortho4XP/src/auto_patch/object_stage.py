@@ -913,6 +913,9 @@ def rebake_after_mesh(tile) -> dict:
                 # below re-applies an upgrade this records)
                 from . import forest_stage as _forests
                 _forests.forest_stage(plan_, tile, writes=writes)
+                # #1707: ... and whether the user's "Optimise pack" applies
+                from . import optimise_stage as _optimise
+                _optimise.optimise_stage(plan_, tile, writes=writes)
                 if not plan_.units:
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "
                                  f"({len(plan_.skipped)} resource(s) skipped at plan time)")
@@ -1045,9 +1048,12 @@ def _reuse_recipe(reuse, plan_, tile, patch_dir: str, *, writes: tuple,
     if reuse is None:
         return None
     try:
+        from .optimise_stage import recorded_key
         return reuse.airport_recipe(plan_, tile.lat, tile.lon, patch_dir,
                                     writes=writes, omit=omit,
-                                    engine=_engine_version())
+                                    engine=_engine_version(),
+                                    optimise=recorded_key(plan_.pack_root,
+                                                          tile.lat, tile.lon))
     except Exception:
         return None
 

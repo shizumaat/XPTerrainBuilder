@@ -51,6 +51,7 @@ import math
 import os
 import re
 import shutil
+import typing as _t
 from dataclasses import dataclass, field
 
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b);
@@ -1914,29 +1915,30 @@ def _v2_status(pack_root: str) -> dict[str, int]:
     return by_tile
 
 
-def forest_upgraded_dsfs(pack_root: str) -> list[tuple[str, dict]]:
+def recorded_dsfs(pack_root: str, record_key: str) -> list[tuple[str, dict]]:
     """``[(dsf path, record entry), ...]`` of the pack's DSFs whose record
-    carries an X-Plane 12 3D forest upgrade (#1360), in record order —
-    the same no-deep-walk read as :func:`_v2_status`."""
-    from auto_patch_v2.airport.pack_forests import RECORD_KEY
+    carries a ``record_key`` row — a user's choice re-applied on every
+    write: the X-Plane 12 3D forest upgrade (#1360), the "Optimise pack"
+    recipe (#1707) — in record order; the same no-deep-walk read as
+    :func:`_v2_status`."""
     found = []
     for record_path in _v2_record_paths(pack_root):
         for basename, entry in _v2_record_entries(record_path).items():
-            if isinstance(entry.get(RECORD_KEY), dict):
+            if isinstance(entry.get(record_key), dict):
                 found.append((os.path.join(os.path.dirname(record_path),
                                            basename), entry))
     return found
 
 
-def _forests_by_tile(pack_root: str) -> dict[str, int]:
-    """``{tile_name: forest definitions upgraded}`` (#1360)."""
-    from auto_patch_v2.airport.pack_forests import RECORD_KEY
+def _recorded_by_tile(pack_root: str, record_key: str,
+                      count: _t.Callable[[dict], int]) -> dict[str, int]:
+    """``{tile_name: count(row)}`` of :func:`recorded_dsfs`."""
     by_tile: dict[str, int] = {}
-    for dsf, entry in forest_upgraded_dsfs(pack_root):
+    for dsf, entry in recorded_dsfs(pack_root, record_key):
         tile = os.path.splitext(os.path.basename(dsf))[0]
         try:
-            n = len(entry[RECORD_KEY].get("renames") or ())
-        except (AttributeError, TypeError):
+            n = int(count(entry[record_key]))
+        except (AttributeError, TypeError, ValueError):
             n = 0
         by_tile[tile] = by_tile.get(tile, 0) + n
     return by_tile
@@ -2027,6 +2029,10 @@ def restore_detail(pack_root: str) -> dict:
             _bs.invalidate_memo()
             restored += 1
     bodies_removed = _restore_v2_writes(pack_root, v2_records)
+    # #1707: the originals are back, and so is the question — a remembered
+    # "Optimise pack" would otherwise re-optimise the next build
+    from . import pack_choice as _PC
+    _PC.Store(_PC.OPTIMISE_CHOICES).remember(pack_root, "")
     sidecar_path = _provenance_path(pack_root)
     if os.path.isfile(sidecar_path):
         os.remove(sidecar_path)
@@ -2099,7 +2105,15 @@ def modified_packs(scenery_dir: str, tile: str | None = None,
         else:
             objects = (sum(len(r) for r in by_tile.values())
                        + sum(v2_by_tile.values()))
-        forests = _forests_by_tile(pack_root)
+        from auto_patch_v2.airport import pack_forests as _pf
+        from auto_patch_v2.airport import pack_optimise as _po
+        forests = _recorded_by_tile(pack_root, _pf.RECORD_KEY,
+                                    lambda r: len(r.get("renames") or ()))
+        # every optimised DSF counts at least 1, so a recipe that dropped
+        # nothing still shows its Undo
+        optimised = _recorded_by_tile(
+            pack_root, _po.RECORD_KEY,
+            lambda r: max(1, int((r.get("dedupe") or {}).get("dropped", 0))))
         results.append({
             "pack_name": name,
             "pack_path": pack_root,
@@ -2110,5 +2124,9 @@ def modified_packs(scenery_dir: str, tile: str | None = None,
             # (the pack row's "Undo 3D trees"), this tile's or the pack's
             "forests": (forests.get(tile, 0) if tile is not None
                         else sum(forests.values())),
+            # #1707: duplicate placements the "Optimise pack" recipe drops
+            # (the pack row's Undo optimise), this tile's or the pack's
+            "optimised": (optimised.get(tile, 0) if tile is not None
+                          else sum(optimised.values())),
         })
     return results

@@ -76,6 +76,11 @@ KEEP = frozenset({
     "auto_patch.object_rebake",
     # ... and its 3D trees offer beside the missing-art check (#1360)
     "auto_patch.forest_stage",
+    # ... "Optimise pack" (#1707), and the per-pack answer store and
+    # rewrite the two choices share
+    "auto_patch.optimise_stage",
+    "auto_patch.pack_choice",
+    "auto_patch.pack_rewrite",
     "auto_patch.object_terrain_features",
     "auto_patch.object_terrain_kinds",
     "auto_patch.post_mesh",

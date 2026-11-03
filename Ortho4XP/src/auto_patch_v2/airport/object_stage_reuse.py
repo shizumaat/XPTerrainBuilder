@@ -15,8 +15,8 @@ repaired).  The KEY (:meth:`StageReuse.recipe`) is:
 * ``graded``       the graded surface beside the patch;
 * ``pristine_dsf`` the pack DSF the placement starts from;
 * ``objects``      the pack OBJ sources the plan names;
-* ``params``       the write mode, the art omission, the law tables and
-                   the engine version;
+* ``params``       the write mode, the art omission, the "Optimise pack"
+                   recipe (#1707), the law tables and the engine version;
 * ``code``         the stage's import closure (``src/O4_Object_Stage_Code.py``);
 * ``env``          the interpreter and geometry libraries (``xplat``).
 
@@ -122,11 +122,13 @@ class StageReuse:
 
     def airport_recipe(self, plan_: _t.Any, lat: int, lon: int, patch_dir: str, *,
                        writes: tuple[bool, bool], omit: _t.Sequence,
-                       engine: str) -> dict:
+                       engine: str, optimise: str = "") -> dict:
         """:meth:`recipe` of one airport's rebake plan on tile ``(lat,
         lon)``: its graded surface beside the patch, its pack's pristine
         tile DSF, the OBJ of every member; ``writes`` is ``(write_enabled,
-        measure_only)``, ``omit`` the missing art the write drops."""
+        measure_only)``, ``omit`` the missing art the write drops,
+        ``optimise`` the key of the "Optimise pack" recipe the pack DSF's
+        record holds (#1707; ``""`` = none)."""
         from ..law.tables import law_tables_digest
         from ..model.rebake import graded_surface_path
         from .dsf import dsf_path_in_pack
@@ -142,7 +144,7 @@ class StageReuse:
             params={"write_enabled": bool(writes[0]), "measure_only": bool(writes[1]),
                     "omit": sorted(repr(m) for m in omit),
                     "law": str(law_tables_digest().get("sha256") or ""),
-                    "engine": engine})
+                    "engine": engine, "optimise": optimise})
 
     # ── the run ─────────────────────────────────────────────────────────
     def run(self, icao: str, folder: str, recipe: dict,

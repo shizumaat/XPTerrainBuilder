@@ -594,6 +594,8 @@ _FORWARDED_EVENT_TYPES = (
     "PackMissingArt",
     # #1360: ... and a pack whose old flat forests have 3D equivalents.
     "PackOldForests",
+    # #1707: ... and a pack "Optimise pack" can lighten.
+    "PackOptimise",
     "Log",
 )
 

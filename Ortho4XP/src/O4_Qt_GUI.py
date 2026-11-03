@@ -103,6 +103,7 @@ import O4_Qt_Build_History as QTHIST
 import O4_Qt_Build_Airports as QTAIRPORTS
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Pack_Forests as QTFOREST
+import O4_Qt_Pack_Optimise as QTOPT
 import O4_Qt_Latest_Probe as QTPROBE
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
@@ -889,6 +890,7 @@ class MainWindow(QMainWindow):
             EV.PackMissingArt: self._on_pack_missing_art,
             EV.ImagerySourceStatus: self._on_imagery_source_status,
             EV.PackOldForests: self._on_pack_old_forests,
+            EV.PackOptimise: self._on_pack_optimise,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
@@ -900,6 +902,8 @@ class MainWindow(QMainWindow):
         # #1360: the 3D trees questions already asked (one per pack, tile
         # and set); their open boxes live in _pack_art_boxes too.
         self._pack_forests_seen = set()
+        # #1707: the same for the "Optimise pack" questions
+        self._pack_optimise_seen = set()
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
         # #695: fixable failures, asked one at a time as each tile fails;
@@ -3283,6 +3287,21 @@ class MainWindow(QMainWindow):
                 trees.clicked.connect(
                     lambda _checked=False, p=pack: self._undo_pack_forests(p))
                 rl.addWidget(trees, 0, Qt.AlignRight)
+            # #1707: Optimise pack, or its Undo (the mac row's twin button)
+            optimised = bool(pack.get("optimised", 0))
+            opt = QToolButton()
+            opt.setAutoRaise(True)
+            opt.setText("↺⚡" if optimised else "⚡")
+            opt.setFixedHeight(18)
+            opt.setEnabled(not self._building)
+            opt.setToolTip(
+                "Wait for the current run — the engine may be "
+                "rewriting these files." if self._building
+                else QTOPT.UNDO_HELP if optimised else QTOPT.OPTIMISE_HELP)
+            opt.clicked.connect(
+                lambda _checked=False, p=pack, u=optimised:
+                self._pack_optimise_from_row(p, u))
+            rl.addWidget(opt, 0, Qt.AlignRight)
             undo = QToolButton()
             undo.setAutoRaise(True)
             undo.setIcon(self.style().standardIcon(
@@ -4851,24 +4870,49 @@ class MainWindow(QMainWindow):
         re-reads the tile's Modified airports rows; the other states are
         on the console through the engine's own log line.
         """
+        self._pack_choice_event(
+            event, ("upgraded", "undone"), getattr(event, "can_update", False),
+            QTFOREST.question_key, QTFOREST.pack_forests_box,
+            self._pack_forests_seen, "pack_forests")
+
+    def _on_pack_optimise(self, event):
+        """#1707: an airport pack "Optimise pack" can lighten.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .packOptimise``): ``state == "found"`` (with ``can_optimise``)
+        asks once per pack, tile and count; Optimise / Never for this pack
+        send ``pack_optimise``, Not now sends nothing.  An optimise or an
+        undo re-reads the tile's Modified airports rows.
+        """
+        self._pack_choice_event(
+            event, ("optimised", "undone"),
+            getattr(event, "can_optimise", False), QTOPT.question_key,
+            QTOPT.pack_optimise_box, self._pack_optimise_seen, "pack_optimise")
+
+    def _pack_choice_event(self, event, done_states, can_answer, question_key,
+                           make_box, seen, command):
+        """A per-pack choice's event (#1360, #1707): ``done_states``
+        refresh the rows; a ``"found"`` the user can answer asks once
+        (``question_key`` into ``seen``) with ``make_box``'s non-modal
+        question, whose buttons send the session's ``command``."""
         state = getattr(event, "state", "found")
-        if state in ("upgraded", "undone"):
+        if state in done_states:
             self._refresh_modified_airports()
             return
-        if state != "found" or not getattr(event, "can_update", False):
+        if state != "found" or not can_answer:
             return
-        key = QTFOREST.question_key(event)
-        if key in self._pack_forests_seen:
+        key = question_key(event)
+        if key in seen:
             return
-        self._pack_forests_seen.add(key)
-        box, buttons = QTFOREST.pack_forests_box(event, parent=self)
+        seen.add(key)
+        box, buttons = make_box(event, parent=self)
         root, lat, lon = event.pack_root, int(event.lat), int(event.lon)
 
         def finished(_result, box=box, buttons=buttons):
             for action, button in buttons.items():
                 if box.clickedButton() is button:
-                    self._session.pack_forests(pack_root=root, action=action,
-                                               lat=lat, lon=lon)
+                    getattr(self._session, command)(
+                        pack_root=root, action=action, lat=lat, lon=lon)
             if box in self._pack_art_boxes:
                 self._pack_art_boxes.remove(box)
 
@@ -4884,6 +4928,23 @@ class MainWindow(QMainWindow):
         if self._building:
             return
         self._session.pack_forests(pack_root=pack["pack_path"], action="undo")
+
+    def _pack_optimise_from_row(self, pack, undo):
+        """#1707: the pack row's Optimise (the active tile's DSF) or Undo
+        optimise (every optimised DSF of the pack); the engine command
+        completes with a PackOptimise event that refreshes the rows."""
+        if self._building:
+            return
+        if undo:
+            self._session.pack_optimise(pack_root=pack["pack_path"],
+                                        action="undo")
+            return
+        tile = self.map.active_tile()
+        if tile is None:
+            return
+        self._session.pack_optimise(pack_root=pack["pack_path"],
+                                    action="update", lat=int(tile[0]),
+                                    lon=int(tile[1]))
 
     def _on_build_done(self, event):
         """One tile's terminal outcome: remember it (with the tile's own

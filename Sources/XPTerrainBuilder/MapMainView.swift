@@ -139,6 +139,25 @@ struct MapMainView: View {
         } message: { forests in
             Text(forests.bodyText)
         }
+        // An airport pack "Optimise pack" can lighten (protocol 1.24,
+        // #1707): Optimise / Not now / Never for this pack, the Qt
+        // question's copy.
+        .alert(buildModel.packOptimisePrompt?.titleText ?? "", isPresented: Binding(
+            get: { buildModel.packOptimisePrompt != nil },
+            set: { _ in }
+        ), presenting: buildModel.packOptimisePrompt) { _ in
+            Button(O4PackOptimiseCopy.optimiseButton) {
+                buildModel.answerPackOptimisePrompt(action: "update")
+            }
+            Button(O4PackOptimiseCopy.neverButton) {
+                buildModel.answerPackOptimisePrompt(action: "never")
+            }
+            Button(O4PackOptimiseCopy.notNowButton, role: .cancel) {
+                buildModel.answerPackOptimisePrompt(action: nil)
+            }
+        } message: { optimise in
+            Text(optimise.bodyText)
+        }
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
             set: { if !$0 { controller.errorMessage = nil } }

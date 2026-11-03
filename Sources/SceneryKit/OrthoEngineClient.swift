@@ -329,6 +329,10 @@ public enum O4Event: Sendable, Equatable {
     /// the outcome of a build or a `pack_forests` command. See
     /// `O4PackOldForests`.
     case packOldForests(O4PackOldForests)
+    /// An airport pack "Optimise pack" can lighten (protocol 1.24, #1707):
+    /// found by the object stage, or the outcome of a build or a
+    /// `pack_optimise` command. See `O4PackOptimise`.
+    case packOptimise(O4PackOptimise)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -503,6 +507,19 @@ public enum O4Event: Sendable, Equatable {
                 firstUnmapped: (object["first_unmapped"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 // absent ⇒ no question: never offer without a yes
                 canUpdate: bool("can_update"),
+                files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                state: object["state"] as? String ?? "found",
+                error: string("error")))
+        // Another STRING LITERAL match: `class PackOptimise` in
+        // Ortho4XP/src/o4_engine/events.py.
+        case "PackOptimise":
+            return .packOptimise(O4PackOptimise(
+                pack: string("pack"), packRoot: string("pack_root"),
+                lat: int("lat"), lon: int("lon"), dedupe: int("dedupe"),
+                estTrisBefore: int("est_tris_before"),
+                estTrisAfter: int("est_tris_after"),
+                // absent ⇒ no question: never offer without a yes
+                canOptimise: bool("can_optimise"),
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
@@ -930,12 +947,34 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// ok=false: nothing changes.
     public func packForests(packRoot: String, action: String,
                             lat: Int? = nil, lon: Int? = nil) {
+        sendPackChoice("pack_forests", packRoot: packRoot, action: action,
+                       lat: lat, lon: lon)
+    }
+
+    // MARK: - Optimise pack (protocol 1.24)
+
+    /// The user's answer about a heavy pack (#1707): action "update"
+    /// (remember it and optimise the tile DSF), "never" (remember it, write
+    /// nothing) or "undo" (forget it and put the original placements back
+    /// — the whole pack when lat/lon are nil). The engine replies
+    /// `{"status": "started"}` at once and completes with a `packOptimise`
+    /// event. An engine older than 1.24 replies ok=false: nothing changes.
+    public func packOptimise(packRoot: String, action: String,
+                             lat: Int? = nil, lon: Int? = nil) {
+        sendPackChoice("pack_optimise", packRoot: packRoot, action: action,
+                       lat: lat, lon: lon)
+    }
+
+    /// A per-pack choice command (`pack_forests`, `pack_optimise`): the
+    /// tile's DSF with lat/lon, the whole pack without.
+    private func sendPackChoice(_ command: String, packRoot: String,
+                                action: String, lat: Int?, lon: Int?) {
         var arguments: [String: Any] = ["pack_root": packRoot, "action": action]
         if let lat, let lon {
             arguments["lat"] = lat
             arguments["lon"] = lon
         }
-        send(command: "pack_forests", arguments: arguments)
+        send(command: command, arguments: arguments)
     }
 
     // MARK: - Stream handling

@@ -1150,6 +1150,8 @@ final class BuildModel: ObservableObject {
             packMissingArt(art)
         case .packOldForests(let forests):
             packOldForests(forests)
+        case .packOptimise(let optimise):
+            packOptimise(optimise)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -1303,6 +1305,9 @@ final class BuildModel: ObservableObject {
         /// Forest definitions upgraded to X-Plane 12 3D trees (#1360); 0
         /// from an engine older than protocol 1.21.
         var forestCount: Int = 0
+        /// Duplicate placements "Optimise pack" drops (#1707); 0 when the
+        /// pack is not optimised or the engine predates protocol 1.24.
+        var optimisedCount: Int = 0
     }
 
     /// Packs whose objects the auto-patch reseater modified for `coord`,
@@ -1330,7 +1335,8 @@ final class BuildModel: ObservableObject {
                     return ReanchorPack(
                         packName: name, packPath: path,
                         objectCount: entry["objects"]?.intValue ?? 0,
-                        forestCount: entry["forests"]?.intValue ?? 0)
+                        forestCount: entry["forests"]?.intValue ?? 0,
+                        optimisedCount: entry["optimised"]?.intValue ?? 0)
                 })
             }
         }
@@ -2017,6 +2023,58 @@ final class BuildModel: ObservableObject {
     func undoPackForests(packPath: String) {
         connectIfNeeded()
         client?.packForests(packRoot: packPath, action: "undo")
+    }
+
+    /// The "Optimise pack" question to present, or nil (#1707).
+    @Published var packOptimisePrompt: O4PackOptimise?
+    /// Questions waiting behind the one on screen, in arrival order.
+    private var packOptimiseQueue: [O4PackOptimise] = []
+    /// Every question already asked this session (one per pack, tile and
+    /// count — each airport of a pack runs the check).
+    private var packOptimiseSeen: Set<String> = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_pack_optimise`): a
+    /// "found" event asks once; an optimise or undo refreshes the tile's
+    /// Modified airports rows; the other states are on the console
+    /// through the engine's log line.
+    private func packOptimise(_ optimise: O4PackOptimise) {
+        if optimise.state == "optimised" || optimise.state == "undone" {
+            packOptimiseChanged += 1
+        }
+        guard optimise.state == "found", optimise.canOptimise,
+              !packOptimiseSeen.contains(optimise.id) else { return }
+        packOptimiseSeen.insert(optimise.id)
+        if packOptimisePrompt == nil {
+            packOptimisePrompt = optimise
+        } else {
+            packOptimiseQueue.append(optimise)
+        }
+    }
+
+    /// Bumped when a pack was optimised or its optimisation undone, so
+    /// the Modified airports rows re-read the engine.
+    @Published var packOptimiseChanged = 0
+
+    /// The user's answer to the question on screen: "update" or "never"
+    /// sends `pack_optimise`; nil (Not now) sends nothing.
+    func answerPackOptimisePrompt(action: String?) {
+        if let optimise = packOptimisePrompt, let action {
+            client?.packOptimise(packRoot: optimise.packRoot, action: action,
+                                 lat: optimise.lat, lon: optimise.lon)
+        }
+        packOptimisePrompt = packOptimiseQueue.isEmpty ? nil : packOptimiseQueue.removeFirst()
+    }
+
+    /// The pack row's Optimise (the tile's DSF) or Undo optimise (every
+    /// optimised DSF of the pack).
+    func packOptimiseFromRow(packPath: String, undo: Bool, tile: TileCoord) {
+        connectIfNeeded()
+        if undo {
+            client?.packOptimise(packRoot: packPath, action: "undo")
+        } else {
+            client?.packOptimise(packRoot: packPath, action: "update",
+                                 lat: tile.lat, lon: tile.lon)
+        }
     }
 
     // MARK: - Boundary airports (protocol 1.8)

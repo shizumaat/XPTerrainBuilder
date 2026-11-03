@@ -45,6 +45,7 @@ from .events import (
     Log,
     PackMissingArt,
     PackOldForests,
+    PackOptimise,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     StepProgress,
     TileClocks,
@@ -1959,10 +1960,19 @@ class EngineSession:
         """A pack with old flat forests (#1360): the ``PackOldForests``
         event (``UI.pack_old_forests`` hook).  Unknown fields are dropped
         so an engine-side addition never breaks the emit."""
-        names = {f for f in PackOldForests.__dataclass_fields__
+        self._emit_known(PackOldForests, fields)
+
+    def pack_optimise_event(self, **fields):
+        """A pack "Optimise pack" can lighten (#1707): the
+        ``PackOptimise`` event (``UI.pack_optimise`` hook)."""
+        self._emit_known(PackOptimise, fields)
+
+    def _emit_known(self, cls, fields):
+        """``cls(**fields)`` emitted, its unknown fields dropped so an
+        engine-side addition never breaks the emit."""
+        names = {f for f in cls.__dataclass_fields__
                  if f not in ("seq", "ts")}
-        self._emit(PackOldForests(**{k: v for k, v in fields.items()
-                                     if k in names}))
+        self._emit(cls(**{k: v for k, v in fields.items() if k in names}))
 
     def pack_forests(self, pack_root="", action="", lat=None, lon=None):
         """THE USER'S ANSWER (protocol 1.17, #1360): ``action`` is
@@ -1973,16 +1983,35 @@ class EngineSession:
         ``{"status": "started"}`` at once — DSFTool runs on a worker
         thread, never on the transport's read loop — and completes with a
         ``PackOldForests`` event."""
+        from auto_patch import forest_stage as _FS
+        return self._pack_choice_worker("o4-pack-forests", _FS.forest_choice,
+                                        pack_root, action, lat, lon)
+
+    def pack_optimise(self, pack_root="", action="", lat=None, lon=None):
+        """THE USER'S ANSWER (protocol 1.24, #1707): ``action`` is
+        ``"update"`` (remember it, optimise the tile DSF), ``"never"``
+        (remember it, write nothing) or ``"undo"`` (forget it, put the
+        original placements back in every optimised DSF of the pack, or
+        the tile's with ``lat``/``lon``).  Replies ``{"status":
+        "started"}`` at once and completes with a ``PackOptimise`` event."""
+        from auto_patch import optimise_stage as _OS
+        return self._pack_choice_worker("o4-pack-optimise",
+                                        _OS.optimise_choice, pack_root,
+                                        action, lat, lon)
+
+    @staticmethod
+    def _pack_choice_worker(name, choice, pack_root, action, lat, lon):
+        """``choice(root, action, lat, lon)`` on a worker thread
+        — DSFTool never runs on the transport's read loop; the function
+        announces its own completion event."""
         root, act = str(pack_root or ""), str(action or "")
         la = None if lat is None else int(lat)
         lo = None if lon is None else int(lon)
 
         def work():
-            from auto_patch import forest_stage as _FS
-            _FS.forest_choice(root, act, la, lo)
+            choice(root, act, la, lo)
 
-        threading.Thread(target=work, daemon=True,
-                         name="o4-pack-forests").start()
+        threading.Thread(target=work, daemon=True, name=name).start()
         return {"status": "started"}
 
     def log_warning(self, text: str):

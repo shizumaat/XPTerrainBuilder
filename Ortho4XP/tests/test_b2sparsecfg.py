@@ -439,7 +439,7 @@ def test_engine_command_sets_then_removes_the_override(tmp_path, monkeypatch):
 
 
 def test_the_command_is_announced_in_the_handshake():
-    import inspect
-    from o4_engine import jsonl
-    source = inspect.getsource(jsonl.serve)
-    assert "tile_settings_write" in source
+    # the ONE flag list both hellos announce (RULINGS 2026-11-03d (1) item 3)
+    from o4_engine.events import CAPABILITIES, EngineHello
+    assert "tile_settings_write" in CAPABILITIES
+    assert "tile_settings_write" in EngineHello().capabilities

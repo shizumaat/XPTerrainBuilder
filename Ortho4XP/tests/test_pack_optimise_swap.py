@@ -72,6 +72,11 @@ def put(root, rel, text):
 
 # ── the match ───────────────────────────────────────────────────────────
 
+
+def _files_at(rows, lat, lon):
+    """The files of ``weighted_files_at`` (test-only view)."""
+    return [f for f, _r, _l in AGP.weighted_files_at(rows, lat, lon)]
+
 def test_name_words_split_the_stem():
     assert SW.name_words("Ground Equipment/BaggageCar1.obj") == {"baggage", "car"}
     assert SW.name_words("x/T1BusRed.obj") == {"t", "bus", "red"}
@@ -150,9 +155,9 @@ def test_files_at_reads_regions_and_backups():
             ("EXPORT_RATIO", "/e/euro.obj", "bitmap", 7.0, "/e")]
     assert AGP.weighted_files_at(rows, 29, -96) == [("/l/a.obj", 1.0, "/l"),
                                                     ("/e/euro.obj", 7.0, "/e")]
-    assert AGP.files_at(rows, 29, -96) == ["/l/a.obj", "/e/euro.obj"]
-    assert AGP.files_at(rows, 21, -160) == ["/l/a.obj", "/h/hawaii.obj", "/e/euro.obj"]
-    assert AGP.files_at(rows[1:2], 29, -96) == ["/x/empty.obj"], \
+    assert _files_at(rows, 29, -96) == ["/l/a.obj", "/e/euro.obj"]
+    assert _files_at(rows, 21, -160) == ["/l/a.obj", "/h/hawaii.obj", "/e/euro.obj"]
+    assert _files_at(rows[1:2], 29, -96) == ["/x/empty.obj"], \
         "a backup alone is what X-Plane draws"
 
 

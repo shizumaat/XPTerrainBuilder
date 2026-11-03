@@ -551,11 +551,6 @@ def weighted_files_at(rows: _t.Sequence[ExportRow], lat: int, lon: int
     return [(r[1], r[3], r[4]) for r in (real or here)]
 
 
-def files_at(rows: _t.Sequence[ExportRow], lat: int, lon: int) -> list[str]:
-    """The files of :func:`weighted_files_at`."""
-    return [f for f, _ratio, _lib in weighted_files_at(rows, lat, lon)]
-
-
 def resolve_library_path(virtual_path: str,
                          xplane_root: str) -> str | None:
     """Resolve a virtual library path to an absolute physical file, or

@@ -119,6 +119,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.reference_code import runway_status
 from ..law.tables import runway_safety_area_length_m
@@ -223,7 +224,7 @@ def _ends(airport: Airport, law: Law, chords, rec, planar: PlanarMap, vw,
             p0 = rw.ends[k].xy
             q0 = rw.ends[1 - k].xy
             dx, dy = p0[0] - q0[0], p0[1] - q0[1]
-            n = math.hypot(dx, dy)
+            n = exact.hypot(dx, dy)
             if n <= 0.0:
                 continue
             if chord is not None:
@@ -262,7 +263,7 @@ def _nearest(vw, vertices: _t.AbstractSet[int],
     best_d = float("inf")
     for v in vertices:
         (x, y) = vw.xy[v]
-        d = (x - xy[0]) ** 2 + (y - xy[1]) ** 2
+        d = exact.sq(x - xy[0]) + exact.sq(y - xy[1])
         if d < best_d:
             best, best_d = v, d
     return best
@@ -316,7 +317,7 @@ def _route_grade(airport: Airport, edges: _t.Sequence[_t.Any]) -> float:
         a, b = nodes.get(e.a), nodes.get(e.b)
         if a is None or b is None:
             continue
-        run = math.hypot(b.xy[0] - a.xy[0], b.xy[1] - a.xy[1])
+        run = exact.hypot(b.xy[0] - a.xy[0], b.xy[1] - a.xy[1])
         if run <= 0.0:
             continue
         try:

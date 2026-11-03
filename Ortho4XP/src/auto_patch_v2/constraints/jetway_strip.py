@@ -29,7 +29,6 @@ candidates arrive from the pipeline as a mapping, like ``Airport.clusters``.
 """
 from __future__ import annotations
 
-import math
 import typing as _t
 
 from shapely.geometry import LineString, Point, Polygon
@@ -37,6 +36,7 @@ from shapely.ops import unary_union
 from shapely.prepared import prep
 from shapely.strtree import STRtree
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import design as design_law, rolled_on_roles
 from ..model.airport import Airport
@@ -226,7 +226,7 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
                     hit.add(i)
         for i in sorted(hit):
             (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % n]
-            L = math.hypot(x1 - x0, y1 - y0)
+            L = exact.hypot(x1 - x0, y1 - y0)
             ux, uy = (x1 - x0) / L, (y1 - y0) / L
             # outward = right of travel on a CCW ring, left on a CW one
             nx, ny = (uy, -ux) if ccw else (-uy, ux)
@@ -264,7 +264,7 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
     for cid, es in edges_of.items():
         rects = []
         for (x0, y0), (x1, y1), (nx, ny) in es:
-            L = math.hypot(x1 - x0, y1 - y0)
+            L = exact.hypot(x1 - x0, y1 - y0)
             ux, uy = (x1 - x0) / L, (y1 - y0) / L
             a = (x0 - D * ux, y0 - D * uy)
             b = (x1 + D * ux, y1 + D * uy)

@@ -68,12 +68,12 @@ being one plane (``pad_flat`` rows 5 -> 38) and was REFUTED and deleted
 """
 from __future__ import annotations
 
-import math
 import typing as _t
 
 from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import (design as design_law, is_rigid_role, pavement_roles,
                           role_cap, rolled_on_roles, senior_role)
@@ -533,8 +533,8 @@ def rim_strip_ties(planar: PlanarMap, law: Law) -> dict[int, tuple[int, float]]:
                 continue
             if min(p.distance(Point(vw.xy[v])) for p in parts) > reach:
                 continue                       # beyond the knife line: the road's own
-            r = min(rim, key=lambda q: (math.dist(vw.xy[q], vw.xy[v]), q))
-            d = math.dist(vw.xy[r], vw.xy[v])
+            r = min(rim, key=lambda q: (exact.dist(vw.xy[q], vw.xy[v]), q))
+            d = exact.dist(vw.xy[r], vw.xy[v])
             if d > 0.0 and (v not in out or d < out[v][1]):
                 out[v] = (r, d)
     return out
@@ -772,7 +772,7 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         for a, b in prs:
             if a == b:
                 continue
-            d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
+            d = exact.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
             if d <= 0.0:
                 continue
             follows = None
@@ -939,10 +939,10 @@ def frontage_leaders(planar: PlanarMap, contacts: _t.Iterable[int],
         qx, qy = xy[c]
         band: list[tuple[float, int]] = []
         if near_l:
-            dn = sorted(((math.hypot(xy[v][0] - qx, xy[v][1] - qy), v)
+            dn = sorted(((exact.hypot(xy[v][0] - qx, xy[v][1] - qy), v)
                          for v in near_l))
             band = [(dd, v) for dd, v in dn if dd >= _LEADER_MIN_M][:_LEADER_K]
-        d = sorted(((math.hypot(xy[v][0] - qx, xy[v][1] - qy), v) for v in own_l))
+        d = sorted(((exact.hypot(xy[v][0] - qx, xy[v][1] - qy), v) for v in own_l))
         if not band:
             band = [(dd, v) for dd, v in d
                     if _LEADER_MIN_M <= dd <= _LEADER_MAX_M][:_LEADER_K]
@@ -1156,8 +1156,8 @@ def frontage_contacts(planar: PlanarMap, law: Law
                         fired.add(e)
                         x, y = vw.xy[e]
                         d = float(ppoly.distance(Point(x, y)))
-                        j = min(pverts, key=lambda v: (vw.xy[v][0] - x) ** 2
-                                + (vw.xy[v][1] - y) ** 2)
+                        j = min(pverts, key=lambda v: exact.sq(vw.xy[v][0] - x)
+                                + exact.sq(vw.xy[v][1] - y))
                         out.append((e, j, pid, d, budget, f.id))
     return out
 

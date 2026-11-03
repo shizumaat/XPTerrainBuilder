@@ -105,6 +105,7 @@ import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import (is_rigid_role, is_value_role, role_cap, role_family,
                           role_side, runway_transverse_max)
@@ -242,7 +243,7 @@ def _runway_frame(rw) -> tuple[float, float, float, float, float, float, float]:
     physical end to physical end (overruns included, the classify
     ``runway_rectangle``), half width ``h``."""
     (ax, ay), (bx, by) = rw.ends[0].xy, rw.ends[1].xy
-    L0 = math.hypot(bx - ax, by - ay)
+    L0 = exact.hypot(bx - ax, by - ay)
     if L0 <= 0.0:
         return ax, ay, 0.0, 0.0, 0.0, rw.width_m / 2.0, 0.0
     ux, uy = (bx - ax) / L0, (by - ay) / L0
@@ -310,7 +311,7 @@ def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
             return dx * ux + dy * uy, -dx * uy + dy * ux
 
         def match(p):
-            d = np.hypot(rxy[:, 0] - p[0], rxy[:, 1] - p[1])
+            d = exact.hypot_array(rxy[:, 0] - p[0], rxy[:, 1] - p[1])
             j = int(np.argmin(d))
             return int(rv[j]) if d[j] <= tol else None
 
@@ -329,7 +330,7 @@ def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
                 return 0.0, []
             d, ci, k, t_ = best
             (px, py), (qx, qy) = chain_xy[ci][k], chain_xy[ci][k + 1]
-            seg = math.hypot(qx - px, qy - py)
+            seg = exact.hypot(qx - px, qy - py)
             return d, [(chains[ci][k], t_ * seg), (chains[ci][k + 1], (1.0 - t_) * seg)]
 
         # the points graph: ("v", ring vertex) entries / stations, ("n", node)
@@ -404,10 +405,10 @@ def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
                     link(kx, ("v", S), dS, cap * dS)
                 for kp in keys:
                     if kp is not None:
-                        dk = math.hypot(kp[1][0] - X[0], kp[1][1] - X[1])
+                        dk = exact.hypot(kp[1][0] - X[0], kp[1][1] - X[1])
                         link(kp[0], kx, dk, cap * dk)
             elif keys[0] is not None and keys[1] is not None:
-                dk = math.hypot(p0[0] - p1[0], p0[1] - p1[1])
+                dk = exact.hypot(p0[0] - p1[0], p0[1] - p1[1])
                 link(keys[0][0], keys[1][0], dk, cap * dk)
         # THE INTERIOR JOIN (06h a): every 1202 node inside the slab hops
         # once to the ridge's bracketing stations — the perpendicular at
@@ -471,7 +472,7 @@ def _feet(pts: np.ndarray,
             if l2 <= 0.0:
                 continue
             t = np.clip(((px - ax) * vx + (py - ay) * vy) / l2, 0.0, 1.0)
-            d = np.hypot(px - (ax + t * vx), py - (ay + t * vy))
+            d = exact.hypot_array(px - (ax + t * vx), py - (ay + t * vy))
             hit = d < best_d
             if not hit.any():
                 continue
@@ -545,7 +546,7 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
         longest = max(chs, key=len)
         p0, p1 = xy[longest[0]], xy[longest[-1]]
         ux, uy = p1[0] - p0[0], p1[1] - p0[1]
-        nrm = math.hypot(ux, uy)
+        nrm = exact.hypot(ux, uy)
         if nrm <= 0.0:
             continue
         ux, uy = ux / nrm, uy / nrm
@@ -677,7 +678,7 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
             ch, cxy, _caps = line_reg[lk]
             k = int(k)
             a_, b_ = ch[k], ch[k + 1]
-            seg = float(math.hypot(cxy[k + 1, 0] - cxy[k, 0], cxy[k + 1, 1] - cxy[k, 1]))
+            seg = float(exact.hypot(cxy[k + 1, 0] - cxy[k, 0], cxy[k + 1, 1] - cxy[k, 1]))
             snap = int(round(float(tv) * seg / min_d))
             if snap <= 0:
                 dst = a_
@@ -704,7 +705,7 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
         by_seg.setdefault((lk, k), []).append((foot_of[fid_][2], fid_))
     for (lk, k), lst in by_seg.items():
         ch, cxy, caps = line_reg[lk]
-        seg = float(math.hypot(cxy[k + 1, 0] - cxy[k, 0], cxy[k + 1, 1] - cxy[k, 1]))
+        seg = float(exact.hypot(cxy[k + 1, 0] - cxy[k, 0], cxy[k + 1, 1] - cxy[k, 1]))
         chain = [(0.0, ch[k]), *sorted(lst), (1.0, ch[k + 1])]
         for (t0, u), (t1, w) in zip(chain, chain[1:]):
             add(u, w, float(caps[k]), CENTRELINE, max((t1 - t0) * seg, min_d))
@@ -749,7 +750,7 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
     ln = np.concatenate(LEN); face = np.concatenate(FACE)
     keep = a != b
     a, b, cap, kind, ln, face = a[keep], b[keep], cap[keep], kind[keep], ln[keep], face[keep]
-    plan = np.hypot(xy[a, 0] - xy[b, 0], xy[a, 1] - xy[b, 1])
+    plan = exact.hypot_array(xy[a, 0] - xy[b, 0], xy[a, 1] - xy[b, 1])
     ln = np.where(np.isnan(ln), plan, ln)
     key = _pack(a, b, n_v)
     # one edge per pair: the least BUDGET (the budget the solve grants

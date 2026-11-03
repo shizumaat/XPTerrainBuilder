@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import math
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import is_rigid_role, is_value_role, role_side
 from ..model.airport import Airport
@@ -99,7 +100,7 @@ def cross_shape_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                     if key in seen:
                         continue
                     seen.add(key)
-                    d = math.hypot(x - vw.xy[w][0], y - vw.xy[w][1])
+                    d = exact.hypot(x - vw.xy[w][0], y - vw.xy[w][1])
                     if d > prox or d <= 0.0:
                         continue
                     cap = None
@@ -180,7 +181,7 @@ def airside_sliver_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[
             if seg2 <= 0.0:
                 continue
             t = min(1.0, max(0.0, ((x - ax) * dx + (y - ay) * dy) / seg2))
-            d = math.hypot(x - (ax + t * dx), y - (ay + t * dy))
+            d = exact.hypot(x - (ax + t * dx), y - (ay + t * dy))
             if best is None or d < best[0]:
                 best = (d, t, fb, a, b)
         if best is None or best[0] > weld or best[0] <= 0.0:

@@ -67,6 +67,7 @@ import typing as _t
 
 import dataclasses as _dc
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import is_rigid_role, role_family
 from ..model.airport import Airport
@@ -355,7 +356,7 @@ def box_rows(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float, float]],
     body by the cap × their STRAIGHT distance: the withdrawn chord law
     05aa).  None for a degenerate triangle or a zero axis."""
     g = plane_gradient_terms(tri, xy)
-    n = math.hypot(axis[0], axis[1])
+    n = exact.hypot(axis[0], axis[1])
     if g is None or n < 1e-12:
         return []
     gx, gy = g
@@ -379,7 +380,7 @@ def short_pairs(xy: _t.Mapping[int, tuple[float, float]], ring: _t.Sequence[int]
     pts = np.array([xy[v] for v in ring], dtype=float)
     out: list[tuple[int, int, float]] = []
     for i in range(n - 1):
-        dd = np.hypot(pts[i + 1:, 0] - pts[i, 0], pts[i + 1:, 1] - pts[i, 1])
+        dd = exact.hypot_array(pts[i + 1:, 0] - pts[i, 0], pts[i + 1:, 1] - pts[i, 1])
         hit = np.nonzero((dd >= min_d) & (dd < max_d))[0]
         a = int(ids[i])
         for j in hit:

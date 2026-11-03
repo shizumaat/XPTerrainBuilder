@@ -20,9 +20,9 @@ runs steeper than the road cap, with that grade — published once as
 """
 from __future__ import annotations
 
-import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import role_cap
 from ..model.airport import Airport
@@ -78,7 +78,7 @@ def public_road_lifts(pm: PlanarMap, law: Law, faces: _t.Iterable[int],
                 if a == b or a not in targets or b not in targets:
                     continue
                 (xa, ya), (xb, yb) = pm.vertices[a].xy, pm.vertices[b].xy
-                d = math.hypot(xa - xb, ya - yb)
+                d = exact.hypot(xa - xb, ya - yb)
                 if d > 0.0:
                     worst = max(worst, abs(targets[a] - targets[b]) / d)
         if worst > cap:

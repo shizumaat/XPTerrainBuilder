@@ -13,9 +13,9 @@ never a generator).  This module exports nothing v2-upward.
 from __future__ import annotations
 
 import dataclasses as _dc
-import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import role_cap, role_family, role_side
 from ..model.constraints import Diff, Flat, Linear, Offset, Pin, Row
@@ -146,7 +146,7 @@ class View:
 
     def dist(self, a: int, b: int) -> float:
         (ax, ay), (bx, by) = self.xy[a], self.xy[b]
-        return math.hypot(ax - bx, ay - by)
+        return exact.hypot(ax - bx, ay - by)
 
     def face_ring_xy(self, fid: int) -> list[tuple[float, float]]:
         return [self.xy[v] for v in self.rings[fid]]

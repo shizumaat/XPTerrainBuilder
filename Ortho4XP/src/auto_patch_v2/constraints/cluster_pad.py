@@ -34,6 +34,7 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
+from ..geom import exact
 from ..geom.slope_pad import slope_witness
 from ..geom import cluster_building_evidence, cluster_outlines, pad_shade_extra
 from ..law import Law
@@ -778,8 +779,8 @@ def cluster_pairs(planar: PlanarMap,
                 q = xy.get(v)
                 if q is None or not sen:
                     continue
-                w = min(sen, key=lambda s: ((s[1][0] - q[0]) ** 2
-                                            + (s[1][1] - q[1]) ** 2))[0]
+                w = min(sen, key=lambda s: (exact.sq(s[1][0] - q[0])
+                                            + exact.sq(s[1][1] - q[1])))[0]
                 if w != v:
                     key = (min(v, w), max(v, w))
                     if key not in pairs:

@@ -366,10 +366,12 @@ def test_road_level_is_matched_not_refused():
     assert TB_KEY._digest(profile) != TB_KEY._digest(other)
 
 
-def test_config_is_unset_until_the_owner_goes_live(monkeypatch):
+def test_an_unset_library_is_not_set_up(monkeypatch):
     for name in ("XPTB_LIBRARY_REPO", "XPTB_LIBRARY_RAW", "XPTB_LIBRARY_CLIENT_ID"):
         monkeypatch.delenv(name, raising=False)
     from patch_library import config
+    monkeypatch.setattr(config, "REPO", "")
+    monkeypatch.setattr(config, "CLIENT_ID", "")
     assert not config.configured()
     assert SCAN.check() == {"configured": False, "rows": [], "regions": [], "checked": ""}
 

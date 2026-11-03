@@ -20,10 +20,10 @@ import os
 __all__ = ["REPO", "CLIENT_ID", "BRANCH", "settings", "configured"]
 
 #: ``owner/name`` of the library repository ("" until it exists).
-REPO = ""
+REPO = "shizumaat/xptb-patch-library"
 
 #: The public client id of the library's GitHub OAuth app (device flow).
-CLIENT_ID = ""
+CLIENT_ID = "Ov23liYUGBNlCuCnNKvu"
 
 #: The library's default branch.
 BRANCH = "main"

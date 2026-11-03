@@ -10550,3 +10550,10 @@ Owner answers 2026-10-29T20:05:11Z, verbatim:
 - (2) Q309, KIND #1686 (PR #1751): a narrow pavement strip along a runway edge is the runway's shoulder and is graded with the runway, under the existing shoulder rules. It is never merged into the taxiway pages beside it.
 - (3) Q310, #1754 / #1727: a service road's height is held by its own smooth longitudinal road profile along its length, as the centreline already uses. This covers its ribbon ring vertices too, and it is not a pull toward the DEM.
 - (4) Q311, EPWA #1742 / KBWI #1728 (PR #1755): the runway is solved first, and its neighbours fit to it. It may still bend a little when the whole taxi network needs that to solve, as at HECA.
+
+**2026-11-03a: patch library go-live and the texture encoder (Q315–Q319, Q323–Q326, Q333–Q335) (owner, Noah, verbatim):**
+- (1) Q315, 2026-11-02T23:40:19Z: "For 301, option a." — `road_level` is part of a tile bundle's match key (matched, not refused). Applied in PR #1775 (`tile_bundle.key.MATCHED_NOT_REFUSED`).
+- (2) Q316/Q317, 2026-11-03T04:19:17Z: "316. Yes / 317. Client ID: Ov23liYUGBNlCuCnNKvu"; in thread 04:31:27Z "Yes, proceed". The library is the public repository `shizumaat/xptb-patch-library`, built from `library_template/`; the GitHub OAuth app's client id is in `patch_library/config.py`. Owner set Actions to read/write with PR approval (04:35:11Z).
+- (3) Q319, 2026-11-03T04:27:38Z: "a" — entries and tile bundles carry per-source terms instead of one blanket ODbL; a non-commercial source publishes, marked non-commercial; unread terms are read and open sources cleared; Northern Ireland and registration-required sources stay held.
+- (4) Q323–Q326 (#847), 2026-11-03T04:56:42Z: "323. a / 324. a / 325. a / 326. a" — keep the in-process encoder and close #847; accept its 0.4–0.7 dB gap to the old tool; no BC7; keep DDSTool/nvcompress as the per-texture fallback.
+- (5) Q333–Q335 (licences), same message: "333. b / 334. a / 335. a" — Japan GSI 5 m is allowed in the library; Washington DNR lidar publishes marked non-commercial; the US local lidar sources with no published licence (Hillsborough, Oregon DOGAMI, Pitkin) stay allowed.

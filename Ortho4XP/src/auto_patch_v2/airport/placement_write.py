@@ -197,7 +197,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,
         pads=pads, jetway_strips=jetway_strips, gate_m=jetway_strip_m,
-        keep_tol_m=authored_keep_tol_m, feet_tol_m=split_tol_m)
+        keep_tol_m=authored_keep_tol_m, feet_tol_m=split_tol_m,
+        elevated_m=elevated_base_m)
     files = tuple(f for s in ss.splits for f in s.files)
     counts = dict(ss.counts)
     counts.update(counts_extra)
@@ -216,7 +217,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
               pads: _t.Sequence = (), jetway_strips: _t.Sequence = (),
               gate_m: float | None = None,
               keep_tol_m: float = 0.0,
-              feet_tol_m: float = 0.3) -> tuple[tuple, tuple, tuple, dict]:
+              feet_tol_m: float = 0.3,
+              elevated_m: float = 0.0) -> tuple[tuple, tuple, tuple, dict]:
     """THE ROW HALF of the plan — ``(conversions, msl seats, riders,
     counts)``: what becomes of every DSF row the SPLIT did not replace.
     ONE implementation, two callers (:func:`build_plan` and
@@ -269,9 +271,11 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     flat = getattr(rebake_plan, "flat", None)
     ground = None if flat is None else flat.z0_m
     msl_counts: dict[str, int] = {}
+    from .hung_rows import hung_rows as _hung
     msl = _fu.msl_seats_for_dump(dump, rebake_plan, ss.unit_seats, surface,
                                  pack_root, settled, tol_m=tol_m,
-                                 authored_ground=ground, counts=msl_counts)
+                                 authored_ground=ground, counts=msl_counts,
+                                 hung=_hung(_rows, pack_root, elevated_m))  # #1726
     conv0 = conversions
     seated = frozenset(m.index for m in msl)
     conversions = tuple(c for c in conversions if c.index not in seated)

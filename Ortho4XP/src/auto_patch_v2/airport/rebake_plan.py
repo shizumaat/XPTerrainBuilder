@@ -310,7 +310,9 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                       part.skipped, counts, part.contacts, flat, part.abutments,
                       authored_seats=tuple(dict(r) for r in authored_seats),
                       connectors=(None if getattr(part, "connectors", None) is None
-                                  else tuple(v.to_dict() for v in part.connectors)))
+                                  else tuple(v.to_dict() for v in part.connectors)),
+                      adapted_frame_pids=tuple(sorted(
+                          getattr(part, "adapted_frame_pids", ()) or ())))
 
 
 def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,

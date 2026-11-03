@@ -7633,6 +7633,7 @@ from check_grade_lib.families.road_coverage_join import (  # noqa: E402,F401,I00
     _ROAD_JOIN_TOL_M,
 )
 from check_grade_lib.families import road_coverage_join as _fam_road_coverage_join  # noqa: E402,I001
+from check_grade_lib.families import deck_end_flush as _fam_deck_end_flush  # noqa: E402,I001
 
 
 #: §37 (11) (5): the ``out_of_scope`` stamp of a ``sea_wall`` row.  The
@@ -10808,6 +10809,7 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "EMITTED EDGE laid BESIDE a foreign constrained edge (the hairline)",
      "within"),
     *_fam_road_coverage_join.LAW_FAMILY_ROWS,
+    *_fam_deck_end_flush.LAW_FAMILY_ROWS,
     # §37 (11) (5) THE SEA WALL (owner RULINGS 2026-09-15f item 2): the
     # emitted edges standing ON the declared shore, named with their
     # drop, level and length.  Reported, NEVER adjudicated — a wall is
@@ -12433,6 +12435,7 @@ def run_checks(
     pad_relief_ll: Optional[list] = None,
     road_route_frame_ll: Optional[list] = None,
     road_coverage_join_ll: Optional[list] = None,
+    deck_anchors: Optional[list] = None,
     ground_envelope: Optional[list] = None,
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
@@ -12948,6 +12951,13 @@ def run_checks(
         "RULINGS 2026-09-13be, spec §37 (9): the core levels the road "
         "OUTSIDE the coverage and not inside it)", road_join, top_n)
     within = within + road_join
+
+    deck_flush = _fam("deck_end_flush",
+                      _fam_deck_end_flush.check_deck_end_flush(deck_anchors, nodes, ways))
+    _pv("HARD-DECK END LINE off the deck's one zero or its anchor (RULINGS "
+        "2026-10-30a (1), 2026-11-03c; deck-end-anchors spec §6: every "
+        "station flush within deck_flush_m)", deck_flush, top_n)
+    within = within + deck_flush
 
     renode = _fam("pad_airside_renode",
                   _check_pad_airside_renode(pad_airside_renode_ll, nodes))

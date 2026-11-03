@@ -88,7 +88,7 @@ def road_overpasses(objects, cache, classification, airport, law, decks=()
                     ) -> tuple[tuple[_Overpass, ...], list[str]]:
     """``(every road overpass deck piece, one note per piece read)``
     (module doc).  ``decks`` are the hard-deck bridges already read."""
-    from .deck_bridge import CellRoles, _beside_a_building, _frames, _slab
+    from .deck_bridge import CellRoles, _beside_a_building, _frames, _plate
     if not objects or cache is None or classification is None:
         return (), []
     br = law.tables.structures.bridge
@@ -103,7 +103,7 @@ def road_overpasses(objects, cache, classification, airport, law, decks=()
         d = dks[0]
         if str(d.id) in taken:
             continue
-        slab = _slab(cache, dks)
+        slab = _plate(cache, dks)
         top = max((y for _x, _y, y in slab), default=None)
         if top is None or top < float(br.clearance_minimum_m):
             continue

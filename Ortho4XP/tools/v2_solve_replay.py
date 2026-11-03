@@ -2412,7 +2412,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                     rows=(lambda cs0: drop_rows(cs0, drop, check=False)) if drop else None)
                 return rec.derived()
             _t1 = time.perf_counter()
-            s1 = stage_one_problem(cl, _ribbon_free, pm.registries)
+            s1 = stage_one_problem(cl, _ribbon_free, pm.registries, full=pm)
             if s1 is not None:
                 s1.bind(pm)
                 print(f"[{icao}] stage 1 on the ribbon-free map (#100 (c)): {s1.report} "

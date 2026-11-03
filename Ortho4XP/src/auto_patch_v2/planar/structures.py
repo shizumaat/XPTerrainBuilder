@@ -122,7 +122,8 @@ from .covered_bores import covered_bore_ways
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
                               portal_mouth, portal_note, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
-from .deck_bridge import deck_cut, deck_mouth, deck_pin, deck_seats, deck_side, deck_under
+from .deck_bridge import (deck_cut, deck_mouth, deck_pin, deck_polygon, deck_seats, deck_side,
+                          deck_under)
 from .deck_bores import deck_bores, deck_lanes, lane_band
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
@@ -336,8 +337,22 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
 
     # a HARD-DECK BRIDGE (``planar/deck_bridge``) takes the mouths of the
     # bores its deck stands over: the carriageways under one deck are ONE cut
+    deck_paved = unary_union([p for p, c in zip(polys, cells, strict=False)
+                              if c.role in rolled_on_roles(law)]) if deck_bridges else None
+    runway_cells = [p for p, c in zip(polys, cells, strict=False) if c.role in RUNWAY_FAMILY]
+    # the ROAD-EDGE WITNESS of a deck's cut (``deck_bridge.deck_cut``)
+    deck_roads = unary_union([p for p, c in zip(polys, cells, strict=False)
+                              if c.role in ("service_road", "service_junction")]) \
+        if deck_bridges else None
+    rw_tree = STRtree(runway_cells) if runway_cells else None
+
+    def _carries_runway(db) -> bool:
+        return rw_tree is not None and any(
+            runway_cells[int(j)].intersection(deck_polygon(db)).area > 1.0
+            for j in rw_tree.query(deck_polygon(db), predicate="intersects"))
     deck_of = {id(m): deck_under(m, deck_bridges, tn.object.bore_end_tolerance_m + tn.wall_gap_m
-                                 + tn.wall_band_width_m)
+                                 + tn.wall_band_width_m, deck_paved, tn.max_ramp_length_m,
+                                 _carries_runway)
                for m in mouth_list if edge_of.get(id(m)) is None} if deck_bridges else {}
     # ...but only the carriageways that are one road (``deck_bores.deck_lanes``)
     lane_of, lane_cs = deck_lanes(mouth_list, deck_of, tn.dual_carriageway_max_separation_m)
@@ -420,6 +435,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     keepouts: list[Polygon] = []
     covered: dict[str, tuple] = {}          # #1629: a slid mouth's covered stretch
     survey_cuts: list[Polygon] = []      # R2: the open trenches the survey carries
+    deck_outer: dict[str, Polygon] = {}  # a deck corridor's footprint (deck_cover_of)
     seen_ids: dict[str, int] = {}
     for g in groups:
         members, mouth, inward, width, axis_path = g.members, g.mouth, g.inward, g.width, g.axis
@@ -520,7 +536,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 LineString(m.approach) for m in members
                 if len(getattr(m, "approach", ()) or ()) >= 2],
             own_area=None if edge is None else Polygon(edge.plan).buffer(rim_off),
-            own_cut=None if deck is None else deck.polygon.buffer(rim_off),
+            own_cut=None if deck is None else deck_polygon(deck).buffer(rim_off),
             keep_out=[(strip_u, "runway_strip")] if strip_u is not None and pin is None
             and edge is None and not decked_by else ())
         if pin is not None and clear is not None and clear[4].startswith(PORTAL_YIELDS):
@@ -991,7 +1007,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # Q-A AS RULED: the road width, banked up to just short of the deck
             ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next,
                                    lane_band(deck, lane_cs.get(id(deck), ()),
-                                             lane_of.get(id(members[0]), 0)))
+                                             lane_of.get(id(members[0]), 0)),
+                                   deck.depth_m / float(law.tables.emit.design.bank_slope),
+                                   deck_roads)
         if rt is not None and c is None and level_to is not None and \
                 (deck is None or deck_next is None):
             # the half ends at its own side of the run line, open to its partner
@@ -1143,7 +1161,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if deck is not None:
                 extra.update(edge_seats=edge_seats, deck_bridge=deck.object_id,
                              deck_ring=tuple(deck.ring), depth_m=deck.depth_m,
-                             deck_top_y=0.5 * (deck.top_a + deck.top_b))
+                             deck_top_y=0.5 * (deck.top_a + deck.top_b),
+                             deck_slab=bool(getattr(deck, "slab", False)),
+                             deck_walled=bool(getattr(deck, "walls", ())))
                 if edge_floor:
                     extra["edge_floor_s"] = edge_floor
         profile_out: tuple = ()
@@ -1211,6 +1231,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 outer = outer.convex_hull
         footprints.append(outer)
         keepouts.append(outer)
+        if deck is not None:
+            deck_outer[tid] = outer
         if c is not None:
             # the walls cut EVERYTHING but the runway family — the pad too
             # (08-26: the trench is senior to the pad authority).  Beyond the
@@ -1294,16 +1316,33 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     knife = unary_union(footprints)
     hull_knife = unary_union(hull_knives) if hull_knives else None
     out_cells: list[Cell] = []
+    # THE RUNWAY FAMILY IS CUT ONLY UNDER A PACK DECK (owner RULINGS
+    # 2026-11-03b Q340 a / Q343 a, recommendation accepted 2026-11-03T13:58Z;
+    # narrows 08-07 ruling 4 / 15f): where the pack's bridge object carries
+    # the runway over the trench, the object shows the runway surface and the
+    # ground under it is the cut; everywhere else the runway is never cut
+    # ...and the bore's cut under a deck carrying the runway runs on through
+    # the runway past the deck's ring (deckanchor round 2: LFPG's A1 under
+    # H18r, the trench under 09R/27L beyond the hard-deck plate, S4)
+    deck_cover = deck_cover_of(tunnels, tid_deck, _carries_runway, deck_outer)
+
     def _cut(c: Cell, p, blade) -> None:
-        if c.role in RUNWAY_FAMILY or blade is None or not p.intersects(blade):
+        if c.role in RUNWAY_FAMILY and blade is not None:
+            blade = blade.intersection(deck_cover) if not deck_cover.is_empty else None
+            if blade is not None and blade.area <= 0.25:
+                blade = None
+        if blade is None or not p.intersects(blade):
             out_cells.append(c)
             return
         rest = p.difference(blade)
         stats.cells_cut += 1
+        if c.role in RUNWAY_FAMILY:
+            stats.runway_cut_under_deck += 1
         for k, part in enumerate(_parts(rest)):
             if part.area < 0.25:
                 continue
-            out_cells.append(Cell(len(out_cells), c.role, c.ref if k == 0 else f"{c.ref}#{k}",
+            keep_ref = k == 0 or c.role in RUNWAY_FAMILY   # a runway keeps its own ref
+            out_cells.append(Cell(len(out_cells), c.role, c.ref if keep_ref else f"{c.ref}#{k}",
                                   tuple(part.exterior.coords)[:-1],
                                   tuple(tuple(h.coords)[:-1] for h in part.interiors),
                                   c.code_number, c.code_letter, c.side, c.kind,
@@ -1351,3 +1390,23 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "mouths_replaced_by_object": stats.mouths_replaced_by_object})
     return cl, tuple(tunnels), stats
 
+
+def deck_cover_of(tunnels, tid_deck, carries_runway, outer=None) -> object:
+    """THE RUNWAY FAMILY'S BLADE MASK (owner RULINGS 2026-11-03b Q340 a /
+    Q343 a): the rings of the pack decks a corridor was cut under, every
+    ``deck_top`` deck ring, and the footprint of a corridor under a deck
+    carrying the runway family — ``outer`` (tunnel id -> the corridor's
+    footprint as cut).  MEASURED round 3: read off ``Tunnel.footprint``,
+    which only a pack corridor carries, an OSM bore under a deck added
+    nothing and LFPG's runway stood uncut beside the ring (S4).  A SLAB's
+    ring is never in it (round 3 §1): the ground under a slab is the
+    deck's, never cut."""
+    return unary_union(
+        [deck_polygon(db) for t, db in ((t, tid_deck.get(t.id)) for t in tunnels)
+         if db is not None and not getattr(db, "slab", False)]
+        + [Polygon(d.ring) for t in tunnels for d in t.decks
+           if d.datum == "deck_top" and len(d.ring) >= 3]
+        + [(outer or {}).get(t.id) or Polygon(t.footprint).buffer(0.0) for t in tunnels
+           if tid_deck.get(t.id) is not None
+           and ((outer or {}).get(t.id) is not None or len(t.footprint) >= 3)
+           and carries_runway(tid_deck[t.id])])

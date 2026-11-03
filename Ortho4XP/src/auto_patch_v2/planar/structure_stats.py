@@ -75,6 +75,9 @@ class StructureStats:
     #: spanning an object corridor, kept as decks over the ramp.
     pavement_decks: int = 0
     refused: list[str] = _dc.field(default_factory=list)
+    #: runway-family cells cut where a pack deck object carries the runway
+    #: over a corridor (owner RULINGS 2026-11-03b, accepted 2026-11-03T13:58Z)
+    runway_cut_under_deck: int = 0
     #: §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-15y): one line per
     #: MOUTH ROAD minted (``planar/structure_road.mouth_pair_roads``) plus
     #: the class's own tally, for the structures line.

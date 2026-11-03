@@ -577,6 +577,10 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # held block — minted by law (``planar/pad_cut.plateau_cut``),
             # EXPECTED added airside nodes, excluded from the renode bar
             "plateau_rings": _plateau_rings(planar, law),
+            # deck-end-anchors spec §1 / §6 (RULINGS 2026-11-03c): every
+            # pack hard deck's end-line anchors — LAW INPUT for the
+            # ``deck_end_flush`` census family; ``[]`` with no hard deck
+            "deck_anchors": _deck_anchor_records(planar),
             # 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS
             # 2026-09-30ah (1), issue #135): per TIED taxi-family face the
             # cap it was priced at, its table cap and the runway that
@@ -778,6 +782,12 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     if _doc.get("pad_airside_renode") is None:
         _doc.pop("pad_airside_renode", None)
     return _doc
+
+
+def _deck_anchor_records(planar: PlanarMap) -> list[dict]:
+    """The sidecar ``deck_anchors`` (``constraints/deck_anchor.sidecar_records``)."""
+    from ..constraints.deck_anchor import sidecar_records
+    return sidecar_records(planar)
 
 
 def _plateau_rings(planar: PlanarMap, law: Law) -> dict[str, list]:

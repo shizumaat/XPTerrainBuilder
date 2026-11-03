@@ -24,7 +24,7 @@ import dataclasses as _dc
 
 from .frame import XY
 
-__all__ = ["Deck", "Tunnel", "Basin", "Channel", "ChannelWall",
+__all__ = ["Deck", "Tunnel", "DeckAnchor", "DeckBridge", "Basin", "Channel", "ChannelWall",
            "profile_z", "deck_z_on_faces", "deck_reach", "DECK_GROUND_REF", "CHANNEL_FLOOR_ROLE",
            "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM"]
 
@@ -350,6 +350,116 @@ class Tunnel:
     #: object stage seats its zero at the end lines' solved surface less it
     #: (``pipeline/rebake_inputs._edge_seat_plates``)
     deck_top_y: float = 0.0
+    #: that deck is a SLAB (``planar/deck_bridge.DeckBridge.slab``): the
+    #: ground under it is held flush with it and no cut runs under it
+    deck_slab: bool = False
+    #: that deck's frame models WALLS under it (``DeckBridge.walls``): the
+    #: cut is vertical at them; with none it banks (owner 2026-11-03T16:56Z)
+    deck_walled: bool = False
+
+
+@_dc.dataclass(frozen=True)
+class DeckAnchor:
+    """ONE END LINE OF A PACK HARD DECK, ANCHORED BEFORE THE SOLVE (spec
+    ``deck-end-anchors-20261103``; owner RULINGS 2026-11-03c): the vertex
+    ``v`` where the carried route leaves the deck, held at ``z_m`` — the
+    carried route's window-blind profile (``profile_z_m`` there) moved so
+    the deck takes its authored grade (``rise_m``, the top's rise from the
+    object's first end line to this one) and never tilts.  ``yielding``:
+    the pin is minted under the yielding head (Q2 a: inside a threshold's,
+    a seam's or a crossing's vertical-curve reach, or a deck grade over
+    the family cap) — ``note`` says which.  ``pinned`` is ``False`` where a
+    senior pin already holds ``v``.  ``stations`` are the end line's seat
+    vertices, ``top_y`` its authored top less the object's first end
+    line's (the bottom cancels)."""
+
+    object_id: str
+    end: str
+    v: int
+    stations: tuple[int, ...]
+    z_m: float
+    top_y: float
+    rise_m: float
+    family: str
+    ref: str
+    profile_z_m: float
+    yielding: bool = False
+    pinned: bool = True
+    note: str = ""
+    #: how the cut meets this deck (owner 2026-11-03T16:56Z): ``bank`` (the
+    #: default embankment from the end down to the trench floor), ``walls``
+    #: (a pack wall under the deck: vertical) or ``slab`` (no cut under it;
+    #: the trench beside it banks across the object's width)
+    cut: str = "bank"
+    #: the end line's identity on every map: its deck's stations (frame xy,
+    #: DeckBridge.seats_a / seats_b) — stage 1's map takes the full
+    #: map's anchor by it (model/stage_one.from_full)
+    line: tuple[XY, ...] = ()
+
+
+@_dc.dataclass(frozen=True)
+class DeckBridge:
+    """ONE PACK DECK PIECE THE AIRPORT'S PAVEMENT DRIVES ACROSS, A MAP
+    ENTITY (deck redesign §1; owner RULINGS 2026-10-30a, 2026-11-03c):
+    derived ONCE by ``planar/deck_bridge.deck_bridges`` on the full map and
+    published as ``PlanarMap.decks`` — the anchors, the deck rows, the
+    object stage's plate and stage 1's map read THIS record, never a
+    tunnel's copy of it.  Pieces of one object share ``object_id``; the
+    object has one zero (30a (1)).  Its plan geometry is
+    ``planar/deck_bridge.deck_polygon`` (the model holds no shapely)."""
+
+    object_id: str
+    resource: str
+    #: every placement of the bridge's frame (the deck's anchor, heading)
+    members: tuple[str, ...]
+    #: the deck piece's outline (frame xy)
+    ring: tuple[XY, ...]
+    #: the seat stations of end A and end B (frame xy, on the ring)
+    seats_a: tuple[XY, ...]
+    seats_b: tuple[XY, ...]
+    #: the authored deck top at end A / end B, and the frame's bottom (y)
+    top_a: float
+    top_b: float
+    bottom_y: float
+    #: the pre-solve rendered deck top: the estimate a mouth plans from
+    deck_z: float
+    #: the frame's WALLS under the deck, ``(r_w, n_w, faces)``
+    #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3)); ``()``
+    #: for a deck the pack models no wall under
+    walls: tuple = ()
+    #: a SLAB deck (``planar/deck_bridge._is_slab``): the ground under it is
+    #: kept at the deck and the road's cut stops at its edges (owner
+    #: 2026-11-03T16:39:23Z)
+    slab: bool = False
+    #: what states the deck: ``hard_deck`` (an ``ATTR_hard_deck`` /
+    #: signature plate) or ``slab`` (an ``ATTR_hard`` plate)
+    witness: str = "hard_deck"
+    #: the deck's family, from the most senior route it carries: ``runway``
+    #: where a runway axis crosses it, else ``taxi`` (one per DECK, never
+    #: voted per end line)
+    family: str = "taxi"
+    #: the CARRIED ROUTE: the apt.dat runway axis, or the row-1202 taxi
+    #: edges through the deck run on ~600 m each way (frame xy polyline);
+    #: never the map's chain
+    route: tuple[XY, ...] = ()
+    #: the runway the route is (``""`` for a taxi route)
+    route_ref: str = ""
+    #: how the cut meets the deck, set once the corridors are cut
+    #: (``planar/deck_bridge.with_cuts``): ``none`` (no bore runs under it),
+    #: ``bank``, ``walls`` or ``slab`` — the sidecar ``deck_anchors[*].cut``
+    cut: str = "none"
+
+    @property
+    def depth_a(self) -> float:
+        return self.top_a - self.bottom_y
+
+    @property
+    def depth_b(self) -> float:
+        return self.top_b - self.bottom_y
+
+    @property
+    def depth_m(self) -> float:
+        return 0.5 * (self.depth_a + self.depth_b)
 
 
 #: the ref prefix of the ground a hard deck rests on (``planar/deck_bridge.

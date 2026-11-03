@@ -41,7 +41,10 @@ A HARD-DECK BRIDGE (``planar/deck_bridge``; owner RULINGS 2026-10-30a (1))
 has ONE zero, flush at both end lines: per object, every end line's seat set
 is held to the first one's by the deck-top difference between them —
 ``mean z[S_k] − mean z[S_0] = top_k − top_0`` — a two-sided pair under
-:data:`RIGID` (``[design] hard_rulings``).  The taxiway on each side is
+:data:`RIGID` (``[design] hard_rulings``).  The decks are the map's
+(``PlanarMap.decks``, deck redesign §1), whether or not a trench runs under
+one, and each station of an end line its anchor holds stands at that
+anchor's level (:func:`_station_rows`).  The taxiway on each side is
 graded to the deck; the deck never tilts or shears.  The ground under the
 deck that is no trench floor — the bank's top along its edge — takes the
 span pair to its nearest seat (:func:`_deck_span`).
@@ -49,6 +52,7 @@ span pair to its nearest seat (:func:`_deck_span`).
 from __future__ import annotations
 
 import math
+import typing as _t
 
 from ..law import Law
 from ..model.airport import Airport
@@ -82,12 +86,13 @@ def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                    getattr(t, "edge_covers", ()) or any(d.datum != "deck_top" for d in t.decks))]
     decked = [t for t in getattr(planar, "structures", ()) or ()
               if getattr(t, "deck_bridge", "")]
-    if not tunnels and not decked:
+    if not tunnels and not getattr(planar, "decks", ()):
         return []
     nearest = airside_nearest(planar, law)
     if nearest is None:
         return []
-    rows: list[Row] = _deck_rows(planar, law, decked, nearest.air) if decked else []
+    rows: list[Row] = _deck_rows(planar, law, decked, nearest.air) \
+        if getattr(planar, "decks", ()) else []
     for tn in tunnels:
         src = Source(GEN, RULING, (tn.id, tn.portal, "span"))
         for v in _span_vertices(planar, law, tn) - nearest.air:
@@ -120,69 +125,94 @@ _RUNWAY_FAMILY = frozenset({"runway", "runway_crossing"})
 
 
 def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
-    """The hard-deck bridges' rigid rows and spans (module doc)."""
-    from shapely.geometry import MultiPoint, Point, Polygon
-    from shapely.prepared import prep
-
-    from .edge_floor import edge_seats_of
-    seats_of = edge_seats_of(planar, law, combine=False)
-    rows: list[Row] = []
-    by_obj: dict[str, dict] = {}
-    ceilings: list[tuple] = []
-    for tn in tunnels:
-        got = seats_of(tn)
-        for (oid, st, depth), (terms, _d) in zip(tn.edge_seats, got, strict=True):
-            top = float(depth)                  # depth = top − bottom: the bottom cancels
-            by_obj.setdefault(oid, {}).setdefault(tuple(st), (terms, top))
-        seat_vs = sorted({v for terms, _d in got for v, _w in terms})
-        if not seat_vs:
-            continue
-        ring = Polygon(tn.deck_ring).buffer(0.5)
-        inside = prep(ring)
-        pts = deck_reach(tn)
-        reach = MultiPoint(pts).convex_hull if pts is not None else None
-        beyond = prep(reach.buffer(0.5)) if reach is not None else inside
-        src = Source(GEN, RULING, (tn.id, tn.deck_bridge, "deck span"))
-        under = Source(GEN, RIGID, (tn.id, tn.deck_bridge, "under the deck"))
-        flush = float(law.tables.structures.bridge.deck_flush_m)
-        for v, vx in planar.vertices.items():
-            if v in seat_vs or _FLOOR_ROLES & set(planar.roles_at(v)):
-                continue
-            p = Point(vx.xy)
-            if not inside.contains(p) and not (beyond.contains(p)
-                                               and _bridge_ground(planar, vx)):
-                continue
-            x, y = vx.xy
-            a = min(seat_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
-                    + (planar.vertices[s].xy[1] - y) ** 2)
-            if v in air:
-                # #1692: the pavement under the deck never stands through it
-                # — read from the deck's own zero (round 6: from the nearest
-                # seat it stood 0.08 m through)
-                ceilings.append((tn.deck_bridge, v, a, under))
-                continue
-            rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
-            rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))
+    """The pack decks' spans, station rows and rigid rows (module doc), per
+    object of ``PlanarMap.decks`` (``constraints/deck_lines``) — a deck no
+    corridor runs under included; ``tunnels``: the trenches under one."""
+    from .deck_lines import end_lines
     flush = float(law.tables.structures.bridge.deck_flush_m)
-    for oid, v, a, src in ceilings:
-        top_of = _station_tops(list(by_obj[oid].values()))
-        rows.append(_from_zero(v, top_of, top_of.get(a), None, flush, src))
-    for oid in sorted(by_obj):
-        ends = list(by_obj[oid].values())
-        rows.extend(_station_rows(oid, ends, flush))
-        for k, (terms, top) in enumerate(ends[1:], 1):
-            src = Source(GEN, RIGID, (oid, f"end {k}"))
-            acc: dict[int, float] = {}
-            for v, w in terms:
-                acc[v] = acc.get(v, 0.0) + w
-            for v, w in ends[0][0]:
-                acc[v] = acc.get(v, 0.0) - w
-            ts = tuple((v, c) for v, c in sorted(acc.items()) if abs(c) > 1e-12)
-            if not ts:
-                continue
-            rhs = top - ends[0][1]
-            rows.append(Linear(ts, None, rhs, src))
-            rows.append(Linear(tuple((v, -c) for v, c in ts), None, -rhs, src))
+    rows: list[Row] = []
+    for oid, es in sorted(end_lines(planar, law).items()):
+        ends = [(e.terms, e.depth) for e in es]
+        rows.extend(_span_rows(planar, oid, es, [t for t in tunnels if t.deck_bridge == oid],
+                               air, ends, flush))
+        rows.extend(_station_rows(oid, ends, flush, _held_levels(planar, oid, es)))
+        rows.extend(_rigid_rows(oid, ends))
+    return rows
+
+
+def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float) -> list[Row]:
+    """The object's SPAN: every vertex inside its deck rings — or, on the
+    bridge's own ground (:func:`_bridge_ground`), inside the reach of a
+    trench under it (``model/structures.deck_reach``) — that is no seat and
+    no trench floor takes the pair to its nearest seat; an airside vertex
+    there a ceiling from the deck's zero instead (#1692: the pavement under
+    the deck never stands through it), flush both ways over a SLAB (the
+    pavement inside its ring IS the deck's surface)."""
+    from shapely.geometry import MultiPoint, Point, Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    seat_vs = sorted({v for e in es for v, _w in e.terms})
+    if not seat_vs:
+        return []
+    decks = list({tuple(e.deck.ring): e.deck for e in es}.values())
+    inside = prep(unary_union([Polygon(d.ring).buffer(0.5) for d in decks]))
+    slabs = [Polygon(d.ring).buffer(0.5) for d in decks if d.cut == "slab"]
+    on_slab = prep(unary_union(slabs)) if slabs else None
+    hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
+    beyond = prep(unary_union(hulls).buffer(0.5)) if hulls else inside
+    src = Source(GEN, RULING, (oid, oid, "deck span"))
+    under = Source(GEN, RIGID, (oid, oid, "under the deck"))
+    top_of = _station_tops(ends)
+    seats = set(seat_vs)
+    rows: list[Row] = []
+    for v, vx in planar.vertices.items():
+        if v in seats or _FLOOR_ROLES & set(planar.roles_at(v)):
+            continue
+        p = Point(vx.xy)
+        if not inside.contains(p) and not (beyond.contains(p) and _bridge_ground(planar, vx)):
+            continue
+        x, y = vx.xy
+        a = min(seat_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
+                + (planar.vertices[s].xy[1] - y) ** 2)
+        if v in air:
+            both = on_slab is not None and on_slab.contains(p)
+            rows.append(_from_zero(v, top_of, top_of.get(a), -flush if both else None, flush,
+                                   under))
+            continue
+        rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
+        rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))
+    return rows
+
+
+def _held_levels(planar: PlanarMap, oid: str, es) -> list["float | None"]:
+    """Per end line, the level its anchor HOLDS (``PlanarMap.deck_anchors``:
+    pinned and not yielding), else ``None``."""
+    from .deck_lines import anchor_of
+    out: list[float | None] = []
+    for e in es:
+        a = anchor_of(planar, oid, e.line)
+        out.append(float(a.z_m) if a is not None and a.pinned and not a.yielding else None)
+    return out
+
+
+def _rigid_rows(oid: str, ends: list) -> list[Row]:
+    """ONE ZERO (30a (1)): each end line's seat mean held to the first's by
+    the deck-top difference — ``mean z[S_k] − mean z[S_0] = top_k − top_0``
+    — a two-sided pair under :data:`RIGID`."""
+    rows: list[Row] = []
+    for k, (terms, top) in enumerate(ends[1:], 1):
+        src = Source(GEN, RIGID, (oid, f"end {k}"))
+        acc: dict[int, float] = {}
+        for v, w in terms:
+            acc[v] = acc.get(v, 0.0) + w
+        for v, w in ends[0][0]:
+            acc[v] = acc.get(v, 0.0) - w
+        ts = tuple((v, c) for v, c in sorted(acc.items()) if abs(c) > 1e-12)
+        if not ts:
+            continue
+        rhs = top - ends[0][1]
+        rows.append(Linear(ts, None, rhs, src))
+        rows.append(Linear(tuple((v, -c) for v, c in ts), None, -rhs, src))
     return rows
 
 
@@ -198,20 +228,32 @@ def _bridge_ground(planar: PlanarMap, vx) -> bool:
         for f in faces)
 
 
-def _station_rows(oid: str, ends: list, flush: float) -> list[Row]:
-    """EVERY STATION FLUSH (owner RULINGS 2026-10-30a (1), 30f (4); #1692):
-    each seat vertex of every end line stands within ``flush`` of the deck
-    top there, read from the ONE zero the object stage seats the deck at —
-    the mean over every station, each once (``pipeline/rebake_inputs.
-    _deck_plate``: ``zero = mean z[S] − mean top[S]``) — so
-    ``z[v] − mean z[S] ∈ top(v) − mean top[S] ± flush``.  Read from the
-    first end line's mean instead, a station could stand 0.07 m over the
-    deck the plate set (KBNA round 5).  The rigid row holds the end means;
-    a taxiway's cross-fall left the stations of one end line 0.76 m apart
-    under a flat deck (KBNA round 4).  Hard, under :data:`RIGID`."""
+def _station_rows(oid: str, ends: list, flush: float,
+                  level: "_t.Sequence[float | None]" = ()) -> list[Row]:
+    """EVERY STATION FLUSH (owner RULINGS 2026-10-30a (1), 30f (4); #1692),
+    hard, under :data:`RIGID`.  Where its end line's anchor HOLDS a level
+    (``level[k]``, :func:`_held_levels`), each station stands ABSOLUTELY
+    within ``flush`` of it — ``z[v] ∈ z_end ± flush`` (deck redesign §1:
+    the two maps' stations read one level, never their own mean; KIAH
+    round 3: a station stage 1 never held solved 0.26 m off its deck).
+    Elsewhere (a yielding anchor, or none) it is RELATIONAL, read from the
+    ONE zero the object stage seats the deck at — the mean over every
+    station, each once (``pipeline/rebake_inputs._deck_plate``) — so
+    ``z[v] − mean z[S] ∈ top(v) − mean top[S] ± flush``.  The rigid row
+    holds the end means; a taxiway's cross-fall left the stations of one
+    end line 0.76 m apart under a flat deck (KBNA round 4)."""
     top_of = _station_tops(ends)
-    return [_from_zero(v, top_of, top_of[v], -flush, flush,
-                       Source(GEN, RIGID, (oid, f"station v{v}"))) for v in sorted(top_of)]
+    held: dict[int, "float | None"] = {}
+    for k, (terms, _top) in enumerate(ends):
+        for v, _w in terms:
+            held.setdefault(v, level[k] if k < len(level) else None)
+    out: list[Row] = []
+    for v in sorted(top_of):
+        src = Source(GEN, RIGID, (oid, f"station v{v}"))
+        z = held.get(v)
+        out.append(Band(v, z - flush, z + flush, src) if z is not None
+                   else _from_zero(v, top_of, top_of[v], -flush, flush, src))
+    return out
 
 
 def _station_tops(ends: list) -> dict[int, float]:
@@ -319,8 +361,8 @@ def deck_floor(planar: PlanarMap) -> tuple[frozenset, frozenset]:
     (LFPG 09L/27R over a hard-deck road underpass, batch AR): the release
     withdrew the runway's transverse rows at the trench outline and the
     runway edge fell 1.02 m off its crown (3.34 % against 1.52 %)."""
-    rings = [t.deck_ring for t in getattr(planar, "structures", ()) or ()
-             if getattr(t, "deck_bridge", "") and len(t.deck_ring) >= 3]
+    rings = [db.ring for db in getattr(planar, "decks", ()) or ()
+             if db.cut != "none" and len(db.ring) >= 3]
     if not rings:
         return frozenset(), frozenset()
     from shapely.geometry import Point, Polygon

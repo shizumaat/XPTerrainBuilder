@@ -705,6 +705,11 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     half_of = runway_half_widths(airport)
     rows: list[Row] = []
     done: set[int] = set()
+    # Q3 a (deck-end-anchors spec §4): over the run into a deck the deck is
+    # the runway's surface and carries no crown — the floor stands down for
+    # a vertex whose bracketing ridge station is a deck anchor
+    anchors = {a.v for a in getattr(planar, "deck_anchors", ()) or ()
+               if a.pinned and a.family == "runway"}
     for f in vw.faces_of_role(RUNWAY_FAMILY):
         ref_ids = [f.ref] if f.role == "runway" else f.ref.split("+")
         # §40 (2): the crown floor stops at the runway edge (see
@@ -723,6 +728,8 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 continue
             done.add(v)
             d, a, b, t = ft
+            if anchors and ((a in anchors and t < 1.0) or (b in anchors and t > 0.0)):
+                continue
             drop = crown * (min(d, half) if half > 0.0 else d)
             terms = ((v, 1.0), (a, -(1.0 - t)), (b, -t))
             if t <= 0.0:

@@ -14,7 +14,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import PlanarMap
-from . import (apron, cluster_pad, eat, edge_deck, flat_site, foot_rows,
+from . import (apron, cluster_pad, deck_anchor, eat, edge_deck, flat_site, foot_rows,
                groundside, hard_plane, door_pad,
                junction_mesh,
                no_step, pad_frontage_gs, pad_fronting, pads,
@@ -49,6 +49,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # spec §17): the crossing node is a hard Pin on the runway that GRADES
     # to it, at the value the governing runway's chord takes there.
     ("runway_crossing_pin", runway_chord.runway_crossing_pins),
+    # THE DECK END LINE IS AN ANCHOR (RULINGS 2026-11-03c; deck-end-anchors
+    # spec): every pack hard deck's end lines, pinned before the solve
+    ("deck_anchor", deck_anchor.deck_anchor_pins),
     ("taxi_chain", taxi.taxi_chain),
     ("taxi_centerlines", taxi.taxi_centerlines),
     ("triangle_planes", taxi.triangle_planes),

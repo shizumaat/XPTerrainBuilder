@@ -366,6 +366,8 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
         counts["plate_members"] += 1
     # an EDGE BRIDGE's seat (``pipeline/rebake_inputs._edge_seat_plates``)
     plate_kind = str(rest[1]) if o.id in plates and len(rest) > 1 else ""
+    # deck-end-anchors spec §3: the zero the deck's anchors state
+    anchor_zero = float(rest[2]) if o.id in plates and len(rest) > 2 else None
     wp = getattr(o, "walled_plate", None)
     if wp is not None:
         # owner RULINGS 2026-10-27u (#1201): A WALLED PLATE AT A RUNWAY END
@@ -384,7 +386,8 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
                        deck_stations=deck_stations,
                        deck_end_stations=deck_end_stations, plate_y=plate_y,
                        plate_stations=plate_stations,
-                       plate_clearance_m=plate_clearance, plate_kind=plate_kind)
+                       plate_clearance_m=plate_clearance, plate_kind=plate_kind,
+                       anchor_zero=anchor_zero)
 
 
 def _flat_datum(airport: Airport, to_ll) -> FlatDatum | None:

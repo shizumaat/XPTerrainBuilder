@@ -982,6 +982,7 @@ hard_conflict_lp_budget_share = 0.15
 apron_promote_on_miss_rulings = ["apron body chord, strict"]
 yielding_pin_rulings = [
   "roads.coverage_edge join",                            # 27a (10) (Q-21, GEML): the §37 (9) join pin is the core RIBBON's level; where the 5 % pavement ceiling from stage 1's apron cannot reach it, the RIBBON yields (its 1.0 m budget is exceeded) — the pin is released to a design target and the core takes the patch's level there (sidecar `road_join_yield`)
+  "structures.deck anchor yields to a senior pin",       # owner RULINGS 2026-11-03c Q2 (as answered 16:20Z: seam > CIFP threshold > deck anchor): a deck end-line anchor (`constraints/deck_anchor.py`) within a seam or crossing pin's vertical-curve reach, or over its family's grade cap, is released to a design target where its own rows will not hold it
   "runway.threshold yields to the tile seam",            # owner RULINGS 2026-10-26b (#1346): "the tile boundary has to trump everything" — a CIFP threshold within its vertical-curve reach of a §38 seam pin (`constraints/threshold_seam.py`) is released to a design target where its own rows will not hold it; the yield is published (sidecar `threshold_seam_yield`)
 ]
 # THE PINS THAT NEVER HOLD AIRSIDE (owner RULINGS 2026-10-02v (1), issue #143;

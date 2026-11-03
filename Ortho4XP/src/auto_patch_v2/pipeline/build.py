@@ -600,7 +600,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # classification (stage-cache spec §4b.3)
     derive = Deriver(airport, law, inputs, pack, cache=fc, common=_fc_in,
                      heartbeat="stage 1 on the ribbon-free map: shapes and constraints")
-    _s1 = stage_one_problem(cl, derive, pm.registries)
+    _s1 = stage_one_problem(cl, derive, pm.registries, full=pm)
     _pulse.tick("solving the surface")
     if _s1 is not None:
         _s1.bind(pm)

@@ -182,9 +182,9 @@ def _write(pf: PackForests, pack_root: str, renames: dict) -> None:
     _DSFR.ensure_dsf_text_path(dsf, _dsf2.mod_cache_dir(
         FNAMES.airport_mod_cache_root(), pf.pack_name))
     UI.vprint(0, f"  [pack] {pf.pack_name}: "
-                 + (f"{len(renames)} forest definition(s) now point at "
+                 + (f"{len(renames)} tree or forest definition(s) now point at "
                     f"X-Plane 12 3D trees" if renames else
-                    "the original forest definitions are back")
+                    "the original tree and forest definitions are back")
                  + f" — rewrote {_relative(pack_root, dsf)} (the original is "
                    f"kept as {os.path.basename(backup)})")
 

@@ -167,6 +167,7 @@ from elevation_access.definitions import (
 )
 from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access import fetch_scratch as FETCH_SCRATCH
+from elevation_access import inset_trim as INSET_TRIM
 from elevation_access.fetch_slots import held_inset_fetch_slot
 from elevation_access import footprints as ea_footprints
 from elevation_access import mask_coverage as ea_mask_coverage
@@ -4821,6 +4822,17 @@ def ensure_airport_insets(
                                 recheck["new_source_ids"])
                         )
                 if not cached_inset_is_stale:
+                    # THE TRIM RULE (#1725): a raster cut for a larger
+                    # box than this airport now reads is cut down to it.
+                    freed = INSET_TRIM.trim_cached_inset(
+                        destination,
+                        FNAMES.airport_inset_provenance(lat, lon, icao, code),
+                        bounding_box)
+                    if freed:
+                        UI.vprint(1, "    [inset] %s from %s: trimmed the "
+                                  "cached raster to the box this build "
+                                  "reads (%.0f MB freed)."
+                                  % (icao, code, freed / 1e6))
                     airport_record[code] = airport_record.get(code) or "ok"
                     _store_acceptance_probes_in_record(
                         airport_record, destination

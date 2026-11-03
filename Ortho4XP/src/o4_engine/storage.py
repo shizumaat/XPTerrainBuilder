@@ -155,6 +155,17 @@ def _held_by_lock(names, folder: str, now: float) -> bool:
     return False
 
 
+def _deletable(store: Store, name: str, st: os.stat_result,
+               now: float) -> bool:
+    """A file of a CACHE store that is no config, backup, patch, lock or
+    log, and was not written in the last hour (the folder-lock test is
+    the caller's)."""
+    return (store.policy == CACHE
+            and not name.endswith(_PROTECTED_SUFFIXES)
+            and name != LOG_NAME
+            and now - st.st_mtime >= IN_FLIGHT_SECONDS)
+
+
 def _files(store: Store, now: float):
     """``(path, stat, deletable)`` of every regular file of ``store``;
     a symlink is neither followed nor listed."""
@@ -173,11 +184,7 @@ def _files(store: Store, now: float):
                 continue
             if not stat.S_ISREG(st.st_mode):
                 continue
-            deletable = (store.policy == CACHE and not held
-                         and not name.endswith(_PROTECTED_SUFFIXES)
-                         and name != LOG_NAME
-                         and now - st.st_mtime >= IN_FLIGHT_SECONDS)
-            yield path, st, deletable
+            yield path, st, not held and _deletable(store, name, st, now)
 
 
 def _measure(store: Store, now: float) -> dict:
@@ -325,6 +332,36 @@ def _evict_to_cap(store: Store, cap: int, sweep: _Sweep, now: float) -> None:
         _prune_empty_dirs(store.path())
 
 
+def _remove_redundant(sweep: _Sweep, now: float) -> None:
+    """Delete what ``storage_redundant`` names -- texture-cache entries
+    their tiles hold, caches of packs no longer installed, superseded
+    pack dumps -- under the same rules as every other deletion here."""
+    import o4_engine.storage_redundant as REDUNDANT
+    for kind, paths in (("dds", REDUNDANT.dds_held_by_tiles()),
+                        ("airport_mod", REDUNDANT.airport_pack_leftovers())):
+        store = _BY_KIND[kind]
+        root = os.path.join(os.path.abspath(store.path()), "")
+        for path in paths:
+            if sweep.abort():
+                sweep.stopped = True
+                return
+            folder, name = os.path.split(path)
+            if not os.path.abspath(path).startswith(root):
+                continue
+            try:
+                st = os.lstat(path)
+                held = _held_by_lock(os.listdir(folder), folder, now)
+            except OSError:
+                continue
+            if (stat.S_ISREG(st.st_mode) and not held
+                    and _deletable(store, name, st, now)):
+                sweep.delete(store, path, st)
+        if not sweep.dry_run:
+            _prune_empty_dirs(store.path())
+    if not sweep.dry_run:
+        DDSC.forget_missing()
+
+
 def _caches(kinds) -> list:
     """The stores ``kinds`` names (every cache when empty); a KEPT or
     unknown store refuses the whole call."""
@@ -409,10 +446,13 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
     """ENGINE COMMAND ``storage_auto_clean``: the automatic cleanup —
     every cache file not used for ``days`` (the ``storage_auto_clean_days``
     setting; 0 is off), then each cache over its limit
-    (``storage_cache_caps_gb``) evicted least recently used first.
+    (``storage_cache_caps_gb``) evicted least recently used first, then,
+    whatever the settings, the files nothing needs any more
+    (``o4_engine.storage_redundant``: texture-cache copies of what built
+    tiles hold, caches of airport packs no longer installed).
 
     :returns: :func:`storage_clear`'s reply plus ``"ran"`` (False when both
-        settings are off: nothing was looked at)
+        settings are off and nothing was redundant)
     """
     set_days, set_caps = _settings()
     days = set_days if days is None else float(days)
@@ -428,8 +468,10 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
         if sweep.stopped:
             break
         _evict_to_cap(_BY_KIND[kind], int(cap), sweep, now)
+    if not sweep.stopped:
+        _remove_redundant(sweep, now)
     out = sweep.result()
-    out["ran"] = bool(days > 0 or caps)
+    out["ran"] = bool(days > 0 or caps or out["files"])
     return out
 
 

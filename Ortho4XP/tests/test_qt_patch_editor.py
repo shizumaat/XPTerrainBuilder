@@ -904,3 +904,33 @@ def test_the_mac_app_names_insert_shape_the_same():
     swift = (Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
              / "TileContextMenu.swift").read_text(encoding="utf-8")
     assert re.search(r'static let insertShapeTitle = "([^"]*)"', swift).group(1) == INSERT_SHAPE_TITLE
+
+
+def test_alt_drag_on_a_node_rotates_its_shape_in_one_undo_step(editor, patches):
+    """#1746: Alt (Option) over a node is the rotate cursor; an Alt-drag
+    turns the node's shape about its centre (the shared -3 drags the
+    service road's end along), keeps every elevation, and is ONE undo
+    step."""
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    before = dict(ed.model.doc.nodes)
+    pivot = ed.overlay.screen_of(30.1005, 31.4005)
+    press = _screen(ed, -1)
+    _mouse(view, QEvent.MouseButtonPress, press, mods=Qt.AltModifier)
+    assert ed.gestures.kind == ed.gestures.ROTATE and ed.model.shape_selection == {-10}
+    assert ed.gestures.pointer_at(press) == "rotate"
+    turned = pivot + QPointF(press.y() - pivot.y(), -(press.x() - pivot.x()))  # a quarter, screen
+    _mouse(view, QEvent.MouseMove, (press + turned) / 2 + (press + turned - 2 * pivot) * 0.2)
+    _mouse(view, QEvent.MouseMove, turned)
+    view.viewport().grab()                                   # the turning shape and its centre
+    assert abs(ed.gestures.angle - 90.0) < 1.0               # counter-clockwise on the ground
+    _mouse(view, QEvent.MouseButtonRelease, turned, buttons=Qt.NoButton)
+    assert ed.model.undo_stack.count() == 1 and ed.model.undo_stack.undoText() == "Rotate Shape"
+    after = ed.model.doc.nodes
+    assert {n for n in before if after[n] != before[n]} == {-1, -2, -3, -4}
+    assert all(after[n][3] == before[n][3] for n in before)
+    assert abs(ed.gestures.angle) == 0.0                     # reset after release
+    ed.model.undo_stack.undo()
+    assert dict(ed.model.doc.nodes) == before

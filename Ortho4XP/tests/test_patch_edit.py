@@ -86,3 +86,26 @@ def test_delete_ways_topology():
     assert [w.id for w in out.ways] == [-101, -103]
     with pytest.raises(KeyError):
         PE.delete_ways(doc, [-999])
+
+
+def test_rotate_ways_turns_a_ground_square_onto_itself():
+    """#1746: a square on the ground (equal metres east and north), turned
+    a quarter counter-clockwise about its centroid, lands each corner on
+    the next one; elevations stay, the input is untouched, and an unknown
+    way is refused."""
+    lat0, lon0 = 45.0, 7.0
+    dlat = 0.001
+    dlon = dlat / math.cos(math.radians(lat0 + dlat / 2))  # square in the pivot's plane
+    corners = [(lat0, lon0), (lat0, lon0 + dlon), (lat0 + dlat, lon0 + dlon), (lat0 + dlat, lon0)]
+    nodes = [[-(i + 1), lat, lon, 10.0 + i] for i, (lat, lon) in enumerate(corners)]
+    doc = PE.PatchDoc.from_wire(nodes, [{"id": -1, "refs": [-1, -2, -3, -4, -1], "tags": {}}])
+    before = doc.to_wire()
+    out = PE.rotate_ways(doc, [-1], 90.0)
+    assert doc.to_wire() == before
+    for i in range(4):
+        _, lat, lon, alt = out.nodes[-(i + 1)]
+        want = corners[(i + 1) % 4]
+        assert abs(lat - want[0]) < 1e-6 * dlat and abs(lon - want[1]) < 1e-5 * dlon
+        assert alt == 10.0 + i
+    with pytest.raises(KeyError):
+        PE.rotate_ways(doc, [-9], 10.0)

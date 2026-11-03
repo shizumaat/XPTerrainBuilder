@@ -293,6 +293,16 @@ class PatchEditModel(QObject):
             self.set_selection((self.selection - {merge[0]}) | {merge[1]})
         return done
 
+    def rotate_shapes(self, way_ids: _t.Iterable[int], angle_deg: float) -> bool:
+        """The Alt-drag's ONE edit (#1746): turn the shapes by ``angle_deg``
+        (counter-clockwise) about their centre; elevations kept."""
+        way_ids = sorted(way_ids)
+        if not way_ids or abs(angle_deg) <= 1e-9:
+            return False
+        self.last_shape_click = None
+        return self.perform("Rotate Shape" if len(way_ids) == 1 else "Rotate Shapes",
+                            lambda doc: PE.rotate_ways(doc, way_ids, angle_deg))
+
     def delete_selection(self) -> bool:
         """Delete the selected shapes (``delete_ways``), then the selected
         nodes still there (``delete_nodes``) — ONE undo step."""

@@ -16,12 +16,17 @@ swapped when
   height each within :data:`SIZE_RATIO` (or :data:`SIZE_SLACK_M`) of the
   pack object's — the best fit is the equivalent;
 * X-Plane can draw that library object, through every library of the
-  install whose region holds the tile, only from files that exist, draw
-  something, and none of which is a blank placeholder (owner
+  install whose region holds the tile, only from files that exist and
+  do not move, and no one library draws a blank placeholder (a
+  ``Blank.obj``, a file with no triangles) for more than
+  :data:`MAX_BLANK_SHARE` of its ``EXPORT_RATIO`` draws (owner
   2026-10-30: "never point at an export that can resolve to
-  blank.obj");
-* the swap saves at least :data:`MIN_SAVING` triangles across the tile,
-  counting the heaviest file X-Plane may draw for the equivalent (a
+  blank.obj"; 2026-11-03: "Allow parked road cars to be swapped" — a
+  minority blank variant is allowed, a blank-only or blank-majority
+  export stays refused);
+* the swap saves at least :data:`MIN_SAVING` triangles across the tile
+  drawn from :data:`NEAR_M`, counting the heaviest file X-Plane may
+  draw for the equivalent (a
   better-fitting but heavy equivalent is never traded for a lighter,
   worse-fitting one).
 
@@ -51,13 +56,21 @@ from ..pack_trees import name_words
 from . import shape as _sh
 from .swap_map import CLASSES
 
-__all__ = ["SIZE_RATIO", "MIN_SAVING", "LIGHTS_SUFFIX", "plan_swaps",
+__all__ = ["SIZE_RATIO", "MIN_SAVING", "MAX_BLANK_SHARE", "LIGHTS_SUFFIX",
+           "plan_swaps",
            "apply", "name_words", "lights_text"]
 
 #: each footprint dimension within this ratio of the pack object's...
 SIZE_RATIO = 1.5
 #: ...or within this many metres of it
 SIZE_SLACK_M = 0.5
+#: owner 2026-11-03 ("Allow parked road cars to be swapped"): a library
+#: may draw a blank placeholder for this share of its draws at most (a
+#: third-party car pool with one blank among ratio 110 is 0.9 %)
+MAX_BLANK_SHARE = 0.05
+#: what a placement costs is the triangles it draws from this many metres
+#: (a library car of 50,676 triangles inside 35 m draws 44 past 100 m)
+NEAR_M = 100.0
 #: the smallest saving a swap is made for (triangles x placements)
 MIN_SAVING = 100_000
 #: the lights-only copy of a swapped object
@@ -80,17 +93,41 @@ def _class_of(path: str) -> tuple[str, tuple[str, ...]] | None:
 
 # ── the library side ────────────────────────────────────────────────────
 
-def _library_shapes(virtual: str, exports_of: _t.Callable[[str], _t.Sequence[str]]
+def _entries(listed: _t.Iterable[_t.Any]) -> list[tuple[str, float, str]]:
+    """``exports_of``'s rows as ``(file, ratio, library folder)``; a bare
+    file is one draw in a library of its own folder."""
+    return [(e, 1.0, os.path.dirname(e)) if isinstance(e, str)
+            else (str(e[0]), float(e[1]), str(e[2])) for e in listed]
+
+
+def _blank(path: str) -> bool:
+    """A placeholder X-Plane draws as nothing: a blank by name, or a file
+    with no triangles."""
+    return ("blank" in os.path.basename(path).lower()
+            or (os.path.isfile(path) and _sh.read_shape(path) is None))
+
+
+def _library_shapes(virtual: str, exports_of: _t.Callable[[str], _t.Sequence[_t.Any]]
                     ) -> list[_sh.Shape] | None:
-    """The shapes of every file X-Plane may draw for a library object,
-    the one nearest the median size first; ``None`` when any of them is
-    missing, blank, draws nothing or moves."""
-    files = list(exports_of(virtual))
-    if not files or any("blank" in os.path.basename(f).lower()
-                        or not os.path.isfile(f) for f in files):
+    """The shapes of every real file X-Plane may draw for a library
+    object, the one nearest the median size first; ``None`` when any is
+    missing or moves, or when in any one library the blank placeholders
+    weigh more than :data:`MAX_BLANK_SHARE` of its draws (owner
+    2026-11-03: a minority blank variant is allowed)."""
+    rows = _entries(exports_of(virtual))
+    if not rows or any(not os.path.isfile(f) and not _blank(f) for f, _w, _l in rows):
         return None
-    shapes = [_sh.read_shape(f) for f in sorted(set(files))]
-    if any(s is None or s.animated for s in shapes):
+    weight: dict[str, list[float]] = {}
+    for f, w, lib in rows:
+        weight.setdefault(lib, [0.0, 0.0])[0] += w
+        if _blank(f):
+            weight[lib][1] += w
+    if any(total <= 0 or blank > MAX_BLANK_SHARE * total
+           for total, blank in weight.values()):
+        return None
+    files = sorted({f for f, _w, _l in rows if not _blank(f)})
+    shapes = [_sh.read_shape(f) for f in files]
+    if not shapes or any(s is None or s.animated for s in shapes):
         return None
     med = np.median([s.size for s in shapes], axis=0)
     return sorted(shapes, key=lambda s: float(
@@ -164,12 +201,13 @@ def _turns(pack: _sh.Shape, lib: _sh.Shape) -> tuple[list[int], float] | None:
 # ── the match ───────────────────────────────────────────────────────────
 
 def plan_swaps(pack_root: str, defs: _t.Sequence[str], uses: _t.Mapping[int, int],
-               exports_of: _t.Callable[[str], _t.Sequence[str]]
+               exports_of: _t.Callable[[str], _t.Sequence[_t.Any]]
                ) -> dict[str, dict[str, _t.Any]]:
     """THE MATCH.  ``{declared path: swap}`` for the object definitions
     ``defs`` (``uses`` = placements per definition index) that the rules
     above swap; ``exports_of(virtual)`` lists every file the install's
-    libraries export a virtual path as."""
+    libraries export a virtual path as (a file, or ``(file, ratio,
+    library folder)``: ``agp_reader.weighted_files_at``)."""
     out: dict[str, dict[str, _t.Any]] = {}
     for d, n in sorted(uses.items()):
         path = defs[d]
@@ -190,8 +228,9 @@ def plan_swaps(pack_root: str, defs: _t.Sequence[str], uses: _t.Mapping[int, int
                               for v in libs):
                 continue                # every variant must fit the footprint
             if best is None or fit[1] < best[0]:
-                best = (fit[1], target, max(libs, key=lambda v: v.tris), fit[0], libs[0])
-        if best is None or (pack.tris - best[2].tris) * n < MIN_SAVING:
+                best = (fit[1], target, max(libs, key=lambda v: v.tris_at(NEAR_M)),
+                        fit[0], libs[0])
+        if best is None or (pack.tris_at(NEAR_M) - best[2].tris_at(NEAR_M)) * n < MIN_SAVING:
             continue                   # the clear equivalent is not lighter
         _m, target, _heaviest, turns, lib = best
         turn, why = _pick_turn(pack, lib, turns)
@@ -199,7 +238,7 @@ def plan_swaps(pack_root: str, defs: _t.Sequence[str], uses: _t.Mapping[int, int
                      "why": why, "from_c": [round(v, 4) for v in pack.centre],
                      "to_c": [round(v, 4) for v in lib.centre],
                      "dy": round(pack.box[2] - lib.box[2], 4),
-                     "tris": [pack.tris, _heaviest.tris],
+                     "tris": [pack.tris_at(NEAR_M), _heaviest.tris_at(NEAR_M)],
                      "lods": [list(x) for x in _heaviest.lods],
                      "lights": (_lights_path(path) if pack.lights else "")}
     return out

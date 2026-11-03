@@ -113,7 +113,7 @@ def check(pack_root: str, lat: int, lon: int, *,
         exports = _agp.export_files(pd.xroot) if pd.xroot else None
         recipe = _po.build_recipe(
             pack_root, lines,
-            (lambda v: _agp.files_at(exports.get(v.lower(), ()), lat, lon))
+            (lambda v: _agp.weighted_files_at(exports.get(v.lower(), ()), lat, lon))
             if exports else None)
         est = _w.estimate(pack_root, lines, drop, swaps=recipe.get("swap"))
     optimised = {}

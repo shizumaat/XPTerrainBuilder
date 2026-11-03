@@ -125,11 +125,31 @@ def test_the_head_lights_decide_the_turn_and_the_lights_are_kept(tmp_path, lib):
     assert "TEXTURE car.png" in text and "VT" not in text
 
 
+@pytest.mark.parametrize("blank_ratio, swapped", [
+    (1.0, True), (5.0, True), (6.0, False), (200.0, False), (None, False)])
+def test_a_minority_blank_ratio_variant_is_allowed(tmp_path, lib, blank_ratio, swapped):
+    """Owner 2026-11-03: "Allow parked road cars to be swapped" — a pool
+    whose blank is at most 5 % of its ratio is a target; a blank-majority
+    or blank-only export is not (``None``: the blank alone)."""
+    _files, add, _exports = lib
+    add(CAR_LIB, LIB_CAR)
+    real, blank = str(tmp_path / "lib" / "car_static_invar.obj"), str(tmp_path / "Blank.obj")
+    (tmp_path / "Blank.obj").write_text("I\n800\nOBJ\n", encoding="utf-8", newline="")
+    rows = ([] if blank_ratio is None else [(real, 95.0, "/aep")]) + [
+        (blank, blank_ratio or 1.0, "/aep")]
+    put(tmp_path, "p/Car1Blue.obj", CAR)
+    got = SW.plan_swaps(str(tmp_path / "p"), ["Car1Blue.obj"], {0: 50},
+                        lambda v: rows if v == CAR_LIB else [])
+    assert bool(got) is swapped
+
+
 def test_files_at_reads_regions_and_backups():
-    rows = [("EXPORT", "/l/a.obj", None),
-            ("EXPORT_BACKUP", "/x/empty.obj", None),
-            ("EXPORT", "/h/hawaii.obj", (-160, 21, -160, 21)),
-            ("EXPORT_RATIO", "/e/euro.obj", "bitmap")]
+    rows = [("EXPORT", "/l/a.obj", None, 1.0, "/l"),
+            ("EXPORT_BACKUP", "/x/empty.obj", None, 1.0, "/x"),
+            ("EXPORT", "/h/hawaii.obj", (-160, 21, -160, 21), 1.0, "/h"),
+            ("EXPORT_RATIO", "/e/euro.obj", "bitmap", 7.0, "/e")]
+    assert AGP.weighted_files_at(rows, 29, -96) == [("/l/a.obj", 1.0, "/l"),
+                                                    ("/e/euro.obj", 7.0, "/e")]
     assert AGP.files_at(rows, 29, -96) == ["/l/a.obj", "/e/euro.obj"]
     assert AGP.files_at(rows, 21, -160) == ["/l/a.obj", "/h/hawaii.obj", "/e/euro.obj"]
     assert AGP.files_at(rows[1:2], 29, -96) == ["/x/empty.obj"], \
@@ -149,9 +169,10 @@ def test_export_files_reads_every_directive(tmp_path):
         "EXPORT_EXCLUDE lib/v.obj objects/Blank.obj\n", encoding="utf-8", newline="")
     AGP._EXPORT_FILES_CACHE.clear()
     rows = AGP.export_files(str(root))["lib/v.obj"]
-    assert [(r[0], os.path.basename(r[1]), r[2]) for r in rows] == [
-        ("EXPORT_BACKUP", "empty.obj", (-160, 21, -160, 21)),
-        ("EXPORT_RATIO", "a.obj", None), ("EXPORT_EXCLUDE", "Blank.obj", None)]
+    assert [(r[0], os.path.basename(r[1]), r[2], r[3]) for r in rows] == [
+        ("EXPORT_BACKUP", "empty.obj", (-160, 21, -160, 21), 1.0),
+        ("EXPORT_RATIO", "a.obj", None, 3.0), ("EXPORT_EXCLUDE", "Blank.obj", None, 1.0)]
+    assert {r[4] for r in rows} == {str(lib_dir)}
 
 
 # ── the row ─────────────────────────────────────────────────────────────

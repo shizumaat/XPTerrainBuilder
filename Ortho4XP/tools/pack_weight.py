@@ -80,7 +80,7 @@ def _exports_of(xplane: str | None, dsf_name: str):
     stem = os.path.splitext(os.path.basename(dsf_name))[0]
     lat, lon = int(stem[:3]), int(stem[3:7])
     rows = AGP.export_files(xplane)
-    return lambda v: AGP.files_at(rows.get(v.lower(), ()), lat, lon)
+    return lambda v: AGP.weighted_files_at(rows.get(v.lower(), ()), lat, lon)
 
 
 def main(argv=None) -> int:

@@ -52,3 +52,40 @@ struct PackOptimiseSheet: View {
         .onAppear { checked = optimise.initiallyChecked }
     }
 }
+
+/// The "Optimise pack" question on the map window (#1707): the sheet with
+/// one checkbox per step when the engine lists steps (capability
+/// `pack_optimise_steps`), else the alert — Optimise / Never for this pack
+/// / Not now, the Qt question's copy.  A modifier of its own so
+/// `MapMainView.body` stays within the compiler's type-check budget.
+struct PackOptimisePrompt: ViewModifier {
+    @ObservedObject var buildModel: BuildModel
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: Binding(
+                get: { buildModel.packOptimisePrompt.flatMap { $0.steps.isEmpty ? nil : $0 } },
+                set: { _ in }
+            )) { optimise in
+                PackOptimiseSheet(optimise: optimise) { action, steps in
+                    buildModel.answerPackOptimisePrompt(action: action, steps: steps)
+                }
+            }
+            .alert(buildModel.packOptimisePrompt?.titleText ?? "", isPresented: Binding(
+                get: { buildModel.packOptimisePrompt.map { $0.steps.isEmpty } ?? false },
+                set: { _ in }
+            ), presenting: buildModel.packOptimisePrompt) { _ in
+                Button(O4PackOptimiseCopy.optimiseButton) {
+                    buildModel.answerPackOptimisePrompt(action: "update")
+                }
+                Button(O4PackOptimiseCopy.neverButton) {
+                    buildModel.answerPackOptimisePrompt(action: "never")
+                }
+                Button(O4PackOptimiseCopy.notNowButton, role: .cancel) {
+                    buildModel.answerPackOptimisePrompt(action: nil)
+                }
+            } message: { optimise in
+                Text(optimise.bodyText)
+            }
+    }
+}

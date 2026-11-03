@@ -140,34 +140,8 @@ struct MapMainView: View {
             Text(forests.bodyText)
         }
         // An airport pack "Optimise pack" can lighten (protocol 1.31,
-        // #1707): Optimise / Not now / Never for this pack, the Qt
-        // question's copy.
-        // With the engine's steps (capability pack_optimise_steps) the
-        // question is a sheet with one checkbox per step.
-        .sheet(item: Binding(
-            get: { buildModel.packOptimisePrompt.flatMap { $0.steps.isEmpty ? nil : $0 } },
-            set: { _ in }
-        )) { optimise in
-            PackOptimiseSheet(optimise: optimise) { action, steps in
-                buildModel.answerPackOptimisePrompt(action: action, steps: steps)
-            }
-        }
-        .alert(buildModel.packOptimisePrompt?.titleText ?? "", isPresented: Binding(
-            get: { buildModel.packOptimisePrompt.map { $0.steps.isEmpty } ?? false },
-            set: { _ in }
-        ), presenting: buildModel.packOptimisePrompt) { _ in
-            Button(O4PackOptimiseCopy.optimiseButton) {
-                buildModel.answerPackOptimisePrompt(action: "update")
-            }
-            Button(O4PackOptimiseCopy.neverButton) {
-                buildModel.answerPackOptimisePrompt(action: "never")
-            }
-            Button(O4PackOptimiseCopy.notNowButton, role: .cancel) {
-                buildModel.answerPackOptimisePrompt(action: nil)
-            }
-        } message: { optimise in
-            Text(optimise.bodyText)
-        }
+        // #1707): its own modifier, so this expression stays type-checkable.
+        .modifier(PackOptimisePrompt(buildModel: buildModel))
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
             set: { if !$0 { controller.errorMessage = nil } }

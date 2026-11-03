@@ -477,6 +477,23 @@ def test_a_half_valid_inset_stays_an_inset_at_half_coverage(
     assert coverage == pytest.approx(0.5, abs=0.02)
 
 
+def test_coverage_counts_valid_cells_under_the_mask_not_the_box(
+        monkeypatch, tmp_path):
+    """#1770: an inset whose box is half nodata (the sea beside a coastal
+    aerodrome) still COVERS a mask that lies wholly on its data -- the
+    measure is the mask's cells, never the raster's whole-box share."""
+    half = _write_inset(tmp_path, "KTST_usgs3dep.tif", 0.5)
+    _install_cached_insets(monkeypatch, [half])
+    tile = types.SimpleNamespace(lat=TILE_LAT, lon=TILE_LON)
+
+    on_data, finest = INSETS.inset_coverage_of_airport_mask(
+        tile, box(0.3, 0.6, 0.7, 0.9))
+    assert on_data == 1.0 and finest is not None
+    on_sea, finest = INSETS.inset_coverage_of_airport_mask(
+        tile, box(0.3, 0.1, 0.7, 0.4))
+    assert on_sea == 0.0 and finest is None
+
+
 def test_an_inset_with_no_nodata_value_declared_is_fully_valid(tmp_path):
     """A file that declares no nodata is data everywhere by definition —
     this metric never invents a reason to drop an inset."""

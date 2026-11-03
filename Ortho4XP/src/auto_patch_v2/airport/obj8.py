@@ -720,6 +720,10 @@ class PlacedObject:
     #: (``terrain_feature``) — kept as authored and never read: no
     #: witness, no feet, nothing the patch grades to.
     terrain_feature: bool = False
+    #: issue #1730: a TERRAIN-SHAPED hard deck (``terrain_shaped.TerrainFit``)
+    #: -- one rigid body seated by its fit to the DEM, never read either: no
+    #: witness, no deck, no feet
+    terrain_fit: object | None = None
     #: owner RULINGS 2026-10-27t/u (#1201): the runway-end WALLED PLATE this
     #: placement belongs to (``model.walled_plate.WalledPlate``; set by
     #: ``airport/walled_plate.mark``), else ``None``
@@ -1201,7 +1205,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         basement_cover_min: float = 1.0,
                         depth_max_m: float = math.inf,
                         ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None,
-                        msl_tol_m: float = 0.3
+                        msl_tol_m: float = 0.3,
+                        dem_many: "_t.Callable | None" = None
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -1254,6 +1259,11 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     msl_lift = _msl_lifts(placements, pack_root, index, cache, msl_tol_m)
     from . import terrain_feature as _tf
     features = _tf.feature_ids(placements, lambda d: _geometry_of(d, pack_root, index, cache))
+    # issue #1730: a terrain-shaped hard deck is one rigid body, read by its fit
+    from . import terrain_shaped as _ts
+    shaped = _ts.placement_fits([p[:4] for p in placements],
+                                lambda d: _ts.grid_of_resource(d, pack_root, index),
+                                dem_many or _ts.dem_many_of(dem_z))
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0
         if kind == "OBJECT_AGL" and elev is not None:
@@ -1274,10 +1284,11 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         if phys not in seen:
             rep.resources_parsed += 1
         seen.add(phys)
-        if oid in features:
+        if oid in features or oid in shaped:
             out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
                                     None, None, None, None, None, None,
-                                    terrain_feature=True))
+                                    terrain_feature=oid in features,
+                                    terrain_fit=shaped.get(oid)))
             continue
         if math.isnan(anchor_z):
             rep.no_dem_at_anchor += 1

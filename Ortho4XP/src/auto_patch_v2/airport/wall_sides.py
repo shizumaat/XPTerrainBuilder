@@ -78,6 +78,15 @@ class WallSides:
     #: ``z`` None at a station that retains no hill
     #: (:func:`_retaining_stations`); ``None`` where unread
     top_profile: tuple | None = None
+    #: the LOWER face line, outward on its right (#1662)
+    lower_face: _t.Any = None
+    #: THE WALL'S FOOT AS IT SITS, absolute (#1662; owner RULINGS
+    #: 2026-10-03c, 2026-10-27h Q188): ``((s, z), ...)`` along
+    #: :attr:`lower_face` (``airport/wall_top.foot_profile``, raised to the
+    #: real ground past the smear, :func:`_foot_on_ground`) — the level the
+    #: low-side ground meets there, ``z`` None at a station that retains
+    #: nothing (:func:`_foot_retaining`); ``None`` where unread
+    foot_profile: tuple | None = None
 
     def side_of(self, xy) -> str | None:
         """``"upper"`` / ``"lower"`` for a point in one of the bands, else
@@ -150,14 +159,16 @@ def _median_ground(dem, face: LineString, out_m: float) -> float:
     return float(np.median(z)) if z.size else math.nan
 
 
-def wall_sides(airport, cfg, comps=None, top_of=None) -> tuple[WallSides, ...]:
+def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
+               ) -> tuple[WallSides, ...]:
     """Every retaining piece of ``airport``'s pack walls (``wall_class``,
     ``retains``, its retained step over ``[service] retaining_wall_clear_
     step_m``) read as two levels.  ``cfg`` is ``classify/rules.toml``'s
     ``[service]`` record, supplied by the caller; ``comps`` the wall-class
     components when the caller has them; ``top_of(comp, piece, face)`` the
     wall's top along its upper face (``airport/wall_top.top_profile``,
-    bound by ``airport/wall_shade``), none read without it."""
+    bound by ``airport/wall_shade``), none read without it; ``foot_of``
+    the same along its lower face (``wall_top.foot_profile``, #1662)."""
     dem = getattr(airport, "dem", None)
     if cfg is None or dem is None or getattr(airport, "partition", None) is None:
         return ()
@@ -185,13 +196,21 @@ def wall_sides(airport, cfg, comps=None, top_of=None) -> tuple[WallSides, ...]:
             up, lo = (a, b) if za >= zb else (b, a)
             wide = 2.0 * g.area / g.length
             core = g.buffer(-min(0.5, wide / 4.0))
-            uf = faces[0] if za >= zb else faces[1]
+            uf, lf = faces if za >= zb else faces[::-1]
             top = top_of(w, g, uf) if top_of is not None else None
+            foot = foot_of(w, g, lf) if foot_of is not None else None
+            raw = top
             if top is not None:
                 top = _retaining_stations(dem, uf, top, smear, h)
+            if foot is not None and top is not None \
+                    and all(z is None for _s, z in top):
+                foot = None     # no hill along it: no lower level either
+            if foot is not None:
+                foot = _foot_retaining(_foot_on_ground(dem, lf, foot, smear),
+                                       lf, uf, raw, clear)
             out.append(WallSides(g, h, smear, up, lo, w.top_y, w.resource,
                                  None if core.is_empty else core,
-                                 uf, top))
+                                 uf, top, lf, foot))
     return tuple(out)
 
 
@@ -203,18 +222,79 @@ def _retaining_stations(dem, face: LineString, profile: tuple, smear: float,
     wall there (its end), and no hill meets that top (#1661, measured KATL
     ``muro_concreto``: 12 m under the top at its north end, a pad and a road
     at the lower level beside it)."""
-    from .dem import dem_z_many
-    off = face.offset_curve(-smear, join_style="mitre", mitre_limit=2.0)
-    if off.is_empty or off.length <= 0.0:
+    g = _ground_out(dem, face, [s_ for s_, _z in profile], smear)
+    if g is None:
         return profile
-    lines = [ln for ln in getattr(off, "geoms", [off]) if ln.length > 0.0]
+    return tuple((s_, None if math.isfinite(gz) and gz < z - 0.5 * h else z)
+                 for (s_, z), gz in zip(profile, g, strict=True))
+
+
+#: how far out on the lower side the real ground past the wall's foot is
+#: read, in smears: clear of the smeared step (:func:`_foot_on_ground`)
+FOOT_GROUND_SMEARS = 1.5
+
+
+def _foot_on_ground(dem, face: LineString, profile: tuple, smear: float) -> tuple:
+    """``profile`` (the wall's bottom edge along its LOWER face) raised to
+    the real ground :data:`FOOT_GROUND_SMEARS` smears out where that stands
+    higher: the lower level is the real ground just past the wall's foot
+    (owner RULINGS 2026-10-20ai), and a bottom under it is a buried footing
+    the ground is never dug down to (#1662, measured KATL
+    ``muro_ladrillo``: its bottom 5.5 m under the ground 1-2 smears out
+    along all 135 m; ``muro_concreto``'s 0.7 m under it at the median)."""
+    g = _ground_out(dem, face, [s_ for s_, _z in profile], FOOT_GROUND_SMEARS * smear)
+    if g is None:
+        return profile
+    return tuple((s_, max(z, gz) if math.isfinite(gz) else z)
+                 for (s_, z), gz in zip(profile, g, strict=True))
+
+
+def _foot_retaining(profile: tuple, face: LineString, upper_face: LineString,
+                    top: tuple | None, clear: float) -> tuple | None:
+    """``profile`` (the foot along the LOWER ``face``, raised to its ground)
+    with ``z`` None at every station where the wall's top (``top``, its raw
+    ``top_profile`` along ``upper_face``) stands no more than ``clear``
+    (``[service] retaining_wall_clear_step_m``) over it: the low side's
+    ground meets the wall at its top there, so the wall retains nothing and
+    no foot is held (the mirror of :func:`_retaining_stations`); ``None``
+    when no station retains.  MEASURED KCLT ``paredes_10_charlotte`` (#1662
+    regression): a 2.3 m wall whose low-side ground 1.5 smears out stands
+    0.5-8.9 m OVER its 222.2 m top, so the foot held its lower face 8.45 m
+    over the ground beside it.  An unread ``top`` leaves ``profile`` as is;
+    a piece whose top retains a hill at no station (``_retaining_stations``)
+    holds no foot at all (``wall_sides``; measured KCLT
+    ``Charlotte_Airport_005_ALB``, a 2.7 m hangar wall with no hill along
+    it: its lower strip stepped 3.1 m inside itself)."""
+    st = [(s_, z) for s_, z in (top or ()) if z is not None]
+    if not st or upper_face is None:
+        return profile
+    a = np.asarray(st, float)
     out = []
     for s_, z in profile:
+        tz = float(np.interp(upper_face.project(face.interpolate(s_)), a[:, 0], a[:, 1]))
+        out.append((s_, z if tz - z >= clear else None))
+    return tuple(out) if any(z is not None for _s, z in out) else None
+
+
+def _ground_out(dem, face: LineString, stations: _t.Sequence[float], out_m: float
+                ) -> list[float] | None:
+    """The DEM ``out_m`` out on ``face``'s outer side (its right) at each
+    station along it; ``None`` when the offset line is empty."""
+    from .dem import dem_z_many
+    off = face.offset_curve(-out_m, join_style="mitre", mitre_limit=2.0)
+    if off.is_empty or off.length <= 0.0:
+        return None
+    lines = [ln for ln in getattr(off, "geoms", [off]) if ln.length > 0.0]
+    if not lines:
+        return None
+    qs = []
+    for s_ in stations:
         p = face.interpolate(s_)
-        q = min((ln.interpolate(ln.project(p)) for ln in lines), key=p.distance)
-        g = float(dem_z_many(dem, np.array([q.x]), np.array([q.y]))[0])
-        out.append((s_, None if math.isfinite(g) and g < z - 0.5 * h else z))
-    return tuple(out)
+        qs.append(min((ln.interpolate(ln.project(p)) for ln in lines), key=p.distance))
+    if not qs:
+        return []
+    return [float(z) for z in dem_z_many(dem, np.array([q.x for q in qs]),
+                                         np.array([q.y for q in qs]))]
 
 
 def far_side_cut(geom, walls: _t.Sequence[WallSides], judge=None, grow_m: float = 0.0):

@@ -383,7 +383,10 @@ def build_tile(tile):
 
     timer = time.time()
 
-    if (tile.default_website not in IMG.providers_dict
+    # Default X-Plane texture mode uses no orthophotos (below): it needs no
+    # imagery source, so an unset one is no reason to refuse the tile.
+    if (getattr(tile, "texture_mode", "full_ortho") != "default_xplane"
+            and tile.default_website not in IMG.providers_dict
             and tile.default_website not in IMG.combined_providers_dict):
         UI.lvprint(
             0,

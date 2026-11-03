@@ -24,7 +24,7 @@ from . import (apron, cluster_pad, eat, edge_deck, flat_site, foot_rows,
                seams, steep_apron, strips,
                channel,
                structures,
-               taxi, transverse, walled_plate, water, zones)
+               taxi, terrain_shaped, transverse, walled_plate, water, zones)
 from .assembly import assemble, seam_exempt, water_exempt
 
 __all__ = ["GENERATORS", "generate", "run_generator", "post_passes", "stack", "seam_exempt",
@@ -106,6 +106,8 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # owner RULINGS 2026-10-27t/u (#1201): the ground under a runway-end
     # walled plate never rises through its top (a hard constant ceiling)
     ("walled_plate_under", walled_plate.under_plate_rows),
+    # issue #1730: the patch under a terrain-shaped hard deck meets the deck
+    ("terrain_shaped_deck", terrain_shaped.deck_surface_rows),
     ("strip_longitudinal", strips.strip_longitudinal),
     ("strip_arc", strips.strip_arc),
     ("resa_transverse", strips.resa_transverse),

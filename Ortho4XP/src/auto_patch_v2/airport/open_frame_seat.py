@@ -238,6 +238,11 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
                 out[k] = (own[k], out[k][1])
         if counts is not None:
             counts["groups_on_airside"] = len(az)
+            from .airside_group_seat import SUPPORT_LIFTS
+            if SUPPORT_LIFTS:   # EXPERIMENT #1726 (geom/foot_planes)
+                counts["support_lifts"] = "; ".join(
+                    f"{k} +{v[0]:.2f} m ({v[1]} support feet)"
+                    for k, v in sorted(SUPPORT_LIFTS.items()))
         if airside_out is not None:
             # the keys seated on the airside floor with their stand-side
             # feet (``unchained_links``' precedence, owner RULINGS

@@ -14,6 +14,9 @@ prove three things:
 
     venv/bin/python tools/tile_bundle_gate.py --build OUT/TAG --world DIR
 
+    venv/bin/python tools/tile_bundle_gate.py --build OUT/TAG --world DIR \
+        --pack-writes
+
 ``OUT/TAG`` names a ``build_airport.py --tile`` run (its ``TAG.frame.json``
 and ``TAG.result.json`` in ``OUT``); ``DIR`` must not exist.  Run from
 ``Ortho4XP/`` in a lane worktree.
@@ -28,8 +31,28 @@ holds copy-on-write clones of the airport packs the bundle names and a
 user's own X-Plane, never a download).  The import and the scenery-file
 step run in a CHILD process whose data root is that world
 (``ORTHO4XP_DATA_ROOT``), with pack writes stood down
-(``O4_PACK_WRITES=measure_only``, as every lane build).  Nothing is
-written outside ``DIR``.
+(``O4_PACK_WRITES=measure_only``, as every lane build) unless
+``--pack-writes``.  Nothing is written outside ``DIR``.
+
+``--pack-writes`` (#1699 phase 1b): the import WRITES the world's cloned
+packs, as the app does (no ``O4_PACK_WRITES``), and four more proofs
+must hold.  Each clone is first made pristine (the app's Undo,
+``object_rebake.restore_detail``, then its backups and write records
+removed — a clone of a pack an earlier app build wrote).  Then:
+
+* BACKUPS: every pack DSF the import rewrote has a ``.anchor_bak`` that
+  is the pristine file, byte for byte;
+* THREE-WAY: the one rule (``backup_state.classify_dsf``) reads each
+  rewritten DSF as OURS, its record's ``written_sha256`` is the live
+  file's and its ``backup_sha256`` the backup's;
+* NO STACKING: a second import (object-stage reuse off, so the write
+  half really runs again) leaves every pack file byte-identical;
+* UNDO: the app's Undo (``reanchor_restore``) puts every pristine file
+  back byte for byte and leaves no file of the engine's but the
+  backups.
+
+The owner's packs the world was cloned from are stat-walked before and
+after: any change fails the gate.
 
 Reports (``DIR/gate.json`` and stdout): the bundle's size and key, the
 export and import seconds, the scenery-file step's seconds in the world,
@@ -142,8 +165,9 @@ def make_world(world: Path, build: dict, manifest: dict) -> dict:
     source_build = Path(build["result"]["build_dir"])
     cfg_name = CN.tile_cfg_name(lat, lon)
     shutil.copyfile(source_build / cfg_name, tile_dir / cfg_name)
-    subprocess.run(["cp", "-cR", str(source_build / "textures"),
-                    str(tile_dir / "textures")], check=True)
+    if (source_build / "textures").is_dir():       # none in default_xplane
+        subprocess.run(["cp", "-cR", str(source_build / "textures"),
+                        str(tile_dir / "textures")], check=True)
     (data / CN.GLOBAL_CFG_NAME).write_text(_cfg_with(
         ROOT / CN.GLOBAL_CFG_NAME,
         {"custom_scenery_dir": str(scenery),
@@ -151,6 +175,112 @@ def make_world(world: Path, build: dict, manifest: dict) -> dict:
          "custom_overlay_src": str(xplane / "Global Scenery")}))
     return {"data": str(data), "scenery": str(scenery), "packs": packs,
             "tiles": str(data / "Tiles"), "tile_dir": str(tile_dir)}
+
+
+# ── the packs (``--pack-writes``) ───────────────────────────────────────
+
+#: The engine's write records in a pack (v1 sidecar, v2 per-folder record).
+_RECORD_NAMES = (".o4_reanchor_provenance.json", "o4_placement_provenance.json")
+
+
+def _walk(root: Path):
+    for directory, _subdirs, names in os.walk(root):
+        for name in names:
+            path = Path(directory, name)
+            if not path.is_symlink():
+                yield path.relative_to(root).as_posix(), path
+
+
+def pack_hashes(root: Path) -> dict:
+    """``{relative path: sha256}`` of every file in a pack."""
+    return {rel: _sha(path) for rel, path in _walk(root)}
+
+
+def pack_stats(root: Path) -> dict:
+    """``{relative path: [size, mtime_ns]}`` — the owner's packs are
+    stat-walked only (never hashed: nothing of theirs is opened)."""
+    out = {}
+    for rel, path in _walk(root):
+        st = path.lstat()
+        out[rel] = [st.st_size, st.st_mtime_ns]
+    return out
+
+
+def make_pristine(pack: Path) -> dict:
+    """A clone of a pack an earlier app build wrote, back to the pack as
+    installed: the app's Undo, then its backups and write records
+    removed.  Returns what was done."""
+    from auto_patch import object_rebake
+    undo = object_rebake.restore_detail(str(pack))
+    removed = []
+    for rel, path in list(_walk(pack)):
+        if rel.endswith(object_rebake.BACKUP_SUFFIX) or \
+                path.name in _RECORD_NAMES:
+            path.unlink()
+            removed.append(rel)
+    left = [rel for rel, _p in _walk(pack)
+            if object_rebake.BACKUP_SUFFIX in rel or "__b" in rel
+            or Path(rel).name in _RECORD_NAMES]
+    return {"undo": undo, "removed": len(removed), "engine_files_left": left}
+
+
+def pack_checks(pack: Path, pristine: dict) -> dict:
+    """The BACKUP and THREE-WAY proofs on one pack just written (child)."""
+    from auto_patch_v2.airport import backup_state as BS
+    BS.invalidate_memo()
+    rows = []
+    for rel, path in _walk(pack):
+        if not rel.endswith(".dsf"):
+            continue
+        backup = Path(str(path) + ".anchor_bak")
+        if not backup.is_file():
+            continue
+        verdict = BS.classify_dsf(str(path))
+        entry = BS.dsf_entry(BS.read_record(str(path)), path.name)
+        live_sha, backup_sha = _sha(path), _sha(backup)
+        rows.append({
+            "dsf": rel, "state": verdict.state.value,
+            "witness": verdict.witness,
+            "backup_is_pristine": backup_sha == pristine.get(rel),
+            "live_is_written": live_sha == entry.get("written_sha256"),
+            "backup_is_recorded": backup_sha == entry.get("backup_sha256"),
+            "backup_matches_record": BS.backup_matches_record(str(path))})
+    return {"dsfs": rows, "ok": bool(rows) and all(
+        r["state"] == "ours" and r["backup_is_pristine"]
+        and r["live_is_written"] and r["backup_is_recorded"]
+        and r["backup_matches_record"] for r in rows)}
+
+
+def _diff(a: dict, b: dict) -> dict:
+    return {"changed": sorted(k for k in set(a) & set(b) if a[k] != b[k]),
+            "added": sorted(set(b) - set(a)),
+            "removed": sorted(set(a) - set(b))}
+
+
+def pack_proofs(pristine: dict, written: dict, again: dict,
+                undone: dict) -> dict:
+    """NO STACKING (second import == first) and UNDO (pristine back) on
+    one pack's hash maps; write records may change between imports (they
+    stamp times), pack content may not."""
+    def content(snapshot):
+        return {k: v for k, v in snapshot.items()
+                if Path(k).name not in _RECORD_NAMES}
+    stack = _diff(content(written), content(again))
+    undo = _diff(pristine, undone)
+    backups = [k for k in set(written) - set(pristine)
+               if k.endswith(".anchor_bak")]
+    return {
+        "backups_created": sorted(backups),
+        "backups_are_pristine": all(
+            written[k] == pristine.get(k[:-len(".anchor_bak")])
+            for k in backups),
+        "files_written": sorted(k for k in set(pristine) & set(written)
+                                if pristine[k] != written[k]),
+        "second_import": stack,
+        "no_stacking": not any(stack.values()),
+        "undo": undo,
+        "undo_restores_pristine": not undo["changed"] and not undo["removed"]
+        and all(k.endswith(".anchor_bak") for k in undo["added"])}
 
 
 # ── the child: import + the scenery-file step, in the world ─────────────
@@ -171,6 +301,19 @@ def child(args) -> int:
     t0 = time.time()
     out["import"] = LIB.library_import_bundle(args.bundle, args.tiles)
     out["import_seconds"] = round(time.time() - t0, 1)
+    packs = [Path(p) for p in args.pack]
+    if packs:
+        pristine = json.loads(Path(args.pristine).read_text())
+        out["written"] = {p.name: pack_hashes(p) for p in packs}
+        out["three_way"] = {p.name: pack_checks(p, pristine[p.name])
+                            for p in packs}
+        trace.mark("second import")
+        os.environ["O4_OBJECT_STAGE_REUSE"] = "0"
+        t0 = time.time()
+        out["import_again"] = LIB.library_import_bundle(args.bundle,
+                                                        args.tiles)
+        out["import_again_seconds"] = round(time.time() - t0, 1)
+        out["again"] = {p.name: pack_hashes(p) for p in packs}
     trace.mark("scenery file")
     for init in (IMG.initialize_extents_dict, IMG.initialize_color_filters_dict,
                  IMG.initialize_providers_dict,
@@ -178,10 +321,24 @@ def child(args) -> int:
         init()
     lat, lon = out["import"]["tile"][:3], out["import"]["tile"][3:]
     tile = load_tile(int(lat), int(lon))
+    import O4_DSF_Data_Inputs as DSFDATA
+    carried = DSFDATA.bundled(tile)
+    out["dsf_inputs"] = None if carried is None else {
+        "band": bool(carried["band"]),
+        "measured": carried["measured"] is not None,
+        "elevation": carried["elevation"] is not None}
     t0 = time.time()
     out["scenery_file_result"] = TILE.build_tile(tile)
     out["scenery_file_seconds"] = round(time.time() - t0, 1)
     UI.is_working = 0
+    if packs:
+        trace.mark("undo")
+        # the app's Undo: the engine command ``reanchor_restore`` is
+        # exactly this call (``o4_engine.session``)
+        from auto_patch import object_rebake
+        out["undo"] = {p.name: object_rebake.restore_detail(str(p))
+                       for p in packs}
+        out["undone"] = {p.name: pack_hashes(p) for p in packs}
     trace.mark("")
     trace.stop()
     leaks.stop()
@@ -210,6 +367,14 @@ def gate(args) -> int:
     from tile_bundle.importer import read_manifest
     manifest = read_manifest(exported["path"])
     made = make_world(world / "world", build, manifest)
+    install_scenery = Path(build["result"]["xplane_paths"]["custom_scenery_dir"])
+    scenery = Path(made["scenery"])
+    owner_before = pristine = None
+    if args.pack_writes:
+        owner_before = {p: pack_stats(install_scenery / p) for p in made["packs"]}
+        made["pristine"] = {p: make_pristine(scenery / p) for p in made["packs"]}
+        pristine = {p: pack_hashes(scenery / p) for p in made["packs"]}
+        (world / "pristine.json").write_text(json.dumps(pristine))
     import corpus_snapshot as CS
     leak_roots = [CS.SHARED_DATA_REPO_DEFAULT,
                   build["result"]["build_dir"], build["result"]["patch_dir"],
@@ -223,6 +388,11 @@ def gate(args) -> int:
         env.pop(name, None)
     argv = [sys.executable, __file__, "--child", "--bundle", exported["path"],
             "--tiles", made["tiles"], "--child-out", str(child_out)]
+    if args.pack_writes:
+        env.pop("O4_PACK_WRITES")
+        argv += ["--pristine", str(world / "pristine.json")]
+        for pack in made["packs"]:
+            argv += ["--pack", str(scenery / pack)]
     for root in leak_roots:
         argv += ["--leak-root", root]
     rc = subprocess.run(argv, env=env, cwd=str(ROOT)).returncode
@@ -245,18 +415,35 @@ def gate(args) -> int:
                 "world_sha256": _sha(world_dsf) if world_dsf.is_file() else None},
         "network": network, "processes": {
             name: p["processes"] for name, p in got["phases"].items()},
-        "leaks": got["leaks"], "world": made}
+        "leaks": got["leaks"], "world": made,
+        "dsf_inputs": got["dsf_inputs"],
+        "masks_carried": sorted(n for n in manifest["files"]
+                                if n.startswith("masks/"))}
     report["dsf"]["identical"] = (report["dsf"]["source_sha256"]
                                   == report["dsf"]["world_sha256"])
     report["pass"] = bool(report["dsf"]["identical"] and not network
                           and not got["leaks"]["count"]
                           and got["import"]["reused"]
                           == ["vector", "mesh", "masks"])
+    if args.pack_writes:
+        report["packs"] = _pack_report(made, got, pristine, owner_before,
+                                       install_scenery)
+        report["pass"] = report["pass"] and report["packs"]["pass"]
     (world / "gate.json").write_text(json.dumps(report, indent=1, default=str))
     (world / "reads.json").write_text(json.dumps(got["reads"], indent=1))
     print(json.dumps({k: report[k] for k in (
         "tile", "pass", "import_seconds", "scenery_file_seconds",
-        "scenery_file_seconds_source_build", "network")}, indent=1))
+        "scenery_file_seconds_source_build", "network", "dsf_inputs")},
+        indent=1))
+    if args.pack_writes:
+        packs = report["packs"]
+        print("packs: pass=%s owner unchanged=%s; " % (
+            packs["pass"], packs["owner_packs_unchanged"]) + "; ".join(
+            "%s: %d written, %d backups, three-way %s, no-stacking %s, "
+            "undo %s" % (name, len(r["files_written"]),
+                         len(r["backups_created"]), r["three_way"]["ok"],
+                         r["no_stacking"], r["undo_restores_pristine"])
+            for name, r in packs["per_pack"].items()))
     print("bundle %s bytes=%d key=%s export %.1fs; DSF identical=%s; "
           "leaks=%d" % (exported["path"], exported["bytes"], exported["key"],
                         exported["seconds"], report["dsf"]["identical"],
@@ -264,11 +451,43 @@ def gate(args) -> int:
     return 0 if report["pass"] else 1
 
 
+def _pack_report(made, got, pristine, owner_before, install_scenery) -> dict:
+    """The four pack proofs and the owner's packs untouched."""
+    out = {"import_again": got["import_again"],
+           "import_again_seconds": got["import_again_seconds"],
+           "undo": got["undo"], "per_pack": {}}
+    for pack in made["packs"]:
+        row = pack_proofs(pristine[pack], got["written"][pack],
+                          got["again"][pack], got["undone"][pack])
+        row["three_way"] = got["three_way"][pack]
+        row["pristine_prep"] = made["pristine"][pack]
+        out["per_pack"][pack] = row
+    written = got["import"]["object_stage"].get("packs_written", 0)
+    owner_after = {p: pack_stats(install_scenery / p) for p in made["packs"]}
+    out["owner_packs_unchanged"] = owner_after == owner_before
+    rows = out["per_pack"].values()
+    out["pass"] = bool(
+        written and out["owner_packs_unchanged"]
+        and all(not r["pristine_prep"]["engine_files_left"] for r in rows)
+        and all(r["no_stacking"] and r["undo_restores_pristine"]
+                for r in rows)
+        and all((r["three_way"]["ok"] and r["backups_created"]
+                 and r["backups_are_pristine"])
+                for r in rows if r["files_written"]))
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--build", help="OUT/TAG of a build_airport.py --tile run")
     ap.add_argument("--world", help="the gate's folder (must not exist)")
+    ap.add_argument("--pack-writes", action="store_true",
+                    help="the import writes the world's cloned packs; "
+                         "prove backups, three-way, no stacking, Undo")
     ap.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--pristine", help=argparse.SUPPRESS)
+    ap.add_argument("--pack", action="append", default=[],
+                    help=argparse.SUPPRESS)
     ap.add_argument("--bundle", help=argparse.SUPPRESS)
     ap.add_argument("--tiles", help=argparse.SUPPRESS)
     ap.add_argument("--child-out", help=argparse.SUPPRESS)

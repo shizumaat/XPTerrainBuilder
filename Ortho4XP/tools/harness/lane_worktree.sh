@@ -164,6 +164,8 @@ die() { echo "REFUSING: $*" >&2; exit 2; }
 usage() {
     echo "usage: $0 {up|down|check|reclaim} NAME|PATH [REF]" >&2
     echo "       $0 data" >&2
+    echo "       $0 prune TREE [--days N] [--apply]   (#1723: age prune of" >&2
+    echo "        TREE/Ortho4XP/tmp; a dry-run listing unless --apply)" >&2
     echo "       (PATH — anything with a slash — addresses an EXISTING" >&2
     echo "        registered worktree, e.g. a chip session's under" >&2
     echo "        Ortho4XP/.claude/worktrees/; NAME creates/finds a lane;" >&2
@@ -200,6 +202,22 @@ data_dirs() {
 
 [ $# -ge 1 ] || usage
 ACTION="$1"
+
+if [ "$ACTION" = "prune" ]; then
+    # #1723: the main checkout's tmp/ is never torn down; list (or, with
+    # --apply, delete) its entries untouched for --days (default 7).  The
+    # refusals (shared data repo, registered frames, open by a build)
+    # live in tmp_prune.py, the pure half with the twin.
+    [ $# -ge 2 ] || usage
+    _tree=$( (cd "$2" 2>/dev/null && pwd -P) ) || die "no directory at $2"
+    [ -d "$_tree/Ortho4XP" ] && _tree="$_tree/Ortho4XP"
+    shift 2
+    _py="${O4_HARNESS_PYTHON:-$MAIN_ENGINE/venv/bin/python}"
+    [ -x "$_py" ] || _py=$(command -v python3 2>/dev/null)
+    [ -n "$_py" ] || die "no python to run tmp_prune.py"
+    exec "$_py" "$(dirname "$COW_AUDIT")/tmp_prune.py" "$_tree" \
+        --data-repo "$DATA_REPO" "$@"
+fi
 
 if [ "$ACTION" = "data" ]; then
     echo "  [ritual] shared data repo: $DATA_REPO"

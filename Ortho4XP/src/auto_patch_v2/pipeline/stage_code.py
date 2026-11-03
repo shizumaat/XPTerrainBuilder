@@ -229,6 +229,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.slab_faces",
         "auto_patch_v2.airport.slab_plates",
         "auto_patch_v2.airport.terrain_feature",
+        "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.wall_class",
@@ -266,6 +267,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.proportions",
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.geom.slope_pad",
+        "auto_patch_v2.geom.terrain_deck",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.geom.valid_area",
@@ -404,6 +406,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.sunken_roads",
         "auto_patch_v2.airport.terrain_feature",
+        "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.thin_plates",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.trench_objects",
@@ -457,6 +460,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.ramp_profile",
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.geom.slope_pad",
+        "auto_patch_v2.geom.terrain_deck",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.geom.valid_area",
@@ -835,6 +839,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.slab_faces",
         "auto_patch_v2.airport.slab_plates",
         "auto_patch_v2.airport.terrain_feature",
+        "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.wall_class",
@@ -915,6 +920,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.taxi",
         "auto_patch_v2.constraints.taxi_trend",
         "auto_patch_v2.constraints.taxi_trend_cap",
+        "auto_patch_v2.constraints.terrain_shaped",
         "auto_patch_v2.constraints.threshold_seam",
         "auto_patch_v2.constraints.transverse",
         "auto_patch_v2.constraints.trend",
@@ -939,6 +945,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.ramp_profile",
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.geom.slope_pad",
+        "auto_patch_v2.geom.terrain_deck",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.geom.valid_area",
@@ -1044,6 +1051,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "zone_bands": "zones",
     "strip_transverse": "zones",
     "walled_plate_under": "walled_plate",
+    "terrain_shaped_deck": "terrain_shaped",
     "strip_longitudinal": "strips",
     "strip_arc": "strips",
     "resa_transverse": "strips",
@@ -1324,6 +1332,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.strips constraints.transverse geom.containment model.airport
         model.end_area model.islands model.map_memo model.platform model.threshold_datum
     """),
+    "terrain_shaped": _mods(_GENERATOR_CORE + """
+        constraints.terrain_shaped geom.terrain_deck model.airport
+    """),
     "walled_plate": _mods(_GENERATOR_CORE + """
         constraints.walled_plate model.airport
     """),
@@ -1348,7 +1359,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature
+    airport.terrain_feature airport.terrain_shaped geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
@@ -1416,7 +1427,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level
     model.stage_one
-    airport.walled_plate constraints.walled_plate law.walled_plate_schema model.walled_plate
+    airport.walled_plate constraints.walled_plate constraints.terrain_shaped
+    law.walled_plate_schema model.walled_plate
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
         law.inset_class law.runway_ends_schema law.terrain_witness_schema
@@ -1428,7 +1440,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.file_hash airport.footprint_carry airport.footprint_connector
     airport.footprint_seats airport.footprint_unit airport.one_building airport.frame_entry
     airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.obj8_clip airport.obj8_drape
+    airport.terrain_feature airport.terrain_shaped geom.terrain_deck
+    airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof airport.obj8_split airport.pack
     airport.object_pack airport.pack_local
     airport.pack_partition airport.adapted_riders airport.pack_work airport.pad_block_seat
@@ -1490,7 +1503,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.footprint_unit
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.obj8_clip airport.obj8_drape
+    airport.terrain_feature airport.terrain_shaped geom.terrain_deck
+    airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.object_cut airport.hanging_objects
     airport.adapted_riders
@@ -1601,7 +1615,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.footprint_unit
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.obj8_clip airport.obj8_drape
+    airport.terrain_feature airport.terrain_shaped geom.terrain_deck
+    airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.object_cut airport.hanging_objects
     airport.adapted_riders
@@ -1709,7 +1724,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
-    airport.walled_plate constraints.walled_plate law.walled_plate_schema
+    airport.walled_plate constraints.walled_plate constraints.terrain_shaped law.walled_plate_schema
     model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads
 """)
 CODE_MODULES["emit"] = _mods("""
@@ -1722,7 +1737,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature
+    airport.terrain_feature airport.terrain_shaped geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
@@ -1803,7 +1818,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature
+    airport.terrain_feature airport.terrain_shaped geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local

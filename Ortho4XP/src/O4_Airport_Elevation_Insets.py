@@ -169,6 +169,7 @@ from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access import fetch_scratch as FETCH_SCRATCH
 from elevation_access.fetch_slots import held_inset_fetch_slot
 from elevation_access import footprints as ea_footprints
+from elevation_access import mask_coverage as ea_mask_coverage
 from elevation_access.las_tiles import LAS_FOOTPRINT_KEY, _buffer_geometry_m
 from elevation_access.registry import ACCESS_STRATEGIES
 from elevation_access.vertical_units import (
@@ -7993,16 +7994,17 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
     """Coverage of an airport's smoothing mask by the cached insets.
 
     Returns ``(coverage_fraction, finest_covering_inset_pixel_m)``.
-    Coverage is judged by the insets' raster EXTENTS (rectangles in
-    tile-relative degrees), each WEIGHTED BY ITS VALID-PIXEL FRACTION
-    (R11-3): a rectangle is where an inset could have data, and the
-    fraction is how much of it does.  An inset under
-    ``INSET_MIN_VALID_FRAC`` valid is absent here exactly as it is
-    absent from the bake -- KMCI's 100 %-nodata 1 m raster reported
-    100 % coverage at 1 m and set the smoothing radius to 0 over a
-    surface it never touched.  A fully-valid inset weighs exactly 1 and
-    the answer is the pre-change answer.  ``(0.0, None)`` when no cached
-    inset touches the mask.
+    Coverage is the share of the MASK on which some inset holds data
+    (#1770): the mask is sampled on one grid
+    (:func:`elevation_access.mask_coverage.mask_sample_points`) and each
+    inset is asked, per sample, whether it holds a valid cell there.  The
+    raster's whole-box valid share is never the measure -- a coastal
+    aerodrome's inset box can be mostly sea the provider serves as
+    nodata while every cell under the aerodrome is data.  An inset under
+    ``INSET_MIN_VALID_FRAC`` valid (or a flat fill) is absent here
+    exactly as it is absent from the bake (R11-3: KMCI's 100 %-nodata
+    1 m raster once set the radius to 0 over a surface it never touched).
+    ``(0.0, None)`` when no cached inset touches the mask.
 
     The second element is the resolution the smoothing radius may assume
     over THIS mask, and it is deliberately not the finest pixel of every
@@ -8012,9 +8014,9 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
       (:func:`_honest_inset_resolution_m`) -- a 30 m source stored on a
       3 m grid carries 30 m of information and is treated as 30 m.
     * A resolution only counts when insets at least that fine actually
-      COVER ``INSET_COVERAGE_THRESHOLD`` of the mask.  Airport bounding
-      boxes overlap generously (``airport_elevation_inset_margin_m`` is
-      2 km), so a neighbour's finer inset routinely clips a corner of
+      HOLD DATA over ``INSET_COVERAGE_THRESHOLD`` of the mask.  Airport
+      bounding boxes overlap generously (``airport_elevation_inset_margin_m``
+      is 2 km), so a neighbour's finer inset routinely clips a corner of
       this airport's mask; letting that set the radius smooths this
       airport as if it had detail it does not have.  Candidates are
       tested finest-first and CUMULATIVELY (every inset at least that
@@ -8029,7 +8031,6 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
     ):
         return (0.0, None)
     from shapely import geometry as shapely_geometry
-    from shapely import ops as shapely_ops
 
     provider_definitions = select_provider_definitions(
         getattr(tile, "airport_elevation_providers", "auto")
@@ -8038,9 +8039,10 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
     inset_paths = list_cached_inset_dems(
         tile.lat, tile.lon, provider_codes=codes or None
     )
-    boxes = []
-    resolved_boxes = []
-    weighted_boxes = []
+    (sample_x, sample_y) = ea_mask_coverage.mask_sample_points(mask_geometry)
+    sample_lons = sample_x + tile.lon
+    sample_lats = sample_y + tile.lat
+    resolved_held = []
     for inset_path in inset_paths:
         try:
             dataset = gdal.Open(inset_path)
@@ -8058,56 +8060,33 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
         )
         if not extent_box.intersects(mask_geometry):
             continue
-        (is_empty, valid_fraction) = inset_is_effectively_empty(inset_path)
-        if is_empty:
+        if inset_is_effectively_empty(inset_path)[0]:
             # R11-3: no data, no coverage, no resolution claim.
             continue
-        boxes.append(extent_box)
         stored_pixel_m = abs(geotransform[5]) * GEO.lat_to_m
-        resolved_boxes.append(
+        resolved_held.append(
             (
                 _honest_inset_resolution_m(inset_path, stored_pixel_m),
-                extent_box,
+                ea_mask_coverage.raster_valid_at_points(
+                    inset_path, sample_lons, sample_lats
+                ),
             )
         )
-        weighted_boxes.append((valid_fraction, extent_box))
-    if not boxes:
+    if not resolved_held:
         return (0.0, None)
-    mask_area = mask_geometry.area
-    # Best-available-data accounting: walk the insets richest-first and
-    # give each piece of the mask the valid fraction of the best inset
-    # that reaches it, so nothing is double-counted and an all-valid set
-    # returns the union area it always returned.
-    covered_area = 0.0
-    remaining = mask_geometry
-    for valid_fraction, extent_box in sorted(
-        weighted_boxes, key=lambda item: item[0], reverse=True
-    ):
-        piece = remaining.intersection(extent_box)
-        if piece.is_empty:
-            continue
-        covered_area += piece.area * valid_fraction
-        remaining = remaining.difference(extent_box)
-        if remaining.is_empty:
-            break
-    # Finest-first, cumulative: the coarsest candidate is the union of
-    # everything, so this terminates on the same total coverage the
-    # caller's gate sees (None only when even that falls short).
+    held_by_any = numpy.logical_or.reduce([held for (_, held) in resolved_held])
+    # Finest-first, cumulative: the coarsest candidate is every inset, so
+    # this terminates on the same total coverage the caller's gate sees
+    # (None only when even that falls short).
     finest_pixel_m = None
-    for candidate_pixel_m in sorted({res for (res, _) in resolved_boxes}):
-        at_least_this_fine = [
-            box for (res, box) in resolved_boxes if res <= candidate_pixel_m
-        ]
-        candidate_coverage = (
-            shapely_ops.unary_union(at_least_this_fine)
-            .intersection(mask_geometry)
-            .area
-            / mask_area
+    for candidate_pixel_m in sorted({res for (res, _) in resolved_held}):
+        held_at_least_this_fine = numpy.logical_or.reduce(
+            [held for (res, held) in resolved_held if res <= candidate_pixel_m]
         )
-        if candidate_coverage >= INSET_COVERAGE_THRESHOLD:
+        if held_at_least_this_fine.mean() >= INSET_COVERAGE_THRESHOLD:
             finest_pixel_m = candidate_pixel_m
             break
-    return (covered_area / mask_area, finest_pixel_m)
+    return (float(held_by_any.mean()), finest_pixel_m)
 
 
 def _inset_provider_code_from_path(inset_path):

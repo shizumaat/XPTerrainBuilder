@@ -3143,6 +3143,45 @@ def test_xyz_tiles_fall_back_to_composite(tmp_path, monkeypatch):
     )
 
 
+@requires_gdal
+def test_xyz_tiles_fill_nodata_cells_inside_fetched_tiles(
+    tmp_path, monkeypatch
+):
+    """#1733: every primary tile exists but its western half is ``e``
+    (reclaimed land, piers): the fallback composite fills those cells,
+    the primary still wins where it has data, and the provenance names
+    both layers."""
+    import requests
+
+    patch_inset_code(monkeypatch, "has_gdal", True)
+    half_row = ",".join(["e"] * 128 + ["42.5"] * 128)
+    half_tile = "\n".join([half_row] * 256)
+    monkeypatch.setattr(
+        requests,
+        "Session",
+        lambda: _FakeTileSession(
+            {
+                "/primary/": (200, half_tile),
+                "/fallback/": (200, _text_tile(7.25)),
+            }
+        ),
+    )
+    destination = str(tmp_path / "RJXX_testxyz.tif")
+    provenance = INSETS.fetch_inset(
+        _xyz_definition(), (139.77, 35.545, 139.79, 35.56), 5.0, destination
+    )
+    assert provenance is not None
+    dataset = gdal.Open(destination)
+    values = dataset.GetRasterBand(1).ReadAsArray()
+    assert not (values <= -32768).any()
+    assert (abs(values - 42.5) < 0.01).any()
+    assert (abs(values - 7.25) < 0.01).any()
+    assert provenance["source_urls"] == [
+        "https://tiles.test/primary/{zoom}/{x}/{y}.txt",
+        "https://tiles.test/fallback/{zoom}/{x}/{y}.txt",
+    ]
+
+
 # =====================================================================
 # The xyz_archive_drop strategy (Taiwan manual archives)
 # =====================================================================

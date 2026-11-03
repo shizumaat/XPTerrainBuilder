@@ -74,7 +74,12 @@ from . import skirt as _skirt
 from .pack import live_path_of
 
 __all__ = ["Screen", "PackPartition", "partition_pack", "extend_partition",
-           "counts_zero", "MemberRecipe", "MemberGeometries"]
+           "counts_zero", "MemberRecipe", "MemberGeometries", "ADAPTED_SKIP"]
+
+#: the skip reason of a member the terrain adapted to (never re-seated)
+ADAPTED_SKIP = ("basin facility / structure member: the terrain adapted to THIS "
+                "member (08-26; v1 R4; 09q (1): never its anchor family) — never "
+                "re-seated")
 
 
 def counts_zero() -> dict[str, int]:
@@ -198,10 +203,7 @@ class PackPartition:
                     continue
                 if oid in screen.excluded:
                     counts["terrain_adapted"] += 1
-                    skipped.setdefault(opath,
-                                       "basin facility / structure member: the terrain "
-                                       "adapted to THIS member (08-26; v1 R4; 09q (1): "
-                                       "never its anchor family) — never re-seated")
+                    skipped.setdefault(opath, ADAPTED_SKIP)
                     continue
                 if oid in riders:
                     counts["adapted_riders"] = counts.get("adapted_riders", 0) + 1
@@ -632,6 +634,12 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         if o.resolved is None:
             counts["unresolved"] += 1
             continue
+        if o.terrain_fit is not None and not o.terrain_feature:
+            counts["terrain_shaped"] = counts.get("terrain_shaped", 0) + 1
+            skipped.setdefault(o.path, "terrain-shaped hard deck (#1730, "
+                                       "terrain_shaped): one rigid body, seated "
+                                       f"by its DEM fit at {o.terrain_fit.z0:.2f} m")
+            continue
         if o.terrain_feature:
             counts["terrain_feature"] = counts.get("terrain_feature", 0) + 1
             skipped.setdefault(o.path, "terrain feature (RULINGS 2026-10-20aq, "
@@ -640,9 +648,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         if o.id in sc.excluded:
             counts["terrain_adapted"] += 1
-            skipped.setdefault(o.path, "basin facility / structure member: the terrain "
-                                       "adapted to THIS member (08-26; v1 R4; 09q (1): "
-                                       "never its anchor family) — never re-seated")
+            skipped.setdefault(o.path, ADAPTED_SKIP)
             continue
         if o.id in sc.facility:
             counts["below_grade"] += 1

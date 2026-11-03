@@ -164,7 +164,8 @@ def test_the_summary_and_log_line(tmp_path):
         "first_unmapped": ["forests/local.for",
                            "lib/g8/terrain/dry_hot_flat.for"]}
     line = PF.log_line("Some Pack", old)
-    assert line.startswith("[pack] Some Pack: 3 old flat (X-Plane 11) forest")
+    assert line.startswith("[pack] Some Pack: 3 old flat (X-Plane 11) tree "
+                           "or forest definition(s)")
     assert "first: forests/local.for" in line
 
 
@@ -206,14 +207,14 @@ def test_the_map_names_no_airport():
 
 def test_the_rename_changes_only_the_named_definitions():
     renames = {"lib/g8/terrain/wet_hot_flat.for": "lib/g8/broad_vhot_wet.for"}
-    out, n = PF.rename_definitions(DUMP, renames)
+    out, n = PF._rename_definitions(DUMP, renames)
     assert n == 1
     before, after = DUMP.splitlines(True), out.splitlines(True)
     assert len(before) == len(after)
     changed = [(a, b) for a, b in zip(before, after, strict=True) if a != b]
     assert changed == [("POLYGON_DEF lib/g8/terrain/wet_hot_flat.for\n",
                         "POLYGON_DEF lib/g8/broad_vhot_wet.for\n")]
-    assert PF.rename_definitions(DUMP, {}) == (DUMP, 0)
+    assert PF._rename_definitions(DUMP, {}) == (DUMP, 0)
 
 
 def test_the_record_reads_back_only_for_its_pristine_file():
@@ -277,7 +278,7 @@ def test_the_write_renames_records_and_keeps_the_pristine(tmp_path, monkeypatch,
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     W.write_pack(str(pack), _plan(pack, dsf), tool, allow_live_install=True,
                  work_dir=str(tmp_path / "w"), forests=RENAMES)
-    assert _live(dsf) == PF.rename_definitions(DUMP, RENAMES)[0]
+    assert _live(dsf) == PF._rename_definitions(DUMP, RENAMES)[0]
     bak = Path(str(dsf) + PM.BACKUP_SUFFIX)
     assert bak.read_text(encoding="utf-8") == DUMP, "the pristine, untouched"
     row = _entry(dsf)[PF.RECORD_KEY]
@@ -297,7 +298,7 @@ def test_a_later_write_keeps_the_upgrade_and_undo_drops_it(tmp_path,
     # a placement write that knows nothing of forests
     W.write_pack(str(pack), _plan(pack, dsf), tool, allow_live_install=True,
                  work_dir=str(tmp_path / "w2"))
-    assert _live(dsf) == PF.rename_definitions(DUMP, RENAMES)[0]
+    assert _live(dsf) == PF._rename_definitions(DUMP, RENAMES)[0]
     assert _entry(dsf)[PF.RECORD_KEY]["renamed"] == 1
     W.write_pack(str(pack), _plan(pack, dsf), tool, allow_live_install=True,
                  work_dir=str(tmp_path / "w3"), forests={})
@@ -316,6 +317,6 @@ def test_an_unpatched_restore_keeps_the_upgrade(tmp_path, monkeypatch, _memo):
                              allow_live_install=True,
                              work_dir=str(tmp_path / "w2"))
     assert out.state == UP.RESTORED
-    assert _live(dsf) == PF.rename_definitions(DUMP, RENAMES)[0]
+    assert _live(dsf) == PF._rename_definitions(DUMP, RENAMES)[0]
     assert "OTST" not in (_entry(dsf).get("airports") or {})
     assert os.path.isfile(str(dsf) + PM.BACKUP_SUFFIX)

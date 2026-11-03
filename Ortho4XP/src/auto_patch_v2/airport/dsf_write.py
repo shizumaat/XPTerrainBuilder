@@ -1309,9 +1309,9 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     without that airport's seating, the others' kept"
     (``unpatched_pack.restore_airport``).
 
-    ``forests`` (issue #1360) is the X-Plane 12 3D forest upgrade the
+    ``forests`` (issues #1360, #1710) is the X-Plane 12 3D tree upgrade the
     user accepted, ``{declared path: target}`` (``pack_forests.
-    rename_definitions``, applied last).  ``None`` keeps the one the
+    apply_upgrade``, applied last).  ``None`` keeps the one the
     record holds for this pristine DSF, so a placement write never drops
     it; ``{}`` writes the DSF without it (the user's Undo).  The record
     gains ``forest_upgrade``."""
@@ -1414,7 +1414,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         _refuse_missing_bodies(pack_root, composed)          # #1214 R1
         edited, omitted, unused = _edited_text(pinned, composed, omit, engine_version
                                                or plan.provenance.engine_version)
-        edited, renamed = _pf.rename_definitions(edited, forests)
+        edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
         with open(edited_text, "w", encoding="utf-8",
                   errors="surrogateescape", newline="\n") as fh:
             fh.write(edited)

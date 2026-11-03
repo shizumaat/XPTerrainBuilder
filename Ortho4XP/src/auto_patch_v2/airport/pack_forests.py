@@ -22,11 +22,19 @@ resources."  This module owns the pure halves, any pack, any tile:
   only version with those, and every ``.for`` it exports through them is
   3D — the listing the map cites; the merged library index does not
   carry them, ``agp_reader.other_export_names``).  An X-Plane 11 install
-  has neither, and is offered nothing.  A pack's own ``.for`` and a flat file the map does
-  not name are UNMAPPED: reported, never guessed.
-* THE RENAME — :func:`rename_definitions`: the dump text with the mapped
+  has neither, and is offered nothing.  A flat file the map does not
+  name is UNMAPPED: reported, never guessed.
+* A PACK'S OWN TREES (issue #1710, :mod:`.pack_trees`): its own flat
+  ``.for`` maps to the 3D forest of the tree type and density its
+  ``TREE`` rows read (``pack_trees.local_forest_target``; ground cover
+  maps to nothing), and its own flat tree OBJECTS (``kind="object"``)
+  to the X-Plane 12 3D tree species of the same kind — under the same
+  "this install provides it as 3D" rule.
+* THE RENAME — :func:`_rename_definitions`: the dump text with the mapped
   ``POLYGON_DEF`` rows pointing at their targets.  Only those rows change;
   every polygon keeps its index, its points and every other byte.
+  :func:`apply_upgrade` is the rename plus the tree objects' rewrite
+  (``pack_trees.convert_objects``): what the DSF write applies.
 
 The rewrite itself is ``dsf_write.write_pack``'s (``forests=``): the
 pristine DSF stays as ``<name>.dsf.anchor_bak``, the record beside it
@@ -41,12 +49,14 @@ import hashlib
 import os
 import typing as _t
 
+from . import pack_trees as _pt
 from .obj8 import resolve_resource
 from .pack_art import FIRST_PATHS, count_uses, declared_definitions
 from .pack_forests_map import FOREST_MAP
+from .pack_trees_map import FAMILIES
 
 __all__ = ["old_forests",
-           "renames_of", "rename_definitions", "record",
+           "renames_of", "apply_upgrade", "record",
            "recorded", "summary", "log_line", "RECORD_KEY"]
 
 #: the key of the record row (``o4_placement_provenance.json``)
@@ -60,13 +70,17 @@ class OldForest:
     """One flat forest the DSF declares.  ``index`` is its position among
     the polygon definitions, ``uses`` the polygons that draw it,
     ``target`` its 3D replacement (``""`` = unmapped), ``local`` whether
-    the file is the pack's own."""
+    the file is the pack's own; ``kind`` ``"polygon"`` (a ``.for``) or
+    ``"object"`` (a flat tree object, issue #1710: ``index`` counts the
+    object definitions and ``target`` is a ``pack_trees_map.FAMILIES``
+    key)."""
 
     index: int
     path: str
     uses: int = 0
     target: str = ""
     local: bool = False
+    kind: str = "polygon"
 
     def to_dict(self) -> dict[str, _t.Any]:
         return _dc.asdict(self)
@@ -101,19 +115,28 @@ def forest_key(resolved: str, default_scenery: str) -> str:
     return rel.replace(os.sep, "/")
 
 
-def _target(key: str, index: _t.Mapping[str, str],
+def _target(target: str, index: _t.Mapping[str, str],
             kinds: dict[str, str | None],
             also_exported: _t.Callable[[], _t.Container[str]] | None) -> str:
-    target = FOREST_MAP.get(key, "")
+    """``target`` when this install provides it as a 3D forest, else
+    ``""``; a ``FAMILIES`` key when it provides every member."""
+    if target in FAMILIES:
+        ok = all(_target(p, index, kinds, also_exported)
+                 for p, _h in FAMILIES[target])
+        return target if ok else ""
     if not target:
         return ""
+    seasonal = (also_exported is not None
+                and target.lower() in also_exported())
     phys = resolve_resource(target, None, index)
     if phys is None:
-        return target if (also_exported is not None
-                          and target.lower() in also_exported()) else ""
+        return target if seasonal else ""
     if phys not in kinds:
         kinds[phys] = for_kind(phys)
-    return target if kinds[phys] == "3d" else ""
+    # a seasonal export is a REAL export, which X-Plane prefers to the
+    # ``EXPORT_BACKUP`` placeholder the merged index may hold for the
+    # name (a third-party library's ``Blank.for``, issue #1710)
+    return target if kinds[phys] == "3d" or seasonal else ""
 
 
 def old_forests(pack_root: str, source: str | _t.Sequence[str],
@@ -130,9 +153,10 @@ def old_forests(pack_root: str, source: str | _t.Sequence[str],
     if index is None:
         return None
     kinds: dict[str, str | None] = {}
-    found: list[tuple[int, str, str, bool]] = []
+    found: list[tuple[str, int, str, str, bool]] = []
     pack = os.path.abspath(pack_root) + os.sep
-    for i, path in enumerate(declared_definitions(source)["polygon"]):
+    decl = declared_definitions(source)
+    for i, path in enumerate(decl["polygon"]):
         p = path.replace("\\", "/").replace(":", "/")
         if not p.lower().endswith(".for"):
             continue
@@ -144,14 +168,40 @@ def old_forests(pack_root: str, source: str | _t.Sequence[str],
         if kinds[phys] != "flat":
             continue
         local = os.path.abspath(phys).startswith(pack)
-        target = "" if local else _target(forest_key(phys, default_scenery),
-                                          index, kinds, also_exported)
-        found.append((i, path, target, local))
+        if (not local and also_exported is not None
+                and p.lower() in also_exported()):
+            continue        # a seasonal export (3D) wins over a backup's file
+        want = (_pt.local_forest_target(phys) if local
+                else FOREST_MAP.get(forest_key(phys, default_scenery), ""))
+        found.append(("polygon", i, path,
+                      _target(want, index, kinds, also_exported), local))
+    found.extend(_tree_objects(pack_root, decl["object"], index, kinds,
+                               also_exported))
     if not found:
         return ()
-    uses = count_uses(source, {("polygon", i) for i, *_ in found})
-    return tuple(OldForest(i, p, uses[("polygon", i)], t, loc)
-                 for i, p, t, loc in found)
+    uses = count_uses(source, {(k, i) for k, i, *_ in found})
+    return tuple(OldForest(i, p, uses[(k, i)], t, loc, k)
+                 for k, i, p, t, loc in found)
+
+
+def _tree_objects(pack_root: str, paths: _t.Sequence[str],
+                  index: _t.Mapping[str, str], kinds: dict[str, str | None],
+                  also_exported: _t.Callable[[], _t.Container[str]] | None
+                  ) -> list[tuple[str, int, str, str, bool]]:
+    """The pack's own flat tree objects (``pack_trees.flat_trees``)."""
+    out = []
+    for i, path in enumerate(paths):
+        p = path.replace("\\", "/").replace(":", "/")
+        if not p.lower().endswith(".obj") or _pt.body_base(p) != p:
+            continue
+        cand = os.path.join(pack_root, p)
+        if not os.path.isfile(cand):
+            continue                    # a library object is not the pack's
+        ft = _pt.flat_trees(cand)
+        if ft is not None:
+            out.append(("object", i, path,
+                        _target(ft.family, index, kinds, also_exported), True))
+    return out
 
 
 def renames_of(old: _t.Iterable[OldForest]) -> dict[str, str]:
@@ -159,7 +209,7 @@ def renames_of(old: _t.Iterable[OldForest]) -> dict[str, str]:
     return {f.path: f.target for f in old if f.target}
 
 
-def rename_definitions(text: str, renames: _t.Mapping[str, str]
+def _rename_definitions(text: str, renames: _t.Mapping[str, str]
                        ) -> tuple[str, int]:
     """THE RENAME (pure): ``text`` with each ``POLYGON_DEF`` whose path is
     a key of ``renames`` pointing at its value.  Returns the text and the
@@ -179,6 +229,20 @@ def rename_definitions(text: str, renames: _t.Mapping[str, str]
                 continue
         out.append(raw)
     return "".join(out), n
+
+
+def apply_upgrade(edited: str, pristine: str, renames: _t.Mapping[str, str],
+                  pack_root: str) -> tuple[str, int]:
+    """What the DSF write applies for an accepted upgrade: the forest
+    renames (:func:`_rename_definitions`) and the tree objects' rewrite
+    (``pack_trees.convert_objects``; a renames key whose target is a
+    ``FAMILIES`` key).  Returns the text and the definitions changed."""
+    objects = {k: v for k, v in renames.items() if v in FAMILIES}
+    forests = {k: v for k, v in renames.items() if v not in FAMILIES}
+    text, n = _rename_definitions(edited, forests)
+    text, converted, _trees = _pt.convert_objects(text, pristine, objects,
+                                                  pack_root)
+    return text, n + converted
 
 
 def decision_key(pristine_sha256: str, renames: _t.Mapping[str, str]) -> str:
@@ -234,9 +298,9 @@ def summary(old: _t.Sequence[OldForest]) -> dict[str, _t.Any]:
 def log_line(pack: str, old: _t.Sequence[OldForest]) -> str:
     """The engine log line for a pack that declares flat forests."""
     s = summary(old)
-    line = (f"[pack] {pack}: {s['total']} old flat (X-Plane 11) forest "
-            f"definition(s); {s['mapped']} have an X-Plane 12 3D equivalent "
-            f"({s['uses']} polygon(s))")
+    line = (f"[pack] {pack}: {s['total']} old flat (X-Plane 11) tree "
+            f"or forest definition(s); {s['mapped']} have an X-Plane 12 3D equivalent "
+            f"({s['uses']} use(s))")
     if s["unmapped"]:
         line += (f", {s['unmapped']} have none and stay as they are "
                  f"— first: {s['first_unmapped'][0]}")

@@ -1461,6 +1461,15 @@ def _role_grade_limit(way: "Way",
       cap so behaviour stays compatible with un-tagged input).
     """
     role = law_role(way)
+    # A ROLE-LESS ARTICULATION WAY HAS NO GRADE LAW OF ITS OWN (#1512;
+    # ``ROLE_LESS_FEATURE_CLASSES``): a ``terrain_edge`` records where an
+    # adjacent-ground ring ENDED, its chords are ring edges of the faces
+    # it bounds, and those faces price them.  Falling through to the
+    # caller's default cap judged KATL ``terrain_edge:22`` — a taxiway's
+    # graded ring down to the service road below — as ONE 1.5 % shape:
+    # 408 within-shape rows, worst 12.96 m over 180 m.
+    if role is None and is_role_less_articulation(way):
+        return None
     # APRON-EDGE GRADE ADOPTION (USER RULING 2026-07-06): a service
     # road/junction portion inside or alongside an apron follows the
     # apron grading rules — the build stamps ``o4_grade_law='apron'``
@@ -1860,6 +1869,16 @@ def law_role(way: "Way") -> Optional[str]:
     if tags.get("o4_feature") in HOST_CAP_FEATURE_CLASSES:
         return tags.get(HOST_ROLE_TAG) or None
     return None
+
+
+def is_role_less_articulation(way: "Way") -> bool:
+    """A role-less feature way the law judges at NO cap: a
+    :data:`ROLE_LESS_FEATURE_CLASSES` member that is not an interior ring
+    judged at its host's (:data:`HOST_CAP_FEATURE_CLASSES`)."""
+    tags = getattr(way, "tags", None) or {}
+    feature = tags.get("o4_feature")
+    return (not tags.get("role") and feature in ROLE_LESS_FEATURE_CLASSES
+            and feature not in HOST_CAP_FEATURE_CLASSES)
 
 
 def effective_role(way: "Way") -> Optional[str]:

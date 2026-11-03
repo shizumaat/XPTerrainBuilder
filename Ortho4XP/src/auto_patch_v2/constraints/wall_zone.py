@@ -272,8 +272,9 @@ def face_foot(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> flo
     where it stands ON a wall's LOWER face — within :data:`TOP_FACE_M` of
     it and nearer it than the upper face (so the strip's corner at the
     wall's end, nearer the end edge, is on it too: measured KATL
-    ``muro_concreto``, 0.32 m off the face and 0.23 m off the end);
-    ``None`` elsewhere."""
+    ``muro_concreto``, 0.32 m off the face and 0.23 m off the end) — at a
+    station that retains (``wall_sides._foot_retaining``); ``None``
+    elsewhere."""
     import numpy as np
     from shapely.geometry import Point
     p = Point(xy)
@@ -284,8 +285,13 @@ def face_foot(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> flo
         other = (w.upper_face.distance(p) if w.upper_face is not None
                  else w.poly.exterior.distance(p))
         if d <= TOP_FACE_M and d <= other + 1e-6:
-            a = np.asarray(w.foot_profile, float)
-            return float(np.interp(w.lower_face.project(p), a[:, 0], a[:, 1]))
+            s_ = w.lower_face.project(p)
+            st = [t for t in w.foot_profile if t[1] is not None]
+            near = min(w.foot_profile, key=lambda t: abs(t[0] - s_))
+            if near[1] is None or not st:
+                return None     # a station that retains nothing
+            a = np.asarray(st, float)
+            return float(np.interp(s_, a[:, 0], a[:, 1]))
     return None
 
 

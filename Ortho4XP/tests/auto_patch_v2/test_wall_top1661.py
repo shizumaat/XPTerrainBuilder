@@ -215,3 +215,27 @@ def test_the_strip_corner_at_the_walls_end_takes_the_foot():
                             ((0.0, 289.5), (face.length, 289.5)))
     # 0.3 m off the lower face, 0.2 m past the wall's south end
     assert WZ.face_foot([line], (65.3, -100.2)) == 289.5
+
+
+def test_a_foot_at_or_over_the_top_retains_nothing():
+    # #1662 regression (KCLT ``paredes_10_charlotte``): the low side's ground
+    # stands at the wall's top past y = 0, so no foot is held there
+    face = _lower_face()
+    top = ((0.0, 300.0), (200.0, 300.0))
+    prof = tuple((float(s), 299.0 if face.interpolate(s).y > 0.0 else 290.0)
+                 for s in np.arange(0.0, face.length + 1.0, 10.0))
+    got = WS._foot_retaining(prof, face, _upper_face(), top, 2.0)
+    for (s, z0), (_s, z) in zip(prof, got, strict=True):
+        assert z == (None if face.interpolate(s).y > 0.0 else z0)
+    assert WS._foot_retaining(prof, face, _upper_face(), None, 2.0) == prof
+    high = tuple((s, 301.0) for s, _z in prof)
+    assert WS._foot_retaining(high, face, _upper_face(), top, 2.0) is None
+
+
+def test_a_station_that_retains_nothing_holds_no_foot():
+    face = _lower_face()
+    line = WZ.RetainingLine(WALL, 80.0, 20.0, {}, _upper_face(), None, face,
+                            ((0.0, 289.5), (100.0, 289.5), (110.0, None),
+                             (face.length, None)))
+    assert WZ.face_foot([line], (65.0, -60.0)) == 289.5
+    assert WZ.face_foot([line], (65.0, 60.0)) is None

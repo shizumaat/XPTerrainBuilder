@@ -302,7 +302,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        portals=tstats.portals,
                                                        edge_bridges=bridges,
                                                        trenches=tstats.trench_objects,
-                                                       deck_bridges=decks)
+                                                       deck_bridges=decks,
+                                                       level_b=level_b)
     sstats.hard_decks.extend(deck_notes)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)

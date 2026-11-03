@@ -453,44 +453,6 @@ def deck_mouth(axis: LineString, inward: XY, db: DeckBridge) -> tuple[LineString
     return _moved_in(axis, inward, (off - (m[0] * r[0] + m[1] * r[1])) / dot)
 
 
-def deck_far(db: DeckBridge, axis: LineString, decks: _t.Sequence[DeckBridge],
-             paved=None) -> "tuple[float, float, DeckBridge] | None":
-    """``(own far edge s, the stop s, the other deck)``: where ``axis``
-    (from ``db``'s midline outward) runs into ANOTHER deck's ring beyond its
-    own — the open stretch between two bridges over one road: the trench
-    stays at the floors to the midpoint between the two (the other deck's
-    mouth cuts the rest), and never climbs (Q271 b).  The stretch is OPEN
-    only where no airside pavement (``paved``, the rolled-on roles' union)
-    lies over the road along it: pavement between two bridges is ground the
-    road does not run open under (§34 (12) (3)), and each bridge is then its
-    own cut (kiahdeck: two taxiway bridges 49 m apart with taxiway pavement
-    between them dragged that pavement 5.6 m down to the floor)."""
-    s_own = max((axis.project(Point(q)) for q in db.ring), default=0.0)
-    best = None
-    for o in decks:
-        if o is db or o.ring == db.ring:
-            continue
-        x = axis.intersection(o.polygon)
-        if x.is_empty:
-            continue
-        s0 = min(axis.project(Point(q)) for g in getattr(x, "geoms", [x])
-                 for q in g.coords)
-        if s0 >= s_own - 1e-6 and (best is None or s0 < best[0]):
-            best = (s0, o)
-    if best is None or _paved_between(axis, s_own, best[0], paved):
-        return None
-    return float(s_own), float(0.5 * (s_own + best[0])), best[1]
-
-
-def _paved_between(axis: LineString, s0: float, s1: float, paved) -> bool:
-    """Whether airside pavement lies over ``axis`` strictly between ``s0``
-    and ``s1`` (a metre clear of each deck's edge)."""
-    if paved is None or paved.is_empty or s1 - s0 <= 2.0:
-        return False
-    from shapely.ops import substring
-    return paved.intersects(substring(axis, s0 + 1.0, s1 - 1.0))
-
-
 def _half_plane(line: tuple[XY, float], toward: XY, big: float) -> Polygon:
     """The side of ``line`` (``(normal, offset)``) holding the point
     ``toward``, as a ``big`` box."""
@@ -638,25 +600,25 @@ def deck_pin(db: DeckBridge, mouth):
                   tuple(mouth.xy), False, db.ring, ())
 
 
-def deck_seats(db: DeckBridge, axis: LineString, decks: _t.Sequence[DeckBridge],
-               gap: float, paved=None
+def deck_seats(db: DeckBridge, axis: LineString, other: "DeckBridge | None",
+               gap: float
                ) -> tuple[float, "float | None", tuple, tuple, "DeckBridge | None"]:
     """``(climb_from, level_to, floor stretch, seats, other deck)`` of a corridor under
     ``db`` (``Tunnel.edge_floor_s`` / ``edge_seats``): the floor is level
     under the whole deck and climbs ``gap`` beyond its far edge — or, running
     into another deck, stays at the floors to the midpoint between them
     (``level_to``), linear from this deck's floor at its edge to the other's
-    at its own (Q271 b) — unless airside pavement (``paved``) lies over the
-    stretch (:func:`deck_far`).  Each deck states two seats, end A then end
-    B, as ``(object id, the end's stations, the depth there)``."""
+    at its own (Q271 b).  ``other`` is the deck this one RUNS THROUGH to (the pairing
+    is ``structure_overlap.run_pair``'s, the one place two cuts on one road
+    are paired, RULINGS 2026-11-03b Q340 a).  Each deck states two seats,
+    end A then end B, as ``(object id, the end's stations, the depth
+    there)``."""
     def two(d: DeckBridge) -> tuple:
         return ((d.object_id, d.seats_a, d.depth_a), (d.object_id, d.seats_b, d.depth_b))
     s_own = max((axis.project(Point(q)) for q in db.ring), default=0.0)
-    far = deck_far(db, axis, decks, paved)
-    if far is None:
+    x = axis.intersection(other.polygon) if other is not None and other is not db else None
+    if x is None or x.is_empty:
         return s_own + gap, None, (), two(db), None
-    s_own, _stop, other = far
-    x = axis.intersection(other.polygon)
     s_other = max(s_own, min(axis.project(Point(q)) for g in getattr(x, "geoms", [x])
                              for q in g.coords))
     # the stop: where the axis meets the line halfway across the stretch

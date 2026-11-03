@@ -1166,7 +1166,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.group_level constraints.face_index
     """),
     "no_step": _mods(_GENERATOR_CORE + """
-        law.inset_class geom.foot_planes
+        law.inset_class
         constraints.apron constraints.ceiling constraints.cluster_pad
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.groundside constraints.no_step constraints.pad_frontage_gs

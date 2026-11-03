@@ -457,16 +457,17 @@ def _rr(x: "float | None") -> "float | None":
     return round(float(x), 3) if x is not None and math.isfinite(float(x)) else None
 
 
-def _group_zero(planar: PlanarMap, rec, z1a, law) -> "float | None":
-    """THE GROUP'S ZERO as the object stage reads it (``airside_group_seat.
-    airside_zeros`` / ``floor_plane``, RULINGS 23b/23e), on the pass-1a
-    airside: ``floor_plane`` of ``z - y`` over the group's stand-side
-    witnesses (``planar/flat_group``), ``z`` the pass-1a level of the
-    stage-1 vertex nearest each."""
+def _group_zero(planar: PlanarMap, rec, z1a) -> "float | None":
+    """THE GROUP'S ZERO (the level its stand-side walls stand at): the
+    MEDIAN of ``z - y`` over the group's stand-side witnesses
+    (``planar/flat_group``, the feet ``airside_group_seat.airside_zeros``
+    reads), ``z`` the pass-1a level of the stage-1 vertex nearest each --
+    where most of the group's stands are, on the airside solved before any
+    pad holds it.  (The object stage's ``floor_plane`` reads a FLAT
+    frontage; on pass 1a's sloping one its storey rule reads the lowest
+    plane: MEASURED KATL terminal F 298.96 m against today's 300.80.)"""
     import numpy as np
     from scipy.spatial import cKDTree
-
-    from ..geom.foot_planes import floor_plane
     xy, ys = rec.get("air_xy") or (), rec.get("air_y") or ()
     vs = [int(v) for v in z1a]
     if not xy or not vs:
@@ -474,8 +475,7 @@ def _group_zero(planar: PlanarMap, rec, z1a, law) -> "float | None":
     tree = cKDTree(np.asarray([planar.vertices[v].xy for v in vs], dtype=float))
     _d, k = tree.query(np.asarray(xy, dtype=float))
     zc = [float(z1a[vs[int(i)]]) - float(y) for i, y in zip(k, ys, strict=True)]
-    storey = float(getattr(law.tables.structures.building_pad, "low_level_min_step_m", 0.0) or 0.0)
-    return floor_plane(zc, storey)
+    return float(np.median(zc))
 
 
 def _flat_binding(planar: PlanarMap, ar, blocks, refs, rw_v, pins) -> dict:
@@ -781,7 +781,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     for lead, members in groups.items():
         if (held_reg.get(lead) or {}).get("flat_group"):
             d_g, rep = flat_group_level(blocks, lead, members,
-                                        _group_zero(planar, held_reg[lead]["flat_group"], z1a, law))
+                                        _group_zero(planar, held_reg[lead]["flat_group"], z1a))
             rep["binding"] = _flat_binding(planar, ar0, blocks, (lead, *members),
                                            rw_v, cs.pins)
             flat_levels[lead] = rep

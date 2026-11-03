@@ -111,7 +111,7 @@ from .unframed_ramp import (BEND_CAP, MAX_OVERLAP_PASSES, bend_note as _bend_not
                             cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
 from .structure_overlap import (deck_partner, resolve_overlaps, run_floor, run_group,
-                                run_side, run_stop_s)
+                                run_members, run_side, run_stop_s)
 from ..airport.portal_objects import portal_of
 from .structure_mouth import (covered_stretch, face_top_z, own_road_blade, road_end_after_slide,
                               road_over_mouth)
@@ -436,7 +436,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if rt is not None and c is not None:
             # 2026-11-03b Q340 a: a profile corridor runs through to its
             # partner at its floor (``structure_overlap.run_group``)
-            g = run_group(g, rt, 0.5 * gap)
+            g = run_group(g, rt, 0.5 * gap, tn.ramp_max_grade)
             c, axis_path = g.corridor, g.axis
         half = width / 2.0
         axis_ln = LineString(axis_path)
@@ -753,7 +753,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # the deck this one runs through to (``structure_overlap``: the
             # one place two cuts on one road are paired)
             flat_to, level_to, edge_floor, edge_seats, deck_next = deck_seats(
-                deck, axis_ln, rt.partner_deck if rt is not None and rt.partner_deck is not None
+                deck, axis_ln, rt.partner_deck if rt is not None and rt.level
+                and rt.partner_deck is not None
                 else deck_partner(deck, axis_ln, deck_bridges, deck_paved), gap)
             climb_from = max(climb_from, flat_to)
         if edge is not None:
@@ -775,7 +776,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             edge_covers = tuple(tuple(p.exterior.coords) for b in met
                                 for p in getattr(b.cover, "geoms", [b.cover])
                                 if p.geom_type == "Polygon")
-        if rt is not None and c is None and level_to is None:
+        if rt is not None and rt.level and c is None and level_to is None:
             # 2026-11-03b Q340 a: the road stays down to its run line
             level_to = run_stop_s(axis_ln, rt, 0.5 * gap)
             if level_to is not None:
@@ -995,7 +996,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next,
                                    lane_band(deck, lane_cs.get(id(deck), ()),
                                              lane_of.get(id(members[0]), 0)))
-        if rt is not None and c is None and level_to is not None and \
+        if rt is not None and rt.level and c is None and level_to is not None and \
                 (deck is None or deck_next is None):
             # the half ends at its own side of the run line, open to its partner
             side = run_side(rt, 0.5 * gap, 10.0 * (axis_ln.length + 1000.0))
@@ -1100,8 +1101,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if far_mid and cap_mid:
             wall_path.append(wall_path[0])          # the O: a closed rim
         if rt is not None:
-            deck_notes.append(f"run-through with {rt.partner}: the road stays at the lower "
-                              f"level between the two cuts (RULINGS 2026-11-03b Q340 a, #1717)")
+            deck_notes.append((f"run-through with {rt.partner}: the road stays at the lower "
+                               f"level between the two cuts" if rt.level else
+                               "part of a run-through") + f"; one floor, lead {rt.lead} "
+                              f"(RULINGS 2026-11-03b Q340 a, #1717)")
         notes = list(deck_notes) + ([clear[4]] if clear is not None and clear[4] else []) + (
             [] if pin is None else [portal_note(pin, mouth_dem, mouth_z)]) + (
             [] if road_rd is None else [survey_mouth_note(road_rd, design_grade)])
@@ -1200,9 +1203,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               cap_mid[1] if cap_mid else None, design_grade=design_grade,
                               pinched=pinched, **extra,
                               **({} if rt is None else dict(
-                                  run_partner=rt.partner,
-                                  run_lead=_run_lead(tid, mouth_z if run_own is None
-                                                     else run_own, rt)))))
+                                  run_partner=rt.lead or tid, run_lead=rt.lead in ("", tid)))))
         if clipped_by:
             # THE PORTAL FACE AT THE PAD EDGE (08-07 ruling 3): the clipped
             # ramp's top edge stands off the ground beyond it by the gap
@@ -1267,9 +1268,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         grid, _pass < MAX_OVERLAP_PASSES, stats.refused, runs,
         lambda: unary_union([p for p, c in zip(polys, cells, strict=False)
                              if c.role in rolled_on_roles(law)]))
+    if _pass < MAX_OVERLAP_PASSES:
+        runs = run_members(tunnels, keep, runs, {**siblings, **{b: a for a, b in siblings.items()}})
     runs = {k: _dc.replace(r, partner_deck=tid_deck.get(r.partner)) for k, r in runs.items()}
     new_runs = runs.keys() != runs_before.keys() or any(
-        runs[k].partner != runs_before[k].partner for k in runs)
+        (runs[k].partner, runs[k].partner_floor, runs[k].lead) !=
+        (runs_before[k].partner, runs_before[k].partner_floor, runs_before[k].lead)
+        for k in runs)
     if _pass < MAX_OVERLAP_PASSES:
         new_cap.update(bend_cap)
     if new_limits or new_cap or new_runs or (released and _pass < MAX_OVERLAP_PASSES):
@@ -1358,11 +1363,3 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "mouths_replaced_by_object": stats.mouths_replaced_by_object})
     return cl, tuple(tunnels), stats
 
-
-def _run_lead(tid: str, own: float, rt) -> bool:
-    """Whether this half's own floor is the run's lowest (the half whose
-    floor the solve ties to its cap; ties go to the lesser id)."""
-    if rt.partner_floor is None:
-        return True
-    return own < rt.partner_floor - 1e-6 or (abs(own - rt.partner_floor) <= 1e-6
-                                            and tid < rt.partner)

@@ -744,8 +744,9 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                             rows.append(Band(dv, lo, hi, src_ends))
     rows.extend(pins.values())
     for tn in tunnels:
-        other = run_datum.get(tn.run_partner) if tn.run_partner else None
-        if other is not None and tn.id in run_datum and tn.id < tn.run_partner:
+        # ``run_partner`` names the run's LEAD (``planar/structure_overlap.run_members``)
+        other = run_datum.get(tn.run_partner) if tn.run_partner and not tn.run_lead else None
+        if other is not None and tn.id in run_datum:
             rows.append(Flat((run_datum[tn.id], other), Source(
                 GEN, "a run-through's one floor (owner RULINGS 2026-11-03b Q340 a / Q342 a; "
                 "owner 2026-11-03, #1717)", (tn.id, tn.run_partner))))

@@ -60,3 +60,21 @@ def test_resolve_overlaps_keeps_both_and_records_the_run(monkeypatch):
     SO.resolve_overlaps([a, b], [fa, fb], keep, {}, {}, {}, {}, None, 0.6, 0.1, False,
                         refused, {})
     assert keep.count(True) == 1 and refused                # no re-plan left: the old refusal
+
+
+def test_a_run_takes_one_floor_the_lowest_through_both_mouths_of_a_bore():
+    """Owner 2026-11-03 (KPHX picture): a merged run has ONE floor, the
+    lowest its members give; the other mouth of a bore whose half runs
+    through is a member too (its floor meets the half's at the deck)."""
+    def t(tid, z):
+        return types.SimpleNamespace(id=tid, mouth_z=z, profile=())
+    a0, a1, b0 = t("tunnel:-1@0", 104.5), t("tunnel:-1@1", 104.5), t("tunnel:-2@0", 102.0)
+    r = SO._Run("tunnel:-2@0", (0.0, 1.0), 50.0, (0.0, 0.0))
+    back = SO._Run("tunnel:-1@0", (0.0, 1.0), 50.0, (0.0, 99.0))
+    runs = {"tunnel:-1@0": r, "tunnel:-2@0": back}
+    out = SO.run_members([a0, a1, b0], [True, True, True], runs, {})
+    assert set(out) == {"tunnel:-1@0", "tunnel:-1@1", "tunnel:-2@0"}
+    assert all(abs(m.partner_floor - 102.0) < 1e-9 and m.lead == "tunnel:-2@0"
+               for m in out.values())
+    assert out["tunnel:-1@0"].level and not out["tunnel:-1@1"].level
+    assert abs(SO.run_floor(104.5, out["tunnel:-1@1"]) - 102.0) < 1e-9

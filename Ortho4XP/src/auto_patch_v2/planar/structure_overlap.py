@@ -44,7 +44,8 @@ from ..law import Law
 from .unframed_ramp import overlap_yield
 from .wall_corridor_ramps import KIND as WALL_KIND
 
-__all__ = ["resolve_overlaps", "deck_partner", "run_floor", "run_stop_s", "run_side", "run_group"]
+__all__ = ["resolve_overlaps", "deck_partner", "run_floor", "run_members", "run_stop_s",
+           "run_side", "run_group"]
 
 XY = tuple[float, float]
 #: two cuts face each other along one road when each one's axis heads at
@@ -67,6 +68,13 @@ class _Run:
     #: the partner's floor on the pass that paired them: the run takes ONE
     #: floor, the lowest of its halves' (owner 2026-11-03, KPHX picture)
     partner_floor: "float | None" = _dc.field(default=None, compare=False)
+    #: ``False`` for a MEMBER that is no half of a pair — the other mouth of
+    #: a bore whose half runs through, a level corridor's sibling: it takes
+    #: the run's one floor and keeps its own shape (no run line)
+    level: bool = True
+    #: the member whose own floor is the run's lowest (the one the solve ties
+    #: to its cap, ``Tunnel.run_lead``)
+    lead: str = ""
 
 
 def _unit(a: XY, b: XY) -> XY | None:
@@ -190,7 +198,7 @@ def run_side(run: _Run, gap: float, big: float) -> Polygon:
                     (c0[0] - sg * nx * big, c0[1] - sg * ny * big)])
 
 
-def run_group(g, run: _Run, gap: float):
+def run_group(g, run: _Run, gap: float, cap: float):
     """``g`` — a corridor group whose floor is a stated PROFILE (an R6
     viaduct run, a sunken road) — kept at its floor out to ``gap`` short of
     its run line and open there: its axis, trench, walls and footprint end
@@ -200,6 +208,8 @@ def run_group(g, run: _Run, gap: float):
     profile = tuple(getattr(g, "profile", ()) or ())
     if c is None or not profile or len(g.axis) < 2:
         return g
+    if not run.level:
+        return _member_floor(g, run, cap)
     from shapely.ops import substring
     ln = LineString(g.axis)
     stop = run_stop_s(ln, run, gap)
@@ -218,6 +228,84 @@ def run_group(g, run: _Run, gap: float):
                      floor_z=floor, depth_m=c.mouth_dem_z - floor)
     return _dc.replace(g, axis=axis, corridor=c2, hull_s=stop,
                        profile=((0.0, floor), (stop, floor)))
+
+
+def _member_floor(g, run: _Run, cap: float):
+    """``g`` with its profile's FLOOR lowered to the run's one floor and its
+    climb kept (the same top station and level), unless the climb would then
+    break ``cap`` — the grade law — when ``g`` keeps its own floor and says so."""
+    c, profile = g.corridor, tuple(g.profile)
+    old = float(profile[0][1])
+    new = run_floor(old, run)
+    if new >= old - 1e-9:
+        return g
+    flat = [(s, z) for s, z in profile if abs(z - old) <= 1e-9]
+    rest = [(s, z) for s, z in profile if abs(z - old) > 1e-9]
+    if rest:
+        s0 = flat[-1][0]
+        worst = max((z - new) / max(s - s0, 1e-9) for s, z in rest)
+        if worst > cap + 1e-9:
+            note = (f"run-through floor {new:.2f} not taken: the climb would reach "
+                    f"{100.0 * worst:.1f} % over the {100.0 * cap:.0f} % cap (kept {old:.2f})")
+            return _dc.replace(g, corridor=_dc.replace(c, notes=tuple(c.notes) + (note,)))
+    prof = tuple((s, new if abs(z - old) <= 1e-9 else z) for s, z in profile)
+    return _dc.replace(g, corridor=_dc.replace(c, floor_z=new, depth_m=c.mouth_dem_z - new),
+                       profile=prof)
+
+
+def run_members(tunnels, keep: _t.Sequence[bool], runs: _t.Mapping[str, _Run],
+                siblings: _t.Mapping[str, str]) -> dict[str, _Run]:
+    """Every built cut that belongs to a run-through, with the run's ONE
+    floor (owner 2026-11-03: the lowest of its members' floors) and its lead:
+    the pairs in ``runs``, joined through the two mouths of one bore and a
+    level corridor's sibling halves — the run is everything a floor could
+    step between."""
+    built = {t.id: t for t, k in zip(tunnels, keep, strict=True) if k}
+    parent = {tid: tid for tid in built}
+
+    def find(a: str) -> str:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def join(a: str, b: str) -> None:
+        if a in parent and b in parent:
+            parent[find(a)] = find(b)
+    for tid, r in runs.items():
+        if r.level:
+            join(tid, r.partner)
+    by_bore: dict[str, list[str]] = {}
+    for tid in built:
+        if tid.startswith("tunnel:") and "@" in tid:
+            by_bore.setdefault(tid.rsplit("@", 1)[0], []).append(tid)
+    for ids in by_bore.values():
+        for b in ids[1:]:
+            join(ids[0], b)
+    for a, b in siblings.items():
+        join(a, b)
+    paired = {find(tid) for tid, r in runs.items() if r.level and tid in built}
+    groups: dict[str, list[str]] = {}
+    for tid in built:
+        if find(tid) in paired:
+            groups.setdefault(find(tid), []).append(tid)
+    out: dict[str, _Run] = {}
+    for ids in groups.values():
+        floors = {tid: _floor(built[tid]) for tid in ids}
+        known = [z for z in floors.values() if z is not None]
+        if not known:
+            continue
+        low = min(known)
+        # the lead: the member on the LOWEST ground beside it — its own floor
+        # is the run's (a floor read off the ground at its mouth, Q342 a)
+        lead = min((t for t in ids if floors[t] is not None),
+                   key=lambda t: (float(getattr(built[t], "mouth_dem_z", floors[t])), t))
+        for tid in ids:
+            r = runs.get(tid)
+            out[tid] = _dc.replace(r, partner_floor=low, lead=lead) if r is not None and r.level \
+                else _Run("", (0.0, 0.0), 0.0, (0.0, 0.0), partner_floor=low, level=False,
+                          lead=lead)
+    return out
 
 
 def resolve_overlaps(tunnels, footprints, keep: list[bool], siblings: _t.Mapping[str, str],

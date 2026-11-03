@@ -199,6 +199,8 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # RULINGS 2026-09-05ae(1): a soft face's holes by ``shapeID`` — an apron
     # chord crossing one is no pair (``grade_graph._visibility_predicate``)
     "face_holes": "face_holes_ll",
+    # #1777: a face's own census side where it is not its role's
+    "face_sides": "face_sides",
     "crown_drops": "crown_drops_ll",
     # §40 (2) as amended: the runway/shoulder line and the shoulder cap
     "runway_axes": "runway_axes_ll",
@@ -696,6 +698,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["portal_cuts_ll"] = data.get("portal_cuts") or None
     ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
     ctx["face_holes_ll"] = data.get("face_holes") or None
+    ctx["face_sides"] = data.get("face_sides") or None
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
     # §40 (2) as amended (owner RULINGS 2026-09-13dd)
     ctx["runway_axes_ll"] = data.get("runway_axes") or None

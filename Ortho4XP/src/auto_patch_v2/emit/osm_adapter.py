@@ -70,7 +70,7 @@ from xml.sax.saxutils import escape
 import shapely
 
 from ..law.model import Law
-from ..law.tables import role_cap
+from ..law.tables import role_cap, role_side
 from .graded import z_decimals
 from .ring_fold import folded, refuse_moves_that_fold
 from .surface import GradedSurface
@@ -152,6 +152,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # RULINGS 2026-10-26k: the cuts a pack portal pins (``publication.portal_cuts``)
     "portal_cuts",
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
+    # #1777: {shapeID: side} where a face's census side is not its role's
+    "face_sides",
     "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon.  Derived by ``write_patch`` from the surface IT WRITES (``face_holes_ll``), never from the planar map (RULINGS 2026-09-13da residual: 782 sub-spacing merges after publication left stale hole rings that minted ``zone_on_pavement`` slivers)
     "design",         # RULINGS 2026-09-08t/v: the design surface's residual per family (replaces ``law_tiers``)
     "design_target",  # RULINGS 2026-09-08t/v: one record per law row the surface missed — the census's ``design_target`` heading
@@ -1254,6 +1256,16 @@ def face_holes_ll(surface: GradedSurface) -> dict[str, list[list[list[float]]]]:
     return out
 
 
+def face_sides(surface: GradedSurface, law: Law) -> dict[str, str]:
+    """Sidecar ``face_sides``: ``{face id: side}`` for every face of
+    ``surface`` whose own side is not its role's (#1777: a wall-slope piece
+    on groundside ground keeps the role ``graded_strip``, whose side is
+    airside).  The census sides a row by this before the role
+    (``check_grade.row_side``); the patch body is unchanged."""
+    return {str(f.id): f.side for f in sorted(surface.faces, key=lambda f: f.id)
+            if f.role in law.tables.precedence.roles and f.side != role_side(law, f.role)}
+
+
 def render_sidecar(law: Law, sidecar: _t.Mapping[str, _t.Any] | None) -> dict:
     """The sidecar document: the given keys (⊆ ``SIDECAR_KEYS``) plus
     ``ruleset`` and the always-empty declarations."""
@@ -1304,6 +1316,7 @@ def render_patch_files(surface: GradedSurface, law: Law,
     # frame.  A ``face_holes`` the caller published earlier is superseded.
     doc = dict(sidecar or {})
     doc["face_holes"] = face_holes_ll(surface)
+    doc["face_sides"] = face_sides(surface, law)
     return PatchFiles(surface.icao, root_attrs(surface), body,
                       json.dumps(render_sidecar(law, doc), separators=(",", ":")),
                       surface.to_json(z_dp=z_decimals(law)), n_ways, n_nodes)

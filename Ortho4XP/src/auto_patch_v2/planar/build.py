@@ -45,7 +45,7 @@ from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
 from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
-from .deck_bridge import deck_bridges, deck_ground
+from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .level_depth import airport_level_b
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
@@ -294,8 +294,15 @@ def build(airport: Airport, classification: Classification, law: Law,
     # THE AIRPORT'S LEVEL B, read ONCE before the decks (RULINGS 2026-11-03b,
     # ``planar/level_depth``): a deck whose frame states no floor takes it
     level_b, level_b_note = airport_level_b(airport, classification, law)
-    decks, deck_notes = deck_bridges(objects, cache, classification, airport, law,
-                                     tstats.trench_objects, level_b=level_b)
+    # ONE DERIVATION FOR BOTH MAPS (deck redesign §1): stage 1's map reads
+    # the full map's decks (``deck_bridge.from_full``)
+    full = full_map()
+    if full is not None:
+        decks = tuple(getattr(full, "decks", ()) or ())
+        deck_notes = [f"{len(decks)} deck(s) read from the full map (deck redesign §1)"]
+    else:
+        decks, deck_notes = deck_bridges(objects, cache, classification, airport, law,
+                                         tstats.trench_objects, level_b=level_b)
     deck_notes = [f"level B: {level_b_note}", *deck_notes]
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,
@@ -305,9 +312,10 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        deck_bridges=decks,
                                                        level_b=level_b)
     sstats.hard_decks.extend(deck_notes)
+    decks = with_cuts(decks, tunnels)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
-    classification, ground_notes = deck_ground(classification, tunnels, law)
+    classification, ground_notes = deck_ground(classification, tunnels, law, decks)
     sstats.hard_decks.extend(ground_notes)
     # THE ROAD OVERPASSES, read ONCE before the solve too (owner RULINGS
     # 2026-10-30f (1) / (5), ``planar/overpass_deck``): the object stage
@@ -434,6 +442,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins,
                    channels=tuple(channels), overpasses=tuple(overpasses),
+                   decks=tuple(decks),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)
                                          for b in arr.seam_bands),

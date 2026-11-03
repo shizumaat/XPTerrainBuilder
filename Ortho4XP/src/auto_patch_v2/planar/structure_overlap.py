@@ -41,6 +41,7 @@ import typing as _t
 from shapely.geometry import LineString, Point, Polygon
 
 from ..law import Law
+from .deck_bridge import deck_polygon
 from .unframed_ramp import overlap_yield
 from .wall_corridor_ramps import KIND as WALL_KIND
 
@@ -124,7 +125,7 @@ def deck_partner(db, axis: LineString, decks: _t.Sequence, paved=None):
     for o in decks:
         if o is db or o.ring == db.ring:
             continue
-        x = axis.intersection(o.polygon)
+        x = axis.intersection(deck_polygon(o))
         if x.is_empty:
             continue
         s0 = min(axis.project(Point(q)) for g in getattr(x, "geoms", [x]) for q in g.coords)

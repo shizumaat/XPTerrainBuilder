@@ -48,7 +48,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..model.airport import OsmWay
-from .deck_bridge import DeckBridge, across_dir, mid_line, project_span
+from .deck_bridge import DeckBridge, across_dir, deck_polygon, mid_line, project_span
 from .structure_approach import carriageway_width_m
 
 __all__ = ["deck_bores", "deck_lanes", "lane_band"]
@@ -73,7 +73,7 @@ def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
     parents: dict[int, LineString] = {}
     notes: list[str] = []
     for db in decks:
-        clip = db.polygon.buffer(-inset, join_style="mitre")
+        clip = deck_polygon(db).buffer(-inset, join_style="mitre")
         if clip.is_empty:
             continue
         mid = _midline(db)

@@ -53,11 +53,18 @@ the object stage's plate):
   and the rim's the DEM: KBNA's taxiway-L east end line stood a ridge
   1.14 m over the deck top 2 m behind the pavement.
 
+THE RECORD (deck redesign §1): ``model/structures.DeckBridge`` (re-exported
+here), published as ``PlanarMap.decks`` with its witness, family and carried
+route (``planar/deck_route``) and, once the corridors are cut, how the cut
+meets it (:func:`with_cuts`).  Stage 1's map reads the full map's decks
+(``model/stage_one.from_full``), never derives its own.
+
 Nothing here names a pack, a resource or an airport.
 """
 from __future__ import annotations
 
 import dataclasses as _dc
+import functools
 import math
 import types
 import typing as _t
@@ -71,65 +78,41 @@ from ..classify.roles import Cell
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
 from ..law.tables import role_side
-from ..model.structures import DECK_GROUND_REF, deck_reach
+from ..model.stage_one import from_full, full_map  # one derivation for both maps
+from ..model.structures import DECK_GROUND_REF, DeckBridge, deck_reach
+from .deck_route import carried_route
 from .deck_walls import inner_faces, wall_faces, wall_strip
 
-__all__ = ["deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
+__all__ = ["DeckBridge", "deck_polygon", "from_full", "full_map", "with_cuts",
+           "deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
            "deck_cut", "deck_pin", "deck_ground", "DECK_GROUND_REF", "across_dir",
            "mid_line", "project_span"]
 
 XY = tuple[float, float]
 
 
-@_dc.dataclass(frozen=True)
-class DeckBridge:
-    """One hard-deck piece the airport's pavement drives across (module doc)."""
+def deck_polygon(db: DeckBridge) -> Polygon:
+    """The deck piece's outline as a valid polygon (the model holds no
+    shapely: ``model/structures.DeckBridge``)."""
+    return _ring_polygon(tuple(tuple(p) for p in db.ring))
 
-    object_id: str
-    resource: str
-    #: every placement of the bridge's frame (the deck's anchor, heading)
-    members: tuple[str, ...]
-    #: the deck piece's outline (frame xy)
-    ring: tuple[XY, ...]
-    #: the seat stations of end A and end B (frame xy, on the ring)
-    seats_a: tuple[XY, ...]
-    seats_b: tuple[XY, ...]
-    #: the authored deck top at end A / end B, and the frame's bottom (y)
-    top_a: float
-    top_b: float
-    bottom_y: float
-    #: the pre-solve rendered deck top: the estimate a mouth plans from
-    deck_z: float
-    #: the frame's WALLS under the deck, ``(r_w, n_w, faces)``: their own
-    #: direction, across it, and each face as ``(u, s0, s1)`` in that frame
-    #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3)); ``()``
-    #: for a deck the pack models no wall under
-    walls: tuple = ()
-    #: a SLAB deck (:func:`_is_slab`: its plate is ``ATTR_hard``, solid from
-    #: the ground up, the ``ATTR_hard_deck`` flag only on edge-on faces —
-    #: ``airport/obj8.ObjGeometry.hard_plate``): the ground under it is KEPT
-    #: at the deck and the road's cut stops at its edges (owner
-    #: 2026-11-03T16:39:23Z: "if the bridge surface is not a hard deck ...
-    #: keep terrain under them and just cut to either side like a tunnel
-    #: ramp")
-    slab: bool = False
 
-    @property
-    def depth_a(self) -> float:
-        return self.top_a - self.bottom_y
+@functools.lru_cache(maxsize=4096)
+def _ring_polygon(ring: tuple) -> Polygon:
+    p = Polygon(ring)
+    return p if p.is_valid else p.buffer(0.0)
 
-    @property
-    def depth_b(self) -> float:
-        return self.top_b - self.bottom_y
 
-    @property
-    def depth_m(self) -> float:
-        return 0.5 * (self.depth_a + self.depth_b)
-
-    @property
-    def polygon(self) -> Polygon:
-        p = Polygon(self.ring)
-        return p if p.is_valid else p.buffer(0.0)
+def with_cuts(decks: _t.Sequence[DeckBridge], tunnels) -> tuple[DeckBridge, ...]:
+    """``decks`` with ``cut`` read off the corridors once they are cut: a
+    deck whose end line a trench seats on (``Tunnel.edge_seats``, its own
+    deck's or the one it runs on under) is cut — ``slab``, ``walls`` (its
+    frame models walls under it) or ``bank``; every other is ``none``."""
+    cut = {tuple(tuple(p) for p in st) for t in tunnels if getattr(t, "deck_bridge", "")
+           for _o, st, _d in getattr(t, "edge_seats", ()) or ()}
+    return tuple(_dc.replace(db, cut=("slab" if db.slab else "walls" if db.walls else "bank")
+                             if tuple(tuple(p) for p in db.seats_a) in cut else "none")
+                 for db in decks)
 
 
 class CellRoles:
@@ -304,9 +287,12 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             sa, sb = (tuple(to_xy(lo, la) for la, lo in e) for e in pair)
             reach = max(2.0 * step, 3.0)
             ta, tb = _top_at(plate, sa, reach, top), _top_at(plate, sb, reach, top)
+            # the FAMILY and the ROUTE, one per deck (``planar/deck_route``)
+            fam, route, ref = carried_route(airport, piece)
             mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
                                    tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
-                                   float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb)))
+                                   float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb),
+                                   family=fam, route=route, route_ref=ref))
         # ONE zero per object (30a (1)): every piece plans from one estimate
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
         for db in (db if z is None else _dc.replace(db, deck_z=z) for db in mine):
@@ -316,7 +302,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                              f"plate (ATTR_hard_deck only on its edge-on faces) — a SLAB: the "
                              f"ground under it is kept at the deck and the cut stops at its "
                              f"edges (owner 2026-11-03T16:39Z)")
-                db = _dc.replace(db, slab=True)
+                db = _dc.replace(db, slab=True, witness="slab")
                 reach = max(2.0 * step, 3.0)
                 db = _dc.replace(db, top_a=_end_top(plate, db.seats_a, reach, db.top_a),
                                  top_b=_end_top(plate, db.seats_b, reach, db.top_b))
@@ -495,7 +481,7 @@ def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float,
     pt = Point(mouth.xy)
     line = mouth.bore.line
     for db in decks:
-        poly = db.polygon
+        poly = deck_polygon(db)
         x = line.intersection(poly)
         if x.length <= 1.0:
             continue
@@ -551,7 +537,7 @@ def _gap_line(db: DeckBridge, other: DeckBridge) -> tuple[XY, float]:
     """``(normal, offset)`` of the line halfway across the open stretch
     between two decks over one road — the same line from either side."""
     a, b = sorted((db, other), key=lambda d: d.ring)
-    ca, cb = a.polygon.centroid, b.polygon.centroid
+    ca, cb = deck_polygon(a).centroid, deck_polygon(b).centroid
     n = math.hypot(cb.x - ca.x, cb.y - ca.y) or 1.0
     r = ((cb.x - ca.x) / n, (cb.y - ca.y) / n)
     return r, 0.5 * (project_span(a.ring, r)[1] + project_span(b.ring, r)[0])
@@ -614,7 +600,7 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     ahead = axis.interpolate(min(axis.length, 1.0))
     keep = _half_plane(mid_line(db), (ahead.x, ahead.y), big)
     if other is not None:
-        c = db.polygon.centroid
+        c = deck_polygon(db).centroid
         keep = keep.intersection(_half_plane(_gap_line(db, other), (c.x, c.y), big))
     if band is not None:
         keep = keep.intersection(_lane_strip(db, band, big))
@@ -631,9 +617,9 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
                          for t, u in ((s0, -big), (s1, -big), (s1, big), (s0, big))])
         wide = _lane_strip(db, (lo + inset, hi - inset), big).intersection(along)
         outer = unary_union([outer, wide.intersection(keep)])
-        ramp = ramp.difference(db.polygon.buffer(bank_run, join_style="mitre")
-                               if bank_run > 0.0 else db.polygon)
-        outer = outer.difference(db.polygon)
+        ramp = ramp.difference(deck_polygon(db).buffer(bank_run, join_style="mitre")
+                               if bank_run > 0.0 else deck_polygon(db))
+        outer = outer.difference(deck_polygon(db))
     elif walled is not None:
         # 30f (3): the floor runs to the walls' inner faces, the rim stands
         # ``inset`` behind them — no bank climbs the walls
@@ -641,7 +627,7 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         ramp = unary_union([ramp, floor])
         outer = unary_union([outer, rim, floor])
     else:
-        bank = db.polygon.buffer(-inset, join_style="mitre")
+        bank = deck_polygon(db).buffer(-inset, join_style="mitre")
         if not bank.is_empty:
             outer = unary_union([outer, bank])
 
@@ -684,7 +670,7 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     if ua is None or ub is None:
         return None
     floors = [wall_strip(r, n, ua, ub, s_lo, s_hi)]
-    rims = [wall_strip(r, n, ua - inset, ub + inset, s_lo, s_hi).intersection(db.polygon)]
+    rims = [wall_strip(r, n, ua - inset, ub + inset, s_lo, s_hi).intersection(deck_polygon(db))]
     if other is not None:
         o_lo, o_hi = project_span(other.ring, r)
         g0, g1 = (s_hi, o_lo) if o_lo >= s_hi else (o_hi, s_lo)
@@ -696,7 +682,7 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     return unary_union(floors), unary_union(rims)
 
 
-def deck_ground(classification, tunnels, law) -> tuple:
+def deck_ground(classification, tunnels, law, decks: _t.Sequence[DeckBridge] = ()) -> tuple:
     """``(classification with the deck-ground cells, notes)`` (module doc,
     THE GROUND THE DECK RESTS ON): for each hard deck a corridor was cut
     under, the part of its reach (``model/structures.deck_reach``: the ring,
@@ -705,7 +691,8 @@ def deck_ground(classification, tunnels, law) -> tuple:
     cell ``deck_ground:<object>`` — ground, never pavement; its level is the
     deck span's (``constraints/edge_deck``), so it carries no zone class.
     A piece narrower than the identity spacing is a seam of the overlay,
-    not ground, and is dropped."""
+    not ground, and is dropped.  The slabs are ``decks`` (``cut`` set,
+    :func:`with_cuts`): a deck no corridor runs under mints no ground."""
     rings: dict[tuple, Polygon] = {}
     for t in tunnels:
         pts = deck_reach(t)
@@ -714,7 +701,7 @@ def deck_ground(classification, tunnels, law) -> tuple:
             rings.setdefault((t.deck_bridge, tuple(reach.exterior.coords)), reach)
     if not rings:
         return classification, []
-    cells, notes = _slab_ground(list(classification.cells), tunnels, law)
+    cells, notes = _slab_ground(list(classification.cells), decks, law)
     polys = [Polygon(c.ring, c.holes) for c in cells if len(c.ring) >= 3]
     taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys])
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
@@ -743,7 +730,7 @@ def _ground_cell(law, oid: str, k: int, part: Polygon) -> Cell:
                 {"deck_ground": 1.0, "area_m2": part.area})
 
 
-def _slab_ground(cells: list, tunnels, law) -> tuple[list, list[str]]:
+def _slab_ground(cells: list, decks, law) -> tuple[list, list[str]]:
     """``(cells, notes)`` with the ground UNDER A SLAB the deck's (round 3
     §3): inside a slab's ring every cell aircraft do not roll on
     (``law.tables.rolled_on_roles``; never a road name list) becomes deck
@@ -753,10 +740,9 @@ def _slab_ground(cells: list, tunnels, law) -> tuple[list, list[str]]:
     (KIAH ``obj24551`` end B, 39 pairs on one seat)."""
     from ..law.tables import rolled_on_roles
     slabs: dict[str, Polygon] = {}
-    for t in tunnels:
-        if getattr(t, "deck_slab", False) and len(t.deck_ring) >= 3:
-            ring = Polygon(t.deck_ring)
-            slabs.setdefault(t.deck_bridge, ring if ring.is_valid else ring.buffer(0.0))
+    for db in decks:
+        if db.cut == "slab" and len(db.ring) >= 3:
+            slabs.setdefault(db.object_id, deck_polygon(db))
     if not slabs:
         return cells, []
     keep = rolled_on_roles(law) | {"tunnel_ramp", "retaining_wall"}
@@ -819,7 +805,7 @@ def deck_seats(db: DeckBridge, axis: LineString, other: "DeckBridge | None",
     def two(d: DeckBridge) -> tuple:
         return ((d.object_id, d.seats_a, d.depth_a), (d.object_id, d.seats_b, d.depth_b))
     s_own = max((axis.project(Point(q)) for q in db.ring), default=0.0)
-    x = axis.intersection(other.polygon) if other is not None and other is not db else None
+    x = axis.intersection(deck_polygon(other)) if other is not None and other is not db else None
     if x is None or x.is_empty:
         return s_own + gap, None, (), two(db), None
     s_other = max(s_own, min(axis.project(Point(q)) for g in getattr(x, "geoms", [x])

@@ -13,7 +13,7 @@ from auto_patch_v2.constraints import runway_chord as RC
 from auto_patch_v2.constraints.runway_profile import runway_crown
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.constraints import Pin
-from auto_patch_v2.model.structures import Deck, Tunnel
+from auto_patch_v2.model.structures import Deck, DeckBridge, Tunnel
 from tests.auto_patch_v2.test_v2chord import RUNWAY, _airport
 
 OID = "dsf:obj7"
@@ -52,13 +52,26 @@ def _tunnel(x0=-24.0, x1=24.0, depth_a=7.0, depth_b=7.0, deck=OID, **kw):
     return Tunnel(**base)
 
 
-def _with(pm, *tunnels):
-    return _dc.replace(pm, structures=tuple(tunnels))
+def _deck_of(tn, airport, cut="bank"):
+    """The pack deck a fixture trench runs under (``PlanarMap.decks``):
+    its ring, end lines and depths, its route read off the airport."""
+    from auto_patch_v2.planar.deck_route import carried_route
+    from shapely.geometry import Polygon
+    (oid, st_a, d_a), (_o, st_b, d_b) = tn.edge_seats[:2]
+    fam, route, ref = carried_route(airport, Polygon(tn.deck_ring))
+    return DeckBridge(oid, "objects/deck.obj", (oid,), tuple(tn.deck_ring), tuple(st_a),
+                      tuple(st_b), float(d_a), float(d_b), 0.0, 700.0, family=fam,
+                      route=route, route_ref=ref, cut=cut)
+
+
+def _with(pm, *tunnels, airport=None):
+    decks = tuple(_deck_of(t, airport) for t in tunnels if t.deck_bridge) if airport else ()
+    return _dc.replace(pm, structures=tuple(tunnels), decks=decks)
 
 
 def _anchored(site, law, *tunnels):
     ap, pm, _st = site
-    pm = RC.with_deck_anchors(_with(pm, *tunnels), law, ap)
+    pm = RC.with_deck_anchors(_with(pm, *tunnels, airport=ap), law, ap)
     return ap, pm, {a.end: a for a in pm.deck_anchors}
 
 
@@ -118,13 +131,13 @@ def test_a_seam_pin_inside_the_deck_makes_the_anchor_yield(site, law):
     reach yields; a seam pin ON the anchor vertex takes it (no pin)."""
     ap, pm, got = _anchored(site, law, _tunnel())
     v_mid = min(pm.vertices, key=lambda q: math.dist(pm.vertices[q].xy, (0.0, 0.0)))
-    seamed = _dc.replace(_with(pm, _tunnel()), seam_vertices=frozenset({v_mid}))
+    seamed = _dc.replace(_with(pm, _tunnel(), airport=ap), seam_vertices=frozenset({v_mid}))
     ys = {a.end: a for a in RC.with_deck_anchors(seamed, law, ap).deck_anchors}
     assert ys["A"].yielding and ys["B"].yielding and "seam" in ys["A"].note
     assert all(p.source.ruling.startswith(DA.YIELD_HEAD)
                for p in DA.deck_anchor_pins(_dc.replace(pm, deck_anchors=tuple(ys.values())),
                                             law, ap))
-    on = _dc.replace(_with(pm, _tunnel()), seam_vertices=frozenset({got["A"].v}))
+    on = _dc.replace(_with(pm, _tunnel(), airport=ap), seam_vertices=frozenset({got["A"].v}))
     held = {a.end: a for a in RC.with_deck_anchors(on, law, ap).deck_anchors}
     assert not held["A"].pinned and "seam" in held["A"].note
     assert DA.YIELD_HEAD in law.tables.emit.design.yielding_pin_rulings
@@ -140,7 +153,7 @@ def test_no_pack_hard_deck_mints_no_anchor(site, law):
                                        "dem"),))
     edge_only = _tunnel(deck="", edge_back=((-24.0, 30.0), (24.0, 30.0)))
     for tn in (osm_tunnel, osm_bridge, edge_only):
-        m = _with(pm, tn)
+        m = _with(pm, tn, airport=ap)
         assert RC.with_deck_anchors(m, law, ap) is m
         assert DA.derive(m, law, ap) == ()
     # (iv) the same geometry under a flagged hard deck: two anchor pins
@@ -183,11 +196,12 @@ def test_a_slab_keeps_its_ground_and_the_cut_stops_at_its_edges(tmp_path):
     assert abs(moved.coords[0][1] - 20.0) < 0.5        # the slab's edge, not its midline
     ramp = _sbox(-4.0, -30.0, 4.0, 100.0)
     r2, o2 = DBR.deck_cut(slab, moved, ramp, ramp.buffer(1.6, join_style="mitre"), 0.6)
-    assert r2.intersection(slab.polygon).area < 1e-6 and o2.intersection(slab.polygon).area < 1e-6
+    ring = DBR.deck_polygon(slab)
+    assert r2.intersection(ring).area < 1e-6 and o2.intersection(ring).area < 1e-6
     # 16:56Z: no wall at the slab's edge — the floor stops a 1:3 bank short of it
     r3, _o3 = DBR.deck_cut(slab, moved, ramp, ramp.buffer(1.6, join_style="mitre"), 0.6,
                            bank_run=6.0)
-    assert r3.distance(slab.polygon) > 5.9
+    assert r3.distance(DBR.deck_polygon(slab)) > 5.9
     # 16:53Z: the trench beside the slab is the object's width, wall to wall
     lo, hi = DBR.project_span(slab.ring, DBR.across_dir(slab))
     u0, u1 = DBR.project_span(list(o2.exterior.coords), DBR.across_dir(slab))
@@ -199,15 +213,14 @@ def test_a_slab_keeps_its_ground_and_the_cut_stops_at_its_edges(tmp_path):
 def test_the_rebake_plan_carries_the_zero_the_anchors_state(site, law):
     """§3: the deck member's ``anchor_zero`` is the plate zero the object
     stage reads where the surface stands at the anchors (no yield)."""
-    from auto_patch_v2.constraints.edge_floor import edge_seats_of
+    from auto_patch_v2.constraints.deck_lines import end_lines
     from auto_patch_v2.pipeline import rebake_inputs as RI
     _ap, pm, got = _anchored(site, law, _tunnel(depth_b=7.144))
-    tn = pm.structures[0]
-    tn = _dc.replace(tn, deck_top_y=10.0)
-    pm = _dc.replace(pm, structures=(tn,))
+    pm = _dc.replace(pm, decks=tuple(_dc.replace(d, top_a=d.top_a + 3.0, top_b=d.top_b + 3.0,
+                                                  bottom_y=3.0) for d in pm.decks))
     out: dict = {}
     tops: dict = {}
-    RI._deck_plate(out, tn, set(), pm, edge_seats_of(pm, law, combine=False), tops)
+    RI._deck_plate(out, OID, end_lines(pm, law)[OID], set(), pm, tops)
     y, st, *rest = out[OID]
     y = sum(tops[OID].values()) / len(tops[OID])
     level = {v: a.z_m for a in got.values() for v in a.stations}
@@ -278,7 +291,7 @@ def test_the_slab_witness_is_the_plates_own_attribute(tmp_path):
     assert abs(deck.bottom_y - (13.11 - 7.0)) < 1e-6
     tn = _dc.replace(_tunnel(), id="t1", footprint=())
     hard = deck_cover_of([tn], {"t1": deck}, lambda _db: False)
-    assert abs(hard.area - deck.polygon.area) < 1e-6
+    assert abs(hard.area - DBR.deck_polygon(deck).area) < 1e-6
     assert deck_cover_of([tn], {"t1": slab}, lambda _db: False).is_empty
 
 
@@ -304,7 +317,8 @@ def test_under_a_slab_the_ground_is_the_decks_and_the_taxi_anchor_is_a_station()
     @_dc.dataclass(frozen=True)
     class _Cl:
         cells: tuple
-    out, notes = DBR.deck_ground(_Cl((taxi, road)), [slab], T.LAW)
+    deck = types.SimpleNamespace(object_id="dsf:obj9", cut="slab", ring=slab.deck_ring)
+    out, notes = DBR.deck_ground(_Cl((taxi, road)), [slab], T.LAW, [deck])
     roads = [Polygon(c.ring) for c in out.cells if c.role == "service_road"]
     assert roads and all(p.intersection(ring).area < 1e-6 for p in roads)
     assert abs(sum(p.area for p in roads) - 2 * 10.0 * 8.0) < 1e-6
@@ -318,3 +332,94 @@ def test_under_a_slab_the_ground_is_the_decks_and_the_taxi_anchor_is_a_station()
     st = [xy[k] for k in range(5)]
     assert DA._taxi_vertex(vw, (10, 11), st, list(range(5))) == 2
     assert DA._taxi_vertex(vw, None, st, list(range(5))) == 2
+
+
+# ── deck redesign PR A (§1): decks on the map, one derivation for both maps ──
+
+def test_a_deck_record_with_no_tunnel_is_read_by_anchors_rows_and_the_plate(site, law):
+    """§0 / §1: the anchors, the deck rows and the object stage's plate read
+    ``PlanarMap.decks`` — a deck no corridor runs under is anchored, its
+    stations held ABSOLUTELY at the anchor's level (± ``deck_flush_m``),
+    and its member gets a DECK plate; no ``Tunnel`` names it."""
+    from auto_patch_v2.constraints import edge_deck as ED
+    from auto_patch_v2.model.constraints import Band
+    from auto_patch_v2.pipeline import rebake_inputs as RI
+    ap, pm, _st = site
+    deck = _deck_of(_tunnel(), ap, cut="none")
+    m = RC.with_deck_anchors(_dc.replace(pm, structures=(), decks=(deck,)), law, ap)
+    got = {a.end: a for a in m.deck_anchors}
+    assert set(got) == {"A", "B"} and all(a.cut == "none" and a.line for a in got.values())
+    flush = float(law.tables.structures.bridge.deck_flush_m)
+    bands = [r for r in ED.edge_deck_rows(m, law, ap)
+             if isinstance(r, Band) and r.source.ruling == ED.RIGID]
+    level = {v: a.z_m for a in got.values() for v in a.stations}
+    assert bands and {r.v for r in bands} == set(level)
+    for r in bands:
+        assert (r.lo, r.hi) == pytest.approx((level[r.v] - flush, level[r.v] + flush))
+    y, st, _c, kind, *_zero = RI._edge_seat_plates(m, set(), law)[OID]
+    assert kind == RI.DECK_PLATE and len(st) == len(level)
+
+
+def test_a_yielding_anchor_keeps_the_relational_station_rows(site, law):
+    """§1: only a HELD level (pinned, not yielding) is absolute — a seam
+    pin on the deck makes the anchor yield, and its stations are read from
+    the deck's one zero as before (a hard band would outlive the yield)."""
+    from auto_patch_v2.constraints import edge_deck as ED
+    from auto_patch_v2.model.constraints import Band
+    ap, pm, _st = site
+    v_mid = min(pm.vertices, key=lambda q: math.dist(pm.vertices[q].xy, (0.0, 0.0)))
+    m = _dc.replace(_with(pm, _tunnel(), airport=ap), seam_vertices=frozenset({v_mid}))
+    m = RC.with_deck_anchors(m, law, ap)
+    assert all(a.yielding for a in m.deck_anchors)
+    rows = [r for r in ED.edge_deck_rows(m, law, ap) if r.source.ruling == ED.RIGID
+            and str(r.source.inputs[1]).startswith("station")]
+    assert rows and not any(isinstance(r, Band) for r in rows)
+
+
+def test_stage_one_takes_the_full_maps_anchor_levels(site, law):
+    """§1 ONE DERIVATION FOR BOTH MAPS (KIAH ``obj24551``: 28.440 on the full
+    map, 28.619 on stage 1's): a map derived under ``from_full`` — here one
+    whose ground reads 0.3 m higher, as a ribbon-free classification inside
+    a slab's ring can — takes the full map's level for every end line, on
+    its own stations; outside the block it derives its own."""
+    from auto_patch_v2.model.stage_one import from_full
+    ap, pm, _st = site
+    # no chord: an end line reads the ground at its seats, so the two maps'
+    # own derivations part by the 0.3 m
+    full = _with(pm, _tunnel(), airport=ap)
+    full = _dc.replace(full, deck_anchors=DA.derive(full, law, ap))
+    up = {v: _dc.replace(vx, dem_z=None if vx.dem_z is None else vx.dem_z + 0.3)
+          for v, vx in full.vertices.items()}
+    s1 = _dc.replace(full, vertices=up, deck_anchors=())
+    own = {a.end: a.z_m for a in DA.derive(s1, law, ap)}
+    with from_full(full):
+        got = {a.end: a for a in DA.derive(s1, law, ap)}
+    want = {a.end: a for a in full.deck_anchors}
+    assert set(got) == set(want) == {"A", "B"}
+    for e, a in got.items():
+        assert a.z_m == want[e].z_m and a.v == want[e].v and a.family == want[e].family
+    assert all(abs(own[e] - want[e].z_m - 0.3) < 1e-6 for e in want)
+
+
+def test_the_family_is_the_decks_from_its_carried_route():
+    """§1: ONE family per deck, from the most senior route it carries — a
+    runway axis crossing the deck makes both end lines runway-family
+    (round 3 voted per end line: LFPG ``obj13018`` end B "taxi" beside the
+    runway it carries); else the row-1202 taxi edges through it, run on
+    ``ROUTE_REACH_M`` each way along the straightest continuation."""
+    import types
+
+    from auto_patch_v2.planar import deck_route as DR
+    from shapely.geometry import box as _sbox
+    N = types.SimpleNamespace
+    rw = N(id="09/27", ends=(N(xy=(-600.0, 0.0)), N(xy=(600.0, 0.0))))
+    nodes = {k: N(xy=(0.0, 200.0 * (k - 5))) for k in range(10)}     # x = 0, y -1000..800
+    nodes[10] = N(xy=(400.0, 800.0))                                    # a 90° turn: the stop
+    edges = tuple(N(a=k, b=k + 1, is_runway=False) for k in range(10))
+    ap = N(runways=(rw,), taxi_nodes=nodes, taxi_edges=edges)
+    fam, route, ref = DR.carried_route(ap, _sbox(-20.0, -20.0, 20.0, 20.0))
+    assert (fam, ref) == ("runway", "09/27") and route == ((-600.0, 0.0), (600.0, 0.0))
+    fam, route, ref = DR.carried_route(ap, _sbox(-20.0, 280.0, 20.0, 320.0))
+    # 600 m on south of the crossing edge; north it stops at the turn
+    assert (fam, ref) == ("taxi", "") and route[0] == (0.0, -400.0) and route[-1] == (0.0, 800.0)
+    assert DR.carried_route(ap, _sbox(900.0, 900.0, 950.0, 950.0)) == ("taxi", (), "")

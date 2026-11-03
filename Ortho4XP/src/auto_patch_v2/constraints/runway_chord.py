@@ -726,8 +726,9 @@ def with_deck_anchors(pm: PlanarMap, law: Law, airport: Airport) -> PlanarMap:
     """``pm`` with ``deck_anchors`` derived (``constraints/deck_anchor``)
     from the window-blind re-fit chords — HERE, beside the runway caps,
     because this is the one site that already holds the pins, the chords
-    and the crossings.  A map with no pack hard deck is returned as is."""
-    if not any(getattr(t, "deck_bridge", "") for t in getattr(pm, "structures", ()) or ()):
+    and the crossings.  A map with no pack deck (``PlanarMap.decks``) is
+    returned as is."""
+    if not getattr(pm, "decks", ()):
         return pm
     from .deck_anchor import derive
     chords, _ = _chords(pm, law, airport)

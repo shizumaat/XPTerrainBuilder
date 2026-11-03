@@ -15,8 +15,13 @@ it.  A frame with no pack hard deck mints nothing (§2.0): every row is as
 before.
 
 ONE DERIVATION (:func:`derive`, called once by ``runway_chord.
-with_runway_chord`` and published as ``PlanarMap.deck_anchors``):
+with_runway_chord`` and published as ``PlanarMap.deck_anchors``), read off
+the map's decks (``PlanarMap.decks``, deck redesign §1) — a deck no trench
+runs under included — and taken whole by stage 1's map
+(``model/stage_one.from_full``):
 
+* the FAMILY is the deck's (``DeckBridge.family``, its most senior carried
+  route, ``planar/deck_route``), one per object — never voted per end line;
 * the PINNED VERTEX of an end is where the CARRIED ROUTE leaves the deck —
   a runway deck: the end of the runway's ridge where the cut trimmed it
   (``planar/overlay._ridges_off_cuts``), else its ridge vertex nearest the
@@ -52,6 +57,7 @@ from ..law.tables import role_cap, runway_vertical_curve_bound
 from ..model.airport import Airport
 from ..model.constraints import Pin, Row, Source
 from ..model.planar import PlanarMap
+from ..model.stage_one import full_map
 from ..model.structures import DeckAnchor
 from .geometry import project_to_chain
 from .precedence import view
@@ -75,16 +81,14 @@ _ON_LINE_M = 1.5
 
 
 def deck_holes(pm: PlanarMap) -> list[tuple[tuple[float, float], ...]]:
-    """The bridge WINDOWS: every hard deck's ring and the outline of every
-    trench under one — the DEM inside them reads the deck or the road under
-    it, never the ground the carried route runs on."""
-    out = []
+    """The bridge WINDOWS: every deck's ring (``PlanarMap.decks``) and the
+    outline of every trench under one — the DEM inside them reads the deck
+    or the road under it, never the ground the carried route runs on."""
+    out = [tuple(tuple(p) for p in db.ring) for db in getattr(pm, "decks", ()) or ()
+           if len(db.ring) >= 3]
     for tn in getattr(pm, "structures", ()) or ():
-        if not getattr(tn, "deck_bridge", "") or len(tn.deck_ring) < 3:
-            continue
-        out.append(tuple(tn.deck_ring))
         fp = tuple(getattr(tn, "footprint", ()) or ())
-        if len(fp) >= 3:
+        if getattr(tn, "deck_bridge", "") and len(fp) >= 3:
             out.append(fp)
     return out
 
@@ -100,39 +104,13 @@ def blind(holes) -> "_t.Callable[[tuple[float, float]], bool]":
     return lambda xy: u.covers(Point(xy))
 
 
-def _ends(pm: PlanarMap, law: Law) -> tuple[dict[str, list], dict[str, str]]:
-    """``(object id -> its end lines (station xys, seat terms, depth), each
-    once, in the order the trenches name them (A then B); object id -> how
-    the cut meets it)``."""
-    from .edge_floor import edge_seats_of
-    seats_of = edge_seats_of(pm, law, combine=False)
-    out: dict[str, dict[tuple, tuple]] = {}
-    cut: dict[str, str] = {}
-    for tn in getattr(pm, "structures", ()) or ():
-        if not getattr(tn, "deck_bridge", "") or not tn.edge_seats:
-            continue
-        cut[tn.deck_bridge] = (
-            "slab" if getattr(tn, "deck_slab", False) else
-            "walls" if getattr(tn, "deck_walled", False) else "bank")
-        for (oid, st, depth), (terms, _d) in zip(tn.edge_seats, seats_of(tn), strict=True):
-            key = tuple(tuple(p) for p in st)
-            out.setdefault(oid, {}).setdefault(key, (terms, float(depth)))
-    return {oid: [(k, t, d) for k, (t, d) in e.items()] for oid, e in out.items()}, cut
-
-
-def _runway_of(pm: PlanarMap, seats: _t.Sequence[int]) -> str:
-    """The runway an end line's seats stand on (``""``: a taxi deck)."""
-    votes: dict[str, int] = {}
-    hit = 0
-    for v in seats:
-        refs = {r for f in pm.vertices[v].incident_faces if pm.faces[f].role in _RUNWAY
-                for r in str(pm.faces[f].ref).split("+")}
-        hit += bool(refs)
-        for r in refs:
-            votes[r] = votes.get(r, 0) + 1
-    if not votes or 2 * hit < len(seats):
-        return ""
-    return max(sorted(votes), key=lambda r: votes[r])
+def _ends(pm: PlanarMap, law: Law) -> dict[str, list]:
+    """Object id -> its end lines ``(station xys, seat terms, depth, deck)``,
+    each once, every piece's A then B in the map's deck order
+    (``constraints/deck_lines``)."""
+    from .deck_lines import end_lines
+    return {oid: [(e.line, e.terms, e.depth, e.deck) for e in es]
+            for oid, es in end_lines(pm, law).items()}
 
 
 def _off_line(xy, stations) -> float:
@@ -234,14 +212,15 @@ def _ground(pm: PlanarMap, seats) -> "float | None":
 
 
 def _profiled(pm: PlanarMap, vw, chains, ch, inside, window: float, spacing: float, chords,
-              others, stations, terms, depth) -> "tuple | None":
-    """``(seats, depth, runway, vertex, profile, middle)`` of one end line
-    (``ch``: the carried taxi chain; ``others``: the object's other end
-    lines' stations)."""
+              others, stations, terms, depth, deck) -> "tuple | None":
+    """``(seats, depth, runway, vertex, profile, middle, line)`` of one end
+    line (``ch``: the carried taxi chain; ``others``: the object's other end
+    lines' stations).  The runway is the DECK's (its family and route,
+    ``planar/deck_route``), never a vote of the cells at the seats."""
     seats = [v for v, _w in terms]
     if not seats or not stations:
         return None
-    rw = _runway_of(pm, seats)
+    rw = deck.route_ref if deck.family == "runway" else ""
     v = _runway_vertex(vw, chains, rw, stations, others, inside, spacing) if rw else None
     mid = _mid(stations)
     c = (chords or {}).get(rw) if rw and v is not None else None
@@ -250,18 +229,22 @@ def _profiled(pm: PlanarMap, vw, chains, ch, inside, window: float, spacing: flo
     p = c.z(c.station(*vw.xy[v])) if c is not None else (
         _chain_profile(pm, vw, ch, mid, inside, window) if ch is not None else None)
     p = _ground(pm, seats) if p is None else p
-    return None if p is None else (seats, float(depth), rw, v, float(p), mid)
+    return None if p is None else (seats, float(depth), rw, v, float(p), mid, tuple(stations))
 
 
 def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = None
            ) -> tuple[DeckAnchor, ...]:
-    """Every end line of every pack hard deck, anchored (module doc).
-    ``chords``: runway id -> the window-blind re-fit chord
+    """Every end line of every pack deck (``PlanarMap.decks``), anchored
+    (module doc).  ``chords``: runway id -> the window-blind re-fit chord
     (``runway_chord._chords`` with its knots); without one a runway end
-    reads the DEM at its seats."""
-    by_obj, cut = _ends(pm, law)
+    reads the DEM at its seats.  Stage 1's map takes the full map's
+    anchors (:func:`_from_full`)."""
+    by_obj = _ends(pm, law)
     if not by_obj:
         return ()
+    full = full_map()
+    if full is not None and full is not pm:
+        return _from_full(pm, by_obj, full)
     from .runway_profile import ridge_chains, threshold_pins
     vw = view(pm, law)
     chains = ridge_chains(vw)
@@ -280,6 +263,8 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
     out: list[DeckAnchor] = []
     for oid in sorted(by_obj):
         ends = by_obj[oid]
+        cut = {tuple(e[0]): e[3].cut for e in ends}
+        family = "runway" if any(e[3].family == "runway" for e in ends) else "taxi"
         ch = _carried(vw, taxi, ends)
         rows = [r for r in (_profiled(pm, vw, chains, ch, inside, window, spacing, chords,
                                       [o[0] for o in ends if o is not e], *e)
@@ -290,14 +275,36 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
         zero = sum(r[4] - r[1] for r in rows) / len(rows)
         gov = _threshold_zero(vw, law, rows, zero, thresholds, inside, rw)
         d0 = rows[0][1]
-        for k, (seats, depth, rwid, v, p, _mid) in enumerate(rows):
+        for k, (seats, depth, rwid, v, p, _mid, line) in enumerate(rows):
             z = (gov[0] if gov else zero) + depth
             a = DeckAnchor(oid, "AB"[k] if k < 2 else str(k), v, tuple(seats),
                            round(z, 6), round(depth, 6), round(depth - d0, 6),
-                           "runway" if rwid else "taxi", rwid, round(p, 6),
-                           note=gov[1] if gov else "")
+                           family, rwid, round(p, 6), note=gov[1] if gov else "",
+                           cut=cut.get(line, "none"), line=line)
             out.append(_judge(a, rows, vw, law, rws.get(rwid), senior, yielding))
-    return tuple(_dc.replace(a, cut=cut.get(a.object_id, "bank")) for a in _one_per_vertex(out))
+    return tuple(_one_per_vertex(out))
+
+
+def _from_full(pm: PlanarMap, by_obj: dict, full: PlanarMap) -> tuple[DeckAnchor, ...]:
+    """STAGE 1'S ANCHORS ARE THE FULL MAP'S (deck redesign §1, one
+    derivation for both maps; ``model/stage_one.from_full``): each end
+    line of this map takes the full map's anchor of the same line — its
+    level, family, runway, yield and note — on this map's seat stations; its
+    pinned vertex is this map's vertex at the full map's pinned point, else
+    the station nearest that point."""
+    at = {tuple(vx.xy): v for v, vx in pm.vertices.items()}
+    seats = {(oid, tuple(e[0])): [v for v, _w in e[1]] for oid, es in by_obj.items() for e in es}
+    out: list[DeckAnchor] = []
+    for a in getattr(full, "deck_anchors", ()) or ():
+        st = seats.get((a.object_id, tuple(a.line)))
+        if not st:
+            continue
+        xy = tuple(full.vertices[a.v].xy)
+        v = at.get(xy)
+        if v is None:
+            v = min(st, key=lambda q: math.dist(pm.vertices[q].xy, xy))
+        out.append(_dc.replace(a, v=v, stations=tuple(st)))
+    return tuple(_one_per_vertex(out))
 
 
 def _threshold_zero(vw, law: Law, rows, zero: float, thresholds: dict, inside, rw
@@ -418,14 +425,18 @@ def deck_anchor_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
 def sidecar_records(planar: PlanarMap) -> list[dict]:
     """The sidecar ``deck_anchors`` (EVIDENCE, and the ``deck_end_flush``
     census's input): per end line its object, end, pinned vertex, level,
-    profile, top, family, yield, and its seat stations as ``[lat, lon]``
+    profile, top, family, yield, cut, its deck's witness, and its seat
+    stations as ``[lat, lon]``
     (the vertex keys, the emitted node identity)."""
     def ll(v: int) -> list[float]:
         return [float(planar.vertices[v].key[0]), float(planar.vertices[v].key[1])]
+    witness = {}
+    for db in getattr(planar, "decks", ()) or ():
+        witness.setdefault(db.object_id, db.witness)
     return [{"object": a.object_id, "end": a.end, "v": a.v, "at": ll(a.v),
              "z_m": round(a.z_m, 3), "profile_z_m": round(a.profile_z_m, 3),
              "top_y": round(a.top_y, 3), "rise_m": round(a.rise_m, 3), "family": a.family,
              "ref": a.ref, "yielding": a.yielding, "pinned": a.pinned, "note": a.note,
-             "cut": a.cut,
+             "cut": a.cut, "witness": witness.get(a.object_id, ""),
              "stations": [ll(v) for v in a.stations]}
             for a in getattr(planar, "deck_anchors", ()) or ()]

@@ -444,6 +444,13 @@ class PlanarMap:
     #: chord knots, the crown stand-down and the sidecar.  Empty: no pack
     #: hard deck, every row as before.
     deck_anchors: tuple = ()
+    #: THE PACK DECKS (deck redesign §1, additive): one
+    #: structures.DeckBridge per deck piece the airport's pavement
+    #: drives across, derived ONCE on the full map (planar/deck_bridge.
+    #: deck_bridges; stage 1's map reads the full map's, from_full) and
+    #: read by the anchors, the deck rows and the object stage's plate —
+    #: whether or not a corridor runs under it.
+    decks: tuple = ()
     #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,
     #: additive): vertex id -> the elevation the objective pulls it to.
     #: A road-family vertex prefers the CORE's clamped, laterally-levelled

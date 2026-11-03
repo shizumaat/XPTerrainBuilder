@@ -122,7 +122,8 @@ from .covered_bores import covered_bore_ways
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
                               portal_mouth, portal_note, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
-from .deck_bridge import deck_cut, deck_mouth, deck_pin, deck_seats, deck_side, deck_under
+from .deck_bridge import (deck_cut, deck_mouth, deck_pin, deck_polygon, deck_seats, deck_side,
+                          deck_under)
 from .deck_bores import deck_bores, deck_lanes, lane_band
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
@@ -347,8 +348,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
 
     def _carries_runway(db) -> bool:
         return rw_tree is not None and any(
-            runway_cells[int(j)].intersection(db.polygon).area > 1.0
-            for j in rw_tree.query(db.polygon, predicate="intersects"))
+            runway_cells[int(j)].intersection(deck_polygon(db)).area > 1.0
+            for j in rw_tree.query(deck_polygon(db), predicate="intersects"))
     deck_of = {id(m): deck_under(m, deck_bridges, tn.object.bore_end_tolerance_m + tn.wall_gap_m
                                  + tn.wall_band_width_m, deck_paved, tn.max_ramp_length_m,
                                  _carries_runway)
@@ -535,7 +536,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 LineString(m.approach) for m in members
                 if len(getattr(m, "approach", ()) or ()) >= 2],
             own_area=None if edge is None else Polygon(edge.plan).buffer(rim_off),
-            own_cut=None if deck is None else deck.polygon.buffer(rim_off),
+            own_cut=None if deck is None else deck_polygon(deck).buffer(rim_off),
             keep_out=[(strip_u, "runway_strip")] if strip_u is not None and pin is None
             and edge is None and not decked_by else ())
         if pin is not None and clear is not None and clear[4].startswith(PORTAL_YIELDS):
@@ -1401,7 +1402,7 @@ def deck_cover_of(tunnels, tid_deck, carries_runway, outer=None) -> object:
     ring is never in it (round 3 §1): the ground under a slab is the
     deck's, never cut."""
     return unary_union(
-        [db.polygon for t, db in ((t, tid_deck.get(t.id)) for t in tunnels)
+        [deck_polygon(db) for t, db in ((t, tid_deck.get(t.id)) for t in tunnels)
          if db is not None and not getattr(db, "slab", False)]
         + [Polygon(d.ring) for t in tunnels for d in t.decks
            if d.datum == "deck_top" and len(d.ring) >= 3]

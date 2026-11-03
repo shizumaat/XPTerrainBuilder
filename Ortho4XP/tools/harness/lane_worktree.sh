@@ -6,6 +6,8 @@
 #   tools/harness/lane_worktree.sh check NAME|PATH
 #   tools/harness/lane_worktree.sh reclaim NAME|PATH   (re-clone the cache overlay)
 #   tools/harness/lane_worktree.sh data          (report the shared repo)
+#   tools/harness/lane_worktree.sh prune-merged [--apply]
+#                                 (tear down every lane whose work is merged)
 #
 # Run from anywhere.  Every lane sets its tree up with THIS script; a
 # hand-typed ritual is a defect (see CLAUDE.md, "The standard test harness").
@@ -158,12 +160,33 @@ INDEX_REL="tools/INDEX.md"
 CACHE_REL="tmp/engine_caches/Airport_mod_cache"
 CACHE_SHARED="Airport_mod_cache"
 COW_AUDIT="$(cd "$(dirname "$0")" && pwd -P)/cow_audit.py"
+# THE LANE CAP (owner 2026-11-03: "keep it at 50, and don't start new ones
+# until the others are completed and merged").  `up` creating a NEW tree
+# first prunes the merged ones, then refuses at this many.  O4_LANE_CAP is
+# the master's explicit override; nothing else changes it.
+LANE_CAP=50
 
 die() { echo "REFUSING: $*" >&2; exit 2; }
+
+# Open file handles under $1, one line per handle (at most 5), from every
+# process EXCEPT a macOS Virtualization VM.  A VM's shared-folder view of
+# the home directory (com.apple.Virtualization.VirtualMachine) holds
+# read-only DIR/REG handles on files in every tree it has looked at; it is
+# never a build, and on 2026-11-03 it made `down` refuse 71 of 73 trees.
+# Matched by COMMAND (lsof truncates it to 31 chars even under +c 0), never
+# a pid; every other holder still refuses.
+open_handles() {
+    lsof +c 0 -Fpcn +D "$1" 2>/dev/null | awk '
+        /^p/ { pid = substr($0, 2); next }
+        /^c/ { cmd = substr($0, 2); next }
+        /^n/ { if (index(cmd, "com.apple.Virtualization.") != 1)
+                   print cmd " pid " pid " " substr($0, 2) }' | head -5
+}
 
 usage() {
     echo "usage: $0 {up|down|check|reclaim} NAME|PATH [REF]" >&2
     echo "       $0 data" >&2
+    echo "       $0 prune-merged [--apply]   (dry run without --apply)" >&2
     echo "       $0 prune TREE [--days N] [--apply]   (#1723: age prune of" >&2
     echo "        TREE/Ortho4XP/tmp; a dry-run listing unless --apply)" >&2
     echo "       (PATH — anything with a slash — addresses an EXISTING" >&2
@@ -198,6 +221,30 @@ data_dirs() {
         [ $skip -eq 1 ] && continue
         echo "$base"
     done
+}
+
+# `up` creating a new tree: prune the merged lanes, then hold the cap.
+lane_cap_gate() {
+    "$(dirname "$0")/prune_merged.sh" "$0" prune-merged --apply \
+        || echo "  [ritual] WARNING: prune-merged failed; counting as is"
+    _cap="${O4_LANE_CAP:-$LANE_CAP}"
+    _lanes=$(registered_worktrees | grep '/\.claude/worktrees/')
+    _count=$(printf '%s\n' "$_lanes" | grep -c .)
+    [ "$_count" -lt "$_cap" ] && return 0
+    echo "  oldest lane worktrees still standing (last HEAD move, branch):" >&2
+    printf '%s\n' "$_lanes" | while IFS= read -r _w; do
+        _gd=$(git -C "$_w" rev-parse --absolute-git-dir 2>/dev/null) || continue
+        _m=$(stat -f %m "$_gd/HEAD" 2>/dev/null || stat -c %Y "$_gd/HEAD" 2>/dev/null || echo 0)
+        printf '%s %s %s\n' "$_m" "$_w" \
+            "$(git -C "$_w" branch --show-current 2>/dev/null)"
+    done | sort -n | head -10 | while read -r _m _w _b; do
+        printf '    %s  %s  %s\n' \
+            "$(date -r "$_m" +%F 2>/dev/null || date -d "@$_m" +%F)" "$_w" \
+            "${_b:-(detached)}" >&2
+    done
+    die "LANE CAP: $_count lane worktrees under .claude/worktrees, cap
+    $_cap (owner 2026-11-03).  Finish and merge lanes (prune-merged removes
+    them), or tear down abandoned ones, before starting another."
 }
 
 [ $# -ge 1 ] || usage
@@ -252,6 +299,10 @@ if [ "$ACTION" = "data" ]; then
     echo "  [ritual] a PRIVATE tree is on a DIFFERENT CORPUS — never A/B a"
     echo "           build from one against a build from a shared tree."
     exit 0
+fi
+
+if [ "$ACTION" = "prune-merged" ]; then
+    exec "$(dirname "$0")/prune_merged.sh" "$0" "$@"
 fi
 
 [ $# -ge 2 ] || usage
@@ -469,6 +520,7 @@ up)
     if [ -d "$WT" ]; then
         echo "  [ritual] worktree $WT already exists — completing the ritual."
     else
+        lane_cap_gate
         git -C "$MAIN_REPO" worktree add "$WT" "$REF" || die "worktree add failed"
     fi
     for d in $ENGINE_LINKS; do
@@ -610,7 +662,7 @@ reclaim)
         die "a build is running in $ENGINE (above).  Re-cloning a sidecar
     under a live writer could drop its write — wait for it."
     fi
-    openfiles=$(lsof +D "$ENGINE/tmp/engine_caches" 2>/dev/null | tail -n +2 | head -5)
+    openfiles=$(open_handles "$ENGINE/tmp/engine_caches")
     if [ -n "$openfiles" ]; then
         echo "$openfiles" | sed 's/^/    /' >&2
         die "open file handles under $ENGINE/tmp/engine_caches — see above."
@@ -645,7 +697,7 @@ down)
     killed mid-write leaves a patch that reads as a real result)."
     fi
     if command -v lsof >/dev/null 2>&1; then
-        openfiles=$(lsof +D "$WT" 2>/dev/null | tail -n +2 | head -5)
+        openfiles=$(open_handles "$WT")
         if [ -n "$openfiles" ]; then
             echo "$openfiles" | sed 's/^/    /'
             die "open file handles under $WT — see above."

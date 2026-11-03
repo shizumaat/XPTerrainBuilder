@@ -32,12 +32,12 @@ extension PatchEditModel {
 
     /// Whether the engine has the commands (protocol 1.20).
     var canInsertShape: Bool {
-        O4ProtocolVersion.supportsInsertShape(build?.protocolHello?.protocolVersion ?? "")
+        build?.engineCapabilities.supports(O4EngineCapabilities.insertShape) ?? false
     }
 
     /// Whether the engine sizes a tunnel ramp (protocol 1.24).
     var canInsertTunnelRamp: Bool {
-        O4ProtocolVersion.supportsInsertTunnelRamp(build?.protocolHello?.protocolVersion ?? "")
+        build?.engineCapabilities.supports(O4EngineCapabilities.insertTunnelRamp) ?? false
     }
 
     func insertShape(lat: Double, lon: Double, kind: InsertKind = .square) {

@@ -271,6 +271,8 @@ final class BuildModel: ObservableObject {
     /// The engine speaks the JSON-lines session protocol (dev/1.50+).
     @Published private(set) var usesProtocol = false
     @Published private(set) var protocolHello: (version: String, protocolVersion: String)?
+    /// The hello's capability flags (RULINGS 2026-11-03d (1) item 3).
+    @Published private(set) var engineCapabilities = O4EngineCapabilities.none
 
     // MARK: Scan state (what exists on disk / in X-Plane)
 
@@ -1009,8 +1011,10 @@ final class BuildModel: ObservableObject {
     private func handle(_ event: O4Event) {
         feedStepStrip(event)
         switch event {
-        case .hello(let version, let protocolVersion, _):
+        case .hello(let version, let protocolVersion, let capabilities):
             protocolHello = (version, protocolVersion)
+            engineCapabilities = O4EngineCapabilities(protocolVersion: protocolVersion,
+                                                      flags: capabilities)
             buildLog.notice("engine hello: \(version) protocol \(protocolVersion)")
             checkPatchLibraryAtLaunch()
         case .stderr(let line):

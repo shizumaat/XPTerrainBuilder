@@ -44,7 +44,8 @@ from ..law import Law
 from .unframed_ramp import overlap_yield
 from .wall_corridor_ramps import KIND as WALL_KIND
 
-__all__ = ["resolve_overlaps", "deck_partner", "run_stop_s", "run_side", "run_group"]
+__all__ = ["resolve_overlaps", "deck_partner", "paved_over", "run_stop_s", "run_side",
+           "run_group"]
 
 XY = tuple[float, float]
 #: two cuts face each other along one road when each one's axis heads at
@@ -102,7 +103,7 @@ def _run_pair(ti, tj, paved=None) -> "tuple[_Run, _Run] | None":
     if (cj[0] - ci[0]) * u[0] + (cj[1] - ci[1]) * u[1] <= 0.0:
         ci, cj = mi, mj              # the covers meet: the line halfway between the mouths
     between = LineString([ci, cj])
-    if _paved_over(between, 0.0, between.length, paved):
+    if paved_over(between, 0.0, between.length, paved):
         return None
     mid = (0.5 * (ci[0] + cj[0]), 0.5 * (ci[1] + cj[1]))
     off = mid[0] * u[0] + mid[1] * u[1]
@@ -129,12 +130,12 @@ def deck_partner(db, axis: LineString, decks: _t.Sequence, paved=None):
         s0 = min(axis.project(Point(q)) for g in getattr(x, "geoms", [x]) for q in g.coords)
         if s0 >= s_own - 1e-6 and (best is None or s0 < best[0]):
             best = (s0, o)
-    if best is None or _paved_over(axis, s_own, best[0], paved):
+    if best is None or paved_over(axis, s_own, best[0], paved):
         return None
     return best[1]
 
 
-def _paved_over(line: LineString, s0: float, s1: float, paved) -> bool:
+def paved_over(line: LineString, s0: float, s1: float, paved) -> bool:
     """Whether airside pavement lies over ``line`` strictly between ``s0``
     and ``s1`` (a metre clear of each end): the road does not run open under
     pavement (§34 (12) (3))."""

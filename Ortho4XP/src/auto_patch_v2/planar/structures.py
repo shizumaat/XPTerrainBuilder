@@ -336,8 +336,18 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
 
     # a HARD-DECK BRIDGE (``planar/deck_bridge``) takes the mouths of the
     # bores its deck stands over: the carriageways under one deck are ONE cut
+    deck_paved = unary_union([p for p, c in zip(polys, cells, strict=False)
+                              if c.role in rolled_on_roles(law)]) if deck_bridges else None
+    runway_cells = [p for p, c in zip(polys, cells, strict=False) if c.role in RUNWAY_FAMILY]
+    rw_tree = STRtree(runway_cells) if runway_cells else None
+
+    def _carries_runway(db) -> bool:
+        return rw_tree is not None and any(
+            runway_cells[int(j)].intersection(db.polygon).area > 1.0
+            for j in rw_tree.query(db.polygon, predicate="intersects"))
     deck_of = {id(m): deck_under(m, deck_bridges, tn.object.bore_end_tolerance_m + tn.wall_gap_m
-                                 + tn.wall_band_width_m)
+                                 + tn.wall_band_width_m, deck_paved, tn.max_ramp_length_m,
+                                 _carries_runway)
                for m in mouth_list if edge_of.get(id(m)) is None} if deck_bridges else {}
     # ...but only the carriageways that are one road (``deck_bores.deck_lanes``)
     lane_of, lane_cs = deck_lanes(mouth_list, deck_of, tn.dual_carriageway_max_separation_m)
@@ -1294,16 +1304,32 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     knife = unary_union(footprints)
     hull_knife = unary_union(hull_knives) if hull_knives else None
     out_cells: list[Cell] = []
+    # THE RUNWAY FAMILY IS CUT ONLY UNDER A PACK DECK (owner RULINGS
+    # 2026-11-03b Q340 a / Q343 a, recommendation accepted 2026-11-03T13:58Z;
+    # narrows 08-07 ruling 4 / 15f): where the pack's bridge object carries
+    # the runway over the trench, the object shows the runway surface and the
+    # ground under it is the cut; everywhere else the runway is never cut
+    deck_cover = unary_union(
+        [db.polygon for t, db in ((t, tid_deck.get(t.id)) for t in tunnels) if db is not None]
+        + [Polygon(d.ring) for t in tunnels for d in t.decks
+           if d.datum == "deck_top" and len(d.ring) >= 3])
     def _cut(c: Cell, p, blade) -> None:
-        if c.role in RUNWAY_FAMILY or blade is None or not p.intersects(blade):
+        if c.role in RUNWAY_FAMILY and blade is not None:
+            blade = blade.intersection(deck_cover) if not deck_cover.is_empty else None
+            if blade is not None and blade.area <= 0.25:
+                blade = None
+        if blade is None or not p.intersects(blade):
             out_cells.append(c)
             return
         rest = p.difference(blade)
         stats.cells_cut += 1
+        if c.role in RUNWAY_FAMILY:
+            stats.runway_cut_under_deck += 1
         for k, part in enumerate(_parts(rest)):
             if part.area < 0.25:
                 continue
-            out_cells.append(Cell(len(out_cells), c.role, c.ref if k == 0 else f"{c.ref}#{k}",
+            keep_ref = k == 0 or c.role in RUNWAY_FAMILY   # a runway keeps its own ref
+            out_cells.append(Cell(len(out_cells), c.role, c.ref if keep_ref else f"{c.ref}#{k}",
                                   tuple(part.exterior.coords)[:-1],
                                   tuple(tuple(h.coords)[:-1] for h in part.interiors),
                                   c.code_number, c.code_letter, c.side, c.kind,

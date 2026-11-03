@@ -1,7 +1,9 @@
 # The two-level model: lower-level REGIONS (spec, round 1 — picture before code)
 
-Status: DRAFT for the owner's picture check (RULINGS 2026-11-03b Q347). No
-engine code is written until the owner says yes to the section views in §9.
+Status: the owner accepted the recommendations for the choices §11 raised
+(Noah, 2026-11-03T06:05:23Z, verbatim: "Accept recommendations for the "four
+choices it raised"."). §13 records what that changes. It OVERRIDES §2, §3
+and §10 where they differ.
 
 Law: RULINGS 2026-11-03b (Q340–Q347, owner 2026-11-03T05:00:50Z), the review
 doc "Bridges, tunnels and cuts: the two-level model"
@@ -590,3 +592,139 @@ Where the plan is lower level, 79 % of it is the owner's lower level too
   So there is no developer mesh to compare against.
 - Q271's bottom-to-bottom grading between object floors and the run-out
   ramps' tops are not drawn in the pictures (steps only).
+
+## 13. Owner answers (2026-11-03T06:05:23Z) and what they change
+
+These were relayed by the master, who also answered O5 and set O3's
+provisional handling.
+
+- **O1 (a): landside zones by the road graph.** Step 9 is added to §2.2. A
+  landside zone joins a region when all three hold:
+  - it is a connected groundside area of lots and roads inside the aerodrome
+    boundary;
+  - level A, the boundary or regions bound it;
+  - every mapped road that links it to the rest of the road network passes
+    through a level-B region or a tunnel mouth before it reaches natural
+    ground.
+
+  The zone takes that region's level. This is what lowers Roissypole and the
+  block north of 2E/2F (D1). A zone with any road link that leaves at grade
+  stays at its own ground (Q184).
+- **O2 (width): a deck carrying a runway or taxiway is a cover, not a seed.**
+  Under it the region is the roads that pass under it, at carriageway width
+  plus verges (`[level_b] verge_m`, each side), not the deck's footprint. The
+  owner's A1 under runway 09R/27L measures 44 m: the two carriageways plus
+  their verges. The step at the road's edge is vertical, and there is no 30b
+  bank, because the road runs under more than one deck. §2.1's hard-deck row
+  and Q343 (a)'s "full width" are read accordingly. Full width applies only
+  where the region ALREADY spans the deck from other seeds (the T2 corridor
+  under its taxiway decks).
+- **O2 (depth): one constant depth per region; decks do not set it.** §3's
+  per-object floors are withdrawn for decks. A deck inside a region never
+  sets the region's depth. Its frame bottom is a check: the floor stands at
+  least `[tunnel] clearance_m` (5.0, O5) under the deck top, and never above
+  the frame's bottom where the frame reaches that clearance. The ladder,
+  amended:
+  1. the region's own objects (lower storeys, retaining-wall feet, bridge
+     edges, trench and tunnel-mouth floors, covered-cut liners), as their
+     area-weighted median;
+  2. **the airport's level B**: for a region with no object of its own, the
+     area-weighted median depth of every object-stated region at the airport
+     ("one lower level (B)", RULINGS 11-03b). This rung is the master's
+     reading and gives LFPG's A1 7.03 m against the owner's 7 m;
+  3. 7.5 m under a runway or taxiway;
+  4. 5.0 m under a flat deck (30g);
+  5. credible lidar if it clears 5 m (never under a deck or viaduct);
+  6. 7.5 m.
+- **O3 (open; provisional).** A region's vertical edge inside a runway strip
+  is exempt from 06n's no-wall rule, as portal cuts are (26k).
+  `wall_in_runway_strip` and `_check_no_wall_in_runway_strip` add the
+  region's step joints to the `portal_cuts` exemption. It is FLAGGED to the
+  owner in every report until ruled.
+- **O4 (a): basins and §45 open channels are NOT level B.** They keep their
+  own laws and are never seeds. A region keeps off a basin's rim band and a
+  channel's corridor, as it keeps off level A.
+- **O5 (master): level B's 5 m constant is `[tunnel] clearance_m` (5.0,
+  30g).** `bridge.clearance_m` (5.1) stays the channel's.
+
+Order of work, as the master set it:
+1. Probes P1 and P2, and the dry A/B on KPHX, KATL, EGLL and KBNA.
+2. The implementation.
+3. Section views and the level map from the REAL engine (replay), sent to
+   the master.
+4. ONE closing LFPG build, reporting the T2-area agreement with the owner's
+   patch.
+
+P1 by static read (2026-11-03):
+- The lower-storey footprint is decided on the pad polygon.
+  `low_level.plan_low` needs P, airport and the airside around it;
+  `group_low.plan_group_low` the same, plus `group_floor`, which needs only
+  airport and the airside cells.
+- Both are classification cells, available before the arrangement.
+- The held-block selection (`Registries.held`) and the block datum D are the
+  arrangement's and the solve's. So the outline can be derived before
+  `build_structures`, and the level is tied at solve time (B = paired A − d).
+
+## 14. As built, round 2 (lane b2lvl, 2026-11-03): S2 only
+
+**Landed on the branch: S2, the deck floor at level B.**
+
+- `planar/level_depth.airport_level_b` is the airport's level B, read once
+  in `planar/build` before `deck_bridges` (P1 holds).
+  - It is the feet-weighted median of the units whose walled feet
+    (`low_level.feet_levels`) read a lower storey at least
+    `[building_pad] low_level_min_step_m` under the stand-side floor.
+  - Readings: LFPG 7.42 m (one unit); KATL 13.0 m (one unit, terminal_F);
+    KPHX, KBNA and EGLL none.
+- `planar/deck_bridge._road_floor` floors a slab deck (a frame stopping
+  short of `[tunnel] clearance_m`) by the §13 ladder:
+  - the airport's level B; else
+  - `mouth_depth_m` under a deck whose seats stand on runway- or
+    taxi-family cells; else
+  - the clearance.
+
+  It is never shallower than the clearance. The survey is no longer read
+  under a deck (Q344 a), and `_surveyed_road` is deleted. A frame reaching
+  the clearance keeps its own bottom (30g (2)).
+- H7 east, mechanism and fix. The deeper floor lengthened the design-grade
+  ramp of `tunnel:-48960+-19919+-5099+-719@3` (49.01248, 2.58196, the road
+  under the H7 taxiway deck north of 2E/2F) and of
+  `tunnel:-20675+-6877+-4530+-4529@0` (49.00467, 2.58726, under H2 in the
+  2E/2F forecourt) past a bend tighter than their corridors. Both were
+  refused with "the approach bends tighter than the corridor", and the cut
+  vanished: H7 east's floor rose from 98.0 to 102.2. The fix is
+  2026-10-14j extended. A ramp the bend refuses re-plans AT THE CAP
+  (`ramp_max_grade`, a shorter ramp; `unframed_ramp.BEND_CAP` / `bend_note`)
+  before its bore is refused, through the existing overlap re-plan. Both
+  mouths build at 10 %, with floors 93.77 and 93.12.
+
+**Dry A/B (planar re-run on each registered capture, main 5544d9568 against
+the branch):**
+- KATL, KBNA, EGLL and KPHX: no deck and no tunnel changed.
+- LFPG:
+  - 24 deck floors deepen to 7.42 m.
+  - 38 mouths' floors deepen by 1.6–2.4 m.
+  - one mouth refused on main now builds (`tunnel:-1719+-235+-383@0`).
+  - none newly refused.
+
+**Not built here; the master runs each as its own lane:**
+- **S1, the corridor region.** The first attempt is withdrawn. It grew the
+  existing lower-level landings over the viaduct cover, unreachable apron and
+  enclosed lots. It grew only ~0.1 ha, and it lifted `building34/p1` and
+  `p2` from 7.4/5.8 m to 1.9/0.8 m.
+  - Why it grew so little: the corridor floor is mostly the apron page
+    `dsf:pol459`, which classify's passage test keeps reachable. Only ~1.2 ha
+    of it lies under the OSM viaducts.
+  - Two findings block any landing-based region:
+    - **landing depth is not held in the solve**, on main and in 1.0.454
+      alike: `building64/p3` 1.3 m against 7.0, `building64/p6` 1.4 m,
+      `building51/p1` 2.9 m;
+    - the region needs the reach read with the covers as obstacles, not as
+      bridges.
+- **S4, the A1 under runway 09R/27L.** The bore under H18r
+  (`tunnel:-21305+-13766+-21304+-160+-13765`, both halves) is refused by
+  `structure_overlap.resolve_overlaps`: its corridor overlaps the H19 and
+  H17 bores, because OSM maps the A1 as separate tunnels under each deck.
+  Nothing is cut there on main either. The fix is the region rule's run
+  through: bores on one road chain whose corridors overlap merge into one cut.
+- **S3, the road-graph landside zones (O1).**

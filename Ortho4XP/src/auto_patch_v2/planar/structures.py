@@ -106,7 +106,8 @@ from .structure_approach import (FieldRegion, apply_plates, cover_polygons, stan
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top,
                                  road_index, crossing_roads, unit)
-from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
+from .unframed_ramp import (BEND_CAP, MAX_OVERLAP_PASSES, bend_note as _bend_note,
+                            cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
 from .structure_overlap import resolve_overlaps
 from ..airport.portal_objects import portal_of
@@ -180,6 +181,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     args = (airport, classification, law, objects, corridors, extra_groups, plates, channels)
     run_limits = dict(run_limits or {})
     at_cap = dict(at_cap or {})
+    bend_cap: dict[str, str] = {}
     overlap_refused = dict(overlap_refused or {})
     stats = StructureStats()
     odecks = object_decks(objects)
@@ -794,7 +796,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 if tid in at_cap:           # 2026-10-14j: the overlap tie-break, at the cap
                     s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from,
                                           spacing_g, grade=cap_g, max_len=max_len_g)
-                    design_grade, steepen_note = cap_g, _cap_note(law, at_cap[tid])
+                    design_grade, steepen_note = cap_g, (
+                        _bend_note(law) if at_cap[tid] == BEND_CAP
+                        else _cap_note(law, at_cap[tid]))
                 else:
                     got, s_top, ss, steepen_note = _unframed_climb(
                         airport, law, axis_fn, mouth_z, climb_from, spacing_g, run_ends, max_len_g,
@@ -875,6 +879,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         while True:
             geom = _ring(ss)
             if geom is None:
+                if c is None and g.climbs and tid not in at_cap:
+                    # 2026-10-14j: a ramp steepens to the cap before its bore
+                    # is refused -- a design-grade ramp reaching past a bend
+                    # tighter than its corridor is re-planned shorter (a
+                    # level-B floor deepened it, 11-03b; H7 east at LFPG)
+                    bend_cap[tid] = BEND_CAP
                 stats.refused.append(f"{tid}: the approach bends tighter than the corridor "
                                      f"(ramp or wall ring self-intersects)")
                 break
@@ -1210,6 +1220,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     new_limits, new_cap, released = resolve_overlaps(
         tunnels, footprints, keep, siblings, run_limits, at_cap, overlap_refused, law, gap,
         grid, _pass < MAX_OVERLAP_PASSES, stats.refused)
+    if _pass < MAX_OVERLAP_PASSES:
+        new_cap.update(bend_cap)
     if new_limits or new_cap or (released and _pass < MAX_OVERLAP_PASSES):
         # an unframed ramp yields its design-grade length, then steepens to
         # the cap (2026-10-14j), before a structure is refused for it

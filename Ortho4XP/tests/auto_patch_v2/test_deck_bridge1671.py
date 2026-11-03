@@ -394,25 +394,39 @@ def test_a_deck_flagged_only_on_its_edge_on_faces_is_its_hard_plate(tmp_path):
     assert (flagged.hard_deck == flagged.solid[flagged.hardness == O.HARD_DECK]).all()
 
 
-def _slab_read(tmp_path, airport):
+def _slab_read(tmp_path, airport, level_b=None):
     o = _placed(_slab_obj(tmp_path), "dsf:obj9")
     o.deck_top_z = 101.48
-    return DB.deck_bridges([o], O.ResourceCache(THICK), _classification(), airport, LAW, ())
+    return DB.deck_bridges([o], O.ResourceCache(THICK), _classification(), airport, LAW, (),
+                           level_b=level_b)
 
 
-def test_a_slab_deck_floor_stands_the_clearance_under_it(tmp_path):
-    """30a (2) / 27g: a frame stopping 0.12 m under its deck states no road
-    level — the floor is ``[tunnel] clearance_m`` under the deck, and the
-    side faces rising above the deck are no walls under it (30b banks)."""
+def test_a_slab_deck_over_a_taxiway_floors_the_mouth_depth_under_it(tmp_path):
+    """11-03b Q344 a: a frame stopping 0.12 m under its deck states no road
+    level; under a deck carrying a runway or taxiway, with no level B at the
+    airport, the floor is ``[tunnel] mouth_depth_m`` under the deck (at
+    least 30g's clearance) -- and the side faces rising above the deck are
+    no walls under it."""
     (db,), notes = _slab_read(tmp_path, AIRPORT)
-    clear = LAW.tables.structures.tunnel.clearance_m
-    assert abs(db.depth_m - clear) < 1e-6 and db.walls == ()
-    assert "short of the road" in notes[0] and "clearance_m" in notes[0]
+    tn = LAW.tables.structures.tunnel
+    assert abs(db.depth_m - max(tn.clearance_m, tn.mouth_depth_m)) < 1e-6 and db.walls == ()
+    assert "short of the road" in notes[0] and "under a runway or taxiway" in notes[0]
 
 
-def test_a_slab_deck_over_a_deeper_surveyed_road_keeps_the_survey(tmp_path):
-    """27g: where the credible survey carries the road deeper than the
-    clearance under the deck, the floor is the surveyed road."""
+def test_a_slab_deck_floors_the_airports_level_b(tmp_path):
+    """11-03b (one lower level B, the master's reading): the airport's
+    level-B depth sets the floor under a slab, never shallower than 30g's
+    clearance."""
+    (db,), notes = _slab_read(tmp_path, AIRPORT, level_b=7.03)
+    assert abs(db.depth_m - 7.03) < 1e-6 and "the airport's level B" in notes[0]
+    (db,), _n = _slab_read(tmp_path, AIRPORT, level_b=3.0)
+    assert abs(db.depth_m - LAW.tables.structures.tunnel.clearance_m) < 1e-6
+
+
+def test_the_survey_is_never_read_under_a_deck(tmp_path):
+    """11-03b Q344 a: the survey reads the deck, so a surveyed road under a
+    slab sets no floor -- the ladder does (27g's survey floor retired under
+    decks)."""
     dem = types.SimpleNamespace(z=lambda x, y: 93.0 if abs(x) < 8.0 else 100.0)
     road = types.SimpleNamespace(id=-1, points=((0.0, -60.0), (0.0, 60.0)),
                                  tags={"highway": "trunk"})
@@ -420,5 +434,5 @@ def test_a_slab_deck_over_a_deeper_surveyed_road_keeps_the_survey(tmp_path):
         frame=FRAME, dem=dem, osm_ways=(road,),
         flat_site=types.SimpleNamespace(signals={"s2_source_class": "lidar"}))
     (db,), notes = _slab_read(tmp_path, airport)
-    assert abs(db.depth_m - (db.deck_z - 93.0)) < 1e-6 and db.depth_m > 5.0
-    assert "the surveyed road" in notes[0]
+    (ref,), _n = _slab_read(tmp_path, AIRPORT)
+    assert abs(db.depth_m - ref.depth_m) < 1e-6 and "surveyed road" not in notes[0]

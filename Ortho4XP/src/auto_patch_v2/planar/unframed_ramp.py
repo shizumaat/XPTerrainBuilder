@@ -26,7 +26,7 @@ from ..model.airport import Airport
 from .structure_approach import ramp_top
 
 __all__ = ["unframed_top", "unframed_climb", "overlap_run_end", "overlap_to_cap",
-           "overlap_yield", "cap_note", "MAX_OVERLAP_PASSES"]
+           "overlap_yield", "cap_note", "bend_note", "BEND_CAP", "MAX_OVERLAP_PASSES"]
 
 #: How often the build is re-planned for ramps that yield to one another.
 MAX_OVERLAP_PASSES = 8
@@ -169,6 +169,21 @@ def overlap_to_cap(pair, at_cap: _t.AbstractSet[str], law: Law) -> list[str]:
     return [t.id for t in pair
             if t.source == "osm" and t.top_s - t.climb_from_s > 0.0
             and t.id not in at_cap and t.design_grade < cap - 1e-9]
+
+
+#: the ``at_cap`` value of a ramp steepened because its design-grade run
+#: reached a bend tighter than its corridor (no other structure involved)
+BEND_CAP = "#bend"
+
+
+def bend_note(law: Law) -> str:
+    """The note a ramp built AT THE CAP because its design-grade run bent
+    tighter than its corridor carries (2026-10-14j extended)."""
+    tn = law.tables.structures.tunnel
+    return (f"ramp steepened {100.0 * tn.ramp_grade:.1f} -> {100.0 * tn.ramp_max_grade:.0f} % "
+            f"(the cap): at every shorter grade its run reached a bend tighter than its "
+            f"corridor (owner RULINGS 2026-10-14j: each ramp steepens to the cap before a "
+            f"bore is refused)")
 
 
 def cap_note(law: Law, other: str) -> str:

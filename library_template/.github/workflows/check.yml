@@ -1,0 +1,65 @@
+# The library's pull-request check (#1699 phase 2).  pull_request_target runs
+# in the BASE repository's context so it may merge a verified developer's
+# pull request; it therefore never runs anything from the pull request: the
+# head is checked out as DATA only, and the checker is XPTerrainBuilder's own
+# (a sparse checkout of ENGINE_REPO at ENGINE_REF), stdlib-only Python that
+# parses JSON, hashes and decompresses files.
+name: check entry
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: write
+  pull-requests: write
+env:
+  ENGINE_REPO: shizumaat/XPTerrainBuilder
+  ENGINE_REF: main
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Library (base)
+        uses: actions/checkout@v4
+        with:
+          path: base
+      - name: Pull request head (data only, never run)
+        uses: actions/checkout@v4
+        with:
+          path: head
+          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          persist-credentials: false
+      - name: The checker (XPTerrainBuilder's patch_library)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ENGINE_REPO }}
+          ref: ${{ env.ENGINE_REF }}
+          path: engine
+          sparse-checkout: Ortho4XP/src/patch_library
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Changed files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr diff ${{ github.event.pull_request.number }} --name-only --repo ${{ github.repository }} > changed.txt
+      - name: Check
+        id: check
+        env:
+          PYTHONPATH: engine/Ortho4XP/src
+        run: |
+          python -m patch_library.checks --head head --base base \
+            --author "${{ github.event.pull_request.user.login }}" \
+            --changed changed.txt --json verdict.json | tee check.txt
+          echo "auto_merge=$(python -c 'import json;print(str(json.load(open("verdict.json"))["auto_merge"]).lower())')" >> "$GITHUB_OUTPUT"
+      - name: Merge a verified developer's own entry
+        if: steps.check.outputs.auto_merge == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr merge ${{ github.event.pull_request.number }} --merge --repo ${{ github.repository }}
+      - name: Otherwise, to the reviewers
+        if: steps.check.outputs.auto_merge != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr edit ${{ github.event.pull_request.number }} --add-label needs-review --repo ${{ github.repository }}

@@ -66,11 +66,16 @@ TGA; keep the PNG.
   sea textures are most of many tiles;
 - DDS header writer (`O4_DDS_File` is the shared DDS module: extend it with
   `write_header`); `dxt5` flag → BC3;
-- a process pool of `effective_convert_slots` workers replaces the
-  subprocess-per-texture threads when the flag is on; the partial-name
+- ~~a process pool replaces the subprocess-per-texture threads~~ — as landed
+  (#900), the in-process encoder runs inside the existing convert threads
+  (`ispc_texcomp` releases the GIL); no process pool. The partial-name
   discipline is kept (write partial, `DDS.land`).
 
-Flag: `O4_DDS_ENCODER=inprocess|tool` (default `tool`). Dependency:
+Flag: `O4_DDS_ENCODER=inproc|tool`. **Default `inproc`** since owner RULINGS
+2026-10-17d (#900); `tool` opts back into the subprocess converter, which is
+also the automatic fallback when the wheel is absent. Each tile build logs
+`DDS encoder: inproc (ispc_texcomp <ver>)` or `DDS encoder: tool (ispc_texcomp
+unavailable)` at the convert-queue start (#847). Dependency:
 `ispc_texcomp` wheels for the three platforms (owner Q4; licence MIT, to be
 verified and recorded in `LICENSING.md` §3).
 

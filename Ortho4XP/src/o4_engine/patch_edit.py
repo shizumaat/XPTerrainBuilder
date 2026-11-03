@@ -11,7 +11,9 @@ THE RULES (§3.1-§3.3):
 * Operations: :func:`move`, :func:`set_position`, :func:`set_alt`,
   :func:`offset_alt`, :func:`delete_nodes`, :func:`insert_on_edge`,
   :func:`delete_ways` (#759: deleting a whole shape), :func:`add_shape`
-  (#1314: a new closed shape, "Insert shape" on the map).
+  (#1314: a new closed shape, "Insert shape" on the map),
+  :func:`rotate_ways` (#1746: Option-drag turns whole shapes about their
+  centre, ``patch_rotate``).
 * Topology (§3.2): a deleted node leaves every way.  After any operation,
   consecutive duplicate refs collapse (cyclically on a closed way, whose
   ``refs`` repeat the first node last); a closed way left with fewer than 3
@@ -40,11 +42,13 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from o4_engine import patch_rotate as _rotate
 from o4_engine import patch_slice as _slice
 
 __all__ = ["Node", "Way", "PatchDoc", "move", "set_position", "set_alt",
            "offset_alt", "delete_nodes", "delete_ways", "insert_on_edge", "merge_nodes",
-           "slice_shape", "add_shape", "slice_way", "next_node_id", "next_way_id", "apply_op"]
+           "slice_shape", "add_shape", "rotate_ways", "slice_way", "next_node_id", "next_way_id",
+           "apply_op"]
 
 
 #: One node: ``(id, lat, lon, alt or None)`` — the §2 wire shape.
@@ -389,11 +393,29 @@ def add_shape(doc: PatchDoc, corners: _t.Sequence[_t.Sequence],
     return _dc.replace(doc, nodes=nodes, ways=doc.ways + (way,))
 
 
+def rotate_ways(doc: PatchDoc, way_ids: _t.Iterable[int], angle_deg: float) -> PatchDoc:
+    """Turn every node of the ways by ``angle_deg`` (counter-clockwise,
+    north up) about their :func:`patch_rotate.centre`.  Elevations are
+    kept; never merges."""
+    wanted = {int(w) for w in way_ids}
+    ways = [w for w in doc.ways if w.id in wanted]
+    missing = wanted - {w.id for w in ways}
+    if missing:
+        raise KeyError(f"way {min(missing)} is not in the patch")
+    pivot = _rotate.centre(doc.nodes, [w.refs for w in ways])
+    if pivot is None:
+        return doc
+    ids = dict.fromkeys(r for w in ways for r in w.refs if r in doc.nodes)
+    angle = float(angle_deg)
+    return _place(doc, {i: _rotate.rotate_point(doc.nodes[i][1], doc.nodes[i][2], pivot, angle)
+                        for i in ids})
+
+
 _OPS: dict[str, _t.Callable[..., PatchDoc]] = {
     "move": move, "set_position": set_position, "set_alt": set_alt,
     "offset_alt": offset_alt, "delete_nodes": delete_nodes, "delete_ways": delete_ways,
     "insert_on_edge": insert_on_edge, "merge_nodes": merge_nodes,
-    "slice_shape": slice_shape, "add_shape": add_shape,
+    "slice_shape": slice_shape, "add_shape": add_shape, "rotate_ways": rotate_ways,
 }
 
 

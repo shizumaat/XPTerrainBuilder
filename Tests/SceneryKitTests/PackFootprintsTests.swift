@@ -55,6 +55,35 @@ struct PackFootprintsTests {
         #expect(PackFootprints.fileLabel(nil, fallback: "facade") == "facade")
     }
 
+    /// #1702: a numbered placement carries the object the inspector asks
+    /// about (its DSF row and its model's height range); the inspector's
+    /// `object_seat` answer decodes.
+    @Test func numberedPlacementsCarryTheirObject() throws {
+        #expect(PackFootprints.labelled(try objects(heading: 0)).allSatisfy { $0.object == nil })
+        let json = """
+        {"models": [{"key": "m.obj", "plan_hull_f32_b64": "\(planB64)", "y_min": -0.5, "y_max": 12.25}],
+         "placements": [{"model": "m.obj", "lat": 45.0, "lon": -122.0, "heading_deg": 0, "agl_m": 2,
+                         "index": 41}],
+         "facades": [], "missing": []}
+        """
+        let answer = try JSONDecoder().decode(O4PackObjects.self, from: Data(json.utf8))
+        let object = try #require(PackFootprints.labelled(answer).first?.object)
+        #expect(object == PackObjectRef(index: 41, model: "m.obj", lat: 45.0, lon: -122.0, aglM: 2,
+                                        yMin: -0.5, yMax: 12.25))
+        let seat = try JSONDecoder().decode(O4ObjectSeat.self, from: Data("""
+        {"seat": "split", "bodies": 2, "pending": false, "zero_m": 99.5, "zero_max_m": 104.0,
+         "ground_m": null, "height_m": 6.5, "bottom_m": 99.0, "top_m": 110.0,
+         "why": "Cut into 2 bodies", "lines": ["Height 6.5 m", "Top 110.0 m MSL"], "index": 41,
+         "plan": "o4_v2_placement_ZZZZ.json"}
+        """.utf8))
+        #expect(seat.topM == 110.0 && seat.lines.count == 2 && seat.plan != nil)
+    }
+
+    private var planB64: String {
+        let v: [Float] = [0, 0, 10, 0, 10, -4, 0, -4]
+        return v.withUnsafeBufferPointer { Data(buffer: $0) }.base64EncodedString()
+    }
+
     @Test func headingZeroKeepsTheAuthoredPlan() throws {
         let corners = PackFootprints.outlines(try objects(heading: 0))[0].map(metres)
         for expected in [(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0)] {
@@ -73,10 +102,17 @@ struct PackFootprintsTests {
         }
         let big = O4LatLonBox(minLat: 44.9, minLon: -122.1, maxLat: 45.1, maxLon: -121.9)
         let inner = O4LatLonBox(minLat: 44.95, minLon: -122.05, maxLat: 45.05, maxLon: -121.95)
-        // the 3D window and the map ask at once; the map's box lies inside
-        async let window = store.objects(tile: "+45-123", icao: "zzzz", box: big, fetch: fetch)
-        async let map = store.objects(tile: "+45-123", icao: "ZZZZ", box: inner, fetch: fetch)
-        let (a, b) = try await (window, map)
+        // the 3D window asks, and the map asks while that request is still
+        // pending; the map's box lies inside. (Two `async let`s raced: when
+        // the map's inner box registered first, the window's bigger one was
+        // a second request, and every count below read one high.)
+        let window = Task { @MainActor in
+            try await store.objects(tile: "+45-123", icao: "zzzz", box: big, fetch: fetch)
+        }
+        var spins = 0
+        while await calls.read() == 0 && spins < 10_000 { spins += 1; await Task.yield() }
+        let b = try await store.objects(tile: "+45-123", icao: "ZZZZ", box: inner, fetch: fetch)
+        let a = try await window.value
         #expect(a == b)
         #expect(await calls.read() == 1)
         // answered: asked again, still one request; another airport is a new one

@@ -64,6 +64,16 @@ def chosen_encoder(environ=None) -> str:
     return "inproc"
 
 
+def encoder_log_line(environ=None) -> str:
+    """The once-per-tile-build line naming the DDS encoder in use (#847)."""
+    if chosen_encoder(environ) == "inproc":
+        import ispc_texcomp
+
+        version = getattr(ispc_texcomp, "__version__", "?")
+        return f"DDS encoder: inproc (ispc_texcomp {version})"
+    return "DDS encoder: tool (ispc_texcomp unavailable)"
+
+
 def as_rgba(image: np.ndarray) -> np.ndarray:
     """Return a C-contiguous (h, w, 4) uint8 view/copy; an RGB input gets an opaque alpha."""
     if image.dtype != np.uint8 or image.ndim != 3 or image.shape[2] not in (3, 4):

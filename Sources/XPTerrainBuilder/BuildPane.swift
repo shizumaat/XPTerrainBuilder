@@ -20,6 +20,7 @@ struct BuildPane: View {
     @State private var customAirportPacks: [String] = []
     /// The engine's Airports card for the selected tiles (#818).
     @State private var airportCard: O4BuildAirports?
+    @State private var libraryMatches: O4PatchLibraryMatches?
     @State private var airportCardLoading = false
     @State private var airportCardError: String?
     /// The Build box's plumbing toggles, collapsed by default (#818).
@@ -51,6 +52,9 @@ struct BuildPane: View {
     /// The active tile's customized settings (#1350), from the engine.
     @State private var customizations: [O4TileCustomization] = []
     @State private var textureCheck: O4TileTextureCheck?
+    @State private var imageryFreshness: O4ImageryFreshness?
+    /// The active tile's scenery order (#1729), from the engine.
+    @State private var meshOrder: O4TileMeshOrder?
     @Environment(\.openSettings) private var openSettings
 
     /// The tile pane's customized-settings words; the Qt pane uses the
@@ -77,6 +81,12 @@ struct BuildPane: View {
             } else {
                 RunListLayout {
                     VStack(alignment: .leading, spacing: 12) {
+                        // Slow steps (#1351): non-modal, the build goes on.
+                        ForEach(buildModel.slowSteps) { step in
+                            SlowStepBanner(step: step) { choice in
+                                buildModel.answerSlowStep(step, choice: choice)
+                            }
+                        }
                         box("Selection") { selectionBox }
                         box("Build") { buildBox }
                         PatchInspector(model: buildModel.patchEdit)
@@ -113,6 +123,21 @@ struct BuildPane: View {
                 return await buildModel.tileTextureCheck(for: coord)
             },
             check: $textureCheck))
+        .modifier(TileImageryFreshnessTask(
+            key: buildModel.imageryFreshnessKey(for: buildModel.activeTile),
+            load: { [buildModel] in
+                guard let coord = buildModel.activeTile else { return nil }
+                return await buildModel.imageryFreshness(for: coord)
+            },
+            freshness: $imageryFreshness))
+        .modifier(TileMeshOrderTask(
+            key: buildModel.tileMeshOrderKey(for: buildModel.activeTile,
+                                             packs: controller.installationPacks.count),
+            load: { [buildModel] in
+                guard let coord = buildModel.activeTile else { return nil }
+                return await buildModel.tileMeshOrder(for: coord)
+            },
+            order: $meshOrder))
         .task(id: customizationsKey) {
             guard let coord = buildModel.activeTile else {
                 customizations = []
@@ -223,10 +248,20 @@ struct BuildPane: View {
                 TileMissingTexturesRow(check: textureCheck) {
                     buildModel.rebuildWithItsImagery(active)
                 }
+                TileMeshOrderRow(order: $meshOrder) { action, pack in
+                    await buildModel.applyMeshOrder(for: active, action: action, pack: pack)
+                }
             }
             detailRow(O4Glossary.term("detail"), zlText(info))
             detailRow("Ground shaped", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))
+            if info != nil {
+                // Does the source still serve this imagery (#1666; the Qt
+                // pane: the same row)?
+                TileImageryFreshnessRow(freshness: imageryFreshness) {
+                    await buildModel.updateImagery(active)
+                }
+            }
             if let info {
                 // Who built it (#1226, owner Q95): from the build record,
                 // else the tile's DSF.
@@ -451,7 +486,8 @@ struct BuildPane: View {
                 .lineLimit(2)
             BuildAirportsCard(card: airportCard, isLoading: airportCardLoading,
                               error: airportCardError,
-                              fallbackPacks: customAirportPacks)
+                              fallbackPacks: customAirportPacks,
+                              libraryMatches: libraryMatches)
             Picker("Imagery", selection: providerBinding) {
                 Text("Tile / global default").tag("")
                 // The engine's one list (#1345), the map picker's order;
@@ -534,6 +570,7 @@ struct BuildPane: View {
         guard !tiles.isEmpty else {
             airportCard = nil
             airportCardError = nil
+            libraryMatches = nil
             return
         }
         airportCardLoading = true
@@ -553,6 +590,7 @@ struct BuildPane: View {
             airportCardError = nil
         }
         airportCardLoading = false
+        libraryMatches = await buildModel.patchLibraryMatches(for: tiles)
     }
 
     // MARK: - Imagery-source conflict (active tile)

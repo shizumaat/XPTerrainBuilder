@@ -23,7 +23,17 @@ import O4_Imagery_Utils as IMG
 from O4_DDS_Decode import decode_blocks, decode_dds
 from O4_DDS_Refine import refine_blocks
 
-needs_ispc = pytest.mark.skipif(not encode.ispc_available(), reason="needs ispc_texcomp")
+# CI must carry the wheel (#847): there a missing ``ispc_texcomp`` FAILS the ispc tests
+# (they run, unskipped, and test_ispc_wheel_present_on_ci names the cause); locally they skip.
+ON_CI = bool(os.environ.get("CI"))
+if ON_CI:
+    def needs_ispc(fn):
+        return fn
+else:
+    needs_ispc = pytest.mark.skipif(not encode.ispc_available(), reason="needs ispc_texcomp")
+
+NATURAL_JPG = os.path.join(
+    os.path.dirname(__file__), os.pardir, "Utils", "Earth", "Earth2_ZL6_4_3.jpg")
 
 # 128-byte header of the Ortho4XP reference texture 5952_8416_BI14.dds (DXT1, 4096², 13 mips).
 REF_DXT1_HEADER = (
@@ -122,6 +132,12 @@ def test_header_errors() -> None:
         dds.split_levels(dds.build_header(4, 4, "bc1", 1) + b"\0" * 4)
 
 
+def test_ispc_wheel_present_on_ci() -> None:
+    if not ON_CI:
+        pytest.skip("only enforced on CI")
+    assert encode.ispc_available(), "ispc_texcomp is not importable on CI (#847)"
+
+
 # -- the encoder ---------------------------------------------------------------------------
 
 @needs_ispc
@@ -194,6 +210,19 @@ def test_force_four_colour_mode() -> None:
     alpha = bytes(8)  # BC3: the colour block is the second half
     assert encode.force_four_colour_mode(alpha + inverted, "bc3") == alpha + good
     assert encode.count_three_colour_blocks(encode.encode_level(_gradient(), "bc1"), "bc1") == (0, 0)
+
+
+@needs_ispc
+def test_natural_image_crop_has_no_three_colour_blocks() -> None:
+    from PIL import Image
+
+    with Image.open(NATURAL_JPG) as im:
+        crop = np.asarray(im.convert("RGB").crop((0, 0, 256, 256)))
+    data = encode.encode_dds(crop, "bc1")
+    _, levels = dds.split_levels(data)
+    for level in levels:
+        assert encode.count_three_colour_blocks(level, "bc1") == (0, 0)
+    assert _psnr(decode_dds(data)[0][:, :, :3], crop) > 30
 
 
 @needs_ispc
@@ -303,3 +332,10 @@ def test_the_convert_site_encodes_an_image_file_in_its_own_thread(tmp_path,
     assert encode.encode_texture(str(src), "bc1", out) == _size(64, 64, "bc1")
     assert dds.is_whole(out)
     assert not hasattr(encode, "shutdown_pool")
+
+
+def test_encoder_log_line_names_the_choice(monkeypatch) -> None:
+    tool_line = "DDS encoder: tool (ispc_texcomp unavailable)"
+    assert encode.encoder_log_line({"O4_DDS_ENCODER": "tool"}) == tool_line
+    monkeypatch.setattr(encode, "ispc_available", lambda: False)
+    assert encode.encoder_log_line({}).startswith("DDS encoder: tool")

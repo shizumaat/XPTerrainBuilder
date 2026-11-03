@@ -12,6 +12,9 @@ import SceneryKit
 //                          mouse-up while snapped)
 //   drag on open map       pan (every map view)
 //   click on a "+"         insert a node
+//   ⌥-drag on a node       rotate its shape about the centre (#1746,
+//                          `PatchRotateGesture.swift`)
+//   click on a pack object select it: the object inspector (#1702)
 //   right / two-finger click   the context menu (never a pan)
 //   scroll / pinch         zoom
 //
@@ -38,6 +41,7 @@ extension PatchShapePick.Pointer {
         case .openHand: return .openHand
         case .closedHand: return .closedHand
         case .pointingHand: return .pointingHand
+        case .rotate: return .patchRotate
         }
     }
 }
@@ -58,6 +62,8 @@ final class PatchDragState: ObservableObject {
         case pan(anchor: MapCamera)
         case nodes(grabbed: Int64, ids: [Int64])
         case box
+        /// ⌥-drag on a node (#1746): the shapes turning and their nodes.
+        case rotate(ways: Set<Int64>, ids: [Int64])
     }
 
     @Published var kind: Kind = .idle
@@ -70,6 +76,12 @@ final class PatchDragState: ObservableObject {
     var pressedHandle: PatchEditScreen.Handle?
     /// The line the press landed on (no node, no handle there).
     var pressedEdge: PatchEdgeKey?
+    /// A rotation's centre and its angle so far (degrees, counter-clockwise).
+    var pivot: (lat: Double, lon: Double)?
+    var angle = 0.0
+    /// The last hovered point, to refresh the cursor when ⌥ changes.
+    var hoverPoint: CGPoint?
+    let option = PatchOptionKey()
 }
 
 /// The document as seen through the map camera: screen ↔ ground, and the
@@ -195,6 +207,9 @@ struct PatchEditLayer: View {
                 .onChanged { changed($0, size: proxy.size) }
                 .onEnded { ended($0, size: proxy.size) })
             .onContinuousHover { phase in hover(phase, size: proxy.size) }
+            .onReceive(drag.option.$held.dropFirst()) { _ in
+                if let p = drag.hoverPoint { hover(.active(p), size: proxy.size) }
+            }
         }
     }
 
@@ -236,6 +251,16 @@ struct PatchEditLayer: View {
             drag.current = value.location
         case .box:
             drag.current = value.location
+        case .rotate(_, let ids):
+            guard moved || model.dragSkip != nil, let pivot = drag.pivot else { return }
+            if model.dragSkip == nil {
+                let doc = screen.doc
+                model.dragSkip = PatchDragSkip(ways: Set(ids.flatMap { doc.wayIndicesByNode[$0] ?? [] }),
+                                               nodes: Set(ids))
+            }
+            drag.angle = PatchDragState.rotation(from: drag.start, to: value.location,
+                                                 about: screen.point(lat: pivot.lat, lon: pivot.lon))
+            drag.current = value.location
         }
     }
 
@@ -256,6 +281,16 @@ struct PatchEditLayer: View {
         drag.current = p
         drag.hoverEdge = nil
         if NSEvent.modifierFlags.contains(.shift) { drag.kind = .box; return }
+        if NSEvent.modifierFlags.contains(.option), let node = screen.nodeHit(at: p, grid: grid) {
+            let ways = PatchShapePick.rotationShapes(node: node, selected: model.shapeSelection, in: screen.doc)
+            if let pivot = screen.doc.rotationCentre(of: ways) {
+                model.selectShapes(ways)
+                drag.pivot = pivot
+                drag.kind = .rotate(ways: ways, ids: model.dragNodes)
+                PatchShapePick.Pointer.rotate.cursor.set()
+                return
+            }
+        }
         let (target, edge, handle) = hit(at: p, screen: screen, grid: grid)
         switch target {
         case .node(let id):
@@ -309,8 +344,13 @@ struct PatchEditLayer: View {
             } else if let edge = drag.pressedEdge {
                 model.clickEdge(edge.a, edge.b, x: drag.start.x, y: drag.start.y, toggle: false)
             } else {
+                // open map: a pack object under the click, else nothing
                 model.clearSelection()
+                let c = screen.coordinate(drag.start)
+                model.build?.objectInspector.select(atLat: c.lat, lon: c.lon)
             }
+        case .rotate(let ways, _):
+            if model.dragSkip != nil { model.rotateShapes(ways, degrees: drag.angle) }
         case .pan, .idle:
             break
         }
@@ -323,6 +363,8 @@ struct PatchEditLayer: View {
         drag.pressedEdge = nil
         drag.dlat = 0
         drag.dlon = 0
+        drag.pivot = nil
+        drag.angle = 0
         if model.dragSkip != nil { model.dragSkip = nil }
     }
 
@@ -341,14 +383,16 @@ struct PatchEditLayer: View {
     private func hover(_ phase: HoverPhase, size: CGSize) {
         guard drag.kind == .idle else { return }
         var edge: PatchEdgeKey?
+        drag.hoverPoint = nil
         if case .active(let p) = phase {
+            drag.hoverPoint = p
             var target: PatchShapePick.Target?
             if let (screen, grid) = screen(size) {
                 let found = hit(at: p, screen: screen, grid: grid) // no edge over a node
                 target = found.target
                 edge = found.edge
             }
-            PatchShapePick.pointer(over: target).cursor.set()
+            PatchShapePick.pointer(over: target, rotate: drag.option.held).cursor.set()
         }
         if drag.hoverEdge != edge { drag.hoverEdge = edge }
     }
@@ -362,8 +406,15 @@ struct PatchEditLayer: View {
         let doc = screen.doc
         var moving: (grabbed: Int64, ids: Set<Int64>)?
         if case .nodes(let grabbed, let ids) = drag.kind, skip != nil { moving = (grabbed, Set(ids)) }
+        var turning: (ids: Set<Int64>, pivot: (lat: Double, lon: Double))?
+        if case .rotate(_, let ids) = drag.kind, skip != nil, let pivot = drag.pivot { turning = (Set(ids), pivot) }
+        let angle = drag.angle
         func at(_ id: Int64) -> CGPoint? {
             guard let n = doc.nodes[id] else { return nil }
+            if let turning, turning.ids.contains(id) {
+                let r = PatchRotate.rotate(lat: n.lat, lon: n.lon, about: turning.pivot, degrees: angle)
+                return screen.point(lat: r.lat, lon: r.lon)
+            }
             guard let moving, moving.ids.contains(id) else { return screen.point(n) }
             if id == moving.grabbed, let t = drag.snapTarget, let target = doc.nodes[t] { return screen.point(target) }
             return screen.point(lat: n.lat + drag.dlat, lon: n.lon + drag.dlon)
@@ -416,6 +467,14 @@ struct PatchEditLayer: View {
             let p = screen.point(target)
             context.stroke(Path(ellipseIn: CGRect(x: p.x - 10, y: p.y - 10, width: 20, height: 20)),
                            with: .color(Self.selectionColor), lineWidth: 2)
+        }
+        // The rotation's centre.
+        if let turning {
+            let c = screen.point(lat: turning.pivot.lat, lon: turning.pivot.lon)
+            var cross = Path()
+            cross.move(to: CGPoint(x: c.x - 6, y: c.y)); cross.addLine(to: CGPoint(x: c.x + 6, y: c.y))
+            cross.move(to: CGPoint(x: c.x, y: c.y - 6)); cross.addLine(to: CGPoint(x: c.x, y: c.y + 6))
+            context.stroke(cross, with: .color(Self.selectionColor), lineWidth: 2)
         }
         // "+" handles (not during a drag).
         if drag.kind == .idle || drag.kind == .pending {

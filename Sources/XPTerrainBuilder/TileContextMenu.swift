@@ -6,7 +6,8 @@ import SceneryKit
 /// none yet), after the patch layer's copy items when there are any
 /// (#1281, `PatchCopy.swift`: "Copy coordinates" anywhere, #1314) and its
 /// actions (`extra`: "Set elevation…" on selected shapes, #1357; "Insert
-/// shape" at the click, #1314, `PatchInsertShape.swift`). In patch Edit mode the menu
+/// shape" and "Insert tunnel ramp" at the click, #1314 / #1745,
+/// `PatchInsertShape.swift`). In patch Edit mode the menu
 /// starts with Slice (#1318; Qt `PatchEditor.add_to_menu`), enabled only
 /// for two nodes of one shape that are not neighbours. The menu's items
 /// target this object, so the caller keeps it alive while the menu is open.
@@ -16,6 +17,8 @@ final class TileContextMenu: NSObject {
     static let sliceTitle = "Slice"
     /// The patch editor's "Insert shape" (#1314; Qt `INSERT_SHAPE_TITLE`).
     static let insertShapeTitle = "Insert shape"
+    /// "Insert tunnel ramp" (#1745; Qt `INSERT_RAMP_TITLE`).
+    static let insertTunnelRampTitle = "Insert tunnel ramp"
 
     let folder: URL?
     let copies: [PatchCopyItem]

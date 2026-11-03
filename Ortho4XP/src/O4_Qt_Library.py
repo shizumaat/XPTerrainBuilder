@@ -11,15 +11,17 @@ another tool is read-only: it can be linked into X-Plane or out of it,
 never rebuilt or deleted.  Deleting and freeing space ask first.
 "Export library bundle…" and "Import library bundle…" carry a built tile
 to another installation (#1699 phase 1, ``tile_bundle``; the Mac app's
-Library has the same two buttons).
+Library has the same two buttons).  The "Patch library" box and "Publish
+patch…" are the shared patch library (#1699 phase 2,
+``O4_Qt_Patch_Library``; the Mac app's ``PatchLibraryView``).
 """
 
 import threading
 import time
 
+import O4_Qt_Patch_Library as PATCHLIB
 import O4_Scenery_Links as LINKS
 from o4_engine import library as LIB
-from tile_bundle.export import BUNDLE_SUFFIX
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -37,6 +39,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
 )
+from tile_bundle.export import BUNDLE_SUFFIX
 
 #: (header, row key) of the table's columns, left to right — the Mac
 #: app's LibraryView shows the same columns in the same order.
@@ -53,6 +56,23 @@ COLUMNS = (
 )
 SIZE_COLUMN = 1
 IN_XPLANE_COLUMN = 7
+
+
+def emit_from_thread(work, signal, name):
+    """``work()`` on a daemon thread named ``name``; its result (or the
+    exception, shown and never raised on a thread) is emitted on
+    ``signal`` (Settings > Storage uses it too).  A window closed before
+    the work finished drops the result."""
+    def run():
+        try:
+            result = work()
+        except Exception as error:
+            result = error
+        try:
+            signal.emit(result)
+        except RuntimeError:                # its widget is gone
+            pass
+    threading.Thread(target=run, daemon=True, name=name).start()
 
 
 def fmt_size(nbytes):
@@ -169,14 +189,21 @@ class LibraryDialog(QDialog):
             "Import a tile bundle: the tile's next build needs only your "
             "imagery")
         self.import_btn.clicked.connect(self._import_bundle)
+        self.publish_btn = QPushButton("Publish patch…")
+        self.publish_btn.setToolTip(
+            "Share one airport's solved patch of this tile in the patch library")
+        self.publish_btn.clicked.connect(self._publish_patch)
         for button in (self.install_btn, self.uninstall_btn, self.rebuild_btn,
                        self.delete_btn, self.restore_btn, self.export_btn,
-                       self.import_btn):
+                       self.import_btn, self.publish_btn):
             actions.addWidget(button)
         actions.addStretch(1)
         self.status_label = QLabel("")
         actions.addWidget(self.status_label)
         layout.addLayout(actions)
+
+        self.patch_box = PATCHLIB.PatchLibraryBox(working_dir, building)
+        layout.addWidget(self.patch_box)
 
         disk = QGroupBox("Disk")
         self.disk_grid = QGridLayout(disk)
@@ -204,21 +231,14 @@ class LibraryDialog(QDialog):
 
     # ── loading ──────────────────────────────────────────────────────────
     def _run(self, work, signal):
-        """``work()`` on a daemon thread; its result (or error sentence)
-        is emitted on ``signal``."""
-        def run():
-            try:
-                result = work()
-            except Exception as error:      # shown, never raised on a thread
-                result = error
-            signal.emit(result)
-        threading.Thread(target=run, daemon=True, name="o4-qt-library").start()
+        emit_from_thread(work, signal, "o4-qt-library")
 
     def refresh(self):
         self.status_label.setText("Reading tiles…")
         self.refresh_btn.setEnabled(False)
         self._run(lambda: LIB.library_scan(self.working_dir, self.scenery_dir),
                   self.loaded)
+        self.patch_box.check()
 
     def _on_loaded(self, result):
         self.refresh_btn.setEnabled(True)
@@ -292,6 +312,8 @@ class LibraryDialog(QDialog):
             not busy and any(r["packs_modified"] for r in rows))
         self.export_btn.setEnabled(len(rows) == 1 and writable and not busy)
         self.import_btn.setEnabled(not busy)
+        self.publish_btn.setEnabled(len(rows) == 1 and writable and not busy
+                                    and bool(rows[0]["airports"]))
         for button in self.free_buttons.values():
             button.setEnabled(not busy)
 
@@ -396,6 +418,16 @@ class LibraryDialog(QDialog):
         self._run(lambda: "Imported %s. Build it to add your imagery." % (
             LIB.library_import_bundle(path, self.working_dir)["tile"]),
             self.done)
+
+    def _publish_patch(self):
+        rows = self.selected_rows()
+        if len(rows) == 1 and not rows[0]["read_only"] and rows[0]["airports"]:
+            self.publish_dialog(rows[0]).exec()
+
+    def publish_dialog(self, row):
+        """The Publish patch dialog for ``row`` (a seam: tests open it
+        without a modal)."""
+        return PATCHLIB.PublishPatchDialog(self, row, self.working_dir)
 
     def choose_folder(self, title):
         """The folder to export into (a seam: tests answer without a modal)."""

@@ -31,6 +31,7 @@ the commit that adds it.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 from typing import Mapping
 
@@ -39,6 +40,8 @@ __all__ = [
     "SETTINGS_OUTSIDE_CONFIG",
     "digested_environment",
     "unclassified",
+    "CACHE_LOCATIONS",
+    "without_cache_locations",
 ]
 
 #: Never digested.  ``name -> why it cannot change an emitted patch``.
@@ -210,6 +213,25 @@ def digested_environment(environ: Mapping[str, str] | None = None
     environ = os.environ if environ is None else environ
     return {name: environ[name] for name in environ
             if name.startswith("O4_") and name not in RUN_ENVIRONMENT}
+
+
+#: The two settings that say WHERE a cache the build reads is kept, not
+#: what it holds (#346; the harness sets them, the app never does).  A
+#: digest that must not name the machine — a tile bundle's key, a library
+#: entry's law (#1699) — is taken without them
+#: (:func:`without_cache_locations`); the patch stamps keep them.
+CACHE_LOCATIONS = ("O4_DSF_CACHE_DIR", "O4_AIRPORT_MOD_CACHE_DIR")
+
+
+@contextlib.contextmanager
+def without_cache_locations():
+    """:data:`CACHE_LOCATIONS` out of the environment for the block."""
+    saved = {name: os.environ.pop(name) for name in CACHE_LOCATIONS
+             if name in os.environ}
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
 
 
 def unclassified(config_gates, environ: Mapping[str, str] | None = None

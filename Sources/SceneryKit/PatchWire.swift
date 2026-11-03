@@ -360,7 +360,10 @@ public struct O4CursorElevation: Decodable, Equatable, Sendable {
 /// the engine — the airport whose extent holds the click, the patch the
 /// build applies for it (nil when it has none) and the square's corners
 /// `[lat, lon, alt]` at the elevation under them. `pending` (and nothing
-/// else) while an elevation source loads: ask again.
+/// else) while an elevation source loads: ask again. From protocol 1.24
+/// (#1745) the plan also names its `kind` (`square` / `tunnel_ramp`) and
+/// the `tags` the new shape carries; a tunnel ramp's `lengthM` / `widthM`
+/// / `depthM` / `grade` are the tunnel law's.
 public struct O4PatchInsertShape: Decodable, Equatable, Sendable {
     public let pending: Bool
     public let tile: String?
@@ -369,9 +372,16 @@ public struct O4PatchInsertShape: Decodable, Equatable, Sendable {
     public let source: String?
     public let sideM: Double?
     public let corners: [[Double]]?
+    public let kind: String?
+    public let tags: [String: String]?
+    public let lengthM: Double?
+    public let widthM: Double?
+    public let depthM: Double?
+    public let grade: Double?
 
     private enum CodingKeys: String, CodingKey {
-        case pending, tile, icao, path, source, sideM = "side_m", corners
+        case pending, tile, icao, path, source, sideM = "side_m", corners, kind, tags,
+             lengthM = "length_m", widthM = "width_m", depthM = "depth_m", grade
     }
 }
 
@@ -393,6 +403,12 @@ extension O4ProtocolVersion {
     /// `patch_insert_shape` / `patch_add_shape` exist from protocol 1.20.
     public static func supportsInsertShape(_ version: String) -> Bool {
         isAtLeast(version, 1, 20)
+    }
+
+    /// `patch_insert_shape(kind: "tunnel_ramp")` and `patch_add_shape`'s
+    /// `tags` exist from protocol 1.24 (#1745).
+    public static func supportsInsertTunnelRamp(_ version: String) -> Bool {
+        isAtLeast(version, 1, 24)
     }
 }
 
@@ -460,10 +476,14 @@ public struct O4PackObjects: Decodable, Equatable, Sendable {
         /// The plan outline, authored (x, z) pairs — a footprints-only
         /// answer's model carries this instead of the massing (#797).
         public let planHull: [Float]
+        /// The massing's authored height range, metres from the model's
+        /// zero (#1702); nil from an older engine.
+        public let yMin: Double?
+        public let yMax: Double?
 
         private enum CodingKeys: String, CodingKey {
             case key, verticesF32B64 = "vertices_f32_b64", trianglesU32B64 = "triangles_u32_b64"
-            case planHullF32B64 = "plan_hull_f32_b64"
+            case planHullF32B64 = "plan_hull_f32_b64", yMin = "y_min", yMax = "y_max"
         }
 
         public init(from decoder: Decoder) throws {
@@ -475,6 +495,8 @@ public struct O4PackObjects: Decodable, Equatable, Sendable {
                 .map { try O4Binary.uint32(base64: $0) } ?? []
             planHull = try c.decodeIfPresent(String.self, forKey: .planHullF32B64)
                 .map { try O4Binary.float32(base64: $0) } ?? []
+            yMin = try c.decodeIfPresent(Double.self, forKey: .yMin)
+            yMax = try c.decodeIfPresent(Double.self, forKey: .yMax)
         }
     }
 
@@ -484,9 +506,12 @@ public struct O4PackObjects: Decodable, Equatable, Sendable {
         public let lon: Double
         public let headingDeg: Double
         public let aglM: Double
+        /// The DSF row, the placement plan's key (#1702); nil from an
+        /// older engine.
+        public let index: Int?
 
         private enum CodingKeys: String, CodingKey {
-            case model, lat, lon, headingDeg = "heading_deg", aglM = "agl_m"
+            case model, lat, lon, headingDeg = "heading_deg", aglM = "agl_m", index
         }
 
         public init(from decoder: Decoder) throws {
@@ -496,6 +521,7 @@ public struct O4PackObjects: Decodable, Equatable, Sendable {
             lon = try c.decode(Double.self, forKey: .lon)
             headingDeg = try c.decode(Double.self, forKey: .headingDeg)
             aglM = try c.decode(Double.self, forKey: .aglM)
+            index = try c.decodeIfPresent(Int.self, forKey: .index)
         }
     }
 

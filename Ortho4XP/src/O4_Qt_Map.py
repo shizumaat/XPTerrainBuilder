@@ -27,6 +27,7 @@ import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
 import O4_Map_Overzoom as OVERZOOM
 import O4_Qt_Map_Labels as QTLABELS
+import O4_Qt_Rotate_Cursor as ROTATE
 import O4_Qt_Selection_Ring as RING
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Tile_Texture_Check as TEXCHECK
@@ -43,6 +44,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QCursor,
     QFont,
     QPainter,
     QPainterPath,
@@ -69,7 +71,8 @@ BASE_ZL = 3            # world base layer, always resident (max 64 tiles)
 #: A left or right press that moves less than this (Manhattan px) is a
 #: click; more, and a left drag pans (#1325).
 MAP_CLICK_SLOP_PX = 6
-#: The map cursors by ``O4_Qt_Patch_ShapePick.POINTERS`` name (#1325).
+#: The map cursors by ``O4_Qt_Patch_ShapePick.POINTERS`` name (#1325);
+#: "rotate" (#1746) is drawn (``O4_Qt_Rotate_Cursor``), not a stock shape.
 MAP_CURSORS = {"openHand": Qt.OpenHandCursor, "closedHand": Qt.ClosedHandCursor,
                "pointingHand": Qt.PointingHandCursor}
 FETCH_DEBOUNCE_MS = 250  # settle time before network fetches start
@@ -763,7 +766,11 @@ class MapView(QGraphicsView):
     # no drag opens the tile's menu and a right drag does nothing; scroll
     # and pinch zoom.  Layers (the patch editor) take the mouse first.
     def _set_pointer(self, name):
-        shape = MAP_CURSORS[name]
+        shape = MAP_CURSORS.get(name)
+        if shape is None:
+            if self.viewport().cursor().shape() != Qt.BitmapCursor:
+                self.viewport().setCursor(ROTATE.rotate_cursor())
+            return
         if self.viewport().cursor().shape() != shape:
             self.viewport().setCursor(shape)
 
@@ -779,6 +786,18 @@ class MapView(QGraphicsView):
                 self._set_pointer(name)
                 return
         self._set_pointer("openHand")
+
+    def keyPressEvent(self, event):
+        # Alt (Option) turns the cursor over a patch node into the rotate
+        # arrow without the pointer moving (#1746).
+        if event.key() == Qt.Key_Alt:
+            self._update_pointer(QPointF(self.viewport().mapFromGlobal(QCursor.pos())))
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Alt:
+            self._update_pointer(QPointF(self.viewport().mapFromGlobal(QCursor.pos())))
+        super().keyReleaseEvent(event)
 
     def _start_pan(self, pos):
         self._panning = True

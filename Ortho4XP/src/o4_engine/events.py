@@ -131,7 +131,39 @@ from typing import Any, Optional
 # and ``library_import_bundle`` — a built tile carried to another
 # installation as a tile bundle (``tile_bundle``), completed through
 # LibraryReady like the other Library commands.
-PROTOCOL_VERSION = "1.23"
+# 1.24 (2026-11-03, additive, #1745): ``patch_insert_shape`` takes
+# ``kind`` ("square", the default, or "tunnel_ramp": the map's "Insert
+# tunnel ramp", a straight ramp sized from the tunnel law) and answers the
+# shape's ``kind`` and ``tags``; ``patch_add_shape`` takes ``tags``.
+# 1.25 (2026-11-02, additive, #1702): ``object_seat`` — the patch editor's
+# object inspector: one placed pack object's seat from the last build's
+# placement plan (its height, top and bottom in m MSL, and why); the
+# ``pack_objects`` placements carry ``index`` (the DSF row) and its models
+# ``y_min`` / ``y_max``.  An older engine refuses it and the app shows the
+# object's name only.
+# 1.26 (2026-11-02, additive, #1351): SlowStep — one step of one tile ran
+# past its alert threshold: what it is doing, why it is slow and an ETA,
+# with the options the step supports; the ``slow_step_choice`` command
+# answers it ("continue" / "coarser" / "cancel").  An older front end
+# drops the event; an older engine refuses the command.
+# 1.27 (2026-11-02, additive, #1666): ``imagery_freshness`` — does the
+# provider still serve the imagery a built tile was made from (the tile
+# info's "Imagery check" row), completed through ImageryFreshnessReady;
+# and ``imagery_freshness_discard``, the "Update Imagery" action's removal
+# of the tile's cached orthophotos before the rebuild.
+# 1.28 (2026-11-02, additive, #1729): ``tile_mesh_order`` — the packs
+# above a tile in X-Plane's scenery order that ship a base mesh for it
+# (``hidden_by``) and the local meshes below it the tile hides
+# (``hides``); ``apply_mesh_order`` moves the tile above / below a pack or
+# disables it in scenery_packs.ini.  A built tile's ``BuildDone.warnings``
+# name the same (codes ``scenery_hidden_by_mesh`` / ``scenery_hides_mesh``).
+# 1.29 (2026-11-02, additive, #1699 phase 2): the PATCH LIBRARY's airport
+# entries — ``library_check`` (the check when the app opens),
+# ``library_matches`` (the build box's match list), ``library_apply``,
+# ``library_ignore``, ``library_publish_preview``, ``library_publish`` and
+# the GitHub device sign-in (``library_signin_start`` / ``_poll``,
+# ``library_signout``), each completed through LibraryReady.
+PROTOCOL_VERSION = "1.29"
 
 
 @dataclass(frozen=True)
@@ -241,6 +273,38 @@ class StepProgress(EngineEvent):
     label: str = ""
     percent: float = 0.0
     indeterminate: bool = False
+    attempt: int = 0
+
+
+@dataclass(frozen=True)
+class SlowStep(EngineEvent):
+    """One step of one tile ran past its slow-step threshold (#1351).
+
+    The ENGINE writes every word (``o4_engine.slow_step``): ``title`` and
+    ``message`` (what the step is doing, why it is slow, the ETA at the
+    current rate) are shown verbatim, ``options`` are the answers the
+    step supports — ``"continue"``, ``"coarser"`` (only where the running
+    phase can finish on coarser data), ``"cancel"`` — with their button
+    words in ``option_labels``, in order.  A front end shows it
+    NON-MODALLY, replaces an open alert of the same tile and step with a
+    later event (the ETA refreshes), closes it on ``resolved`` (the step
+    ended or was answered), and answers with ``slow_step_choice``.
+    ``reason`` is the engine's short reason code; ``eta_seconds`` is
+    ``None`` while there is no estimate.  ``attempt``: as on ``TileState``.
+    """
+
+    lat: int = 0
+    lon: int = 0
+    step_key: str = ""
+    title: str = ""
+    message: str = ""
+    reason: str = ""
+    options: tuple = ()
+    option_labels: tuple = ()
+    elapsed_seconds: float = 0.0
+    expected_seconds: Optional[float] = None
+    eta_seconds: Optional[float] = None
+    resolved: bool = False
     attempt: int = 0
 
 
@@ -642,9 +706,10 @@ class PackObjectsReady(EngineEvent):
 class LibraryReady(EngineEvent):
     """The completion half of the Library commands (#824:
     ``library_scan``, ``cache_sizes``, ``free_cache``, ``library_delete``,
-    and #1699's ``library_export_bundle`` / ``library_import_bundle``,
-    ``o4_engine.library``): each replies ``{"status": "started"}`` and
-    does its work on a worker thread.
+    #1699's ``library_export_bundle`` / ``library_import_bundle``, and the
+    patch library's ``library_check`` … ``library_signout``,
+    ``o4_engine.library.PATCH_LIBRARY_COMMANDS``): each replies
+    ``{"status": "started"}`` and does its work on a worker thread.
 
     ``request`` is the ``id`` of the command it answers, ``command`` its
     name; ``result`` is the command's return value or ``None``, with
@@ -670,6 +735,27 @@ class PlanEstimateReady(EngineEvent):
     the estimate (``tiles``, ``total``, ``free_gb``, ``cache_free_gb``,
     ``verdict``, ``reason``; every figure a ``[lo, hi]`` range) or
     ``None``, with ``error`` the failure sentence.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
+    result: Any = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class ImageryFreshnessReady(EngineEvent):
+    """The completion half of the ``imagery_freshness`` command (protocol
+    1.27, #1666): whether a built tile's provider still serves the imagery
+    the tile was made from (``O4_Imagery_Freshness.tile_freshness``).
+
+    ``request`` is the ``id`` of the command it answers; ``result`` is
+    ``{"status", "label", "detail"}`` (``status`` one of ``up_to_date``,
+    ``newer``, ``unknown``, ``not_checked``; plus ``sampled``, ``changed``
+    and ``checked_at`` when samples were judged) or ``None``, with
+    ``error`` the failure sentence.
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).

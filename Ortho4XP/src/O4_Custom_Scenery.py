@@ -35,10 +35,13 @@ __all__ = [
     "PACK_KINDS",
     "disabled_pack_names",
     "iter_packs",
+    "pack_tiles",
+    "pack_kind",
     "scan_packs",
     "packs_covering",
     "pack_imagery",
     "parse_texture_stem",
+    "texture_stem_attributes",
     "imagery_from_file_names",
     "TEXTURE_STEM_RE",
 ]
@@ -125,13 +128,24 @@ def disabled_pack_names(scenery_dir: str) -> Set[str]:
 #: with an optional ``_suffix`` (the Mac app's ``TileTextureAudit``).  The
 #: two-digit ZL anchor lets a provider code that itself ends in digits
 #: ("USA_2" -> "…_USA_216") parse.
-TEXTURE_STEM_RE = re.compile(r"\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$")
+TEXTURE_STEM_RE = re.compile(r"(\d+)_(\d+)_(.+?)(\d{2})(_[A-Za-z_]+)?$")
 
 
 def parse_texture_stem(stem: str) -> Optional[Tuple[str, int]]:
     """``(provider, zl)`` of an Ortho4XP texture/terrain file stem, or None."""
     match = TEXTURE_STEM_RE.fullmatch(stem)
-    return (match.group(1), int(match.group(2))) if match else None
+    return (match.group(3), int(match.group(4))) if match else None
+
+
+def texture_stem_attributes(stem: str) -> Optional[Tuple[int, int, str, int, str]]:
+    """``(til_y_top, til_x_left, provider, zl, suffix)`` of a texture stem
+    (``suffix`` "" or e.g. "_airport_fade"), or None — the same parse as
+    :func:`parse_texture_stem`, with the grid position kept (#1666)."""
+    match = TEXTURE_STEM_RE.fullmatch(stem)
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)), match.group(3),
+            int(match.group(4)), match.group(5) or "")
 
 
 def imagery_from_file_names(names) -> Optional[Tuple[str, int]]:
@@ -185,7 +199,7 @@ def pack_imagery(content_root: str) -> Optional[Tuple[str, Optional[int]]]:
     return None
 
 
-def _pack_tiles(content_root: str) -> frozenset:
+def pack_tiles(content_root: str) -> frozenset:
     """(lat, lon) of every ``Earth nav data`` DSF the pack ships.
 
     The tree is two levels deep by X-Plane's own convention
@@ -316,6 +330,12 @@ def _classify(name: str, content_root: str, tiles: frozenset,
     return "mesh" if "mesh" in lower else "landmark"
 
 
+def pack_kind(name: str, content_root: str) -> str:
+    """One pack's kind (:data:`PACK_KINDS`), read the way a scan reads it."""
+    return _classify(name, content_root, pack_tiles(content_root),
+                     _pack_airports(content_root))
+
+
 def iter_packs(scenery_dir: str,
                exclude_roots: Sequence[str] = ()) -> Iterator[tuple]:
     """Yield ``(done, total, pack_or_None)`` for every Custom Scenery entry.
@@ -343,7 +363,7 @@ def iter_packs(scenery_dir: str,
                 and os.path.isdir(path)):
             content_root = os.path.realpath(path)
             if content_root not in excluded:
-                tiles = _pack_tiles(content_root)
+                tiles = pack_tiles(content_root)
                 airports = _pack_airports(content_root)
                 if tiles or airports:
                     kind = _classify(entry, content_root, tiles, airports)

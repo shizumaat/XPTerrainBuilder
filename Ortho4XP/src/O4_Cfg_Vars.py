@@ -110,6 +110,40 @@ cfg_app_vars = {
         "default": 180.0,
         "hint": "How old, in days, a stored regional extract may grow before background maintenance re-downloads it at application start. OpenStreetMap edits reach scenery slowly, so the default trades roughly half a year of staleness for far fewer multi-hundred-megabyte downloads.",
     },
+    # Settings > Storage (#1724): the automatic cleanup, off by default.
+    "storage_auto_clean_days": {
+        "type": int,
+        "default": 0,
+        "values": (0, 30, 60, 90, 180, 365),
+        "value_labels": {
+            0: "Never",
+            30: "30 days",
+            60: "60 days",
+            90: "90 days",
+            180: "180 days",
+            365: "1 year",
+        },
+        "hint": (
+            "Deletes cache files (orthophotos, textures, elevation, map data, "
+            "airport pack caches, masks, previews, temporary files and logs) "
+            "that no build has used for this long. It runs when the app starts "
+            "and after a build, never during one. Built tiles, airport patches, "
+            "overlays, configs and pack backups are never deleted; every "
+            "deletion is written to logs/storage.log."
+        ),
+    },
+    "storage_cache_caps_gb": {
+        "type": str,
+        "default": "",
+        "hint": (
+            "Optional size limits, in GB, for single caches, as kind=GB pairs "
+            "separated by commas, for example imagery=100, osm_extracts=20, "
+            "dds=20. The kinds are imagery, dds, elevation, osm_extracts, osm, "
+            "airport_mod, dsf_dumps, masks, previews, tmp and logs. A cache "
+            "over its limit loses its least recently used files first, when the "
+            "app starts and after a build. Empty: no limits."
+        ),
+    },
     "base_elevation_source": {
         "module": "DEM",
         "type": str,
@@ -165,6 +199,26 @@ cfg_app_vars = {
             8: "8",
         },
         "hint": "How many tiles build at the same time when several are queued. 0 (the default) means Auto: one tile per processor core, reduced only when the machine has too little free memory to feed that many workers. Memory is guarded per STEP rather than per slot — a run never projects more than eighty per cent of the memory the machine can hand out onto the steps it has started, so the multi-gigabyte rasters of the fine elevation detail levels are scheduled around each other automatically. Politeness to the OpenStreetMap and imagery servers is handled separately — at most four tiles fetch from either at once however many slots you run, and a tile whose data is already downloaded never waits for that budget — so extra slots buy processor parallelism only. Explicit values are honoured above or below Auto. 1 builds tiles one after another in the application process (the historic behaviour); higher values run each tile in its own worker process. Parallel conversion workers automatically share the processor between concurrent tiles.",
+    },
+    "slow_step_alert_minutes": {
+        "type": int,
+        "default": 5,
+        "values": (0, 5, 10, 15, 30, 60),
+        "value_labels": {
+            0: "Off",
+            5: "5 minutes",
+            10: "10 minutes",
+            15: "15 minutes",
+            30: "30 minutes",
+            60: "1 hour",
+        },
+        "hint": (
+            "When one build step of a tile runs longer than this, and "
+            "longer than this machine's earlier builds of that step, the "
+            "app says what the step is doing, why it is slow and when it "
+            "should finish, and offers to continue, to finish on coarser "
+            "data where the step can, or to cancel the tile. Off never "
+            "asks."),
     },
     "check_tms_response": {
         "module": "IMG",
@@ -814,12 +868,15 @@ list_app_vars = [
     "max_download_slots",
     "max_convert_slots",
     "max_build_slots",
+    "slow_step_alert_minutes",
     "check_tms_response",
     "http_timeout",
     "max_connect_retries",
     "max_baddata_retries",
     "ovl_exclude_pol",
     "ovl_exclude_net",
+    "storage_auto_clean_days",
+    "storage_cache_caps_gb",
     "custom_scenery_dir",
     "custom_overlay_src",
     "custom_overlay_src_alternate",

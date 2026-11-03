@@ -30,60 +30,13 @@ this tree" refusal; this module is the pure half and has the twin.
 from __future__ import annotations
 
 import argparse
-import ctypes
 import filecmp
 import os
-import struct
 import sys
 from pathlib import Path
 
-_FSOPT_NOFOLLOW = 0x1
-_FSOPT_ATTR_CMN_EXTENDED = 0x20
-_ATTR_CMNEXT_PRIVATESIZE = 0x8
-
-
-class _AttrList(ctypes.Structure):
-    _fields_ = [("bitmapcount", ctypes.c_ushort), ("reserved", ctypes.c_ushort),
-                ("commonattr", ctypes.c_uint32), ("volattr", ctypes.c_uint32),
-                ("dirattr", ctypes.c_uint32), ("fileattr", ctypes.c_uint32),
-                ("forkattr", ctypes.c_uint32)]
-
-
-def _libsystem():
-    """libSystem with ``getattrlist``, or None off macOS.  Cached."""
-    if not hasattr(_libsystem, "lib"):
-        lib = None
-        if sys.platform == "darwin":
-            try:
-                lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
-            except OSError:
-                lib = None
-        _libsystem.lib = lib                        # type: ignore[attr-defined]
-    return _libsystem.lib                           # type: ignore[attr-defined]
-
-
-def private_bytes(path) -> int | None:
-    """Bytes of ``path`` NO other file shares — what deleting it frees.
-
-    0 for an untouched clone, the full allocation for a real copy.  None
-    where the filesystem cannot say (not macOS, or not APFS): the caller
-    reports "not measurable" rather than guessing.  Never raises.
-    """
-    lib = _libsystem()
-    if lib is None:
-        return None
-    request = _AttrList(5, 0, 0, 0, 0, 0, _ATTR_CMNEXT_PRIVATESIZE)
-    buf = ctypes.create_string_buffer(32)
-    try:
-        rc = lib.getattrlist(os.fsencode(str(path)), ctypes.byref(request),
-                             buf, len(buf),
-                             _FSOPT_ATTR_CMN_EXTENDED | _FSOPT_NOFOLLOW)
-    except Exception:
-        return None
-    if rc != 0:
-        return None
-    length, size = struct.unpack_from("=Iq", buf.raw)
-    return size if length >= 12 else None
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+from O4_Disk_Usage import private_bytes  # noqa: E402  (moved there for the app, #1724)
 
 
 def _regular_files(tree):

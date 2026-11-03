@@ -5,8 +5,8 @@ gestures, the map toolbar, the side-panel box and the 3D preview window
 (opened on demand) onto the main window's map and session.  The window keeps a handful of wiring lines: the box
 below Activity, the ``PackObjectsReady`` route, the Edit / File menu
 actions, the quit check, its build path for "Rebuild tile" and the copy
-items of the map's right-click menu (#1281), and "Insert shape" there
-(#1314, ``O4_Qt_Patch_Insert``).
+items of the map's right-click menu (#1281), and "Insert shape" / "Insert tunnel ramp" there
+(#1314, #1745, ``O4_Qt_Patch_Insert``).
 """
 from __future__ import annotations
 
@@ -20,11 +20,12 @@ import O4_Glossary as GLOSSARY
 import O4_Qt_Map as QTMAP
 import O4_Qt_Patch_Elevation_Dialog as ELEVDIALOG
 import O4_Qt_Patch_Reference as REFERENCE
+from O4_Qt_Object_Inspector import ObjectInspector
 from O4_Qt_Pack_Outlines import PackOutlines
 from O4_Qt_Patch_Controller import PatchController
 from O4_Qt_Patch_Engine import PatchEngine
 from O4_Qt_Patch_Gestures import PatchGestures
-from O4_Qt_Patch_Insert import INSERT_SHAPE_TITLE, ShapeInserter
+from O4_Qt_Patch_Insert import INSERT_RAMP_TITLE, INSERT_SHAPE_TITLE, ShapeInserter
 from O4_Qt_Patch_Model import MODE_EDIT, PatchEditModel
 from O4_Qt_Patch_Overlay import PatchOverlay
 from O4_Qt_Patch_Panel import PatchPanel, node_lat_lon
@@ -75,6 +76,10 @@ class PatchEditor:
                                      showing=lambda: self.controller.is_showing, parent=window)
         self.controller.state_changed.connect(self.terrain.view_changed)
         self.overlay = PatchOverlay(map_view, self.controller, self.outlines, self.terrain)
+        # the object inspector over it (#1702)
+        self.inspector = ObjectInspector(self.engine, self.model, self.outlines, built, window)
+        self.overlay.inspector = self.inspector
+        self.inspector.changed.connect(self.overlay.update)
         self.gestures = PatchGestures(self.overlay)
         self.overlay.toolbar = PatchToolbar(map_view.viewport(), self.controller, self.outlines,
                                             open_preview=self.open_preview, terrain=self.terrain)
@@ -131,13 +136,15 @@ class PatchEditor:
     def context_actions(self, at: tuple[float, float] | None = None
                         ) -> list[tuple[str, _t.Callable[[], _t.Any]]]:
         """The map's right-click items: "Set elevation…" on the Edit-mode
-        selected shapes (#1357), then "Insert shape" at ``at`` (#1314)."""
+        selected shapes (#1357), then "Insert shape" (#1314) and "Insert
+        tunnel ramp" (#1745) at ``at``."""
         items = []
         m = self.model
         if m.mode == MODE_EDIT and m.shape_selection and m.doc is not None:
             items.append((ELEVDIALOG.TITLE, self.panel.open_set_elevation))
         if at is not None and self.inserter.available():
             items.append((INSERT_SHAPE_TITLE, lambda: self.inserter.insert(*at)))
+            items.append((INSERT_RAMP_TITLE, lambda: self.inserter.insert(*at, "tunnel_ramp")))
         return items
 
     def lat_lon_at(self, x: float, y: float) -> tuple[float, float]:

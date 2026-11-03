@@ -93,6 +93,8 @@ import O4_Tile_Info as TINFO
 import O4_Settings_Selection as SEL
 import O4_Qt_Imagery_Menu as QTIMENU
 import O4_Qt_Map as QTMAP
+import O4_Qt_Imagery_Freshness as QTFRESH
+import O4_Qt_Mesh_Order as QTMESHORDER
 import O4_Qt_Missing_Textures as QTMISSING
 from o4_engine import EngineSession
 from o4_engine import events as EV
@@ -103,6 +105,7 @@ import O4_Qt_Build_History as QTHIST
 import O4_Qt_Build_Airports as QTAIRPORTS
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Pack_Forests as QTFOREST
+import O4_Qt_Slow_Step as QTSLOW
 import O4_Qt_Latest_Probe as QTPROBE
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
@@ -112,6 +115,7 @@ import O4_Qt_Tile_Menu as QTTILEMENU
 import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
+import O4_Qt_Patch_Library as QTPATCHLIB
 import O4_Qt_Activity_List as QTACT
 import O4_Qt_Step_Strip as QTSTRIP
 import O4_Step_Strip as STRIP
@@ -872,6 +876,7 @@ class MainWindow(QMainWindow):
         self._bridge.airports_ready.connect(self._on_airports_ready)
         self._bridge.packs_ready.connect(self._on_packs_ready)
         self._session.subscribe(self._bridge.event.emit)
+        self._storage_auto_clean()          # at launch (#1724)
         self._event_handlers = {
             EV.ScanProgress: self._on_scan_progress,
             EV.ScanBatch: self._on_scan_batch,
@@ -889,6 +894,7 @@ class MainWindow(QMainWindow):
             EV.PackMissingArt: self._on_pack_missing_art,
             EV.ImagerySourceStatus: self._on_imagery_source_status,
             EV.PackOldForests: self._on_pack_old_forests,
+            EV.SlowStep: self._on_slow_step,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
@@ -900,6 +906,8 @@ class MainWindow(QMainWindow):
         # #1360: the 3D trees questions already asked (one per pack, tile
         # and set); their open boxes live in _pack_art_boxes too.
         self._pack_forests_seen = set()
+        # #1351: the open slow-step boxes, by (lat, lon, step key).
+        self._slow_step_boxes = {}
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
         # #695: fixable failures, asked one at a time as each tile fails;
@@ -1191,12 +1199,22 @@ class MainWindow(QMainWindow):
         self.missing_textures_row.rebuild_requested.connect(
             self._rebuild_tile_missing_textures)
         ig.addRow(self.missing_textures_row)
+        # Another pack's ground drawn instead of the tile, or the tile drawn
+        # over a local mesh (#1729; mac-app parity: TileMeshOrderRow).
+        self.mesh_order_row = QTMESHORDER.MeshOrderRow()
+        ig.addRow(self.mesh_order_row)
         self.info_zl = ElidedRowLabel("—")
         ig.addRow("%s:" % GLOSSARY.TERMS["detail"], self.info_zl)
         self.info_mesh = ElidedRowLabel("—")
         ig.addRow("Ground shaped:", self.info_mesh)
         self.info_imagery = ElidedRowLabel("—")
         ig.addRow("Imagery updated:", self.info_imagery)
+        # Does the source still serve this imagery (#1666; mac-app
+        # parity: TileImageryFreshnessRow)?  "Update Imagery" when not.
+        self.imagery_freshness_row = QTFRESH.ImageryFreshnessRow()
+        self.imagery_freshness_row.update_requested.connect(
+            self._update_tile_imagery)
+        ig.addRow("Imagery check:", self.imagery_freshness_row)
         # Who built it (#1226, owner Q95): the build record, else the DSF.
         self.info_built_by = ElidedRowLabel("—")
         ig.addRow("Built by:", self.info_built_by)
@@ -3141,6 +3159,12 @@ class MainWindow(QMainWindow):
         self.missing_textures_row.check(
             tile if info is not None else None,
             getattr(info, "build_dir", "") if info is not None else "")
+        self.imagery_freshness_row.check(tile, info)
+        import O4_Config_Utils as CFG
+        self.mesh_order_row.check(
+            tile if info is not None else None,
+            getattr(info, "build_dir", "") if info is not None else "",
+            getattr(CFG, "custom_scenery_dir", "") or "")
         if info is None:
             # While a scan streams in, absence only means "not scanned
             # yet" — a built tile must not flash as "(not built)".
@@ -4876,6 +4900,42 @@ class MainWindow(QMainWindow):
         self._pack_art_boxes.append(box)
         box.show()
 
+    def _on_slow_step(self, event):
+        """#1351: a slow step of one tile, shown non-modally.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .slowStep``): a later event of the same tile and step replaces the
+        open box's words, ``resolved`` closes it.  "Cancel this tile" is
+        the row's stop sign; the other answers go to the engine."""
+        key = QTSLOW.alert_key(event)
+        open_box = self._slow_step_boxes.get(key)
+        if getattr(event, "resolved", False):
+            if open_box is not None:
+                self._slow_step_boxes.pop(key, None)
+                open_box.close()
+            return
+        if open_box is not None:
+            QTSLOW.update_slow_step_box(open_box, event)
+            return
+        box, buttons = QTSLOW.slow_step_box(event, parent=self)
+        tile = (key[0], key[1])
+
+        def finished(_result, box=box, buttons=buttons):
+            if self._slow_step_boxes.get(key) is not box:
+                return                   # closed by the engine: no answer
+            self._slow_step_boxes.pop(key, None)
+            for choice, button in buttons.items():
+                if box.clickedButton() is button:
+                    if choice == "cancel":
+                        self._cancel_tile_clicked(tile)
+                    else:
+                        self._session.slow_step_choice(tile[0], tile[1],
+                                                       choice)
+
+        box.finished.connect(finished)
+        self._slow_step_boxes[key] = box
+        box.show()
+
     def _undo_pack_forests(self, pack):
         """#1360: the pack row's tree button — every upgraded DSF of the
         pack gets its original forest definitions back (the engine
@@ -4944,8 +5004,22 @@ class MainWindow(QMainWindow):
         self.prefs[AUTO_INSTALL_KEY] = bool(checked)
         save_prefs(self.prefs)
 
+    def _storage_auto_clean(self):
+        """Settings > Storage's automatic cleanup (#1724), at launch and
+        after each run; off by default, never while a build runs."""
+        import O4_Qt_Settings_Storage as QTSTORE
+        # The thread holds the SESSION, never the window: a worker thread
+        # dropping the last reference to a QMainWindow destroys it off the
+        # GUI thread (a segfault / bus error at the next GC).
+        session = self._session
+        QTSTORE.run_auto_clean(lambda: bool(session._building), print)
+
     def _on_run_done(self, event):
         self._building = False
+        self._storage_auto_clean()
+        for box in list(self._slow_step_boxes.values()):
+            box.close()
+        self._slow_step_boxes = {}
         self._last_run_eta = None
         # The window describes the run that just ended; the next run's
         # estimate is judged on its own samples.
@@ -5077,6 +5151,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._frame_launch_selection)
         if not self._console_defaulted:
             self._console_defaulted = True
+            # the patch library's check when the app opens (#1699 phase 2)
+            QTPATCHLIB.check_at_launch(self.working_dir())
             self._sync_console_button()
             if not self._layout_restored and self.console_drawer.isVisible():
                 self._apply_console_height(self._console_default_height())
@@ -5136,11 +5212,31 @@ class MainWindow(QMainWindow):
         if reason:
             self._status(reason)
 
+    def _update_tile_imagery(self, tile):
+        """The imagery check's "Update Imagery" (#1666): confirm, remove the
+        tile's downloaded imagery, then rebuild it — never during a run."""
+        if self._building:
+            self._status("Wait for the current run to finish, then update the imagery.")
+            return
+        import O4_Imagery_Freshness as FRESH
+        answer = QMessageBox.question(
+            self, FRESH.UPDATE_CONFIRM_TITLE, FRESH.UPDATE_CONFIRM_TEXT,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        if answer != QMessageBox.StandardButton.Ok:
+            return
+        from o4_engine.imagery_commands import discard_for_info
+        reason = self.rebuild_patch_tile(
+            FNAMES.short_latlon(*tile),
+            before_start=lambda: discard_for_info(self._built.get(tuple(tile))))
+        if reason:
+            self._status(reason)
+
     # ------------------------------------------------------------------
-    def rebuild_patch_tile(self, tile_key):
+    def rebuild_patch_tile(self, tile_key, before_start=None):
         """The patch box's "Rebuild tile": select the tile and build it
         through the Build box's own path (its recorded source and zoom);
-        the sentence why not, or None."""
+        the sentence why not, or None.  ``before_start()`` runs once the
+        build is certain to start (outside a run only), just before it."""
         tile = FNAMES.parse_tile_key(tile_key)
         if tile is None:
             return None
@@ -5152,8 +5248,12 @@ class MainWindow(QMainWindow):
             return ("This tile can't be rebuilt now. Turn off “Skip already-built "
                     "tiles” and try again.")
         if not self._building:
+            if before_start is not None:
+                before_start()
             self.start_build()
             return None
+        if before_start is not None:
+            return "Wait for the current run to finish."
         # #1322: a build is running — the tile joins it, with the source
         # and zoom it was built with, unless it is already part of it.
         tile = tuple(tile)
@@ -5216,6 +5316,7 @@ class MainWindow(QMainWindow):
         self._cancel_deferred()
         # The reanchor probe: no result after close, its worker joined.
         self._reanchor_probe.close()
+        self.imagery_freshness_row.close_probe()
         # The 3D preview's building reader runs in a worker process (#753).
         self.patch_editor.engine.close()
         event.accept()

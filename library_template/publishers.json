@@ -1,0 +1,5 @@
+{
+ "_comment": "Verified developers: their pull request for one of their own packs merges when the checks pass. 'pack' is an fnmatch pattern over the pack folder name; 'airports' the ICAOs it covers (empty: all). 'reviewers' review community entries.",
+ "developers": [],
+ "reviewers": ["shizumaat"]
+}

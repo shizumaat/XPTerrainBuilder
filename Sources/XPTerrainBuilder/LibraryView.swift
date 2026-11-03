@@ -12,6 +12,8 @@ import UniformTypeIdentifiers
 /// X-Plane or out of it, never rebuilt or deleted. Deleting and freeing
 /// space ask first. Export / Import Library Bundle carry a built tile to
 /// another installation (#1699 phase 1; the Qt dialog has the same two).
+/// The "Patch library" section and "Publish Patch…" are the shared patch
+/// library (#1699 phase 2, `PatchLibraryView.swift`).
 enum Library {
     static let windowID = "library"
     /// A tile bundle's file extension (`tile_bundle.export.BUNDLE_SUFFIX`).
@@ -156,6 +158,7 @@ struct LibraryView: View {
     @State private var confirmDelete = false
     @State private var confirmRestore = false
     @State private var cacheToFree: O4LibraryCache?
+    @State private var publishing: O4LibraryTile?
 
     private var shown: [O4LibraryTile] {
         let query = search.lowercased()
@@ -180,6 +183,8 @@ struct LibraryView: View {
             Divider()
             actions.padding(8)
             Divider()
+            PatchLibrarySection().padding(8)
+            Divider()
             diskPanel.padding(8)
         }
         .frame(minWidth: 820, minHeight: 460)
@@ -194,6 +199,7 @@ struct LibraryView: View {
             }
         }
         .onAppear { model.refresh(buildModel) }
+        .sheet(item: $publishing) { tile in PublishPatchSheet(tile: tile) }
         .onChange(of: buildModel.installed) { _, _ in model.refresh(buildModel) }
         .confirmationDialog("Delete \(selectedRows.count) tile(s)?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) { model.delete(selectedRows, buildModel) }
@@ -287,6 +293,10 @@ struct LibraryView: View {
             Button("Import Library Bundle…") { model.importBundle(buildModel) }
                 .help("Import a tile bundle: the tile's next build needs only your imagery")
                 .disabled(buildModel.isBuilding)
+            Button("Publish Patch…") { publishing = selectedRows.first }
+                .help("Share one airport's solved patch of this tile in the patch library")
+                .disabled(selectedRows.count != 1 || !writable || selectedRows.first?.airports.isEmpty != false
+                          || buildModel.patchLibraryClient() == nil)
             Spacer()
             Text(model.status)
                 .foregroundStyle(.secondary)

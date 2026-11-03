@@ -557,6 +557,59 @@ final class BuildModel: ObservableObject {
         return try? await client.tileTextureCheck(buildDir: dir)
     }
 
+    /// Does the tile's source still serve its imagery? (protocol 1.27,
+    /// #1666). nil when the engine predates the command or the tile is not
+    /// built — the pane then shows nothing.
+    func imageryFreshness(for coord: TileCoord) async -> O4ImageryFreshness? {
+        connectIfNeeded()
+        guard let client, let base = tileBaseFolder, built[coord] != nil else { return nil }
+        return try? await client.imageryFreshness(
+            lat: coord.lat, lon: coord.lon, workingDir: base.path)
+    }
+
+    /// "Update Imagery"'s removal of the tile's downloaded imagery; the
+    /// engine's sentence when it fails, or nil.
+    func discardTileImagery(_ coord: TileCoord) async -> String? {
+        connectIfNeeded()
+        guard let client, let base = tileBaseFolder else { return "The engine is not running." }
+        do {
+            _ = try await client.discardTileImagery(
+                lat: coord.lat, lon: coord.lon, workingDir: base.path)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Which packs' ground X-Plane draws instead of the tile, or the local
+    /// meshes it hides (protocol 1.28, #1729). nil when the engine predates
+    /// the command or the tile has no folder — the pane then shows nothing.
+    func tileMeshOrder(for coord: TileCoord) async -> O4TileMeshOrder? {
+        connectIfNeeded()
+        guard let client, let dir = built[coord]?.buildDir, !dir.isEmpty,
+              !customSceneryPath.isEmpty else { return nil }
+        return try? await client.tileMeshOrder(
+            lat: coord.lat, lon: coord.lon, buildDir: dir, customSceneryDir: customSceneryPath)
+    }
+
+    /// The user's scenery-order choice for the tile, written by the engine.
+    func applyMeshOrder(for coord: TileCoord, action: String,
+                        pack: String) async -> Result<O4TileMeshOrder, O4CommandError> {
+        connectIfNeeded()
+        guard let client, let dir = built[coord]?.buildDir, !dir.isEmpty else {
+            return .failure(O4CommandError("The engine is not running."))
+        }
+        do {
+            return .success(try await client.applyMeshOrder(
+                lat: coord.lat, lon: coord.lon, buildDir: dir,
+                customSceneryDir: customSceneryPath, action: action, pack: pack))
+        } catch let error as O4CommandError {
+            return .failure(error)
+        } catch {
+            return .failure(O4CommandError(error.localizedDescription))
+        }
+    }
+
     /// Ask the engine again for the badge set: every built and selected
     /// tile, or only `coords` (newly selected tiles). One small cfg read
     /// per tile on the engine side.
@@ -734,6 +787,7 @@ final class BuildModel: ObservableObject {
             rescan()
             refreshAirportIndex()
             loadImagerySources()
+            runStorageAutoClean()
         } catch {
             engineError = "Could not start the engine session: \(error.localizedDescription)"
             console.append("ERROR: \(engineError!)")
@@ -941,6 +995,7 @@ final class BuildModel: ObservableObject {
         case .hello(let version, let protocolVersion, _):
             protocolHello = (version, protocolVersion)
             buildLog.notice("engine hello: \(version) protocol \(protocolVersion)")
+            checkPatchLibraryAtLaunch()
         case .stderr(let line):
             console.append(line)
         case .log(_, let line, let tile):
@@ -1094,6 +1149,8 @@ final class BuildModel: ObservableObject {
         case .runDone(let done, let errors, let cancelled):
             isBuilding = false
             isStopping = false
+            runStorageAutoClean()
+            slowSteps = []
             var parts = ["\(done) tile\(done == 1 ? "" : "s") built"]
             let warned = runIssueLog.warnedCount
             if warned > 0 { parts.append("\(warned) with warnings") }
@@ -1150,6 +1207,8 @@ final class BuildModel: ObservableObject {
             packMissingArt(art)
         case .packOldForests(let forests):
             packOldForests(forests)
+        case .slowStep(let step):
+            slowStep(step)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -1254,6 +1313,8 @@ final class BuildModel: ObservableObject {
     lazy var flightPlan = FlightPlanSelection(build: self)
     /// The pack reference outlines under it (spec §0 A4).
     lazy var packOutlines = PatchPackOutlines(patch: patchEdit)
+    /// The object inspector over it (#1702).
+    lazy var objectInspector = PatchObjectInspector(patch: patchEdit, outlines: packOutlines)
     /// The terrain view under it (#1320: hillshade plus contours).
     lazy var terrainRelief = PatchTerrainRelief(patch: patchEdit)
 
@@ -1271,6 +1332,14 @@ final class BuildModel: ObservableObject {
     func buildAirportsClient() -> OrthoEngineClient? {
         connectIfNeeded()
         guard O4ProtocolVersion.supportsBuildAirports(protocolHello?.protocolVersion ?? "") else { return nil }
+        return client
+    }
+
+    /// The engine session for the patch library (#1699 phase 2), or nil
+    /// when the engine is not running or predates it (protocol < 1.29).
+    func patchLibraryClient() -> OrthoEngineClient? {
+        connectIfNeeded()
+        guard O4ProtocolVersion.supportsPatchLibrary(protocolHello?.protocolVersion ?? "") else { return nil }
         return client
     }
 
@@ -1490,6 +1559,12 @@ final class BuildModel: ObservableObject {
 
     /// The engine's estimate for what the next Build press would build,
     /// or nil (nothing to build, an engine older than 1.15, or none yet).
+    /// The patch library's check when the app opens (#1699 phase 2,
+    /// `BuildModel+PatchLibrary.swift`); nil until it ran.
+    @Published var patchLibraryCheck: O4PatchLibraryCheck?
+    @Published var patchLibraryStatus = ""
+    var patchLibraryCheckedAtLaunch = false
+
     @Published private(set) var planEstimate: O4PlanEstimate?
     /// Why the last estimate could not be made, for the panel's line.
     @Published private(set) var planEstimateError: String?
@@ -1971,6 +2046,36 @@ final class BuildModel: ObservableObject {
             client?.omitMissingArt(packRoot: art.packRoot, lat: art.lat, lon: art.lon)
         }
         packArtPrompt = packArtQueue.isEmpty ? nil : packArtQueue.removeFirst()
+    }
+
+    /// The open slow-step alerts (#1351), one per tile and step, in
+    /// arrival order — shown non-modally at the top of the Build pane.
+    @Published var slowSteps: [O4SlowStep] = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_slow_step`): a later
+    /// event of the same tile and step replaces the open alert in place;
+    /// `resolved` closes it.
+    private func slowStep(_ step: O4SlowStep) {
+        let index = slowSteps.firstIndex { $0.id == step.id }
+        if step.resolved {
+            if let index { slowSteps.remove(at: index) }
+        } else if let index {
+            slowSteps[index] = step
+        } else {
+            slowSteps.append(step)
+        }
+    }
+
+    /// The user's answer to a slow-step alert: "cancel" is the row's own
+    /// per-tile stop; any other answer goes to the engine. The alert
+    /// closes at once (the engine's `resolved` follows).
+    func answerSlowStep(_ step: O4SlowStep, choice: String) {
+        slowSteps.removeAll { $0.id == step.id }
+        if choice == "cancel" {
+            cancelTile(TileCoord(lat: step.lat, lon: step.lon))
+        } else {
+            client?.slowStepChoice(lat: step.lat, lon: step.lon, choice: choice)
+        }
     }
 
     /// The "3D trees" question to present, or nil (#1360).

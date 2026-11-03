@@ -8,7 +8,10 @@ built it.  ``cache_sizes`` sizes the three download caches, ``free_cache``
 empties one, and ``library_delete`` deletes built tiles.
 ``library_export_bundle`` and ``library_import_bundle`` carry a built
 tile to another installation as a tile bundle (#1699 phase 1,
-``tile_bundle``).
+``tile_bundle``).  The ``library_check`` … ``library_signout`` commands
+are the shared PATCH LIBRARY's airport entries (#1699 phase 2,
+``patch_library``): the check when the app opens, the build box's match
+list, laying an entry down, and "Publish patch" with its GitHub sign-in.
 
 TWO RULES THE APPS RELY ON.  A tile built by another tool (no stamped
 tile config and no step record of this app in its folder) is listed
@@ -38,9 +41,12 @@ import O4_Settings_Model as SM
 import O4_Text_Files as TEXT
 import O4_Tile_Info as TINFO
 
+from . import storage as _storage
+
 __all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "library_scan",
            "cache_sizes", "free_cache", "library_delete",
-           "library_export_bundle", "library_import_bundle", "start"]
+           "library_export_bundle", "library_import_bundle",
+           "PATCH_LIBRARY_COMMANDS", "COMMANDS", "patch_library_command", "start"]
 
 #: ``built_by`` of a tile this app built
 BUILT_HERE = "XPTerrainBuilder"
@@ -314,11 +320,65 @@ def library_import_bundle(path: str, working_dir: str) -> dict:
     return importer.import_bundle(path, _custom_build_dir(working_dir))
 
 
+def _patch_library_commands() -> dict:
+    """The patch library's commands (#1699 phase 2), imported when run."""
+    from patch_library import apply as _apply
+    from patch_library import github as _github
+    from patch_library import publish as _publish
+    from patch_library import scan as _scan
+
+    def check(working_dir: str = "", force: bool = False) -> dict:
+        return _scan.check(_custom_or_tiles(working_dir), bool(force))
+
+    def matches(cells, working_dir: str = "") -> dict:
+        return _scan.matches(cells, working_dir)
+
+    def apply(entry: str, working_dir: str = "") -> dict:
+        return _apply.apply_entry(entry, working_dir)
+
+    def publish_preview(lat, lon, icao: str, working_dir: str = "",
+                        kind: str = "", notes: str = "") -> dict:
+        return _publish.preview(lat, lon, icao, working_dir, kind, notes)
+
+    def publish(lat, lon, icao: str, working_dir: str = "", kind: str = "",
+                notes: str = "", accept: bool = False) -> dict:
+        return _publish.publish(lat, lon, icao, working_dir, kind, notes,
+                                bool(accept))
+
+    return {"library_check": check, "library_matches": matches,
+            "library_apply": apply, "library_ignore": _scan.ignore,
+            "library_publish_preview": publish_preview,
+            "library_publish": publish,
+            "library_signin_start": _github.device_start,
+            "library_signin_poll": _github.device_poll,
+            "library_signout": _github.forget_token}
+
+
+def _custom_or_tiles(working_dir: str) -> str:
+    return working_dir or FNAMES.Tile_dir
+
+
+#: The patch library's commands, in the order the apps meet them.
+PATCH_LIBRARY_COMMANDS = ("library_check", "library_matches", "library_apply",
+                          "library_ignore", "library_publish_preview",
+                          "library_publish", "library_signin_start",
+                          "library_signin_poll", "library_signout")
+
+
+def patch_library_command(name: str) -> _t.Callable:
+    """The patch library command ``name`` as a function of its keywords —
+    what the transport runs, and what the Qt window calls in process."""
+    def run(**kwargs):
+        return _patch_library_commands()[name](**kwargs)
+    return run
+
+
 #: What a command must not do while a build runs (:func:`start`).
 _REFUSED_WHILE_BUILDING = {
     "free_cache": "deleting anything", "library_delete": "deleting anything",
     "library_export_bundle": "exporting a tile",
-    "library_import_bundle": "importing a tile"}
+    "library_import_bundle": "importing a tile",
+    "library_apply": "laying a library patch down"}
 
 #: The commands :func:`start` runs, and the checks each makes on the read
 #: loop so a refusal is the command's own ``ok: false`` reply.
@@ -334,7 +394,14 @@ _COMMANDS: dict = {
                                                 bool(kw.get("confirm")))),
     "library_export_bundle": (library_export_bundle, None),
     "library_import_bundle": (library_import_bundle, None),
+    **{name: (patch_library_command(name), None) for name in PATCH_LIBRARY_COMMANDS},
 }
+# Settings > Storage (#1724) runs through the same worker and refusals.
+_COMMANDS.update(_storage.COMMANDS)
+_REFUSED_WHILE_BUILDING.update(_storage.REFUSED_WHILE_BUILDING)
+
+#: Every command :func:`start` runs (the transport registers these).
+COMMANDS = tuple(_COMMANDS)
 
 
 def start(emit: _t.Callable[[_t.Any], None], command: str,

@@ -2310,12 +2310,16 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
 
     Sets ``tile.rings_fetched_last_build`` -- mirrored into the tile build
     record as ``features.rings_fetched``, which disqualifies the run as a
-    build-time measurement exactly as ``insets_fetched`` does.  Returns
-    the number of cells fetched.
+    build-time measurement exactly as ``insets_fetched`` does -- and
+    ``tile.rings_coarsened_last_build``: the cells the user's "Use coarser
+    data" (#1351) left on the base elevation this run (no outcome is
+    recorded for them, so the next build fetches them).  Returns the
+    number of cells fetched.
     """
     import O4_Airport_Elevation_Insets as INSETS
 
     tile.rings_fetched_last_build = 0
+    tile.rings_coarsened_last_build = 0
     if resolve_approach_ring_plan(tile, dico_airports) is None:
         return 0
     # The candidates' real footprints first (#1466): the plan then walks
@@ -2377,6 +2381,9 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
     # independent.  Pass 3 below records every result in STEM order, so
     # outcomes, sidecars and the stamp never depend on completion order.
     results = _fetch_approach_ring_cells(lat, lon, jobs, INSETS)
+    tile.rings_coarsened_last_build = sum(
+        1 for provenance, _error in results
+        if provenance is _RING_FETCH_COARSENED)
     fetched = 0
     for (cell, source_rung), (provenance, error) in sorted(
         zip(jobs, results, strict=True),
@@ -2392,7 +2399,8 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
                 str(error),
             )
             continue
-        if provenance is _RING_FETCH_SKIPPED:
+        if provenance is _RING_FETCH_SKIPPED or (
+                provenance is _RING_FETCH_COARSENED):
             continue
         if provenance is None:
             outcomes[stem] = NO_RING_COVERAGE
@@ -2461,6 +2469,14 @@ APPROACH_RING_PROGRESS_EVERY = 1
 #: so the next run fetches it.
 _RING_FETCH_SKIPPED = object()
 
+#: A cell the user's "Use coarser data" (#1351) left on the base
+#: elevation: like a skipped cell, no outcome, so the next run fetches it.
+_RING_FETCH_COARSENED = object()
+
+#: The ring pass's ``task_meter`` phase: its words for the slow-step alert,
+#: and the key the alert's "Use coarser data" is answered under.
+APPROACH_RING_PHASE = "approach-rings"
+
 
 def _ensure_ring_candidate_footprints(tile, refresh=False):
     """Probe the footprint of every ring candidate of the tile that can be
@@ -2497,6 +2513,8 @@ def _fetch_approach_ring_cells(lat, lon, jobs, insets):
     import O4_Machine_Slots as MACHINE_SLOTS
     from elevation_access import fetch_slots as ea_fetch_slots
 
+    from o4_engine import task_meter as TASK_METER
+
     os.makedirs(FNAMES.approach_ring_directory(lat, lon), exist_ok=True)
     total = len(jobs)
     lock = threading.Lock()
@@ -2507,6 +2525,8 @@ def _fetch_approach_ring_cells(lat, lon, jobs, insets):
         try:
             if UI.red_flag:
                 return (_RING_FETCH_SKIPPED, None)
+            if TASK_METER.coarser_requested(APPROACH_RING_PHASE):
+                return (_RING_FETCH_COARSENED, None)
             try:
                 with MACHINE_SLOTS.hold_class(
                     ea_fetch_slots.cell_fetch_class(cell["provider"]),
@@ -2515,6 +2535,8 @@ def _fetch_approach_ring_cells(lat, lon, jobs, insets):
                 ):
                     if UI.red_flag:
                         return (_RING_FETCH_SKIPPED, None)
+                    if TASK_METER.coarser_requested(APPROACH_RING_PHASE):
+                        return (_RING_FETCH_COARSENED, None)
                     provenance = insets.fetch_inset(
                         source_rung.definition,
                         approach_ring_cell_box(
@@ -2534,7 +2556,9 @@ def _fetch_approach_ring_cells(lat, lon, jobs, insets):
                 text = "approach rings: %d/%d cells" % (finished, total)
                 UI.vprint(1, "   " + text)
                 UI.step_detail(text if finished < total else "")
+            TASK_METER.advance(APPROACH_RING_PHASE, finished)
 
+    TASK_METER.begin(APPROACH_RING_PHASE, total, **_ring_phase_words(jobs))
     try:
         with ThreadPoolExecutor(
             max_workers=min(APPROACH_RING_FETCH_WORKERS, total),
@@ -2542,7 +2566,26 @@ def _fetch_approach_ring_cells(lat, lon, jobs, insets):
         ) as pool:
             return list(pool.map(_one, jobs))
     finally:
+        TASK_METER.end(APPROACH_RING_PHASE)
         UI.step_detail("")
+
+
+def _ring_phase_words(jobs):
+    """The ring pass's words for the slow-step alert (#1351): what it
+    downloads, from which providers at which resolution, and that it can
+    finish on the base elevation ("Use coarser data")."""
+    sources = sorted({
+        "%s at %g m" % (cell["provider"], float(
+            getattr(rung, "native_resolution_m", None) or cell["class_m"]))
+        for cell, rung in jobs})
+    return {
+        "what": "Downloading detailed elevation around the airports: "
+                "{done} of {total} areas done",
+        "why": "It is %s elevation, read area by area from a remote "
+               "server" % ", ".join(sources),
+        "reason": "remote_fine_elevation",
+        "coarser": True,
+    }
 
 
 def _discard_implausible_ring_cell(cell_path, stem, outcomes):

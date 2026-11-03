@@ -70,6 +70,7 @@ import O4_UI_Utils as UI
 import O4_Unmounted_Links as UNMOUNTED
 
 from . import failure_report
+from . import library as _LIBRARY
 from .events import EngineHello, Error, ScanBatch
 from .secret_broker import SecretBroker
 from .session import EngineSession
@@ -154,10 +155,9 @@ def _ortho4xp_version() -> str:
 
 #: Commands completed by an event that names the command: their handler
 #: is given the command's ``id`` as ``request``.
-_TAKES_REQUEST_ID = frozenset({"pack_objects", "library_scan", "cache_sizes",
-                               "free_cache", "library_delete",
-                               "library_export_bundle", "library_import_bundle",
-                               "plan_estimate", "build_airports"})
+_TAKES_REQUEST_ID = frozenset({"pack_objects", "plan_estimate",
+                               "build_airports", "imagery_freshness",
+                               *_LIBRARY.COMMANDS})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -171,13 +171,19 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # not wait for.
     import O4_Imagery_Sources as SOURCES
     from O4_Tile_Customizations import tile_customizations
+    from O4_Mesh_Order import apply_mesh_order, tile_mesh_order
     from O4_Tile_Texture_Check import tile_texture_check
 
     from . import patch_commands, patch_insert
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
-    from .imagery_commands import start_imagery_source_status
+    from .imagery_commands import (
+        imagery_freshness_discard,
+        start_imagery_freshness,
+        start_imagery_source_status,
+    )
     from .mesh_commands import mesh_crop
+    from .object_seat import object_seat
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .plan_estimate import start_plan_estimate
@@ -189,6 +195,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "enqueue_build": session.enqueue_build,
         "cancel": session.cancel,
         "cancel_tile": session.cancel_tile,
+        # The answer to a SlowStep alert (protocol 1.26, #1351).
+        "slow_step_choice": session.slow_step_choice,
         "siblings": session.set_parallel_siblings,
         "tile_info": session.tile_info,
         "config_describe": session.config_describe,
@@ -205,6 +213,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # terrain files name that its textures folder lacks — the tile X-Plane
         # will not load.  Synchronous directory and .ter reads, one tile.
         "tile_texture_check": tile_texture_check,
+        # Scenery order on a tile (protocol 1.28, #1729): the packs whose
+        # base mesh X-Plane draws instead of the tile, or the local meshes
+        # the tile hides; and the user's choice written into
+        # scenery_packs.ini.  Synchronous: one DSF header per pack listed
+        # for the tile, and one ini write.
+        "tile_mesh_order": tile_mesh_order,
+        "apply_mesh_order": apply_mesh_order,
         "links_status": session.links_status,
         "links_install": session.links_install,
         "links_uninstall": session.links_uninstall,
@@ -248,7 +263,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "patch_save": patch_commands.patch_save,
         "patch_revert": patch_commands.patch_revert,
         # "Insert shape" on the map (protocol 1.17, #1314): the square's
-        # corners at the elevation under them and the airport they go to;
+        # corners at the elevation under them and the airport they go to
+        # ("Insert tunnel ramp", kind="tunnel_ramp", 1.24, #1745);
         # appending it to a patch the editor does not have open.
         # Synchronous file work, like the commands above.
         "patch_insert_shape": patch_insert.patch_insert_shape,
@@ -275,6 +291,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "pack_outlines": pack_outlines,
         # ... and the last build's mesh there ("Last build"); synchronous.
         "mesh_crop": mesh_crop,
+        # The object inspector (protocol 1.25, #1702): one placed pack
+        # object's seat as the last build's placement plan wrote it, its
+        # top and bottom.  Synchronous: a cached JSON read; the ground
+        # under a draped row is cursor_elevation's (pending while loading).
+        "object_seat": object_seat,
         # Cursor elevation (protocol 1.14, #1308): the built mesh's
         # elevation at a point, else the DEM's.  Never loads on THIS
         # thread: an uncached source loads on a daemon thread and the
@@ -290,10 +311,16 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # LibraryReady carrying this command's id; deleting needs
         # confirm=true, and deleting, exporting and importing are refused
         # while a build runs.
-        **{name: _library_handler(session, name)
-           for name in ("library_scan", "cache_sizes", "free_cache",
-                        "library_delete", "library_export_bundle",
-                        "library_import_bundle")},
+        # The patch library (#1699 phase 2): library_check, library_matches,
+        # library_apply, library_ignore, library_publish_preview,
+        # library_publish and the GitHub sign-in commands, the same way.
+        # Settings > Storage (#1724): the data folder's caches with their
+        # freeable sizes, clearing them, and the automatic cleanup the apps
+        # run at launch and after a build (storage_scan, storage_clear,
+        # storage_auto_clean).  Clearing needs confirm=true (or dry_run=true)
+        # and is refused while a build runs, and a build that starts
+        # mid-sweep stops it.
+        **{name: _library_handler(session, name) for name in _LIBRARY.COMMANDS},
         # Build cost (protocol 1.15, #820): download, disk and time ranges
         # for the tiles about to be built.  Replies {"status": "started"};
         # PlanEstimateReady carrying this command's id completes it.
@@ -306,13 +333,25 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "preview_tile_url": SOURCES.preview_tile_url,
         "imagery_source_status": lambda codes=None: start_imagery_source_status(
             session._emit, codes=codes),
+        # Tile info's imagery check (protocol 1.27, #1666): replies
+        # {"status": "started"} and completes through ImageryFreshnessReady
+        # carrying this command's id — the provider requests stay off THIS
+        # thread.  The discard ("Update Imagery") is synchronous file work.
+        "imagery_freshness": lambda **kw: start_imagery_freshness(
+            session._emit, **kw),
+        "imagery_freshness_discard": imagery_freshness_discard,
     }
 
 
 def _library_handler(session: EngineSession, name: str) -> Callable:
-    from . import library
-    return lambda **kw: library.start(
-        session._emit, name, busy=lambda: bool(session._building), **kw)
+    from . import storage
+
+    def building() -> bool:
+        return bool(session._building)
+    extra = ({"abort": building} if name in storage.REFUSED_WHILE_BUILDING
+             else {})
+    return lambda **kw: _LIBRARY.start(
+        session._emit, name, busy=building, **extra, **kw)
 
 
 def command_table(session: EngineSession) -> Dict[str, Callable]:

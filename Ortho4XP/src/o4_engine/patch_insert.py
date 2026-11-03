@@ -1,17 +1,19 @@
 """"Insert shape" on the map (issue #1314, protocol 1.20): a square of
 :data:`SQUARE_SIDE_M` centred at the right-click, its corners at the
 elevation under them, added to the patch of the airport the point is in.
+"Insert tunnel ramp" (issue #1745, protocol 1.24) is the same insert with
+``kind="tunnel_ramp"``: the shape and its tags are :mod:`.patch_ramp`'s.
 
 Two engine commands, both synchronous on the read loop like the other
 patch commands:
 
-* ``patch_insert_shape(lat, lon, build_dir=None)`` — the plan, nothing
+* ``patch_insert_shape(lat, lon, build_dir=None, kind="square")`` — the plan, nothing
   written: the airport (:func:`insert_target`), the square's corners
   (:func:`square_ring`) and each corner's elevation from
   ``cursor_elevation`` (the built mesh, else the DEM).  While a source is
   still loading the reply is ``{"pending": true}`` and the app asks again,
   as the cursor readout does.
-* ``patch_add_shape(tile, icao, corners)`` — for an airport whose patch
+* ``patch_add_shape(tile, icao, corners, tags=None)`` — for an airport whose patch
   is NOT the one open in the editor: the shape is appended to the patch
   the build applies and saved as ``patch_save`` saves (the editor's own
   ``<ICAO>_edited.patch.osm``), or, when the airport has no patch at all,
@@ -37,13 +39,16 @@ import O4_File_Names as FNAMES
 from . import patch_commands as PC
 from . import patch_edit as PE
 from . import patch_file as PF
+from . import patch_ramp as PR
 from .elevation_commands import cursor_elevation
 
-__all__ = ["SQUARE_SIDE_M", "patch_insert_shape",
+__all__ = ["SQUARE_SIDE_M", "KINDS", "patch_insert_shape",
            "patch_add_shape"]
 
 #: The inserted square's side, metres (#1314).
 SQUARE_SIDE_M = 20.0
+#: The shapes the map inserts: the square (#1314), the tunnel ramp (#1745).
+KINDS = ("square", PR.RAMP_ROLE)
 
 _INDEX_LOCK = threading.Lock()
 _INDEX: dict = {}          # cache path -> ((mtime_ns, size), [(code, extent)])
@@ -54,11 +59,7 @@ def square_ring(lat: float, lon: float, side_m: float = SQUARE_SIDE_M
     """The four corners ``(lat, lon)`` of a north-up square of ``side_m``
     centred at ``(lat, lon)``, counter-clockwise from the south-west
     corner (east is +lon, north +lat), not closed."""
-    from auto_patch_v2.model.frame import m_per_deg_exact
-    m_lat, m_lon = m_per_deg_exact(lat)
-    h_lat, h_lon = side_m / 2 / m_lat, side_m / 2 / m_lon
-    return [(lat - h_lat, lon - h_lon), (lat - h_lat, lon + h_lon),
-            (lat + h_lat, lon + h_lon), (lat + h_lat, lon - h_lon)]
+    return PR.rect_ring(lat, lon, side_m, side_m)
 
 
 def _index_airports() -> list[tuple[str, tuple[float, float, float, float]]]:
@@ -118,11 +119,30 @@ def insert_target(lat: float, lon: float) -> dict:
     return {"tile": tile, "icao": icao, "path": path, "source": source}
 
 
-def patch_insert_shape(lat: float, lon: float, build_dir: str | None = None) -> dict:
+def _elevations(points: _t.Sequence[tuple[float, float]], build_dir: str | None
+                ) -> list[float] | None:
+    """``cursor_elevation`` at each point (the built mesh, else the DEM),
+    asked in order; ``None`` as soon as one source is still loading."""
+    out = []
+    for c_lat, c_lon in points:
+        reply = cursor_elevation(c_lat, c_lon, build_dir)
+        if reply["pending"]:
+            return None
+        if reply["elevation_m"] is None:
+            raise ValueError(
+                f"There is no elevation at {c_lat:.9f}, {c_lon:.9f} (no built mesh "
+                f"and no DEM for this tile): build the tile first.")
+        out.append(reply["elevation_m"])
+    return out
+
+
+def patch_insert_shape(lat: float, lon: float, build_dir: str | None = None,
+                       kind: str = "square") -> dict:
     """ENGINE COMMAND ``patch_insert_shape`` (module doc): ``{"pending":
     true}`` while an elevation source loads, else ``{"pending": false,
-    "tile", "icao", "path", "source", "side_m", "corners": [[lat, lon,
-    alt]…]}``."""
+    "tile", "icao", "path", "source", "kind", "tags", "corners": [[lat,
+    lon, alt]…]}`` plus ``side_m`` for the square, or the tunnel ramp's
+    ``depth_m`` / ``grade`` / ``length_m`` / ``width_m``."""
     try:
         lat, lon = float(lat), float(lon)
     except (TypeError, ValueError):
@@ -130,18 +150,24 @@ def patch_insert_shape(lat: float, lon: float, build_dir: str | None = None) -> 
     if not (math.isfinite(lat) and math.isfinite(lon)
             and -90 <= lat <= 90 and -180 <= lon <= 180):
         raise ValueError(f"patch_insert_shape: ({lat}, {lon}) is off the globe.")
+    if kind not in KINDS:
+        raise ValueError(f"patch_insert_shape: kind must be one of {', '.join(KINDS)}.")
     target = insert_target(lat, lon)
-    corners = []
-    for c_lat, c_lon in square_ring(lat, lon):
-        reply = cursor_elevation(c_lat, c_lon, build_dir)
-        if reply["pending"]:
+    if kind == PR.RAMP_ROLE:
+        ring = PR.ramp_ring(lat, lon)
+        tops = _elevations(ring[:2], build_dir)
+        if tops is None:
             return {"pending": True}
-        if reply["elevation_m"] is None:
-            raise ValueError(
-                f"There is no elevation at {c_lat:.9f}, {c_lon:.9f} (no built mesh "
-                f"and no DEM for this tile): build the tile first.")
-        corners.append([c_lat, c_lon, reply["elevation_m"]])
-    return {"pending": False, **target, "side_m": SQUARE_SIDE_M, "corners": corners}
+        corners = PR.ramp_corners(ring, *tops)
+        shape = {"tags": PR.ramp_tags(), **PR.ramp_dimensions()}
+    else:
+        ring = square_ring(lat, lon)
+        alts = _elevations(ring, build_dir)
+        if alts is None:
+            return {"pending": True}
+        corners = [[*p, z] for p, z in zip(ring, alts, strict=True)]
+        shape = {"tags": {}, "side_m": SQUARE_SIDE_M}
+    return {"pending": False, **target, "kind": kind, **shape, "corners": corners}
 
 
 def _new_patch(directory: str, icao: str) -> str:
@@ -157,7 +183,8 @@ def _new_patch(directory: str, icao: str) -> str:
     return path
 
 
-def patch_add_shape(tile: str, icao: str, corners: _t.Sequence[_t.Sequence]) -> dict:
+def patch_add_shape(tile: str, icao: str, corners: _t.Sequence[_t.Sequence],
+                    tags: _t.Mapping[str, str] | None = None) -> dict:
     """ENGINE COMMAND ``patch_add_shape`` (module doc): ``{"path", "way_id",
     "created", "message"}`` — the file written, the new way's id, whether
     the airport had no patch before, and the sentence both apps show."""
@@ -168,14 +195,15 @@ def patch_add_shape(tile: str, icao: str, corners: _t.Sequence[_t.Sequence]) -> 
     base_path = _new_patch(directory, icao) if created else found[1]
     try:
         base = PF.read_patch(base_path)
-        doc = PE.add_shape(PE.PatchDoc.from_wire(base.nodes, base.ways), corners)
+        doc = PE.add_shape(PE.PatchDoc.from_wire(base.nodes, base.ways), corners, tags)
         saved = PC.patch_save(tile, icao, base_path, **doc.to_wire())
     except Exception:
         if created:                   # never leave an empty patch behind
             os.remove(base_path)
         raise
     name = os.path.basename(saved["path"])
-    side = "a %g m square" % SQUARE_SIDE_M
+    side = ("a tunnel ramp" if (tags or {}).get("role") == PR.RAMP_ROLE
+            else "a %g m square" % SQUARE_SIDE_M)
     message = (f"Started {icao}'s custom patch {name} with {side}. The next build of "
                f"tile {tile} uses it instead of an auto patch (\"Use auto patch\" in the "
                f"tile info sets it aside)." if created else

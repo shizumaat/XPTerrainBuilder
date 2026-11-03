@@ -6,6 +6,7 @@ import threading
 from collections import defaultdict
 import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_UI_Utils as UI
+import O4_DDS_Encode as ENC
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
 import O4_Imagery_Utils as IMG
@@ -515,6 +516,7 @@ def build_tile(tile):
             effective_convert_slots(max_convert_slots) - 1)
         convert_slots.append(extra)
         worker_count = 1 + extra.count
+        UI.lvprint(1, ENC.encoder_log_line())
         UI.vprint(
             1,
             "-> Opening convert queue and",

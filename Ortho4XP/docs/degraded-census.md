@@ -32,6 +32,7 @@ function (docstrings excluded).
 |---|---|---|---|---|---|
 | O4_Vector_Map.py | derive_auto_patch_selection | 1 | diagnostic | | each consumer recomputes the selection |
 | O4_Vector_Map.py | audit_interp_alt_seed_sealing | 1 | uncoded | | warn mode of an audit whose strict mode raises `UnsealedInterpAltSeed` |
+| O4_Vector_Map.py | _record_coarsened_rings | 1 | degraded | elevation_coarsened | the approach-ring areas left on the base elevation after "Use coarser data" (#1351) |
 | O4_Mesh_Utils.py | hairline_preflight | 1 | diagnostic | | the pre-flight check is skipped |
 | O4_Mesh_Utils.py | build_curv_tol_weight_map | 2 | uncoded | | airport zoom upgrade or inset mesh density not applied |
 | O4_Mesh_Utils.py | patch_valued_vertex_indices | 2 | uncoded | | free-interior interpolation disabled for the tile |

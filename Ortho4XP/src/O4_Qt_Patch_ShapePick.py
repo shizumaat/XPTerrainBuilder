@@ -12,7 +12,9 @@ Pure functions of the document and screen points, tested headless:
   (within 4 px, no move) steps to the next shape on that edge;
 * :func:`shape_stats` — the shape inspector's numbers;
 * :func:`pointer` — the map cursor (#1325): a pointing hand over what a
-  click acts on, an open hand over open map, a closed hand while panning.
+  click acts on, an open hand over open map, a closed hand while panning,
+  a rotate arrow over a node while Alt (Option) is held (#1746);
+* :func:`rotation_shapes` — the shapes an Alt-drag on a node turns (#1746).
 """
 from __future__ import annotations
 
@@ -24,7 +26,8 @@ from O4_Qt_Pack_Outlines import METRES_PER_DEG_LAT
 from O4_Qt_Preview3D_Shapes import LocalFrame
 
 __all__ = ["REPEAT_RADIUS_PX", "ShapeClick", "ShapeStats", "click_target",
-           "shapes_on_edge", "choose_shape", "shape_stats", "POINTERS", "pointer"]
+           "shapes_on_edge", "choose_shape", "shape_stats", "POINTERS", "pointer",
+           "rotation_shapes"]
 
 #: A repeat click within this many px of the last one cycles.
 REPEAT_RADIUS_PX = 4.0
@@ -59,15 +62,18 @@ def click_target(node: int | None, on_handle: bool, on_edge: bool):
 
 
 #: The map cursors (#1325), named as the Mac's ``PatchShapePick.Pointer``.
-POINTERS = ("openHand", "closedHand", "pointingHand")
+POINTERS = ("openHand", "closedHand", "pointingHand", "rotate")
 
 
-def pointer(target, panning: bool = False) -> str:
+def pointer(target, panning: bool = False, rotate: bool = False) -> str:
     """The cursor for a :func:`click_target` under the pointer (None: no
-    patch layer there): ``closedHand`` while panning, ``pointingHand`` over
-    a node, "+" handle or line, else ``openHand``."""
+    patch layer there): ``closedHand`` while panning, ``rotate`` over a
+    node with Alt held (#1746), ``pointingHand`` over a node, "+" handle or
+    line, else ``openHand``."""
     if panning:
         return "closedHand"
+    if rotate and target is not None and target[0] == "node":
+        return "rotate"
     return "openHand" if target is None or target[0] == "empty" else "pointingHand"
 
 
@@ -90,6 +96,21 @@ def shapes_on_edge(doc: PE.PatchDoc, a: int, b: int,
     hits = [w for w in doc.ways
             if any({p, q} == {a, b} for p, q in zip(w.refs, w.refs[1:]))]
     return [w.id for w in sorted(hits, key=lambda w: (_plan_area(doc, w, frame), w.id))]
+
+
+def rotation_shapes(doc: PE.PatchDoc, node: int, selected: _t.AbstractSet[int],
+                    frame: LocalFrame | None = None) -> set[int]:
+    """The shapes an Alt-drag on ``node`` turns (#1746): the selected shapes
+    when the node is on one of them; else the smallest closed shape through
+    it; else its first open way by id; else none."""
+    through = [w for w in doc.ways if node in w.refs]
+    if any(w.id in selected for w in through):
+        return set(selected)
+    frame = frame or LocalFrame.of(doc)
+    closed = [w for w in through if w.closed and len(w.refs) > 2]
+    if closed:
+        return {min(closed, key=lambda w: (_plan_area(doc, w, frame), w.id)).id}
+    return {min(w.id for w in through)} if through else set()
 
 
 def choose_shape(candidates: _t.Sequence[int], x: float, y: float,

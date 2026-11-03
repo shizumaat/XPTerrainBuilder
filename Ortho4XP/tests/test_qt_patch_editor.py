@@ -851,7 +851,8 @@ def test_insert_shape_adds_one_undoable_square_to_the_open_patch(editor, insert_
     inside = (_screen(ed, -1) + _screen(ed, -3)) / 2          # the ring's middle, no node
     menu, at = _insert_menu(ed, view, inside)
     titles = [a.text() for a in menu.actions() if not a.isSeparator()]
-    assert titles == ["Copy coordinates", "Insert shape", menu.actions()[-1].text()]
+    assert titles == ["Copy coordinates", "Insert shape", "Insert tunnel ramp",
+                      menu.actions()[-1].text()]
     notes = []
     ed.inserter.notify = notes.append
     before = len(ed.model.doc.ways)
@@ -864,6 +865,31 @@ def test_insert_shape_adds_one_undoable_square_to_the_open_patch(editor, insert_
     assert [c[3] for c in corners] == [70.0, 71.0, 72.0, 73.0]
     assert [c[1:3] for c in corners] == PI.square_ring(*at)
     assert ed.model.unsaved_edits == 1 and ed.model.undo_stack.undoText() == "Insert Shape"
+    assert ed.model.mode == "Edit" and ed.model.shape_selection == {way.id}
+    ed.model.undo_stack.undo()
+    assert len(ed.model.doc.ways) == before
+
+
+def test_insert_tunnel_ramp_adds_one_undoable_tagged_ramp(editor, insert_engine, monkeypatch):
+    import O4_Qt_Patch_Insert as INSERT
+    from o4_engine import patch_ramp as PR
+    monkeypatch.setattr(INSERT, "PENDING_MS", 1)
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    inside = (_screen(ed, -1) + _screen(ed, -3)) / 2
+    menu, at = _insert_menu(ed, view, inside)
+    notes = []
+    ed.inserter.notify = notes.append
+    before = len(ed.model.doc.ways)
+    next(a for a in menu.actions() if a.text() == "Insert tunnel ramp").trigger()
+    _wait_for(lambda: len(ed.model.doc.ways) > before or notes)
+    assert notes == []
+    way = ed.model.doc.ways[-1]
+    assert way.tags == PR.ramp_tags() and len(way.refs) == 5
+    alts = [ed.model.doc.nodes[r][3] for r in way.refs[:4]]
+    assert alts[0] - alts[3] == pytest.approx(7.5) and alts[1] - alts[2] == pytest.approx(7.5)
+    assert ed.model.undo_stack.undoText() == "Insert Tunnel Ramp"
     assert ed.model.mode == "Edit" and ed.model.shape_selection == {way.id}
     ed.model.undo_stack.undo()
     assert len(ed.model.doc.ways) == before
@@ -900,7 +926,40 @@ def test_the_mac_app_names_insert_shape_the_same():
     import re
     from pathlib import Path
 
+    import O4_Qt_Patch_Insert as INSERT
     from O4_Qt_Patch_Insert import INSERT_SHAPE_TITLE
     swift = (Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
              / "TileContextMenu.swift").read_text(encoding="utf-8")
     assert re.search(r'static let insertShapeTitle = "([^"]*)"', swift).group(1) == INSERT_SHAPE_TITLE
+    assert (re.search(r'static let insertTunnelRampTitle = "([^"]*)"', swift).group(1)
+            == INSERT.INSERT_RAMP_TITLE)
+
+
+def test_alt_drag_on_a_node_rotates_its_shape_in_one_undo_step(editor, patches):
+    """#1746: Alt (Option) over a node is the rotate cursor; an Alt-drag
+    turns the node's shape about its centre (the shared -3 drags the
+    service road's end along), keeps every elevation, and is ONE undo
+    step."""
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    before = dict(ed.model.doc.nodes)
+    pivot = ed.overlay.screen_of(30.1005, 31.4005)
+    press = _screen(ed, -1)
+    _mouse(view, QEvent.MouseButtonPress, press, mods=Qt.AltModifier)
+    assert ed.gestures.kind == ed.gestures.ROTATE and ed.model.shape_selection == {-10}
+    assert ed.gestures.pointer_at(press) == "rotate"
+    turned = pivot + QPointF(press.y() - pivot.y(), -(press.x() - pivot.x()))  # a quarter, screen
+    _mouse(view, QEvent.MouseMove, (press + turned) / 2 + (press + turned - 2 * pivot) * 0.2)
+    _mouse(view, QEvent.MouseMove, turned)
+    view.viewport().grab()                                   # the turning shape and its centre
+    assert abs(ed.gestures.angle - 90.0) < 1.0               # counter-clockwise on the ground
+    _mouse(view, QEvent.MouseButtonRelease, turned, buttons=Qt.NoButton)
+    assert ed.model.undo_stack.count() == 1 and ed.model.undo_stack.undoText() == "Rotate Shape"
+    after = ed.model.doc.nodes
+    assert {n for n in before if after[n] != before[n]} == {-1, -2, -3, -4}
+    assert all(after[n][3] == before[n][3] for n in before)
+    assert abs(ed.gestures.angle) == 0.0                     # reset after release
+    ed.model.undo_stack.undo()
+    assert dict(ed.model.doc.nodes) == before

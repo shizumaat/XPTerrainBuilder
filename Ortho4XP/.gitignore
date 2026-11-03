@@ -40,6 +40,8 @@ Sessions/
 
 # Local build/scan caches
 Airport_mod_cache/
+# The patch library's index, signature and licence state (#1699)
+Library/
 Default_DSF_cache/
 tools/run_ledger.jsonl
 tools/probes_heca_burial_20260729/

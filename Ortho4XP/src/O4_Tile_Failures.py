@@ -132,6 +132,11 @@ REMEDIES = {
     "unmounted_output": "{connect} and build the tile again, or remove the "
                         "link to build on this computer's drive.",
     "unmounted_pack": "{connect} and build the tile again.",
+    # the scenery-order buttons both apps show in the tile's info (#1729)
+    "mesh_order": "Move the tile above that scenery, or disable it, from "
+                  "the tile's info.",
+    "mesh_order_lower": "To show that scenery's ground, move the tile "
+                        "below it from the tile's info.",
     "elevation_link": "{connect}, or replace the link with an empty "
                       "folder, then build the tile again.",
 }
@@ -249,6 +254,12 @@ CATALOGUE = {
         "the detailed elevation for {airports} could not be downloaded.",
         "{inset_source} did not answer, so the ground there was shaped from "
         "the standard elevation data.", "network", severity="degraded"),
+    # the user's "Use coarser data" on a slow approach-ring download
+    # (#1351, ``O4_Vector_Map._record_coarsened_rings``)
+    "elevation_coarsened": Entry(
+        "part of the detailed elevation around its airports was skipped.",
+        "You chose to finish without it, so the standard elevation data "
+        "shapes {areas} there.", "rebuild_later", severity="degraded"),
     "mask_extent_missing": Entry(
         "its water masks were built without the custom extent you chose.",
         "The extent “{extent}” was not found in the app's Extents folder, "
@@ -258,6 +269,18 @@ CATALOGUE = {
         "The map data for {category} could not be downloaded, so those "
         "areas are not shaded as shallow water.", "network",
         severity="degraded"),
+    # the scenery order on the tile (#1729, O4_Mesh_Order): another pack's
+    # ground drawn instead of ours, or ours drawn over a local mesh
+    "scenery_hidden_by_mesh": Entry(
+        "X-Plane will not show it: {pack} draws its own ground there.",
+        "That scenery ships a base mesh for this tile and is above the tile "
+        "in X-Plane's scenery order; X-Plane draws only the first one.",
+        "mesh_order", severity="degraded"),
+    "scenery_hides_mesh": Entry(
+        "it hides the ground of {pack}.",
+        "That scenery ships a base mesh for a small part of this tile, such "
+        "as an airport, and is below the tile in X-Plane's scenery order.",
+        "mesh_order_lower", severity="degraded"),
     # ── whole tile ─────────────────────────────────────────────────────
     "elevation_download_failed": Entry(
         "its elevation data could not be downloaded.",
@@ -393,6 +416,9 @@ EXCEPTION_CODES = {
     # a tile bundle (#1699) that does not match: said in its own words by
     # the Library command, never raised inside a build step
     "BundleRefused": "unexpected_error",
+    # a patch library command (#1699 phase 2) that cannot be done: said in
+    # its own words by the command; the reuse gate never raises it
+    "LibraryRefused": "unexpected_error",
     # geometry (shapely's GEOSException covers TopologyException, #559)
     "GEOSException": "airport_geometry",
     "TopologicalError": "airport_geometry",
@@ -646,6 +672,7 @@ def _describe(code: str, tile: str, airports: list, params: dict,
         "inset_source": params.get("source")
                         or "The detailed elevation source",
         "extent": params.get("extent") or "?",
+        "areas": params.get("areas") or "some areas",
         "category": _CATEGORY_WORDS.get(params.get("category", ""),
                                         "reefs or tidal flats"),
     }

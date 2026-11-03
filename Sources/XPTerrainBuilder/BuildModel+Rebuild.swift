@@ -8,6 +8,13 @@ extension BuildModel {
     /// sentence why it cannot, or nil when the build was asked for. The
     /// patch editor and the tile pane's missing-textures row both end here.
     func rebuildWithItsImagery(_ coord: TileCoord) -> String? {
+        if let refusal = rebuildRefusal(coord) { return refusal }
+        startRebuild(coord)
+        return nil
+    }
+
+    /// Select the tile and say why it cannot be rebuilt now, or nil.
+    func rebuildRefusal(_ coord: TileCoord) -> String? {
         if rebuildDecision(for: coord) == .alreadyInRun {
             return "This tile is already in this run."
         }
@@ -16,9 +23,13 @@ extension BuildModel {
             return xplaneBlockReason
                 ?? "This tile can't be rebuilt now. Turn off “Skip tiles already built” and try again."
         }
+        return nil
+    }
+
+    /// Build the (selected) tile with the source and zoom it was built with.
+    func startRebuild(_ coord: TileCoord) {
         let choice = built[coord].flatMap(TileImageryChoice.resolve)
         startBuild(batches: [([coord], choice?.provider ?? buildProvider,
                               choice?.zl ?? buildZL)])
-        return nil
     }
 }

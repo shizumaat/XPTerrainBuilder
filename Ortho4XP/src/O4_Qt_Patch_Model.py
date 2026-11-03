@@ -293,6 +293,16 @@ class PatchEditModel(QObject):
             self.set_selection((self.selection - {merge[0]}) | {merge[1]})
         return done
 
+    def rotate_shapes(self, way_ids: _t.Iterable[int], angle_deg: float) -> bool:
+        """The Alt-drag's ONE edit (#1746): turn the shapes by ``angle_deg``
+        (counter-clockwise) about their centre; elevations kept."""
+        way_ids = sorted(way_ids)
+        if not way_ids or abs(angle_deg) <= 1e-9:
+            return False
+        self.last_shape_click = None
+        return self.perform("Rotate Shape" if len(way_ids) == 1 else "Rotate Shapes",
+                            lambda doc: PE.rotate_ways(doc, way_ids, angle_deg))
+
     def delete_selection(self) -> bool:
         """Delete the selected shapes (``delete_ways``), then the selected
         nodes still there (``delete_nodes``) — ONE undo step."""
@@ -368,13 +378,15 @@ class PatchEditModel(QObject):
         name = "Set Shape Elevation" if len(ways) == 1 else "Set Shapes Elevation"
         return self.perform(name, lambda doc: ELEV.apply(doc, p, alt, include_shared))
 
-    def add_shape(self, corners: _t.Sequence[_t.Sequence]) -> bool:
-        """"Insert shape" into the open patch (#1314): ONE step; the editor
-        turns to Edit mode with the new shape selected."""
+    def add_shape(self, corners: _t.Sequence[_t.Sequence],
+                  tags: _t.Mapping[str, str] | None = None, name: str = "Insert Shape") -> bool:
+        """"Insert shape" / "Insert tunnel ramp" into the open patch (#1314,
+        #1745): ONE step named ``name``; the editor turns to Edit mode with
+        the new shape selected."""
         if self.doc is None:
             return False
         way = PE.next_way_id(self.doc)
-        done = self.perform("Insert Shape", lambda doc: PE.add_shape(doc, corners))
+        done = self.perform(name, lambda doc: PE.add_shape(doc, corners, tags))
         if done:
             self.set_mode(MODE_EDIT)
             self.select_shapes({way})

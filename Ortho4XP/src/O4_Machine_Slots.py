@@ -156,6 +156,9 @@ def _measured_capacity() -> int:
                     _PU.machine_available_memory_gigabytes())
 
 
+_SESSION_OPEN = threading.Lock()
+
+
 def ensure_session() -> tuple[str, int]:
     """``(slot directory, capacity)`` of this process's session — the one
     inherited through :data:`ENV_DIR`, or a new one published in
@@ -164,15 +167,22 @@ def ensure_session() -> tuple[str, int]:
     path = os.environ.get(ENV_DIR, "")
     if path and os.path.isdir(path):
         return path, _capacity_from_env()
-    try:
-        cap = max(1, int(os.environ.get(ENV_CAPACITY, "")))
-    except ValueError:
-        cap = _measured_capacity()
-    path = tempfile.mkdtemp(prefix="o4-slots-")
-    atexit.register(shutil.rmtree, path, True)
-    os.environ[ENV_DIR] = path
-    os.environ[ENV_CAPACITY] = str(cap)
-    return path, cap
+    # One opener at a time: threads that open the first session together
+    # (two tiles' fetch pools) would each mint a directory, and each
+    # directory is a separate cap.
+    with _SESSION_OPEN:
+        path = os.environ.get(ENV_DIR, "")
+        if path and os.path.isdir(path):
+            return path, _capacity_from_env()
+        try:
+            cap = max(1, int(os.environ.get(ENV_CAPACITY, "")))
+        except ValueError:
+            cap = _measured_capacity()
+        path = tempfile.mkdtemp(prefix="o4-slots-")
+        atexit.register(shutil.rmtree, path, True)
+        os.environ[ENV_CAPACITY] = str(cap)
+        os.environ[ENV_DIR] = path
+        return path, cap
 
 
 def _capacity_from_env() -> int:

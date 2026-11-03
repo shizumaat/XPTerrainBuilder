@@ -329,6 +329,9 @@ public enum O4Event: Sendable, Equatable {
     /// the outcome of a build or a `pack_forests` command. See
     /// `O4PackOldForests`.
     case packOldForests(O4PackOldForests)
+    /// One step of one tile is slow (protocol 1.26, #1351): what, why, an
+    /// ETA and the answers it supports. See `O4SlowStep`.
+    case slowStep(O4SlowStep)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -506,6 +509,9 @@ public enum O4Event: Sendable, Equatable {
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
+        // `class SlowStep` in Ortho4XP/src/o4_engine/events.py.
+        case "SlowStep":
+            return .slowStep(O4SlowStep.parse(object))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -938,6 +944,16 @@ public final class OrthoEngineClient: @unchecked Sendable {
         send(command: "pack_forests", arguments: arguments)
     }
 
+    // MARK: - Slow-step alert (protocol 1.26)
+
+    /// The user's answer to a tile's `slowStep` alert (#1351): "continue"
+    /// or "coarser" ("cancel" is the per-tile stop, `cancel_tile`). An
+    /// engine older than 1.26 refuses it: nothing changes.
+    public func slowStepChoice(lat: Int, lon: Int, choice: String) {
+        send(command: "slow_step_choice",
+             arguments: ["lat": lat, "lon": lon, "choice": choice])
+    }
+
     // MARK: - Stream handling
 
     private func consumeStdout(_ data: Data) {
@@ -978,12 +994,14 @@ public final class OrthoEngineClient: @unchecked Sendable {
         }
         // A STRING LITERAL match (see O4Event.parse): these are `class
         // PackObjectsReady`, `class LibraryReady`, `class
-        // PlanEstimateReady` and `class BuildAirportsReady` in
-        // Ortho4XP/src/o4_engine/events.py, the completions of the
-        // `pack_objects`, Library, `plan_estimate` (#820) and
-        // `build_airports` (#818) commands whose id is `request`.
+        // PlanEstimateReady`, `class BuildAirportsReady` and `class
+        // ImageryFreshnessReady` in Ortho4XP/src/o4_engine/events.py, the
+        // completions of the `pack_objects`, Library, `plan_estimate`
+        // (#820), `build_airports` (#818) and `imagery_freshness` (#1666)
+        // commands whose id is `request`.
         switch object["event"] as? String {
-        case "PackObjectsReady", "LibraryReady", "PlanEstimateReady", "BuildAirportsReady":
+        case "PackObjectsReady", "LibraryReady", "PlanEstimateReady", "BuildAirportsReady",
+             "ImageryFreshnessReady":
             if let request = (object["request"] as? NSNumber)?.intValue,
                let waiter = lock.withLock({ eventWaiters.removeValue(forKey: request) }) {
                 waiter(O4JSON.from(object))
@@ -1052,18 +1070,39 @@ extension OrthoEngineClient {
         return try await request("cursor_elevation", arguments)
     }
 
+    /// The object inspector's seat for one placed pack object (protocol
+    /// 1.25, #1702), from the last build's placement plan; ask again while
+    /// the reply is `pending`.
+    public func objectSeat(tile: String, icao: String, object: PackObjectRef,
+                           buildDir: String? = nil) async throws -> O4ObjectSeat {
+        var arguments: [String: Any] = [
+            "tile": tile, "icao": icao, "index": object.index, "lat": object.lat, "lon": object.lon,
+            "agl_m": object.aglM,
+        ]
+        if let yMin = object.yMin, let yMax = object.yMax { arguments["y_min"] = yMin; arguments["y_max"] = yMax }
+        if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        return try await request("object_seat", arguments)
+    }
+
     /// "Insert shape" planned at a point (protocol 1.20, #1314); ask again
-    /// while the reply is `pending`.
-    public func patchInsertShape(lat: Double, lon: Double, buildDir: String? = nil) async throws -> O4PatchInsertShape {
+    /// while the reply is `pending`. `kind` nil is the square; "tunnel_ramp"
+    /// is "Insert tunnel ramp" (protocol 1.24, #1745).
+    public func patchInsertShape(lat: Double, lon: Double, buildDir: String? = nil,
+                                 kind: String? = nil) async throws -> O4PatchInsertShape {
         var arguments: [String: Any] = ["lat": lat, "lon": lon]
         if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        if let kind { arguments["kind"] = kind }
         return try await request("patch_insert_shape", arguments)
     }
 
     /// Append the planned corners to `icao`'s patch on disk (protocol 1.20,
     /// #1314) — for an airport whose patch is not the open document.
-    public func patchAddShape(tile: String, icao: String, corners: [[Double]]) async throws -> O4PatchAddShape {
-        try await request("patch_add_shape", ["tile": tile, "icao": icao, "corners": corners])
+    /// `tags` (protocol 1.24, #1745) are sent only when there are any.
+    public func patchAddShape(tile: String, icao: String, corners: [[Double]],
+                              tags: [String: String] = [:]) async throws -> O4PatchAddShape {
+        var arguments: [String: Any] = ["tile": tile, "icao": icao, "corners": corners]
+        if !tags.isEmpty { arguments["tags"] = tags }
+        return try await request("patch_add_shape", arguments)
     }
 
     /// The terrain view's picture over `bbox` (protocol 1.15, #1320):

@@ -10,7 +10,9 @@ import Foundation
 /// * the repeat-click cycle: clicking the same spot again (within 4 pt, no
 ///   move) steps to the next shape on that edge;
 /// * the map cursor (#1325): a pointing hand over what a click acts on, an
-///   open hand over open map, a closed hand while panning.
+///   open hand over open map, a closed hand while panning, a rotate arrow
+///   over a node while Option is held (#1746);
+/// * the shapes an Option-drag on a node turns (#1746).
 public enum PatchShapePick {
     /// A repeat click within this many points of the last one cycles.
     public static let repeatRadius: Double = 4
@@ -32,14 +34,16 @@ public enum PatchShapePick {
 
     /// The map cursors (#1325); Qt's `O4_Qt_Patch_ShapePick.POINTERS` names.
     public enum Pointer: String, Equatable, Sendable {
-        case openHand, closedHand, pointingHand
+        case openHand, closedHand, pointingHand, rotate
     }
 
     /// The cursor over `target` (nil: no patch layer there): a closed hand
     /// while panning, a pointing hand over a node, "+" handle or line, else
-    /// an open hand.
-    public static func pointer(over target: Target?, panning: Bool = false) -> Pointer {
+    /// an open hand. With Option held (`rotate`), a node shows the rotate
+    /// arrow (#1746).
+    public static func pointer(over target: Target?, panning: Bool = false, rotate: Bool = false) -> Pointer {
         if panning { return .closedHand }
+        if rotate, case .node = target { return .rotate }
         guard let target, target != .empty else { return .openHand }
         return .pointingHand
     }
@@ -55,6 +59,19 @@ public enum PatchShapePick {
         return hits.map { ($0.id, PatchShapeStats.planArea(of: $0, in: doc)) }
             .sorted { ($0.1, $0.0) < ($1.1, $1.0) }
             .map(\.0)
+    }
+
+    /// The shapes an Option-drag on `node` turns (#1746): the selected
+    /// shapes when the node is on one of them; else the smallest closed
+    /// shape through it; else its first open way by id; else none.
+    public static func rotationShapes(node: Int64, selected: Set<Int64>, in doc: PatchDocument) -> Set<Int64> {
+        let through = (doc.wayIndicesByNode[node] ?? []).map { doc.ways[$0] }
+        if through.contains(where: { selected.contains($0.id) }) { return selected }
+        let closed = through.filter(\.isClosed)
+            .map { ($0.id, PatchShapeStats.planArea(of: $0, in: doc)) }
+            .min { ($0.1, $0.0) < ($1.1, $1.0) }
+        if let closed { return [closed.0] }
+        return through.map(\.id).min().map { [$0] } ?? []
     }
 
     /// The last edge click: where, which shapes were on that edge, which one

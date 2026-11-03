@@ -76,7 +76,7 @@ jobs:
       # Lazily imported packages must be IN the bundle (#130: laspy for the
       # LAS-tile elevation provider; the highspy precedent of 2026-09-10).
       - name: Lazy-import self-check (frozen engine)
-        run: Ortho4XP/dist/Ortho4XP/Ortho4XP --import-selfcheck laspy,lazrs
+        run: Ortho4XP/dist/Ortho4XP/Ortho4XP --import-selfcheck laspy,lazrs,ispc_texcomp
 
       # LERC: no separate step on mac.  scripts/make_engine.sh ("Freeze
       # engine" above) already runs scripts/check_frozen_lerc.sh FATALLY with
@@ -338,7 +338,7 @@ jobs:
       # Lazily imported packages must be IN the bundle (#130, laspy).
       - name: Lazy-import self-check (frozen app)
         working-directory: Ortho4XP
-        run: dist/Ortho4XP_Qt/Ortho4XP_Qt.exe --import-selfcheck laspy,lazrs
+        run: dist/Ortho4XP_Qt/Ortho4XP_Qt.exe --import-selfcheck laspy,lazrs,ispc_texcomp
 
       # On Windows this app IS the engine, so it must decode LERC elevation
       # assets itself (owner RULINGS 2026-09-13a (1)) — the same 64x64
@@ -481,7 +481,7 @@ jobs:
       # Lazily imported packages must be IN the bundle (#130, laspy).
       - name: Lazy-import self-check (frozen app)
         working-directory: Ortho4XP
-        run: dist/Ortho4XP_Qt/Ortho4XP_Qt --import-selfcheck laspy,lazrs
+        run: dist/Ortho4XP_Qt/Ortho4XP_Qt --import-selfcheck laspy,lazrs,ispc_texcomp
 
       # On Linux this app IS the engine, so it must decode LERC elevation
       # assets itself (owner RULINGS 2026-09-13a (1)) — the same 64x64

@@ -23,17 +23,16 @@ Tile bundles are made only for the default mesh settings (owner Q301):
 """
 from __future__ import annotations
 
-import contextlib
-import hashlib
-import json
-import os
-
 import O4_Step_Reuse as REUSE
+from auto_patch import provenance_env as _env
+from auto_patch_v2.airport.pack_identity import digest as _digest
+from auto_patch_v2.airport.pack_identity import pack_signature  # the one derivation
 
 from . import FORMAT
 
-__all__ = ["NOT_PROFILE", "LOCATION_ENVS", "mesh_profile", "profile_deviations",
-           "xplane_root", "airport_signatures", "key_parts",
+__all__ = ["NOT_PROFILE", "MATCHED_NOT_REFUSED", "LOCATION_ENVS", "mesh_profile",
+           "profile_deviations", "without_locations", "xplane_root",
+           "pack_signature", "airport_signatures", "key_parts",
            "bundle_key", "first_difference"]
 
 #: Settings in a step's key that are not part of the mesh profile: where
@@ -42,10 +41,10 @@ __all__ = ["NOT_PROFILE", "LOCATION_ENVS", "mesh_profile", "profile_deviations",
 #: effect (``O4_Cfg_Vars``: retired 2026-07-26, kept so old files parse).
 NOT_PROFILE = ("custom_scenery_dir", "cifp_data_path", "airport_inset_water")
 
-
-def _digest(value) -> str:
-    text = json.dumps(value, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+#: Settings a bundle is made for at ANY value: still in the profile digest
+#: (so matched), never a reason to refuse an export (owner Q315,
+#: 2026-11-02: "For 301, option a." — ``road_level`` is part of the key).
+MATCHED_NOT_REFUSED = ("road_level",)
 
 
 def mesh_profile(tile) -> dict:
@@ -63,32 +62,22 @@ def profile_deviations(profile: dict) -> list:
     (``O4_Cfg_Vars``) — a bundle is made only when there are none."""
     import O4_Cfg_Vars as CFGVARS
     return [name for name, value in sorted(profile.items())
-            if name in CFGVARS.cfg_vars
+            if name in CFGVARS.cfg_vars and name not in MATCHED_NOT_REFUSED
             and value != repr(CFGVARS.cfg_vars[name].get("default"))]
 
 
 #: ``O4_`` variables the auto-patch configuration digest reads that say
-#: WHERE a cache is kept, not what it holds (``provenance_env.SETTINGS_
-#: OUTSIDE_CONFIG``, "the two cache roots", #346 — the harness sets them,
-#: the app never does).  A bundle's key must not name the machine, so the
-#: key's digest is taken without them; the step records keep them.
-LOCATION_ENVS = ("O4_DSF_CACHE_DIR", "O4_AIRPORT_MOD_CACHE_DIR")
-
-
-@contextlib.contextmanager
-def _without_locations():
-    saved = {name: os.environ.pop(name) for name in LOCATION_ENVS
-             if name in os.environ}
-    try:
-        yield
-    finally:
-        os.environ.update(saved)
+#: WHERE a cache is kept, not what it holds; a bundle's key must not name
+#: the machine (``auto_patch.provenance_env.CACHE_LOCATIONS``, the one
+#: list, shared with the library's airport entries).
+LOCATION_ENVS = _env.CACHE_LOCATIONS
+without_locations = _env.without_cache_locations
 
 
 def _code_family() -> dict:
     """``{step: {"code", "auto_patch_cfg"}}`` for this engine, the
     configuration digest taken without :data:`LOCATION_ENVS`."""
-    with _without_locations():
+    with without_locations():
         return {step: REUSE.code_identity(step)
                 for step in REUSE.REUSABLE_STEPS}
 
@@ -108,32 +97,13 @@ def _graded_airports(tile) -> list:
     return sorted({row["icao"] for row in rows})
 
 
-def _signature(root: str, icao: str, lat: int, lon: int) -> dict:
-    """One airport's pack and its pristine signature digest."""
-    from auto_patch_v2.airport import apt_dat as _apt
-    from auto_patch_v2.airport import dsf_write as _dw
-    from auto_patch_v2.airport import pack as _pack
-    from auto_patch_v2.airport.file_hash import sha256_file
-    from auto_patch_v2.law import Law
-    sel = _pack.select_pack(root, icao, Law.for_airport(icao))
-    if sel is None:
-        return {"pack": "", "custom": False, "signature": "no apt.dat"}
-    block = _apt.read_airport_block(sel.apt_dat_path, icao) or []
-    sig = _pack.signature(sel, block, lat, lon)
-    pristine = [sha256_file(_dw.pristine_dsf_path(p)) for p in sig.dsf_paths]
-    return {"pack": sel.name, "custom": bool(sel.custom),
-            "signature": _digest([sig.apt_dat_sha256, pristine,
-                                  sig.borrowed_block_sha256,
-                                  bool(sig.flatten_declared)])[:32]}
-
-
 def airport_signatures(tile) -> dict:
     """``{icao: {"pack", "custom", "signature"}}`` for every airport the
     tile grades, from this machine's installed packs."""
     root = xplane_root(tile)
     if not root:
         return {}
-    return {icao: _signature(root, icao, tile.lat, tile.lon)
+    return {icao: pack_signature(root, icao, tile.lat, tile.lon)
             for icao in _graded_airports(tile)}
 
 

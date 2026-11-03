@@ -79,4 +79,20 @@ def test_the_pointer_follows_what_a_click_acts_on():
     assert PICK.pointer(("handle",)) == "pointingHand"
     assert PICK.pointer(("edge",)) == "pointingHand"
     assert PICK.pointer(("edge",), panning=True) == "closedHand"
-    assert set(PICK.POINTERS) == {"openHand", "closedHand", "pointingHand"}
+    assert PICK.pointer(("node", -1), rotate=True) == "rotate"      # Alt held (#1746)
+    assert PICK.pointer(("edge",), rotate=True) == "pointingHand"
+    assert set(PICK.POINTERS) == {"openHand", "closedHand", "pointingHand", "rotate"}
+
+
+def test_alt_drag_turns_the_selected_shapes_or_the_smallest_closed_one():
+    """#1746 (the Mac's ``rotationShapes``): the selected shapes when the
+    node is on one, else the smallest closed shape through it, else its
+    open way."""
+    doc = _doc()
+    assert PICK.rotation_shapes(doc, -2, set()) == {-101}
+    assert PICK.rotation_shapes(doc, -6, set()) == {-102}
+    assert PICK.rotation_shapes(doc, -4, set()) == {-101}
+    assert PICK.rotation_shapes(doc, -8, set()) == {-103}
+    assert PICK.rotation_shapes(doc, -2, {-102, -103}) == {-102, -103}
+    assert PICK.rotation_shapes(doc, -8, {-101}) == {-103}
+    assert PICK.rotation_shapes(doc, -99, set()) == set()

@@ -33,7 +33,9 @@ trap 'rm -rf "$TMPD"' EXIT
 
 phys() { (cd "$1" 2>/dev/null && pwd -P); }
 avail() { df -h "$MAIN_REPO" 2>/dev/null | awk 'NR == 2 { print $4 }'; }
-mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+# GNU stat first: on Linux `stat -f` is filesystem status and succeeds
+# with a non-mtime answer, so the BSD spelling must not be tried first.
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
 
 case "$BASE" in origin/*)
     git -C "$MAIN_REPO" fetch -q origin "${BASE#origin/}" 2>/dev/null \

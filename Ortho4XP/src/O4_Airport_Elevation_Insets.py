@@ -5163,7 +5163,13 @@ def ensure_airport_insets(
     # the per-provider slots below keep any single server at two
     # in-flight requests.
     if TASK_METER is not None:
-        TASK_METER.begin(meter_key, len(icaos))
+        TASK_METER.begin(
+            meter_key, len(icaos),
+            what="Downloading detailed elevation for {total} airports: "
+                 "{done} done",
+            why="Detailed airport elevation is read from remote elevation "
+                "servers, one area per airport",
+            reason="remote_airport_elevation")
     try:
         if len(icaos) > 1:
             from concurrent.futures import ThreadPoolExecutor

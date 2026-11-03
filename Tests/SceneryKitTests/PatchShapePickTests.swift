@@ -40,6 +40,21 @@ struct PatchShapePickTests {
         #expect(PatchShapePick.pointer(over: .handle) == .pointingHand)
         #expect(PatchShapePick.pointer(over: .edge) == .pointingHand)
         #expect(PatchShapePick.pointer(over: .edge, panning: true) == .closedHand)
+        #expect(PatchShapePick.pointer(over: .node(-1), rotate: true) == .rotate)  // ⌥ held (#1746)
+        #expect(PatchShapePick.pointer(over: .edge, rotate: true) == .pointingHand)
+    }
+
+    /// #1746 (Qt's `rotation_shapes`): the selected shapes when the node is
+    /// on one, else the smallest closed shape through it, else its open way.
+    @Test func optionDragTurnsTheSelectedShapesOrTheSmallestClosedOne() throws {
+        let d = try doc()
+        #expect(PatchShapePick.rotationShapes(node: -2, selected: [], in: d) == [-101])
+        #expect(PatchShapePick.rotationShapes(node: -6, selected: [], in: d) == [-102])
+        #expect(PatchShapePick.rotationShapes(node: -4, selected: [], in: d) == [-101])
+        #expect(PatchShapePick.rotationShapes(node: -8, selected: [], in: d) == [-103])
+        #expect(PatchShapePick.rotationShapes(node: -2, selected: [-102, -103], in: d) == [-102, -103])
+        #expect(PatchShapePick.rotationShapes(node: -8, selected: [-101], in: d) == [-103])
+        #expect(PatchShapePick.rotationShapes(node: -9, selected: [], in: d).isEmpty)
     }
 
     @Test func sharedEdgeListsSmallestShapeFirst() throws {

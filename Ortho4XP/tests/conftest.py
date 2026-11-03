@@ -40,6 +40,11 @@ os.environ.setdefault("O4_DISABLE_OSM_WARMER", "1")
 # its sockets inside libcurl, where the Python socket guard below cannot see
 # them; the suite runs the threaded fetcher unless a test opts in (loopback only).
 os.environ["O4_IMAGERY_FETCHER"] = "threads"
+# The patch library (#1699 phase 2) reads its index from GitHub; a window
+# that builds the Airports card or opens fires library_matches /
+# library_check on a daemon thread.  The suite has NO library unless a test
+# sets one up (the fake library sets every XPTB_LIBRARY_* itself).
+os.environ.setdefault("XPTB_LIBRARY_REPO", "")
 
 # ...and the law is ENFORCED at the socket, not trusted to every caller
 # (issue #122).  Windows CI hung three times to the 600 s pytest-timeout,
@@ -1321,6 +1326,37 @@ def pytest_configure(config):
             "O4_SUITE_WRITE_AUDIT=1 needs O4_SUITE_WRITE_AUDIT_OUT set to "
             f"an ABSOLUTE path for the per-test JSONL rows (got {out!r}); "
             "each worker appends to <path>.<worker>.")
+
+
+def _map_tile_workers_never_start():
+    """Disarm the Qt map's tile-download worker pool (issue #1786).
+
+    ``O4_Qt_Map.MapView._start_workers`` spawns daemon threads that loop
+    forever pulling tiles from tile.openstreetmap.org and the imagery
+    providers; a window fixture that never disabled them left workers
+    whose DNS lookups the network guard booked against the NEXT test.
+    The per-view ``v._start_workers = lambda: None`` the map tests set by
+    hand is made suite-wide here, on the class, once the module is
+    imported, so no worker ever starts and none outlives its test.
+    Tests that exercise fetching call ``_fetch_tile`` directly."""
+    qtmap = sys.modules.get("O4_Qt_Map")
+    view = getattr(qtmap, "MapView", None)
+    if view is not None and not getattr(view, "_o4_suite_no_workers", False):
+        view._start_workers = lambda self: None
+        view._o4_suite_no_workers = True
+
+
+@pytest.fixture(autouse=True)
+def _qt_map_tile_workers_are_disarmed():
+    _map_tile_workers_never_start()
+    yield
+    _map_tile_workers_never_start()
+
+
+def pytest_collection_finish(session):
+    # Test modules import the Qt window at collection: disarm before any
+    # fixture (even session-scoped) can build a MapView.
+    _map_tile_workers_never_start()
 
 
 @pytest.fixture(autouse=True)

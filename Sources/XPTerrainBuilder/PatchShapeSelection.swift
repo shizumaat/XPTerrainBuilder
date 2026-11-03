@@ -54,11 +54,12 @@ extension PatchEditModel {
         if shapeSelection != ways { shapeSelection = ways }
     }
 
-    /// Esc, a click on empty map: nothing selected.
+    /// Esc, a click on empty map: nothing selected (no object either, #1702).
     func clearSelection() {
         if !selection.isEmpty { selection = [] }
         if !shapeSelection.isEmpty { shapeSelection = [] }
         lastShapeClick = nil
+        build?.objectInspector.clear()
     }
 
     var hasSelection: Bool { !selection.isEmpty || !shapeSelection.isEmpty }

@@ -11,6 +11,9 @@ drag on a node         move the selection (snaps within 8 px, merges on
                        release while snapped)
 left drag, open map    pan (the map's own rule, every map view)
 click on a "+"         insert a node
+Alt-drag on a node     rotate its shape about the centre (#1746; Option
+                       on a Mac keyboard)
+click on a pack object select it: the object inspector (#1702)
 right click            the context menu (never a pan)
 scroll / pinch         zoom
 Delete / Backspace     delete; Esc clears
@@ -18,7 +21,11 @@ Delete / Backspace     delete; Esc clears
 
 The cursor (:func:`O4_Qt_Patch_ShapePick.pointer`) is a pointing hand
 over a node, "+" handle or line, an open hand over open map and a closed
-hand while panning.  A click on a LINE selects
+hand while panning, a rotate arrow over a node while Alt is held.  An
+Alt-drag on a node turns :func:`O4_Qt_Patch_ShapePick.rotation_shapes`
+about their centre (``o4_engine.patch_rotate``) and commits ONE
+"Rotate Shape" edit on release (undoable; elevations kept).  A click on a
+LINE selects
 its whole shape (#759, ``O4_Qt_Patch_ShapePick``; node > "+" > line > empty
 map; a repeat click on the same spot cycles the shapes sharing that edge;
 Shift-click toggles one), and a drag on a selected shape's line or nodes
@@ -31,13 +38,13 @@ from __future__ import annotations
 import math
 import typing as _t
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QKeySequence, QPen, QShortcut
-from PySide6.QtWidgets import QApplication, QLineEdit
-
 import O4_Qt_Patch_ShapePick as PICK
+from o4_engine import patch_rotate as ROT
 from O4_Qt_Patch_Geometry import SNAP_RADIUS_PX, below_grade, style_class
 from O4_Qt_Patch_Overlay import NODE_FILL, SELECTION, STYLES, paint_styled
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QPen, QShortcut
+from PySide6.QtWidgets import QApplication, QLineEdit
 
 __all__ = ["PatchGestures", "DragSkip", "CLICK_SLOP_PX"]
 
@@ -55,7 +62,7 @@ class DragSkip(_t.NamedTuple):
 class PatchGestures:
     """The interaction state machine and its drawing."""
 
-    IDLE, PENDING, PAN, NODES, BOX = "idle", "pending", "pan", "nodes", "box"
+    IDLE, PENDING, PAN, NODES, BOX, ROTATE = "idle", "pending", "pan", "nodes", "box", "rotate"
 
     def __init__(self, overlay):
         self.overlay = overlay
@@ -73,6 +80,10 @@ class PatchGestures:
         #: The line the press landed on (no node, no handle there).
         self.pressed_edge: tuple[int, int] | None = None
         self.skip: DragSkip | None = None
+        #: An Alt-drag (#1746): the shapes turning, their centre, the angle.
+        self.rotate_ways: set[int] = set()
+        self.pivot: tuple[float, float] | None = None
+        self.angle = 0.0
         overlay.gestures = self
         # #1693: a selection takes keyboard focus off a text field (the
         # search box) so Delete / Backspace reach the selection.
@@ -110,8 +121,10 @@ class PatchGestures:
         if event.modifiers() & Qt.ShiftModifier:
             self.kind = self.BOX
             return True
-        target, node, edge, best = self._target(index, p)
         m = self.model
+        if event.modifiers() & Qt.AltModifier and self._press_rotate(index, p):
+            return True
+        target, node, edge, best = self._target(index, p)
         self.kind = self.PENDING
         if target[0] == "node":
             if node not in m.marked_nodes:
@@ -127,6 +140,30 @@ class PatchGestures:
                 self.grabbed, self.ids = edge[0], sorted(m.marked_nodes)
                 self.kind = self.NODES
         return True
+
+    def _press_rotate(self, index, p: QPointF) -> bool:
+        """Alt-press on a node: select the shapes it turns and start."""
+        node = index.node_at(p.x(), p.y())
+        if node is None:
+            return False
+        m = self.model
+        ways = PICK.rotation_shapes(m.doc, node, m.shape_selection)
+        pivot = ROT.centre(m.doc.nodes, [w.refs for w in m.doc.ways if w.id in ways])
+        if pivot is None:
+            return False
+        m.select_shapes(ways)
+        self.rotate_ways, self.pivot = ways, pivot
+        self.ids = sorted(m.marked_nodes)
+        self.kind = self.ROTATE
+        return True
+
+    @staticmethod
+    def rotation(start: QPointF, p: QPointF, pivot: QPointF) -> float:
+        """The pointer angle since the press, degrees counter-clockwise on
+        the ground (screen y points down, so the screen angle flips)."""
+        d = -math.degrees(math.atan2(p.y() - pivot.y(), p.x() - pivot.x())
+                          - math.atan2(start.y() - pivot.y(), start.x() - pivot.x()))
+        return d - 360.0 if d > 180.0 else d + 360.0 if d < -180.0 else d
 
     def _target(self, index, p: QPointF):
         """What a press at ``p`` lands on: ``(click_target, node, edge,
@@ -151,8 +188,11 @@ class PatchGestures:
             return PICK.pointer(None, panning=True)
         if self.kind == self.NODES:
             return PICK.pointer(("node",))
+        if self.kind == self.ROTATE:
+            return "rotate"
         index = self._index()
-        return PICK.pointer(self._target(index, p)[0] if index is not None else None)
+        alt = bool(QGuiApplication.queryKeyboardModifiers() & Qt.AltModifier)
+        return PICK.pointer(self._target(index, p)[0] if index is not None else None, rotate=alt)
 
     def move(self, event) -> bool:
         p = QPointF(event.position())
@@ -177,6 +217,12 @@ class PatchGestures:
             # a shape drag never snaps (#759)
             self.snap_target = (index.node_at(p.x(), p.y(), excluding=set(self.ids))
                                 if not self.model.shape_selection else None)
+        elif self.kind == self.ROTATE and (moved or self.skip is not None):
+            if self.skip is None:
+                index = self._index()
+                ways = frozenset(w for n in self.ids for w in index.ways_by_node.get(n, ()))
+                self.skip = DragSkip(ways, frozenset(self.ids))
+            self.angle = self.rotation(self.start, p, self.overlay.screen_of(*self.pivot))
         self.current = self.last = p
         self.overlay.update()
         return True
@@ -198,6 +244,9 @@ class PatchGestures:
                     self.model.click_edge(*self.pressed_edge, self.start.x(), self.start.y())
                 else:
                     self.model.select_node(self.grabbed)
+            elif self.kind == self.ROTATE:
+                if self.skip is not None:
+                    self.model.rotate_shapes(self.rotate_ways, self.angle)
             elif self.kind == self.BOX:
                 if self._moved(self.start, p):
                     found = index.nodes_in_rect(self.start.x(), self.start.y(), p.x(), p.y())
@@ -215,7 +264,12 @@ class PatchGestures:
                 elif self.pressed_edge is not None:
                     self.model.click_edge(*self.pressed_edge, self.start.x(), self.start.y())
                 else:
+                    # open map: a pack object under the click, else nothing
                     self.model.clear_selection()
+                    inspector = getattr(self.overlay, "inspector", None)
+                    if inspector is not None:
+                        inspector.clear()
+                        inspector.select_at(*self.overlay.lat_lon(self.start))
             return True
         finally:
             self.reset()
@@ -224,8 +278,9 @@ class PatchGestures:
         self.kind = self.IDLE
         self.snap_target = self.pressed_handle = self.pressed_edge = self.grabbed = None
         self.ids = []
-        self.dlat = self.dlon = 0.0
-        self.skip = None
+        self.dlat = self.dlon = self.angle = 0.0
+        self.skip = self.pivot = None
+        self.rotate_ways = set()
         self.overlay.update()
 
     def _hover(self, p: QPointF) -> None:
@@ -259,6 +314,11 @@ class PatchGestures:
 
     def key(self, which: str) -> bool:
         """Whether Edit mode consumed the key."""
+        inspector = getattr(self.overlay, "inspector", None)
+        if (which == "escape" and self.overlay._editing() and not self.model.has_selection
+                and inspector is not None and inspector.selected is not None):
+            inspector.clear()                   # Esc drops a selected pack object (#1702)
+            return True
         if not (self.overlay._editing() and self.model.has_selection):
             return False
         if which == "delete":
@@ -276,9 +336,11 @@ class PatchGestures:
         x, y = index.screen(nid)
         if self.skip is None or nid not in self.skip.nodes:
             return QPointF(x, y)
+        lat, lon = float(index.lat[index.row[nid]]), float(index.lon[index.row[nid]])
+        if self.kind == self.ROTATE:
+            return self.overlay.screen_of(*ROT.rotate_point(lat, lon, self.pivot, self.angle))
         if nid == self.grabbed and self.snap_target is not None:
             return QPointF(*index.screen(self.snap_target))
-        lat, lon = float(index.lat[index.row[nid]]), float(index.lon[index.row[nid]])
         return self.overlay.screen_of(lat + self.dlat, lon + self.dlon)
 
     def paint(self, painter) -> None:
@@ -308,6 +370,11 @@ class PatchGestures:
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(SELECTION, 2))
             painter.drawEllipse(p, 10, 10)
+        if self.kind == self.ROTATE and self.skip is not None:
+            c = self.overlay.screen_of(*self.pivot)      # the rotation's centre
+            painter.setPen(QPen(SELECTION, 2))
+            painter.drawLine(QPointF(c.x() - 6, c.y()), QPointF(c.x() + 6, c.y()))
+            painter.drawLine(QPointF(c.x(), c.y() - 6), QPointF(c.x(), c.y() + 6))
         if self.kind in (self.IDLE, self.PENDING):
             for _edge, x, y in self._handles(index, self.hover_edge):
                 self._paint_handle(painter, QPointF(x, y))

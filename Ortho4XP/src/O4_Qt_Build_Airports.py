@@ -8,18 +8,21 @@ each that changes THIS build only — Settings keeps the defaults, and
 ``o4_engine.build_airports``, the reader the Mac app asks through the
 ``build_airports`` command, read here on a worker thread.
 ``tests/test_qt_layout_parity.py`` holds the two cards to one order and
-one wording.
+one wording.  "Library patches" under the airport list is the patch
+library's match list (#1699 phase 2, ``O4_Qt_Patch_Library.
+LibraryMatchList``; the Mac card's ``LibraryMatchList``).
 """
 
 import threading
 
 import O4_Glossary as GLOSSARY
+import O4_Qt_Patch_Library as PATCHLIB
 from O4_Qt_Widgets import never_widen, wrap_and_never_widen
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout,
     QCheckBox,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QToolButton,
     QVBoxLayout,
@@ -140,6 +143,7 @@ class AirportsCard(QGroupBox):
             lambda checked: self._switched(FIT_KEY, checked))
         self.fit_text = self._caption(FIT_SENTENCE)
         self.packs_text = self._caption("")
+        self.library_match_list = PATCHLIB.LibraryMatchList()
         # The explanations sit behind a small "i" (owner 2026-10-27; the
         # Mac card's infoButton): the card shows switches and lists.
         self.grade_info = self._info_button()
@@ -147,6 +151,7 @@ class AirportsCard(QGroupBox):
         for widget in (self._row(self.chk_grade, self.grade_info),
                        self.grade_text,
                        self.airports_toggle, self.airports_text,
+                       self.library_match_list,
                        self._row(self.chk_fit, self.fit_info),
                        self.fit_text, self.packs_text):
             if isinstance(widget, QHBoxLayout):
@@ -221,6 +226,7 @@ class AirportsCard(QGroupBox):
         self._pending = ([(int(c[0]), int(c[1])) for c in cells],
                          custom_build_dir)
         self._generation += 1
+        self.library_match_list.request(self._pending[0])
         if not self._pending[0]:
             self._debounce.stop()
             (self.card, self._error, self._loading) = (None, "", False)

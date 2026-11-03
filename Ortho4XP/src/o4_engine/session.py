@@ -46,10 +46,12 @@ from .events import (
     PackMissingArt,
     PackOldForests,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
+    SlowStep,
     StepProgress,
     TileClocks,
     TileState,
 )
+from .slow_step import SlowStepWatch
 
 # ---------------------------------------------------------------------------
 # Whole-tile step plan (moved from O4_Qt_GUI 2026-07-15: percent math is
@@ -93,6 +95,16 @@ def last_outcome_counts(last_ok):
     also failed."""
     built = sum(1 for ok in last_ok.values() if ok)
     return built, len(last_ok) - built
+
+
+def _mesh_order_rows(lat, lon, tile) -> list:
+    """The built tile's scenery-order warnings (#1729): another pack's
+    ground drawn instead of it, or it drawn over a local mesh."""
+    import O4_Config_Utils as CFG
+    import O4_Mesh_Order as MESHORDER
+    return MESHORDER.degraded_rows(
+        getattr(CFG, "custom_scenery_dir", "") or "", lat, lon,
+        getattr(tile, "build_dir", "") or "")
 
 
 def build_done(lat, lon, ok, records, app_driven=False, notes=(),
@@ -717,6 +729,8 @@ class EngineSession:
         # Build display state (moved from the Qt view): current step plus
         # the three legacy bar values plus the auto-patch fold.
         self._current_step = None          # (tile, key, base, width)
+        # The running step's slow-step alert (#1351, ``slow_step``).
+        self._slow_step = SlowStepWatch(self._emit)
         self._bar_values = {1: 0, 2: 0, 3: 0}
         self._autopatch_state = None
         # The causes declared for the tile currently building (H1's
@@ -801,7 +815,7 @@ class EngineSession:
             self._seq += 1
             object.__setattr__(event, "seq", self._seq)
             object.__setattr__(event, "ts", time.time())
-            if (isinstance(event, (TileState, StepProgress))
+            if (isinstance(event, (TileState, StepProgress, SlowStep))
                     and not event.attempt):
                 object.__setattr__(event, "attempt", self._tile_attempts.get(
                     (int(event.lat), int(event.lon)), 0))
@@ -1326,6 +1340,7 @@ class EngineSession:
                     break
                 try:
                     self._emit_eta()
+                    self._poll_slow_step()
                 except Exception:
                     pass
             self._eta_heartbeat_alive = False
@@ -1629,7 +1644,8 @@ class EngineSession:
                         notes=FAIL.from_substitutions(
                             UNPATCHED.read_substitutions(tile)),
                         degraded=FAIL.from_degraded(
-                            UNPATCHED.read_degraded(tile)))
+                            UNPATCHED.read_degraded(tile)
+                            + _mesh_order_rows(lat, lon, tile)))
                     self._emit(TileState(
                         lat=lat, lon=lon, state="done", percent=100.0,
                         label=(BUILT_WITH_WARNINGS
@@ -1730,6 +1746,10 @@ class EngineSession:
             label=self._step_label(key),
             percent=base * 100.0, indeterminate=indeterminate))
         self._emit_eta(force=True)
+        expected = (self._eta.estimates.get(tile, {}).get(key)
+                    if self._eta else None)
+        self._slow_step.begin(tile, key, STEP_FAILURE_NOUNS.get(key, key),
+                              expected)
 
     def _reuse_step(self, tile, tile_key, key, base, width):
         """Skip ``key`` when its output is current (#615), or when the
@@ -1762,8 +1782,29 @@ class EngineSession:
         return True
 
     def _finish_step(self, tile, key):
+        self._slow_step.end()
         if self._eta:
             self._eta.step_finished(tile, key)
+
+    def _poll_slow_step(self):
+        """The heartbeat's slow-step check (#1351): the alert's ETA is the
+        run clock's own estimate for the running step."""
+        eta = self._eta
+        self._slow_step.poll(
+            eta._current_step_remaining if eta else (lambda: None))
+
+    def slow_step_choice(self, lat, lon, choice):
+        """The user's answer to a tile's slow-step alert (#1351, protocol
+        1.26): ``"cancel"`` is the per-tile stop; ``"continue"`` and
+        ``"coarser"`` go to the step's watch — in the worker child that
+        runs the step, for a parallel run.  True when it was accepted."""
+        tile = (int(lat), int(lon))
+        if choice == "cancel":
+            return self.cancel_tile(*tile)
+        parallel_run = self._parallel
+        if parallel_run is not None:
+            return parallel_run.slow_step_choice(tile, str(choice))
+        return self._slow_step.choose(tile, str(choice))
 
     def _autopatch_elapsed_seconds(self):
         t0 = getattr(self, "_autopatch_t0", None)

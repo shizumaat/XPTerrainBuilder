@@ -18,10 +18,12 @@ module is presentation and interaction only.
 """
 
 import re
+import weakref
 
 import O4_File_Names as FNAMES
 import O4_Glossary as GLOSSARY
 import O4_Qt_Settings_General as GENERAL
+import O4_Qt_Settings_Storage as QTSTORAGE
 import O4_Settings_Model as SM
 import O4_Settings_Presets as PRESETS
 import O4_Settings_Selection as SEL
@@ -1076,6 +1078,7 @@ class SettingsWindow(SelectionEdits, QDialog):
         self._expert_headers = {}   # category key -> "Expert" sub-header
         self._provider_signin_section = None
         self._app_sections = []
+        self.storage_section = None
         for key, title in SM.CATEGORIES:
             header = QLabel("<b>%s</b>" % title)
             header.setTextFormat(Qt.RichText)
@@ -1089,6 +1092,15 @@ class SettingsWindow(SelectionEdits, QDialog):
             self._lines[key] = line
             if key == "general":
                 self._add_app_sections()
+            elif key == "storage":
+                # The data folder's sizes and Clear buttons (#1724), above
+                # the cleanup settings, as on the Mac.
+                # A weak method: a bound one is a window<->section cycle,
+                # and a QDialog the cyclic GC frees later can crash Qt.
+                busy = weakref.WeakMethod(self._engine_busy)
+                self.storage_section = QTSTORAGE.StorageSection(
+                    busy=lambda: bool(busy() and busy()()))
+                self.content_layout.addWidget(self.storage_section)
             hidden_count = 0
             for setting in SM.settings_for(key):
                 if setting.advanced and not hidden_count:
@@ -1166,6 +1178,12 @@ class SettingsWindow(SelectionEdits, QDialog):
         self.category_list.setCurrentRow(0)
         self._update_footer_actions()
         self._apply_filter()
+
+    def _engine_busy(self):
+        """Is the main window's engine building (Storage never deletes
+        then)?"""
+        session = getattr(self.parent(), "_session", None)
+        return bool(getattr(session, "_building", False))
 
     def _add_app_sections(self):
         """General's app-level sections, in the Mac app's order (#1267):
@@ -1438,6 +1456,13 @@ class SettingsWindow(SelectionEdits, QDialog):
             )
         self.engine_defaults_header.setVisible(
             not tile_view and not query and selected in (None, "general"))
+        if self.storage_section is not None:
+            shown = not tile_view and not customized_only and (
+                self.storage_section.matches(query) if query
+                else selected in (None, "storage"))
+            self.storage_section.setVisible(shown)
+            if selected == "storage" and shown and self.storage_section.scan is None:
+                self.storage_section.refresh()
         if tile_view:
             count = len(override_union)
             subject = (

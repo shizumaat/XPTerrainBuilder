@@ -56,6 +56,7 @@ struct PatchEditOpsTests {
         case "insert_on_edge": try doc.insertOnEdge(int("a"), int("b"))
         case "merge_nodes": try doc.mergeNodes(source: int("source"), target: int("target"))
         case "slice_shape": try doc.sliceShape(int("a"), int("b"), way: (args["way"] as? NSNumber)?.int64Value)
+        case "rotate_ways": try doc.rotateWays(ids(args["way_ids"]), degrees: number(args["angle_deg"])!)
         case "add_shape":
             let corners = ((args["corners"] as? [[Any]]) ?? []).map {
                 (lat: number($0[0])!, lon: number($0[1])!, alt: number($0[2]))
@@ -126,6 +127,8 @@ struct PatchEditOpsTests {
         #expect(move.movedNodes == [a, b] && !move.topology)
         let place = try roundTrip { try $0.setPosition(c, lat: 30.5, lon: 31.5) }
         #expect(place.movedNodes == [c] && place.changedWays.isEmpty)
+        let turn = try roundTrip { try $0.rotateWays([ring.id], degrees: 30) }  // #1746
+        #expect(Set(ring.refs).isSubset(of: turn.movedNodes) && !turn.topology)
         let alt = try roundTrip { try $0.setAlt([a], alt: 12.5) }
         #expect(alt.movedNodes == [a] && !alt.topology)
         let offset = try roundTrip { try $0.offsetAlt([a, b], by: -1) }

@@ -87,7 +87,9 @@ final class PatchPackOutlines: ObservableObject {
                     client: client, tile: doc.tile, icao: doc.icao, box: request,
                     footprintsOnly: true)
                 let rings = await Task.detached(priority: .utility) {
-                    PackFootprints.labelled(objects).map { PackOutlineGeometry.Source(label: $0.label, rings: [$0.ring]) }
+                    PackFootprints.labelled(objects).map {
+                        PackOutlineGeometry.Source(label: $0.label, rings: [$0.ring], object: $0.object)
+                    }
                 }.value
                 guard let self, self.generation == gen else { return }
                 self.footprints = rings
@@ -107,6 +109,11 @@ final class PatchPackOutlines: ObservableObject {
     /// point, while the outlines are on.
     func label(atLat lat: Double, lon: Double) -> String? {
         enabled ? geometry?.label(atLon: lon, mercatorY: MapCamera.mercatorY(lat: lat)) : nil
+    }
+
+    /// The placed object under the point (the inspector's click, #1702).
+    func object(atLat lat: Double, lon: Double) -> PackOutlineGeometry.Item? {
+        enabled ? geometry?.item(atLon: lon, mercatorY: MapCamera.mercatorY(lat: lat), objectsOnly: true) : nil
     }
 }
 
@@ -157,10 +164,13 @@ struct PackOutlineGeometry: Sendable {
     struct Source: Sendable {
         let label: String
         let rings: [[O4LatLon]]
+        /// A placed pack object the inspector can select (#1702).
+        var object: PackObjectRef?
     }
 
     struct Item: Sendable {
         let label: String
+        let object: PackObjectRef?
         /// Exterior first, then the holes.
         let rings: [[CGPoint]]
         let minX, maxX, minY, maxY: Double
@@ -179,7 +189,7 @@ struct PackOutlineGeometry: Sendable {
             guard let ext = rings.first else { return nil }
             let xs = ext.map(\.x), ys = ext.map(\.y)
             let n = Double(ext.count)
-            return Item(label: source.label, rings: rings,
+            return Item(label: source.label, object: source.object, rings: rings,
                         minX: xs.min()!, maxX: xs.max()!, minY: ys.min()!, maxY: ys.max()!,
                         area: Self.area(ext),
                         anchor: CGPoint(x: xs.reduce(0, +) / n, y: ys.reduce(0, +) / n))
@@ -189,15 +199,22 @@ struct PackOutlineGeometry: Sendable {
     /// The label of the smallest outline whose exterior holds the point
     /// and none of whose holes do (`PackOutlines.label_at` in Qt).
     func label(atLon x: Double, mercatorY y: Double) -> String? {
+        item(atLon: x, mercatorY: y)?.label
+    }
+
+    /// The smallest outline under the point; `objectsOnly`: the smallest
+    /// placed object's (the inspector's click, #1702; `PackOutlines.at`).
+    func item(atLon x: Double, mercatorY y: Double, objectsOnly: Bool = false) -> Item? {
         var best: Item?
         for item in items where x >= item.minX && x <= item.maxX && y >= item.minY && y <= item.maxY {
+            if objectsOnly, item.object == nil { continue }
             if let best, item.area >= best.area { continue }
             let p = CGPoint(x: x, y: y)
             if Self.contains(item.rings[0], p), !item.rings.dropFirst().contains(where: { Self.contains($0, p) }) {
                 best = item
             }
         }
-        return best?.label
+        return best
     }
 
     /// Even-odd ray cast (`O4_Qt_Pack_Outlines.ring_contains`).

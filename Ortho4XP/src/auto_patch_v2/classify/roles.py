@@ -106,7 +106,7 @@ from .airside_edge import airside_edge_flip
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
 from .storey_edge import STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
-from .neck import necks_of, split_at_necks
+from .neck import cover_arms, necks_of, split_at_necks
 from .open_default import (apron_evidence, open_pavement_role,
                            unclassified_groundside_role)
 from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m, gridded,
@@ -513,7 +513,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                            or neck_ev.get("neck_new_apron"))
         if not already_cut and (kind == "apron" or apron_refused):
             pieces = _neck_pieces(face, rules, to_ll, notes, stats,
-                                  start_tree, _ladder_taxi)
+                                  start_tree, _ladder_taxi,
+                                  apron_u if cover >= rules.lot.apron_cover_fraction
+                                  else None)
             if pieces:
                 if evid.get("startup_refused_corridor"):
                     pieces = [(p, dict(m, startup_refused_parent=1.0)
@@ -865,7 +867,7 @@ def _mouth_ll(mouth, to_ll) -> str:
 
 def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
                  stats: dict, start_tree: STRtree | None = None,
-                 taxi_of=None) -> list[tuple[Polygon, dict]]:
+                 taxi_of=None, cover=None) -> list[tuple[Polygon, dict]]:
     """§43 AN APRON ENDS AT ITS MOUTH (owner RULINGS 2026-09-14c item 2):
     ``face`` cut at the mouths of its NECKS (``classify/neck.py``), as
     ``(polygon, mark)`` pairs for the scorer's worklist — empty where the
@@ -882,8 +884,16 @@ def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
     face the ladder reads as a CORRIDOR is not offered — "roads joining
     two lots do not cut", and a taxiway is not an apron that ends.  "A
     taxiway running ALONG an apron edge does not cut" needs no rule at
-    all: such pavement never narrows, so ``necks_of`` finds nothing."""
+    all: such pavement never narrows, so ``necks_of`` finds nothing.
+
+    ``cover`` (#1696) is the mapped apron where §40 (2) refused this face
+    the corridor kind on it: a face with no width cut is read once more
+    for arms leaving the covered pavement (``neck.cover_arms``), gated as
+    the #314 re-read (taxi evidence, no startup)."""
     necks = necks_of(face, rules)
+    if not necks and cover is not None:
+        necks = cover_arms(face, cover, rules)
+        stats["apron_cover_arms"] = stats.get("apron_cover_arms", 0) + len(necks)
     # #262 / #314: A NARROW STRETCH THAT HOLDS A 1300 STARTUP IS NOT CUT.
     # "A startup location is where an aircraft PARKS, and a taxiway has no
     # parking position on it" — the same rung that refuses the corridor

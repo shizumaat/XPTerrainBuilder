@@ -762,6 +762,24 @@ def _scan_modified_airports(tile, scenery_dir, should_stop):
     return (tile, packs)
 
 
+def _tidy_scenery_packs(scenery_dir, packs):
+    """File the packs scenery_packs.ini does not list yet by kind, meshes
+    below every ortho (#1729) — the engine's rule, which the Mac app runs
+    after each scan of Custom Scenery too.  ``packs`` is the survey just
+    made, so the engine reads no pack twice.  Never ends a survey."""
+    import O4_Scenery_Packs_Tidy as TIDY
+
+    try:
+        reply = TIDY.tidy_scenery_packs(
+            scenery_dir, {pack.name: pack.kind for pack in packs})
+    except Exception as exc:
+        print("Could not update scenery_packs.ini:", exc)
+        return
+    if reply["added"]:
+        print("scenery_packs.ini: filed %d new pack(s) by kind: %s"
+              % (len(reply["added"]), ", ".join(reply["added"])))
+
+
 class MainWindow(QMainWindow):
     @property
     def build_zl(self):
@@ -2303,6 +2321,7 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 print("Installed scenery survey failed:", exc)
                 packs = []
+            _tidy_scenery_packs(scenery_dir, packs)
             if generation != self._scenery_generation:
                 return  # a newer scan owns the survey now
             try:

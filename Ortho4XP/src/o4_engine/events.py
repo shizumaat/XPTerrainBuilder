@@ -137,7 +137,10 @@ from typing import Any, Optional
 # (``hides``); ``apply_mesh_order`` moves the tile above / below a pack or
 # disables it in scenery_packs.ini.  A built tile's ``BuildDone.warnings``
 # name the same (codes ``scenery_hidden_by_mesh`` / ``scenery_hides_mesh``).
-PROTOCOL_VERSION = "1.24"
+# 1.25 (2026-11-03, additive, #1729): ``tidy_scenery_packs`` — the packs
+# scenery_packs.ini does not list yet, filed into their kind's group
+# (meshes below every ortho); answers ``added`` and ``backup``.
+PROTOCOL_VERSION = "1.25"
 
 
 @dataclass(frozen=True)

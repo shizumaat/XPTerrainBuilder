@@ -172,6 +172,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     import O4_Imagery_Sources as SOURCES
     from O4_Tile_Customizations import tile_customizations
     from O4_Mesh_Order import apply_mesh_order, tile_mesh_order
+    from O4_Scenery_Packs_Tidy import tidy_scenery_packs
     from O4_Tile_Texture_Check import tile_texture_check
 
     from . import patch_commands, patch_insert
@@ -213,6 +214,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # for the tile, and one ini write.
         "tile_mesh_order": tile_mesh_order,
         "apply_mesh_order": apply_mesh_order,
+        # New packs filed into scenery_packs.ini by kind, meshes below
+        # every ortho (protocol 1.25, #1729): the Mac app's call after each
+        # Custom Scenery scan.  Synchronous: one ini read and write.
+        "tidy_scenery_packs": tidy_scenery_packs,
         "links_status": session.links_status,
         "links_install": session.links_install,
         "links_uninstall": session.links_uninstall,

@@ -69,6 +69,11 @@ final class AnalysisController: ObservableObject {
     /// overwritten by the scan's empty-handed result.
     private var globalAirportsGeneration = 0
 
+    /// The engine's `tidy_scenery_packs` (BuildModel), set at launch: the
+    /// scan's last step files new packs into scenery_packs.ini by kind.
+    var tidySceneryPacks: (@Sendable (String, [String: PackKind]) async
+        -> Result<O4SceneryPacksTidy, O4CommandError>?)?
+
     var rootURL: URL? {
         guard !xplanePath.isEmpty else { return nil }
         return URL(fileURLWithPath: xplanePath, isDirectory: true)
@@ -98,6 +103,7 @@ final class AnalysisController: ObservableObject {
         // this scan installs itself on the finished overlays there.
         let globals = globalAirports
         let generation = globalAirportsGeneration
+        let tidy = tidySceneryPacks
         Task { [weak self] in
             let (installation, overlays, reconciliation) = await Task.detached(priority: .userInitiated) {
                 // Persisted scenery index: after the first launch, unchanged
@@ -153,8 +159,18 @@ final class AnalysisController: ObservableObject {
                 // disk (X-Plane only does this at its own next launch). If
                 // the ini changed, statuses/ranks the scan derived from the
                 // OLD ini are stale — re-derive them cheaply.
-                let reconciliation = PackActionService(root: root).reconcile(
+                var reconciliation = PackActionService(root: root).reconcile(
                     installedPacks: installation.packs, previousPacks: previousPacks)
+                // Then the packs the ini does not list yet, filed by kind
+                // (meshes below every ortho) by the engine.
+                let kinds = Dictionary(
+                    installation.packs.filter { $0.isInstalled }.map { ($0.name, $0.kind) },
+                    uniquingKeysWith: { first, _ in first })
+                switch await tidy?(root.appendingPathComponent("Custom Scenery").path, kinds) {
+                case .success(let filed)?: reconciliation.added = filed.added
+                case .failure(let error)?: reconciliation.writeError = error.message
+                case nil: break
+                }
                 if reconciliation.changed {
                     let service = PackActionService(root: root)
                     let order = service.iniOrder()

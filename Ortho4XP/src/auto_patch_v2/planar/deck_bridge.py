@@ -219,10 +219,13 @@ def _beside_a_building(frame, ring: Polygon, roles: CellRoles) -> bool:
     return False
 
 
-def deck_bridges(objects, cache, classification, airport, law, trenches=()
+def deck_bridges(objects, cache, classification, airport, law, trenches=(),
+                 level_b: "float | None" = None
                  ) -> tuple[tuple[DeckBridge, ...], list[str]]:
     """``(every hard-deck bridge, one note per deck piece refused)``
-    (module doc)."""
+    (module doc).  ``level_b``: the airport's level-B depth
+    (``planar/level_depth.airport_level_b``), the floor under a deck whose
+    frame states none (RULINGS 2026-11-03b)."""
     if not objects or cache is None or classification is None or not classification.cells:
         return (), []
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
@@ -270,7 +273,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=()
         # ONE zero per object (30a (1)): every piece plans from one estimate
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
         for db in (db if z is None else _dc.replace(db, deck_z=z) for db in mine):
-            db = _road_floor(db, airport, law, notes)
+            db = _road_floor(db, law, notes, level_b, _carries_movement(db, roles))
             r, n = _road_dir(db), across_dir(db)
             out.append(_dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
                                                         0.5 * (db.top_a + db.top_b), r, n)))
@@ -321,61 +324,44 @@ def _end_pair(pairs, road: "XY | None", to_xy):
     return min(pairs, key=lambda p: skew(p[0]) + skew(p[1]))
 
 
-def _road_floor(db: DeckBridge, airport, law, notes: list[str]) -> DeckBridge:
+def _road_floor(db: DeckBridge, law, notes: list[str], level_b: "float | None",
+                movement: bool) -> DeckBridge:
     """``db`` with the floor the road passes at under it (RULINGS 2026-10-30a
-    (2): the road "passes completely under it"; 2026-10-27g: a surveyed road
-    at least ``[tunnel] clearance_m`` under the deck is left where it is,
-    a shallower one is cut to that clearance).  A frame reaching
-    ``clearance_m`` or more under its deck top reaches the road: its bottom
-    is the floor (KBNA's walled frame).  A frame stopping short of it is a
-    SLAB whose bottom is its own underside, which states no road level
-    (KIAH's taxiway bridges: 0.12 m from top to bottom): the floor is the
-    clearance under the deck, or the credible survey's road under the
-    deck's ring where that lies deeper."""
-    clear = float(law.tables.structures.tunnel.clearance_m)
+    (2): the road "passes completely under it").  A frame reaching
+    ``[tunnel] clearance_m`` or more under its deck top reaches the road: its
+    bottom is the floor (30g (2), KBNA's walled frame) -- the object states
+    it.  A frame stopping short of it is a SLAB whose bottom is its own
+    underside, which states no road level (KIAH's taxiway bridges: 0.12 m
+    from top to bottom).  Its floor is the lower level's ladder (RULINGS
+    2026-11-03b Q344 a, spec two-level-regions §13): the airport's level B
+    (``level_b``), else ``[tunnel] mouth_depth_m`` under a deck carrying a
+    runway or taxiway (``movement``), else the clearance (30g) -- never
+    shallower than the clearance, and never the survey, which reads the deck
+    (Q344 a: lidar is never read under a deck)."""
+    tn = law.tables.structures.tunnel
+    clear = float(tn.clearance_m)
     top = 0.5 * (db.top_a + db.top_b)
     if top - db.bottom_y >= clear:
         return db
-    depth = clear
-    road = _surveyed_road(airport, law, db.polygon)
-    if road is not None and db.deck_z - road > depth:
-        depth = db.deck_z - road
+    if level_b is not None:
+        depth, why = max(clear, float(level_b)), "the airport's level B"
+    elif movement:
+        depth, why = max(clear, float(tn.mouth_depth_m)), "under a runway or taxiway"
+    else:
+        depth, why = clear, "[tunnel] clearance_m"
     notes.append(f"{db.object_id} {db.resource.rsplit('/', 1)[-1]}: the frame stops "
                  f"{top - db.bottom_y:.2f} m under its deck, short of the road; the floor "
-                 f"stands {depth:.2f} m under the deck ("
-                 + ("the surveyed road" if depth > clear else "[tunnel] clearance_m")
-                 + ", RULINGS 2026-10-30a (2) / 2026-10-27g)")
+                 f"stands {depth:.2f} m under the deck ({why}, RULINGS 2026-11-03b / "
+                 f"2026-10-30g)")
     return _dc.replace(db, bottom_y=top - depth)
 
 
-def _surveyed_road(airport, law, ring: Polygon) -> "float | None":
-    """The credible survey's level of the mapped roads under ``ring``: the
-    least DEM along any road way's stretch inside it (``highway``, not
-    itself a bridge) — the survey reads the road through the deck, and the
-    least is ``lidar_road``'s own reading of a surveyed road.  ``None`` off
-    a credible lidar inset or with no road under the ring."""
-    from ..airport.dem import dem_z_at
-    from ..law import inset_class
-    from .structure_approach import is_bridge
-    if not inset_class.lidar_credible(airport, law):
-        return None
-    step = float(law.tables.structures.bridge.abutment_sample_step_m)
-    best = None
-    for w in airport.osm_ways or ():
-        if "highway" not in w.tags or is_bridge(w) or len(w.points) < 2:
-            continue
-        inside = LineString(w.points).intersection(ring)
-        zs = []
-        for part in getattr(inside, "geoms", [inside]):
-            if part.geom_type != "LineString" or part.length <= 0.0:
-                continue
-            n = max(1, int(part.length / step))
-            zs.extend(dem_z_at(airport, part.interpolate(k / n, normalized=True).coords[0])
-                      for k in range(n + 1))
-        zs = [z for z in zs if math.isfinite(z)]
-        if zs:
-            best = min(zs) if best is None else min(best, *zs)
-    return best
+def _carries_movement(db: DeckBridge, roles: "CellRoles") -> bool:
+    """The deck carries a runway or a taxiway: the cells at its seats are
+    runway- or taxi-family pavement (the classification's own roles)."""
+    from ..classify.roles import TAXI_FAMILY
+    fam = {"runway", "runway_crossing", *TAXI_FAMILY}
+    return any(roles.at_xy(p) in fam for p in tuple(db.seats_a) + tuple(db.seats_b))
 
 
 def _deck_z(airport, seats, rendered: "float | None") -> "float | None":

@@ -93,7 +93,7 @@ from ..geom.parts import areal_part
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["Neck", "necks_of", "split_at_necks"]
+__all__ = ["Neck", "cover_arms", "necks_of", "split_at_necks"]
 
 
 @_dc.dataclass(frozen=True)
@@ -200,6 +200,42 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
     reach = [_polygonal(shapely.intersection(
                  _dilated(b, half, grid), face_g,
                  grid_size=grid), grid) for b in lobes]
+    return _cuts(face, face_g, lobes, reach, rules, within)
+
+
+def cover_arms(face: Polygon, cover, rules: Rules) -> list[Neck]:
+    """§43 (1)'s ARM read against the MAPPED APRON (issue #1696).
+
+    KBNA ``dsf:pol267`` (17,547 m2) and ``dsf:pol295`` (7,346 m2) are
+    taxiways 12-13 m wide and up to 1.1 km long whose far end runs into
+    the apron, and OSM's ``aeroway=apron`` covers that end (20 % / 22 %
+    of the cell).  §40 (2) refuses the corridor kind on that cover, and
+    the width reading finds no lobe to cut an arm off (the whole face is
+    under ``corridor.max_width_m``), so the whole taxiway came out apron.
+    OSM draws an apron over the apron, not over the taxiway that leaves
+    it: the covered pavement IS the wide body here, and what leaves it
+    across a cross-section and follows a path is an arm by the same
+    verdict (``_is_arm``, ``apron.neck_length_m``).  ``cover`` is the
+    face's mapped-apron part; the caller asks only on a §40 (2) refusal
+    and keeps an arm only on taxi evidence (as the #314 re-read)."""
+    grid = rules.cells.opening_grid_m
+    face_g = shapely.set_precision(face, grid)
+    lobes = [b for b in polygon_parts(shapely.intersection(
+        face_g, shapely.set_precision(cover, grid), grid_size=grid))
+        if b.area > rules.cells.min_area_m2]
+    if not lobes:
+        return []
+    return [_dc.replace(n, reread=True)
+            for n in _cuts(face, face_g, lobes, lobes, rules, None)[0]]
+
+
+def _cuts(face: Polygon, face_g, lobes: list[Polygon], reach: list,
+          rules: Rules, within: Polygon | None
+          ) -> tuple[list[Neck], list[tuple[Polygon, float]]]:
+    """The necks and arms of ``face`` off its WIDE pavement ``reach``
+    (one per lobe), and the narrow components the verdict refused."""
+    grid = rules.cells.opening_grid_m
+    need = rules.apron.neck_length_m
     wide = shapely.union_all(reach, grid_size=grid)
     out: list[Neck] = []
     refused: list[tuple[Polygon, float]] = []

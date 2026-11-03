@@ -10,8 +10,21 @@ import SceneryKit
 /// shape selected, the save bar counts it); any other airport's patch
 /// gets it on disk through `patch_add_shape`, which starts the airport's
 /// edited patch when it has none, and the engine's sentence says what was
-/// written.
+/// written. "Insert tunnel ramp" (#1745, protocol 1.24) is the same insert
+/// with `kind: "tunnel_ramp"`: the engine sizes one straight ramp from the
+/// tunnel law and names its tags; the shape lands the same way.
 extension PatchEditModel {
+    /// What the map inserts: the menu item, the undo step, the wire kind.
+    @MainActor enum InsertKind {
+        case square, tunnelRamp
+
+        var title: String {
+            self == .square ? TileContextMenu.insertShapeTitle : TileContextMenu.insertTunnelRampTitle
+        }
+        var undoName: String { self == .square ? "Insert Shape" : "Insert Tunnel Ramp" }
+        var wire: String? { self == .square ? nil : "tunnel_ramp" }
+    }
+
     /// How long a pending plan waits before it is asked again, and how
     /// many times (the Qt app's `PENDING_MS` / `MAX_TRIES`).
     static let insertPendingNanoseconds: UInt64 = 400_000_000
@@ -22,52 +35,62 @@ extension PatchEditModel {
         O4ProtocolVersion.supportsInsertShape(build?.protocolHello?.protocolVersion ?? "")
     }
 
-    func insertShape(lat: Double, lon: Double) {
+    /// Whether the engine sizes a tunnel ramp (protocol 1.24).
+    var canInsertTunnelRamp: Bool {
+        O4ProtocolVersion.supportsInsertTunnelRamp(build?.protocolHello?.protocolVersion ?? "")
+    }
+
+    func insertShape(lat: Double, lon: Double, kind: InsertKind = .square) {
         guard let build, let client = build.patchEditorClient() else { return }
         let coord = BuildModel.TileCoord(lat: Int(floor(lat)), lon: Int(floor(lon)))
         let buildDir = build.tileFolder(coord)?.path
         Task { @MainActor [weak self] in
             do {
-                var plan = try await client.patchInsertShape(lat: lat, lon: lon, buildDir: buildDir)
+                var plan = try await client.patchInsertShape(lat: lat, lon: lon, buildDir: buildDir,
+                                                             kind: kind.wire)
                 var tries = 1
                 while plan.pending {
                     guard tries < Self.insertMaxTries else {
-                        Self.notifyInsert("The elevation there is still loading; try Insert shape again.")
+                        Self.notifyInsert("The elevation there is still loading; try \(kind.title) again.",
+                                          title: kind.title)
                         return
                     }
                     try await Task.sleep(nanoseconds: Self.insertPendingNanoseconds)
-                    plan = try await client.patchInsertShape(lat: lat, lon: lon, buildDir: buildDir)
+                    plan = try await client.patchInsertShape(lat: lat, lon: lon, buildDir: buildDir,
+                                                             kind: kind.wire)
                     tries += 1
                 }
                 guard let self, let tile = plan.tile, let icao = plan.icao, let corners = plan.corners
                 else { return }
+                let tags = plan.tags ?? [:]
                 if let doc = self.document, doc.tile == tile, doc.icao == icao {
-                    self.addShape(corners)
+                    self.addShape(corners, tags: tags, name: kind.undoName)
                 } else {
-                    let reply = try await client.patchAddShape(tile: tile, icao: icao, corners: corners)
+                    let reply = try await client.patchAddShape(tile: tile, icao: icao, corners: corners,
+                                                               tags: tags)
                     self.relist(tile: tile)
-                    Self.notifyInsert(reply.message)
+                    Self.notifyInsert(reply.message, title: kind.title)
                 }
             } catch {
-                Self.notifyInsert("\(error)")
+                Self.notifyInsert("\(error)", title: kind.title)
             }
         }
     }
 
     /// The planned corners into the open document: one step, then Edit
     /// mode with the new shape selected.
-    func addShape(_ corners: [[Double]]) {
+    func addShape(_ corners: [[Double]], tags: [String: String] = [:], name: String = "Insert Shape") {
         let ring = corners.map { (lat: $0[0], lon: $0[1], alt: $0.count > 2 ? Optional($0[2]) : nil) }
         var wayID: Int64?
-        if perform("Insert Shape", { wayID = try $0.addShape(ring) }), let wayID {
+        if perform(name, { wayID = try $0.addShape(ring, tags: tags) }), let wayID {
             mode = .edit
             selectShapes([wayID])
         }
     }
 
-    private static func notifyInsert(_ text: String) {
+    private static func notifyInsert(_ text: String, title: String) {
         let alert = NSAlert()
-        alert.messageText = TileContextMenu.insertShapeTitle
+        alert.messageText = title
         alert.informativeText = text
         alert.runModal()
     }

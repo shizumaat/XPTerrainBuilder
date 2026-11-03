@@ -9,6 +9,10 @@ ONE undoable edit (``PatchEditModel.add_shape``: Edit mode, the shape
 selected, the save bar counts it); any other airport's patch gets it on
 disk through ``patch_add_shape``, which starts the airport's edited patch
 when it has none, and the engine's sentence says what was written.
+
+"Insert tunnel ramp" (issue #1745) is the same insert with
+``kind="tunnel_ramp"``: the engine sizes one straight ramp from the tunnel
+law and gives its tags; the shape lands the same way.
 """
 from __future__ import annotations
 
@@ -18,10 +22,15 @@ import typing as _t
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QMessageBox
 
-__all__ = ["ShapeInserter", "INSERT_SHAPE_TITLE"]
+__all__ = ["ShapeInserter", "INSERT_SHAPE_TITLE", "INSERT_RAMP_TITLE"]
 
-#: The right-click item (the Mac app's ``TileContextMenu.insertShapeTitle``).
+#: The right-click items (the Mac app's ``TileContextMenu.insertShapeTitle``
+#: / ``insertTunnelRampTitle``).
 INSERT_SHAPE_TITLE = "Insert shape"
+INSERT_RAMP_TITLE = "Insert tunnel ramp"
+#: Each kind's item and its undo step's name (the Mac app's the same).
+TITLES = {"square": (INSERT_SHAPE_TITLE, "Insert Shape"),
+          "tunnel_ramp": (INSERT_RAMP_TITLE, "Insert Tunnel Ramp")}
 #: How often a pending plan is asked again, and how many times.
 PENDING_MS = 400
 MAX_TRIES = 20
@@ -41,12 +50,12 @@ class ShapeInserter(QObject):
     def available(self) -> bool:
         return self._engine.has("patch_insert_shape")
 
-    def insert(self, lat: float, lon: float) -> None:
-        """Plan the square at ``(lat, lon)`` and add it (module doc)."""
+    def insert(self, lat: float, lon: float, kind: str = "square") -> None:
+        """Plan the ``kind`` of shape at ``(lat, lon)`` and add it (module doc)."""
         self._gen += 1
-        self._ask(self._gen, lat, lon, 1)
+        self._ask(self._gen, lat, lon, 1, kind)
 
-    def _ask(self, gen: int, lat: float, lon: float, tries: int) -> None:
+    def _ask(self, gen: int, lat: float, lon: float, tries: int, kind: str) -> None:
         info = (self._built() or {}).get((math.floor(lat), math.floor(lon)))
         build_dir = getattr(info, "build_dir", None) or None
 
@@ -57,19 +66,22 @@ class ShapeInserter(QObject):
                 self.notify(error)
             elif reply.get("pending"):
                 if tries >= MAX_TRIES:
-                    self.notify("The elevation there is still loading; try Insert shape again.")
+                    self.notify(f"The elevation there is still loading; try "
+                                f"{TITLES[kind][0]} again.")
                 else:
-                    QTimer.singleShot(PENDING_MS, lambda: self._ask(gen, lat, lon, tries + 1))
+                    QTimer.singleShot(PENDING_MS,
+                                      lambda: self._ask(gen, lat, lon, tries + 1, kind))
             else:
-                self._place(reply)
-        self._engine.call("patch_insert_shape", answered, lat=lat, lon=lon, build_dir=build_dir)
+                self._place(reply, kind)
+        self._engine.call("patch_insert_shape", answered, lat=lat, lon=lon, build_dir=build_dir,
+                          kind=kind)
 
-    def _place(self, plan: dict) -> None:
+    def _place(self, plan: dict, kind: str) -> None:
         model = self._controller.model
         p = model.patch
         is_open = p is not None and (p.tile, p.icao) == (plan["tile"], plan["icao"])
         if model.doc is not None and is_open:
-            model.add_shape(plan["corners"])
+            model.add_shape(plan["corners"], plan.get("tags"), TITLES[kind][1])
             return
 
         def added(reply, error):
@@ -79,4 +91,4 @@ class ShapeInserter(QObject):
             self._controller.relist(plan["tile"])
             self.notify(reply["message"])
         self._engine.call("patch_add_shape", added, tile=plan["tile"], icao=plan["icao"],
-                          corners=plan["corners"])
+                          corners=plan["corners"], tags=plan.get("tags") or {})

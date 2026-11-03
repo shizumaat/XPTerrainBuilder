@@ -112,7 +112,8 @@ extension PatchEditModel {
     }
 
     /// The map's right-click items: "Set elevation…" on the Edit-mode
-    /// selected shapes (#1357), then "Insert shape" at the click (#1314).
+    /// selected shapes (#1357), then "Insert shape" (#1314) and "Insert
+    /// tunnel ramp" (#1745) at the click.
     func contextActions(lat: Double, lon: Double) -> [(title: String, run: () -> Void)] {
         var items: [(title: String, run: () -> Void)] = []
         if mode == .edit, document != nil, !shapeSelection.isEmpty {
@@ -120,6 +121,11 @@ extension PatchEditModel {
         }
         if canInsertShape {
             items.append((TileContextMenu.insertShapeTitle, { [weak self] in self?.insertShape(lat: lat, lon: lon) }))
+        }
+        if canInsertTunnelRamp {
+            items.append((TileContextMenu.insertTunnelRampTitle, { [weak self] in
+                self?.insertShape(lat: lat, lon: lon, kind: .tunnelRamp)
+            }))
         }
         return items
     }

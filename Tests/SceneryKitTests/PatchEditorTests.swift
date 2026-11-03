@@ -58,6 +58,13 @@ struct PatchEditorTests {
         #expect(added.wayID == -1 && added.created && added.message.hasPrefix("Started"))
         #expect(O4ProtocolVersion.supportsInsertShape("1.20"))
         #expect(!O4ProtocolVersion.supportsInsertShape("1.19"))
+        // #1745 (protocol 1.24): the tunnel ramp's plan names its kind, tags and size.
+        let ramp = try reply(#"{"pending": false, "tile": "+30+031", "icao": "ZZZZ", "path": null, "source": null, "kind": "tunnel_ramp", "tags": {"aeroway": "taxiway", "ref": "tunnel_ramp", "role": "tunnel_ramp"}, "depth_m": 7.5, "grade": 0.1, "length_m": 75.0, "width_m": 7.0, "corners": [[30.1, 31.4, 50.0], [30.1, 31.41, 51.0], [30.11, 31.41, 43.5], [30.11, 31.4, 42.5]]}"#,
+                             "patch_insert_shape", as: O4PatchInsertShape.self)
+        #expect(ramp.kind == "tunnel_ramp" && ramp.tags?["role"] == "tunnel_ramp" && ramp.sideM == nil)
+        #expect(ramp.lengthM == 75 && ramp.widthM == 7 && ramp.depthM == 7.5 && ramp.grade == 0.1)
+        #expect(O4ProtocolVersion.supportsInsertTunnelRamp("1.24"))
+        #expect(!O4ProtocolVersion.supportsInsertTunnelRamp("1.23"))
     }
 
     @Test func terrainReliefDecodes() throws {

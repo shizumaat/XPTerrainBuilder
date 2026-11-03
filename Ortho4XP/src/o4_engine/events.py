@@ -131,7 +131,11 @@ from typing import Any, Optional
 # and ``library_import_bundle`` — a built tile carried to another
 # installation as a tile bundle (``tile_bundle``), completed through
 # LibraryReady like the other Library commands.
-PROTOCOL_VERSION = "1.23"
+# 1.24 (2026-11-03, additive, #1745): ``patch_insert_shape`` takes
+# ``kind`` ("square", the default, or "tunnel_ramp": the map's "Insert
+# tunnel ramp", a straight ramp sized from the tunnel law) and answers the
+# shape's ``kind`` and ``tags``; ``patch_add_shape`` takes ``tags``.
+PROTOCOL_VERSION = "1.24"
 
 
 @dataclass(frozen=True)

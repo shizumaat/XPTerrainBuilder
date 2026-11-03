@@ -248,7 +248,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "patch_save": patch_commands.patch_save,
         "patch_revert": patch_commands.patch_revert,
         # "Insert shape" on the map (protocol 1.17, #1314): the square's
-        # corners at the elevation under them and the airport they go to;
+        # corners at the elevation under them and the airport they go to
+        # ("Insert tunnel ramp", kind="tunnel_ramp", 1.24, #1745);
         # appending it to a patch the editor does not have open.
         # Synchronous file work, like the commands above.
         "patch_insert_shape": patch_insert.patch_insert_shape,

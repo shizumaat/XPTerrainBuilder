@@ -98,7 +98,8 @@ xptb_version_bump() {
     return 1
   fi
 
-  chmod "$(stat -f '%Lp' "$file" 2>/dev/null || echo 644)" "$tmp"
+  # GNU first: on Linux `stat -f` is filesystem status and succeeds.
+  chmod "$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null || echo 644)" "$tmp"
   if ! mv "$tmp" "$file"; then
     rm -f "$tmp"
     return 1

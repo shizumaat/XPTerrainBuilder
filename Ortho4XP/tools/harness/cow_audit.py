@@ -60,7 +60,9 @@ def audit_tree(tree, shared=None) -> dict:
            "identical": [0, 0], "rewritten": [0, 0], "lane_only": [0, 0],
            "reclaimable": []}
     for path in _regular_files(tree):
-        allocated = os.lstat(path).st_blocks * 512
+        st = os.lstat(path)
+        blocks = getattr(st, "st_blocks", None)     # none on Windows
+        allocated = blocks * 512 if blocks is not None else st.st_size
         private = private_bytes(path)
         out["files"] += 1
         out["apparent"] += allocated

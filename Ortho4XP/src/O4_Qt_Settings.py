@@ -18,6 +18,7 @@ module is presentation and interaction only.
 """
 
 import re
+import weakref
 
 import O4_File_Names as FNAMES
 import O4_Glossary as GLOSSARY
@@ -1094,8 +1095,11 @@ class SettingsWindow(SelectionEdits, QDialog):
             elif key == "storage":
                 # The data folder's sizes and Clear buttons (#1724), above
                 # the cleanup settings, as on the Mac.
+                # A weak method: a bound one is a window<->section cycle,
+                # and a QDialog the cyclic GC frees later can crash Qt.
+                busy = weakref.WeakMethod(self._engine_busy)
                 self.storage_section = QTSTORAGE.StorageSection(
-                    busy=self._engine_busy)
+                    busy=lambda: bool(busy() and busy()()))
                 self.content_layout.addWidget(self.storage_section)
             hidden_count = 0
             for setting in SM.settings_for(key):

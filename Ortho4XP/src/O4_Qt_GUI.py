@@ -5008,7 +5008,11 @@ class MainWindow(QMainWindow):
         """Settings > Storage's automatic cleanup (#1724), at launch and
         after each run; off by default, never while a build runs."""
         import O4_Qt_Settings_Storage as QTSTORE
-        QTSTORE.run_auto_clean(lambda: bool(self._session._building), print)
+        # The thread holds the SESSION, never the window: a worker thread
+        # dropping the last reference to a QMainWindow destroys it off the
+        # GUI thread (a segfault / bus error at the next GC).
+        session = self._session
+        QTSTORE.run_auto_clean(lambda: bool(session._building), print)
 
     def _on_run_done(self, event):
         self._building = False

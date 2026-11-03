@@ -22,11 +22,15 @@ base) and :meth:`FakeGitHub.merge` (merge, rebuild the index with
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
+import pathlib
 import re
 import shutil
+import stat
 import subprocess
+import tarfile
 import tempfile
 import urllib.parse
 
@@ -39,6 +43,18 @@ REPO = "xptb-test/library"
 _GIT_ENV = {"GIT_AUTHOR_NAME": "fake", "GIT_AUTHOR_EMAIL": "fake@invalid",
             "GIT_COMMITTER_NAME": "fake", "GIT_COMMITTER_EMAIL": "fake@invalid",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+
+def _rmtree_git(path: str) -> None:
+    """Remove a git work tree, Windows included.
+
+    git writes its object files read-only; on Windows ``os.unlink`` refuses a
+    read-only file (WinError 5), so clear the bit and retry the one call.
+    """
+    def _writable_retry(func, target, _exc):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+    shutil.rmtree(path, onexc=_writable_retry)
 
 
 def _git(*args, cwd=None, git_dir=None, data=None, env=None) -> str:
@@ -72,12 +88,12 @@ class FakeGitHub:
         _git("add", "-A", cwd=seed)
         _git("commit", "-m", "library template", cwd=seed)
         _git("push", self.upstream, "main", cwd=seed)
-        shutil.rmtree(seed)
+        _rmtree_git(seed)
         _git("clone", "-q", self.upstream, self.served)
 
     # ── settings ───────────────────────────────────────────────────────
     def environ(self) -> dict:
-        return {"XPTB_LIBRARY_REPO": REPO, "XPTB_LIBRARY_RAW": "file://" + self.served,
+        return {"XPTB_LIBRARY_REPO": REPO, "XPTB_LIBRARY_RAW": pathlib.Path(self.served).as_uri(),
                 "XPTB_LIBRARY_API": API, "XPTB_LIBRARY_OAUTH": OAUTH,
                 "XPTB_LIBRARY_CLIENT_ID": "fake-client-id", "XPTB_LIBRARY_BRANCH": "main"}
 
@@ -213,7 +229,10 @@ class FakeGitHub:
         archive = subprocess.run(["git", "--git-dir", self.upstream, "archive", ref],
                                  capture_output=True, check=True,
                                  env=dict(os.environ, **_GIT_ENV)).stdout
-        subprocess.run(["tar", "-x", "-C", folder], input=archive, check=True)
+        # tarfile, not a ``tar`` subprocess: Git Bash's GNU tar on Windows
+        # reads ``C:\…`` as a remote host.
+        with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+            tar.extractall(folder, filter="data")
 
     def run_checks(self, number: int) -> dict:
         """The pull-request workflow (``check.yml``) on pull ``number``."""

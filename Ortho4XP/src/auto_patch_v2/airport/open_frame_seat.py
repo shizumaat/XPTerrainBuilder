@@ -33,6 +33,8 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from .adapted_riders import ADAPTED_SRC
+
 __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "unit_root",
            "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
@@ -206,6 +208,9 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
                     for u in plan.units for m in u.members for p in m.parts}
     acc: dict[str, list[float]] = {}
     lift: dict[str, float] = {}
+    #: #1726: the shares on a terrain-adapted member's zero — it cannot move
+    fixed: set[str] = set()
+    touch = frozenset(getattr(plan, "adapted_frame_pids", ()) or ())
     size: dict[str, dict[str, int]] = {}
     for pid, seat in plan_wide.items():
         if not seat or seat[1] is None or not seat[0]:
@@ -215,6 +220,10 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
         k = group_key(r, fid)
         acc.setdefault(k, []).append(float(seat[1]))
         lift[k] = lf
+        if len(seat) > 3 and seat[3] == ADAPTED_SRC and pid in touch:
+            # #1726: only the adapted member's OWN frame is held on its
+            # zero; another frame chained into the unit seats as before
+            fixed.add(k)
         size.setdefault(r, {})[fid] = size.setdefault(r, {}).get(fid, 0) + 1
     # the unit's DOMINANT frame (most parts): the plan-wide datum is
     # spelled in it; another frame chained in is another authored object
@@ -230,6 +239,8 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
                            lambda unit, fid: group_key(unit_root(unit), fid), own)
         for k in list(out):
             r, fid = k.rsplit("|", 1)
+            if k in fixed:
+                continue
             if k in az:
                 out[k] = (az[k][0], out[k][1])
             elif fid != dominant.get(r) and k in own:
@@ -238,6 +249,8 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
                 out[k] = (own[k], out[k][1])
         if counts is not None:
             counts["groups_on_airside"] = len(az)
+        if counts is not None:
+            counts["groups_on_adapted_frame"] = len(fixed)
         if airside_out is not None:
             # the keys seated on the airside floor with their stand-side
             # feet (``unchained_links``' precedence, owner RULINGS
@@ -460,13 +473,21 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                frame: str = "", tol_m: float = 0.05,
                file_root: "_t.Mapping[str, str] | None" = None,
                root_boxes: "_t.Mapping[str, _t.Sequence[tuple]] | None" = None,
-               merged: "_t.Mapping[str, str] | None" = None) -> _t.Any:
+               merged: "_t.Mapping[str, str] | None" = None,
+               adapted_zero: "float | None" = None) -> _t.Any:
     """R5 / 22o: every body of ``record`` (a placement of frame ``frame``,
     the plan unit id) whose parts belong to a connected unit takes the ONE
     zero of that frame's share of it (:func:`root_zeros`), whatever pass
     seated it.  A body carried by one of the unit's files takes it too
     (:func:`body_root`).  A body already within ``tol_m`` of its target is
-    left as it is."""
+    left as it is.
+
+    #1726: ``adapted_zero`` (``adapted_riders.member_zeros``) is the zero of
+    the terrain-adapted member this placement's file touches; its
+    footless OWN-GROUND pieces, in no unit, hang in that frame and take
+    it (KBWI's skylight panes stood 1.1 m under and 2.4 m over it)."""
+    if adapted_zero is not None:
+        record = _loose_to(record, m, adapted_zero, tol_m, counts)
     lead = walled_lead(record, m)
     if lead is not None:
         # #1201 (owner sim read 2026-10-28, KSEA 16L): A WALLED PLATE'S DATUM
@@ -513,6 +534,25 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                        lambda b, _r=r: roots.get(id(b)) == _r and off(b),
                        f"{GROUP_REASON} {r} at {t:.2f} (RULINGS 2026-10-22o/q)")
     return out
+
+
+def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,
+              counts: dict) -> _t.Any:
+    """``record`` with its footless own-ground bodies more than ``tol_m``
+    off ``zero`` moved onto it (:func:`group_zero`'s #1726 clause)."""
+    from .placement_file import OWN_GROUND
+
+    def take(b: _t.Any) -> bool:
+        a = b.anchor
+        return (a.surface_z is not None and str(a.reason).startswith(OWN_GROUND)
+                and abs(float(a.surface_z) - float(a.y_zero) - zero) > tol_m)
+    n = sum(1 for b in record.bodies if take(b))
+    if not n:
+        return record
+    counts["adapted_frame_loose_bodies"] = counts.get("adapted_frame_loose_bodies", 0) + n
+    return _at_zero(record, m, zero, take,
+                    f"{GROUP_REASON} on its terrain-adapted member's zero at "
+                    f"{zero:.2f} (#1726, RULINGS 2026-10-22o)")
 
 
 def walled_lead(record: _t.Any, m: _t.Any) -> "float | None":

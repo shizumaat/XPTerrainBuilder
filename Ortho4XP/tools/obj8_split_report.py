@@ -1168,7 +1168,8 @@ def authored_rows_lines(dump, plan, ss, sampler, pack_root: str = "") -> list[st
         tol_m=float(_L2.load().tables.emit.design.hard_tol_m),
         keep_tol_m=float(_L2.load().tables.structures.placement
                          .authored_keep_tol_m),
-        feet_tol_m=float(_L2.load().tables.structures.placement.split_tol_m))
+        feet_tol_m=float(_L2.load().tables.structures.placement.split_tol_m),
+        elevated_m=float(_L2.load().tables.structures.rebake.elevated_base_m))
     kept = sorted(_as.kept_rows(getattr(plan, "authored_seats", ()) or ()))
     touched = ({c.index: "CONVERTED to on-ground" for c in conv}
                | {m.index: f"SEATED at OBJECT_MSL {m.elevation:+.3f}" for m in msl}

@@ -478,6 +478,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.pack_local",
     "auto_patch_v2.airport.pack_optimise",
     "auto_patch_v2.airport.pack_optimise.dedupe",
+    "auto_patch_v2.airport.pack_optimise.impact",
     "auto_patch_v2.airport.pack_optimise.objcopy",
     "auto_patch_v2.airport.pack_optimise.shape",
     "auto_patch_v2.airport.pack_optimise.swap",

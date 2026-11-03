@@ -44,7 +44,7 @@ HEAVY = OS.PackWeight("Some Pack", "/p/+25+051.dsf", 275_000_000,
 @pytest.fixture
 def choices(tmp_path, monkeypatch):
     paths = {n: str(tmp_path / "prefs" / n)
-             for n in (OS.CHOICES_NAME, FS.CHOICES_NAME)}
+             for n in (OS.CHOICES_NAME, FS.CHOICES_NAME, PC.OPTIMISE_STEPS)}
     monkeypatch.setattr(PC, "store_path", lambda name: paths[name])
     return paths
 
@@ -199,8 +199,8 @@ def test_the_wire_name_and_fields_are_frozen():
     assert [f.name for f in dataclasses.fields(EV.PackOptimise)
             if f.name not in ("seq", "ts")] == [
         "pack", "pack_root", "lat", "lon", "dedupe", "est_tris_before",
-        "est_tris_after", "can_optimise", "swapped", "files", "state",
-        "error"]
+        "est_tris_after", "can_optimise", "swapped", "steps", "chosen",
+        "files", "state", "error"]
     assert EV.PackOptimise().can_optimise is False, "no offer without a yes"
 
 
@@ -236,7 +236,7 @@ def test_the_command_is_registered_and_never_blocks(monkeypatch):
     got = []
     session.subscribe(got.append)
 
-    def fake_choice(root, action, lat, lon):
+    def fake_choice(root, action, lat, lon, steps=None):
         UI.pack_optimise(pack="P", pack_root=root, state="never", junk=1)
 
     monkeypatch.setattr(OS, "optimise_choice", fake_choice)

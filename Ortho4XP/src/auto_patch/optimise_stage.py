@@ -35,8 +35,8 @@ from . import pack_choice as _PC
 from . import pack_rewrite as _PR
 from .pack_choice import relative as _relative
 
-__all__ = ["ACTIONS", "CHOICES_NAME", "STORE", "optimise_choice", "optimise_stage",
-           "recorded_key"]
+__all__ = ["ACTIONS", "CHOICES_NAME", "STORE", "STEPS_STORE", "optimise_choice",
+           "optimise_stage", "recorded_key"]
 
 #: the per-pack answers, beside the remembered data-root choice
 CHOICES_NAME = _PC.OPTIMISE_CHOICES
@@ -46,6 +46,24 @@ ACTIONS = ("update", "never", "undo")
 
 #: the user's answer per pack ("update" | "never" | "" = ask)
 STORE = _PC.Store(CHOICES_NAME)
+#: the steps the user last chose per pack ("" = every step)
+STEPS_STORE = _PC.Store(_PC.OPTIMISE_STEPS, _PC.step_list)
+
+
+def _remembered_steps(pack_root: str) -> tuple[str, ...]:
+    """The steps the user last chose for the pack; every step by default."""
+    from auto_patch_v2.airport import pack_optimise as _po
+    value = STEPS_STORE.choice(pack_root)
+    return _po.chosen_steps(value.split(",") if value else None)
+
+
+def _remember_steps(pack_root: str, steps: _t.Iterable[str]) -> tuple[str, ...]:
+    """Remember the user's steps for the pack (every step is the default,
+    so it is forgotten); returns them in order."""
+    from auto_patch_v2.airport import pack_optimise as _po
+    chosen = _po.chosen_steps(steps)
+    STEPS_STORE.remember(pack_root, "" if chosen == _po.STEPS else ",".join(chosen))
+    return chosen
 
 
 class PackWeight(_t.NamedTuple):
@@ -61,6 +79,8 @@ class PackWeight(_t.NamedTuple):
     optimised: dict            # the recorded recipe, {} = none
     recipe: dict = {}          # the recipe "Optimise" writes today
     swapped: int = 0           # placements swapped for library objects
+    steps: tuple = ()          # each step's estimate (``impact.steps``)
+    chosen: tuple = ()         # the steps the recipe carries
 
     @property
     def heavy(self) -> bool:
@@ -69,7 +89,7 @@ class PackWeight(_t.NamedTuple):
 
     @property
     def can_optimise(self) -> bool:
-        return (self.dedupe > 0 or self.swapped > 0
+        return (bool(self.steps) or self.dedupe > 0 or self.swapped > 0
                 or bool((self.recipe or {}).get("objects")))
 
     @property
@@ -85,17 +105,21 @@ class PackWeight(_t.NamedTuple):
         return bool(self.optimised) and self.optimised == self.wanted
 
 
-def check(pack_root: str, lat: int, lon: int, *,
-          read_only: bool, full: bool = False) -> PackWeight | None:
+def check(pack_root: str, lat: int, lon: int, *, read_only: bool,
+          full: bool = False, steps: _t.Iterable[str] | None = None
+          ) -> PackWeight | None:
     """THE CHECK for one pack's tile DSF, or ``None`` when there is
     nothing to judge (``object_stage.pack_dump``).  The whole recipe (the
     library swaps, the object and texture copies: every placed object
     file read) is made only for a pack heavy enough to be offered, or
     with ``full`` (the user said Optimise); any other pack is weighed on
-    its duplicates alone, from the OBJ headers."""
+    its duplicates alone, from the OBJ headers.  ``steps`` are the user's
+    (default: the ones remembered for the pack); every step's estimate is
+    in ``PackWeight.steps`` whatever they are."""
     from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import pack_optimise as _po
     from auto_patch_v2.airport.file_hash import sha256_file
+    from auto_patch_v2.airport.pack_optimise import impact as _im
     from auto_patch_v2.airport.pack_optimise import weight as _w
 
     from . import agp_reader as _agp
@@ -106,15 +130,21 @@ def check(pack_root: str, lat: int, lon: int, *,
         return None
     with open(pd.dump_path, encoding="utf-8", errors="surrogateescape") as fh:
         lines = fh.read().splitlines(keepends=True)
+    chosen = (_po.chosen_steps(steps) if steps is not None
+              else _remembered_steps(pack_root))
     recipe = _po.default_recipe()
     drop, counts = _po.drop_ordinals(lines, recipe, frozenset())
     est = _w.estimate(pack_root, lines, drop)
+    impacts: list = []
     if full or est["tris_before"] > _w.OFFER_TRIANGLES:
         exports = _agp.export_files(pd.xroot) if pd.xroot else None
-        recipe = _po.build_recipe(
-            pack_root, lines,
-            (lambda v: _agp.weighted_files_at(exports.get(v.lower(), ()), lat, lon))
-            if exports else None)
+        exports_of = ((lambda v: _agp.weighted_files_at(
+            exports.get(v.lower(), ()), lat, lon)) if exports else None)
+        recipe = _po.build_recipe(pack_root, lines, exports_of)
+        impacts = _im.steps(pack_root, lines, recipe)
+        if chosen != _po.STEPS:
+            recipe = _po.build_recipe(pack_root, lines, exports_of, chosen)
+        drop, counts = _po.drop_ordinals(lines, recipe, frozenset())
         est = _w.estimate(pack_root, lines, drop, swaps=recipe.get("swap"))
     optimised = {}
     if os.path.isfile(pd.pristine) and pd.pristine != pd.dsf_path:
@@ -123,7 +153,8 @@ def check(pack_root: str, lat: int, lon: int, *,
         optimised = _po.recorded(entry, sha256_file(pd.pristine))
     return PackWeight(pd.pack_name, pd.dsf_path, est["tris_before"],
                       est["tris_after"], int(counts.get("dropped", 0)),
-                      optimised, recipe, int(est["swapped"]))
+                      optimised, recipe, int(est["swapped"]), tuple(impacts),
+                      chosen)
 
 
 def recorded_key(pack_root: str, lat: int, lon: int) -> str:
@@ -161,7 +192,8 @@ def _announce(pw: PackWeight, pack_root: str, lat: int, lon: int,
                      swapped=pw.swapped,
                      est_tris_before=pw.tris_before,
                      est_tris_after=pw.tris_after,
-                     can_optimise=pw.can_optimise, files=list(files))
+                     can_optimise=pw.can_optimise, files=list(files),
+                     steps=[dict(r) for r in pw.steps], chosen=list(pw.chosen))
 
 
 def _write(pw: PackWeight, pack_root: str, recipe: dict) -> None:
@@ -226,10 +258,12 @@ def optimise_stage(plan_, tile, *, writes: bool) -> str:
 
 
 def optimise_choice(pack_root: str, action: str, lat: int | None = None,
-                    lon: int | None = None) -> dict:
+                    lon: int | None = None,
+                    steps: _t.Iterable[str] | None = None) -> dict:
     """THE USER'S ANSWER, outside a build (the ``pack_optimise`` command).
 
-    * ``"update"`` — remember it and optimise the tile's DSF now;
+    * ``"update"`` — remember it and optimise the tile's DSF now, with
+      ``steps`` (remembered for the pack; without, the ones remembered);
     * ``"never"`` — remember it; nothing is written;
     * ``"undo"`` — forget the answer and put the original placements
       back in every optimised DSF of the pack (only the tile's with
@@ -256,8 +290,12 @@ def optimise_choice(pack_root: str, action: str, lat: int | None = None,
             out["state"] = "undone" if out["files"] else "none"
         else:
             STORE.remember(pack_root, "update")
+            chosen = (_remember_steps(pack_root, steps) if steps is not None
+                      else _remembered_steps(pack_root))
+            if not chosen:
+                raise ValueError("no step chosen")
             pw = check(pack_root, int(lat or 0), int(lon or 0),
-                       read_only=False, full=True)
+                       read_only=False, full=True, steps=chosen)
             if pw is not None and pw.can_optimise and not pw.current:
                 out["state"] = _optimise(pw, pack_root, int(lat or 0),
                                          int(lon or 0))

@@ -49,7 +49,8 @@ from . import objcopy as _oc
 from . import swap as _sw
 from . import textures as _tx
 
-__all__ = ["RECORD_KEY", "RECIPE_VERSION", "default_recipe", "build_recipe",
+__all__ = ["RECORD_KEY", "RECIPE_VERSION", "STEPS", "chosen_steps",
+           "default_recipe", "build_recipe",
            "record", "recorded", "drop_ordinals", "apply_rows",
            "write_generated", "generated_of", "remove_generated",
            "GENERATED_MARK"]
@@ -70,35 +71,59 @@ def default_recipe() -> dict[str, _t.Any]:
     return {"version": RECIPE_VERSION, "dedupe": dict(_dd.DEFAULTS)}
 
 
+#: the steps a recipe may carry, in the order the question lists them:
+#: duplicates (D1), library swaps (D2), lighter object copies (O1/O2),
+#: lighter textures (O4)
+STEPS = ("dedupe", "swap", "objects", "textures")
+
+
+def chosen_steps(steps: _t.Iterable[str] | None) -> tuple[str, ...]:
+    """``steps`` as :data:`STEPS` orders them (unknown names dropped);
+    ``None`` is every step."""
+    if steps is None:
+        return STEPS
+    wanted = set(steps)
+    return tuple(s for s in STEPS if s in wanted)
+
+
 def build_recipe(pack_root: str, lines: _t.Sequence[str],
-                 exports_of: _t.Callable[[str], _t.Sequence[str]] | None
-                 ) -> dict[str, _t.Any]:
-    """The recipe for one pristine dump ``lines``: :func:`default_recipe`,
+                 exports_of: _t.Callable[[str], _t.Sequence[_t.Any]] | None,
+                 steps: _t.Iterable[str] | None = None) -> dict[str, _t.Any]:
+    """The recipe for one pristine dump ``lines`` with the user's
+    ``steps`` (``None``: every step): the duplicates (:func:`default_recipe`),
     with the install's library (``exports_of``) the library swaps of its
-    objects (``swap.plan_swaps``), and the lighter copies of the rest
-    (``objcopy.plan_objects``).  Deterministic for one pack and one
-    install."""
+    objects (``swap.plan_swaps``), the lighter copies of the rest
+    (``objcopy.plan_objects``) and their lighter textures
+    (``textures.plan_textures``).  An object a step left unswapped is
+    one the copies may lighten.  Deterministic for one pack, one install
+    and one set of steps."""
     from ..dsf_write import placement_rows
     from ..pack_art import declared_definitions
+    chosen = chosen_steps(steps)
     recipe = default_recipe()
+    if "dedupe" not in chosen:
+        del recipe["dedupe"]
+    if chosen != STEPS:
+        recipe["steps"] = list(chosen)
     defs = declared_definitions(lines)["object"]
     uses: dict[int, int] = {}
     for _o, _i, toks in placement_rows(lines):
         uses[int(toks[1])] = uses.get(int(toks[1]), 0) + 1
     swaps = (_sw.plan_swaps(pack_root, defs, uses, exports_of)
-             if exports_of is not None else {})
+             if exports_of is not None and "swap" in chosen else {})
     if swaps:
         recipe["swap"] = swaps
     placed = _oc.placed_objects(pack_root, defs, uses, set(swaps))
-    copies = _oc.plan_objects(pack_root, placed)
-    textures, rewrites = _tx.plan_textures(
-        pack_root, [(p, max(s.size)) for p, (s, _n) in placed.items()])
-    for path, tex in rewrites.items():
-        copies.setdefault(path, {"specular": None, "lod": None})["tex"] = tex
+    copies = _oc.plan_objects(pack_root, placed) if "objects" in chosen else {}
+    if "textures" in chosen:
+        textures, rewrites = _tx.plan_textures(
+            pack_root, [(p, max(s.size)) for p, (s, _n) in placed.items()])
+        for path, tex in rewrites.items():
+            copies.setdefault(path, {"specular": None, "lod": None})["tex"] = tex
+        if textures:
+            recipe["textures"] = textures
     if copies:
         recipe["objects"] = copies
-    if textures:
-        recipe["textures"] = textures
     return recipe
 
 

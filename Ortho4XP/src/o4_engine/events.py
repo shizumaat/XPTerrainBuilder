@@ -725,7 +725,11 @@ class PackOptimise(EngineEvent):
     (protocol 1.33) the placements it swaps for X-Plane's lighter library
     vehicles and ground equipment; ``est_tris_before`` /
     ``est_tris_after`` the triangles the pack's own objects draw on the
-    tile without and with it.
+    tile without and with it.  ``steps`` (capability
+    ``pack_optimise_steps``) is one ``{"key", "count", "tris", "mb"}``
+    per step the recipe has work for (``pack_optimise.impact``) — the
+    question's checkboxes — and ``chosen`` the steps remembered for the
+    pack (the boxes checked; every step when the user never chose).
 
     Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
     matches this class name as a STRING LITERAL (renaming it breaks the
@@ -741,6 +745,8 @@ class PackOptimise(EngineEvent):
     est_tris_after: int = 0
     can_optimise: bool = False
     swapped: int = 0
+    steps: list = field(default_factory=list)
+    chosen: list = field(default_factory=list)
     files: list = field(default_factory=list)
     state: str = "found"
     error: str = ""

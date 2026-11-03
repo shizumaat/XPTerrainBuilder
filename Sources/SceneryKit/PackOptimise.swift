@@ -8,6 +8,36 @@ import Foundation
 /// Not now sends nothing. "optimised" / "undone" / "never" / "failed" /
 /// "none" — a build's or a `pack_optimise` command's outcome (the engine
 /// log line already says what happened; `files` lists what was rewritten).
+/// One step "Optimise pack" has work for on the pack (engine
+/// `PackOptimise.steps`, capability `pack_optimise_steps`): its key
+/// (`dedupe`, `swap`, `objects`, `textures`) and its estimate.
+public struct O4PackOptimiseStep: Sendable, Equatable, Identifiable {
+    public let key: String
+    public let count: Int
+    /// Triangles saved (`dedupe`, `swap`: up close; `objects`: past 1.5 km).
+    public let tris: Int
+    /// Video memory saved, MB (`textures`).
+    public let mb: Double
+    public var id: String { key }
+
+    public init(key: String, count: Int, tris: Int, mb: Double) {
+        self.key = key
+        self.count = count
+        self.tris = tris
+        self.mb = mb
+    }
+
+    /// The checkbox's title.
+    public var title: String { O4PackOptimiseCopy.stepTitles[key] ?? key }
+    /// The one-line explanation with the estimate.
+    public var detail: String {
+        (O4PackOptimiseCopy.stepDetails[key] ?? "")
+            .replacingOccurrences(of: "{n}", with: "\(count)")
+            .replacingOccurrences(of: "{tris}", with: O4PackOptimiseCopy.millions(tris))
+            .replacingOccurrences(of: "{mb}", with: String(format: "%.0f", mb))
+    }
+}
+
 public struct O4PackOptimise: Sendable, Equatable, Identifiable {
     public let pack: String
     public let packRoot: String
@@ -26,6 +56,11 @@ public struct O4PackOptimise: Sendable, Equatable, Identifiable {
     public let files: [String]
     public let state: String
     public let error: String
+    /// The steps with work on this pack — the question's checkboxes
+    /// (empty from an engine without `pack_optimise_steps`).
+    public let steps: [O4PackOptimiseStep]
+    /// The steps the user last chose for the pack (empty: every step).
+    public let chosen: [String]
 
     /// One question per pack, tile and count: every airport of a pack
     /// runs the check, and the second airport's event is the same news.
@@ -34,7 +69,8 @@ public struct O4PackOptimise: Sendable, Equatable, Identifiable {
     public init(pack: String, packRoot: String, lat: Int, lon: Int,
                 dedupe: Int, swapped: Int = 0, estTrisBefore: Int,
                 estTrisAfter: Int, canOptimise: Bool, files: [String],
-                state: String, error: String) {
+                state: String, error: String,
+                steps: [O4PackOptimiseStep] = [], chosen: [String] = []) {
         self.pack = pack
         self.packRoot = packRoot
         self.lat = lat
@@ -47,6 +83,22 @@ public struct O4PackOptimise: Sendable, Equatable, Identifiable {
         self.files = files
         self.state = state
         self.error = error
+        self.steps = steps
+        self.chosen = chosen
+    }
+
+    /// The steps checked when the question opens: the pack's last choice,
+    /// else every step (owner 2026-11-03: "all defaulted on").
+    public var initiallyChecked: Set<String> {
+        let keys = Set(steps.map(\.key))
+        let last = Set(chosen).intersection(keys)
+        return last.isEmpty ? keys : last
+    }
+
+    /// The question's words above the checkboxes.
+    public var stepsBodyText: String {
+        O4PackOptimiseCopy.bodySteps.replacingOccurrences(
+            of: "{before}", with: O4PackOptimiseCopy.millions(estTrisBefore))
     }
 
     /// The question's title.
@@ -96,6 +148,31 @@ public enum O4PackOptimiseCopy {
             + "X-Plane’s lighter library ones (\(millions(after)) million "
             + "triangles)."
     }
+
+    /// The question when the engine lists the steps (`PackOptimise.steps`).
+    public static let bodySteps = "This airport’s objects draw {before} million "
+        + "triangles on this tile, enough to cost frame rate. Choose what "
+        + "Optimise does:"
+
+    /// Per step: its checkbox.
+    public static let stepTitles: [String: String] = [
+        "dedupe": "Remove repeated placements",
+        "swap": "Use X-Plane’s library vehicles",
+        "objects": "Draw small props only nearby",
+        "textures": "Compress large textures",
+    ]
+
+    /// Per step: its explanation with the estimate.
+    public static let stepDetails: [String: String] = [
+        "dedupe": "{n} objects are placed twice on the same spot "
+            + "(−{tris} million triangles).",
+        "swap": "{n} heavy cars and ground equipment become X-Plane’s lighter "
+            + "models (−{tris} million triangles up close).",
+        "objects": "{n} props get a draw distance of up to 1.5 km and can be "
+            + "drawn in batches (−{tris} million triangles past 1.5 km).",
+        "textures": "{n} textures are compressed or halved (about −{mb} MB of "
+            + "video memory).",
+    ]
 
     public static let detail = "The original scenery file is kept as a backup, "
         + "and the optimisation is applied again whenever the app rewrites "

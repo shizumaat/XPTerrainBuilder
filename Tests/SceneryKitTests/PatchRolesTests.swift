@@ -29,6 +29,7 @@ struct PatchRolesTests {
             {"source": "pav7", "role": null, "previous_role": "apron", "description": "", "path": "x"}
             """.utf8))
         #expect(set.role == nil && set.previousRole == "apron")
-        #expect(O4ProtocolVersion.supportsPatchRoles("1.33") && !O4ProtocolVersion.supportsPatchRoles("1.32"))
+        #expect(O4EngineCapabilities(protocolVersion: "1.32", flags: ["patch_roles"]).supports(O4EngineCapabilities.patchRoles))
+        #expect(!O4EngineCapabilities(protocolVersion: "1.33", flags: []).supports(O4EngineCapabilities.patchRoles))
     }
 }

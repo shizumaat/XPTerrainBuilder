@@ -796,11 +796,7 @@ class EngineSession:
         self._boundary_request_id = 0
         self._airport_index_building = False
         UI.engine_session = self
-        self._emit(EngineHello(ortho4xp_version=version,
-                               capabilities=("scan", "build", "cancel",
-                                             "cancel_tile", "enqueue_build",
-                                             "tile_info", "config",
-                                             "links")))
+        self._emit(EngineHello(ortho4xp_version=version))
 
     # ------------------------------------------------------------------
     # Event plumbing

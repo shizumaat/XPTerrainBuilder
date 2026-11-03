@@ -628,13 +628,10 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         session.subscribe(lambda event: write_obj(serialize_event(event)))
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.
+        # ``capabilities`` defaults to ``events.CAPABILITIES`` — ONE list
+        # for both hellos (RULINGS 2026-11-03d (1) item 3)
         write_obj(serialize_event(EngineHello(
-            ortho4xp_version=_ortho4xp_version(),
-            capabilities=("scan", "build", "enqueue_build", "cancel",
-                          "tile_info", "config", "links", "siblings",
-                          "secrets", "tile_settings_write",
-                          "missing_art", "library", "pack_forests",
-                          "pack_optimise", "pack_optimise_steps"))))
+            ortho4xp_version=_ortho4xp_version())))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

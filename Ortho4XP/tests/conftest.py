@@ -1323,6 +1323,37 @@ def pytest_configure(config):
             "each worker appends to <path>.<worker>.")
 
 
+def _map_tile_workers_never_start():
+    """Disarm the Qt map's tile-download worker pool (issue #1786).
+
+    ``O4_Qt_Map.MapView._start_workers`` spawns daemon threads that loop
+    forever pulling tiles from tile.openstreetmap.org and the imagery
+    providers; a window fixture that never disabled them left workers
+    whose DNS lookups the network guard booked against the NEXT test.
+    The per-view ``v._start_workers = lambda: None`` the map tests set by
+    hand is made suite-wide here, on the class, once the module is
+    imported, so no worker ever starts and none outlives its test.
+    Tests that exercise fetching call ``_fetch_tile`` directly."""
+    qtmap = sys.modules.get("O4_Qt_Map")
+    view = getattr(qtmap, "MapView", None)
+    if view is not None and not getattr(view, "_o4_suite_no_workers", False):
+        view._start_workers = lambda self: None
+        view._o4_suite_no_workers = True
+
+
+@pytest.fixture(autouse=True)
+def _qt_map_tile_workers_are_disarmed():
+    _map_tile_workers_never_start()
+    yield
+    _map_tile_workers_never_start()
+
+
+def pytest_collection_finish(session):
+    # Test modules import the Qt window at collection: disarm before any
+    # fixture (even session-scoped) can build a MapView.
+    _map_tile_workers_never_start()
+
+
 @pytest.fixture(autouse=True)
 def _no_test_reaches_the_network():
     """A refused network reach fails ITS OWN test (issue #122).

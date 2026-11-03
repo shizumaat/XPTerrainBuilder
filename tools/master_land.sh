@@ -5,7 +5,8 @@
 # lane's `gh pr merge` is refused and so is a direct push).
 #
 #   tools/master_land.sh pr  <PR#>  [merge message...]
-#       set `master-ack` on the PR's head, merge it (merge commit), pull main.
+#       set `master-ack` on the PR's head, merge it (merge commit), pull main,
+#       then `lane_worktree.sh prune-merged --apply` (merged lanes torn down).
 #   tools/master_land.sh here <branch-name> <commit message...>
 #       the master's own local commits on main (RULINGS, frames, briefs):
 #       move them to <branch-name>, push, open a PR, ack, merge, pull.
@@ -33,6 +34,10 @@ case "${1:-}" in
       gh pr merge "$pr" --merge
     fi
     git pull -q --ff-only origin main
+    # Tear down every lane worktree whose work is now on main (owner
+    # 2026-11-03).  A janitor: its failure never fails the landing.
+    "$ROOT/Ortho4XP/tools/harness/lane_worktree.sh" prune-merged --apply \
+      || echo "master_land: prune-merged failed (landing unaffected)" >&2
     ;;
   here)
     br="$2"; shift 2; msg="$*"
@@ -51,5 +56,5 @@ case "${1:-}" in
     gh pr merge "$pr" --merge --delete-branch
     git pull -q --ff-only origin main
     ;;
-  *) sed -n 2,14p "$0"; exit 2 ;;
+  *) sed -n 2,15p "$0"; exit 2 ;;
 esac

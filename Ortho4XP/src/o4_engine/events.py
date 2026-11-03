@@ -163,7 +163,12 @@ from typing import Any, Optional
 # ``library_ignore``, ``library_publish_preview``, ``library_publish`` and
 # the GitHub device sign-in (``library_signin_start`` / ``_poll``,
 # ``library_signout``), each completed through LibraryReady.
-PROTOCOL_VERSION = "1.29"
+# 1.30 (2026-11-03, additive, #1703): ``object_seat_set`` — an object's
+# elevation set by hand in the patch editor (its bottom in m MSL, or its
+# zero for an undo), stored beside the patch as a user edit the object
+# stage honours; ``object_seat`` replies ``user_zero_m``.  An older engine
+# refuses it and the apps offer no "Set elevation…" on an object.
+PROTOCOL_VERSION = "1.30"
 
 
 @dataclass(frozen=True)

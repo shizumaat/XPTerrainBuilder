@@ -1084,6 +1084,19 @@ extension OrthoEngineClient {
         return try await request("object_seat", arguments)
     }
 
+    /// Set an object's elevation by hand (protocol 1.30, #1703): its bottom
+    /// in metres MSL, or its zero (an undo); neither clears it.
+    public func objectSeatSet(tile: String, icao: String, object: PackObjectRef, bottomM: Double? = nil,
+                              zeroM: Double? = nil) async throws -> O4ObjectSeatSet {
+        var arguments: [String: Any] = [
+            "tile": tile, "icao": icao, "index": object.index, "model": object.model,
+            "lat": object.lat, "lon": object.lon,
+        ]
+        if let zeroM { arguments["zero_m"] = zeroM }
+        if let bottomM { arguments["bottom_m"] = bottomM; arguments["y_min"] = object.yMin ?? 0 }
+        return try await request("object_seat_set", arguments)
+    }
+
     /// "Insert shape" planned at a point (protocol 1.20, #1314); ask again
     /// while the reply is `pending`. `kind` nil is the square; "tunnel_ramp"
     /// is "Insert tunnel ramp" (protocol 1.24, #1745).

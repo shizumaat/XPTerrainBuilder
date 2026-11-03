@@ -12,12 +12,10 @@ from __future__ import annotations
 
 import typing as _t
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
-
 import O4_Geo_Utils as GEO
 import O4_Glossary as GLOSSARY
 import O4_Qt_Map as QTMAP
+import O4_Qt_Object_Seat as SEAT
 import O4_Qt_Patch_Elevation_Dialog as ELEVDIALOG
 import O4_Qt_Patch_Reference as REFERENCE
 from O4_Qt_Object_Inspector import ObjectInspector
@@ -31,6 +29,8 @@ from O4_Qt_Patch_Overlay import PatchOverlay
 from O4_Qt_Patch_Panel import PatchPanel, node_lat_lon
 from O4_Qt_Patch_Toolbar import PatchToolbar
 from O4_Qt_Terrain_Relief import TerrainRelief
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 
 __all__ = ["PatchEditor", "PACK_OUTLINES_PREF", "SLICE_TITLE", "TERRAIN_PREF",
            "TERRAIN_OPACITY_PREF"]
@@ -85,6 +85,11 @@ class PatchEditor:
                                             open_preview=self.open_preview, terrain=self.terrain)
         map_view.add_layer(self.overlay)
         self.panel = PatchPanel(self.controller)
+        # #1703: the selected object in the Patch box, "Set object elevation…"
+        self.object_box = SEAT.ObjectBox(self.inspector, self.open_object_elevation)
+        self.panel.inspector.layout().insertWidget(0, self.object_box)
+        self.model.status_changed.connect(self.object_box.refresh)
+        self.object_dialog = None
         self._window, self._map, self._built = window, map_view, built
         #: The 3D preview window, made the first time it is opened.
         self.preview = None
@@ -136,16 +141,29 @@ class PatchEditor:
     def context_actions(self, at: tuple[float, float] | None = None
                         ) -> list[tuple[str, _t.Callable[[], _t.Any]]]:
         """The map's right-click items: "Set elevation…" on the Edit-mode
-        selected shapes (#1357), then "Insert shape" (#1314) and "Insert
+        selected shapes (#1357), "Set object elevation…" on the selected
+        pack object (#1703), then "Insert shape" (#1314) and "Insert
         tunnel ramp" (#1745) at ``at``."""
         items = []
         m = self.model
         if m.mode == MODE_EDIT and m.shape_selection and m.doc is not None:
             items.append((ELEVDIALOG.TITLE, self.panel.open_set_elevation))
+        i = self.inspector
+        if m.mode == MODE_EDIT and i.can_set_elevation and i.seat is not None:  # #1703
+            items.append((SEAT.SET_ELEVATION_TITLE, self.open_object_elevation))
         if at is not None and self.inserter.available():
             items.append((INSERT_SHAPE_TITLE, lambda: self.inserter.insert(*at)))
             items.append((INSERT_RAMP_TITLE, lambda: self.inserter.insert(*at, "tunnel_ramp")))
         return items
+
+    def open_object_elevation(self) -> SEAT.ObjectSeatDialog | None:
+        """"Set object elevation…" on the selected pack object (#1703),
+        window-modal."""
+        if self.inspector.selected is None or self.inspector.seat is None:
+            return None
+        self.object_dialog = SEAT.ObjectSeatDialog(self.inspector, self._window)
+        self.object_dialog.open()
+        return self.object_dialog
 
     def lat_lon_at(self, x: float, y: float) -> tuple[float, float]:
         """The map's ``(lat, lon)`` at viewport ``(x, y)``."""

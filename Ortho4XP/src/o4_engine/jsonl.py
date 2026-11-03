@@ -184,6 +184,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     )
     from .mesh_commands import mesh_crop
     from .object_seat import object_seat
+    from .object_seat_edit import object_seat_set
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .plan_estimate import start_plan_estimate
@@ -296,6 +297,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # top and bottom.  Synchronous: a cached JSON read; the ground
         # under a draped row is cursor_elevation's (pending while loading).
         "object_seat": object_seat,
+        # ... and its elevation set by hand (protocol 1.30, #1703): a user
+        # edit beside the patch the object stage honours; synchronous.
+        "object_seat_set": object_seat_set,
         # Cursor elevation (protocol 1.14, #1308): the built mesh's
         # elevation at a point, else the DEM's.  Never loads on THIS
         # thread: an uncached source loads on a daemon thread and the

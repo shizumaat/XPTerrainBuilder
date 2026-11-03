@@ -535,10 +535,12 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                work_dir: str | None = None,
                refresh_dump: _t.Callable[[str], str | None] | None = None,
                engine_version: str = "", law_digest: str = "",
-               omit: _t.Sequence = (), plan_key: str = "") -> PlacementWriteResult:
+               omit: _t.Sequence = (), plan_key: str = "",
+               seats: _t.Mapping | None = None) -> PlacementWriteResult:
     """The writes in the one lawful order (module doc, steps 0-5).
     ``plan_key`` names the plan JSON (``o4_v2_placement_<key>.json``;
     default the ICAO — a companion pack's plan is ``ICAO~k``).
+    ``seats``: the hand-set object seats (#1703, ``write_pack(seats=)``).
 
     §12a (3) row 5: THE DSF IS CLASSIFIED FIRST.  When its write half
     stands down (rows D2 / D8) nothing at all happens — no restore, no
@@ -560,7 +562,7 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                          allow_live_install=allow_live_install,
                          work_dir=work_dir, engine_version=engine_version,
                          law_digest=law_digest, body_files=written,
-                         omit=omit)
+                         omit=omit, seats=seats)
     if getattr(dsf, "plan", None) is not None:
         plan = dsf.plan          # #1246: a split the DSF refused is undone
     refreshed = None

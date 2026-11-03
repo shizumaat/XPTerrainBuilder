@@ -8,7 +8,9 @@ left click             select a node (8 px) or a line's whole shape
 Shift-click            toggle a node or a shape
 Shift-drag             box-select nodes
 drag on a node         move the selection (snaps within 8 px, merges on
-                       release while snapped)
+                       release while snapped; else snaps to a pack
+                       object's corner or edge middle and asks Top /
+                       Bottom / Keep current, #1703)
 left drag, open map    pan (the map's own rule, every map view)
 click on a "+"         insert a node
 Alt-drag on a node     rotate its shape about the centre (#1746; Option
@@ -38,12 +40,13 @@ from __future__ import annotations
 import math
 import typing as _t
 
+import O4_Qt_Object_Seat as SEAT
 import O4_Qt_Patch_ShapePick as PICK
 from o4_engine import patch_rotate as ROT
 from O4_Qt_Patch_Geometry import SNAP_RADIUS_PX, below_grade, style_class
 from O4_Qt_Patch_Overlay import NODE_FILL, SELECTION, STYLES, paint_styled
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QPen, QShortcut
+from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QPen, QPolygonF, QShortcut
 from PySide6.QtWidgets import QApplication, QLineEdit
 
 __all__ = ["PatchGestures", "DragSkip", "CLICK_SLOP_PX"]
@@ -75,6 +78,8 @@ class PatchGestures:
         self.ids: list[int] = []
         self.dlat = self.dlon = 0.0
         self.snap_target: int | None = None
+        #: No node there: ``(outline, lat, lon)`` of the object snap point (#1703)
+        self.object_snap: tuple | None = None
         self.hover_edge: tuple[int, int] | None = None
         self.pressed_handle: tuple[int, int] | None = None
         #: The line the press landed on (no node, no handle there).
@@ -217,6 +222,8 @@ class PatchGestures:
             # a shape drag never snaps (#759)
             self.snap_target = (index.node_at(p.x(), p.y(), excluding=set(self.ids))
                                 if not self.model.shape_selection else None)
+            self.object_snap = self._object_snap(p) if self.snap_target is None \
+                and not self.model.shape_selection else None
         elif self.kind == self.ROTATE and (moved or self.skip is not None):
             if self.skip is None:
                 index = self._index()
@@ -236,7 +243,10 @@ class PatchGestures:
             if index is None:
                 return True
             if self.kind == self.NODES:
-                if self.skip is not None:
+                if self.skip is not None and self.object_snap is not None:
+                    self.model.last_shape_click = None
+                    self._drop_on_object(event)
+                elif self.skip is not None:
                     merge = (self.grabbed, self.snap_target) if self.snap_target is not None else None
                     self.model.last_shape_click = None
                     self.model.move_selection(self.ids, self.dlat, self.dlon, merge)
@@ -274,9 +284,36 @@ class PatchGestures:
         finally:
             self.reset()
 
+    def _object_snap(self, p: QPointF):
+        """The pack object snap point under the pointer (#1703), or None."""
+        outlines = self.overlay.outlines
+        if outlines is None or not outlines.enabled:
+            return None
+
+        def to_screen(lat: float, lon: float) -> tuple[float, float]:
+            q = self.overlay.screen_of(lat, lon)
+            return q.x(), q.y()
+        return SEAT.vertex_at(outlines.footprints, to_screen, p.x(), p.y(), SNAP_RADIUS_PX)
+
+    def _drop_on_object(self, event) -> None:
+        """The grabbed node onto the object's point exactly (one step), then
+        Top / Bottom / Keep current when the object has a height."""
+        outline, lat, lon = self.object_snap
+        node = self.model.doc.nodes.get(self.grabbed)
+        if node is None:
+            return
+        done = self.model.move_selection(self.ids, lat - node[1], lon - node[2], None,
+                                         name="Move to Object")
+        inspector = getattr(self.overlay, "inspector", None)
+        if done and inspector is not None:
+            view = self.overlay.map.viewport()
+            inspector.offer_top_or_bottom(self.grabbed, outline.object, view,
+                                          view.mapToGlobal(event.position().toPoint()))
+
     def reset(self) -> None:
         self.kind = self.IDLE
         self.snap_target = self.pressed_handle = self.pressed_edge = self.grabbed = None
+        self.object_snap = None
         self.ids = []
         self.dlat = self.dlon = self.angle = 0.0
         self.skip = self.pivot = None
@@ -341,6 +378,8 @@ class PatchGestures:
             return self.overlay.screen_of(*ROT.rotate_point(lat, lon, self.pivot, self.angle))
         if nid == self.grabbed and self.snap_target is not None:
             return QPointF(*index.screen(self.snap_target))
+        if nid == self.grabbed and self.object_snap is not None:
+            return self.overlay.screen_of(*self.object_snap[1:])
         return self.overlay.screen_of(lat + self.dlat, lon + self.dlon)
 
     def paint(self, painter) -> None:
@@ -370,6 +409,13 @@ class PatchGestures:
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(SELECTION, 2))
             painter.drawEllipse(p, 10, 10)
+        elif self.skip is not None and self.object_snap is not None:
+            # the object snap: a diamond on the footprint point (#1703)
+            p = self.overlay.screen_of(*self.object_snap[1:])
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(SELECTION, 2))
+            painter.drawPolygon(QPolygonF([QPointF(p.x(), p.y() - 10), QPointF(p.x() + 10, p.y()),
+                                           QPointF(p.x(), p.y() + 10), QPointF(p.x() - 10, p.y())]))
         if self.kind == self.ROTATE and self.skip is not None:
             c = self.overlay.screen_of(*self.pivot)      # the rotation's centre
             painter.setPen(QPen(SELECTION, 2))

@@ -410,6 +410,11 @@ extension O4ProtocolVersion {
     public static func supportsInsertTunnelRamp(_ version: String) -> Bool {
         isAtLeast(version, 1, 24)
     }
+
+    /// An object's elevation set by hand, `object_seat_set` (protocol 1.30, #1703).
+    public static func supportsObjectSeatSet(_ version: String) -> Bool {
+        isAtLeast(version, 1, 30)
+    }
 }
 
 /// `terrain_relief` (protocol 1.15, #1320, owner Q134): the patch view's

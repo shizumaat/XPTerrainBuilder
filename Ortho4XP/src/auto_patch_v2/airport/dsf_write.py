@@ -144,6 +144,7 @@ from . import dsf_heights as _dh
 from . import pack_art as _pa
 from . import pack_forests as _pf
 from . import split_guard as _sg
+from . import user_seats as _us
 from .backup_state import BackupUnproven, State
 from .file_hash import sha256_file
 
@@ -1137,6 +1138,8 @@ class WriteResult:
     #: #1246: the plan as written — a split DSFTool could not place is
     #: undone there (its placement ``Kept``, written whole)
     plan: PlacementPlan | None = None
+    #: #1703: the rows written at a hand-set seat (``user_seats``)
+    hand_seated: tuple[int, ...] = ()
 
 
 def remove_cut_files(paths: _t.Iterable[str]) -> tuple[str, ...]:
@@ -1282,7 +1285,8 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                body_files: _t.Sequence[str] = (),
                omit: _t.Sequence[_pa.MissingDef] = (),
                drop: _t.Collection[str] = (),
-               forests: _t.Mapping[str, str] | None = None) -> WriteResult:
+               forests: _t.Mapping[str, str] | None = None,
+               seats: _us.ByAirport | None = None) -> WriteResult:
     """Apply ``plan`` to the pack's DSF (§3.3-§3.5).
 
     The pristine DSF is kept ONCE as ``<name>.dsf.anchor_bak`` and is
@@ -1314,7 +1318,16 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     apply_upgrade``, applied last).  ``None`` keeps the one the
     record holds for this pristine DSF, so a placement write never drops
     it; ``{}`` writes the DSF without it (the user's Undo).  The record
-    gains ``forest_upgrade``."""
+    gains ``forest_upgrade``.
+
+    ``seats`` (issue #1703) is the objects the user seated by hand,
+    ``{ICAO: {row: UserSeat}}`` for the airports this write sets
+    (``{ICAO: {}}`` clears one); every other airport keeps what the record
+    holds for this pristine DSF, and ``drop`` drops its seats too.  They
+    are applied over the composed edits (``user_seats.apply``: only their
+    rows change) and are NOT part of any airport's recorded edits, so a
+    row whose seat is cleared gets its placement back; the record gains
+    ``user_seats``."""
     dsf_path = plan.dsf_path or ""
     if not os.path.isfile(dsf_path):
         raise FileNotFoundError(f"DSF not found: {dsf_path!r}")
@@ -1400,6 +1413,8 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     backup_sha = sha256_file(backup)
     if forests is None:
         forests = _pf.recorded(prior_entry, backup_sha)
+    hand = _us.merged(_us.recorded(prior_entry, backup_sha), seats, drop)
+    rows = _us.placements(pristine_text) if hand else ()
     siblings, sibling_rows = _sibling_plans(prior_entry, plan, text,
                                             backup_sha, drop, notes)
     # #1246: a split DSFTool cannot place (a body off the tile) is undone
@@ -1411,8 +1426,9 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         plan = _sg.without_splits(plan, undone, "split undone: " + "; ".join(
             sorted(set(undone.values()))))
         composed = plan.compose(siblings)
-        _refuse_missing_bodies(pack_root, composed)          # #1214 R1
-        edited, omitted, unused = _edited_text(pinned, composed, omit, engine_version
+        placed, seated, refused = _us.apply(composed, _us.union(hand), rows)
+        _refuse_missing_bodies(pack_root, placed)            # #1214 R1
+        edited, omitted, unused = _edited_text(pinned, placed, omit, engine_version
                                                or plan.provenance.engine_version)
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
         with open(edited_text, "w", encoding="utf-8",
@@ -1428,16 +1444,20 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                 raise
             undone[idx] = "DSFTool could not place a body"
     _undone_notes(plan, undone, notes)
+    notes.extend(f"a hand-set object elevation was not applied: {why}; set it "
+                 f"again in the patch editor" for why in refused)
     report = verify_roundtrip(out_dsf, edited, tool)
     if not report.ok:
         raise RuntimeError("DSF round-trip verification failed: "
                            + "; ".join(report.findings[:4]))
 
-    counts = dict(composed.counts())
+    counts = dict(placed.counts())
     own_bodies = sorted(
         os.path.relpath(os.path.abspath(f), os.path.abspath(pack_root)
                         ).replace(os.sep, "/")
         for f in body_files)
+    # #1703: a split a hand-set seat stands over keeps its bodies — the
+    # record still names them, and clearing the seat writes them again
     live_res = set(composed.new_resources())
     undone_res = asked - set(plan.new_resources())       # #1246
     orphaned: list[str] = [b for b in own_bodies if b in undone_res]
@@ -1513,6 +1533,9 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         # #1360: the 3D forest upgrade the user accepted, or None
         _pf.RECORD_KEY: (_pf.record(backup_sha, forests, renamed, _bs.stamp())
                          if forests else None),
+        # #1703: the objects the user seated by hand, or None
+        _us.RECORD_KEY: (_us.record(backup_sha, hand, seated, _bs.stamp())
+                         if hand else None),
         # #678: the definitions the edit emptied and the write dropped
         "unused_defs_dropped": int(unused.get("object_defs", 0)),
     }
@@ -1550,7 +1573,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                        report, counts, verdict.state.value,
                        superseded, preserved, tuple(notes),
                        tuple(sorted(sibling_rows)), removed, omitted,
-                       dict(unused), plan)
+                       dict(unused), plan, seated)
 
 
 def _edited_text(text: str, composed: PlacementPlan, omit: _t.Sequence,

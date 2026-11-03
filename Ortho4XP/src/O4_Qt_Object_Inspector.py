@@ -11,14 +11,15 @@ text is the engine's ``lines``, so both apps show the same words.  A node
 or shape selection, Esc, a click on open map or a new document clears it.
 
 The selection (:attr:`ObjectInspector.selected` and its ``object`` dict)
-is what the editor's next steps on an object key on (#1703 manual
-elevation and node snapping).
+is what "Set object elevation…" acts on, and a node dropped on an object's
+snap point is asked Top / Bottom here (#1703, :mod:`O4_Qt_Object_Seat`).
 """
 from __future__ import annotations
 
 import math
 import typing as _t
 
+from o4_engine import patch_edit as PE
 from PySide6.QtCore import QObject, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPen
 
@@ -49,6 +50,7 @@ class ObjectInspector(QObject):
         self.seat: dict | None = None
         self.failure: str | None = None
         self._ask = 0                           # bumps on every new selection
+        self.top_or_bottom = None               # the snap's open pop-up (#1703)
         outlines.changed.connect(self._outlines_changed)
         model.selection_changed.connect(self._selection_changed)
 
@@ -77,6 +79,75 @@ class ObjectInspector(QObject):
     def lines(self) -> list[str]:
         return [] if self.selected is None else _box_lines(self.selected.label, self.seat,
                                                           self.failure)
+
+    # ─── #1703: the elevation by hand, the snap's question ─────────────
+    @property
+    def can_set_elevation(self) -> bool:
+        return self.selected is not None and self.engine.has("object_seat_set")
+
+    def set_elevation(self, bottom_m: float | None) -> None:
+        """Store the selected object's bottom (m MSL); None: back to the
+        object stage's own seat.  ONE undo step (``SeatStep``)."""
+        from O4_Qt_Object_Seat import SeatStep
+        patch, o = self.model.patch, self.selected
+        if patch is None or o is None:
+            return
+        obj, tile, icao = o.object, patch.tile, patch.icao
+        name = "Clear Object Elevation" if bottom_m is None else "Set Object Elevation"
+
+        def stored(error) -> None:
+            if error is not None:
+                self.model.set_error("The object's elevation could not be set: %s" % error)
+                return
+            self.model.tiles_needing_rebuild.add(tile)
+            self.model.status_changed.emit()
+            if self.selected is not None and self.selected.object == obj:
+                self._ask += 1
+                self._query(obj, self._ask, 0)
+
+        def send(zero_m) -> None:
+            self._seat_set(tile, icao, obj, lambda _r, e: stored(e), zero_m=zero_m)
+
+        def first(reply, error) -> None:
+            stored(error)
+            if error is None:
+                self.model.undo_stack.push(SeatStep(name, send, reply.get("previous_zero_m"),
+                                                    reply.get("zero_m")))
+        self._seat_set(tile, icao, obj, first, bottom_m=bottom_m, y_min=obj.get("y_min") or 0.0)
+
+    def _seat_set(self, tile: str, icao: str, obj: dict, callback, **values) -> None:
+        self.engine.call("object_seat_set", callback, tile=tile, icao=icao, index=obj["index"],
+                         model=obj.get("model") or "", lat=obj["lat"], lon=obj["lon"],
+                         **{k: v for k, v in values.items() if v is not None})
+
+    def offer_top_or_bottom(self, node: int, obj: dict, parent, global_pos, tries: int = 0) -> None:
+        """A node dropped on ``obj``'s snap point: when the object has a
+        height, ask at ``global_pos`` whether the node takes its top or
+        bottom."""
+        from O4_Qt_Object_Seat import has_height, top_or_bottom_menu
+        patch = self.model.patch
+        if patch is None or not self.engine.has("object_seat"):
+            return
+        info = (self._built() or {}).get((math.floor(obj["lat"]), math.floor(obj["lon"])))
+        kwargs = {k: obj[k] for k in ("index", "lat", "lon", "agl_m", "y_min", "y_max")}
+        generation = self.model.generation
+
+        def answered(reply, error) -> None:
+            if error is not None or generation != self.model.generation:
+                return
+            if reply.get("pending") and tries + 1 < ASK_LIMIT:
+                QTimer.singleShot(ASK_AGAIN_MS, lambda: self.offer_top_or_bottom(
+                    node, obj, parent, global_pos, tries + 1))
+                return
+            if not has_height(reply) or node not in self.model.doc.nodes:
+                return
+            self.top_or_bottom = top_or_bottom_menu(
+                parent, reply["top_m"], reply["bottom_m"],
+                lambda alt, name: self.model.perform(
+                    name, lambda doc: PE.set_alt(doc, [node], alt)))
+            self.top_or_bottom.popup(global_pos)
+        self.engine.call("object_seat", answered, tile=patch.tile, icao=patch.icao,
+                         build_dir=getattr(info, "build_dir", None) or None, **kwargs)
 
     def _outlines_changed(self) -> None:
         """A new document reloads the outlines: its objects are new ones."""

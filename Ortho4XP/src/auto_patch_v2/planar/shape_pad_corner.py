@@ -71,7 +71,7 @@ def pad_corner_runs(pm: PlanarMap, law: Law, pad_faces: _t.Iterable[int],
                     for g in strips(v):
                         for cg in (pm.faces[g].ring, *pm.faces[g].holes):
                             for w in pm.ring_vertices(cg):
-                                if w in run or any(h in pads for h in pm.vertices[w].incident_faces):
+                                if w in run or set(pm.vertices[w].incident_faces) & pads:
                                     continue
                                 if math.dist(xy, pm.vertices[w].xy) <= horizon:
                                     pairs.add((min(v, w), max(v, w)))

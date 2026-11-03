@@ -899,7 +899,8 @@ def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, ext
             for pts, rp in runs:
                 pts = _extended(pts, extend_m)
                 roles = tuple(sorted({pm.faces[f].role for a, b in rp for f in
-                                      (*pm.vertices[a].incident_faces, *pm.vertices[b].incident_faces)}))
+                                      (*pm.vertices[a].incident_faces,
+                                       *pm.vertices[b].incident_faces)}))
                 out.append(ShapeJoint(start + len(out), tuple(pts),
                                       tuple(tuple(map(float, to_ll(x, y))) for x, y in pts),
                                       tuple(rp), float(LineString(pts).length), roles,

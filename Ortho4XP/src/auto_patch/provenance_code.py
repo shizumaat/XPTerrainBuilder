@@ -835,6 +835,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.planar.road_yield",
     "auto_patch_v2.planar.shape_airside",
     "auto_patch_v2.planar.shape_mouths",
+    "auto_patch_v2.planar.shape_pad_corner",
     "auto_patch_v2.planar.shape_parts",
     "auto_patch_v2.planar.shapes",
     "auto_patch_v2.planar.shore",

@@ -70,6 +70,7 @@ import O4_UI_Utils as UI
 import O4_Unmounted_Links as UNMOUNTED
 
 from . import failure_report
+from . import library as _LIBRARY
 from .events import EngineHello, Error, ScanBatch
 from .secret_broker import SecretBroker
 from .session import EngineSession
@@ -154,12 +155,9 @@ def _ortho4xp_version() -> str:
 
 #: Commands completed by an event that names the command: their handler
 #: is given the command's ``id`` as ``request``.
-_TAKES_REQUEST_ID = frozenset({"pack_objects", "library_scan", "cache_sizes",
-                               "free_cache", "library_delete",
-                               "library_export_bundle", "library_import_bundle",
-                               "plan_estimate", "build_airports",
-                               "storage_scan", "storage_clear",
-                               "storage_auto_clean", "imagery_freshness"})
+_TAKES_REQUEST_ID = frozenset({"pack_objects", "plan_estimate",
+                               "build_airports", "imagery_freshness",
+                               *_LIBRARY.COMMANDS})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -313,19 +311,16 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # LibraryReady carrying this command's id; deleting needs
         # confirm=true, and deleting, exporting and importing are refused
         # while a build runs.
-        **{name: _library_handler(session, name)
-           for name in ("library_scan", "cache_sizes", "free_cache",
-                        "library_delete", "library_export_bundle",
-                        "library_import_bundle")},
+        # The patch library (#1699 phase 2): library_check, library_matches,
+        # library_apply, library_ignore, library_publish_preview,
+        # library_publish and the GitHub sign-in commands, the same way.
         # Settings > Storage (#1724): the data folder's caches with their
         # freeable sizes, clearing them, and the automatic cleanup the apps
-        # run at launch and after a build.  Library commands: they reply
-        # {"status": "started"} and LibraryReady completes them; clearing
-        # needs confirm=true (or dry_run=true) and is refused while a build
-        # runs, and a build that starts mid-sweep stops it.
-        **{name: _library_handler(session, name)
-           for name in ("storage_scan", "storage_clear",
-                        "storage_auto_clean")},
+        # run at launch and after a build (storage_scan, storage_clear,
+        # storage_auto_clean).  Clearing needs confirm=true (or dry_run=true)
+        # and is refused while a build runs, and a build that starts
+        # mid-sweep stops it.
+        **{name: _library_handler(session, name) for name in _LIBRARY.COMMANDS},
         # Build cost (protocol 1.15, #820): download, disk and time ranges
         # for the tiles about to be built.  Replies {"status": "started"};
         # PlanEstimateReady carrying this command's id completes it.
@@ -349,13 +344,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
 
 
 def _library_handler(session: EngineSession, name: str) -> Callable:
-    from . import library, storage
+    from . import storage
 
     def building() -> bool:
         return bool(session._building)
     extra = ({"abort": building} if name in storage.REFUSED_WHILE_BUILDING
              else {})
-    return lambda **kw: library.start(
+    return lambda **kw: _LIBRARY.start(
         session._emit, name, busy=building, **extra, **kw)
 
 

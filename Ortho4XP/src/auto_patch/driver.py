@@ -538,6 +538,12 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
        the patch; ``O4_PATCH_FRESHNESS_WHOLE_TREE=1`` keys on the whole
        ``src`` tree again.
 
+    0. **a library patch** (#1699 phase 2) — a patch laid down from the
+       patch library (its adoption record, ``patch_library.adoption``) is
+       judged by the library entry's match key instead of inputs 1-7: the
+       installed pack's signature, the auto-patch law and the solve
+       settings.  A mismatch rebuilds (``o4_library``).
+
     FAIL-SAFE: a missing, unparseable or unrecognised stamp counts as changed.
     Every patch built before these stamps existed therefore rebuilds exactly
     once — acquiring the full stamp set in the process — and is stable after.
@@ -563,10 +569,24 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     if not meta:
         _rebuild_reason(icao, "no build-input stamps on the existing patch")
         return False
-    stale = auto_patch_stale_inputs(meta, auto_patch_file, xp_root, icao,
-                                    tile=tile, cifp_file=cifp_file,
-                                    apt_dat_now=apt_dat_now,
-                                    imagery_paths=imagery_paths)
+    # ── Input 0: a LIBRARY patch (#1699 phase 2) ─────────────────────────
+    # Solved on another machine, so its own stamps name that machine's
+    # DEM, OSM and CIFP; the library entry's match key decides instead
+    # (``patch_library.adoption``): the same pack, law and solve settings
+    # reuse it, anything else solves the airport here.
+    from patch_library import adoption as _adoption
+    adopted = _adoption.verdict(auto_patch_file, icao, xp_root, tile)
+    if adopted is not None and not adopted[0]:
+        _rebuild_reason(icao, "o4_library")
+        UI.lvprint(0, "   Auto-patch:", icao, "library patch no longer matches —",
+                   adopted[1] + "; solving it here.")
+        return False
+    if adopted is not None:
+        UI.lvprint(0, "   Auto-patch:", icao, "library patch matches your pack "
+                   "and engine — solve skipped.")
+    stale = [] if adopted is not None else auto_patch_stale_inputs(
+        meta, auto_patch_file, xp_root, icao, tile=tile, cifp_file=cifp_file,
+        apt_dat_now=apt_dat_now, imagery_paths=imagery_paths)
     if stale:
         key, was, now = stale[0]
         _rebuild_reason(icao, key)

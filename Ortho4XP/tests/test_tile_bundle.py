@@ -128,6 +128,12 @@ def machines(tmp_path, monkeypatch):
         "band": False, "measured": None, "elevation": None})
     monkeypatch.setattr(OBJECT_STAGE, "run",
                         lambda tile: staged.append(tile.build_dir) or {"airports": 1})
+    from patch_library import client as LIBCLIENT
+    template = os.path.join(os.path.dirname(__file__), "..", "..", "library_template",
+                            "licences.json")
+    with open(template, encoding="utf-8") as handle:
+        licences = json.load(handle)
+    monkeypatch.setattr(LIBCLIENT, "licences", lambda: licences)
     a = _Machine(tmp_path / "A", "PackA", monkeypatch)
     b = _Machine(tmp_path / "B", "PackB", monkeypatch)
     a.live()
@@ -243,6 +249,27 @@ def test_a_damaged_bundle_refuses_the_import(machines, tmp_path):
     b.live()
     with pytest.raises(BundleRefused, match="damaged"):
         IMPORTER.import_bundle(str(damaged))
+
+
+def test_the_bundle_carries_each_sources_terms_and_refuses_a_held_one(machines,
+                                                                     monkeypatch):
+    """Owner Q319, the patch library's one implementation: each source's
+    terms, a non-commercial source marks the bundle, a held one refuses."""
+    a, _b, _staged = machines
+    members = _members(_export(a)["path"])
+    manifest = json.loads(members["manifest.json"])
+    assert manifest["licence"] == "ODbL-1.0" and manifest["noncommercial"] is False
+    assert b"terms: https://" in members["ATTRIBUTION.txt"]
+    plain = EXPORT.sources
+    monkeypatch.setattr(EXPORT, "sources", lambda tile, icao="": plain(tile, icao) + [
+        {"kind": "elevation", "provider": "VIEWFINDER3", "licence": "nc", "credit": ""}])
+    members = _members(_export(a)["path"])
+    assert json.loads(members["manifest.json"])["noncommercial"] is True
+    assert b"NON-COMMERCIAL: this bundle" in members["ATTRIBUTION.txt"]
+    monkeypatch.setattr(EXPORT, "sources", lambda tile, icao="": plain(tile, icao) + [
+        {"kind": "elevation", "provider": "NORTHERNIRELAND1M", "licence": "x", "credit": ""}])
+    with pytest.raises(BundleRefused, match="NORTHERNIRELAND1M"):
+        _export(a)
 
 
 def test_a_non_default_mesh_setting_refuses_the_export(machines):

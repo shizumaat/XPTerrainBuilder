@@ -1,0 +1,40 @@
+# Rebuild index/<region>.json on every merge (#1699 phase 2), with
+# XPTerrainBuilder's own stdlib-only index builder.
+name: rebuild index
+on:
+  push:
+    branches: [main]
+    paths: ["entries/**", "publishers.json"]
+permissions:
+  contents: write
+env:
+  ENGINE_REPO: shizumaat/XPTerrainBuilder
+  ENGINE_REF: main
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: library
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ENGINE_REPO }}
+          ref: ${{ env.ENGINE_REF }}
+          path: engine
+          sparse-checkout: Ortho4XP/src/patch_library
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Rebuild
+        env:
+          PYTHONPATH: engine/Ortho4XP/src
+        run: python -m patch_library.index --library library
+      - name: Commit
+        working-directory: library
+        run: |
+          git config user.name "library-index"
+          git config user.email "library-index@users.noreply.github.com"
+          git add -A index
+          git diff --cached --quiet || (git commit -m "Rebuild the index" && git push)

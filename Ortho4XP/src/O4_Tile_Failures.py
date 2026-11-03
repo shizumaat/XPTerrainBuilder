@@ -416,6 +416,9 @@ EXCEPTION_CODES = {
     # a tile bundle (#1699) that does not match: said in its own words by
     # the Library command, never raised inside a build step
     "BundleRefused": "unexpected_error",
+    # a patch library command (#1699 phase 2) that cannot be done: said in
+    # its own words by the command; the reuse gate never raises it
+    "LibraryRefused": "unexpected_error",
     # geometry (shapely's GEOSException covers TopologyException, #559)
     "GEOSException": "airport_geometry",
     "TopologicalError": "airport_geometry",

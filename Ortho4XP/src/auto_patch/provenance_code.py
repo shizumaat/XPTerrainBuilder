@@ -468,6 +468,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.pack_art",
     "auto_patch_v2.airport.pack_forests",
     "auto_patch_v2.airport.pack_forests_map",
+    "auto_patch_v2.airport.pack_identity",
     "auto_patch_v2.airport.pack_journal",
     "auto_patch_v2.airport.pack_local",
     "auto_patch_v2.airport.pack_partition",
@@ -946,4 +947,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "o4_engine.slow_step",
     "o4_engine.task_meter",
     "o4_engine.tile_time_model",
+    "patch_library",
+    "patch_library.adoption",
+    "patch_library.key",
 )

@@ -115,6 +115,7 @@ import O4_Qt_Tile_Menu as QTTILEMENU
 import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
+import O4_Qt_Patch_Library as QTPATCHLIB
 import O4_Qt_Activity_List as QTACT
 import O4_Qt_Step_Strip as QTSTRIP
 import O4_Step_Strip as STRIP
@@ -5146,6 +5147,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._frame_launch_selection)
         if not self._console_defaulted:
             self._console_defaulted = True
+            # the patch library's check when the app opens (#1699 phase 2)
+            QTPATCHLIB.check_at_launch(self.working_dir())
             self._sync_console_button()
             if not self._layout_restored and self.console_drawer.isVisible():
                 self._apply_console_height(self._console_default_height())

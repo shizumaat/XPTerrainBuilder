@@ -20,6 +20,7 @@ struct BuildPane: View {
     @State private var customAirportPacks: [String] = []
     /// The engine's Airports card for the selected tiles (#818).
     @State private var airportCard: O4BuildAirports?
+    @State private var libraryMatches: O4PatchLibraryMatches?
     @State private var airportCardLoading = false
     @State private var airportCardError: String?
     /// The Build box's plumbing toggles, collapsed by default (#818).
@@ -485,7 +486,8 @@ struct BuildPane: View {
                 .lineLimit(2)
             BuildAirportsCard(card: airportCard, isLoading: airportCardLoading,
                               error: airportCardError,
-                              fallbackPacks: customAirportPacks)
+                              fallbackPacks: customAirportPacks,
+                              libraryMatches: libraryMatches)
             Picker("Imagery", selection: providerBinding) {
                 Text("Tile / global default").tag("")
                 // The engine's one list (#1345), the map picker's order;
@@ -568,6 +570,7 @@ struct BuildPane: View {
         guard !tiles.isEmpty else {
             airportCard = nil
             airportCardError = nil
+            libraryMatches = nil
             return
         }
         airportCardLoading = true
@@ -587,6 +590,7 @@ struct BuildPane: View {
             airportCardError = nil
         }
         airportCardLoading = false
+        libraryMatches = await buildModel.patchLibraryMatches(for: tiles)
     }
 
     // MARK: - Imagery-source conflict (active tile)

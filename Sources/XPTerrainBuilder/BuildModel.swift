@@ -995,6 +995,7 @@ final class BuildModel: ObservableObject {
         case .hello(let version, let protocolVersion, _):
             protocolHello = (version, protocolVersion)
             buildLog.notice("engine hello: \(version) protocol \(protocolVersion)")
+            checkPatchLibraryAtLaunch()
         case .stderr(let line):
             console.append(line)
         case .log(_, let line, let tile):
@@ -1334,6 +1335,14 @@ final class BuildModel: ObservableObject {
         return client
     }
 
+    /// The engine session for the patch library (#1699 phase 2), or nil
+    /// when the engine is not running or predates it (protocol < 1.29).
+    func patchLibraryClient() -> OrthoEngineClient? {
+        connectIfNeeded()
+        guard O4ProtocolVersion.supportsPatchLibrary(protocolHello?.protocolVersion ?? "") else { return nil }
+        return client
+    }
+
     // MARK: - Library (#824)
 
     /// The engine session and the folders the Library window reads, or
@@ -1550,6 +1559,12 @@ final class BuildModel: ObservableObject {
 
     /// The engine's estimate for what the next Build press would build,
     /// or nil (nothing to build, an engine older than 1.15, or none yet).
+    /// The patch library's check when the app opens (#1699 phase 2,
+    /// `BuildModel+PatchLibrary.swift`); nil until it ran.
+    @Published var patchLibraryCheck: O4PatchLibraryCheck?
+    @Published var patchLibraryStatus = ""
+    var patchLibraryCheckedAtLaunch = false
+
     @Published private(set) var planEstimate: O4PlanEstimate?
     /// Why the last estimate could not be made, for the panel's line.
     @Published private(set) var planEstimateError: String?

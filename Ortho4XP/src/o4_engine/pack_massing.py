@@ -16,7 +16,7 @@ import dataclasses as _dc
 import numpy as np
 
 __all__ = ["MIN_COMPONENT_M", "MAX_REPLY_BYTES", "Hull", "component_hull",
-           "model_hulls", "fit_to_cap", "pack_model", "plan_hull"]
+           "model_hulls", "fit_to_cap", "pack_model", "plan_hull", "y_extent"]
 
 #: A component under this size in EVERY dimension is not sent.
 MIN_COMPONENT_M = 2.0
@@ -119,6 +119,14 @@ def pack_model(hulls: list[Hull]) -> tuple[np.ndarray, np.ndarray]:
         base += h.vertices.shape[0]
     return (np.concatenate(verts).astype(np.float32),
             np.concatenate(tris).astype(np.uint32))
+
+
+def y_extent(hulls: list[Hull]) -> dict[str, float]:
+    """``{"y_min", "y_max"}``: the massing's authored height range (y up
+    from the model's zero), what the object inspector adds to a seat to
+    give an object's bottom and top (#1702)."""
+    ys = np.concatenate([h.vertices[:, 1] for h in hulls])
+    return {"y_min": round(float(ys.min()), 3), "y_max": round(float(ys.max()), 3)}
 
 
 def plan_hull(hulls: list[Hull]) -> np.ndarray:

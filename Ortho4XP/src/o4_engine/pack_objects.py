@@ -14,7 +14,9 @@ Reuses the object stage's readers, read-only:
   (``pack_massing``: one convex hull per solid component);
 * the facades: ``airport/facade.read_facade`` and ``floor_for``.
 
-Placements carry ``agl_m`` (``OBJECT`` = 0, ``OBJECT_AGL`` = its offset).
+Placements carry ``agl_m`` (``OBJECT`` = 0, ``OBJECT_AGL`` = its offset)
+and ``index`` (the DSF row); models carry ``y_min`` / ``y_max``, their
+massing's authored height range (the object inspector, #1702).
 Nothing is regenerated: a missing dump, library index or file is a
 sentence in ``missing``.
 
@@ -171,7 +173,7 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float],
     seen: set[str] = set()
     placements: list[dict] = []
     msl = clutter = 0
-    for pl in dump.placements:
+    for row, pl in enumerate(dump.placements):
         if not pl.def_path.lower().endswith(".obj") or not inside(pl.lat, pl.lon):
             continue
         if pl.kind == "OBJECT_MSL":
@@ -187,8 +189,10 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float],
                 hulls[pl.def_path], dropped = read
                 clutter += dropped
         agl = float(pl.elevation) if pl.kind == "OBJECT_AGL" and pl.elevation is not None else 0.0
+        # ``index``: the DSF row, the key the placement plan names it by
+        # (the object inspector, #1702)
         placements.append({"model": pl.def_path, "lat": pl.lat, "lon": pl.lon,
-                           "heading_deg": pl.heading_deg, "agl_m": agl})
+                           "heading_deg": pl.heading_deg, "agl_m": agl, "index": row})
 
     heightless: set[str] = set()
     for poly in dump.polygons:
@@ -210,11 +214,13 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float],
             ring = _mass.plan_hull(hs)
             if len(ring) >= 3:
                 out["models"].append({"key": path,
-                                      "plan_hull_f32_b64": b64_array(ring, "<f4")})
+                                      "plan_hull_f32_b64": b64_array(ring, "<f4"),
+                                      **_mass.y_extent(hs)})
         elif hs:
             v, t = _mass.pack_model(hs)
             out["models"].append({"key": path, "vertices_f32_b64": b64_array(v, "<f4"),
-                                  "triangles_u32_b64": b64_array(t, "<u4")})
+                                  "triangles_u32_b64": b64_array(t, "<u4"),
+                                  **_mass.y_extent(hs)})
     drawn = {m["key"] for m in out["models"]}
     out["placements"] = [p for p in placements if p["model"] in drawn]
 

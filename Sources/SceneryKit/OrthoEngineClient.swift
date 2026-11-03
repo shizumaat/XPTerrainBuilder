@@ -1052,6 +1052,20 @@ extension OrthoEngineClient {
         return try await request("cursor_elevation", arguments)
     }
 
+    /// The object inspector's seat for one placed pack object (protocol
+    /// 1.25, #1702), from the last build's placement plan; ask again while
+    /// the reply is `pending`.
+    public func objectSeat(tile: String, icao: String, object: PackObjectRef,
+                           buildDir: String? = nil) async throws -> O4ObjectSeat {
+        var arguments: [String: Any] = [
+            "tile": tile, "icao": icao, "index": object.index, "lat": object.lat, "lon": object.lon,
+            "agl_m": object.aglM,
+        ]
+        if let yMin = object.yMin, let yMax = object.yMax { arguments["y_min"] = yMin; arguments["y_max"] = yMax }
+        if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        return try await request("object_seat", arguments)
+    }
+
     /// "Insert shape" planned at a point (protocol 1.20, #1314); ask again
     /// while the reply is `pending`. `kind` nil is the square; "tunnel_ramp"
     /// is "Insert tunnel ramp" (protocol 1.24, #1745).

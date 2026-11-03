@@ -33,9 +33,9 @@ from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainterPath, QPen, QPolygonF
 
 __all__ = ["PackOutlines", "Outline", "request_bbox", "model_footprint", "placed_ring",
-           "footprints_from_pack_objects", "labelled_footprints", "pavement_outlines",
-           "file_label", "ring_contains", "place_labels", "MARGIN_M", "OUTLINE_COLOR",
-           "FILL_COLOR", "LEGEND_FILL", "TOGGLE_HELP"]
+           "footprints_from_pack_objects", "labelled_footprints",
+           "pavement_outlines", "file_label", "ring_contains", "place_labels", "MARGIN_M",
+           "OUTLINE_COLOR", "FILL_COLOR", "LEGEND_FILL", "TOGGLE_HELP"]
 
 #: The 3D preview's margin round the patch bbox (A9).
 MARGIN_M = 500.0
@@ -133,21 +133,35 @@ def labelled_footprints(result: _t.Mapping) -> list[tuple[str, list[tuple[float,
     has none), labelled by the model's file name, then one per facade
     (its ``.fac`` name).  A model carries its plan hull (a
     ``footprints_only`` answer) or its massing vertices."""
-    hulls = {m["key"]: model_footprint(m["vertices_f32_b64"]) if "plan_hull_f32_b64" not in m
+    return [(label, ring) for label, ring, _obj in _object_footprints(result)]
+
+
+def _object_footprints(result: _t.Mapping) -> list[tuple[str, list, dict | None]]:
+    """:func:`labelled_footprints` with each placement's OBJECT (#1702):
+    ``{index, model, lat, lon, agl_m, y_min, y_max}`` — what the object
+    inspector asks ``object_seat`` about (the Mac app's ``PackObjectRef``);
+    ``None`` for a facade or a placement an older engine did not number."""
+    models = {m["key"]: m for m in result.get("models") or ()}
+    hulls = {k: model_footprint(m["vertices_f32_b64"]) if "plan_hull_f32_b64" not in m
              else [(float(x), float(z)) for x, z in np.frombuffer(
                  base64.b64decode(m["plan_hull_f32_b64"]), dtype="<f4").reshape(-1, 2)]
-             for m in result.get("models") or ()}
-    out: list[tuple[str, list[tuple[float, float]]]] = []
+             for k, m in models.items()}
+    out: list[tuple[str, list, dict | None]] = []
     for p in result.get("placements") or ():
         hull = hulls.get(p["model"])
         if hull and len(hull) >= 3:
+            m = models[p["model"]]
+            obj = None if p.get("index") is None else {
+                "index": int(p["index"]), "model": str(p["model"]), "lat": float(p["lat"]),
+                "lon": float(p["lon"]), "agl_m": float(p.get("agl_m") or 0.0),
+                "y_min": m.get("y_min"), "y_max": m.get("y_max")}
             out.append((file_label(str(p["model"]), "object"),
                         placed_ring(hull, float(p["lat"]), float(p["lon"]),
-                                    float(p.get("heading_deg") or 0.0))))
+                                    float(p.get("heading_deg") or 0.0)), obj))
     for f in result.get("facades") or ():
         if len(f["ring"]) >= 3:
             out.append((file_label(f.get("def"), "facade"),
-                        [(float(la), float(lo)) for la, lo in f["ring"]]))
+                        [(float(la), float(lo)) for la, lo in f["ring"]], None))
     return out
 
 
@@ -182,8 +196,9 @@ def _area(ring: _t.Sequence) -> float:
 class Outline(_t.NamedTuple):
     """One pack outline: the label, ``(lat, lon)`` rings (exterior first,
     then holes), its path in map scene units (odd-even, so holes stay
-    open), the path's bounds, its area rank and the label's scene anchor
-    (the exterior's vertex mean)."""
+    open), the path's bounds, its area rank, the label's scene anchor
+    (the exterior's vertex mean) and the placed object it draws, if any
+    (:func:`_object_footprints`, #1702)."""
 
     label: str
     rings: tuple
@@ -191,9 +206,11 @@ class Outline(_t.NamedTuple):
     bounds: QRectF
     area: float
     anchor: QPointF
+    object: dict | None = None
 
 
-def _outline(label: str, rings: _t.Sequence[_t.Sequence], zoomlevel: int) -> Outline | None:
+def _outline(label: str, rings: _t.Sequence[_t.Sequence], zoomlevel: int,
+             obj: dict | None = None) -> Outline | None:
     rings = tuple(tuple((float(p[0]), float(p[1])) for p in r) for r in rings if len(r) >= 3)
     if not rings:
         return None
@@ -201,11 +218,12 @@ def _outline(label: str, rings: _t.Sequence[_t.Sequence], zoomlevel: int) -> Out
     ext = np.asarray(rings[0], dtype=np.float64)
     ax, ay = scene_xy(ext[:, 0].mean(), ext[:, 1].mean(), zoomlevel)
     return Outline(label, rings, path, path.boundingRect(), _area(rings[0]),
-                   QPointF(float(ax), float(ay)))
+                   QPointF(float(ax), float(ay)), obj)
 
 
-def _outlines(labelled: _t.Iterable[tuple[str, _t.Sequence]], zoomlevel: int) -> list[Outline]:
-    return [o for o in (_outline(label, rings, zoomlevel) for label, rings in labelled)
+def _outlines(labelled: _t.Iterable[tuple], zoomlevel: int) -> list[Outline]:
+    """``(label, rings[, object])`` rows as outlines."""
+    return [o for o in (_outline(row[0], row[1], zoomlevel, *row[2:]) for row in labelled)
             if o is not None]
 
 
@@ -320,8 +338,8 @@ class PackOutlines(QObject):
             if error is not None:
                 self.missing.append("Pack buildings: %s" % error)
             else:
-                self.footprints = _outlines(((label, [ring]) for label, ring
-                                             in labelled_footprints(result)), self.zoomlevel)
+                self.footprints = _outlines(((label, [ring], obj) for label, ring, obj
+                                             in _object_footprints(result)), self.zoomlevel)
             self.changed.emit()
         # The 3D window's box (A9); the outlines only (#797)
         self.engine.pack_objects(tile, icao, request_bbox(m.doc.nodes.values()), objects,
@@ -330,16 +348,23 @@ class PackOutlines(QObject):
     def label_at(self, lat: float, lon: float) -> str | None:
         """The label of the smallest outline under ``(lat, lon)`` (inside
         its exterior, not in a hole), or None; nothing while it is off."""
+        best = self.at(lat, lon)
+        return None if best is None else best.label
+
+    def at(self, lat: float, lon: float, objects_only: bool = False) -> Outline | None:
+        """The smallest outline under ``(lat, lon)``; ``objects_only``: the
+        smallest placed object's (the inspector's click, #1702).  Nothing
+        while the layer is off."""
         if not self.enabled:
             return None
         best = None
-        for o in self.pavement + self.footprints:
-            if best is not None and o.area >= best.area:
+        for o in (self.footprints if objects_only else self.pavement + self.footprints):
+            if (objects_only and o.object is None) or (best is not None and o.area >= best.area):
                 continue
             if ring_contains(o.rings[0], lat, lon) and not any(
                     ring_contains(h, lat, lon) for h in o.rings[1:]):
                 best = o
-        return None if best is None else best.label
+        return best
 
     def paint(self, painter, view_transform) -> None:
         """The filled, long-dashed layer under the patch, then its labels

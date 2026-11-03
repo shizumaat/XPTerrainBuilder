@@ -13,6 +13,7 @@ left drag, open map    pan (the map's own rule, every map view)
 click on a "+"         insert a node
 Alt-drag on a node     rotate its shape about the centre (#1746; Option
                        on a Mac keyboard)
+click on a pack object select it: the object inspector (#1702)
 right click            the context menu (never a pan)
 scroll / pinch         zoom
 Delete / Backspace     delete; Esc clears
@@ -263,7 +264,12 @@ class PatchGestures:
                 elif self.pressed_edge is not None:
                     self.model.click_edge(*self.pressed_edge, self.start.x(), self.start.y())
                 else:
+                    # open map: a pack object under the click, else nothing
                     self.model.clear_selection()
+                    inspector = getattr(self.overlay, "inspector", None)
+                    if inspector is not None:
+                        inspector.clear()
+                        inspector.select_at(*self.overlay.lat_lon(self.start))
             return True
         finally:
             self.reset()
@@ -308,6 +314,11 @@ class PatchGestures:
 
     def key(self, which: str) -> bool:
         """Whether Edit mode consumed the key."""
+        inspector = getattr(self.overlay, "inspector", None)
+        if (which == "escape" and self.overlay._editing() and not self.model.has_selection
+                and inspector is not None and inspector.selected is not None):
+            inspector.clear()                   # Esc drops a selected pack object (#1702)
+            return True
         if not (self.overlay._editing() and self.model.has_selection):
             return False
         if which == "delete":

@@ -20,6 +20,7 @@ import O4_Glossary as GLOSSARY
 import O4_Qt_Map as QTMAP
 import O4_Qt_Patch_Elevation_Dialog as ELEVDIALOG
 import O4_Qt_Patch_Reference as REFERENCE
+from O4_Qt_Object_Inspector import ObjectInspector
 from O4_Qt_Pack_Outlines import PackOutlines
 from O4_Qt_Patch_Controller import PatchController
 from O4_Qt_Patch_Engine import PatchEngine
@@ -75,6 +76,10 @@ class PatchEditor:
                                      showing=lambda: self.controller.is_showing, parent=window)
         self.controller.state_changed.connect(self.terrain.view_changed)
         self.overlay = PatchOverlay(map_view, self.controller, self.outlines, self.terrain)
+        # the object inspector over it (#1702)
+        self.inspector = ObjectInspector(self.engine, self.model, self.outlines, built, window)
+        self.overlay.inspector = self.inspector
+        self.inspector.changed.connect(self.overlay.update)
         self.gestures = PatchGestures(self.overlay)
         self.overlay.toolbar = PatchToolbar(map_view.viewport(), self.controller, self.outlines,
                                             open_preview=self.open_preview, terrain=self.terrain)

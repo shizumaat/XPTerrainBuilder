@@ -14,23 +14,34 @@ public enum PackFootprints {
         labelled(objects).map { $0.ring }
     }
 
+    /// One labelled footprint: the map label, the ring and, for a placed
+    /// model the engine numbered, the object the inspector asks about (#1702).
+    public typealias Labelled = (label: String, ring: [O4LatLon], object: PackObjectRef?)
+
     /// `outlines` with each ring's map label (#1316): the model's file
     /// name, or the facade's (`O4_Qt_Pack_Outlines.labelled_footprints`).
-    public static func labelled(_ objects: O4PackObjects) -> [(label: String, ring: [O4LatLon])] {
+    public static func labelled(_ objects: O4PackObjects) -> [Labelled] {
         var hulls: [String: [SIMD2<Double>]] = [:]
+        var heights: [String: (Double?, Double?)] = [:]
         for model in objects.models {
+            heights[model.key] = (model.yMin, model.yMax)
             hulls[model.key] = model.planHull.isEmpty
                 ? planHull(authored: model.vertices) : pairs(model.planHull)
         }
-        var out: [(label: String, ring: [O4LatLon])] = []
+        var out: [Labelled] = []
         out.reserveCapacity(objects.placements.count + objects.facades.count)
         for p in objects.placements {
             guard let hull = hulls[p.model], hull.count >= 3 else { continue }
+            let h = heights[p.model] ?? (nil, nil)
+            let object = p.index.map {
+                PackObjectRef(index: $0, model: p.model, lat: p.lat, lon: p.lon, aglM: p.aglM,
+                              yMin: h.0, yMax: h.1)
+            }
             out.append((fileLabel(p.model, fallback: "object"),
-                        place(hull, lat: p.lat, lon: p.lon, headingDeg: p.headingDeg)))
+                        place(hull, lat: p.lat, lon: p.lon, headingDeg: p.headingDeg), object))
         }
         for f in objects.facades where f.ring.count >= 3 {
-            out.append((fileLabel(f.defPath, fallback: "facade"), f.ring))
+            out.append((fileLabel(f.defPath, fallback: "facade"), f.ring, nil))
         }
         return out
     }

@@ -91,6 +91,11 @@ def test_each_model_once_static_triangles_only(pack):
     assert [(p["lon"], p["heading_deg"], p["agl_m"]) for p in pl] == [
         (-122.95, 90.0, 0.0), (-122.94, 0.0, 0.0), (-122.93, 180.0, 3.5)]
     assert all(p["model"] == "objects/box.obj" for p in pl)
+    # #1702: the DSF row (the placement plan's key) and the height range
+    rows = [p["index"] for p in pl]
+    assert rows == [0, 1, 2]
+    assert (m["y_min"], m["y_max"]) == (round(float(verts[:, 1].min()), 3),
+                                        round(float(verts[:, 1].max()), 3))
     text = " ".join(r["missing"])
     assert "objects/missing.obj" in text and "sea-level" in text
     assert "1 object part(s) smaller than 2 m" in text
@@ -282,7 +287,7 @@ def test_footprints_only_sends_the_plan_outline_not_the_massing(pack):
     flat = PO.pack_objects(TILE, "ZZZZ", BBOX, footprints_only=True)
     assert flat is not full                      # its own cache entry
     (m,) = flat["models"]
-    assert set(m) == {"key", "plan_hull_f32_b64"}
+    assert set(m) == {"key", "plan_hull_f32_b64", "y_min", "y_max"}
     ring = _arr(m["plan_hull_f32_b64"], "<f4", 2)
     verts = _arr(full["models"][0]["vertices_f32_b64"], "<f4", 3)
     want = {(float(x), float(z)) for x, _y, z in verts}

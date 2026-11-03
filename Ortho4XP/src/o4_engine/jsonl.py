@@ -178,6 +178,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .elevation_commands import cursor_elevation
     from .imagery_commands import start_imagery_source_status
     from .mesh_commands import mesh_crop
+    from .object_seat import object_seat
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .plan_estimate import start_plan_estimate
@@ -276,6 +277,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "pack_outlines": pack_outlines,
         # ... and the last build's mesh there ("Last build"); synchronous.
         "mesh_crop": mesh_crop,
+        # The object inspector (protocol 1.25, #1702): one placed pack
+        # object's seat as the last build's placement plan wrote it, its
+        # top and bottom.  Synchronous: a cached JSON read; the ground
+        # under a draped row is cursor_elevation's (pending while loading).
+        "object_seat": object_seat,
         # Cursor elevation (protocol 1.14, #1308): the built mesh's
         # elevation at a point, else the DEM's.  Never loads on THIS
         # thread: an uncached source loads on a daemon thread and the

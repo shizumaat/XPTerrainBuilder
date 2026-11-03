@@ -108,7 +108,13 @@ extension PatchEditModel {
 
     /// Whether Edit mode consumed the key.
     func handleKey(_ keyCode: UInt16) -> Bool {
-        guard mode == .edit, isShowing, hasSelection else { return false }
+        guard mode == .edit, isShowing else { return false }
+        // Esc also drops a selected pack object (#1702)
+        if keyCode == Self.escapeKey, !hasSelection, build?.objectInspector.selected != nil {
+            clearSelection()
+            return true
+        }
+        guard hasSelection else { return false }
         switch keyCode {
         case Self.deleteKey, Self.forwardDeleteKey:
             deleteSelection()

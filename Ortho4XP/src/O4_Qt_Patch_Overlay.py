@@ -135,6 +135,7 @@ class PatchOverlay:
         self.outlines = outlines
         self.terrain = terrain          # O4_Qt_Terrain_Relief, under everything
         self.gestures = None            # set by O4_Qt_Patch_Gestures
+        self.inspector = None           # O4_Qt_Object_Inspector (#1702)
         self.toolbar = None             # O4_Qt_Patch_Toolbar, pinned top-left
         self.index: PatchScreenIndex | None = None
         self._shapes: list[_Shape] = []
@@ -254,6 +255,8 @@ class PatchOverlay:
         self._paint_nodes(painter, vp.width(), vp.height(), skip.nodes if skip else ())
         if self.gestures is not None and self.model.mode == "Edit":
             self.gestures.paint(painter)
+            if self.inspector is not None:
+                self.inspector.paint(painter, view_t, SELECTION)
         self._paint_legend(painter)
 
     def _paint_nodes(self, painter, width: float, height: float, skip) -> None:

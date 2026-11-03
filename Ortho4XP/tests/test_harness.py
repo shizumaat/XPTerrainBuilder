@@ -694,6 +694,28 @@ def test_a_role_less_interior_ring_is_judged_at_its_hosts_cap(cg):
             "is a class no host resolver ever stamps")
 
 
+def test_a_role_less_terrain_edge_is_priced_at_no_cap(cg):
+    """#1512: a ``terrain_edge`` is role-less articulation — its chords are
+    ring edges of the faces it bounds — so the ONE cap resolver gives it
+    NO cap and no within-shape / plane / cross-shape row prices it as a
+    shape.  KATL ``terrain_edge:22`` (a taxiway's graded ring down to the
+    service road below it) fell through to the 1.5 % default: 408
+    within-shape rows, worst 12.96 m over 180 m."""
+    class _W:
+        def __init__(self, **tags):
+            self.tags = dict(tags)
+
+    edge = _W(o4_feature="terrain_edge", o4_host_role="taxiway")
+    assert cg.is_role_less_articulation(edge)
+    assert cg._role_grade_limit(edge, 0.015) is None
+    assert cg._pair_grade_limit(edge, _W(role="taxiway"), 0.015) is None
+    # an interior ring keeps its host clause (and an orphan the default)
+    assert not cg.is_role_less_articulation(_W(o4_feature="shape_interior_ring"))
+    assert cg._role_grade_limit(_W(o4_feature="shape_interior_ring"), 0.015) == 0.015
+    # a way carrying its own role is never articulation
+    assert not cg.is_role_less_articulation(_W(o4_feature="terrain_edge", role="apron"))
+
+
 def test_the_law_role_is_read_through_one_accessor(cg):
     """The L-1 twin.  The CLI, the census and the pytest fixtures share ONE
     code path only as long as the law's THREE role readers all ask

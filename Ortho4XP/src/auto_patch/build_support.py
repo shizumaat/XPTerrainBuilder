@@ -322,9 +322,10 @@ def _version_key(text: str) -> tuple[int, ...]:
 
 def patch_predates_engine(path: str, running: str) -> str | None:
     """The engine version stamped on the patch (``o4_edited_from_engine``
-    on an editor-saved file, ``o4_engine`` otherwise) when it is OLDER than ``running`` — the patch was made
-    before this engine's fixes (#1637); ``None`` when it is not older, or
-    either version is not a dotted number."""
+    on an editor-saved file, ``o4_engine`` otherwise) when it is OLDER
+    than ``running`` — the patch was made before this engine's fixes
+    (#1637); ``None`` when it is not older, or either version is not a
+    dotted number."""
     line = patch_root_line(path)
     m = _PATCH_ENGINE_RE.search(line or "")
     if not m or not re.fullmatch(r"\d+(?:\.\d+)+", running or ""):

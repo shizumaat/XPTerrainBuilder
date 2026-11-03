@@ -102,10 +102,17 @@ struct PackFootprintsTests {
         }
         let big = O4LatLonBox(minLat: 44.9, minLon: -122.1, maxLat: 45.1, maxLon: -121.9)
         let inner = O4LatLonBox(minLat: 44.95, minLon: -122.05, maxLat: 45.05, maxLon: -121.95)
-        // the 3D window and the map ask at once; the map's box lies inside
-        async let window = store.objects(tile: "+45-123", icao: "zzzz", box: big, fetch: fetch)
-        async let map = store.objects(tile: "+45-123", icao: "ZZZZ", box: inner, fetch: fetch)
-        let (a, b) = try await (window, map)
+        // the 3D window asks, and the map asks while that request is still
+        // pending; the map's box lies inside. (Two `async let`s raced: when
+        // the map's inner box registered first, the window's bigger one was
+        // a second request, and every count below read one high.)
+        let window = Task { @MainActor in
+            try await store.objects(tile: "+45-123", icao: "zzzz", box: big, fetch: fetch)
+        }
+        var spins = 0
+        while await calls.read() == 0 && spins < 10_000 { spins += 1; await Task.yield() }
+        let b = try await store.objects(tile: "+45-123", icao: "ZZZZ", box: inner, fetch: fetch)
+        let a = try await window.value
         #expect(a == b)
         #expect(await calls.read() == 1)
         // answered: asked again, still one request; another airport is a new one

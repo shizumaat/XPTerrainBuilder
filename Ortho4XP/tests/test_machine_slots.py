@@ -71,6 +71,34 @@ def test_a_session_is_opened_and_published_when_none_is_inherited(monkeypatch):
     assert SLOTS.ensure_session() == (path, 4)            # the same session after
 
 
+def test_threads_opening_the_first_session_at_once_share_one(monkeypatch):
+    """Threads that open a process's first session together get ONE session
+    (a CI flake on Windows: two ring-fetch pools each minted their own slot
+    directory, so a class cap of 2 let 3 fetches run)."""
+    monkeypatch.delenv(SLOTS.ENV_DIR, raising=False)
+    monkeypatch.setenv(SLOTS.ENV_CAPACITY, "4")
+    real_mkdtemp = SLOTS.tempfile.mkdtemp
+
+    def slow_mkdtemp(*args, **kwargs):
+        time.sleep(0.05)                    # widen the window the race needs
+        return real_mkdtemp(*args, **kwargs)
+
+    monkeypatch.setattr(SLOTS.tempfile, "mkdtemp", slow_mkdtemp)
+    barrier = threading.Barrier(6)
+    paths = []
+
+    def opener():
+        barrier.wait()
+        paths.append(SLOTS.ensure_session()[0])
+
+    threads = [threading.Thread(target=opener) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(set(paths)) == 1 and os.environ[SLOTS.ENV_DIR] == paths[0]
+
+
 def test_take_queues_until_a_holder_releases(session):
     session(1)
     first = SLOTS.try_take(1)

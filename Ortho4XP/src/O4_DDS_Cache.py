@@ -33,8 +33,19 @@ engine writes a ``.dds`` in place — every writer replaces the name — so a
 link never lets a build dir change a cached texture.
 
 THE CAP.  Least-recently-used entries go first once the store is over
-``O4_DDS_CACHE_MAX_GB`` (default 20, owner RULINGS 2026-10-17a Q1); a hit
-touches its entry's mtime.  ``O4_DDS_CACHE=0`` turns the cache off.
+the cap (:func:`max_bytes`): the ``dds`` entry of the Storage setting
+``storage_cache_caps_gb``, default 20 GB (owner RULINGS 2026-10-17a Q1);
+``O4_DDS_CACHE_MAX_GB`` overrides it.  A hit touches its entry's mtime.
+``O4_DDS_CACHE=0`` turns the cache off.
+
+BUILT TILES (#1725).  Every serve and store notes ``key -> texture name``
+for its build dir under ``<root>/_tiles/``.  :func:`held_by_built_tiles`
+names the entries every build dir that used them now holds itself, whole:
+such an entry is a second copy (measured 2026-11-02: 1,833 entries,
+20.5 GB, every one a copy -- the tiles live on another volume, so no entry
+was a hard link -- and one of them served after its store).  The Storage
+automatic cleanup removes them after a build, never during one, when a
+neighbour in the same batch may still read a shared edge texture.
 
 Standard library only, besides the versions it reads.
 """
@@ -43,6 +54,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import re
 import shutil
 import sys
 import threading
@@ -52,7 +64,8 @@ import O4_DDS_File as DDS
 
 __all__ = ["CACHE_ENV", "DIR_ENV", "MAX_GB_ENV", "DEFAULT_MAX_GB",
            "cache_root", "converter_identity", "enabled", "evict",
-           "max_bytes", "serve", "store", "texture_key"]
+           "held_by_built_tiles", "forget_missing", "max_bytes", "serve",
+           "store", "texture_key"]
 
 #: ``0`` turns the cache off; anything else, unset included, is on.
 CACHE_ENV = "O4_DDS_CACHE"
@@ -96,13 +109,38 @@ def cache_root(environ=None) -> str:
     return FNAMES.data_path("DDS_cache")
 
 
-def max_bytes(environ=None) -> int:
-    """The cap in bytes: ``O4_DDS_CACHE_MAX_GB``, default 20 GB."""
-    env = os.environ if environ is None else environ
+#: The ``dds`` pair of the Storage setting ``storage_cache_caps_gb``
+#: (``o4_engine.storage.parse_caps`` reads the whole setting; a build
+#: process needs this one number and none of the Storage engine).
+_SETTING_PAIR = re.compile(r"(?:^|[,;])\s*dds\s*=\s*([0-9]*\.?[0-9]+)\s*(?:[,;]|$)")
+
+
+def _setting_cap() -> "int | None":
+    """The ``dds`` limit of ``storage_cache_caps_gb`` in bytes, or None
+    when it names none (or the setting cannot be read)."""
     try:
-        gb = float(env.get(MAX_GB_ENV, "") or DEFAULT_MAX_GB)
+        import O4_Settings_Model as SM
+        text = SM.read_global_raw().get("storage_cache_caps_gb", "") or ""
+    except Exception:
+        return None
+    match = _SETTING_PAIR.search(text)
+    gigabytes = float(match.group(1)) if match else 0.0
+    return int(gigabytes * 1e9) if gigabytes > 0 else None
+
+
+def max_bytes(environ=None, setting_cap: "int | None" = -1) -> int:
+    """The cap in bytes: ``O4_DDS_CACHE_MAX_GB`` when set, else the
+    Storage setting's ``dds`` limit (``setting_cap``; -1 reads it), else
+    20 GB -- ONE cap for the sweep a build runs and the Storage cleanup."""
+    env = os.environ if environ is None else environ
+    if setting_cap == -1:
+        setting_cap = _setting_cap()
+    try:
+        gb = float(env[MAX_GB_ENV]) if env.get(MAX_GB_ENV) else None
     except ValueError:
-        gb = DEFAULT_MAX_GB
+        gb = None
+    if gb is None:
+        return int(setting_cap) if setting_cap else int(DEFAULT_MAX_GB * 1e9)
     return int(max(gb, 0.0) * 1e9)
 
 
@@ -221,6 +259,103 @@ def _link_or_copy(source: str, target: str) -> bool:
         return False
 
 
+#: Under the root: one note per build dir of the textures it took from or
+#: gave to the store.
+_TILES_DIR = "_tiles"
+
+
+def _note_path(build_dir: str, root: str) -> str:
+    digest = hashlib.sha1(build_dir.encode("utf-8")).hexdigest()[:16]
+    return os.path.join(root, _TILES_DIR, digest + ".txt")
+
+
+def _note_use(key: str, dds_final: str, root: "str | None" = None) -> None:
+    """Note that the build dir of ``dds_final`` holds ``key``'s texture.
+    A note that cannot be written only keeps an entry longer."""
+    build_dir = os.path.dirname(os.path.dirname(os.path.abspath(dds_final)))
+    note = _note_path(build_dir, root or cache_root())
+    with _lock, contextlib.suppress(OSError):
+        os.makedirs(os.path.dirname(note), exist_ok=True)
+        fresh = not os.path.exists(note)
+        with open(note, "a", encoding="utf-8", newline="\n") as handle:
+            if fresh:
+                handle.write("# %s\n" % build_dir)
+            handle.write("%s\t%s\n" % (key, os.path.basename(dds_final)))
+
+
+def _read_notes(root: str) -> dict:
+    """``{note path: (build dir, {(key, texture name), ...})}``."""
+    notes = {}
+    folder = os.path.join(root, _TILES_DIR)
+    with contextlib.suppress(OSError):
+        for item in os.scandir(folder):
+            if not item.name.endswith(".txt"):
+                continue
+            build_dir, uses = None, set()
+            with contextlib.suppress(OSError, UnicodeDecodeError):
+                with open(item.path, encoding="utf-8") as handle:
+                    for line in handle:
+                        line = line.rstrip("\n")
+                        if line.startswith("# "):
+                            build_dir = build_dir or line[2:]
+                        elif "\t" in line:
+                            uses.add(tuple(line.split("\t", 1)))
+            if build_dir:
+                notes[item.path] = (build_dir, uses)
+    return notes
+
+
+def _tile_holds(build_dir: str, name: str, size: int) -> bool:
+    texture = os.path.join(build_dir, "textures", name)
+    try:
+        return os.path.getsize(texture) == size and DDS.is_whole(texture)
+    except OSError:
+        return False
+
+
+def held_by_built_tiles(root: "str | None" = None) -> list[str]:
+    """The entries of the store that every build dir noted as using them
+    holds itself, whole and of the same size, and that are not hard
+    links (a link shares its bytes with the tile: removing it frees
+    nothing).  Deletes nothing."""
+    root = root or cache_root()
+    users: dict[str, list] = {}
+    for build_dir, uses in _read_notes(root).values():
+        for key, name in uses:
+            users.setdefault(key, []).append((build_dir, name))
+    held = []
+    for key, where in sorted(users.items()):
+        entry = _entry(key, root)
+        try:
+            st = os.lstat(entry)
+        except OSError:
+            continue
+        if st.st_nlink == 1 and all(_tile_holds(build_dir, name, st.st_size)
+                                    for (build_dir, name) in where):
+            held.append(entry)
+    return held
+
+
+def forget_missing(root: "str | None" = None) -> None:
+    """Drop the notes of entries no longer in the store (a note left
+    with none is removed), so the notes never outgrow the store."""
+    root = root or cache_root()
+    with _lock:
+        for note, (build_dir, uses) in _read_notes(root).items():
+            kept = sorted(u for u in uses
+                          if os.path.isfile(_entry(u[0], root)))
+            with contextlib.suppress(OSError):
+                if not kept:
+                    os.remove(note)
+                    continue
+                if len(kept) == len(uses):
+                    continue
+                with open(note, "w", encoding="utf-8",
+                          newline="\n") as handle:
+                    handle.write("# %s\n" % build_dir)
+                    handle.writelines("%s\t%s\n" % u for u in kept)
+
+
 def serve(key: "str | None", dds_final: str) -> bool:
     """Put the cached texture of ``key`` at ``dds_final``; ``True`` when it
     is there whole.  A short entry is removed and is a miss."""
@@ -238,6 +373,7 @@ def serve(key: "str | None", dds_final: str) -> bool:
         return False
     with contextlib.suppress(OSError):
         os.utime(entry)                     # least recently USED
+    _note_use(key, dds_final)
     return True
 
 
@@ -259,6 +395,7 @@ def store(key: "str | None", dds_final: str) -> bool:
         with contextlib.suppress(OSError):
             os.remove(temp)
         return False
+    _note_use(key, dds_final, root)
     with _lock:
         _stores_since_sweep[0] += 1
         due = _stores_since_sweep[0] >= _SWEEP_EVERY

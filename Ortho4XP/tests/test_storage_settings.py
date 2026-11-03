@@ -16,6 +16,7 @@ import O4_OSM_Extracts as OSMX  # noqa: E402
 import pytest  # noqa: E402
 from o4_engine import library as LIB  # noqa: E402
 from o4_engine import storage as ST  # noqa: E402
+from o4_engine import storage_redundant as REDUNDANT  # noqa: E402
 
 DAY = 86400.0
 
@@ -38,6 +39,7 @@ def root(tmp_path, monkeypatch):
     monkeypatch.setattr(OSMX, "STORE_DIRECTORY",
                         str(tmp_path / "OSM_data" / "_regional_extracts"))
     monkeypatch.setattr(ST, "_settings", lambda: (0.0, {}))
+    monkeypatch.setattr(REDUNDANT, "_custom_scenery_dir", lambda: "")
     try:
         yield tmp_path
     finally:
@@ -153,3 +155,60 @@ def test_library_start_refuses_clearing_while_building(root):
         LIB.start(lambda _e: None, "storage_clear", busy=lambda: True, confirm=True)
     with pytest.raises(ValueError, match="confirm"):
         LIB.start(lambda _e: None, "storage_clear", kinds=["tmp"])
+
+
+def test_auto_clean_drops_texture_copies_their_tiles_hold(root, monkeypatch):
+    import O4_DDS_Cache as DDSC
+    import O4_DDS_File as DDS
+    texture = root / "Tiles" / "zOrtho4XP_+45+007" / "textures" / "a.dds"
+    texture.parent.mkdir(parents=True)
+    header = DDS.build_header(8, 8, "bc1", 1)
+    texture.write_bytes(header + b"U" * (DDS.expected_size(header)
+                                         - DDS.HEADER_BYTES))
+    with monkeypatch.context() as patch:
+        patch.setattr(DDSC.os, "link", lambda *a: (_ for _ in ()).throw(OSError()))
+        assert DDSC.store("ab" + "0" * 62, str(texture))
+    entry = DDSC.held_by_built_tiles()[0]
+    os.utime(entry, (time.time() - 2 * DAY,) * 2)
+    out = ST.storage_auto_clean()
+    assert out["ran"] and out["kinds"] == {"dds": out["freed_bytes"]}
+    assert not os.path.exists(entry) and texture.exists()
+    assert os.listdir(os.path.join(DDSC.cache_root(), "_tiles")) == []
+
+
+def test_auto_clean_drops_caches_of_packs_no_longer_installed(root, monkeypatch):
+    scenery = root / "X-Plane" / "Custom Scenery"
+    pack = scenery / "Some Airport"
+    (pack / "Earth nav data" / "+40+000").mkdir(parents=True)
+    dsf = pack / "Earth nav data" / "+40+000" / "+45+007.dsf"
+    dsf.write_bytes(b"current dsf")
+    (scenery / "Unmounted Pack").symlink_to(root / "nowhere")
+    monkeypatch.setattr(REDUNDANT, "_custom_scenery_dir", lambda: str(scenery))
+    from auto_patch.dsf_reader import dsf_content_tag
+    cache = root / "Airport_mod_cache"
+    current = _write(str(cache / "Some Airport" / ("+45+007.dsf.%s.text"
+                                                   % dsf_content_tag(str(dsf)))),
+                     50, age_days=2)
+    old = _write(str(cache / "Some Airport" / "+45+007.dsf.0badc0de.text"), 50,
+                 age_days=2)
+    stage = _write(str(cache / "Some Airport" / "o4_stage_x_1.cache"), 50, age_days=2)
+    kept = _write(str(cache / "Unmounted Pack" / "+1.dsf.00000000.text"), 50,
+                  age_days=2)
+    gone = [_write(str(cache / name / "+1.dsf.00000000.text"), 50, age_days=2)
+            for name in ("Removed Pack",)]
+    preview = ST.storage_auto_clean(dry_run=True)
+    assert preview["files"] == 2 and os.path.exists(old)
+    ST.storage_auto_clean()
+    assert [os.path.exists(p) for p in (current, old, stage, kept, *gone)] == [
+        True, False, True, True, False]
+    assert not os.path.exists(cache / "Removed Pack")
+
+
+def test_a_custom_scenery_that_matches_few_packs_removes_none(root, monkeypatch):
+    scenery = root / "Other X-Plane" / "Custom Scenery"
+    scenery.mkdir(parents=True)
+    monkeypatch.setattr(REDUNDANT, "_custom_scenery_dir", lambda: str(scenery))
+    for name in ("A", "B", "C"):
+        _write(str(root / "Airport_mod_cache" / name / "x.dsf.00000000.text"),
+               10, age_days=5)
+    assert REDUNDANT.airport_pack_leftovers() == []

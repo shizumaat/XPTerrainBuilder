@@ -434,6 +434,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     keepouts: list[Polygon] = []
     covered: dict[str, tuple] = {}          # #1629: a slid mouth's covered stretch
     survey_cuts: list[Polygon] = []      # R2: the open trenches the survey carries
+    deck_outer: dict[str, Polygon] = {}  # a deck corridor's footprint (deck_cover_of)
     seen_ids: dict[str, int] = {}
     for g in groups:
         members, mouth, inward, width, axis_path = g.members, g.mouth, g.inward, g.width, g.axis
@@ -1229,6 +1230,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 outer = outer.convex_hull
         footprints.append(outer)
         keepouts.append(outer)
+        if deck is not None:
+            deck_outer[tid] = outer
         if c is not None:
             # the walls cut EVERYTHING but the runway family — the pad too
             # (08-26: the trench is senior to the pad authority).  Beyond the
@@ -1320,7 +1323,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # ...and the bore's cut under a deck carrying the runway runs on through
     # the runway past the deck's ring (deckanchor round 2: LFPG's A1 under
     # H18r, the trench under 09R/27L beyond the hard-deck plate, S4)
-    deck_cover = deck_cover_of(tunnels, tid_deck, _carries_runway)
+    deck_cover = deck_cover_of(tunnels, tid_deck, _carries_runway, deck_outer)
 
     def _cut(c: Cell, p, blade) -> None:
         if c.role in RUNWAY_FAMILY and blade is not None:
@@ -1387,17 +1390,22 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     return cl, tuple(tunnels), stats
 
 
-def deck_cover_of(tunnels, tid_deck, carries_runway) -> object:
+def deck_cover_of(tunnels, tid_deck, carries_runway, outer=None) -> object:
     """THE RUNWAY FAMILY'S BLADE MASK (owner RULINGS 2026-11-03b Q340 a /
     Q343 a): the rings of the pack decks a corridor was cut under, every
     ``deck_top`` deck ring, and the footprint of a corridor under a deck
-    carrying the runway family.  A SLAB's ring is never in it (round 3
-    §1): the ground under a slab is the deck's, never cut."""
+    carrying the runway family — ``outer`` (tunnel id -> the corridor's
+    footprint as cut).  MEASURED round 3: read off ``Tunnel.footprint``,
+    which only a pack corridor carries, an OSM bore under a deck added
+    nothing and LFPG's runway stood uncut beside the ring (S4).  A SLAB's
+    ring is never in it (round 3 §1): the ground under a slab is the
+    deck's, never cut."""
     return unary_union(
         [db.polygon for t, db in ((t, tid_deck.get(t.id)) for t in tunnels)
          if db is not None and not getattr(db, "slab", False)]
         + [Polygon(d.ring) for t in tunnels for d in t.decks
            if d.datum == "deck_top" and len(d.ring) >= 3]
-        + [Polygon(t.footprint).buffer(0.0) for t in tunnels
-           if tid_deck.get(t.id) is not None and len(t.footprint) >= 3
+        + [(outer or {}).get(t.id) or Polygon(t.footprint).buffer(0.0) for t in tunnels
+           if tid_deck.get(t.id) is not None
+           and ((outer or {}).get(t.id) is not None or len(t.footprint) >= 3)
            and carries_runway(tid_deck[t.id])])

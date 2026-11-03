@@ -23,7 +23,8 @@ from __future__ import annotations
 import hashlib
 import struct
 
-__all__ = ["atoms", "header_properties", "select_pool_first"]
+__all__ = ["atoms", "header_properties", "places_elevated_objects",
+           "select_pool_first"]
 
 _COOKIE = b"XPLNEDSF"
 _FOOTER = 16                       # the trailing MD5
@@ -32,6 +33,12 @@ _HEAD, _PROP = b"DAEH", b"PORP"
 _UNSELECTED = 0xFFFF
 
 _POOL_SELECT = 1
+_GEOD, _POOL = b"DOEG", b"LOOP"
+#: Object and ObjectRange: the commands that place objects
+_OBJECT_COMMANDS = frozenset((7, 8))
+#: an object point carrying an elevation (OBJECT_MSL / OBJECT_AGL) has a
+#: fourth plane after longitude, latitude and heading
+_ELEVATED_PLANES = 4
 #: The commands at which DSFTool's census of an OVERLAY records the
 #: current pool: SetDefinition16, Object, ObjectRange.
 _POOL_READERS = frozenset((4, 7, 8))
@@ -171,3 +178,46 @@ def select_pool_first(buf: bytes) -> bytes | None:
     out = (buf[:off] + struct.pack("<4sI", _CMDS, 8 + len(cmds)) + cmds
            + buf[off + length:body_end])
     return out + hashlib.md5(out).digest()
+
+
+def _pool_planes(buf: bytes, top: list[tuple[bytes, int, int]]) -> list[int]:
+    """The plane count of each 16-bit point pool (``POOL`` atoms in GEOD,
+    in file order — the index ``PoolSelect`` names)."""
+    planes: list[int] = []
+    for aid, off, length in top:
+        if aid == _GEOD:
+            for kid, koff, _klen in atoms(buf, off + 8, off + length):
+                if kid == _POOL:
+                    planes.append(buf[koff + 12])
+    return planes
+
+
+def places_elevated_objects(buf: bytes) -> "bool | None":
+    """Does the (uncompressed) DSF place an object from a pool with an
+    elevation plane — an ``OBJECT_MSL`` or ``OBJECT_AGL`` row (#1252)?
+    Read off the command stream, no DSFTool dump; ``None`` when ``buf`` is
+    not a DSF this reads."""
+    if buf[:8] != _COOKIE or len(buf) < 12 + _FOOTER:
+        return None
+    try:
+        top = atoms(buf, 12, len(buf) - _FOOTER)
+        planes = _pool_planes(buf, top)
+        for aid, off, length in top:
+            if aid != _CMDS:
+                continue
+            cmds, at, current = buf[off + 8:off + length], 0, _UNSELECTED
+            while at < len(cmds):
+                command = cmds[at]
+                at += 1
+                size = _operand_bytes(cmds, at, command)
+                if size is None:
+                    break
+                if command == _POOL_SELECT:
+                    current = struct.unpack_from("<H", cmds, at)[0]
+                elif (command in _OBJECT_COMMANDS and current < len(planes)
+                      and planes[current] >= _ELEVATED_PLANES):
+                    return True
+                at += size
+    except (ValueError, IndexError, struct.error):
+        return None
+    return False

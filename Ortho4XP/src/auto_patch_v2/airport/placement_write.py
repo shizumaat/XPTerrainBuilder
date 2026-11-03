@@ -297,6 +297,11 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     _taken = (settled | frozenset(m.index for m in msl)
               | frozenset(c.index for c in conversions))
     msl = msl + frame_rider_seats(dump, splits, surface, _taken, msl_counts)
+    # #1252: a stock row the plan never sees, standing on a re-seated
+    # OBJECT_MSL frame's deck, moves with that frame instead of converting
+    msl, conversions = deck_riders_of_pack(dump, pack_root, splits, msl,
+                                           conversions, surface, elevated_m,
+                                           msl_counts)
     from . import riders as _riders
     counts: dict[str, int] = {"conversions": len(conversions),
                               "authored_rows_kept": authored_rows,
@@ -309,6 +314,28 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     counts.update(_fu.multi_anchor_census(dump, rebake_plan, msl, settled,
                                           ss.unit_seats))
     return conversions, msl, tuple(riders), counts
+
+
+def deck_riders_of_pack(dump: _t.Any, pack_root: str, splits: _t.Sequence,
+                        msl: tuple, conversions: tuple, surface: _t.Callable,
+                        contact_m: float, counts: dict) -> tuple[tuple, tuple]:
+    """``(msl, conversions)`` with the pack's own STOCK ``OBJECT_MSL`` rows
+    (a resource that does not resolve inside the pack: the plan never sees
+    it) that stand on a re-seated frame's deck moved with that frame
+    (``frame_riders.rider_seats``, #1252) instead of converted to on-ground.  ``contact_m``
+    0 disarms."""
+    from ..model.placement import KIND_MSL
+    from . import frame_riders as _dr
+    stock = [c.index for c in conversions if c.kind_before == KIND_MSL
+             and not os.path.isfile(os.path.join(pack_root or "", c.resource))]
+    if contact_m <= 0.0 or not stock:
+        return msl, conversions
+    frames = _dr.frame_moves(dump, pack_root, splits, msl, conversions, surface)
+    rows = list(getattr(dump, "placements", ()) or ())
+    riders = _dr.rider_seats(rows, stock, frames, contact_m, counts)
+    moved = frozenset(r.index for r in riders)
+    return (tuple(msl) + riders,
+            tuple(c for c in conversions if c.index not in moved))
 
 
 def landed_keeps(ss: _t.Any) -> frozenset[int]:

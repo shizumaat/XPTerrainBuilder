@@ -10,6 +10,7 @@ import os
 import types
 
 from auto_patch_v2.airport import companion as C
+from auto_patch_v2.airport.pack_local import tile_candidates
 
 TILE = (49, 2)
 DSF = os.path.join("Earth nav data", "+40+000", "+49+002.dsf")
@@ -45,7 +46,7 @@ def _scenery(tmp_path):
 
 def test_candidates_are_packs_with_no_apt_dat_and_a_tile_dsf(tmp_path):
     main, comp, over, other, bare = _scenery(tmp_path)
-    assert C._candidates(main, *TILE) == [over, comp]      # folder-name order
+    assert tile_candidates(main, *TILE) == [over, comp]      # folder-name order
     # only a pack shipping objects of its own is worth a DSF dump
     assert C.dump_candidates(main, *TILE) == [comp]
 

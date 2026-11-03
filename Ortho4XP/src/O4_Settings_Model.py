@@ -286,6 +286,12 @@ _LAYOUT: list = [
         ("ovl_exclude_pol", "Exclude overlay polygon types", "app", True, ""),
         ("ovl_exclude_net", "Exclude overlay road types", "app", True, ""),
     ]),
+    ("storage", "Storage", [
+        ("storage_auto_clean_days",
+         "Delete cache files no build has used for how long?", "app", False,
+         "Never keeps them. Built tiles and patches are never deleted."),
+        ("storage_cache_caps_gb", "Cache size limits (GB)", "app", True, ""),
+    ]),
 ]
 
 

@@ -872,6 +872,7 @@ class MainWindow(QMainWindow):
         self._bridge.airports_ready.connect(self._on_airports_ready)
         self._bridge.packs_ready.connect(self._on_packs_ready)
         self._session.subscribe(self._bridge.event.emit)
+        self._storage_auto_clean()          # at launch (#1724)
         self._event_handlers = {
             EV.ScanProgress: self._on_scan_progress,
             EV.ScanBatch: self._on_scan_batch,
@@ -4944,8 +4945,15 @@ class MainWindow(QMainWindow):
         self.prefs[AUTO_INSTALL_KEY] = bool(checked)
         save_prefs(self.prefs)
 
+    def _storage_auto_clean(self):
+        """Settings > Storage's automatic cleanup (#1724), at launch and
+        after each run; off by default, never while a build runs."""
+        import O4_Qt_Settings_Storage as QTSTORE
+        QTSTORE.run_auto_clean(lambda: bool(self._session._building), print)
+
     def _on_run_done(self, event):
         self._building = False
+        self._storage_auto_clean()
         self._last_run_eta = None
         # The window describes the run that just ended; the next run's
         # estimate is judged on its own samples.

@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.1874",
+ "engineVersion": "1.50.1900",
  "groups": {
   "app": [
    "verbosity",
@@ -21,6 +21,8 @@
    "max_baddata_retries",
    "ovl_exclude_pol",
    "ovl_exclude_net",
+   "storage_auto_clean_days",
+   "storage_cache_caps_gb",
    "custom_scenery_dir",
    "custom_overlay_src",
    "custom_overlay_src_alternate",
@@ -1480,6 +1482,34 @@
    "module": "TILE",
    "name": "skip_downloads",
    "type": "bool"
+  },
+  "storage_auto_clean_days": {
+   "default": 0,
+   "hint": "Deletes cache files (orthophotos, textures, elevation, map data, airport pack caches, masks, previews, temporary files and logs) that no build has used for this long. It runs when the app starts and after a build, never during one. Built tiles, airport patches, overlays, configs and pack backups are never deleted; every deletion is written to logs/storage.log.",
+   "name": "storage_auto_clean_days",
+   "type": "int",
+   "valueLabels": {
+    "0": "Never",
+    "180": "180 days",
+    "30": "30 days",
+    "365": "1 year",
+    "60": "60 days",
+    "90": "90 days"
+   },
+   "values": [
+    "0",
+    "30",
+    "60",
+    "90",
+    "180",
+    "365"
+   ]
+  },
+  "storage_cache_caps_gb": {
+   "default": "",
+   "hint": "Optional size limits, in GB, for single caches, as kind=GB pairs separated by commas, for example imagery=100, osm_extracts=20, dds=20. The kinds are imagery, dds, elevation, osm_extracts, osm, airport_mod, dsf_dumps, masks, previews, tmp and logs. A cache over its limit loses its least recently used files first, when the app starts and after a build. Empty: no limits.",
+   "name": "storage_cache_caps_gb",
+   "type": "str"
   },
   "terrain_casts_shadows": {
    "default": true,

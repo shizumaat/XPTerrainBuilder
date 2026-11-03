@@ -38,6 +38,8 @@ import O4_Settings_Model as SM
 import O4_Text_Files as TEXT
 import O4_Tile_Info as TINFO
 
+from . import storage as _storage
+
 __all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "library_scan",
            "cache_sizes", "free_cache", "library_delete",
            "library_export_bundle", "library_import_bundle", "start"]
@@ -335,6 +337,9 @@ _COMMANDS: dict = {
     "library_export_bundle": (library_export_bundle, None),
     "library_import_bundle": (library_import_bundle, None),
 }
+# Settings > Storage (#1724) runs through the same worker and refusals.
+_COMMANDS.update(_storage.COMMANDS)
+_REFUSED_WHILE_BUILDING.update(_storage.REFUSED_WHILE_BUILDING)
 
 
 def start(emit: _t.Callable[[_t.Any], None], command: str,

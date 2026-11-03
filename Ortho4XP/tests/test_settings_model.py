@@ -23,7 +23,7 @@ def test_categories_ordered_and_titled():
     keys = [key for key, _ in SM.CATEGORIES]
     assert keys == [
         "general", "network", "imagery", "mesh", "elevation", "vector",
-        "water", "bathymetry", "rendering",
+        "water", "bathymetry", "rendering", "storage",
     ]
     # Titles are non-empty strings.
     assert all(isinstance(title, str) and title for _, title in SM.CATEGORIES)

@@ -38,7 +38,8 @@ def _tree(tmp_path):
     for p in ("old_run", "frame_dir", "held"):
         _age(t / p)
     _age(mod / "PackOld")
-    os.utime(t / "link", (OLD, OLD), follow_symlinks=False)
+    if os.utime in os.supports_follow_symlinks:   # not on Windows
+        os.utime(t / "link", (OLD, OLD), follow_symlinks=False)
     return eng, t, data
 
 
@@ -47,9 +48,12 @@ def test_twin_dry_run_lists_old_and_keeps_the_protected(tmp_path):
     rows = {Path(p).name: why for p, _s, _a, why in tmp_prune.candidates(
         eng, 7, data, [os.path.realpath(t / "frame_dir" / "cap.pkl")],
         [os.path.realpath(t / "held" / "f")])}
-    assert rows == {"old_run": "", "frame_dir": "registered frame",
-                    "held": "held open by a process", "link": "symlink",
-                    "PackOld": ""}
+    want = {"old_run": "", "frame_dir": "registered frame",
+            "held": "held open by a process", "link": "symlink",
+            "PackOld": ""}
+    if os.utime not in os.supports_follow_symlinks:   # the link stays new
+        del want["link"]
+    assert rows == want
 
 
 def test_twin_apply_deletes_only_the_unkept(tmp_path):

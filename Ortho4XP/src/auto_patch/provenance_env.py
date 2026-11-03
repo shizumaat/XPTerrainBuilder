@@ -139,6 +139,13 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_LANE_CACHE_PRUNE_DAYS":
         "how old an unused lane-cache entry is before a run deletes it "
         "(the next run re-seeds it; no patch reads the age)",
+    "O4_LANE_CAP":
+        "how many lane worktrees the ritual allows before `up` refuses "
+        "(the master's override; no patch reads it)",
+    "O4_PRUNE_BASE": "which ref prune-merged judges lanes merged against",
+    "O4_PRUNE_MIN_AGE_H":
+        "how long a lane with no commits of its own idles before "
+        "prune-merged removes it",
     "O4_MAIN_REPO": "where the main checkout is, for the lane ritual",
     "O4_DATA_REPO":
         "where the data repo is; every file read from it is stamped by "

@@ -15,10 +15,14 @@ READ-ONLY on the pack: DSFTool dumps go into ``--work`` (default a temp
 dir), never beside the pack or into the shared data repo.
 
     venv/bin/python tools/pack_weight.py "<Custom Scenery>/<pack>" [--top 8]
-        [--text DUMP]... [--work DIR] [--json]
+        [--text DUMP]... [--work DIR] [--json] [--xplane ROOT] [--far M]
 
 ``--text`` reads an existing dump instead of running DSFTool (one per
 tile DSF, in order); the twin is ``tests/test_pack_optimise_write.py``.
+``--xplane`` weighs the WHOLE recipe "Optimise" would write today with
+that install's libraries (``pack_optimise.build_recipe``: the library
+swaps and the object copies too), and ``--far`` (default 1000 m) adds
+the triangles still drawn beyond that distance, before and after.
 """
 from __future__ import annotations
 
@@ -40,13 +44,43 @@ def tile_dsfs(pack: str) -> list[str]:
     return sorted(glob.glob(os.path.join(pack, "Earth nav data", "*", "*.dsf")))
 
 
-def weigh(pack: str, lines, top: int) -> dict:
-    """One tile dump's row: :func:`weight.estimate` and the D1 counts."""
-    drop, counts = PO.drop_ordinals(lines, PO.default_recipe(), frozenset())
-    row = {**WT.estimate(pack, lines, drop, top=top), **counts}
+def weigh(pack: str, lines, top: int, exports_of=None,
+          far_m: float | None = None) -> dict:
+    """One tile dump's row: :func:`weight.estimate` and the D1 counts
+    (with ``exports_of``, of the whole recipe ``build_recipe`` makes)."""
+    recipe = PO.build_recipe(pack, lines, exports_of)
+    drop, counts = PO.drop_ordinals(lines, recipe, frozenset())
+    row = {**WT.estimate(pack, lines, drop, top=top, swaps=recipe.get("swap"),
+                         far_m=far_m, copies=recipe.get("objects")), **counts}
+    row["copies"] = len(recipe.get("objects") or ())
+    row["textures"] = len(recipe.get("textures") or ())
+    if exports_of is not None:
+        from auto_patch_v2.airport.dsf_write import placement_rows
+        from auto_patch_v2.airport.pack_art import declared_definitions
+        from auto_patch_v2.airport.pack_optimise import objcopy as OC
+        from auto_patch_v2.airport.pack_optimise import textures as TX
+        defs = declared_definitions(lines)["object"]
+        placed = {defs[int(t[1])] for _o, _i, t in placement_rows(lines)}
+        mine = OC.placed_objects(pack, defs, {i: 1 for i in range(len(defs))
+                                              if defs[i] in placed}, set())
+        swapped = set(recipe.get("swap") or ())
+        row["vram_before"], row["vram_after"] = TX.estimate_vram(
+            pack, list(mine), [p for p in mine if p not in swapped],
+            recipe.get("textures") or {})
     row["offered"] = (row["tris_before"] > WT.OFFER_TRIANGLES
-                      and row.get("dropped", 0) > 0)
+                      and (row.get("dropped", 0) > 0 or row["swapped"] > 0))
     return row
+
+
+def _exports_of(xplane: str | None, dsf_name: str):
+    """The install's ``exports_of`` for the tile a DSF name is."""
+    if not xplane:
+        return None
+    from auto_patch import agp_reader as AGP
+    stem = os.path.splitext(os.path.basename(dsf_name))[0]
+    lat, lon = int(stem[:3]), int(stem[3:7])
+    rows = AGP.export_files(xplane)
+    return lambda v: AGP.weighted_files_at(rows.get(v.lower(), ()), lat, lon)
 
 
 def main(argv=None) -> int:
@@ -58,6 +92,10 @@ def main(argv=None) -> int:
     ap.add_argument("--text", action="append", default=[])
     ap.add_argument("--work")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--xplane", help="the X-Plane install whose libraries the "
+                    "swap reads (the whole recipe is weighed)")
+    ap.add_argument("--far", type=float, default=None,
+                    help="also count the triangles drawn beyond this many m")
     a = ap.parse_args(argv)
     dsfs = tile_dsfs(a.pack)
     texts = list(a.text)
@@ -76,15 +114,23 @@ def main(argv=None) -> int:
     for name, text in zip(names, texts, strict=False):
         with open(text, encoding="utf-8", errors="surrogateescape") as fh:
             lines = fh.read().splitlines(keepends=True)
-        rows[name] = weigh(a.pack, lines, a.top)
+        rows[name] = weigh(a.pack, lines, a.top, _exports_of(a.xplane, name),
+                           a.far)
     if a.json:
         print(json.dumps(rows, indent=1))
         return 0
     for name, r in rows.items():
         print(f"{name}: {r['placements']:,} placements of the pack's own "
               f"objects, {r['tris_before'] / 1e6:.1f} M triangles; D1 drops "
-              f"{r.get('dropped', 0):,} ({r.get('groups', 0):,} groups) -> "
+              f"{r.get('dropped', 0):,} ({r.get('groups', 0):,} groups), "
+              f"{r['swapped']:,} swapped, {r['copies']} copies -> "
               f"{r['tris_after'] / 1e6:.1f} M; offered: {r['offered']}")
+        if "vram_before" in r:
+            print(f"  object textures (est. VRAM): {r['vram_before'] / 1e6:,.0f} MB -> "
+                  f"{r['vram_after'] / 1e6:,.0f} MB ({r['textures']} rewritten)")
+        if "far_before" in r:
+            print(f"  beyond {a.far:g} m: {r['far_before'] / 1e6:.1f} M -> "
+                  f"{r['far_after'] / 1e6:.1f} M")
         for tn, t, n, path in r.get("top", ()):
             print(f"  {tn:13,d}  tris={t:7,d}  n={n:6,d}  {path}")
     return 0

@@ -1962,19 +1962,24 @@ def _restore_v2_writes(pack_root: str, record_paths: list[str]) -> int:
     remover, so an authored object on a ``__b`` name is never touched."""
     from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import dsf_write as _dw
+    from auto_patch_v2.airport import pack_optimise as _po
 
     removed = 0
     for record_path in record_paths:
         directory = os.path.dirname(record_path)
-        for basename in sorted(_v2_record_entries(record_path)):
+        entries = _v2_record_entries(record_path)
+        for basename in sorted(entries):
             dsf_path = os.path.join(directory, basename)
             state = _bs.classify_dsf(dsf_path).state
             if state in (_bs.State.UNPROVEN, _bs.State.ORIGINAL_LOST):
                 continue
             # the record names the bodies, so remove them BEFORE the
-            # entry that names them is dropped
+            # entry that names them is dropped — and the files "Optimise
+            # pack" wrote beside the vendor's (#1707)
             removed += len(_dw.remove_cut_files(
                 _dw.written_body_files(pack_root, dsf_path)))
+            removed += len(_po.remove_generated(
+                pack_root, _po.generated_of(entries[basename])))
             _bs.drop_dsf_entry(dsf_path)
     return removed
 
@@ -2033,6 +2038,7 @@ def restore_detail(pack_root: str) -> dict:
     # "Optimise pack" would otherwise re-optimise the next build
     from . import pack_choice as _PC
     _PC.Store(_PC.OPTIMISE_CHOICES).remember(pack_root, "")
+    _PC.Store(_PC.OPTIMISE_STEPS, _PC.step_list).remember(pack_root, "")
     sidecar_path = _provenance_path(pack_root)
     if os.path.isfile(sidecar_path):
         os.remove(sidecar_path)

@@ -522,13 +522,23 @@ public enum O4Event: Sendable, Equatable {
             return .packOptimise(O4PackOptimise(
                 pack: string("pack"), packRoot: string("pack_root"),
                 lat: int("lat"), lon: int("lon"), dedupe: int("dedupe"),
+                swapped: int("swapped"),
                 estTrisBefore: int("est_tris_before"),
                 estTrisAfter: int("est_tris_after"),
                 // absent ⇒ no question: never offer without a yes
                 canOptimise: bool("can_optimise"),
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
-                error: string("error")))
+                error: string("error"),
+                // capability pack_optimise_steps: absent ⇒ no checkboxes
+                steps: ((object["steps"] as? [[String: Any]]) ?? []).map { row in
+                    O4PackOptimiseStep(
+                        key: row["key"] as? String ?? "",
+                        count: (row["count"] as? NSNumber)?.intValue ?? 0,
+                        tris: (row["tris"] as? NSNumber)?.intValue ?? 0,
+                        mb: (row["mb"] as? NSNumber)?.doubleValue ?? 0)
+                },
+                chosen: (object["chosen"] as? [Any])?.compactMap { $0 as? String } ?? []))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -966,16 +976,20 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// `{"status": "started"}` at once and completes with a `packOptimise`
     /// event. An engine older than 1.24 replies ok=false: nothing changes.
     public func packOptimise(packRoot: String, action: String,
-                             lat: Int? = nil, lon: Int? = nil) {
+                             lat: Int? = nil, lon: Int? = nil,
+                             steps: [String]? = nil) {
         sendPackChoice("pack_optimise", packRoot: packRoot, action: action,
-                       lat: lat, lon: lon)
+                       lat: lat, lon: lon,
+                       extra: steps.map { ["steps": $0] } ?? [:])
     }
 
     /// A per-pack choice command (`pack_forests`, `pack_optimise`): the
     /// tile's DSF with lat/lon, the whole pack without.
     private func sendPackChoice(_ command: String, packRoot: String,
-                                action: String, lat: Int?, lon: Int?) {
+                                action: String, lat: Int?, lon: Int?,
+                                extra: [String: Any] = [:]) {
         var arguments: [String: Any] = ["pack_root": packRoot, "action": action]
+        arguments.merge(extra) { _, new in new }
         if let lat, let lon {
             arguments["lat"] = lat
             arguments["lon"] = lon

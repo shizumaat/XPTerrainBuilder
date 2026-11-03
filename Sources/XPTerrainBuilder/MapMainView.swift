@@ -142,8 +142,18 @@ struct MapMainView: View {
         // An airport pack "Optimise pack" can lighten (protocol 1.31,
         // #1707): Optimise / Not now / Never for this pack, the Qt
         // question's copy.
+        // With the engine's steps (capability pack_optimise_steps) the
+        // question is a sheet with one checkbox per step.
+        .sheet(item: Binding(
+            get: { buildModel.packOptimisePrompt.flatMap { $0.steps.isEmpty ? nil : $0 } },
+            set: { _ in }
+        )) { optimise in
+            PackOptimiseSheet(optimise: optimise) { action, steps in
+                buildModel.answerPackOptimisePrompt(action: action, steps: steps)
+            }
+        }
         .alert(buildModel.packOptimisePrompt?.titleText ?? "", isPresented: Binding(
-            get: { buildModel.packOptimisePrompt != nil },
+            get: { buildModel.packOptimisePrompt.map { $0.steps.isEmpty } ?? false },
             set: { _ in }
         ), presenting: buildModel.packOptimisePrompt) { _ in
             Button(O4PackOptimiseCopy.optimiseButton) {

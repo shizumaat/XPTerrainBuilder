@@ -4923,9 +4923,10 @@ class MainWindow(QMainWindow):
 
         Parity with the mac app (``BuildModel.swift``, ``case
         .packOptimise``): ``state == "found"`` (with ``can_optimise``)
-        asks once per pack, tile and count; Optimise / Never for this pack
-        send ``pack_optimise``, Not now sends nothing.  An optimise or an
-        undo re-reads the tile's Modified airports rows.
+        asks once per pack, tile and count, one checkbox per step;
+        Optimise (with the steps kept checked) / Never for this pack send
+        ``pack_optimise``, Not now sends nothing.  An optimise or an undo
+        re-reads the tile's Modified airports rows.
         """
         self._pack_choice_event(
             event, ("optimised", "undone"),
@@ -4954,8 +4955,12 @@ class MainWindow(QMainWindow):
         def finished(_result, box=box, buttons=buttons):
             for action, button in buttons.items():
                 if box.clickedButton() is button:
+                    # a box with steps (#1707) sends the ones kept checked
+                    extra = ({"steps": box.checked_steps()}
+                             if action == "update" and getattr(box, "step_boxes", None)
+                             else {})
                     getattr(self._session, command)(
-                        pack_root=root, action=action, lat=lat, lon=lon)
+                        pack_root=root, action=action, lat=lat, lon=lon, **extra)
             if box in self._pack_art_boxes:
                 self._pack_art_boxes.remove(box)
 

@@ -224,6 +224,13 @@ def per_tile_clock_rows(estimates, programs, queued_tiles, next_step_index,
 # the heavy pipeline imports happen later, inside the build command).
 HANDSHAKE_TIMEOUT_SECONDS = 30.0
 
+# A dead child's stderr: how long its exit path waits for the drain to
+# reach end of file, how many non-blank lines are kept, and how many of
+# them a crashed tile's failure record carries.
+STDERR_DRAIN_SECONDS = 2.0
+STDERR_TAIL_LINES = 20
+CRASH_DETAIL_LINES = 3
+
 # Cancel escalation: how long a mid-step child gets to honor its red
 # flag before SIGTERM (the pipeline's cancellation checkpoints answer
 # within a few seconds; a blocking network request can hold this long),
@@ -703,6 +710,10 @@ class _WorkerChild:
         self.hello = threading.Event()
         self._stdin_lock = threading.Lock()
         self._command_id = 0
+        # The stderr drain thread and the last lines it read: a crashed
+        # child's own error text, which its failure record carries.
+        self._stderr_thread = None
+        self.stderr_tail = deque(maxlen=STDERR_TAIL_LINES)
 
     # -- lifecycle -----------------------------------------------------
     def spawn(self):
@@ -752,7 +763,9 @@ class _WorkerChild:
             print("Could not start a build worker process:", error)
             return False
         threading.Thread(target=self._read_events, daemon=True).start()
-        threading.Thread(target=self._drain_stderr, daemon=True).start()
+        self._stderr_thread = threading.Thread(target=self._drain_stderr,
+                                               daemon=True)
+        self._stderr_thread.start()
         if not self.hello.wait(HANDSHAKE_TIMEOUT_SECONDS):
             print("Build worker", self.index,
                   "did not answer in time; giving up on it.")
@@ -833,6 +846,8 @@ class _WorkerChild:
                 prefix = ("[%s] " % _short_latlon(tile)) if tile else (
                     "[worker %d] " % self.index)
                 print(prefix + text)
+                if text.strip():
+                    self.stderr_tail.append(text.strip())
                 # The tile's own build log (#1226); the prefix is the
                 # console's, the file is the tile's alone.
                 log = getattr(self.run, "tile_log_line", None)
@@ -840,6 +855,26 @@ class _WorkerChild:
                     log(tile, text)
         except Exception:
             pass
+
+    def await_stderr_drained(self):
+        """Wait (bounded) for the stderr drain to reach end of file.
+
+        stdout and stderr are two pipes read by two threads: stdout's end
+        of file can be seen first, while a dying child's last stderr
+        lines (its traceback) are still unread.  The exit path waits for
+        them so they reach the tile's log and its failure record before
+        the tile is let go (Linux CI read the generic "worker died" line
+        without the child's own text).
+        """
+        thread = self._stderr_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(STDERR_DRAIN_SECONDS)
+
+    def crash_detail(self):
+        """The child's last stderr lines, or the generic sentence."""
+        if self.stderr_tail:
+            return "\n".join(list(self.stderr_tail)[-CRASH_DETAIL_LINES:])
+        return "build worker exited unexpectedly"
 
 
 class ParallelBuildRun:
@@ -2101,6 +2136,7 @@ class ParallelBuildRun:
         crashed_tile = None
         stopped_tile = None
         respawn = False
+        child.await_stderr_drained()
         with self._lock:
             if child in self._children:
                 self._children.remove(child)
@@ -2144,8 +2180,7 @@ class ParallelBuildRun:
                                           label="failed"))
             done_event = build_done(
                 lat, lon, False,
-                [FAIL.record("worker_died",
-                             "build worker exited unexpectedly")],
+                [FAIL.record("worker_died", child.crash_detail())],
                 getattr(self._session, "app_driven", False))
             self._tile_warnings.pop(crashed_tile, None)
             self._session._emit(done_event)

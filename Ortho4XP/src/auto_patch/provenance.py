@@ -465,26 +465,63 @@ def provenance_tags(prov: dict) -> dict:
     return tags
 
 
+def app_version() -> str:
+    """The app version that built this patch (``O4_Build_Info``: the
+    artifact's ``VERSION.txt``, else the source tree's
+    ``Sources/XPTerrainBuilder/Resources/VERSION``), or ``absent``."""
+    try:
+        import O4_Build_Info
+
+        return str(O4_Build_Info.app_version() or "") or "absent"
+    except ImportError:
+        return "absent"
+
+
+def build_sha(git: dict | None = None) -> str:
+    """The commit the running build was made from, or ``absent``.
+
+    A packaged app or release stamps it into ``VERSION.txt`` when it is
+    built (``scripts/write_version_txt.sh``; ``O4_Build_Info`` reads it),
+    which is the only sha a frozen engine has.  A checkout without one
+    answers its own ``HEAD`` (``*`` when dirty) from *git*
+    (:func:`git_provenance` when not given).
+    """
+    try:
+        import O4_Build_Info
+
+        baked = O4_Build_Info.build_info().sha
+    except ImportError:
+        baked = "dev"
+    if baked and baked != "dev":
+        dirty = baked.endswith("-dirty")
+        return baked[:12] + ("*" if dirty else "")
+    git = git_provenance() if git is None else git
+    sha = git.get("sha")
+    return (sha + ("*" if git.get("dirty") else "")) if sha else "absent"
+
+
 def source_label(git: dict | None) -> str:
-    """The ``sha=`` token of a ``[provenance]`` log line.
+    """The ``sha=`` token of a ``[provenance]`` log line, and the build.
 
     A git checkout renders its short sha (``*`` when the tree is dirty).
-    Outside a checkout — every FROZEN engine the app ships — there is no
-    sha, and ``sha=absent`` alone told the reader nothing about which
-    engine wrote the patch; the token then carries the engine version
-    (``O4_Version.version``, the same build-numbered string the patch's
-    ``o4_engine`` freshness stamp records) and the digest of its code (the
-    ``o4_code`` stamp, #346 — two engines can share a version):
-    ``sha=absent version=1.50.1722 code=69fb50ecb76f8b9d``.
+    Outside a checkout — every FROZEN engine the app ships — the token is
+    the commit the app was BUILT from (:func:`build_sha`, ``absent`` when
+    no stamp carries one) followed by the engine version
+    (``O4_Version.version``, the ``o4_engine`` stamp) and the digest of
+    its code (the ``o4_code`` stamp, #346 — two engines can share a
+    version).  Either way the APP version follows (``app=``): which app
+    built a tile is read off its log, never recomputed from law digests:
+    ``sha=0123456789ab app=1.0.454 version=1.50.1900 code=69fb50ecb76f8b9d``.
     Shared by v1's :func:`format_log_line` and v2's
     ``engine_v2.format_provenance_line``.
     """
     git = git or {}
     sha = git.get("sha")
     if sha:
-        return sha + ("*" if git.get("dirty") else "")
+        return sha + ("*" if git.get("dirty") else "") + " app=" + app_version()
     from . import provenance_code
-    return ("absent version=" + engine_version()
+    return (build_sha(git) + " app=" + app_version()
+            + " version=" + engine_version()
             + " code=" + provenance_code.code_digest())
 
 
@@ -642,7 +679,10 @@ FRESHNESS_COMPARED_KEYS = (
 # Every stamp key written, in the order they appear on the root element.
 #: ``o4_engine`` is written for the reader (which engine built it), never
 #: compared (owner Q158, 2026-10-26).
-FRESHNESS_KEYS = FRESHNESS_COMPARED_KEYS + ("o4_dsf_tiles", "o4_engine")
+#: ``o4_app`` / ``o4_build_sha`` name the APP and the commit it was built
+#: from (:func:`app_version`, :func:`build_sha`), likewise never compared.
+FRESHNESS_KEYS = FRESHNESS_COMPARED_KEYS + ("o4_dsf_tiles", "o4_engine",
+                                            "o4_app", "o4_build_sha")
 
 def imagery_identity(paths) -> str:
     """``o4_imagery``: one digest of the airport photos a patch was fitted
@@ -736,13 +776,16 @@ def identity_list(paths) -> str:
 #   o4_engine       driver._freshness_stamps_now (the engine version; the v2
 #                   emitter's own default, emit/osm_adapter.render_patch)
 #   o4_tools        driver._freshness_stamps_now (the toolchain's digest)
+#   o4_app, o4_build_sha  driver._freshness_stamps_now (the app version and
+#                   the commit it was built from)
 #   o4_fresh_v      engine_v2._stamp_header (this module's schema version)
 #   o4_apt_dat_mtime           engine_v2._stamp_header (the input's mtime)
 #   o4_apt_dat_borrowed_mtime  pipeline/build.borrowed_apt_dat_stamp
 #
 # Every other stamp (the inputs' fingerprints, the pack, the ICAO, the
 # ruleset) and every byte below the root line IS hashed.
-PER_RUN_STAMP_KEYS = ("o4_code", "o4_engine", "o4_tools", "o4_fresh_v",
+PER_RUN_STAMP_KEYS = ("o4_code", "o4_engine", "o4_app", "o4_build_sha",
+                      "o4_tools", "o4_fresh_v",
                       "o4_apt_dat_mtime", "o4_apt_dat_borrowed_mtime")
 
 _PER_RUN_STAMP_RE = re.compile(

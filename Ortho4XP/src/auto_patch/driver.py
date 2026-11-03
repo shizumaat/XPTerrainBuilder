@@ -357,6 +357,10 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
             _cifp_files_for(cifp_file, xp_root, icao)),
         "o4_pack": _scenery_pack_state(apt_dat_path),
         "o4_engine": _prov.engine_version(),      # written, not compared
+        # ... and the app and its build commit (written, not compared): a
+        # patch names the app that built it.
+        "o4_app": _prov.app_version(),
+        "o4_build_sha": _prov.build_sha(),
         # The toolchain the code runs on (owner Q158): the native tools,
         # the third-party library versions, Python.
         "o4_tools": _prov_tools.toolchain_fingerprint(),

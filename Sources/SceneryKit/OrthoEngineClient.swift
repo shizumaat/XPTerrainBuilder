@@ -1150,6 +1150,20 @@ extension OrthoEngineClient {
         return try await request("object_seat_set", arguments)
     }
 
+    /// The roles a shape can be given and those set by hand (protocol 1.33).
+    public func patchRoles(tile: String, icao: String) async throws -> O4PatchRoles {
+        try await request("patch_roles", ["tile": tile, "icao": icao])
+    }
+
+    /// Classify the pack pavement a way's `ref` belongs to by hand; nil
+    /// clears it. `was` is the role the shape showed (protocol 1.33, #1697).
+    public func patchRoleSet(tile: String, icao: String, ref: String, role: String?,
+                             was: String) async throws -> O4PatchRoleSet {
+        var arguments: [String: Any] = ["tile": tile, "icao": icao, "ref": ref, "was": was]
+        if let role { arguments["role"] = role }
+        return try await request("patch_role_set", arguments)
+    }
+
     /// "Insert shape" planned at a point (protocol 1.20, #1314); ask again
     /// while the reply is `pending`. `kind` nil is the square; "tunnel_ramp"
     /// is "Insert tunnel ramp" (protocol 1.24, #1745).

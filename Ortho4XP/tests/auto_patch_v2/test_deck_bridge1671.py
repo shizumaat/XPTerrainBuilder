@@ -153,7 +153,7 @@ def test_the_mouth_stands_at_the_deck_midline_and_the_cut_banks_to_its_edge(tmp_
     r2, o2 = DB.deck_cut(db, moved, ramp, outer, 0.6)
     assert abs(r2.bounds[1]) < 1e-6 and abs(o2.bounds[1]) < 1e-6      # the midline
     assert abs(o2.bounds[0] + 19.4) < 1e-6 and abs(o2.bounds[2] - 19.4) < 1e-6
-    climb, level, stretch, seats, other = DB.deck_seats(db, moved, (db,), 0.6)
+    climb, level, stretch, seats, other = DB.deck_seats(db, moved, None, 0.6)
     assert abs(climb - 20.6) < 1e-6 and level is None and stretch == () and other is None
     assert [s[0] for s in seats] == ["dsf:obj7", "dsf:obj7"] and len(seats[0][1]) >= 3
 
@@ -179,10 +179,11 @@ def test_a_walled_deck_cuts_the_floor_to_the_walls_inner_faces(tmp_path):
 
 
 def test_between_two_decks_the_trench_stays_at_the_floors_to_the_halfway_line(tmp_path):
-    """Q271 b: two decks over one road 20 m apart (KBNA's taxiway-L pair):
-    each mouth's trench runs from its deck's midline to the line halfway
-    across the open stretch, the floor linear between the two decks'
-    bottoms; never a climb."""
+    """Q271 b: two decks over one road 20 m apart (KBNA's taxiway-L pair),
+    paired as one run-through (``structure_overlap.run_pair``): each mouth's
+    trench runs from its deck's midline to the line halfway across the open
+    stretch, the floor linear between the two decks' bottoms; never a
+    climb."""
     a = _placed(_deck(tmp_path), "dsf:obj7")
     b = _placed(_deck(tmp_path), "dsf:obj7b", xy=(0.0, -60.0))
     cl = types.SimpleNamespace(cells=_classification().cells + _classification(dy=-60.0).cells)
@@ -190,7 +191,9 @@ def test_between_two_decks_the_trench_stays_at_the_floors_to_the_halfway_line(tm
     assert len(dbs) == 2
     top = next(d for d in dbs if d.object_id == "dsf:obj7")
     axis, _d = DB.deck_mouth(LineString([(0.0, -23.0), (0.0, -200.0)]), (0.0, 1.0), top)
-    climb, level, stretch, seats, other = DB.deck_seats(top, axis, dbs, 0.6)
+    # the pair is ``structure_overlap.run_pair``'s (RULINGS 2026-11-03b)
+    low = next(d for d in dbs if d.object_id == "dsf:obj7b")
+    climb, level, stretch, seats, other = DB.deck_seats(top, axis, low, 0.6)
     assert other is not None and other.object_id == "dsf:obj7b"
     assert abs(level - 30.0) < 1e-6 and abs(climb - 30.0) < 1e-6
     assert abs(stretch[0] - 20.0) < 1e-6 and abs(stretch[1] - 40.0) < 1e-6

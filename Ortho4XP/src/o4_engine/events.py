@@ -131,7 +131,12 @@ from typing import Any, Optional
 # and ``library_import_bundle`` — a built tile carried to another
 # installation as a tile bundle (``tile_bundle``), completed through
 # LibraryReady like the other Library commands.
-PROTOCOL_VERSION = "1.23"
+# 1.24 (2026-11-02, additive, #1666): ``imagery_freshness`` — does the
+# provider still serve the imagery a built tile was made from (the tile
+# info's "Imagery check" row), completed through ImageryFreshnessReady;
+# and ``imagery_freshness_discard``, the "Update Imagery" action's removal
+# of the tile's cached orthophotos before the rebuild.
+PROTOCOL_VERSION = "1.24"
 
 
 @dataclass(frozen=True)
@@ -670,6 +675,27 @@ class PlanEstimateReady(EngineEvent):
     the estimate (``tiles``, ``total``, ``free_gb``, ``cache_free_gb``,
     ``verdict``, ``reason``; every figure a ``[lo, hi]`` range) or
     ``None``, with ``error`` the failure sentence.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
+    result: Any = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class ImageryFreshnessReady(EngineEvent):
+    """The completion half of the ``imagery_freshness`` command (protocol
+    1.24, #1666): whether a built tile's provider still serves the imagery
+    the tile was made from (``O4_Imagery_Freshness.tile_freshness``).
+
+    ``request`` is the ``id`` of the command it answers; ``result`` is
+    ``{"status", "label", "detail"}`` (``status`` one of ``up_to_date``,
+    ``newer``, ``unknown``, ``not_checked``; plus ``sampled``, ``changed``
+    and ``checked_at`` when samples were judged) or ``None``, with
+    ``error`` the failure sentence.
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).

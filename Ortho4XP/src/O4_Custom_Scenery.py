@@ -39,6 +39,7 @@ __all__ = [
     "packs_covering",
     "pack_imagery",
     "parse_texture_stem",
+    "texture_stem_attributes",
     "imagery_from_file_names",
     "TEXTURE_STEM_RE",
 ]
@@ -125,13 +126,24 @@ def disabled_pack_names(scenery_dir: str) -> Set[str]:
 #: with an optional ``_suffix`` (the Mac app's ``TileTextureAudit``).  The
 #: two-digit ZL anchor lets a provider code that itself ends in digits
 #: ("USA_2" -> "…_USA_216") parse.
-TEXTURE_STEM_RE = re.compile(r"\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$")
+TEXTURE_STEM_RE = re.compile(r"(\d+)_(\d+)_(.+?)(\d{2})(_[A-Za-z_]+)?$")
 
 
 def parse_texture_stem(stem: str) -> Optional[Tuple[str, int]]:
     """``(provider, zl)`` of an Ortho4XP texture/terrain file stem, or None."""
     match = TEXTURE_STEM_RE.fullmatch(stem)
-    return (match.group(1), int(match.group(2))) if match else None
+    return (match.group(3), int(match.group(4))) if match else None
+
+
+def texture_stem_attributes(stem: str) -> Optional[Tuple[int, int, str, int, str]]:
+    """``(til_y_top, til_x_left, provider, zl, suffix)`` of a texture stem
+    (``suffix`` "" or e.g. "_airport_fade"), or None — the same parse as
+    :func:`parse_texture_stem`, with the grid position kept (#1666)."""
+    match = TEXTURE_STEM_RE.fullmatch(stem)
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)), match.group(3),
+            int(match.group(4)), match.group(5) or "")
 
 
 def imagery_from_file_names(names) -> Optional[Tuple[str, int]]:

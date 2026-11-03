@@ -93,6 +93,7 @@ import O4_Tile_Info as TINFO
 import O4_Settings_Selection as SEL
 import O4_Qt_Imagery_Menu as QTIMENU
 import O4_Qt_Map as QTMAP
+import O4_Qt_Imagery_Freshness as QTFRESH
 import O4_Qt_Missing_Textures as QTMISSING
 from o4_engine import EngineSession
 from o4_engine import events as EV
@@ -1197,6 +1198,12 @@ class MainWindow(QMainWindow):
         ig.addRow("Ground shaped:", self.info_mesh)
         self.info_imagery = ElidedRowLabel("—")
         ig.addRow("Imagery updated:", self.info_imagery)
+        # Does the source still serve this imagery (#1666; mac-app
+        # parity: TileImageryFreshnessRow)?  "Update Imagery" when not.
+        self.imagery_freshness_row = QTFRESH.ImageryFreshnessRow()
+        self.imagery_freshness_row.update_requested.connect(
+            self._update_tile_imagery)
+        ig.addRow("Imagery check:", self.imagery_freshness_row)
         # Who built it (#1226, owner Q95): the build record, else the DSF.
         self.info_built_by = ElidedRowLabel("—")
         ig.addRow("Built by:", self.info_built_by)
@@ -3141,6 +3148,7 @@ class MainWindow(QMainWindow):
         self.missing_textures_row.check(
             tile if info is not None else None,
             getattr(info, "build_dir", "") if info is not None else "")
+        self.imagery_freshness_row.check(tile, info)
         if info is None:
             # While a scan streams in, absence only means "not scanned
             # yet" — a built tile must not flash as "(not built)".
@@ -5136,11 +5144,31 @@ class MainWindow(QMainWindow):
         if reason:
             self._status(reason)
 
+    def _update_tile_imagery(self, tile):
+        """The imagery check's "Update Imagery" (#1666): confirm, remove the
+        tile's downloaded imagery, then rebuild it — never during a run."""
+        if self._building:
+            self._status("Wait for the current run to finish, then update the imagery.")
+            return
+        import O4_Imagery_Freshness as FRESH
+        answer = QMessageBox.question(
+            self, FRESH.UPDATE_CONFIRM_TITLE, FRESH.UPDATE_CONFIRM_TEXT,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        if answer != QMessageBox.StandardButton.Ok:
+            return
+        from o4_engine.imagery_commands import discard_for_info
+        reason = self.rebuild_patch_tile(
+            FNAMES.short_latlon(*tile),
+            before_start=lambda: discard_for_info(self._built.get(tuple(tile))))
+        if reason:
+            self._status(reason)
+
     # ------------------------------------------------------------------
-    def rebuild_patch_tile(self, tile_key):
+    def rebuild_patch_tile(self, tile_key, before_start=None):
         """The patch box's "Rebuild tile": select the tile and build it
         through the Build box's own path (its recorded source and zoom);
-        the sentence why not, or None."""
+        the sentence why not, or None.  ``before_start()`` runs once the
+        build is certain to start (outside a run only), just before it."""
         tile = FNAMES.parse_tile_key(tile_key)
         if tile is None:
             return None
@@ -5152,8 +5180,12 @@ class MainWindow(QMainWindow):
             return ("This tile can't be rebuilt now. Turn off “Skip already-built "
                     "tiles” and try again.")
         if not self._building:
+            if before_start is not None:
+                before_start()
             self.start_build()
             return None
+        if before_start is not None:
+            return "Wait for the current run to finish."
         # #1322: a build is running — the tile joins it, with the source
         # and zoom it was built with, unless it is already part of it.
         tile = tuple(tile)
@@ -5216,6 +5248,7 @@ class MainWindow(QMainWindow):
         self._cancel_deferred()
         # The reanchor probe: no result after close, its worker joined.
         self._reanchor_probe.close()
+        self.imagery_freshness_row.close_probe()
         # The 3D preview's building reader runs in a worker process (#753).
         self.patch_editor.engine.close()
         event.accept()

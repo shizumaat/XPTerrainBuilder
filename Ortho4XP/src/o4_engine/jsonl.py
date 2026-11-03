@@ -157,7 +157,8 @@ def _ortho4xp_version() -> str:
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "library_scan", "cache_sizes",
                                "free_cache", "library_delete",
                                "library_export_bundle", "library_import_bundle",
-                               "plan_estimate", "build_airports"})
+                               "plan_estimate", "build_airports",
+                               "imagery_freshness"})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -176,7 +177,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from . import patch_commands, patch_insert
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
-    from .imagery_commands import start_imagery_source_status
+    from .imagery_commands import (
+        imagery_freshness_discard,
+        start_imagery_freshness,
+        start_imagery_source_status,
+    )
     from .mesh_commands import mesh_crop
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
@@ -306,6 +311,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "preview_tile_url": SOURCES.preview_tile_url,
         "imagery_source_status": lambda codes=None: start_imagery_source_status(
             session._emit, codes=codes),
+        # Tile info's imagery check (protocol 1.24, #1666): replies
+        # {"status": "started"} and completes through ImageryFreshnessReady
+        # carrying this command's id — the provider requests stay off THIS
+        # thread.  The discard ("Update Imagery") is synchronous file work.
+        "imagery_freshness": lambda **kw: start_imagery_freshness(
+            session._emit, **kw),
+        "imagery_freshness_discard": imagery_freshness_discard,
     }
 
 

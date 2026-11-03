@@ -557,6 +557,30 @@ final class BuildModel: ObservableObject {
         return try? await client.tileTextureCheck(buildDir: dir)
     }
 
+    /// Does the tile's source still serve its imagery? (protocol 1.24,
+    /// #1666). nil when the engine predates the command or the tile is not
+    /// built — the pane then shows nothing.
+    func imageryFreshness(for coord: TileCoord) async -> O4ImageryFreshness? {
+        connectIfNeeded()
+        guard let client, let base = tileBaseFolder, built[coord] != nil else { return nil }
+        return try? await client.imageryFreshness(
+            lat: coord.lat, lon: coord.lon, workingDir: base.path)
+    }
+
+    /// "Update Imagery"'s removal of the tile's downloaded imagery; the
+    /// engine's sentence when it fails, or nil.
+    func discardTileImagery(_ coord: TileCoord) async -> String? {
+        connectIfNeeded()
+        guard let client, let base = tileBaseFolder else { return "The engine is not running." }
+        do {
+            _ = try await client.discardTileImagery(
+                lat: coord.lat, lon: coord.lon, workingDir: base.path)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     /// Ask the engine again for the badge set: every built and selected
     /// tile, or only `coords` (newly selected tiles). One small cfg read
     /// per tile on the engine side.

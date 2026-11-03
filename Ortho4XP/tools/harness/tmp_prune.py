@@ -67,7 +67,9 @@ def _freed(path: str) -> int:
         size = private_bytes(f)
         if size is None:
             try:
-                size = os.lstat(f).st_blocks * 512
+                st = os.lstat(f)
+                blocks = getattr(st, "st_blocks", None)   # none on Windows
+                size = blocks * 512 if blocks is not None else st.st_size
             except OSError:
                 size = 0
         total += size

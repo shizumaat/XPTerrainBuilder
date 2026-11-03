@@ -28,14 +28,15 @@ mesh at 296-301 m, and pavement draped there showed through the wall.
 Geometry only; no airport is named (RULINGS 2026-10-05e)."""
 from __future__ import annotations
 
+import dataclasses as _dc
 import typing as _t
 
 import shapely
 
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
-from ..model.wall_reach import WALL_SLOPE_REF_PREFIX
+from ..model.wall_reach import WALL_SLOPE_REF_PREFIX, is_wall_slope_ref
 
-__all__ = ["wall_slopes", "SLOPE_VERTEX_M"]
+__all__ = ["wall_slopes", "slope_sides", "SLOPE_VERTEX_M"]
 
 #: the longest ring edge of a wall-slope piece: its face edge carries a
 #: vertex at least this often, so the ground follows the wall's top / foot
@@ -82,4 +83,42 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
             out.append((f"{WALL_SLOPE_REF_PREFIX}{w.resource}#{k}",
                         shapely.segmentize(part, SLOPE_VERTEX_M)))
             k += 1
+    return out
+
+
+def slope_sides(faces: _t.Mapping[int, _t.Any],
+                incident: _t.Mapping[int, _t.Iterable[int]]) -> dict:
+    """``faces`` with every wall-slope piece on THE SIDE OF THE GROUND IT
+    GRADES (#1777).  A piece welded (a shared vertex) to an airside face —
+    a zone band, the apron or a pad it is graded with — directly or through
+    the pieces it is welded to, is airside ground (airside is king); a piece
+    welded to no airside face is ground of its own past the airside's
+    adjacent ground, so groundside (KCLT ``paredes_10_charlotte``: welded to
+    nothing, 6 m from the nearest road).  ``incident`` is every vertex's
+    face ids.  The role stays ``graded_strip``: only the census partition
+    moves."""
+    slope = {fid for fid, f in faces.items() if is_wall_slope_ref(f.ref)}
+    if not slope:
+        return dict(faces)
+    welded: dict[int, set[int]] = {fid: set() for fid in slope}
+    for fids in incident.values():
+        for fid in slope.intersection(fids):
+            welded[fid].update(fids)
+    out = dict(faces)
+    seen: set[int] = set()
+    for start in sorted(slope):
+        if start in seen:
+            continue
+        comp, stack = set(), [start]
+        while stack:
+            fid = stack.pop()
+            if fid not in comp:
+                comp.add(fid)
+                stack.extend(welded[fid] & slope)
+        seen |= comp
+        side = "airside" if any(faces[o].side == "airside" for fid in comp
+                                for o in welded[fid] - slope) else "groundside"
+        for fid in comp:
+            if faces[fid].side != side:
+                out[fid] = _dc.replace(faces[fid], side=side)
     return out

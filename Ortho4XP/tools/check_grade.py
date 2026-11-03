@@ -11593,6 +11593,24 @@ def run_checks_law_true(osm_path, *, family_out: Optional[dict] = None,
         family_out=family_out, **LAW_TRUE_KNOBS, **ctx)
 
 
+#: a way's OWN census side, from the sidecar ``face_sides`` by
+#: ``shapeID`` (#1777) — set only where the face's side is not its role's
+FACE_SIDE_TAG = "o4_face_side"
+
+
+def tag_face_sides(ways, face_sides: Optional[dict]) -> None:
+    """Tag every way whose ``shapeID`` the sidecar ``face_sides`` names
+    with its face's side (:data:`FACE_SIDE_TAG`), which :func:`row_side`
+    reads before the role.  A REPORT partition only: the law's own gate
+    (``_is_groundside``) stays on the role, so no row appears or goes."""
+    if not face_sides:
+        return
+    for w in ways:
+        side = face_sides.get(str(w.tags.get("shapeID")))
+        if side:
+            w.tags[FACE_SIDE_TAG] = side
+
+
 def row_side(row) -> str:
     """AIRSIDE / GROUNDSIDE / MIXED for one violation or step row.
 
@@ -11616,7 +11634,8 @@ def row_side(row) -> str:
     re-siding the law's gate would change which rows exist.
     """
     def _gs(w):
-        return effective_role(w) in _GROUNDSIDE_ROLES
+        side = (getattr(w, "tags", None) or {}).get(FACE_SIDE_TAG)
+        return side == "groundside" if side else effective_role(w) in _GROUNDSIDE_ROLES
     a = getattr(row, "way_a", None) or getattr(row, "way_v", None)
     b = getattr(row, "way_b", None) or getattr(row, "way_e", None)
     if a is None:
@@ -12409,6 +12428,7 @@ def run_checks(
     portal_cuts_ll: Optional[list] = None,
     mesh_edges_ll: Optional[list] = None,
     face_holes_ll: Optional[dict] = None,
+    face_sides: Optional[dict] = None,
     crown_drops_ll: Optional[list] = None,
     pad_relief_ll: Optional[list] = None,
     road_route_frame_ll: Optional[list] = None,
@@ -12519,6 +12539,7 @@ def run_checks(
 
     open_features: Dict[str, List[Way]] = {}
     nodes, ways = _parse_osm(osm_path, feature_out=open_features)
+    tag_face_sides(ways, face_sides)
     # ROLE-LESS FEATURE WAYS SIDE WITH THEIR HOST (lead ruling 2026-08-07),
     # resolved ONCE, before any check runs — so the ONE cap resolver and
     # the ONE side partition both see the host role rather than falling

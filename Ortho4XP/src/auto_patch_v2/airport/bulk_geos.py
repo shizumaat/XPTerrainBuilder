@@ -19,6 +19,18 @@ returned — the identity is by construction, not by tolerance:
   A[i].intersects(B[j])]`` in the same order — an STRtree envelope
   query for the candidates and the SAME unprepared ``GEOSIntersects``
   on them (an envelope-disjoint pair never intersects).
+* :func:`any_within_distance` is ``[any(s.distance(o) <= d for s in
+  sources) for o in others]`` — :func:`within_distance` per source, asked
+  only of the ``others`` whose envelope comes within ``d`` (plus the
+  bracket) of the source's (an envelope farther than ``d`` holds no point
+  within ``d``).  Issue #1709: KIDA's grass resource paired 24,314
+  footprint rings with 44,357 below-zero pieces, 139 s; 0.7 s this way.
+* :func:`intersection_lengths` is ``[l.intersection(poly).length for l in
+  lines]``, each line intersected with only the PARTS of ``poly`` whose
+  envelope meets its own (no part means no intersection, ``0.0``).  The
+  overlay nodes a line against the edges it meets, so the far parts add
+  nothing; measured bitwise-equal on all 24,314 rings of #1709's grass
+  resource (346 s -> 1.5 s against its 5,829-part, 1.36 M-vertex band).
 """
 from __future__ import annotations
 
@@ -27,7 +39,8 @@ import typing as _t
 import numpy as np
 import shapely
 
-__all__ = ["within_distance", "intersecting_pairs"]
+__all__ = ["within_distance", "intersecting_pairs", "any_within_distance",
+           "intersection_lengths"]
 
 #: Metres either side of a distance tolerance inside which the prepared
 #: reading is not trusted and the scalar distance decides.  Double
@@ -79,3 +92,38 @@ def intersecting_pairs(a: _t.Sequence, b: _t.Sequence) -> tuple[np.ndarray, np.n
         qi, ti = qi[ok], ti[ok]
     order = np.lexsort((qi, ti))
     return qi[order], ti[order]
+
+
+def any_within_distance(sources: _t.Sequence, others: _t.Sequence, d: float) -> np.ndarray:
+    """Per ``others`` member, whether any of ``sources`` lies within ``d``
+    of it — :func:`within_distance` behind an envelope prefilter (module
+    doc)."""
+    arr = _geom_array(others)
+    hit = np.zeros(arr.size, dtype=bool)
+    if arr.size == 0:
+        return hit
+    tree = shapely.STRtree(arr)
+    m = float(d) + 2.0 * _BRACKET_M
+    for s in sources:
+        x0, y0, x1, y1 = s.bounds
+        cand = tree.query(shapely.box(x0 - m, y0 - m, x1 + m, y1 + m))
+        cand = cand[~hit[cand]]
+        if cand.size:
+            hit[cand] = within_distance(s, arr[cand], d)
+    return hit
+
+
+def intersection_lengths(lines: _t.Sequence, poly) -> list[float]:
+    """``[l.intersection(poly).length for l in lines]``, each against only
+    the parts of ``poly`` its envelope meets (module doc)."""
+    parts = shapely.get_parts(poly)
+    tree = shapely.STRtree(parts)
+    out: list[float] = []
+    for line in lines:
+        cand = np.sort(tree.query(line))
+        if cand.size == 0:
+            out.append(0.0)
+            continue
+        sub = parts[cand[0]] if cand.size == 1 else shapely.MultiPolygon(list(parts[cand]))
+        out.append(line.intersection(sub).length)
+    return out

@@ -193,9 +193,12 @@ def test_live_map_stays_scannable():
         text = archmap.render_map(pkg, files)
         members = [r for r in files if os.path.dirname(r) == pkg
                    and not os.path.basename(r).startswith("__")]
-        assert len(text.splitlines()) == len(members) + 2, pkg
+        lines = text.splitlines()
+        if lines[-1].startswith("subpackages: "):    # airport/pack_optimise (#1707)
+            lines = lines[:-1]
+        assert len(lines) == len(members) + 2, pkg
         assert len(text) <= 100 * len(members) + 200, (pkg, len(text))
-        assert max(len(l) for l in text.splitlines()[2:]) <= 180, pkg
+        assert max(len(l) for l in lines[2:]) <= 180, pkg
 
 
 def test_every_v2_module_has_a_docstring_and_declares_all():

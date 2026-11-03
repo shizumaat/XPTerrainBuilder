@@ -44,12 +44,14 @@ def _obj_triangles(path: str) -> int:
 
 
 def estimate(pack_root: str, lines: _t.Sequence[str],
-             drop: _t.AbstractSet[int]) -> dict[str, int]:
+             drop: _t.AbstractSet[int], top: int = 0) -> dict[str, _t.Any]:
     """``{"tris_before", "tris_after", "placements"}`` of the pack's own
     objects in the dump ``lines``, ``drop`` being the ordinals the recipe
-    deletes."""
+    deletes.  ``top`` adds ``"top"``: the heaviest definitions,
+    ``(tris x placements, tris, placements, path)`` (``tools/pack_weight.py``)."""
     defs = declared_definitions(lines)["object"]
     tris: dict[int, int] = {}
+    uses: dict[int, int] = {}
     before = after = placements = 0
     for o, _i, toks in placement_rows(lines):
         d = int(toks[1])
@@ -60,8 +62,13 @@ def estimate(pack_root: str, lines: _t.Sequence[str],
         if not tris[d]:
             continue
         placements += 1
+        uses[d] = uses.get(d, 0) + 1
         before += tris[d]
         if o not in drop:
             after += tris[d]
-    return {"tris_before": before, "tris_after": after,
-            "placements": placements}
+    out: dict[str, _t.Any] = {"tris_before": before, "tris_after": after,
+                              "placements": placements}
+    if top:
+        out["top"] = sorted(((tris[d] * n, tris[d], n, defs[d])
+                             for d, n in uses.items()), reverse=True)[:top]
+    return out

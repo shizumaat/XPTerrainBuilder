@@ -161,3 +161,18 @@ def test_an_airport_restore_keeps_the_optimise(rp):
     assert out.state != UP.UNPROVEN
     assert len(FX.rows(rp)) == 4 and not FX.entry(rp).get("airports")
     assert FX.entry(rp)[PO.RECORD_KEY]["accepted"] is True
+
+
+def test_the_pack_weight_tool_reads_what_the_offer_reads(tmp_path, monkeypatch, capsys):
+    """``tools/pack_weight.py`` (the promoted packstat counter) on the
+    synthetic pack's dump, no DSFTool."""
+    import runpy
+    rp = FX.make_pack(tmp_path, monkeypatch)
+    tool = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "tools", "pack_weight.py")
+    main = runpy.run_path(tool)["main"]
+    assert main([str(rp.pack), "--text", str(rp.dsf), "--json", "--top", "1"]) == 0
+    row = __import__("json").loads(capsys.readouterr().out)[rp.dsf.name]
+    assert (row["tris_before"], row["tris_after"], row["dropped"]) == (3600, 2400, 2)
+    assert row["top"] == [[3000, 1000, 3, "objects/car.obj"]]
+    assert row["offered"] is False, "6 placements are nowhere near 50 M"

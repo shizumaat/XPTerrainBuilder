@@ -581,6 +581,35 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    /// Which packs' ground X-Plane draws instead of the tile, or the local
+    /// meshes it hides (protocol 1.28, #1729). nil when the engine predates
+    /// the command or the tile has no folder — the pane then shows nothing.
+    func tileMeshOrder(for coord: TileCoord) async -> O4TileMeshOrder? {
+        connectIfNeeded()
+        guard let client, let dir = built[coord]?.buildDir, !dir.isEmpty,
+              !customSceneryPath.isEmpty else { return nil }
+        return try? await client.tileMeshOrder(
+            lat: coord.lat, lon: coord.lon, buildDir: dir, customSceneryDir: customSceneryPath)
+    }
+
+    /// The user's scenery-order choice for the tile, written by the engine.
+    func applyMeshOrder(for coord: TileCoord, action: String,
+                        pack: String) async -> Result<O4TileMeshOrder, O4CommandError> {
+        connectIfNeeded()
+        guard let client, let dir = built[coord]?.buildDir, !dir.isEmpty else {
+            return .failure(O4CommandError("The engine is not running."))
+        }
+        do {
+            return .success(try await client.applyMeshOrder(
+                lat: coord.lat, lon: coord.lon, buildDir: dir,
+                customSceneryDir: customSceneryPath, action: action, pack: pack))
+        } catch let error as O4CommandError {
+            return .failure(error)
+        } catch {
+            return .failure(O4CommandError(error.localizedDescription))
+        }
+    }
+
     /// Ask the engine again for the badge set: every built and selected
     /// tile, or only `coords` (newly selected tiles). One small cfg read
     /// per tile on the engine side.

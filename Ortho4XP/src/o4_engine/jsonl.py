@@ -173,6 +173,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # not wait for.
     import O4_Imagery_Sources as SOURCES
     from O4_Tile_Customizations import tile_customizations
+    from O4_Mesh_Order import apply_mesh_order, tile_mesh_order
     from O4_Tile_Texture_Check import tile_texture_check
 
     from . import patch_commands, patch_insert
@@ -214,6 +215,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # terrain files name that its textures folder lacks — the tile X-Plane
         # will not load.  Synchronous directory and .ter reads, one tile.
         "tile_texture_check": tile_texture_check,
+        # Scenery order on a tile (protocol 1.28, #1729): the packs whose
+        # base mesh X-Plane draws instead of the tile, or the local meshes
+        # the tile hides; and the user's choice written into
+        # scenery_packs.ini.  Synchronous: one DSF header per pack listed
+        # for the tile, and one ini write.
+        "tile_mesh_order": tile_mesh_order,
+        "apply_mesh_order": apply_mesh_order,
         "links_status": session.links_status,
         "links_install": session.links_install,
         "links_uninstall": session.links_uninstall,

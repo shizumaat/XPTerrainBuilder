@@ -132,6 +132,11 @@ REMEDIES = {
     "unmounted_output": "{connect} and build the tile again, or remove the "
                         "link to build on this computer's drive.",
     "unmounted_pack": "{connect} and build the tile again.",
+    # the scenery-order buttons both apps show in the tile's info (#1729)
+    "mesh_order": "Move the tile above that scenery, or disable it, from "
+                  "the tile's info.",
+    "mesh_order_lower": "To show that scenery's ground, move the tile "
+                        "below it from the tile's info.",
     "elevation_link": "{connect}, or replace the link with an empty "
                       "folder, then build the tile again.",
 }
@@ -264,6 +269,18 @@ CATALOGUE = {
         "The map data for {category} could not be downloaded, so those "
         "areas are not shaded as shallow water.", "network",
         severity="degraded"),
+    # the scenery order on the tile (#1729, O4_Mesh_Order): another pack's
+    # ground drawn instead of ours, or ours drawn over a local mesh
+    "scenery_hidden_by_mesh": Entry(
+        "X-Plane will not show it: {pack} draws its own ground there.",
+        "That scenery ships a base mesh for this tile and is above the tile "
+        "in X-Plane's scenery order; X-Plane draws only the first one.",
+        "mesh_order", severity="degraded"),
+    "scenery_hides_mesh": Entry(
+        "it hides the ground of {pack}.",
+        "That scenery ships a base mesh for a small part of this tile, such "
+        "as an airport, and is below the tile in X-Plane's scenery order.",
+        "mesh_order_lower", severity="degraded"),
     # ── whole tile ─────────────────────────────────────────────────────
     "elevation_download_failed": Entry(
         "its elevation data could not be downloaded.",

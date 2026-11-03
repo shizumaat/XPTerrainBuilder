@@ -151,7 +151,13 @@ from typing import Any, Optional
 # info's "Imagery check" row), completed through ImageryFreshnessReady;
 # and ``imagery_freshness_discard``, the "Update Imagery" action's removal
 # of the tile's cached orthophotos before the rebuild.
-PROTOCOL_VERSION = "1.27"
+# 1.28 (2026-11-02, additive, #1729): ``tile_mesh_order`` — the packs
+# above a tile in X-Plane's scenery order that ship a base mesh for it
+# (``hidden_by``) and the local meshes below it the tile hides
+# (``hides``); ``apply_mesh_order`` moves the tile above / below a pack or
+# disables it in scenery_packs.ini.  A built tile's ``BuildDone.warnings``
+# name the same (codes ``scenery_hidden_by_mesh`` / ``scenery_hides_mesh``).
+PROTOCOL_VERSION = "1.28"
 
 
 @dataclass(frozen=True)

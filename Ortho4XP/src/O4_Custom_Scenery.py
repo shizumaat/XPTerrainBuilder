@@ -35,6 +35,8 @@ __all__ = [
     "PACK_KINDS",
     "disabled_pack_names",
     "iter_packs",
+    "pack_tiles",
+    "pack_kind",
     "scan_packs",
     "packs_covering",
     "pack_imagery",
@@ -197,7 +199,7 @@ def pack_imagery(content_root: str) -> Optional[Tuple[str, Optional[int]]]:
     return None
 
 
-def _pack_tiles(content_root: str) -> frozenset:
+def pack_tiles(content_root: str) -> frozenset:
     """(lat, lon) of every ``Earth nav data`` DSF the pack ships.
 
     The tree is two levels deep by X-Plane's own convention
@@ -328,6 +330,12 @@ def _classify(name: str, content_root: str, tiles: frozenset,
     return "mesh" if "mesh" in lower else "landmark"
 
 
+def pack_kind(name: str, content_root: str) -> str:
+    """One pack's kind (:data:`PACK_KINDS`), read the way a scan reads it."""
+    return _classify(name, content_root, pack_tiles(content_root),
+                     _pack_airports(content_root))
+
+
 def iter_packs(scenery_dir: str,
                exclude_roots: Sequence[str] = ()) -> Iterator[tuple]:
     """Yield ``(done, total, pack_or_None)`` for every Custom Scenery entry.
@@ -355,7 +363,7 @@ def iter_packs(scenery_dir: str,
                 and os.path.isdir(path)):
             content_root = os.path.realpath(path)
             if content_root not in excluded:
-                tiles = _pack_tiles(content_root)
+                tiles = pack_tiles(content_root)
                 airports = _pack_airports(content_root)
                 if tiles or airports:
                     kind = _classify(entry, content_root, tiles, airports)

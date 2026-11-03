@@ -52,6 +52,8 @@ struct BuildPane: View {
     @State private var customizations: [O4TileCustomization] = []
     @State private var textureCheck: O4TileTextureCheck?
     @State private var imageryFreshness: O4ImageryFreshness?
+    /// The active tile's scenery order (#1729), from the engine.
+    @State private var meshOrder: O4TileMeshOrder?
     @Environment(\.openSettings) private var openSettings
 
     /// The tile pane's customized-settings words; the Qt pane uses the
@@ -127,6 +129,14 @@ struct BuildPane: View {
                 return await buildModel.imageryFreshness(for: coord)
             },
             freshness: $imageryFreshness))
+        .modifier(TileMeshOrderTask(
+            key: buildModel.tileMeshOrderKey(for: buildModel.activeTile,
+                                             packs: controller.installationPacks.count),
+            load: { [buildModel] in
+                guard let coord = buildModel.activeTile else { return nil }
+                return await buildModel.tileMeshOrder(for: coord)
+            },
+            order: $meshOrder))
         .task(id: customizationsKey) {
             guard let coord = buildModel.activeTile else {
                 customizations = []
@@ -236,6 +246,9 @@ struct BuildPane: View {
             if info != nil {
                 TileMissingTexturesRow(check: textureCheck) {
                     buildModel.rebuildWithItsImagery(active)
+                }
+                TileMeshOrderRow(order: $meshOrder) { action, pack in
+                    await buildModel.applyMeshOrder(for: active, action: action, pack: pack)
                 }
             }
             detailRow(O4Glossary.term("detail"), zlText(info))

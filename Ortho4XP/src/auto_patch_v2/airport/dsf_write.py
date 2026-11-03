@@ -1222,8 +1222,8 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
 
     A sibling is re-applied only when its edits were built against THIS
     pristine dump (``dsf_dump_key.row_is_current``: the dump keyed with
-    its HEIGHTS row excluded, #1584; a row from before that key is
-    re-keyed here) and parse; a stale or garbled row is dropped — with a
+    its HEIGHTS row and ``# file:`` path excluded, #1584/#1799; a row
+    from before that key is re-keyed here) and parse; a stale or garbled row is dropped — with a
     note — and its bodies become orphans the write removes.  So is
     every airport named in ``drop`` (RULINGS 2026-10-12d: an airport left
     without a patch is no longer seated).
@@ -1232,6 +1232,7 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
     if not isinstance(airports, dict):
         return [], {}
     key, printed = _dk.dump_key(text), _dk.printed_sha(text)
+    path_key = _dk.path_dump_key(text)
     plans: list[PlacementPlan] = []
     keep: dict[str, dict] = {}
     for icao in sorted(airports):
@@ -1239,7 +1240,7 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
             continue
         row = airports.get(icao)
         if not isinstance(row, dict) or not _dk.row_is_current(
-                row, entry, key, printed, backup_sha):
+                row, entry, key, printed, backup_sha, path_key):
             if notes is not None:
                 notes.append(f"{icao}: its recorded edits were built against "
                              f"another version of this DSF and were not "
@@ -1498,6 +1499,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         "backup_size": bak_stat.st_size,
         "backup_mtime_ns": bak_stat.st_mtime_ns,
         "dump_sha256": dump_sha,
+        _dk.KEY_FIELD: _dk.dump_key(text),               # #1799
         "written_sha256": sha256_file(out_dsf),
         "prior_written_sha256": prior,
         "written_size": None,

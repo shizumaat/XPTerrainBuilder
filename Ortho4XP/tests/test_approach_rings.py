@@ -2051,3 +2051,40 @@ def test_ensure_probes_the_footprint_before_the_plan(tmp_path, monkeypatch):
     RINGS.ensure_approach_rings(tile, _dico(KASE=_boundary(0.5, 0.5)))
     assert probed and set(probed[0]) == {"FINE", "COARSE"}
     assert fetched and "FINE" not in fetched
+
+
+def test_use_coarser_data_leaves_the_remaining_cells_on_the_base(
+    tmp_path, monkeypatch
+):
+    """#1351: the slow-step alert's "Use coarser data" — once asked, the
+    ring pass fetches no further cell; those cells get NO outcome (the
+    next build fetches them), the fetched one is kept, and the tile
+    counts the cells it left on the base elevation."""
+    from o4_engine import task_meter
+
+    task_meter._reset_for_tests()
+    records = []
+    _fetching_registry(
+        monkeypatch, [_usgs_shaped(), _point_cloud_definition()], records
+    )
+    writer = INSETS.fetch_inset
+
+    def fetch_then_ask(*args):
+        result = writer(*args)
+        assert task_meter.request_coarser(RINGS.APPROACH_RING_PHASE)
+        return result
+
+    monkeypatch.setattr(INSETS, "fetch_inset", fetch_then_ask)
+    monkeypatch.setattr(RINGS, "APPROACH_RING_FETCH_WORKERS", 1)
+    tile = _tile(tmp_path, monkeypatch)
+    dico = _dico(KASE=_boundary(0.5, 0.5))
+    plan = RINGS.resolve_approach_ring_plan(tile, dico)
+    planned = [c for c in plan["cells"] if c["provider"]]
+    assert len(planned) > 1
+    fetched = RINGS.ensure_approach_rings(tile, dico)
+    assert fetched == 1 == len(records)
+    assert tile.rings_coarsened_last_build == len(planned) - 1
+    outcomes = RINGS.read_approach_ring_stamp(TILE_LAT, TILE_LON)["cells"]
+    assert sorted(outcomes.values()) == ["ok"]
+    # the phase is over: its request does not outlive it
+    assert not task_meter.coarser_requested(RINGS.APPROACH_RING_PHASE)

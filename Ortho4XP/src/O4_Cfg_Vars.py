@@ -200,6 +200,26 @@ cfg_app_vars = {
         },
         "hint": "How many tiles build at the same time when several are queued. 0 (the default) means Auto: one tile per processor core, reduced only when the machine has too little free memory to feed that many workers. Memory is guarded per STEP rather than per slot — a run never projects more than eighty per cent of the memory the machine can hand out onto the steps it has started, so the multi-gigabyte rasters of the fine elevation detail levels are scheduled around each other automatically. Politeness to the OpenStreetMap and imagery servers is handled separately — at most four tiles fetch from either at once however many slots you run, and a tile whose data is already downloaded never waits for that budget — so extra slots buy processor parallelism only. Explicit values are honoured above or below Auto. 1 builds tiles one after another in the application process (the historic behaviour); higher values run each tile in its own worker process. Parallel conversion workers automatically share the processor between concurrent tiles.",
     },
+    "slow_step_alert_minutes": {
+        "type": int,
+        "default": 5,
+        "values": (0, 5, 10, 15, 30, 60),
+        "value_labels": {
+            0: "Off",
+            5: "5 minutes",
+            10: "10 minutes",
+            15: "15 minutes",
+            30: "30 minutes",
+            60: "1 hour",
+        },
+        "hint": (
+            "When one build step of a tile runs longer than this, and "
+            "longer than this machine's earlier builds of that step, the "
+            "app says what the step is doing, why it is slow and when it "
+            "should finish, and offers to continue, to finish on coarser "
+            "data where the step can, or to cancel the tile. Off never "
+            "asks."),
+    },
     "check_tms_response": {
         "module": "IMG",
         "type": bool,
@@ -848,6 +868,7 @@ list_app_vars = [
     "max_download_slots",
     "max_convert_slots",
     "max_build_slots",
+    "slow_step_alert_minutes",
     "check_tms_response",
     "http_timeout",
     "max_connect_retries",

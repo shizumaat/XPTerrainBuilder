@@ -77,6 +77,12 @@ struct BuildPane: View {
             } else {
                 RunListLayout {
                     VStack(alignment: .leading, spacing: 12) {
+                        // Slow steps (#1351): non-modal, the build goes on.
+                        ForEach(buildModel.slowSteps) { step in
+                            SlowStepBanner(step: step) { choice in
+                                buildModel.answerSlowStep(step, choice: choice)
+                            }
+                        }
                         box("Selection") { selectionBox }
                         box("Build") { buildBox }
                         PatchInspector(model: buildModel.patchEdit)

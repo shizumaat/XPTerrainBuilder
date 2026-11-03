@@ -192,6 +192,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "enqueue_build": session.enqueue_build,
         "cancel": session.cancel,
         "cancel_tile": session.cancel_tile,
+        # The answer to a SlowStep alert (protocol 1.26, #1351).
+        "slow_step_choice": session.slow_step_choice,
         "siblings": session.set_parallel_siblings,
         "tile_info": session.tile_info,
         "config_describe": session.config_describe,

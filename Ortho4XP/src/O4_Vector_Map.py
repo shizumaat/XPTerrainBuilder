@@ -1602,8 +1602,26 @@ def load_airports_and_prepare_dem(tile):
     # No-op -- and a byte-identical build -- when approach_rings is off,
     # no aerodrome on the tile holds an inset, or custom_dem is set.
     ELEVATION_LEVEL.ensure_approach_rings(tile, dico_airports)
+    _record_coarsened_rings(tile)
     compose_tile_dem_from_disk(tile, dico_airports)
     return (airport_layer, dico_airports)
+
+
+def _record_coarsened_rings(tile):
+    """Restate the ring cells the user's "Use coarser data" (#1351) left on
+    the base elevation this run as the tile's DEGRADED output
+    ``elevation_coarsened`` (an empty list clears an earlier run's)."""
+    cells = int(getattr(tile, "rings_coarsened_last_build", 0) or 0)
+    rows = []
+    if cells:
+        UI.lvprint(0, "   WARNING: %d approach elevation area(s) of tile "
+                      "%+03d%+04d were left on the base elevation (Use "
+                      "coarser data); the next build fetches them."
+                   % (cells, tile.lat, tile.lon))
+        rows = [{"code": "elevation_coarsened",
+                 "detail": "%d approach ring cell(s) skipped" % cells,
+                 "areas": "%d area(s)" % cells}]
+    UNPATCHED.record_degraded(tile, "approach-rings", rows)
 
 
 ################################################################################

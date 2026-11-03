@@ -1096,6 +1096,7 @@ final class BuildModel: ObservableObject {
             isBuilding = false
             isStopping = false
             runStorageAutoClean()
+            slowSteps = []
             var parts = ["\(done) tile\(done == 1 ? "" : "s") built"]
             let warned = runIssueLog.warnedCount
             if warned > 0 { parts.append("\(warned) with warnings") }
@@ -1152,6 +1153,8 @@ final class BuildModel: ObservableObject {
             packMissingArt(art)
         case .packOldForests(let forests):
             packOldForests(forests)
+        case .slowStep(let step):
+            slowStep(step)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -1975,6 +1978,36 @@ final class BuildModel: ObservableObject {
             client?.omitMissingArt(packRoot: art.packRoot, lat: art.lat, lon: art.lon)
         }
         packArtPrompt = packArtQueue.isEmpty ? nil : packArtQueue.removeFirst()
+    }
+
+    /// The open slow-step alerts (#1351), one per tile and step, in
+    /// arrival order — shown non-modally at the top of the Build pane.
+    @Published var slowSteps: [O4SlowStep] = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_slow_step`): a later
+    /// event of the same tile and step replaces the open alert in place;
+    /// `resolved` closes it.
+    private func slowStep(_ step: O4SlowStep) {
+        let index = slowSteps.firstIndex { $0.id == step.id }
+        if step.resolved {
+            if let index { slowSteps.remove(at: index) }
+        } else if let index {
+            slowSteps[index] = step
+        } else {
+            slowSteps.append(step)
+        }
+    }
+
+    /// The user's answer to a slow-step alert: "cancel" is the row's own
+    /// per-tile stop; any other answer goes to the engine. The alert
+    /// closes at once (the engine's `resolved` follows).
+    func answerSlowStep(_ step: O4SlowStep, choice: String) {
+        slowSteps.removeAll { $0.id == step.id }
+        if choice == "cancel" {
+            cancelTile(TileCoord(lat: step.lat, lon: step.lon))
+        } else {
+            client?.slowStepChoice(lat: step.lat, lon: step.lon, choice: choice)
+        }
     }
 
     /// The "3D trees" question to present, or nil (#1360).

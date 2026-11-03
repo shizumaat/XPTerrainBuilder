@@ -594,6 +594,8 @@ _FORWARDED_EVENT_TYPES = (
     "PackMissingArt",
     # #1360: ... and a pack whose old flat forests have 3D equivalents.
     "PackOldForests",
+    # #1351: the running step's slow-step alert (the child owns the clock).
+    "SlowStep",
     "Log",
 )
 
@@ -1722,6 +1724,18 @@ class ParallelBuildRun:
             self._session._emit(self._stopped_state(tile, attempt))
             self._maybe_finish()
         return accepted
+
+    def slow_step_choice(self, tile, choice):
+        """Hand the user's slow-step answer (#1351) to the child running
+        the tile's step; False when no child is running one."""
+        with self._lock:
+            for child in self._children:
+                if (child.tile == tile and not child.retired
+                        and child.running_step is not None):
+                    return child.send({"cmd": "slow_step_choice",
+                                       "lat": tile[0], "lon": tile[1],
+                                       "choice": choice})
+        return False
 
     def cancel_all(self):
         with self._lock:

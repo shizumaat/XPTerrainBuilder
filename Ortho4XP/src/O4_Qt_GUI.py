@@ -103,6 +103,7 @@ import O4_Qt_Build_History as QTHIST
 import O4_Qt_Build_Airports as QTAIRPORTS
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Pack_Forests as QTFOREST
+import O4_Qt_Slow_Step as QTSLOW
 import O4_Qt_Latest_Probe as QTPROBE
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
@@ -890,6 +891,7 @@ class MainWindow(QMainWindow):
             EV.PackMissingArt: self._on_pack_missing_art,
             EV.ImagerySourceStatus: self._on_imagery_source_status,
             EV.PackOldForests: self._on_pack_old_forests,
+            EV.SlowStep: self._on_slow_step,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
@@ -901,6 +903,8 @@ class MainWindow(QMainWindow):
         # #1360: the 3D trees questions already asked (one per pack, tile
         # and set); their open boxes live in _pack_art_boxes too.
         self._pack_forests_seen = set()
+        # #1351: the open slow-step boxes, by (lat, lon, step key).
+        self._slow_step_boxes = {}
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
         # #695: fixable failures, asked one at a time as each tile fails;
@@ -4877,6 +4881,42 @@ class MainWindow(QMainWindow):
         self._pack_art_boxes.append(box)
         box.show()
 
+    def _on_slow_step(self, event):
+        """#1351: a slow step of one tile, shown non-modally.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .slowStep``): a later event of the same tile and step replaces the
+        open box's words, ``resolved`` closes it.  "Cancel this tile" is
+        the row's stop sign; the other answers go to the engine."""
+        key = QTSLOW.alert_key(event)
+        open_box = self._slow_step_boxes.get(key)
+        if getattr(event, "resolved", False):
+            if open_box is not None:
+                self._slow_step_boxes.pop(key, None)
+                open_box.close()
+            return
+        if open_box is not None:
+            QTSLOW.update_slow_step_box(open_box, event)
+            return
+        box, buttons = QTSLOW.slow_step_box(event, parent=self)
+        tile = (key[0], key[1])
+
+        def finished(_result, box=box, buttons=buttons):
+            if self._slow_step_boxes.get(key) is not box:
+                return                   # closed by the engine: no answer
+            self._slow_step_boxes.pop(key, None)
+            for choice, button in buttons.items():
+                if box.clickedButton() is button:
+                    if choice == "cancel":
+                        self._cancel_tile_clicked(tile)
+                    else:
+                        self._session.slow_step_choice(tile[0], tile[1],
+                                                       choice)
+
+        box.finished.connect(finished)
+        self._slow_step_boxes[key] = box
+        box.show()
+
     def _undo_pack_forests(self, pack):
         """#1360: the pack row's tree button — every upgraded DSF of the
         pack gets its original forest definitions back (the engine
@@ -4954,6 +4994,9 @@ class MainWindow(QMainWindow):
     def _on_run_done(self, event):
         self._building = False
         self._storage_auto_clean()
+        for box in list(self._slow_step_boxes.values()):
+            box.close()
+        self._slow_step_boxes = {}
         self._last_run_eta = None
         # The window describes the run that just ended; the next run's
         # estimate is judged on its own samples.

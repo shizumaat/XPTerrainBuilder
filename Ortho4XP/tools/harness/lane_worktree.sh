@@ -234,7 +234,7 @@ lane_cap_gate() {
     echo "  oldest lane worktrees still standing (last HEAD move, branch):" >&2
     printf '%s\n' "$_lanes" | while IFS= read -r _w; do
         _gd=$(git -C "$_w" rev-parse --absolute-git-dir 2>/dev/null) || continue
-        _m=$(stat -f %m "$_gd/HEAD" 2>/dev/null || stat -c %Y "$_gd/HEAD" 2>/dev/null || echo 0)
+        _m=$(stat -c %Y "$_gd/HEAD" 2>/dev/null || stat -f %m "$_gd/HEAD" 2>/dev/null || echo 0)
         printf '%s %s %s\n' "$_m" "$_w" \
             "$(git -C "$_w" branch --show-current 2>/dev/null)"
     done | sort -n | head -10 | while read -r _m _w _b; do

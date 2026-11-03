@@ -39,7 +39,10 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-__all__ = ["flat_groups"]
+__all__ = ["flat_groups", "WITNESS_MAX"]
+
+#: at most this many stand-side feet witness the group's zero
+WITNESS_MAX = 256
 
 
 def _part_footprints(airport, to_xy, wall_min: float):
@@ -162,8 +165,13 @@ def flat_groups(pads: _t.Mapping[str, _t.Any], air, airport, law) -> dict[str, d
             if d <= ag.STAND_M:
                 n_of[b] = n_of.get(b, 0) + 1
         lead = max(sorted(bs), key=lambda b: n_of.get(b, 0))
+        # the WITNESSES the object stage reads the zero on (frame xy, y),
+        # at most WITNESS_MAX of them evenly sampled
+        idx = np.flatnonzero(sel)[::max(1, -(-int(sel.sum()) // WITNESS_MAX))]
+        wit = (tuple((round(float(F[i, 1]), 3), round(float(F[i, 2]), 3)) for i in idx),
+               tuple(round(float(F[i, 3]), 3) for i in idx))
         for b in bs:
             out[b] = {"lead": lead, "group": len(bs), "feet": n_of.get(b, 0),
                       "share": round(share, 3), "relief_m": round(relief, 2),
-                      "y_plane": round(t, 3)}
+                      "y_plane": round(t, 3), "air_xy": wit[0], "air_y": wit[1]}
     return out

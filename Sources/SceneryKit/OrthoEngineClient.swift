@@ -1053,17 +1053,24 @@ extension OrthoEngineClient {
     }
 
     /// "Insert shape" planned at a point (protocol 1.20, #1314); ask again
-    /// while the reply is `pending`.
-    public func patchInsertShape(lat: Double, lon: Double, buildDir: String? = nil) async throws -> O4PatchInsertShape {
+    /// while the reply is `pending`. `kind` nil is the square; "tunnel_ramp"
+    /// is "Insert tunnel ramp" (protocol 1.24, #1745).
+    public func patchInsertShape(lat: Double, lon: Double, buildDir: String? = nil,
+                                 kind: String? = nil) async throws -> O4PatchInsertShape {
         var arguments: [String: Any] = ["lat": lat, "lon": lon]
         if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        if let kind { arguments["kind"] = kind }
         return try await request("patch_insert_shape", arguments)
     }
 
     /// Append the planned corners to `icao`'s patch on disk (protocol 1.20,
     /// #1314) — for an airport whose patch is not the open document.
-    public func patchAddShape(tile: String, icao: String, corners: [[Double]]) async throws -> O4PatchAddShape {
-        try await request("patch_add_shape", ["tile": tile, "icao": icao, "corners": corners])
+    /// `tags` (protocol 1.24, #1745) are sent only when there are any.
+    public func patchAddShape(tile: String, icao: String, corners: [[Double]],
+                              tags: [String: String] = [:]) async throws -> O4PatchAddShape {
+        var arguments: [String: Any] = ["tile": tile, "icao": icao, "corners": corners]
+        if !tags.isEmpty { arguments["tags"] = tags }
+        return try await request("patch_add_shape", arguments)
     }
 
     /// The terrain view's picture over `bbox` (protocol 1.15, #1320):

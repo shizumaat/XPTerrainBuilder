@@ -360,7 +360,10 @@ public struct O4CursorElevation: Decodable, Equatable, Sendable {
 /// the engine — the airport whose extent holds the click, the patch the
 /// build applies for it (nil when it has none) and the square's corners
 /// `[lat, lon, alt]` at the elevation under them. `pending` (and nothing
-/// else) while an elevation source loads: ask again.
+/// else) while an elevation source loads: ask again. From protocol 1.24
+/// (#1745) the plan also names its `kind` (`square` / `tunnel_ramp`) and
+/// the `tags` the new shape carries; a tunnel ramp's `lengthM` / `widthM`
+/// / `depthM` / `grade` are the tunnel law's.
 public struct O4PatchInsertShape: Decodable, Equatable, Sendable {
     public let pending: Bool
     public let tile: String?
@@ -369,9 +372,16 @@ public struct O4PatchInsertShape: Decodable, Equatable, Sendable {
     public let source: String?
     public let sideM: Double?
     public let corners: [[Double]]?
+    public let kind: String?
+    public let tags: [String: String]?
+    public let lengthM: Double?
+    public let widthM: Double?
+    public let depthM: Double?
+    public let grade: Double?
 
     private enum CodingKeys: String, CodingKey {
-        case pending, tile, icao, path, source, sideM = "side_m", corners
+        case pending, tile, icao, path, source, sideM = "side_m", corners, kind, tags,
+             lengthM = "length_m", widthM = "width_m", depthM = "depth_m", grade
     }
 }
 
@@ -393,6 +403,12 @@ extension O4ProtocolVersion {
     /// `patch_insert_shape` / `patch_add_shape` exist from protocol 1.20.
     public static func supportsInsertShape(_ version: String) -> Bool {
         isAtLeast(version, 1, 20)
+    }
+
+    /// `patch_insert_shape(kind: "tunnel_ramp")` and `patch_add_shape`'s
+    /// `tags` exist from protocol 1.24 (#1745).
+    public static func supportsInsertTunnelRamp(_ version: String) -> Bool {
+        isAtLeast(version, 1, 24)
     }
 }
 

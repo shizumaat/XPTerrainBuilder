@@ -172,3 +172,65 @@ def test_the_transport_has_both_commands_from_protocol_1_17():
     assert table["patch_insert_shape"] is PI.patch_insert_shape
     assert table["patch_add_shape"] is PI.patch_add_shape
     assert tuple(int(p) for p in EV.PROTOCOL_VERSION.split(".")) >= (1, 17)
+
+
+# ─── "Insert tunnel ramp" (#1745, protocol 1.24) ───────────────────────────
+
+def test_the_ramp_is_sized_from_the_tunnel_law():
+    from auto_patch_v2.law.tables import load_default
+    from o4_engine import patch_ramp as PR
+    t = load_default().tables.structures.tunnel
+    dims = PR.ramp_dimensions()
+    assert dims == {"depth_m": t.mouth_depth_m, "grade": t.ramp_max_grade,
+                    "length_m": t.mouth_depth_m / t.ramp_max_grade,
+                    "width_m": t.lane_width_m * t.default_lanes}
+    assert dims["depth_m"] == pytest.approx(7.5) and dims["length_m"] == pytest.approx(75.0)
+
+
+def test_the_ramp_carries_the_emitters_tunnel_ramp_tags():
+    from o4_engine import patch_ramp as PR
+    assert PR.ramp_tags() == {"aeroway": "taxiway", "ref": "tunnel_ramp", "role": "tunnel_ramp"}
+
+
+def test_the_ramp_descends_the_mouth_depth_northward_at_the_cap():
+    pyproj = pytest.importorskip("pyproj")
+    from o4_engine import patch_ramp as PR
+    geod = pyproj.Geod(ellps="WGS84")
+    ring = PR.ramp_corners(PR.ramp_ring(45.5, -122.6), 100.0, 104.0)
+    dims = PR.ramp_dimensions()
+    (sw, se, ne, nw) = ring
+    assert [c[2] for c in ring] == [100.0, 104.0, 104.0 - 7.5, 100.0 - 7.5]
+    assert geod.inv(sw[1], sw[0], se[1], se[0])[2] == pytest.approx(dims["width_m"], abs=0.01)
+    for top, floor in ((sw, nw), (se, ne)):
+        run = geod.inv(top[1], top[0], floor[1], floor[0])[2]
+        assert run == pytest.approx(dims["length_m"], abs=0.01) and floor[0] > top[0]
+        assert (top[2] - floor[2]) / run == pytest.approx(dims["grade"], abs=1e-4)
+
+
+def test_insert_tunnel_ramp_plans_the_tagged_ramp(patches):
+    from o4_engine import patch_ramp as PR
+    plan = PI.patch_insert_shape(30.105, 31.405, kind="tunnel_ramp")
+    assert plan["kind"] == "tunnel_ramp" and plan["icao"] == "ZZZZ"
+    assert plan["tags"] == PR.ramp_tags() and plan["length_m"] == pytest.approx(75.0)
+    assert [c[2] for c in plan["corners"]] == [50.0, 51.0, 51.0 - 7.5, 50.0 - 7.5]
+    square = PI.patch_insert_shape(30.105, 31.405)
+    assert square["kind"] == "square" and square["tags"] == {} and square["side_m"] == 20.0
+
+
+def test_insert_shape_refuses_an_unknown_kind(patches):
+    with pytest.raises(ValueError, match="kind must be one of square, tunnel_ramp"):
+        PI.patch_insert_shape(30.105, 31.405, kind="bridge")
+
+
+def test_add_tunnel_ramp_saves_its_tags(patches):
+    from o4_engine import patch_ramp as PR
+    plan = PI.patch_insert_shape(30.2, 31.35, kind="tunnel_ramp")
+    reply = PI.patch_add_shape(TILE, "ZZZY", plan["corners"], plan["tags"])
+    assert "with a tunnel ramp." in reply["message"]
+    loaded = PC.patch_load(TILE, "ZZZY")
+    assert [w["tags"] for w in loaded["ways"]] == [PR.ramp_tags()]
+    assert sorted(n[3] for n in loaded["nodes"])[:2] == [42.5, 43.5]
+
+
+def test_the_ramp_is_protocol_1_24():
+    assert tuple(int(p) for p in EV.PROTOCOL_VERSION.split(".")) >= (1, 24)

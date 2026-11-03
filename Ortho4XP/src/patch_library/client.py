@@ -21,9 +21,10 @@ import urllib.request
 from . import INDEX_FORMAT, LibraryRefused
 from . import config as _config
 from . import layout as L
+from .terms import DEFAULT_LICENCES
 
 __all__ = ["INDEX_MAX_AGE_S", "TIMEOUT_S", "library_dir", "fetch",
-           "fetch_json", "region_index"]
+           "fetch_json", "licences", "region_index"]
 
 INDEX_MAX_AGE_S = 24 * 3600
 TIMEOUT_S = 30
@@ -71,6 +72,27 @@ def fetch_json(rel: str):
     """A library JSON file's document, or ``None`` when it is absent."""
     data = fetch(rel)
     return None if data is None else json.loads(data.decode("utf-8"))
+
+
+def licences() -> dict:
+    """The library's licence gate (``licences.json``, :mod:`.terms`): fresh
+    when the library answers (and cached), else the last cached copy,
+    else :data:`.terms.DEFAULT_LICENCES`."""
+    cache = os.path.join(library_dir(), L.LICENCES)
+    try:
+        doc = fetch_json(L.LICENCES)
+    except LibraryRefused:
+        try:
+            with open(cache, "rb") as handle:
+                return json.loads(handle.read().decode("utf-8"))
+        except (OSError, ValueError):
+            return DEFAULT_LICENCES
+    if doc is None:
+        return DEFAULT_LICENCES
+    os.makedirs(library_dir(), exist_ok=True)
+    with open(cache, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump(doc, handle)
+    return doc
 
 
 def region_index(region: str, force: bool = False) -> dict:

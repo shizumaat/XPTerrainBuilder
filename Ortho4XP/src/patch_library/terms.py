@@ -20,8 +20,11 @@ from __future__ import annotations
 
 from . import LICENCE, LICENCE_NC
 
-__all__ = ["CLASSES", "DEFAULT_LICENCES", "classify", "annotate",
-           "entry_licence", "statement", "problems"]
+__all__ = ["CLASSES", "DEFAULT_LICENCES", "NC_MARK", "classify", "annotate",
+           "held", "entry_licence", "source_line", "statement", "problems"]
+
+#: How a list row marks a non-commercial entry (both apps write it so).
+NC_MARK = " · non-commercial"
 
 #: The classes of ``licences.json``, open first.
 CLASSES = ("allowed", "noncommercial", "held")
@@ -60,16 +63,37 @@ def annotate(sources: list, licences: dict) -> list:
     return out
 
 
+def held(sources: list, licences: dict) -> list:
+    """``[(provider, why)]`` of the sources ``licences`` holds."""
+    out = []
+    for source in sources:
+        name, row = classify(licences, str(source.get("provider", "")))
+        if name == "held":
+            out.append((source["provider"], row.get("summary") or row.get("licence", "")))
+    return out
+
+
 def entry_licence(sources: list) -> str:
     """The licence of an entry with these (annotated) sources."""
     return LICENCE_NC if any(s.get("noncommercial") for s in sources) else LICENCE
 
 
-def statement(licence: str) -> str:
-    """The licence sentence an entry's ATTRIBUTION.txt and pull request say."""
+def source_line(source: dict) -> str:
+    """One source's line in an ATTRIBUTION.txt: provider, licence, the
+    non-commercial mark, credit and the terms URL."""
+    return "- %s (%s%s)%s%s" % (
+        source["provider"], source["licence"],
+        "; non-commercial" if source.get("noncommercial") else "",
+        ": " + source["credit"] if source.get("credit") else "",
+        "\n  terms: " + source["terms"] if source.get("terms") else "")
+
+
+def statement(licence: str, what: str = "entry") -> str:
+    """The licence sentence an ATTRIBUTION.txt and pull request say of an
+    ``what`` (an airport entry, a tile bundle) under ``licence``."""
     if licence == LICENCE_NC:
-        return ("NON-COMMERCIAL: this entry is built from a source whose terms "
-                "allow non-commercial use only, so the whole entry is offered "
+        return ("NON-COMMERCIAL: this " + what + " is built from a source whose terms "
+                "allow non-commercial use only, so the whole " + what + " is offered "
                 "for non-commercial use, under each source's terms listed "
                 "above (the library's structure is ODbL 1.0). © OpenStreetMap "
                 "contributors.")

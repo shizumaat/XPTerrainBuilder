@@ -19,6 +19,7 @@ import time
 
 from o4_engine import library as LIB
 from O4_Qt_Widgets import wrap_and_never_widen
+from patch_library.terms import NC_MARK
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
@@ -48,7 +49,7 @@ def terms_lines(preview):
     """The preview's lines for each source's terms (owner Q319), as the
     Mac app's ``PatchLibraryText.terms`` writes them."""
     lines = ["Source: %s — %s%s" % (s["provider"], s["licence"],
-                                     " · non-commercial" if s["noncommercial"] else "")
+                                     NC_MARK if s["noncommercial"] else "")
              for s in preview.get("sources") or []]
     return lines + ([NONCOMMERCIAL_TEXT] if preview.get("noncommercial") else [])
 KINDS = (("freeware", "Free pack"), ("payware", "Paid pack"))
@@ -200,9 +201,10 @@ class PatchLibraryBox(QGroupBox):
         widget = QWidget()
         line = QHBoxLayout(widget)
         line.setContentsMargins(0, 0, 0, 0)
-        text = "%s  %s%s · %s" % (row["icao"], row["entry_pack"],
-                                  " · verified developer" if row["verified"] else "",
-                                  _state_text(row))
+        text = "%s  %s%s%s · %s" % (row["icao"], row["entry_pack"],
+                                    " · verified developer" if row["verified"] else "",
+                                    NC_MARK if row.get("noncommercial") else "",
+                                    _state_text(row))
         if not row["solved_usable"] and row["reason"] and row["state"] != "pack_changed":
             text += " (%s)" % row["reason"]
         line.addWidget(QLabel(text), 1)
@@ -297,8 +299,10 @@ class LibraryMatchList(QWidget):
             widget = QWidget()
             line = QHBoxLayout(widget)
             line.setContentsMargins(0, 0, 0, 0)
-            label = QLabel("%s  v%d · %s%s" % (icao, best["version"], _tier_text(best),
-                                              " · verified developer" if best["verified"] else ""))
+            label = QLabel("%s  v%d · %s%s%s" % (
+                icao, best["version"], _tier_text(best),
+                " · verified developer" if best["verified"] else "",
+                NC_MARK if best.get("noncommercial") else ""))
             label.setToolTip("Skips this airport's solve" if best["solved_usable"]
                              else "Solved here from its edits: " + best["reason"])
             line.addWidget(label, 1)

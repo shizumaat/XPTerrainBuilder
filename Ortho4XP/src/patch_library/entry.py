@@ -90,12 +90,7 @@ def _attribution(manifest: dict) -> bytes:
         manifest["icao"], manifest["version"]), "",
         "For the scenery pack: %s" % manifest["pack"]["name"], "",
         "Derived from:"]
-    for source in manifest["sources"]:
-        lines.append("- %s (%s%s)%s%s" % (
-            source["provider"], source["licence"],
-            "; non-commercial" if source.get("noncommercial") else "",
-            ": " + source["credit"] if source.get("credit") else "",
-            "\n  terms: " + source["terms"] if source.get("terms") else ""))
+    lines += [_terms.source_line(s) for s in manifest["sources"]]
     lines += ["", _terms.statement(manifest["licence"]), ""]
     return "\n".join(lines).encode("utf-8")
 

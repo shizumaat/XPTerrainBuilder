@@ -4,10 +4,14 @@ The tile must be exactly what its last build left (every step-reuse
 record current, ``O4_Step_Reuse.stale_reason``) and built with the
 default mesh settings (owner Q301).  The bundle is a ``tar.xz`` holding
 ``manifest.json`` (the match key and its parts, the step records, every
-file's sha256, the sources and their licences), ``ATTRIBUTION.txt`` and
+file's sha256, the sources and each one's terms), ``ATTRIBUTION.txt`` and
 the files :mod:`.contents` names, every local path tokenised
-(:mod:`.paths`).  The members are written with fixed owners, modes and
-times, so two exports of the same tile are the same bytes.
+(:mod:`.paths`).  Each source carries its terms from the patch library's
+licence gate (``patch_library.terms``, owner Q319, the one
+implementation): a non-commercial source marks the whole bundle
+non-commercial, and a held source refuses the export.  The members are
+written with fixed owners, modes and times, so two exports of the same
+tile are the same bytes.
 """
 from __future__ import annotations
 
@@ -109,16 +113,30 @@ def _snapshot(tile) -> dict:
 
 
 def _attribution(manifest: dict) -> bytes:
+    from patch_library import terms as _terms
     lines = ["Tile %s — XPTerrainBuilder tile bundle %s" % (
         manifest["tile"], manifest["key"]), "",
         "This bundle holds a terrain mesh and airport surfaces derived from:"]
-    for source in manifest["sources"]:
-        lines.append("- %s (%s)%s" % (
-            source["provider"], source["licence"],
-            ": " + source["credit"] if source["credit"] else ""))
-    lines += ["", "The bundle is offered under the ODbL 1.0, the licence of "
-              "the OpenStreetMap data it is built from.", ""]
+    lines += [_terms.source_line(s) for s in manifest["sources"]]
+    lines += ["", _terms.statement(manifest["licence"], "bundle"), ""]
     return "\n".join(lines).encode("utf-8")
+
+
+def _sources_with_terms(tile) -> tuple:
+    """``(sources, licence)`` of the tile, each source with its terms
+    (``patch_library.terms``).
+
+    :raises BundleRefused: the library's licence gate holds a source.
+    """
+    from patch_library import client as _client
+    from patch_library import terms as _terms
+    licences = _client.licences()
+    found = _terms.annotate(sources(tile), licences)
+    held = _terms.held(found, licences)
+    if held:
+        raise BundleRefused("The tile was built from %s, whose terms do not "
+                            "allow sharing it (%s); not exported" % held[0])
+    return found, _terms.entry_licence(found)
 
 
 def _info(name: str, size: int) -> tarfile.TarInfo:
@@ -150,12 +168,14 @@ def export_tile(lat: int, lon: int, out_dir: str,
 
     :returns: ``{"path", "bytes", "key", "files", "seconds"}``
     :raises BundleRefused: the tile is not current, not built with the
-        default mesh settings, or a file would carry a local path.
+        default mesh settings, built from a held source, or a file would
+        carry a local path.
     """
     import O4_Config_Utils as CFG
     t0 = time.time()
     tile = load_tile(lat, lon, custom_build_dir)
     _require_current(tile)
+    found, licence = _sources_with_terms(tile)
     deviations = _key.profile_deviations(_key.mesh_profile(tile))
     if deviations:
         raise BundleRefused(
@@ -190,7 +210,9 @@ def export_tile(lat: int, lon: int, out_dir: str,
     manifest = {"format": FORMAT, "tile": parts["tile"],
                 "key": _key.bundle_key(parts), "key_parts": parts,
                 "airports": _key.airport_signatures(tile),
-                "data_snapshot": _snapshot(tile), "sources": sources(tile),
+                "data_snapshot": _snapshot(tile), "sources": found,
+                "licence": licence,
+                "noncommercial": any(s["noncommercial"] for s in found),
                 "engine_version": getattr(O4_Version, "version", ""),
                 "records": _records(tile, change), "files": files}
     manifest_bytes = (json.dumps(manifest, indent=1, sort_keys=True)

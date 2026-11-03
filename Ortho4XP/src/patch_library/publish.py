@@ -70,11 +70,6 @@ def _tile(lat, lon, working_dir: str):
     return load_tile(int(lat), int(lon), os.path.join(custom, "") if custom else "")
 
 
-def _licences() -> dict:
-    """The library's licence gate (``licences.json``, :mod:`.terms`)."""
-    return _client.fetch_json(L.LICENCES) or _terms.DEFAULT_LICENCES
-
-
 def _package(lat, lon, icao, working_dir, kind, login, notes, licences) -> tuple:
     import O4_File_Names as FNAMES
     from tile_bundle.key import xplane_root
@@ -126,7 +121,7 @@ def preview(lat, lon, icao: str, working_dir: str = "", kind: str = "",
         "licence", "terms", "noncommercial"}]``, each source's terms
     """
     _token, login = _login()
-    licences = _licences()
+    licences = _client.licences()
     _tile_, entry = _package(lat, lon, icao, working_dir, kind, login or "", notes,
                              licences)
     verdict = _check(entry, login, licences)
@@ -180,7 +175,7 @@ def publish(lat, lon, icao: str, working_dir: str = "", kind: str = "",
     token, login = _login()
     if not token or not login:
         raise LibraryRefused("Sign in to GitHub to publish")
-    licences = _licences()
+    licences = _client.licences()
     _tile_, entry = _package(lat, lon, icao, working_dir, kind, login, notes, licences)
     verdict = _check(entry, login, licences)
     if verdict["problems"]:

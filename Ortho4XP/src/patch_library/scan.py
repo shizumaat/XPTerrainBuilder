@@ -109,6 +109,7 @@ def _row(icao, lat, lon, rows, xp_root, law, ignored) -> dict | None:
            "version": pick["latest"], "entry": "%s/v%d" % (pick["path"], pick["latest"]),
            "signature": pick["signature"], "verified": bool(pick.get("verified")),
            "publisher": pick.get("publisher", ""),
+           "noncommercial": bool(pick.get("noncommercial")),
            "local_version": record["version"] if record else None,
            "solved_usable": False, "reason": "", "warning": ""}
     if record and record.get("signature") != sig.get("signature"):
@@ -147,7 +148,7 @@ def check(working_dir: str = "", force: bool = False) -> dict:
     :returns: ``{"configured", "rows": [row, ...], "regions", "checked"}``;
         a row is ``{"icao", "tile", "state", "pack", "entry_pack",
         "version", "local_version", "entry", "signature", "verified",
-        "publisher", "solved_usable", "reason", "warning"}``, verified
+        "noncommercial", "publisher", "solved_usable", "reason", "warning"}``, verified
         developers' first.
     """
     if not _config.configured():
@@ -180,7 +181,7 @@ def matches(cells, working_dir: str = "") -> dict:
     match-tier order (:data:`TIERS`).
 
     :returns: ``{"configured", "airports": {icao: [{"tier", "entry",
-        "pack", "version", "verified", "publisher", "solved_usable",
+        "pack", "version", "verified", "noncommercial", "publisher", "solved_usable",
         "reason"}, ...]}}`` — an airport with no entry is left out.
     """
     if not _config.configured():
@@ -214,6 +215,7 @@ def matches(cells, working_dir: str = "") -> dict:
                 listed.append({"tier": tier, "entry": "%s/v%d" % (row["path"], row["latest"]),
                                "pack": row["pack"], "version": row["latest"],
                                "verified": bool(row.get("verified")),
+                               "noncommercial": bool(row.get("noncommercial")),
                                "publisher": row.get("publisher", ""),
                                "solved_usable": why is None, "reason": why or ""})
             listed.sort(key=lambda m: (TIERS.index(m["tier"]), not m["verified"]))

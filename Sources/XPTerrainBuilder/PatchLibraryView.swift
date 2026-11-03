@@ -14,6 +14,8 @@ enum PatchLibraryText {
     static let title = "Patch library"
     static let licence = "I publish this patch under the Open Database License (ODbL) 1.0 "
         + "and each source's terms shown above."
+    /// How a list row marks a non-commercial entry (`patch_library.terms.NC_MARK`).
+    static let ncMark = " · non-commercial"
     static let noncommercial = "Non-commercial: a source allows non-commercial use only, "
         + "so the whole entry is marked non-commercial."
 
@@ -22,7 +24,7 @@ enum PatchLibraryText {
     static func terms(_ preview: O4PatchLibraryPreview) -> [String] {
         let lines = (preview.sources ?? []).map { source in
             "Source: \(source.provider) — \(source.licence)"
-                + (source.noncommercial ? " · non-commercial" : "")
+                + (source.noncommercial ? ncMark : "")
         }
         return lines + ((preview.noncommercial ?? false) ? [noncommercial] : [])
     }
@@ -75,6 +77,10 @@ struct PatchLibrarySection: View {
                         Label("Verified developer", systemImage: "checkmark.seal")
                             .labelStyle(.iconOnly).help("Published by the pack's own developer")
                     }
+                    if row.noncommercial ?? false {
+                        Text("non-commercial").foregroundStyle(.secondary)
+                            .help("A source of this patch allows non-commercial use only")
+                    }
                     Text(PatchLibraryText.state(row)).foregroundStyle(.secondary)
                     if !row.solvedUsable, !row.reason.isEmpty, row.state != "pack_changed" {
                         Text("(\(row.reason))").foregroundStyle(.secondary).lineLimit(1)
@@ -115,7 +121,8 @@ struct LibraryMatchList: View {
                         HStack(spacing: 6) {
                             Text(icao).scaledFont(.caption, weight: .semibold)
                             Text("v\(best.version) · \(PatchLibraryText.tier(best))"
-                                 + (best.verified ? " · verified developer" : ""))
+                                 + (best.verified ? " · verified developer" : "")
+                                 + ((best.noncommercial ?? false) ? PatchLibraryText.ncMark : ""))
                                 .scaledFont(.caption).foregroundStyle(.secondary)
                                 .help(best.solvedUsable ? "Skips this airport's solve"
                                       : "Solved here from its edits: \(best.reason)")

@@ -29,6 +29,8 @@ public struct O4PatchLibraryRow: Decodable, Equatable, Sendable, Identifiable {
     public let entry: String
     public let signature: String
     public let verified: Bool
+    /// The entry is non-commercial (owner Q319); absent from an older engine.
+    public let noncommercial: Bool?
     public let publisher: String
     public let solvedUsable: Bool
     public let reason: String
@@ -38,6 +40,7 @@ public struct O4PatchLibraryRow: Decodable, Equatable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case icao, tile, state, pack, version, entry, signature, verified, publisher
+        case noncommercial
         case reason, warning
         case entryPack = "entry_pack", localVersion = "local_version"
         case solvedUsable = "solved_usable"
@@ -73,6 +76,8 @@ public struct O4PatchLibraryMatch: Decodable, Equatable, Sendable, Identifiable 
     public let pack: String
     public let version: Int
     public let verified: Bool
+    /// The entry is non-commercial (owner Q319); absent from an older engine.
+    public let noncommercial: Bool?
     public let publisher: String
     public let solvedUsable: Bool
     public let reason: String
@@ -80,7 +85,7 @@ public struct O4PatchLibraryMatch: Decodable, Equatable, Sendable, Identifiable 
     public var id: String { entry }
 
     private enum CodingKeys: String, CodingKey {
-        case tier, entry, pack, version, verified, publisher, reason
+        case tier, entry, pack, version, verified, publisher, reason, noncommercial
         case solvedUsable = "solved_usable"
     }
 }

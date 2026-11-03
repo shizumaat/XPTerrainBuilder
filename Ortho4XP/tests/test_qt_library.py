@@ -264,3 +264,22 @@ def test_publish_preview_shows_each_sources_terms_like_the_mac_app(app):
              / "PatchLibraryView.swift").read_text(encoding="utf-8").replace('"\n        + "', "")
     for words in (QTPL.LICENCE_TEXT, QTPL.NONCOMMERCIAL_TEXT, " · non-commercial"):
         assert words in swift
+
+
+def test_the_match_list_marks_a_noncommercial_entry_like_the_mac_app(app):
+    """Owner Q319: a non-commercial entry says so in the match list, with
+    the Mac app's mark (two-UI rule)."""
+    from pathlib import Path
+
+    import O4_Qt_Patch_Library as QTPL
+    from patch_library.terms import NC_MARK
+    listing = QTPL.LibraryMatchList()
+    listing.set_matches({"configured": True, "airports": {"KPDX": [{
+        "tier": "exact", "entry": "e/v1", "pack": "P", "version": 1,
+        "verified": False, "noncommercial": True, "publisher": "dev",
+        "solved_usable": True, "reason": ""}]}})
+    label = listing.row_widgets[0].findChild(QTPL.QLabel)
+    assert label.text().endswith(NC_MARK)
+    swift = (Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
+             / "PatchLibraryView.swift").read_text(encoding="utf-8")
+    assert 'static let ncMark = "%s"' % NC_MARK in swift

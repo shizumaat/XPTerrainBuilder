@@ -276,7 +276,7 @@ def _entry_folder(world, tmp_path):
     _sign_in(world)
     world["a"].live(world["mp"])
     entry = PUBLISH._package(LAT, LON, ICAO, "", "payware", "dev", "",
-                             PUBLISH._licences())[1]
+                             PUBLISH._client.licences())[1]
     root = tmp_path / "lib"
     shutil.copytree(TEMPLATE, root)
     _put(root / L.PUBLISHERS, json.dumps({"developers": [

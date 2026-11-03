@@ -29,6 +29,7 @@ import time
 from . import FORMAT, LICENCE, LibraryRefused
 from . import key as _key
 from . import layout as L
+from . import terms as _terms
 
 __all__ = ["NOT_MATCHED_STAMPS", "REQUIRED", "package", "write_folder"]
 
@@ -90,21 +91,24 @@ def _attribution(manifest: dict) -> bytes:
         "For the scenery pack: %s" % manifest["pack"]["name"], "",
         "Derived from:"]
     for source in manifest["sources"]:
-        lines.append("- %s (%s)%s" % (source["provider"], source["licence"],
-                                      ": " + source["credit"] if source.get("credit") else ""))
-    lines += ["", "Published under the Open Database License (ODbL) 1.0, the "
-              "licence of the OpenStreetMap data it is built from. "
-              "© OpenStreetMap contributors.", ""]
+        lines.append("- %s (%s%s)%s%s" % (
+            source["provider"], source["licence"],
+            "; non-commercial" if source.get("noncommercial") else "",
+            ": " + source["credit"] if source.get("credit") else "",
+            "\n  terms: " + source["terms"] if source.get("terms") else ""))
+    lines += ["", _terms.statement(manifest["licence"]), ""]
     return "\n".join(lines).encode("utf-8")
 
 
 def package(tile, icao: str, *, kind: str, publisher: str, version: int,
-            notes: str = "") -> dict:
+            notes: str = "", licences: dict | None = None) -> dict:
     """The entry for ``icao`` of the built ``tile``, in memory.
 
     :param kind: ``"freeware"`` or ``"payware"`` for a custom pack (the
         publisher says which); the global default airports are always
         ``"default"``.
+    :param licences: the library's ``licences.json`` (:mod:`.terms`): each
+        source's terms, and the entry's licence and non-commercial mark.
     :returns: ``{"rel", "files": {name: bytes}, "manifest", "pack"}`` —
         ``rel`` the entry folder (``layout.entry_dir``).
     :raises LibraryRefused: no current patch, an unknown pack, a local path.
@@ -158,6 +162,8 @@ def package(tile, icao: str, *, kind: str, publisher: str, version: int,
                                 "raw_bytes": len(raw),
                                 "raw_sha256": hashlib.sha256(raw).hexdigest()}
     tile_key = FNAMES.short_latlon(tile.lat, tile.lon)
+    found = _terms.annotate(sources(tile, icao), licences or _terms.DEFAULT_LICENCES)
+    licence = _terms.entry_licence(found)
     manifest = {"format": FORMAT, "icao": icao, "tile": tile_key,
                 "version": int(version),
                 "pack": {"name": pack["pack"], "custom": bool(pack["custom"]),
@@ -166,9 +172,10 @@ def package(tile, icao: str, *, kind: str, publisher: str, version: int,
                 "solve": meta["freshness"].get("o4_solve_cfg", ""),
                 "engine_version": getattr(O4_Version, "version", ""),
                 "min_engine": getattr(O4_Version, "version", ""),
-                "publisher": publisher, "licence": LICENCE,
+                "publisher": publisher, "licence": licence,
+                "noncommercial": licence != LICENCE,
                 "published": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "sources": sources(tile, icao), "files": listed,
+                "sources": found, "files": listed,
                 "notes": notes}
     edits = {"format": FORMAT, "edited_patch": next(
         (n for n in listed if n.startswith(L.EDITED + "/")), None),

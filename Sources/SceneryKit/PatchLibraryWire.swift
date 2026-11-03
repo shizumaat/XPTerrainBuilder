@@ -97,6 +97,13 @@ public struct O4PatchLibraryPreview: Decodable, Equatable, Sendable {
         public let name: String
         public let bytes: Int64
     }
+    /// One source's terms (owner Q319: per-source terms).
+    public struct Source: Decodable, Equatable, Sendable {
+        public let provider: String
+        public let licence: String
+        public let terms: String
+        public let noncommercial: Bool
+    }
     public let icao: String
     public let entry: String
     public let version: Int
@@ -108,12 +115,16 @@ public struct O4PatchLibraryPreview: Decodable, Equatable, Sendable {
     public let verified: Bool
     public let signedIn: String
     public let licence: String
+    /// The whole entry is non-commercial (any source is); absent from an
+    /// engine older than Q319.
+    public let noncommercial: Bool?
+    public let sources: [Source]?
     public let licenceAccepted: Bool
     public let attribution: String
 
     private enum CodingKeys: String, CodingKey {
         case icao, entry, version, pack, kind, files, bytes, problems, verified
-        case licence, attribution
+        case licence, noncommercial, sources, attribution
         case signedIn = "signed_in", licenceAccepted = "licence_accepted"
     }
 }

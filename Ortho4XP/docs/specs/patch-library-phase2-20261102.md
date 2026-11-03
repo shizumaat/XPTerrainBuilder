@@ -3,7 +3,9 @@
 Status: IMPLEMENTED 2026-11-02 (lane `plib2`, branch `claude/plib2-airport-entries`).
 Design: "Patch library: design and plan" (owner, final 2026-11-02), phase 2.
 Owner answers that apply: Q303 (pack-relative encoding for community payware
-entries; verified developers exempt), Q304 (ODbL 1.0), Q315 (2026-11-02T23:40Z,
+entries; verified developers exempt), Q304 (ODbL 1.0), Q319 (2026-11-03, "a":
+per-source terms; a non-commercial source publishes and marks the whole entry
+non-commercial; Northern Ireland and registration-required sources stay held), Q315 (2026-11-02T23:40Z,
 "For 301, option a.": `road_level` is matched, not refused), and the 2026-11-02
 replacements of #1699 decisions 4 and 6 (everyone publishes into one library
 on GitHub; publishing needs a GitHub account, downloading never does; we host
@@ -95,8 +97,9 @@ of `patch_library` is not.
 `<ICAO>/<pack>/<pack version>/`, under one `entries/` folder) with
 `manifest.json`, `edits.json`, `ATTRIBUTION.txt`, `solved/*.xz`, `edits/*.xz`;
 `index/<region>.json` per 10° region; `publishers.json` (verified developers,
-pack name patterns, reviewers); `licences.json` (the source allowlist,
-generated from the provider definitions — every row to be confirmed);
+pack name patterns, reviewers); `licences.json` (the licence gate, `patch_library.terms`:
+`allowed` / `noncommercial` / `held`, each row with licence, attribution,
+terms URL, evidence and summary — every row to be confirmed);
 `schema/manifest.schema.json`; `.github/workflows/check.yml`
 (`pull_request_target`, the head checked out as DATA, the checker a sparse
 checkout of this repository's `Ortho4XP/src/patch_library`; verified
@@ -120,7 +123,7 @@ the credential store (`O4_Authenticated_Sessions.store_api_key`, session
 needs no git: fork (`POST /repos/{repo}/forks`), `merge-upstream`, blobs → tree
 over the fork's `main` → commit → ref `xptb/<ICAO>-<sig8>-v<N>` → pull request.
 The version is one past the library's latest for that pack signature. The
-licence (ODbL 1.0) is accepted once (`<data>/Library/licence_accepted.json`).
+licence (ODbL 1.0 and each source's terms, shown in the preview) is accepted once (`<data>/Library/licence_accepted.json`).
 
 Configuration: `patch_library/config.py` `REPO` and `CLIENT_ID` (empty until
 go-live: every library command then answers "not set up"); `XPTB_LIBRARY_*`

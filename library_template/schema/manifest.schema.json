@@ -16,6 +16,7 @@
   "min_engine",
   "publisher",
   "licence",
+  "noncommercial",
   "sources",
   "files"
  ],
@@ -95,7 +96,11 @@
    "format": "date-time"
   },
   "licence": {
-   "const": "ODbL-1.0"
+   "enum": [
+    "ODbL-1.0",
+    "per-source-noncommercial"
+   ],
+   "description": "ODbL-1.0 when every source is open; per-source-noncommercial when any source is non-commercial (licences.json 'noncommercial'): the entry is offered for non-commercial use under each source's terms"
   },
   "sources": {
    "type": "array",
@@ -117,7 +122,15 @@
       "type": "string"
      },
      "credit": {
-      "type": "string"
+      "type": "string",
+      "description": "the attribution credited (licences.json's, else the provider's)"
+     },
+     "terms": {
+      "type": "string",
+      "description": "the URL of the source's terms (licences.json)"
+     },
+     "noncommercial": {
+      "type": "boolean"
      }
     }
    }
@@ -136,6 +149,10 @@
   },
   "notes": {
    "type": "string"
+  },
+  "noncommercial": {
+   "type": "boolean",
+   "description": "true when any source is non-commercial; marks the whole entry"
   }
  }
 }

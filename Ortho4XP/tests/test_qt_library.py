@@ -240,3 +240,27 @@ def test_publish_patch_needs_one_built_tile_with_airports(app):
     assert not publish.publish_btn.isEnabled()
     publish.licence_chk.setChecked(True)
     assert publish.publish_btn.isEnabled() and not publish.signin_btn.isVisible()
+
+
+def test_publish_preview_shows_each_sources_terms_like_the_mac_app(app):
+    """Owner Q319: the preview lists each source's terms and the entry's
+    non-commercial mark, in the Mac app's words (two-UI rule)."""
+    from pathlib import Path
+
+    import O4_Qt_Patch_Library as QTPL
+    dialog = _dialog()
+    dialog.refresh = lambda: None
+    publish = dialog.publish_dialog(RESULT["tiles"][0])
+    publish._on_preview({"icao": "KPDX", "version": 1, "pack": "KPDX Pack",
+                         "kind": "freeware", "bytes": 1_000, "verified": False,
+                         "problems": [], "signed_in": "dev", "licence_accepted": False,
+                         "noncommercial": True, "sources": [
+                             {"provider": "VIEWFINDER1", "licence": "NC",
+                              "terms": "https://example.org", "noncommercial": True}]})
+    text = publish.preview_label.text()
+    assert "Source: VIEWFINDER1 — NC · non-commercial" in text
+    assert QTPL.NONCOMMERCIAL_TEXT in text
+    swift = (Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
+             / "PatchLibraryView.swift").read_text(encoding="utf-8").replace('"\n        + "', "")
+    for words in (QTPL.LICENCE_TEXT, QTPL.NONCOMMERCIAL_TEXT, " · non-commercial"):
+        assert words in swift

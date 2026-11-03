@@ -14,7 +14,7 @@ from the publisher's own GitHub account ("Publish patch" in the app).
 
 ```
 publishers.json          verified developers and the packs they own; reviewers
-licences.json            the source allowlist (licence gate)
+licences.json            the licence gate: each source's class, licence, attribution and terms
 entries/<ICAO>/<pack>/<pack version>/v<N>/
     manifest.json        match key (pack signature, auto-patch law, solve settings),
                          versions, file hashes, sources and licences
@@ -32,9 +32,24 @@ versions stay. A published version never changes.
 
 ## Licence
 
-Every entry is published under the [Open Database License (ODbL) 1.0](LICENSE.md),
-because patches are derived from OpenStreetMap data. © OpenStreetMap
-contributors; each entry's `ATTRIBUTION.txt` credits its elevation sources.
+The library's structure, and every entry whose sources are all open, is
+published under the [Open Database License (ODbL) 1.0](LICENSE.md), because
+patches are derived from OpenStreetMap data. © OpenStreetMap contributors.
+
+Each entry also carries the terms of every source it was built from: its
+`manifest.json` lists each source with its licence, attribution and the URL of
+its terms, and its `ATTRIBUTION.txt` credits them. `licences.json` sorts every
+source into one of three classes:
+
+- `allowed` — redistribution with attribution is open; the entry is ODbL 1.0.
+- `noncommercial` — the source's terms allow non-commercial use only. The entry
+  publishes, and the WHOLE entry is marked non-commercial (`"licence":
+  "per-source-noncommercial"`, `"noncommercial": true`): it is offered for
+  non-commercial use, under each source's terms.
+- `held` — redistribution is ruled out, the source needs registration, or no
+  terms were found. An entry built from it is refused (so is one built from a
+  source in no class).
+
 Payware packs: a community entry for a payware pack needs pack-relative
 encoding, which the library does not take yet; the pack's own developer can
 publish as a verified developer.

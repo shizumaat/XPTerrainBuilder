@@ -1,109 +1,723 @@
 {
- "_comment": "The library's source allowlist (owner Q304: the library is ODbL 1.0). A source whose provider is not under 'allowed' refuses an entry. Generated from the engine's Providers/Elevation/*.elv licence fields on 2026-11-02: EVERY row is to be confirmed by the owner before launch (design: 'Allow each only after its terms are checked').",
+ "_comment": "The library's source licence gate (owner Q304: the library's structure is ODbL 1.0; owner Q319, 2026-11-03: per-source terms). A provider under 'allowed' publishes; under 'noncommercial' it publishes and marks the entry non-commercial as a whole; under 'held', or absent, it refuses the entry. Each row: licence, attribution (credited in ATTRIBUTION.txt), terms (the URL read), evidence (read = the terms page was read 2026-11-03; snippet = seen through a search result or catalogue record; licence-named = the provider names a standard licence, whose text the URL gives; none-found = no terms published), summary (one line). Every row is to be confirmed by the owner before launch.",
  "allowed": {
-  "AKHOMER": "State of Alaska DGGS public data (2019 Homer lidar)",
-  "AUSTRALIA5M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "AUSTRIA1M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "BADENWUERTTEMBERG1M": "Datenlizenz Deutschland (GovData)",
-  "BAVARIA1M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "BRANDENBURG1M": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
-  "BREMEN1M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "COPERNICUSGLO30": "ESA Copernicus DEM GLO-30 licence (free use, modification and distribution with attribution) (design: allow, copy the notice)",
-  "COPERNICUSGLO30BASE": "ESA Copernicus DEM licence (free use, modification and distribution with attribution)",
-  "COPERNICUSGLO90BASE": "ESA Copernicus DEM licence (free use, modification and distribution with attribution)",
-  "CUDEMAMERICANSAMOA": "Public Domain (NOAA NCEI)",
-  "CUDEMCNMI": "Public Domain (NOAA NCEI)",
-  "CUDEMCONUS": "Public Domain (NOAA NCEI)",
-  "CUDEMCONUSTHIRD": "Public Domain (NOAA NCEI)",
-  "CUDEMGUAM": "Public Domain (NOAA NCEI)",
-  "CUDEMHAWAII": "Public Domain (NOAA NCEI)",
-  "CUDEMPUERTORICO": "Public Domain (NOAA NCEI)",
-  "CUDEMUSVI": "Public Domain (NOAA NCEI)",
-  "ENGLAND1M": "Open Government Licence v3 (attribution required)",
-  "FINLAND2M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "FRANCE1M": "Licence Ouverte / Etalab 2.0",
-  "FRANCE50CM": "Licence Ouverte / Etalab 2.0",
-  "FRANCETIDAL": "Licence Ouverte / Etalab 2.0",
-  "HAMBURG1M": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
-  "HESSE1M": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
-  "HILLSBOROUGHNATIVE": "Hillsborough County GIS / SWFWMD public lidar (no restriction published)",
-  "HRDEM": "Open Government Licence - Canada",
-  "HRDEMTIDAL": "Open Government Licence - Canada",
-  "IRELAND1M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "ITALY10M": "Creative Commons Attribution 4.0 (cite Tarquini et al., doi:10.13127/tinitaly/1.1)",
-  "LOWERSAXONY1M": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
-  "LOWERSAXONYTIDAL": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
-  "MECKLENBURG1M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "NCPHASE3": "CC0 1.0",
-  "NED1": "Public Domain (U.S. Geological Survey)",
-  "NED13": "Public Domain (U.S. Geological Survey)",
-  "NETHERLANDS50CM": "Creative Commons Zero (public domain)",
-  "NEWZEALAND1M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "NEWZEALANDTIDAL": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "NOAAAKCOASTAL": "Public domain (NOAA OCM Digital Coast)",
-  "NOAACOLUMBIARIVER": "Public domain (NOAA OCM Digital Coast)",
-  "NOAAKETCHIKAN": "Public domain (NOAA OCM Digital Coast)",
-  "NOAATXJLC1M": "Public domain (NOAA OCM Digital Coast)",
-  "NOAAVALDEZLAZ": "Public domain (NOAA OCM Digital Coast)",
-  "NORWAY1M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "NRW1M": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
-  "OREGONDOGAMI": "Oregon DOGAMI public lidar (no restriction published)",
-  "OpenStreetMap": "ODbL-1.0",
-  "PITKIN1M": "Pitkin County GIS open data (disclaimer only)",
-  "PORTUGAL2M": "CC BY 4.0 (registration required)",
-  "PORTUGAL50CM": "CC BY 4.0 (registration required)",
-  "PORTUGALTIDAL": "CC BY 4.0 (registration required)",
-  "RHINELANDPALATINATE1M": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
-  "RIODEJANEIRO5M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "SAXONY1M": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
-  "SAXONYANHALT1M": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
-  "SCHLESWIGHOLSTEIN1M": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
-  "SCHLESWIGHOLSTEINTIDAL": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
-  "SCOTLAND30M": "Open Government Licence v3 (Forestry and Land Scotland)",
-  "SCOTLAND50CM": "Open Government Licence v3",
-  "SCOTLANDTIDAL": "Open Government Licence v3",
-  "SONNY1": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "SOUTHTYROL50CM": "Creative Commons Zero (public domain)",
-  "SPAIN5M": "CC BY 4.0 compatible (attribution scne.es required)",
-  "SRTM": "Public Domain (NASA)",
-  "SWEDEN1M": "Creative Commons Attribution 4.0 (CC BY 4.0; free registration)",
-  "TEXAS1M": "CC0 1.0 (TxGIO public data)",
-  "THURINGIA1M": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
-  "USGS3DEP": "Public Domain (U.S. Geological Survey)",
-  "USGSLPC": "Public Domain (U.S. Geological Survey)",
-  "USGSOPR": "Public Domain (U.S. Geological Survey)",
-  "WADNR": "Washington DNR / USGS 3DEP lidar (public; no use restriction published)",
-  "WALES1M": "Open Government Licence v3 (attribution required)",
-  "WALLONIA1M": "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  "base:auto": "the engine's default base elevation ladder (Copernicus GLO-30 / GLO-90, SRTM) \u2014 confirm"
+  "AKHAINES": {
+   "licence": "Alaska DGGS open end-user licence (RDF 2021-4)",
+   "attribution": "Alaska DGGS, RDF 2021-4 (Daanen et al., doi:10.14509/30595); modified",
+   "terms": "https://dggs.alaska.gov/metadata/RDF2021-4.faq.html",
+   "evidence": "read",
+   "summary": "Free open end-user licence: name the source, describe changes, imply no State approval; no registration."
+  },
+  "AKHOMER": {
+   "licence": "State of Alaska DGGS public data (2019 Homer lidar)",
+   "attribution": "Alaska Division of Geological & Geophysical Surveys — 2019 Homer lidar (Alaska elevation portal)",
+   "terms": "https://dggs.alaska.gov/pubs/",
+   "evidence": "read",
+   "summary": "Alaska DGGS raw data files: free open end-user licence; cite the source and describe changes."
+  },
+  "AUSTRALIA5M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Commonwealth of Australia (Geoscience Australia)",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "AUSTRIA1M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "BEV, Bundesamt fuer Eich- und Vermessungswesen",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "BADENWUERTTEMBERG1M": {
+   "licence": "Datenlizenz Deutschland (GovData)",
+   "attribution": "LGL Baden-Wuerttemberg",
+   "terms": "https://www.govdata.de/dl-de/by-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany attribution 2.0: any use including commercial, with source credit."
+  },
+  "BAVARIA1M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Bayerische Vermessungsverwaltung - www.geodaten.bayern.de",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "BRANDENBURG1M": {
+   "licence": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
+   "attribution": "GeoBasis-DE/LGB",
+   "terms": "https://www.govdata.de/dl-de/by-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany attribution 2.0: any use including commercial, with source credit."
+  },
+  "BREMEN1M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Landesamt GeoInformation Bremen",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "COPERNICUSGLO30": {
+   "licence": "ESA Copernicus DEM GLO-30 licence (free use, modification and distribution with attribution) (design: allow, copy the notice)",
+   "attribution": "produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
+   "terms": "https://docs.sentinel-hub.com/api/latest/static/files/data/dem/resources/license/License-COPDEM-30.pdf",
+   "evidence": "snippet",
+   "summary": "Free use, modification and redistribution; redistributors carry the DLR/Airbus notice, the produced-using wording and the no-liability sentence."
+  },
+  "COPERNICUSGLO30BASE": {
+   "licence": "ESA Copernicus DEM licence (free use, modification and distribution with attribution)",
+   "attribution": "produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
+   "terms": "https://docs.sentinel-hub.com/api/latest/static/files/data/dem/resources/license/License-COPDEM-30.pdf",
+   "evidence": "snippet",
+   "summary": "Same Copernicus DEM licence as GLO-30."
+  },
+  "COPERNICUSGLO90BASE": {
+   "licence": "ESA Copernicus DEM licence (free use, modification and distribution with attribution)",
+   "attribution": "produced using Copernicus WorldDEM-90 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
+   "terms": "https://docs.sentinel-hub.com/api/latest/static/files/data/dem/resources/license/License-COPDEM-30.pdf",
+   "evidence": "snippet",
+   "summary": "Same Copernicus DEM licence as GLO-30."
+  },
+  "CUDEMAMERICANSAMOA": {
+   "licence": "Public Domain (NOAA NCEI)",
+   "attribution": "NOAA NCEI Continuously Updated DEM (CUDEM)",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "CUDEMCNMI": {
+   "licence": "Public Domain (NOAA NCEI)",
+   "attribution": "NOAA NCEI Continuously Updated DEM (CUDEM)",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "CUDEMCONUS": {
+   "licence": "Public Domain (NOAA NCEI)",
+   "attribution": "NOAA NCEI Continuously Updated DEM (CUDEM)",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "CUDEMCONUSTHIRD": {
+   "licence": "Public Domain (NOAA NCEI)",
+   "attribution": "NOAA NCEI Continuously Updated DEM (CUDEM)",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "CUDEMGUAM": {
+   "licence": "Public Domain (NOAA NCEI)",
+   "attribution": "NOAA NCEI Continuously Updated DEM (CUDEM)",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "CUDEMHAWAII": {
+   "licence": "Public Domain (NOAA NCEI)",
+   "attribution": "NOAA NCEI Continuously Updated DEM (CUDEM)",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "CUDEMPUERTORICO": {
+   "licence": "Public Domain (NOAA NCEI)",
+   "attribution": "NOAA NCEI Continuously Updated DEM (CUDEM)",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "CUDEMUSVI": {
+   "licence": "Public Domain (NOAA NCEI)",
+   "attribution": "NOAA NCEI Continuously Updated DEM (CUDEM)",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "CZECHIA2M": {
+   "licence": "CC BY 4.0 (CUZK open data)",
+   "attribution": "(c) CUZK, CC BY 4.0",
+   "terms": "https://geoportal.cuzk.cz/",
+   "evidence": "read",
+   "summary": "CUZK Geoportal open data (DMR 5G included) is CC BY 4.0, free, no registration."
+  },
+  "EMODNETBATHYMETRY": {
+   "licence": "CC BY 4.0 (EMODnet Bathymetry DTM)",
+   "attribution": "EMODnet Bathymetry Consortium, EMODnet Digital Bathymetry (DTM)",
+   "terms": "https://emodnet.ec.europa.eu/en/bathymetry",
+   "evidence": "snippet",
+   "summary": "DTM products are CC BY 4.0; WCS needs no registration."
+  },
+  "ENGLAND1M": {
+   "licence": "Open Government Licence v3 (attribution required)",
+   "attribution": "Environment Agency, LIDAR Composite DTM 1m, Crown copyright",
+   "terms": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+   "evidence": "licence-named",
+   "summary": "UK Open Government Licence v3: any use including commercial, with attribution."
+  },
+  "ESTONIA1M": {
+   "licence": "Maa- ja Ruumiamet open data licence (2025)",
+   "attribution": "Korgusandmed, Maa- ja Ruumiamet; licence: https://geoportaal.maaruum.ee/opendata-licence",
+   "terms": "https://geoportaal.maaruum.ee/opendata-licence",
+   "evidence": "read",
+   "summary": "Any lawful use including commercial, derivatives and redistribution; credit the Board, dataset and date and link the licence."
+  },
+  "FINLAND2M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "National Land Survey of Finland; mirror hosted by CSC (Paituli)",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "FLANDERS1M": {
+   "licence": "Modellicentie Gratis Hergebruik (Vlaanderen)",
+   "attribution": "Digitaal Vlaanderen, DHMV II",
+   "terms": "https://www.vlaanderen.be/digitaal-vlaanderen/onze-oplossingen/open-data/modellicenties",
+   "evidence": "read",
+   "summary": "Flemish free-reuse model licence: commercial use and adaptation allowed with credit, no endorsement implied."
+  },
+  "FRANCE1M": {
+   "licence": "Licence Ouverte / Etalab 2.0",
+   "attribution": "IGN France, RGE ALTI",
+   "terms": "https://www.etalab.gouv.fr/licence-ouverte-open-licence/",
+   "evidence": "licence-named",
+   "summary": "Etalab Open Licence 2.0: any use including commercial, with source credit."
+  },
+  "FRANCE50CM": {
+   "licence": "Licence Ouverte / Etalab 2.0",
+   "attribution": "IGN France, LiDAR HD",
+   "terms": "https://www.etalab.gouv.fr/licence-ouverte-open-licence/",
+   "evidence": "licence-named",
+   "summary": "Etalab Open Licence 2.0: any use including commercial, with source credit."
+  },
+  "FRANCETIDAL": {
+   "licence": "Licence Ouverte / Etalab 2.0",
+   "attribution": "IGN France, LiDAR HD",
+   "terms": "https://www.etalab.gouv.fr/licence-ouverte-open-licence/",
+   "evidence": "licence-named",
+   "summary": "Etalab Open Licence 2.0: any use including commercial, with source credit."
+  },
+  "GEBCO2024": {
+   "licence": "GEBCO grid terms of use (public domain)",
+   "attribution": "GEBCO Compilation Group (2024) GEBCO 2024 Grid",
+   "terms": "https://www.gebco.net/data-products/gridded-bathymetry/terms-of-use",
+   "evidence": "snippet",
+   "summary": "Public domain: copy, adapt and use commercially with credit; imply no GEBCO/IHO/IOC endorsement; not for navigation."
+  },
+  "HAMBURG1M": {
+   "licence": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
+   "attribution": "Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung",
+   "terms": "https://www.govdata.de/dl-de/by-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany attribution 2.0: any use including commercial, with source credit."
+  },
+  "HESSE1M": {
+   "licence": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
+   "attribution": "HVBG Hessen",
+   "terms": "https://www.govdata.de/dl-de/zero-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany Zero 2.0: any use, no conditions."
+  },
+  "HILLSBOROUGHNATIVE": {
+   "licence": "Hillsborough County GIS / SWFWMD public lidar (no restriction published)",
+   "attribution": "Southwest Florida Water Management District / Hillsborough County -- 2017 lidar (Dewberry)",
+   "terms": "",
+   "evidence": "none-found",
+   "summary": "No licence published by SWFWMD/Hillsborough; NOAA mirror lists no access constraint. Kept allowed pending the owner's launch check."
+  },
+  "HONGKONG5M": {
+   "licence": "DATA.GOV.HK terms and conditions",
+   "attribution": "Lands Department, HKSAR Government (via DATA.GOV.HK)",
+   "terms": "https://data.gov.hk/en/terms-and-conditions",
+   "evidence": "read",
+   "summary": "Commercial and non-commercial use and redistribution free with credit; no registration."
+  },
+  "HRDEM": {
+   "licence": "Open Government Licence - Canada",
+   "attribution": "Natural Resources Canada",
+   "terms": "https://open.canada.ca/en/open-government-licence-canada",
+   "evidence": "licence-named",
+   "summary": "Open Government Licence Canada: any use including commercial, with attribution."
+  },
+  "HRDEMTIDAL": {
+   "licence": "Open Government Licence - Canada",
+   "attribution": "Natural Resources Canada",
+   "terms": "https://open.canada.ca/en/open-government-licence-canada",
+   "evidence": "licence-named",
+   "summary": "Open Government Licence Canada: any use including commercial, with attribution."
+  },
+  "IRELAND1M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Geological Survey Ireland",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "ITALY10M": {
+   "licence": "Creative Commons Attribution 4.0 (cite Tarquini et al., doi:10.13127/tinitaly/1.1)",
+   "attribution": "Tarquini et al. (2023) TINITALY 1.1, doi:10.13127/tinitaly/1.1",
+   "terms": "https://tinitaly.pi.ingv.it/Download_Area1_1.html",
+   "evidence": "snippet",
+   "summary": "CC BY 4.0 with the dataset citation; no registration."
+  },
+  "LOWERSAXONY1M": {
+   "licence": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
+   "attribution": "LGLN Niedersachsen",
+   "terms": "https://www.govdata.de/dl-de/zero-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany Zero 2.0: any use, no conditions."
+  },
+  "LOWERSAXONYTIDAL": {
+   "licence": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
+   "attribution": "LGLN Niedersachsen",
+   "terms": "https://www.govdata.de/dl-de/zero-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany Zero 2.0: any use, no conditions."
+  },
+  "MECKLENBURG1M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "GeoBasis-DE/M-V",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "NCPHASE3": {
+   "licence": "CC0 1.0",
+   "attribution": "North Carolina Emergency Management, NC Statewide Lidar Phase 3 (2024), via NOAA OCM Digital Coast",
+   "terms": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "evidence": "licence-named",
+   "summary": "CC0: public-domain dedication, no conditions."
+  },
+  "NED1": {
+   "licence": "Public Domain (U.S. Geological Survey)",
+   "attribution": "U.S. Geological Survey",
+   "terms": "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits",
+   "evidence": "licence-named",
+   "summary": "US federal work: public domain; USGS asks for a credit line."
+  },
+  "NED13": {
+   "licence": "Public Domain (U.S. Geological Survey)",
+   "attribution": "U.S. Geological Survey",
+   "terms": "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits",
+   "evidence": "licence-named",
+   "summary": "US federal work: public domain; USGS asks for a credit line."
+  },
+  "NETHERLANDS50CM": {
+   "licence": "Creative Commons Zero (public domain)",
+   "attribution": "Actueel Hoogtebestand Nederland (AHN) / PDOK",
+   "terms": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "evidence": "licence-named",
+   "summary": "CC0: public-domain dedication, no conditions."
+  },
+  "NEWZEALAND1M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Toitu Te Whenua Land Information New Zealand",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "NEWZEALANDTIDAL": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Toitu Te Whenua Land Information New Zealand",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "NOAAAKCOASTAL": {
+   "licence": "Public domain (NOAA OCM Digital Coast)",
+   "attribution": "NOAA 2023 Alaska Coastal Communities lidar, via NOAA OCM Digital Coast",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "NOAACOLUMBIARIVER": {
+   "licence": "Public domain (NOAA OCM Digital Coast)",
+   "attribution": "USACE 2010 Columbia River lidar, via NOAA OCM Digital Coast",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "NOAAKETCHIKAN": {
+   "licence": "Public domain (NOAA OCM Digital Coast)",
+   "attribution": "FEMA 2014 Ketchikan lidar, via NOAA OCM Digital Coast",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "NOAATXJLC1M": {
+   "licence": "Public domain (NOAA OCM Digital Coast)",
+   "attribution": "Texas Natural Resources Information System (TNRIS) 2017 lidar, via NOAA OCM Digital Coast",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "NOAAVALDEZLAZ": {
+   "licence": "Public domain (NOAA OCM Digital Coast)",
+   "attribution": "FEMA 2012 Valdez, AK lidar (AeroMetric for STARR), via NOAA OCM Digital Coast",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NOAA): public domain, no use restriction."
+  },
+  "NORWAY1M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Kartverket, Nasjonal hoydemodell",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "NRW1M": {
+   "licence": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
+   "attribution": "Geobasis NRW",
+   "terms": "https://www.govdata.de/dl-de/zero-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany Zero 2.0: any use, no conditions."
+  },
+  "OREGONDOGAMI": {
+   "licence": "Oregon DOGAMI public lidar (no restriction published)",
+   "attribution": "Oregon Department of Geology and Mineral Industries (DOGAMI), Oregon Lidar Consortium",
+   "terms": "https://www.oregon.gov/dogami/lidar",
+   "evidence": "read",
+   "summary": "Free download; the disclaimer covers accuracy only, no licence or commercial limit."
+  },
+  "OpenStreetMap": {
+   "licence": "ODbL-1.0",
+   "attribution": "(c) OpenStreetMap contributors",
+   "terms": "https://www.openstreetmap.org/copyright",
+   "evidence": "licence-named",
+   "summary": "ODbL 1.0: share-alike open database licence; the library's own licence."
+  },
+  "PITKIN1M": {
+   "licence": "Pitkin County GIS open data (disclaimer only)",
+   "attribution": "Pitkin County, Colorado — 2016 LiDAR (Merrick & Co. for CWCB)",
+   "terms": "https://www.pitkincounty.com/478/Disclaimer",
+   "evidence": "read",
+   "summary": "Disclaimer covers accuracy and liability only; no redistribution limit."
+  },
+  "POLAND1M": {
+   "licence": "Open by statute (Prawo geodezyjne i kartograficzne art. 40a/40c)",
+   "attribution": "GUGiK, NMT (geoportal.gov.pl)",
+   "terms": "https://isap.sejm.gov.pl/isap.nsf/DocDetails.xsp?id=WDU20200002052",
+   "evidence": "read",
+   "summary": "The NMT is provided free with no licence issued (geodesy law art. 40a/40c); reuse follows the PSI reuse act; cite the source."
+  },
+  "RHINELANDPALATINATE1M": {
+   "licence": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
+   "attribution": "LVermGeo Rheinland-Pfalz",
+   "terms": "https://www.govdata.de/dl-de/by-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany attribution 2.0: any use including commercial, with source credit."
+  },
+  "RIODEJANEIRO5M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Instituto Pereira Passos, Prefeitura do Rio de Janeiro",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "SAXONY1M": {
+   "licence": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
+   "attribution": "GeoSN, Landesvermessung Sachsen",
+   "terms": "https://www.govdata.de/dl-de/by-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany attribution 2.0: any use including commercial, with source credit."
+  },
+  "SAXONYANHALT1M": {
+   "licence": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
+   "attribution": "LVermGeo Sachsen-Anhalt",
+   "terms": "https://www.govdata.de/dl-de/by-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany attribution 2.0: any use including commercial, with source credit."
+  },
+  "SCHLESWIGHOLSTEIN1M": {
+   "licence": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
+   "attribution": "GeoBasis-DE/LVermGeo SH",
+   "terms": "https://www.govdata.de/dl-de/zero-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany Zero 2.0: any use, no conditions."
+  },
+  "SCHLESWIGHOLSTEINTIDAL": {
+   "licence": "Datenlizenz Deutschland Zero 2.0 (no restrictions)",
+   "attribution": "GeoBasis-DE/LVermGeo SH",
+   "terms": "https://www.govdata.de/dl-de/zero-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany Zero 2.0: any use, no conditions."
+  },
+  "SCOTLAND30M": {
+   "licence": "Open Government Licence v3 (Forestry and Land Scotland)",
+   "attribution": "Forestry and Land Scotland",
+   "terms": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+   "evidence": "licence-named",
+   "summary": "UK Open Government Licence v3: any use including commercial, with attribution."
+  },
+  "SCOTLAND50CM": {
+   "licence": "Open Government Licence v3",
+   "attribution": "Scottish Remote Sensing Portal (Scottish Government)",
+   "terms": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+   "evidence": "licence-named",
+   "summary": "UK Open Government Licence v3: any use including commercial, with attribution."
+  },
+  "SCOTLANDTIDAL": {
+   "licence": "Open Government Licence v3",
+   "attribution": "Scottish Remote Sensing Portal (Scottish Government)",
+   "terms": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+   "evidence": "licence-named",
+   "summary": "UK Open Government Licence v3: any use including commercial, with attribution."
+  },
+  "SONNY1": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Sonny, sonny.4lima.de - LiDAR Digital Terrain Models of Europe",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "SOUTHTYROL50CM": {
+   "licence": "Creative Commons Zero (public domain)",
+   "attribution": "Autonome Provinz Bozen - Suedtirol",
+   "terms": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "evidence": "licence-named",
+   "summary": "CC0: public-domain dedication, no conditions."
+  },
+  "SPAIN5M": {
+   "licence": "CC BY 4.0 (Orden FOM/2807/2015)",
+   "attribution": "Obra derivada de CC-BY 4.0 scne.es",
+   "terms": "https://www.ign.es/resources/licencia/Condiciones_licenciaUso_IGN.pdf",
+   "evidence": "snippet",
+   "summary": "CC BY 4.0; derived works are credited as a derived work of scne.es with the year."
+  },
+  "SRTM": {
+   "licence": "Public Domain (NASA)",
+   "attribution": "NASA Shuttle Radar Topography Mission",
+   "terms": "https://www.usa.gov/government-copyright",
+   "evidence": "licence-named",
+   "summary": "US federal work (NASA): public domain, no use restriction."
+  },
+  "SWISSALTI3D": {
+   "licence": "swisstopo free geodata terms",
+   "attribution": "(c) swisstopo",
+   "terms": "https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices",
+   "evidence": "read",
+   "summary": "Free use, processing, redistribution and commercial use; source credit mandatory; no registration."
+  },
+  "TAIWAN20M": {
+   "licence": "Taiwan Open Government Data License v1.0",
+   "attribution": "Ministry of the Interior (Taiwan), DTM 20 m",
+   "terms": "https://data.gov.tw/license",
+   "evidence": "read",
+   "summary": "Any purpose, sublicensable, compatible with CC BY 4.0; credit agency, year, dataset and version."
+  },
+  "TEXAS1M": {
+   "licence": "CC0 1.0 (TxGIO public data)",
+   "attribution": "Texas Geographic Information Office (TxGIO), StratMap lidar",
+   "terms": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "evidence": "licence-named",
+   "summary": "CC0: public-domain dedication, no conditions."
+  },
+  "THURINGIA1M": {
+   "licence": "Datenlizenz Deutschland Namensnennung 2.0 (attribution required)",
+   "attribution": "GDI-Th, Freistaat Thueringen",
+   "terms": "https://www.govdata.de/dl-de/by-2-0",
+   "evidence": "licence-named",
+   "summary": "Data licence Germany attribution 2.0: any use including commercial, with source credit."
+  },
+  "USGS3DEP": {
+   "licence": "Public Domain (U.S. Geological Survey)",
+   "attribution": "U.S. Geological Survey 3D Elevation Program (3DEP)",
+   "terms": "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits",
+   "evidence": "licence-named",
+   "summary": "US federal work: public domain; USGS asks for a credit line."
+  },
+  "USGSLPC": {
+   "licence": "Public Domain (U.S. Geological Survey)",
+   "attribution": "U.S. Geological Survey 3D Elevation Program (3DEP), Lidar Point Clouds",
+   "terms": "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits",
+   "evidence": "licence-named",
+   "summary": "US federal work: public domain; USGS asks for a credit line."
+  },
+  "USGSOPR": {
+   "licence": "Public Domain (U.S. Geological Survey)",
+   "attribution": "U.S. Geological Survey 3D Elevation Program (3DEP), Original Product Resolution DEMs",
+   "terms": "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits",
+   "evidence": "licence-named",
+   "summary": "US federal work: public domain; USGS asks for a credit line."
+  },
+  "WALES1M": {
+   "licence": "Open Government Licence v3 (attribution required)",
+   "attribution": "Welsh Government / DataMapWales, LiDAR terrain model",
+   "terms": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+   "evidence": "licence-named",
+   "summary": "UK Open Government Licence v3: any use including commercial, with attribution."
+  },
+  "WALLONIA1M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Service public de Wallonie",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "licence-named",
+   "summary": "CC BY 4.0: any use including commercial, with attribution."
+  },
+  "base:auto": {
+   "licence": "the engine's default base elevation ladder (Copernicus GLO-30 / GLO-90, SRTM)",
+   "attribution": "produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
+   "terms": "https://docs.sentinel-hub.com/api/latest/static/files/data/dem/resources/license/License-COPDEM-30.pdf",
+   "evidence": "snippet",
+   "summary": "The base ladder's members are Copernicus DEM (free with notice) and SRTM (public domain)."
+  }
+ },
+ "noncommercial": {
+  "VIEWFINDER1": {
+   "licence": "Free for non-commercial use with attribution (viewfinderpanoramas.org)",
+   "attribution": "Jonathan de Ferranti, viewfinderpanoramas.org (https://viewfinderpanoramas.org/)",
+   "terms": "https://viewfinderpanoramas.org/",
+   "evidence": "read",
+   "summary": "Research and private use; large-scale or commercial reproduction needs contact; flight-sim use with proper credit and a link to the source page."
+  },
+  "VIEWFINDER3": {
+   "licence": "Free for non-commercial use with attribution (viewfinderpanoramas.org)",
+   "attribution": "Jonathan de Ferranti, viewfinderpanoramas.org (https://viewfinderpanoramas.org/)",
+   "terms": "https://viewfinderpanoramas.org/",
+   "evidence": "read",
+   "summary": "Same terms as VIEWFINDER1."
+  },
+  "WADNR": {
+   "licence": "Washington DNR / USGS 3DEP lidar (public; no use restriction published)",
+   "attribution": "Washington State Department of Natural Resources / USGS — 2023-2024 Whidbey Refresh lidar (Washington Lidar Portal)",
+   "terms": "https://dnr.wa.gov/node/118",
+   "evidence": "read",
+   "summary": "DNR citation guidelines allow use with citation, but the state data disclaimer bars commercial use and licensing: non-commercial."
+  }
  },
  "held": {
-  "AKHAINES": "State of Alaska DGGS public data (Raw Data File 2021-4)",
-  "ALOS": "Free with attribution (JAXA)",
-  "CORALATLAS": "CC-BY 4.0 (Allen Coral Atlas)",
-  "CURITIBA50CM": "Open municipal geodata (IPPUC)",
-  "CWCB1M": "Unknown (CWCB lidar portal; no use restriction published)",
-  "CWCB7V2LAS": "Unknown (CWCB lidar portal; no use restriction published)",
-  "CZECHIA2M": "CUZK open data (attribution required)",
-  "DENMARK40CM": "Danish public data (free registration)",
-  "EMODNETBATHYMETRY": "CC-BY (EMODnet Bathymetry Consortium)",
-  "ESPIRITOSANTO2M": "Open Espirito Santo state geodata",
-  "ESTONIA1M": "Estonian open geodata (Maa- ja Ruumiamet)",
-  "FLANDERS1M": "Flanders open data (Vlaanderen)",
-  "GEBCO2024": "GEBCO grid, freely available (cite GEBCO Compilation Group 2024)",
-  "HONGKONG5M": "DATA.GOV.HK open data terms",
-  "JAPAN5M": "GSI Content Usage Terms (free with attribution)",
-  "LITHUANIA1M": "Lithuanian open geodata",
-  "NORTHERNIRELAND1M": "DAERA open data (fetch-time use; no redistribution by this tool)",
-  "PERNAMBUCO1M": "Free with registration (Governo de Pernambuco)",
-  "POLAND1M": "Open by statute (Polish geodetic and cartographic law)",
-  "SAARLAND18M": "INSPIRE open view/coverage service",
-  "SARDINIA1M": "Creative Commons Attribution (Regione Sardegna open data)",
-  "SWISSALTI3D": "swisstopo open geodata (free use with source attribution)",
-  "TAIWAN20M": "Taiwan Open Government Data License v1.0 (attribution required)",
-  "URUGUAY2M": "Licencia de Datos Abiertos de Uruguay",
-  "VIEWFINDER1": "Free for non-commercial use with attribution (viewfinderpanoramas.org)",
-  "VIEWFINDER3": "Free for non-commercial use with attribution (viewfinderpanoramas.org)",
-  "ZAGREB1M": "Open city geodata (City of Zagreb / GDi)"
+  "ALOS": {
+   "licence": "Free with attribution (JAXA)",
+   "attribution": "Japan Aerospace Exploration Agency, ALOS World 3D",
+   "terms": "https://earth.jaxa.jp/en/data/policy/",
+   "evidence": "read",
+   "summary": "Free reuse with credit, but commercial use needs notice to JAXA and the download needs a JAXA account."
+  },
+  "CORALATLAS": {
+   "licence": "CC-BY 4.0 (Allen Coral Atlas)",
+   "attribution": "Allen Coral Atlas (2022). Imagery, maps and monitoring of the world's tropical coral reefs. doi.org/10.5281/zenodo.3833242",
+   "terms": "https://allencoralatlas.org/faq/",
+   "evidence": "read",
+   "summary": "CC BY 4.0, but every download needs a login and republishing the dataset needs ASU's written consent."
+  },
+  "CURITIBA50CM": {
+   "licence": "Open municipal geodata (IPPUC)",
+   "attribution": "IPPUC, Prefeitura de Curitiba",
+   "terms": "",
+   "evidence": "none-found",
+   "summary": "No licence found for IPPUC's MDT 2019."
+  },
+  "CWCB1M": {
+   "licence": "Unknown (CWCB lidar portal; no use restriction published)",
+   "attribution": "Colorado Water Conservation Board — 2016 Routt County LiDAR (Merrick & Co. for CWCB)",
+   "terms": "",
+   "evidence": "none-found",
+   "summary": "The CWCB lidar portal publishes no licence or use terms."
+  },
+  "CWCB7V2LAS": {
+   "licence": "Unknown (CWCB lidar portal; no use restriction published)",
+   "attribution": "Colorado Water Conservation Board — 2015 Western Colorado LiDAR point cloud (Quantum Spatial)",
+   "terms": "",
+   "evidence": "none-found",
+   "summary": "Same portal and gap as CWCB1M."
+  },
+  "DENMARK40CM": {
+   "licence": "Danish public data (free registration)",
+   "attribution": "Klimadatastyrelsen, Denmark",
+   "terms": "https://dataforsyningen.dk/",
+   "evidence": "licence-named",
+   "summary": "Held by owner ruling Q319: free registration required."
+  },
+  "ESPIRITOSANTO2M": {
+   "licence": "Open Espirito Santo state geodata",
+   "attribution": "GEOBASES / IEMA, Governo do Espirito Santo",
+   "terms": "",
+   "evidence": "none-found",
+   "summary": "GEOBASES/IJSN publish no blanket licence; varies per dataset."
+  },
+  "JAPAN5M": {
+   "licence": "GSI Content Usage Terms (free with attribution)",
+   "attribution": "Geospatial Information Authority of Japan (GSI)",
+   "terms": "https://www.gsi.go.jp/ENGLISH/page_e30286.html",
+   "evidence": "read",
+   "summary": "Public Data License 1.0 with credit and an edited note, but the Survey Act approval question for redistributed DEM tiles is open (owner)."
+  },
+  "LITHUANIA1M": {
+   "licence": "Lithuanian open geodata",
+   "attribution": "Nacionaline zemes tarnyba, Lithuania",
+   "terms": "https://www.geoportal.lt/geoportal/web/en/open-data",
+   "evidence": "read",
+   "summary": "The open-data page does not list DTM-LT 2020; no licence for the service used."
+  },
+  "NORTHERNIRELAND1M": {
+   "licence": "DAERA open data (fetch-time use; no redistribution by this tool)",
+   "attribution": "DAERA Northern Ireland / Bluesky",
+   "terms": "https://www.opendatani.gov.uk/",
+   "evidence": "snippet",
+   "summary": "Held by owner ruling Q319 (search shows OGL v3 catalogue entries; not re-ruled)."
+  },
+  "PERNAMBUCO1M": {
+   "licence": "Free with registration (Governo de Pernambuco)",
+   "attribution": "Programa Pernambuco Tridimensional (PE3D)",
+   "terms": "",
+   "evidence": "licence-named",
+   "summary": "Held by owner ruling Q319: registration required."
+  },
+  "PORTUGAL2M": {
+   "licence": "CC BY 4.0 (registration required)",
+   "attribution": "Direcao-Geral do Territorio",
+   "terms": "https://cdd.dgterritorio.gov.pt/",
+   "evidence": "read",
+   "summary": "CC BY 4.0, but DGT requires user registration to download (owner Q319: registration-required sources stay held)."
+  },
+  "PORTUGAL50CM": {
+   "licence": "CC BY 4.0 (registration required)",
+   "attribution": "Direcao-Geral do Territorio",
+   "terms": "https://cdd.dgterritorio.gov.pt/",
+   "evidence": "read",
+   "summary": "Same as PORTUGAL2M: registration gates download."
+  },
+  "PORTUGALTIDAL": {
+   "licence": "CC BY 4.0 (registration required)",
+   "attribution": "Direcao-Geral do Territorio",
+   "terms": "https://cdd.dgterritorio.gov.pt/",
+   "evidence": "read",
+   "summary": "Same as PORTUGAL2M: registration gates download."
+  },
+  "SAARLAND18M": {
+   "licence": "INSPIRE open view/coverage service",
+   "attribution": "LVGL Saarland",
+   "terms": "https://gdk.gdi-de.org/",
+   "evidence": "snippet",
+   "summary": "DGM1 appears under dl-de/by-2.0 in catalogues, but the licence of the INSPIRE WCS used was not confirmed; provider disabled."
+  },
+  "SARDINIA1M": {
+   "licence": "Creative Commons Attribution (Regione Sardegna open data)",
+   "attribution": "Regione Autonoma della Sardegna",
+   "terms": "https://www.sardegnageoportale.it/",
+   "evidence": "snippet",
+   "summary": "Catalogue records give CC BY 4.0 for the 1 m lidar DTM, but the record of the WCS mosaic used could not be read."
+  },
+  "SWEDEN1M": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0; free registration)",
+   "attribution": "Lantmateriet, Sweden",
+   "terms": "https://www.lantmateriet.se/sv/geodata/vara-produkter/produktlista/markhojdmodell-nedladdning/",
+   "evidence": "snippet",
+   "summary": "CC BY 4.0, but the product is ordered on Geotorget and downloaded with a login (registration-required: held)."
+  },
+  "URUGUAY2M": {
+   "licence": "Licencia de Datos Abiertos de Uruguay",
+   "attribution": "Infraestructura de Datos Espaciales de Uruguay (IDEuy)",
+   "terms": "https://www.gub.uy/",
+   "evidence": "snippet",
+   "summary": "Licencia de Datos Abiertos likely permits commercial use with credit, but its text (decree 54/2017 annex) was not read."
+  },
+  "ZAGREB1M": {
+   "licence": "Open city geodata (City of Zagreb / GDi)",
+   "attribution": "Grad Zagreb / GDi",
+   "terms": "https://data.zagreb.hr/",
+   "evidence": "none-found",
+   "summary": "No licence on the city's open-data record for the DTM."
+  }
  }
 }

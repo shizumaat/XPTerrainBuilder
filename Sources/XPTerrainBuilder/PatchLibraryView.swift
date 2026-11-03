@@ -12,7 +12,20 @@ import SceneryKit
 ///   airports this build grades (`LibraryMatchList`).
 enum PatchLibraryText {
     static let title = "Patch library"
-    static let licence = "I publish this patch under the Open Database License (ODbL) 1.0."
+    static let licence = "I publish this patch under the Open Database License (ODbL) 1.0 "
+        + "and each source's terms shown above."
+    static let noncommercial = "Non-commercial: a source allows non-commercial use only, "
+        + "so the whole entry is marked non-commercial."
+
+    /// The preview's lines for each source's terms (owner Q319), as the Qt
+    /// window's `terms_lines` writes them.
+    static func terms(_ preview: O4PatchLibraryPreview) -> [String] {
+        let lines = (preview.sources ?? []).map { source in
+            "Source: \(source.provider) — \(source.licence)"
+                + (source.noncommercial ? " · non-commercial" : "")
+        }
+        return lines + ((preview.noncommercial ?? false) ? [noncommercial] : [])
+    }
 
     static func state(_ row: O4PatchLibraryRow) -> String {
         switch row.state {
@@ -192,6 +205,7 @@ struct PublishPatchSheet: View {
             Text(p.verified ? "You are this pack's verified developer: it merges when the checks pass."
                  : "It goes to the community reviewers.")
                 .foregroundStyle(.secondary)
+            ForEach(PatchLibraryText.terms(p), id: \.self) { Text($0).foregroundStyle(.secondary) }
             ForEach(p.problems, id: \.self) { Text("• " + $0).foregroundStyle(.red) }
         }
         .scaledFont(.caption)

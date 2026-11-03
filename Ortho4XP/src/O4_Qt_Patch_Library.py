@@ -33,11 +33,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-__all__ = ["TITLE", "LICENCE_TEXT", "check_at_launch", "applied_text",
+__all__ = ["TITLE", "LICENCE_TEXT", "NONCOMMERCIAL_TEXT", "terms_lines",
+           "check_at_launch", "applied_text",
            "PatchLibraryBox", "LibraryMatchList", "PublishPatchDialog"]
 
 TITLE = "Patch library"
-LICENCE_TEXT = "I publish this patch under the Open Database License (ODbL) 1.0."
+LICENCE_TEXT = ("I publish this patch under the Open Database License (ODbL) 1.0 "
+                "and each source's terms shown above.")
+NONCOMMERCIAL_TEXT = ("Non-commercial: a source allows non-commercial use only, "
+                      "so the whole entry is marked non-commercial.")
+
+
+def terms_lines(preview):
+    """The preview's lines for each source's terms (owner Q319), as the
+    Mac app's ``PatchLibraryText.terms`` writes them."""
+    lines = ["Source: %s — %s%s" % (s["provider"], s["licence"],
+                                     " · non-commercial" if s["noncommercial"] else "")
+             for s in preview.get("sources") or []]
+    return lines + ([NONCOMMERCIAL_TEXT] if preview.get("noncommercial") else [])
 KINDS = (("freeware", "Free pack"), ("payware", "Paid pack"))
 
 
@@ -390,6 +403,7 @@ class PublishPatchDialog(QDialog):
             result["bytes"] / 1e6),
             "You are this pack's verified developer: it merges when the checks pass."
             if result["verified"] else "It goes to the community reviewers."]
+        lines += terms_lines(result)
         lines += ["• " + p for p in result["problems"]]
         self.preview_label.setText("\n".join(lines))
         self.status_label.setText("Ready to publish." if not result["problems"]

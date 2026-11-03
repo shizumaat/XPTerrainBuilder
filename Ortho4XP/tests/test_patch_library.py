@@ -275,7 +275,8 @@ def test_users_own_edits_are_never_overwritten(world):
 def _entry_folder(world, tmp_path):
     _sign_in(world)
     world["a"].live(world["mp"])
-    entry = PUBLISH._package(LAT, LON, ICAO, "", "payware", "dev", "")[1]
+    entry = PUBLISH._package(LAT, LON, ICAO, "", "payware", "dev", "",
+                             PUBLISH._licences())[1]
     root = tmp_path / "lib"
     shutil.copytree(TEMPLATE, root)
     _put(root / L.PUBLISHERS, json.dumps({"developers": [
@@ -313,6 +314,42 @@ def test_checks_refuse_a_local_path_a_bad_hash_and_a_skipped_version(world, tmp_
     rel3 = entry["rel"].rsplit("/", 1)[0] + "/v3"
     assert any("before version 2" in p for p in CHECKS.check_entry(
         str(root), rel3, publishers=pubs, licences=lic)["problems"])
+
+
+def test_per_source_terms_mark_a_noncommercial_entry_and_refuse_a_held_one(world, tmp_path):
+    """Owner Q319: an open entry is ODbL 1.0 and credits each source's
+    terms; a non-commercial source publishes and marks the whole entry
+    non-commercial; a held source refuses it; the mark is re-derived."""
+    from patch_library import LICENCE, LICENCE_NC
+    from patch_library import terms as TERMS
+    root, entry, folder = _entry_folder(world, tmp_path)
+    lic = json.loads((root / L.LICENCES).read_text(encoding="utf-8"))
+    meta = entry["manifest"]
+    assert meta["licence"] == LICENCE and meta["noncommercial"] is False
+    usgs = next(s for s in meta["sources"] if s["provider"] == "USGS3DEP")
+    assert usgs["terms"].startswith("https://") and not usgs["noncommercial"]
+    assert "terms: https://" in entry["files"][L.ATTRIBUTION].decode("utf-8")
+
+    def verdict(sources, licence, noncommercial):
+        _put(folder / L.MANIFEST, json.dumps(dict(
+            meta, sources=sources, licence=licence, noncommercial=noncommercial)))
+        pubs = json.loads((root / L.PUBLISHERS).read_text(encoding="utf-8"))
+        return CHECKS.check_entry(str(root), entry["rel"], publishers=pubs,
+                                  licences=lic)["problems"]
+
+    nc = TERMS.annotate(meta["sources"] + [{"kind": "elevation",
+                                            "provider": "VIEWFINDER1",
+                                            "licence": "x"}], lic)
+    assert nc[-1]["noncommercial"] and TERMS.entry_licence(nc) == LICENCE_NC
+    assert verdict(nc, LICENCE_NC, True) == []
+    assert any("non-commercial mark" in p for p in verdict(nc, LICENCE_NC, False))
+    assert any("published under %s" % LICENCE_NC in p for p in verdict(nc, LICENCE, False))
+    held = meta["sources"] + [{"provider": "NORTHERNIRELAND1M", "licence": "x"}]
+    assert any("NORTHERNIRELAND1M is held" in p for p in verdict(held, LICENCE, False))
+    for name in TERMS.CLASSES:
+        for code, row in lic[name].items():
+            assert set(row) >= {"licence", "attribution", "terms", "evidence",
+                                "summary"}, code
 
 
 def test_a_published_version_never_changes(world, tmp_path):

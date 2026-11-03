@@ -16,8 +16,9 @@ What it refuses (each problem is one sentence for the pull request):
 * a file whose sha256 or size is not the manifest's, or that is too big;
 * a LOCAL PATH in any text (a home folder, a drive letter) — the app
   tokenises every path on the way out;
-* a SOURCE not on the library's licence allowlist (``licences.json``;
-  owner Q304: the library is ODbL 1.0);
+* a SOURCE the library's licence gate holds or does not list, or a
+  licence the sources do not make (``licences.json``, :mod:`.terms`;
+  owner Q304/Q319);
 * a COMMUNITY entry for a PAYWARE pack: it needs pack-relative encoding
   (owner Q303), which is not built yet — a verified developer's entry for
   their own pack is exempt;
@@ -41,11 +42,13 @@ import os
 import re
 import sys
 
-from . import FORMAT, LICENCE
+from . import FORMAT
 from . import layout as L
+from . import terms as _terms
+from .terms import DEFAULT_LICENCES
 
 __all__ = ["MAX_FILE_BYTES", "MAX_ENTRY_BYTES", "PACK_KINDS",
-           "DEFAULT_LICENCES", "LOCAL_PATH_RE", "load_json", "local_paths",
+           "LOCAL_PATH_RE", "load_json", "local_paths",
            "verified_for", "check_entry", "check_pull", "main"]
 
 #: A compressed file's cap (GitHub refuses a blob over 100 MB).
@@ -56,12 +59,6 @@ MAX_ENTRY_BYTES = 100 * 1024 * 1024
 #: What a pack is: the global default airports (Global Airports, X-Plane's
 #: own), a free pack, or a paid one.
 PACK_KINDS = ("default", "freeware", "payware")
-
-#: The allowlist a library without ``licences.json`` uses: OpenStreetMap
-#: and the engine's base elevation only.
-DEFAULT_LICENCES = {"allowed": {"OpenStreetMap": "ODbL-1.0",
-                                "base:auto": "the engine's base elevation"},
-                    "held": {}}
 
 #: A local path in any spelling a build writes: a home or volume folder,
 #: as is or URL-quoted, or a Windows drive.
@@ -130,8 +127,6 @@ def _manifest_problems(doc: dict, where: dict) -> list:
         out.append("the pack signature does not match the entry's folder")
     if not L.TILE_RE.match(doc["tile"]):
         out.append("%r is not a tile" % doc["tile"])
-    if doc["licence"] != LICENCE:
-        out.append("an entry is published under %s, not %r" % (LICENCE, doc["licence"]))
     kind = (doc["pack"] or {}).get("kind")
     if kind not in PACK_KINDS:
         out.append("the pack's kind is %r; say one of %s" % (kind, ", ".join(PACK_KINDS)))
@@ -142,22 +137,6 @@ def _manifest_problems(doc: dict, where: dict) -> list:
     for key in ("fresh_v", "cfg", "code", "ap_engine"):
         if not isinstance(doc["law"].get(key), str) or not doc["law"][key]:
             out.append("the manifest's law has no %s" % key)
-    return out
-
-
-def _licence_problems(doc: dict, licences: dict) -> list:
-    allowed = (licences or DEFAULT_LICENCES).get("allowed") or {}
-    held = (licences or DEFAULT_LICENCES).get("held") or {}
-    out = []
-    for source in doc.get("sources") or []:
-        provider = str(source.get("provider", ""))
-        if provider in held:
-            out.append("source %s is held (%s)" % (provider, held[provider]))
-        elif provider not in allowed:
-            out.append("source %s is not on the library's licence allowlist"
-                       % provider)
-    if not any(s.get("provider") == "OpenStreetMap" for s in doc.get("sources") or []):
-        out.append("the sources do not credit OpenStreetMap")
     return out
 
 
@@ -260,7 +239,7 @@ def check_entry(root: str, rel: str, *, publishers=None, licences=None,
             "a community entry for a payware pack needs pack-relative "
             "encoding (owner Q303), which the library does not take yet; "
             "the pack's own developer can publish it as a verified developer")
-    problems += _licence_problems(doc, licences)
+    problems += _terms.problems(doc, licences)
     problems += _file_problems(root, rel, doc, doc["icao"])
     if where["version"] > 1:
         prev = rel.rsplit("/", 1)[0] + "/v%d" % (where["version"] - 1)

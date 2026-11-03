@@ -10,7 +10,8 @@ library's workflow rebuilds it on every merge (``library_template/
          "tile": "+45-123", "latest": 2, "versions": [1, 2],
          "path": "entries/KPDX/<pack>/<sig12>",   # + "/v<latest>"
          "law": {...}, "solve": str, "min_engine": str,
-         "publisher": str, "verified": bool, "published": str}]}}
+         "publisher": str, "verified": bool, "published": str,
+         "noncommercial": bool}]}}       # owner Q319: the latest's NC mark
 
 A region holds every airport whose TILE lies in it, so the app fetches
 only the regions where the user has packs or tiles.  Rows of one airport
@@ -72,7 +73,8 @@ def _rows(root: str) -> dict:
                    "publisher": doc["publisher"],
                    "verified": verified_for(publishers, doc["publisher"],
                                             doc["icao"], doc["pack"]["name"]),
-                   "published": doc.get("published", "")}
+                   "published": doc.get("published", ""),
+                   "noncommercial": bool(doc.get("noncommercial"))}
             found[key] = row
         row["versions"] = sorted(set(row["versions"]) | {where["version"]})
     out: dict = {}

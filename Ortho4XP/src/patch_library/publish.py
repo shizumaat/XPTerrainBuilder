@@ -8,7 +8,8 @@ published: the files and sizes, the version, the problems, whether it
 merges by itself (a verified developer's own pack) or goes to review.
 
 :func:`publish` does it: the publisher has accepted the library licence
-(ODbL 1.0, once; owner Q304) and is signed in to GitHub (:mod:`.github`).
+(ODbL 1.0 and each source's terms, once; owner Q304/Q319) and is
+signed in to GitHub (:mod:`.github`).
 The app forks the library into the publisher's account, commits the
 entry to a new branch there and opens the pull request.  Publishing
 needs a GitHub account (owner, 2026-11-02); nothing is hosted by us.
@@ -27,6 +28,7 @@ from . import config as _config
 from . import entry as _entry
 from . import github as _github
 from . import layout as L
+from . import terms as _terms
 
 __all__ = ["ACCEPTED_NAME",
            "preview", "publish"]
@@ -68,7 +70,12 @@ def _tile(lat, lon, working_dir: str):
     return load_tile(int(lat), int(lon), os.path.join(custom, "") if custom else "")
 
 
-def _package(lat, lon, icao, working_dir, kind, login, notes) -> tuple:
+def _licences() -> dict:
+    """The library's licence gate (``licences.json``, :mod:`.terms`)."""
+    return _client.fetch_json(L.LICENCES) or _terms.DEFAULT_LICENCES
+
+
+def _package(lat, lon, icao, working_dir, kind, login, notes, licences) -> tuple:
     import O4_File_Names as FNAMES
     from tile_bundle.key import xplane_root
 
@@ -83,12 +90,11 @@ def _package(lat, lon, icao, working_dir, kind, login, notes) -> tuple:
     version = _next_version(icao.upper(), FNAMES.short_latlon(tile.lat, tile.lon),
                            signature)
     return tile, _entry.package(tile, icao, kind=kind, publisher=login,
-                                version=version, notes=notes)
+                                version=version, notes=notes, licences=licences)
 
 
-def _check(entry: dict, login: str | None) -> dict:
+def _check(entry: dict, login: str | None, licences: dict) -> dict:
     publishers = _client.fetch_json(L.PUBLISHERS) or {}
-    licences = _client.fetch_json(L.LICENCES) or _checks.DEFAULT_LICENCES
     root = tempfile.mkdtemp(prefix="xptb_publish_")
     try:
         _entry.write_folder(root, entry)
@@ -115,11 +121,15 @@ def preview(lat, lon, icao: str, working_dir: str = "", kind: str = "",
 
     :returns: ``{"icao", "entry", "version", "pack", "kind", "files":
         [{"name", "bytes"}], "bytes", "problems", "verified",
-        "signed_in", "licence", "licence_accepted", "attribution"}``
+        "signed_in", "licence", "noncommercial", "sources",
+        "licence_accepted", "attribution"}`` — ``sources``: ``[{"provider",
+        "licence", "terms", "noncommercial"}]``, each source's terms
     """
     _token, login = _login()
-    _tile_, entry = _package(lat, lon, icao, working_dir, kind, login or "", notes)
-    verdict = _check(entry, login)
+    licences = _licences()
+    _tile_, entry = _package(lat, lon, icao, working_dir, kind, login or "", notes,
+                             licences)
+    verdict = _check(entry, login, licences)
     manifest = entry["manifest"]
     problems = list(verdict["problems"])
     return {"icao": manifest["icao"], "entry": entry["rel"],
@@ -128,7 +138,11 @@ def preview(lat, lon, icao: str, working_dir: str = "", kind: str = "",
             "files": [{"name": n, "bytes": len(d)} for n, d in sorted(entry["files"].items())],
             "bytes": sum(len(d) for d in entry["files"].values()),
             "problems": problems, "verified": verdict["verified"],
-            "signed_in": login or "", "licence": LICENCE,
+            "signed_in": login or "", "licence": manifest["licence"],
+            "noncommercial": bool(manifest["noncommercial"]),
+            "sources": [{k: s.get(k, "") for k in ("provider", "licence", "terms")}
+                        | {"noncommercial": bool(s.get("noncommercial"))}
+                        for s in manifest["sources"]],
             "licence_accepted": _licence_accepted(),
             "attribution": entry["files"][L.ATTRIBUTION].decode("utf-8")}
 
@@ -141,7 +155,7 @@ def _body(entry: dict, verdict: dict) -> str:
                                                        m["signature"][:12]),
         "- %s" % ("verified developer of this pack: merges when the checks pass"
                   if verdict["verified"] else "community entry: goes to review"),
-        "", "Published from XPTerrainBuilder under %s." % LICENCE]
+        "", "Published from XPTerrainBuilder. " + _terms.statement(m["licence"])]
     if m.get("notes"):
         lines += ["", m["notes"]]
     return "\n".join(lines)
@@ -159,14 +173,16 @@ def publish(lat, lon, icao: str, working_dir: str = "", kind: str = "",
     if accept:
         _accept_licence()
     if not _licence_accepted():
-        raise LibraryRefused("Accept the library licence (%s) to publish" % LICENCE)
+        raise LibraryRefused("Accept the library licence (%s and each "
+                             "source's terms) to publish" % LICENCE)
     if not _config.configured(publishing=True):
         raise LibraryRefused("Publishing is not set up in this app yet")
     token, login = _login()
     if not token or not login:
         raise LibraryRefused("Sign in to GitHub to publish")
-    _tile_, entry = _package(lat, lon, icao, working_dir, kind, login, notes)
-    verdict = _check(entry, login)
+    licences = _licences()
+    _tile_, entry = _package(lat, lon, icao, working_dir, kind, login, notes, licences)
+    verdict = _check(entry, login, licences)
     if verdict["problems"]:
         raise LibraryRefused("The library would refuse this patch: "
                              + verdict["problems"][0])

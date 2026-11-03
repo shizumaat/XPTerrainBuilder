@@ -22,7 +22,8 @@ Z = {0: 10.0, 1: 10.0, 2: 10.0, 3: 9.99, 4: 9.98, 5: 9.97}
 
 def _patch():
     law = Law.for_airport("ZZZZ")
-    ring = lambda ids: tuple((*XY[i], Z[i]) for i in ids)
+    def ring(ids):
+        return tuple((*XY[i], Z[i]) for i in ids)
     feats = [NS(feature="crown_spine", ref="R", closed_ring=ring([0, 1, 2])),
              NS(feature="crown_spine", ref="R", closed_ring=ring([3, 4, 5]))]
     shape = NS(role="runway", ref="R", key=1, vertex_ids=(0, 1, 2, 3, 4, 5),

@@ -174,6 +174,12 @@ def _max_concurrency(intervals):
 # The dispatcher gates (unit level)
 # ---------------------------------------------------------------------
 class _FakeChild:
+    def await_stderr_drained(self):
+        pass
+
+    def crash_detail(self):
+        return "build worker exited unexpectedly"
+
     def __init__(self):
         self.tile = None
         self.running_step = None

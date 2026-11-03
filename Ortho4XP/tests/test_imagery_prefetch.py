@@ -291,6 +291,9 @@ class _Child:
     def await_stderr_drained(self):
         pass
 
+    def crash_detail(self):
+        return "build worker exited unexpectedly"
+
 
 def _vector_run(tiles, flags=(True, True, False), imagery_busy=0):
     run = parallel.ParallelBuildRun(

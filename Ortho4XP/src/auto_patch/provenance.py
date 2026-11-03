@@ -674,6 +674,7 @@ FRESHNESS_COMPARED_KEYS = (
     "o4_ap_engine",
     "o4_dsf",
     "o4_imagery",
+    "o4_user_roles",
 )
 
 # Every stamp key written, in the order they appear on the root element.
@@ -683,6 +684,19 @@ FRESHNESS_COMPARED_KEYS = (
 #: from (:func:`app_version`, :func:`build_sha`), likewise never compared.
 FRESHNESS_KEYS = FRESHNESS_COMPARED_KEYS + ("o4_dsf_tiles", "o4_engine",
                                             "o4_app", "o4_build_sha")
+
+def user_roles_identity(tile, icao: str) -> str:
+    """``o4_user_roles``: the airport's hand-set pavement roles (#1697,
+    ``auto_patch_v2.airport.user_roles.digest``) — a role set or cleared in
+    the patch editor regrades the airport at the next build.  ``"none"``
+    without a tile (nothing to read beside)."""
+    lat, lon = getattr(tile, "lat", None), getattr(tile, "lon", None)
+    if lat is None or lon is None:
+        return "none"
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import user_roles as _ur
+    return _ur.digest(FNAMES.patch_dir(lat, lon), icao)
+
 
 def imagery_identity(paths) -> str:
     """``o4_imagery``: one digest of the airport photos a patch was fitted

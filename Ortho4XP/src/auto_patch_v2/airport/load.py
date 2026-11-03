@@ -115,6 +115,11 @@ class Inputs:
     #: set = no imagery: every imagery vote abstains.
     imagery_paths: tuple[str, ...] = ()
     imagery_scenery_dir: str = ""
+    #: THE HAND-SET ROLES (#1697): the ``user_roles.RoleOverride`` rows
+    #: beside the patch, read by the tile build (a pack-keyed row only while
+    #: the pack is the one it was set on); the loader resolves each by its
+    #: pavement's ring or id (``user_roles.resolve``).
+    role_overrides: tuple = ()
 
 
 class PackDumpStale(RuntimeError):
@@ -154,6 +159,8 @@ class LoadReport:
     #: sources whose cache held this airport
     end_pins: list = _dc.field(default_factory=list)
     end_pin_lines: tuple[str, ...] = ()
+    #: #1697: one line per hand-set role NOT applied (its pavement changed)
+    role_override_lines: tuple[str, ...] = ()
     end_pin_crosscheck: tuple[str, ...] = ()
     #: THE TERRAIN WITNESS (#1359): the textures it read (``source``,
     #: ``textures``) and one Q1 vote record per CIFP runway end, with the
@@ -724,6 +731,14 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.witness_lines = rep.witness_lines + tuple(j_lines)
     for _line in j_lines:
         _log.warning(_line)
+    if inputs.role_overrides:      # #1697: the user's classifications, by ring
+        from . import user_roles as _user_roles
+        taken, refused = _user_roles.resolve(inputs.role_overrides, apt.pavements,
+                                             frame.identity_dp,
+                                             {p.id for p in airport.pavements})
+        airport = _dc.replace(airport, role_overrides=taken)
+        rep.role_override_lines = tuple(f"{icao}: a hand-set classification was not "
+                                        f"applied: {why}" for why in refused)
     return airport, rep
 
 

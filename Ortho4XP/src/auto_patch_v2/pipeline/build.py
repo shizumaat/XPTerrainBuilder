@@ -473,6 +473,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # flagged runway and every moved pin, named
     for _line in lrep.end_pin_lines:
         _say(f"  [load] {_line}", out)
+    # #1697: the user's hand-set classifications, applied and refused
+    if airport.role_overrides:
+        _say(f"  [load] {len(airport.role_overrides)} pavement(s) classified by hand: "
+             + ", ".join(f"{src}={role}" for src, role in airport.role_overrides), out)
+    for _line in getattr(lrep, "role_override_lines", ()):
+        _say(f"  [load] {_line}", out)
     if lrep.pavement_borrow_line:
         _say(f"[load] {lrep.pavement_borrow_line}", out)
     # §42 (3) THE CENSUS (RULINGS 2026-09-13cv): the pack's draped OBJ8

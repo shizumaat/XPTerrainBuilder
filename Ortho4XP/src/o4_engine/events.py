@@ -179,7 +179,12 @@ from typing import Any, Optional
 # 1.32 (2026-11-03, additive, #1729): ``tidy_scenery_packs`` — the packs
 # scenery_packs.ini does not list yet, filed into their kind's group
 # (meshes below every ortho); answers ``added`` and ``backup``.
-PROTOCOL_VERSION = "1.32"
+# 1.33 (2026-11-03, additive, #1697): ``patch_roles`` / ``patch_role_set``
+# — a pack pavement's classification set by hand in the patch editor,
+# stored beside the patch as a user edit the classifier honours on every
+# rebuild (the airport is regraded from the classify stage).  An older
+# engine refuses them and the apps offer no "Classification" menu.
+PROTOCOL_VERSION = "1.33"
 
 
 @dataclass(frozen=True)

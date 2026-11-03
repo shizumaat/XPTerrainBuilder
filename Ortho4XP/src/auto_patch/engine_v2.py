@@ -481,6 +481,29 @@ def _iis_text(report: dict, log_lines: list[str]) -> str:
     return "\n".join(out)
 
 
+def user_role_inputs(patch_dir: str, icao: str, out, xp_root: str, lat: int, lon: int
+                     ) -> tuple:
+    """#1697: the hand-set pavement roles beside the patch
+    (``airport/user_roles``), as the loader's input — the ONE reader, for
+    the tile build and the harness's patch-only build alike.  A row keyed
+    by pack (a DSF pavement) is kept only while the installed pack has the
+    signature it was set on; an unreadable file or a dropped row is named."""
+    from auto_patch_v2.airport import user_roles as _ur
+    try:
+        rows = tuple(_ur.read(patch_dir, icao).values())
+    except (OSError, ValueError) as exc:
+        out(f"  [load] {icao}: hand-set classifications unreadable ({exc}); none applied")
+        return ()
+
+    def signature() -> str:
+        from patch_library import key as _key
+        return str(_key.pack_now(xp_root, icao, lat, lon).get("signature", ""))
+    rows, dropped = _ur.for_pack(rows, signature)
+    for why in dropped:
+        out(f"  [load] {icao}: a hand-set classification was not applied: {why}")
+    return rows
+
+
 def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
     """Build ONE airport with v2, place its patch, verify it — the v2 body
     of ``driver._build_write_verify_one`` (same ``task`` keys plus
@@ -526,7 +549,10 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             pack_pristine=task.get("pack_pristine"),
             # #1359 (owner RULINGS 2026-10-26y): the airport's own photos the
             # vector step fetched before the patches, for the terrain witness
-            imagery_paths=tuple(task.get("imagery_paths") or ()))
+            imagery_paths=tuple(task.get("imagery_paths") or ()),
+            # #1697: the pavements the user classified in the patch editor
+            role_overrides=user_role_inputs(FNAMES.patch_dir(lat, lon), icao, _out,
+                                            task["xp_root"], lat, lon))
         law = Law.for_airport(icao)
         scratch = _scratch_dir(task)
         os.makedirs(scratch, exist_ok=True)

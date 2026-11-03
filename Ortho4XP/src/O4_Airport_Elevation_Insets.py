@@ -117,6 +117,7 @@ import glob
 import math
 import datetime
 import threading
+import time
 
 from O4_Airport_Modes import (                    # core; stdlib-only module (#59, #70)
     MODE_RANK,
@@ -4353,17 +4354,21 @@ def warn_if_delivered_inset_clips_airport(tile, icao, boundary_box):
 OVERSAMPLED_INSET_RATIO = 0.9
 
 
-def _cached_inset_age_note(inset_path):
+def _cached_inset_age_note(inset_path, now=None):
     """``"KASE_usgs3dep.tif (cached 2026-09-01, 48 days old)"``: which
     cached inset a failed refetch kept, and how old it is (#924).  The
-    age is the raster's modification time -- when the fetch landed it."""
+    age is the raster's modification time -- when the fetch landed it --
+    counted in elapsed seconds against ``now`` (epoch, default the
+    clock), never as a difference of local wall times, which loses an
+    hour across a DST change (#1790)."""
     name = os.path.basename(inset_path)
     try:
         mtime = os.path.getmtime(inset_path)
     except OSError:
         return "%s (age unknown)" % name
     landed = datetime.datetime.fromtimestamp(mtime)
-    days = max(0, (datetime.datetime.now() - landed).days)
+    now = time.time() if now is None else now
+    days = max(0, int((now - mtime) // 86400))
     return "%s (cached %s, %d day%s old)" % (
         name, landed.date().isoformat(), days, "" if days == 1 else "s")
 

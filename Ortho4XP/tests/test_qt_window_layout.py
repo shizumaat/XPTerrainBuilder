@@ -427,7 +427,12 @@ class TestStartupCallsAreOwnedByTheWindow:
         try:
             assert window._first_run
             window.show()
-            qapp.processEvents()
+            # No event pump between construction and close: a timer only
+            # fires from the event loop, so this IS "inside the delay"
+            # however long the constructor took.  A pump here let the
+            # 200 ms timer fire before close() whenever construction ran
+            # past it — 2.5 s after the missing-textures and customization
+            # tests (#1794), so run_wizard ran on the still-open window.
             window.close()  # inside the 200 ms delay; the object lives on
             self._pump(qapp, 0.7)
             assert calls == []

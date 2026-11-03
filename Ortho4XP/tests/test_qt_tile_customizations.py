@@ -43,6 +43,7 @@ def window(tiles_dir, tmp_path, monkeypatch):
     finally:
         win._building = False
         win.close()
+        win.deleteLater()  # a closed window left alive leaks into later tests (#1794)
         sys.stdout = saved_stdout
 
 

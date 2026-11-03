@@ -137,8 +137,11 @@ def test_the_same_orthophoto_is_downloaded_once_by_two_processes(tmp_path):
 # =====================================================================
 # A server budget of 2, four tile processes: never more than 2 at once
 # =====================================================================
-def _imagery_request_worker(src, active_dir, log_file, requests_each):
+def _imagery_request_worker(src, active_dir, log_dir, requests_each):
+    # One log file per worker: four processes appending to one file can
+    # lose a line on Windows (#1771); the budget is read from all of them.
     sys.path.insert(0, src)
+    log_file = os.path.join(log_dir, "in_flight-%d.txt" % os.getpid())
     import O4_Imagery_Utils as IMG
 
     class Answer(types.SimpleNamespace):
@@ -164,10 +167,13 @@ def _imagery_request_worker(src, active_dir, log_file, requests_each):
 def test_a_server_budget_of_two_holds_across_four_processes(tmp_path, slot_session):
     active = tmp_path / "active"
     active.mkdir()
-    log = str(tmp_path / "in_flight.txt")
+    logs = tmp_path / "logs"
+    logs.mkdir()
     _run_workers(_imagery_request_worker,
-                 [(SRC, str(active), log, 6)] * 4)
-    seen = [int(n) for n in _lines(log)]
+                 [(SRC, str(active), str(logs), 6)] * 4)
+    per_worker = sorted(os.listdir(logs))
+    assert len(per_worker) == 4
+    seen = [int(n) for name in per_worker for n in _lines(str(logs / name))]
     assert len(seen) == 24
     assert max(seen) <= 2
     assert max(seen) == 2                      # and the budget is used

@@ -891,6 +891,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
         ss = [s_ for s_, _v in items]
         env[r] = _lift(ss, [g.get(v, -math.inf) for _s, v in items], cap)
     targets: dict[int, float] = {}
+    on_ramp: set[int] = set()
     for v in sorted(owned):
         vx = pm.vertices[v]
         f_ = frame.get(v)
@@ -917,6 +918,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
             rep["no_contact"] += 1
         if ramp >= floor + STAND_M:
             rep["on_ramp"] += 1
+            on_ramp.add(v)
             rep["max_above_dem_m"] = max(rep["max_above_dem_m"], t - dem_route)
             rep["max_reach_m"] = max(rep["max_reach_m"], reach.get(v, 0.0))
         else:
@@ -929,6 +931,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["_frame_report"] = frep
     rep["_contact_edge"] = contact
     rep["_contact_gap"] = gaps
+    rep["_on_ramp"] = frozenset(on_ramp)   # the vertices over their floor (#684)
     return RampTargets(targets, rep, frame)
 
 
@@ -1846,6 +1849,7 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     frame = tg.frame
     frep = tg.report.pop("_frame_report", {})
     frep.pop("_ways", None)            # the Way objects are not a report
+    tg.report.pop("_on_ramp", None)
     if report is not None:
         report.update(tg.report)
         report.update({f"frame_{k}": v for k, v in frep.items()})

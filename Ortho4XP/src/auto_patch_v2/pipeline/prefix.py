@@ -22,6 +22,7 @@ from ..airport import flat_site as _flat
 from ..airport.flat_site_read import verdict_for_build as _flat_verdict
 from ..airport.road_descent import descent_line
 from ..airport.road_profile import preferred_road_z
+from ..airport.lot_road_climb import with_lot_road_climbs
 from ..airport.road_ramp import with_road_ramp
 from ..classify import load_rules
 from ..constraints.apron_trend import ApronTrendReport, with_apron_trend
@@ -215,6 +216,16 @@ def _channels(icao: str, pm, law, law_c, airport, road_profiles, road_rep, road_
     # apron trend) where it carries one; the ramp target then SUPERSEDES
     # the core's soft road fit for every vertex it governs — the ONE
     # superseding site.  The rows are ``constraints/road_ramp.py``'s.
+    # issue #684 (owner Q366 "A"): a lot strip on a road's CLIMB to a raised
+    # pad stays road — read on the ramp the road had before the relabel,
+    # once, right before the ramp is derived (``airport/lot_road_climb``)
+    climb_rep: dict = {}
+    pm = with_lot_road_climbs(pm, law_c, airport, climb_rep,
+                              service=load_rules().service)
+    if climb_rep.get("lot_strips"):
+        out(f"[{icao}] lot strips on a climb (#684): "
+            f"{climb_rep['lot_strips_on_climb']} of {climb_rep['lot_strips']} "
+            f"returned to their road {climb_rep['returned'][:6]}")
     ramp_rep: dict = {}
     pm = with_road_ramp(pm, law_c, airport, ramp_rep, road_profiles,
                         service=load_rules().service)

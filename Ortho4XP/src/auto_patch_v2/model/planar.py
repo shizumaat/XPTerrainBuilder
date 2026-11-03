@@ -47,7 +47,8 @@ __all__ = ["NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Face", "Brea
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
-           "is_late_ref", "LOT_ROAD_MARK", "GAP_PREFIX", "is_gap_ref", "GAP_APRON_PREFIX",
+           "is_late_ref", "LOT_ROAD_MARK", "is_lot_road_ref",
+           "GAP_PREFIX", "is_gap_ref", "GAP_APRON_PREFIX",
            "is_gap_apron_ref", "gap_part_kind", "gap_parts_across_knife",
            "gap_step_part", "shares_gap_part",
            "bears_shape",
@@ -698,6 +699,12 @@ class PlanarMap:
     #: LAST STAGE (:func:`pad_road_faces`), solved against the levels of
     #: the map without it.
     pad_roads: frozenset[str] = _dc.field(default_factory=frozenset)
+    #: ROADS ALONG A LOT ARE THE LOT (issue #684, RULINGS 2026-10-14a (2)):
+    #: a lot strip's ref (:func:`is_lot_road_ref`) -> the ribbon ref of the
+    #: mapped road it was cut from (``<feed>:<way id>``,
+    #: ``classify/lot_roads``); read by ``airport/lot_road_climb``, which
+    #: returns a strip on a road's climb to a raised pad to that road.
+    lot_road_ways: _t.Mapping[str, str] = _dc.field(default_factory=dict)
     #: THE RAMP-FOOT RUN-OUTS (issue #669; owner RULINGS 2026-10-14c (5);
     #: ``classify/ramp_runout``): run-out ref -> ``(x0, y0, dx, dy, z0)`` —
     #: where the strip leaves the graded ground at an object ramp's foot,
@@ -1252,7 +1259,7 @@ LOT_ROAD_MARK = "#road"
 _LOT_ROAD_RE = re.compile(re.escape(LOT_ROAD_MARK) + r"\d+$")
 
 
-def _is_lot_road_ref(ref) -> bool:
+def is_lot_road_ref(ref) -> bool:
     """A mapped road's stretch along a lot, now that lot (issue #684)."""
     return _LOT_ROAD_RE.search(str(ref or "")) is not None
 
@@ -1260,9 +1267,9 @@ def _is_lot_road_ref(ref) -> bool:
 def is_late_ref(ref) -> bool:
     """A LATE cell's ref: a face that JOINS THE FINISHED MAP (pass C,
     ``planar/ribbons``) and is absent from the stage-1 map — the mapped-road
-    ribbons (30aa), their stretches along a lot (:func:`_is_lot_road_ref`,
+    ribbons (30aa), their stretches along a lot (:func:`is_lot_road_ref`,
     issue #684: stage 1 never reads a groundside lot's road), the §52
     facade cells and the §53 gap pieces.  The ARRANGEMENT asks this; the
     road laws keep asking :func:`is_osm_ribbon_ref`."""
-    return (is_osm_ribbon_ref(ref) or _is_lot_road_ref(ref) or is_facade_ref(ref)
+    return (is_osm_ribbon_ref(ref) or is_lot_road_ref(ref) or is_facade_ref(ref)
             or is_gap_ref(ref))

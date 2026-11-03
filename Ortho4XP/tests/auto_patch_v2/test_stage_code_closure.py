@@ -95,7 +95,7 @@ def test_the_entry_modules_are_where_the_build_enters_each_stage():
     """``pipeline/build.build`` calls these names; if one moves to another
     module, the stage's closure must be re-rooted there."""
     from auto_patch_v2 import classify
-    from auto_patch_v2.airport import flat_site_read, road_profile, road_ramp
+    from auto_patch_v2.airport import flat_site_read, lot_road_climb, road_profile, road_ramp
     from auto_patch_v2.constraints import apron_trend, eat, runway_chord, taxi_trend
     from auto_patch_v2.emit import road_join
     from auto_patch_v2.pipeline import shapes
@@ -122,6 +122,7 @@ def test_the_entry_modules_are_where_the_build_enters_each_stage():
                      apron_trend.with_apron_trend.__module__,
                      eat.withdraw_trend_over_reach.__module__,
                      road_ramp.with_road_ramp.__module__,
+                     lot_road_climb.with_lot_road_climbs.__module__,
                      road_join.with_road_coverage_join.__module__},
         "shapes": {shapes.shape_stage.__module__},
     }

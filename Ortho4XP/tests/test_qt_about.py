@@ -108,5 +108,6 @@ def test_qt_about_body_shows_the_triple(qapp, tmp_path, monkeypatch, capsys):
                          "OrthoStudio XP by radioharris"):
             assert expected in body, body
     finally:
+        window.close()  # stops its probe thread and timers (#1794)
         window.deleteLater()
         UI.engine_session = None

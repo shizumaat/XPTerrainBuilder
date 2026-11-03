@@ -48,6 +48,7 @@ def window(qapp, tmp_path, monkeypatch, capsys):
     try:
         yield w
     finally:
+        w.close()  # stops its probe thread and timers (#1794)
         w.deleteLater()
         UI.engine_session = None
 

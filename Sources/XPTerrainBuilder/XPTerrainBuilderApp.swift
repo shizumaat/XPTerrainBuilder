@@ -16,6 +16,11 @@ struct XPTerrainBuilderApp: App {
         buildModel.onGlobalAirports = { [weak controller] airports in
             controller?.setGlobalAirports(airports)
         }
+        // New packs are filed into scenery_packs.ini by the ENGINE's rule
+        // (`tidy_scenery_packs`, #1729), the one the Qt window runs too.
+        controller.tidySceneryPacks = { [weak buildModel] dir, kinds in
+            await buildModel?.tidySceneryPacks(customSceneryDir: dir, kinds: kinds)
+        }
         _controller = StateObject(wrappedValue: controller)
         _buildModel = StateObject(wrappedValue: buildModel)
     }

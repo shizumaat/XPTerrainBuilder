@@ -176,7 +176,10 @@ from typing import Any, Optional
 # and the pack row's Optimise / Undo optimise act on it; the
 # ``reanchor_status`` pack entries carry ``optimised`` (duplicate
 # placements dropped).
-PROTOCOL_VERSION = "1.31"
+# 1.32 (2026-11-03, additive, #1729): ``tidy_scenery_packs`` — the packs
+# scenery_packs.ini does not list yet, filed into their kind's group
+# (meshes below every ortho); answers ``added`` and ``backup``.
+PROTOCOL_VERSION = "1.32"
 
 
 @dataclass(frozen=True)

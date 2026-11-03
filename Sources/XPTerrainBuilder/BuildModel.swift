@@ -610,6 +610,23 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    /// File the packs scenery_packs.ini does not list yet into their kind's
+    /// group (protocol 1.32, #1729) — the engine's rule, which the Qt
+    /// window runs too. nil when the engine is not running.
+    func tidySceneryPacks(customSceneryDir: String,
+                          kinds: [String: PackKind]) async -> Result<O4SceneryPacksTidy, O4CommandError>? {
+        connectIfNeeded()
+        guard let client else { return nil }
+        do {
+            return .success(try await client.tidySceneryPacks(
+                customSceneryDir: customSceneryDir, kinds: kinds))
+        } catch let error as O4CommandError {
+            return .failure(error)
+        } catch {
+            return .failure(O4CommandError(error.localizedDescription))
+        }
+    }
+
     /// Ask the engine again for the badge set: every built and selected
     /// tile, or only `coords` (newly selected tiles). One small cfg read
     /// per tile on the engine side.

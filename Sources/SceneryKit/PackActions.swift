@@ -44,27 +44,16 @@ public struct PackActionService {
         public var changed: Bool { !(added.isEmpty && removed.isEmpty && renamed.isEmpty) }
     }
 
-    /// Load-order group per kind. Doubled so Global Airports can sit at 1,
-    /// between custom airports (0) and everything below them.
-    static func iniRank(for kind: PackKind) -> Int {
-        switch kind {
-        case .airport: return 0
-        case .landmark, .other: return 2
-        case .library: return 4
-        case .ortho: return 6
-        case .mesh: return 8
-        }
-    }
-
     /// Synchronize scenery_packs.ini with what is ACTUALLY in Custom
     /// Scenery — X-Plane only does this on its own next launch, so folders
     /// added, removed or renamed in Finder would otherwise sit misrepresented
     /// until then.
     ///
     /// - Deleted folder → its line is removed.
-    /// - New folder → a SCENERY_PACK line inserted at its kind group's
-    ///   boundary: airports just above Global Airports, then landmarks/
-    ///   overlays, libraries, orthos, mesh at the bottom.
+    /// - New folder → left to the ENGINE's `tidy_scenery_packs`
+    ///   (`O4_Scenery_Packs_Tidy.py`, the rule the Qt window runs too),
+    ///   which files it in its kind's group, meshes below every ortho;
+    ///   AnalysisController calls it right after this.
     /// - Renamed folder (same content signature reappearing under a new
     ///   name) → the existing line is rewritten IN PLACE, preserving its
     ///   position and enabled/disabled state.
@@ -75,8 +64,6 @@ public struct PackActionService {
         var lines = text.components(separatedBy: "\n")
         var result = IniReconciliation()
 
-        let kindByName = Dictionary(installed.map { ($0.name, $0.kind) },
-                                    uniquingKeysWith: { first, _ in first })
         var lineIndexByName: [String: Int] = [:]
         for (i, line) in lines.enumerated() {
             if let name = Self.packName(fromIniLine: line), lineIndexByName[name] == nil {
@@ -85,6 +72,7 @@ public struct PackActionService {
         }
         let installedNames = Set(installed.map { $0.name })
         var toRemove = Set(lineIndexByName.keys).subtracting(installedNames)
+        // Unlisted names, for the rename match only.
         var toAdd = installedNames.subtracting(lineIndexByName.keys)
 
         // Renames first: content signatures survive a folder rename, so a
@@ -121,32 +109,14 @@ public struct PackActionService {
             result.removed = toRemove.sorted()
         }
 
-        // Kind-group rank of an existing line; nil for headers/blanks.
-        func rank(ofLine line: String) -> Int? {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.contains("*GLOBAL_AIRPORTS*") { return 1 }
-            guard let name = Self.packName(fromIniLine: line) else { return nil }
-            if name == "Global Airports" { return 1 }
-            guard let kind = kindByName[name] else { return nil }
-            return Self.iniRank(for: kind)
-        }
-
-        // Insert each addition before the first line of a HIGHER rank group
-        // (for airports that boundary is Global Airports itself); no higher
-        // group means the end of the file.
-        let additions = toAdd
-            .map { name in (name, Self.iniRank(for: kindByName[name] ?? .other)) }
-            .sorted { ($0.1, $0.0.lowercased()) < ($1.1, $1.0.lowercased()) }
-        for (name, myRank) in additions {
-            let insertAt = lines.firstIndex { line in
-                guard let lineRank = rank(ofLine: line) else { return false }
-                return lineRank > myRank
-            } ?? lines.endIndex
-            lines.insert("SCENERY_PACK Custom Scenery/\(name)/", at: insertAt)
-            result.added.append(name)
-        }
-
         guard result.changed else { return result }
+        // The user's ini is kept once, before this app first changes it
+        // (`O4_Scenery_Packs.write_ini_lines`, the same name).
+        let backup = iniURL.appendingPathExtension("o4bak")
+        if FileManager.default.fileExists(atPath: iniURL.path),
+           !FileManager.default.fileExists(atPath: backup.path) {
+            try? FileManager.default.copyItem(at: iniURL, to: backup)
+        }
         do {
             try lines.joined(separator: "\n")
                 .write(to: iniURL, atomically: true, encoding: .utf8)

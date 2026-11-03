@@ -170,7 +170,16 @@ def test_no_sign_of_a_cut_on_a_credible_survey_cuts_nothing(law):
     assert len(st.refused) == 2 and all("shows no cut" in r for r in st.refused)
 
 
-def test_rail_follows_the_survey_and_is_never_deepened(law):
+@pytest.fixture
+def witnessed(monkeypatch):
+    """Every rail end stands at a portal witness: since RULINGS 2026-11-03b
+    (6) (#1738) an unwitnessed rail end is never opened, and these twins
+    are about the ramp a witnessed end gets."""
+    from auto_patch_v2.planar import end_witness as EW
+    monkeypatch.setattr(EW.EndWitness, "at", lambda self, end, path: "a pack hard deck over it")
+
+
+def test_rail_follows_the_survey_and_is_never_deepened(law, witnessed):
     """233 a: a railway the survey reads under the taxiway berm is never
     deepened to the road's mouth depth — the survey carries it."""
     _cl, tunnels, st = build_structures(
@@ -180,7 +189,7 @@ def test_rail_follows_the_survey_and_is_never_deepened(law):
     assert all("rail follows the survey" in r for r in st.refused), st.refused
 
 
-def test_a_rail_ramp_on_coarse_elevation_is_longer_than_a_roads(law):
+def test_a_rail_ramp_on_coarse_elevation_is_longer_than_a_roads(law, witnessed):
     """233 a: "where there's a tunnel mouth they need a longer ramp than a
     road" — on a coarse DEM a rail ramp is built at ``rail_ramp_grade``,
     never steeper than ``rail_ramp_max_grade``, and runs longer than the

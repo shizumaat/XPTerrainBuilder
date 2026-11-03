@@ -81,6 +81,8 @@ KEEP = frozenset({
     "auto_patch.optimise_stage",
     "auto_patch.pack_choice",
     "auto_patch.pack_rewrite",
+    # ... and the hand-set object seats the patch editor stores (#1703)
+    "auto_patch.user_seat_stage",
     "auto_patch.object_terrain_features",
     "auto_patch.object_terrain_kinds",
     "auto_patch.post_mesh",

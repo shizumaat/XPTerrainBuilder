@@ -588,6 +588,7 @@ def _object_footprint_sidecar(
     gate_constants: tuple[float, ...] = (),
     sidecar_prefix: str = _OBJECT_FOOTPRINT_SIDECAR_PREFIX,
     cache_version: int = _OBJECT_FOOTPRINT_CACHE_VERSION,
+    cache_dir: str | None = None,
 ) -> tuple[str | None, str | None]:
     """Sidecar path + input fingerprint for the pack footprint cache.
 
@@ -617,7 +618,15 @@ def _object_footprint_sidecar(
       the same run that wrote the sidecar (the sidecar is written before
       Phase 2 runs) — while an EXTERNAL edit still misses through
       ``object_rebake``'s own I-14 detection (a live sha matching
-      neither the recorded backup nor the recorded written hash);
+      neither the recorded backup nor the recorded written hash).
+      THE ENGINE'S OWN SPLIT BODIES are left out when this DSF names
+      none of them (:func:`_unread_minted_body`, issue #1706): the object
+      stage writes ~2,400 fresh ``__b<k>_<tag>.obj`` files into EDDF's
+      pack at the end of every build, and the pristine DSF this reader
+      parses cannot reference one, so each build's new set moved the key
+      of a reading that never opened them — the next build recomputed
+      the whole footprint partition (EDDF: most of its 10 min "loading"
+      step).  The same rule as the partition cache's (issue #362);
     * the two config constants that drive partitioning,
       ``DSF_OBJECT_CONTACT_EPSILON_M`` and ``DSF_OBJECT_MIN_REACH_M``
       (their float values enter the digest);
@@ -660,8 +669,8 @@ def _object_footprint_sidecar(
             f":{dsf_stat.st_mtime}".encode()
         )
         from .object_rebake import pristine_object_fingerprint_entries
-        for entry in sorted(
-                pristine_object_fingerprint_entries(pack_root)):
+        for entry in sorted(pristine_object_fingerprint_entries(
+                pack_root, _unread_minted_body(dsf_path, cache_dir, pack_root))):
             digest.update(entry.encode())
         digest.update(
             f"epsilon:{float(contact_epsilon_metres)!r}"
@@ -683,6 +692,27 @@ def _object_footprint_sidecar(
         ),
         digest.hexdigest(),
     )
+
+
+def _unread_minted_body(dsf_path: str, cache_dir: str | None, pack_root: str):
+    """``skip(relative_path, live_path)`` for
+    ``object_rebake.pristine_object_fingerprint_entries``: True for an
+    engine-minted split body (``obj8_split.is_minted_body``) that no
+    ``OBJECT_DEF`` of this DSF names pack-relative — the path
+    ``obj8_reader.resolve_object_resource`` tries first, and the only way
+    a file inside the pack is reached.  ``None`` (skip nothing: the key
+    as it always was) when the DSF's text cannot be read."""
+    lines = _load_dsf_text(dsf_path, cache_dir)
+    if not lines:
+        return None
+    from auto_patch_v2.airport.obj8_split import is_minted_body
+
+    def _norm(p: str) -> str:
+        return os.path.normcase(os.path.abspath(p))
+    named = {_norm(os.path.join(pack_root, line.split(None, 1)[1].strip()))
+             for line in lines
+             if line.startswith("OBJECT_DEF") and len(line.split(None, 1)) == 2}
+    return lambda rel, live: _norm(live) not in named and is_minted_body(live)
 
 
 # ── In-process memo + per-DSF lock around the object readers ─────────
@@ -850,7 +880,7 @@ def read_dsf_object_buildings(
     threads (and the pipeline's own read after them) would otherwise
     each re-run the whole parse + partition.
     """
-    sidecar_path, fingerprint = _object_buildings_sidecar(dsf_path)
+    sidecar_path, fingerprint = _object_buildings_sidecar(dsf_path, cache_dir)
     return _serve_object_reader(
         "buildings", dsf_path, sidecar_path, fingerprint,
         "   [dsf-object] footprints read from the pack "
@@ -863,7 +893,8 @@ def read_dsf_object_buildings(
 
 
 def _object_buildings_sidecar(
-        dsf_path: str) -> tuple[str | None, str | None]:
+        dsf_path: str,
+        cache_dir: str | None = None) -> tuple[str | None, str | None]:
     """Sidecar path + fingerprint for the building reader — ``(None,
     None)`` with the cache gate off (``O4_OBJECT_FOOTPRINT_CACHE=0``) or
     no resolvable pack root.  Config imports are function-local so tests
@@ -891,6 +922,7 @@ def _object_buildings_sidecar(
     return _object_footprint_sidecar(
         dsf_path, _pack_root_for_dsf(dsf_path),
         DSF_OBJECT_CONTACT_EPSILON_M, DSF_OBJECT_MIN_REACH_M,
+        cache_dir=cache_dir,
         gate_constants=(
             # Building-pad footprint gates the cached ring set depends
             # on (defect 2026-07-17) — a change invalidates the cache.
@@ -1426,7 +1458,7 @@ def read_dsf_object_pavements(
     per-DSF lock (:func:`_serve_object_reader`), so concurrent callers
     on one DSF compute at most once per process.
     """
-    sidecar_path, fingerprint = _object_pavements_sidecar(dsf_path)
+    sidecar_path, fingerprint = _object_pavements_sidecar(dsf_path, cache_dir)
     return _serve_object_reader(
         "pavements", dsf_path, sidecar_path, fingerprint,
         "   [dsf-object] pavement patches read from the "
@@ -1439,7 +1471,8 @@ def read_dsf_object_pavements(
 
 
 def _object_pavements_sidecar(
-        dsf_path: str) -> tuple[str | None, str | None]:
+        dsf_path: str,
+        cache_dir: str | None = None) -> tuple[str | None, str | None]:
     """Sidecar path + fingerprint for the pavement reader — ``(None,
     None)`` with the cache gate off or no resolvable pack root.  Config
     imports are function-local so tests can monkeypatch the values."""
@@ -1452,6 +1485,7 @@ def _object_pavements_sidecar(
     return _object_footprint_sidecar(
         dsf_path, _pack_root_for_dsf(dsf_path),
         0.0, 0.0,  # no contact partition in the pavement path
+        cache_dir=cache_dir,
         gate_constants=(
             float(DSF_OBJECT_PAVEMENT_MAX_LAYER_OFFSET),
             DSF_OBJECT_PAVEMENT_MIN_PATCH_M2,

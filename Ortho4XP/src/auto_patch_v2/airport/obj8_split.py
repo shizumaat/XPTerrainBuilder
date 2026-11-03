@@ -111,6 +111,7 @@ import dataclasses as _dc
 import hashlib
 import math
 import os
+import re
 import struct
 import typing as _t
 
@@ -122,7 +123,7 @@ from . import obj8_drape as _drape
 __all__ = ["BodyCut", "SplitFile", "SplitResult", "split_obj8",
            "body_resource_name", "offset_tag", "tilt_matrix", "NO_TILT",
            "SEAT_OWNED_DIRECTIVES", "is_seat_owned", "strip_seat_owned",
-           "seat_owned_in_file", "SEAT_HEADER_BYTES"]
+           "seat_owned_in_file", "SEAT_HEADER_BYTES", "is_minted_body"]
 
 #: :attr:`BodyCut.tilt` for a body that is NOT tilted — the identity, and
 #: the value every caller that knows nothing of the seat tilt passes.
@@ -387,6 +388,29 @@ def body_resource_name(resource: str, k: int,
     if offset is None:
         return f"{stem}__b{k}.obj"
     return f"{stem}__b{k}_{offset_tag(offset, tilt)}.obj"
+
+
+#: The NAME :func:`body_resource_name` mints, tagged or not.
+_BODY_NAME = re.compile(r"__b\d+(?:_[0-9a-f]{8})?\.obj$", re.I)
+
+
+def is_minted_body(path: str, head_path: str | None = None) -> bool:
+    """``path`` is a body file THIS ENGINE wrote: its name is one
+    :func:`body_resource_name` mints AND its head carries the writer's
+    ``CUT_MARK`` (the test ``placement_write.write_files`` replaces a file
+    on; read from ``head_path`` when given, the file the caller stats).
+    A vendor file that merely shares the name pattern is not one.
+    Whether a reading PARSES the file is the caller's question (issue
+    #362: a body a placement resolves to is an input like any other)."""
+    if not _BODY_NAME.search(path):
+        return False
+    from ..model.placement import CUT_MARK
+    try:
+        with open(head_path or path, "r", encoding="utf-8",
+                  errors="replace") as fh:
+            return CUT_MARK in fh.read(4096)
+    except OSError:
+        return False
 
 
 # ── the file, as text ────────────────────────────────────────────────────

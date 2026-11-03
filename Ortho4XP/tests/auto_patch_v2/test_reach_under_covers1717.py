@@ -17,7 +17,7 @@ from auto_patch_v2.law.tables import role_side
 from auto_patch_v2.model.airport import Boundary, OsmWay
 from auto_patch_v2.planar.overlay import Region
 from auto_patch_v2.planar.reach_after_pads import BEYOND
-from auto_patch_v2.planar.reach_under_covers import bridge_covers, covered_beyond
+from auto_patch_v2.planar.reach_under_covers import _bridge_covers, covered_beyond
 from shapely.geometry import Point, box
 
 TAXI = box(0.0, 0.0, 400.0, 25.0)
@@ -83,7 +83,7 @@ def test_the_corridor_behind_covered_mouths_is_groundside(law):
 def test_no_cover_divides_nothing(law):
     out, counts = covered_beyond(_regions(law), law, _Field([]))
     assert not _beyond(out) and not counts
-    assert bridge_covers(_Field([]), law) is None
+    assert _bridge_covers(_Field([]), law) is None
 
 
 def test_a_bridge_under_the_cover_layer_is_no_cover(law):

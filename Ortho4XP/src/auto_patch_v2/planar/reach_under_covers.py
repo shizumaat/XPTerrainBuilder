@@ -52,14 +52,14 @@ from ..geom.parts import nonempty_polygon_parts
 from ..law.tables import role_side, taxi_half_width_m
 from .structure_approach import carriageway_width_m
 
-__all__ = ["bridge_covers", "covered_beyond"]
+__all__ = ["covered_beyond"]
 
 #: the faces an aircraft taxis on (``classify/reachability``'s, with the runways)
 _TAXI_ROLES = frozenset(("primary_parallel", "secondary_parallel", "stub",
                          "cross_connector", "junction", "runway", "runway_crossing"))
 
 
-def bridge_covers(airport, law):
+def _bridge_covers(airport, law):
     """The plan cover of every mapped road or rail bridge at ``layer >=
     [tunnel] cover_min_layer`` inside the aerodrome boundary, each at its
     carriageway width; ``None`` where there is none."""
@@ -79,7 +79,7 @@ def bridge_covers(airport, law):
 def covered_beyond(regions: list, law, airport) -> "tuple[list, dict]":
     """``(regions, counts)``: ``regions`` with every covered apron part aircraft
     cannot reach once the covers stand made groundside (module docstring)."""
-    cov = bridge_covers(airport, law)
+    cov = _bridge_covers(airport, law)
     if cov is None:
         return regions, {}
     aprons = [i for i, r in enumerate(regions) if r.role == "apron" and r.source == "cell"

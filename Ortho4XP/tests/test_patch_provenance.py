@@ -202,7 +202,8 @@ def test_git_provenance_frozen_never_asks_git(monkeypatch):
     assert P.git_provenance() == {"sha": None, "dirty": None}
     here = os.path.dirname(os.path.abspath(__file__))
     assert P.git_provenance(cwd=here) == {"sha": None, "dirty": None}
-    assert P.source_label(P.git_provenance()).startswith("absent version=")
+    assert P.source_label(P.git_provenance()).split(" app=")[0] in (
+        "absent", P.build_sha({}))
 
 
 def test_git_provenance_in_checkout():
@@ -263,45 +264,102 @@ def test_provenance_tags_are_quote_safe(tmp_path):
 
 
 # ── source label: frozen engines carry the version (2026-09-04) ───────────
-def test_source_label_checkout_is_sha_with_dirty_marker():
-    assert P.source_label({"sha": "abc12345", "dirty": False}) == "abc12345"
-    assert P.source_label({"sha": "abc12345", "dirty": True}) == "abc12345*"
+@pytest.fixture
+def unstamped_build(monkeypatch):
+    """No artifact ``VERSION.txt``: the app version from the source tree,
+    no baked commit."""
+    import O4_Build_Info as BUILD
+
+    monkeypatch.setattr(BUILD, "build_info",
+                        lambda: BUILD.BuildInfo("dev", "dev", "dev"))
+    monkeypatch.setattr(BUILD, "app_version", lambda: "1.0.454")
+    return BUILD
+
+
+@pytest.fixture
+def stamped_build(monkeypatch):
+    """A packaged app: ``VERSION.txt`` carries the app version and the
+    commit it was built from (``scripts/write_version_txt.sh``)."""
+    import O4_Build_Info as BUILD
+
+    info = BUILD.BuildInfo("1.0.455", "1.50.1901", "0123456789abcdef0123")
+    monkeypatch.setattr(BUILD, "build_info", lambda: info)
+    monkeypatch.setattr(BUILD, "app_version", lambda: info.app)
+    return BUILD
+
+
+def test_source_label_checkout_is_sha_with_dirty_marker(unstamped_build):
+    assert P.source_label({"sha": "abc12345", "dirty": False}) == (
+        "abc12345 app=1.0.454")
+    assert P.source_label({"sha": "abc12345", "dirty": True}) == (
+        "abc12345* app=1.0.454")
     assert "version=" not in P.source_label({"sha": "abc12345"})
 
 
-def test_source_label_without_sha_carries_engine_version():
+def test_source_label_without_sha_carries_engine_version(unstamped_build):
     version = P.engine_version()
     assert version != "absent"
     for git in (None, {}, {"sha": None, "dirty": None}):
         assert P.source_label(git) == (
-            "absent version=" + version + " code="
+            "absent app=1.0.454 version=" + version + " code="
             + provenance_code.code_digest())
 
 
-def test_log_line_frozen_engine_carries_version(monkeypatch):
+def test_frozen_source_label_names_the_app_and_its_build_commit(
+        stamped_build):
+    """The frozen app printed ``sha=absent`` and no app version, so which
+    app built a tile was recomputed from law digests by hand: the label
+    carries the commit baked into ``VERSION.txt`` and the app version."""
+    label = P.source_label({"sha": None, "dirty": None})
+    assert label.startswith("0123456789ab app=1.0.455 version=")
+    assert P.build_sha({}) == "0123456789ab"
+    assert P.app_version() == "1.0.455"
+
+
+def test_build_sha_marks_a_dirty_stamp(monkeypatch):
+    import O4_Build_Info as BUILD
+
+    monkeypatch.setattr(BUILD, "build_info", lambda: BUILD.BuildInfo(
+        "1.0.455", "1.50.1901", "0123456789abcdef-dirty"))
+    assert P.build_sha({}) == "0123456789ab*"
+
+
+def test_patch_stamps_name_the_app_and_its_build_commit(stamped_build):
+    """``o4_app`` / ``o4_build_sha`` are written on every patch, read
+    back, never compared, and left out of its content digest."""
+    assert {"o4_app", "o4_build_sha"} <= set(P.FRESHNESS_KEYS)
+    assert not {"o4_app", "o4_build_sha"} & set(P.FRESHNESS_COMPARED_KEYS)
+    assert {"o4_app", "o4_build_sha"} <= set(P.PER_RUN_STAMP_KEYS)
+    root = (b"<osm version='0.6' o4_app='1.0.455' "
+            b"o4_build_sha='0123456789ab' o4_icao='CYXY'>")
+    assert P.stamp_free_root(root) == b"<osm version='0.6' o4_icao='CYXY'>"
+
+
+def test_log_line_frozen_engine_carries_version(monkeypatch, unstamped_build):
     monkeypatch.setattr(P, "git_provenance",
                         lambda cwd=None: {"sha": None, "dirty": None})
     prov = P.assemble_provenance("CYXY", {"insets": [], "raw": False})
     line = P.format_log_line(prov)
-    assert "sha=absent version=" + P.engine_version() in line
+    assert ("sha=absent app=1.0.454 version=" + P.engine_version()) in line
 
 
-def test_log_line_checkout_has_no_version_token(monkeypatch):
+def test_log_line_checkout_has_no_version_token(monkeypatch, unstamped_build):
     monkeypatch.setattr(P, "git_provenance",
                         lambda cwd=None: {"sha": "abc12345", "dirty": False})
     line = P.format_log_line(
         P.assemble_provenance("CYXY", {"insets": [], "raw": False}))
-    assert "sha=abc12345" in line
+    assert "sha=abc12345 app=1.0.454" in line
     assert "version=" not in line
 
 
-def test_v2_provenance_line_shares_the_source_label():
+def test_v2_provenance_line_shares_the_source_label(unstamped_build):
     from auto_patch import engine_v2
 
     line = engine_v2.format_provenance_line(
         "CYXY", sha=P.source_label(None), law_sha256="a" * 64,
         ruleset="icao", dem_prov={}, status="optimal")
-    assert line.startswith("  [provenance] CYXY patch: engine=v2 sha=absent version=")
+    assert line.startswith(
+        "  [provenance] CYXY patch: engine=v2 sha=absent app=1.0.454 version=")
     assert P.engine_version() in line
 
 

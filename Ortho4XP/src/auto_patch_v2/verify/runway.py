@@ -184,10 +184,15 @@ def runway_transverse(p: Patch) -> list[Row]:
     # measured 2026-09-08: 2 of 2 DEFECT rows, up to 1.15 m, on pairs the
     # solve never states — the two instruments were not twins).  The nearest
     # spine remains the fallback where a runway ships no crown spine of its own.
+    # EVERY spine of the runway, as the generator reads every ridge chain
+    # (``ridge_chains``): a chain split at a tile seam emits two features,
+    # and reading only the first priced the second piece's ridge vertices
+    # against the first piece's seam stub (#1819: KPHX 08/26 15.5 m east of
+    # the -112 seam, a 0.135 m ``crown_floor`` DEFECT on its own crown).
     own: dict[str, list] = {}
     for sh in p.features:
-        if sh.feature == "crown_spine" and sh.ref not in own:
-            own[sh.ref] = [list(sh.closed_ring)]
+        if sh.feature == "crown_spine":
+            own.setdefault(sh.ref, []).append(list(sh.closed_ring))
     xing: set[int] = set()
     for sh in p.shapes:
         if sh.role == "runway_crossing":

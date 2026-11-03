@@ -14,7 +14,6 @@ Either way the pass stays unstamped, so the next build retries the fetch.
 No network: the per-airport fetch is faked at its row contract.
 """
 import os
-import time
 
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Tile_Failures as FAIL
@@ -100,9 +99,12 @@ def test_the_two_cases_split_within_one_pass(monkeypatch):
 def test_the_note_names_the_cached_inset_and_its_age(tmp_path):
     path = tmp_path / "KASE_fakescr.tif"
     path.write_bytes(b"x")
-    stamp = time.time() - 3 * 86400 - 60
+    now = 1793318400.0                      # 2026-10-30, a fixed clock
+    stamp = now - 3 * 86400 - 60            # spans the 2026-11-01 DST end
     os.utime(path, (stamp, stamp))
-    note = INSETS._cached_inset_age_note(str(path))
+    note = INSETS._cached_inset_age_note(str(path), now=now)
+    assert INSETS._cached_inset_age_note(str(path), now=now + 4 * 86400) \
+        .endswith(", 7 days old)")
     assert note.startswith("KASE_fakescr.tif (cached ")
     assert note.endswith(", 3 days old)")
     assert INSETS._cached_inset_age_note(

@@ -59,6 +59,7 @@ from .pack_reads import pack_reads, ring_reads, wall_corridor_reads
 from ..airport.wall_corridors import WallCorridorStats
 from .door_ramps import door_groups, sunken_groups
 from .wall_corridor_ramps import wall_corridor_groups
+from .wall_slope import slope_sides
 from .plate_bays import plate_bays
 
 __all__ = ["BuildStats", "build", "level_counts"]
@@ -388,6 +389,8 @@ def build(airport: Airport, classification: Classification, law: Law,
 
     edge_list = table.edges
     incident = table.incident
+    # #1777: a wall-slope piece takes the side of the ground it grades
+    faces = slope_sides(faces, incident)
     # ── breaklines: chains of existing edges along each source ─────
     breaklines, kinds, dropped, split = _breaklines(arr, edge_list, vertices_xy)
     stats.dropped_source_edges = dropped

@@ -117,7 +117,7 @@ def test_an_edited_patch_writes_only_the_hand_set_row_and_automatic_undoes_it(wo
     after = _text(world.dsf)
     old, new = before.splitlines(True), after.splitlines(True)
     assert len(old) == len(new)
-    diff = [(a, b) for a, b in zip(old, new) if a != b]
+    diff = [(a, b) for a, b in zip(old, new, strict=True) if a != b]
     assert diff == [(ROW3, SEATED3)]
     assert _airport_row(world.dsf) == placed, "TNCM's placement is recorded as it was"
     rec = _record_doc(world.dsf)["dsfs"][DSF][US.RECORD_KEY]

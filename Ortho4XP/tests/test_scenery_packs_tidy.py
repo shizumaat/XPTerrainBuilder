@@ -24,21 +24,152 @@ from test_mesh_order import _pack
 # (PackActionService.reconcile, captured at b0b634315 before the rule
 # moved).  ``swift_out`` is byte-for-byte what the Mac app wrote.
 SWIFT_GOLDEN = {
-    'g1': ('I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/Alpha Airport/\nSCENERY_PACK *GLOBAL_AIRPORTS*\nSCENERY_PACK Custom Scenery/City Landmark/\nSCENERY_PACK Custom Scenery/Some Library/\nSCENERY_PACK Custom Scenery/zOrtho A/\nSCENERY_PACK Custom Scenery/zzz Mesh/',
-         [('Alpha Airport', 'airport'), ('City Landmark', 'landmark'), ('Some Library', 'library'), ('zOrtho A', 'ortho'), ('zzz Mesh', 'mesh'), ('Beta Airport', 'airport'), ('New Overlay', 'landmark'), ('aOrtho New', 'ortho')],
-         'I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/Alpha Airport/\nSCENERY_PACK Custom Scenery/Beta Airport/\nSCENERY_PACK *GLOBAL_AIRPORTS*\nSCENERY_PACK Custom Scenery/City Landmark/\nSCENERY_PACK Custom Scenery/New Overlay/\nSCENERY_PACK Custom Scenery/Some Library/\nSCENERY_PACK Custom Scenery/zOrtho A/\nSCENERY_PACK Custom Scenery/aOrtho New/\nSCENERY_PACK Custom Scenery/zzz Mesh/'),
-    'g2': ('I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/Alpha Airport/\nSCENERY_PACK *GLOBAL_AIRPORTS*\nSCENERY_PACK Custom Scenery/City Landmark/\nSCENERY_PACK Custom Scenery/Some Library/\nSCENERY_PACK Custom Scenery/zOrtho A/\nSCENERY_PACK Custom Scenery/zzz Mesh/\n',
-         [('Alpha Airport', 'airport'), ('City Landmark', 'landmark'), ('Some Library', 'library'), ('zOrtho A', 'ortho'), ('zzz Mesh', 'mesh'), ('New Mesh', 'mesh'), ('b Ortho', 'ortho'), ('A Ortho', 'ortho'), ('Lib2', 'library'), ('Odd', 'other')],
-         'I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/Alpha Airport/\nSCENERY_PACK *GLOBAL_AIRPORTS*\nSCENERY_PACK Custom Scenery/City Landmark/\nSCENERY_PACK Custom Scenery/Odd/\nSCENERY_PACK Custom Scenery/Some Library/\nSCENERY_PACK Custom Scenery/Lib2/\nSCENERY_PACK Custom Scenery/zOrtho A/\nSCENERY_PACK Custom Scenery/A Ortho/\nSCENERY_PACK Custom Scenery/b Ortho/\nSCENERY_PACK Custom Scenery/zzz Mesh/\n\nSCENERY_PACK Custom Scenery/New Mesh/'),
-    'g3': ('I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/zOrtho4XP_+39-077/\nSCENERY_PACK_DISABLED Custom Scenery/Gone Pack/\nSCENERY_PACK Custom Scenery/Unknown Thing/\nSCENERY_PACK_DISABLED Custom Scenery/Old Mesh/\n',
-         [('zOrtho4XP_+39-077', 'ortho'), ('Old Mesh', 'mesh'), ('KBWI Airport', 'airport'), ('KBWI_Mesh (Verticalsim)', 'mesh'), ('Over', 'landmark')],
-         'I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/KBWI Airport/\nSCENERY_PACK Custom Scenery/Over/\nSCENERY_PACK Custom Scenery/zOrtho4XP_+39-077/\nSCENERY_PACK_DISABLED Custom Scenery/Old Mesh/\n\nSCENERY_PACK Custom Scenery/KBWI_Mesh (Verticalsim)/'),
-    'g4': (None,
-         [('Apt', 'airport'), ('Mesh', 'mesh'), ('Ortho', 'ortho')],
-         'I\n1000 Version\nSCENERY\n\n\nSCENERY_PACK Custom Scenery/Apt/\nSCENERY_PACK Custom Scenery/Ortho/\nSCENERY_PACK Custom Scenery/Mesh/'),
-    'g5': ('I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/Global Airports/\nSCENERY_PACK Custom Scenery/zOrtho4XP_+40-075/\nSCENERY_PACK Custom Scenery/Lib/\nSCENERY_PACK Custom Scenery/Mesh1/\nSCENERY_PACK Custom Scenery/Apt Late/\n',
-         [('Global Airports', 'airport'), ('zOrtho4XP_+40-075', 'ortho'), ('Lib', 'library'), ('Mesh1', 'mesh'), ('Apt Late', 'airport'), ('New Apt', 'airport'), ('New Lib', 'library'), ('New Over', 'landmark')],
-         'I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/New Apt/\nSCENERY_PACK Custom Scenery/Global Airports/\nSCENERY_PACK Custom Scenery/New Over/\nSCENERY_PACK Custom Scenery/New Lib/\nSCENERY_PACK Custom Scenery/zOrtho4XP_+40-075/\nSCENERY_PACK Custom Scenery/Lib/\nSCENERY_PACK Custom Scenery/Mesh1/\nSCENERY_PACK Custom Scenery/Apt Late/\n'),
+    'g1': (
+        ('I\n'
+         '1000 Version\n'
+         'SCENERY\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/Alpha Airport/\n'
+         'SCENERY_PACK *GLOBAL_AIRPORTS*\n'
+         'SCENERY_PACK Custom Scenery/City Landmark/\n'
+         'SCENERY_PACK Custom Scenery/Some Library/\n'
+         'SCENERY_PACK Custom Scenery/zOrtho A/\n'
+         'SCENERY_PACK Custom Scenery/zzz Mesh/'),
+        [
+            ('Alpha Airport', 'airport'),
+            ('City Landmark', 'landmark'),
+            ('Some Library', 'library'),
+            ('zOrtho A', 'ortho'),
+            ('zzz Mesh', 'mesh'),
+            ('Beta Airport', 'airport'),
+            ('New Overlay', 'landmark'),
+            ('aOrtho New', 'ortho'),
+        ],
+        ('I\n'
+         '1000 Version\n'
+         'SCENERY\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/Alpha Airport/\n'
+         'SCENERY_PACK Custom Scenery/Beta Airport/\n'
+         'SCENERY_PACK *GLOBAL_AIRPORTS*\n'
+         'SCENERY_PACK Custom Scenery/City Landmark/\n'
+         'SCENERY_PACK Custom Scenery/New Overlay/\n'
+         'SCENERY_PACK Custom Scenery/Some Library/\n'
+         'SCENERY_PACK Custom Scenery/zOrtho A/\n'
+         'SCENERY_PACK Custom Scenery/aOrtho New/\n'
+         'SCENERY_PACK Custom Scenery/zzz Mesh/')),
+    'g2': (
+        ('I\n'
+         '1000 Version\n'
+         'SCENERY\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/Alpha Airport/\n'
+         'SCENERY_PACK *GLOBAL_AIRPORTS*\n'
+         'SCENERY_PACK Custom Scenery/City Landmark/\n'
+         'SCENERY_PACK Custom Scenery/Some Library/\n'
+         'SCENERY_PACK Custom Scenery/zOrtho A/\n'
+         'SCENERY_PACK Custom Scenery/zzz Mesh/\n'),
+        [
+            ('Alpha Airport', 'airport'),
+            ('City Landmark', 'landmark'),
+            ('Some Library', 'library'),
+            ('zOrtho A', 'ortho'),
+            ('zzz Mesh', 'mesh'),
+            ('New Mesh', 'mesh'),
+            ('b Ortho', 'ortho'),
+            ('A Ortho', 'ortho'),
+            ('Lib2', 'library'),
+            ('Odd', 'other'),
+        ],
+        ('I\n'
+         '1000 Version\n'
+         'SCENERY\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/Alpha Airport/\n'
+         'SCENERY_PACK *GLOBAL_AIRPORTS*\n'
+         'SCENERY_PACK Custom Scenery/City Landmark/\n'
+         'SCENERY_PACK Custom Scenery/Odd/\n'
+         'SCENERY_PACK Custom Scenery/Some Library/\n'
+         'SCENERY_PACK Custom Scenery/Lib2/\n'
+         'SCENERY_PACK Custom Scenery/zOrtho A/\n'
+         'SCENERY_PACK Custom Scenery/A Ortho/\n'
+         'SCENERY_PACK Custom Scenery/b Ortho/\n'
+         'SCENERY_PACK Custom Scenery/zzz Mesh/\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/New Mesh/')),
+    'g3': (
+        ('I\n'
+         '1000 Version\n'
+         'SCENERY\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/zOrtho4XP_+39-077/\n'
+         'SCENERY_PACK_DISABLED Custom Scenery/Gone Pack/\n'
+         'SCENERY_PACK Custom Scenery/Unknown Thing/\n'
+         'SCENERY_PACK_DISABLED Custom Scenery/Old Mesh/\n'),
+        [
+            ('zOrtho4XP_+39-077', 'ortho'),
+            ('Old Mesh', 'mesh'),
+            ('KBWI Airport', 'airport'),
+            ('KBWI_Mesh (Verticalsim)', 'mesh'),
+            ('Over', 'landmark'),
+        ],
+        ('I\n'
+         '1000 Version\n'
+         'SCENERY\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/KBWI Airport/\n'
+         'SCENERY_PACK Custom Scenery/Over/\n'
+         'SCENERY_PACK Custom Scenery/zOrtho4XP_+39-077/\n'
+         'SCENERY_PACK_DISABLED Custom Scenery/Old Mesh/\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/KBWI_Mesh (Verticalsim)/')),
+    'g4': (
+        None,
+        [
+            ('Apt', 'airport'),
+            ('Mesh', 'mesh'),
+            ('Ortho', 'ortho'),
+        ],
+        ('I\n'
+         '1000 Version\n'
+         'SCENERY\n'
+         '\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/Apt/\n'
+         'SCENERY_PACK Custom Scenery/Ortho/\n'
+         'SCENERY_PACK Custom Scenery/Mesh/')),
+    'g5': (
+        ('I\n'
+         '1000 Version\n'
+         'SCENERY\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/Global Airports/\n'
+         'SCENERY_PACK Custom Scenery/zOrtho4XP_+40-075/\n'
+         'SCENERY_PACK Custom Scenery/Lib/\n'
+         'SCENERY_PACK Custom Scenery/Mesh1/\n'
+         'SCENERY_PACK Custom Scenery/Apt Late/\n'),
+        [
+            ('Global Airports', 'airport'),
+            ('zOrtho4XP_+40-075', 'ortho'),
+            ('Lib', 'library'),
+            ('Mesh1', 'mesh'),
+            ('Apt Late', 'airport'),
+            ('New Apt', 'airport'),
+            ('New Lib', 'library'),
+            ('New Over', 'landmark'),
+        ],
+        ('I\n'
+         '1000 Version\n'
+         'SCENERY\n'
+         '\n'
+         'SCENERY_PACK Custom Scenery/New Apt/\n'
+         'SCENERY_PACK Custom Scenery/Global Airports/\n'
+         'SCENERY_PACK Custom Scenery/New Over/\n'
+         'SCENERY_PACK Custom Scenery/New Lib/\n'
+         'SCENERY_PACK Custom Scenery/zOrtho4XP_+40-075/\n'
+         'SCENERY_PACK Custom Scenery/Lib/\n'
+         'SCENERY_PACK Custom Scenery/Mesh1/\n'
+         'SCENERY_PACK Custom Scenery/Apt Late/\n')),
 }
 
 # Where the engine's bytes differ from the Swift code's, and why.

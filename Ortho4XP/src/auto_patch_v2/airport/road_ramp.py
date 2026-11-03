@@ -1874,6 +1874,8 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         {v: pm.vertices[v] for v in tg.targets if v in pm.vertices},
         getattr(airport, "walled_plates", ()),
         float(law.tables.structures.walled_plate.station_inset_m))
+    # §46 (7): the targets are DEM levels; published on the read grid so
+    # the last bits PROJ's inverse leaves in a sample never reach a row
     targets = {v: z for v, z in tg.targets.items()
                if v not in at_mouth and v not in on_plate}
     if report is not None:
@@ -1964,6 +1966,9 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     from .plate_ground import under_plate_vertices
     under = under_plate_vertices(pm, getattr(airport, "walled_plates", ()))
     from .road_profile import at_grade_rsa_vertices
+    # §46 (7): the targets are DEM levels, published on the read grid so
+    # the last bits PROJ's inverse leaves in a sample never reach a row
+    targets = {v: exact.on_read_grid(z) for v, z in targets.items()}
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,
                        plate_under=under,
                        rsa_at_grade=at_grade_rsa_vertices(airport, pm, law),

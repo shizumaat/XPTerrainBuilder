@@ -84,3 +84,13 @@ def test_exact_is_the_ieee_spelling():
     got = exact.hypot_array(a, b)
     assert [float(g) for g in got] == [exact.hypot(float(x), float(y))
                                        for x, y in zip(a, b)]
+
+
+def test_the_road_ramp_targets_publish_on_the_read_grid():
+    """CYXY's beta 6/7 dry runs: 15-21 road ramp targets (~725 m DEM
+    levels) differed by 8e-13 m across the runners — PROJ's inverse in
+    the DEM read.  The targets are published on ``exact.READ_DP``."""
+    z = 725.0 + 0.123456789
+    assert exact.on_read_grid(z) == exact.on_read_grid(z + 8e-13) == round(z, 6)
+    src = (_V2 / "airport" / "road_ramp.py").read_text(encoding="utf-8")
+    assert "exact.on_read_grid(z) for v, z in targets.items()" in src

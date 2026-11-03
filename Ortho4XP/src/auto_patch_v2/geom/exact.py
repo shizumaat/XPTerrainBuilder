@@ -21,7 +21,20 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["sq", "hypot", "dist", "hypot_array"]
+__all__ = ["sq", "hypot", "dist", "hypot_array", "READ_DP", "on_read_grid"]
+
+
+#: The grid a published LEVEL is read on (1e-6 m, the trend's
+#: ``constraints.trend.TREND_DP``): a value read off the DEM through
+#: PROJ's inverse transform differs per platform in its last bits
+#: (~1e-12 m at CYXY's road ramp targets), and a level on this grid
+#: reads the same on every runner unless it straddles a step (p ~ 1e-6).
+READ_DP = 6
+
+
+def on_read_grid(z: float) -> float:
+    """``z`` on the :data:`READ_DP` grid."""
+    return round(float(z), READ_DP)
 
 
 def sq(x: _t.Any) -> _t.Any:

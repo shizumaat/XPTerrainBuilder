@@ -63,7 +63,8 @@ def _pack(tmp_path):
 
 
 def test_the_knob_is_off_by_default(tmp_path):
-    assert SR.support_raise_on(LAW) is False
+    from auto_patch_v2.geom.foot_planes import support_lift_on
+    assert support_lift_on(LAW, "support_raise_members") is False
     dump, plan = _pack(tmp_path)
     assert SR.raised_rows(dump, plan, lambda la, lo: Z, str(tmp_path), LAW, 0.3) == {}
 

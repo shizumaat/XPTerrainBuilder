@@ -125,9 +125,10 @@ def ground_plane(zs: _t.Sequence[float]) -> "float | None":
 _M_PER_DEG = 111_320.0
 
 
-def support_lift_on(law: _t.Any) -> bool:
-    """Whether the experiment knob ``[building_pad] support_lift`` is on."""
-    return bool(getattr(law.tables.structures.building_pad, "support_lift", False))
+def support_lift_on(law: _t.Any, knob: str = "support_lift") -> bool:
+    """Whether the experiment knob ``[building_pad] <knob>`` is on
+    (``support_lift``; ``support_raise_members`` for option B)."""
+    return bool(getattr(law.tables.structures.building_pad, knob, False))
 
 
 def is_support(part: _t.Any, law: _t.Any) -> bool:

@@ -31,7 +31,7 @@ import dataclasses as _dc
 import os
 import typing as _t
 
-__all__ = ["SUPPORT_RAISE", "support_raise_on", "support_feet", "raised_rows",
+__all__ = ["SUPPORT_RAISE", "raised_rows",
            "without_rows", "raise_seats", "LAST"]
 
 #: the ``MslSeat.why`` this module writes
@@ -43,13 +43,7 @@ LAST: dict[str, tuple[float, int, int, int]] = {}
 Surface = _t.Callable[[float, float], "float | None"]
 
 
-def support_raise_on(law: _t.Any) -> bool:
-    """Whether ``[building_pad] support_raise_members`` is on."""
-    return bool(getattr(law.tables.structures.building_pad,
-                        "support_raise_members", False))
-
-
-def support_feet(path: str, max_extent_m: float, min_height_m: float
+def _support_feet(path: str, max_extent_m: float, min_height_m: float
                  ) -> list[tuple[float, float, float]]:
     """One foot ``(x, y, z)`` per SUPPORT of the OBJ8 at ``path``: a static
     solid component at least ``min_height_m`` tall whose plan box spans at
@@ -88,7 +82,8 @@ def raised_rows(dump: _t.Any, rebake_plan: _t.Any, surface: Surface, pack_root: 
     """``row index -> E`` for every row of an origin frame raised onto its
     terrain-adapted member's supports (module docstring); ``{}`` when the
     knob is off."""
-    if not support_raise_on(law):
+    from ..geom.foot_planes import support_lift_on
+    if not support_lift_on(law, "support_raise_members"):
         return {}
     from ..geom.foot_planes import PLANE_BAND_M, PLANE_MIN_FEET, support_plane
     from .msl_feet import _foot_needs, origin_of_row
@@ -112,7 +107,7 @@ def raised_rows(dump: _t.Any, rebake_plan: _t.Any, surface: Surface, pack_root: 
         needs: list[float] = []
         for i in mine:
             phys = os.path.join(pack_root, rows[i].def_path)
-            feet = support_feet(phys, ext, hmin) if os.path.isfile(phys) else []
+            feet = _support_feet(phys, ext, hmin) if os.path.isfile(phys) else []
             needs += _foot_needs(rows[i], feet, surface)
         sp = support_plane(needs, PLANE_BAND_M)
         z0 = _origin_z(rows[mine[0]], surface)

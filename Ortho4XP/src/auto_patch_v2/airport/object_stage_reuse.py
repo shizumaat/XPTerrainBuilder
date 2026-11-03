@@ -129,8 +129,10 @@ class StageReuse:
         measure_only)``, ``omit`` the missing art the write drops."""
         from ..law.tables import law_tables_digest
         from ..model.rebake import graded_surface_path
+        from . import user_seats as _user_seats
         from .dsf import dsf_path_in_pack
         from .dsf_write import pristine_dsf_path
+        seats = _user_seats.digest(patch_dir, plan_.icao)
         objects = [os.path.join(plan_.pack_root,
                                 *m.resource.replace("\\", "/").split("/"))
                    for u in plan_.units for m in u.members]
@@ -142,7 +144,10 @@ class StageReuse:
             params={"write_enabled": bool(writes[0]), "measure_only": bool(writes[1]),
                     "omit": sorted(repr(m) for m in omit),
                     "law": str(law_tables_digest().get("sha256") or ""),
-                    "engine": engine})
+                    "engine": engine,
+                    # #1703: a hand-set object seat re-runs the stage (an
+                    # airport with none keeps the key it had)
+                    **({"user_seats": seats} if seats else {})})
 
     # ── the run ─────────────────────────────────────────────────────────
     def run(self, icao: str, folder: str, recipe: dict,

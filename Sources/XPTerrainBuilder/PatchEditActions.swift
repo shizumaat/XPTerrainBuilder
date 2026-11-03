@@ -36,9 +36,10 @@ extension PatchEditModel {
 
     /// Move the selection by (dlat, dlon); `merge` = the snap held at
     /// release: the grabbed node then merges into its target (§3.3).
-    func moveSelection(_ ids: [Int64], dlat: Double, dlon: Double, merge: (source: Int64, target: Int64)?) {
-        let name = merge != nil ? "Move and Merge" : shapeSelection.isEmpty ? "Move"
-            : shapeSelection.count == 1 ? "Move Shape" : "Move Shapes"
+    func moveSelection(_ ids: [Int64], dlat: Double, dlon: Double, merge: (source: Int64, target: Int64)?,
+                       name named: String? = nil) {
+        let name = named ?? (merge != nil ? "Move and Merge" : shapeSelection.isEmpty ? "Move"
+            : shapeSelection.count == 1 ? "Move Shape" : "Move Shapes")
         let done = perform(name) { doc in
             try doc.move(ids, dlat: dlat, dlon: dlon)
             if let merge { try doc.mergeNodes(source: merge.source, target: merge.target) }
@@ -117,6 +118,10 @@ extension PatchEditModel {
         var items: [(title: String, run: () -> Void)] = []
         if mode == .edit, document != nil, !shapeSelection.isEmpty {
             items.append((PatchSetElevationSheet.title, { [weak self] in self?.showsSetElevation = true }))
+        }
+        if mode == .edit, document != nil, let inspector = build?.objectInspector, inspector.canSetElevation,
+           inspector.seat != nil {
+            items.append((PatchObjectInspector.setElevationTitle, { inspector.showsSetElevation = true }))  // #1703
         }
         if canInsertShape {
             items.append((TileContextMenu.insertShapeTitle, { [weak self] in self?.insertShape(lat: lat, lon: lon) }))

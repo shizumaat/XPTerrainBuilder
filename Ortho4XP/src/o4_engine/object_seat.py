@@ -21,10 +21,15 @@ its zero) is the ``pack_objects`` model's, sent back by the client:
 bottom = zero + ``y_min``, top = zero + ``y_max``.  A split whose bodies
 stand at different zeros reports the lowest bottom and the highest top.
 
+A seat the user SET BY HAND (#1703, ``object_seat_set``) is the seat:
+the plan's own row seat once a build placed it, else the hand-set zero
+with a sentence saying it is still to be built (or, with an edited patch
+in use, that it waits for the auto patch); ``user_zero_m`` carries it.
+
 ``lines`` is the inspector's text, one sentence per line, so the Mac app
 and the Qt window show the same words.  The record also carries the
 plan's own fields (``seat``, ``zero_m``, ``bodies``) for the editor's next
-steps on the same selection (#1703 manual elevation, #1697 role override).
+steps on the same selection (#1697 role override).
 Synchronous: one JSON read per plan file version (cached by mtime and
 size), then dictionary lookups.
 """
@@ -38,6 +43,7 @@ import typing as _t
 
 import O4_File_Names as FNAMES
 from auto_patch_v2.airport.apt_dat import _file_identity as _stamp  # (mtime_ns, size) or None
+from auto_patch_v2.airport.user_seats import WHY as _HAND_SET
 
 __all__ = ["object_seat"]
 
@@ -106,6 +112,8 @@ def _seat(kind: str, rec: _t.Mapping, agl_m: float) -> tuple[list[float], bool, 
                                    if len(bodies) > 1 else "Re-seated by the placement plan")
     if kind == "row":
         z = float(rec["elevation"])
+        if rec.get("why") == _HAND_SET:
+            return [z], False, 0.0, f"Set by hand at {_m(z)} MSL"
         return [z], False, 0.0, f"Seated on its DSF row at {_m(z)} MSL"
     written = kind == "rider" and rec.get("seat_why") == "msl_written" \
         and rec.get("seat_z") is not None
@@ -116,6 +124,26 @@ def _seat(kind: str, rec: _t.Mapping, agl_m: float) -> tuple[list[float], bool, 
         return [], True, 0.0, "Placed on the ground by the placement plan"
     lift = f", {_m(agl_m)} above the ground" if agl_m else ", on the ground"
     return [], True, agl_m, "Kept as the pack places it" + lift
+
+
+def _hand_set(entry: tuple[str, dict] | None, user_zero: float | None,
+              manual: bool) -> tuple[str, dict] | None:
+    """#1703: the entry a hand-set seat (``user_zero``, from the seats
+    file) stands for — the plan's own row seat once a build placed it, else
+    a row seat still to be built, said so.  ``manual``: an edited patch is
+    used for the airport, so the object stage does not run (RULINGS
+    2026-10-15d (5)) and the seat waits for the auto patch."""
+    if user_zero is None:
+        return entry
+    kind, rec = entry if entry is not None else ("authored", {})
+    built = (kind == "row" and rec.get("why") == _HAND_SET
+             and abs(float(rec.get("elevation", math.nan)) - user_zero) < 0.005)
+    if built and not manual:
+        return entry
+    note = ("; it applies when the airport builds from its auto patch (your edited "
+            "patch is used, and objects keep their last seat with it)" if manual
+            else "; rebuild the tile to place it there")
+    return "row", {"elevation": user_zero, "why": _HAND_SET, "note": note}
 
 
 def _needs_ground(entry: tuple[str, dict] | None) -> bool:
@@ -133,8 +161,9 @@ def _seat_record(entry: tuple[str, dict] | None, *, agl_m: float, ground_m: floa
     loading), ``y_min`` / ``y_max`` its authored height range."""
     kind, rec = entry if entry is not None else ("authored", {})
     zeros, on_ground, lift, why = _seat(kind, rec, agl_m)
-    if not have_plan:
+    if not have_plan and rec.get("why") != _HAND_SET:
         why = "No placement plan from the last build: " + why[0].lower() + why[1:]
+    why += str(rec.get("note") or "")
     if on_ground and ground_m is not None:
         zeros = [ground_m + lift]
     out: dict[str, _t.Any] = {
@@ -180,6 +209,12 @@ def object_seat(tile: str, icao: str, index: int, lat: float, lon: float,
     path = _plan_path(tile, icao)
     entries = _entries(path)
     entry = None if entries is None else entries.get(row)
+    from .object_seat_edit import user_seat_for
+    user = user_seat_for(tile, icao, row)
+    if user is not None:
+        from auto_patch.selection import manual_patch_files_for
+        entry = _hand_set(entry, user.zero_m,
+                          bool(manual_patch_files_for(os.path.dirname(path), icao)))
     ground, pending = None, False
     if _needs_ground(entry):
         reply = cursor_elevation(lat, lon, build_dir=build_dir)
@@ -187,5 +222,6 @@ def object_seat(tile: str, icao: str, index: int, lat: float, lon: float,
     rec = _seat_record(entry, agl_m=agl, ground_m=ground, y_min=lo, y_max=hi,
                       have_plan=entries is not None, pending=pending)
     rec["index"] = row
+    rec["user_zero_m"] = None if user is None else user.zero_m
     rec["plan"] = os.path.basename(path) if entries is not None else None
     return rec

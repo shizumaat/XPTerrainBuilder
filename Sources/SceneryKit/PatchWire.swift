@@ -394,6 +394,11 @@ extension O4ProtocolVersion {
     public static func supportsInsertShape(_ version: String) -> Bool {
         isAtLeast(version, 1, 20)
     }
+
+    /// An object's elevation set by hand, `object_seat_set` (protocol 1.25, #1703).
+    public static func supportsObjectSeatSet(_ version: String) -> Bool {
+        isAtLeast(version, 1, 25)
+    }
 }
 
 /// `terrain_relief` (protocol 1.15, #1320, owner Q134): the patch view's

@@ -115,6 +115,12 @@ final class PatchPackOutlines: ObservableObject {
     func object(atLat lat: Double, lon: Double) -> PackOutlineGeometry.Item? {
         enabled ? geometry?.item(atLon: lon, mercatorY: MapCamera.mercatorY(lat: lat), objectsOnly: true) : nil
     }
+
+    /// The placed object's footprint corner or edge middle nearest the
+    /// point within `radius` map units (a dragged node's snap, #1703).
+    func objectVertex(atLat lat: Double, lon: Double, radius: Double) -> PackOutlineGeometry.Vertex? {
+        enabled ? geometry?.objectVertex(atLon: lon, mercatorY: MapCamera.mercatorY(lat: lat), radius: radius) : nil
+    }
 }
 
 /// The pack outlines' look (#1316: "a bit darker and heavier stroke … a
@@ -215,6 +221,31 @@ struct PackOutlineGeometry: Sendable {
             }
         }
         return best
+    }
+
+    /// A snap point on a placed object (#1703): where, and which object.
+    struct Vertex: Sendable {
+        let object: PackObjectRef
+        let label: String
+        let lat: Double
+        let lon: Double
+    }
+
+    /// The nearest object snap point (`PatchObjectSnap.vertices` of each
+    /// placed object's exterior) within `radius` map units of the point.
+    func objectVertex(atLon x: Double, mercatorY y: Double, radius r: Double) -> Vertex? {
+        let p = SIMD2(x, y)
+        var best: (vertex: Vertex, d: Double)?
+        for item in items where x >= item.minX - r && x <= item.maxX + r && y >= item.minY - r && y <= item.maxY + r {
+            guard let object = item.object else { continue }
+            let points = PatchObjectSnap.vertices(item.rings[0].map { SIMD2(Double($0.x), Double($0.y)) })
+            guard let i = PatchObjectSnap.nearest(p, in: points, radius: r) else { continue }
+            let d = hypot(points[i].x - x, points[i].y - y)
+            if let best, best.d <= d { continue }
+            best = (Vertex(object: object, label: item.label, lat: MapCamera.latitude(mercatorY: points[i].y),
+                           lon: points[i].x), d)
+        }
+        return best?.vertex
     }
 
     /// Even-odd ray cast (`O4_Qt_Pack_Outlines.ring_contains`).

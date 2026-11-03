@@ -1,0 +1,80 @@
+"""``object_seat_set`` — the patch editor's hand-set object elevation
+(protocol 1.25, issue #1703): store, change or clear the seat a user gave
+one placed pack object, as a user edit the object stage honours on every
+rebuild it places the airport's objects (``airport/user_seats``).
+
+Owner decision on #1703 (1)(b): only the object moves; the ground stays as
+solved.  The seat is written at once (it is not part of the patch file, so
+saving or reverting the patch neither writes nor drops it); the editor's
+Undo sends the previous ``zero_m`` back.
+
+The user gives the object's BOTTOM (m MSL), or its zero for an undo; the
+engine turns a bottom into the zero the DSF row carries with the model's
+authored ``y_min`` (bottom = zero + ``y_min``).
+"""
+from __future__ import annotations
+
+import math
+import os
+import typing as _t
+
+import O4_File_Names as FNAMES
+
+__all__ = ["object_seat_set", "user_seat_for"]
+
+
+def _patch_dir(tile: str) -> str:
+    """The tile's Patches folder (where the patch and its plans live)."""
+    parsed = FNAMES.parse_tile_key(tile)
+    if parsed is None:
+        raise ValueError(f"object_seat_set: {tile!r} is not a tile key like +45-123.")
+    return FNAMES.patch_dir(*parsed)
+
+
+def user_seat_for(tile: str, icao: str, index: int):
+    """Row ``index``'s hand-set seat (a ``UserSeat``), or ``None``; an
+    unreadable file reads as none."""
+    from auto_patch_v2.airport import user_seats as _us
+    try:
+        return _us.read(_patch_dir(tile), icao).get(int(index))
+    except (OSError, ValueError):
+        return None
+
+
+def _number(name: str, v: _t.Any) -> float | None:
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"object_seat_set: {name} must be a number.") from None
+    if not math.isfinite(f):
+        raise ValueError(f"object_seat_set: {name} must be a finite number.")
+    return f
+
+
+def object_seat_set(tile: str, icao: str, index: int, model: str, lat: float,
+                    lon: float, bottom_m: float | None = None,
+                    y_min: float | None = None, zero_m: float | None = None) -> dict:
+    """ENGINE COMMAND ``object_seat_set``: row ``index``'s hand-set seat
+    becomes ``zero_m``, or ``bottom_m - y_min``; neither clears it (the
+    object stage seats it again).  Replies ``{index, zero_m,
+    previous_zero_m, path}`` — ``previous_zero_m`` is what an Undo sends."""
+    from auto_patch_v2.airport import user_seats as _us
+    try:
+        row = int(index)
+        la, lo = float(lat), float(lon)
+    except (TypeError, ValueError):
+        raise ValueError("object_seat_set: index must be a row number and lat, lon "
+                         "numbers.") from None
+    zero = _number("zero_m", zero_m)
+    bottom = _number("bottom_m", bottom_m)
+    if zero is None and bottom is not None:
+        zero = bottom - (_number("y_min", y_min) or 0.0)
+    seat = None if zero is None else _us.UserSeat(row, str(model or ""), la, lo,
+                                                  round(zero, 3))
+    patch_dir = _patch_dir(tile)
+    previous = _us.set_seat(patch_dir, icao, seat, index=row)
+    return {"index": row, "zero_m": None if seat is None else seat.zero_m,
+            "previous_zero_m": None if previous is None else previous.zero_m,
+            "path": os.path.basename(_us.seats_path(patch_dir, icao))}

@@ -606,6 +606,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             engine_version=_engine_version(), law_digest=digest,
             write_cuts=bool(write_enabled and not measure_only))
     _pulse.clear()
+    plan, files = _user_seats(plan, files, dump, patch_dir, plan_key)
     c = dict(plan.counts())
     # §6's CLASSES ride out with the counts (lane v2planfix): they are the
     # only reading that says whether the pads and rims above were seen at
@@ -673,6 +674,32 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     out.update({k: v for k, v in c.items() if k.startswith("class_")})
     out["packs_written"] = 1
     return out
+
+
+def _user_seats(plan, files, dump, patch_dir: str, plan_key: str):
+    """#1703: the hand-set object seats beside the patch, over the plan just
+    built (``airport/user_seats``) — a user edit the stage never overrides.
+    A companion pack's plan (``ICAO~k``) carries none: the editor seats the
+    airport's own pack.  A seat whose row changed is named and skipped."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import user_seats as _us
+    if plan_key and plan_key != plan.icao:
+        return plan, files
+    try:
+        seats = _us.read(patch_dir, plan.icao)
+    except (OSError, ValueError) as exc:
+        UI.vprint(0, f"  [v2 placement] {plan.icao}: hand-set object elevations "
+                     f"unreadable ({exc}); none applied")
+        return plan, files
+    if not seats:
+        return plan, files
+    plan, files, seated, refused = _us.apply(plan, files, seats, dump)
+    UI.vprint(1, f"  [v2 placement] {plan.icao}: {len(seated)} object(s) at the "
+                 f"elevation set by hand")
+    for why in refused:
+        UI.vprint(0, f"  [v2 placement] {plan.icao}: a hand-set object elevation "
+                     f"was not applied: {why}; set it again in the patch editor")
+    return plan, files
 
 
 def _engine_version() -> str:

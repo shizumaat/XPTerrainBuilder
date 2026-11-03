@@ -137,7 +137,12 @@ from typing import Any, Optional
 # ``pack_objects`` placements carry ``index`` (the DSF row) and its models
 # ``y_min`` / ``y_max``.  An older engine refuses it and the app shows the
 # object's name only.
-PROTOCOL_VERSION = "1.24"
+# 1.25 (2026-11-03, additive, #1703): ``object_seat_set`` — an object's
+# elevation set by hand in the patch editor (its bottom in m MSL, or its
+# zero for an undo), stored beside the patch as a user edit the object
+# stage honours; ``object_seat`` replies ``user_zero_m``.  An older engine
+# refuses it and the apps offer no "Set elevation…" on an object.
+PROTOCOL_VERSION = "1.25"
 
 
 @dataclass(frozen=True)

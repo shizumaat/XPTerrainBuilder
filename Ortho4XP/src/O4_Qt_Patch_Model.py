@@ -155,11 +155,17 @@ class PatchEditModel(QObject):
     @property
     def unsaved_edits(self) -> int:
         """"● N unsaved edits": steps between now and the saved state;
-        at least 1 once an edit branched off below the save."""
+        at least 1 once an edit branched off below the save.  An object's
+        hand-set elevation (#1703) is an undo step but no patch edit: it is
+        stored at once, so it is not counted."""
         index = self.undo_stack.index()
         if self.undo_stack.cleanIndex() >= 0:
-            return abs(index - self.undo_stack.cleanIndex())
-        return max(1, abs(index - self._saved_index))
+            return self._edits_between(index, self.undo_stack.cleanIndex())
+        return max(1, self._edits_between(index, self._saved_index))
+
+    def _edits_between(self, a: int, b: int) -> int:
+        lo, hi = sorted((a, b))
+        return sum(1 for k in range(lo, hi) if isinstance(self.undo_stack.command(k), _EditStep))
 
     def set_mode(self, mode: str) -> None:
         if mode != self.mode:
@@ -279,15 +285,15 @@ class PatchEditModel(QObject):
         self.status_changed.emit()
 
     def move_selection(self, ids: _t.Sequence[int], dlat: float, dlon: float,
-                       merge: tuple[int, int] | None = None) -> bool:
+                       merge: tuple[int, int] | None = None, name: str | None = None) -> bool:
         """Move ``ids`` by (dlat, dlon); ``merge`` = ``(grabbed, target)``
         when the snap held at release (§3.3): ONE step."""
         def edit(doc: PE.PatchDoc) -> PE.PatchDoc:
             doc = PE.move(doc, ids, dlat, dlon)
             return PE.merge_nodes(doc, *merge) if merge else doc
         n = len(self.shape_selection)
-        name = ("Move and Merge" if merge else "Move" if not n
-                else "Move Shape" if n == 1 else "Move Shapes")
+        name = name or ("Move and Merge" if merge else "Move" if not n
+                        else "Move Shape" if n == 1 else "Move Shapes")
         done = self.perform(name, edit)
         if done and merge:
             self.set_selection((self.selection - {merge[0]}) | {merge[1]})

@@ -55,6 +55,35 @@ struct PackFootprintsTests {
         #expect(PackFootprints.fileLabel(nil, fallback: "facade") == "facade")
     }
 
+    /// #1702: a numbered placement carries the object the inspector asks
+    /// about (its DSF row and its model's height range); the inspector's
+    /// `object_seat` answer decodes.
+    @Test func numberedPlacementsCarryTheirObject() throws {
+        #expect(PackFootprints.labelled(try objects(heading: 0)).allSatisfy { $0.object == nil })
+        let json = """
+        {"models": [{"key": "m.obj", "plan_hull_f32_b64": "\(planB64)", "y_min": -0.5, "y_max": 12.25}],
+         "placements": [{"model": "m.obj", "lat": 45.0, "lon": -122.0, "heading_deg": 0, "agl_m": 2,
+                         "index": 41}],
+         "facades": [], "missing": []}
+        """
+        let answer = try JSONDecoder().decode(O4PackObjects.self, from: Data(json.utf8))
+        let object = try #require(PackFootprints.labelled(answer).first?.object)
+        #expect(object == PackObjectRef(index: 41, model: "m.obj", lat: 45.0, lon: -122.0, aglM: 2,
+                                        yMin: -0.5, yMax: 12.25))
+        let seat = try JSONDecoder().decode(O4ObjectSeat.self, from: Data("""
+        {"seat": "split", "bodies": 2, "pending": false, "zero_m": 99.5, "zero_max_m": 104.0,
+         "ground_m": null, "height_m": 6.5, "bottom_m": 99.0, "top_m": 110.0,
+         "why": "Cut into 2 bodies", "lines": ["Height 6.5 m", "Top 110.0 m MSL"], "index": 41,
+         "plan": "o4_v2_placement_ZZZZ.json"}
+        """.utf8))
+        #expect(seat.topM == 110.0 && seat.lines.count == 2 && seat.plan != nil)
+    }
+
+    private var planB64: String {
+        let v: [Float] = [0, 0, 10, 0, 10, -4, 0, -4]
+        return v.withUnsafeBufferPointer { Data(buffer: $0) }.base64EncodedString()
+    }
+
     @Test func headingZeroKeepsTheAuthoredPlan() throws {
         let corners = PackFootprints.outlines(try objects(heading: 0))[0].map(metres)
         for expected in [(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0)] {

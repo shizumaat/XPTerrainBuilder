@@ -117,6 +117,11 @@ struct PatchOverlay: View {
             .overlay {
                 if model.mode == .edit { PatchEditLayer(model: model, drag: model.drag, camera: camera) }
             }
+            .overlay {
+                if model.mode == .edit, let inspector = model.build?.objectInspector {
+                    PatchObjectInspectorLayer(inspector: inspector, camera: camera)
+                }
+            }
             .overlay(alignment: .topTrailing) {
                 PatchLegend(outlines: model.build?.packOutlines, terrain: model.build?.terrainRelief).padding(.top, 44).padding(.trailing, 8).allowsHitTesting(false)
             }

@@ -12,6 +12,7 @@ import SceneryKit
 //                          mouse-up while snapped)
 //   drag on open map       pan (every map view)
 //   click on a "+"         insert a node
+//   click on a pack object select it: the object inspector (#1702)
 //   right / two-finger click   the context menu (never a pan)
 //   scroll / pinch         zoom
 //
@@ -309,7 +310,10 @@ struct PatchEditLayer: View {
             } else if let edge = drag.pressedEdge {
                 model.clickEdge(edge.a, edge.b, x: drag.start.x, y: drag.start.y, toggle: false)
             } else {
+                // open map: a pack object under the click, else nothing
                 model.clearSelection()
+                let c = screen.coordinate(drag.start)
+                model.build?.objectInspector.select(atLat: c.lat, lon: c.lon)
             }
         case .pan, .idle:
             break

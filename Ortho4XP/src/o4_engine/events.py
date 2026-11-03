@@ -131,7 +131,13 @@ from typing import Any, Optional
 # and ``library_import_bundle`` — a built tile carried to another
 # installation as a tile bundle (``tile_bundle``), completed through
 # LibraryReady like the other Library commands.
-PROTOCOL_VERSION = "1.23"
+# 1.24 (2026-11-02, additive, #1702): ``object_seat`` — the patch editor's
+# object inspector: one placed pack object's seat from the last build's
+# placement plan (its height, top and bottom in m MSL, and why); the
+# ``pack_objects`` placements carry ``index`` (the DSF row) and its models
+# ``y_min`` / ``y_max``.  An older engine refuses it and the app shows the
+# object's name only.
+PROTOCOL_VERSION = "1.24"
 
 
 @dataclass(frozen=True)

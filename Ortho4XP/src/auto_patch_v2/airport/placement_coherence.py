@@ -30,7 +30,7 @@ import collections
 import typing as _t
 
 __all__ = ["census_group_offsets", "census_bridge_ends", "census_frame_riders",
-           "coherence_lines", "GROUP_TOL_M", "END_TOL_M", "RIDER_TOL_M"]
+           "plan_body_zero", "coherence_lines", "GROUP_TOL_M", "END_TOL_M", "RIDER_TOL_M"]
 
 #: one group, one zero: ``[placement] split_tol_m``'s 0.3 m
 GROUP_TOL_M = 0.3
@@ -46,7 +46,12 @@ Surface = _t.Callable[[float, float], "float | None"]
 _DRAPED = ("line_segment",)
 
 
-def _zero(b: _t.Mapping[str, _t.Any]) -> "float | None":
+def plan_body_zero(b: _t.Mapping[str, _t.Any]) -> "float | None":
+    """Where a plan body (its ``to_dict`` row) puts the AUTHORED zero in
+    world height: the design surface at its anchor, minus its intended
+    zero, plus the lift its row keeps; ``None`` off every graded face.
+    The censuses here and the patch editor's object inspector (#1702)
+    read the seat through this one function."""
     sz = b.get("surface_z")
     if sz is None:
         return None
@@ -64,7 +69,7 @@ def census_group_offsets(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
         res = str((s.get("placement") or {}).get("resource", ""))
         idx = (s.get("placement") or {}).get("index")
         for b in s.get("bodies", ()):
-            z = _zero(b)
+            z = plan_body_zero(b)
             if z is None or b.get("class") in _DRAPED or "basin rim arc" in str(
                     b.get("anchor_reason", "")):
                 continue
@@ -106,7 +111,7 @@ def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     for s in splits:
         res = str((s.get("placement") or {}).get("resource", ""))
         for b in s.get("bodies", ()):
-            z = _zero(b)
+            z = plan_body_zero(b)
             if z is not None:
                 zeros[res].append(z)
     water = getattr(surface, "water", None)

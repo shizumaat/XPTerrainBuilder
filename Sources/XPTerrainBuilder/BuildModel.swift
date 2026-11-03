@@ -1254,6 +1254,8 @@ final class BuildModel: ObservableObject {
     lazy var flightPlan = FlightPlanSelection(build: self)
     /// The pack reference outlines under it (spec §0 A4).
     lazy var packOutlines = PatchPackOutlines(patch: patchEdit)
+    /// The object inspector over it (#1702).
+    lazy var objectInspector = PatchObjectInspector(patch: patchEdit, outlines: packOutlines)
     /// The terrain view under it (#1320: hillshade plus contours).
     lazy var terrainRelief = PatchTerrainRelief(patch: patchEdit)
 

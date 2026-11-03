@@ -19,9 +19,11 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 def test_a_new_map_view_starts_no_tile_workers():
     QApplication.instance() or QApplication([])
-    before = threading.active_count()
+    # Compare thread sets, not counts: an unrelated thread may END while
+    # the view is built (ubuntu CI saw 3 == 4); none may START.
+    before = set(threading.enumerate())
     view = QTMAP.MapView()
     view._start_workers()
     assert QTMAP.MapView._o4_suite_no_workers is True
-    assert threading.active_count() == before
+    assert not set(threading.enumerate()) - before
     view.deleteLater()

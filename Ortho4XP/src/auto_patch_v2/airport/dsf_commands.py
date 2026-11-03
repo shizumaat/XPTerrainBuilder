@@ -23,7 +23,7 @@ from __future__ import annotations
 import hashlib
 import struct
 
-__all__ = ["atoms", "select_pool_first"]
+__all__ = ["atoms", "header_properties", "select_pool_first"]
 
 _COOKIE = b"XPLNEDSF"
 _FOOTER = 16                       # the trailing MD5
@@ -56,6 +56,33 @@ def atoms(buf: bytes, off: int, end: int) -> list[tuple[bytes, int, int]]:
         out.append((aid, off, ln))
         off += ln
     return out
+
+
+def header_properties(path: str) -> "dict[str, str] | None":
+    """The ``HEAD``/``PROP`` strings of an UNCOMPRESSED DSF, read from its
+    first atom alone (``None`` for a 7z-compressed or unreadable file).
+    ``airport/terrain_mesh_witness`` screens installed packs with it before
+    paying for a DSFTool dump."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(12 + 8)
+            if len(head) < 20 or head[:8] != _COOKIE:
+                return None
+            aid, ln = struct.unpack_from("<4sI", head, 12)
+            if aid != _HEAD or ln < 8:
+                return None
+            buf = head[12:] + fh.read(ln - 8)
+    except OSError:
+        return None
+    try:
+        for kid, koff, klen in atoms(buf, 8, len(buf)):
+            if kid == _PROP:
+                strings = buf[koff + 8:koff + klen].split(b"\0")
+                return {k.decode("utf-8", "replace"): v.decode("utf-8", "replace")
+                        for k, v in zip(strings[0::2], strings[1::2], strict=False) if k}
+    except ValueError:
+        return None
+    return {}
 
 
 def _operand_bytes(cmds: bytes, at: int, command: int) -> int | None:

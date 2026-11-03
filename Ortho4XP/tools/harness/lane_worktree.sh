@@ -2,6 +2,8 @@
 # THE LANE RITUAL — create or tear down a lane worktree, correctly.
 #
 #   tools/harness/lane_worktree.sh up   NAME|PATH [REF]
+#                                 (a NEW NAME first RECYCLES a finished
+#                                  lane tree — see recycle_lane)
 #   tools/harness/lane_worktree.sh down NAME|PATH
 #   tools/harness/lane_worktree.sh check NAME|PATH
 #   tools/harness/lane_worktree.sh reclaim NAME|PATH   (re-clone the cache overlay)
@@ -161,10 +163,18 @@ CACHE_REL="tmp/engine_caches/Airport_mod_cache"
 CACHE_SHARED="Airport_mod_cache"
 COW_AUDIT="$(cd "$(dirname "$0")" && pwd -P)/cow_audit.py"
 # THE LANE CAP (owner 2026-11-03: "keep it at 50, and don't start new ones
-# until the others are completed and merged").  `up` creating a NEW tree
-# first prunes the merged ones, then refuses at this many.  O4_LANE_CAP is
+# until the others are completed and merged"; lowered to 16 the same day —
+# peak parallel lanes were ~12, and a finished tree is now RECYCLED rather
+# than replaced).  `up` creating a NEW tree first recycles a finished one,
+# else prunes the merged ones and refuses at this many.  O4_LANE_CAP is
 # the master's explicit override; nothing else changes it.
-LANE_CAP=50
+LANE_CAP=16
+# Lane PRODUCTS a recycled tree is emptied of (under Ortho4XP/), so no
+# stale patch, tile, preview or log of the previous lane can leak into the
+# new lane's measurements.  A SYMLINK here is a mount and is never touched
+# (logs/ is a data-repo mount); Patches/ is re-cloned and the cfg re-copied
+# by the ritual exactly as for a fresh tree.
+RECYCLE_CLEAR="Patches Tiles Previews tmp logs DDS_cache dist build"
 
 die() { echo "REFUSING: $*" >&2; exit 2; }
 
@@ -221,6 +231,108 @@ data_dirs() {
         [ $skip -eq 1 ] && continue
         echo "$base"
     done
+}
+
+# Why tree $1 may NOT be torn down or recycled — a live holder, an open
+# file handle, a shared-repo lock, or uncommitted work.  Returns 0 when
+# clear; else prints the evidence (stdout), sets _refusal and returns 1.
+# ONE predicate for `down` and recycle_lane: a tree is reused only when it
+# could have been removed.
+teardown_refusal() {
+    _t="$1"; _refusal=""
+    # The self-exclusion must match how EACH pgrep prints.  macOS `pgrep
+    # -fl` prints the full argv ("… lane_worktree.sh down NAME"); procps
+    # `pgrep -l` prints the COMM, truncated to 15 chars
+    # ("lane_worktree.s"), because -f only affects MATCHING there.  The
+    # ".sh" spelling therefore stopped excluding this very script on
+    # Linux and `down` refused itself — measured on ubuntu-22.04 in CI
+    # 2026-09-17 (beta plan §1 B4).  Drop the extension: a process whose
+    # name carries "lane_worktree" IS the ritual.
+    _h=$(pgrep -fl "$_t" 2>/dev/null | grep -v "lane_worktree")
+    if [ -n "$_h" ]; then
+        echo "$_h" | sed 's/^/    /'
+        _refusal="process(es) above still hold $_t.  Wait for them (a build
+    killed mid-write leaves a patch that reads as a real result)."
+        return 1
+    fi
+    if command -v lsof >/dev/null 2>&1; then
+        _h=$(open_handles "$_t")
+        if [ -n "$_h" ]; then
+            echo "$_h" | sed 's/^/    /'
+            _refusal="open file handles under $_t — see above."
+            return 1
+        fi
+    fi
+    # A lock this lane still holds in the SHARED repo would strand every
+    # other lane behind a worktree that no longer exists.
+    _h=$(grep -l "$_t" "$DATA_REPO/.harness/locks"/*.lock 2>/dev/null)
+    if [ -n "$_h" ]; then
+        echo "$_h" | sed 's/^/    /'
+        _refusal="this lane still holds shared-repo refresh lock(s) above.
+    Let the refresh finish, or release them, before removing the tree —
+    a stale lock blocks every other lane's explicit refresh."
+        return 1
+    fi
+    # Untracked beyond the mounts (and an index mirror) is lane work too.
+    # -uall lists files, never a collapsed `tools/`, so a lane script
+    # beside an index mirror still refuses.
+    _h=$(git -C "$_t" status --porcelain -uall 2>/dev/null | sed -n 's/^?? //p' \
+         | grep -v -E "^Ortho4XP/(venv|$(data_dirs | tr '\n' '|' | sed 's/|$//'))/?$" \
+         | grep -v -x "$INDEX_REL")
+    _h="$_h$(git -C "$_t" status --porcelain 2>/dev/null | grep -v '^??')"
+    if [ -n "$_h" ]; then
+        echo "$_h" | sed 's/^/    /'
+        _refusal="uncommitted changes in $_t (above).  Commit or record them
+    first — a removed worktree takes them with it."
+        return 1
+    fi
+    return 0
+}
+
+# `up` creating a new tree: take over a FINISHED lane tree instead (owner
+# 2026-11-03: "would it be more efficient for a new lane to take over an
+# existing worktree").  A candidate is exactly what `prune-merged --apply`
+# would remove — merged, clean, no holder, no shared-repo lock — and lives
+# directly under $WT_ROOT.  It is checked out at $REF, emptied of the
+# previous lane's products ($RECYCLE_CLEAR, the cfg) and moved to $WT; the
+# mounts and venv link stay, and the rest of `up` re-runs the ritual and
+# its audits on it as on a fresh tree.  Returns 1 when none is reusable.
+recycle_lane() {
+    _cands=$("$(dirname "$0")/prune_merged.sh" "$0" prune-merged --reusable) \
+        || return 1
+    _ifs=$IFS; IFS='
+'
+    for _row in $_cands; do
+        IFS=$_ifs
+        _c=${_row%%"	"*}; _why=${_row#*"	"}
+        [ "$(dirname "$_c")" = "$WT_ROOT" ] || continue
+        teardown_refusal "$_c" >/dev/null || continue
+        # $REF as `worktree add` reads it: resolved in the MAIN repo (a
+        # bare HEAD is main's, not the candidate's), a local branch checked
+        # out by name, anything else detached.
+        if git -C "$MAIN_REPO" show-ref -q --verify "refs/heads/$REF"; then
+            git -C "$_c" checkout -q "$REF" 2>/dev/null || continue
+        else
+            _sha=$(git -C "$MAIN_REPO" rev-parse -q --verify "$REF^{commit}") \
+                || die "no commit $REF in $MAIN_REPO"
+            git -C "$_c" checkout -q --detach "$_sha" 2>/dev/null || continue
+        fi
+        _cleared=""
+        for _d in $RECYCLE_CLEAR; do
+            [ -L "$_c/Ortho4XP/$_d" ] && continue
+            [ -e "$_c/Ortho4XP/$_d" ] || continue
+            rm -rf "$_c/Ortho4XP/$_d"; _cleared="$_cleared $_d/"
+            git -C "$_c" checkout -q -- "Ortho4XP/$_d" 2>/dev/null || true
+        done
+        for _f in $CLONE_FILES; do rm -f "$_c/Ortho4XP/$_f"; done
+        git -C "$MAIN_REPO" worktree move "$_c" "$WT" 2>/dev/null || continue
+        echo "  [ritual] RECYCLED $(basename "$_c") ($_why) -> $WT at $REF;"
+        echo "           cleared the previous lane's products:${_cleared:- (none)}"
+        echo "           (mounts and the venv link kept; Patches/ and the cfg re-made below)"
+        return 0
+    done
+    IFS=$_ifs
+    return 1
 }
 
 # `up` creating a new tree: prune the merged lanes, then hold the cap.
@@ -519,6 +631,8 @@ up)
     done
     if [ -d "$WT" ]; then
         echo "  [ritual] worktree $WT already exists — completing the ritual."
+    elif recycle_lane; then
+        :
     else
         lane_cap_gate
         git -C "$MAIN_REPO" worktree add "$WT" "$REF" || die "worktree add failed"
@@ -680,41 +794,10 @@ reclaim)
 
 down)
     [ -d "$WT" ] || die "no worktree at $WT"
-    # A live process holding the tree: tearing it out mid-build yields a
-    # half-written patch and a "not reproducible" report next session.
-    # The self-exclusion must match how EACH pgrep prints.  macOS `pgrep
-    # -fl` prints the full argv ("… lane_worktree.sh down NAME"); procps
-    # `pgrep -l` prints the COMM, truncated to 15 chars
-    # ("lane_worktree.s"), because -f only affects MATCHING there.  The
-    # ".sh" spelling therefore stopped excluding this very script on
-    # Linux and `down` refused itself — measured on ubuntu-22.04 in CI
-    # 2026-09-17 (beta plan §1 B4).  Drop the extension: a process whose
-    # name carries "lane_worktree" IS the ritual.
-    holders=$(pgrep -fl "$WT" 2>/dev/null | grep -v "lane_worktree")
-    if [ -n "$holders" ]; then
-        echo "$holders" | sed 's/^/    /'
-        die "process(es) above still hold $WT.  Wait for them (a build
-    killed mid-write leaves a patch that reads as a real result)."
-    fi
-    if command -v lsof >/dev/null 2>&1; then
-        openfiles=$(open_handles "$WT")
-        if [ -n "$openfiles" ]; then
-            echo "$openfiles" | sed 's/^/    /'
-            die "open file handles under $WT — see above."
-        fi
-    fi
-    # A lock this lane still holds in the SHARED repo would strand every
-    # other lane behind a worktree that no longer exists.
-    lockdir="$DATA_REPO/.harness/locks"
-    if [ -d "$lockdir" ]; then
-        held=$(grep -l "$WT" "$lockdir"/*.lock 2>/dev/null)
-        if [ -n "$held" ]; then
-            echo "$held" | sed 's/^/    /'
-            die "this lane still holds shared-repo refresh lock(s) above.
-    Let the refresh finish, or release them, before removing the tree —
-    a stale lock blocks every other lane's explicit refresh."
-        fi
-    fi
+    # A live holder, an open handle, a shared-repo lock or uncommitted
+    # work keeps the tree: tearing it out mid-build yields a half-written
+    # patch and a "not reproducible" report next session.
+    teardown_refusal "$WT" || die "$_refusal"
     # The index MIRROR is ritual scaffolding, not lane work: drop it before
     # the dirty audit so it can never read as "uncommitted changes" and
     # strand a finished lane.  A TRACKED index is never touched — if the
@@ -723,14 +806,6 @@ down)
         chmod u+w "$WT/$INDEX_REL" 2>/dev/null
         rm -f "$WT/$INDEX_REL"
         rmdir "$WT/$(dirname "$INDEX_REL")" 2>/dev/null
-    fi
-    dirty=$(git -C "$WT" status --porcelain 2>/dev/null | sed -n 's/^?? //p' \
-            | grep -v -E "^Ortho4XP/(venv|$(data_dirs | tr '\n' '|' | sed 's/|$//'))/?$")
-    dirty="$dirty$(git -C "$WT" status --porcelain 2>/dev/null | grep -v '^??')"
-    if [ -n "$dirty" ]; then
-        echo "$dirty" | sed 's/^/    /'
-        die "uncommitted changes in $WT (above).  Commit or record them
-    first — a removed worktree takes them with it."
     fi
     for d in $ENGINE_LINKS $(data_dirs); do
         [ -L "$ENGINE/$d" ] && rm "$ENGINE/$d"

@@ -332,6 +332,10 @@ public enum O4Event: Sendable, Equatable {
     /// One step of one tile is slow (protocol 1.26, #1351): what, why, an
     /// ETA and the answers it supports. See `O4SlowStep`.
     case slowStep(O4SlowStep)
+    /// An airport pack "Optimise pack" can lighten (protocol 1.31, #1707):
+    /// found by the object stage, or the outcome of a build or a
+    /// `pack_optimise` command. See `O4PackOptimise`.
+    case packOptimise(O4PackOptimise)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -512,6 +516,19 @@ public enum O4Event: Sendable, Equatable {
         // `class SlowStep` in Ortho4XP/src/o4_engine/events.py.
         case "SlowStep":
             return .slowStep(O4SlowStep.parse(object))
+        // Another STRING LITERAL match: `class PackOptimise` in
+        // Ortho4XP/src/o4_engine/events.py.
+        case "PackOptimise":
+            return .packOptimise(O4PackOptimise(
+                pack: string("pack"), packRoot: string("pack_root"),
+                lat: int("lat"), lon: int("lon"), dedupe: int("dedupe"),
+                estTrisBefore: int("est_tris_before"),
+                estTrisAfter: int("est_tris_after"),
+                // absent ⇒ no question: never offer without a yes
+                canOptimise: bool("can_optimise"),
+                files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                state: object["state"] as? String ?? "found",
+                error: string("error")))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -936,12 +953,34 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// ok=false: nothing changes.
     public func packForests(packRoot: String, action: String,
                             lat: Int? = nil, lon: Int? = nil) {
+        sendPackChoice("pack_forests", packRoot: packRoot, action: action,
+                       lat: lat, lon: lon)
+    }
+
+    // MARK: - Optimise pack (protocol 1.31)
+
+    /// The user's answer about a heavy pack (#1707): action "update"
+    /// (remember it and optimise the tile DSF), "never" (remember it, write
+    /// nothing) or "undo" (forget it and put the original placements back
+    /// — the whole pack when lat/lon are nil). The engine replies
+    /// `{"status": "started"}` at once and completes with a `packOptimise`
+    /// event. An engine older than 1.24 replies ok=false: nothing changes.
+    public func packOptimise(packRoot: String, action: String,
+                             lat: Int? = nil, lon: Int? = nil) {
+        sendPackChoice("pack_optimise", packRoot: packRoot, action: action,
+                       lat: lat, lon: lon)
+    }
+
+    /// A per-pack choice command (`pack_forests`, `pack_optimise`): the
+    /// tile's DSF with lat/lon, the whole pack without.
+    private func sendPackChoice(_ command: String, packRoot: String,
+                                action: String, lat: Int?, lon: Int?) {
         var arguments: [String: Any] = ["pack_root": packRoot, "action": action]
         if let lat, let lon {
             arguments["lat"] = lat
             arguments["lon"] = lon
         }
-        send(command: "pack_forests", arguments: arguments)
+        send(command: command, arguments: arguments)
     }
 
     // MARK: - Slow-step alert (protocol 1.26)
@@ -1082,6 +1121,19 @@ extension OrthoEngineClient {
         if let yMin = object.yMin, let yMax = object.yMax { arguments["y_min"] = yMin; arguments["y_max"] = yMax }
         if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
         return try await request("object_seat", arguments)
+    }
+
+    /// Set an object's elevation by hand (protocol 1.30, #1703): its bottom
+    /// in metres MSL, or its zero (an undo); neither clears it.
+    public func objectSeatSet(tile: String, icao: String, object: PackObjectRef, bottomM: Double? = nil,
+                              zeroM: Double? = nil) async throws -> O4ObjectSeatSet {
+        var arguments: [String: Any] = [
+            "tile": tile, "icao": icao, "index": object.index, "model": object.model,
+            "lat": object.lat, "lon": object.lon,
+        ]
+        if let zeroM { arguments["zero_m"] = zeroM }
+        if let bottomM { arguments["bottom_m"] = bottomM; arguments["y_min"] = object.yMin ?? 0 }
+        return try await request("object_seat_set", arguments)
     }
 
     /// "Insert shape" planned at a point (protocol 1.20, #1314); ask again

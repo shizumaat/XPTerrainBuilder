@@ -11,15 +11,17 @@ import SceneryKit
 /// placement plan (the text is the engine's, so Qt's
 /// `O4_Qt_Object_Inspector` shows the same words). A node or shape
 /// selection, Esc, a click on open map or a new document clears it.
-/// The selection (`selected.object`, a `PackObjectRef`) is what the next
-/// editor steps on an object key on (#1703 manual elevation).
+/// The selection (`selected.object`, a `PackObjectRef`) is what "Set object
+/// elevation…" acts on (#1703, `PatchObjectElevation.swift`).
 @MainActor
 final class PatchObjectInspector: ObservableObject {
     @Published private(set) var selected: PackOutlineGeometry.Item?
     @Published private(set) var seat: O4ObjectSeat?
     @Published private(set) var failure: String?
+    /// "Set object elevation…" is open (#1703, `PatchObjectElevation.swift`).
+    @Published var showsSetElevation = false
 
-    private weak var patch: PatchEditModel?
+    private(set) weak var patch: PatchEditModel?
     private let outlines: PatchPackOutlines
     private var query: Task<Void, Never>?
     private var subscriptions: Set<AnyCancellable> = []
@@ -60,11 +62,11 @@ final class PatchObjectInspector: ObservableObject {
     }
 
     /// Asks once, again while the engine reports the ground still loading.
-    private func ask(_ object: PackObjectRef) {
+    func ask(_ object: PackObjectRef) {
         guard let doc = patch?.document, let build = patch?.build,
               let client = build.patchEditorClient() else { return }
-        let coord = BuildModel.TileCoord(lat: Int(floor(object.lat)), lon: Int(floor(object.lon)))
-        let buildDir = build.tileFolder(coord)?.path
+        let buildDir = Self.buildDir(object, build: build)
+        query?.cancel()
         query = Task { @MainActor [weak self] in
             for _ in 0..<20 {
                 do {
@@ -82,6 +84,13 @@ final class PatchObjectInspector: ObservableObject {
                 if Task.isCancelled { return }
             }
         }
+    }
+}
+
+extension PatchObjectInspector {
+    /// The built tile folder an object's ground is read from.
+    static func buildDir(_ object: PackObjectRef, build: BuildModel) -> String? {
+        build.tileFolder(BuildModel.TileCoord(lat: Int(floor(object.lat)), lon: Int(floor(object.lon))))?.path
     }
 }
 

@@ -172,6 +172,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     import O4_Imagery_Sources as SOURCES
     from O4_Tile_Customizations import tile_customizations
     from O4_Mesh_Order import apply_mesh_order, tile_mesh_order
+    from O4_Scenery_Packs_Tidy import tidy_scenery_packs
     from O4_Tile_Texture_Check import tile_texture_check
 
     from . import patch_commands, patch_insert
@@ -184,6 +185,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     )
     from .mesh_commands import mesh_crop
     from .object_seat import object_seat
+    from .object_seat_edit import object_seat_set
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .plan_estimate import start_plan_estimate
@@ -220,6 +222,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # for the tile, and one ini write.
         "tile_mesh_order": tile_mesh_order,
         "apply_mesh_order": apply_mesh_order,
+        # New packs filed into scenery_packs.ini by kind, meshes below
+        # every ortho (protocol 1.32, #1729): the Mac app's call after each
+        # Custom Scenery scan.  Synchronous: one ini read and write.
+        "tidy_scenery_packs": tidy_scenery_packs,
         "links_status": session.links_status,
         "links_install": session.links_install,
         "links_uninstall": session.links_uninstall,
@@ -246,6 +252,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # and completes through PackOldForests — DSFTool may not run on
         # THIS thread.
         "pack_forests": session.pack_forests,
+        # Optimise pack (protocol 1.31, #1707): the same shape, completing
+        # through PackOptimise.
+        "pack_optimise": session.pack_optimise,
         # Failure report (#565, RULINGS 2026-10-12b): the REDACTED report
         # for one tile, its prefilled new-issue URL and, with
         # ``save_path``, the report file.  Synchronous — it reads the end
@@ -291,11 +300,14 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "pack_outlines": pack_outlines,
         # ... and the last build's mesh there ("Last build"); synchronous.
         "mesh_crop": mesh_crop,
-        # The object inspector (protocol 1.25, #1702): one placed pack
+        # The object inspector (protocol 1.32, #1702): one placed pack
         # object's seat as the last build's placement plan wrote it, its
         # top and bottom.  Synchronous: a cached JSON read; the ground
         # under a draped row is cursor_elevation's (pending while loading).
         "object_seat": object_seat,
+        # ... and its elevation set by hand (protocol 1.30, #1703): a user
+        # edit beside the patch the object stage honours; synchronous.
+        "object_seat_set": object_seat_set,
         # Cursor elevation (protocol 1.14, #1308): the built mesh's
         # elevation at a point, else the DEM's.  Never loads on THIS
         # thread: an uncached source loads on a daemon thread and the
@@ -621,7 +633,8 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             capabilities=("scan", "build", "enqueue_build", "cancel",
                           "tile_info", "config", "links", "siblings",
                           "secrets", "tile_settings_write",
-                          "missing_art", "library", "pack_forests"))))
+                          "missing_art", "library", "pack_forests",
+                          "pack_optimise"))))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

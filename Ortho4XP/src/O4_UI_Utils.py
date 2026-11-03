@@ -213,6 +213,27 @@ def pack_old_forests(**fields):
 
 
 ################################################################################
+def pack_optimise(**fields):
+    """An airport pack "Optimise pack" can lighten, or the outcome of the
+    user's answer (issue #1707).
+
+    ``fields`` are the ``PackOptimise`` event's.  No-op without an engine
+    session or GUI and never raises.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.pack_optimise_event(**fields)
+        except Exception:
+            pass
+        return
+    if gui:
+        try:
+            gui.pack_optimise(**fields)
+        except Exception:
+            pass
+
+
+################################################################################
 def pack_missing_art(**fields):
     """A scenery pack X-Plane will NOT load: its DSF declares definitions
     that are not installed (owner RULINGS 2026-10-06c, issue #433).

@@ -134,13 +134,6 @@ def _edit_rows(lines: list, action: str, ours, theirs: int) -> None:
     lines.insert(theirs if action == "raise" else theirs + 1, row)
 
 
-def _write_lines(ini: str, lines: list, newline: str) -> None:
-    temporary = ini + ".o4tmp"
-    with open(temporary, "w", encoding="utf-8", newline="") as handle:
-        handle.write(newline.join(lines))
-    os.replace(temporary, ini)
-
-
 def apply_mesh_order(custom_scenery_dir: str = "", lat=0, lon=0,
                      build_dir: str = "", action: str = "",
                      pack: str = "", **_ignored) -> dict:
@@ -157,12 +150,9 @@ def apply_mesh_order(custom_scenery_dir: str = "", lat=0, lon=0,
         raise ValueError("Unknown scenery order change: %r." % action)
     ini = os.path.join(str(custom_scenery_dir or ""), SP.INI_FILENAME)
     try:
-        with open(ini, encoding="utf-8", newline="") as handle:
-            text = handle.read()
+        lines, newline = SP.read_ini_lines(ini)
     except OSError:
         raise ValueError("scenery_packs.ini could not be read.") from None
-    newline = "\r\n" if "\r\n" in text else "\n"
-    lines = text.split(newline)
     ours_name = _our_name(custom_scenery_dir, lat, lon, str(build_dir or ""))
     ours = _row_index(lines, ours_name) if ours_name else None
     theirs = _row_index(lines, str(pack or ""))
@@ -171,7 +161,7 @@ def apply_mesh_order(custom_scenery_dir: str = "", lat=0, lon=0,
                          "X-Plane once, then try again.")
     _edit_rows(lines, action, ours, theirs)
     try:
-        _write_lines(ini, lines, newline)
+        SP.write_ini_lines(ini, lines, newline)
     except OSError as exc:
         raise ValueError("scenery_packs.ini could not be written (%s)."
                          % exc.strerror) from None

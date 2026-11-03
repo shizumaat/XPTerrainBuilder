@@ -9,7 +9,9 @@ import SceneryKit
 //   ⇧-click                toggle a node or a shape
 //   ⇧-drag                 box-select nodes
 //   drag on a node         move the selection (snaps within 8 pt, merges on
-//                          mouse-up while snapped)
+//                          mouse-up while snapped; else snaps to a pack
+//                          object's corner or edge middle and asks Top /
+//                          Bottom / Keep current, #1703)
 //   drag on open map       pan (every map view)
 //   click on a "+"         insert a node
 //   ⌥-drag on a node       rotate its shape about the centre (#1746,
@@ -69,6 +71,8 @@ final class PatchDragState: ObservableObject {
     @Published var kind: Kind = .idle
     @Published var current: CGPoint = .zero
     @Published var snapTarget: Int64?
+    /// No node under the pointer: the pack object snap point it is on (#1703).
+    @Published var objectSnap: PackOutlineGeometry.Vertex?
     @Published var hoverEdge: PatchEdgeKey?
     var start: CGPoint = .zero
     var dlat = 0.0
@@ -248,6 +252,11 @@ struct PatchEditLayer: View {
             let target = model.shapeSelection.isEmpty  // a shape drag never snaps (#759)
                 ? screen.nodeHit(at: value.location, grid: grid, excluding: Set(ids)) : nil
             if drag.snapTarget != target { drag.snapTarget = target }
+            // #1703: no node there — an object's footprint corner or edge middle
+            drag.objectSnap = target == nil && model.shapeSelection.isEmpty
+                ? model.build?.packOutlines.objectVertex(atLat: b.lat, lon: b.lon,
+                                                         radius: PatchEditScreen.hitRadius / screen.camera.scale)
+                : nil
             drag.current = value.location
         case .box:
             drag.current = value.location
@@ -319,8 +328,15 @@ struct PatchEditLayer: View {
         case .nodes(let grabbed, let ids):
             if model.dragSkip != nil {
                 model.lastShapeClick = nil
-                model.moveSelection(ids, dlat: drag.dlat, dlon: drag.dlon,
-                                    merge: drag.snapTarget.map { (source: grabbed, target: $0) })
+                if drag.snapTarget == nil, let snap = drag.objectSnap, let node = screen.doc.nodes[grabbed] {
+                    // #1703: onto the object's point exactly, then Top / Bottom?
+                    model.moveSelection(ids, dlat: snap.lat - node.lat, dlon: snap.lon - node.lon, merge: nil,
+                                        name: "Move to Object")
+                    model.build?.objectInspector.offerTopOrBottom(node: grabbed, object: snap.object)
+                } else {
+                    model.moveSelection(ids, dlat: drag.dlat, dlon: drag.dlon,
+                                        merge: drag.snapTarget.map { (source: grabbed, target: $0) })
+                }
             } else if let edge = drag.pressedEdge {
                 model.clickEdge(edge.a, edge.b, x: drag.start.x, y: drag.start.y, toggle: false)
             } else if model.selection != [grabbed] || !model.shapeSelection.isEmpty {
@@ -359,6 +375,7 @@ struct PatchEditLayer: View {
     private func reset() {
         drag.kind = .idle
         drag.snapTarget = nil
+        drag.objectSnap = nil
         drag.pressedHandle = nil
         drag.pressedEdge = nil
         drag.dlat = 0
@@ -417,6 +434,7 @@ struct PatchEditLayer: View {
             }
             guard let moving, moving.ids.contains(id) else { return screen.point(n) }
             if id == moving.grabbed, let t = drag.snapTarget, let target = doc.nodes[t] { return screen.point(target) }
+            if id == moving.grabbed, let s = drag.objectSnap { return screen.point(lat: s.lat, lon: s.lon) }
             return screen.point(lat: n.lat + drag.dlat, lon: n.lon + drag.dlon)
         }
         // The shapes the drag moves (the base layer skips them).
@@ -467,6 +485,14 @@ struct PatchEditLayer: View {
             let p = screen.point(target)
             context.stroke(Path(ellipseIn: CGRect(x: p.x - 10, y: p.y - 10, width: 20, height: 20)),
                            with: .color(Self.selectionColor), lineWidth: 2)
+        } else if moving != nil, let s = drag.objectSnap {
+            // the object snap: a diamond on the footprint point (#1703)
+            let p = screen.point(lat: s.lat, lon: s.lon)
+            var diamond = Path()
+            diamond.addLines([CGPoint(x: p.x, y: p.y - 10), CGPoint(x: p.x + 10, y: p.y),
+                              CGPoint(x: p.x, y: p.y + 10), CGPoint(x: p.x - 10, y: p.y)])
+            diamond.closeSubpath()
+            context.stroke(diamond, with: .color(Self.selectionColor), lineWidth: 2)
         }
         // The rotation's centre.
         if let turning {

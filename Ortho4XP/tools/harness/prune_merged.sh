@@ -16,12 +16,20 @@
 #     exactly like this, so it gets the grace period.
 # Never touched: the tree this runs from, the tree this script lives in,
 # and the main checkout.  Dry run unless --apply.
+#
+# Also reported: STRAY directories under */.claude/worktrees/ that are not
+# registered worktrees.  One that is empty or holds only .DS_Store files is
+# removed with --apply; any other is listed, never removed.
+#
+# --reusable (the ritual's recycle_lane, never by hand): print only
+# "path<TAB>why" for each tree that would be removed, touch nothing.
 set -u
 RITUAL="$1"; shift; shift            # our caller's path, then "prune-merged"
-APPLY=0
+APPLY=0; REUSABLE=0
 for a in "$@"; do
     case "$a" in
         --apply) APPLY=1 ;;
+        --reusable) REUSABLE=1 ;;
         *) echo "usage: lane_worktree.sh prune-merged [--apply]" >&2; exit 64 ;;
     esac
 done
@@ -70,7 +78,7 @@ git -C "$MAIN_REPO" worktree list --porcelain | awk '
 while IFS="	" read -r wt head branch; do
     case "$wt" in */.claude/worktrees/*) ;; *) continue ;; esac
     name=$(basename "$wt")
-    say() { printf '  %-7s %-28s %s\n' "$1" "$name" "$2"; }
+    say() { [ $REUSABLE -eq 1 ] || printf '  %-7s %-28s %s\n' "$1" "$name" "$2"; }
     p=$(phys "$wt")
     if [ -z "$p" ]; then say kept "directory missing (git worktree prune clears it)"; kept=$((kept+1)); continue; fi
     if [ "$p" = "$SELF" ] || [ "$p" = "$HOME_TREE" ] || [ "$p" = "$MAIN_PHYS" ]; then
@@ -108,6 +116,9 @@ while IFS="	" read -r wt head branch; do
     if [ -n "$(git -C "$wt" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
         say kept "$why, but has uncommitted changes"; kept=$((kept+1)); continue
     fi
+    if [ $REUSABLE -eq 1 ]; then
+        printf '%s\t%s\n' "$wt" "$why"; continue
+    fi
     if [ $APPLY -eq 0 ]; then
         say remove "$why  [dry run; down may still refuse]"; removed=$((removed+1)); continue
     fi
@@ -118,6 +129,37 @@ while IFS="	" read -r wt head branch; do
         kept=$((kept+1))
     fi
 done < "$TMPD/trees"
+
+[ $REUSABLE -eq 1 ] && exit 0
+
+# Stray directories: under a */.claude/worktrees/ parent, not registered.
+sed 's/	.*//' "$TMPD/trees" | while IFS= read -r w; do phys "$w"; done \
+    > "$TMPD/registered"
+strays=0
+for parent in "$MAIN_REPO/.claude/worktrees" "$MAIN_REPO/Ortho4XP/.claude/worktrees"; do
+    [ -d "$parent" ] || continue
+    for d in "$parent"/* "$parent"/.[!.]*; do
+        [ -d "$d" ] && [ ! -L "$d" ] || continue
+        grep -qxF "$(phys "$d")" "$TMPD/registered" && continue
+        name=$(basename "$d")
+        if [ -n "$(find "$d" ! -type d ! -name .DS_Store 2>/dev/null | head -1)" ]; then
+            printf '  %-7s %-28s %s\n' stray "$name" \
+                "not a worktree, holds files — listed, never removed"
+        elif [ $APPLY -eq 1 ]; then
+            find "$d" -name .DS_Store -type f -delete 2>/dev/null
+            find "$d" -depth -type d -empty -delete 2>/dev/null
+            if [ -e "$d" ]; then
+                printf '  %-7s %-28s %s\n' stray "$name" "empty, but could not be removed"
+            else
+                printf '  %-7s %-28s %s\n' removed "$name" "stray: not a worktree, empty or only .DS_Store"
+            fi
+        else
+            printf '  %-7s %-28s %s\n' remove "$name" "stray: not a worktree, empty or only .DS_Store  [dry run]"
+        fi
+        strays=$((strays+1))
+    done
+done
+[ $strays -eq 0 ] || echo "  [prune] $strays stray non-worktree director(ies) under .claude/worktrees"
 
 if [ $APPLY -eq 1 ]; then
     echo "  [prune] removed $removed, kept $kept; free space $BEFORE before, $(avail) after"

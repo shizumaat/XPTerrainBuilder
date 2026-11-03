@@ -21,12 +21,28 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-__all__ = ["SetElevationDialog", "TITLE"]
+__all__ = ["SetElevationDialog", "TITLE", "UnitValue"]
 
 TITLE = "Set elevation…"
 
 
-class SetElevationDialog(QDialog):
+class UnitValue:
+    """A value in metres or feet: the dialog's ``value`` (``QLineEdit``),
+    shown in ``_unit``; a unit change keeps the typed value (also the
+    object elevation dialog's, #1703)."""
+
+    def _fill(self, alt_m: float | None) -> None:
+        self.value.setText("" if alt_m is None else "%.2f" % ELEV.from_metres(alt_m, self._unit))
+
+    def _unit_changed(self, unit: str) -> None:
+        """Keep the typed value: convert it into the new unit."""
+        v = ELEV.parse_number(self.value.text())
+        metres = None if v is None else ELEV.to_metres(v, self._unit)
+        self._unit = unit
+        self._fill(metres)
+
+
+class SetElevationDialog(UnitValue, QDialog):
     """See the module docstring; ``model`` is the ``PatchEditModel``."""
 
     def __init__(self, model, parent=None):
@@ -65,16 +81,6 @@ class SetElevationDialog(QDialog):
         self.value.textChanged.connect(self._refresh)
         self.shared.toggled.connect(self._refresh)
         self._refresh()
-
-    def _fill(self, alt_m: float | None) -> None:
-        self.value.setText("" if alt_m is None else "%.2f" % ELEV.from_metres(alt_m, self._unit))
-
-    def _unit_changed(self, unit: str) -> None:
-        """Keep the typed value: convert it into the new unit."""
-        v = ELEV.parse_number(self.value.text())
-        metres = None if v is None else ELEV.to_metres(v, self._unit)
-        self._unit = unit
-        self._fill(metres)
 
     def _refresh(self, *_args) -> None:
         self.summary.setText(ELEV.summary(self.plan, self.shared.isChecked()))

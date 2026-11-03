@@ -48,9 +48,31 @@ public struct O4ObjectSeat: Decodable, Equatable, Sendable {
     public let lines: [String]
     /// The plan file's name; nil when the last build wrote none.
     public let plan: String?
+    /// The zero the user set by hand (protocol 1.30, #1703); nil when none.
+    public let userZeroM: Double?
 
     private enum CodingKeys: String, CodingKey {
         case seat, bodies, pending, zeroM = "zero_m", zeroMaxM = "zero_max_m", groundM = "ground_m"
         case heightM = "height_m", bottomM = "bottom_m", topM = "top_m", why, lines, plan
+        case userZeroM = "user_zero_m"
+    }
+
+    /// Whether the object has a height its top and bottom differ by (the
+    /// snap's Top / Bottom question, #1703).
+    public var hasHeight: Bool {
+        guard let topM, let bottomM else { return false }
+        return topM - bottomM >= 0.05
+    }
+}
+
+/// `object_seat_set` (protocol 1.30, #1703): the hand-set seat stored, and
+/// the one it replaced (what Undo sends back). Zeros are metres MSL.
+public struct O4ObjectSeatSet: Decodable, Equatable, Sendable {
+    public let index: Int
+    public let zeroM: Double?
+    public let previousZeroM: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case index, zeroM = "zero_m", previousZeroM = "previous_zero_m"
     }
 }

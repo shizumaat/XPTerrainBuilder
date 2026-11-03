@@ -120,6 +120,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -143,7 +144,9 @@ from . import dsf_dump_key as _dk
 from . import dsf_heights as _dh
 from . import pack_art as _pa
 from . import pack_forests as _pf
+from . import pack_optimise as _po
 from . import split_guard as _sg
+from . import user_seats as _us
 from .backup_state import BackupUnproven, State
 from .file_hash import sha256_file
 
@@ -339,8 +342,9 @@ def _object_defs(lines: _t.Sequence[str]) -> tuple[list[str], int]:
 
 
 def duplicate_rows(lines: _t.Sequence[str],
-                   of: _t.AbstractSet[int] | None = None
-                   ) -> dict[int, list[int]]:
+                   of: _t.AbstractSet[int] | None = None, *,
+                   tol_m: float | None = None, tol_deg: float = 0.0,
+                   tol_h: float = 0.0) -> dict[int, list[int]]:
     """§15 (4): the DUPLICATE placement rows, ``{first ordinal: [the
     others]}``.
 
@@ -357,14 +361,73 @@ def duplicate_rows(lines: _t.Sequence[str],
     those ordinals — the plan's SPLIT indices, an EMPTY set meaning no
     split and so no group: a pack that authors the same info sign twice
     on purpose is the pack's business, and nothing here touches a row no
-    split replaces.  ``None`` is every group (what the twin reads)."""
-    seen: dict[tuple, list[int]] = {}
-    for o, _i, toks in placement_rows(lines):
-        hdg = toks[4] if toks[0] == KIND_ON_GROUND else (
-            toks[5] if len(toks) > 5 else "")
-        seen.setdefault((toks[0], toks[1], toks[2], toks[3], hdg), []).append(o)
-    return {v[0]: v[1:] for v in seen.values()
+    split replaces.  ``None`` is every group (what the twin reads).
+
+    ``tol_m`` (issue #1707 D1, the user's "Optimise pack"): rows of one
+    def and row kind whose positions lie within ``tol_m`` metres, headings
+    within ``tol_deg`` and heights (``OBJECT_AGL`` / ``OBJECT_MSL``)
+    within ``tol_h`` metres of a group's FIRST row are that placement
+    too.  ``None`` (the default) is the exact token match above."""
+    if tol_m is not None:
+        groups = _near_groups(placement_rows(lines), tol_m, tol_deg, tol_h)
+    else:
+        seen: dict[tuple, list[int]] = {}
+        for o, _i, toks in placement_rows(lines):
+            hdg = toks[4] if toks[0] == KIND_ON_GROUND else (
+                toks[5] if len(toks) > 5 else "")
+            seen.setdefault((toks[0], toks[1], toks[2], toks[3], hdg),
+                            []).append(o)
+        groups = list(seen.values())
+    return {v[0]: v[1:] for v in groups
             if len(v) > 1 and (of is None or v[0] in of)}
+
+
+#: metres per radian on the mean Earth sphere (the D1 tolerance's frame)
+_EARTH_R_M = 6371008.8
+
+
+def _near_groups(rows: _t.Iterable[tuple[int, int, list[str]]], tol_m: float,
+                 tol_deg: float, tol_h: float) -> list[list[int]]:
+    """:func:`duplicate_rows`' tolerance groups, in dump order: each row
+    joins the first group of its (kind, def) whose FIRST row is inside
+    every tolerance, else starts one.  A grid of ``tol_m`` cells finds
+    the candidates (the 3x3 cells around a row hold every row within
+    ``tol_m``)."""
+    cell = max(float(tol_m), 1e-3)
+    firsts: dict[tuple, list[tuple[float, float, float, float | None, list[int]]]] = {}
+    groups: list[list[int]] = []
+    for o, _i, toks in rows:
+        lat = float(toks[3])
+        y = math.radians(lat) * _EARTH_R_M
+        x = math.radians(float(toks[2])) * _EARTH_R_M * math.cos(math.radians(lat))
+        if toks[0] == KIND_ON_GROUND:
+            hdg, h = float(toks[4]), None
+        else:
+            h = float(toks[4])
+            hdg = float(toks[5]) if len(toks) > 5 else 0.0
+        gx, gy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        group = None
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for fx, fy, fh, fz, members in firsts.get(
+                        (toks[0], toks[1], gx + dx, gy + dy), ()):
+                    turn = abs(hdg - fh) % 360.0
+                    if (math.hypot(x - fx, y - fy) <= tol_m
+                            and min(turn, 360.0 - turn) <= tol_deg
+                            and (h is None or abs(h - fz) <= tol_h)):
+                        group = members
+                        break
+                if group is not None:
+                    break
+            if group is not None:
+                break
+        if group is None:
+            group = []
+            groups.append(group)
+            firsts.setdefault((toks[0], toks[1], gx, gy), []).append(
+                (x, y, hdg, h, group))
+        group.append(o)
+    return groups
 
 
 def _eol(lines: _t.Sequence[str]) -> str:
@@ -409,7 +472,8 @@ def _mark_row_at(lines: _t.Sequence[str]) -> int:
 
 
 def edit_dump(text: str, plan: PlacementPlan,
-              engine_version: str = "") -> str:
+              engine_version: str = "",
+              also_drop: _t.AbstractSet[int] = frozenset()) -> str:
     """The edited dump text (§3.2).  Pure: no I/O, no DSFTool.
 
     §12a: ONE row is added — ``PROPERTY o4/placement_rewrite
@@ -423,7 +487,11 @@ def edit_dump(text: str, plan: PlacementPlan,
     placement index past the end, a ``kind_before`` or ``resource`` that
     is not what the row says, an index both converted and split.  A
     stale plan silently editing the wrong rows is the failure this
-    refuses."""
+    refuses.
+
+    ``also_drop`` (issue #1707 D1) is more placement ordinals to delete:
+    the duplicates the user's "Optimise pack" drops
+    (``pack_optimise.dedupe``).  None may be a row the plan edits."""
     lines = text.splitlines(keepends=True)
     rows = placement_rows(lines)
     by_ordinal = {o: (i, toks) for o, i, toks in rows}
@@ -471,6 +539,11 @@ def edit_dump(text: str, plan: PlacementPlan,
     # draw the un-split object at the datum.
     dups = duplicate_rows(lines, set(spl))
     drop = {o for others in dups.values() for o in others}
+    edited_too = sorted(set(also_drop) & (set(conv) | set(spl) | set(msl)))
+    if edited_too:
+        raise ValueError(f"optimise drops placements the plan edits: "
+                         f"{edited_too[:8]}")
+    drop |= set(also_drop)
     if drop & set(conv):
         raise ValueError(f"placements both split-duplicate and converted: "
                          f"{sorted(drop & set(conv))[:8]}")
@@ -1137,6 +1210,8 @@ class WriteResult:
     #: #1246: the plan as written — a split DSFTool could not place is
     #: undone there (its placement ``Kept``, written whole)
     plan: PlacementPlan | None = None
+    #: #1703: the rows written at a hand-set seat (``user_seats``)
+    hand_seated: tuple[int, ...] = ()
 
 
 def remove_cut_files(paths: _t.Iterable[str]) -> tuple[str, ...]:
@@ -1282,7 +1357,9 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                body_files: _t.Sequence[str] = (),
                omit: _t.Sequence[_pa.MissingDef] = (),
                drop: _t.Collection[str] = (),
-               forests: _t.Mapping[str, str] | None = None) -> WriteResult:
+               forests: _t.Mapping[str, str] | None = None,
+               seats: _us.ByAirport | None = None,
+               optimise: _t.Mapping[str, _t.Any] | None = None) -> WriteResult:
     """Apply ``plan`` to the pack's DSF (§3.3-§3.5).
 
     The pristine DSF is kept ONCE as ``<name>.dsf.anchor_bak`` and is
@@ -1314,7 +1391,22 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     apply_upgrade``, applied last).  ``None`` keeps the one the
     record holds for this pristine DSF, so a placement write never drops
     it; ``{}`` writes the DSF without it (the user's Undo).  The record
-    gains ``forest_upgrade``."""
+    gains ``forest_upgrade``.
+
+    ``seats`` (issue #1703) is the objects the user seated by hand,
+    ``{ICAO: {row: UserSeat}}`` for the airports this write sets
+    (``{ICAO: {}}`` clears one); every other airport keeps what the record
+    holds for this pristine DSF, and ``drop`` drops its seats too.  They
+    are applied over the composed edits (``user_seats.apply``: only their
+    rows change) and are NOT part of any airport's recorded edits, so a
+    row whose seat is cleared gets its placement back; the record gains
+    ``user_seats``.
+
+    ``optimise`` (issue #1707) is the "Optimise pack" recipe the user
+    accepted (``pack_optimise``): its duplicate placements leave the dump
+    with the plan's own §15 (4) drops, before the omission.  ``None``
+    re-applies the recipe the record holds for this pristine DSF, ``{}``
+    writes without it (Undo).  The record gains ``pack_optimise``."""
     dsf_path = plan.dsf_path or ""
     if not os.path.isfile(dsf_path):
         raise FileNotFoundError(f"DSF not found: {dsf_path!r}")
@@ -1400,6 +1492,10 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     backup_sha = sha256_file(backup)
     if forests is None:
         forests = _pf.recorded(prior_entry, backup_sha)
+    hand = _us.merged(_us.recorded(prior_entry, backup_sha), seats, drop)
+    rows = _us.placements(pristine_text) if hand else ()
+    if optimise is None:
+        optimise = _po.recorded(prior_entry, backup_sha)
     siblings, sibling_rows = _sibling_plans(prior_entry, plan, text,
                                             backup_sha, drop, notes)
     # #1246: a split DSFTool cannot place (a body off the tile) is undone
@@ -1411,9 +1507,11 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         plan = _sg.without_splits(plan, undone, "split undone: " + "; ".join(
             sorted(set(undone.values()))))
         composed = plan.compose(siblings)
-        _refuse_missing_bodies(pack_root, composed)          # #1214 R1
-        edited, omitted, unused = _edited_text(pinned, composed, omit, engine_version
-                                               or plan.provenance.engine_version)
+        placed, seated, refused = _us.apply(composed, _us.union(hand), rows)
+        _refuse_missing_bodies(pack_root, placed)            # #1214 R1
+        edited, omitted, unused, optimised = _edited_text(
+            pinned, placed, omit,
+            engine_version or plan.provenance.engine_version, optimise)
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
         with open(edited_text, "w", encoding="utf-8",
                   errors="surrogateescape", newline="\n") as fh:
@@ -1428,16 +1526,20 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                 raise
             undone[idx] = "DSFTool could not place a body"
     _undone_notes(plan, undone, notes)
+    notes.extend(f"a hand-set object elevation was not applied: {why}; set it "
+                 f"again in the patch editor" for why in refused)
     report = verify_roundtrip(out_dsf, edited, tool)
     if not report.ok:
         raise RuntimeError("DSF round-trip verification failed: "
                            + "; ".join(report.findings[:4]))
 
-    counts = dict(composed.counts())
+    counts = dict(placed.counts())
     own_bodies = sorted(
         os.path.relpath(os.path.abspath(f), os.path.abspath(pack_root)
                         ).replace(os.sep, "/")
         for f in body_files)
+    # #1703: a split a hand-set seat stands over keeps its bodies — the
+    # record still names them, and clearing the seat writes them again
     live_res = set(composed.new_resources())
     undone_res = asked - set(plan.new_resources())       # #1246
     orphaned: list[str] = [b for b in own_bodies if b in undone_res]
@@ -1513,6 +1615,12 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         # #1360: the 3D forest upgrade the user accepted, or None
         _pf.RECORD_KEY: (_pf.record(backup_sha, forests, renamed, _bs.stamp())
                          if forests else None),
+        # #1703: the objects the user seated by hand, or None
+        _us.RECORD_KEY: (_us.record(backup_sha, hand, seated, _bs.stamp())
+                         if hand else None),
+        # #1707: the "Optimise pack" recipe the user accepted, or None
+        _po.RECORD_KEY: (_po.record(backup_sha, optimise, optimised,
+                                    _bs.stamp()) if optimise else None),
         # #678: the definitions the edit emptied and the write dropped
         "unused_defs_dropped": int(unused.get("object_defs", 0)),
     }
@@ -1550,22 +1658,30 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                        report, counts, verdict.state.value,
                        superseded, preserved, tuple(notes),
                        tuple(sorted(sibling_rows)), removed, omitted,
-                       dict(unused), plan)
+                       dict(unused), plan, seated)
 
 
 def _edited_text(text: str, composed: PlacementPlan, omit: _t.Sequence,
-                 engine_version: str) -> tuple[str, dict, dict]:
-    """The pristine dump edited by ``composed``, the accepted omission
-    (#433) and the dropped unused definitions (#678): a definition the
-    edit left with no row (a split's original) is not declared; one the
-    AUTHOR declared unused is the pack's own and stays."""
-    edited = edit_dump(text, composed, engine_version)
+                 engine_version: str, optimise: _t.Mapping[str, _t.Any]
+                 ) -> tuple[str, dict, dict, dict]:
+    """The pristine dump edited by ``composed`` and the optimise recipe's
+    duplicate drops (#1707; a duplicate the plan edits keeps its edit),
+    the accepted omission (#433) and the dropped unused definitions
+    (#678): a definition the edit left with no row (a split's original)
+    is not declared; one the AUTHOR declared unused is the pack's own and
+    stays."""
+    edited_rows = ({c.index for c in composed.conversions}
+                   | {s.placement.index for s in composed.splits}
+                   | {m.index for m in getattr(composed, "msl_seats", ())})
+    also_drop, optimised = _po.drop_ordinals(
+        text.splitlines(keepends=True), optimise, edited_rows)
+    edited = edit_dump(text, composed, engine_version, also_drop)
     omitted: dict[str, int] = {}
     if omit:
         edited, omitted = _pa.omit_definitions(edited, omit)
     edited, unused = _pa.omit_definitions(edited, _pa.unused_definitions(
         edited, keep={m.path for m in _pa.unused_definitions(text)}))
-    return edited, omitted, unused
+    return edited, omitted, unused, optimised
 
 
 def _undone_notes(plan: PlacementPlan, undone: _t.Mapping[int, str],

@@ -404,6 +404,10 @@ class Tunnel:
     terrain_crossing_min_m: float
     terrain_rise_m: float
     terrain_layer_max: int
+    #: RULINGS 2026-11-03b (6) Q345 a: a bore whose lowest ``layer`` is at or
+    #: under this is DEEP (it runs under something already below grade); its
+    #: ends open only with a portal witness (``planar/end_witness``).
+    deep_layer_max: int
     enclosure_parking_values: tuple[str, ...]
     object: TunnelObject
     #: §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-15y): how far a
@@ -558,14 +562,9 @@ class BuildingPad:
     #: that cannot bank down takes the ground to every road strip within
     #: this; ``0`` disarms it (WORKING VALUE, awaiting the owner)
     fill_road_reach_m: float = 0.0
-    #: EXPERIMENT (#1726, awaiting the owner's sim read; ``geom/foot_planes``):
-    #: a building group is lifted so its slender support members (plan box
-    #: at most ``support_max_extent_m``) stand at grade; no lower pad for them
-    support_lift: bool = False
+    #: #1726 (``geom/foot_planes.is_support``): a walled part whose plan box
+    #: spans at most this is a SUPPORT (pole, pier) and founds no storey
     support_max_extent_m: float = 0.0
-    #: EXPERIMENT (#1726 option B; ``airport/support_raise``): a terrain-
-    #: adapted structure whose supports would be buried is raised onto them
-    support_raise_members: bool = False
 
 
 @_dc.dataclass(frozen=True)

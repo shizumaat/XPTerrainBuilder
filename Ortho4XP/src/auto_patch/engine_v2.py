@@ -237,6 +237,7 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         if getattr(sel, "pages_from", ""):   # #1630: the pages' pack (Global Airports)
             _fresh_dumps([sel.pages_root], lat, lon)
         _fresh_companion_dumps(sel.root, lat, lon)
+        _fresh_mesh_dumps(sel.root, lat, lon)
         return dump
     except DsfToolError as exc:
         raise DsfToolError(
@@ -260,6 +261,21 @@ def _fresh_companion_dumps(main_root: str, lat: int, lon: int) -> None:
     except Exception as exc:                # noqa: BLE001 — never fails a build
         import logging
         logging.getLogger(__name__).warning("companion dumps skipped: %s", exc)
+        return
+    _fresh_dumps(roots, lat, lon)
+
+
+def _fresh_mesh_dumps(main_root: str, lat: int, lon: int) -> None:
+    """The text dumps of the installed packs that may be the airport's
+    COMPANION TERRAIN MESH (owner RULINGS 2026-11-03, answer 4;
+    ``airport/terrain_mesh_witness``), made where the serving pack's is.
+    A failure is logged and only leaves that mesh unread."""
+    try:
+        from auto_patch_v2.airport import terrain_mesh_witness as _tmw
+        roots = _tmw.dump_candidates(main_root, lat, lon)
+    except Exception as exc:                # noqa: BLE001 — never fails a build
+        import logging
+        logging.getLogger(__name__).warning("terrain mesh dumps skipped: %s", exc)
         return
     _fresh_dumps(roots, lat, lon)
 

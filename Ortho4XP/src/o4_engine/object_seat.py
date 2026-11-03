@@ -21,10 +21,16 @@ its zero) is the ``pack_objects`` model's, sent back by the client:
 bottom = zero + ``y_min``, top = zero + ``y_max``.  A split whose bodies
 stand at different zeros reports the lowest bottom and the highest top.
 
+A seat the user SET BY HAND (#1703, ``object_seat_set``) is the seat:
+the hand-set zero, with a sentence saying it is still to be built until
+the pack DSF's record says a write placed it there (a build from the auto
+patch or from an edited patch alike, owner 2026-11-03); ``user_zero_m``
+carries it.
+
 ``lines`` is the inspector's text, one sentence per line, so the Mac app
 and the Qt window show the same words.  The record also carries the
 plan's own fields (``seat``, ``zero_m``, ``bodies``) for the editor's next
-steps on the same selection (#1703 manual elevation, #1697 role override).
+steps on the same selection (#1697 role override).
 Synchronous: one JSON read per plan file version (cached by mtime and
 size), then dictionary lookups.
 """
@@ -38,10 +44,11 @@ import typing as _t
 
 import O4_File_Names as FNAMES
 from auto_patch_v2.airport.apt_dat import _file_identity as _stamp  # (mtime_ns, size) or None
+from auto_patch_v2.airport.user_seats import WHY as _HAND_SET
 
 __all__ = ["object_seat"]
 
-#: plan path -> (file stamp, {row: (kind, record)})
+#: plan path -> (file stamp, {row: (kind, record)}, the plan's DSF path)
 _PLANS: dict[str, tuple] = {}
 _LOCK = threading.Lock()
 
@@ -75,21 +82,28 @@ def _plan_entries(plan: _t.Mapping[str, _t.Any]) -> dict[int, tuple[str, dict]]:
     return out
 
 
-def _entries(path: str) -> dict[int, tuple[str, dict]] | None:
-    """The plan at ``path``, indexed; ``None`` when there is none."""
+def _read(path: str) -> tuple | None:
+    """``(stamp, entries, dsf path)`` of the plan at ``path``, or ``None``."""
     stamp = _stamp(path)
     if stamp is None:
         return None
     with _LOCK:
         hit = _PLANS.get(path)
     if hit is not None and hit[0] == stamp:
-        return hit[1]
+        return hit
     with open(path, encoding="utf-8") as fh:
-        entries = _plan_entries(json.load(fh))
+        doc = json.load(fh)
+    hit = (stamp, _plan_entries(doc), str(doc.get("dsf_path") or ""))
     with _LOCK:
         _PLANS.clear()                  # one airport is open at a time
-        _PLANS[path] = (stamp, entries)
-    return entries
+        _PLANS[path] = hit
+    return hit
+
+
+def _entries(path: str) -> dict[int, tuple[str, dict]] | None:
+    """The plan at ``path``, indexed; ``None`` when there is none."""
+    hit = _read(path)
+    return None if hit is None else hit[1]
 
 
 def _m(z: float) -> str:
@@ -106,6 +120,8 @@ def _seat(kind: str, rec: _t.Mapping, agl_m: float) -> tuple[list[float], bool, 
                                    if len(bodies) > 1 else "Re-seated by the placement plan")
     if kind == "row":
         z = float(rec["elevation"])
+        if rec.get("why") == _HAND_SET:
+            return [z], False, 0.0, f"Set by hand at {_m(z)} MSL"
         return [z], False, 0.0, f"Seated on its DSF row at {_m(z)} MSL"
     written = kind == "rider" and rec.get("seat_why") == "msl_written" \
         and rec.get("seat_z") is not None
@@ -116,6 +132,19 @@ def _seat(kind: str, rec: _t.Mapping, agl_m: float) -> tuple[list[float], bool, 
         return [], True, 0.0, "Placed on the ground by the placement plan"
     lift = f", {_m(agl_m)} above the ground" if agl_m else ", on the ground"
     return [], True, agl_m, "Kept as the pack places it" + lift
+
+
+def _hand_set(entry: tuple[str, dict] | None, user_zero: float | None,
+              placed: float | None) -> tuple[str, dict] | None:
+    """#1703: the entry a hand-set seat (``user_zero``, from the seats
+    file) stands for — a row seat at it, said to be still to be built
+    unless the pack DSF was last written with it (``placed``, its
+    record's zero for the row)."""
+    if user_zero is None:
+        return entry
+    built = placed is not None and abs(placed - user_zero) < 0.005
+    note = "" if built else "; rebuild the tile to place it there"
+    return "row", {"elevation": user_zero, "why": _HAND_SET, "note": note}
 
 
 def _needs_ground(entry: tuple[str, dict] | None) -> bool:
@@ -133,8 +162,9 @@ def _seat_record(entry: tuple[str, dict] | None, *, agl_m: float, ground_m: floa
     loading), ``y_min`` / ``y_max`` its authored height range."""
     kind, rec = entry if entry is not None else ("authored", {})
     zeros, on_ground, lift, why = _seat(kind, rec, agl_m)
-    if not have_plan:
+    if not have_plan and rec.get("why") != _HAND_SET:
         why = "No placement plan from the last build: " + why[0].lower() + why[1:]
+    why += str(rec.get("note") or "")
     if on_ground and ground_m is not None:
         zeros = [ground_m + lift]
     out: dict[str, _t.Any] = {
@@ -178,8 +208,14 @@ def object_seat(tile: str, icao: str, index: int, lat: float, lon: float,
         raise ValueError("object_seat: index must be a row number and lat, lon, "
                          "agl_m, y_min, y_max numbers.") from None
     path = _plan_path(tile, icao)
-    entries = _entries(path)
+    plan = _read(path)
+    entries = None if plan is None else plan[1]
     entry = None if entries is None else entries.get(row)
+    from .object_seat_edit import placed_zero, user_seat_for
+    user = user_seat_for(tile, icao, row)
+    if user is not None:
+        entry = _hand_set(entry, user.zero_m, placed_zero(
+            tile, icao, row, plan[2] if plan is not None else ""))
     ground, pending = None, False
     if _needs_ground(entry):
         reply = cursor_elevation(lat, lon, build_dir=build_dir)
@@ -187,5 +223,6 @@ def object_seat(tile: str, icao: str, index: int, lat: float, lon: float,
     rec = _seat_record(entry, agl_m=agl, ground_m=ground, y_min=lo, y_max=hi,
                       have_plan=entries is not None, pending=pending)
     rec["index"] = row
+    rec["user_zero_m"] = None if user is None else user.zero_m
     rec["plan"] = os.path.basename(path) if entries is not None else None
     return rec

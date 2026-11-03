@@ -120,6 +120,7 @@ struct PatchOverlay: View {
             .overlay {
                 if model.mode == .edit, let inspector = model.build?.objectInspector {
                     PatchObjectInspectorLayer(inspector: inspector, camera: camera)
+                    PatchObjectElevationHost(inspector: inspector)
                 }
             }
             .overlay(alignment: .topTrailing) {

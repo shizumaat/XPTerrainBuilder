@@ -90,8 +90,11 @@ def rebake_stage(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "mesh_file",
                         lambda _b, _lat, _lon: str(mesh))
     monkeypatch.setattr(_rb.RebakePlan, "from_json", classmethod(
-        lambda cls, _t: types.SimpleNamespace(icao="OTHH", units=[],
-                                              skipped=[])))
+        lambda cls, _t: types.SimpleNamespace(
+            icao="OTHH", units=[], skipped=[],
+            # #1703: a manual patch still runs the hand-set seat stage,
+            # which reads the pack (none here: nothing is written)
+            pack_root=str(tmp_path / "no pack"))))
     monkeypatch.delenv("O4_PACK_WRITES", raising=False)
     return _Tile(str(tmp_path)), patch_dir
 

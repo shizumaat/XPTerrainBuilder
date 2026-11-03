@@ -112,10 +112,14 @@ def _ends(exits) -> list:
 
 
 def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], airport,
-                law, taken, grid: float, counts: dict) -> dict[str, dict[str, _t.Any]]:
+                law, taken, grid: float, counts: dict, rail: bool = False
+                ) -> dict[str, dict[str, _t.Any]]:
     """``{run-out ref: record}`` for the ENDS of every covered-cut level
     (module docstring).  ``levels``: ``{level ref: (polygon, block ref,
-    y)}``; ``taken``: every pad and the airside, which no strip takes."""
+    y)}``; ``taken``: every pad and the airside, which no strip takes.
+    ``rail``: a station level stands among them (RULINGS 2026-11-03b (6),
+    #1739), so the open RAILWAY ways leaving it are ends too
+    (``covered_cut.station_corridors``)."""
     from ..airport.airside_group_seat import PLANE_BAND_M
     from ..classify.pad_cut_corridor import cutting_corridors
     from ..geom.ramp_profile import runout_profile
@@ -125,6 +129,10 @@ def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], air
         return {}
     tn = law.tables.structures.tunnel
     corr = cutting_corridors(airport, law, widen=0.5)
+    if rail:
+        from .covered_cut import station_corridors
+        st = station_corridors(airport, law, open_only=True)
+        corr = st if corr is None else (corr if st is None else unary_union([corr, st]))
     if corr is None:
         return {}
     from ..airport.road_ways import mapped_width_m
@@ -133,7 +141,8 @@ def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], air
     ways, width = [], 0.0
     for w in getattr(airport, "osm_ways", ()) or ():
         tags = getattr(w, "tags", None) or {}
-        if len(w.points) >= 2 and _is_cutting(tags, admitted):
+        if len(w.points) >= 2 and (_is_cutting(tags, admitted) or (
+                rail and "railway" in tags and tags.get("tunnel", "no") in ("", "no"))):
             ways.append(LineString(w.points))
             width = max(width, mapped_width_m(tags, tn.lane_width_m, tn.default_lanes))
     g, cap = float(tn.rail_ramp_grade), float(tn.rail_ramp_max_grade)

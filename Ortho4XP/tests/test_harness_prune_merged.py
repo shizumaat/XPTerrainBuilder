@@ -7,7 +7,12 @@
 * ``prune-merged`` removes, through ``down``, exactly the trees whose work
   is on main (ancestry, or a merged PR's head), keeps open, dirty and fresh
   lanes and the tree it runs from, and is a dry run without ``--apply``.
-* ``up`` creating a new tree prunes first and then holds ``LANE_CAP``.
+* ``up`` creating a new tree first RECYCLES a finished lane tree (moved,
+  detached at the new ref, products cleared, mounts kept), else prunes and
+  then holds ``LANE_CAP`` (16).
+* ``prune-merged`` lists stray non-worktree directories under
+  ``.claude/worktrees`` and removes, with ``--apply``, only the empty /
+  ``.DS_Store``-only ones.
 """
 from __future__ import annotations
 
@@ -127,7 +132,7 @@ def test_prune_merged_removes_only_merged_lanes(tmp_path):
 
 
 def test_up_holds_the_lane_cap(tmp_path):
-    assert "\nLANE_CAP=50\n" in RITUAL.read_text(encoding="utf-8", newline="")
+    assert "\nLANE_CAP=16\n" in RITUAL.read_text(encoding="utf-8", newline="")
     main, _data, env, _old = _tiny_repo(tmp_path)
     env = _fake_bin(tmp_path, env)
     env["O4_PRUNE_BASE"] = _git(env, main, "branch", "--show-current")
@@ -140,8 +145,82 @@ def test_up_holds_the_lane_cap(tmp_path):
     assert "claude/a1" in over.stderr and "claude/a2" in over.stderr
     # Completing an EXISTING tree is not a new lane.
     assert _ritual(env, "up", "a1").returncode == 0
-    # A merged lane is pruned by `up` itself, which frees the slot.
+    # A merged lane is taken over by `up` itself, which frees the slot.
     _git(env, main, "merge", "-q", "--no-ff", "-m", "m", "claude/a1")
     again = _ritual(env, "up", "a3", "HEAD")
     assert again.returncode == 0, again.stdout + again.stderr
+    assert "RECYCLED a1" in again.stdout
     assert not (main / ".claude" / "worktrees" / "a1").exists()
+
+
+def test_up_recycles_a_finished_lane_and_clears_its_products(tmp_path):
+    main, data, env, _old = _tiny_repo(tmp_path)
+    (data / "logs").mkdir()                       # a mounted data dir
+    with open(main / ".gitignore", "a", encoding="utf-8", newline="") as fh:
+        fh.write("Ortho4XP/Tiles/\nOrtho4XP/tmp/\nOrtho4XP/Previews/\n")
+    _git(env, main, "commit", "-qam", "ignore products")
+    env = _fake_bin(tmp_path, env)
+    env["O4_PRUNE_BASE"] = _git(env, main, "branch", "--show-current")
+    old = _lane(env, main, "old")
+    eng = old / "Ortho4XP"
+    for rel in ("Tiles/zOrtho4XP_+30+031/t.dsf", "tmp/x.pkl",
+                "Previews/p.jpg", "Patches/+30+031/HECA_auto.patch.osm"):
+        (eng / rel).parent.mkdir(parents=True, exist_ok=True)
+        (eng / rel).write_text("stale\n", encoding="utf-8", newline="")
+    (eng / "XPTerrainBuilder.cfg").write_text("lane=edit\n", encoding="utf-8", newline="")
+    _lane(env, main, "busy")                      # open: never recycled
+    _git(env, main, "merge", "-q", "--no-ff", "-m", "m", "claude/old")
+    tip = _git(env, main, "rev-parse", "HEAD")
+
+    up = _ritual(env, "up", "new", "HEAD")
+    assert up.returncode == 0, up.stdout + up.stderr
+    assert "RECYCLED old" in up.stdout and "untracked audit clean" in up.stdout
+    new = main / ".claude" / "worktrees" / "new"
+    assert not old.exists() and new.is_dir()
+    assert _git(env, new, "rev-parse", "HEAD") == tip
+    assert _git(env, new, "branch", "--show-current") == ""
+    ne = new / "Ortho4XP"
+    assert not (ne / "Tiles").exists() and not (ne / "tmp").exists()
+    assert not (ne / "Previews").exists()
+    assert not (ne / "Patches" / "+30+031").exists()
+    assert (ne / "Patches" / "+39-078" / "2W2_runways.patch.osm").is_file()
+    assert (ne / "XPTerrainBuilder.cfg").read_text(encoding="utf-8") \
+        == (main / "Ortho4XP" / "XPTerrainBuilder.cfg").read_text(encoding="utf-8")
+    assert (ne / "logs").is_symlink() and (ne / "venv").is_symlink()
+    trees = _git(env, main, "worktree", "list", "--porcelain")
+    assert str(new) in trees and str(old) not in trees
+
+    # Nothing finished is left: the next NEW lane is a fresh tree.
+    fresh = _ritual(env, "up", "new2", "HEAD")
+    assert fresh.returncode == 0 and "RECYCLED" not in fresh.stdout
+    assert (main / ".claude" / "worktrees" / "busy").is_dir()
+
+
+def test_prune_merged_lists_strays_and_removes_only_empty_ones(tmp_path):
+    main, _data, env, _old = _tiny_repo(tmp_path)
+    env = _fake_bin(tmp_path, env)
+    env["O4_PRUNE_BASE"] = _git(env, main, "branch", "--show-current")
+    _lane(env, main, "real")
+    root = main / ".claude" / "worktrees"
+    (root / "empty").mkdir()
+    (root / "dsonly" / "sub").mkdir(parents=True)
+    (root / "dsonly" / ".DS_Store").write_bytes(b"x")
+    (root / "dsonly" / "sub" / ".DS_Store").write_bytes(b"x")
+    (root / "residue").mkdir()
+    (root / "residue" / "README.md").write_text("x\n", encoding="utf-8", newline="")
+
+    def prune(*args):
+        r = subprocess.run([str(RITUAL), "prune-merged", *args], env=env,
+                           cwd=tmp_path, capture_output=True, text=True)
+        assert r.returncode == 0, r.stdout + r.stderr
+        return {ln.split()[1]: ln.split()[0] for ln in r.stdout.splitlines()
+                if len(ln.split()) > 2 and ln.split()[0] != "[prune]"}
+
+    rows = prune()
+    assert rows["empty"] == rows["dsonly"] == "remove"
+    assert rows["residue"] == "stray" and rows["real"] == "kept"
+    assert (root / "empty").exists() and (root / "dsonly").exists()
+    rows = prune("--apply")
+    assert rows["empty"] == rows["dsonly"] == "removed"
+    assert not (root / "empty").exists() and not (root / "dsonly").exists()
+    assert (root / "residue" / "README.md").exists() and (root / "real").is_dir()

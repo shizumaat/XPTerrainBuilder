@@ -70,7 +70,10 @@ struct PatchInspector: View {
         }
         if model.mode == .edit {
             Divider()
-            if model.shapeSelection.isEmpty {
+            if model.shapeSelection.isEmpty, model.selection.isEmpty, let inspector = model.build?.objectInspector,
+               inspector.selected != nil {
+                PatchObjectBox(inspector: inspector)  // #1703
+            } else if model.shapeSelection.isEmpty {
                 PatchNodeInspector(model: model, doc: doc)
             } else {
                 PatchShapeInspector(model: model, doc: doc)

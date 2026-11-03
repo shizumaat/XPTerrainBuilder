@@ -616,6 +616,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                      f"{c['conversions']} conversion(s), {c['splits']} split(s) into "
                      f"{c['bodies']} body file(s), {c['kept']} kept; nothing written")
         return c
+    from . import user_seat_stage as _hand
     from auto_patch_v2.airport.backup_state import (BackupUnproven,
                                                     SUPERSEDED_INFIX as
                                                     _BS_SUPERSEDED,
@@ -627,7 +628,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             allow_live_install=True,
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
-            plan_key=plan_key)
+            plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key))
     except BackupUnproven as exc:
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
         # touched — not the DSF, not an object, not a cut file: a pack
@@ -653,6 +654,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                          + (f"; {len(res.dsf.orphaned_bodies)} orphaned body "
                             f"file(s) removed" if res.dsf.orphaned_bodies
                             else ""))
+    if res.dsf is not None:
+        _hand.say_seated(plan_.icao, res.dsf)
     if _adopted or _unproven:
         UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — '
                      f'{len(_adopted)} file(s) of yours were kept as installed '
@@ -894,6 +897,14 @@ def rebake_after_mesh(tile) -> dict:
                                  f"auto patch is not in this mesh ({not_applied})")
                     counts["airports_skipped_unapplied"] = \
                         counts.get("airports_skipped_unapplied", 0) + 1
+                    # #1703 (owner 2026-11-03): an edited patch still gets
+                    # the objects the user seated by hand — those only
+                    from . import user_seat_stage as _hand
+                    source = screen if screen is not None else plan_
+                    if _hand.seat_stage(source, tile, patch_dir, writes=bool(
+                            write_enabled and not measure_only)):
+                        written_packs.add(source.pack_root)
+                        ran_packs.add(source.pack_root)
                     continue
                 law = Law.for_airport(icao)
                 if screen is not None:
@@ -913,6 +924,9 @@ def rebake_after_mesh(tile) -> dict:
                 # below re-applies an upgrade this records)
                 from . import forest_stage as _forests
                 _forests.forest_stage(plan_, tile, writes=writes)
+                # #1707: ... and whether the user's "Optimise pack" applies
+                from . import optimise_stage as _optimise
+                _optimise.optimise_stage(plan_, tile, writes=writes)
                 if not plan_.units:
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "
                                  f"({len(plan_.skipped)} resource(s) skipped at plan time)")
@@ -1045,9 +1059,12 @@ def _reuse_recipe(reuse, plan_, tile, patch_dir: str, *, writes: tuple,
     if reuse is None:
         return None
     try:
+        from .optimise_stage import recorded_key
         return reuse.airport_recipe(plan_, tile.lat, tile.lon, patch_dir,
                                     writes=writes, omit=omit,
-                                    engine=_engine_version())
+                                    engine=_engine_version(),
+                                    optimise=recorded_key(plan_.pack_root,
+                                                          tile.lat, tile.lon))
     except Exception:
         return None
 

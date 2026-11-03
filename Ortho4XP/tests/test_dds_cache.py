@@ -364,12 +364,59 @@ def test_the_least_recently_used_go_first(tmp_path):
 
 
 def test_the_cap_defaults_to_twenty_gigabytes():
-    assert CACHE.max_bytes({}) == 20 * 10**9
-    assert CACHE.max_bytes({"O4_DDS_CACHE_MAX_GB": "1.5"}) == 1_500_000_000
-    assert CACHE.max_bytes({"O4_DDS_CACHE_MAX_GB": "junk"}) == 20 * 10**9
+    assert CACHE.max_bytes({}, None) == 20 * 10**9
+    assert CACHE.max_bytes({"O4_DDS_CACHE_MAX_GB": "1.5"}, None) == 1_500_000_000
+    assert CACHE.max_bytes({"O4_DDS_CACHE_MAX_GB": "junk"}, None) == 20 * 10**9
     assert CACHE.enabled({}) and not CACHE.enabled({"O4_DDS_CACHE": "0"})
 
 
 def test_the_suite_cache_is_lane_local():
     assert CACHE.cache_root() == os.environ["O4_DDS_CACHE_DIR"]
     assert not CACHE.cache_root().startswith(FNAMES.data_path(""))
+
+
+# ── built tiles (#1725) ─────────────────────────────────────────────────
+def _copied_into(tmp_path, tile_name, key, monkeypatch):
+    """Store a texture of ``tile_name`` as a COPY (as across volumes)."""
+    texture = tmp_path / tile_name / "textures" / "t.dds"
+    texture.parent.mkdir(parents=True, exist_ok=True)
+    _whole_dds(str(texture))
+    with monkeypatch.context() as patch:
+        patch.setattr(CACHE.os, "link", _no_link)
+        assert CACHE.store(key, str(texture))
+    return texture
+
+
+def _no_link(source, target):
+    raise OSError("another volume")
+
+
+def test_an_entry_every_tile_holds_is_named_and_its_note_forgotten(
+        tmp_path, monkeypatch):
+    key = "ef" + "2" * 62
+    texture = _copied_into(tmp_path, "tileA", key, monkeypatch)
+    (entry,) = _entries()
+    assert CACHE.held_by_built_tiles() == [entry]
+    os.remove(texture)                          # the tile lost it: keep
+    assert CACHE.held_by_built_tiles() == []
+    os.remove(entry)
+    CACHE.forget_missing()
+    assert os.listdir(os.path.join(CACHE.cache_root(), "_tiles")) == []
+
+
+def test_an_entry_a_second_tile_does_not_hold_is_kept(tmp_path, monkeypatch):
+    key = "ef" + "3" * 62
+    _copied_into(tmp_path, "tileA", key, monkeypatch)
+    other = tmp_path / "tileB" / "textures" / "t.dds"
+    other.parent.mkdir(parents=True)
+    assert CACHE.serve(key, str(other))
+    assert CACHE.held_by_built_tiles() == []    # tileB holds a LINK: frees 0
+
+
+def test_the_storage_setting_is_the_cap(monkeypatch):
+    assert CACHE.max_bytes({}, 5 * 10**9) == 5 * 10**9
+    assert CACHE.max_bytes({"O4_DDS_CACHE_MAX_GB": "2"}, 5 * 10**9) == 2 * 10**9
+    import O4_Settings_Model as SM
+    monkeypatch.setattr(SM, "read_global_raw",
+                        lambda *a: {"storage_cache_caps_gb": "dds=7, tmp=1"})
+    assert CACHE.max_bytes({}) == 7 * 10**9

@@ -394,6 +394,16 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     edge_wall = False
     if not full_skirt:
         edge_skirt = plate_y - y_low
+        if edge_skirt > law.tables.structures.tunnel.mouth_depth_m:
+            # A BUILDING'S WALL IS NOT A TUNNEL EDGE WALL (owner RULINGS
+            # 2026-11-03b, spec rail-piece-ends-station R4; #1738): a
+            # shallow-seat wall standing taller than a tunnel's own depth
+            # is a building.  MEASURED ENGM: a terminal part, crest +23.86 m,
+            # nothing under its seat, cut 7.5 m inside the terminal.
+            return (f"a building's wall, not a tunnel edge wall: {edge_skirt:.2f} m "
+                    f"from the crest at {plate_y:+.2f} m to its lowest solid "
+                    f"(> [tunnel] mouth_depth_m "
+                    f"{law.tables.structures.tunnel.mouth_depth_m:.1f})")
         if edge_skirt < ob.edge_wall_min_skirt_m:
             return (f"no wall skirt: genuine solids reach only {skirt:.2f} m under the seat "
                     f"(< skirt_min_depth_m {ob.skirt_min_depth_m}) and {edge_skirt:.2f} m under "

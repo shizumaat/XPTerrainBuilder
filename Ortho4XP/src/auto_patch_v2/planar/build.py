@@ -46,6 +46,7 @@ from .structures import StructureStats, build_structures, ramp_targets
 from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
 from .deck_bridge import deck_bridges, deck_ground
+from .level_depth import airport_level_b
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
@@ -290,14 +291,19 @@ def build(airport: Airport, classification: Classification, law: Law,
     # THE HARD-DECK BRIDGES, read ONCE (owner RULINGS 2026-10-30a,
     # ``planar/deck_bridge``): the witness, the corridor and the rows read one
     # record
+    # THE AIRPORT'S LEVEL B, read ONCE before the decks (RULINGS 2026-11-03b,
+    # ``planar/level_depth``): a deck whose frame states no floor takes it
+    level_b, level_b_note = airport_level_b(airport, classification, law)
     decks, deck_notes = deck_bridges(objects, cache, classification, airport, law,
-                                     tstats.trench_objects)
+                                     tstats.trench_objects, level_b=level_b)
+    deck_notes = [f"level B: {level_b_note}", *deck_notes]
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,
                                                        portals=tstats.portals,
                                                        edge_bridges=bridges,
                                                        trenches=tstats.trench_objects,
-                                                       deck_bridges=decks)
+                                                       deck_bridges=decks,
+                                                       level_b=level_b)
     sstats.hard_decks.extend(deck_notes)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)

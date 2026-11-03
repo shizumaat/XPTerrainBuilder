@@ -28,61 +28,34 @@ line and the airport's object stage goes on.
 """
 from __future__ import annotations
 
-import json
 import os
-import shutil
 import traceback
 import typing as _t
 
-#: the per-pack answers, beside the remembered data-root choice
-__all__ = ["ACTIONS", "CHOICES_NAME", "REMEMBERED", "forest_choice", "forest_stage"]
+from . import pack_choice as _PC
+from . import pack_rewrite as _PR
+from .pack_choice import relative as _relative
 
+__all__ = ["ACTIONS", "CHOICES_NAME", "forest_choice", "forest_stage"]
+
+#: the per-pack answers, beside the remembered data-root choice
 CHOICES_NAME = "pack_forest_choices.json"
-#: the answers :func:`set_pack_choice` remembers ("" forgets)
-REMEMBERED = ("update", "never")
 #: the actions of the ``pack_forests`` command
 ACTIONS = ("update", "never", "undo")
 
 
 def choices_path() -> str:
-    import O4_File_Names as FNAMES
-    return os.path.join(os.path.dirname(FNAMES.data_root_pointer_file),
-                        CHOICES_NAME)
-
-
-def _pack_key(pack_root: str) -> str:
-    return os.path.normcase(os.path.abspath(pack_root or ""))
-
-
-def _read_choices() -> dict[str, str]:
-    try:
-        with open(choices_path(), encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    return {str(k): str(v) for k, v in doc.items()
-            if v in REMEMBERED} if isinstance(doc, dict) else {}
+    return _PC.store_path(CHOICES_NAME)
 
 
 def pack_choice(pack_root: str) -> str:
     """``"update"`` | ``"never"`` | ``""`` (ask)."""
-    return _read_choices().get(_pack_key(pack_root), "")
+    return _PC.read(choices_path(), pack_root)
 
 
 def set_pack_choice(pack_root: str, choice: str) -> None:
     """Remember (or, with ``""``, forget) the user's answer for a pack."""
-    doc = _read_choices()
-    key = _pack_key(pack_root)
-    if choice in REMEMBERED:
-        doc[key] = choice
-    else:
-        doc.pop(key, None)
-    path = choices_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(doc, fh, indent=1, sort_keys=True)
-    os.replace(tmp, path)
+    _PC.write(choices_path(), pack_root, choice)
 
 
 class PackForests(_t.NamedTuple):
@@ -133,13 +106,6 @@ def check(pack_root: str, lat: int, lon: int, *,
     return PackForests(pd.pack_name, pd.dsf_path, tuple(old), upgraded)
 
 
-def _relative(pack_root: str, path: str) -> str:
-    try:
-        return os.path.relpath(path, pack_root).replace(os.sep, "/")
-    except ValueError:      # Windows: a path on another drive has no relpath
-        return path.replace(os.sep, "/")
-
-
 def _announce(pf: PackForests, pack_root: str, lat: int, lon: int,
               state: str, error: str = "", files: _t.Sequence[str] = ()) -> None:
     """The ``PackOldForests`` event (``UI.pack_old_forests``)."""
@@ -155,32 +121,9 @@ def _write(pf: PackForests, pack_root: str, renames: dict) -> None:
     """The pack DSF written with ``renames`` as its forest upgrade and
     everything else of ours as recorded: every airport's placement edits
     and the omission the user accepted (#433)."""
-    import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
-    from auto_patch_v2.airport import backup_state as _bs
-    from auto_patch_v2.airport import dsf as _dsf2
-    from auto_patch_v2.airport import dsf_write as _dw
-    from auto_patch_v2.airport import pack_art as _pa
-    from auto_patch_v2.airport import pack_journal as _pj
-    from auto_patch_v2.airport.file_hash import sha256_file
-    from auto_patch_v2.model.placement import BACKUP_SUFFIX, PlacementPlan, Provenance
-
-    from . import dsf_reader as _DSFR
-    from .object_stage import _engine_version
     dsf = pf.dsf_path
-    backup = dsf + BACKUP_SUFFIX
-    omit = (_pa.recorded(_bs.dsf_entry(_bs.read_record(dsf),
-                                       os.path.basename(dsf)),
-                         sha256_file(backup))
-            if os.path.isfile(backup) else ())
-    plan = PlacementPlan("", pf.pack_name, pack_root, dsf, backup,
-                         Provenance("", _engine_version(), "", {}))
-    _pj.snapshot(pack_root, dsf)          # a no-op outside a build (#598)
-    _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
-                   allow_live_install=True, engine_version=_engine_version(),
-                   omit=omit, forests=renames)
-    _DSFR.ensure_dsf_text_path(dsf, _dsf2.mod_cache_dir(
-        FNAMES.airport_mod_cache_root(), pf.pack_name))
+    backup = _PR.rewrite_dsf(pack_root, pf.pack_name, dsf, forests=renames)
     UI.vprint(0, f"  [pack] {pf.pack_name}: "
                  + (f"{len(renames)} tree or forest definition(s) now point at "
                     f"X-Plane 12 3D trees" if renames else
@@ -286,35 +229,9 @@ def undo(pack_root: str, lat: int | None = None,
     carry an upgrade; returns the files rewritten (pack-relative).  A DSF
     holding nothing else of ours gets its pristine file back byte for
     byte and its record entry dropped; one that does is written again
-    without the upgrade."""
-    from auto_patch_v2.airport import backup_state as _bs
-    from auto_patch_v2.airport import pack_art as _pa
+    without the upgrade (``pack_rewrite.undo_recorded``)."""
     from auto_patch_v2.airport import pack_forests as _pf
-
-    from . import object_rebake as _OR
-    only = None
-    if lat is not None and lon is not None:
-        only = "%+03d%+04d.dsf" % (int(lat), int(lon))
-    done: list[str] = []
-    for dsf, entry in _OR.forest_upgraded_dsfs(pack_root):
-        if only is not None and os.path.basename(dsf) != only:
-            continue
-        verdict = _bs.classify_dsf(dsf)
-        if verdict.state is not _bs.State.OURS or not verdict.backup:
-            continue                    # never a file we cannot prove ours
-        bare = not entry.get("airports") and not _pa.recorded(
-            entry, entry.get("backup_sha256") or "")
-        if bare:
-            shutil.copy2(verdict.backup, dsf)
-            _bs.invalidate_memo()
-            _bs.drop_dsf_entry(dsf)
-            import O4_UI_Utils as UI
-            UI.vprint(0, f"  [pack] {os.path.basename(os.path.normpath(pack_root))}: "
-                         f"{_relative(pack_root, dsf)} is the original again")
-        else:
-            pf = PackForests(os.path.basename(os.path.normpath(pack_root)),
-                             dsf, (), _pf.recorded(entry, entry.get(
-                                 "backup_sha256") or ""))
-            _write(pf, pack_root, {})
-        done.append(_relative(pack_root, dsf))
-    return done
+    name = os.path.basename(os.path.normpath(pack_root))
+    return _PR.undo_recorded(
+        pack_root, lat, lon, _pf.RECORD_KEY,
+        lambda dsf: _write(PackForests(name, dsf, (), {}), pack_root, {}))

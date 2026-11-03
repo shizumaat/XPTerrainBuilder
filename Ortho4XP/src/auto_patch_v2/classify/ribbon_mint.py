@@ -337,8 +337,9 @@ def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
     ``osm_roads.min_len_m``, the floor under a stray stub) is the shortest
     axis ribboned: a pad road's piece between two standing roads is road
     however short (the cell floor ``cells.min_area_m2`` still stands).  A
-    stretch running ALONG a lot is minted as road here and relabelled as
-    the lot after every mint (``lot_roads.relabel_lot_stretches``, #684)."""
+    stretch running ALONG a lot is minted as road here and split off as a
+    lot candidate after every mint (``lot_roads.split_lot_candidates``,
+    #684)."""
     from shapely.ops import substring
     orr = rules.osm_roads
     hw = ribbon_half_width_m(w.tags, law)

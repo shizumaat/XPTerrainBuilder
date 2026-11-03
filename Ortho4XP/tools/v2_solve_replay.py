@@ -2326,11 +2326,6 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             # issue #303: the [service] thresholds come from the CALLER
             # (``airport`` may not read ``classify``), so the replay hands
             # them over exactly as the build does.
-            try:   # issue #684: a lot strip on a climb stays road, as the build
-                from auto_patch_v2.airport.lot_road_climb import with_lot_road_climbs
-                m = with_lot_road_climbs(m, law, airport, service=_lr().service)
-            except ImportError:
-                pass
             ramp_rep: dict = {}
             m = with_road_ramp(m, law, airport, ramp_rep, service=_lr().service)
             try:

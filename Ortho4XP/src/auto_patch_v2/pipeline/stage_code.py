@@ -67,8 +67,7 @@ ENTRY_MODULES: dict[str, tuple[str, ...]] = {
     "planar": ("auto_patch_v2.planar.build",),
     "flat_site": ("auto_patch_v2.airport.flat_site_read",),
     "road_profile": ("auto_patch_v2.airport.road_profile",),
-    "channels": ("auto_patch_v2.airport.lot_road_climb",
-                 "auto_patch_v2.airport.road_ramp", "auto_patch_v2.constraints.apron_trend",
+    "channels": ("auto_patch_v2.airport.road_ramp", "auto_patch_v2.constraints.apron_trend",
                  "auto_patch_v2.constraints.eat", "auto_patch_v2.constraints.runway_chord",
                  "auto_patch_v2.constraints.taxi_trend", "auto_patch_v2.emit.road_join"),
     "shapes": ("auto_patch_v2.pipeline.shapes",),
@@ -670,7 +669,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2",
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.dem",
-        "auto_patch_v2.airport.lot_road_climb",
+        "auto_patch_v2.airport.lot_road_settle",
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.public_road",
         "auto_patch_v2.airport.riser_wall",
@@ -1738,7 +1737,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.deck_signature airport.dem airport.dem_witness airport.dsf geom.water_level
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
-    airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
+    airport.frame_entry airport.jetways airport.line_object airport.lot_road_settle
+    airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_shaped geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.pack airport.pack_partition airport.adapted_riders airport.pack_work

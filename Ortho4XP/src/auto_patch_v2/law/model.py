@@ -851,6 +851,9 @@ class RoadContact:
     #: which precedence.toml partitions groundside but which is hard
     #: surface a road meets at a stated level
     extra_roles: tuple[str, ...] = ()
+    #: issue #684 (Q-wall): a lot candidate on a declared wall terrace or
+    #: between two levels stays road (``airport/lot_road_settle``)
+    lot_road_wall_keeps: bool = True
 
 
 @_dc.dataclass(frozen=True)

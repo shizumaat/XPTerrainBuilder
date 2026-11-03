@@ -700,11 +700,11 @@ class PlanarMap:
     #: the map without it.
     pad_roads: frozenset[str] = _dc.field(default_factory=frozenset)
     #: ROADS ALONG A LOT ARE THE LOT (issue #684, RULINGS 2026-10-14a (2)):
-    #: a lot strip's ref (:func:`is_lot_road_ref`) -> the ribbon ref of the
-    #: mapped road it was cut from (``<feed>:<way id>``,
-    #: ``classify/lot_roads``); read by ``airport/lot_road_climb``, which
-    #: returns a strip on a road's climb to a raised pad to that road.
-    lot_road_ways: _t.Mapping[str, str] = _dc.field(default_factory=dict)
+    #: a LOT CANDIDATE's ribbon ref (``classify/lot_roads``) -> the ref of
+    #: the lot it runs along; settled ONCE at the ramp
+    #: (``airport/lot_road_settle``): on its road's climb it stays road,
+    #: elsewhere it becomes the lot (:func:`is_lot_road_ref`).
+    lot_candidates: _t.Mapping[str, str] = _dc.field(default_factory=dict)
     #: THE RAMP-FOOT RUN-OUTS (issue #669; owner RULINGS 2026-10-14c (5);
     #: ``classify/ramp_runout``): run-out ref -> ``(x0, y0, dx, dy, z0)`` —
     #: where the strip leaves the graded ground at an object ramp's foot,
@@ -1252,8 +1252,8 @@ def drop_edges(pm) -> frozenset[frozenset[int]]:
 
 
 #: RULINGS 2026-10-14a (2) / 14h (c), issue #684: the ref suffix of a mapped
-#: road's stretch along a lot, relabelled as that lot
-#: (``classify/lot_roads.relabel_lot_stretches``) — ``<lot ref>#road<k>``, so
+#: road's stretch along a lot, SETTLED as that lot
+#: (``airport/lot_road_settle``) — ``<lot ref>#road<k>``, so
 #: a reader joining on ``ref.split("#")[0]`` reads it as its lot.
 LOT_ROAD_MARK = "#road"
 _LOT_ROAD_RE = re.compile(re.escape(LOT_ROAD_MARK) + r"\d+$")

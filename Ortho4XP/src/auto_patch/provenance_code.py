@@ -446,7 +446,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.junction_witness",
     "auto_patch_v2.airport.line_object",
     "auto_patch_v2.airport.load",
-    "auto_patch_v2.airport.lot_road_climb",
+    "auto_patch_v2.airport.lot_road_settle",
     "auto_patch_v2.airport.msl_feet",
     "auto_patch_v2.airport.obj8",
     "auto_patch_v2.airport.obj8_clip",

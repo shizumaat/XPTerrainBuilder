@@ -798,10 +798,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                                         snap_margin_m(law))
     stats.update(_wstats)
     # 14a (2) / 14h (c), issue #684: a mapped road's stretch ALONG a lot is
-    # the lot — relabelled HERE, after every mint, weld and wall cut, so no
-    # earlier reader saw anything but the road (``classify/lot_roads``)
-    from .lot_roads import relabel_lot_stretches
-    cells, _rstats = relabel_lot_stretches(cells, airport, law, rules)
+    # split off HERE as a lot candidate, after every mint, weld and wall
+    # cut; a ribbon still, settled at the ramp (``classify/lot_roads``)
+    from .lot_roads import split_lot_candidates
+    cells, _rstats = split_lot_candidates(cells, airport, law, rules)
     stats.update(_rstats)
     cut: list[CutLine] = []
     for ln, c in taxi_parts:

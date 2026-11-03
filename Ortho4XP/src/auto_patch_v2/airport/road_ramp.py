@@ -890,8 +890,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     for r, items in by_route.items():
         ss = [s_ for s_, _v in items]
         env[r] = _lift(ss, [g.get(v, -math.inf) for _s, v in items], cap)
-    targets: dict[int, float] = {}
-    on_ramp: set[int] = set()
+    targets, on_ramp = {}, set()     # on_ramp: the vertices over their floor (#684)
     for v in sorted(owned):
         vx = pm.vertices[v]
         f_ = frame.get(v)
@@ -931,7 +930,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["_frame_report"] = frep
     rep["_contact_edge"] = contact
     rep["_contact_gap"] = gaps
-    rep["_on_ramp"] = frozenset(on_ramp)   # the vertices over their floor (#684)
+    rep["_on_ramp"] = frozenset(on_ramp)
     return RampTargets(targets, rep, frame)
 
 
@@ -1846,10 +1845,11 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     walls = wall_pieces(airport, service) + mouth_wall_pieces(pm)
     retaining = tuple(w.poly for w in walls if w.retains)
     tg = road_ramp_targets(pm, law, airport, profiles, retaining)
+    from .lot_road_settle import settle_lot_candidates  # #684: once, on the ramp
+    pm, tg = settle_lot_candidates(pm, law, tg, report, walls=walls, service=service)
     frame = tg.frame
     frep = tg.report.pop("_frame_report", {})
     frep.pop("_ways", None)            # the Way objects are not a report
-    tg.report.pop("_on_ramp", None)
     if report is not None:
         report.update(tg.report)
         report.update({f"frame_{k}": v for k, v in frep.items()})

@@ -113,7 +113,7 @@ struct BuildPane: View {
         .task(id: "\(buildModel.activeTile?.key ?? "")|\(controller.mapOverlays.regions.count)") {
             await refreshOtherScenery()
         }
-        .task(id: "reseat|\(buildModel.activeTile?.key ?? "")|\(controller.installationPacks.count)|\(buildModel.isBuilding)|\(reseatRefresh)|\(buildModel.packForestsChanged)") {
+        .task(id: "reseat|\(buildModel.activeTile?.key ?? "")|\(controller.installationPacks.count)|\(buildModel.isBuilding)|\(reseatRefresh)|\(buildModel.packForestsChanged)|\(buildModel.packOptimiseChanged)") {
             await refreshModifiedAirports()
         }
         .modifier(TileTextureCheckTask(
@@ -360,6 +360,25 @@ struct BuildPane: View {
                                           ? "Wait for the current run — the engine may be rewriting these files"
                                           : O4PackOldForestsCopy.undoHelp)
                                 }
+                                // #1707: Optimise pack, or its Undo (the
+                                // Qt row's twin button)
+                                Button {
+                                    buildModel.packOptimiseFromRow(
+                                        packPath: row.packPath,
+                                        undo: row.optimisedCount > 0, tile: active)
+                                } label: {
+                                    Image(systemName: row.optimisedCount > 0
+                                          ? "gauge.with.dots.needle.33percent"
+                                          : "gauge.with.dots.needle.67percent")
+                                }
+                                .buttonStyle(.borderless)
+                                .controlSize(.small)
+                                .disabled(buildModel.isBuilding)
+                                .help(buildModel.isBuilding
+                                      ? "Wait for the current run — the engine may be rewriting these files"
+                                      : (row.optimisedCount > 0
+                                         ? O4PackOptimiseCopy.undoHelp
+                                         : O4PackOptimiseCopy.optimiseHelp))
                                 Button {
                                     revertModifiedAirports(row)
                                 } label: {
@@ -865,6 +884,8 @@ struct BuildPane: View {
         let objectCount: Int
         /// Forest definitions upgraded to 3D trees (#1360).
         var forestCount: Int = 0
+        /// Duplicate placements "Optimise pack" drops (#1707).
+        var optimisedCount: Int = 0
     }
 
     /// Asks the ENGINE which packs the reseater modified for the active
@@ -898,14 +919,16 @@ struct BuildPane: View {
                     id: pack.packPath, label: pack.packName,
                     packName: pack.packName, packPath: pack.packPath,
                     objectCount: pack.objectCount,
-                    forestCount: pack.forestCount)]
+                    forestCount: pack.forestCount,
+                    optimisedCount: pack.optimisedCount)]
             }
             return names.map { name in
                 ModifiedAirportRow(
                     id: "\(pack.packPath)|\(name)", label: name,
                     packName: pack.packName, packPath: pack.packPath,
                     objectCount: pack.objectCount,
-                    forestCount: pack.forestCount)
+                    forestCount: pack.forestCount,
+                    optimisedCount: pack.optimisedCount)
             }
         }
         .sorted { $0.label < $1.label }

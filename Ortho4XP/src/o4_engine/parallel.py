@@ -596,6 +596,8 @@ _FORWARDED_EVENT_TYPES = (
     "PackOldForests",
     # #1351: the running step's slow-step alert (the child owns the clock).
     "SlowStep",
+    # #1707: ... and a pack "Optimise pack" can lighten.
+    "PackOptimise",
     "Log",
 )
 

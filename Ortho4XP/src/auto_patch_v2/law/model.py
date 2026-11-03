@@ -396,6 +396,13 @@ class Tunnel:
     viaduct_min_layer: int
     viaduct_min_run_m: float
     viaduct_apron_reach_m: float
+    #: #1717 S1 (RULINGS 2026-11-03b Q340 a; spec two-level-regions §15): a
+    #: mapped road or rail bridge at ``layer >= cover_min_layer`` inside the
+    #: aerodrome boundary stands in an aircraft's way; an apron part outside
+    #: the room aircraft reach with at least ``cover_min_share`` of it under
+    #: those covers is groundside (``planar/reach_under_covers``).
+    cover_min_layer: int
+    cover_min_share: float
     #: §34 (12) (5) (owner RULINGS 2026-09-16d): A TERRAIN TUNNEL PASSES
     #: UNDER SOMETHING AT GRADE.  The four witnesses a bore with an
     #: on-field mouth is admitted by (``planar/structure_service.

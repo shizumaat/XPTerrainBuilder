@@ -828,6 +828,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.planar.plate_bays",
     "auto_patch_v2.planar.platform",
     "auto_patch_v2.planar.reach_after_pads",
+    "auto_patch_v2.planar.reach_under_covers",
     "auto_patch_v2.planar.ribbon_weld",
     "auto_patch_v2.planar.ribbons",
     "auto_patch_v2.planar.ridge_reach",

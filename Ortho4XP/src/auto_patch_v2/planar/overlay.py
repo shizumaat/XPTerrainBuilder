@@ -233,9 +233,13 @@ def _storey_lots(cells) -> dict[str, float]:
 
 
 def build_arrangement(airport: Airport, classification: Classification,
-                      law: Law, grid_m: float | None = None) -> Arrangement:
+                      law: Law, grid_m: float | None = None, *,
+                      level_b: float | None = None) -> Arrangement:
     """Regions + breakline sources -> ONE noded arrangement, with the
-    registries its passes mint (:attr:`Arrangement.registries`)."""
+    registries its passes mint (:attr:`Arrangement.registries`).
+    ``level_b``: the airport's object-stated level-B depth
+    (``planar/level_depth.airport_level_b``), which arms the covered reach
+    read (``planar/reach_under_covers``)."""
     reg = Registries()
     grid = grid_m if grid_m is not None else \
         law.tables.emit.identity.min_distinct_spacing_m
@@ -344,7 +348,7 @@ def build_arrangement(airport: Airport, classification: Classification,
             # buildings leave beyond any aircraft is groundside
             from .reach_after_pads import unreachable_after_pads
             base_regions, _reach = unreachable_after_pads(base_regions, pad_regions,
-                                                          law, airport)
+                                                          law, airport, level_b=level_b)
             _pad_clip.update(_reach)
             # RULINGS 2026-09-28a (6) / 28b (#11): a pad welds to the apron it
             # FRONTS; a touching apron at another level is split off as a

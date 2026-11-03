@@ -50,10 +50,13 @@ def mapped_mouths(airport) -> list[tuple[tuple[float, float], int, str]]:
     ways = [w for w in getattr(airport, "osm_ways", ())
             if w.tags.get("tunnel") == "yes" and len(w.points) >= 2]
     ends = [(tuple(map(float, p)), w) for w in ways for p in (w.points[0], w.points[-1])]
+    # every node of a tunnel way: an end on another way's INTERIOR node (a
+    # switch) continues the bore too (RULINGS 2026-11-03b (6), #1738)
+    nodes = [(tuple(map(float, p)), w) for w in ways for p in w.points]
     out = []
     for xy, w in ends:
         shared = any(o is not w and np.hypot(xy[0] - q[0], xy[1] - q[1]) <= _JOIN_M
-                     for q, o in ends)
+                     for q, o in nodes)
         if not shared:
             out.append((xy, int(w.id), w.tags.get("highway") or w.tags.get("railway") or ""))
     return out

@@ -78,7 +78,8 @@ from ..geom.valid_area import valid_area
 from ..model.planar import STRIP_SUFFIX
 from .low_level import _densest, _ground, _plane_band, _ring_poly, level_cut, top_level, unit_share
 
-__all__ = ["WITNESS", "covered_corridors", "covered_cut_taken", "plan_covered", "trim_uncut"]
+__all__ = ["WITNESS", "covered_corridors", "covered_cut_taken", "plan_covered",
+           "station_corridors", "trim_uncut"]
 
 #: the ``witness`` a covered-cut lower level's record carries
 WITNESS = "covered_cut"
@@ -91,6 +92,52 @@ def covered_corridors(airport, law, widen: float = 0.0):
     from ..classify.pad_cut_corridor import cutting_corridors
     C = cutting_corridors(airport, law, covered=True, widen=widen)
     return None if C is None or C.is_empty else valid_area(C)
+
+
+def station_corridors(airport, law, widen: float = 0.0, open_only: bool = False):
+    """THE STATION'S OWN LOWER PAD (owner RULINGS 2026-11-03b (6) Q345 a:
+    "the buried station gets its own cut or lower pad"; answer 2 of
+    2026-11-03T06:07:15Z: at the station objects' own wall feet; spec
+    ``rail-piece-ends-station-spec.md`` R3, #1739): the union of every mapped
+    RAILWAY's corridor -- open, ``tunnel`` or ``covered``, ``widen``
+    carriageway widths either side -- or ``None``.  ``plan_covered`` reads it
+    beside the tagged covered cuttings under a HELD pad, and the pad's own
+    objects decide (a storey under its top level along the tracks); a pad
+    with no such part keeps the tracks buried, and nothing trims it
+    (:func:`trim_uncut` keeps to the tagged cuttings).  ``open_only`` keeps
+    the ways that are no bore (where the level may run out along them).
+    MEASURED ENGM: OSM maps the station's tracks as plain ``railway=rail``
+    and ``tunnel=yes layer=-2`` pieces, so no cutting tag ever reached the
+    station under the terminal pad."""
+    from ..airport.deck_signature import is_bridge_way, is_tunnel_way
+    from ..airport.road_ways import mapped_width_m
+    tn = law.tables.structures.tunnel
+    strips = []
+    for w in getattr(airport, "osm_ways", ()) or ():
+        tags = getattr(w, "tags", None) or {}
+        if len(w.points) < 2 or "railway" not in tags or is_bridge_way(tags):
+            continue
+        if open_only and is_tunnel_way(tags, tn.admitted_values):
+            continue
+        half = (0.5 + float(widen)) * mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
+        strips.append(LineString(w.points).buffer(half, cap_style="flat"))
+    if not strips:
+        return None
+    C = valid_area(unary_union(strips))
+    return None if C.is_empty else C
+
+
+def _keep_to_parts(C, low, open_rail, near: float):
+    """A STATION's corridor kept to its own objects: the tracks under the
+    lower parts' footprints, and the OPEN rail joined to them inside the pad
+    (where the level runs out) -- never the bore going on under the pad."""
+    feet = valid_area(unary_union([g for _p, g in low])).buffer(near)
+    keep = [valid_area(C.intersection(feet))]
+    if open_rail is not None:
+        for q in nonempty_polygon_parts(valid_area(open_rail.intersection(C))):
+            if q.intersects(feet):
+                keep.append(q)
+    return valid_area(unary_union(keep))
 
 
 def _cut_refs(reg) -> "tuple[set, set]":
@@ -283,11 +330,18 @@ def _off_the_roads(P, H, L, S, C, airport, law, grid: float):
 
 
 def plan_covered(P, air, airport, law, grid: float, cov, others=None, refused=None,
-                 cov_reach=None) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
+                 cov_reach=None, station: bool = False, open_rail=None,
+                 top: "float | None" = None
+                 ) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
     """``(high, low, strip, record)`` for the held pad ``P`` over the covered
     cutting ``cov`` (module docstring; ``cov_reach`` the same corridors one
     carriageway width wider), or ``None`` -- the reason appended to
-    ``refused`` where the corridor reaches the pad."""
+    ``refused`` where the corridor reaches the pad.  ``station``: ``cov`` is
+    :func:`station_corridors` -- the level is kept to the lower parts and
+    the open rail joined to them (``open_rail``), and its floor is the
+    parts' walled feet (answer 2: the station's own wall feet).  ``top``: the
+    top level ``t`` read off the held block the level is tied to (a station
+    pad that fronts no airside, ``planar/station_level``)."""
     if cov is None or P.is_empty:
         return None
     C = valid_area(cov.intersection(P))
@@ -299,7 +353,8 @@ def plan_covered(P, air, airport, law, grid: float, cov, others=None, refused=No
     to_xy = airport.frame.entry()
     ui, parts = unit_share(P, airport, to_xy)
     R = valid_area(valid_area(cov_reach.intersection(P)).union(C)) if cov_reach is not None else C
-    t = _top(parts, air, airport, law, to_xy, near, R) if parts else None
+    t = top if top is not None else (_top(parts, air, airport, law, to_xy, near, R)
+                                     if parts else None)
     if t is None:
         if refused is not None:
             refused.append("no unit part fronts the airside")
@@ -307,7 +362,10 @@ def plan_covered(P, air, airport, law, grid: float, cov, others=None, refused=No
     step = 2.0 * _plane_band()
     low = _lower_parts(parts, C, R, t, step, to_xy)
     fl = floor = None
-    if low:
+    if low and station:
+        C = _keep_to_parts(C, low, open_rail, near)
+        fl, floor = _floor(low, R, law, t, step, to_xy), "station wall feet"
+    elif low:
         fl, floor = _cut_floor(airport, ui, C, law, t, step, to_xy), "top surface"
         if fl is None:
             fl, floor = _floor(low, R, law, t, step, to_xy), "walled feet"
@@ -317,18 +375,22 @@ def plan_covered(P, air, airport, law, grid: float, cov, others=None, refused=No
         return None
     plane, n_on, n_feet = fl
     L0 = valid_area(unary_union([C, *(g for _p, g in low)]))
-    cut = level_cut(P, L0, air, others, law, grid, float(bp.min_area_m2), grow=False)
+    cut = level_cut(P, L0, air, others, law, grid, float(bp.min_area_m2), grow=False,
+                    whole=top is not None)
     if cut is None:
         if refused is not None:
             refused.append(f"level cut refused ({L0.area:,.0f} m2 asked)")
         return None
     H, L, S, n_roads, roads_m2 = _off_the_roads(P, *cut, C, airport, law, grid)
-    if L.is_empty or L.area < float(law.tables.structures.placement.cluster_pad_min_m2):
+    lmin = float(bp.min_area_m2) if station else float(
+        law.tables.structures.placement.cluster_pad_min_m2)
+    if L.is_empty or L.area < lmin:
         if refused is not None:
             refused.append("no level left off the roads")
         return None
     dem = getattr(airport, "dem", None)
-    rec = {"witness": WITNESS, "top_y": round(t, 3), "y_lo": round(plane - t, 3),
+    rec = {"witness": WITNESS, "source": "station" if station else "covered",
+           "top_y": round(t, 3), "y_lo": round(plane - t, 3),
            "y_hi": round(-step, 3), "low_parts": len(low), "floor": floor,
            "feet_on_plane": n_on, "feet_read": n_feet, "area_m2": round(L.area, 1),
            "cut_m2": round(valid_area(C.intersection(L)).area, 1),

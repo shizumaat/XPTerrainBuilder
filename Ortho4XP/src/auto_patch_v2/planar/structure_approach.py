@@ -763,6 +763,24 @@ def _at_deck(on_field, end: XY, law: Law) -> bool:
     return any(p.distance(pt) <= tol for p in polys)
 
 
+def _unwitnessed(bore: Bore, end: XY, path, law: Law, fence, witness) -> str | None:
+    """Why ``end`` of ``bore`` is not opened under 2026-11-03b (6) -- a rail,
+    deep or fenced service end with no portal witness -- or ``None``."""
+    if witness is None:
+        return None
+    from .end_witness import needs_witness
+    # a mapped way comes out of the end: the approach walked one (``approach``
+    # appends a lone straight extension where none continues)
+    kind = needs_witness(bore, end, law, fence, surfaces=len(path) > 2)
+    if kind is None or witness.at(end, path):
+        return None
+    ids = "+".join(str(w.id) for w in bore.ways)
+    return (f"bore {ids}: its {kind} end at {end[0]:.0f},{end[1]:.0f} has no portal "
+            f"witness (no pack hard deck, tunnel corridor or below-grade part, no "
+            f"credible lidar cut, no companion-mesh cut) — not opened (RULINGS "
+            f"2026-11-03b (6), #1738)")
+
+
 def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
            on_field=None) -> tuple[list[Mouth], int]:
     """The mapped ends of every bore, as mouths — GATED BY THE FIELD (spec
@@ -807,10 +825,18 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
     no_portal: list[str] = []
     if on_field is not None:
         on_field.no_portal = no_portal     # #1028: named by the structures line
+    # RULINGS 2026-11-03b (6): rail, deep and fenced service ends need a
+    # portal witness AT THE END (``planar/end_witness``)
+    fence = witness = None
+    if on_field is not None and getattr(on_field, "airport", None) is not None:
+        from .end_witness import EndWitness
+        from .structure_service import _fence_of
+        fence, witness = _fence_of(on_field.airport), EndWitness(on_field, law)
     for b in bores:
         width = max(carriageway_width_m(w.tags, law) for w in b.ways)
         wids = tuple(w.id for w in b.ways)
         cand: list[tuple[Mouth, bool, float]] = []
+        unseen: dict[int, str | None] = {}
         for end, nxt in ((b.points[0], b.points[1]), (b.points[-1], b.points[-2])):
             inward = unit(end, nxt)
             path = approach(end, inward, osm, reach_m,
@@ -822,6 +848,9 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
             if why is not None:
                 no_portal.append(why)
                 continue
+            # asked AFTER the bore is admitted (below): (a)/(e)/the fence
+            # name a bore that is no tunnel first
+            unseen[id(m)] = _unwitnessed(b, end, path, law, fence, witness)
             if on_field is None:
                 cand.append((m, True, 0.0))
                 continue
@@ -869,6 +898,9 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
                 on_field.not_terrain.append(why)
                 continue
         for m, held, d in cand:
+            if unseen.get(id(m)):
+                no_portal.append(unseen[id(m)])       # 2026-11-03b (6)
+                continue
             if held:
                 out.append(m)
             else:

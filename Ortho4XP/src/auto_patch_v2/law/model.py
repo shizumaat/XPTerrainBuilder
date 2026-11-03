@@ -404,6 +404,10 @@ class Tunnel:
     terrain_crossing_min_m: float
     terrain_rise_m: float
     terrain_layer_max: int
+    #: RULINGS 2026-11-03b (6) Q345 a: a bore whose lowest ``layer`` is at or
+    #: under this is DEEP (it runs under something already below grade); its
+    #: ends open only with a portal witness (``planar/end_witness``).
+    deep_layer_max: int
     enclosure_parking_values: tuple[str, ...]
     object: TunnelObject
     #: §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-15y): how far a

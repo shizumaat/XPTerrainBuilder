@@ -388,6 +388,11 @@ class RebakePlan:
     #: is read at are the AIRPORT's (``airside_group_seat.stands_of``), not
     #: the pack's.  ``""`` = ``<pack_root>/Earth nav data/apt.dat``.
     apt_dat: str = ""
+    #: #1726: the part ids that ε-touch a TERRAIN-ADAPTED member of their own
+    #: anchor family (never re-seated, so its zero is the mesh at the
+    #: origin); their connected unit takes that zero
+    #: (``airport/adapted_riders.touching_adapted``).  Empty in an older plan.
+    adapted_frame_pids: tuple[int, ...] = ()
 
     def bounds(self) -> tuple[float, float, float, float]:
         """``(min_lon, min_lat, max_lon, max_lat)`` over every witness."""
@@ -419,6 +424,8 @@ class RebakePlan:
                            else [dict(c) for c in self.connectors]),
             "flat": None if self.flat is None else self.flat.to_dict(),
             **({"apt_dat": self.apt_dat} if self.apt_dat else {}),
+            **({"adapted_frame_pids": list(self.adapted_frame_pids)}
+               if self.adapted_frame_pids else {}),
             "units": [{
                 "id": u.id, "anchor": [u.anchor[0], u.anchor[1]], "agl_m": u.agl_m,
                 "members": [{
@@ -565,7 +572,9 @@ class RebakePlan:
                    connectors=(None if d.get("connectors") is None else
                                tuple(dict(c) for c in d["connectors"])),
                    flat=None if d.get("flat") is None else FlatDatum.from_dict(d["flat"]),
-                   apt_dat=str(d.get("apt_dat") or ""))
+                   apt_dat=str(d.get("apt_dat") or ""),
+                   adapted_frame_pids=tuple(int(q) for q in
+                                            d.get("adapted_frame_pids", ()) or ()))
 
     @classmethod
     def from_json(cls, text: str) -> "RebakePlan":

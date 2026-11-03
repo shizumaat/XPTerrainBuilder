@@ -2179,10 +2179,13 @@ final class BuildModel: ObservableObject {
 
     /// The user's answer to the question on screen: "update" or "never"
     /// sends `pack_optimise`; nil (Not now) sends nothing.
-    func answerPackOptimisePrompt(action: String?) {
+    /// With the question's steps (#1707), Optimise sends the checked ones.
+    func answerPackOptimisePrompt(action: String?, steps: [String]? = nil) {
         if let optimise = packOptimisePrompt, let action {
             client?.packOptimise(packRoot: optimise.packRoot, action: action,
-                                 lat: optimise.lat, lon: optimise.lon)
+                                 lat: optimise.lat, lon: optimise.lon,
+                                 steps: action == "update" && !optimise.steps.isEmpty
+                                     ? steps : nil)
         }
         packOptimisePrompt = packOptimiseQueue.isEmpty ? nil : packOptimiseQueue.removeFirst()
     }

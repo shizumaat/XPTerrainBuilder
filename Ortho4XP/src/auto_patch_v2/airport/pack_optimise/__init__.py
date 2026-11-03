@@ -20,33 +20,111 @@ The operations, one module each (spec
 
 * D1 ``dedupe`` — duplicate placements dropped (same definition and row
   kind, within 0.2 m, heading within 1°, same height).
+* D2 ``swap`` — heavy vehicles and ground equipment re-pointed at
+  X-Plane's library equivalents (name and footprint witnessed, lights
+  kept in a lights-only copy); the match is made once, when the user
+  accepts (:func:`build_recipe`), and recorded in the recipe.
+* O1 + O2 ``objcopy`` — a lighter copy of a pack object: its specular
+  made global so it instances, a size-derived draw distance with its
+  lights kept beyond it; the DSF names the copy (D3).
+* O4 ``textures`` — its textures compressed, halved for small props and
+  read once when byte-identical; the copies name them.
 * ``weight`` — the triangles the pack's own objects draw, before and
   after: what the offer is made on.
 
-Phase 1 ships D1; library swaps, LODs and textures (D2-O5) follow and
-add their fields to the same record row.
+Every file the recipe needs beside the vendor's (a lights-only copy, an
+object copy) is NEW, named ``<stem>.o4opt…``, written on every write
+from the vendor file (:func:`write_generated`) and listed in the
+record's ``generated``; Undo removes it.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import typing as _t
 
 from . import dedupe as _dd
+from . import objcopy as _oc
+from . import swap as _sw
+from . import textures as _tx
 
-__all__ = ["RECORD_KEY", "RECIPE_VERSION", "default_recipe",
-           "record", "recorded", "drop_ordinals"]
+__all__ = ["RECORD_KEY", "RECIPE_VERSION", "STEPS", "chosen_steps",
+           "default_recipe", "build_recipe",
+           "record", "recorded", "drop_ordinals", "apply_rows",
+           "write_generated", "generated_of", "remove_generated",
+           "GENERATED_MARK"]
 
 #: the key of the record row (``o4_placement_provenance.json``)
 RECORD_KEY = "pack_optimise"
 #: the recipe's shape; recorded with it so a later phase can read an
-#: older row
-RECIPE_VERSION = 1
+#: older row (1: dedupe only; 2: + library swaps; 3: + object copies
+#: and textures)
+RECIPE_VERSION = 3
+#: every file the recipe writes beside the vendor's carries this in its name
+GENERATED_MARK = ".o4opt"
 
 
 def default_recipe() -> dict[str, _t.Any]:
-    """What "Optimise" means today."""
+    """What "Optimise" means today without the pack's files: the rules
+    that need no match (:func:`build_recipe` adds the matches)."""
     return {"version": RECIPE_VERSION, "dedupe": dict(_dd.DEFAULTS)}
+
+
+#: the steps a recipe may carry, in the order the question lists them:
+#: duplicates (D1), library swaps (D2), lighter object copies (O1/O2),
+#: lighter textures (O4)
+STEPS = ("dedupe", "swap", "objects", "textures")
+
+
+def chosen_steps(steps: _t.Iterable[str] | None) -> tuple[str, ...]:
+    """``steps`` as :data:`STEPS` orders them (unknown names dropped);
+    ``None`` is every step."""
+    if steps is None:
+        return STEPS
+    wanted = set(steps)
+    return tuple(s for s in STEPS if s in wanted)
+
+
+def build_recipe(pack_root: str, lines: _t.Sequence[str],
+                 exports_of: _t.Callable[[str], _t.Sequence[_t.Any]] | None,
+                 steps: _t.Iterable[str] | None = None) -> dict[str, _t.Any]:
+    """The recipe for one pristine dump ``lines`` with the user's
+    ``steps`` (``None``: every step): the duplicates (:func:`default_recipe`),
+    with the install's library (``exports_of``) the library swaps of its
+    objects (``swap.plan_swaps``), the lighter copies of the rest
+    (``objcopy.plan_objects``) and their lighter textures
+    (``textures.plan_textures``).  An object a step left unswapped is
+    one the copies may lighten.  Deterministic for one pack, one install
+    and one set of steps."""
+    from ..dsf_write import placement_rows
+    from ..pack_art import declared_definitions
+    chosen = chosen_steps(steps)
+    recipe = default_recipe()
+    if "dedupe" not in chosen:
+        del recipe["dedupe"]
+    if chosen != STEPS:
+        recipe["steps"] = list(chosen)
+    defs = declared_definitions(lines)["object"]
+    uses: dict[int, int] = {}
+    for _o, _i, toks in placement_rows(lines):
+        uses[int(toks[1])] = uses.get(int(toks[1]), 0) + 1
+    swaps = (_sw.plan_swaps(pack_root, defs, uses, exports_of)
+             if exports_of is not None and "swap" in chosen else {})
+    if swaps:
+        recipe["swap"] = swaps
+    placed = _oc.placed_objects(pack_root, defs, uses, set(swaps))
+    copies = _oc.plan_objects(pack_root, placed) if "objects" in chosen else {}
+    if "textures" in chosen:
+        textures, rewrites = _tx.plan_textures(
+            pack_root, [(p, max(s.size)) for p, (s, _n) in placed.items()])
+        for path, tex in rewrites.items():
+            copies.setdefault(path, {"specular": None, "lod": None})["tex"] = tex
+        if textures:
+            recipe["textures"] = textures
+    if copies:
+        recipe["objects"] = copies
+    return recipe
 
 
 def _decision_key(pristine_sha256: str, recipe: _t.Mapping[str, _t.Any]) -> str:
@@ -58,18 +136,25 @@ def _decision_key(pristine_sha256: str, recipe: _t.Mapping[str, _t.Any]) -> str:
 
 
 def record(pristine_sha256: str, recipe: _t.Mapping[str, _t.Any],
-           counts: _t.Mapping[str, int], time: str) -> dict[str, _t.Any]:
+           counts: _t.Mapping[str, int], time: str,
+           applied: _t.Mapping[str, _t.Any] | None = None) -> dict[str, _t.Any]:
     """The :data:`RECORD_KEY` entry of ``o4_placement_provenance.json``:
-    the recipe and what it did to this write."""
+    the recipe and what it did to this write (``applied``: the rows each
+    swap moved, ``{"swaps": {path: rows}, "generated": [files]}``)."""
+    applied = applied or {}
+    swaps = applied.get("swaps") or {}
+    to = (recipe.get("swap") or {})
     return {"accepted": True, "time": time,
             "key": _decision_key(pristine_sha256, recipe),
             "pristine_sha256": pristine_sha256,
             "recipe_version": int(recipe.get("version", RECIPE_VERSION)),
             "params": dict(recipe),
             "dedupe": {k: int(v) for k, v in counts.items()},
-            # later phases (#1707 D2-O4): library swaps, re-pointed
-            # definitions, generated files
-            "swaps": [], "renames": [], "generated": []}
+            "swaps": [{"path": p, "to": (to.get(p) or {}).get("to", ""),
+                       "rows": int(n)} for p, n in sorted(swaps.items())],
+            # later phases (#1707 D3-O4): re-pointed definitions
+            "renames": [],
+            "generated": sorted(applied.get("generated") or ())}
 
 
 def recorded(entry: _t.Mapping[str, _t.Any] | None,
@@ -97,3 +182,98 @@ def drop_ordinals(lines: _t.Sequence[str], recipe: _t.Mapping[str, _t.Any],
     if not isinstance(params, _t.Mapping):
         return set(), {}
     return _dd.drop_set(lines, params, edited)
+
+
+def apply_rows(text: str, recipe: _t.Mapping[str, _t.Any]
+               ) -> tuple[str, dict[str, int]]:
+    """The recipe's row rewrites on an edited dump — D2 ``swap.apply``,
+    then D3 ``objcopy.rename_rows`` — the text and ``{declared path:
+    rows swapped}``."""
+    swaps = (recipe or {}).get("swap")
+    counts: dict[str, int] = {}
+    if isinstance(swaps, _t.Mapping) and swaps:
+        text, counts = _sw.apply(text, swaps)
+    copies = (recipe or {}).get("objects")
+    if isinstance(copies, _t.Mapping) and copies:
+        text, _n = _oc.rename_rows(text, copies)
+    return text, counts
+
+
+def write_generated(pack_root: str, recipe: _t.Mapping[str, _t.Any]
+                    ) -> list[str]:
+    """Write every file the recipe's edited DSF names beside the vendor's
+    (the lights-only copies, ``swap.lights_text``; the object copies,
+    ``objcopy.copy_text``) from the vendor file, when it is absent or
+    differs; returns them pack-relative.  A vendor
+    file that no longer reads raises: the DSF must never name a missing
+    file."""
+    out: list[str] = []
+    for path, sw in sorted(((recipe or {}).get("swap") or {}).items()):
+        rel = (sw or {}).get("lights") or ""
+        if not rel:
+            continue
+        src = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
+        text = _sw.lights_text(src)
+        if text is None:
+            raise ValueError(f"{path}: its lights can no longer be read")
+        _write_if_changed(os.path.join(pack_root, *rel.replace("\\", "/").split("/")),
+                          text)
+        out.append(rel.replace("\\", "/"))
+    for rel, plan in sorted(((recipe or {}).get("textures") or {}).items()):
+        _tx.write_texture(pack_root, rel, plan)      # before a copy names it
+        out.append(str(plan["to"]))
+    for path, params in sorted(((recipe or {}).get("objects") or {}).items()):
+        src = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
+        rel = _oc.copy_path(path).replace("\\", "/")
+        dst = os.path.join(pack_root, *rel.split("/"))
+        if not _current_copy(dst, _oc.stamp(src, params)):
+            _write_if_changed(dst, _oc.copy_text(src, params), "latin-1")
+        out.append(rel)
+    return out
+
+
+def _current_copy(path: str, stamp: str) -> bool:
+    """Whether the copy at ``path`` was written from today's vendor file
+    and params (its fourth line carries the stamp)."""
+    try:
+        with open(path, encoding="latin-1") as fh:
+            head = [fh.readline() for _ in range(4)]
+    except OSError:
+        return False
+    return head[3].strip() == f"# o4opt {stamp}"
+
+
+def _write_if_changed(path: str, text: str, encoding: str = "utf-8") -> None:
+    data = text.encode(encoding)
+    try:
+        with open(path, "rb") as fh:
+            if fh.read() == data:
+                return
+    except OSError:
+        pass
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(data)
+    os.replace(tmp, path)
+
+
+def generated_of(entry: _t.Mapping[str, _t.Any] | None) -> list[str]:
+    """The pack-relative files a DSF's record says the recipe wrote."""
+    row = (entry or {}).get(RECORD_KEY)
+    files = row.get("generated") if isinstance(row, dict) else None
+    return [f for f in (files or ()) if isinstance(f, str)]
+
+
+def remove_generated(pack_root: str, rels: _t.Iterable[str]) -> list[str]:
+    """Remove the recipe's files ``rels`` (pack-relative); only a name
+    carrying :data:`GENERATED_MARK` inside the pack is ever touched, so a
+    vendor file never is.  Returns those removed."""
+    root = os.path.abspath(pack_root) + os.sep
+    gone: list[str] = []
+    for rel in sorted(set(rels)):
+        path = os.path.abspath(os.path.join(pack_root, *rel.split("/")))
+        if (GENERATED_MARK in os.path.basename(path) and path.startswith(root)
+                and os.path.isfile(path)):
+            os.remove(path)
+            gone.append(rel)
+    return gone

@@ -69,6 +69,7 @@ from . import obj8 as _obj8
 from . import obj8_grade as _obj8_grade
 from . import pack_work as _work
 from .adapted_riders import riders_of_adapted as _riders
+from .adapted_riders import touching_adapted as _touching
 from . import scatter as _scatter
 from . import skirt as _skirt
 from .pack import live_path_of
@@ -167,6 +168,9 @@ class PackPartition:
     #: (``footprint_connector.solid_connectors``), stamped by the pipeline
     #: at planar time; the rebake plan carries it to the object stage
     connectors: "tuple | None" = None
+    #: #1726: the kept parts that ε-touch a terrain-adapted member of their
+    #: own frame (``adapted_riders.touching_adapted``); filtered reading only
+    adapted_frame_pids: frozenset[int] = frozenset()
 
     def member_at(self, key: tuple[int, int]) -> Member:
         return self.units[key[0]].members[key[1]]
@@ -194,6 +198,9 @@ class PackPartition:
         # with it (``adapted_riders``)
         riders = _riders(self.units, self.member_object, self.contacts,
                          screen.excluded)
+        # #1726: the re-seated parts touching them take their zero
+        touching = _touching(self.units, self.member_object, self.contacts,
+                             screen.excluded | riders)
         for ui, u in enumerate(self.units):
             members: list[Member] = []
             for mi, m in enumerate(u.members):
@@ -256,8 +263,10 @@ class PackPartition:
         counts["abutments"] = len(abutments)
         counts["line_objects"] = sum(1 for u in units for m in u.members
                                      if m.parts and all(p.line for p in m.parts))
+        counts["adapted_frame_parts"] = len(touching & keep_pids)
         return _dc.replace(self, units=tuple(units), skipped=tuple(sorted(skipped.items())),
                            counts=counts, contacts=contacts, abutments=abutments,
+                           adapted_frame_pids=frozenset(touching & keep_pids),
                            member_object=member_object, multi_anchor=frozenset(),
                            deferred=(), geom=None)
 

@@ -88,6 +88,16 @@ def test_the_copy(qapp):
     assert box.escapeButton().text() == "Not now"
 
 
+def test_the_copy_with_swaps(qapp):
+    box, _buttons = QTOPT.pack_optimise_box(_event(swapped=6232))
+    assert box.informativeText().startswith(
+        "This airport’s objects draw 275.5 million triangles on this tile, "
+        "enough to cost frame rate. Optimise removes the 2720 object "
+        "placements that repeat another on the same spot and swaps 6232 "
+        "heavy vehicles and ground equipment for X-Plane’s lighter library "
+        "ones (222.0 million triangles).\n\n")
+
+
 def test_the_copy_matches_the_mac_app():
     swift = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
                          "SceneryKit", "PackOptimise.swift")
@@ -102,10 +112,14 @@ def test_the_copy_matches_the_mac_app():
         return "".join(re.findall(r'"([^"]*)"', text[
             text.index(start):text.index(end, text.index(start))]))
 
-    assert joined("func body(", "static let detail").replace(
-        "\\(millions(before))", "{before}").replace(
-        "\\(count)", "{n}").replace("\\(millions(after))", "{after}") \
-        == QTOPT.BODY
+    def fields(t):
+        return t.replace("\\(millions(before))", "{before}").replace(
+            "\\(count)", "{n}").replace("\\(swapped)", "{s}").replace(
+            "\\(millions(after))", "{after}")
+
+    assert fields(joined("func bodyRepeats(", "func bodySwapped(")) == QTOPT.BODY
+    assert fields(joined("func bodySwapped(", "static let bodySteps")) \
+        == QTOPT.BODY_SWAPPED
     assert joined("static let detail", "static let optimiseButton") == QTOPT.DETAIL
     assert joined("static let optimiseHelp", "static let undoHelp") \
         == QTOPT.OPTIMISE_HELP
@@ -176,3 +190,67 @@ def test_the_pack_row_optimises_or_undoes(window, monkeypatch):
     assert sent == [{"pack_root": "/X/CS/Some Pack", "action": "update",
                      "lat": 29, "lon": -96},
                     {"pack_root": "/X/CS/B", "action": "undo"}]
+
+
+# ── the steps (owner 2026-11-03: checkboxes, all on, explained) ─────────
+
+STEPS = [{"key": "dedupe", "count": 2721, "tris": 53_400_000, "mb": 0.0},
+         {"key": "swap", "count": 11021, "tris": 161_300_000, "mb": 0.0},
+         {"key": "textures", "count": 61, "tris": 0, "mb": 1184.0}]
+
+
+def test_one_checkbox_per_step_all_on(qapp):
+    box, _buttons = QTOPT.pack_optimise_box(_event(steps=STEPS))
+    assert list(box.step_boxes) == ["dedupe", "swap", "textures"], \
+        "a step with nothing to do is not listed"
+    assert all(b.isChecked() for b in box.step_boxes.values())
+    assert [b.text() for b in box.step_boxes.values()] == [
+        "Remove repeated placements", "Use X-Plane’s library vehicles",
+        "Compress large textures"]
+    assert QTOPT._step_detail(STEPS[1]) == (
+        "11021 heavy cars and ground equipment become X-Plane’s lighter "
+        "models (−161.3 million triangles up close).")
+    assert QTOPT._step_detail(STEPS[2]).endswith("(about −1184 MB of video memory).")
+    assert box.informativeText() == (
+        "This airport’s objects draw 275.5 million triangles on this tile, "
+        "enough to cost frame rate. Choose what Optimise does:")
+
+
+def test_the_last_choice_is_checked_and_none_disables_optimise(qapp):
+    box, buttons = QTOPT.pack_optimise_box(_event(steps=STEPS, chosen=["swap"]))
+    assert box.checked_steps() == ["swap"]
+    assert buttons["update"].isEnabled()
+    box.step_boxes["swap"].setChecked(False)
+    assert not buttons["update"].isEnabled(), "nothing checked: nothing to do"
+
+
+def test_optimise_sends_the_checked_steps(window, monkeypatch):
+    sent = []
+    monkeypatch.setattr(window._session, "pack_optimise",
+                        lambda **kw: sent.append(kw) or {"status": "started"})
+    window._on_engine_event(_event(steps=STEPS))
+    [box] = window._pack_art_boxes
+    box.step_boxes["textures"].setChecked(False)
+    _button(box, "Optimise").click()
+    assert sent == [{"pack_root": "/X/Custom Scenery/Some Pack", "action": "update",
+                     "lat": 29, "lon": -96, "steps": ["dedupe", "swap"]}]
+
+
+def test_the_step_copy_matches_the_mac_app():
+    swift = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
+                         "SceneryKit", "PackOptimise.swift")
+    if not os.path.exists(swift):
+        pytest.skip("Swift sources not present in this tree")
+    text = open(swift, encoding="utf-8").read()
+
+    def entries(start, end):
+        seg = text[text.index(start):text.index(end, text.index(start))]
+        out = {}
+        for m in re.finditer(r'"(\w+)": ((?:"[^"]*"\s*\+?\s*)+)', seg):
+            out[m.group(1)] = "".join(re.findall(r'"([^"]*)"', m.group(2)))
+        return out
+
+    assert entries("static let stepTitles", "static let stepDetails") == QTOPT.STEP_TITLES
+    assert entries("static let stepDetails", "static let detail") == QTOPT.STEP_DETAILS
+    seg = text[text.index("static let bodySteps"):text.index("/// Per step: its checkbox")]
+    assert "".join(re.findall(r'"([^"]*)"', seg)) == QTOPT.BODY_STEPS

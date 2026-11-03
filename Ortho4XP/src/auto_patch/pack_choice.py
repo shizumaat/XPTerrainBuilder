@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import json
 import os
+import typing as _t
 
-__all__ = ["OPTIMISE_CHOICES", "Store", "store_path", "read", "write",
-           "relative"]
+__all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "Store", "store_path", "read",
+           "write", "relative", "step_list"]
 
 #: the "Optimise pack" answers file (#1707; ``optimise_stage``)
 OPTIMISE_CHOICES = "pack_optimise_choices.json"
+#: the steps the user last chose for a pack's "Optimise pack" (#1707)
+OPTIMISE_STEPS = "pack_optimise_steps.json"
 
 #: the answers a store remembers ("" forgets)
 REMEMBERED = ("update", "never")
@@ -31,28 +34,43 @@ def _pack_key(pack_root: str) -> str:
     return os.path.normcase(os.path.abspath(pack_root or ""))
 
 
-def _read_all(path: str) -> dict[str, str]:
+def _remembered(value: object) -> bool:
+    return value in REMEMBERED
+
+
+def step_list(value: object) -> bool:
+    """A remembered list of steps: ``"dedupe,swap"`` (lower-case names,
+    comma-separated, none empty) — the :data:`OPTIMISE_STEPS` store's."""
+    return (isinstance(value, str) and bool(value)
+            and all(w.isalpha() and w.islower() for w in value.split(",")))
+
+
+def _read_all(path: str, allowed: _t.Callable[[object], bool] = _remembered
+              ) -> dict[str, str]:
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
     except (OSError, ValueError):
         return {}
     return {str(k): str(v) for k, v in doc.items()
-            if v in REMEMBERED} if isinstance(doc, dict) else {}
+            if allowed(v)} if isinstance(doc, dict) else {}
 
 
-def read(path: str, pack_root: str) -> str:
-    """``"update"`` | ``"never"`` | ``""`` (ask) for a pack."""
-    return _read_all(path).get(_pack_key(pack_root), "")
+def read(path: str, pack_root: str,
+         allowed: _t.Callable[[object], bool] = _remembered) -> str:
+    """``"update"`` | ``"never"`` | ``""`` (ask) for a pack (or what
+    ``allowed`` admits)."""
+    return _read_all(path, allowed).get(_pack_key(pack_root), "")
 
 
-def write(path: str, pack_root: str, choice: str) -> None:
+def write(path: str, pack_root: str, choice: str,
+          allowed: _t.Callable[[object], bool] = _remembered) -> None:
     """Remember (or, with ``""``, forget) the user's answer for a pack."""
-    doc = _read_all(path)
+    doc = _read_all(path, allowed)
     key = _pack_key(pack_root)
-    if doc.get(key, "") == (choice if choice in REMEMBERED else ""):
+    if doc.get(key, "") == (choice if allowed(choice) else ""):
         return                          # nothing to change: no write
-    if choice in REMEMBERED:
+    if allowed(choice):
         doc[key] = choice
     else:
         doc.pop(key, None)
@@ -65,18 +83,21 @@ def write(path: str, pack_root: str, choice: str) -> None:
 
 class Store:
     """One choice's answers file, by name (:func:`store_path` is read at
-    every call, so a test may redirect it)."""
+    every call, so a test may redirect it); ``allowed`` says which values
+    it remembers (default ``"update"`` / ``"never"``)."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str,
+                 allowed: _t.Callable[[object], bool] = _remembered) -> None:
         self.name = name
+        self.allowed = allowed
 
     def choice(self, pack_root: str) -> str:
         """``"update"`` | ``"never"`` | ``""`` (ask)."""
-        return read(store_path(self.name), pack_root)
+        return read(store_path(self.name), pack_root, self.allowed)
 
     def remember(self, pack_root: str, choice: str) -> None:
         """Remember (or, with ``""``, forget) the answer for a pack."""
-        write(store_path(self.name), pack_root, choice)
+        write(store_path(self.name), pack_root, choice, self.allowed)
 
 
 def relative(pack_root: str, path: str) -> str:

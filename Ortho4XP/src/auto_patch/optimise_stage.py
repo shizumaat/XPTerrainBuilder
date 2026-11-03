@@ -16,7 +16,8 @@ later write.
 
 THE OFFER: a pack whose own objects draw more than
 ``pack_optimise.weight.OFFER_TRIANGLES`` on the tile, and that the recipe
-can lighten (phase 1: duplicate placements, D1).  The answer is the
+can lighten (duplicate placements D1, library swaps D2, lighter object
+copies O1/O2).  The answer is the
 user's, per pack (``pack_choice``): "Optimise" and "Never for this pack"
 are remembered outside the pack, "Not now" is not.  The pack's row under
 Modified airports optimises at any weight, and undoes it.
@@ -34,8 +35,8 @@ from . import pack_choice as _PC
 from . import pack_rewrite as _PR
 from .pack_choice import relative as _relative
 
-__all__ = ["ACTIONS", "CHOICES_NAME", "STORE", "optimise_choice", "optimise_stage",
-           "recorded_key"]
+__all__ = ["ACTIONS", "CHOICES_NAME", "STORE", "STEPS_STORE", "optimise_choice",
+           "optimise_stage", "recorded_key"]
 
 #: the per-pack answers, beside the remembered data-root choice
 CHOICES_NAME = _PC.OPTIMISE_CHOICES
@@ -45,6 +46,24 @@ ACTIONS = ("update", "never", "undo")
 
 #: the user's answer per pack ("update" | "never" | "" = ask)
 STORE = _PC.Store(CHOICES_NAME)
+#: the steps the user last chose per pack ("" = every step)
+STEPS_STORE = _PC.Store(_PC.OPTIMISE_STEPS, _PC.step_list)
+
+
+def _remembered_steps(pack_root: str) -> tuple[str, ...]:
+    """The steps the user last chose for the pack; every step by default."""
+    from auto_patch_v2.airport import pack_optimise as _po
+    value = STEPS_STORE.choice(pack_root)
+    return _po.chosen_steps(value.split(",") if value else None)
+
+
+def _remember_steps(pack_root: str, steps: _t.Iterable[str]) -> tuple[str, ...]:
+    """Remember the user's steps for the pack (every step is the default,
+    so it is forgotten); returns them in order."""
+    from auto_patch_v2.airport import pack_optimise as _po
+    chosen = _po.chosen_steps(steps)
+    STEPS_STORE.remember(pack_root, "" if chosen == _po.STEPS else ",".join(chosen))
+    return chosen
 
 
 class PackWeight(_t.NamedTuple):
@@ -58,6 +77,10 @@ class PackWeight(_t.NamedTuple):
     tris_after: int
     dedupe: int                # duplicate placements the recipe drops
     optimised: dict            # the recorded recipe, {} = none
+    recipe: dict = {}          # the recipe "Optimise" writes today
+    swapped: int = 0           # placements swapped for library objects
+    steps: tuple = ()          # each step's estimate (``impact.steps``)
+    chosen: tuple = ()         # the steps the recipe carries
 
     @property
     def heavy(self) -> bool:
@@ -66,24 +89,40 @@ class PackWeight(_t.NamedTuple):
 
     @property
     def can_optimise(self) -> bool:
-        return self.dedupe > 0
+        return (bool(self.steps) or self.dedupe > 0 or self.swapped > 0
+                or bool((self.recipe or {}).get("objects")))
+
+    @property
+    def wanted(self) -> dict:
+        """The recipe "Optimise" writes: the check's, else the rules that
+        need no match."""
+        from auto_patch_v2.airport import pack_optimise as _po
+        return self.recipe or _po.default_recipe()
 
     @property
     def current(self) -> bool:
         """The live DSF already carries today's recipe."""
-        from auto_patch_v2.airport import pack_optimise as _po
-        return bool(self.optimised) and self.optimised == _po.default_recipe()
+        return bool(self.optimised) and self.optimised == self.wanted
 
 
-def check(pack_root: str, lat: int, lon: int, *,
-          read_only: bool) -> PackWeight | None:
+def check(pack_root: str, lat: int, lon: int, *, read_only: bool,
+          full: bool = False, steps: _t.Iterable[str] | None = None
+          ) -> PackWeight | None:
     """THE CHECK for one pack's tile DSF, or ``None`` when there is
-    nothing to judge (``object_stage.pack_dump``)."""
+    nothing to judge (``object_stage.pack_dump``).  The whole recipe (the
+    library swaps, the object and texture copies: every placed object
+    file read) is made only for a pack heavy enough to be offered, or
+    with ``full`` (the user said Optimise); any other pack is weighed on
+    its duplicates alone, from the OBJ headers.  ``steps`` are the user's
+    (default: the ones remembered for the pack); every step's estimate is
+    in ``PackWeight.steps`` whatever they are."""
     from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import pack_optimise as _po
     from auto_patch_v2.airport.file_hash import sha256_file
+    from auto_patch_v2.airport.pack_optimise import impact as _im
     from auto_patch_v2.airport.pack_optimise import weight as _w
 
+    from . import agp_reader as _agp
     from .object_stage import pack_dump
 
     pd = pack_dump(pack_root, lat, lon, read_only=read_only)
@@ -91,8 +130,22 @@ def check(pack_root: str, lat: int, lon: int, *,
         return None
     with open(pd.dump_path, encoding="utf-8", errors="surrogateescape") as fh:
         lines = fh.read().splitlines(keepends=True)
-    drop, counts = _po.drop_ordinals(lines, _po.default_recipe(), frozenset())
+    chosen = (_po.chosen_steps(steps) if steps is not None
+              else _remembered_steps(pack_root))
+    recipe = _po.default_recipe()
+    drop, counts = _po.drop_ordinals(lines, recipe, frozenset())
     est = _w.estimate(pack_root, lines, drop)
+    impacts: list = []
+    if full or est["tris_before"] > _w.OFFER_TRIANGLES:
+        exports = _agp.export_files(pd.xroot) if pd.xroot else None
+        exports_of = ((lambda v: _agp.weighted_files_at(
+            exports.get(v.lower(), ()), lat, lon)) if exports else None)
+        recipe = _po.build_recipe(pack_root, lines, exports_of)
+        impacts = _im.steps(pack_root, lines, recipe)
+        if chosen != _po.STEPS:
+            recipe = _po.build_recipe(pack_root, lines, exports_of, chosen)
+        drop, counts = _po.drop_ordinals(lines, recipe, frozenset())
+        est = _w.estimate(pack_root, lines, drop, swaps=recipe.get("swap"))
     optimised = {}
     if os.path.isfile(pd.pristine) and pd.pristine != pd.dsf_path:
         entry = _bs.dsf_entry(_bs.read_record(pd.dsf_path),
@@ -100,7 +153,8 @@ def check(pack_root: str, lat: int, lon: int, *,
         optimised = _po.recorded(entry, sha256_file(pd.pristine))
     return PackWeight(pd.pack_name, pd.dsf_path, est["tris_before"],
                       est["tris_after"], int(counts.get("dropped", 0)),
-                      optimised)
+                      optimised, recipe, int(est["swapped"]), tuple(impacts),
+                      chosen)
 
 
 def recorded_key(pack_root: str, lat: int, lon: int) -> str:
@@ -124,8 +178,9 @@ def log_line(pw: PackWeight) -> str:
     """The engine log line for a pack the recipe can lighten."""
     return (f"[pack] {pw.pack_name}: its own objects draw "
             f"{_millions(pw.tris_before)} triangles on this tile; "
-            f"{pw.dedupe} placement(s) are duplicates (Optimise pack: "
-            f"{_millions(pw.tris_after)})")
+            f"{pw.dedupe} placement(s) are duplicates and {pw.swapped} "
+            f"vehicle(s) have a lighter X-Plane library equivalent "
+            f"(Optimise pack: {_millions(pw.tris_after)})")
 
 
 def _announce(pw: PackWeight, pack_root: str, lat: int, lon: int,
@@ -134,9 +189,11 @@ def _announce(pw: PackWeight, pack_root: str, lat: int, lon: int,
     import O4_UI_Utils as UI
     UI.pack_optimise(pack=pw.pack_name, pack_root=pack_root, lat=lat, lon=lon,
                      state=state, error=error, dedupe=pw.dedupe,
+                     swapped=pw.swapped,
                      est_tris_before=pw.tris_before,
                      est_tris_after=pw.tris_after,
-                     can_optimise=pw.can_optimise, files=list(files))
+                     can_optimise=pw.can_optimise, files=list(files),
+                     steps=[dict(r) for r in pw.steps], chosen=list(pw.chosen))
 
 
 def _write(pw: PackWeight, pack_root: str, recipe: dict) -> None:
@@ -146,7 +203,8 @@ def _write(pw: PackWeight, pack_root: str, recipe: dict) -> None:
     dsf = pw.dsf_path
     backup = _PR.rewrite_dsf(pack_root, pw.pack_name, dsf, optimise=recipe)
     UI.vprint(0, f"  [pack] {pw.pack_name}: "
-                 + (f"optimised — {pw.dedupe} duplicate placement(s) dropped"
+                 + (f"optimised — {pw.dedupe} duplicate placement(s) dropped, "
+                    f"{pw.swapped} swapped for X-Plane library objects"
                     if recipe else "the original placements are back")
                  + f" — rewrote {_relative(pack_root, dsf)} (the original is "
                    f"kept as {os.path.basename(backup)})")
@@ -154,9 +212,8 @@ def _write(pw: PackWeight, pack_root: str, recipe: dict) -> None:
 
 def _optimise(pw: PackWeight, pack_root: str, lat: int, lon: int) -> str:
     """Write the recipe and say so; returns the state announced."""
-    from auto_patch_v2.airport import pack_optimise as _po
     try:
-        _write(pw, pack_root, _po.default_recipe())
+        _write(pw, pack_root, pw.wanted)
     except Exception as exc:
         import O4_UI_Utils as UI
         UI.vprint(0, f"  [pack] {pw.pack_name}: the pack could not be "
@@ -177,8 +234,10 @@ def optimise_stage(plan_, tile, *, writes: bool) -> str:
     ``"current"`` — for the log and the twins.  Never raises."""
     import O4_UI_Utils as UI
     pack_root = getattr(plan_, "pack_root", "") or ""
+    choice = STORE.choice(pack_root)
     try:
-        pw = check(pack_root, tile.lat, tile.lon, read_only=not writes)
+        pw = check(pack_root, tile.lat, tile.lon, read_only=not writes,
+                   full=writes and choice == "update")
     except Exception as exc:
         UI.vprint(1, f"  [pack] optimise check skipped ({exc})")
         UI.vprint(2, traceback.format_exc())
@@ -187,7 +246,6 @@ def optimise_stage(plan_, tile, *, writes: bool) -> str:
         return ""
     if pw.current:
         return "current"
-    choice = STORE.choice(pack_root)
     if choice == "never":
         return "never"
     if writes and choice == "update":
@@ -200,10 +258,12 @@ def optimise_stage(plan_, tile, *, writes: bool) -> str:
 
 
 def optimise_choice(pack_root: str, action: str, lat: int | None = None,
-                    lon: int | None = None) -> dict:
+                    lon: int | None = None,
+                    steps: _t.Iterable[str] | None = None) -> dict:
     """THE USER'S ANSWER, outside a build (the ``pack_optimise`` command).
 
-    * ``"update"`` — remember it and optimise the tile's DSF now;
+    * ``"update"`` — remember it and optimise the tile's DSF now, with
+      ``steps`` (remembered for the pack; without, the ones remembered);
     * ``"never"`` — remember it; nothing is written;
     * ``"undo"`` — forget the answer and put the original placements
       back in every optimised DSF of the pack (only the tile's with
@@ -230,8 +290,12 @@ def optimise_choice(pack_root: str, action: str, lat: int | None = None,
             out["state"] = "undone" if out["files"] else "none"
         else:
             STORE.remember(pack_root, "update")
+            chosen = (_remember_steps(pack_root, steps) if steps is not None
+                      else _remembered_steps(pack_root))
+            if not chosen:
+                raise ValueError("no step chosen")
             pw = check(pack_root, int(lat or 0), int(lon or 0),
-                       read_only=False)
+                       read_only=False, full=True, steps=chosen)
             if pw is not None and pw.can_optimise and not pw.current:
                 out["state"] = _optimise(pw, pack_root, int(lat or 0),
                                          int(lon or 0))
@@ -253,6 +317,19 @@ def undo(pack_root: str, lat: int | None = None,
     nothing else of ours is in a DSF (``pack_rewrite.undo_recorded``)."""
     from auto_patch_v2.airport import pack_optimise as _po
     name = os.path.basename(os.path.normpath(pack_root))
-    return _PR.undo_recorded(
+    before = _generated(pack_root)
+    done = _PR.undo_recorded(
         pack_root, lat, lon, _po.RECORD_KEY,
         lambda dsf: _write(PackWeight(name, dsf, 0, 0, 0, {}), pack_root, {}))
+    # a file the recipe wrote goes once no optimised DSF names it
+    _po.remove_generated(pack_root, before - _generated(pack_root))
+    return done
+
+
+def _generated(pack_root: str) -> set[str]:
+    """Every file the pack's optimised DSFs' records say the recipe wrote."""
+    from auto_patch_v2.airport import pack_optimise as _po
+
+    from . import object_rebake as _OR
+    return {f for _dsf, entry in _OR.recorded_dsfs(pack_root, _po.RECORD_KEY)
+            for f in _po.generated_of(entry)}

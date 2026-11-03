@@ -1497,6 +1497,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     rows = _us.placements(pristine_text) if hand else ()
     if optimise is None:
         optimise = _po.recorded(prior_entry, backup_sha)
+    generated = _po.write_generated(pack_root, optimise) if optimise else []
     siblings, sibling_rows = _sibling_plans(prior_entry, plan, text,
                                             backup_sha, drop, notes)
     # #1246: a split DSFTool cannot place (a body off the tile) is undone
@@ -1510,7 +1511,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         composed = plan.compose(siblings)
         placed, seated, refused = _us.apply(composed, _us.union(hand), rows)
         _refuse_missing_bodies(pack_root, placed)            # #1214 R1
-        edited, omitted, unused, optimised = _edited_text(
+        edited, omitted, unused, optimised, swapped = _edited_text(
             pinned, placed, omit,
             engine_version or plan.provenance.engine_version, optimise)
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
@@ -1622,7 +1623,9 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                          if hand else None),
         # #1707: the "Optimise pack" recipe the user accepted, or None
         _po.RECORD_KEY: (_po.record(backup_sha, optimise, optimised,
-                                    _bs.stamp()) if optimise else None),
+                                    _bs.stamp(), {"swaps": swapped,
+                                                  "generated": generated})
+                         if optimise else None),
         # #678: the definitions the edit emptied and the write dropped
         "unused_defs_dropped": int(unused.get("object_defs", 0)),
     }
@@ -1665,13 +1668,15 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
 
 def _edited_text(text: str, composed: PlacementPlan, omit: _t.Sequence,
                  engine_version: str, optimise: _t.Mapping[str, _t.Any]
-                 ) -> tuple[str, dict, dict, dict]:
+                 ) -> tuple[str, dict, dict, dict, dict]:
     """The pristine dump edited by ``composed`` and the optimise recipe's
     duplicate drops (#1707; a duplicate the plan edits keeps its edit),
     the accepted omission (#433) and the dropped unused definitions
     (#678): a definition the edit left with no row (a split's original)
     is not declared; one the AUTHOR declared unused is the pack's own and
-    stays."""
+    stays.  Last, the recipe's library swaps (#1707 D2) move the rows
+    still drawing a swapped object — a split body of one stays the
+    pack's."""
     edited_rows = ({c.index for c in composed.conversions}
                    | {s.placement.index for s in composed.splits}
                    | {m.index for m in getattr(composed, "msl_seats", ())})
@@ -1683,7 +1688,8 @@ def _edited_text(text: str, composed: PlacementPlan, omit: _t.Sequence,
         edited, omitted = _pa.omit_definitions(edited, omit)
     edited, unused = _pa.omit_definitions(edited, _pa.unused_definitions(
         edited, keep={m.path for m in _pa.unused_definitions(text)}))
-    return edited, omitted, unused, optimised
+    edited, swapped = _po.apply_rows(edited, optimise)
+    return edited, omitted, unused, optimised, swapped
 
 
 def _undone_notes(plan: PlacementPlan, undone: _t.Mapping[int, str],

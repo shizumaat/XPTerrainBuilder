@@ -2028,17 +2028,23 @@ class EngineSession:
         return self._pack_choice_worker("o4-pack-forests", _FS.forest_choice,
                                         pack_root, action, lat, lon)
 
-    def pack_optimise(self, pack_root="", action="", lat=None, lon=None):
+    def pack_optimise(self, pack_root="", action="", lat=None, lon=None,
+                      steps=None):
         """THE USER'S ANSWER (protocol 1.31, #1707): ``action`` is
         ``"update"`` (remember it, optimise the tile DSF), ``"never"``
         (remember it, write nothing) or ``"undo"`` (forget it, put the
         original placements back in every optimised DSF of the pack, or
-        the tile's with ``lat``/``lon``).  Replies ``{"status":
-        "started"}`` at once and completes with a ``PackOptimise`` event."""
+        the tile's with ``lat``/``lon``).  ``steps`` (capability
+        ``pack_optimise_steps``) are the steps the user kept checked
+        (``pack_optimise.STEPS``); without, the ones remembered for the
+        pack.  Replies ``{"status": "started"}`` at once and completes with
+        a ``PackOptimise`` event."""
         from auto_patch import optimise_stage as _OS
-        return self._pack_choice_worker("o4-pack-optimise",
-                                        _OS.optimise_choice, pack_root,
-                                        action, lat, lon)
+        chosen = None if steps is None else [str(x) for x in steps]
+        return self._pack_choice_worker(
+            "o4-pack-optimise",
+            lambda r, a, la, lo: _OS.optimise_choice(r, a, la, lo, steps=chosen),
+            pack_root, action, lat, lon)
 
     @staticmethod
     def _pack_choice_worker(name, choice, pack_root, action, lat, lon):

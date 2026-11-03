@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import threading
+import typing as _t
 
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).  It
 # is stdlib-only and imports no Ortho4XP module, so importing it here at
@@ -24,7 +25,6 @@ import threading
 # PyInstaller see it (a lazy import shipped a broken frozen engine on
 # 2026-09-10).
 import O4_Scenery_Packs as _scenery_packs
-
 
 # Memoized library index, keyed by absolute xplane_root.  Built once per
 # process and shared by every airport / caller — scanning the thousands
@@ -460,6 +460,95 @@ def other_export_names(xplane_root: str) -> frozenset[str]:
             continue
     _OTHER_EXPORTS_CACHE[key] = frozenset(names)
     return _OTHER_EXPORTS_CACHE[key]
+
+
+#: the export directives whose first argument is not the virtual path
+_EXPORTS_WITH_LEAD = ("EXPORT_RATIO", "EXPORT_SEASON", "EXPORT_EXCLUDE_SEASON")
+#: ``(directive, absolute physical, region, ratio, library folder)``: the
+#: region is ``None`` (everywhere), a ``REGION_RECT`` ``(west, south,
+#: east, north)`` in whole degrees, or ``"bitmap"`` (a ``REGION_BITMAP`` /
+#: ``REGION_DREF`` region, which the reader cannot evaluate); the ratio is
+#: an ``EXPORT_RATIO`` row's weight, 1 for any other row
+ExportRow = tuple[str, str, "tuple[int, int, int, int] | str | None", float, str]
+_EXPORT_FILES_CACHE: dict[str, dict[str, tuple[ExportRow, ...]]] = {}
+
+
+def export_files(xplane_root: str) -> dict[str, tuple[ExportRow, ...]]:
+    """EVERY export row the install's libraries hold for each virtual
+    path: ``{lower-cased virtual: (ExportRow, ...)}`` across every
+    ``EXPORT*`` directive (merged, backup, ratio, seasonal, excluding) of
+    every ``library.txt``, in :func:`_library_source_files` order, each
+    with the region it is declared under.
+
+    The question it answers is "which files can X-Plane draw for that
+    name, and how often?" (:func:`weighted_files_at`) — the library swap
+    of "Optimise pack" (#1707) refuses a name a library may draw as a
+    missing file, or as a blank placeholder more than a minority of the
+    time.  Never merged into the index.  Parsed once per
+    process."""
+    key = os.path.abspath(xplane_root)
+    cached = _EXPORT_FILES_CACHE.get(key)
+    if cached is not None:
+        return cached
+    rows: dict[str, list[ExportRow]] = {}
+    for source in _library_source_files(xplane_root):
+        _export_rows(source, rows)
+    _EXPORT_FILES_CACHE[key] = {k: tuple(v) for k, v in rows.items()}
+    return _EXPORT_FILES_CACHE[key]
+
+
+def _export_rows(source: str, rows: dict[str, list[ExportRow]]) -> None:
+    """One ``library.txt``'s export rows, with their regions."""
+    lib_dir = os.path.dirname(source)
+    try:
+        with open(source, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return
+    regions: dict[str, "tuple[int, int, int, int] | str | None"] = {}
+    defining = ""
+    current: "tuple[int, int, int, int] | str | None" = None
+    for raw in lines:
+        tok = raw.split()
+        if not tok:
+            continue
+        kw = tok[0]
+        if kw == "REGION_DEFINE" and len(tok) > 1:
+            defining = tok[1]
+            regions[defining] = None
+        elif kw == "REGION_RECT" and defining and len(tok) >= 5:
+            try:
+                regions[defining] = tuple(int(float(t)) for t in tok[1:5])
+            except ValueError:
+                regions[defining] = "bitmap"
+        elif kw in ("REGION_BITMAP", "REGION_DREF") and defining:
+            regions[defining] = "bitmap"
+        elif kw == "REGION" and len(tok) > 1:
+            current = regions.get(tok[1])
+        elif kw.startswith("EXPORT"):
+            args = tok[2:] if kw in _EXPORTS_WITH_LEAD else tok[1:]
+            if len(args) < 2:
+                continue
+            physical = raw.strip().split(args[0], 1)[1].strip()
+            try:
+                ratio = float(tok[1]) if kw == "EXPORT_RATIO" else 1.0
+            except ValueError:
+                ratio = 1.0
+            rows.setdefault(args[0].lower(), []).append((kw, os.path.normpath(
+                os.path.join(lib_dir, physical.replace("\\", "/").replace(":", "/"))),
+                current, ratio, lib_dir))
+
+
+def weighted_files_at(rows: _t.Sequence[ExportRow], lat: int, lon: int
+                      ) -> list[tuple[str, float, str]]:
+    """``(file, ratio, library folder)`` of every file X-Plane may draw for
+    one name's ``rows`` on tile ``lat``/``lon``: every row whose region can
+    hold the tile, an ``EXPORT_BACKUP`` row only when no real row can
+    (X-Plane's rule)."""
+    here = [r for r in rows if not (isinstance(r[2], tuple) and not (
+        r[2][0] <= lon <= r[2][2] and r[2][1] <= lat <= r[2][3]))]
+    real = [r for r in here if r[0] != "EXPORT_BACKUP"]
+    return [(r[1], r[3], r[4]) for r in (real or here)]
 
 
 def resolve_library_path(virtual_path: str,

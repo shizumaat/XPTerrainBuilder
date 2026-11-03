@@ -454,3 +454,35 @@ def test_a_runway_bordered_level_below_its_floor_still_brings_the_road_down():
                                ceil={0: 100.0, 4: 100.0})
     assert all(out[v] == pytest.approx(95.0) for v in st)
     assert rep["ceiled"] == 0
+
+
+def test_a_runway_bordered_band_kerb_never_carries_the_runway_level_into_a_link(law):
+    """KBWI 1.0.461 (``small_roads:-1013`` past 15R's zone 2, owner sim read
+    2026-11-03: "graded on a lot of fill"): the last runway-bordered
+    stations of the route are BAND KERBS (``kerb``: no §37 (6) row, so no
+    floor and no cap), so the runway's level (106) led the run LINKED from
+    them to the next pavement (level 100) — straight down from the runway,
+    6 m over its own ground with no row binding it.  ``terrace_rewrite``
+    caps a floorless runway foot at its own ground, so the link is linked
+    to a capped foot and keeps its own floor."""
+    import types
+
+    from auto_patch_v2.constraints import road_ramp as rr
+    from auto_patch_v2.model.constraints import ConstraintSet, Linear, Source
+
+    st = _route(13)
+    foot, lv = _feet({0: 106.0, 1: 106.0, 2: 106.0, 3: 106.0, 4: 106.0,
+                      11: 100.0, 12: 100.0})
+    roads = [v for v in st if v not in (3, 4)]          # 3, 4: band kerbs
+    terr = {"foot": foot, "pad": {}, "station": st,
+            "runway": {v: True for v in range(5)}}
+    planar = types.SimpleNamespace(
+        road_terrace=terr,
+        vertices={v: types.SimpleNamespace(dem_z=100.0) for v in st})
+    cs = ConstraintSet(linears=tuple(
+        Linear(((v, 1.0),), 100.0, 100.0, Source(rr.GEN, rr.RULING, (f"vertex:{v}", "r")))
+        for v in roads))
+    out, rep = rr.terrace_rewrite(planar, law, cs, lv)
+    got = {int(r.source.inputs[0][7:]): r.hi for r in out.linears}
+    assert all(got[v] == pytest.approx(100.0) for v in range(5, 11)), got
+    assert rep["governed"] == len(roads)

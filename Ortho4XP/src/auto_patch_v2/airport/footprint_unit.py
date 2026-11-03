@@ -856,9 +856,19 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     from .airside_group_seat import storey_m
     storey = storey_m(Law.load())
     pad_read: dict[str, bool] = {}
+    adapted = frozenset(getattr(plan, "adapted_frame_pids", ()) or ())
+    adapted_memo: dict[str, "float | None"] = {}
     for un in units:
         zero: float | None = None
         where = src = ""
+        if adapted:
+            # #1726: a unit touching a TERRAIN-ADAPTED member of its own
+            # frame (never re-seated) takes that member's zero
+            az = _adapted_zero(un, units, adapted, frame_of, surface, adapted_memo)
+            if az is not None:
+                from .adapted_riders import ADAPTED_SRC
+                out[un.id] = (az, "", ADAPTED_SRC)
+                continue
         # §16g (7): THE DECK IS NO LONGER THE UNIT'S DATUM.  It is lent,
         # per body, to the bodies whose footprint polygons touch it
         # (``PlanUnit.deck_pids``, overlaid by :func:`plan_wide_seats`);
@@ -916,6 +926,38 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         out[un.id] = (zero, where, src)
     from .one_building import one_building_groups
     return one_building_groups(units, out, pav, piece_reach_m, span_max_m)
+
+
+def _adapted_zero(un: _t.Any, units: _t.Sequence[_t.Any],
+                  adapted: _t.AbstractSet[int],
+                  frame_of: _t.Mapping[int, tuple], surface: _t.Any,
+                  memo: dict) -> "float | None":
+    """#1726 (owner sim read KBWI 2026-11-03; RULINGS 2026-10-22o "connected
+    objects stay as one group"): the zero of the TERRAIN-ADAPTED member
+    the unit's parts touch in their own frame (``RebakePlan.
+    adapted_frame_pids``).  That member keeps its authored row — it is
+    never re-seated (09q (1)) — so X-Plane stands its ``y = 0`` on the
+    mesh at the frame's origin plus the row's lift; the unit takes that
+    zero, with no wall-base lift: the walls of one authored frame already
+    stand where its author drew them.  Read over every piece of the unit
+    (one root id) so the pieces keep one zero; ``None`` where no part of
+    the unit touches one, or the surface reads nothing at the origin."""
+    root = _unit_root(un.id)
+    if root not in memo:
+        pids = set()
+        for v in units:
+            if _unit_root(v.id) == root:
+                pids |= set(v.pids)
+        touch = sorted(q for q in pids if q in adapted and q in frame_of)
+        memo[root] = None
+        if touch:
+            by: dict[tuple, int] = {}
+            for q in touch:
+                by[frame_of[q]] = by.get(frame_of[q], 0) + 1
+            (anchor, lift), _n = max(sorted(by.items()), key=lambda kv: kv[1])
+            from .adapted_riders import frame_zero
+            memo[root] = frame_zero(surface, anchor, lift) if len(anchor) >= 2 else None
+    return memo[root]
 
 
 def _below_its_pad(cc: _t.Sequence[tuple], pad: _t.Any, storey: float,
@@ -1569,7 +1611,8 @@ def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
                        split_idx: _t.AbstractSet[int], *,
                        tol_m: float = 0.02,
                        authored_ground: "float | None" = None,
-                       counts: "dict[str, int] | None" = None) -> tuple:
+                       counts: "dict[str, int] | None" = None,
+                       hung: "_t.Callable[[int], bool] | None" = None) -> tuple:
     """§16g (5): the placements to seat by their DSF ROW —
     ``OBJECT_MSL lat lon heading elevation``.
 
@@ -1603,7 +1646,10 @@ def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
         their floor), or the unit's datum is a DECK, which the graded
         sheet does not carry at all (13cb's road-under-the-deck case);
       * otherwise THE DESIGN SURFACE AT ITS OWN FEET.
-    Plus the authored offset in both cases.
+    Plus the authored offset in both cases.  A HUNG row (``hung``, a
+    row-index predicate from ``hung_rows.hung_rows``: its geometry stands wholly above
+    its origin — a door or a jetway head on the wall) takes the unit's datum
+    wherever it stands in the box (#1726).
 
     WHERE NO GRADED FACE COVERS THE PLACEMENT the row is left alone and
     stays plain ``OBJECT`` / ``OBJECT_AGL``: the DEM governs there, X-Plane
@@ -1668,6 +1714,9 @@ def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
         elif abs(z - zero) <= tol_m:
             base, why = zero, src        # it STANDS ON the unit's pad
             c["msl_base_unit_pad"] = c.get("msl_base_unit_pad", 0) + 1
+        elif hung is not None and hung(i):
+            base, why = zero, "hung"     # #1726: it hangs on the unit
+            c["msl_base_hung"] = c.get("msl_base_hung", 0) + 1
         else:
             base, why = z, "own_feet"    # §16g (5) amended: its own feet
             c["msl_base_own_feet"] = c.get("msl_base_own_feet", 0) + 1

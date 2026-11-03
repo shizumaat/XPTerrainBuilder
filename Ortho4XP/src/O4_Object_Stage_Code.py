@@ -110,6 +110,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch.provenance_code",
     "auto_patch.provenance_env",
     "auto_patch.selection",
+    "auto_patch.user_seat_stage",
     "auto_patch_v2",
     "auto_patch_v2.airport",
     "auto_patch_v2.airport.adapted_riders",

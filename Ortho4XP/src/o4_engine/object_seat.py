@@ -22,9 +22,10 @@ bottom = zero + ``y_min``, top = zero + ``y_max``.  A split whose bodies
 stand at different zeros reports the lowest bottom and the highest top.
 
 A seat the user SET BY HAND (#1703, ``object_seat_set``) is the seat:
-the plan's own row seat once a build placed it, else the hand-set zero
-with a sentence saying it is still to be built (or, with an edited patch
-in use, that it waits for the auto patch); ``user_zero_m`` carries it.
+the hand-set zero, with a sentence saying it is still to be built until
+the pack DSF's record says a write placed it there (a build from the auto
+patch or from an edited patch alike, owner 2026-11-03); ``user_zero_m``
+carries it.
 
 ``lines`` is the inspector's text, one sentence per line, so the Mac app
 and the Qt window show the same words.  The record also carries the
@@ -47,7 +48,7 @@ from auto_patch_v2.airport.user_seats import WHY as _HAND_SET
 
 __all__ = ["object_seat"]
 
-#: plan path -> (file stamp, {row: (kind, record)})
+#: plan path -> (file stamp, {row: (kind, record)}, the plan's DSF path)
 _PLANS: dict[str, tuple] = {}
 _LOCK = threading.Lock()
 
@@ -81,21 +82,28 @@ def _plan_entries(plan: _t.Mapping[str, _t.Any]) -> dict[int, tuple[str, dict]]:
     return out
 
 
-def _entries(path: str) -> dict[int, tuple[str, dict]] | None:
-    """The plan at ``path``, indexed; ``None`` when there is none."""
+def _read(path: str) -> tuple | None:
+    """``(stamp, entries, dsf path)`` of the plan at ``path``, or ``None``."""
     stamp = _stamp(path)
     if stamp is None:
         return None
     with _LOCK:
         hit = _PLANS.get(path)
     if hit is not None and hit[0] == stamp:
-        return hit[1]
+        return hit
     with open(path, encoding="utf-8") as fh:
-        entries = _plan_entries(json.load(fh))
+        doc = json.load(fh)
+    hit = (stamp, _plan_entries(doc), str(doc.get("dsf_path") or ""))
     with _LOCK:
         _PLANS.clear()                  # one airport is open at a time
-        _PLANS[path] = (stamp, entries)
-    return entries
+        _PLANS[path] = hit
+    return hit
+
+
+def _entries(path: str) -> dict[int, tuple[str, dict]] | None:
+    """The plan at ``path``, indexed; ``None`` when there is none."""
+    hit = _read(path)
+    return None if hit is None else hit[1]
 
 
 def _m(z: float) -> str:
@@ -127,22 +135,15 @@ def _seat(kind: str, rec: _t.Mapping, agl_m: float) -> tuple[list[float], bool, 
 
 
 def _hand_set(entry: tuple[str, dict] | None, user_zero: float | None,
-              manual: bool) -> tuple[str, dict] | None:
+              placed: float | None) -> tuple[str, dict] | None:
     """#1703: the entry a hand-set seat (``user_zero``, from the seats
-    file) stands for — the plan's own row seat once a build placed it, else
-    a row seat still to be built, said so.  ``manual``: an edited patch is
-    used for the airport, so the object stage does not run (RULINGS
-    2026-10-15d (5)) and the seat waits for the auto patch."""
+    file) stands for — a row seat at it, said to be still to be built
+    unless the pack DSF was last written with it (``placed``, its
+    record's zero for the row)."""
     if user_zero is None:
         return entry
-    kind, rec = entry if entry is not None else ("authored", {})
-    built = (kind == "row" and rec.get("why") == _HAND_SET
-             and abs(float(rec.get("elevation", math.nan)) - user_zero) < 0.005)
-    if built and not manual:
-        return entry
-    note = ("; it applies when the airport builds from its auto patch (your edited "
-            "patch is used, and objects keep their last seat with it)" if manual
-            else "; rebuild the tile to place it there")
+    built = placed is not None and abs(placed - user_zero) < 0.005
+    note = "" if built else "; rebuild the tile to place it there"
     return "row", {"elevation": user_zero, "why": _HAND_SET, "note": note}
 
 
@@ -207,14 +208,14 @@ def object_seat(tile: str, icao: str, index: int, lat: float, lon: float,
         raise ValueError("object_seat: index must be a row number and lat, lon, "
                          "agl_m, y_min, y_max numbers.") from None
     path = _plan_path(tile, icao)
-    entries = _entries(path)
+    plan = _read(path)
+    entries = None if plan is None else plan[1]
     entry = None if entries is None else entries.get(row)
-    from .object_seat_edit import user_seat_for
+    from .object_seat_edit import placed_zero, user_seat_for
     user = user_seat_for(tile, icao, row)
     if user is not None:
-        from auto_patch.selection import manual_patch_files_for
-        entry = _hand_set(entry, user.zero_m,
-                          bool(manual_patch_files_for(os.path.dirname(path), icao)))
+        entry = _hand_set(entry, user.zero_m, placed_zero(
+            tile, icao, row, plan[2] if plan is not None else ""))
     ground, pending = None, False
     if _needs_ground(entry):
         reply = cursor_elevation(lat, lon, build_dir=build_dir)

@@ -386,6 +386,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch.provenance_tools",
     "auto_patch.selection",
     "auto_patch.slot_gated_pool",
+    "auto_patch.user_seat_stage",
     "auto_patch_v2",
     "auto_patch_v2.airport",
     "auto_patch_v2.airport.adapted_riders",

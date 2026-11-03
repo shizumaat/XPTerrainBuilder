@@ -379,6 +379,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.tunnel_objects",
     "auto_patch_v2.airport.tunnel_walls",
     "auto_patch_v2.airport.unit_storey",
+    "auto_patch_v2.airport.user_seats",
     "auto_patch_v2.airport.wall_class",
     "auto_patch_v2.airport.wall_corridor_probe",
     "auto_patch_v2.airport.wall_corridors",
@@ -792,6 +793,7 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Triangle_IO",
         "auto_patch.forest_stage",
         "auto_patch.object_stage",
+        "auto_patch.user_seat_stage",
         "auto_patch_v2.airport.frame_riders",
         "auto_patch_v2.airport.object_stage_reuse",
         "auto_patch_v2.airport.pack_journal",
@@ -799,7 +801,6 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.slab_drape",
         "auto_patch_v2.airport.support_raise",
         "auto_patch_v2.airport.unpatched_pack",
-        "auto_patch_v2.airport.user_seats",
     ),
     "masks": (
         "O4_Coastal_Foam_Edge",

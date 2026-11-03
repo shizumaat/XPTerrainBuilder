@@ -43,6 +43,7 @@ from . import dsf_write as _dw
 from . import pack_art as _pa
 from . import pack_forests as _pf
 from . import pack_journal as _pj
+from . import user_seats as _us
 from .file_hash import sha256_file
 
 __all__ = ["NONE", "RESTORED", "RECOMPOSED", "UNPROVEN", "Outcome",
@@ -126,7 +127,10 @@ def restore_airport(pack_root: str, dsf_path: str, icao: str, tool: str, *,
     # ... and so does the 3D forest upgrade the user accepted (#1360): the
     # write below re-applies it from the record
     forests = _pf.recorded(entry, pristine_sha) if verdict.backup else {}
-    if not kept and not omit and not forests:
+    # ... and another airport's hand-set object seats (#1703)
+    hand = (_us.merged(_us.recorded(entry, pristine_sha), None, drop=(icao,))
+            if verdict.backup else {})
+    if not kept and not omit and not forests and not hand:
         if verdict.state is State.OURS:
             shutil.copy2(verdict.backup, dsf_path)
             _bs.invalidate_memo()

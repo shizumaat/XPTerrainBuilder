@@ -18,11 +18,24 @@ by), ``model`` / ``lat`` / ``lon`` the row as the user saw it: a seat whose
 row no longer says that (the pack was updated) is NOT applied, and is
 reported.  ``zero_m`` is where the object's authored zero stands, m MSL.
 
-:func:`apply` is pure: the placement plan the stage built, with every
-seated row taken out of the conversions, splits, riders and kept list and
-written ``OBJECT_MSL`` at its hand-set zero (an ``MslSeat`` whose ``why``
-is :data:`WHY`).  A split row is placed WHOLE: the user moved the object,
-not its cut bodies.
+THE SEATS ARE A LAYER OF THE PACK DSF'S WRITE (owner on #1703,
+2026-11-03: "yes, apply only the objects you set by hand"), like the 3D
+forest upgrade (#1360) and the accepted missing-art omission (#433):
+``dsf_write.write_pack(seats=)`` applies them over every airport's
+composed placement edits (:func:`apply`) and records them in the DSF's
+``o4_placement_provenance.json`` entry (:data:`RECORD_KEY`), so every
+later write of that DSF — a placement, a forest upgrade, an omission —
+keeps them, and the airport's own recorded edits stay as the placement
+plan built them (an Automatic puts the row back exactly).  A build that
+uses an edited patch (RULINGS 2026-10-15d (5): the object stage does not
+run) still writes the seats, and ONLY them
+(the object stage's ``user_seat_stage``).
+
+:func:`apply` is pure: a placement plan with every seated row taken out
+of the conversions, splits, riders and kept list and written
+``OBJECT_MSL`` at its hand-set zero (an ``MslSeat`` whose ``why`` is
+:data:`WHY`).  A split row is placed WHOLE: the user moved the object,
+not its cut bodies (which stay in the pack, recorded, for the Undo).
 """
 from __future__ import annotations
 
@@ -35,14 +48,17 @@ import typing as _t
 
 from ..model.placement import MslSeat
 
-__all__ = ["SEATS_FILENAME", "WHY", "UserSeat", "seats_path", "read", "set_seat",
-           "digest", "apply"]
+__all__ = ["RECORD_KEY", "SEATS_FILENAME", "WHY", "UserSeat", "seats_path", "read",
+           "set_seat", "digest", "apply", "placements", "record", "recorded",
+           "merged", "union"]
 
 #: ``<patch dir>/o4_user_object_seats_<ICAO>.json``.
 SEATS_FILENAME = "o4_user_object_seats_{icao}.json"
 #: ``MslSeat.why`` of a hand-set seat (what ``object_seat`` reports as
 #: "Set by hand").
 WHY = "user"
+#: the pack DSF's record row of the seats its last write applied
+RECORD_KEY = "user_seats"
 _VERSION = 1
 #: A row still says what the user saw within this (the DSF pool quantum
 #: is ~5e-7 deg; the editor reads the same dump the stage does).
@@ -144,13 +160,12 @@ def _refusal(seat: UserSeat, rows: _t.Sequence) -> str | None:
     return None
 
 
-def apply(plan: _t.Any, files: _t.Sequence, seats: _t.Mapping[int, UserSeat],
-          dump: _t.Any) -> tuple[_t.Any, tuple, tuple[int, ...], tuple[str, ...]]:
-    """``(plan, files, rows seated, refusals)``: ``plan`` (a
-    ``PlacementPlan``) with every seat whose row still matches written at
-    its hand-set zero, and ``files`` without the cut bodies of the splits
-    that seat replaced."""
-    rows = list(getattr(dump, "placements", ()) or ())
+def apply(plan: _t.Any, seats: _t.Mapping[int, UserSeat], rows: _t.Sequence
+          ) -> tuple[_t.Any, tuple[int, ...], tuple[str, ...]]:
+    """``(plan, rows seated, refusals)``: ``plan`` (a ``PlacementPlan``)
+    with every seat whose row (``rows``, the pristine dump's placements)
+    still matches written at its hand-set zero, and no other row
+    touched."""
     take: dict[int, UserSeat] = {}
     refused: list[str] = []
     for idx in sorted(seats):
@@ -160,19 +175,76 @@ def apply(plan: _t.Any, files: _t.Sequence, seats: _t.Mapping[int, UserSeat],
         else:
             refused.append(why)
     if not take:
-        return plan, tuple(files), (), tuple(refused)
+        return plan, (), tuple(refused)
     msl = tuple(m for m in plan.msl_seats if m.index not in take) + tuple(
         MslSeat(i, str(rows[i].def_path), float(rows[i].lon), float(rows[i].lat),
                 float(rows[i].heading_deg), float(s.zero_m), WHY)
         for i, s in take.items())
-    splits = tuple(s for s in plan.splits if s.placement.index not in take)
-    kept_bodies = {b.new_resource for s in splits for b in s.bodies}
-    dropped = {b.new_resource for s in plan.splits if s.placement.index in take
-               for b in s.bodies} - kept_bodies
     plan = _dc.replace(
-        plan, msl_seats=msl, splits=splits,
+        plan, msl_seats=msl,
+        splits=tuple(s for s in plan.splits if s.placement.index not in take),
         conversions=tuple(c for c in plan.conversions if c.index not in take),
         riders=tuple(r for r in plan.riders if r.index not in take),
         kept=tuple(k for k in plan.kept if k.index not in take))
-    files = tuple(f for f in files if getattr(f, "resource", None) not in dropped)
-    return plan, files, tuple(sorted(take)), tuple(refused)
+    return plan, tuple(sorted(take)), tuple(refused)
+
+
+def placements(dump_text_path: str) -> list:
+    """The placement rows of a DSF text dump (``dsf.read_dump``'s, whose
+    ordinals are the plan's and the seats' ``index``)."""
+    from .dsf import read_dump
+    return list(read_dump(dump_text_path, lambda _p: False).placements)
+
+
+# ── the pack DSF's record ───────────────────────────────────────────────
+
+ByAirport = _t.Mapping[str, _t.Mapping[int, UserSeat]]
+
+
+def union(by_airport: ByAirport) -> dict[int, UserSeat]:
+    """Every airport's seats as one ``{row: seat}`` (rows are the DSF's)."""
+    out: dict[int, UserSeat] = {}
+    for icao in sorted(by_airport):
+        out.update(by_airport[icao])
+    return out
+
+
+def merged(prior: ByAirport, given: ByAirport | None,
+           drop: _t.Collection[str] = ()) -> dict[str, dict[int, UserSeat]]:
+    """The seats a write applies: the recorded ones (``prior``) with each
+    airport in ``given`` replaced by its seats there, every airport in
+    ``drop`` removed (RULINGS 2026-10-12d: an airport left without a patch
+    is no longer seated), and no airport without a seat."""
+    out = {str(k).upper(): dict(v) for k, v in prior.items()}
+    out.update({str(k).upper(): dict(v) for k, v in (given or {}).items()})
+    for icao in drop:
+        out.pop(str(icao).upper(), None)
+    return {k: v for k, v in out.items() if v}
+
+
+def record(pristine_sha256: str, by_airport: ByAirport,
+           applied: _t.Sequence[int], time: str) -> dict:
+    """The :data:`RECORD_KEY` row: the seats, per airport, and the rows
+    the write placed by them."""
+    return {"pristine_sha256": pristine_sha256, "time": time,
+            "applied": sorted(int(i) for i in applied),
+            "airports": {icao: [by_airport[icao][k].to_dict()
+                                for k in sorted(by_airport[icao])]
+                         for icao in sorted(by_airport)}}
+
+
+def recorded(entry: _t.Mapping[str, _t.Any] | None,
+             pristine_sha256: str | None) -> dict[str, dict[int, UserSeat]]:
+    """The seats the DSF's last write applied, per airport; ``{}`` when
+    none is recorded, when they belong to another pristine file (with
+    ``pristine_sha256=None`` that is not asked), or when the row does not
+    read."""
+    row = (entry or {}).get(RECORD_KEY)
+    if not isinstance(row, dict) or (pristine_sha256 is not None
+                                     and row.get("pristine_sha256") != pristine_sha256):
+        return {}
+    try:
+        return {str(icao): {s.index: s for s in map(UserSeat.from_dict, seats)}
+                for icao, seats in (row.get("airports") or {}).items()}
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return {}

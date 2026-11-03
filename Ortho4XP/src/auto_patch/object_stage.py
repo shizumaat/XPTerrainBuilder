@@ -606,7 +606,6 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             engine_version=_engine_version(), law_digest=digest,
             write_cuts=bool(write_enabled and not measure_only))
     _pulse.clear()
-    plan, files = _user_seats(plan, files, dump, patch_dir, plan_key)
     c = dict(plan.counts())
     # §6's CLASSES ride out with the counts (lane v2planfix): they are the
     # only reading that says whether the pads and rims above were seen at
@@ -617,6 +616,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                      f"{c['conversions']} conversion(s), {c['splits']} split(s) into "
                      f"{c['bodies']} body file(s), {c['kept']} kept; nothing written")
         return c
+    from . import user_seat_stage as _hand
     from auto_patch_v2.airport.backup_state import (BackupUnproven,
                                                     SUPERSEDED_INFIX as
                                                     _BS_SUPERSEDED,
@@ -628,7 +628,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             allow_live_install=True,
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
-            plan_key=plan_key)
+            plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key))
     except BackupUnproven as exc:
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
         # touched — not the DSF, not an object, not a cut file: a pack
@@ -654,6 +654,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                          + (f"; {len(res.dsf.orphaned_bodies)} orphaned body "
                             f"file(s) removed" if res.dsf.orphaned_bodies
                             else ""))
+    if res.dsf is not None:
+        _hand.say_seated(plan_.icao, res.dsf)
     if _adopted or _unproven:
         UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — '
                      f'{len(_adopted)} file(s) of yours were kept as installed '
@@ -674,32 +676,6 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     out.update({k: v for k, v in c.items() if k.startswith("class_")})
     out["packs_written"] = 1
     return out
-
-
-def _user_seats(plan, files, dump, patch_dir: str, plan_key: str):
-    """#1703: the hand-set object seats beside the patch, over the plan just
-    built (``airport/user_seats``) — a user edit the stage never overrides.
-    A companion pack's plan (``ICAO~k``) carries none: the editor seats the
-    airport's own pack.  A seat whose row changed is named and skipped."""
-    import O4_UI_Utils as UI
-    from auto_patch_v2.airport import user_seats as _us
-    if plan_key and plan_key != plan.icao:
-        return plan, files
-    try:
-        seats = _us.read(patch_dir, plan.icao)
-    except (OSError, ValueError) as exc:
-        UI.vprint(0, f"  [v2 placement] {plan.icao}: hand-set object elevations "
-                     f"unreadable ({exc}); none applied")
-        return plan, files
-    if not seats:
-        return plan, files
-    plan, files, seated, refused = _us.apply(plan, files, seats, dump)
-    UI.vprint(1, f"  [v2 placement] {plan.icao}: {len(seated)} object(s) at the "
-                 f"elevation set by hand")
-    for why in refused:
-        UI.vprint(0, f"  [v2 placement] {plan.icao}: a hand-set object elevation "
-                     f"was not applied: {why}; set it again in the patch editor")
-    return plan, files
 
 
 def _engine_version() -> str:
@@ -921,6 +897,14 @@ def rebake_after_mesh(tile) -> dict:
                                  f"auto patch is not in this mesh ({not_applied})")
                     counts["airports_skipped_unapplied"] = \
                         counts.get("airports_skipped_unapplied", 0) + 1
+                    # #1703 (owner 2026-11-03): an edited patch still gets
+                    # the objects the user seated by hand — those only
+                    from . import user_seat_stage as _hand
+                    source = screen if screen is not None else plan_
+                    if _hand.seat_stage(source, tile, patch_dir, writes=bool(
+                            write_enabled and not measure_only)):
+                        written_packs.add(source.pack_root)
+                        ran_packs.add(source.pack_root)
                     continue
                 law = Law.for_airport(icao)
                 if screen is not None:

@@ -775,11 +775,18 @@ in-sim."
    - it carries no apt.dat startup;
    - at least `[tunnel] cover_min_share` (0.25, the spec's `cover_min`) of
      it lies under the covers, which makes it a covered lot.
-4. Nothing else changes. `low_extent.extend_levels` already takes every
-   beyond piece that meets a group's lower footprint into that group's
-   lower level, at the objects' bottom (27h). So the corridor becomes level
-   B at the T2 group's own depth, tied to the group's zero. There is one
-   zero, and the object seating is unchanged.
+4. The read runs only where the airport's objects state a level B
+   (`level_depth.airport_level_b`, handed from `planar/build` through
+   `build_arrangement` to `unreachable_after_pads`). EGLL (2 parts,
+   13,813 m2) and KPHX (1 part, 2,653 m2) read covered parts but state no
+   level B. Ungated, they became groundside lots, and KPHX's census rose
+   by 68 adjudicated with 487 airside movers (worst 1.47 m at T4). Those
+   covered lots wait for the region round's depth ladder (§3).
+5. `low_extent.extend_levels` already takes every beyond piece that meets
+   a group's lower footprint into that group's lower level, at the
+   objects' bottom (27h). So the corridor becomes level B at the T2
+   group's own depth, tied to the group's zero. There is one zero. Its
+   value moves with the airside the solve reads it on (see below).
 
 The two keys go in `[tunnel]`, next to the R6 viaduct keys, rather than in a
 new `[level_b]` table. One reader each.

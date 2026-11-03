@@ -26,6 +26,13 @@ BEYOND -- ``<ref>#beyond<k>``, the role
 unreachable room, carries no apt.dat startup, and at least ``[tunnel]
 cover_min_share`` of it lies under the covers (a covered lot).
 
+The read runs only where the airport's objects state a level B
+(``planar/level_depth.airport_level_b``, handed down by ``planar/build``):
+the covered pavement is the lower level's to take, at that depth.  A
+covered lot at an airport with no object-stated level B waits for the
+region round's depth ladder (spec §3) -- MEASURED: EGLL (2 parts, 13,813 m2)
+and KPHX (1 part, 2,653 m2) read covered parts and state no level B.
+
 Nothing downstream is new: ``low_extent.extend_levels`` takes every beyond
 piece that meets a group's lower footprint into that group's lower level,
 at the objects' bottom (27h), tied to the group's zero.

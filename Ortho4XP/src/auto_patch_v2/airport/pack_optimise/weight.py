@@ -12,6 +12,7 @@ threshold :data:`OFFER_TRIANGLES` sits well clear of the references.
 """
 from __future__ import annotations
 
+import math
 import os
 import typing as _t
 
@@ -43,21 +44,42 @@ def _obj_triangles(path: str) -> int:
     return 0
 
 
+def path_of(pack_root: str, declared: str) -> str:
+    """The pack file a declared path names."""
+    return os.path.join(pack_root, *declared.replace("\\", "/").split("/"))
+
+
+def _reach(path: str) -> float:
+    """How far an object file is drawn: its farthest ``ATTR_LOD``, else
+    without limit."""
+    from .shape import read_shape
+    s = read_shape(path)
+    return math.inf if s is None or s.lod_far is None else s.lod_far
+
+
 def estimate(pack_root: str, lines: _t.Sequence[str],
              drop: _t.AbstractSet[int], top: int = 0,
-             swaps: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None
+             swaps: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None,
+             far_m: float | None = None,
+             copies: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None
              ) -> dict[str, _t.Any]:
     """``{"tris_before", "tris_after", "placements", "swapped"}`` of the
     pack's own objects in the dump ``lines``, ``drop`` being the ordinals
     the recipe deletes and ``swaps`` its library swaps (a swapped row
     counts the library object's triangles after).  ``top`` adds
     ``"top"``: the heaviest definitions, ``(tris x placements, tris,
-    placements, path)`` (``tools/pack_weight.py``)."""
+    placements, path)`` (``tools/pack_weight.py``).  ``far_m`` adds
+    ``"far_before"`` / ``"far_after"``: the triangles still drawn beyond
+    ``far_m`` metres (an object's draw distance: its own ``ATTR_LOD``, its
+    copy's (``copies``, O2), the library object's for a swap)."""
     defs = declared_definitions(lines)["object"]
     tris: dict[int, int] = {}
     uses: dict[int, int] = {}
     swaps = swaps or {}
+    copies = copies or {}
     before = after = placements = swapped = 0
+    far_before = far_after = 0
+    reach: dict[int, float] = {}
     for o, _i, toks in placement_rows(lines):
         d = int(toks[1])
         if d not in tris:
@@ -69,16 +91,29 @@ def estimate(pack_root: str, lines: _t.Sequence[str],
         placements += 1
         uses[d] = uses.get(d, 0) + 1
         before += tris[d]
+        if far_m is not None and d not in reach:
+            reach[d] = _reach(path_of(pack_root, defs[d]))
+        if far_m is not None and reach[d] > far_m:
+            far_before += tris[d]
         if o in drop:
             continue
         sw = swaps.get(defs[d])
         if sw:
             swapped += 1
-            after += int((sw.get("tris") or (0, 0))[1])
-        else:
-            after += tris[d]
+            lib_tris = int((sw.get("tris") or (0, 0))[1])
+            after += lib_tris
+            if far_m is not None and (sw.get("far") or math.inf) > far_m:
+                far_after += lib_tris
+            continue
+        after += tris[d]
+        if far_m is not None:
+            lod = (copies.get(defs[d]) or {}).get("lod")
+            if (lod or reach[d]) > far_m:
+                far_after += tris[d]
     out: dict[str, _t.Any] = {"tris_before": before, "tris_after": after,
                               "placements": placements, "swapped": swapped}
+    if far_m is not None:
+        out.update(far_before=far_before, far_after=far_after)
     if top:
         out["top"] = sorted(((tris[d] * n, tris[d], n, defs[d])
                              for d, n in uses.items()), reverse=True)[:top]

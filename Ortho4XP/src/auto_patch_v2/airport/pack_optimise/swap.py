@@ -210,6 +210,7 @@ def plan_swaps(pack_root: str, defs: _t.Sequence[str], uses: _t.Mapping[int, int
                      "to_c": [round(v, 4) for v in lib.centre],
                      "dy": round(pack.box[2] - lib.box[2], 4),
                      "tris": [pack.tris, _heaviest.tris],
+                     "far": lib.lod_far,
                      "lights": (_lights_path(path) if pack.lights else "")}
     return out
 

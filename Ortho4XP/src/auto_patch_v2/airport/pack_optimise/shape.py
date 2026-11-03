@@ -60,6 +60,7 @@ class Shape:
     points: np.ndarray = _dc.field(repr=False, compare=False,
                                    default_factory=lambda: np.zeros((0, 3)))
     header: tuple[str, ...] = ()       # TEXTURE / TEXTURE_LIT rows
+    lod_far: float | None = None       # its farthest ATTR_LOD; None = none
 
     @property
     def size(self) -> tuple[float, float, float]:
@@ -107,6 +108,7 @@ def _read(path: str) -> Shape | None:
     depth = 0
     heads: list[tuple[float, float]] = []
     tails: list[tuple[float, float]] = []
+    far: float | None = None
     with open(path, encoding="utf-8", errors="replace") as fh:
         for raw in fh:
             toks = raw.split()
@@ -120,6 +122,11 @@ def _read(path: str) -> Shape | None:
                 depth = max(0, depth - 1)
             elif kw in ("TEXTURE", "TEXTURE_LIT") and not lights:
                 header.append(raw.strip())
+            elif kw == "ATTR_LOD" and len(toks) >= 3:
+                try:
+                    far = max(far or 0.0, float(toks[2]))
+                except ValueError:
+                    pass
             elif kw in _UNCOPYABLE:
                 uncopyable = True
             elif kw in LIGHT_ROWS:
@@ -130,7 +137,7 @@ def _read(path: str) -> Shape | None:
                 if kw == "LIGHT_NAMED" and len(toks) >= 5:
                     _witness(toks[1].lower(), toks[2], toks[4], heads, tails)
     return Shape(path, int(tri.shape[0]), box, animated, tuple(lights),
-                 uncopyable, _front(heads, tails), pts, tuple(header))
+                 uncopyable, _front(heads, tails), pts, tuple(header), far)
 
 
 def _witness(name: str, x: str, z: str, heads: list, tails: list) -> None:

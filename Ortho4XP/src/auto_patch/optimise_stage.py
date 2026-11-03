@@ -16,7 +16,8 @@ later write.
 
 THE OFFER: a pack whose own objects draw more than
 ``pack_optimise.weight.OFFER_TRIANGLES`` on the tile, and that the recipe
-can lighten (phase 1: duplicate placements, D1).  The answer is the
+can lighten (duplicate placements D1, library swaps D2, lighter object
+copies O1/O2).  The answer is the
 user's, per pack (``pack_choice``): "Optimise" and "Never for this pack"
 are remembered outside the pack, "Not now" is not.  The pack's row under
 Modified airports optimises at any weight, and undoes it.
@@ -68,7 +69,8 @@ class PackWeight(_t.NamedTuple):
 
     @property
     def can_optimise(self) -> bool:
-        return self.dedupe > 0 or self.swapped > 0
+        return (self.dedupe > 0 or self.swapped > 0
+                or bool((self.recipe or {}).get("objects")))
 
     @property
     def wanted(self) -> dict:

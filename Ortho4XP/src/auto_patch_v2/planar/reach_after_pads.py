@@ -41,7 +41,18 @@ BEYOND = "#beyond"
 def unreachable_after_pads(base_regions: list, pad_regions: _t.Sequence, law, airport
                            ) -> "tuple[list, dict]":
     """``(base_regions, counts)``: the regions with every apron piece aircraft
-    cannot reach once the pads stand made groundside (module docstring)."""
+    cannot reach once the pads stand made groundside (module docstring), and
+    then every covered part once the road bridges stand too
+    (``planar/reach_under_covers``, #1717)."""
+    from .reach_under_covers import covered_beyond
+    out, counts = _after_pads(base_regions, pad_regions, law, airport)
+    out, cov = covered_beyond(out, law, airport)
+    return out, {**counts, **cov}
+
+
+def _after_pads(base_regions: list, pad_regions: _t.Sequence, law, airport
+                ) -> "tuple[list, dict]":
+    """The pads' half of :func:`unreachable_after_pads`."""
     from ..classify.reachability import unreachable_aprons
     from ..classify.rules import load_rules
     cells = [(i, r) for i, r in enumerate(base_regions)

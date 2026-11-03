@@ -728,3 +728,104 @@ the branch):**
   Nothing is cut there on main either. The fix is the region rule's run
   through: bores on one road chain whose corridors overlap merge into one cut.
 - **S3, the road-graph landside zones (O1).**
+
+## 15. Round 3 (lane t2corr, 2026-11-03): S1, the corridor by the covered reach read
+
+Owner (Noah, 2026-11-03T16:44:51Z, verbatim): "I would like to see LFPG built
+with the most accurate terrain, bridges all correct, and the central corridor
+for T2 cut. Keep the object group together and let the east end float, since
+this is a limitation of the scenery package and we can't shape the terrain to
+match without violating the tile boundary or grade law. I will review
+in-sim."
+
+**Attribution (capture lfpg6, planar re-run on main 110d03e3e).**
+- `planar/reach_after_pads` judges each connected PIECE of an apron page
+  after the pad cut. The pads cut `dsf:pol459` into 30 pieces. One of them,
+  191,899 m2, runs from the stands around 2A–2D through the gaps between the
+  terminal blocks into the corridor. Its room reaches the taxiways, so the
+  whole piece stays apron (level A).
+- The room reaches the corridor through four openings, each wider than a
+  taxiway: the west end between the 2A and 2B tips, the gap between the
+  north blocks, the gap south of 2D, and the 2E west end.
+- The covers already close those openings. The corridor is laced with
+  mapped road bridges: the layer-1 loops around 2A/2C and 2B/2D, and the
+  layer-2 viaducts along the axis. With them standing as obstacles, no room
+  aircraft reach is left inside the corridor, at the 7.5 m default
+  half-width or at 11.5 m (code E).
+- So the read must change in two ways. The covers must be obstacles. And
+  the unit judged must be the pavement the reachable room sweeps, not the
+  page piece. The whole-piece verdict is what kept the corridor at level A
+  even where the room was cut.
+
+**The rule (one new pass, `planar/reach_under_covers`, run at the end of
+`unreachable_after_pads`).**
+1. The covers are every mapped `highway` or `railway` way with `bridge`, at
+   `layer >= [tunnel] cover_min_layer` (1), inside the aerodrome boundary,
+   at its carriageway width. An aircraft cannot pass under a road deck, and
+   it does not taxi on one. Aeroway bridges are not covers: aircraft cross
+   them (§2.2 step 2).
+2. The room is the airside pavement less the covers, eroded by the default
+   taxiway half-width (`taxi_half_width_m(law, None)`, no new number).
+   Each room piece reaches when its sweep meets a taxi-family face or a
+   runway (the 19ag read).
+3. On every apron face the covers touch, each connected part of the face
+   that the reachable sweep leaves is BEYOND (groundside, `<ref>#beyond<k>`,
+   role from `open_default.unclassified_groundside_role`) when:
+   - it holds unreachable room;
+   - it carries no apt.dat startup;
+   - at least `[tunnel] cover_min_share` (0.25, the spec's `cover_min`) of
+     it lies under the covers, which makes it a covered lot.
+4. Nothing else changes. `low_extent.extend_levels` already takes every
+   beyond piece that meets a group's lower footprint into that group's
+   lower level, at the objects' bottom (27h). So the corridor becomes level
+   B at the T2 group's own depth, tied to the group's zero. There is one
+   zero, and the object seating is unchanged.
+
+The two keys go in `[tunnel]`, next to the R6 viaduct keys, rather than in a
+new `[level_b]` table. One reader each.
+
+**A second finding on the way: the fill band read the level's own lot.**
+`low_fill.cut_fill_bands` (28s (3), Q251 a) cuts off the part of a lower
+level that stands on fill along a lot. Its lots included the beyond pieces,
+which are the pavement the level takes in as its own ground. So the level
+read its own area as "a lot beside it" and lost its low half.
+- Control: `building34/p2` lost 29,242 of 67,693 m2; `building34/p1`,
+  `building51/p1` and `building64/p1` lost 4,705, 2,093 and 1,426 m2.
+- With the corridor taken: 50,214 of 143,371 m2, including the whole block
+  east of the 2C/2D loop (lon 2.569–2.573).
+
+The fix is at the one call site (`planar/platform.py`): a beyond piece is
+never a fill-band lot. A real lot beside a level (KMCI `building26/b1/p1`,
+the case the rule was made for) is unchanged.
+
+**Three more findings, from the solve (replays of lfpg6 on main 110d03e3e).**
+With the corridor taken, the 143,000 m2 level `building35/p2` solved at
+103.94–104.14 m, which is level A, against its pin of 97.59 m.
+- **Mechanism.** A group level was held by ONE pin, on its first vertex,
+  and a rigid chain to every other vertex.
+  - The hard set at the level's open edges was infeasible: pieces of the
+    unreachable page the extension did not take were left as lots between
+    the level and the apron, and a lot cannot step 7 m.
+  - The feasibility LP relaxes the cheapest rows. That was the lone pin
+    (one row, 6.4 m), not the hundreds of lot and road rows. So the whole
+    rigid level floated to level A.
+  - This is the "landing depth is not held" finding of §14, and the
+    `building34/p1`/`p2` lift of the withdrawn S1.
+- **Fixes, each general.**
+  1. `constraints/group_level.group_level_rewrite`: the rigid rows become
+     per-vertex pins at the level. A conflict then costs only its own
+     vertices.
+  2. `planar/low_extent`: a level over unreachable pavement steps at EVERY
+     open edge (Q341 a). Its `#strip` riser runs along the airside keep-off
+     and the lots it did not take, not only along its pads. Small
+     unreachable pieces beside it go into the riser.
+  3. A piece of the taken pavement that a structure's keep-off cut off
+     from the lower bodies, with no lower body of its own, stands at its
+     host level's feet: one lower level.
+  4. `planar/reach_under_covers`: a beyond part's open fringe stays with
+     the stands. That fringe is pavement outside the unreachable room's
+     sweep, not covered, and touching the reachable sweep.
+
+**Not in this round:** the landside zones (S3/O1), the A1 under 09R/27L
+(S4), the bare ground the owner lowered (D6), and §2.2 steps 3–8 (ground
+between, enclosed faces, run-outs).

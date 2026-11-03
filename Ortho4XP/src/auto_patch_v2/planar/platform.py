@@ -343,8 +343,13 @@ def platform_split(base_regions, pad_regions, law: Law,
                                         or is_structure_role(law, r.role))],
                           beyond=[r.polygon for r in base_regions if r.polygon is not None
                                   and BEYOND in str(r.ref)],
+                          # the pavement no aircraft reaches is offered to the
+                          # lower levels as their own ground (``beyond``), never
+                          # a lot one stands on fill above (MEASURED LFPG T2,
+                          # #1717: the corridor level lost 29-50 k m2 as "fill
+                          # along" its own unreachable apron)
                           lots=[r.polygon for r in base_regions if r.polygon is not None
-                                and r.role in LOT_ROLES])
+                                and r.role in LOT_ROLES and BEYOND not in str(r.ref)])
     counts["platforms"] = sum(1 for p in platforms if not p.refused)
     counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(

@@ -19,7 +19,10 @@ parts (``[placement] chain_min_height_m``) whose foot plane stands at least
 the level's own step (``y_hi``) under its top floor.  Their footprint,
 closed by ``pad_frontage_m``, with the mapped roads over it
 (``low_level._with_roads``, 24a) and the pavement no aircraft reaches once
-the pads stand (``planar/reach_after_pads``) that it meets -- and, read
+the pads stand (``planar/reach_after_pads``) that it meets (a piece of it
+with no lower body of its own stands at its host level's feet, and its
+riser runs along every open edge: the group's one lower level, RULINGS
+2026-11-03b) -- and, read
 apart, a RETAINING WALL's lower side: the ground within its own reach
 ``max(4 h, 20 m)`` (``constraints/wall_zone``) that stands nearer its
 foot than its top (the apron it retains never does) -- less every pad
@@ -133,9 +136,11 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
         if not lower:
             continue
         bodies, walls = _footprint(lower, pave, near, w, airport, law, t)
+        taken = Polygon()
         if beyond and not bodies.is_empty:
             reach = bodies.buffer(near, join_style=2)
-            bodies = valid_area(unary_union([bodies, *(g for g in beyond if g.intersects(reach))]))
+            taken = valid_area(unary_union([g for g in beyond if g.intersects(reach)]))
+            bodies = valid_area(unary_union([bodies, taken]))
         levels = {ref: unary_union([r.polygon for r in by_ref[ref]]) for ref in refs}
         qs = []
         keep_off = valid_area(unary_union([pads.buffer(w, join_style=2),
@@ -144,19 +149,26 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
             if not A.is_empty:
                 A = valid_area(_overlay(A, keep_off, "difference", grid))
                 qs.extend(nonempty_polygon_parts(A))
+        # pieces of the unreachable pavement too small to be a level of
+        # their own go with the riser of the level beside them
+        smalls = [g for g in qs if g.area < pmin and g.intersects(taken)]
         for q in qs:
             if q.area < pmin:
                 continue
-            y = _bottom(q, lower, w)
-            if y is None:
-                continue
             host = min(refs, key=lambda r: levels[r].distance(q))
             rec = lows[host]
+            y = _bottom(q, lower, w)
+            if y is None and q.intersection(taken).area >= 0.5 * q.area:
+                # unreachable pavement cut off the footprint by a keep-off,
+                # with no lower body of its own: the group's ONE lower level
+                # (RULINGS 2026-11-03b), at its host level's feet (#1717)
+                y = rec.get("y_feet")
+            if y is None:
+                continue
             block = str(rec["block"])
             n_k[block] = n_k.get(block, 1) + 1
             ext = plane_ref(block, n_k[block])
-            S = valid_area(q.buffer(w, join_style=2).intersection(pads.buffer(w + 0.5 * w))
-                           .difference(q).difference(pads).difference(air))
+            S = _riser(q, pads, air, w, near if q.intersects(taken) else None, smalls)
             tmpl = by_ref[host][0]
             made.append(_dc.replace(tmpl, ref=ext, polygon=q))
             made.extend(_dc.replace(tmpl, ref=ext + STRIP_SUFFIX, polygon=s)
@@ -265,6 +277,20 @@ class _Feet:
                         continue
                     out.append(_Lower(g, ys, self.reach(g), y))
         return out
+
+
+def _riser(q, pads, air, w: float, open_m: "float | None", smalls: list):
+    """The riser strip of level piece ``q``: along the pads it faces, ``w``
+    wide; for a level over the unreachable pavement (``open_m`` its keep-off
+    to the airside) along EVERY open edge too, filling the keep-off, with
+    the small unreachable pieces beside it (RULINGS 2026-11-03b Q341 a: the
+    step is vertical where no object stands; #1717: a lot left between the
+    level and the apron chained the level 7 m up)."""
+    S = q.buffer(w, join_style=2).intersection(pads.buffer(w + 0.5 * w))
+    if open_m is not None:
+        S = unary_union([S, q.buffer(open_m + 0.5 * w, join_style=2),
+                         *(g for g in smalls if g.distance(q) <= open_m + w)])
+    return valid_area(S.difference(q).difference(pads).difference(air))
 
 
 def _footprint(lower: list[_Lower], air, near: float, w: float, airport, law, t: float):

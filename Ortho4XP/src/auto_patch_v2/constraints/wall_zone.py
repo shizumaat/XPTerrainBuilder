@@ -31,13 +31,6 @@ piece excluded — it bounds the open cut, ``airport/road_ramp``):
   ``muro_27R.obj`` (capture on f82de7dfe): its top runs 283.8-292.1 m along
   the face, 0.2-8.1 m over the lidar DEM there — the smeared step the
   released mesh followed.
-* AT THE WALL'S FOOT (#1662) — the mirror: a wall-slope vertex standing on
-  the wall's LOWER face is held at the wall's bottom edge as it sits
-  (:func:`face_foot`, the wall's ``foot_profile``; owner RULINGS 2026-10-03c
-  "terrain should be flattened out to the bottom of the wall", 2026-10-27h
-  Q188).  MEASURED KATL ``muro_concreto`` (#1662): the foot stands at
-  289.5 m and the slumped DEM beside it at 296-301 m, so pavement draped
-  there showed through the wall's lower face.
 
 Geometry only, read off the published wall records; the rows' own
 generators are untouched."""
@@ -51,7 +44,7 @@ from ..model.constraints import Linear
 from ..model.wall_reach import BEHIND_SHARE, wall_reach_m, wall_smear_m
 
 __all__ = ["RetainingLine", "retaining_lines", "split", "flat", "foot_ground",
-           "face_top", "face_foot", "BEHIND_SHARE", "TOP_FACE_M"]
+           "face_top", "BEHIND_SHARE", "TOP_FACE_M"]
 
 #: how near the upper face a vertex stands ON it: the identity grid's snap
 #: (a ring vertex of the wall slope lies on the footprint, snapped)
@@ -77,10 +70,6 @@ class RetainingLine(_t.NamedTuple):
     #: (``airport/wall_top``: ``(s, z)`` stations), ``None`` when the record
     #: carries none
     top_profile: tuple | None = None
-    #: the wall's LOWER face line and its foot along it, absolute
-    #: (``airport/wall_top.foot_profile``, #1662), ``None`` when unread
-    lower_face: _t.Any = None
-    foot_profile: tuple | None = None
 
 
 def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
@@ -99,11 +88,7 @@ def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
                                  LineString(r["upper_face"]) if r.get("upper_face")
                                  else None,
                                  None if not r.get("top_profile")
-                                 else tuple(map(tuple, r["top_profile"])),
-                                 LineString(r["lower_face"]) if r.get("lower_face")
-                                 else None,
-                                 None if not r.get("foot_profile")
-                                 else tuple(map(tuple, r["foot_profile"]))))
+                                 else tuple(map(tuple, r["top_profile"]))))
     return out
 
 
@@ -264,28 +249,6 @@ def face_top(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> floa
                 return None     # a station that retains no hill
             a = np.asarray(st, float)
             return float(np.interp(s_, a[:, 0], a[:, 1]))
-    return None
-
-
-def face_foot(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> float | None:
-    """The wall's foot as it sits (``RetainingLine.foot_profile``) at ``xy``
-    where it stands ON a wall's LOWER face — within :data:`TOP_FACE_M` of
-    it and nearer it than the upper face (so the strip's corner at the
-    wall's end, nearer the end edge, is on it too: measured KATL
-    ``muro_concreto``, 0.32 m off the face and 0.23 m off the end);
-    ``None`` elsewhere."""
-    import numpy as np
-    from shapely.geometry import Point
-    p = Point(xy)
-    for w in lines:
-        if not w.foot_profile or w.lower_face is None:
-            continue
-        d = w.lower_face.distance(p)
-        other = (w.upper_face.distance(p) if w.upper_face is not None
-                 else w.poly.exterior.distance(p))
-        if d <= TOP_FACE_M and d <= other + 1e-6:
-            a = np.asarray(w.foot_profile, float)
-            return float(np.interp(w.lower_face.project(p), a[:, 0], a[:, 1]))
     return None
 
 

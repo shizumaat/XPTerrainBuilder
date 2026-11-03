@@ -17,13 +17,6 @@ it (``wall_class._depth_under_zero``, #1139: ``retained_m`` under its solid
 height — KATL ``muro_ladrillo.obj``, 10.52 m retained of 16.64 m, a 6.1 m
 parapet) retains its upper ground AT that zero: the profile is capped
 there (:func:`_retaining_cap`), so the hill never climbs a parapet.
-
-THE FOOT (issue #1662): :func:`foot_profile` is the mirror reading along
-the LOWER face — the lowest sample within :data:`FOOT_FACE_M` of that face
-per station, plus the seat: the bottom edge the low-side ground meets
-(owner RULINGS 2026-10-03c "terrain should be flattened out to the bottom
-of the wall"; 2026-10-27h Q188 "the bottom of the retaining wall").  Only
-samples on the face count, so a footing buried under the hill is not read.
 Geometry only; no airport is named (RULINGS 2026-10-05e)."""
 from __future__ import annotations
 
@@ -32,14 +25,12 @@ import math
 import numpy as np
 import shapely
 
-__all__ = ["top_profile", "foot_profile", "EDGE_STEP_M", "BIN_M", "FOOT_FACE_M"]
+__all__ = ["top_profile", "EDGE_STEP_M", "BIN_M"]
 
 #: triangle edges are sampled this fine
 EDGE_STEP_M = 0.5
 #: the profile's station spacing along the face
 BIN_M = 1.0
-#: how near the lower face a sample stands ON it (:func:`foot_profile`)
-FOOT_FACE_M = 1.0
 
 
 def _edge_samples(tris: np.ndarray) -> np.ndarray:
@@ -60,59 +51,28 @@ def top_profile(comp, piece, face, to_xy, cache=None) -> tuple | None:
     footprint ``piece``, per :data:`BIN_M` station ``s`` along ``face``
     (the upper face line); ``None`` where the member, its seat or its
     triangles are unread."""
-    got = _stations(comp, piece, face, to_xy, cache, piece.buffer(1.0), True)
-    if got is None:
-        return None
-    st, z, seat = got
-    z = np.minimum(z, _retaining_cap(comp))
-    return tuple((float(a), seat + float(b)) for a, b in zip(st, z, strict=True))
-
-
-def foot_profile(comp, piece, face, to_xy, cache=None) -> tuple | None:
-    """``((s, z), ...)``: the absolute bottom edge of ``comp``'s member
-    along ``face`` (the LOWER face line, #1662) — the lowest sample within
-    :data:`FOOT_FACE_M` of it per :data:`BIN_M` station; ``None`` where
-    unread."""
-    if face is None:
-        return None
-    got = _stations(comp, piece, face, to_xy, cache,
-                    face.buffer(FOOT_FACE_M).intersection(piece.buffer(1.0)), False)
-    if got is None:
-        return None
-    st, z, seat = got
-    return tuple((float(a), seat + float(b)) for a, b in zip(st, z, strict=True))
-
-
-def _stations(comp, piece, face, to_xy, cache, where, high: bool):
-    """``(stations, authored y, seat)``: the highest (``high``) or lowest
-    triangle-edge sample of ``comp``'s member inside ``where`` per
-    :data:`BIN_M` station along ``face``, empty bins interpolated; ``None``
-    where the member, its seat or its triangles are unread."""
     seat = getattr(comp, "seat_z", None)
     member = getattr(comp, "member", None)
-    if seat is None or member is None or face is None or face.length <= 0.0 \
-            or where is None or where.is_empty:
+    if seat is None or member is None or face is None or face.length <= 0.0:
         return None
     from .sunken_ramp import _member_tris
     tris = _member_tris(member, comp.origin, to_xy, cache)
     if tris is None or not len(tris):
         return None
     pts = _edge_samples(np.asarray(tris, float))
-    pts = pts[shapely.contains_xy(where, pts[:, 0], pts[:, 1])]
+    inside = shapely.contains_xy(piece.buffer(1.0), pts[:, 0], pts[:, 1])
+    pts = pts[inside]
     if not len(pts):
         return None
     s = shapely.line_locate_point(face, shapely.points(pts[:, :2]))
     n = int(math.ceil(face.length / BIN_M)) + 1
     k = np.clip(np.round(s / BIN_M).astype(int), 0, n - 1)
-    if high:
-        z = np.full(n, -np.inf)
-        np.maximum.at(z, k, pts[:, 2])
-    else:
-        z = np.full(n, np.inf)
-        np.minimum.at(z, k, pts[:, 2])
-    ok = np.isfinite(z)
+    top = np.full(n, -np.inf)
+    np.maximum.at(top, k, pts[:, 2])
+    ok = np.isfinite(top)
     st = np.arange(n) * BIN_M
-    return st, np.interp(st, st[ok], z[ok]), float(seat)
+    z = np.minimum(np.interp(st, st[ok], top[ok]), _retaining_cap(comp))
+    return tuple((float(a), float(seat) + float(b)) for a, b in zip(st, z, strict=True))
 
 
 def _retaining_cap(comp) -> float:

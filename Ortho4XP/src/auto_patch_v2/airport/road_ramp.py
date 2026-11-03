@@ -1471,10 +1471,6 @@ class WallPiece(_t.NamedTuple):
     #: the wall's top as it sits along its upper face, absolute
     #: (``WallSides.top_profile``, #1661)
     top_profile: tuple | None = None
-    #: the LOWER face's line and the wall's foot along it
-    #: (``WallSides.lower_face`` / ``foot_profile``, #1662)
-    lower_face: _t.Any = None
-    foot_profile: tuple | None = None
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1503,9 +1499,7 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
                                      f"{c.resource}#comp{c.comp}",
                                      bool(c.retains), False,
                                      getattr(side, "upper_face", None),
-                                     getattr(side, "top_profile", None),
-                                     getattr(side, "lower_face", None),
-                                     getattr(side, "foot_profile", None)))
+                                     getattr(side, "top_profile", None)))
     return tuple(out)
 
 
@@ -1724,10 +1718,6 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                                  else [tuple(c) for c in w.upper_face.coords]),
                   "top_profile": (None if getattr(w, "top_profile", None) is None
                                   else [tuple(t) for t in w.top_profile]),
-                  "lower_face": (None if getattr(w, "lower_face", None) is None
-                                 else [tuple(c) for c in w.lower_face.coords]),
-                  "foot_profile": (None if getattr(w, "foot_profile", None) is None
-                                   else [tuple(t) for t in w.foot_profile]),
                   "upper": upper, "lower": lower,
                   "lots": lots, "pairs": pairs}
     return out

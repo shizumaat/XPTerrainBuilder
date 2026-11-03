@@ -404,3 +404,48 @@ One ENGM build (`tools/harness/build_airport.py ENGM`). Pass when:
   the south;
 - no new `tunnel_ramp` / `tunnel_trench` rows appear elsewhere;
 - the census is not worse than base except for the lawful station level.
+
+## 8. Implementation (owner's yes, 2026-11-03T06:07:15Z)
+
+Answers: (1) the planned levels; (2) the station floor at the objects' own
+wall feet; (3) R2 (c); (4) R6, below the objects in the ladder.
+
+- **R1**: `planar/bore_continuation.tunnel_ends` indexes interior nodes; the
+  shortest-ramp test reads the rail cap for a rail bore;
+  `airport/portal_witness.mapped_mouths` joins on every node.
+- **R2**: `planar/end_witness` (`needs_witness`, `EndWitness`), asked in
+  `structure_approach.mouths` AFTER the bore's own admission (§34 (12) (5)
+  keeps naming a bore that is no tunnel). Deep = `[tunnel] deep_layer_max`
+  (−2), only where no mapped way comes out of the end.
+  `structure_fence._Portals.at_end` is the per-end form of witness 3.
+- **R3**: `planar/station_level.station_split`. A station's pad is not
+  itself a held block (MEASURED ENGM: `building19#1`), so its level
+  (`plan_covered` in its station form, `covered_cut.station_corridors`) is
+  registered as a `low_level` landing of the nearest held block on the same
+  pack unit (`building24/p1`, y −8.70 against its top). `level_cut`
+  `whole=True` lets the pad become the level entire. The tagged-cutting
+  path is unchanged. A held-pad station path was tried and DROPPED: at
+  LEMD it minted an 18,292 m² level 2.2 m down under `building52`, which no
+  owner site asked for.
+- **R4**: `airport/tunnel_objects.signature`, shallow-seat branch.
+- **R5**: `structure_underpass.bore_roads(rail=True)` at the two hard-deck
+  readers (`deck_bores`, `deck_bridge._roads_under`).
+- **R6**: `airport/terrain_mesh_witness`.
+  - Candidates come from `airport/companion._candidates`, screened by
+    `dsf_commands.header_properties` (no overlay, not this engine's own
+    DSF).
+  - The pre-build refresh dumps them (`engine_v2._fresh_mesh_dumps`); load
+    reads the dump (`pipeline/build.pack_stage`, `Airport.terrain_mesh`).
+  - A cut needs a rim the depth higher within 10 m and a mean width of at
+    most 150 m.
+  - It is a per-end WITNESS only. It does not set a depth yet (objects
+    first; no ENGM site needed it).
+
+Deviations from the planned views:
+- The station's south end has no run-out. The DEM's cut just south stands
+  above the level, and `cut_runout` never climbs. That leaves a step of
+  about 1 m at the pad edge.
+- A pad remnant stands over the forecourt road that crosses the station.
+  The level takes no road (24a).
+- The north portal keeps its OSM ramp (mouth 195.5 m, opened by the
+  `Ham3.obj` deck witness), not the deck's bottom (194.1 m).

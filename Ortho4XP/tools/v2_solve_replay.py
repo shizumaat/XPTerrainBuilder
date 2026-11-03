@@ -685,6 +685,11 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     from auto_patch_v2.airport import walled_plate as _walled_plate
     airport = _dc.replace(airport, walled_plates=_walled_plate.plates_of(pack_objects))
     print(f"[{icao}] " + _walled_plate.log_line(icao, airport.walled_plates))
+    # RULINGS 2026-11-03 (answer 4, #1738): the companion terrain mesh, read
+    # as the build's ``pipeline/build.pack_stage`` reads it
+    from auto_patch_v2.airport import terrain_mesh_witness as _tmw
+    airport = _dc.replace(airport, terrain_mesh=_tmw.read(airport, law, inputs.mod_cache_root))
+    print(f"[{icao}] " + _tmw.log_line(icao, airport.terrain_mesh))
     print(f"[{icao}] clusters {len(airport.clusters)} "
           f"({time.perf_counter() - _cl_t:.0f} s)")
     print(f"[{icao}] pack partition {time.perf_counter() - t:.0f} s  "

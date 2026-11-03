@@ -40,6 +40,11 @@ os.environ.setdefault("O4_DISABLE_OSM_WARMER", "1")
 # its sockets inside libcurl, where the Python socket guard below cannot see
 # them; the suite runs the threaded fetcher unless a test opts in (loopback only).
 os.environ["O4_IMAGERY_FETCHER"] = "threads"
+# The patch library (#1699 phase 2) reads its index from GitHub; a window
+# that builds the Airports card or opens fires library_matches /
+# library_check on a daemon thread.  The suite has NO library unless a test
+# sets one up (the fake library sets every XPTB_LIBRARY_* itself).
+os.environ.setdefault("XPTB_LIBRARY_REPO", "")
 
 # ...and the law is ENFORCED at the socket, not trusted to every caller
 # (issue #122).  Windows CI hung three times to the 600 s pytest-timeout,

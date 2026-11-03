@@ -72,7 +72,10 @@ class _Machine:
         self.scenery = self.xp / "Custom Scenery"
         (self.scenery / pack / "Earth nav data").mkdir(parents=True)
         _put(self.scenery / pack / "Earth nav data" / "apt.dat", "1 0 0 0 KXXX\n")
-        for name in ("data", "patches", "build", "insets"):
+        # The insets live in the data folder, as a real installation's do
+        # (Elevation_data): the export tokenises them by the data root and
+        # never by whatever suite-wide redirect happens to be an ancestor.
+        for name in ("data", "data/insets", "patches", "build"):
             (root / name).mkdir()
         self.tile = _Tile(root / "build")
         self.sig = {"pack": pack, "custom": True, "signature": "a" * 32}
@@ -81,7 +84,7 @@ class _Machine:
         mp.setattr(FNAMES, "current_data_root", lambda: str(self.root / "data"))
         mp.setattr(FNAMES, "patch_dir", lambda lat, lon: str(self.root / "patches"))
         mp.setattr(FNAMES, "airport_inset_directory",
-                   lambda lat, lon: str(self.root / "insets"))
+                   lambda lat, lon: str(self.root / "data" / "insets"))
         mp.setattr(CFG, "custom_scenery_dir", str(self.scenery))
         mp.setattr(TB_EXPORT, "load_tile", lambda *a, **k: self.tile)
         mp.setattr(TB_KEY, "xplane_root", lambda tile: str(self.xp))
@@ -96,7 +99,7 @@ class _Machine:
     def build(self, marker: str = "v1"):
         """What a finished build leaves for KXXX: the patch family."""
         apt = self.scenery / self.pack / "Earth nav data" / "apt.dat"
-        inset = self.root / "insets" / "KXXX_usgs3dep.tif"
+        inset = self.root / "data" / "insets" / "KXXX_usgs3dep.tif"
         inset.write_bytes(b"lidar")
         head = ("<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6' "
                 "o4_icao='KXXX' o4_apt_dat='%s' o4_apt_dat_mtime='1.0' "

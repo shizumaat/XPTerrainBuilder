@@ -18,6 +18,10 @@ from o4_engine import library as LIB  # noqa: E402
 from o4_engine import storage as ST  # noqa: E402
 
 DAY = 86400.0
+_DATA_ROOT_GLOBALS = ("_data_root_override", "Auto_extent_dir", "Preview_dir",
+                      "OSM_dir", "Imagery_dir", "Elevation_dir", "Geotiff_dir",
+                      "Patch_dir", "Tile_dir", "Tmp_dir", "Overlay_dir",
+                      "Default_dsf_cache_dir")
 
 
 def _write(path, size, age_days=0.0):
@@ -33,16 +37,16 @@ def _write(path, size, age_days=0.0):
 def root(tmp_path, monkeypatch):
     for name in ("O4_DDS_CACHE_DIR", "O4_DSF_CACHE_DIR", "O4_AIRPORT_MOD_CACHE_DIR"):
         monkeypatch.delenv(name, raising=False)
-    original = FNAMES._data_root_override
+    # Every global set_data_root recomputes is put back as it was — the
+    # suite's redirects included (the DSF dump cache in conftest): a bare
+    # _apply_data_root() at teardown re-points them at the data folder.
+    for name in _DATA_ROOT_GLOBALS:
+        monkeypatch.setattr(FNAMES, name, getattr(FNAMES, name))
     FNAMES.set_data_root(str(tmp_path))
     monkeypatch.setattr(OSMX, "STORE_DIRECTORY",
                         str(tmp_path / "OSM_data" / "_regional_extracts"))
     monkeypatch.setattr(ST, "_settings", lambda: (0.0, {}))
-    try:
-        yield tmp_path
-    finally:
-        FNAMES._data_root_override = original
-        FNAMES._apply_data_root()
+    yield tmp_path
 
 
 def _rows(out):

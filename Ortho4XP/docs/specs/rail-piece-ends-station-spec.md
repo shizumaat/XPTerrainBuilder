@@ -11,7 +11,11 @@ views below are for the owner's yes.
 ENGM is where the defects were seen and is the closing test. Every rule below
 reads geometry, tags and objects only; none names an airport (RULINGS 05e).
 
-Status: SPEC, awaiting the owner's yes on the section views (lane `b1738`).
+Status: SPEC v2, awaiting the owner's yes on the section views (lane `b1738`).
+v2 (owner 2026-11-03T05:42:24Z: "Look at the package provided ENGM mesh, that will
+tell you exactly what the developer intended") adds the developer mesh to every
+view, compares it per site (§1b) and revises R2's witness, R3's open question
+and Q-A/Q-C from it.
 
 ## 1. Sites (current build, then planned)
 
@@ -23,22 +27,114 @@ from the station object's own levels. Heights are metres MSL at the owner's
 point. Landmarks: the station is under the terminal forecourt. The rail
 tunnel runs north from it under the central pier, between the two runways.
 
-| Site | Where | DEM | Current | Planned | What cuts it now |
-|---|---|---|---|---|---|
-| S1 60.198815, 11.100162 | rail line, 670 m N of the station, N end of the central pier | 204.09 | **197.92** (6.2 m trench) | 204.08 | `tunnel:-3643+-3642@0`: two branch pieces' switch ends, merged as a "dual" |
-| S2 60.197995, 11.099484 | rail line, 580 m N of the station | 204.06 | **198.04** | 204.44 | `tunnel:-3640@0`: branch piece's switch end |
-| S3 60.195686, 11.098786 | rail line, 325 m N of the station | 204.50 | **199.04** | 204.38 | `tunnel:-3644@0`: branch piece's switch end |
-| S4 60.195564, 11.097703 | rail line, 310 m N of the station, 60 m W of S3 | 204.52 | **197.94** | 204.58 (see Q-C) | `tunnel:-3645@0`: branch piece's switch end |
-| S5 60.193092, 11.108285 | E end of the terminal front, on the airside service road into the terminal | 204.99 | **201.25** | 204.13 | `tunnel-object:T1_13.obj@0`: a terminal part read as a tunnel wall object |
-| Station 60.192763, 11.096594 (#1739) | under the terminal forecourt | 202.45 | **204.13** (pad over the station; its roof deck 203.65 is 0.5 m under it) | **195.11** lower pad | nothing lowers it: the station sits inside held pad `building24` |
+| Site | Where | DEM | Current | Planned | Developer mesh (as authored / at our datum) | What cuts it now |
+|---|---|---|---|---|---|---|
+| S1 60.198815, 11.100162 | rail line, 670 m N of the station, N end of the central pier | 204.09 | **197.92** (6.2 m trench) | 204.08 | 207.0 / 204.13 | `tunnel:-3643+-3642@0`: two branch pieces' switch ends, merged as a "dual" |
+| S2 60.197995, 11.099484 | rail line, 580 m N of the station | 204.06 | **198.04** | 204.44 | 207.0 / 204.13 | `tunnel:-3640@0`: branch piece's switch end |
+| S3 60.195686, 11.098786 | rail line, 325 m N of the station | 204.50 | **199.04** | 204.38 | 207.0 / 204.13 | `tunnel:-3644@0`: branch piece's switch end |
+| S4 60.195564, 11.097703 | rail line, 310 m N of the station, 60 m W of S3 | 204.52 | **197.94** | 204.58 (see Q-C) | 207.0 / 204.13 | `tunnel:-3645@0`: branch piece's switch end |
+| S5 60.193092, 11.108285 | E end of the terminal front, on the airside service road into the terminal | 204.99 | **201.25** | 204.13 | 207.0 / 204.13 | `tunnel-object:T1_13.obj@0`: a terminal part read as a tunnel wall object |
+| Station 60.192763, 11.096594 (#1739) | under the terminal forecourt | 202.45 | **204.13** (pad over the station; its roof deck 203.65 is 0.5 m under it) | **195.11** lower pad | **192.0 / 189.13** | nothing lowers it: the station sits inside held pad `building24` |
 
 Section views (scratch, `…/scratchpad/b1738/`): `sec_S{1..5}_across.png`,
 `sec_S{1..5}_along.png`, `sec_ST_along.png`, `sec_ST_across.png`, plus the R2
-consequences `sec_C1_north_portal.png` and `sec_C2_rail_underpass.png`.
+consequences `sec_C1_north_portal.png` and `sec_C2_rail_underpass.png`. Every view
+carries the developer mesh twice: as authored (orange) and moved to our airside
+datum (orange dashed). Plan of the developer mesh: `plan_devmesh.png`.
 
 In the arm, the built tunnels go from 22 to 9 (`tunnel_ramp` ways 23 to 10).
 No rail ramp remains, and T1_13's corridor is gone. One mouth appears that the base hid:
 `tunnel:-766@1`, Q-C.
+
+## 1b. The developer mesh (v2)
+
+**What it is.** `zzz_Aerosoft - ENGM Gardermoen - Mesh/Earth nav data/+60+010/+60+011.dsf`
+is read with the existing reader (`auto_patch/dsf_reader.ensure_dsf_text_path`,
+dumped into the lane scratch, never into the pack). It is triangulated exactly
+(`O4_Default_Terrain_Map._primitive_triangles`), and each vertex takes its own
+elevation or, where it carries the sentinel −32768, the DSF's 1201² elevation
+raster (rows stored south first). Scratch reader: `scripts/devmesh.py`.
+
+- The airport is a FLAT plane at **207.0 m** (the field elevation; vertex z is
+  quantised to 1 m).
+- Our graded airside sits at 204.13 (terminal pad), so the views shift the mesh
+  by **−2.87 m** to compare depths.
+- Inside the airport, it cuts in exactly three places:
+  - the **station slot**: floor 192.0, vertical sides, from the station's
+    north wall (60.1933) to 60.1885, about 590 m, then a wall back up to 207
+    by 60.1875;
+  - the **north portal box**: floor 197.0, from 60.2009 to 60.2025 (about
+    160 m, the rail and `-742`'s mouth both inside), then a vertical wall back
+    up to 207;
+  - a 192.0 hole at 60.1988-60.1993, 11.1005-11.1009, beside `Ham1.obj`.
+- Every other mapped tunnel mouth is flat in it. That covers the false rail
+  ramps, `-766`, `-1216`, T1_13, and the sunken roads `T1_9` / `T1__17`.
+- Caveat: the mesh is AEROSOFT's product. The objects are TAIMODELS'
+  (`c_NOR - 100_airport - ENGM Oslo (Taimodels)`), a different developer. It
+  states one developer's intent for the ground, not necessarily the ground
+  these objects were authored over.
+
+**Per site, at the owner's point** (developer at our datum = as authored − 2.87):
+
+| Site | Current | Planned | Developer (our datum) | Planned − developer | Verdict |
+|---|---|---|---|---|---|
+| S1 | 197.92 | 204.08 | 204.13 | −0.05 | agrees: no cut |
+| S2 | 198.04 | 204.44 | 204.13 | +0.31 | agrees: no cut |
+| S3 | 199.04 | 204.38 | 204.13 | +0.25 | agrees at the point. The planned `-766` ramp 35 m away is flat in the mesh (Q-C) |
+| S4 | 197.94 | 204.58 | 204.13 | +0.45 | agrees at the point. The planned `-766` ramp edge 6 m away is flat in the mesh (Q-C) |
+| S5 | 201.25 | 204.13 | 204.13 | 0.00 | agrees: no cut |
+| Station | 204.13 | 195.11 | 189.13 | **+5.98** | open in both; the developer is 6 m deeper |
+| C1 north portal (floor) | 195.63 at the mouth, ramp 552 m | 194.10 under Ham3, run-out about 610 m | 194.13, box 160 m | −0.03 at the floor | agrees at the floor; the developer has no run-out |
+| C2 rail underpass | 201.66 (7.5 m ramp) | 208.97 (DEM) | 208.47 (outside the flat field, no shift) | +0.50 | agrees: no cut |
+
+**Where planned and developer differ by more than 0.5 m, why, and the rule that
+would close it:**
+
+1. **Station depth (+5.98 m).** The developer's slot floor is 15.0 m under its
+   field. Our level is the station object's feet plane, 8.72 m under its zero.
+   No Taimodels object along the reach goes deeper: T1_18 feet y −8.72, the
+   T1_18 south bodies y −8.55, `concrete.obj` −10.68. Seated on the
+   developer's own field (zero 207), T1_18's walls would stand 6.3 m above
+   its slot floor. The slot belongs to Aerosoft's station, not to these
+   objects.
+   - Rule that closes it: **R6 below** (a companion mesh's below-grade region
+     is a depth witness, senior to the objects).
+   - Against it: it would hang this pack's station 6 m in the air. The
+     objects-first ladder (Q344) keeps 195.11. Owner question Q-B v2.
+2. **Station slot length (south of the station).**
+   - Developer: constant depth for 590 m, then a near-vertical wall (15 m over
+     about 110 m).
+   - Planned: a 1.25 % run-out meets the DEM's natural cut (196 to 197 m)
+     about 105 m south, and the rail then follows the DEM cut. That cut is
+     7 to 8 m deep and reaches 60.186 in the DEM.
+   - Q342 (constant depth where no object sets it) would give the
+     developer's shape, if the region ran on until the rail "climbs back to
+     natural ground". Here natural ground is the DEM cut itself, so the two
+     readings meet once the depth matches (item 1).
+3. **North portal extent (beyond 60.2025).** The developer box ends in a
+   10 m vertical wall back up to the field. The planned run-out climbs at
+   1.25 % for about 610 m to the DEM.
+   - A rail cannot climb a wall, so the developer's wall is a simplification
+     we do not copy.
+   - No rule change is proposed; the disagreement is reported. The floor
+     itself agrees within 0.03 m.
+4. **Planned `-766` west ramp (near S3/S4, up to 7.2 m).** The developer has
+   no cut there. This answers Q-C as (b). The general rule that closes it is
+   R2 (c) below.
+
+Other mouths where the mesh disagrees with the CURRENT build (not owner sites,
+reported for the next round):
+
+| Mouth | Current depth | Developer |
+|---|---|---|
+| `-1216@0` (60.1949, 11.0937, service) | 12 m ramp, 4.9 m deep | flat |
+| `Ham1.obj` corridor (`-742`'s object) | 5.3 m deep along 103 m | flat on our corridor; a 192 hole 30 m west of it |
+| sunken roads `T1_9` / `T1__17` | 2.6 / 1.3 m | flat |
+| motorway underpass `-165/-163` | 7.5 m | a 2-3 m dip |
+| service `-1152` | 7.5 m | about 0.4 m |
+
+R2 (c) closes the service ones inside the fence. The rest need the object
+readers' own round.
 
 ## 2. Mechanisms (file:line on `5544d956`)
 
@@ -142,8 +238,32 @@ through piece).
   3. a credible lidar inset reads an open cut there (`structure_fence.
      _LidarCut`, 27z witness 5; `channel_geometry._lidar_cut`).
 
+  v2: the north portal HAS witness 1. `Airport/Tunnel/Ham3.obj` is a pack
+  hard deck (flag), lowest solid 194.10 m (8.5 m under its anchor). Its
+  footprint (60.20079-60.20124, 11.10089-11.10279) contains the merged mouth
+  (60.20088, 11.10128). The v1 arm refused every rail end without asking
+  for this witness, which is why v1's C1 view showed the portal closed. Under
+  this R2 it opens at the deck's bottom:
+  - 194.10 against the developer's 197 − 2.87 = 194.13;
+  - under the deck and in front of the mouth (Q340 "the floor in front of
+    tunnel mouths", "ground under hard-deck bridges");
+  - with a vertical step at the tunnel side (Q341);
+  - a rail run-out on the open side.
+
+  The rail under a hard deck is not bored today: `deck_bores` takes
+  `structure_underpass.bore_roads`, highways only. R2 (b) 1 reads the deck as
+  the rail's witness, and `deck_bores` takes railway ways too. This is one
+  reading, `bore_roads` gaining rail (census row added in §4).
+
   With none, the end is not opened: no ramp, no trench, and the rail beyond is
   graded like ground. The refusal is named in `stats.refused`, as #1028's are.
+- **(c) v2, a fenced service bore needs a portal witness too.** The developer
+  mesh opens only the mouths that a pack object or the station states. Inside
+  the airport boundary, a `service` bore end (the airside service tunnels:
+  `-766`, `-1216`, `-1152`, `-1360`) takes R2 (b)'s per-END witness list.
+  27z's per-BORE witnesses (cover, crossing, rise) admit the bore as a tunnel
+  but no longer open its ends. This narrows 27z, so it needs the owner's word:
+  **Q-C v2**.
 - One site: a sibling of `continues_underground` in `planar/
   bore_continuation.py`, called where it is (`structure_approach.py:820`).
 - Rail ramp grades stay 28k R5's. The shortest-ramp test in
@@ -172,6 +292,20 @@ block's top level `t`. At ENGM, T1_18's feet plane is y −8.72 against `t` ≈ 
   (`covered_cut.trim_uncut` keeps to tagged covered cuttings). A deep tunnel
   under a pad with no station stays buried.
 
+**R6 (proposed, Q-D). A companion terrain mesh is a witness.** A scenery pack
+other than the airport pack can carry physical terrain patches with explicit
+vertex elevations inside the airport boundary, i.e. a developer mesh. Where it
+does, its below-grade regions are read before the solve. Their outline and
+depth under the mesh's own field level (the mesh's modal airside elevation) are
+a witness of where the ground is open and how deep: an open cut where it cuts,
+closed where it is flat. It ranks with the pack's objects in Q344's ladder. No
+pack name and no airport literal is involved: the reader asks "which installed
+DSF covers this tile with explicit elevations inside this boundary", reusing
+`dsf_reader.ensure_dsf_text_path` and `_primitive_triangles`.
+- At ENGM it matches the planned surface at S1 to S5, C1's floor and C2.
+- It disagrees at the station's depth (§1b item 1), because the mesh and the
+  objects come from two vendors.
+
 **R4. A building's wall is not a tunnel edge wall.** In `tunnel_objects.
 signature`'s shallow-seat branch, an edge wall whose walls stand more than
 `[tunnel] mouth_depth_m` (7.5 m, a tunnel's own depth) from crest to lowest
@@ -199,6 +333,9 @@ T1_13, so it is not built.
 | `planar/cut_runout`, `landing.landing_cut`, `constraints/ramp_runout` | the level's ring, rail ways | LFLL only | the station's south end | R3 |
 | `constraints/platform.landing_rows` | `low_level` records | rigid at D + y | unchanged consumer | R3 |
 | `airport/placement_read` (object stage) | level under the block's plane | — | the station stays seated with its group (zero 203.83) | R3 |
+| `planar/structure_underpass.bore_roads` → `deck_bores` | mapped ways under a hard deck | highways only | + railway (a deck over rail bores it) | R2 (b) 1 v2 |
+| `planar/structure_service.terrain_tunnel_witness` + per-end witness | fenced `service` bores | admitted bore opens both ends | each end needs R2 (b)'s witness | R2 (c), Q-C v2 |
+| new companion-mesh reader (`airport/`, one module) | an installed terrain DSF over the tile | — | below-grade regions as witnesses | R6, Q-D |
 | `airport/tunnel_objects.signature` → `read_corridors` → `pack_reads` | resources | T1_13 a corridor | refused | R4 |
 | re-seat of tunnel-object families (`[tunnel.object] reseat`) | corridors | T1_13 re-seated by crest +23.86 | not a corridor, not re-seated | R4 |
 | census `check_grade` families on `tunnel_ramp` / `tunnel_trench` | emitted roles | 23 ramps + 2 trench | 10 ramps + 2 trench | — |
@@ -208,7 +345,10 @@ existing riser strip and run-out, the same heightfield shapes as LFLL's.
 
 ## 5. Owner questions (asked with the section views)
 
-- **Q-A (R2 (b) consequence, `sec_C1_north_portal.png`).** The OSM rail
+- **Q-A: ANSWERED BY THE PACK (v2).** Ham3.obj is the north portal's witness. The
+  portal opens at the deck's bottom, which matches the developer mesh's floor
+  within 0.03 m. What was asked in v1 is kept for the record:
+  **Q-A v1 (R2 (b) consequence, `sec_C1_north_portal.png`).** The OSM rail
   surfaces north of the pier at 60.2008, 11.1013. The coarse DEM (Copernicus,
   not lidar) shows a 5 to 6 m open cut there for about 500 m. Read literally,
   Q345 closes it, so the planned ground is graded at 203 to 205 m over the
@@ -218,12 +358,21 @@ existing riser strip and run-out, the same heightfield shapes as LFLL's.
   `-1163/-1161`, `-790/-221`, layer −1) lose their cuts under both answers.
   Their DEM shows the rail at grade under road embankments
   (`sec_C2_rail_underpass.png`).
-- **Q-B (R3 depth).** The planned station level is 195.11 m, the objects'
+- **Q-B v2 (R3 depth).** The developer mesh's slot is 15 m deep (189.13 at our
+  datum), 6 m deeper than the objects' feet. (a) Recommended: the objects'
+  feet, 195.11. The developer mesh is another vendor's, and matching it would
+  hang T1_18 6.3 m above the ground. (b) The developer mesh's depth (R6). v1's
+  text follows:
+  **Q-B v1.** The planned station level is 195.11 m, the objects'
   feet plane, 9 m under the forecourt. The DEM cut south of the station floors
   at 196 to 198 m. (a) Recommended: the feet plane (Q344: objects first).
   (b) Only open the 0.5 m between the pad and the roof deck (the tracks stay
   buried).
-- **Q-C (S4, `sec_S4_along.png`).** With the false rail ramp gone, the
+- **Q-C v2.** The developer mesh is flat over `-766`'s planned west ramp, and
+  over every airside service mouth. Recommended: R2 (c), where a fenced
+  `service` bore end needs a per-end portal witness. This narrows 27z. Yes or
+  no? v1's text follows:
+  **Q-C v1 (S4, `sec_S4_along.png`).** With the false rail ramp gone, the
   airside service tunnel `-766` (layer −1, 88 m, under the terminal's airside
   face, both ends on service road `-333`) builds its west mouth's 168 m ramp
   6 m from S4. Before, only the overlap with the false rail ramp refused it.
@@ -231,6 +380,11 @@ existing riser strip and run-out, the same heightfield shapes as LFLL's.
   passes under the terminal's overhang at grade (§34 (12) (5) (e)), and the
   part-at-grade test needs reading per part for a pack authored as one-anchor
   monoliths. Without (b) the owner's "no tunnel at S4" is not met.
+
+- **Q-D (R6).** Should an installed companion terrain mesh over the tile be
+  read as a witness of cuts (outline and depth under its own field)? It
+  matches 7 of 8 views at ENGM. It disagrees only where its vendor's station
+  differs from the pack's.
 
 ## 6. Not in this round
 

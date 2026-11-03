@@ -93,6 +93,7 @@ from ..model.planar import (NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint, bears_sha
 from .shape_airside import (airside_face_sets, declarable_pairs, inside_apron_body,
                             separated_label_pairs, weld_airside_faces)
 from .shape_mouths import weld_same_role_mouths
+from .shape_pad_corner import pad_corner_runs
 from .shape_parts import label_gap_parts, part_shape_of_face
 from .strip_keepout import strip_keepout
 
@@ -805,6 +806,7 @@ def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, ext
     ring_edges: list[LineString] = []
     edge_label: list[int] = []
     edge_ends: list[tuple[int, int]] = []
+    edge_pad: list[int | None] = []                 # the pad face an edge rims, if any
     on_net = {v for fid in net for r in (pm.faces[fid].ring, *pm.faces[fid].holes)
               for v in pm.ring_vertices(r)}
     bearing: set[int] = set()
@@ -826,6 +828,7 @@ def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, ext
                 ring_edges.append(LineString([pm.vertices[a].xy, pm.vertices[b].xy]))
                 edge_label.append(la)
                 edge_ends.append((a, b))
+                edge_pad.append(fid if pad else None)
     if len(set(edge_label)) < 2:
         return []
     tree = STRtree(ring_edges)
@@ -886,6 +889,21 @@ def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, ext
                 pairs.append((min(v, u), max(v, u)))
         out.extend(_joints_from(pm, segs, pairs, to_ll, extend_m, start + len(out), True,
                                 sides=(la, lb)))
+        # #883: the declaration runs on along the pad corner (``shape_pad_corner``)
+        for s_, o_ in ((la, lb), (lb, la)):
+            mine = [e for e in eids if edge_label[e] == s_ and edge_pad[e] is not None]
+            if not mine:
+                continue
+            runs = pad_corner_runs(pm, law, {edge_pad[e] for e in mine},
+                                   {v for e in mine for v in edge_ends[e]}, o_, bearing)
+            for pts, rp in runs:
+                pts = _extended(pts, extend_m)
+                roles = tuple(sorted({pm.faces[f].role for a, b in rp for f in
+                                      (*pm.vertices[a].incident_faces, *pm.vertices[b].incident_faces)}))
+                out.append(ShapeJoint(start + len(out), tuple(pts),
+                                      tuple(tuple(map(float, to_ll(x, y))) for x, y in pts),
+                                      tuple(rp), float(LineString(pts).length), roles,
+                                      (la, lb), True))
     stats.gap_joints = len(out)
     stats.gap_length_m = sum(j.length_m for j in out)
     return out

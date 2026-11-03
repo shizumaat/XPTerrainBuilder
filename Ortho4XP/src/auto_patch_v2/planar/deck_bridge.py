@@ -275,7 +275,8 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             pairs = facing_contacts(ring_ll, surface, step, every=True)
             where = f"{d.id} {str(d.path).rsplit('/', 1)[-1]} piece {piece.area:,.0f} m2"
             pair = _end_pair(pairs, _roads_under(airport, law, piece)
-                             if len(pairs) > 1 else None, to_xy)
+                             if len(pairs) > 1 else None, to_xy,
+                             _routes_across(airport, piece) if len(pairs) > 1 else ())
             if pair is None:
                 notes.append(f"{where}: no pavement runs across it (RULINGS 2026-10-27c)")
                 continue
@@ -328,14 +329,36 @@ def _roads_under(airport, law, ring: Polygon) -> "XY | None":
     return None if n <= 1.0 else (sx / n, sy / n)
 
 
-def _end_pair(pairs, road: "XY | None", to_xy):
-    """The facing contacts that are the deck's END LINES: the first pair
-    (``facing_contacts``), or where a mapped road runs under the deck the
-    pair whose contacts run most nearly along it — an end line is parallel
-    to the road the bridge crosses, a long side across it."""
+def _routes_across(airport, ring: Polygon) -> list:
+    """The CARRIED ROUTES over ``ring``: every runway axis (apt.dat ends) and
+    every aircraft taxi route edge (row 1202) whose line crosses it — the
+    witness the end lines are read by first (deck-end-anchors spec §2 (a))."""
+    lines = [LineString([rw.ends[0].xy, rw.ends[1].xy]) for rw in airport.runways
+             if len(rw.ends) == 2]
+    nodes = getattr(airport, "taxi_nodes", {}) or {}
+    lines += [LineString([nodes[e.a].xy, nodes[e.b].xy])
+              for e in getattr(airport, "taxi_edges", ()) or ()
+              if e.a in nodes and e.b in nodes and nodes[e.a].xy != nodes[e.b].xy]
+    return [ln for ln in lines if ln.intersection(ring).length > 1.0]
+
+
+def _end_pair(pairs, road: "XY | None", to_xy, routes=()):
+    """The facing contacts that are the deck's END LINES.  First the pair a
+    CARRIED ROUTE (``_routes_across``) runs across — it crosses both
+    contacts' lines, the most nearly square; then, where a mapped road runs
+    under the deck, the pair whose contacts run most nearly along it — an
+    end line is parallel to the road the bridge crosses, a long side across
+    it; else the first pair (``facing_contacts``).  MEASURED (deckanchor
+    round 1): LFPG ``H18r`` read end B on a taxiway beside 09R/27L, which
+    crosses the deck through the other pair."""
     if not pairs:
         return None
-    if road is None or len(pairs) == 1:
+    if len(pairs) == 1:
+        return pairs[0]
+    crossed = _crossed_pair(pairs, routes, to_xy)
+    if crossed is not None:
+        return crossed
+    if road is None:
         return pairs[0]
 
     def skew(stations) -> float:
@@ -344,6 +367,28 @@ def _end_pair(pairs, road: "XY | None", to_xy):
         L = math.hypot(x1 - x0, y1 - y0)
         return 1.0 if L <= 0.0 else abs((x1 - x0) * road[1] - (y1 - y0) * road[0]) / L
     return min(pairs, key=lambda p: skew(p[0]) + skew(p[1]))
+
+
+def _crossed_pair(pairs, routes, to_xy):
+    """The pair both of whose contacts a carried route crosses, the route
+    most nearly square to them; ``None`` for none."""
+    best = None
+    for p in pairs:
+        lines = [LineString([to_xy(lo, la) for la, lo in e]) if len(e) > 1 else None
+                 for e in p]
+        if None in lines:
+            continue
+        for r in routes:
+            if not all(r.distance(ln) <= 1.0 for ln in lines):
+                continue
+            (x0, y0), (x1, y1) = r.coords[0], r.coords[-1]
+            n = math.hypot(x1 - x0, y1 - y0) or 1.0
+            skew = sum(abs(((ln.coords[-1][0] - ln.coords[0][0]) * (x1 - x0)
+                            + (ln.coords[-1][1] - ln.coords[0][1]) * (y1 - y0)))
+                       / (n * (ln.length or 1.0)) for ln in lines)
+            if best is None or skew < best[0]:
+                best = (skew, p)
+    return None if best is None else best[1]
 
 
 def _road_floor(db: DeckBridge, law, notes: list[str], level_b: "float | None",
@@ -522,7 +567,8 @@ def _half_plane(line: tuple[XY, float], toward: XY, big: float) -> Polygon:
 
 def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
              other: "DeckBridge | None" = None,
-             band: "tuple[float, float] | None" = None, bank_run: float = 0.0):
+             band: "tuple[float, float] | None" = None, bank_run: float = 0.0,
+             roads=None):
     """``(ramp, outer)`` of a corridor under ``db`` (module doc): clipped to
     its own side of the deck's midline (the mouth line — the bore's other
     mouth cuts the rest, so no end cap stands across the trench) and,
@@ -538,7 +584,9 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     of the deck's edge: no wall stands there, so the ground comes down from
     the deck to the trench floor as an embankment (owner 2026-11-03T16:56Z:
     "assume a sloping embankment coming down from bridge ends to the trench
-    bottom")."""
+    bottom").  ``roads``: the mapped road ribbons beside the cut — THE
+    ROAD-EDGE WITNESS (16:56Z): the bank never cuts into one; the cut's
+    rim stands at its edge (vertical where it meets the carriageway)."""
     big = 10.0 * (axis.length + 1000.0)
     ahead = axis.interpolate(min(axis.length, 1.0))
     keep = _half_plane(mid_line(db), (ahead.x, ahead.y), big)
@@ -573,6 +621,11 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         bank = db.polygon.buffer(-inset, join_style="mitre")
         if not bank.is_empty:
             outer = unary_union([outer, bank])
+
+    if roads is not None and not roads.is_empty:
+        beside = roads.difference(ramp.buffer(0.5, join_style="mitre"))
+        if not beside.is_empty:
+            outer = outer.difference(beside)
 
     def one(g, fallback):
         g = g.intersection(keep)

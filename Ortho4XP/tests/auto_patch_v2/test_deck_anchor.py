@@ -194,3 +194,59 @@ def test_a_slab_keeps_its_ground_and_the_cut_stops_at_its_edges(tmp_path):
     assert abs(u0 - (lo + 0.6)) < 1e-6 and abs(u1 - (hi - 0.6)) < 1e-6
     (tmp_path / "w").mkdir()
     assert not T._bridge(tmp_path / "w").slab
+
+
+def test_the_rebake_plan_carries_the_zero_the_anchors_state(site, law):
+    """§3: the deck member's ``anchor_zero`` is the plate zero the object
+    stage reads where the surface stands at the anchors (no yield)."""
+    from auto_patch_v2.constraints.edge_floor import edge_seats_of
+    from auto_patch_v2.pipeline import rebake_inputs as RI
+    _ap, pm, got = _anchored(site, law, _tunnel(depth_b=7.144))
+    tn = pm.structures[0]
+    tn = _dc.replace(tn, deck_top_y=10.0)
+    pm = _dc.replace(pm, structures=(tn,))
+    out: dict = {}
+    tops: dict = {}
+    RI._deck_plate(out, tn, set(), pm, edge_seats_of(pm, law, combine=False), tops)
+    y, st, *rest = out[OID]
+    y = sum(tops[OID].values()) / len(tops[OID])
+    level = {v: a.z_m for a in got.values() for v in a.stations}
+    near = {tuple(pm.vertices[v].xy): z for v, z in level.items()}
+    plate_zero = sum(near[tuple(p)] for p in st) / len(st) - y
+    assert abs(rest[2] - plate_zero) <= 1e-6
+
+
+def test_the_bank_never_cuts_a_mapped_road_beside_the_cut(tmp_path):
+    """Owner 2026-11-03T16:56Z: a sloping embankment from the bridge ends to
+    the trench floor unless a road edge requires a vertical cut — the bank
+    stops at a mapped road beside the carriageway; the carriageway (the
+    floor) is never taken out."""
+    from auto_patch_v2.planar import deck_bridge as DBR
+    from shapely.geometry import LineString
+    from shapely.geometry import box as _sbox
+    from tests.auto_patch_v2 import test_deck_bridge1671 as T
+    db = T._bridge(tmp_path)
+    axis = LineString([(0.0, 23.0), (0.0, 120.0)])
+    moved, _d = DBR.deck_mouth(axis, (0.0, -1.0), db)
+    ramp = _sbox(-4.0, -10.0, 4.0, 100.0)
+    outer = ramp.buffer(1.6, join_style="mitre")
+    road = _sbox(8.0, -30.0, 12.0, 100.0)
+    _r0, o0 = DBR.deck_cut(db, moved, ramp, outer, 0.6)
+    r1, o1 = DBR.deck_cut(db, moved, ramp, outer, 0.6, roads=road.union(ramp))
+    assert o0.intersection(road).area > 1.0 and o1.intersection(road).area < 1e-6
+    assert r1.equals(_r0)
+
+
+def test_the_end_lines_are_the_pair_the_carried_route_crosses():
+    """§2 (a): a deck the pavement meets on all four sides reads as its end
+    lines the pair the carried route (runway axis / taxi route) runs
+    across — never the pair the road under it runs along when the two
+    disagree (LFPG H18r end B read on a taxiway, ENGM Ham2)."""
+    from auto_patch_v2.planar import deck_bridge as DBR
+    from shapely.geometry import LineString
+    to_xy = lambda lon, lat: (lon, lat)                       # noqa: E731
+    along = (((0.0, 0.0), (0.0, 10.0)), ((10.0, 0.0), (10.0, 10.0)))   # y = 0 / 10
+    across = (((0.0, 0.0), (10.0, 0.0)), ((0.0, 10.0), (10.0, 10.0)))  # x = 0 / 10
+    route = LineString([(-5.0, 5.0), (15.0, 5.0)])
+    assert DBR._end_pair([along, across], None, to_xy, [route]) is across
+    assert DBR._end_pair([along, across], None, to_xy, []) is along

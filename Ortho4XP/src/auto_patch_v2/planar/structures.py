@@ -339,6 +339,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     deck_paved = unary_union([p for p, c in zip(polys, cells, strict=False)
                               if c.role in rolled_on_roles(law)]) if deck_bridges else None
     runway_cells = [p for p, c in zip(polys, cells, strict=False) if c.role in RUNWAY_FAMILY]
+    # the ROAD-EDGE WITNESS of a deck's cut (``deck_bridge.deck_cut``)
+    deck_roads = unary_union([p for p, c in zip(polys, cells, strict=False)
+                              if c.role in ("service_road", "service_junction")]) \
+        if deck_bridges else None
     rw_tree = STRtree(runway_cells) if runway_cells else None
 
     def _carries_runway(db) -> bool:
@@ -1002,7 +1006,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next,
                                    lane_band(deck, lane_cs.get(id(deck), ()),
                                              lane_of.get(id(members[0]), 0)),
-                                   deck.depth_m / float(law.tables.emit.design.bank_slope))
+                                   deck.depth_m / float(law.tables.emit.design.bank_slope),
+                                   deck_roads)
         if rt is not None and c is None and level_to is not None and \
                 (deck is None or deck_next is None):
             # the half ends at its own side of the run line, open to its partner
@@ -1312,10 +1317,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # narrows 08-07 ruling 4 / 15f): where the pack's bridge object carries
     # the runway over the trench, the object shows the runway surface and the
     # ground under it is the cut; everywhere else the runway is never cut
+    # ...and the bore's cut under a deck carrying the runway runs on through
+    # the runway past the deck's ring (deckanchor round 2: LFPG's A1 under
+    # H18r, the trench under 09R/27L beyond the hard-deck plate, S4)
     deck_cover = unary_union(
         [db.polygon for t, db in ((t, tid_deck.get(t.id)) for t in tunnels) if db is not None]
         + [Polygon(d.ring) for t in tunnels for d in t.decks
-           if d.datum == "deck_top" and len(d.ring) >= 3])
+           if d.datum == "deck_top" and len(d.ring) >= 3]
+        + [Polygon(t.footprint).buffer(0.0) for t in tunnels
+           if tid_deck.get(t.id) is not None and len(t.footprint) >= 3
+           and _carries_runway(tid_deck[t.id])])
     def _cut(c: Cell, p, blade) -> None:
         if c.role in RUNWAY_FAMILY and blade is not None:
             blade = blade.intersection(deck_cover) if not deck_cover.is_empty else None

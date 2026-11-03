@@ -212,6 +212,11 @@ class Member:
     #: at any authored height (§16e (1)'s crest plate reads ``plate_y > 0``
     #: only).  ``""`` for every other member and in every older plan.
     plate_kind: str = ""
+    #: deck-end-anchors spec §3: a hard deck's zero as its end-line ANCHORS
+    #: state it (``constraints/deck_anchor``) — the plate zero the object
+    #: stage reads off the built surface equals it where no anchor yielded.
+    #: ``None`` for every other member and in every older plan.
+    anchor_zero: float | None = None
     #: THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3):
     #: this member's resource carries a uniform below-zero extent across
     #: its footprint (``airport/skirt.is_skirt``).  A body EVERY one of
@@ -443,6 +448,7 @@ class RebakePlan:
                     "plate_y": m.plate_y,
                     "plate_clearance_m": m.plate_clearance_m,
                     "plate_kind": m.plate_kind,
+                    "anchor_zero": m.anchor_zero,
                     "plate_stations": [[a, b] for a, b in m.plate_stations],
                     "skirted": m.skirted,
                     "elevated_deck": m.elevated_deck,
@@ -543,6 +549,7 @@ class RebakePlan:
                 plate_stations=tuple((float(a), float(b)) for a, b in m.get("plate_stations", ())),
                 plate_clearance_m=float(m.get("plate_clearance_m") or 0.0),
                 plate_kind=str(m.get("plate_kind") or ""),
+                anchor_zero=None if m.get("anchor_zero") is None else float(m["anchor_zero"]),
                 skirted=bool(m.get("skirted", False)),
                 elevated_deck=bool(m.get("elevated_deck", False)),
                 deck_shade_ring=None if m.get("deck_shade_ring") is None

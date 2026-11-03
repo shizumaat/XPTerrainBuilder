@@ -178,6 +178,11 @@ def _deck_plate(out: dict, tn, kept, pm=None, seats_of=None,
     # the frame's bottom: the deck top less its two ends' mean depth
     own = [float(d) for o, _s, d in tn.edge_seats[:2] if o == oid]
     bottom = float(tn.deck_top_y) - sum(own) / len(own) if own else None
+    # deck-end-anchors spec §3: the zero the anchors state — the anchor's
+    # level less its end line's top, less the frame's bottom
+    held = [a for a in getattr(pm, "deck_anchors", ()) or () if a.object_id == oid]
+    if held and bottom is not None and len(rest) < 3:
+        rest = [*rest, held[0].z_m - held[0].top_y - bottom]
     for k, (o, stations, depth) in enumerate(tn.edge_seats):
         if o != oid:
             continue

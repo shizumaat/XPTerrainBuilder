@@ -34,7 +34,9 @@ when two Opus rounds on a task fail to deliver, the master stops that lane
 and launches a Fable 5.1 reviewer — `subagent_type: "scout"` (read-only),
 prompt carrying `TWO-ROUND-CAP-REVIEW: <issue> <the two failed rounds>` —
 that reviews the two failed rounds and writes a new spec; it NEVER
-implements. A fresh Opus lane then runs the third round from that spec.
+implements. A fresh Opus lane then runs the third round from that spec; if that
+round also misses, the task goes to the owner (park / ship / redesign) —
+never a fourth attempt (owner 2026-11-03, RULINGS 2026-11-03d).
 This is the only Fable use that needs no per-launch yes. A Fable lane is
 never resumed (`SendMessage`) for a new
 piece of work — each round re-reads its whole context at Fable price; its
@@ -43,6 +45,15 @@ follow-up goes to a fresh Opus lane on its branch. The master reads
 Fable launch, and reports the figure with the request. Precedent: on
 2026-10-12/13 nine of 32 lanes were launched on Fable for implementation
 briefs and used 50 % of the weekly Fable allowance in under a day.
+EFFICIENCY (owner 2026-11-03, RULINGS 2026-11-03d): at most 8 lanes run
+at once (builds compete for CPU); the worktree cap is 16 and a new lane
+reuses a merged worktree (`lane_worktree.sh up`); anything that needs a
+permission (close, delete, a public create) is asked in the owner's own
+thread, not relayed; each morning starts a fresh master from a short
+handoff note; every lane report ends with a "Process" line when friction
+cost time or usage; a sim read is diagnosed only after checking the app
+version in its build log, and a test app is handed over as "quit the app
+and open XPTerrainBuilder-<v>.app".
 Every `Agent` launch passes the model explicitly and one of those
 `subagent_type`s — the PreToolUse hook `.claude/hooks/agent_guard.py`
 refuses anything else (built-in types inherit the session's high

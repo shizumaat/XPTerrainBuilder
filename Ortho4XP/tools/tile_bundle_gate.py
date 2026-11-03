@@ -142,8 +142,9 @@ def make_world(world: Path, build: dict, manifest: dict) -> dict:
     source_build = Path(build["result"]["build_dir"])
     cfg_name = CN.tile_cfg_name(lat, lon)
     shutil.copyfile(source_build / cfg_name, tile_dir / cfg_name)
-    subprocess.run(["cp", "-cR", str(source_build / "textures"),
-                    str(tile_dir / "textures")], check=True)
+    if (source_build / "textures").is_dir():     # a geometry-only build has none
+        subprocess.run(["cp", "-cR", str(source_build / "textures"),
+                        str(tile_dir / "textures")], check=True)
     (data / CN.GLOBAL_CFG_NAME).write_text(_cfg_with(
         ROOT / CN.GLOBAL_CFG_NAME,
         {"custom_scenery_dir": str(scenery),

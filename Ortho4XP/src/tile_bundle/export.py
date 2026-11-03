@@ -22,7 +22,7 @@ from . import FORMAT, BundleRefused, contents
 from . import key as _key
 from . import paths as _paths
 
-__all__ = ["BUNDLE_SUFFIX", "XZ_PRESET", "export_tile",
+__all__ = ["BUNDLE_SUFFIX", "XZ_PRESET", "export_tile", "sources",
            "load_tile"]
 
 #: A tile bundle's file name ends so.
@@ -74,16 +74,22 @@ def _provider_sources(inset_paths) -> list:
     return [found[c] for c in sorted(found)]
 
 
-def _sources(tile) -> list:
+def sources(tile, icao: str = "") -> list:
+    """The OpenStreetMap, base elevation and inset providers a build of
+    ``tile`` read, each with its licence and credit — with ``icao``, only
+    that airport's insets (an airport entry, ``patch_library.entry``)."""
     import O4_Airport_Elevation_Insets as INSETS
     base = str(getattr(tile, "base_elevation_source", "") or "auto")
+    insets = INSETS.list_cached_inset_dems(tile.lat, tile.lon)
+    if icao:
+        insets = [p for p in insets
+                  if os.path.basename(p).upper().startswith(icao.upper() + "_")]
     return ([{"kind": "osm", "provider": "OpenStreetMap",
               "licence": "ODbL-1.0",
               "credit": "© OpenStreetMap contributors"},
              {"kind": "elevation", "provider": "base:" + base,
               "licence": "see the base elevation source", "credit": ""}]
-            + _provider_sources(INSETS.list_cached_inset_dems(tile.lat,
-                                                               tile.lon)))
+            + _provider_sources(insets))
 
 
 def _month(paths) -> str:
@@ -184,7 +190,7 @@ def export_tile(lat: int, lon: int, out_dir: str,
     manifest = {"format": FORMAT, "tile": parts["tile"],
                 "key": _key.bundle_key(parts), "key_parts": parts,
                 "airports": _key.airport_signatures(tile),
-                "data_snapshot": _snapshot(tile), "sources": _sources(tile),
+                "data_snapshot": _snapshot(tile), "sources": sources(tile),
                 "engine_version": getattr(O4_Version, "version", ""),
                 "records": _records(tile, change), "files": files}
     manifest_bytes = (json.dumps(manifest, indent=1, sort_keys=True)

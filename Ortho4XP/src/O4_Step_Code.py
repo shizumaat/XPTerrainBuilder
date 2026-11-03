@@ -310,6 +310,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.pack_art",
     "auto_patch_v2.airport.pack_forests",
     "auto_patch_v2.airport.pack_forests_map",
+    "auto_patch_v2.airport.pack_identity",
     "auto_patch_v2.airport.pack_partition",
     "auto_patch_v2.airport.pack_pavement",
     "auto_patch_v2.airport.pack_work",
@@ -772,6 +773,9 @@ _SHARED: tuple[str, ...] = (
     "o4_engine",
     "o4_engine.download_meter",
     "o4_engine.task_meter",
+    "patch_library",
+    "patch_library.adoption",
+    "patch_library.key",
 )
 
 #: What each step imports beyond :data:`_SHARED`.

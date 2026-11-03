@@ -16,6 +16,8 @@ struct BuildAirportsCard: View {
     let error: String?
     /// The app's own pack probe, shown when there is no engine answer.
     let fallbackPacks: [String]
+    /// The patch library's entries for these airports (#1699 phase 2).
+    var libraryMatches: O4PatchLibraryMatches? = nil
     @State private var showingAirports = false
     /// The explanations sit behind a small "i" (owner 2026-10-27): the
     /// card shows the switches and the list, and the "i" the why.
@@ -38,6 +40,7 @@ struct BuildAirportsCard: View {
                 }
                 if showingGradeInfo { caption(Self.gradeSentence) }
                 airportList
+                LibraryMatchList(matches: libraryMatches)
                 Divider()
                 HStack(spacing: 4) {
                     Toggle(O4Glossary.term("fit_buildings"), isOn: Binding(

@@ -131,7 +131,13 @@ from typing import Any, Optional
 # and ``library_import_bundle`` — a built tile carried to another
 # installation as a tile bundle (``tile_bundle``), completed through
 # LibraryReady like the other Library commands.
-PROTOCOL_VERSION = "1.23"
+# 1.24 (2026-11-02, additive, #1699 phase 2): the PATCH LIBRARY's airport
+# entries — ``library_check`` (the check when the app opens),
+# ``library_matches`` (the build box's match list), ``library_apply``,
+# ``library_ignore``, ``library_publish_preview``, ``library_publish`` and
+# the GitHub device sign-in (``library_signin_start`` / ``_poll``,
+# ``library_signout``), each completed through LibraryReady.
+PROTOCOL_VERSION = "1.24"
 
 
 @dataclass(frozen=True)
@@ -642,9 +648,10 @@ class PackObjectsReady(EngineEvent):
 class LibraryReady(EngineEvent):
     """The completion half of the Library commands (#824:
     ``library_scan``, ``cache_sizes``, ``free_cache``, ``library_delete``,
-    and #1699's ``library_export_bundle`` / ``library_import_bundle``,
-    ``o4_engine.library``): each replies ``{"status": "started"}`` and
-    does its work on a worker thread.
+    #1699's ``library_export_bundle`` / ``library_import_bundle``, and the
+    patch library's ``library_check`` … ``library_signout``,
+    ``o4_engine.library.PATCH_LIBRARY_COMMANDS``): each replies
+    ``{"status": "started"}`` and does its work on a worker thread.
 
     ``request`` is the ``id`` of the command it answers, ``command`` its
     name; ``result`` is the command's return value or ``None``, with

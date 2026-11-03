@@ -218,6 +218,9 @@ a = Analysis(
     ] + gdal_proj_datas + v2_law_datas + highspy_datas + tifffile_datas
       + imagecodecs_datas + curl_cffi_datas + ispc_datas,
     hiddenimports=(collect_submodules('PIL') + collect_submodules('auto_patch_v2')
+                   # the patch library (#1699 phase 2) and tile bundles:
+                   # their engine commands import them inside functions
+                   + collect_submodules('patch_library') + collect_submodules('tile_bundle')
                    + elevation_access_hidden
                    # ``o4_engine.parallel.STEP_FETCH_SUBSYSTEMS`` resolves its
                    # fetch predicates BY NAME (``__import__``), which the

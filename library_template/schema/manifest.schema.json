@@ -1,0 +1,141 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "XPTerrainBuilder airport entry manifest (xptl-airport-1)",
+ "description": "entries/<ICAO>/<pack>/<pack version>/v<N>/manifest.json. Checked by XPTerrainBuilder's patch_library.checks; this schema documents it.",
+ "type": "object",
+ "required": [
+  "format",
+  "icao",
+  "tile",
+  "version",
+  "pack",
+  "signature",
+  "law",
+  "solve",
+  "engine_version",
+  "min_engine",
+  "publisher",
+  "licence",
+  "sources",
+  "files"
+ ],
+ "properties": {
+  "format": {
+   "const": "xptl-airport-1"
+  },
+  "icao": {
+   "type": "string",
+   "pattern": "^[A-Z0-9]{2,8}$"
+  },
+  "tile": {
+   "type": "string",
+   "pattern": "^[+-][0-9]{2}[+-][0-9]{3}$",
+   "description": "the tile the airport was built in"
+  },
+  "version": {
+   "type": "integer",
+   "minimum": 1
+  },
+  "pack": {
+   "type": "object",
+   "required": [
+    "name",
+    "custom",
+    "kind"
+   ],
+   "properties": {
+    "name": {
+     "type": "string",
+     "description": "display only"
+    },
+    "custom": {
+     "type": "boolean"
+    },
+    "kind": {
+     "enum": [
+      "default",
+      "freeware",
+      "payware"
+     ]
+    }
+   }
+  },
+  "signature": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{32}$",
+   "description": "pack signature: apt.dat block, pristine pack DSF(s), borrowed Global Airports block, 1302 flatten"
+  },
+  "law": {
+   "type": "object",
+   "required": [
+    "fresh_v",
+    "cfg",
+    "code",
+    "ap_engine"
+   ],
+   "description": "the auto-patch law that solved it; a different law re-solves"
+  },
+  "solve": {
+   "type": "string",
+   "description": "the solve-settings fingerprint (o4_solve_cfg)"
+  },
+  "engine_version": {
+   "type": "string"
+  },
+  "min_engine": {
+   "type": "string",
+   "description": "an older app warns before using it"
+  },
+  "publisher": {
+   "type": "string",
+   "description": "GitHub login; must be the pull request's author"
+  },
+  "published": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "licence": {
+   "const": "ODbL-1.0"
+  },
+  "sources": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "kind",
+     "provider",
+     "licence"
+    ],
+    "properties": {
+     "kind": {
+      "type": "string"
+     },
+     "provider": {
+      "type": "string"
+     },
+     "licence": {
+      "type": "string"
+     },
+     "credit": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "files": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "object",
+    "required": [
+     "bytes",
+     "sha256",
+     "raw_bytes",
+     "raw_sha256"
+    ]
+   }
+  },
+  "notes": {
+   "type": "string"
+  }
+ }
+}

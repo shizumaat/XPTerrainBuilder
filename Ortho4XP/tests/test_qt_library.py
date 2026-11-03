@@ -175,3 +175,68 @@ def test_no_bundle_while_a_build_runs(app):
     dialog = _dialog(building=lambda: True)
     _select(dialog, "+45-123")
     assert not dialog.export_btn.isEnabled() and not dialog.import_btn.isEnabled()
+
+
+CHECK = {"configured": True, "checked": "", "regions": ["+40-130"], "rows": [
+    {"icao": "KPDX", "tile": "+45-123", "state": "newer", "pack": "KPDX Pack",
+     "entry_pack": "KPDX Pack", "version": 2, "local_version": 1,
+     "entry": "entries/KPDX/KPDX Pack/0123456789ab/v2", "signature": "a" * 32,
+     "verified": True, "publisher": "dev", "solved_usable": True, "reason": "",
+     "warning": ""},
+    {"icao": "KHIO", "tile": "+45-123", "state": "pack_changed", "pack": "P",
+     "entry_pack": "P", "version": 1, "local_version": 1, "entry": "entries/KHIO/P/0123456789ab/v1",
+     "signature": "b" * 32, "verified": False, "publisher": "pilot",
+     "solved_usable": False, "reason": "x", "warning": ""}]}
+
+
+def test_the_patch_library_box_lists_the_check_and_applies(app, monkeypatch):
+    """#1699 phase 2: the Library's "Patch library" box (the Mac app's
+    ``PatchLibrarySection``): one row per airport, Update lays the entry
+    down through ``library_apply``."""
+    import O4_Qt_Patch_Library as PATCHLIB
+    calls = []
+
+    def fake(name):
+        def run(**kw):
+            calls.append((name, kw))
+            if name == "library_apply":
+                return {"icao": "KPDX", "tile": "+45-123", "version": 2, "mode": "solved",
+                        "reason": "", "edits": "none", "files": 6, "warning": ""}
+            return {"configured": False, "rows": []}
+        return run
+    monkeypatch.setattr(PATCHLIB, "command", fake)
+    dialog = _dialog()
+    dialog.patch_box.set_check(CHECK)
+    first, second = dialog.patch_box.row_widgets
+    assert set(first.buttons) == {"Update", "Ignore"}
+    assert set(second.buttons) == {"Ignore"}            # the next build re-solves
+    first.buttons["Update"].click()
+    deadline = time.time() + 10
+    while [n for n, _kw in calls][-1:] != ["library_check"] and time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.02)
+    assert [n for n, _kw in calls] == ["library_apply", "library_check"]
+    assert calls[0][1] == {"entry": CHECK["rows"][0]["entry"], "working_dir": "/tiles"}
+    assert PATCHLIB.applied_text({"icao": "KPDX", "tile": "+45-123", "version": 2,
+                                  "mode": "solved"}) == (
+        "KPDX v2 laid down: the next build of +45-123 skips its solve.")
+    assert PATCHLIB._notice(CHECK["rows"]) == (
+        "Patch library: airports 1 with a newer patch, 1 whose pack changed — see Library.")
+
+
+def test_publish_patch_needs_one_built_tile_with_airports(app):
+    dialog = _dialog()
+    dialog.refresh = lambda: None
+    _select(dialog, "+47-122")                          # no airport graded
+    assert not dialog.publish_btn.isEnabled()
+    _select(dialog, "+45-123")
+    assert dialog.publish_btn.isEnabled()
+    publish = dialog.publish_dialog(RESULT["tiles"][0])
+    assert publish.airport_combo.currentText() == "KPDX"
+    assert not publish.publish_btn.isEnabled()          # no preview, no licence yet
+    publish._on_preview({"icao": "KPDX", "version": 1, "pack": "KPDX Pack",
+                         "kind": "payware", "bytes": 1_600_000, "verified": True,
+                         "problems": [], "signed_in": "dev", "licence_accepted": False})
+    assert not publish.publish_btn.isEnabled()
+    publish.licence_chk.setChecked(True)
+    assert publish.publish_btn.isEnabled() and not publish.signin_btn.isVisible()

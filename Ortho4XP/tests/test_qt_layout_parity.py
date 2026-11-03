@@ -74,6 +74,19 @@ AIRPORTS_CARD_TEXT = (
     ("backupNote", "BACKUP_NOTE"),
 )
 
+#: The patch library's homes (#1699 phase 2), each in both apps:
+#: (key, Swift file, Swift marker, Qt owner, Qt attribute).  The match
+#: list sits in the Airports card under the airport list; the Library
+#: window carries the "Patch library" section and "Publish Patch…".
+PATCH_LIBRARY = (
+    ("match_list", "BuildAirportsCard.swift", "LibraryMatchList(matches:",
+     "airports_card", "library_match_list"),
+    ("library_section", "LibraryView.swift", "PatchLibrarySection()",
+     "library_dialog", "patch_box"),
+    ("publish", "LibraryView.swift", 'Button("Publish Patch…")',
+     "library_dialog", "publish_btn"),
+)
+
 #: The build-cost panel (#820): last in the Build box, just above Build —
 #: (Swift marker, Qt window attribute).
 PLAN_PANEL = ("PlanEstimatePanel(", "plan_panel")
@@ -449,3 +462,18 @@ def test_both_patch_panels_say_checking_while_the_scan_runs(window):
              .read_text(encoding="utf-8"))
     sentence = "Checking which tiles are built…"
     assert sentence in swift and sentence in panel
+
+
+def test_the_patch_library_has_one_home_in_each_app(window):
+    """#1699 phase 2: every patch-library control the Mac app shows, the
+    Qt window shows too (and the reverse, by the manifest)."""
+    import O4_Qt_Library as QTLIB
+
+    owners = {"airports_card": window.airports_card,
+              "library_dialog": QTLIB.LibraryDialog(None, "/tiles", "")}
+    for key, swift_file, marker, owner, attr in PATCH_LIBRARY:
+        assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
+        assert getattr(owners[owner], attr, None) is not None, key
+    card = window.airports_card.layout()
+    assert card.indexOf(window.airports_card.library_match_list) == \
+        card.indexOf(window.airports_card.airports_text) + 1

@@ -199,7 +199,8 @@ def test_the_wire_name_and_fields_are_frozen():
     assert [f.name for f in dataclasses.fields(EV.PackOptimise)
             if f.name not in ("seq", "ts")] == [
         "pack", "pack_root", "lat", "lon", "dedupe", "est_tris_before",
-        "est_tris_after", "can_optimise", "files", "state", "error"]
+        "est_tris_after", "can_optimise", "swapped", "files", "state",
+        "error"]
     assert EV.PackOptimise().can_optimise is False, "no offer without a yes"
 
 

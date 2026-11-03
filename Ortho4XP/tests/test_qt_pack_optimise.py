@@ -88,6 +88,16 @@ def test_the_copy(qapp):
     assert box.escapeButton().text() == "Not now"
 
 
+def test_the_copy_with_swaps(qapp):
+    box, _buttons = QTOPT.pack_optimise_box(_event(swapped=6232))
+    assert box.informativeText().startswith(
+        "This airport’s objects draw 275.5 million triangles on this tile, "
+        "enough to cost frame rate. Optimise removes the 2720 object "
+        "placements that repeat another on the same spot and swaps 6232 "
+        "heavy vehicles and ground equipment for X-Plane’s lighter library "
+        "ones (222.0 million triangles).\n\n")
+
+
 def test_the_copy_matches_the_mac_app():
     swift = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
                          "SceneryKit", "PackOptimise.swift")
@@ -102,10 +112,14 @@ def test_the_copy_matches_the_mac_app():
         return "".join(re.findall(r'"([^"]*)"', text[
             text.index(start):text.index(end, text.index(start))]))
 
-    assert joined("func body(", "static let detail").replace(
-        "\\(millions(before))", "{before}").replace(
-        "\\(count)", "{n}").replace("\\(millions(after))", "{after}") \
-        == QTOPT.BODY
+    def fields(t):
+        return t.replace("\\(millions(before))", "{before}").replace(
+            "\\(count)", "{n}").replace("\\(swapped)", "{s}").replace(
+            "\\(millions(after))", "{after}")
+
+    assert fields(joined("func bodyRepeats(", "func bodySwapped(")) == QTOPT.BODY
+    assert fields(joined("func bodySwapped(", "static let detail")) \
+        == QTOPT.BODY_SWAPPED
     assert joined("static let detail", "static let optimiseButton") == QTOPT.DETAIL
     assert joined("static let optimiseHelp", "static let undoHelp") \
         == QTOPT.OPTIMISE_HELP

@@ -522,6 +522,7 @@ public enum O4Event: Sendable, Equatable {
             return .packOptimise(O4PackOptimise(
                 pack: string("pack"), packRoot: string("pack_root"),
                 lat: int("lat"), lon: int("lon"), dedupe: int("dedupe"),
+                swapped: int("swapped"),
                 estTrisBefore: int("est_tris_before"),
                 estTrisAfter: int("est_tris_after"),
                 // absent ⇒ no question: never offer without a yes

@@ -58,6 +58,8 @@ class PackWeight(_t.NamedTuple):
     tris_after: int
     dedupe: int                # duplicate placements the recipe drops
     optimised: dict            # the recorded recipe, {} = none
+    recipe: dict = {}          # the recipe "Optimise" writes today
+    swapped: int = 0           # placements swapped for library objects
 
     @property
     def heavy(self) -> bool:
@@ -66,13 +68,19 @@ class PackWeight(_t.NamedTuple):
 
     @property
     def can_optimise(self) -> bool:
-        return self.dedupe > 0
+        return self.dedupe > 0 or self.swapped > 0
+
+    @property
+    def wanted(self) -> dict:
+        """The recipe "Optimise" writes: the check's, else the rules that
+        need no match."""
+        from auto_patch_v2.airport import pack_optimise as _po
+        return self.recipe or _po.default_recipe()
 
     @property
     def current(self) -> bool:
         """The live DSF already carries today's recipe."""
-        from auto_patch_v2.airport import pack_optimise as _po
-        return bool(self.optimised) and self.optimised == _po.default_recipe()
+        return bool(self.optimised) and self.optimised == self.wanted
 
 
 def check(pack_root: str, lat: int, lon: int, *,
@@ -84,6 +92,7 @@ def check(pack_root: str, lat: int, lon: int, *,
     from auto_patch_v2.airport.file_hash import sha256_file
     from auto_patch_v2.airport.pack_optimise import weight as _w
 
+    from . import agp_reader as _agp
     from .object_stage import pack_dump
 
     pd = pack_dump(pack_root, lat, lon, read_only=read_only)
@@ -91,8 +100,13 @@ def check(pack_root: str, lat: int, lon: int, *,
         return None
     with open(pd.dump_path, encoding="utf-8", errors="surrogateescape") as fh:
         lines = fh.read().splitlines(keepends=True)
-    drop, counts = _po.drop_ordinals(lines, _po.default_recipe(), frozenset())
-    est = _w.estimate(pack_root, lines, drop)
+    exports = _agp.export_files(pd.xroot) if pd.xroot else None
+    recipe = _po.build_recipe(
+        pack_root, lines,
+        (lambda v: _agp.files_at(exports.get(v.lower(), ()), lat, lon))
+        if exports else None)
+    drop, counts = _po.drop_ordinals(lines, recipe, frozenset())
+    est = _w.estimate(pack_root, lines, drop, swaps=recipe.get("swap"))
     optimised = {}
     if os.path.isfile(pd.pristine) and pd.pristine != pd.dsf_path:
         entry = _bs.dsf_entry(_bs.read_record(pd.dsf_path),
@@ -100,7 +114,7 @@ def check(pack_root: str, lat: int, lon: int, *,
         optimised = _po.recorded(entry, sha256_file(pd.pristine))
     return PackWeight(pd.pack_name, pd.dsf_path, est["tris_before"],
                       est["tris_after"], int(counts.get("dropped", 0)),
-                      optimised)
+                      optimised, recipe, int(est["swapped"]))
 
 
 def recorded_key(pack_root: str, lat: int, lon: int) -> str:
@@ -124,8 +138,9 @@ def log_line(pw: PackWeight) -> str:
     """The engine log line for a pack the recipe can lighten."""
     return (f"[pack] {pw.pack_name}: its own objects draw "
             f"{_millions(pw.tris_before)} triangles on this tile; "
-            f"{pw.dedupe} placement(s) are duplicates (Optimise pack: "
-            f"{_millions(pw.tris_after)})")
+            f"{pw.dedupe} placement(s) are duplicates and {pw.swapped} "
+            f"vehicle(s) have a lighter X-Plane library equivalent "
+            f"(Optimise pack: {_millions(pw.tris_after)})")
 
 
 def _announce(pw: PackWeight, pack_root: str, lat: int, lon: int,
@@ -134,6 +149,7 @@ def _announce(pw: PackWeight, pack_root: str, lat: int, lon: int,
     import O4_UI_Utils as UI
     UI.pack_optimise(pack=pw.pack_name, pack_root=pack_root, lat=lat, lon=lon,
                      state=state, error=error, dedupe=pw.dedupe,
+                     swapped=pw.swapped,
                      est_tris_before=pw.tris_before,
                      est_tris_after=pw.tris_after,
                      can_optimise=pw.can_optimise, files=list(files))
@@ -146,7 +162,8 @@ def _write(pw: PackWeight, pack_root: str, recipe: dict) -> None:
     dsf = pw.dsf_path
     backup = _PR.rewrite_dsf(pack_root, pw.pack_name, dsf, optimise=recipe)
     UI.vprint(0, f"  [pack] {pw.pack_name}: "
-                 + (f"optimised — {pw.dedupe} duplicate placement(s) dropped"
+                 + (f"optimised — {pw.dedupe} duplicate placement(s) dropped, "
+                    f"{pw.swapped} swapped for X-Plane library objects"
                     if recipe else "the original placements are back")
                  + f" — rewrote {_relative(pack_root, dsf)} (the original is "
                    f"kept as {os.path.basename(backup)})")
@@ -154,9 +171,8 @@ def _write(pw: PackWeight, pack_root: str, recipe: dict) -> None:
 
 def _optimise(pw: PackWeight, pack_root: str, lat: int, lon: int) -> str:
     """Write the recipe and say so; returns the state announced."""
-    from auto_patch_v2.airport import pack_optimise as _po
     try:
-        _write(pw, pack_root, _po.default_recipe())
+        _write(pw, pack_root, pw.wanted)
     except Exception as exc:
         import O4_UI_Utils as UI
         UI.vprint(0, f"  [pack] {pw.pack_name}: the pack could not be "
@@ -253,6 +269,19 @@ def undo(pack_root: str, lat: int | None = None,
     nothing else of ours is in a DSF (``pack_rewrite.undo_recorded``)."""
     from auto_patch_v2.airport import pack_optimise as _po
     name = os.path.basename(os.path.normpath(pack_root))
-    return _PR.undo_recorded(
+    before = _generated(pack_root)
+    done = _PR.undo_recorded(
         pack_root, lat, lon, _po.RECORD_KEY,
         lambda dsf: _write(PackWeight(name, dsf, 0, 0, 0, {}), pack_root, {}))
+    # a file the recipe wrote goes once no optimised DSF names it
+    _po.remove_generated(pack_root, before - _generated(pack_root))
+    return done
+
+
+def _generated(pack_root: str) -> set[str]:
+    """Every file the pack's optimised DSFs' records say the recipe wrote."""
+    from auto_patch_v2.airport import pack_optimise as _po
+
+    from . import object_rebake as _OR
+    return {f for _dsf, entry in _OR.recorded_dsfs(pack_root, _po.RECORD_KEY)
+            for f in _po.generated_of(entry)}

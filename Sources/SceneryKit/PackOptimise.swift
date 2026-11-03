@@ -1,7 +1,7 @@
 import Foundation
 
 /// An airport pack "Optimise pack" can lighten (engine `PackOptimise`,
-/// protocol 1.31, issue #1707).
+/// protocol 1.31, issue #1707; `swapped` since 1.33).
 ///
 /// `state`: "found" — ask (only when `canOptimise`): Optimise sends
 /// `pack_optimise` with action "update", Never for this pack with "never",
@@ -15,6 +15,9 @@ public struct O4PackOptimise: Sendable, Equatable, Identifiable {
     public let lon: Int
     /// Duplicate placements the recipe drops.
     public let dedupe: Int
+    /// Placements it swaps for X-Plane's lighter library vehicles and
+    /// ground equipment (0 from an engine before protocol 1.33).
+    public let swapped: Int
     /// Triangles the pack's own objects draw on the tile, without and
     /// with the recipe.
     public let estTrisBefore: Int
@@ -26,17 +29,18 @@ public struct O4PackOptimise: Sendable, Equatable, Identifiable {
 
     /// One question per pack, tile and count: every airport of a pack
     /// runs the check, and the second airport's event is the same news.
-    public var id: String { "\(packRoot)|\(lat)|\(lon)|\(dedupe)" }
+    public var id: String { "\(packRoot)|\(lat)|\(lon)|\(dedupe)|\(swapped)" }
 
     public init(pack: String, packRoot: String, lat: Int, lon: Int,
-                dedupe: Int, estTrisBefore: Int, estTrisAfter: Int,
-                canOptimise: Bool, files: [String], state: String,
-                error: String) {
+                dedupe: Int, swapped: Int = 0, estTrisBefore: Int,
+                estTrisAfter: Int, canOptimise: Bool, files: [String],
+                state: String, error: String) {
         self.pack = pack
         self.packRoot = packRoot
         self.lat = lat
         self.lon = lon
         self.dedupe = dedupe
+        self.swapped = swapped
         self.estTrisBefore = estTrisBefore
         self.estTrisAfter = estTrisAfter
         self.canOptimise = canOptimise
@@ -50,7 +54,7 @@ public struct O4PackOptimise: Sendable, Equatable, Identifiable {
     /// The question and the line that says how it is kept and undone.
     public var bodyText: String {
         O4PackOptimiseCopy.body(before: estTrisBefore, count: dedupe,
-                                after: estTrisAfter)
+                                after: estTrisAfter, swapped: swapped)
             + "\n\n" + O4PackOptimiseCopy.detail
     }
 }
@@ -68,11 +72,29 @@ public enum O4PackOptimiseCopy {
         "Optimise “\(pack)”?"
     }
 
-    public static func body(before: Int, count: Int, after: Int) -> String {
+    /// The question: the repeats alone, or the repeats and the swaps.
+    public static func body(before: Int, count: Int, after: Int,
+                            swapped: Int = 0) -> String {
+        swapped > 0
+            ? bodySwapped(before: before, count: count, swapped: swapped, after: after)
+            : bodyRepeats(before: before, count: count, after: after)
+    }
+
+    public static func bodyRepeats(before: Int, count: Int, after: Int) -> String {
         "This airport’s objects draw \(millions(before)) million triangles "
             + "on this tile, enough to cost frame rate. \(count) of its object "
             + "placements repeat another on the same spot. Optimise removes "
             + "them (\(millions(after)) million triangles)."
+    }
+
+    public static func bodySwapped(before: Int, count: Int, swapped: Int,
+                                   after: Int) -> String {
+        "This airport’s objects draw \(millions(before)) million triangles "
+            + "on this tile, enough to cost frame rate. Optimise removes the "
+            + "\(count) object placements that repeat another on the same spot "
+            + "and swaps \(swapped) heavy vehicles and ground equipment for "
+            + "X-Plane’s lighter library ones (\(millions(after)) million "
+            + "triangles)."
     }
 
     public static let detail = "The original scenery file is kept as a backup, "
@@ -84,7 +106,8 @@ public enum O4PackOptimiseCopy {
     public static let neverButton = "Never for this pack"
     /// The pack row's Optimise button (tooltip).
     public static let optimiseHelp = "Optimise pack: remove object "
-        + "placements that repeat another on the same spot."
+        + "placements that repeat another on the same spot, and swap heavy "
+        + "vehicles for X-Plane’s lighter library ones."
     /// The pack row's Undo optimise button (tooltip).
     public static let undoHelp = "Undo optimise: put back this package’s "
         + "original object placements."

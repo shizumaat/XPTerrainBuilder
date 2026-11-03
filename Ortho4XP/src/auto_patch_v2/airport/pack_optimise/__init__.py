@@ -20,33 +20,68 @@ The operations, one module each (spec
 
 * D1 ``dedupe`` — duplicate placements dropped (same definition and row
   kind, within 0.2 m, heading within 1°, same height).
+* D2 ``swap`` — heavy vehicles and ground equipment re-pointed at
+  X-Plane's library equivalents (name and footprint witnessed, lights
+  kept in a lights-only copy); the match is made once, when the user
+  accepts (:func:`build_recipe`), and recorded in the recipe.
 * ``weight`` — the triangles the pack's own objects draw, before and
   after: what the offer is made on.
 
-Phase 1 ships D1; library swaps, LODs and textures (D2-O5) follow and
-add their fields to the same record row.
+Every file the recipe needs beside the vendor's (a lights-only copy) is
+NEW, named ``<stem>.o4opt…``, written on every write from the vendor
+file (:func:`write_generated`) and listed in the record's
+``generated``; Undo removes it.  LODs and textures (O1-O4) follow and add
+their fields to the same record row.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import typing as _t
 
 from . import dedupe as _dd
+from . import swap as _sw
 
-__all__ = ["RECORD_KEY", "RECIPE_VERSION", "default_recipe",
-           "record", "recorded", "drop_ordinals"]
+__all__ = ["RECORD_KEY", "RECIPE_VERSION", "default_recipe", "build_recipe",
+           "record", "recorded", "drop_ordinals", "apply_rows",
+           "write_generated", "generated_of", "remove_generated",
+           "GENERATED_MARK"]
 
 #: the key of the record row (``o4_placement_provenance.json``)
 RECORD_KEY = "pack_optimise"
 #: the recipe's shape; recorded with it so a later phase can read an
-#: older row
-RECIPE_VERSION = 1
+#: older row (1: dedupe only; 2: + library swaps)
+RECIPE_VERSION = 2
+#: every file the recipe writes beside the vendor's carries this in its name
+GENERATED_MARK = ".o4opt"
 
 
 def default_recipe() -> dict[str, _t.Any]:
-    """What "Optimise" means today."""
+    """What "Optimise" means today without the pack's files: the rules
+    that need no match (:func:`build_recipe` adds the matches)."""
     return {"version": RECIPE_VERSION, "dedupe": dict(_dd.DEFAULTS)}
+
+
+def build_recipe(pack_root: str, lines: _t.Sequence[str],
+                 exports_of: _t.Callable[[str], _t.Sequence[str]] | None
+                 ) -> dict[str, _t.Any]:
+    """The recipe for one pristine dump ``lines``: :func:`default_recipe`
+    and, with the install's library (``exports_of``), the library swaps
+    of its objects (``swap.plan_swaps``).  Deterministic for one pack and
+    one install."""
+    recipe = default_recipe()
+    if exports_of is not None:
+        from ..pack_art import declared_definitions
+        from ..dsf_write import placement_rows
+        defs = declared_definitions(lines)["object"]
+        uses: dict[int, int] = {}
+        for _o, _i, toks in placement_rows(lines):
+            uses[int(toks[1])] = uses.get(int(toks[1]), 0) + 1
+        swaps = _sw.plan_swaps(pack_root, defs, uses, exports_of)
+        if swaps:
+            recipe["swap"] = swaps
+    return recipe
 
 
 def _decision_key(pristine_sha256: str, recipe: _t.Mapping[str, _t.Any]) -> str:
@@ -58,18 +93,25 @@ def _decision_key(pristine_sha256: str, recipe: _t.Mapping[str, _t.Any]) -> str:
 
 
 def record(pristine_sha256: str, recipe: _t.Mapping[str, _t.Any],
-           counts: _t.Mapping[str, int], time: str) -> dict[str, _t.Any]:
+           counts: _t.Mapping[str, int], time: str,
+           applied: _t.Mapping[str, _t.Any] | None = None) -> dict[str, _t.Any]:
     """The :data:`RECORD_KEY` entry of ``o4_placement_provenance.json``:
-    the recipe and what it did to this write."""
+    the recipe and what it did to this write (``applied``: the rows each
+    swap moved, ``{"swaps": {path: rows}, "generated": [files]}``)."""
+    applied = applied or {}
+    swaps = applied.get("swaps") or {}
+    to = (recipe.get("swap") or {})
     return {"accepted": True, "time": time,
             "key": _decision_key(pristine_sha256, recipe),
             "pristine_sha256": pristine_sha256,
             "recipe_version": int(recipe.get("version", RECIPE_VERSION)),
             "params": dict(recipe),
             "dedupe": {k: int(v) for k, v in counts.items()},
-            # later phases (#1707 D2-O4): library swaps, re-pointed
-            # definitions, generated files
-            "swaps": [], "renames": [], "generated": []}
+            "swaps": [{"path": p, "to": (to.get(p) or {}).get("to", ""),
+                       "rows": int(n)} for p, n in sorted(swaps.items())],
+            # later phases (#1707 D3-O4): re-pointed definitions
+            "renames": [],
+            "generated": sorted(applied.get("generated") or ())}
 
 
 def recorded(entry: _t.Mapping[str, _t.Any] | None,
@@ -97,3 +139,71 @@ def drop_ordinals(lines: _t.Sequence[str], recipe: _t.Mapping[str, _t.Any],
     if not isinstance(params, _t.Mapping):
         return set(), {}
     return _dd.drop_set(lines, params, edited)
+
+
+def apply_rows(text: str, recipe: _t.Mapping[str, _t.Any]
+               ) -> tuple[str, dict[str, int]]:
+    """The recipe's row rewrites on an edited dump (D2 ``swap.apply``):
+    the text and ``{declared path: rows swapped}``."""
+    swaps = (recipe or {}).get("swap")
+    if not isinstance(swaps, _t.Mapping) or not swaps:
+        return text, {}
+    return _sw.apply(text, swaps)
+
+
+def write_generated(pack_root: str, recipe: _t.Mapping[str, _t.Any]
+                    ) -> list[str]:
+    """Write every file the recipe's edited DSF names beside the vendor's
+    (the lights-only copies, ``swap.lights_text``) from the vendor file,
+    when it is absent or differs; returns them pack-relative.  A vendor
+    file that no longer reads raises: the DSF must never name a missing
+    file."""
+    out: list[str] = []
+    for path, sw in sorted(((recipe or {}).get("swap") or {}).items()):
+        rel = (sw or {}).get("lights") or ""
+        if not rel:
+            continue
+        src = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
+        text = _sw.lights_text(src)
+        if text is None:
+            raise ValueError(f"{path}: its lights can no longer be read")
+        _write_if_changed(os.path.join(pack_root, *rel.replace("\\", "/").split("/")),
+                          text)
+        out.append(rel.replace("\\", "/"))
+    return out
+
+
+def _write_if_changed(path: str, text: str) -> None:
+    data = text.encode("utf-8")
+    try:
+        with open(path, "rb") as fh:
+            if fh.read() == data:
+                return
+    except OSError:
+        pass
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(data)
+    os.replace(tmp, path)
+
+
+def generated_of(entry: _t.Mapping[str, _t.Any] | None) -> list[str]:
+    """The pack-relative files a DSF's record says the recipe wrote."""
+    row = (entry or {}).get(RECORD_KEY)
+    files = row.get("generated") if isinstance(row, dict) else None
+    return [f for f in (files or ()) if isinstance(f, str)]
+
+
+def remove_generated(pack_root: str, rels: _t.Iterable[str]) -> list[str]:
+    """Remove the recipe's files ``rels`` (pack-relative); only a name
+    carrying :data:`GENERATED_MARK` inside the pack is ever touched, so a
+    vendor file never is.  Returns those removed."""
+    root = os.path.abspath(pack_root) + os.sep
+    gone: list[str] = []
+    for rel in sorted(set(rels)):
+        path = os.path.abspath(os.path.join(pack_root, *rel.split("/")))
+        if (GENERATED_MARK in os.path.basename(path) and path.startswith(root)
+                and os.path.isfile(path)):
+            os.remove(path)
+            gone.append(rel)
+    return gone

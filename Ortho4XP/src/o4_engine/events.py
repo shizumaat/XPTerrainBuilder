@@ -721,9 +721,11 @@ class PackOptimise(EngineEvent):
     * ``"failed"`` — ``error`` says why; the pack is as it was.
     * ``"none"`` — (command) nothing to do.
 
-    ``dedupe`` is the duplicate placements the recipe drops;
-    ``est_tris_before`` / ``est_tris_after`` the triangles the pack's own
-    objects draw on the tile without and with it.
+    ``dedupe`` is the duplicate placements the recipe drops, ``swapped``
+    (protocol 1.33) the placements it swaps for X-Plane's lighter library
+    vehicles and ground equipment; ``est_tris_before`` /
+    ``est_tris_after`` the triangles the pack's own objects draw on the
+    tile without and with it.
 
     Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
     matches this class name as a STRING LITERAL (renaming it breaks the
@@ -738,6 +740,7 @@ class PackOptimise(EngineEvent):
     est_tris_before: int = 0
     est_tris_after: int = 0
     can_optimise: bool = False
+    swapped: int = 0
     files: list = field(default_factory=list)
     state: str = "found"
     error: str = ""

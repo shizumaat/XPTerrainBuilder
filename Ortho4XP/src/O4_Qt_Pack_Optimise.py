@@ -5,7 +5,8 @@ The engine's object stage names such a pack with a
 :class:`o4_engine.events.PackOptimise` event; this module is the question
 the Qt window asks for it.  **Optimise** sends the ``pack_optimise``
 command with ``action="update"`` (the tile's DSF is rewritten without
-its duplicate placements, the pristine file kept as its backup, the
+its duplicate placements and with its heavy vehicles swapped for
+X-Plane's library ones, the pristine file kept as its backup, the
 recipe re-applied on every later write, and the pack remembered as
 "update"), **Never for this pack** with ``action="never"``, **Not now**
 sends nothing (the next build asks again).  The pack's row under Modified
@@ -30,6 +31,11 @@ BODY = ("This airport’s objects draw {before} million triangles on this "
         "tile, enough to cost frame rate. {n} of its object placements "
         "repeat another on the same spot. Optimise removes them ({after} "
         "million triangles).")
+BODY_SWAPPED = ("This airport’s objects draw {before} million triangles on "
+                "this tile, enough to cost frame rate. Optimise removes the "
+                "{n} object placements that repeat another on the same spot "
+                "and swaps {s} heavy vehicles and ground equipment for "
+                "X-Plane’s lighter library ones ({after} million triangles).")
 DETAIL = ("The original scenery file is kept as a backup, and the "
           "optimisation is applied again whenever the app rewrites this "
           "pack. Undo is on the pack’s row under Modified airports.")
@@ -37,7 +43,8 @@ OPTIMISE_BUTTON = "Optimise"
 NOT_NOW_BUTTON = "Not now"
 NEVER_BUTTON = "Never for this pack"
 OPTIMISE_HELP = ("Optimise pack: remove object placements that repeat "
-                 "another on the same spot.")
+                 "another on the same spot, and swap heavy vehicles for "
+                 "X-Plane’s lighter library ones.")
 UNDO_HELP = ("Undo optimise: put back this package’s original object "
              "placements.")
 
@@ -48,17 +55,19 @@ def _millions(count) -> str:
 
 
 def _body_text(event) -> str:
-    return BODY.format(before=_millions(getattr(event, "est_tris_before", 0)),
-                       n=int(getattr(event, "dedupe", 0) or 0),
-                       after=_millions(getattr(event, "est_tris_after", 0))
-                       ) + "\n\n" + DETAIL
+    swapped = int(getattr(event, "swapped", 0) or 0)
+    return (BODY_SWAPPED if swapped > 0 else BODY).format(
+        before=_millions(getattr(event, "est_tris_before", 0)),
+        n=int(getattr(event, "dedupe", 0) or 0), s=swapped,
+        after=_millions(getattr(event, "est_tris_after", 0))) + "\n\n" + DETAIL
 
 
 def question_key(event) -> tuple:
     """One question per pack, tile and count: every airport of a pack runs
     the check, and the second airport's event is the same news."""
     return (getattr(event, "pack_root", ""), int(getattr(event, "lat", 0)),
-            int(getattr(event, "lon", 0)), int(getattr(event, "dedupe", 0) or 0))
+            int(getattr(event, "lon", 0)), int(getattr(event, "dedupe", 0) or 0),
+            int(getattr(event, "swapped", 0) or 0))
 
 
 def pack_optimise_box(event, parent=None):

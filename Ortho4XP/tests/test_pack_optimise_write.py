@@ -90,7 +90,8 @@ def test_the_weight_counts_the_packs_own_objects(tmp_path, monkeypatch):
     assert WT._obj_triangles(str(tmp_path / "missing.obj")) == 0
     est = WT.estimate(str(rp.pack), LINES, {1, 4})
     assert est == {"tris_before": 3 * 1000 + 3 * 200,
-                   "tris_after": 2 * 1000 + 2 * 200, "placements": 6}
+                   "tris_after": 2 * 1000 + 2 * 200, "placements": 6,
+                   "swapped": 0}
 
 
 # ── inside write_pack ───────────────────────────────────────────────────

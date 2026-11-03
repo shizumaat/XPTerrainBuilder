@@ -14,6 +14,7 @@ import io
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -248,3 +249,32 @@ def test_parallel_build_logs_each_tile(stub_worker, tmp_path):
     assert crashed["outcome"] == "failed"
     assert "crashing on purpose" in TILELOG.read_log(crash_dir,
                                                      crashed["log"])
+
+
+def test_crash_text_survives_a_late_stderr_drain(stub_worker, tmp_path):
+    """stdout's end of file can be read before the dying child's last
+    stderr line (two pipes, two threads; Linux CI lost it that way): the
+    exit path waits for the drain, so the crash text still reaches the
+    tile's log and its failure record."""
+    from o4_engine import parallel
+
+    drain = parallel._WorkerChild._drain_stderr
+
+    def late_drain(child):
+        time.sleep(0.5)
+        drain(child)
+
+    stub_worker.setattr(parallel._WorkerChild, "_drain_stderr", late_drain)
+    session = EngineSession()
+    collector = Collector(session)
+    build_dir = str(tmp_path) + os.sep
+    assert _start_parallel(session, [(62, 20), (10, 20)], slots=2,
+                           custom_build_dir=build_dir) is True
+    collector.wait_run_done(30.0)
+    crash_dir = os.path.join(str(tmp_path), "zOrtho4XP_+62+020")
+    crashed = TILELOG.last_build(crash_dir, 62, 20)
+    assert crashed["outcome"] == "failed"
+    assert "crashing on purpose" in TILELOG.read_log(crash_dir,
+                                                     crashed["log"])
+    done = [e for e in collector.of_type(EV.BuildDone) if e.lat == 62]
+    assert "crashing on purpose" in done[-1].failures[0]["detail"]

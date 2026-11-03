@@ -376,7 +376,9 @@ def _deck_z(airport, seats, rendered: "float | None") -> "float | None":
 
 
 def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float,
-               paved=None, far_reach: float = 0.0) -> "DeckBridge | None":
+               paved=None, far_reach: float = 0.0,
+               carries_runway: "_t.Callable[[DeckBridge], bool] | None" = None
+               ) -> "DeckBridge | None":
     """The hard-deck bridge a mouth's BORE runs under: its line crosses the
     deck's ring and the mapped end stands within ``reach`` of it — the
     nearest such.  A bore §34 (5) SYNTHESISED under an aeroway bridge
@@ -392,7 +394,9 @@ def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float,
     through under the pack's deck, and the mapped tunnel past the deck is
     the same open cut — LFPG's A1 under ``H18r``, mapped as one 325 m tunnel
     under runway 09R/27L and its strips): the deck states the crossing.  No
-    farther than ``far_reach`` (a deep tunnel is never opened, Q345 a)."""
+    farther than ``far_reach`` (a deep tunnel is never opened, Q345 a), and
+    only under a deck that CARRIES THE RUNWAY FAMILY (``carries_runway``;
+    every other deck keeps the bore-end reach)."""
     from .structure_overlap import paved_over
     from .structure_underpass import UNDERPASS_TAG
     stated = all(UNDERPASS_TAG in (w.tags or {}) for w in getattr(mouth.bore, "ways", ()) or ())
@@ -405,7 +409,9 @@ def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float,
         if x.length <= 1.0:
             continue
         d = 0.0 if poly.contains(pt) else poly.exterior.distance(pt)
-        if not (d <= reach or stated) and paved is not None and d <= far_reach:
+        far = paved is not None and d <= far_reach and carries_runway is not None \
+            and carries_runway(db)
+        if not (d <= reach or stated) and far:
             s_end = line.project(pt)
             s_x = [line.project(Point(q)) for g in getattr(x, "geoms", [x]) for q in g.coords]
             s_in = min(s_x, key=lambda v: abs(v - s_end))

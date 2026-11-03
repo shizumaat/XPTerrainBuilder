@@ -338,8 +338,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # bores its deck stands over: the carriageways under one deck are ONE cut
     deck_paved = unary_union([p for p, c in zip(polys, cells, strict=False)
                               if c.role in rolled_on_roles(law)]) if deck_bridges else None
+    runway_cells = [p for p, c in zip(polys, cells, strict=False) if c.role in RUNWAY_FAMILY]
+    rw_tree = STRtree(runway_cells) if runway_cells else None
+
+    def _carries_runway(db) -> bool:
+        return rw_tree is not None and any(
+            runway_cells[int(j)].intersection(db.polygon).area > 1.0
+            for j in rw_tree.query(db.polygon, predicate="intersects"))
     deck_of = {id(m): deck_under(m, deck_bridges, tn.object.bore_end_tolerance_m + tn.wall_gap_m
-                                 + tn.wall_band_width_m, deck_paved, tn.max_ramp_length_m)
+                                 + tn.wall_band_width_m, deck_paved, tn.max_ramp_length_m,
+                                 _carries_runway)
                for m in mouth_list if edge_of.get(id(m)) is None} if deck_bridges else {}
     # ...but only the carriageways that are one road (``deck_bores.deck_lanes``)
     lane_of, lane_cs = deck_lanes(mouth_list, deck_of, tn.dual_carriageway_max_separation_m)

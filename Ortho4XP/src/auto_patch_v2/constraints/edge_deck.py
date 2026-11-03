@@ -158,15 +158,17 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
             if v in air:
                 # #1692: the pavement under the deck never stands through it
                 # — read from the deck's own zero (round 6: from the nearest
-                # seat it stood 0.08 m through)
-                ceilings.append((tn.deck_bridge, v, a, under))
+                # seat it stood 0.08 m through); over a SLAB the pavement
+                # inside the ring IS the deck's surface: flush both ways
+                ceilings.append((tn.deck_bridge, v, a, under, bool(getattr(tn, "deck_slab", False))
+                                 and inside.contains(p)))
                 continue
             rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
             rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))
     flush = float(law.tables.structures.bridge.deck_flush_m)
-    for oid, v, a, src in ceilings:
+    for oid, v, a, src, both in ceilings:
         top_of = _station_tops(list(by_obj[oid].values()))
-        rows.append(_from_zero(v, top_of, top_of.get(a), None, flush, src))
+        rows.append(_from_zero(v, top_of, top_of.get(a), -flush if both else None, flush, src))
     for oid in sorted(by_obj):
         ends = list(by_obj[oid].values())
         rows.extend(_station_rows(oid, ends, flush))

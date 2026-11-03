@@ -233,6 +233,10 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each
     # coverage exit — LAW INPUT, the value the solve PINNED.
     "road_coverage_join": "road_coverage_join_ll",
+    # deck-end-anchors spec §6 (RULINGS 2026-11-03c): every pack hard
+    # deck's end-line anchors and stations — LAW INPUT for
+    # ``deck_end_flush``.  A patch with no key reads exactly as before.
+    "deck_anchors": "deck_anchors",
     # issue #623 THE GROUND ENVELOPE: ``[lowest, highest]`` lawful elevation
     # of the map (``auto_patch_v2/solve/ground_band.py``) — LAW INPUT for
     # ``sentinel_elevation``.  A patch with no key is read against its own
@@ -709,6 +713,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     # §37 (7): absent on any patch built before it (the chord law)
     ctx["road_route_frame_ll"] = data.get("road_route_frame") or None
     ctx["road_coverage_join_ll"] = data.get("road_coverage_join") or None
+    ctx["deck_anchors"] = data.get("deck_anchors") or None
     ctx["ground_envelope"] = data.get("ground_envelope") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None

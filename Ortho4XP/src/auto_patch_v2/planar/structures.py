@@ -1001,7 +1001,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # Q-A AS RULED: the road width, banked up to just short of the deck
             ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next,
                                    lane_band(deck, lane_cs.get(id(deck), ()),
-                                             lane_of.get(id(members[0]), 0)))
+                                             lane_of.get(id(members[0]), 0)),
+                                   deck.depth_m / float(law.tables.emit.design.bank_slope))
         if rt is not None and c is None and level_to is not None and \
                 (deck is None or deck_next is None):
             # the half ends at its own side of the run line, open to its partner
@@ -1153,7 +1154,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if deck is not None:
                 extra.update(edge_seats=edge_seats, deck_bridge=deck.object_id,
                              deck_ring=tuple(deck.ring), depth_m=deck.depth_m,
-                             deck_top_y=0.5 * (deck.top_a + deck.top_b))
+                             deck_top_y=0.5 * (deck.top_a + deck.top_b),
+                             deck_slab=bool(getattr(deck, "slab", False)),
+                             deck_walled=bool(getattr(deck, "walls", ())))
                 if edge_floor:
                     extra["edge_floor_s"] = edge_floor
         profile_out: tuple = ()

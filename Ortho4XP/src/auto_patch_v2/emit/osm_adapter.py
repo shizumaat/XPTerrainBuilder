@@ -116,6 +116,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "runway_flex",
     # flat-pad spec v2 §3: the plateau ring vertices per held block
     "plateau_rings",
+    # deck-end-anchors spec §6: every pack hard deck's end-line anchors —
+    # LAW INPUT for the ``deck_end_flush`` census family
+    "deck_anchors",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
     # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNEL records —
     # the floor datum each channel declares per station and the crest

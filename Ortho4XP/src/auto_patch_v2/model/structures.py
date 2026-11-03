@@ -24,7 +24,7 @@ import dataclasses as _dc
 
 from .frame import XY
 
-__all__ = ["Deck", "Tunnel", "Basin", "Channel", "ChannelWall",
+__all__ = ["Deck", "Tunnel", "DeckAnchor", "Basin", "Channel", "ChannelWall",
            "profile_z", "deck_z_on_faces", "deck_reach", "DECK_GROUND_REF", "CHANNEL_FLOOR_ROLE",
            "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM"]
 
@@ -350,6 +350,47 @@ class Tunnel:
     #: object stage seats its zero at the end lines' solved surface less it
     #: (``pipeline/rebake_inputs._edge_seat_plates``)
     deck_top_y: float = 0.0
+    #: that deck is a SLAB (``planar/deck_bridge.DeckBridge.slab``): the
+    #: ground under it is held flush with it and no cut runs under it
+    deck_slab: bool = False
+    #: that deck's frame models WALLS under it (``DeckBridge.walls``): the
+    #: cut is vertical at them; with none it banks (owner 2026-11-03T16:56Z)
+    deck_walled: bool = False
+
+
+@_dc.dataclass(frozen=True)
+class DeckAnchor:
+    """ONE END LINE OF A PACK HARD DECK, ANCHORED BEFORE THE SOLVE (spec
+    ``deck-end-anchors-20261103``; owner RULINGS 2026-11-03c): the vertex
+    ``v`` where the carried route leaves the deck, held at ``z_m`` — the
+    carried route's window-blind profile (``profile_z_m`` there) moved so
+    the deck takes its authored grade (``rise_m``, the top's rise from the
+    object's first end line to this one) and never tilts.  ``yielding``:
+    the pin is minted under the yielding head (Q2 a: inside a threshold's,
+    a seam's or a crossing's vertical-curve reach, or a deck grade over
+    the family cap) — ``note`` says which.  ``pinned`` is ``False`` where a
+    senior pin already holds ``v``.  ``stations`` are the end line's seat
+    vertices, ``top_y`` its authored top less the object's first end
+    line's (the bottom cancels)."""
+
+    object_id: str
+    end: str
+    v: int
+    stations: tuple[int, ...]
+    z_m: float
+    top_y: float
+    rise_m: float
+    family: str
+    ref: str
+    profile_z_m: float
+    yielding: bool = False
+    pinned: bool = True
+    note: str = ""
+    #: how the cut meets this deck (owner 2026-11-03T16:56Z): ``bank`` (the
+    #: default embankment from the end down to the trench floor), ``walls``
+    #: (a pack wall under the deck: vertical) or ``slab`` (no cut under it;
+    #: the trench beside it banks across the object's width)
+    cut: str = "bank"
 
 
 #: the ref prefix of the ground a hard deck rests on (``planar/deck_bridge.

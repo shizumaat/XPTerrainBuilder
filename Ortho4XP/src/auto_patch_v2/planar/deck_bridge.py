@@ -105,6 +105,12 @@ class DeckBridge:
     #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3)); ``()``
     #: for a deck the pack models no wall under
     walls: tuple = ()
+    #: a SLAB deck (:func:`_road_floor`: the frame stops short of the road
+    #: and models nothing under its plate): the ground under it is KEPT at
+    #: the deck and the road's cut stops at its edges (owner
+    #: 2026-11-03T16:39:23Z: "keep terrain under them and just cut to either
+    #: side like a tunnel ramp")
+    slab: bool = False
 
     @property
     def depth_a(self) -> float:
@@ -187,6 +193,18 @@ def _slab(cache, decks) -> list[tuple[float, float, float]]:
             px, py = _to_frame(d.xy, d.heading_deg, x, z)
             out.append((px, py, y))
     return out
+
+
+def _end_top(slab, seats, reach: float, top: float) -> float:
+    """A SLAB's top AT its end line: the mean over the seat stations of the
+    plate vertex nearest each, within ``reach`` — the end taper the plate
+    authors (KIAH_Bridge1: 0.13 m) stated, never the plate's crown."""
+    tops = []
+    for s in seats:
+        near = min(slab, key=lambda q: math.hypot(q[0] - s[0], q[1] - s[1]), default=None)
+        if near is not None and math.hypot(near[0] - s[0], near[1] - s[1]) <= reach:
+            tops.append(near[2])
+    return sum(tops) / len(tops) if tops else top
 
 
 def _top_at(slab, seats, reach: float, top: float) -> float:
@@ -274,6 +292,10 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
         for db in (db if z is None else _dc.replace(db, deck_z=z) for db in mine):
             db = _road_floor(db, law, notes, level_b, _carries_movement(db, roles))
+            if db.slab:
+                reach = max(2.0 * step, 3.0)
+                db = _dc.replace(db, top_a=_end_top(slab, db.seats_a, reach, db.top_a),
+                                 top_b=_end_top(slab, db.seats_b, reach, db.top_b))
             r, n = _road_dir(db), across_dir(db)
             out.append(_dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
                                                         0.5 * (db.top_a + db.top_b), r, n)))
@@ -352,8 +374,9 @@ def _road_floor(db: DeckBridge, law, notes: list[str], level_b: "float | None",
     notes.append(f"{db.object_id} {db.resource.rsplit('/', 1)[-1]}: the frame stops "
                  f"{top - db.bottom_y:.2f} m under its deck, short of the road; the floor "
                  f"stands {depth:.2f} m under the deck ({why}, RULINGS 2026-11-03b / "
-                 f"2026-10-30g)")
-    return _dc.replace(db, bottom_y=top - depth)
+                 f"2026-10-30g); a SLAB: the ground under it is kept at the deck and "
+                 f"the cut stops at its edges (owner 2026-11-03T16:39Z)")
+    return _dc.replace(db, bottom_y=top - depth, slab=True)
 
 
 def _carries_movement(db: DeckBridge, roles: "CellRoles") -> bool:
@@ -469,13 +492,18 @@ def _gap_line(db: DeckBridge, other: DeckBridge) -> tuple[XY, float]:
 def deck_mouth(axis: LineString, inward: XY, db: DeckBridge) -> tuple[LineString, float]:
     """``(axis, metres moved)``: the mouth of a bore under ``db`` stands at
     the deck's MIDLINE (:func:`mid_line`) — the two mouths of one bore
-    each cut half the deck, flat at its floor, and climb beyond its edge."""
+    each cut half the deck, flat at its floor, and climb beyond its edge.
+    Under a SLAB (``db.slab``) the ground stays under the deck: the mouth
+    stands at the deck's edge on its own side, and the cut stops there."""
     from .structure_mouth import _moved_in
     m = axis.coords[0]
     r, off = mid_line(db)
     dot = inward[0] * r[0] + inward[1] * r[1]
     if abs(dot) <= 1e-6:
         return axis, 0.0
+    if db.slab:
+        lo, hi = project_span(db.ring, r)
+        off = hi if m[0] * r[0] + m[1] * r[1] > off else lo
     return _moved_in(axis, inward, (off - (m[0] * r[0] + m[1] * r[1])) / dot)
 
 
@@ -494,7 +522,7 @@ def _half_plane(line: tuple[XY, float], toward: XY, big: float) -> Polygon:
 
 def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
              other: "DeckBridge | None" = None,
-             band: "tuple[float, float] | None" = None):
+             band: "tuple[float, float] | None" = None, bank_run: float = 0.0):
     """``(ramp, outer)`` of a corridor under ``db`` (module doc): clipped to
     its own side of the deck's midline (the mouth line — the bore's other
     mouth cuts the rest, so no end cap stands across the trench) and,
@@ -506,7 +534,11 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     (:func:`_walled_trench`, RULINGS 2026-10-30f (3)).  ``band`` is this
     corridor's LANE of the deck — ``(lo, hi)`` across the road
     (``planar/deck_bores.lane_band``): the bank stops halfway to the next
-    carriageway's own cut."""
+    carriageway's own cut.  Under a SLAB the floor stops ``bank_run`` short
+    of the deck's edge: no wall stands there, so the ground comes down from
+    the deck to the trench floor as an embankment (owner 2026-11-03T16:56Z:
+    "assume a sloping embankment coming down from bridge ends to the trench
+    bottom")."""
     big = 10.0 * (axis.length + 1000.0)
     ahead = axis.interpolate(min(axis.length, 1.0))
     keep = _half_plane(mid_line(db), (ahead.x, ahead.y), big)
@@ -515,8 +547,23 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         keep = keep.intersection(_half_plane(_gap_line(db, other), (c.x, c.y), big))
     if band is not None:
         keep = keep.intersection(_lane_strip(db, band, big))
-    walled = _walled_trench(db, inset, other)
-    if walled is not None:
+    walled = None if db.slab else _walled_trench(db, inset, other)
+    if db.slab:
+        # owner 2026-11-03T16:39Z: no cut under a slab — the corridor stops
+        # at the deck's edge, the ground under it is the deck's; and
+        # (16:53Z) the trench beside it is as wide as the object, wall to
+        # wall: the deck's whole extent across the road, ``inset`` inside it
+        lo, hi = project_span(db.ring, across_dir(db))
+        r, n = _road_dir(db), across_dir(db)
+        s0, s1 = project_span(list(outer.exterior.coords), r)
+        along = Polygon([(r[0] * t + n[0] * u, r[1] * t + n[1] * u)
+                         for t, u in ((s0, -big), (s1, -big), (s1, big), (s0, big))])
+        wide = _lane_strip(db, (lo + inset, hi - inset), big).intersection(along)
+        outer = unary_union([outer, wide.intersection(keep)])
+        ramp = ramp.difference(db.polygon.buffer(bank_run, join_style="mitre")
+                               if bank_run > 0.0 else db.polygon)
+        outer = outer.difference(db.polygon)
+    elif walled is not None:
         # 30f (3): the floor runs to the walls' inner faces, the rim stands
         # ``inset`` behind them — no bank climbs the walls
         floor, rim = walled

@@ -87,6 +87,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from .deck_anchor import blind, deck_holes
 from .geometry import project_to_chain
 from .precedence import view
 from .trend import Trend as _Trend, trend_of as _trend_of
@@ -98,6 +99,7 @@ from ..model.constraints import Pin, Row, Source
 from ..model.planar import PlanarMap
 
 __all__ = ["ChordReport", "Crossing", "runway_chord_targets", "with_runway_chord",
+           "with_deck_anchors",
            "runway_crossings", "runway_crossing_pins", "crossing_governor"]
 
 #: The generator name of the crossing pin rows (``constraints/__init__``).
@@ -236,14 +238,17 @@ class Crossing:
 
 
 def _trend(vw, chains: dict[str, list[list[int]]], rw_id: str, c: _Chord,
-           pm: PlanarMap, window_m: float) -> _Trend | None:
+           pm: PlanarMap, window_m: float, inside=None) -> _Trend | None:
     """The production DEM under this runway's own ridge, in ``c``'s station
     frame (module docstring), fitted by ``constraints/trend.py`` — the ONE
     construction §21 and §8.6 share.  ``None`` where fewer than three
-    stations carry a sample, so the chord stands."""
+    stations carry a sample, so the chord stands.  ``inside(xy)``: the
+    BRIDGE WINDOWS, whose DEM reads a deck or the road under it, never the
+    ground (``deck_anchor.deck_holes``; deck-end-anchors spec §2 (b))."""
     return _trend_of(((c.station(*vw.xy[v]), float(pm.vertices[v].dem_z))
                       for ch in chains.get(rw_id, []) for v in ch
-                      if pm.vertices[v].dem_z is not None), window_m)
+                      if pm.vertices[v].dem_z is not None
+                      and (inside is None or not inside(vw.xy[v]))), window_m)
 
 
 def _chords(pm: PlanarMap, law: Law, airport: Airport
@@ -257,6 +262,8 @@ def _chords(pm: PlanarMap, law: Law, airport: Airport
     pins = threshold_pins(pm, law, airport)
     window = float(law.tables.emit.design.runway_profile_window_m)
     degraded = dem_degraded(airport)
+    holes = deck_holes(pm)
+    inside = blind(holes) if holes else None
     chords: dict[str, _Chord] = {}
     n_without = 0
     for rw in airport.runways:
@@ -277,7 +284,7 @@ def _chords(pm: PlanarMap, law: Law, airport: Airport
             continue
         c = _Chord(a_xy, ux, uy, st[p0], st[p1], pins[p0], pins[p1])
         if not degraded:
-            c = _dc.replace(c, trend=_trend(vw, chains, rw.id, c, pm, window))
+            c = _dc.replace(c, trend=_trend(vw, chains, rw.id, c, pm, window, inside))
         chords[rw.id] = c
     return chords, n_without
 
@@ -520,6 +527,27 @@ def _with_seam_knots(chords: dict[str, "_Chord"], pm: PlanarMap, law: Law
     return out
 
 
+def _with_anchor_knots(chords: dict[str, "_Chord"], pm: PlanarMap, law: Law
+                       ) -> dict[str, "_Chord"]:
+    """THE DECK END LINES ARE KNOTS (deck-end-anchors spec §4): a runway
+    anchor (``PlanarMap.deck_anchors``) is a ``Pin`` the target must pass
+    through, as a crossing node and a seam pin are; strictly inside
+    ``(s0, s1)``.  No anchor: the chords unchanged."""
+    anchors = [a for a in getattr(pm, "deck_anchors", ()) or ()
+               if a.pinned and a.family == "runway" and a.ref in chords]
+    if not anchors:
+        return chords
+    vw = view(pm, law)
+    out = dict(chords)
+    for a in anchors:
+        c = out[a.ref]
+        s = c.station(*vw.xy[a.v])
+        if c.s0 < s < c.s1:
+            out[a.ref] = _dc.replace(c, knots=tuple(sorted({k for k in c.knots if k[0] != s}
+                                                          | {(s, float(a.z_m))})))
+    return out
+
+
 def runway_crossing_pins(pm: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """THE CROSSING NODE IS AN ANCHOR (owner RULINGS 2026-09-09z (1)): one
     hard ``Pin`` per (crossing, non-governing runway), on that runway's
@@ -534,8 +562,8 @@ def runway_crossing_pins(pm: PlanarMap, law: Law, airport: Airport) -> list[Row]
     chords, _ = _chords(pm, law, airport)
     crossings = runway_crossings(pm, law, airport, chords)
     pins = _crossing_pin_map(pm, law, airport, vw, chains,
-                             _with_seam_knots(_with_knots(chords, crossings),
-                                              pm, law), crossings)
+                             _with_anchor_knots(_with_seam_knots(_with_knots(chords, crossings),
+                                                                 pm, law), pm, law), crossings)
     return [Pin(v, float(z), Source(
         PIN_GEN, "RULINGS 2026-09-09z (1) nearest-threshold crossing anchor",
         (f"xing:{x.pair}", f"governs:{x.governing}", f"grades:{x.other}")))
@@ -551,6 +579,7 @@ def _crossing_pin_map(pm: PlanarMap, law: Law, airport: Airport, vw,
     if not crossings:
         return {}
     thresholds = threshold_pins(pm, law, airport)
+    anchored = {a.v for a in getattr(pm, "deck_anchors", ()) or () if a.pinned}
     best: dict[int, tuple[float, float, Crossing]] = {}
     for x in crossings:
         c = fitted.get(x.other)
@@ -559,8 +588,8 @@ def _crossing_pin_map(pm: PlanarMap, law: Law, airport: Airport, vw,
             continue
         v = min(ridge, key=lambda q: (vw.xy[q][0] - x.xy[0]) ** 2
                 + (vw.xy[q][1] - x.xy[1]) ** 2)
-        if v in thresholds:
-            continue      # the node IS a CIFP threshold: it is already pinned
+        if v in thresholds or v in anchored:
+            continue      # the node IS a CIFP threshold or a deck anchor: already pinned
         d = ((vw.xy[v][0] - x.xy[0]) ** 2 + (vw.xy[v][1] - x.xy[1]) ** 2) ** 0.5
         if v in best and best[v][0] <= d:
             continue
@@ -593,7 +622,8 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
     # runway's is RE-FIT piecewise through the node.
     crossings = runway_crossings(pm, law, airport, straight)
     # §38 (2): the crossing nodes AND the tile-seam pins are control points
-    chords = _with_seam_knots(_with_knots(straight, crossings), pm, law)
+    chords = _with_anchor_knots(_with_seam_knots(_with_knots(straight, crossings), pm, law),
+                                pm, law)
     if report is not None:
         kinds = [c.kind for c in chords.values()]
         report["window_m"] = round(float(
@@ -692,6 +722,20 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
     return out
 
 
+def with_deck_anchors(pm: PlanarMap, law: Law, airport: Airport) -> PlanarMap:
+    """``pm`` with ``deck_anchors`` derived (``constraints/deck_anchor``)
+    from the window-blind re-fit chords — HERE, beside the runway caps,
+    because this is the one site that already holds the pins, the chords
+    and the crossings.  A map with no pack hard deck is returned as is."""
+    if not any(getattr(t, "deck_bridge", "") for t in getattr(pm, "structures", ()) or ()):
+        return pm
+    from .deck_anchor import derive
+    chords, _ = _chords(pm, law, airport)
+    fitted = _with_seam_knots(_with_knots(chords, runway_crossings(pm, law, airport, chords)),
+                              pm, law)
+    return _dc.replace(pm, deck_anchors=derive(pm, law, airport, fitted))
+
+
 def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
                       report: ChordReport | None = None, *,
                       fill_roles: tuple[str, ...] = ()) -> PlanarMap:
@@ -714,6 +758,7 @@ def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
     taxi = _derive_taxi(pm, law, airport, caps)
     if taxi:
         extra["taxi_caps"] = taxi
+    pm = with_deck_anchors(pm, law, airport)
     targets = runway_chord_targets(pm, law, airport, report, fill_roles=fill_roles)
     if not targets:
         return _dc.replace(pm, runway_caps=caps, **extra) if caps else pm

@@ -375,10 +375,7 @@ def _deck_z(airport, seats, rendered: "float | None") -> "float | None":
     return sum(zs) / len(zs) if zs else rendered
 
 
-def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float,
-               paved=None, far_reach: float = 0.0,
-               carries_runway: "_t.Callable[[DeckBridge], bool] | None" = None
-               ) -> "DeckBridge | None":
+def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float) -> "DeckBridge | None":
     """The hard-deck bridge a mouth's BORE runs under: its line crosses the
     deck's ring and the mapped end stands within ``reach`` of it — the
     nearest such.  A bore §34 (5) SYNTHESISED under an aeroway bridge
@@ -386,40 +383,17 @@ def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float,
     wherever its clip ribbon put its ends: the deck object states the
     crossing (kiahdeck2: a service road's ribbon off taxiway way −67 ended
     beyond ``reach`` of ``KIAH_Bridge1`` obj24549, and its own ramp ran
-    into the next deck's cut).
-
-    A mapped end farther from the deck than ``reach`` still takes it where
-    no airside pavement (``paved``) lies over the bore between them (owner
-    RULINGS 2026-11-03b Q340 a, accepted 2026-11-03T13:58Z: the trench runs
-    through under the pack's deck, and the mapped tunnel past the deck is
-    the same open cut — LFPG's A1 under ``H18r``, mapped as one 325 m tunnel
-    under runway 09R/27L and its strips): the deck states the crossing.  No
-    farther than ``far_reach`` (a deep tunnel is never opened, Q345 a), and
-    only under a deck that CARRIES THE RUNWAY FAMILY (``carries_runway``;
-    every other deck keeps the bore-end reach)."""
-    from .structure_overlap import paved_over
+    into the next deck's cut)."""
     from .structure_underpass import UNDERPASS_TAG
     stated = all(UNDERPASS_TAG in (w.tags or {}) for w in getattr(mouth.bore, "ways", ()) or ())
     best = None
     pt = Point(mouth.xy)
-    line = mouth.bore.line
     for db in decks:
         poly = db.polygon
-        x = line.intersection(poly)
-        if x.length <= 1.0:
+        if mouth.bore.line.intersection(poly).length <= 1.0:
             continue
         d = 0.0 if poly.contains(pt) else poly.exterior.distance(pt)
-        far = paved is not None and d <= far_reach and carries_runway is not None \
-            and carries_runway(db)
-        if not (d <= reach or stated) and far:
-            s_end = line.project(pt)
-            s_x = [line.project(Point(q)) for g in getattr(x, "geoms", [x]) for q in g.coords]
-            s_in = min(s_x, key=lambda v: abs(v - s_end))
-            if paved_over(line, min(s_end, s_in), max(s_end, s_in), paved):
-                continue
-        elif not (d <= reach or stated):
-            continue
-        if best is None or d < best[0]:
+        if (d <= reach or stated) and (best is None or d < best[0]):
             best = (d, db)
     return None if best is None else best[1]
 

@@ -224,31 +224,6 @@ def _runway_ridges(airport: Airport, spacing: float
     return out
 
 
-def _ridges_off_cuts(ridges, classification, spacing: float
-                     ) -> list[tuple[str, LineString]]:
-    """The ridges with the stretch a STRUCTURE CUT took out of the runway
-    removed (owner RULINGS 2026-11-03b, accepted 2026-11-03T13:58Z: under a
-    pack deck the trench is cut through the runway, whose surface the deck
-    shows): a ridge vertex in the trench would carry the runway profile down
-    into it.  Only a runway whose own pavement was cut changes."""
-    cut_refs = {c.ref for c in classification.cells
-                if c.role in ("runway", "runway_crossing")
-                and (c.evidence or {}).get("structure_cut")}
-    if not cut_refs or not classification.keepouts:
-        return ridges
-    holes = unary_union([Polygon(k) for k in classification.keepouts if len(k) >= 3])
-    out: list[tuple[str, LineString]] = []
-    for ref, line in ridges:
-        if ref not in cut_refs or not line.intersects(holes):
-            out.append((ref, line))
-            continue
-        rest = line.difference(holes)
-        for part in getattr(rest, "geoms", [rest]):
-            if part.geom_type == "LineString" and part.length >= spacing:
-                out.append((ref, LineString(stations(list(part.coords), spacing))))
-    return out
-
-
 def _storey_lots(cells) -> dict[str, float]:
     """``{lot ref: storey rise}`` of the lots met across a unit's storey
     (``classify.storey_edge``; their pad's upper level, #1101)."""
@@ -282,8 +257,7 @@ def build_arrangement(airport: Airport, classification: Classification,
         # the runway ridges, stationed — built BEFORE the weld because a ridge's
         # END is a vertex the noding will put on the runway's end edge, and the
         # weld must see it as one (``weld_cells`` ``nodes``, #556)
-        ridges = _ridges_off_cuts(_runway_ridges(airport, law.tables.emit.chords.station_spacing_m),
-                                  classification, law.tables.emit.chords.station_spacing_m)
+        ridges = _runway_ridges(airport, law.tables.emit.chords.station_spacing_m)
         ridge_ends = tuple(xy for _ref, line in ridges
                            for xy in (line.coords[0], line.coords[-1]))
         cells, weld = weld_cells(tuple(c for c in classification.cells

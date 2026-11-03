@@ -177,7 +177,9 @@ class _SigkillOnUnpickle:
 
 
 def _sigkill_self():
-    os.kill(os.getpid(), signal.SIGKILL)
+    # Windows has no SIGKILL; its os.kill(SIGTERM) is TerminateProcess,
+    # the same hard death.
+    os.kill(os.getpid(), getattr(signal, "SIGKILL", signal.SIGTERM))
     return None                                   # unreachable
 
 

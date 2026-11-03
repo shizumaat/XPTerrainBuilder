@@ -37,6 +37,7 @@ Pure hermetic: reads the repo's own files, nothing else.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -134,20 +135,80 @@ def test_the_parser_sees_ci_yml_as_it_is() -> None:
     assert _push_branches(blocks["on"]) == ["main"], blocks["on"]
 
 
-BATCH_ONLY_IF = ("if: github.event_name != 'pull_request' || "
-                 "startsWith(github.head_ref, 'claude/batch-')")
+GATES = {
+    "build-and-test": "if: needs.changes.outputs.swift == 'true'",
+    "python-tests": "if: needs.changes.outputs.python == 'true'",
+}
+
+
+def _job_blocks(text: str) -> dict[str, str]:
+    body = text.split("\njobs:\n", 1)[1]
+    parts = re.split(r"^  ([A-Za-z0-9_-]+):\n", body, flags=re.M)
+    return dict(zip(parts[1::2], parts[2::2], strict=True))
 
 
 @app_side
-def test_pr_ci_runs_only_on_batch_branches() -> None:
-    """Owner 2026-10-26T19:07Z (#1397): lane PRs get no CI; a
-    ``claude/batch-*`` integration branch, a push to main and a manual
-    dispatch do.  Every job of ci.yml carries the same gate."""
+def test_every_pr_runs_the_jobs_its_files_can_break() -> None:
+    """Owner 2026-11-03 ("Yes to all"), replacing #1397's batch-only gate:
+    harness-only PR #1801 landed with no Linux run and broke main.  Every
+    job but ``changes`` waits on it and runs on its area's output; no job
+    keys on the branch name any more."""
     text = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
-    jobs = re.findall(r"^  ([A-Za-z0-9_-]+):\n", text.split("\njobs:\n", 1)[1],
-                      flags=re.M)
-    assert jobs, "no jobs parsed"
-    assert text.count(BATCH_ONLY_IF) == len(jobs), (jobs, text.count(BATCH_ONLY_IF))
+    jobs = _job_blocks(text)
+    assert set(jobs) == {"changes", *GATES}, sorted(jobs)
+    assert "claude/batch-" not in text.split("\njobs:\n", 1)[1]
+    for job, gate in GATES.items():
+        assert "    needs: changes\n" in jobs[job], job
+        assert f"    {gate}\n" in jobs[job], (job, gate)
+    assert "ci_changed_areas.py --base" in jobs["changes"]
+    assert "github.event.pull_request.base.sha" in jobs["changes"]
+    on = _top_level_blocks(text)["on"]
+    assert "paths" not in on, "a workflow paths filter skips the whole run (#1801)"
+
+
+def _areas(paths, test_text="", swift_text=""):
+    sys.path.insert(0, str(ENGINE_DIR / "tools"))
+    try:
+        import ci_changed_areas
+    finally:
+        sys.path.pop(0)
+    return ci_changed_areas.areas(paths, test_text, swift_text)
+
+
+@pytest.mark.parametrize("paths, python, swift", [
+    (["Ortho4XP/tools/harness/prune_merged.sh"], True, False),     # #1801
+    (["Ortho4XP/tests/test_x.py"], True, False),
+    (["Ortho4XP/src/O4_Tile_Utils.py"], True, False),
+    (["Ortho4XP/docs/RULINGS.md"], True, False),
+    (["scripts/version.sh"], True, True),
+    (["tools/ratchets.py"], True, False),
+    (["pyproject.toml"], True, False),
+    ([".github/workflows/ci.yml"], True, True),
+    (["Sources/SceneryKit/OrthoEngineClient.swift"], True, True),
+    (["Tests/SceneryKitTests/FooTests.swift"], True, True),
+    (["Package.swift"], True, True),
+    (["docs/findings/x-20261103.md"], False, False),
+    (["README.md", "docs/briefs/lane.md"], False, False),
+    (["docs/glossary.md"], True, False),           # an engine test names it
+    (["Ortho4XP/tests/fixtures/step_strip_cases.json"], True, True),
+    (["Ortho4XP/src/O4_Version.py"], True, True),  # the Swift reads it
+    ([], False, False),
+])
+def test_changed_areas_rule(paths, python, swift) -> None:
+    tests = 'DOC = REPO_ROOT / "docs" / "glossary.md"'
+    swift_src = ('let f = "Ortho4XP/tests/fixtures/step_strip_cases.json"\n'
+                 'root.appendingPathComponent("src/O4_Version.py")')
+    assert _areas(paths, tests, swift_src) == {"python": python, "swift": swift}
+
+
+def test_changed_areas_without_a_base_runs_everything(capsys) -> None:
+    sys.path.insert(0, str(ENGINE_DIR / "tools"))
+    try:
+        import ci_changed_areas
+    finally:
+        sys.path.pop(0)
+    assert ci_changed_areas.main(["--base", ""]) == 0
+    assert capsys.readouterr().out.split() == ["python=true", "swift=true"]
 
 
 @app_side

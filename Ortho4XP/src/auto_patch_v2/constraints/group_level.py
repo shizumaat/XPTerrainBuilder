@@ -145,6 +145,7 @@ def group_level_rewrite(planar: PlanarMap, law: Law, cs: _t.Any,
     index = witness_index(planar, law)
     tie = {f"{LANDING_INPUT}{r}": r for r in recs}
     out, rep, done = [], {}, set()
+    pinned: dict[str, tuple[int, float]] = {}
     for row in cs.linears:
         ins = getattr(row.source, "inputs", ()) or ()
         ref = tie.get(str(ins[0])) if ins else None
@@ -163,9 +164,37 @@ def group_level_rewrite(planar: PlanarMap, law: Law, cs: _t.Any,
         d = int(row.terms[0][0])
         lv = z0 + float(recs[ref]["y_feet"])
         rep[ref] = (round(z0, 3), len(cands))
+        pinned[ref] = (d, lv)
         out.append(Linear(((d, 1.0),), None, lv, row.source))
         out.append(Linear(((d, -1.0),), None, -lv, row.source))
-    return _dc.replace(cs, linears=tuple(out)), {"levels": rep, "free": free}
+    return _dc.replace(cs, linears=tuple(_pin_rigid(out, tie, pinned))), \
+        {"levels": rep, "free": free}
+
+
+def _pin_rigid(rows: list, tie: _t.Mapping[str, str],
+               pinned: _t.Mapping[str, tuple[int, float]]) -> list:
+    """``rows`` with every rigid row of a pinned level (``z_v - z_d`` both
+    sides, :func:`_rigid`) replaced by ``v``'s own pin at the level: a level
+    held by ONE pin and a rigid chain loses the whole pin to the cheapest
+    conflict anywhere on it -- a road or a lot at its far tip -- and
+    floats rigid with it (MEASURED LFPG T2 corridor, #1717: a 143,000 m2
+    level relaxed from 97.59 to 103.98 m by a road at its south-west tip);
+    pinned per vertex, a conflict costs its own vertices only."""
+    out = []
+    for row in rows:
+        ins = getattr(row.source, "inputs", ()) or ()
+        ref = tie.get(str(ins[0])) if ins else None
+        got = pinned.get(ref) if ref is not None else None
+        if got is None or len(row.terms) != 2 or row.lo is not None or row.hi != 0.0:
+            out.append(row)
+            continue
+        d, lv = got
+        (a, ca), (b, cb) = row.terms
+        if int(b) == d and int(a) != d and ca == -cb:
+            out.append(Linear(((int(a), float(ca)),), None, float(ca) * lv, row.source))
+        else:
+            out.append(row)
+    return out
 
 
 def stage_two_vertices(planar: PlanarMap, recs: _t.Mapping[str, _t.Any]) -> frozenset[int]:

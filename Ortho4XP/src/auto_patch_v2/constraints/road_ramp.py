@@ -788,6 +788,15 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # on the bordered LEVEL, so the runs beside it never take the runway's
     # level either (#1631)
     ceil = {v: floor[v] for v in terr.get("runway") or {} if v in floor}
+    # a runway-bordered BAND KERB (``kerb``: no §37 (6) row, so no floor)
+    # is capped at its own ground: uncapped, it carried the RUNWAY's level
+    # into the run linked beyond it, which then ran straight down from the
+    # runway to the next pavement — KBWI's ``small_roads:-1013`` past 15R's
+    # zone 2 stood 6.4 m over its lidar ground with no row binding it
+    for v in terr.get("runway") or {}:
+        dz = planar.vertices[v].dem_z if v in planar.vertices else None
+        if v not in ceil and dz is not None and math.isfinite(float(dz)):
+            ceil[v] = float(dz)
     prof, rep = terrace_profile(
         terr, levels, floor, cap, joins,
         design=float(law.tables.emit.road_contact.ramp_grade),

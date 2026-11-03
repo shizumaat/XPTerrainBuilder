@@ -232,6 +232,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
+        "auto_patch_v2.airport.user_roles",
         "auto_patch_v2.airport.wall_class",
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_plate",
@@ -413,6 +414,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.tunnel_objects",
         "auto_patch_v2.airport.tunnel_walls",
         "auto_patch_v2.airport.unit_storey",
+        "auto_patch_v2.airport.user_roles",
         "auto_patch_v2.airport.wall_class",
         "auto_patch_v2.airport.wall_corridor_probe",
         "auto_patch_v2.airport.wall_corridors",
@@ -849,6 +851,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
+        "auto_patch_v2.airport.user_roles",
         "auto_patch_v2.airport.wall_class",
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_plate",
@@ -1417,7 +1420,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
-    classify.apt_shoulder classify.storey_edge airport.unit_storey
+    classify.apt_shoulder classify.storey_edge airport.unit_storey airport.user_roles
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
@@ -1572,7 +1575,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
-    classify.apt_shoulder classify.storey_edge airport.unit_storey
+    classify.apt_shoulder classify.storey_edge airport.unit_storey airport.user_roles
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
@@ -1686,7 +1689,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
-    classify.apt_shoulder classify.storey_edge airport.unit_storey
+    classify.apt_shoulder classify.storey_edge airport.unit_storey airport.user_roles
     classify.facade_mint classify.gap_apron classify.gap_mint classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
     classify.pad_cut_corridor classify.pad_touch
@@ -1805,7 +1808,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.ring_contact_batch
     airport.slab_plates airport.topology_cache airport.wall_class classify
     classify.airside_edge classify.evidence classify.facade_mint classify.gap_apron
-    classify.apt_shoulder classify.storey_edge airport.unit_storey
+    classify.apt_shoulder classify.storey_edge airport.unit_storey airport.user_roles
     classify.gap_mint classify.lot_roads classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch
     classify.retaining_wall
@@ -1883,7 +1886,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.ring_contact_batch airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
-    classify.apt_shoulder classify.storey_edge airport.unit_storey
+    classify.apt_shoulder classify.storey_edge airport.unit_storey airport.user_roles
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall

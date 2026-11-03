@@ -4,6 +4,7 @@ import SceneryKit
 /// The Patch box's shape inspector in Edit mode (issue #759, spec §4 as
 /// amended 2026-10-15): one shape — role, `ref`, node count, plan area,
 /// perimeter, elevation range, "Used by" (other shapes sharing its nodes),
+/// "Classification" (#1697, `PatchShapeRole.swift`),
 /// "Copy shape reference" (#1281, `PatchCopy.swift`), "Set elevation…"
 /// (#1357), "Delete shape"; several — their count and node count, "Set
 /// elevation…", "Delete N shapes".
@@ -46,6 +47,7 @@ struct PatchShapeInspector: View {
             Text("Way \(way.id)").scaledFont(.caption).foregroundStyle(.secondary)
         }
         if let ref = way.tags["ref"] { row("ref", ref) }
+        PatchShapeRoleBox(model: model, doc: doc, way: way)  // #1697
         row("Nodes", stats.nodeCount.formatted())
         if way.isClosed { row("Area", "\(Int(stats.area.rounded()).formatted()) m²") }
         row(way.isClosed ? "Perimeter" : "Length", "\(Int(stats.perimeter.rounded()).formatted()) m")

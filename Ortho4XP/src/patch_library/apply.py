@@ -15,7 +15,7 @@
    result says why in one sentence.
 4. The user's own edits are never overwritten (#1699 decision 8): an
    entry's edited patch is laid down only where the user has none, and a
-   conflict is reported.
+   conflict is reported; its hand-set pavement roles (#1697) likewise.
 
 Nothing is applied without the user's choice (decision 7): this runs on
 "Build" / "Update" in the app.  Downloading needs no account.
@@ -75,21 +75,26 @@ def _write(path: str, data: bytes) -> None:
 
 
 def _lay_edits(rel, manifest, edits, patch_dir, change) -> dict:
-    """The entry's edited patch, where the user has none of their own."""
+    """The entry's edited patch, and its hand-set pavement roles (#1697,
+    ``roles``: how many were laid), each where the user has none of their
+    own."""
     import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import user_roles as _ur
+    rows = (edits or {}).get("role_overrides") or ()
+    roles = {"roles": _ur.lay_rows(patch_dir, manifest["icao"], rows)} if rows else {}
     name = (edits or {}).get("edited_patch")
     if not name:
-        return {"edits": "none"}
+        return {"edits": "none", **roles}
     target = os.path.join(patch_dir, FNAMES.edited_patch_name(manifest["icao"]))
     _member(manifest, name, L.EDITED, L.EDITED_NAME_RE)
     if os.path.isfile(target):
-        return {"edits": "conflict",
+        return {"edits": "conflict", **roles,
                 "conflict": "your own edits to %s stay; the library's edits "
                             "were not laid over them" % manifest["icao"]}
     from tile_bundle import paths as _paths
     raw = _download(rel, name, manifest["files"][name])
     _write(target, _paths.transform_file_bytes(target, raw, change))
-    return {"edits": "laid"}
+    return {"edits": "laid", **roles}
 
 
 def apply_entry(entry: str, working_dir: str = "") -> dict:

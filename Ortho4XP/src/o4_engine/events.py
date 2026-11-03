@@ -213,6 +213,7 @@ CAPABILITIES: tuple = (
     "object_seat_set",              # 1.30, #1703
     "tidy_scenery_packs",           # 1.32, #1729
     # -- after the freeze: one flag per feature, appended below --
+    "patch_roles",                  # 2026-11-03, #1697 patch_roles / patch_role_set
 )
 
 

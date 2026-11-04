@@ -76,6 +76,7 @@ from ..model.constraints import Pin, Row, Source
 from ..model.planar import PlanarMap
 from ..model.stage_one import full_map
 from ..model.structures import DeckAnchor
+from .deck_lines import cut_faces
 from .geometry import project_to_chain
 from .precedence import view
 from .trend import trend_of
@@ -99,10 +100,6 @@ _TAXI_CENTERLINE = "taxi_centerline"
 _ON_LINE_M = 1.5
 
 
-#: the faces of a cut: its floor and its void (``planar/structures``)
-_CUT_ROLES = frozenset({"tunnel_ramp", "retaining_wall"})
-
-
 def deck_holes(pm: PlanarMap) -> list[tuple[tuple[float, float], ...]]:
     """The bridge WINDOWS: every deck's ring (``PlanarMap.decks``) and every
     floor and void face of each cut naming a deck (deck redesign §2 row 16:
@@ -118,38 +115,7 @@ def deck_holes(pm: PlanarMap) -> list[tuple[tuple[float, float], ...]]:
         fp = tuple(getattr(tn, "footprint", ()) or ())
         if len(fp) >= 3:
             out.append(fp)
-    return out + _cut_faces(pm, cuts)
-
-
-def _cut_faces(pm: PlanarMap, cuts) -> list[tuple[tuple[float, float], ...]]:
-    """The floor and void faces of the cuts ``cuts`` (:func:`deck_holes`)."""
-    if not cuts:
-        return []
-    from shapely.geometry import LineString, Point, Polygon
-    from shapely.ops import unary_union
-    from shapely.prepared import prep
-    shapes = []
-    for tn in cuts:
-        rim = tuple(getattr(tn, "wall_path", ()) or ())
-        p = Polygon(rim).buffer(0.0) if len(rim) >= 4 else None
-        if (p is None or p.is_empty) and len(tn.axis) >= 2:
-            p = LineString(tn.axis).buffer(float(tn.half_width_m) + 2.0)
-        if p is not None and not p.is_empty:
-            shapes.append(p.buffer(1.0))
-    if not shapes:
-        return []
-    within = prep(unary_union(shapes))
-    out = []
-    for f in pm.faces.values():
-        if f.role not in _CUT_ROLES:
-            continue
-        ring = tuple(tuple(pm.vertices[v].xy) for v in pm.ring_vertices(f.ring))
-        if len(ring) < 3:
-            continue
-        q = Polygon(ring)
-        if within.contains(Point(q.representative_point() if q.is_valid else ring[0])):
-            out.append(ring)
-    return out
+    return out + cut_faces(pm, cuts)
 
 
 def blind(holes) -> "_t.Callable[[tuple[float, float]], bool]":

@@ -198,3 +198,40 @@ def test_under_a_slab_the_cuts_own_road_is_the_embankment_not_a_road_beside():
     road = _sbox(-4.0, -10.0, 4.0, 100.0)
     _r, o = DB.deck_cut(db, axis, ramp, outer, 0.6, bank_run=9.0, roads=road)
     assert o.contains(Point(0.0, 25.0))          # the bank band over the road
+
+
+def _span_map(roles):
+    """A deck's ring (``_deck``) with a seat on each end line, a cut under it
+    (floor face 0..3 on the road's axis) and three vertices inside the ring:
+    10 on the cut floor's plan, 11 on the deck ground beside it, 12 a
+    vertex whose roles ``roles`` gives."""
+    V = types.SimpleNamespace
+    xy = {0: (-4.0, -30.0), 1: (4.0, -30.0), 2: (4.0, 30.0), 3: (-4.0, 30.0),
+          4: (-40.0, 0.0), 5: (40.0, 0.0), 10: (0.0, 5.0), 11: (-25.0, 5.0), 12: (25.0, 5.0)}
+    verts = {k: V(xy=p, incident_faces=()) for k, p in xy.items()}
+    faces = {0: V(role="tunnel_ramp", ring=(0, 1, 2, 3), ref="cut")}
+    tn = V(deck_bridge=OID, footprint=(), wall_path=(), axis=((0.0, -30.0), (0.0, 30.0)),
+           half_width_m=4.0, decks=(), portal="p", id="t", edge_seats=(), deck_ring=())
+    db = _deck()
+    es = [V(terms=((4, 1.0),), deck=db, depth=db.depth_m),
+          V(terms=((5, 1.0),), deck=db, depth=db.depth_m)]
+    pm = V(vertices=verts, faces=faces, ring_vertices=lambda ring: list(ring),
+           roles_at=lambda v: roles.get(v, ()))
+    return pm, es, tn
+
+
+def test_no_span_vertex_inside_a_cut_or_on_a_groundside_road():
+    """Round 3 (LFPG H18r / H19, stations 0.205 / 0.283 m off): a vertex
+    inside a cut under the deck (its floor's plan, ``deck_windows.
+    cut_faces``) stands at the cut's level and a road vertex is the
+    ground's — neither takes the span's pair to a deck seat; the deck
+    ground beside the cut still does."""
+    from auto_patch_v2.constraints import edge_deck as ED
+    pm, es, tn = _span_map({12: ("service_road",)})
+    ends = [(e.terms, e.depth) for e in es]
+    rows = ED._span_rows(pm, OID, es, [tn], set(), ends, 0.04, None, None,
+                         ED._FLOOR_ROLES | {"service_road"})
+    spanned = {v for r in rows for v, _c in r.terms if v not in (4, 5)}
+    assert spanned == {11}
+    open_rows = ED._span_rows(pm, OID, es, [], set(), ends, 0.04)
+    assert {v for r in open_rows for v, _c in r.terms if v not in (4, 5)} == {10, 11, 12}

@@ -55,6 +55,7 @@ import math
 import typing as _t
 
 from ..law import Law
+from ..law.tables import family
 from ..model.airport import Airport
 from ..model.constraints import Band, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
@@ -132,6 +133,10 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     flush = float(law.tables.structures.bridge.deck_flush_m)
     lines = end_lines(planar, law)
     seats_of = {oid: {v for e in es for v, _w in e.terms} for oid, es in lines.items()}
+    # a groundside road never takes a deck's level off its seats: a mapped
+    # road deck has its own pair (``Tunnel.decks``), a road under or beside
+    # the deck is the ground's (PR B round 3, LFPG H18r)
+    roads = frozenset(family(law, "road_cross_section").roles)
     rows: list[Row] = []
     done: set[int] = set()
     for oid, es in sorted(lines.items()):
@@ -145,15 +150,16 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
         # deck ground beside H18r's neighbour obj13020 stood 3.04 m over it
         pool = set(seats_of[oid]).union(*(seats_of.get(o, set()) for t in under
                                           for o, _s, _d in t.edge_seats))
-        rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done))
+        rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
+                               _FLOOR_ROLES | roads))
         rows.extend(_station_rows(oid, ends, flush, _held_levels(planar, oid, es)))
         rows.extend(_rigid_rows(oid, ends))
     return rows
 
 
 def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float,
-               pool: "_t.Sequence[int] | None" = None, done: "set[int] | None" = None
-               ) -> list[Row]:
+               pool: "_t.Sequence[int] | None" = None, done: "set[int] | None" = None,
+               skip: "_t.AbstractSet[str]" = _FLOOR_ROLES) -> list[Row]:
     """The object's SPAN: every vertex inside its deck rings — or, on the
     bridge's own ground (:func:`_bridge_ground`), inside the reach of a
     trench under it (``model/structures.deck_reach``) — that is no seat and
@@ -162,7 +168,12 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     the deck never stands through it), flush both ways over a SLAB (the
     pavement inside its ring IS the deck's surface).  ``pool``: the seats a
     span vertex may take (the object's own and its trenches' other decks');
-    ``done``: the vertices an earlier object already spans (each once)."""
+    ``done``: the vertices an earlier object already spans (each once);
+    ``skip``: the roles no span vertex carries (the trench floor's, the
+    groundside road's).  NOT THE CUT (PR B round 3, LFPG H18r / H19
+    0.205 / 0.283 m): a vertex off the airside inside a cut under the deck
+    (:func:`_in_cut`) stands at the cut's level — pulled to the deck's, the
+    floor beside it followed and the stations moved."""
     from shapely.geometry import MultiPoint, Point, Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
@@ -177,15 +188,18 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     on_slab = prep(unary_union(slabs)) if slabs else None
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
     beyond = prep(unary_union(hulls).buffer(0.5)) if hulls else inside
+    in_cut = _in_cut(planar, tunnels, slabs)
     src = Source(GEN, RULING, (oid, oid, "deck span"))
     under = Source(GEN, RIGID, (oid, oid, "under the deck"))
     top_of = _station_tops(ends)
     seats = set(seat_vs) | set(near_vs)
     rows: list[Row] = []
     for v, vx in planar.vertices.items():
-        if v in seats or _FLOOR_ROLES & set(planar.roles_at(v)):
+        if v in seats or skip & set(planar.roles_at(v)):
             continue
         p = Point(vx.xy)
+        if v not in air and in_cut(p):
+            continue
         if not inside.contains(p) and not (beyond.contains(p) and _bridge_ground(planar, vx)):
             continue
         x, y = vx.xy
@@ -202,6 +216,29 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
         rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))
     return rows
+
+
+def _in_cut(planar: PlanarMap, tunnels, slabs) -> "_t.Callable[[_t.Any], bool]":
+    """Whether a point stands inside a cut under the deck — the floor and
+    void faces of the trenches ``tunnels`` (``deck_lines.cut_faces``) and
+    their footprints — less the ``slabs`` (the pavement inside a slab's
+    ring IS the deck's surface)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+
+    from .deck_lines import cut_faces
+    rings = list(cut_faces(planar, tunnels))
+    rings += [fp for t in tunnels if len(fp := tuple(getattr(t, "footprint", ()) or ())) >= 3]
+    if not rings:
+        return lambda _p: False
+    cut = unary_union([Polygon(r).buffer(0.0) for r in rings])
+    if slabs:
+        cut = cut.difference(unary_union(slabs))
+    if cut.is_empty:
+        return lambda _p: False
+    within = prep(cut)
+    return within.contains
 
 
 def _held_levels(planar: PlanarMap, oid: str, es) -> list["float | None"]:

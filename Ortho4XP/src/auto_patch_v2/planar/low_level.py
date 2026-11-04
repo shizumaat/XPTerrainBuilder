@@ -655,6 +655,9 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         res.append(r)
     res = extend_levels(res, reg, air_all, airport, law, grid, counts, beyond)
     res = _seeded(res, reg, seeds, air_all, airport, law, grid, counts, beyond)
+    # one region, one depth (``planar/level_regions.region_depths``, round 4)
+    from .level_regions import region_depths
+    res = region_depths(res, reg, law, grid, counts)
     # 28s (3) (#1572): a lower level's fill along a lot is cut off
     from .low_fill import cut_fill_bands
     res = cut_fill_bands(res, reg, lots, airport, law, grid, counts, LOW_KIND)

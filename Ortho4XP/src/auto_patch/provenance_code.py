@@ -819,6 +819,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.planar.landing",
     "auto_patch_v2.planar.landing_runout",
     "auto_patch_v2.planar.level_depth",
+    "auto_patch_v2.planar.level_regions",
     "auto_patch_v2.planar.lidar_road",
     "auto_patch_v2.planar.low_extent",
     "auto_patch_v2.planar.low_fill",

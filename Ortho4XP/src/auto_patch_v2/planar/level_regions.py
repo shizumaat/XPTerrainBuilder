@@ -57,7 +57,7 @@ from ..law.tables import role_side
 from ..model.planar import STRIP_SUFFIX, plane_of, plane_ref
 from ..model.registries import Registries
 
-__all__ = ["LevelSeed", "level_seeds", "seed_levels"]
+__all__ = ["LevelSeed", "level_seeds", "region_depths", "seed_levels"]
 
 #: the ``witness`` word of a seed level's record
 WALLS_WITNESS = "walls"
@@ -159,6 +159,7 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
     docstring, step (b)); each piece registered in ``reg.landings``."""
     from .low_extent import _riser
     from .low_level import LOW_KIND
+    counts["level_seeds"] = len(seeds)
     if not seeds or not beyond:
         return regs
     from ..law.tables import design as design_law
@@ -247,3 +248,115 @@ def _front_block(q, polys: dict, held: dict, reach: float) -> "str | None":
         if a > length:
             best, length = ref, a
     return best
+
+
+def region_depths(regs: list, reg: Registries, law, grid: float, counts: dict) -> list:
+    """STEPS (f) AND §3, ONE REGION, ONE DEPTH (spec §2.2 step 7, §3; Q342 a):
+    the lower levels that touch -- a riser's width apart or across one's
+    riser strip -- are held at ONE zero (one group's witnesses and top,
+    ``planar/group_low``; or one block's datum) and whose floors (``y_lo``)
+    lie within one ``PLANE_BAND_M`` (one floor, as the foot-plane reader
+    reads one) are one region, and stand at one depth: the area-weighted
+    median of their own stated floors.  The riser strip between two of them
+    is the region's floor, never a step inside it.  MEASURED LFPG T2
+    (capture lfpg6): the corridor ``building35/p2`` (143,204 m2, the central
+    buildings' bottom 6.97 m under the group's zero) and the trench pads
+    ``building34/35/51/64/p1`` (7.37-7.39 m) behind 0.4 m risers inside the
+    one corridor.  Floors a band or more apart keep their object step
+    (KATL ``building46``: the terminal's lower storey at -13.03, the apron
+    walls' bottoms at -11.51 and -9.70, 27h).
+
+    A covered cut's level is the cut's own (``planar/covered_cut``) and
+    joins no region."""
+    from .covered_cut import WITNESS as _COVERED
+    from .low_level import LOW_KIND
+    lows = {r: v for r, v in reg.landings.items() if v.get("kind") == LOW_KIND
+            and v.get("witness") != _COVERED and v.get("y_lo") is not None}
+    if len(lows) < 2:
+        return regs
+    from ..airport.airside_group_seat import PLANE_BAND_M
+    band = float(PLANE_BAND_M)
+    w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
+    polys: dict[str, list] = {}
+    for r in regs:
+        if str(r.ref) in lows and r.polygon is not None and not r.polygon.is_empty:
+            polys.setdefault(str(r.ref), []).append(r.polygon)
+    geo = {k: unary_union(v) for k, v in polys.items()}
+    refs = sorted(geo)
+    parent = {k: k for k in refs}
+
+    def find(k):
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+    for i, a in enumerate(refs):
+        for b in refs[i + 1:]:
+            if (_zero(lows[a]) == _zero(lows[b]) and geo[a].distance(geo[b]) <= 1.5 * w
+                    and abs(float(lows[a]["y_lo"]) - float(lows[b]["y_lo"])) <= band):
+                parent[find(a)] = find(b)
+    comps: dict[str, list[str]] = {}
+    for k in refs:
+        comps.setdefault(find(k), []).append(k)
+    joined: dict[str, str] = {}
+    notes: list[str] = []
+    for members in comps.values():
+        ys = {round(float(lows[k]["y_lo"]), 3) for k in members}
+        if len(members) < 2:
+            continue
+        y = _area_median([(float(lows[k]["y_lo"]), geo[k].area) for k in members])
+        for k in members:
+            rec = lows[k]
+            if rec.get("y_feet") is not None:
+                rec["y_feet"] = round(float(rec["y_feet"]) + y - float(rec["y_lo"]), 3)
+            rec["y"] = rec["y_lo"] = round(y, 3)
+            rec["region_of"] = members[0]
+            joined[k + STRIP_SUFFIX] = k
+        notes.append(f"{'+'.join(members)} y {y:+.2f} (was {sorted(ys)})")
+    if not notes:
+        return regs
+    counts["level_regions"] = len(notes)
+    counts["level_region_list"] = "; ".join(notes)
+    return _strips_inside(regs, joined, geo, 1.5 * w)
+
+
+def _zero(rec: dict) -> tuple:
+    """What a lower level is held at: its group's witnesses and top, else
+    its block's datum."""
+    if rec.get("air_xy"):
+        return ("group", tuple(rec["air_xy"]), rec.get("top_y"))
+    return ("block", rec.get("block"))
+
+
+def _area_median(pairs: list) -> float:
+    """The area-weighted median of ``(y, area)``."""
+    s = sorted(pairs)
+    half, acc = 0.5 * sum(a for _y, a in s), 0.0
+    for y, a in s:
+        acc += a
+        if acc >= half:
+            return y
+    return s[-1][0]
+
+
+def _strips_inside(regs: list, joined: dict, geo: dict, near: float) -> list:
+    """``regs`` with the part of every joined level's riser strip that lies
+    within ``near`` of ANOTHER member of its region re-reffed to the level
+    itself (the region's floor, no riser inside it)."""
+    members = set(joined.values())
+    out: list = []
+    for r in regs:
+        lvl = joined.get(str(r.ref))
+        if lvl is None or r.polygon is None or r.polygon.is_empty:
+            out.append(r)
+            continue
+        others = [geo[m] for m in members if m != lvl and m in geo
+                  and geo[m].distance(r.polygon) <= near]
+        if not others:
+            out.append(r)
+            continue
+        inner = valid_area(r.polygon.intersection(unary_union(others).buffer(near, join_style=2)))
+        rest = valid_area(r.polygon.difference(inner))
+        out.extend(_dc.replace(r, ref=lvl, polygon=g) for g in nonempty_polygon_parts(inner))
+        out.extend(_dc.replace(r, polygon=g) for g in nonempty_polygon_parts(rest))
+    return out

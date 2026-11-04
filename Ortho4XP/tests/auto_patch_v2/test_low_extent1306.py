@@ -39,21 +39,40 @@ def _split(law, parts, tmp_path, monkeypatch, air=(AIR,)):
 
 def test_the_lower_storey_past_the_pad_is_the_lower_level_at_its_own_bottom(
         law, tmp_path, monkeypatch):
-    # the unit's lower storey runs 80 m on east of the held pad, 0.8 m
-    # lower than under the pad (its own bottom, -9.0)
-    east = [_wall(205.0, 0.0, 285.0, 70.0, -9.0, 200)]
+    # the unit's lower storey runs 80 m on east of the held pad, 1.3 m
+    # lower than under the pad (its own bottom, -9.5): a floor more than one
+    # plane band down keeps its object step (27h; round 4 region_depths)
+    east = [_wall(205.0, 0.0, 285.0, 70.0, -9.5, 200)]
     out, reg, counts = _split(law, _terminal() + east, tmp_path, monkeypatch)
     ext = {k: v for k, v in reg.landings.items() if v.get("extent_of")}
     assert len(ext) == 1
     (ref, rec), = ext.items()
     assert rec["kind"] == LL.LOW_KIND and rec["extent_of"] == "blk/p1"
-    assert rec["y_feet"] == pytest.approx(-9.0)
-    assert rec["y_lo"] == pytest.approx(-9.0 + 5.8)
+    assert rec["y_feet"] == pytest.approx(-9.5)
+    assert rec["y_lo"] == pytest.approx(-9.5 + 5.8)
     g = next(r.polygon for r in out if r.ref == ref)
     assert g.area > 0.9 * 80.0 * 70.0 - 600.0
     assert g.distance(P) > 0.0                        # a riser off the pad
     assert any(r.ref == ref + "#strip" for r in out)
     assert counts["low_level_extents"] == 1
+
+
+def test_a_floor_within_one_band_is_the_level_s_one_region(law, tmp_path, monkeypatch):
+    """Round 4 (Q344 a, ``level_regions.region_depths``): an extension 0.8 m
+    under the level it extends -- within one plane band -- is one region
+    with it, at the area-weighted median floor; the riser between them is
+    the region's floor."""
+    east = [_wall(205.0, 0.0, 285.0, 70.0, -9.0, 200)]
+    out, reg, counts = _split(law, _terminal() + east, tmp_path, monkeypatch)
+    (ref, rec), = ((k, v) for k, v in reg.landings.items() if v.get("extent_of"))
+    assert rec["y_lo"] == pytest.approx(reg.landings["blk/p1"]["y_lo"])
+    assert rec["region_of"] == reg.landings["blk/p1"]["region_of"]
+    assert counts["level_regions"] == 1
+    p1 = [r.polygon for r in out if r.ref == "blk/p1"]
+    from shapely.ops import unary_union
+    near = [r for r in out if r.ref == ref + "#strip"
+            and r.polygon.distance(unary_union(p1)) <= 1e-6]
+    assert not near                                   # no riser inside the region
 
 
 def test_the_extension_never_takes_airside(law, tmp_path, monkeypatch):

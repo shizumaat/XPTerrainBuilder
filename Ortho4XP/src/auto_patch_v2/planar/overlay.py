@@ -242,8 +242,8 @@ def build_arrangement(airport: Airport, classification: Classification,
     ``level_b``: the airport's object-stated level-B depth
     (``planar/level_depth.airport_level_b``), which arms the covered reach
     read (``planar/reach_under_covers``); ``level_seeds`` the units whose
-    walls stand a storey under their zero (``planar/level_regions``), which
-    arm it too and seed the lower levels of the pieces they touch."""
+    walls stand a storey under their zero (``planar/level_regions``), whose
+    lower levels take the unreachable pieces they touch."""
     reg = Registries()
     grid = grid_m if grid_m is not None else \
         law.tables.emit.identity.min_distinct_spacing_m
@@ -355,8 +355,7 @@ def build_arrangement(airport: Airport, classification: Classification,
             # buildings leave beyond any aircraft is groundside
             from .reach_after_pads import unreachable_after_pads
             base_regions, _reach = unreachable_after_pads(base_regions, pad_regions,
-                                                          law, airport, level_b=level_b,
-                                                          seeded=bool(level_seeds))
+                                                          law, airport, level_b=level_b)
             _pad_clip.update(_reach)
             # RULINGS 2026-09-28a (6) / 28b (#11): a pad welds to the apron it
             # FRONTS; a touching apron at another level is split off as a

@@ -8,6 +8,7 @@
    "osm_regional_extracts",
    "osm_extract_foreground_download",
    "osm_extract_refresh_days",
+   "elevation_recheck_days",
    "base_elevation_source",
    "auto_patch_boundary",
    "skip_downloads",
@@ -483,6 +484,12 @@
     "5",
     "1"
    ]
+  },
+  "elevation_recheck_days": {
+   "default": 30.0,
+   "hint": "How old, in days, a recorded answer from an elevation provider may grow before a build asks that provider again: a 'no data here' at an airport, or the check for a finer survey over an airport inset already stored. Asking costs one query per airport and provider; a provider whose definition changes is asked again at once whatever this says.",
+   "name": "elevation_recheck_days",
+   "type": "float"
   },
   "fill_nodata": {
    "default": true,

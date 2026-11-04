@@ -5401,6 +5401,10 @@ def test_degraded_tnm_200_leaves_the_index_record_absent(
             33, -113, {"KPHX": _KPHX_BOX}, [definition], 3.0
         )
         assert "USGS3DEP" not in index["KPHX"]
+        # The envelope is a SERVER's refusal: the provider rests a day.
+        from elevation_access import refusal_rest as ea_refusal_rest
+        assert ea_refusal_rest.resting_refusal("USGS3DEP") is not None
+        ea_refusal_rest._MEMORY.clear()
 
         # CONTROL: the well-formed empty answer DOES record no-coverage.
         monkeypatch.setattr(
@@ -5687,7 +5691,9 @@ def test_a_legacy_lerc_negative_is_re_probed_exactly_once(
         assert calls["count"] == 1, "the unverified negative was not re-probed"
         record = index["NZQN"]
         assert record["LERCPROVIDER"] == INSETS.NO_COVERAGE
-        assert record["capabilities"]["LERCPROVIDER"] == {
+        stamp = dict(record["capabilities"]["LERCPROVIDER"])
+        assert stamp.pop("checked") and stamp.pop("provider_version")
+        assert stamp == {
             "engine": "1.50.1772", "capabilities": ["lerc"],
             "negative_law": INSETS.NEGATIVE_LAW}
         # EXACTLY ONCE: the stamp is what makes the negative verified.
@@ -5835,8 +5841,10 @@ def test_a_stamp_that_records_the_MISSING_capability_verifies_nothing():
 # durable ``no-coverage`` records landed on the two Phoenix tiles
 # (RULINGS 2026-09-15q fixed the WRITER).  USGS3DEP declares NO required
 # capability, so 13b's re-probe door could never reach them: they were
-# PERMANENT.  The ruling makes the ENGINE VERSION the discriminator —
-# each version re-asks once, and stamps itself whatever the answer.
+# PERMANENT.  15aq (4) made the ENGINE VERSION the discriminator; the
+# owner replaced it on 2026-11-04 with the RECHECK AGE
+# (``elevation_recheck_days``) and the PROVIDER's own version: a release
+# no longer re-asks anything, and the probe stamps the day it asked.
 _PLAIN_DEFINITION = {
     "code": "PLAINPROVIDER",
     "access_strategy": "capability_probe_strategy",
@@ -5848,46 +5856,58 @@ _PLAIN_DEFINITION = {
 _PHOENIX_BOX = {"KPHX": (-112.05, 33.41, -111.98, 33.45)}
 
 
-def _write_phoenix_negative(engine=None):
-    """The record the TNM outage left behind, optionally version-stamped."""
+def _write_phoenix_negative(engine=None, checked="2026-09-15",
+                            stamp_checked=None, provider_version=None):
+    """The record the TNM outage left behind, optionally stamped."""
     record = {"PLAINPROVIDER": INSETS.NO_COVERAGE,
-              "checked": "2026-09-15",
+              "checked": checked,
               "bounding_box": [-112.05, 33.41, -111.98, 33.45]}
     if engine is not None:
-        record["capabilities"] = {
-            "PLAINPROVIDER": {"engine": engine, "capabilities": [],
-                              "negative_law": INSETS.NEGATIVE_LAW}}
+        stamp = {"engine": engine, "capabilities": [],
+                 "negative_law": INSETS.NEGATIVE_LAW}
+        if stamp_checked is not None:
+            stamp["checked"] = stamp_checked
+        if provider_version is not None:
+            stamp["provider_version"] = provider_version
+        record["capabilities"] = {"PLAINPROVIDER": stamp}
     index_path = FNAMES.airport_inset_index(33, -112)
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
     with open(index_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"KPHX": record}, handle)
 
 
+def _today():
+    import datetime
+    return datetime.date.today().isoformat()
+
+
 @requires_gdal
-def test_a_capability_free_negative_is_re_probed_once_per_version(
+def test_a_capability_free_negative_is_re_probed_past_the_recheck_age(
     tmp_path, monkeypatch
 ):
-    """(a) An older version's negative is re-asked exactly once."""
+    """(a) A negative older than elevation_recheck_days is asked again
+    ONCE, and the probe dates the stamp."""
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "_engine_version", lambda: "1.0.341")
-    _write_phoenix_negative(engine="1.0.340")
+    _write_phoenix_negative(engine="1.0.340", stamp_checked="2026-09-15")
     calls = _capability_strategy(lambda: None)   # the provider: still none
     try:
-        assert INSETS.version_stale_capability_free_negatives(
-            33, -112, [_PLAIN_DEFINITION]) == [
-                ("KPHX", "PLAINPROVIDER", "1.0.340")]
+        why = INSETS.version_stale_capability_free_negatives(
+            33, -112, [_PLAIN_DEFINITION])
+        assert [row[:2] for row in why] == [("KPHX", "PLAINPROVIDER")]
+        assert "2026-09-15" in why[0][2] and "days" in why[0][2]
 
         index = INSETS.ensure_airport_insets(
             33, -112, _PHOENIX_BOX, [_PLAIN_DEFINITION], 3.0
         )
-        assert calls["count"] == 1, "the stale negative was not re-probed"
+        assert calls["count"] == 1, "the old negative was not re-probed"
         record = index["KPHX"]
-        # A genuine empty listing STAYS no-coverage — stamped with the
-        # version that heard it.
+        # A genuine empty listing STAYS no-coverage, dated today and
+        # stamped with the provider's version.
         assert record["PLAINPROVIDER"] == INSETS.NO_COVERAGE
-        assert record["capabilities"]["PLAINPROVIDER"] == {
-            "engine": "1.0.341", "capabilities": [],
-            "negative_law": INSETS.NEGATIVE_LAW}
+        stamp = record["capabilities"]["PLAINPROVIDER"]
+        assert stamp["checked"] == _today()
+        assert stamp["provider_version"] == INSETS.run_capability_record(
+            _PLAIN_DEFINITION)["provider_version"]
         # EXACTLY ONCE.
         assert INSETS.version_stale_capability_free_negatives(
             33, -112, [_PLAIN_DEFINITION]) == []
@@ -5899,13 +5919,14 @@ def test_a_capability_free_negative_is_re_probed_once_per_version(
         ea_registry.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
 
 
-def test_a_same_version_capability_free_negative_is_never_asked(
+def test_a_recent_negative_is_never_asked_whatever_engine_wrote_it(
     tmp_path, monkeypatch
 ):
-    """(b) This engine already asked.  Nothing asks again."""
+    """(b) Asked within the recheck age: nothing asks again -- and a NEW
+    ENGINE is no reason to (owner 2026-11-04)."""
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     monkeypatch.setattr(INSETS, "_engine_version", lambda: "1.0.341")
-    _write_phoenix_negative(engine="1.0.341")
+    _write_phoenix_negative(engine="1.0.340", stamp_checked=_today())
     calls = _capability_strategy(lambda: None)
     try:
         assert INSETS.version_stale_capability_free_negatives(
@@ -5914,6 +5935,67 @@ def test_a_same_version_capability_free_negative_is_never_asked(
             33, -112, _PHOENIX_BOX, [_PLAIN_DEFINITION], 3.0
         )
         assert calls["count"] == 0
+    finally:
+        ea_registry.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+
+
+def test_the_recheck_age_is_the_setting(monkeypatch):
+    """``elevation_recheck_days`` is read from the loaded config."""
+    import sys
+    record = {"PLAINPROVIDER": INSETS.NO_COVERAGE,
+              "bounding_box": [-112.05, 33.41, -111.98, 33.45],
+              "capabilities": {"PLAINPROVIDER": dict(
+                  INSETS.run_capability_record(_PLAIN_DEFINITION),
+                  checked="2026-01-01")}}
+    cfg = types.SimpleNamespace(elevation_recheck_days=100000.0)
+    monkeypatch.setitem(sys.modules, "O4_Config_Utils", cfg)
+    assert not INSETS.negative_is_version_stale(
+        record, "PLAINPROVIDER", _PLAIN_DEFINITION)
+    cfg.elevation_recheck_days = 30.0
+    assert INSETS.negative_is_version_stale(
+        record, "PLAINPROVIDER", _PLAIN_DEFINITION)
+
+
+def test_a_moved_provider_version_asks_again_at_once():
+    """The provider's OWN version -- its definition, its capabilities,
+    the query law -- is the other door; the engine's is not."""
+    current = INSETS.run_capability_record(_PLAIN_DEFINITION)
+    record = {"PLAINPROVIDER": INSETS.NO_COVERAGE,
+              "bounding_box": [-112.05, 33.41, -111.98, 33.45],
+              "capabilities": {"PLAINPROVIDER": dict(
+                  current, checked=_today(), engine="0.0.1")}}
+    assert not INSETS.negative_is_version_stale(
+        record, "PLAINPROVIDER", _PLAIN_DEFINITION)
+    edited = dict(_PLAIN_DEFINITION, wfs_type_name="A_NEW_LAYER")
+    assert INSETS.negative_is_version_stale(record, "PLAINPROVIDER", edited)
+    assert "definition" in INSETS._negative_recheck_reason(
+        record, "PLAINPROVIDER", edited)
+    # The user's ranking and switch are not the question asked.
+    reranked = dict(_PLAIN_DEFINITION, priority=1.0, enabled=False)
+    assert not INSETS.negative_is_version_stale(
+        record, "PLAINPROVIDER", reranked)
+
+
+@requires_gdal
+def test_a_schema_change_migrates_in_place_without_a_probe(
+    tmp_path, monkeypatch
+):
+    """A stamp from before ``checked`` / ``provider_version`` existed is
+    read as asked under the current version on the record's own date:
+    no probe, and no index rewrite for the new fields alone."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    _write_phoenix_negative(engine="1.50.1900", checked=_today())
+    index_path = FNAMES.airport_inset_index(33, -112)
+    with open(index_path, "rb") as handle:
+        before = handle.read()
+    calls = _capability_strategy(lambda: None)
+    try:
+        INSETS.ensure_airport_insets(
+            33, -112, _PHOENIX_BOX, [_PLAIN_DEFINITION], 3.0
+        )
+        assert calls["count"] == 0
+        with open(index_path, "rb") as handle:
+            assert handle.read() == before
     finally:
         ea_registry.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
 
@@ -5977,12 +6059,12 @@ def test_a_tile_with_a_version_stale_negative_is_not_settled(
     os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
     with open(stamp_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"airports_layer": "x", "insets": []}, handle)
-    _write_phoenix_negative(engine="1.0.340")
+    _write_phoenix_negative(engine="1.0.340", stamp_checked="2026-09-15")
 
     tile = types.SimpleNamespace(lat=33, lon=-112)
     assert INSETS.is_cached(tile) is False
-    # Stamped by THIS engine, the same tile is settled.
-    _write_phoenix_negative(engine="1.0.341")
+    # Asked today -- by whichever engine -- the same tile is settled.
+    _write_phoenix_negative(engine="1.0.340", stamp_checked=_today())
     assert INSETS.is_cached(tile) is True
 
 

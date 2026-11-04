@@ -69,11 +69,15 @@ def discovery_status_is_transient(status_code):
     return code == 429 or 500 <= code <= 599
 
 
-def raise_transient_discovery_failure(description, reason):
+def raise_transient_discovery_failure(description, reason, answered=False):
     """WARN in the module idiom and raise :class:`TransientFetchError`.
 
     Never returns.  ``description`` names the request ("TNM discovery
     request"), ``reason`` what went wrong (an exception, a status).
+    ``answered`` marks a SERVER's answer (a 5xx, a 429, an error
+    envelope) as opposed to a request that never got one: only the
+    former is a refusal the provider rests from
+    (``elevation_access.refusal_rest``).
     """
     UI.vprint(
         1,
@@ -81,7 +85,9 @@ def raise_transient_discovery_failure(description, reason):
         str(reason),
         "- transient, NOT recorded as no-coverage.",
     )
-    raise TransientFetchError("%s failed: %s" % (description, reason))
+    error = TransientFetchError("%s failed: %s" % (description, reason))
+    error.server_answered = bool(answered)
+    raise error
 
 
 #: Query keys whose VALUE is a secret: removed from any URL the engine
@@ -250,7 +256,7 @@ def discovery_json_payload(response, description):
     if not 200 <= status < 300:
         if discovery_status_is_transient(status):
             raise_transient_discovery_failure(
-                description, "status %d" % status
+                description, "status %d" % status, answered=True
             )
         if 400 <= status < 500 and status not in HTTP_ABSENT_STATUSES:
             raise_provider_query_error(
@@ -304,20 +310,20 @@ def discovery_listing_items(payload, description, items_key="items",
     """
     if not isinstance(payload, dict):
         raise_transient_discovery_failure(
-            description, "a 200 body that is not a product listing"
-        )
+            description, "a 200 body that is not a product listing",
+            answered=True)
     items = payload.get(items_key)
     if not isinstance(items, list):
         raise_transient_discovery_failure(
             description,
             "a 200 body carrying no '%s' listing" % items_key,
-        )
+            answered=True)
     for key in _DISCOVERY_ERROR_KEYS:
         if payload.get(key):
             raise_transient_discovery_failure(
                 description,
                 "a 200 body reporting '%s': %s" % (key, payload[key]),
-            )
+                answered=True)
     if not items and total_key is not None:
         try:
             total = int(payload.get(total_key, 0))
@@ -327,7 +333,7 @@ def discovery_listing_items(payload, description, items_key="items",
             raise_transient_discovery_failure(
                 description,
                 "a 200 body claiming %d product(s) and listing none"
-                % total,
+                % total, answered=True,
             )
     return items
 

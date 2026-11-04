@@ -110,6 +110,19 @@ cfg_app_vars = {
         "default": 180.0,
         "hint": "How old, in days, a stored regional extract may grow before background maintenance re-downloads it at application start. OpenStreetMap edits reach scenery slowly, so the default trades roughly half a year of staleness for far fewer multi-hundred-megabyte downloads.",
     },
+    # Owner 2026-11-04: a rebuild re-asks an elevation provider only when
+    # its recorded answer is this old (or the provider itself changed).
+    "elevation_recheck_days": {
+        "type": float,
+        "default": 30.0,
+        "hint": (
+            "How old, in days, a recorded answer from an elevation provider "
+            "may grow before a build asks that provider again: a 'no data "
+            "here' at an airport, or the check for a finer survey over an "
+            "airport inset already stored. Asking costs one query per "
+            "airport and provider; a provider whose definition changes is "
+            "asked again at once whatever this says."),
+    },
     # Settings > Storage (#1724): the automatic cleanup, off by default.
     "storage_auto_clean_days": {
         "type": int,
@@ -857,6 +870,7 @@ list_app_vars = [
     "osm_regional_extracts",
     "osm_extract_foreground_download",
     "osm_extract_refresh_days",
+    "elevation_recheck_days",
     "base_elevation_source",
     # APP-level by design (spec §C.4, RULINGS 2026-09-18a/18j): the
     # "Airports on a tile edge" answer.  It lives in ``cfg_app_vars``; it

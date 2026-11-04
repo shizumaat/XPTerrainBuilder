@@ -123,7 +123,7 @@ from .airside_deck_seat import (  # noqa: E402
 from .open_frame_seat import (  # noqa: E402
     OPEN_KINDS as _OPEN_KINDS, body_root as _body_root,
     frame_root_boxes as _frame_root_boxes, frame_zero as _frame_zero,
-    group_zero as _group_zero, open_zero as _open_zero,
+    group_zero as _group_zero, open_zero as _open_zero, at_zero as _at_zero,
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
     rigid_open as _rigid_open, root_zeros as _root_zeros)
 from .pad_level_group import pad_level_links as _pad_level_links  # noqa: E402
@@ -944,10 +944,20 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # still moves as one, at its deck's own zero, the deck cut first
         bridge = None if airside is not None else _refused_bridge(staged, decks, surface)
         _bz: list[float] = []
+        # #1883: what stands on a deck seated over the pack's cut rides that
+        # seat (``cut_deck_seat.cut_seats``, read before the deck is cut)
+        _seats = (_cds.cut_seats(bridge.m, getattr(bridge.m, "origin", None) or tuple(u.anchor),
+                                 surface, _cuts, abutment_step_m, deck_on_fraction)
+                  if bridge is not None and _cuts else [])
 
-        def _one_bridge(r, mm, _b=bridge, _z=_bz):
+        def _one_bridge(r, mm, _b=bridge, _z=_bz, _s=_seats):
             if _b is None:
                 return r
+            for zero in sorted({z for b in r.bodies
+                                if (z := _cds.seat_under(b, _s, deck_on_fraction)) is not None}):
+                r = _at_zero(r, mm, zero,
+                             lambda b, _q=zero: _cds.seat_under(b, _s, deck_on_fraction) == _q,
+                             f"on the deck seated over the pack's cut at {zero:.2f} (#1883)")
             if not _z:
                 # a deck body seated over the pack's own cut (26d) keeps its
                 # seat and states no frame zero (``cut_deck_seat.seated``)
@@ -960,7 +970,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             return _frame_zero(r, mm, _z[0],
                                f"one bridge frame at its deck's zero {_z[0]:.2f} "
                                "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)",
-                               keep=_cds.seated)
+                               keep=lambda b, _s=_s: _cds.seated(b) or _cds.seat_under(
+                                   b, _s, deck_on_fraction) is not None)
 
         # owner RULINGS 2026-10-26d (#1331): outside a class-A frame, a
         # pack deck body over the pack's own cut sits flush with what it

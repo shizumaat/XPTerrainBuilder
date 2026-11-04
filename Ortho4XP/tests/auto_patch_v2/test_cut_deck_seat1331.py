@@ -163,3 +163,31 @@ def test_a_bridge_frame_zero_keeps_a_deck_seated_over_its_cut(tmp_path):
     out = OFS.frame_zero(both, m, 76.0, "one bridge frame", keep=CDS.seated)
     assert out.bodies[0] is b and abs(_zero(out.bodies[0]) - 0.5 * (TAXI_N + TAXI_S)) < 1e-6
     assert abs(_zero(out.bodies[1]) - 76.0) < 1e-6
+
+
+def _rider(low_y, zero=77.0, frac=1.0):
+    """A rail on the deck (``low_y`` its lowest authored y), standing on its
+    own ground at ``zero``; ``frac`` of its box over the deck."""
+    a = AR.Anchor(AR.OTHER, LAT, LON, TRENCH - zero, "own ground", TRENCH,
+                  offset=(0.0, TRENCH - zero, 0.0))
+    w = 2.0 * HALF_X / MO
+    lo0 = LON - HALF_X / MO + (1.0 - frac) * w
+    box = (S, lo0, N, lo0 + w)
+    return Body(0, AR.OTHER, (), a, "objects/rail__b0.obj", geom_box=box, plan_box=box,
+                geom_pts=((LAT, LON, low_y),))
+
+
+def test_what_stands_on_a_deck_seated_over_its_cut_rides_its_seat(tmp_path):
+    """#1883 (LGAV ``Bridge_Fences`` on ``Trench_00``): the deck's pieces
+    are read before its bodies, at the zero its body takes, and a rail on
+    the deck takes it; a plant on the trench floor under the deck, or a
+    body mostly off the deck, does not."""
+    m = _member(_deck_obj(tmp_path))
+    seats = CDS.cut_seats(m, (LAT, LON), _surface(), (_cut(),), 2.0, 0.5)
+    deck = _seat(tmp_path, (_cut(),)).bodies[0]
+    assert len(seats) == 1 and abs(seats[0][1] - _zero(deck)) < 1e-6
+    assert abs(CDS.seat_under(_rider(0.4), seats, 0.5) - _zero(deck)) < 1e-6
+    assert CDS.seat_under(_rider(-6.0), seats, 0.5) is None      # under the deck
+    assert CDS.seat_under(_rider(0.4, frac=0.3), seats, 0.5) is None
+    assert CDS.seat_under(deck, seats, 0.5) is None              # the deck itself
+    assert CDS.cut_seats(m, (LAT, LON), _surface(), (), 2.0, 0.5) == []

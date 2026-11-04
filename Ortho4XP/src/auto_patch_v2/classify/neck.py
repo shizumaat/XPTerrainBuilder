@@ -225,8 +225,16 @@ def cover_arms(face: Polygon, cover, rules: Rules) -> list[Neck]:
         if b.area > rules.cells.min_area_m2]
     if not lobes:
         return []
+    # THE COVER IS NOT A WIDTH: a cut off the mapped apron is narrow
+    # pavement by no construction, so the arm verdict is asked of EVERY
+    # cut here (a "neck" between two mapped aprons included) and its mean
+    # width must sit under ``corridor.max_width_m`` — measured HECA
+    # (batch BA): a 17,368 m2, 50.4 m-wide piece between two mapped
+    # aprons (mouth factor 9.1) was cut as a neck and graded taxi law.
+    w = rules.corridor.max_width_m
     return [_dc.replace(n, reread=True)
-            for n in _cuts(face, face_g, lobes, lobes, rules, None)[0]]
+            for n in _cuts(face, face_g, lobes, lobes, rules, None)[0]
+            if n.width_m < w and _is_arm(n.aspect, n.mouth_factor, rules)]
 
 
 def _cuts(face: Polygon, face_g, lobes: list[Polygon], reach: list,

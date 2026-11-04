@@ -74,3 +74,15 @@ def test_a_flank_under_the_apron_is_not_an_arm():
     face = box(0.0, 0.0, 800.0, 14.0)
     flank = box(0.0, 7.0, 800.0, 60.0)
     assert cover_arms(face, flank, rules) == []
+
+
+def test_a_wide_piece_between_two_mapped_aprons_is_not_cut():
+    """HECA (batch BA): the cover is not a width.  A 55 m-wide piece
+    between two mapped aprons separates them, but it is no path: neither
+    narrow nor hanging off a mouth, so it is not cut."""
+    rules = load_rules()
+    face = box(0.0, 0.0, 400.0, 55.0)
+    cover = box(-10.0, -10.0, 60.0, 65.0).union(box(340.0, -10.0, 410.0, 65.0))
+    assert cover_arms(face, cover, rules) == []
+    narrow = box(0.0, 0.0, 400.0, 14.0)                 # a taxiway between them IS a path
+    assert len(cover_arms(narrow, cover, rules)) == 1

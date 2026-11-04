@@ -298,7 +298,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     level_b, level_b_note = airport_level_b(airport, classification, law)
     # THE LEVEL SEEDS, read ONCE beside it (round 4, ``planar/level_regions``):
     # the units whose walls stand a storey under their zero
-    seeds, seed_notes = level_seeds(airport, classification, law)
+    seeds, seed_notes = level_seeds(airport, classification, law, cache)
     decks, deck_notes = deck_bridges(objects, cache, classification, airport, law,
                                      tstats.trench_objects, level_b=level_b)
     deck_notes = [f"level B: {level_b_note}",

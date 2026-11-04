@@ -546,6 +546,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.landing_runout",
         "auto_patch_v2.planar.level_depth",
         "auto_patch_v2.planar.level_regions",
+        "auto_patch_v2.planar.level_underside",
         "auto_patch_v2.planar.lidar_road",
         "auto_patch_v2.planar.low_extent",
         "auto_patch_v2.planar.low_fill",
@@ -1629,7 +1630,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     planar.deck_bridge planar.deck_walls
     planar.door_ramps planar.dual_width planar.edges planar.end_witness planar.landing
-    planar.landing_runout planar.level_depth planar.level_regions
+    planar.landing_runout planar.level_depth planar.level_regions planar.level_underside
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
     planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
@@ -1759,7 +1760,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     planar.deck_bridge planar.deck_walls
     planar.door_ramps planar.dual_width planar.edges planar.end_witness planar.landing
-    planar.landing_runout planar.level_depth planar.level_regions
+    planar.landing_runout planar.level_depth planar.level_regions planar.level_underside
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
     planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld

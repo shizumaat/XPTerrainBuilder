@@ -520,7 +520,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                     storey_lots: _t.Sequence = (),
                     air_all: _t.Sequence | None = None,
                     beyond: _t.Sequence = (),
-                    lots: _t.Sequence = (), seeds: _t.Sequence = ()) -> list:
+                    lots: _t.Sequence = (), seeds: _t.Sequence = (),
+                    beyond_refs: _t.Sequence = ()) -> list:
     """The pad regions ``out`` with every held block whose unit carries a
     lower storey split into its high block, its low level ``<ref>/p1`` and
     the riser strip (module docstring); each low level registered in
@@ -654,10 +655,11 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
             continue
         res.append(r)
     res = extend_levels(res, reg, air_all, airport, law, grid, counts, beyond)
-    res = _seeded(res, reg, seeds, air_all, airport, law, grid, counts, beyond)
+    res = _seeded(res, reg, seeds, air_all, airport, law, grid, counts, beyond, beyond_refs)
     # one region, one depth (``planar/level_regions.region_depths``, round 4)
-    from .level_regions import region_depths
+    from .level_regions import region_depths, region_runouts
     res = region_depths(res, reg, law, grid, counts)
+    res = region_runouts(res, reg, air_all, airport, law, grid, counts)
     # 28s (3) (#1572): a lower level's fill along a lot is cut off
     from .low_fill import cut_fill_bands
     res = cut_fill_bands(res, reg, lots, airport, law, grid, counts, LOW_KIND)
@@ -678,12 +680,13 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
 
 
 def _seeded(regs: list, reg: Registries, seeds, air_all, airport, law, grid: float,
-            counts: dict, beyond) -> list:
+            counts: dict, beyond, beyond_refs=()) -> list:
     """``regs`` with the seeds' lower levels (``planar/level_regions``)."""
     if not seeds:
         return regs
     from .level_regions import seed_levels
-    return seed_levels(regs, reg, seeds, air_all, airport, law, grid, counts, beyond)
+    return seed_levels(regs, reg, seeds, air_all, airport, law, grid, counts, beyond,
+                       beyond_refs)
 
 
 def _group_floors(airport, air_polys, tree, law) -> _t.Callable[[int], _t.Any]:

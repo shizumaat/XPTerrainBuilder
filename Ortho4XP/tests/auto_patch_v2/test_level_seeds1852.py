@@ -1,11 +1,12 @@
-"""THE LOWER LEVEL FROM WALLS BELOW THE ZERO (#1852, round 4;
-``planar/level_regions``).
+"""THE ROADS UNDER A BUILDING ARE ITS ONE LOWER LEVEL (#1852, two-level round
+4; ``planar/level_regions``, ``planar/cut_runout`` roads, ``constraints/
+ramp_runout``).
 
-A unit whose walls stand a storey under its own zero on a pad that is no
-stepped block (KIAH: the train station on a §20 conforming pad) is a level
-seed; the unreachable apron piece it touches is its lower level, the
-seed's depth under the datum of the block the piece fronts -- where its
-ground stands nearer that floor than the block's datum.
+KIAH's train station: walls a storey under its zero on a §20 conforming pad,
+the terminal roads running through it.  The pad is cut into ONE flat lower
+level at the walls' depth, tied to the terminal block it fronts; the roads
+leaving it climb to their ground; a basement (no road through) mints
+nothing; a support founds nothing.
 """
 from __future__ import annotations
 
@@ -22,8 +23,8 @@ from shapely.geometry import box
 from test_two_pads1214 import _airport, _wall
 
 T = box(400.0, 0.0, 500.0, 100.0)        # the terminal's held block (D 30)
-AIR = box(400.0, 100.0, 500.0, 130.0)    # its apron
-B = box(500.0, 40.0, 600.0, 100.0)       # the unreachable apron piece
+STN = box(500.0, 10.0, 540.0, 60.0)      # the station's pad, the station on it
+AIR = box(400.0, 100.0, 500.0, 130.0)    # the terminal's apron
 
 
 @pytest.fixture(scope="module")
@@ -32,7 +33,12 @@ def law():
 
 
 def _station(y=-4.0):
-    return [_wall(500.0, 0.0, 540.0, 40.0, y, 8)]
+    return [_wall(500.0, 10.0, 540.0, 60.0, y, 8)]
+
+
+def _road(x0=480.0, x1=620.0, y=35.0):
+    return types.SimpleNamespace(id=-1, points=[(x0, y), (x1, y)],
+                                 tags={"highway": "service"})
 
 
 def _cls():
@@ -40,44 +46,57 @@ def _cls():
     return types.SimpleNamespace(cells=[types.SimpleNamespace(ring=ring, holes=(), role="apron")])
 
 
-def _run(law, parts, tmp_path, ground=26.0):
-    A = _airport(parts, tmp_path, ground=lambda x, y: ground)
+def _run(law, parts, tmp_path, roads=(), ground=lambda x, y: 26.0):
+    A = _airport(parts, tmp_path, ground=ground)
+    A.osm_ways = list(roads)
+    A.frame.transformers = lambda: ((lambda lon, lat: (lon, lat)), (lambda x, y: (y, x)))
     seeds, _notes = LR.level_seeds(A, _cls(), law)
     reg = Registries()
     reg.held["term"] = {"unit": "term", "datum_pred": 30.0}
-    region = Region(role="building", ref="term", polygon=T, code_number=None,
-                    code_letter=None, side="airside", source="cell")
+    reg.held["stn"] = {"unit": "stn", "verdict": "conforming", "conforming": True}
+    regs = [Region(role="building", ref=ref, polygon=g, code_number=None, code_letter=None,
+                   side="airside", source="cell") for ref, g in (("term", T), ("stn", STN))]
     counts: dict = {}
-    out = LR.seed_levels([region], reg, seeds, [AirRegion(AIR, "cell")], A, law, 0.5,
-                         counts, beyond=[B])
+    out = LR.seed_levels(regs, reg, seeds, [AirRegion(AIR, "cell")], A, law, 0.5, counts)
     return seeds, out, reg, counts
 
 
-def test_walls_below_the_zero_seed_the_piece_they_touch(law, tmp_path):
-    seeds, out, reg, counts = _run(law, _station(), tmp_path)
-    assert len(seeds) == 1 and seeds[0].depth == pytest.approx(4.0)
-    (ref, rec), = ((k, v) for k, v in reg.landings.items() if v.get("witness") == "walls")
+def test_the_roads_through_a_building_are_its_one_level(law, tmp_path):
+    seeds, out, reg, counts = _run(law, _station(), tmp_path, roads=[_road()])
+    (s,) = seeds
+    assert s.depth == pytest.approx(4.0) and s.passage is not None
+    (ref, rec), = ((k, v) for k, v in reg.landings.items() if v.get("witness") == "passage")
     assert ref == "term/p1" and rec["kind"] == LOW_KIND and rec["block"] == "term"
-    assert rec["y_lo"] == pytest.approx(-4.0)          # 4 m under the block's datum
-    g = next(r.polygon for r in out if r.ref == ref)
-    assert g.area > 0.8 * B.area and g.distance(T) > 0.0 and g.distance(AIR) >= 3.0 - 1e-6
+    assert rec["y_lo"] == pytest.approx(-4.0) and rec["pad"] == "stn"
+    L = next(r.polygon for r in out if r.ref == ref)
+    assert L.area > 0.8 * STN.area                     # the station's whole floor, one level
+    assert not any(r.ref == "stn" and r.polygon.area > 1.0 for r in out)
     assert any(r.ref == ref + "#strip" for r in out)
-    assert counts["level_seed_levels"] == 1
 
 
-def test_a_storey_over_level_ground_mints_nothing(law, tmp_path):
-    # the piece's ground stands at the block's datum: a basement, no level
-    _s, _out, reg, counts = _run(law, _station(), tmp_path, ground=30.0)
-    assert not reg.landings and counts["level_seed_levels"] == 0
+def test_the_roads_leaving_the_level_climb_to_their_ground(law, tmp_path):
+    # the level stands at 26 (30 - 4); the ground beyond the station rises to 28
+    def ground(x, y):
+        return 26.0 if x < 545.0 else 26.0 + min(2.0, 0.05 * (x - 545.0))
+    _s, _out, reg, counts = _run(law, _station(), tmp_path, roads=[_road()], ground=ground)
+    ups = [v for v in reg.landing_runouts.values() if v.get("kind") == "level_end"]
+    assert ups and all(v["sign"] < 0 and v["from_level"] for v in ups)
+    assert max(v["run_m"] for v in ups) > 10.0
+
+
+def test_a_basement_mints_nothing(law, tmp_path):
+    seeds, out, reg, _c = _run(law, _station(), tmp_path, roads=())
+    assert len(seeds) == 1 and seeds[0].passage is None
+    assert not reg.landings and {r.ref for r in out} == {"term", "stn"}
 
 
 def test_walls_at_the_zero_seed_nothing(law, tmp_path):
-    seeds, _out, reg, _c = _run(law, _station(y=-1.0), tmp_path)
+    seeds, _out, reg, _c = _run(law, _station(y=-1.0), tmp_path, roads=[_road()])
     assert seeds == () and not reg.landings
 
 
 def test_a_support_founds_no_seed(law, tmp_path):
-    pole = _wall(500.0, 0.0, 500.00001, 0.00001, -4.0, 8)
-    pole.box = (0.0, 500.0, 0.00001, 500.00001)
-    seeds, _out, _reg, _c = _run(law, [pole], tmp_path)
+    pole = _wall(500.0, 10.0, 500.00001, 10.00001, -4.0, 8)
+    pole.box = (10.0, 500.0, 10.00001, 500.00001)
+    seeds, _out, _reg, _c = _run(law, [pole], tmp_path, roads=[_road()])
     assert seeds == ()

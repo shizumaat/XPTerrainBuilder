@@ -4928,6 +4928,11 @@ class MainWindow(QMainWindow):
         ``pack_optimise``, Not now sends nothing.  An optimise or an undo
         re-reads the tile's Modified airports rows.
         """
+        if getattr(event, "state", "") == "ask":
+            # the pack row's Optimise: asked every time it is pressed
+            import dataclasses
+            event = dataclasses.replace(event, state="found")
+            self._pack_optimise_seen.discard(QTOPT.question_key(event))
         self._pack_choice_event(
             event, ("optimised", "undone"),
             getattr(event, "can_optimise", False), QTOPT.question_key,
@@ -5014,9 +5019,10 @@ class MainWindow(QMainWindow):
         self._session.pack_forests(pack_root=pack["pack_path"], action="undo")
 
     def _pack_optimise_from_row(self, pack, undo):
-        """#1707: the pack row's Optimise (the active tile's DSF) or Undo
+        """#1707: the pack row's Optimise (the question for the active
+        tile's DSF, its steps ticked as the pack's current choice) or Undo
         optimise (every optimised DSF of the pack); the engine command
-        completes with a PackOptimise event that refreshes the rows."""
+        completes with a PackOptimise event."""
         if self._building:
             return
         if undo:
@@ -5026,8 +5032,9 @@ class MainWindow(QMainWindow):
         tile = self.map.active_tile()
         if tile is None:
             return
+        # the question with the pack's current choice ticked (state "ask")
         self._session.pack_optimise(pack_root=pack["pack_path"],
-                                    action="update", lat=int(tile[0]),
+                                    action="ask", lat=int(tile[0]),
                                     lon=int(tile[1]))
 
     def _on_build_done(self, event):

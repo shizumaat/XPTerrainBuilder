@@ -39,10 +39,13 @@ def _remembered(value: object) -> bool:
 
 
 def step_list(value: object) -> bool:
-    """A remembered list of steps: ``"dedupe,swap"`` (lower-case names,
-    comma-separated, none empty) — the :data:`OPTIMISE_STEPS` store's."""
-    return (isinstance(value, str) and bool(value)
-            and all(w.isalpha() and w.islower() for w in value.split(",")))
+    """A remembered list of steps — the :data:`OPTIMISE_STEPS` store's:
+    ``"dedupe,swap"`` (lower-case names, comma-separated, none empty), or
+    the steps chosen and the steps the question showed,
+    ``"dedupe,swap|dedupe,swap,objects"``."""
+    return (isinstance(value, str) and bool(value) and value.count("|") <= 1
+            and all(w.isalpha() and w.islower()
+                    for part in value.split("|") for w in part.split(",")))
 
 
 def _read_all(path: str, allowed: _t.Callable[[object], bool] = _remembered

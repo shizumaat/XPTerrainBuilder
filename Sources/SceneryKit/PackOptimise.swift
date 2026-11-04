@@ -5,7 +5,9 @@ import Foundation
 ///
 /// `state`: "found" — ask (only when `canOptimise`): Optimise sends
 /// `pack_optimise` with action "update", Never for this pack with "never",
-/// Not now sends nothing. "optimised" / "undone" / "never" / "failed" /
+/// Not now sends nothing. "ask" — the same question for the pack row's
+/// Optimise (asked every time, the current choice ticked).
+/// "optimised" / "undone" / "never" / "failed" /
 /// "none" — a build's or a `pack_optimise` command's outcome (the engine
 /// log line already says what happened; `files` lists what was rewritten).
 /// One step "Optimise pack" has work for on the pack (engine

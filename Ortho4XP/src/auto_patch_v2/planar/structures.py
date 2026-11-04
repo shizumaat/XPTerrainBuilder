@@ -264,7 +264,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # the road reach stands (stops a mouth, clips a ramp) but admits none (22g)
     on_field = field_region_for(airport, law, cover_polygons(classification)
                                 + [c.footprint for c in corridors],
-                                corridors, deck_bridges)  # 27a (3): never a pack building
+                                corridors, deck_bridges,  # 27a (3): never a pack building
+                                portals=portals)
     stats.approach_corridors = len(on_field.corridor or ())
     stats.runway_bands = len(on_field.band or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)

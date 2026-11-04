@@ -131,8 +131,7 @@ from ..constraints.shoulder_crossing import crossed_shoulder_caps
 from ..constraints.runway_profile import crown_drops, runway_half_widths
 from ..constraints.runway_yield import RunwayCap as _RunwayCap
 from ..constraints.runway_yield import TaxiYield as _TaxiYield
-from ..constraints.seams import GEN as SEAM_GEN, seam_pins
-from ..model.constraints import pinned_vertices
+from ..constraints.seams import seam_pin_z
 from ..constraints.stretches import stretches
 from ..constraints.taxi import taxi_pair_routes
 from ..constraints.transverse import axes
@@ -448,7 +447,8 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     # honour.  A pin holds exactly, so there is no "honoured" subset to
     # filter by, and the census's ``seam_residual`` family reads exactly
     # this list against the DEM value published beside it.
-    seam_all = pinned_vertices(seam_pins(planar, law, airport), SEAM_GEN)
+    seam_z = seam_pin_z(planar, law, airport)       # what the solve holds
+    seam_all = set(seam_z)
     pins = sorted(seam_all)
     # the pairs the solver priced: a pin↔pin pair was exempt in the solve
     # (constraints.seam_exempt) and is not published — the census prices
@@ -640,9 +640,8 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # the value the solve held rather than re-sampling a DEM no
             # patch carries.  A patch predating §38 carries 2-element
             # entries and every reader still reads its first two.
-            "seam_pins": [[ll[v][0], ll[v][1],
-                           round(float(planar.vertices[v].dem_z), 4)]
-                          if planar.vertices[v].dem_z is not None else ll[v]
+            "seam_pins": [[ll[v][0], ll[v][1], round(seam_z[v], 4)]
+                          if v in seam_z else ll[v]
                           for v in pins],
             # the band's own half width, so the census can read "inside the
             # seam band" (``bank_across_seam``) from the law the build ran

@@ -453,7 +453,8 @@ def under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
 
 
 def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
-                     corridors: _t.Sequence = (), decks: _t.Sequence = ()) -> "FieldRegion":
+                     corridors: _t.Sequence = (), decks: _t.Sequence = (),
+                     portals: _t.Sequence = ()) -> "FieldRegion":
     """THE REGION A MOUTH MAY STAND IN, assembled in ONE place: the
     classified cover (with the roofed corridors' footprints, which the
     caller passes in ``polys``) ⊕ ``[tunnel] mouth_standoff_m``, union
@@ -465,7 +466,10 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     2026-09-27a (3)).  ``decks`` are the HARD-DECK BRIDGES
     (``planar/deck_bridge``, RULINGS 2026-10-30a): their frames are the
     bridge, never a building or an elevated part over the bore, and their
-    decks are cover (§34 (12) (5) (c))."""
+    decks are cover (§34 (12) (5) (c)).  ``portals`` are the pack PORTALS
+    pinning bore ends (``airport/portal_objects``: roofed, hanging and
+    entrance objects) — each a portal witness at its end
+    (``planar/end_witness``; owner 2026-11-04 KBUF)."""
     region = FieldRegion(list(polys),
                          law.tables.structures.tunnel.mouth_standoff_m,
                          approach_corridor_of(airport, law),
@@ -476,6 +480,7 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     region.deck_objects = {i for d in decks for i in d.members}
     from .deck_bridge import deck_polygon
     region.deck_polys = [deck_polygon(d) for d in decks]
+    region.portal_ends = [(tuple(p.end_xy), p.object_id, p.resource) for p in portals]
     return region
 
 

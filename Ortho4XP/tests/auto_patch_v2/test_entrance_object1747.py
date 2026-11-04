@@ -84,3 +84,34 @@ def test_solids_standing_over_the_ground_are_no_entrance(objs, law):
     trenches, _notes = read_trench_objects(objects, cache, law, [tunnel])
     assert trenches, "the raised face is still read as a trench object"
     assert mouth_portals(trenches, objects, cache, law, [tunnel], airport.dem.z) == []
+
+
+def test_the_entrances_own_pad_never_stops_its_ramp(law):
+    """LOWS 1.0.464 (owner 2026-11-04, RULINGS 2026-11-03e (15) "the ramp
+    grades to the entrance object's bottom"): once the pack's footprint
+    cache vouched the entrance object, its walls minted building pads over
+    both bore ends and both mouths were refused "the mouth stands against
+    building pad".  A pad the pinned opening stands in is the entrance's
+    own footprint; a pad beyond the opening still ends the ramp's top."""
+    from auto_patch_v2.airport.portal_objects import Portal
+    from auto_patch_v2.classify.roles import Cell, Classification
+    from auto_patch_v2.planar.structures import build_structures
+    from test_mouth_at_pavement971 import _airport as _bore_airport
+    from test_mouth_at_pavement971 import _base_cells, _rect
+    portals = [Portal(f"dsf:obj{i}", "objects/entrance.obj", (x, 0.0), -101, 6.0, 0.0,
+                      (x, 0.0), floor_z=694.0) for i, x in ((1, -60.0), (2, 60.0))]
+
+    def run(pads):
+        cells = _base_cells() + [Cell(10 + k, "building", ref, _rect(*box), (), None, None,
+                                      "groundside", "building", {})
+                                 for k, (ref, box) in enumerate(pads)]
+        return build_structures(_bore_airport(law), Classification(tuple(cells), (), {}, ()),
+                                law, portals=portals)
+    own = [("bW", (-75.0, -30.0, -45.0, 30.0)), ("bE", (45.0, -30.0, 75.0, 30.0))]
+    _cl, tunnels, st = run(own)
+    assert len(tunnels) == 2, st.refused
+    assert not any("stands against building pad" in r for r in st.refused), st.refused
+    # a house BEYOND the opening still stops the ramp short of it
+    _cl, tunnels, st = run(own + [("house", (120.0, -30.0, 160.0, 30.0))])
+    east = [t for t in tunnels if t.axis[0][0] > 0]
+    assert east and max(x for x, _y in east[0].axis) < 120.0, (st.refused, east)

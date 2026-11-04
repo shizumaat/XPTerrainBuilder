@@ -50,10 +50,12 @@ import numpy as np
 from ..model.placement import KIND_MSL
 
 __all__ = ["static_vertices", "lowest_feet", "origin_set_lifts", "origin_key",
-           "origin_of_row", "feet_seats"]
+           "origin_of_row", "feet_seats", "lifted_feet_seats", "LIFTED_FEET"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
+#: the ``MslSeat.why`` of :func:`lifted_feet_seats`
+LIFTED_FEET = "lifted_feet"
 #: one origin, to the DSF's own precision (1e-8° ≈ 1 mm; 1 mm of elevation)
 _ORIGIN_DP = 8
 
@@ -152,6 +154,21 @@ def _on_unit_pad(unit_seats: _t.Sequence[tuple], lat: float, lon: float,
     return False
 
 
+def _feet_reader(pack_root: str, tol_m: float
+                 ) -> _t.Callable[[str], "np.ndarray | None"]:
+    """``def path -> lowest feet`` of a pack resource, memoised; ``None``
+    where it does not resolve inside the pack or cannot be read."""
+    memo: dict[str, "np.ndarray | None"] = {}
+
+    def feet(res: str) -> "np.ndarray | None":
+        if res not in memo:
+            phys = os.path.join(pack_root or "", res)
+            memo[res] = (lowest_feet(phys, tol_m)
+                         if pack_root and os.path.isfile(phys) else None)
+        return memo[res]
+    return feet
+
+
 def _bump(c: dict, key: str, n: int = 1) -> None:
     c[key] = c.get(key, 0) + n
 
@@ -169,14 +186,7 @@ def feet_seats(dump: _t.Any, conversions: _t.Sequence[_t.Any], surface: Surface,
     for cv in conversions:
         if cv.kind_before == KIND_MSL and 0 <= cv.index < len(rows):
             sets.setdefault(origin_of_row(rows[cv.index]), []).append(cv)
-    memo: dict[str, "np.ndarray | None"] = {}
-
-    def feet(res: str) -> "np.ndarray | None":
-        if res not in memo:
-            phys = os.path.join(pack_root or "", res)
-            memo[res] = (lowest_feet(phys, tol_m)
-                         if pack_root and os.path.isfile(phys) else None)
-        return memo[res]
+    feet = _feet_reader(pack_root, tol_m)
 
     seats: list = []
     for members in sets.values():
@@ -204,8 +214,7 @@ def _seat_set(members: list, feet: list, rows: list, surface: Surface,
     if _on_unit_pad(unit_seats, float(p.lat), float(p.lon), z0, tol_m):
         _bump(c, "msl_feet_on_unit_pad", len(members))
         return []
-    needs = [n for m, f in zip(members, feet, strict=True)
-             for n in _foot_needs(rows[m.index], f, surface)]
+    needs = _set_needs(members, feet, rows, surface, tol_m)
     if not needs:
         _bump(c, "msl_feet_off_sheet", len(members))
         return []
@@ -217,3 +226,86 @@ def _seat_set(members: list, feet: list, rows: list, surface: Surface,
     return [MslSeat(m.index, m.resource, float(rows[m.index].lon),
                     float(rows[m.index].lat), float(rows[m.index].heading_deg),
                     elev, "geometry_feet") for m in members]
+
+
+def _set_needs(members: list, feet: list, rows: list, surface: Surface,
+               tol_m: float) -> list[float]:
+    """The row elevations the set's FEET need.  The feet of a rigid set are
+    those of the members standing at its LOWEST level (within ``tol_m``):
+    a member whose lowest vertex is higher (an upper storey, a roof, a
+    mirror split into its own file) stands on another member, and reading
+    its underside as a foot would sink the whole set by half its height."""
+    low = min(float(f[:, 1].min()) for f in feet) + tol_m
+    return [n for m, f in zip(members, feet, strict=True)
+            if float(f[:, 1].min()) <= low
+            for n in _foot_needs(rows[m.index], f, surface)]
+
+
+class _Row(_t.NamedTuple):
+    index: int
+    resource: str
+
+
+def lifted_feet_seats(dump: _t.Any, taken: _t.AbstractSet[int], surface: Surface,
+                      pack_root: str, unit_seats: _t.Sequence[tuple] = (), *,
+                      tol_m: float = 0.3, counts: "dict[str, int] | None" = None
+                      ) -> tuple:
+    """Issue #1639: an ``OBJECT_AGL`` row left ON ITS AUTHORED LIFT whose
+    lift now BURIES its feet is re-seated by its row with its feet on the
+    design surface under them.
+
+    The lift is the author's correction for the terrain at the ORIGIN.
+    Where the geometry stands far from its origin (LFPG T1: six satellites
+    authored around the central building's middle, 13-14 m lift over
+    ground the design surface now lays ~2.5 m lower than the author's) the
+    ground at the origin and the ground under the feet part, and the
+    model sinks into the apron it stands on.  Rows nothing else settled
+    (``taken``: split, kept, converted, row-seated, a frame's rider) only;
+    the population and the limits are ``feet_seats``'s, read with the lift:
+
+    * one origin (and lift) is one rigid set, seated at one elevation;
+    * a set whose geometry reaches below its ORIGIN'S GROUND (``y + lift <
+      -tol_m``) was built around it and keeps its row;
+    * a set on a unit's pad is the unit's; feet on no face guess nothing;
+    * only BURIED feet move it — every foot below the surface under it by
+      more than ``tol_m``.  Feet standing above it may hang on a wall or
+      stand on a floor the author lifted them to (KMCI's seats), and keep
+      their lift."""
+    from ..model.placement import MslSeat
+    from . import obj8 as _obj8
+    c = counts if counts is not None else {}
+    rows = list(getattr(dump, "placements", ()) or ())
+    sets: dict[tuple, list] = {}
+    for i, p in enumerate(rows):
+        if (i in taken or getattr(p, "kind", "") != "OBJECT_AGL"
+                or float(getattr(p, "elevation", 0.0) or 0.0) <= 0.0
+                or _obj8.is_stock_library_resource(p.def_path)):
+            continue
+        sets.setdefault(origin_of_row(p), []).append(_Row(i, str(p.def_path)))
+    feet = _feet_reader(pack_root, tol_m)
+
+    out: list = []
+    for members in sets.values():
+        f = [feet(m.resource) for m in members]
+        if any(x is None for x in f):
+            continue                       # unreadable: X-Plane's AGL stands
+        p = rows[members[0].index]
+        lift = float(p.elevation)
+        if min(float(x[:, 1].min()) for x in f) + lift < -tol_m:
+            _bump(c, "lifted_feet_below_origin", len(members))
+            continue
+        z0 = surface(float(p.lat), float(p.lon))
+        if z0 is None or _on_unit_pad(unit_seats, float(p.lat), float(p.lon),
+                                      z0, tol_m):
+            continue
+        needs = _set_needs(members, f, rows, surface, tol_m)
+        if not needs or float(z0) + lift >= min(needs) - tol_m:
+            continue                       # no foot buried: the lift stands
+        elev = (min(needs) + max(needs)) / 2.0
+        _bump(c, "lifted_feet_sets")
+        out += [MslSeat(m.index, m.resource, float(rows[m.index].lon),
+                        float(rows[m.index].lat),
+                        float(rows[m.index].heading_deg), elev, LIFTED_FEET)
+                for m in members]
+    _bump(c, "lifted_feet_seated", len(out))
+    return tuple(out)

@@ -95,7 +95,7 @@ enum SettingsLayout {
             SettingItem("max_build_slots", "How many tiles should build at once?", .app, summary: "Auto uses this machine's processor cores."),
             SettingItem("max_download_slots", "How many imagery downloads should run at once?", .app, summary: "Auto suits most connections."),
             SettingItem("max_convert_slots", "How many imagery files should be converted at once?", .app, summary: "Auto uses every processor core but two."),
-            SettingItem("slow_step_alert_minutes", "When should a slow build step ask what to do?", .app, summary: "A step that runs this long, and past its earlier builds, says why and asks."),
+            SettingItem("slow_step_alert_minutes", "Ask what to do when a build step is stuck?", .app, summary: "A stalled download, a refusing server, a hung step, a held file or a full disk asks."),
             SettingItem("overpass_server_choice", "Map data server", .app, summary: "Where map data downloads from when no stored regional copy covers the tile."),
             SettingItem("osm_regional_extracts", "Use stored regional map data when available?", .app, summary: "Faster than downloading each tile, and kinder to the map servers."),
             SettingItem("osm_extract_refresh_days", "Extract refresh age (days)", .app, expert: true),

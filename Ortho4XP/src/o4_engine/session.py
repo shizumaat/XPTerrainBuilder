@@ -730,7 +730,7 @@ class EngineSession:
         # Build display state (moved from the Qt view): current step plus
         # the three legacy bar values plus the auto-patch fold.
         self._current_step = None          # (tile, key, base, width)
-        # The running step's slow-step alert (#1351, ``slow_step``).
+        # The running step's stuck-step alert (#1351, ``slow_step``).
         self._slow_step = SlowStepWatch(self._emit)
         self._bar_values = {1: 0, 2: 0, 3: 0}
         self._autopatch_state = None
@@ -1743,10 +1743,7 @@ class EngineSession:
             label=self._step_label(key),
             percent=base * 100.0, indeterminate=indeterminate))
         self._emit_eta(force=True)
-        expected = (self._eta.estimates.get(tile, {}).get(key)
-                    if self._eta else None)
-        self._slow_step.begin(tile, key, STEP_FAILURE_NOUNS.get(key, key),
-                              expected)
+        self._slow_step.begin(tile, key, STEP_FAILURE_NOUNS.get(key, key))
 
     def _reuse_step(self, tile, tile_key, key, base, width):
         """Skip ``key`` when its output is current (#615), or when the
@@ -1784,8 +1781,8 @@ class EngineSession:
             self._eta.step_finished(tile, key)
 
     def _poll_slow_step(self):
-        """The heartbeat's slow-step check (#1351): the alert's ETA is the
-        run clock's own estimate for the running step."""
+        """The heartbeat's stuck-step check (#1351): the alert's ETA is
+        the run clock's own estimate for the running step."""
         eta = self._eta
         self._slow_step.poll(
             eta._current_step_remaining if eta else (lambda: None))

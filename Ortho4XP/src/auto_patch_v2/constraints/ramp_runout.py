@@ -382,21 +382,36 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
     rows: list = []
     seen: set[int] = set()
     n = n_none = 0
+    lv = None
     for f in sorted(F.values(), key=lambda q: q.id):
         rec = runouts.get(str(f.ref))
         if rec is None or f.role != "service_road":
             continue
         dv = held.get(rec["block"])
+        y_rec = float(rec["y"])
+        if rec.get("from_level"):
+            # a lower REGION's road run-out climbs off the LEVEL itself,
+            # whatever holds it (a block's datum, a group's zero): ``D`` is
+            # one of the level's own rigid vertices and ``y`` is 0
+            if lv is None:
+                from .platform import landing_vertices
+                lv = landing_vertices(planar)
+            got = lv.get(rec["landing"]) or ()
+            dv, y_rec = (int(sorted(got)[0]), 0.0) if got else (None, y_rec)
         if dv is None:
             n_none += 1
             continue
         n += 1
         banks = {rec["landing"] + COLLAR_SUFFIX, str(f.ref) + COLLAR_SUFFIX}
         (x0, y0), (dx, dy) = rec["lip"], rec["dir"]
-        g, cap, y = float(rec["g"]), float(rec["cap"]), float(rec["y"])
+        g, cap, y = float(rec["g"]), float(rec["cap"]), y_rec
+        # a run-out that CLIMBS out of a lower region (``sign`` -1,
+        # ``planar/cut_runout`` roads): every row mirrored -- never below the
+        # level, never above the design ramp up off it, a floor for the band
+        sg = -1.0 if float(rec.get("sign", 1.0)) < 0.0 else 1.0
         w = float(rec.get("width_m", 0.0))
         sides: dict[bool, list[tuple[float, int]]] = {}
-        z_hi = float(rec["z0_pred"]) + float(rec.get("reach_m", 0.0))
+        z_hi = float(rec["z0_pred"]) + sg * float(rec.get("reach_m", 0.0))
         src = Source(GEN, LANDING_RUNOUT_RULING,
                      (f"face:{f.id}", str(f.ref), f"landing:{rec['landing']}"))
         for v in sorted(face_vertex_set(planar, f)):
@@ -408,8 +423,8 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
             x, yy = planar.vertices[v].xy
             s = max(0.0, (x - x0) * dx + (yy - y0) * dy)
             dg = _dz_at(rec["ground"], s)
-            prof = max(-cap * s, min(-g * s, dg - g * s))
-            rows.append(Linear(((v, 1.0), (dv, -1.0)), y + prof, y, src))
+            prof = sg * max(-cap * s, min(-g * s, sg * dg - g * s))
+            rows.append(Linear(((v, 1.0), (dv, -1.0)), *sorted((y + prof, y)), src))
             # the ceiling: the same profile off the HIGHEST level the solve
             # may hold the landing at, or the vertex's own ground where that
             # profile has met it — so the strip comes down onto its DEM by
@@ -419,9 +434,12 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
             # the two sides together and a ceiling off each side's DEM
             # contested it (MEASURED, HECA: 0.26-0.43 m cross rows relaxed)
             dem = rec.get("dem0")
-            if dem is not None:
+            if dem is not None and sg > 0.0:
                 hi = max(float(dem) + dg, z_hi + prof) + band
                 rows.append(Band(v, None, hi, src))
+            elif dem is not None:
+                lo = min(float(dem) + dg, z_hi + prof) - band
+                rows.append(Band(v, lo, None, src))
             t = -(x - x0) * dy + (yy - y0) * dx
             if abs(t) >= 0.25 * w:
                 sides.setdefault(t > 0.0, []).append((s, v))

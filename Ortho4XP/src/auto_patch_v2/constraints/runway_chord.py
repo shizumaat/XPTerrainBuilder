@@ -100,7 +100,6 @@ from ..model.constraints import Pin, Row, Source
 from ..model.planar import PlanarMap
 
 __all__ = ["ChordReport", "Crossing", "runway_chord_targets", "with_runway_chord",
-           "with_deck_anchors",
            "runway_crossings", "runway_crossing_pins", "crossing_governor"]
 
 #: The generator name of the crossing pin rows (``constraints/__init__``).

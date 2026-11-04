@@ -43,8 +43,7 @@ from .stage_one_map import (late_constraints, late_fixed, late_followers,
                             late_rim_levels, row_vertices)
 
 __all__ = ["late_stations", "cut_classification", "run_late_stage", "run_last_stages",
-           "late_cut", "late_derive", "late_solve", "LateCut", "BEHIND_STEP",
-           "follower_join_yields"]
+           "late_cut", "late_derive", "late_solve", "LateCut", "BEHIND_STEP"]
 
 #: THE CELLS BEHIND A DECLARED STEP (spec §60 (9) R1) — a structure's floor
 #: and ramp roles and its wall void, read from their two owners: never a

@@ -69,6 +69,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import role_cap, runway_vertical_curve_bound
 from ..model.airport import Airport
@@ -82,7 +83,7 @@ from .precedence import view
 from .trend import trend_of
 
 __all__ = ["GEN", "RULING", "YIELD_HEAD", "SOLVED_NOTE", "derive", "deck_anchor_pins",
-           "anchor_vertices", "deck_holes", "blind", "settle", "sidecar_records"]
+           "deck_holes", "blind", "settle", "sidecar_records"]
 
 GEN = "deck_anchor"
 #: the ruling of a held anchor (a ``Pin`` is an equality: no head list)
@@ -141,7 +142,7 @@ def _ends(pm: PlanarMap, law: Law) -> dict[str, list]:
 def _off_line(xy, stations) -> float:
     """Plan distance from ``xy`` to the end line's polyline."""
     if len(stations) < 2:
-        return math.hypot(xy[0] - stations[0][0], xy[1] - stations[0][1])
+        return exact.hypot(xy[0] - stations[0][0], xy[1] - stations[0][1])
     return project_to_chain(xy, list(stations))[0]
 
 
@@ -177,7 +178,7 @@ def _carried(vw, taxi, ends) -> "tuple | None":
     end line's middle (the least of its greatest distance), within the
     deck's span — ``None`` where none crosses it."""
     mids = [_mid(e[0]) for e in ends]
-    span = max((math.dist(a, b) for a in mids for b in mids), default=0.0)
+    span = max((exact.dist(a, b) for a in mids for b in mids), default=0.0)
     best = None
     for ch in taxi:
         if len(ch) < 2:
@@ -195,7 +196,7 @@ def _taxi_vertex(vw, ch, stations, seats) -> int:
     one nearest the line's middle — never a junction vertex beside the line
     (KIAH ``obj24551`` end B pinned ``v12883``, off every station)."""
     mx, my = _crossing(vw, ch, stations) or _mid(stations)
-    return min(seats, key=lambda v: math.hypot(vw.xy[v][0] - mx, vw.xy[v][1] - my))
+    return min(seats, key=lambda v: exact.hypot(vw.xy[v][0] - mx, vw.xy[v][1] - my))
 
 
 def _crossing(vw, ch, stations) -> "tuple[float, float] | None":
@@ -207,7 +208,7 @@ def _crossing(vw, ch, stations) -> "tuple[float, float] | None":
     from shapely.geometry import LineString
     pts = [tuple(p) for p in stations]
     (x0, y0), (x1, y1) = pts[0], pts[-1]
-    n = math.hypot(x1 - x0, y1 - y0) or 1.0
+    n = exact.hypot(x1 - x0, y1 - y0) or 1.0
     run = n / max(1, len(pts) - 1)
     ux, uy = (x1 - x0) / n * run, (y1 - y0) / n * run
     line = LineString([(x0 - ux, y0 - uy), *pts, (x1 + ux, y1 + uy)])
@@ -224,7 +225,7 @@ def _chain_profile(pm: PlanarMap, vw, ch, xy, inside, window: float) -> "float |
     pts = [vw.xy[q] for q in ch]
     st = [0.0]
     for a, b in zip(pts, pts[1:], strict=False):
-        st.append(st[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+        st.append(st[-1] + exact.hypot(b[0] - a[0], b[1] - a[1]))
     tr = trend_of(((s, float(pm.vertices[q].dem_z)) for s, q in zip(st, ch, strict=True)
                    if pm.vertices[q].dem_z is not None and not inside(vw.xy[q])), window)
     return None if tr is None else tr.at(project_to_chain(xy, pts)[3])
@@ -365,7 +366,7 @@ def _from_full(pm: PlanarMap, by_obj: dict, full: PlanarMap) -> tuple[DeckAnchor
         xy = tuple(full.vertices[a.v].xy)
         v = at.get(xy)
         if v is None:
-            v = min(st, key=lambda q: math.dist(pm.vertices[q].xy, xy))
+            v = min(st, key=lambda q: exact.dist(pm.vertices[q].xy, xy))
         out.append(_dc.replace(a, v=v, stations=tuple(st)))
     return tuple(_one_per_vertex(out))
 
@@ -382,7 +383,7 @@ def _threshold_zero(vw, law: Law, rows, zero: float, thresholds: dict, inside, r
         return None
     rate = runway_vertical_curve_bound(law, 1.0, rw.code_number, rw.code_letter) or 0.0
     (xa, ya), (xb, yb) = rows[0][5], rows[-1][5]
-    L2 = (xb - xa) ** 2 + (yb - ya) ** 2
+    L2 = exact.sq(xb - xa) + exact.sq(yb - ya)
     best = None
     for t, cifp in thresholds.items():
         if rw.id not in _runways_at(vw, t):
@@ -470,12 +471,6 @@ def _one_per_vertex(anchors: list[DeckAnchor]) -> list[DeckAnchor]:
 def _crossing_pins(pm: PlanarMap, law: Law, airport: Airport) -> list:
     from .runway_chord import runway_crossing_pins
     return runway_crossing_pins(pm, law, airport)
-
-
-def anchor_vertices(pm: PlanarMap, family: "str | None" = None) -> frozenset[int]:
-    """Every pinned anchor vertex (of ``family``, when named)."""
-    return frozenset(a.v for a in getattr(pm, "deck_anchors", ()) or ()
-                     if a.pinned and (family is None or a.family == family))
 
 
 def deck_anchor_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

@@ -62,7 +62,7 @@ from ..law.tables import role_side
 from ..model.planar import STRIP_SUFFIX, plane_of, plane_ref
 from ..model.registries import Registries
 
-__all__ = ["LevelSeed", "level_seeds", "region_depths", "seed_levels"]
+__all__ = ["level_seeds", "region_depths", "seed_levels"]
 
 #: the ``witness`` word of a passage level's record
 PASSAGE_WITNESS = "passage"

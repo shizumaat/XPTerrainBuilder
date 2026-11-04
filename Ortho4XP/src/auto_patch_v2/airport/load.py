@@ -48,7 +48,7 @@ from . import riders as _riders
 
 _log = logging.getLogger(__name__)
 
-__all__ = ["Inputs", "LoadReport", "load", "load_with_report", "join_cifp",
+__all__ = ["Inputs", "LoadReport", "airport_region", "load", "load_with_report", "join_cifp",
            "normalise_surface", "read_apt"]
 
 #: OSM tags that make a closed way a building footprint (v1
@@ -656,7 +656,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     over = _overlay.load_pavements(
         sel.root, tile, inputs.mod_cache_root, index,
         lambda d, r: _DsfPolygons(to_xy, own_extent).pages_of(d, r, index),
-        tuple(pavements) + tuple(dsf_pavements), boundaries, law, rep.notes.append)
+        _own_extent(runways, tuple(pavements) + tuple(dsf_pavements), (), 0.0),
+        airport_region(runways, pavements, boundaries), law, rep.notes.append)
     rep.overlay_pavements = len(over)
     rep.overlay_pavement_m2 = float(sum(_sheet_area(p) for p in over))
     pavements = pavements + tuple(dsf_pavements) + tuple(over)
@@ -1169,6 +1170,15 @@ def _shape_of(ring):
         p = Polygon(pts)
         return p if p.is_valid else p.buffer(0)
     return LineString(pts) if len(pts) == 2 else Point(pts[0])
+
+
+def airport_region(runways, pavements, boundaries):
+    """The airport's boundary (apt.dat row 130), else the outline of its own
+    runways and pavements; ``None`` with neither (``companion``, #1598's
+    ``overlay_pavement``)."""
+    if boundaries:
+        return _own_extent((), (), boundaries, 0.0)
+    return _own_extent(runways, pavements, (), 0.0)
 
 
 def _own_extent(runways, pavements, boundaries, margin_m: float):

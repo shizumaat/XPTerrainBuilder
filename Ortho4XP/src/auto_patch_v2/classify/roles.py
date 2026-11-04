@@ -102,7 +102,7 @@ from ..law.tables import is_value_role, role_side, snap_margin_m
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52, §53
-from .airside_edge import airside_edge_flip
+from .airside_edge import airside_edge_flip, keep_overlay_groundside
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
 from .storey_edge import STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
@@ -697,6 +697,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # (a contact across a unit's own storey is none, owner answer 47 #1099:
     # the lot is cut back along it, ``storey_edge``)
     from .storey_edge import knife_storeys, storey_band
+    # #1598: an overlay pack's piece stays a lot or a road, and never flips
+    stats["overlay_not_groundside"] = keep_overlay_groundside(final)
     band, storey_cuts = storey_band(airport, law, cells, final), {}
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules, [c.line for c in ev.truck_chains],

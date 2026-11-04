@@ -29,10 +29,11 @@ from shapely.strtree import STRtree
 from ..geom.valid_area import valid_area
 from ..law import Law
 from ..law.tables import role_side
+from ..model.airport import OVERLAY_PREFIX
 from ..model.frame import rectangle_axes
 from .rules import Rules
 
-__all__ = ["airside_edge_flip"]
+__all__ = ["airside_edge_flip", "keep_overlay_groundside"]
 
 
 #: §27 (owner RULINGS 2026-09-12c, Fable 12e): a face this thin — area
@@ -312,6 +313,18 @@ def _keep_across(final: list[list], i: int, run, storey, cuts, to_xy) -> None:
         cuts[i] = run
 
 
+def keep_overlay_groundside(final: list[list]) -> int:
+    """#1598 (owner 2026-11-04, "Accept recommendations"): an OVERLAY
+    pack's pavement is read only as a LOT or a ROAD (the §27 candidates);
+    a piece the scorer made anything else (an apron by a taxi centreline,
+    a taxiway) is dropped from ``final`` in place.  Returns how many."""
+    keep = [f for f in final if not str(f[1]).startswith(OVERLAY_PREFIX)
+            or f[0] in _AIRSIDE_EDGE_CANDIDATES]
+    dropped = len(final) - len(keep)
+    final[:] = keep
+    return dropped
+
+
 def airside_edge_flip(final: list[list], cells, law: Law,
                        rules: Rules, roads=(),
                        road_class: _t.AbstractSet[int] | None = None,
@@ -400,7 +413,9 @@ def airside_edge_flip(final: list[list], cells, law: Law,
         moved = 0
         for i, f in enumerate(final):
             role, ref, face, _letter, evid = f[0], f[1], f[2], f[3], f[4]
-            if role not in _AIRSIDE_EDGE_CANDIDATES:
+            if role not in _AIRSIDE_EDGE_CANDIDATES or str(ref).startswith(OVERLAY_PREFIX):
+                # #1598 (owner 2026-11-04): an overlay piece only shows the
+                # ground is paved, never that it is airside -- no edge flip
                 continue
             per = face.length
             if per <= 0.0 or face.area / per < _LOT_SLIVER_RADIUS_M:

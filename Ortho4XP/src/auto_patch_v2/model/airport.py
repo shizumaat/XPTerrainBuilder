@@ -23,12 +23,17 @@ __all__ = [
     "Ring", "Surface", "RunwayEnd", "Runway", "Pavement", "LinearFeature",
     "TaxiNode", "TaxiEdge", "GroundRoute", "Boundary", "Startup",
     "OsmWay", "Building", "FacadeEdge", "FacadeRead", "DemSample", "DsfObject", "SceneryPack",
-    "FlatVerdict", "FlatPackVerdict", "Airport", "GAP_SHEET_PREFIX",
+    "FlatVerdict", "FlatPackVerdict", "Airport", "GAP_SHEET_PREFIX", "OVERLAY_PREFIX",
 ]
 
 #: the id prefix of a GAP SHEET body (``Airport.gap_sheets``; owner RULINGS
 #: 2026-10-04o (a)) — ``dsf:gapsheet<k>``
 GAP_SHEET_PREFIX = "dsf:gapsheet"
+
+#: the id prefix of an OVERLAY pack's pavement piece (#1598,
+#: ``airport/overlay_pavement``) — ``dsf:overlay<k>``; classify keeps it
+#: groundside (owner 2026-11-04, "Accept recommendations")
+OVERLAY_PREFIX = "dsf:overlay"
 
 
 class Surface(enum.IntEnum):

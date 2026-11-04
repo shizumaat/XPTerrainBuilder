@@ -80,10 +80,8 @@ def dump_candidates(main_root: str, lat: int, lon: int) -> list[str]:
 def _region(airport):
     """The airport's boundary (apt.dat row 130), else the extent of its
     own runways and pavements; ``None`` with neither."""
-    from .load import _own_extent
-    if airport.boundaries:
-        return _own_extent((), (), airport.boundaries, 0.0)
-    return _own_extent(airport.runways, airport.pavements, (), 0.0)
+    from .load import airport_region
+    return airport_region(airport.runways, airport.pavements, airport.boundaries)
 
 
 def find(airport, mod_cache_root: str, lat: int, lon: int,

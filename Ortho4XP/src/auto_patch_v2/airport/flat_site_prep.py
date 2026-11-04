@@ -33,7 +33,7 @@ from . import flat_site as _flat
 from . import overlay_pavement as _overlay
 from . import pack_pavement as _pack_pavement
 from .dem_production import ProductionDem, TileWater
-from .load import _own_extent, _ring, _vector_to_xy, join_cifp, read_apt
+from .load import _own_extent, _ring, _vector_to_xy, airport_region, join_cifp, read_apt
 
 __all__ = ["FlatSiteInputs", "site_inputs", "decide"]
 
@@ -175,7 +175,7 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
         pages = pages + _overlay.held_pieces(
             site.pack_root, tile_lat, tile_lon, _to_xy, extent, mod_cache_root, xplane_root,
             unary_union(([land] if land is not None else []) + pages),
-            site.boundaries, law)
+            airport_region(site.runways, site.pavements, site.boundaries), law)
         # RULINGS 2026-10-27v (2): the runway strips stay graded, as the
         # strip law requires — held with the pavement, not kept on the
         # real ground.  THE SAMPLING STENCIL: the build reads the raster

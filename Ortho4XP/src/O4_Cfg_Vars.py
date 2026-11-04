@@ -621,7 +621,7 @@ cfg_tile_vars = {
     },
     "masks_width": {
         "type": list,
-        "default": 100,
+        "default": 500,
         "hint": "Maximum extent of the masks perpendicularly to the coastline (rough definition). NOTE: The value is now in meters, it used to be in ZL14 pixel size in earlier verions, the scale is roughly one to ten between both.",
     },
     "inland_shore_feather_m": {
@@ -1189,6 +1189,69 @@ def cleanup_retired_cfg_keys(source):
         return lines
     except Exception:
         # A cleanup that raises is a cleanup that breaks builds.
+        return []
+
+
+#: CHANGED REGISTRY DEFAULTS.  The engine writes EVERY default into the
+#: global cfg on first run (``O4_Config_Utils``), so a raised default
+#: never reaches an existing user: their file holds the old one as if
+#: chosen.  :func:`migrate_changed_defaults` rewrites a stored OLD
+#: default to the new one ONCE per global cfg and records it in
+#: ``<cfg>.defaults`` (one var per line); afterwards the var is never
+#: touched in that file, so a value set by hand later (the old default
+#: included) is kept.  A value other than the old default is never
+#: changed; tile cfgs (sparse overrides) are not migrated.
+
+#: var -> (old default as stored, new default).  Owner 2026-11-04:
+#: masks_width 100 -> 500 to show the improved bathymetry and coastline.
+CHANGED_DEFAULTS = {"masks_width": ("100", "500")}
+
+
+def _register_path(cfg_path):
+    return cfg_path + ".defaults"
+
+
+def _read_register(cfg_path):
+    try:
+        with open(_register_path(cfg_path), encoding="utf-8") as f:
+            return {line.strip() for line in f if line.strip()}
+    except OSError:
+        return set()
+
+
+def migrate_changed_defaults(cfg_path):
+    """Apply :data:`CHANGED_DEFAULTS` to the global cfg at *cfg_path*.
+
+    :returns: INFO lines for the caller to print (possibly empty).
+        Never raises: a cfg that cannot be rewritten keeps its value.
+    """
+    try:
+        if not os.path.isfile(cfg_path):
+            return []
+        done = _read_register(cfg_path)
+        pending = [v for v in CHANGED_DEFAULTS if v not in done]
+        if not pending:
+            return []
+        import O4_Settings_Model as SETTINGS
+
+        data = SETTINGS._parse_cfg(cfg_path, strip_quotes=False)
+        lines, changed = [], False
+        for var in pending:
+            old, new = CHANGED_DEFAULTS[var]
+            if str(data.get(var, "")).strip() == old:
+                data[var] = new
+                changed = True
+                lines.append("raised " + var + " from the old default "
+                             + old + " to the new default " + new
+                             + " in " + cfg_path)
+        if changed:
+            SETTINGS._write_atomic_with_backup(cfg_path, data)
+        with open(_register_path(cfg_path), "a", encoding="utf-8",
+                  newline="\n") as f:
+            for var in pending:
+                f.write(var + "\n")
+        return lines
+    except Exception:
         return []
 
 

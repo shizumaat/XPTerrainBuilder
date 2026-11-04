@@ -877,7 +877,7 @@
    ]
   },
   "global_masks_width": {
-   "default": 100,
+   "default": 500,
    "hint": "Maximum extent of the masks perpendicularly to the coastline (rough definition). NOTE: The value is now in meters, it used to be in ZL14 pixel size in earlier verions, the scale is roughly one to ten between both.",
    "name": "global_masks_width",
    "type": "list"
@@ -1193,7 +1193,7 @@
    ]
   },
   "masks_width": {
-   "default": 100,
+   "default": 500,
    "hint": "Maximum extent of the masks perpendicularly to the coastline (rough definition). NOTE: The value is now in meters, it used to be in ZL14 pixel size in earlier verions, the scale is roughly one to ten between both.",
    "name": "masks_width",
    "type": "list"

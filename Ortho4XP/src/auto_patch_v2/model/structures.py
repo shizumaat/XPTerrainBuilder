@@ -321,6 +321,11 @@ class Tunnel:
     #: (``Portal.floor_z``): the mouth's floor is pinned at :attr:`mouth_z`,
     #: never tied to the cap by a depth
     portal_floor: bool = False
+    #: owner 2026-11-04 (ENTC): a ROOFED portal with a pinned floor stands
+    #: with its zero ON that floor — ``(resource, floor z)``, which the
+    #: object stage writes as the row's seat (``airport/terrain_shaped.
+    #: row_seats``, seat ``"portal floor"``); ``()`` otherwise
+    portal_seat: tuple = ()
     #: owner RULINGS 2026-10-27l / 2026-10-28d: the BACK line of the edge
     #: bridge that pinned this trench (``planar/bridge_span``), or ``()`` —
     #: a terrain deck over it is level with the airside abeam

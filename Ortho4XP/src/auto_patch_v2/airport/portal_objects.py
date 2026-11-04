@@ -83,6 +83,10 @@ class Portal:
     #: ``mouth_depth_m``, owner 2026-11-04 ENTC) states it too: the surveyed
     #: ground on its roof less its roof top.  ``None`` for any other portal.
     floor_z: "float | None" = None
+    #: a ROOFED portal's OPENING: its roof's width across the bore at the
+    #: end (owner 2026-11-04 ENTC: "tunnel ramps not matching tunnel mouth
+    #: width") — the ramp's width at the mouth; ``0.0`` for any other pin
+    opening_m: float = 0.0
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -93,6 +97,31 @@ def _ends(tunnel_ways) -> list[tuple[XY, int]]:
             out.append(((float(pts[0][0]), float(pts[0][1])), int(w.id)))
             out.append(((float(pts[-1][0]), float(pts[-1][1])), int(w.id)))
     return out
+
+
+def _bore_dirs(tunnel_ways) -> dict[tuple[XY, int], XY]:
+    """The unit direction INTO each bore from each of its ends."""
+    out: dict[tuple[XY, int], XY] = {}
+    for w in tunnel_ways:
+        pts = [(float(x), float(y)) for x, y in w.points]
+        if len(pts) < 2:
+            continue
+        for a, b in ((pts[0], pts[1]), (pts[-1], pts[-2])):
+            d = math.hypot(b[0] - a[0], b[1] - a[1])
+            if d > 0.0:
+                out[(a, int(w.id))] = ((b[0] - a[0]) / d, (b[1] - a[1]) / d)
+    return out
+
+
+def _opening_width(roof, end_xy: XY, into: "XY | None") -> float:
+    """A roofed portal's OPENING: the extent of its placed roof plan across
+    the bore's direction ``into`` (``0.0`` without one)."""
+    if roof is None or roof.is_empty or into is None:
+        return 0.0
+    nx, ny = -into[1], into[0]
+    pts = [c for g in getattr(roof, "geoms", [roof]) for c in g.exterior.coords]
+    s = [(x - end_xy[0]) * nx + (y - end_xy[1]) * ny for x, y in pts]
+    return float(max(s) - min(s)) if s else 0.0
 
 
 def roof_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
@@ -199,6 +228,7 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
     if not ends:
         return [], []
     tree = STRtree([Point(p) for p, _w in ends])
+    into = _bore_dirs(tunnel_ways)
     readings: dict[str, "tuple[float, float] | str"] = {}
     out: list[Portal] = []
     refused: list[str] = []
@@ -273,7 +303,8 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
             # top: the ground at the cap stands inside the surveyed cut
             out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,
                               (float(o.xy[0]), float(o.xy[1])),
-                              floor_z=(cover[j] - depth) if j in cover else None))
+                              floor_z=(cover[j] - depth) if j in cover else None,
+                              opening_m=_opening_width(roof, xy, into.get((xy, wid)))))
     out.sort(key=lambda p: (p.end_xy, p.object_id))
     return out, refused
 

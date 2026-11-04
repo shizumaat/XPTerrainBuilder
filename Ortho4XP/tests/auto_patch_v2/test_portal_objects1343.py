@@ -196,3 +196,12 @@ def test_a_tall_roof_the_surveyed_ground_covers_is_a_portal(tmp_path):
     # stands inside the surveyed cut)
     got, _r = P.read_portals([o], O.ResourceCache(THICK), LAW, [BORE], dem_z=covered)
     assert abs(got[0].floor_z - (3.0 + rise + 0.5 - tall)) < 1e-6
+
+
+def test_a_roofed_portals_opening_is_its_roof_across_the_bore(tmp_path):
+    """ENTC (owner 2026-11-04: "tunnel ramps not matching tunnel mouth
+    width"): the ramp takes the portal's OPENING, its roof's width across
+    the bore at the end (the fixture's roof: 14 m across a bore running
+    north)."""
+    got, _r = _read([_placed(_portal(tmp_path))])
+    assert abs(got[0].opening_m - 14.0) < 1e-6

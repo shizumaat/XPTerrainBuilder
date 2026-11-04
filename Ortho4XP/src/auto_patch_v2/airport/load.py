@@ -663,10 +663,17 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             bres,
             [(p.outer, p.holes) for p in pavements
              if p.source != _borrow.BORROWED_SOURCE
-             and _borrow.counts_as_pavement(p.surface)],
+             and _borrow.counts_as_pavement(p.surface)]
+            # #883: a §60 ``.pol`` sheet is a VISIBLE page the pack draws
+            # with a hard SURFACE (an invisible texture is no sheet,
+            # ``dsf.pavement_verdict``): the pack's own pavement (20al (1)).
+            # KBOI's taxiways are 130 such pages (59 % of Global's union)
+            # under 122 transparent row-110 polygons (#1687); uncounted,
+            # Global was laid over them.  OBJ8 gap bodies stay uncounted.
+            + [(p.outer, p.holes) for p in pol_sheets],
             [(p.outer, p.holes) for p in pavements
              if p.source == _borrow.BORROWED_SOURCE],
-            len(dsf_pavements))
+            len(dsf_pavements) + len(pol_sheets))
         if bres.withdrawn:
             pavements = tuple(p for p in pavements
                               if p.source != _borrow.BORROWED_SOURCE)

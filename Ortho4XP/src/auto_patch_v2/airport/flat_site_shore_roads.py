@@ -42,7 +42,10 @@ cluster) and nowhere else.  The caller gates the site: a substituting flat
 verdict ON FILL (``[shore_roads] fill_min_m``).  Each held stretch is the
 carriageway (``road_ways.ribbon_half_width_m``) grown one DEM post diagonal
 — the bilinear stencil the runway strips are held with
-(``flat_site_prep.decide``).
+(``flat_site_prep.decide``) — and clipped back from the aerodrome by the
+same diagonal, and from the roads the patch itself ribbons up to
+``osm_roads.boundary_reach_m`` outside it, so no DEM post the solve reads
+changes (airside is king, RULINGS 2026-07-30).
 
 Pure: tile-relative degrees in, tile-relative degrees out; it reads no
 file and writes nothing.
@@ -111,13 +114,15 @@ def shore_road_hold(ways: _t.Iterable[_t.Any], highways: _t.Collection[str],
                     gate, island, honest: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
                     z0_m: float, flat_within_m: float, side_probe_m: float,
                     post_m: float, metres_per_degree: tuple[float, float],
-                    tile_lat: int, tile_lon: int, law) -> tuple[_t.Any, dict]:
+                    tile_lat: int, tile_lon: int, law,
+                    clear_m: float = 0.0) -> tuple[_t.Any, dict]:
     """``(held, report)`` — the shore-road carriageways to hold at Z0 as one
     tile-relative geometry (``None`` when none qualifies) and the counts
     (module doc).  ``ways`` carry ``points`` ``(lat, lon)`` and ``tags``
     (``osm.RawWay``); ``honest(xs, ys)`` reads the surface before the
     stamp at tile-relative points; ``flat_within_m`` the hill guard's
-    height over Z0; ``post_m`` the DEM posting."""
+    height over Z0; ``post_m`` the DEM posting; ``clear_m`` how far outside
+    the aerodrome the patch itself grades the roads (none of it is held)."""
     report = {"ways": 0, "held_m": 0.0, "stations": 0, "hill_kept": 0}
     if gate is None or island is None or island.is_empty:
         return None, report
@@ -160,7 +165,15 @@ def shore_road_hold(ways: _t.Iterable[_t.Any], highways: _t.Collection[str],
     report["held_m"] = round(report["held_m"], 1)
     if not pieces:
         return None, report
-    held = unary_union(pieces)
+    # AIRSIDE IS KING: the hold stays out of the ground the PATCH grades —
+    # the aerodrome and its roads up to ``clear_m`` outside it — and one
+    # post diagonal beyond (the bilinear stencil an edge vertex reads), so
+    # no DEM post the solve reads changes; a patch road welded to an apron
+    # would otherwise carry the new ground onto the apron
+    held = unary_union(pieces).difference(
+        gate_m.buffer(clear_m + post_m * math.sqrt(2.0)))
+    if held.is_empty:
+        return None, report
     return _metres(held, (1.0 / sx, 1.0 / sy)), report
 
 
@@ -193,7 +206,8 @@ def _snapshot_sampler(snapshot, frame):
 
 def site_hold(record: _t.Mapping, law, gate, snapshot, frame, island_of,
               ways_of, highways, tile_lat: int, tile_lon: int,
-              metres_per_degree: tuple[float, float], real_from_m: float):
+              metres_per_degree: tuple[float, float], real_from_m: float,
+              clear_m: float = 0.0):
     """``(held, why)`` — one airport's shore-road hold for the fill-only
     pass (tile-relative degrees, ``None`` when nothing is held) and a
     one-line reason or count.  ``gate`` is the record's ``gate_ll`` as a
@@ -204,7 +218,8 @@ def site_hold(record: _t.Mapping, law, gate, snapshot, frame, island_of,
     own scale.  ``real_from_m`` is the fill-only pass's own constant
     (``flat_site_relief.REAL_FROM_M``): the hill guard's flat level is
     ``Z0 + real_from_m``, the height from which that pass gives the honest
-    surface back in full."""
+    surface back in full; ``clear_m`` the patch's own road reach outside
+    the aerodrome (``osm_roads.boundary_reach_m``), which is never held."""
     cfg = law.tables.flat_site.shore_roads
     if not cfg.enabled or snapshot is None or gate is None:
         return None, "off"
@@ -222,7 +237,7 @@ def site_hold(record: _t.Mapping, law, gate, snapshot, frame, island_of,
     held, rep = shore_road_hold(
         ways_of(lat0, lon0, lat1, lon1), highways, gate, island, honest,
         float(record["z0_m"]), real_from_m, cfg.side_probe_m,
-        abs(x_step) * lon_m, (lon_m, lat_m), tile_lat, tile_lon, law)
+        abs(x_step) * lon_m, (lon_m, lat_m), tile_lat, tile_lon, law, clear_m)
     return held, (f"{rep['ways']} way(s), {rep['held_m']:.0f} m of carriageway "
                   f"on the sea-bounded island outside the aerodrome held at "
                   f"Z0; {rep['hill_kept']} station(s) on high ground keep "

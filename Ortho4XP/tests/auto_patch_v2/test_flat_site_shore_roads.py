@@ -133,3 +133,23 @@ def test_site_hold_refusals(median, island, why):
                                 lambda g: (island, "mainland"),
                                 lambda *box_ll: [DECK], HIGHWAYS, *TILE, M_PER_DEG, 1.0)
     assert held is None and got == why
+
+
+def test_the_hold_never_reaches_into_the_aerodrome():
+    """Airside is king: a road along the boundary is held outside it, never
+    within one post diagonal of the gate."""
+    held, _ = _hold([_way([(0.5052, 0.5040), (0.5052, 0.5090)])])
+    assert held is not None
+    assert held.intersection(GATE.buffer(9.3 * np.sqrt(2.0) / M_PER_DEG[0] * 0.99)).area == 0.0
+
+
+def test_the_patch_road_reach_outside_the_aerodrome_is_never_held():
+    """``clear_m`` (``osm_roads.boundary_reach_m``): the roads the patch
+    ribbons and grades itself just outside the boundary keep their DEM."""
+    way = _way([(0.5058, 0.5040), (0.5058, 0.5090)])       # ~85 m east of the gate
+    held, _ = SHORE.shore_road_hold([way], HIGHWAYS, GATE, ISLAND, honest, Z0, 1.0,
+                                    30.0, 9.3, M_PER_DEG, *TILE, LAW, clear_m=150.0)
+    assert held is None
+    held, _ = SHORE.shore_road_hold([way], HIGHWAYS, GATE, ISLAND, honest, Z0, 1.0,
+                                    30.0, 9.3, M_PER_DEG, *TILE, LAW, clear_m=0.0)
+    assert held is not None

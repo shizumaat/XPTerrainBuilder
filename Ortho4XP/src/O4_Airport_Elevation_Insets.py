@@ -7667,13 +7667,19 @@ def _with_shore_roads(tile, before, record, z0_m, icao, held):
                         0.5 * (lon0 + lon1), radius).ways]
 
         dem = tile.dem
+        roads_rule = load_rules().osm_roads
+        law = Law.for_airport(icao)
         roads, why = SHORE.site_hold(
-            record, Law.for_airport(icao), gate, before,
+            record, law, gate, before,
             (dem.x0, dem.x1, dem.y0, dem.y1, dem.nxdem, dem.nydem),
             lambda core: FLAT_SITE_MODE.airport_island(tile, core),
-            ways_of, load_rules().osm_roads.ribbon_highways, lat, lon,
+            ways_of, roads_rule.ribbon_highways, lat, lon,
             (GEO.lon_to_m(tile.lat + 0.5), GEO.lat_to_m),
-            FLAT_SITE_RELIEF.REAL_FROM_M)
+            FLAT_SITE_RELIEF.REAL_FROM_M,
+            # the ground the PATCH reads outside the aerodrome: its own
+            # roads (``boundary_reach_m``) and the pad fill that runs to them
+            roads_rule.boundary_reach_m
+            + law.tables.structures.building_pad.fill_road_reach_m)
     except Exception as error:
         UI.vprint(0, "   ERROR: FLAT-SITE mode could not read", icao,
                   "'s shore roads (", type(error).__name__, ":", str(error),

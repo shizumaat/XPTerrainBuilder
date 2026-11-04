@@ -440,3 +440,71 @@ def test_a_bank_node_on_a_standing_edge_stands_on_it(law):
                            levels={0: 14.0, 1: 14.0, 6: 13.0, 7: 12.0}, dem=_Dem())
     lo = {r.terms[0][0]: r.lo for r in cs.linears if r.source.ruling == BANK_RULING}
     assert lo[5] == pytest.approx(12.5, abs=0.01)
+
+
+def test_the_feet_held_ground_is_banked_to_its_daylight_line(tmp_path, law):
+    # #1093 round 3 (14c (5) "the 1:3 bank stays for the ramp's sides"; bar
+    # 11-03e): the pavement under the foot stands 4 m over a flat DEM; its
+    # open sides inside the run-out's box bank down at 1:3 too, as the
+    # strip's own bank does — the face itself is never taken
+    from auto_patch_v2.classify.ramp_runout import BANK_EVIDENCE
+    rf._MEMO.clear()
+    part = _partition(tmp_path, [(0, 8, 0, -100, 0.0, 6.0)])
+    ap = types.SimpleNamespace(partition=part, dem=_Dem(), frame=_frame())
+    pav = Polygon([(-4, -3.0), (12, -3.0), (12, 100), (-4, 100)])
+    from auto_patch_v2.classify.roles import Classification
+    cl = Classification((_cell(0, "groundside_pavement", "gap:0", pav),), (), {}, ())
+    ring = [(-4.0, -3.0), (12.0, -3.0), (12.0, 100.0), (-4.0, 100.0)]
+    pm = types.SimpleNamespace(
+        vertices={k: types.SimpleNamespace(xy=xy) for k, xy in enumerate(ring)},
+        faces={0: types.SimpleNamespace(id=0, ref="gap:0", role="groundside_pavement",
+                                        ring=(0, 1, 2, 3))},
+        ring_vertices=lambda cycle: tuple(cycle))
+    cl2, rep = mint_ramp_runouts(cl, ap, law, load_rules(), pm, {k: 14.0 for k in range(4)})
+    assert rep["side_banks"] >= 1, rep
+    side = [Polygon(c.ring) for c in cl2.cells
+            if c.ref == "runout:0#collar" and c.evidence[BANK_EVIDENCE]]
+    k = float(law.tables.emit.design.bank_slope)
+    banked = side[0]
+    for q in side[1:]:
+        banked = banked.union(q)
+    # beside the pavement's west side, 10 m behind the lip, out to 4 / k
+    west = banked.intersection(Polygon([(-30, 8), (-4, 8), (-4, 10), (-30, 10)]))
+    assert not west.is_empty and west.bounds[0] == pytest.approx(-4.0 - 4.0 / k, abs=1.5)
+    assert banked.intersection(pav).area < 0.01      # the held face is not taken
+
+
+def test_a_bank_node_on_a_followers_edge_rides_it(law):
+    # a bank node notched beside a pad road's edge (a follower of the same
+    # stage) is welded to that edge, never sent to its DEM (KCLT l1093r3:
+    # a 5.18 m coverage join against ``small_roads:-8201``)
+    from auto_patch_v2.constraints.ramp_runout import BANK_RULING
+    pm = _BankPlanar()
+    pm.vertices[6] = types.SimpleNamespace(xy=(-30.0, -10.0), dem_z=10.0, incident_faces=(2,))
+    pm.vertices[7] = types.SimpleNamespace(xy=(-30.0, -70.0), dem_z=10.0, incident_faces=(2,))
+    pm.faces[2] = types.SimpleNamespace(id=2, ref="small_roads:-1#1", role="service_road",
+                                        ring=(6, 7), holes=())
+    pm.vertices[5].xy = (-30.05, -40.0)
+    pm.edges = {0: types.SimpleNamespace(a=6, b=7, left_face=2, right_face=None)}
+    cs, _rep = runout_rows(pm, law, ConstraintSet(), levels={0: 14.0, 1: 14.0, 6: 13.0},
+                           dem=_Dem())
+    row = next(r for r in cs.linears if r.source.ruling == BANK_RULING
+               and r.terms[0][0] == 5)
+    assert dict(row.terms) == pytest.approx({5: 1.0, 7: -0.5}, abs=0.01)
+    assert row.lo == row.hi == pytest.approx(6.5, abs=0.01)
+
+
+def test_a_bank_banks_off_the_nearer_standing_edge(law):
+    # 4 m from a standing edge at 13 m (and 9+ m from its strip at 14 m), a
+    # bank vertex over a 10 m DEM lies on the 1:3 cone off that edge
+    from auto_patch_v2.constraints.ramp_runout import BANK_RULING
+    pm = _BankPlanar()
+    pm.vertices[6] = types.SimpleNamespace(xy=(-34.0, -10.0), dem_z=10.0, incident_faces=(2,))
+    pm.vertices[7] = types.SimpleNamespace(xy=(-34.0, -70.0), dem_z=10.0, incident_faces=(2,))
+    pm.faces[2] = types.SimpleNamespace(id=2, ref="pav1", role="apron", ring=(6, 7), holes=())
+    pm.edges = {0: types.SimpleNamespace(a=6, b=7, left_face=2, right_face=None)}
+    cs, _rep = runout_rows(pm, law, ConstraintSet(),
+                           levels={0: 14.0, 1: 14.0, 6: 13.0, 7: 13.0}, dem=_Dem())
+    lo = {r.terms[0][0]: r.lo for r in cs.linears if r.source.ruling == BANK_RULING}
+    k = float(law.tables.emit.design.bank_slope)
+    assert lo[5] == pytest.approx(max(10.0, 13.0 - 4.0 * k), abs=0.01)

@@ -112,14 +112,21 @@ def _lead(planar: PlanarMap, f, r: tuple, levels: _t.Mapping[int, float]
 
 
 def _on_standing_edges(planar: PlanarMap, f, own: _t.AbstractSet[str],
-                       levels: _t.Mapping[int, float], reach: float) -> dict[int, float]:
-    """``{v: level}`` for each vertex of ``f`` standing within ``reach`` of
-    an edge of ANOTHER face whose two ends are constants: the level of that
-    edge at its foot — the bank's node on a standing edge stands on it (the
-    rim rule of ``pipeline/stage_one_map.late_rim_levels``, here for a
-    follower's own node the arrangement notched off the edge).  MEASURED
-    (KCLT, lane lramp2): bank nodes beside the apron ``pav14``'s edge took
-    their DEM, 0.95-2.38 m off the apron's edge (four mid-edge steps)."""
+                       levels: _t.Mapping[int, float], reach: float, standing: bool = True
+                       ) -> dict[int, tuple[int, int, float, float]]:
+    """``{v: (a, b, u, distance)}`` for each unknown vertex of ``f`` within
+    ``reach`` of an edge ``a``-``b`` of ANOTHER face — whose two ends are
+    constants (``standing``), else one with an unknown end (a follower's:
+    a pad road of the same stage) — the nearest such edge, the fraction
+    ``u`` of its foot along it, and the distance.  Within the stand-off the
+    bank's node stands ON that edge (the rim rule of
+    ``pipeline/stage_one_map.late_rim_levels``, here for a follower's own
+    node the arrangement notched off the edge; MEASURED, KCLT, lane lramp2:
+    bank nodes beside the apron ``pav14``'s edge took their DEM, 0.95-2.38 m
+    off the apron's edge, four mid-edge steps; lane l1093r3: a bank node
+    beside the pad road ``-8201``'s edge took its DEM, a 5.18 m coverage
+    join); farther out a standing edge is what the bank banks off (#1093
+    round 3: the foot's held ground, or a standing neighbour)."""
     import shapely
     xy = planar.vertices
     vs = [v for v in face_vertex_set(planar, f) if v not in levels]
@@ -129,7 +136,7 @@ def _on_standing_edges(planar: PlanarMap, f, own: _t.AbstractSet[str],
     F = planar.faces
     segs = []
     for e in planar.edges.values():
-        if e.a not in levels or e.b not in levels:
+        if (e.a in levels and e.b in levels) != standing:
             continue
         sides = [F[q] for q in (e.left_face, e.right_face) if q is not None and q in F]
         if not sides or all(str(q.ref) in own for q in sides):
@@ -137,16 +144,29 @@ def _on_standing_edges(planar: PlanarMap, f, own: _t.AbstractSet[str],
         line = shapely.LineString([xy[e.a].xy, xy[e.b].xy])
         if line.intersects(box):
             segs.append((line, e.a, e.b))
-    out: dict[int, float] = {}
+    out: dict[int, tuple[int, int, float, float]] = {}
     for v in vs:
         p = shapely.Point(xy[v].xy)
-        best = min(segs, key=lambda sab: sab[0].distance(p), default=None)
+        near = [sab for sab in segs if v not in (sab[1], sab[2])]
+        best = min(near, key=lambda sab: sab[0].distance(p), default=None)
         if best is None or best[0].distance(p) > reach:
             continue
-        line, a, b = best
+        line, ea, eb = best
         u = line.project(p, normalized=True) if line.length > 0.0 else 0.0
-        out[v] = float(levels[a]) + u * (float(levels[b]) - float(levels[a]))
+        out[v] = (ea, eb, float(u), float(line.distance(p)))
     return out
+
+
+def _weld_row(v: int, a: int, b: int, u: float, levels: _t.Mapping[int, float], src):
+    """``z_v = (1 - u) z_a + u z_b``: a node ON the edge ``a``-``b``, the
+    edge's known ends moved to the row's bound."""
+    terms, rhs = [(v, 1.0)], 0.0
+    for q, c in ((a, 1.0 - u), (b, u)):
+        if q in levels:
+            rhs += c * float(levels[q])
+        elif c != 0.0:
+            terms.append((q, -c))
+    return Linear(tuple(terms), rhs, rhs, src)
 
 
 def _bank_rows(planar: PlanarMap, law: Law, runs: _t.Mapping[str, tuple],
@@ -172,6 +192,7 @@ def _bank_rows(planar: PlanarMap, law: Law, runs: _t.Mapping[str, tuple],
     k = float(law.tables.emit.design.bank_slope)
     g = float(law.tables.emit.road_contact.ramp_grade)
     notch = stand_off_m(law)
+    bank_max = max(notch, float(law.tables.structures.building_pad.platform_collar_max_m))
     F = planar.faces
     strips: dict[str, list] = {}
     for f in F.values():
@@ -192,7 +213,8 @@ def _bank_rows(planar: PlanarMap, law: Law, runs: _t.Mapping[str, tuple],
         lead = lead_section([p for sf, _q in strips[sref] for p in _lead(planar, sf, r, levels)])
         src = Source(GEN, BANK_RULING, (f"face:{f.id}", str(f.ref)))
         own = {str(f.ref), sref}
-        edge = _on_standing_edges(planar, f, own, levels, notch)
+        edge = _on_standing_edges(planar, f, own, levels, bank_max)
+        weld = _on_standing_edges(planar, f, own, levels, notch, standing=False)
         for v in sorted(face_vertex_set(planar, f)):
             # a vertex another face shares is that face's (a pad road, a
             # lot): the bank lies between them, it never lifts them
@@ -201,12 +223,25 @@ def _bank_rows(planar: PlanarMap, law: Law, runs: _t.Mapping[str, tuple],
                 continue
             seen.add(v)
             x, y = planar.vertices[v].xy
-            t = edge.get(v)
-            if t is None:
-                q = nearest_points(body, Point(x, y))[0]
-                d = float(q.distance(Point(x, y)))
-                sq = max(0.0, (q.x - x0) * dx + (q.y - y0) * dy)
-                zq = strip_level(sq, z0, d0, axis_ground(dem, x0, y0, dx, dy), g, lead)
+            q = nearest_points(body, Point(x, y))[0]
+            d = float(q.distance(Point(x, y)))
+            sq = max(0.0, (q.x - x0) * dx + (q.y - y0) * dy)
+            zq = strip_level(sq, z0, d0, axis_ground(dem, x0, y0, dx, dy), g, lead)
+            # the bank banks off what it lies against: its strip, or the
+            # nearer STANDING edge of another face (the foot's held ground,
+            # a neighbour) — on that edge within the stand-off
+            e, w = edge.get(v), weld.get(v)
+            if w is not None and (e is None or w[3] < e[3]):
+                # on a FOLLOWER's edge: the node rides it, whatever it solves to
+                out.append(_weld_row(v, w[0], w[1], w[2], levels, src))
+                continue
+            if e is not None:
+                ze = float(levels[e[0]]) + e[2] * (float(levels[e[1]]) - float(levels[e[0]]))
+            if e is not None and e[3] <= notch:
+                t = ze
+            else:
+                if e is not None and e[3] < d:
+                    zq, d = ze, e[3]
                 t = min(zq + k * d, max(zq - k * d, float(dem.z(x, y))))
             out.append(Linear(((v, 1.0),), t, t, src))
     rep["bank_rows"] = len(out)

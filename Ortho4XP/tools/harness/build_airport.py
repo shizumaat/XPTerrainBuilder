@@ -4298,7 +4298,8 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     # unbuildable through the harness on 09-12 while the app built it.
     # ONE implementation, called from both entries (RULINGS ``7e90032``);
     # the dump lands in the LANE-LOCAL mod-cache overlay armed above.
-    from auto_patch.engine_v2 import fresh_pack_dump            # noqa: E402
+    from auto_patch.engine_v2 import airport_tiles as v2_airport_tiles  # noqa: E402
+    from auto_patch.engine_v2 import fresh_pack_dumps           # noqa: E402
     from auto_patch.engine_v2 import stage_cache_enabled        # noqa: E402
     # THE APP'S PROGRESS WIRING, the same object (issue #136): the step
     # banners and the >=60 s heartbeat print LIVE here through
@@ -4331,10 +4332,13 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     # stubs ``default_inputs`` with a dict — there is no pack to dump then.
     tile = resolve_tile_for(icao, root) if dataclasses.is_dataclass(inputs) else None
     if tile is not None:
-        dump = fresh_pack_dump(inputs.xplane_root, icao, *tile)
-        if dump:
-            inputs = dataclasses.replace(inputs, dsf_dump_path=dump)
-            prog.note(f"pack DSF dump (pristine read frame): {dump}")
+        # #1645: the dump of EVERY tile the airport touches, as the app's
+        dumps = fresh_pack_dumps(inputs.xplane_root, icao,
+                                 v2_airport_tiles(inputs.xplane_root, icao, *tile))
+        if dumps:
+            inputs = dataclasses.replace(inputs, dsf_dump_path=dumps)
+            for dump in dumps.values():
+                prog.note(f"pack DSF dump (pristine read frame): {dump}")
     v2_dir = out_dir / f"{tag}.v2"
     lines: list = []
     t0 = time.time()

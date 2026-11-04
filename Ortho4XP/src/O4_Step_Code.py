@@ -829,6 +829,7 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.pack_optimise.weight",
         "auto_patch_v2.airport.placement_write",
         "auto_patch_v2.airport.slab_drape",
+        "auto_patch_v2.airport.tile_rows",
         "auto_patch_v2.airport.unpatched_pack",
     ),
     "masks": (

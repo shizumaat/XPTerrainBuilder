@@ -152,7 +152,10 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                # owner RULINGS 2026-10-14d (1): the base slabs that drape
                # (``slab_drape.drape_for_graded``) and the writer's law
                drape: "_t.Mapping[str, frozenset[int]] | None" = None,
-               drape_law: _t.Any = None) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
+               drape_law: _t.Any = None,
+               # #1645: the tile whose DSF this plan writes (``tile_rows``)
+               tile: "tuple[int, int] | None" = None,
+               ) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
     ``rebake_plan`` is the build's own ``<ICAO>.rebake.json`` model (the
@@ -164,7 +167,13 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     A placement that is SPLIT is never also converted: its rows are
     replaced outright (``dsf_write.edit_dump`` refuses the overlap), so
     the conversions are filtered by the split indices here, where the two
-    lists are first seen together."""
+    lists are first seen together.
+
+    ONE AIRPORT, SEVERAL TILE DSFS (#1645): ``tile`` names the DSF written
+    here, and the plan and riders are first narrowed to its rows
+    (``tile_rows.for_tile``)."""
+    from .tile_rows import for_tile
+    rebake_plan, jetway_strips = for_tile(rebake_plan, jetway_strips, tile)
     ss = _pp.build_splits(rebake_plan, surface, pads, rims, write=write_cuts,
                           split_tol_m=split_tol_m, elevated_base_m=elevated_base_m,
                           line_segment_m=line_segment_m,

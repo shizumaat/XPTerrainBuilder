@@ -205,9 +205,12 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
         if workers not in (None, 1):
             raise SystemExit("--workers needs a tree with airport/pool.py")
     try:
-        from auto_patch.engine_v2 import fresh_pack_dump
+        from auto_patch.engine_v2 import airport_tiles, fresh_pack_dumps
         tl = resolve_tile_for(icao, ROOT)
-        d = fresh_pack_dump(inputs.xplane_root, icao, *tl) if tl else None
+        # #1645: every tile the airport touches, as the build reads
+        d = (fresh_pack_dumps(inputs.xplane_root, icao,
+                              airport_tiles(inputs.xplane_root, icao, *tl))
+             if tl else None)
         if d:
             inputs = _dc.replace(inputs, dsf_dump_path=d)
     except Exception as exc:                       # the loader refuses loudly

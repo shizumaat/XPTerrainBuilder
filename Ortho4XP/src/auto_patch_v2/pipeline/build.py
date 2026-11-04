@@ -203,10 +203,15 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     from ..planar.basins import read_objects as _read_objects
     from ..planar.group import derive as _derive_groups
     _wpool = _open_pool(law, ocache, out=lambda m: _say("  " + m, out))
-    _fp = _pcache.fingerprint(airport, law, dump_path=lrep.dsf_dump_path,
+    # #1645: keyed on the FULL dump set the load read (origin first), so
+    # every tile build of one airport names one partition
+    _dumps = [p for _t, p in (getattr(lrep, "dsf_dump_paths", ()) or ())] \
+        or [lrep.dsf_dump_path]
+    _fp = _pcache.fingerprint(airport, law, dump_path=_dumps[0],
                               radius_deg=inputs.radius_deg,
-                              pristine=getattr(inputs, "pack_pristine", None))
-    _cpath = _pcache.cache_path(airport, inputs.mod_cache_root, lrep.dsf_dump_path)
+                              pristine=getattr(inputs, "pack_pristine", None),
+                              more_dumps=tuple(_dumps[1:]))
+    _cpath = _pcache.cache_path(airport, inputs.mod_cache_root, _dumps[0])
     _hit = _pcache.read(_cpath, _fp)
     # spec §B.4: the ``[partition] cache HIT|MISS|WROTE`` line is REQUIRED
     # on every build — its absence is how a cache that never hit went

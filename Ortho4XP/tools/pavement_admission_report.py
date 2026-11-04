@@ -104,7 +104,7 @@ def refused(caps: list[str]) -> dict:
         pav = unary_union([_poly(p.outer, p.holes) for p in a.pavements])
         clip = unary_union(bnd) if bnd else pav.buffer(60.0)
         rows = collections.defaultdict(lambda: [0, 0.0, 0.0])
-        dump = D.read_dump(inp.dsf_dump_path, lambda p: p.lower().endswith(".pol"))
+        dump = D.read_dump(_dump_of(a, inp), lambda p: p.lower().endswith(".pol"))
         for pg in dump.polygons:
             if D.is_pavement_def(pg.def_path):
                 continue
@@ -144,8 +144,11 @@ def _dump_of(a, inp) -> str | None:
     pack's tile DSF in the capture's mod cache or this tree's mount (a
     capture outlives the lane tree it was taken in)."""
     from auto_patch_v2.airport import dsf as D
-    if inp.dsf_dump_path and os.path.isfile(inp.dsf_dump_path):
-        return inp.dsf_dump_path
+    given = inp.dsf_dump_path
+    if isinstance(given, dict):         # #1645: one per tile, origin first
+        given = next(iter(given.values()), None)
+    if given and os.path.isfile(given):
+        return given
     for p in a.pack.dsf_paths:
         base = os.path.basename(p)                         # +60-136.dsf
         got = D.find_text_dump(_mod_root(inp), a.pack.name, int(base[:3]),

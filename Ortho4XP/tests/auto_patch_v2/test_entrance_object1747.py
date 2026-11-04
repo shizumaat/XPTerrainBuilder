@@ -57,3 +57,19 @@ def test_an_entrance_object_pins_the_mouth_at_its_bottom(objs, law):
     # a road end the face does not stand at is no entrance: a covered or
     # untagged way's end is never pinned here
     assert mouth_portals(trenches, objects, cache, law, [], airport.dem.z) == []
+
+
+def test_an_edge_wall_bridge_is_never_an_entrance(tmp_path):
+    """KATL's ``tunel_A`` (#1138): an edge-wall bridge read as a trench
+    object at a bore end pins by its back's crossing (``bridge_span``),
+    never as an entrance — the first cut of this rule built two new I-285
+    bores off it."""
+    from auto_patch_v2.airport.trench_objects import TrenchObject
+    from shapely.geometry import box
+    from test_hanging_objects1298 import LAW, THICK, _edge_bridge, _placed
+    o = _placed(_edge_bridge(tmp_path), "dsf:obj7")
+    o.plan_bbox = box(-31.0, -21.0, 31.0, 1.0)
+    way = OsmWay(-1, "big_roads", ((0.0, 0.0), (0.0, -200.0)), False, _T)
+    t = TrenchObject(o.id, o.path, o.plan_bbox, 20.0, (((0.0, 0.0), -1),))
+    assert mouth_portals([t], [o], obj8.ResourceCache(THICK), LAW, [way],
+                         lambda x, y: 0.0) == []

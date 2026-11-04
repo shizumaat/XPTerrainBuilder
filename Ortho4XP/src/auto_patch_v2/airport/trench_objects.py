@@ -160,7 +160,8 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     face, which may stand the tolerance off the end either side: LOWS's
     west face stands 8 m out of its mapped end) and its anchor the end
     itself (the mouth does not move).  An end with no solid within that
-    reach is no entrance."""
+    reach is no entrance, and an edge-wall bridge is never one."""
+    from .hanging_objects import edge_wall_reading
     from .portal_objects import Portal
     tol = float(law.tables.structures.tunnel.object.bore_end_tolerance_m)
     bores = {int(w.id) for w in tunnel_ways}
@@ -169,7 +170,9 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     for t in trenches:
         o = by_id.get(t.object_id)
         g = None if o is None else cache.geometry(o.resolved)
-        if g is None:
+        if g is None or edge_wall_reading(o, g, law) is not None:
+            # an EDGE-WALL BRIDGE pins by its back's crossing, never by an
+            # end's distance (``read_portals``; owner RULINGS 2026-10-28d)
             continue
         for xy, wid in t.ends:
             if int(wid) not in bores:

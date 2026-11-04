@@ -144,7 +144,23 @@ def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
         # station flush from (RULINGS 2026-10-30a (1))
         y, st, *rest = out[oid]
         out[oid] = (sum(by_pt.values()) / len(by_pt), st, *rest)
+    _unit_members(out, pm, kept)
     return out
+
+
+def _unit_members(out: dict, pm, kept) -> None:
+    """ONE ZERO PER UNIT (owner 2026-11-03T23:21Z): every placement
+    co-placed with a pack deck (``DeckBridge.members``, its frame — EDDF's
+    ``Bridge_4_hard`` with its ``_asph`` / ``_asph_dark`` layers, one anchor)
+    takes the deck's own plate, so the frame seats at one zero; read each on
+    its own ring they stood at 104.92 / 103.67 / 106.22 (#1663)."""
+    for db in getattr(pm, "decks", ()) or ():
+        plate = out.get(db.object_id)
+        if plate is None or plate[3] != DECK_PLATE:
+            continue
+        for m in db.members:
+            if m != db.object_id and m not in kept:
+                out.setdefault(m, plate)
 
 
 #: the plate kind of a HARD-DECK BRIDGE's end lines (``airside_deck_seat``)

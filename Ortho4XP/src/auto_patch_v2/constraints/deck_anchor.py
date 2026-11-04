@@ -45,6 +45,23 @@ runs under included — and taken whole by stage 1's map
   yields just enough (``DesignReport.pin_yield``) — the seam wins, and the
   object seat follows the built surface.  A vertex a senior pin already
   holds takes no anchor pin.
+
+THE TAXI DECK'S LEVEL IS THE AIRSIDE SOLVE'S (deck redesign §5 (b); owner
+2026-11-03T21:16Z Q2: "the bridge ends need to be treated like a building
+pad: we need to determine what elevation is feasible from the route graph
+... the airside pavement must weld to and grade perfectly to the bridge
+deck").  A taxi deck takes NO pre-solve pin: its end lines' stations are
+held rigid and flush to one zero (``constraints/edge_deck``) inside the
+airside solve, which finds the level its routes make feasible; that level
+is published as the anchor (:func:`settle`, after the solve, before the
+emit, the census and the object stage — the stations are stage 1 columns,
+constants of stage 2 and of the cut under the deck), and the object reseats
+to it (``pipeline/rebake_inputs._deck_plate``).  A runway deck keeps its
+pre-solve pin on the window-blind chord (owner 18:10Z).  A ROAD deck — one no
+apt.dat route crosses (``planar/deck_route``, owner 2026-11-03T23:02Z) — is no
+taxi bridge but takes the same reading: where its end lines meet the airside
+pavement the surface passing over (its top) stays flush with it, at the level
+the solve builds there.
 """
 from __future__ import annotations
 
@@ -59,12 +76,13 @@ from ..model.constraints import Pin, Row, Source
 from ..model.planar import PlanarMap
 from ..model.stage_one import full_map
 from ..model.structures import DeckAnchor
+from .deck_lines import cut_faces
 from .geometry import project_to_chain
 from .precedence import view
 from .trend import trend_of
 
-__all__ = ["GEN", "RULING", "YIELD_HEAD", "derive", "deck_anchor_pins", "anchor_vertices",
-           "deck_holes", "blind", "sidecar_records"]
+__all__ = ["GEN", "RULING", "YIELD_HEAD", "SOLVED_NOTE", "derive", "deck_anchor_pins",
+           "anchor_vertices", "deck_holes", "blind", "settle", "sidecar_records"]
 
 GEN = "deck_anchor"
 #: the ruling of a held anchor (a ``Pin`` is an equality: no head list)
@@ -72,6 +90,8 @@ RULING = "structures.deck end line anchor (RULINGS 2026-11-03c Q1 a)"
 #: the head of a yielding anchor (``[design] yielding_pin_rulings``)
 YIELD_HEAD = "structures.deck anchor yields to a senior pin"
 YIELD_RULING = f"{YIELD_HEAD} (RULINGS 2026-11-03c Q2 a)"
+#: the note of a taxi deck's anchor the airside solve levels (module doc)
+SOLVED_NOTE = "level from the airside solve (deck redesign §5 (b), owner Q2 2026-11-03)"
 
 _RUNWAY = ("runway", "runway_crossing")
 _TAXI_CENTERLINE = "taxi_centerline"
@@ -81,16 +101,21 @@ _ON_LINE_M = 1.5
 
 
 def deck_holes(pm: PlanarMap) -> list[tuple[tuple[float, float], ...]]:
-    """The bridge WINDOWS: every deck's ring (``PlanarMap.decks``) and the
-    outline of every trench under one — the DEM inside them reads the deck
-    or the road under it, never the ground the carried route runs on."""
+    """The bridge WINDOWS: every deck's ring (``PlanarMap.decks``) and every
+    floor and void face of each cut naming a deck (deck redesign §2 row 16:
+    an OSM bore carries no ``Tunnel.footprint``, so its outline was never
+    blind) — the DEM inside them reads the deck or the road under it, never
+    the ground the carried route runs on.  A cut's faces are the ones whose
+    point stands inside its rim path (``Tunnel.wall_path``), else within
+    its half width and rim stand-off of its axis."""
     out = [tuple(tuple(p) for p in db.ring) for db in getattr(pm, "decks", ()) or ()
            if len(db.ring) >= 3]
-    for tn in getattr(pm, "structures", ()) or ():
+    cuts = [tn for tn in getattr(pm, "structures", ()) or () if getattr(tn, "deck_bridge", "")]
+    for tn in cuts:
         fp = tuple(getattr(tn, "footprint", ()) or ())
-        if getattr(tn, "deck_bridge", "") and len(fp) >= 3:
+        if len(fp) >= 3:
             out.append(fp)
-    return out
+    return out + cut_faces(pm, cuts)
 
 
 def blind(holes) -> "_t.Callable[[tuple[float, float]], bool]":
@@ -264,7 +289,8 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
     for oid in sorted(by_obj):
         ends = by_obj[oid]
         cut = {tuple(e[0]): e[3].cut for e in ends}
-        family = "runway" if any(e[3].family == "runway" for e in ends) else "taxi"
+        family = "runway" if any(e[3].family == "runway" for e in ends) else \
+            ("taxi" if any(e[3].family == "taxi" for e in ends) else ends[0][3].family)
         ch = _carried(vw, taxi, ends)
         rows = [r for r in (_profiled(pm, vw, chains, ch, inside, window, spacing, chords,
                                       [o[0] for o in ends if o is not e], *e)
@@ -281,8 +307,45 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
                            round(z, 6), round(depth, 6), round(depth - d0, 6),
                            family, rwid, round(p, 6), note=gov[1] if gov else "",
                            cut=cut.get(line, "none"), line=line)
-            out.append(_judge(a, rows, vw, law, rws.get(rwid), senior, yielding))
+            out.append(_solved_level(_judge(a, rows, vw, law, rws.get(rwid), senior,
+                                            yielding)))
     return tuple(_one_per_vertex(out))
+
+
+def _solved(a: DeckAnchor) -> bool:
+    """Whether ``a``'s level is the solve's (module doc): every deck but a
+    runway's."""
+    return a.family != "runway"
+
+
+def _solved_level(a: DeckAnchor) -> DeckAnchor:
+    """A held TAXI (or road) anchor is no pin (module doc, §5 (b)): its level
+    is the airside solve's, published by :func:`settle`."""
+    if not _solved(a) or not a.pinned:
+        return a
+    return _dc.replace(a, pinned=False,
+                       note=SOLVED_NOTE + (f"; {a.note}" if a.note else ""))
+
+
+def settle(pm: PlanarMap, z) -> PlanarMap:
+    """``pm`` with every taxi or road deck's anchors at the level the solve
+    built (module doc): the object's one zero is the mean over its stations
+    of ``z − top``, each end at ``zero + top``.  The anchor stays unpinned:
+    it publishes a level, it never held one (the census reads its stations
+    off the one zero, ``verify/deck_flush``).  A map with no such deck, or
+    no solved surface, is returned as is."""
+    anchors = tuple(getattr(pm, "deck_anchors", ()) or ())
+    if z is None or len(z) == 0 or not any(_solved(a) for a in anchors):
+        return pm
+    acc: dict[str, dict[int, float]] = {}
+    for a in anchors:
+        if _solved(a):
+            for s in a.stations:
+                acc.setdefault(a.object_id, {}).setdefault(s, float(z[s]) - float(a.top_y))
+    zero = {oid: sum(d.values()) / len(d) for oid, d in acc.items() if d}
+    out = [a if not _solved(a) or a.object_id not in zero else _dc.replace(
+        a, z_m=round(zero[a.object_id] + float(a.top_y), 6)) for a in anchors]
+    return _dc.replace(pm, deck_anchors=tuple(out))
 
 
 def _from_full(pm: PlanarMap, by_obj: dict, full: PlanarMap) -> tuple[DeckAnchor, ...]:

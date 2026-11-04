@@ -16,7 +16,7 @@ from ..law import Law
 from ..model.planar import PlanarMap
 from ..model.structures import DeckBridge
 
-__all__ = ["EndLine", "end_lines", "anchor_of"]
+__all__ = ["EndLine", "end_lines", "anchor_of", "cut_faces"]
 
 XY = tuple[float, float]
 
@@ -65,3 +65,39 @@ def anchor_of(planar: PlanarMap, oid: str, line: tuple) -> "_t.Any | None":
         if a.object_id == oid and tuple(a.line) == tuple(line):
             return a
     return None
+
+
+#: the faces of a cut: its floor and its void (``planar/structures``)
+_CUT_ROLES = frozenset({"tunnel_ramp", "retaining_wall"})
+
+
+def cut_faces(pm: PlanarMap, cuts) -> list[tuple[tuple[float, float], ...]]:
+    """The floor and void faces of the cuts ``cuts`` (``deck_anchor.
+    deck_holes``; ``edge_deck``: no span vertex inside one)."""
+    if not cuts:
+        return []
+    from shapely.geometry import LineString, Point, Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    shapes = []
+    for tn in cuts:
+        rim = tuple(getattr(tn, "wall_path", ()) or ())
+        p = Polygon(rim).buffer(0.0) if len(rim) >= 4 else None
+        if (p is None or p.is_empty) and len(tn.axis) >= 2:
+            p = LineString(tn.axis).buffer(float(tn.half_width_m) + 2.0)
+        if p is not None and not p.is_empty:
+            shapes.append(p.buffer(1.0))
+    if not shapes:
+        return []
+    within = prep(unary_union(shapes))
+    out = []
+    for f in pm.faces.values():
+        if f.role not in _CUT_ROLES:
+            continue
+        ring = tuple(tuple(pm.vertices[v].xy) for v in pm.ring_vertices(f.ring))
+        if len(ring) < 3:
+            continue
+        q = Polygon(ring)
+        if within.contains(Point(q.representative_point() if q.is_valid else ring[0])):
+            out.append(ring)
+    return out

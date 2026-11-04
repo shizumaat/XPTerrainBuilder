@@ -413,3 +413,29 @@ def test_the_ring_walk_generator_and_verify_price_one_bound():
     for r in rows:
         assert r["diff_m"] <= sh * abs(r["d_gen"] - r["d_verify"]) + 1e-9, r
         assert r["diff_m"] < 0.03, r
+
+
+def test_a_runway_deck_edge_is_a_tile_seam_to_the_crown(shared_edge, law):
+    """Owner 2026-11-04T07:09Z ("Runways treat a bridge deck like a tile
+    seam, they flatten to match the object edge"; LFPG H18r / H19 stations
+    0.205 / 0.283 m under the deck): on a station of a pinned runway deck
+    anchor the transverse floor stands down to ``-hi`` exactly as on a
+    tile-seam pin, and the crown preference mints nothing there."""
+    import dataclasses as _dc
+
+    from auto_patch_v2.model.structures import DeckAnchor
+    airport, pm, _ = shared_edge
+    rw, v, vw = _shared_edge_vertex(pm, law)
+    ridge = runway_profile.ridge_chains(vw)[rw.ref][0]
+    a = DeckAnchor("dsf:obj1", "A", ridge[len(ridge) // 2], (v,), 100.0, 0.0, 0.0,
+                   "runway", rw.ref, 100.0)
+    decked = _dc.replace(pm, deck_anchors=(a,))
+    assert runway_profile._deck_edge(decked) == (frozenset({a.v}), frozenset({v}))
+
+    def lo(m):
+        return {next(u for u, c in r.terms if c == -1.0): r
+                for r in runway_profile.runway_transverse(m, law, airport)}[v]
+    assert lo(pm).lo > 0.0
+    assert lo(decked).lo == pytest.approx(-lo(decked).hi)
+    assert v in {r.terms[0][0] for r in runway_profile.runway_crown(pm, law, airport)}
+    assert v not in {r.terms[0][0] for r in runway_profile.runway_crown(decked, law, airport)}

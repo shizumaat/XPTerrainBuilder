@@ -38,8 +38,10 @@ from typing import Optional
 _OVERRUN_REMAINING_FRACTION = 0.5
 
 _lock = threading.Lock()
-# key -> [t0, done_units, total_units, predicted_s, words]; ``words`` is
-# {"what", "why", "reason", "coarser"} as :func:`begin` was given them.
+# key -> [t0, done_units, total_units, predicted_s, words, last_unit_t];
+# ``words`` is {"what", "why", "reason", "coarser"} as :func:`begin` was
+# given them, ``last_unit_t`` when a unit last completed (``t0`` before
+# the first) -- what :func:`idlest_phase` reads for a hang (#1351).
 _active: dict = {}
 # Phases whose remaining units the user asked to finish on coarser data.
 _coarser: set = set()
@@ -60,13 +62,15 @@ def begin(key: str, total_units: int,
     try:
         if total_units <= 0:
             return
+        now = time.time()
         with _lock:
             _coarser.discard(key)
             _active[key] = [
-                time.time(), 0, int(total_units),
+                now, 0, int(total_units),
                 float(predicted_seconds) if predicted_seconds else None,
                 {"what": str(what), "why": str(why), "reason": str(reason),
                  "coarser": bool(coarser)},
+                now,
             ]
     except Exception:
         pass
@@ -78,7 +82,10 @@ def advance(key: str, done_units: int) -> None:
         with _lock:
             entry = _active.get(key)
             if entry is not None:
-                entry[1] = min(int(done_units), entry[2])
+                done = min(int(done_units), entry[2])
+                if done > entry[1]:
+                    entry[5] = time.time()
+                entry[1] = done
     except Exception:
         pass
 
@@ -118,7 +125,7 @@ def slowest_phase() -> Optional[dict]:
         best = None
         with _lock:
             for key, entry in _active.items():
-                t0, done, total, _predicted, words = entry
+                t0, done, total, _predicted, words = entry[:5]
                 if not words.get("what"):
                     continue
                 remaining = _remaining(entry, now)
@@ -137,6 +144,33 @@ def slowest_phase() -> Optional[dict]:
                 if best is None or (remaining or 0.0) > (
                         best["remaining"] or 0.0):
                     best = row
+        return best
+    except Exception:
+        return None
+
+
+def idlest_phase() -> Optional[dict]:
+    """The active phase that has gone longest without finishing a unit
+    (#1351): ``{"key", "what", "done", "total", "idle_seconds",
+    "coarser"}`` -- ``what`` filled as in :func:`slowest_phase` (empty
+    when the phase gave no words).  ``None`` when no phase is active."""
+    try:
+        now = time.time()
+        best = None
+        with _lock:
+            for key, entry in _active.items():
+                (done, total, words, last) = (entry[1], entry[2],
+                                              entry[4], entry[5])
+                if done >= total:
+                    continue
+                idle = max(now - last, 0.0)
+                if best is None or idle > best["idle_seconds"]:
+                    best = {"key": key, "done": done, "total": total,
+                            "what": words["what"].format(done=done,
+                                                         total=total),
+                            "idle_seconds": idle,
+                            "coarser": (words["coarser"]
+                                        and key not in _coarser)}
         return best
     except Exception:
         return None

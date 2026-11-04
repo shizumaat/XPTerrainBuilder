@@ -23,8 +23,8 @@ the work that divides is the GROUP, never the unit:
 """
 from __future__ import annotations
 
-import copy
 import dataclasses as _dc
+import pickle
 import typing as _t
 
 import numpy as np
@@ -207,6 +207,15 @@ def compose_jobs(jobs: _t.Sequence[tuple], pool: _t.Any = None
     seen: set[int] = set()
     out = []
     for k in slot:
-        out.append(got[k] if k not in seen else copy.deepcopy(got[k]))
+        out.append(got[k] if k not in seen else _copy(got[k]))
         seen.add(k)
     return out
+
+
+def _copy(answer: "tuple[dict, str]") -> "tuple[dict, str]":
+    """``copy.deepcopy(answer)`` by a pickle round trip (issue #1706): the
+    answer is ``obj8_grade.profile_to_json``'s JSON-safe data, which
+    pickles losslessly (floats bit for bit, shared sub-objects kept
+    shared, exactly deepcopy's memo), in C instead of ~30,000 Python-level
+    ``deepcopy`` calls per answer (EDDF: 165 M calls over 5,533 copies)."""
+    return pickle.loads(pickle.dumps(answer, protocol=pickle.HIGHEST_PROTOCOL))

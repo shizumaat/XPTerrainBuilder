@@ -105,6 +105,19 @@ def test_answers_come_back_in_job_order(plan):
         assert repr(CP.compose_jobs(jobs[::-1], pool)) == repr(want[::-1])
 
 
+def test_a_repeated_job_gets_its_own_copy_equal_to_a_deepcopy(plan):
+    """#1706: the repeat's copy is a pickle round trip — the same value as
+    ``copy.deepcopy`` (repr: floats bit for bit) and never the first
+    asker's object, down to its mutable members."""
+    import copy
+    job = next(j for j in _jobs(plan) if CP.compose_job(j)[0].get("planes"))
+    a, b = CP.compose_jobs([job, job])
+    assert repr(b) == repr(copy.deepcopy(a)) and b == a
+    assert b is not a and b[0] is not a[0]
+    assert b[0]["planes"] is not a[0]["planes"]
+    assert b[0]["planes"][0] is not a[0]["planes"][0]
+
+
 def test_the_job_is_the_one_spelling(plan):
     u = plan.units[1]
     assert CP.cluster_base_profile(u, (0, 1), PROFILE_LAW) == \

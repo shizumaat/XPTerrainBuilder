@@ -18,6 +18,14 @@ _frames``) that
 
 * no airport pavement runs across (else it is a hard-deck BRIDGE,
   ``deck_bridges``) and stands beside no building in its frame (22n);
+* no placement of its frame is a PACK OBJECT CUT (a ``Tunnel`` of
+  ``source == "object"``: the pack states its own trench under the deck).
+  There the deck is seated over that cut, flush with what it carries
+  (``airport/cut_deck_seat``, owner RULINGS 2026-10-26d Q142 "b"), never
+  on the road beneath: read as an overpass, LGAV's FlyTampa trench stack
+  (two taxiway decks over the pack's cuts, one anchor) sat its zero on the
+  motorway at 73.28 (3,404 stations), both decks 4-7 m under their
+  taxiways (1.0.464);
 * a mapped ROAD runs under — a ``highway`` way that is no bridge itself,
   its centreline crossing the piece; and
 * the pack authored the deck at least ``[bridge] clearance_minimum_m`` over
@@ -84,10 +92,11 @@ def _road_under(piece, ways, step: float) -> tuple[tuple[XY, ...], tuple[int, ..
     return tuple(st), tuple(ids)
 
 
-def road_overpasses(objects, cache, classification, airport, law, decks=()
-                    ) -> tuple[tuple[_Overpass, ...], list[str]]:
+def road_overpasses(objects, cache, classification, airport, law, decks=(),
+                    cut_objects=()) -> tuple[tuple[_Overpass, ...], list[str]]:
     """``(every road overpass deck piece, one note per piece read)``
-    (module doc).  ``decks`` are the hard-deck bridges already read."""
+    (module doc).  ``decks`` are the hard-deck bridges already read,
+    ``cut_objects`` the placement ids of every pack object cut."""
     from .deck_bridge import CellRoles, _beside_a_building, _frames, _plate
     if not objects or cache is None or classification is None:
         return (), []
@@ -95,6 +104,7 @@ def road_overpasses(objects, cache, classification, airport, law, decks=()
     step = float(br.abutment_sample_step_m)
     tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
     taken = {str(d.object_id) for d in decks or ()}
+    cut = {str(o) for o in cut_objects or ()}
     roles = CellRoles(classification, airport)
     ways = [w for w in airport.osm_ways or () if len(w.points) >= 2]
     out: list[_Overpass] = []
@@ -102,6 +112,11 @@ def road_overpasses(objects, cache, classification, airport, law, decks=()
     for dks, frame in _frames(objects, tol):
         d = dks[0]
         if str(d.id) in taken:
+            continue
+        if {str(q.id) for q in frame} & cut:
+            notes.append(f"{d.id} {str(d.path).rsplit('/', 1)[-1]}: its frame holds a "
+                         "pack object cut -- the deck seats over it (RULINGS 2026-10-26d), "
+                         "never on the road beneath")
             continue
         slab = _plate(cache, dks)
         top = max((y for _x, _y, y in slab), default=None)

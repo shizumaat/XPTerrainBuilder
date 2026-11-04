@@ -677,6 +677,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2",
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.dem",
+        "auto_patch_v2.airport.lot_level",
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.public_road",
         "auto_patch_v2.airport.riser_wall",
@@ -1534,6 +1535,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    pipeline.lot_follow solve.follow_stage
     geom.exact
         law.runway_ends_schema law.terrain_witness_schema
     airport classify constraints model pipeline planar solve airport.anchor_rule
@@ -1648,6 +1650,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    solve.follow_stage
     geom.exact
         law.runway_ends_schema law.terrain_witness_schema
     airport classify emit model pipeline planar solve airport.anchor_rule
@@ -1775,6 +1778,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
 """)
 CODE_MODULES["emit"] = _mods("""
+    airport.lot_level solve.follow_stage
     geom.exact
         constraints.runway_end_report law.runway_ends_schema law.terrain_witness_schema
     airport constraints emit model pipeline planar verify airport.anchor_rule
@@ -1954,6 +1958,7 @@ ENTRY_MODULES["solve"] = ("auto_patch_v2.solve.design", "auto_patch_v2.solve.api
                           "auto_patch_v2.constraints.no_step",
                           "auto_patch_v2.constraints.road_ramp",
                           "auto_patch_v2.constraints.taxi_trend",
+                          "auto_patch_v2.pipeline.lot_follow",
                           "auto_patch_v2.pipeline.stage_one_map",
                           "auto_patch_v2.pipeline.solve_record")
 ENTRY_MODULES["late_cut"] = ("auto_patch_v2.pipeline.late_stage",

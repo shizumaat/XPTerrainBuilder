@@ -1312,6 +1312,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.threshold_datum
     """),
     "deck_anchor": _mods(_GENERATOR_CORE + """
+        geom.exact
         law.inset_class
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
@@ -1496,7 +1497,6 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.edge_floor constraints.structures
     constraints.viaduct_floor constraints.taxi
-    constraints.strips constraints.edge_floor constraints.structures constraints.taxi
     constraints.deck_lines
     constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
@@ -1706,7 +1706,6 @@ CODE_MODULES["solve"] = _mods("""
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low
     airport.walled_plate law.walled_plate_schema model.stage_one model.walled_plate
     planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
-    planar.low_extent planar.low_fill planar.reach_after_pads
     constraints.deck_anchor constraints.edge_floor
     constraints.deck_lines
 """)
@@ -1784,7 +1783,6 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.slab_weld constraints.stretches constraints.strips
     constraints.edge_floor constraints.structures
     constraints.viaduct_floor constraints.taxi constraints.taxi_trend
-    constraints.edge_floor constraints.structures constraints.taxi constraints.taxi_trend
     constraints.deck_lines
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones emit.graded emit.surface
@@ -1843,7 +1841,6 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped law.walled_plate_schema
     model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
-    model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads
     constraints.deck_anchor
 """)
 CODE_MODULES["emit"] = _mods("""

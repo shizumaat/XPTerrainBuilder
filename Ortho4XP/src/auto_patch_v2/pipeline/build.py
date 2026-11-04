@@ -631,8 +631,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # OWNER RULINGS 2026-10-15i (3), option (b): the taxi trend's SECOND
     # PASS — the apron levels stage 1 solved become trend contacts, bound
     # here because ``solve`` may not import ``constraints``
-    from ..constraints.taxi_trend import low_hold_retarget, stage_one_retarget
     # issue #359: the lot over a declared wall follows its pad after stage 2
+    from ..constraints.taxi_trend import low_hold_retarget, stage_one_retarget
     from .lot_follow import lot_follow_rewrite
 
     def _solve() -> tuple:

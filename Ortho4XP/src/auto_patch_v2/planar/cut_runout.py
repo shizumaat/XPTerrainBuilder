@@ -257,7 +257,7 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict
                          "z0_pred": round(z0, 3), "reach_m": float(PLANE_BAND_M), "g": g,
                          "cap": cap, "kind": "level_end"}
             taken = unary_union([taken, *rec["polys"]])
-    # two callers (``level_regions.seed_levels`` / ``region_runouts``) add up
+    # the callers' counts add up (``level_regions.seed_levels`` per seed)
     counts["level_runouts"] = counts.get("level_runouts", 0) + len(out)
     prev = counts.get("level_runout_ends") or {}
     counts["level_runout_ends"] = {k: prev.get(k, 0) + v for k, v in stat.items()}

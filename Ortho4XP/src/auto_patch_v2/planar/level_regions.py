@@ -62,7 +62,7 @@ from ..law.tables import role_side
 from ..model.planar import STRIP_SUFFIX, plane_of, plane_ref
 from ..model.registries import Registries
 
-__all__ = ["LevelSeed", "level_seeds", "region_depths", "region_runouts", "seed_levels"]
+__all__ = ["LevelSeed", "level_seeds", "region_depths", "seed_levels"]
 
 #: the ``witness`` word of a passage level's record
 PASSAGE_WITNESS = "passage"
@@ -481,48 +481,6 @@ def _area_median(pairs: list) -> float:
         if acc >= half:
             return y
     return s[-1][0]
-
-
-def region_runouts(regs: list, reg: Registries, air_all, airport, law, grid: float,
-                   counts: dict) -> list:
-    """STEP 8 FOR THE LEVELS THE OTHER PASSES MINT (``planar/low_level``,
-    ``planar/low_extent``, :func:`region_depths`): every at-grade mapped road
-    leaving a lower level runs out to its ground at the road ramp law
-    (``cut_runout.cut_runouts`` roads), through its riser -- the riser strip
-    is opened where the road crosses the level's edge.  A covered cut runs
-    out by its own rail run-outs; a passage level by
-    :func:`seed_levels`.  MEASURED LFPG T2 (capture lfpg6): 0 ends found
-    while the open-edge risers closed every road leaving the corridor."""
-    from .covered_cut import WITNESS as _COVERED
-    from .low_level import LOW_KIND
-    lows = {r: v for r, v in reg.landings.items() if v.get("kind") == LOW_KIND
-            and v.get("witness") not in (_COVERED, PASSAGE_WITNESS)
-            and f"runout:{r}" not in reg.landing_runouts}
-    if not lows:
-        return regs
-    from ..law.tables import design as design_law
-    near = float(design_law(law).pad_frontage_m)
-    w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
-    geo: dict[str, list] = {}
-    for r in regs:
-        if str(r.ref) in lows and r.polygon is not None and not r.polygon.is_empty:
-            geo.setdefault(str(r.ref), []).append(r.polygon)
-    if not geo:
-        return regs
-    through = _carriageways(airport, law)
-    gaps: dict[str, _t.Any] = {}
-    levels: dict[str, tuple] = {}
-    for ref, gs in geo.items():
-        L = valid_area(unary_union(gs))
-        # an open-edge riser fills the airside keep-off (``low_extent._riser``)
-        band = valid_area(L.buffer(near + 2.0 * w, join_style=2).difference(L))
-        cut = through(band)
-        if cut is not None:
-            gaps[ref + STRIP_SUFFIX] = cut
-        rec = lows[ref]
-        levels[ref] = (L, rec["block"], float(rec.get("y_lo", rec.get("y", 0.0))))
-    air = valid_area(unary_union([r.polygon for r in air_all if r.polygon is not None]))
-    return _run_out(regs, reg, levels, gaps, air, airport, law, grid, counts)
 
 
 def _run_out(regs: list, reg: Registries, levels: dict, gaps: dict, air, airport, law,

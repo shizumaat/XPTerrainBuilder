@@ -895,3 +895,51 @@ and `cut_runout` / `constraints/ramp_runout.landing_runout_rows` are
 written for a run-out that descends (a sign on the record and the mirrored
 rows); the region record `PlanarMap.level_regions`; `region_depth`'s
 ladder rungs 2-5.
+
+### 16.1 Round 4b (owner 2026-11-04T18:31Z / 18:42Z / 19:09Z)
+
+**Built.**
+- **A building the roads run through is one flat lower level.** A W1 seed
+  now carries its PASSAGE: the at-grade mapped carriageways across its
+  footprint. Its pad is cut by `low_level.level_cut` (whole, frontage band
+  kept as the block) into ONE flat level at the walls' depth, tied to the
+  pad's own block. The unreachable pieces it touches join it (step (b)),
+  each with a riser that fills the airside keep-off up to a riser short of
+  the apron rim. A seed with no passage (a basement, a storey over level
+  ground) mints nothing. This replaces round 4's step (b) on its own.
+- **Clearance (owner 18:42Z).** The object's underside over the passage is
+  read from its own OBJ geometry (`planar/level_underside`: the lowest
+  horizontal static solid per 2 m cell above the floor; the lowest sloped
+  solid reported apart) against `[tunnel] clearance_m` (5.0, "the road's
+  vertical clearance under the roof"; no new key). Where the soffit stands
+  less than that over the walls' feet, no level is minted and the note says
+  so: the walls and the clearance disagreeing is the owner's to rule.
+  - KIAH station: soffit y +1.36 over feet at -3.93, so 5.29 m clear.
+  - LFPG T1 (`T1_16-18`): soffit -2.99 over -5.19, so 2.20 m (SHORT, no level).
+  - LFPG 2A (`2A_50/51`): soffit -0.10 over -5.51, so 5.41 m.
+- **Step 8 run-outs, the road half.** `cut_runout.cut_runouts(roads=True)`:
+  - The roads' ROUTES are walked through junctions (`viaduct_road._route`).
+  - There is one end per route.
+  - The run is laid off the level furthest from the ground (one plane band).
+  - The record's `sign` is -1 where the road climbs.
+  - `constraints/ramp_runout.landing_runout_rows` mirrors its rows by that
+    sign, anchored on a level vertex (`from_level`).
+  - A riser opens only where a minted run-out leaves through it.
+
+**Refuted and removed.**
+- **W3 deck levels at KLAX** (one covered World Way stretch, 9,810 m2 at
+  T2's depth, the skybridge pads cut through as covers). Adjudicated rose
+  205 -> 291, from 4.4 m terrace steps against the T5 / walkway pads, the
+  level bent 4.07 m by relaxed landing rows, and road-exit steps.
+  - The KLAX case needs the riser exemption and the terrace declaration
+    extended to the OTHER pads a region meets (`constraints/riser.
+    riser_sets` reads only the level's own block, and the census reads an
+    undeclared pad-to-level step as `terrace_actual_step`).
+  - Attempt kept in the lane scratch, not in the tree.
+- **Run-outs for the levels the other passes mint** (`region_runouts`,
+  KATL `building46`, LFPG T2). KATL road_cross_section 53 -> 208 with
+  crossings grouped (strips up to 111 m wide), then 53 -> 225 with one end
+  per route. Two attempts; withdrawn. LFPG's T2 corridor therefore has no
+  run-outs to the D1/A1 roads this round.
+- **Releasing the run-out ground from the pads by the riser exemption**
+  (`ground_refs`): the station level was pulled to 27.9 m. Withdrawn.

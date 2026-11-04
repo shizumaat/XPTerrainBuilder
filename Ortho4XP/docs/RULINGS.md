@@ -10620,3 +10620,29 @@ Cross-tile:
 Process (standing):
 - (23) (22:16Z) always run as many lanes as the plan allows (8, the cap of 2026-11-03d (1)) while open issues remain; clean finished worktrees as they finish (2026-11-03d (2)); refresh data caches as needed through `build_airport.py --refresh-data` (RULINGS e9daef5). (22:23Z) #1252, #517, #1264 go into Beta 7.
 - (24) (23:21Z) SKIP section views this week: supersedes 2026-11-03b (8) Q347 a until further notice. Reuse-first is already law (CLAUDE.md "Reuse and readable modules", RULINGS 2026-10-04); lanes fixing bugs they find is 2026-11-03c (11).
+
+**2026-11-04a: overlays, pads and collars, road climbs, #1093 rules, #1362 water mesh, walls and decks, usage plan (owner, Noah, 2026-11-04, from the master's notes; times UTC).**
+Overlays (#1598; with 2026-11-03e (17)):
+- (1) (01:53Z) an overlay pack never flips an apron, and is read only inside the airport boundary.
+- (2) (04:45Z) overlay pages are split at mapped roads (overlay only); an overlay piece is kept when it touches airport pavement directly or connects to it through a mapped road (no 50 m reach).
+Pads, collars and roads:
+- (3) #1531 (02:35Z) yes: 2026-11-03e (18) applies to every pad and landing collar on kept ground — level at the downhill frontage on fill, hill cut behind; the road ramps from there.
+- (4) #1338 (02:35Z) recommendations accepted: (a) a fenced car-park facade stays lot; (b) the garage hole is held for two-level (with 2026-11-03b Q340 a).
+- (5) Road climbs (04:20Z): prefer 5 % max; up to 10 % only when required to reach between pads, lots or airside that cannot move. Settles #1639 (2), which at 02:35Z was "climbs as now until sim read".
+- (6) #1855 (05:13Z) yes: a plate vertex fixed by a shared groundside road/lot face or by held frontage contact gets relief offset 0, in the solve and in the sidecar.
+#517 (with 2026-11-03e (19)):
+- (7) (02:35Z) the recommendation is accepted as a general rule; (04:30Z) a 6–8 cm junction/plateau drop is accepted, full-face version; one short round clears the three cap-edge rows (branch claude/l517r3 c5447344b).
+#1093 (with 2026-11-03e (16); 02:35Z: the road drops with the strip; 04:31Z: one more round past the cap, owner-approved):
+- (8) Rule 1 (04:33Z): where a bank meets a road continuing past the patch edge, the road keeps its own level and grade; the bank stops at the road edge and slopes down beside it, never across it.
+- (9) Rule 2 (04:34Z): an unmapped slot between held faces is filled to the level of the faces around it (it is part of the held ground).
+- (10) Rule 3 (04:35Z): the 0.5 m bar is measured bridged — a gap under 1.5 m stand-off is a step, not an open edge.
+Site rules:
+- (11) #1306 (03:36Z) yes: the KATL brick wall joins the east terminal lower level. Amends 2026-10-27h Q188 at this site (with 2026-11-03b Q340 a).
+- (12) #1847 (02:35Z): verify also on SBSP (short steep runway ends); the owner checks GCLA in the sim.
+- (13) #1362 (04:46Z) option A: mesh sits just under the pack's hard ground (water to land), set rigid, with no ramps or runouts on it, and a notice "no companion mesh". The witness and census of spec 8913b59f2 are ratified (runway_cover_min 0.5).
+- (14) #507 (04:47Z) option (a): a known reported defect (with 2026-10-28 Q272 (A)).
+Walls and decks (#1671 family; with 2026-11-03e (1)–(8)):
+- (15) (05:16Z) a runway-end retaining wall seats with its top matching the safety area; its bottom may sink (KSEA 16C). With 2026-10-28 Q299 (a).
+- (16) (07:09Z) runways treat a bridge deck end line like a tile seam: the runway flattens to match the object edge, and the crown yields. Extends 2026-11-03e (2) Q2 ("tile edges trump everything") to deck end lines.
+Process (standing):
+- (17) Usage plan (01:53Z): run at full pace (8 lanes, 2026-11-03e (23)) to 85 % weekly usage; the last 15 % goes to completion, regressions and ship; issues not started by then move to Beta 8.

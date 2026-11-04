@@ -343,8 +343,6 @@ def platform_split(base_regions, pad_regions, law: Law,
                                         or is_structure_role(law, r.role))],
                           beyond=[r.polygon for r in base_regions if r.polygon is not None
                                   and BEYOND in str(r.ref)],
-                          beyond_refs=[str(r.ref) for r in base_regions if r.polygon is not None
-                                       and BEYOND in str(r.ref)],
                           # the pavement no aircraft reaches is offered to the
                           # lower levels as their own ground (``beyond``), never
                           # a lot one stands on fill above (MEASURED LFPG T2,

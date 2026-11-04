@@ -33,13 +33,13 @@ a building the roads run under: the pad it stands on, cut by
 taken in, kept that distance off the airside and a riser off the other
 pads, the frontage band left as the block), is ONE flat lower level at the
 seed's depth -- ``<block>/p<k>`` (kind ``low_level``, witness ``passage``)
-of its own pad where the block plan predicts that block's datum, else of the
-predicted block it fronts, ``y_lo = -depth`` under that datum
+of its own pad's block (the datum its zero is seated at; else the predicted
+block it fronts), ``y_lo = -depth`` under that datum
 (``constraints/platform.landing_rows``).  The roof must leave ``[tunnel]
 clearance_m`` over it: where the object's soffit over the passage stands
-less than that above its wall feet the record says so (``clearance_short``)
-and the level stays at the walls -- the walls and the clearance disagreeing
-is the owner's to rule, never this pass's.  A seed with no passage (a
+less than that above its wall feet no level is minted and the note says so
+-- the walls and the clearance disagreeing is the owner's to rule, never
+this pass's.  A seed with no passage (a
 basement, a lower storey over level ground) mints nothing.  The unreachable
 pieces the level touches (``#beyond``) are its floor too (step (b)), each a
 riser off the pads; every road leaving the region runs out to its ground
@@ -191,13 +191,12 @@ def _ground(g, dem, step: float):
 
 
 def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_all, airport,
-                law, grid: float, counts: dict, beyond: _t.Sequence = (),
-                beyond_refs: _t.Sequence = ()) -> list:
+                law, grid: float, counts: dict, beyond: _t.Sequence = ()) -> list:
     """``regs`` (the pad regions, the levels minted) with the pad under every
     seed with a passage cut into its one flat lower level (module
     docstring); each level registered in ``reg.landings``.  ``beyond``: the
     unreachable pieces, the level's floor where they touch it (step (b),
-    :func:`_pieces`); ``beyond_refs`` their refs (kept for the record)."""
+    :func:`_pieces`)."""
     from .low_level import LOW_KIND, level_cut
     counts["level_seeds"] = len(seeds)
     cands = [s for s in seeds if s.passage is not None]
@@ -246,18 +245,28 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
         H, L, S = cut
         polys = {k: valid_area(unary_union([r.polygon for r in rs])) for k, rs in by_ref.items()
                  if k != pref and k in reg.held}
-        # the object is seated on its own pad: its zero is that block's datum
-        # where the block plan predicts one; a §20 conforming pad predicts
-        # none (KIAH ``building88``), and the level is the block's it fronts
-        own = pref if (reg.held.get(pref) or {}).get("datum_pred") is not None else None
-        block = own or _front_block(L, polys, reg.held, near + 2.0 * w) or (
-            pref if pref in reg.held else None)
+        # the object is seated on its own pad: its zero is that block's datum,
+        # and the level hangs off it -- the frontage band the cut leaves keeps
+        # it, so the airside it welds to never follows the level (MEASURED
+        # KIAH replay, the level tied to the Terminal D block it fronts: the
+        # station pad's frontage band re-seated 0.1 m and pulled two apron
+        # rim vertices 0.15-0.18 m)
+        block = pref if pref in reg.held else _front_block(L, polys, reg.held,
+                                                           near + 2.0 * w)
         if block is None:
             notes.append(f"unit {s.unit}: {pref} fronts no held block")
             continue
         under = s.underside or {}
         soffit = under.get("soffit_y")
         short = soffit is not None and soffit - s.y_feet < clear - 1e-6
+        if short:
+            # the walls and the clearance disagree: the owner's to rule, never
+            # this pass's -- the pad stays as it was (MEASURED LFPG T1
+            # ``T1_16-18``: walls 5.19 m down, a soffit 2.2 m over them)
+            notes.append(f"unit {s.unit} on {pref}: walls {s.depth:.2f} m down, soffit "
+                         f"{soffit:+.2f} -- {soffit - s.y_feet:.2f} m clear, SHORT of "
+                         f"{clear:g} m; no level (owner ruling)")
+            continue
         n_k[block] = n_k.get(block, 0) + 1
         ref = plane_ref(block, n_k[block])
         tmpl = by_ref[pref][0]
@@ -329,13 +338,21 @@ def _pieces(regs: list, reg: Registries, L, beyond, block: str, host: str, s, ai
     tmpl = next(r for r in regs if str(r.ref) == host)
     out = list(regs)
     levels: dict[str, tuple] = {}
-    for q in nonempty_polygon_parts(valid_area(valid_area(unary_union(gs)).difference(keep_off))):
+    qs = nonempty_polygon_parts(valid_area(valid_area(unary_union(gs)).difference(keep_off)))
+    smalls = [g for g in qs if g.area < pmin]
+    for q in qs:
         if q.area < pmin:
             continue
         n_k[block] = n_k.get(block, 0) + 1
         ref = plane_ref(block, n_k[block])
-        S = valid_area(q.buffer(w, join_style=2).difference(q).difference(pads)
-                       .difference(air.buffer(near)))
+        # the riser fills the keep-off up to a riser off the airside -- the lot
+        # band left there stays welded to the apron at the apron's level,
+        # never to the level (#1717: a lot between level and apron chains the
+        # level up; a riser ON the apron's rim pulled two rim vertices 0.09 m,
+        # MEASURED KIAH replay) -- with the slivers of the pieces beside it
+        S = valid_area(unary_union([q.buffer(near + 0.5 * w, join_style=2),
+                                    *(g for g in smalls if g.distance(q) <= near + w)])
+                       .difference(q).difference(pads).difference(air.buffer(w, join_style=2)))
         gaps[ref + STRIP_SUFFIX] = roads_of(q)
         out.append(_dc.replace(tmpl, ref=ref, polygon=q))
         out.extend(_dc.replace(tmpl, ref=ref + STRIP_SUFFIX, polygon=g)

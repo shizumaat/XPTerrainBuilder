@@ -53,7 +53,7 @@ def _run(law, parts, tmp_path, roads=(), ground=lambda x, y: 26.0):
     seeds, _notes = LR.level_seeds(A, _cls(), law)
     reg = Registries()
     reg.held["term"] = {"unit": "term", "datum_pred": 30.0}
-    reg.held["stn"] = {"unit": "stn", "verdict": "conforming", "conforming": True}
+    reg.held["stn"] = {"unit": "stn", "datum_pred": 30.0}
     regs = [Region(role="building", ref=ref, polygon=g, code_number=None, code_letter=None,
                    side="airside", source="cell") for ref, g in (("term", T), ("stn", STN))]
     counts: dict = {}
@@ -66,11 +66,13 @@ def test_the_roads_through_a_building_are_its_one_level(law, tmp_path):
     (s,) = seeds
     assert s.depth == pytest.approx(4.0) and s.passage is not None
     (ref, rec), = ((k, v) for k, v in reg.landings.items() if v.get("witness") == "passage")
-    assert ref == "term/p1" and rec["kind"] == LOW_KIND and rec["block"] == "term"
+    # the level hangs off the station's own block (its zero), never the
+    # terminal's beside it
+    assert ref == "stn/p1" and rec["kind"] == LOW_KIND and rec["block"] == "stn"
     assert rec["y_lo"] == pytest.approx(-4.0) and rec["pad"] == "stn"
     L = next(r.polygon for r in out if r.ref == ref)
     assert L.area > 0.8 * STN.area                     # the station's whole floor, one level
-    assert not any(r.ref == "stn" and r.polygon.area > 1.0 for r in out)
+    assert sum(r.polygon.area for r in out if r.ref == "stn") < 0.2 * STN.area
     assert any(r.ref == ref + "#strip" for r in out)
 
 

@@ -224,7 +224,12 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict
     for ref, (L, bref, y) in sorted(levels.items()):
         datum = (held.get(bref) or {}).get("datum_pred")
         near_ways = [w for w in ways if w.distance(L) <= max(grid, 0.5)]
-        for (lx, ly), (dx, dy), pts in _ends(_exits(L, taken, near_ways)):
+        # ONE END PER ROAD: crossings are grouped along their own route only
+        # -- grouped across routes (a cut's tracks, :data:`END_M`) the strip
+        # spanned up to 111 m of parallel roads and tilted every one across
+        # (MEASURED KATL replay: road_cross_section 53 -> 208)
+        ends = [e for wy in near_ways for e in _ends(_exits(L, taken, [wy]))]
+        for (lx, ly), (dx, dy), pts in ends:
             stat["ends"] += 1
             if datum is None:
                 stat["no_datum"] += 1

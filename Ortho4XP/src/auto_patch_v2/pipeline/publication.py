@@ -1041,6 +1041,11 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
         step = 0.0
         if z is not None and j.pairs:
             step = max(abs(float(z[a]) - float(z[b])) for a, b in j.pairs)
+            if j.gap:
+                # a gap step is read back off the EMITTED elevations by the
+                # strip families (27y), so it carries the emit's rounding as
+                # ``pad_terrace_joints`` does (#883: 1.1964 declared, 1.20 read)
+                step += _EMIT_Z_ROUND_M
         out.append({"points": pts, "step_m": round(step, 4), "declared_step_m": round(step, 4),
                     "faced": False, "kind": "apron_terrace", "faces": [], "shapes": list(j.shapes),
                     "gap": bool(j.gap), "roles": list(j.roles), "pairs": len(j.pairs),

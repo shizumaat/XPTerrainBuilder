@@ -257,8 +257,11 @@ def region_depths(regs: list, reg: Registries, law, grid: float, counts: dict) -
     ``planar/group_low``; or one block's datum) and whose floors (``y_lo``)
     lie within one ``PLANE_BAND_M`` (one floor, as the foot-plane reader
     reads one) are one region, and stand at one depth: the area-weighted
-    median of their own stated floors.  The riser strip between two of them
-    is the region's floor, never a step inside it.  MEASURED LFPG T2
+    median of their own stated floors: the riser strip between two of them
+    then stands flat between one floor, never a step inside it (its refs
+    are kept: re-reffing strip pieces into the level moved 4 riser-top
+    vertices 6.3-7.6 m at the strips' junctions, MEASURED LFPG replay).
+    MEASURED LFPG T2
     (capture lfpg6): the corridor ``building35/p2`` (143,204 m2, the central
     buildings' bottom 6.97 m under the group's zero) and the trench pads
     ``building34/35/51/64/p1`` (7.37-7.39 m) behind 0.4 m risers inside the
@@ -298,7 +301,6 @@ def region_depths(regs: list, reg: Registries, law, grid: float, counts: dict) -
     comps: dict[str, list[str]] = {}
     for k in refs:
         comps.setdefault(find(k), []).append(k)
-    joined: dict[str, str] = {}
     notes: list[str] = []
     for members in comps.values():
         ys = {round(float(lows[k]["y_lo"]), 3) for k in members}
@@ -311,13 +313,12 @@ def region_depths(regs: list, reg: Registries, law, grid: float, counts: dict) -
                 rec["y_feet"] = round(float(rec["y_feet"]) + y - float(rec["y_lo"]), 3)
             rec["y"] = rec["y_lo"] = round(y, 3)
             rec["region_of"] = members[0]
-            joined[k + STRIP_SUFFIX] = k
         notes.append(f"{'+'.join(members)} y {y:+.2f} (was {sorted(ys)})")
     if not notes:
         return regs
     counts["level_regions"] = len(notes)
     counts["level_region_list"] = "; ".join(notes)
-    return _strips_inside(regs, joined, geo, 1.5 * w)
+    return regs
 
 
 def _zero(rec: dict) -> tuple:
@@ -337,26 +338,3 @@ def _area_median(pairs: list) -> float:
         if acc >= half:
             return y
     return s[-1][0]
-
-
-def _strips_inside(regs: list, joined: dict, geo: dict, near: float) -> list:
-    """``regs`` with the part of every joined level's riser strip that lies
-    within ``near`` of ANOTHER member of its region re-reffed to the level
-    itself (the region's floor, no riser inside it)."""
-    members = set(joined.values())
-    out: list = []
-    for r in regs:
-        lvl = joined.get(str(r.ref))
-        if lvl is None or r.polygon is None or r.polygon.is_empty:
-            out.append(r)
-            continue
-        others = [geo[m] for m in members if m != lvl and m in geo
-                  and geo[m].distance(r.polygon) <= near]
-        if not others:
-            out.append(r)
-            continue
-        inner = valid_area(r.polygon.intersection(unary_union(others).buffer(near, join_style=2)))
-        rest = valid_area(r.polygon.difference(inner))
-        out.extend(_dc.replace(r, ref=lvl, polygon=g) for g in nonempty_polygon_parts(inner))
-        out.extend(_dc.replace(r, polygon=g) for g in nonempty_polygon_parts(rest))
-    return out

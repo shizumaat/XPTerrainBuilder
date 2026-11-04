@@ -836,3 +836,62 @@ With the corridor taken, the 143,000 m2 level `building35/p2` solved at
 **Not in this round:** the landside zones (S3/O1), the A1 under 09R/27L
 (S4), the bare ground the owner lowered (D6), and §2.2 steps 3–8 (ground
 between, enclosed faces, run-outs).
+
+## 16. Round 4 (lane lowregion4, 2026-11-04): object-witnessed seeds, one depth per region
+
+Built from the Fable round-4 review (owner yes 2026-11-04T16:03Z: "the changes
+are mostly around identifying more cases with more accuracy"). One new module,
+`planar/level_regions` (the region record's derivation, one responsibility).
+
+**What is built.**
+1. **W1, walls below the zero (`level_seeds`)**, read ONCE in `planar/build`
+   beside `airport_level_b`: per partition unit, the walled parts
+   (`[placement] chain_min_height_m`) that are no supports
+   (`geom/foot_planes.is_support`) whose densest `PLANE_BAND_M` foot plane
+   stands at least `[building_pad] low_level_min_step_m` under the unit's
+   zero (its stand-side floor where the stands read one, else its authored
+   zero) are a seed; footprint = their rings, depth = zero - feet plane. No
+   held block, STEPPED base or stand is needed. MEASURED KIAH (capture
+   kiahstation): `KIAH_Trainstation2.obj` (unit 60) on the §20 conforming
+   pad `building88`, two walled parts with feet at y -3.93; KATL 13 seeds,
+   LFPG 6, EGLL 9, KPHX 2.
+2. **Step (b), the unreachable pieces a seed touches (`seed_levels`)**, run
+   inside `low_level.low_level_split` after `low_extent.extend_levels`:
+   each `#beyond` piece within `pad_frontage_m` of a seed footprint, less
+   the pads + a riser and the airside + `pad_frontage_m`, is minted
+   `<block>/p<k>` (kind `low_level`, witness `walls`) of the held block it
+   FRONTS (the predicted-datum block sharing most of its rim), at `y_lo =
+   -depth` under that block's datum, with its riser strip along the pads
+   and every open edge (`low_extent._riser`). The ground confirms it
+   (#1115, in world terms): the piece's DEM median must stand under
+   `datum_pred - depth / 2`; EGLL's 9 seeds mint nothing on it (a storey
+   over level ground).
+3. **Steps (f) + §3, one region, one depth (`region_depths`)**: lower
+   levels held at one zero (one group's witnesses and top, or one block's
+   datum) that touch and whose floors lie within one `PLANE_BAND_M` are one
+   region at the area-weighted median floor. Floors a band or more apart
+   keep their object step (KATL `building46` p5-p7, 27h). The riser strips
+   between members keep their refs and stand flat (re-reffing them into
+   the level moved 4 riser-top vertices 6.3-7.6 m at the strips'
+   junctions, MEASURED LFPG replay, refuted and removed).
+
+**Refuted and removed in the round.**
+- A seed arming the covered reach read (`reach_under_covers`): it turned
+  EGLL (2 parts, 13,813 m2) and KPHX (1 part, 2,653 m2) covered apron
+  groundside with no ladder depth to take them (dry A/B; S1's measured
+  KPHX cost of the same was +68 adjudicated and 487 airside movers). It
+  stays gated on an object-stated level B until the ladder (§3) mints
+  covered regions.
+- Opening the riser across the at-grade roads leaving a level (the road's
+  own law as its run-out): KIAH replay within_shape 112 -> 321,
+  road_cross_section 28 -> 52. Step 8's run-outs need the climbing
+  run-out record (below).
+
+**Not built this round** (spec §1 W2/W3, §2 steps (c) (d) (e) (g), §4):
+W2 as a seed on its own; W3 decks over mapped roads (KLAX) and the
+viaduct_road replacement; (c) region roads/rails; (d) through covers;
+(e) enclosed faces; (g) run-outs -- a lowered region's roads CLIMB out,
+and `cut_runout` / `constraints/ramp_runout.landing_runout_rows` are
+written for a run-out that descends (a sign on the record and the mirrored
+rows); the region record `PlanarMap.level_regions`; `region_depth`'s
+ladder rungs 2-5.

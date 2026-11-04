@@ -36,6 +36,7 @@ not.  Two holds make the target lawful, both minimum interventions:
 """
 from __future__ import annotations
 
+import heapq
 import typing as _t
 
 import numpy as np
@@ -51,7 +52,8 @@ from ..model.planar import PlanarMap
 if _t.TYPE_CHECKING:                                    # pragma: no cover
     from .taxi_trend import _Chain
 
-__all__ = ["capped_chain", "held_by_contacts", "stage_one_contacts"]
+__all__ = ["capped_chain", "ceiled", "held_by_contacts", "low_hold_spans",
+           "lowered_within_budget", "stage_one_contacts"]
 
 #: a target moved by less than this is not counted as held (metres)
 _MOVED_M = 1e-6
@@ -110,6 +112,85 @@ def capped_chain(at: _t.Callable[[float], float | None], c: "_Chain",
         return float(np.interp(q, st, clamped))
 
     return lawful_at
+
+
+#: one span between two low holds: ``(station a, level a, station b, level b)``
+Span = tuple[float, float, float, float]
+
+
+def low_hold_spans(c: "_Chain", levels: _t.Mapping[int, float],
+                   targets: _t.Mapping[int, float], margin_m: float
+                   ) -> list[Span]:
+    """HOLD (3), module docstring: every span of ``c`` between two
+    CONSECUTIVE LOW HOLDS — chain vertices (never a runway contact) whose
+    stage-1 level (``levels``) is a LOCAL MINIMUM along the chain (no
+    neighbour on it lower) and stands more than ``margin_m`` under its own
+    target: the places something holds the taxiway down."""
+    vs = c.vertices
+    pins = set(c.pins)
+    pts = []
+    for i, v in enumerate(vs):
+        if v in pins or v not in levels or v not in targets:
+            continue
+        z = float(levels[v])
+        if targets[v] - z <= margin_m:
+            continue
+        if all(z <= float(levels[vs[k]]) for k in (i - 1, i + 1)
+               if 0 <= k < len(vs) and vs[k] in levels):
+            pts.append((c.stations[i], z))
+    pts.sort()
+    return [(sa, za, sb, zb) for (sa, za), (sb, zb) in zip(pts, pts[1:], strict=False)
+            if sb > sa]
+
+
+def ceiled(spans: _t.Sequence[Span], s: float, t: float) -> float:
+    """``t`` at station ``s`` under the ceiling of ``spans``: the line
+    between the span's two held levels, strictly inside the span; ``t``
+    itself at a junction and outside every span."""
+    for sa, za, sb, zb in spans:
+        if sa < s < sb:
+            return min(t, za + (zb - za) * (s - sa) / (sb - sa))
+    return t
+
+
+def lowered_within_budget(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float],
+                          lowered: _t.Mapping[int, float]) -> dict[int, float]:
+    """HOLD (3)'s ceiling carried to the targets it would step past: every
+    target (``targets``) at most THE NO-STEP BUDGET above the ``lowered``
+    ones — the pairs hold (2) holds (:func:`_pairs`, :func:`_box_pairs`),
+    each priced one ``[design] hard_tol_m`` tighter (the within-shape idiom
+    ``cap − hard_tol_m / d``: the solve holds a row AT its tolerance, so a
+    target pair at the full budget emits over the cap).  A ceiled span next
+    to a target the ceiling did not reach is a STEP in the targets (SPJC L:
+    2.1 m over 53 m past a hold) that the solve trades against the caps;
+    lowering the far side down to the budget (a Dijkstra from the lowered
+    targets — it only lowers, and nothing within budget moves) removes it.
+    Returns ``targets`` with ``lowered`` and every target so held."""
+    from ..law.tables import design as design_law
+    out = {v: float(t) for v, t in targets.items()}
+    out.update({v: min(out.get(v, z), float(z)) for v, z in lowered.items()})
+    if not lowered:
+        return out
+    ns = law.tables.emit.no_step
+    tol = float(design_law(law).hard_tol_m)
+    g = routes(pm, law, None)
+    own = {v: [(u, b) for u, b, _d in ps] for v, ps in
+           _pairs(g, out, float(ns.window_m), int(ns.k), set(out)).items()}
+    for v, ps in _box_pairs(pm, law, None).items():
+        if v in out:
+            own.setdefault(v, []).extend((u, b) for u, b, _d in ps if u in out)
+    heap = [(out[v], v) for v in lowered if v in out]
+    heapq.heapify(heap)
+    while heap:
+        z, u = heapq.heappop(heap)
+        if z > out[u] + 1e-12:
+            continue
+        for w, b in own.get(u, ()):
+            cand = z + max(0.0, float(b) - tol)
+            if cand < out[w] - _MOVED_M:
+                out[w] = cand
+                heapq.heappush(heap, (cand, w))
+    return out
 
 
 #: passes of the pair projection (:func:`held_by_contacts`) — it stops

@@ -35,15 +35,15 @@ pads, the frontage band left as the block), is ONE flat lower level at the
 seed's depth -- ``<block>/p<k>`` (kind ``low_level``, witness ``passage``)
 of its own pad's block (the datum its zero is seated at; else the predicted
 block it fronts), ``y_lo = -depth`` under that datum
-(``constraints/platform.landing_rows``).  The roof must leave ``[tunnel]
-clearance_m`` over it: where the object's soffit over the passage stands
-less than that above its wall feet no level is minted and the note says so
--- the walls and the clearance disagreeing is the owner's to rule, never
-this pass's.  A seed with no passage (a
-basement, a lower storey over level ground) mints nothing.  The unreachable
-pieces the level touches (``#beyond``) are its floor too (step (b)), each a
-riser off the pads; every road leaving the region runs out to its ground
-(``planar/cut_runout`` roads, step 8).
+(``constraints/platform.landing_rows``).  The roof is read against
+``[tunnel] clearance_m``: where the object's soffit over the passage stands
+less than that above its wall feet the level is still minted at the walls'
+depth and the note reports the clearance (owner 2026-11-04T20:47Z: "set
+wall depth and object seating based on the objects sizes").  A seed with
+no passage (a basement, a lower storey over level ground) mints nothing.
+The unreachable pieces the level touches (``#beyond``) are its floor too
+(step (b)), each a riser off the pads; every road leaving the region runs
+out to its ground (``planar/cut_runout`` roads, step 8).
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -259,14 +259,11 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
         under = s.underside or {}
         soffit = under.get("soffit_y")
         short = soffit is not None and soffit - s.y_feet < clear - 1e-6
-        if short:
-            # the walls and the clearance disagree: the owner's to rule, never
-            # this pass's -- the pad stays as it was (MEASURED LFPG T1
-            # ``T1_16-18``: walls 5.19 m down, a soffit 2.2 m over them)
-            notes.append(f"unit {s.unit} on {pref}: walls {s.depth:.2f} m down, soffit "
-                         f"{soffit:+.2f} -- {soffit - s.y_feet:.2f} m clear, SHORT of "
-                         f"{clear:g} m; no level (owner ruling)")
-            continue
+        # the walls set the depth and the object is seated by its own
+        # geometry even where its soffit stands short of ``clearance_m``
+        # (owner 2026-11-04T20:47Z: "set wall depth and object seating based
+        # on the objects sizes"; MEASURED LFPG T1 ``T1_16-18``: walls 5.19 m
+        # down, a soffit 2.2 m over them): the clearance is reported
         n_k[block] = n_k.get(block, 0) + 1
         ref = plane_ref(block, n_k[block])
         tmpl = by_ref[pref][0]
@@ -508,9 +505,16 @@ def _run_out(regs: list, reg: Registries, levels: dict, gaps: dict, air, airport
                        if q.area >= 1.0)
         return out
     gaps = {k: g for k, g in gaps.items() if g is not None and not g.is_empty}
-    trial = opened(regs, gaps)
-    taken = valid_area(unary_union([r.polygon for r in trial if r.polygon is not None] + [air]))
-    got = cut_runouts(levels, reg.held, airport, law, taken, grid, counts, roads=True)
+    # what takes an end is every OTHER pad and the airside: the region's own
+    # riser strips are the step its run-outs replace through the gaps --
+    # read as pads, the pieces' 3.5 m strips two risers out closed every
+    # 8 m carriageway gap between them (spec §17, round 5)
+    own = {r + STRIP_SUFFIX for r in levels}
+    named = [(str(r.ref), r.polygon) for r in opened(regs, gaps)
+             if r.polygon is not None and str(r.ref) not in own] + [("airside", air)]
+    taken = valid_area(unary_union([q for _r, q in named]))
+    got = cut_runouts(levels, reg.held, airport, law, taken, grid, counts, roads=True,
+                      named=named)
     if not got:
         return regs                      # no run-out: every riser stays closed
     reg.landing_runouts.update(got)

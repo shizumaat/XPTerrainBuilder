@@ -86,6 +86,29 @@ def test_the_roads_leaving_the_level_climb_to_their_ground(law, tmp_path):
     assert max(v["run_m"] for v in ups) > 10.0
 
 
+def _rising(x, y):
+    return 26.0 if x < 545.0 else 26.0 + min(2.0, 0.05 * (x - 545.0))
+
+
+def test_each_road_leaving_the_level_is_its_own_run_out_its_own_width(law, tmp_path):
+    # two parallel roads through the station, 15 m apart: two ends, each
+    # strip its own carriageway (never one strip across both, nor the
+    # widest road's width), minted though the region's own riser strips
+    # stand beside them (spec §19 E1/E2)
+    from auto_patch_v2.airport.road_ways import ribbon_half_width_m
+    roads = [_road(y=25.0), _road(y=40.0)]
+    _s, _out, reg, counts = _run(law, _station(), tmp_path, roads=roads, ground=_rising)
+    ups = sorted((v for v in reg.landing_runouts.values() if v.get("kind") == "level_end"),
+                 key=lambda v: v["lip"][1])
+    w = 2.0 * ribbon_half_width_m(roads[0].tags, law)
+    assert len(ups) == 2 and counts["level_runout_ends"]["taken"] == 0
+    assert [round(v["lip"][1]) for v in ups] == [25, 40]
+    assert all(v["width_m"] == pytest.approx(w) for v in ups)
+    for v in ups:                                   # inside its own carriageway only
+        lo, hi = v["lip"][1] - 0.5 * w - 1e-6, v["lip"][1] + 0.5 * w + 1e-6
+        assert all(lo <= y <= hi for q in v["polys"] for _x, y in q.exterior.coords)
+
+
 def test_a_basement_mints_nothing(law, tmp_path):
     seeds, out, reg, _c = _run(law, _station(), tmp_path, roads=())
     assert len(seeds) == 1 and seeds[0].passage is None
@@ -102,3 +125,5 @@ def test_a_support_founds_no_seed(law, tmp_path):
     pole.box = (10.0, 500.0, 10.00001, 500.00001)
     seeds, _out, _reg, _c = _run(law, [pole], tmp_path, roads=[_road()])
     assert seeds == ()
+
+

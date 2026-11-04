@@ -113,7 +113,7 @@ def _ends(exits) -> list:
 
 def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], airport,
                 law, taken, grid: float, counts: dict, rail: bool = False,
-                roads: bool = False) -> dict[str, dict[str, _t.Any]]:
+                roads: bool = False, named: _t.Sequence = ()) -> dict[str, dict[str, _t.Any]]:
     """``{run-out ref: record}`` for the ENDS of every covered-cut level
     (module docstring).  ``levels``: ``{level ref: (polygon, block ref,
     y)}``; ``taken``: every pad and the airside, which no strip takes.
@@ -126,7 +126,8 @@ def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], air
     ``ramp_max_grade``), and an end whose ground ahead stands ABOVE the
     level CLIMBS to it (the record's ``sign`` -1; ``constraints/
     ramp_runout.landing_runout_rows`` mirrors its rows) -- the run is never
-    clipped at the aerodrome boundary."""
+    clipped at the aerodrome boundary; ``named`` names what takes an end
+    (:func:`_road_runouts`)."""
     from ..airport.airside_group_seat import PLANE_BAND_M
     from ..classify.pad_cut_corridor import cutting_corridors
     from ..geom.ramp_profile import runout_profile
@@ -135,7 +136,7 @@ def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], air
         return {}
     tn = law.tables.structures.tunnel
     if roads:
-        return _road_runouts(levels, held, airport, law, taken, grid, counts)
+        return _road_runouts(levels, held, airport, law, taken, grid, counts, named)
     corr = cutting_corridors(airport, law, widen=0.5)
     if rail:
         from .covered_cut import station_corridors
@@ -194,73 +195,81 @@ def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], air
     return out
 
 
-def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict
-                  ) -> dict[str, dict[str, _t.Any]]:
+def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict,
+                  named: _t.Sequence = ()) -> dict[str, dict[str, _t.Any]]:
     """:func:`cut_runouts` for a lower region's ROADS (``roads``): the same
-    ends, lips and strips, along the at-grade carriageways
-    (``road_yield.road_carriageways``) at the road ramp law, descending or
-    CLIMBING to the ground ahead."""
+    lips, along the at-grade carriageways (``road_yield.road_carriageways``)
+    at the road ramp law, descending or CLIMBING to the ground ahead.  An
+    end is ONE route's crossing of the level's rim (never grouped across
+    :data:`END_M`), its strip that route's own carriageway (its half-width
+    either side, clipped to that carriageway alone): grouped, or clipped to
+    every carriageway, a strip spanned up to 111 m of parallel roads and
+    tilted every cross street it swallowed along its axis (MEASURED KATL
+    replay: road_cross_section 53 -> 208 / 225).  ``named``: ``[(ref,
+    polygon)]`` of ``taken``, to name the pad or airside that takes an end
+    (``level_runout_ends["taken_by"]``)."""
     from ..airport.airside_group_seat import PLANE_BAND_M
     from ..geom.ramp_profile import runout_profile
-    from .road_yield import road_carriageways
     frame, dem = getattr(airport, "frame", None), getattr(airport, "dem", None)
     if frame is None or dem is None or not levels:
         return {}
     tn = law.tables.structures.tunnel
-    cw = list(road_carriageways(getattr(airport, "osm_ways", ()) or (), law))
-    if not cw:
-        return {}
     # a road is mapped in many short ways: the run is read along its ROUTE,
     # never per way (``viaduct_road._route``, R6) -- MEASURED LFPG T2: the
     # corridor's west roads, 37-177 m ways, each "ended before it cleared"
     ways = _routes(airport, law, [L for L, _b, _y in levels.values()], grid)
-    corr = unary_union([line.buffer(h, cap_style="flat") for line, h in cw])
-    width = max(2.0 * h for _l, h in cw)
+    if not ways:
+        return {}
     g, cap = float(tn.ramp_grade), float(tn.ramp_max_grade)
     step = float(law.tables.emit.chords.station_spacing_m)
     riser = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
     stat = {"ends": 0, "no_datum": 0, "climbs": 0, "falls": 0, "taken": 0}
+    taken_by: list[str] = []
     out: dict[str, dict[str, _t.Any]] = {}
     for ref, (L, bref, y) in sorted(levels.items()):
         datum = (held.get(bref) or {}).get("datum_pred")
-        near_ways = [w for w in ways if w.distance(L) <= max(grid, 0.5)]
-        # ONE END PER ROAD: crossings are grouped along their own route only
-        # -- grouped across routes (a cut's tracks, :data:`END_M`) the strip
-        # spanned up to 111 m of parallel roads and tilted every one across
-        # (MEASURED KATL replay: road_cross_section 53 -> 208)
-        ends = [e for wy in near_ways for e in _ends(_exits(L, taken, [wy]))]
-        for (lx, ly), (dx, dy), pts in ends:
-            stat["ends"] += 1
-            if datum is None:
-                stat["no_datum"] += 1
-                continue
-            z0 = float(datum) + float(y)
+        lips: list = []                    # two routes over one crossing: one end
+        for wy, h in [(w, h) for w, h in ways if w.distance(L) <= max(grid, 0.5)]:
+            corr = wy.buffer(h, cap_style="flat")
+            for p, (dx, dy) in _exits(L, taken, [wy]):
+                if any(p.distance(q) <= riser for q in lips):
+                    continue
+                lips.append(p)
+                stat["ends"] += 1
+                if datum is None:
+                    stat["no_datum"] += 1
+                    continue
+                lx, ly = p.x, p.y
+                z0 = float(datum) + float(y)
 
-            def ground(s: float, _x=lx, _y=ly, _dx=dx, _dy=dy) -> float:
-                return float(dem.z(_x + _dx * s, _y + _dy * s))
-            g0 = ground(0.0)
-            sign = 1.0 if g0 < z0 else -1.0
-            stat["falls" if sign > 0 else "climbs"] += 1
-            # the run is laid out off the level the solve may hold FURTHEST
-            # from the ground (the datum's miss, one plane band, 23c): the
-            # predicted datum is no solved one (MEASURED KIAH: 28.77
-            # predicted, 28.08 solved -- the lip read "at grade")
-            prof = runout_profile(z0 + sign * float(PLANE_BAND_M), ground, g, cap, MAX_RUN_M)
-            rec = _end(L, (lx, ly), (dx, dy), pts, prof, ground, 0.5 * width, corr, taken,
-                       step, riser, grid, frame)
-            if rec is None:
-                stat["taken"] += 1
-                continue
-            rref = _next_ref(out, ref)
-            out[rref] = {**rec, "landing": ref, "block": bref, "y": float(y), "sign": sign,
-                         "from_level": True,
-                         "z0_pred": round(z0, 3), "reach_m": float(PLANE_BAND_M), "g": g,
-                         "cap": cap, "kind": "level_end"}
-            taken = unary_union([taken, *rec["polys"]])
+                def ground(s: float, _x=lx, _y=ly, _dx=dx, _dy=dy) -> float:
+                    return float(dem.z(_x + _dx * s, _y + _dy * s))
+                sign = 1.0 if ground(0.0) < z0 else -1.0
+                stat["falls" if sign > 0 else "climbs"] += 1
+                # the run is laid out off the level the solve may hold FURTHEST
+                # from the ground (the datum's miss, one plane band, 23c): the
+                # predicted datum is no solved one (MEASURED KIAH: 28.77
+                # predicted, 28.08 solved -- the lip read "at grade")
+                prof = runout_profile(z0 + sign * float(PLANE_BAND_M), ground, g, cap, MAX_RUN_M)
+                rec = _end(L, (lx, ly), (dx, dy), [p], prof, ground, h, corr, taken,
+                           step, riser, grid, frame)
+                if rec is None:
+                    stat["taken"] += 1
+                    taken_by.append(_taker(ref, L, (lx, ly), (dx, dy), prof, h, corr, named,
+                                           2.0 * riser, frame))
+                    continue
+                rref = _next_ref(out, ref)
+                out[rref] = {**rec, "landing": ref, "block": bref, "y": float(y),
+                             "sign": sign, "from_level": True,
+                             "z0_pred": round(z0, 3), "reach_m": float(PLANE_BAND_M),
+                             "g": g, "cap": cap, "kind": "level_end"}
+                taken = unary_union([taken, *rec["polys"]])
     # the callers' counts add up (``level_regions.seed_levels`` per seed)
     counts["level_runouts"] = counts.get("level_runouts", 0) + len(out)
     prev = counts.get("level_runout_ends") or {}
-    counts["level_runout_ends"] = {k: prev.get(k, 0) + v for k, v in stat.items()}
+    ends = {k: prev.get(k, 0) + v for k, v in stat.items()}
+    ends["taken_by"] = [*prev.get("taken_by", []), *taken_by]
+    counts["level_runout_ends"] = ends
     lines = [f"{r} lip {v['at'][0]},{v['at'][1]} {'climbs' if v['sign'] < 0 else 'falls'} "
              f"dem {v['dem0']:.2f} from {v['z0_pred']:.2f} run {v['run_m']:.0f} m "
              f"x {v['width_m']:.0f} m" for r, v in sorted(out.items())]
@@ -268,6 +277,23 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict
         counts["level_runout_list"] = "; ".join(
             [counts["level_runout_list"], *lines] if counts.get("level_runout_list") else lines)
     return out
+
+
+def _taker(ref: str, L, lip, d, prof, side: float, corr, named, reach: float,
+           frame) -> str:
+    """``"<lat>,<lon> <refs>"``: what takes the level ``ref``'s end at
+    ``lip`` -- every other ``named`` ``(ref, polygon)`` within ``reach`` of
+    its strip."""
+    (lx, ly), (dx, dy) = lip, d
+    run, nx, ny = prof[-1][0], -dy, dx
+    R = Polygon([(lx + nx * side, ly + ny * side), (lx - nx * side, ly - ny * side),
+                 (lx + dx * run - nx * side, ly + dy * run - ny * side),
+                 (lx + dx * run + nx * side, ly + dy * run + ny * side)])
+    S = valid_area(valid_area(R.intersection(corr)).difference(L))
+    refs = sorted({str(r) for r, q in named
+                   if str(r) != ref and q is not None and q.distance(S) <= reach})
+    lat, lon = frame.transformers()[1](lx, ly)
+    return f"{lat:.6f},{lon:.6f} {'+'.join(refs) or '?'}"
 
 
 def _next_ref(out: dict, ref: str) -> str:
@@ -310,10 +336,19 @@ def _end(L, lip, d, pts, prof, ground, side: float, corr, taken, step: float,
 
 
 def _routes(airport, law, levels, grid: float) -> list:
-    """The ROUTES (``viaduct_road._route``: through the junctions, the least
-    turn) of every at-grade mapped road way crossing a level's edge."""
+    """``[(route, half-width)]``: the ROUTES (``viaduct_road._route``:
+    through the junctions, the least turn) of every at-grade mapped road
+    way of a ribbon class (``road_yield.road_carriageways``) crossing a
+    level's edge, with that crossing way's carriageway half-width
+    (``airport/road_ways.ribbon_half_width_m``)."""
+    from ..airport.road_ways import ribbon_half_width_m
+    from ..classify.rules import load_rules
     from .structure_approach import is_bridge, is_tunnel
     from .viaduct_road import _graph, _layer, _route
+    orr = load_rules().osm_roads
+    if not orr.enabled:
+        return []
+    ribbon = set(orr.ribbon_highways)
     tn = law.tables.structures.tunnel
     roads = [w for w in getattr(airport, "osm_ways", ()) or ()
              if len(w.points) >= 2 and (w.tags or {}).get("highway") and not is_bridge(w)
@@ -323,11 +358,11 @@ def _routes(airport, law, levels, grid: float) -> list:
     out, seen = [], set()
     for w in roads:
         line = LineString(w.points)
-        if not line.intersects(edge):
+        if (w.tags or {}).get("highway") not in ribbon or not line.intersects(edge):
             continue
         r = _route(w, nb, law)
         key = tuple(round(c, 1) for xy in (r.coords[0], r.coords[-1]) for c in xy)
         if key not in seen and key[2:] + key[:2] not in seen:
             seen.add(key)
-            out.append(r)
+            out.append((r, ribbon_half_width_m(w.tags or {}, law)))
     return out

@@ -943,3 +943,82 @@ ladder rungs 2-5.
   run-outs to the D1/A1 roads this round.
 - **Releasing the run-out ground from the pads by the riser exemption**
   (`ground_refs`): the station level was pulled to 27.9 m. Withdrawn.
+
+## 17. Round 5 (lane lowregion5, 2026-11-04): run-outs per road, stage-1 gate, T1 at its walls
+
+Built from the Fable review's spec (TWO-ROUND-CAP-REVIEW #1852/#1717, E1/E2/E4,
+F1/F2) and the owner's rulings of 2026-11-04T20:47Z (airside movement under
+0.5 m that mints no violation is allowed while grading is refined; KLAX back
+in scope as a flat region up to the terminal walls; LFPG T1 at the walls'
+depth). Captures: `kiahstation/KIAH.pkl`, `katl1306/KATL.pkl` (registered
+this round), `lfpg6/LFPG.pkl`, `lowregion4/KLAX.pkl`.
+
+**Built.**
+- **E1, a region's own strips take none of its ends** (`level_regions._run_out`):
+  the riser strips of the levels whose run-outs are read are left out of
+  `taken`; every other pad and the airside still take an end, now NAMED
+  (`level_runout_ends["taken_by"]`: `lat,lon` and the takers' refs).
+- **E2, one end per crossing, its strip its own road** (`cut_runout._road_runouts`):
+  `_routes` returns each route with its crossing way's carriageway
+  half-width (ribbon classes only); an end is one route's crossing of the
+  rim (never grouped across `END_M`; two routes over one crossing are one
+  end), its strip that half-width either side, clipped to that route's own
+  carriageway (never the union of every carriageway).
+- **E4**: run-outs are read only for the levels `seed_levels` mints (the
+  passage level and its pieces); no other pass's level asks for them.
+- **T1 at its walls (owner 20:47Z)**: a seed whose object's soffit stands
+  short of `[tunnel] clearance_m` over its wall feet is minted at the walls'
+  depth anyway; the note and the record report the clearance.
+
+**Measured and not built.**
+- **F1/F2 (the passage level off stage 1's map; its vertices freed from
+  stage 1's carried levels).** Built and replayed at KIAH: verify 629, the
+  same 629 rows as the round-4b head, the stage-1 map's 25,113 vertices the
+  control's, `building88` still 27.97-28.01 against the control's
+  28.00-28.08 and the same 3 apron movers (0.11 / 0.08 / 0.01 m at
+  29.98711, -95.33286). The stage-1 map is not re-derived through
+  `low_level_split`, so the premise (the level re-seats D_88 on stage 1's
+  map) is refuted; the movers are the station pad's remnant band and its
+  apron sliver in stage 2. They carry two small airside rows the control
+  has not (`pad_frontage_infeasible` 0.047 m at the mover, `frontage_near_miss`
+  0.05 m on `pav62#plateau:building56`). Withdrawn.
+- **KIAH run-outs.** The spec's mechanism (§1.2 of the review: the region's
+  own strips take every end) is not the one at work: the probe on the
+  round-4b head reads all 4 ends refused `no_datum` -- `building88` is a §20
+  conforming pad, whose `datum_pred` is `None`. With a datum injected
+  (probe), the head minted 1 and refused 3 (taker `building94`); with E1/E2,
+  4 minted, 1 refused (`building94`). Laid off the fronted block's predicted
+  datum (`building56`, 26.96; the pad solves at 28.08) the replay read verify
+  632 -> 704 (`road_cross_section` 28 -> 63, `within_shape` 112 -> 140),
+  census adjudicated 585 -> 612, tunnel walls east of the station moved up to
+  1.85 m; with the solved datum injected (oracle arm, 28.08) 632 -> 710,
+  adjudicated 585 -> 619 (`within_shape` +12, `pavement_over_road_cap` +13,
+  `cross_shape` +5). So the run-outs themselves, not the prediction, cost the
+  rows at KIAH; the conforming-pad datum is not supplied and KIAH's exits stay
+  refused `no_datum` (counted).
+- **KLAX, three attempts, all withdrawn** (control replay: verify 477,
+  census adjudicated 205):
+  1. *A storey beside its roads*: a W1 seed whose at-grade carriageways run
+     within `pad_frontage_m` of its walls (T2, `building84`, unit 129, y -4.40)
+     minted the pad as one level at 32.13 m plus the curb carriageway as a
+     piece, with two run-outs: verify 477 -> 748 (`road_cross_section` 9 ->
+     175), census 205 -> 930 (`hard_conflict` +418): the World Way ribbons
+     span the level and the walkway pads (36.5 m) beside it.
+  2. *Covered road out of the pads*: the carriageway under pack geometry
+     standing `clearance_m` up leaves the pad (the walkway pads
+     `building49/53/68/75/80`): verify 477 -> 750 (`road_cross_section` 9 ->
+     179): the road stands between the two pad halves at 36 m.
+  3. *Elevated objects stand on no pad*: dropping every pad most of whose
+     ground lies under parts based `clearance_m` up separates the five KLAX
+     walkway pads (92-96 %) but also takes KATL's terminal pads
+     (`building33/35/39/50`: split roof objects, `Techos_Terminales` at base
+     y 9.6, 86-100 %) and KLAX's Delta hangar (82 %). No witness read off the
+     parts separates a walkway over a road from a terminal authored as a
+     separate roof object: an owner/spec question, not a threshold.
+  The KLAX finding for the next round: the World Way ribbons at T2 rise
+  32.6 -> 36.2 m to the T2 pad's edge and 32.5 -> 36.5 m under the walkway
+  pads (control `lowregion4b_KLAX`); a flat region up to the walls needs the
+  walkway pads gone (a witness for "elevated over a road") AND the step at
+  the T2 wall declared (the wall-terrace release of `airport/road_ramp.
+  wall_terraces`, a storey wall that retains its height) -- a consumer census
+  of its own (riser, pad_terrace, road terrace, publication, census reader).

@@ -470,6 +470,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.one_building",
     "auto_patch_v2.airport.open_frame_seat",
     "auto_patch_v2.airport.osm",
+    "auto_patch_v2.airport.overlay_pavement",
     "auto_patch_v2.airport.pack",
     "auto_patch_v2.airport.pack_art",
     "auto_patch_v2.airport.pack_forests",

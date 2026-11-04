@@ -114,3 +114,35 @@ def dsf_is_overlay(path: str) -> Optional[bool]:
     if props is None:
         return None
     return props.get("sim/overlay", "0") == "1"
+
+
+__all__ += ["dsf_polygon_defs"]
+
+_DEFN_IDS = (b"NFED", b"DEFN")
+_POLY_IDS = (b"YLOP", b"POLY")
+
+
+def dsf_polygon_defs(path: str) -> Optional[list]:
+    """The DSF's polygon definitions (``DEFN``/``POLY``: the ``.pol``,
+    ``.fac``, ``.for`` … paths its polygons draw), read from the head
+    alone; ``None`` when the file cannot be read or its definitions do not
+    end inside the decoded head (the caller cannot tell).  #1598: the
+    screen before a DSFTool dump of an overlay that may draw pavement."""
+    try:
+        buf = _head(path)
+    except OSError:
+        return None
+    if not buf:
+        return None
+    for atom_id, body, end in _atoms(buf, 12, len(buf)):
+        if atom_id not in _DEFN_IDS:
+            continue
+        struct_end = struct.unpack_from("<I", buf, body - 4)[0] + body - 8
+        if struct_end > len(buf):
+            return None
+        for kid, kbody, kend in _atoms(buf, body, end):
+            if kid in _POLY_IDS:
+                return [s.decode("utf-8", "replace")
+                        for s in buf[kbody:kend].split(b"\0") if s]
+        return []
+    return None

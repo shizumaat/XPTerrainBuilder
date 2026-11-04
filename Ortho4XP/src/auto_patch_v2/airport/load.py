@@ -42,6 +42,7 @@ from . import object_pack as _object_pack
 from . import object_window as _window
 from . import object_pavement as _objpav
 from . import osm as _osm
+from . import overlay_pavement as _overlay
 from . import pack as _pack
 from . import riders as _riders
 
@@ -176,6 +177,10 @@ class LoadReport:
     #: as GAP SHEETS (never a pavement source) — pages and their m2
     dsf_gap_sheets: int = 0
     dsf_gap_sheet_m2: float = 0.0
+    #: #1598: pieces an OVERLAY pack's draped pavement adds where the
+    #: airport's own pavement is not (``airport/overlay_pavement``), and m2
+    overlay_pavements: int = 0
+    overlay_pavement_m2: float = 0.0
     #: §42 (3) (RULINGS 2026-09-13cv): the pack's DRAPED OBJ8 ground
     #: polygons admitted as source polygons — bodies, m2, per resource,
     #: and every draped resource refused with its reason
@@ -645,7 +650,16 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             sheet, id=f"{GAP_SHEET_PREFIX}{len(gap_sheets)}"))
     rep.dsf_gap_sheets = len(pol_sheets)
     rep.dsf_gap_sheet_m2 = float(sum(_sheet_area(s) for s in pol_sheets))
-    pavements = pavements + tuple(dsf_pavements)
+    # #1598 (owner 2026-11-04): an overlay pack's draped pavement is
+    # pavement EVIDENCE where the airport's own is not; read after the
+    # §42 bodies so they count as the airport's own
+    over = _overlay.load_pavements(
+        sel.root, tile, inputs.mod_cache_root, index,
+        lambda d, r: _DsfPolygons(to_xy, own_extent).pages_of(d, r, index),
+        tuple(pavements) + tuple(dsf_pavements), boundaries, law, rep.notes.append)
+    rep.overlay_pavements = len(over)
+    rep.overlay_pavement_m2 = float(sum(_sheet_area(p) for p in over))
+    pavements = pavements + tuple(dsf_pavements) + tuple(over)
     # ── §44 (2) THE SCENERY STAGE of the borrow (#1160, RULINGS 2026-10-20al
     # (1)): the pack's own draped pavement — its ``.pol`` pages and §42
     # bodies, never a gap sheet (20bb) — counts toward the coverage; at or
@@ -1015,6 +1029,12 @@ class _DsfPolygons:
         self.sheets: list[Pavement] = []
         self.buildings: list[Building] = []
         self.n_fac = self.n_lot = self.n_far = 0
+
+    def pages_of(self, dump_path: str, root: str, index) -> list[Pavement]:
+        """The ``dsf:pol`` pavement pages of ``dump_path`` alone (#1598:
+        an overlay pack's, read with the same gate and admission)."""
+        self.read(dump_path, root, index, pages=True, rest=False)
+        return self.pavements
 
     def _near(self, ring) -> bool:
         return self.own_extent is None or self.own_extent.intersects(_shape_of(ring))

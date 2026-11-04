@@ -123,8 +123,8 @@ def test_r6_the_screen_reads_overlays_and_our_own_tiles_out(tmp_path):
 
 def test_r6_candidates_by_coverage_never_by_name(tmp_path, monkeypatch):
     """R6: the candidate meshes are the enabled packs covering the tile
-    (``companion._candidates``) whose DSF header screens in."""
-    from auto_patch_v2.airport import companion, terrain_mesh_witness
+    (``pack_local.tile_candidates``) whose DSF header screens in."""
+    from auto_patch_v2.airport import pack_local, terrain_mesh_witness
     rel = "Earth nav data/+10+020/+10+020.dsf"
     roots = {}
     for name, props in (("a mesh", {"sim/creation_agent": "Mesh Tool"}),
@@ -133,7 +133,8 @@ def test_r6_candidates_by_coverage_never_by_name(tmp_path, monkeypatch):
         p.parent.mkdir(parents=True)
         _dsf_header(p, props)
         roots[name] = str(tmp_path / name)
-    monkeypatch.setattr(companion, "_candidates", lambda main, lat, lon: sorted(roots.values()))
+    monkeypatch.setattr(pack_local, "tile_candidates",
+                        lambda main, lat, lon: sorted(roots.values()))
     assert terrain_mesh_witness.dump_candidates(str(tmp_path / "main"), 10, 20) == [roots["a mesh"]]
 
 

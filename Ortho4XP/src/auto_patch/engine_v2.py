@@ -236,8 +236,7 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
             fresh_object_footprints(dsf_path, cache_dir, xplane_root)
         if getattr(sel, "pages_from", ""):   # #1630: the pages' pack (Global Airports)
             _fresh_dumps([sel.pages_root], lat, lon)
-        _fresh_companion_dumps(sel.root, lat, lon)
-        _fresh_mesh_dumps(sel.root, lat, lon)
+        _fresh_candidate_dumps(sel.root, lat, lon, xplane_root)
         return dump
     except DsfToolError as exc:
         raise DsfToolError(
@@ -251,32 +250,42 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         return None
 
 
-def _fresh_companion_dumps(main_root: str, lat: int, lon: int) -> None:
-    """The text dumps of the airport's candidate COMPANION packs (owner
-    RULINGS 2026-10-28p (5); ``airport/companion``), made where the serving
-    pack's is.  A failure is logged and only leaves that pack unread."""
-    try:
+def _fresh_candidate_dumps(main_root: str, lat: int, lon: int,
+                           xplane_root: str) -> None:
+    """The text dumps of the packs beside the airport's that its build
+    reads, made where the serving pack's is: its COMPANION packs (owner
+    RULINGS 2026-10-28p (5); ``airport/companion``), its COMPANION TERRAIN
+    MESH (RULINGS 2026-11-03, answer 4; ``airport/terrain_mesh_witness``)
+    and its draped-pavement OVERLAYS (#1598; ``airport/overlay_pavement``).
+    A failure is logged and only leaves that family unread."""
+    import logging
+    roots: list[str] = []
+
+    def _family(label, candidates):
+        try:
+            roots.extend(r for r in candidates() if r not in roots)
+        except Exception as exc:            # noqa: BLE001 — never fails a build
+            logging.getLogger(__name__).warning("%s dumps skipped: %s", label, exc)
+
+    def _overlays():
+        import O4_File_Names as FNAMES
+        from auto_patch_v2.airport import obj8 as _obj8
+        from auto_patch_v2.airport import overlay_pavement as _overlay
+        index = _obj8.read_library_index(_obj8.library_index_path(
+            FNAMES.airport_mod_cache_root(), xplane_root)) if xplane_root else None
+        return _overlay.dump_candidates(main_root, lat, lon, index)
+
+    def _companions():
         from auto_patch_v2.airport import companion as _companion
-        roots = _companion.dump_candidates(main_root, lat, lon)
-    except Exception as exc:                # noqa: BLE001 — never fails a build
-        import logging
-        logging.getLogger(__name__).warning("companion dumps skipped: %s", exc)
-        return
-    _fresh_dumps(roots, lat, lon)
+        return _companion.dump_candidates(main_root, lat, lon)
 
-
-def _fresh_mesh_dumps(main_root: str, lat: int, lon: int) -> None:
-    """The text dumps of the installed packs that may be the airport's
-    COMPANION TERRAIN MESH (owner RULINGS 2026-11-03, answer 4;
-    ``airport/terrain_mesh_witness``), made where the serving pack's is.
-    A failure is logged and only leaves that mesh unread."""
-    try:
+    def _meshes():
         from auto_patch_v2.airport import terrain_mesh_witness as _tmw
-        roots = _tmw.dump_candidates(main_root, lat, lon)
-    except Exception as exc:                # noqa: BLE001 — never fails a build
-        import logging
-        logging.getLogger(__name__).warning("terrain mesh dumps skipped: %s", exc)
-        return
+        return _tmw.dump_candidates(main_root, lat, lon)
+
+    _family("companion", _companions)
+    _family("terrain mesh", _meshes)
+    _family("overlay pavement", _overlays)
     _fresh_dumps(roots, lat, lon)
 
 

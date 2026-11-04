@@ -30,6 +30,7 @@ from ..model.frame import XY
 from . import approach as _approach
 from . import cifp as _cifp
 from . import flat_site as _flat
+from . import overlay_pavement as _overlay
 from . import pack_pavement as _pack_pavement
 from .dem_production import ProductionDem, TileWater
 from .load import _own_extent, _ring, _vector_to_xy, join_cifp, read_apt
@@ -165,11 +166,16 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
     if fv.substitutes:
         # RULINGS 2026-10-27d: pavement stays flat — ALL of it the build
         # grades as pavement, the pack's draped ``.pol`` pages included.
+        extent = _own_extent(site.runways, site.pavements, site.boundaries,
+                             law.tables.emit.identity.dsf_pavement_admission_m)
         pages = _pack_pavement.pavement_pages(
-            site.pack_root, site.pack_name, tile_lat, tile_lon, _to_xy,
-            _own_extent(site.runways, site.pavements, site.boundaries,
-                        law.tables.emit.identity.dsf_pavement_admission_m),
+            site.pack_root, site.pack_name, tile_lat, tile_lon, _to_xy, extent,
             mod_cache_root, xplane_root)
+        # #1598: an overlay pack's pavement beyond the pack's is the build's too
+        pages = pages + _overlay.held_pieces(
+            site.pack_root, tile_lat, tile_lon, _to_xy, extent, mod_cache_root, xplane_root,
+            unary_union(([land] if land is not None else []) + pages),
+            site.boundaries, law)
         # RULINGS 2026-10-27v (2): the runway strips stay graded, as the
         # strip law requires — held with the pavement, not kept on the
         # real ground.  THE SAMPLING STENCIL: the build reads the raster

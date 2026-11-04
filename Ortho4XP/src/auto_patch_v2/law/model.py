@@ -694,6 +694,12 @@ class Identity:
     min_distinct_spacing_m: float
     weld_spacing_m: float
     dsf_pavement_admission_m: float
+    #: #1598: an overlay pack's pavement remainder is opened by this
+    #: half-width, and a piece is admitted within ``overlay_pavement_reach_m``
+    #: of the airport's own pavement or on its boundary
+    #: (``airport/overlay_pavement``)
+    overlay_pavement_sliver_m: float
+    overlay_pavement_reach_m: float
     #: #119: the CIFP COORDINATE JOIN's radius — an apt.dat end whose
     #: designator matches no CIFP record takes the one record whose landing
     #: threshold lies within this of its own (``airport/cifp.match_threshold``)

@@ -55,21 +55,28 @@ Populations:
   `companion`), shipping NO object of their own (a pack that does is a
   companion, 28p (5)), and a DSF whose command stream places an object
   from a pool with an elevation plane (`dsf_commands.
-  places_elevated_objects`, no dump). Their riders move as above.
+  object_pool_boxes`, no dump) whose pool box meets the airport boundary
+  (a pack whose objects lie elsewhere on the tile, Global_Forests_v2, is
+  never dumped). Their riders move as above.
 * FREE SIBLING ROWS (owner ruling 2026-11-04T00:08Z: "If cars (or other
   objects) from a secondary pack are not on top of/overlap with any other
   objects, then they should be seated on the new ground"): a sibling's
   `OBJECT_MSL` row that is not a rider, lies inside the airport boundary
   (apt.dat row 130 of the airport pack, else its pavement hull;
   `sibling_riders.airport_region`) and stands over no static solid of any
-  airport-pack object (`frame_riders.over_objects`) converts to on-ground,
+  OTHER object — the airport pack's and every candidate pack's placing
+  objects inside the boundary, library paths resolved through the
+  install's library index, the row's own model (same origin) excluded
+  (`frame_riders.over_objects`) — converts to on-ground,
   like the airport pack's rows under 11d. Over an object it does not stand
   on, or outside the boundary (VFR overlays), it stays as authored.
 
 KDFW (same replay): of Parked_Cars' 21 non-rider MSL cars, 19 convert to
 on-ground and 2 stay (over an airport-pack object, not on it). The 3 on the
 graded sheet move -19.47 .. -19.00 m to the new surface; 16 lie off the
-graded sheet (raw mesh there).
+graded sheet (raw mesh there). Counting the other packs' objects too
+(Parked_Cars 14,943, Street_Lights 1,644, AEP 1,050, simHeaven 344,
+Terminal_Interiors 3 footprints) leaves the split at 19 / 2.
 
 ## Consumer census: every pass that writes a pack DSF's objects
 
@@ -91,7 +98,7 @@ graded sheet (raw mesh there).
 * Frames placed `OBJECT` / `OBJECT_AGL` (KMCI's 716 stock cars over
   on-ground frames): the frame's authored zero is the terrain its author
   saw, which the object stage does not have.
-* "Other objects" are the airport pack's: a sibling library object's
-  footprint (another sibling's car) is not read.
+* A neighbour pack's dump is only READ from the mod cache, never made: a
+  pack with no cached dump contributes no footprint.
 * A companion pack's stock rows on decks; polygon/network nodes with an
   explicit elevation (#1252's second population).

@@ -1041,6 +1041,12 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         tunnel_ways + covered_candidates(airport.osm_ways),
         claimed_ids | {i for c in out for i in c.objects} | {p.object_id for p in portals})
     stats.trench_objects, stats.trench_notes = tuple(trenches), tuple(t_notes)
+    # #1747: a trench object at a mapped tunnel's end pins its mouth at its bottom
+    from .trench_objects import mouth_portals
+    pinned = {(p.end_xy, p.way_id) for p in portals}
+    stats.portals = tuple(sorted(portals + [
+        p for p in mouth_portals(trenches, objects, cache, law, tunnel_ways, airport.dem.z)
+        if (p.end_xy, p.way_id) not in pinned], key=lambda p: (p.end_xy, p.object_id)))
     # the report is order-free too: a refusal LIST whose order depends on
     # the read order cannot be diffed between two arms (lane v2othhdet)
     stats.refused.sort()

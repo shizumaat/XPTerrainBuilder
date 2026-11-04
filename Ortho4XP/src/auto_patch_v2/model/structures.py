@@ -317,6 +317,10 @@ class Tunnel:
     #: mapped bore's mouth (``airport/portal_objects``), or ``""``; its cut
     #: may stand inside the runway strip keep-out
     portal: str = ""
+    #: #1747: the portal is an ENTRANCE object stating the floor ABSOLUTELY
+    #: (``Portal.floor_z``): the mouth's floor is pinned at :attr:`mouth_z`,
+    #: never tied to the cap by a depth
+    portal_floor: bool = False
     #: owner RULINGS 2026-10-27l / 2026-10-28d: the BACK line of the edge
     #: bridge that pinned this trench (``planar/bridge_span``), or ``()`` —
     #: a terrain deck over it is level with the airside abeam

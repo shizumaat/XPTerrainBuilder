@@ -1098,6 +1098,61 @@ class TestObjectFootprintCache:
         # Stale fingerprint forces a full recompute (partition ran again).
         assert len(harness.partition_calls) > partitions_before
 
+    def _mint_body(self, harness, relative_path, marked=True):
+        """A split body as ``placement_write.write_files`` leaves one in
+        the pack: the ``__b<k>_<tag>.obj`` name and, when ``marked``, the
+        writer's ``CUT_MARK`` in its head."""
+        from auto_patch_v2.model.placement import CUT_MARK
+        path = os.path.join(harness.pack_root, *relative_path.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            handle.write("I\n800\nOBJ\n")
+            if marked:
+                handle.write(f"{CUT_MARK}big_bake body 0 offset 0 0 0\n")
+        return path
+
+    def test_the_engines_split_bodies_do_not_invalidate(
+            self, object_building_harness):
+        """Issue #1706: the object stage writes a fresh set of split
+        bodies into the pack at the end of every build; the DSF this
+        reader parses names none of them, so they are no input and the
+        next build must HIT (EDDF: ~2,400 bodies, the whole footprint
+        partition re-run every build)."""
+        harness = object_building_harness
+        first = D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
+        partitions = len(harness.partition_calls)
+        self._mint_body(harness, "Terminals/Hangar/big_bake__b0_0a1b2c3d.obj")
+        self._mint_body(harness, "objects/row_warehouse__b3.obj")
+        D._OBJECT_READER_MEMO.clear()
+        assert D.read_dsf_object_buildings(
+            harness.dsf_path, xplane_root=None) == first
+        assert len(harness.partition_calls) == partitions
+
+    def test_a_body_the_dsf_names_or_a_vendor_lookalike_invalidates(
+            self, object_building_harness):
+        """Only an UNREAD engine body leaves the key: one the DSF names
+        is parsed like any file, and a vendor file that only shares the
+        name pattern (no ``CUT_MARK``) is pack content."""
+        harness = object_building_harness
+        D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
+        partitions = len(harness.partition_calls)
+        self._mint_body(harness, "otros/cone__b0_00000000.obj", marked=False)
+        D._OBJECT_READER_MEMO.clear()
+        D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
+        assert len(harness.partition_calls) > partitions
+        # a marked body the DSF's OBJECT_DEF list names is parsed: kept
+        named = self._mint_body(harness, "objects/row_warehouse__b1_11111111.obj")
+        unread = self._mint_body(harness, "objects/row_warehouse__b2_22222222.obj")
+        lines = ["OBJECT_DEF objects/row_warehouse__b1_11111111.obj\n"]
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(D, "_load_dsf_text", lambda *_a, **_k: lines)
+            skip = D._unread_minted_body(harness.dsf_path, None, harness.pack_root)
+            assert not skip("objects/row_warehouse__b1_11111111.obj", named)
+            assert skip("objects/row_warehouse__b2_22222222.obj", unread)
+            mp.setattr(D, "_load_dsf_text", lambda *_a, **_k: None)
+            assert D._unread_minted_body(harness.dsf_path, None,
+                                         harness.pack_root) is None
+
     def _bake_in_place(self, harness, resource_relative_path):
         """Simulate the Phase 2 y-bake of one object exactly as
         ``object_rebake.apply`` performs it: ``copy2`` the original to

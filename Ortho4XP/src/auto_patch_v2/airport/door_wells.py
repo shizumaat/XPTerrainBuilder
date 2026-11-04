@@ -11,7 +11,9 @@ THE READING, over the geometry the basin pass already parsed
 1. SILL WITNESS — a genuine solid component (``basin.min_solid_
    thickness_m``) carrying a near-horizontal floor plate
    (``basin.floor_plate_normal_y_min``) at least ``sill_min_depth_m``
-   under the LOCAL ground (``obj8._witness`` at the door's own gate: the
+   under the object's OWN ZERO (the author's grade: #1659, a car parked
+   at its zero under a higher DEM is buried, never a door) and under the
+   LOCAL ground (``obj8._witness`` at the door's own gate: the
    2.5 m basin gate never sees these — OTHH's six wells stand 1.57–1.70 m
    under) and shallower than the basin gate (a component reaching
    ``basin.admission_depth_m`` is the basin pass's, never read twice).
@@ -147,6 +149,12 @@ def screened(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law,
     dl = law.tables.structures.cutout.door
     if not grounds or o.anchor_z + o.agl_m + vmin > max(grounds) - dl.sill_min_depth_m:
         return False
+    if vmin > -dl.sill_min_depth_m:
+        # #1659: nothing of it stands under its OWN zero — the author's
+        # grade — so a ground standing over it is a ground mismatch, never
+        # a door (LFLL's parked cars and service vehicles on a lot 2 m
+        # under the lidar DEM read as 32 wells)
+        return False
     stats.screened += 1
     return True
 
@@ -172,7 +180,11 @@ def witnesses_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: 
             local = o.anchor_z
         if bl.shell_reaches_grade and base + comp.max_y < local - bl.contact_band_m:
             continue                                   # buried, never a well
-        plane_sill = local - base - dl.sill_min_depth_m
+        # under the local ground AND under the object's own zero (#1659: a
+        # plate at its zero under a higher DEM is buried, not a sill; OTHH's
+        # well plates stand 1.70 m under their zero, LFLL's cars 0.0-0.75 m
+        # over theirs)
+        plane_sill = min(local - base, 0.0) - dl.sill_min_depth_m
         if comp.min_y > plane_sill:
             continue
         if comp.min_y <= local - base - bl.admission_depth_m:

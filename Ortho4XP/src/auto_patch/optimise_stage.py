@@ -41,29 +41,61 @@ __all__ = ["ACTIONS", "CHOICES_NAME", "STORE", "STEPS_STORE", "optimise_choice",
 #: the per-pack answers, beside the remembered data-root choice
 CHOICES_NAME = _PC.OPTIMISE_CHOICES
 #: the actions of the ``pack_optimise`` command
-ACTIONS = ("update", "never", "undo")
+ACTIONS = ("update", "never", "undo", "ask")
 
 
 #: the user's answer per pack ("update" | "never" | "" = ask)
 STORE = _PC.Store(CHOICES_NAME)
-#: the steps the user last chose per pack ("" = every step)
+#: per pack, the steps the user last chose and the steps the question
+#: showed then (``"dedupe,swap|dedupe,swap,objects"``; "" = never asked)
 STEPS_STORE = _PC.Store(_PC.OPTIMISE_STEPS, _PC.step_list)
+
+
+def _stored_steps(pack_root: str) -> tuple[tuple[str, ...] | None, frozenset[str]]:
+    """``(steps chosen, steps shown)`` for the pack: ``(None, {})`` when
+    the user was never shown the steps (an answer from before they
+    existed); a choice stored without what was shown showed nothing."""
+    from auto_patch_v2.airport import pack_optimise as _po
+    value = STEPS_STORE.choice(pack_root)
+    if not value:
+        return None, frozenset()
+    chosen, _sep, shown = value.partition("|")
+    return _po.chosen_steps(chosen.split(",")), frozenset(shown.split(",") if shown else ())
 
 
 def _remembered_steps(pack_root: str) -> tuple[str, ...]:
     """The steps the user last chose for the pack; every step by default."""
     from auto_patch_v2.airport import pack_optimise as _po
-    value = STEPS_STORE.choice(pack_root)
-    return _po.chosen_steps(value.split(",") if value else None)
+    chosen, _shown = _stored_steps(pack_root)
+    return _po.STEPS if chosen is None else chosen
 
 
-def _remember_steps(pack_root: str, steps: _t.Iterable[str]) -> tuple[str, ...]:
-    """Remember the user's steps for the pack (every step is the default,
-    so it is forgotten); returns them in order."""
+def _remember_steps(pack_root: str, steps: _t.Iterable[str],
+                    shown: _t.Iterable[str]) -> None:
+    """Remember the steps the user chose and the ones the question showed."""
     from auto_patch_v2.airport import pack_optimise as _po
     chosen = _po.chosen_steps(steps)
-    STEPS_STORE.remember(pack_root, "" if chosen == _po.STEPS else ",".join(chosen))
-    return chosen
+    STEPS_STORE.remember(pack_root, ",".join(chosen) + "|"
+                         + ",".join(_po.chosen_steps(shown)))
+
+
+def _unshown(pack_root: str, pw: "PackWeight") -> set[str]:
+    """The steps the recipe offers that the user has never been shown for
+    the pack — the question is asked again rather than applied silently
+    (owner 2026-11-04: an Optimise answered before the steps existed must
+    not apply them unseen)."""
+    _chosen, shown = _stored_steps(pack_root)
+    return {r["key"] for r in pw.steps} - shown
+
+
+def _question_ticks(pack_root: str, pw: "PackWeight") -> list[str]:
+    """The boxes the question opens with: the pack's last choice and every
+    step it never showed (all on by default); ``[]`` = every step."""
+    chosen, _shown = _stored_steps(pack_root)
+    if chosen is None:
+        return []
+    return [k for k in (r["key"] for r in pw.steps)
+            if k in chosen or k in _unshown(pack_root, pw)]
 
 
 class PackWeight(_t.NamedTuple):
@@ -184,8 +216,10 @@ def log_line(pw: PackWeight) -> str:
 
 
 def _announce(pw: PackWeight, pack_root: str, lat: int, lon: int,
-              state: str, error: str = "", files: _t.Sequence[str] = ()) -> None:
-    """The ``PackOptimise`` event (``UI.pack_optimise``)."""
+              state: str, error: str = "", files: _t.Sequence[str] = (),
+              chosen: _t.Sequence[str] | None = None) -> None:
+    """The ``PackOptimise`` event (``UI.pack_optimise``); ``chosen`` the
+    boxes a question opens with (default: the steps the recipe carries)."""
     import O4_UI_Utils as UI
     UI.pack_optimise(pack=pw.pack_name, pack_root=pack_root, lat=lat, lon=lon,
                      state=state, error=error, dedupe=pw.dedupe,
@@ -193,7 +227,8 @@ def _announce(pw: PackWeight, pack_root: str, lat: int, lon: int,
                      est_tris_before=pw.tris_before,
                      est_tris_after=pw.tris_after,
                      can_optimise=pw.can_optimise, files=list(files),
-                     steps=[dict(r) for r in pw.steps], chosen=list(pw.chosen))
+                     steps=[dict(r) for r in pw.steps],
+                     chosen=list(pw.chosen if chosen is None else chosen))
 
 
 def _write(pw: PackWeight, pack_root: str, recipe: dict) -> None:
@@ -244,6 +279,12 @@ def optimise_stage(plan_, tile, *, writes: bool) -> str:
         return ""
     if pw is None or not pw.can_optimise:
         return ""
+    if choice == "update" and pw.steps and _unshown(pack_root, pw):
+        UI.vprint(1, "  " + log_line(pw) + " — asking again: it has steps you "
+                     "were not shown")
+        _announce(pw, pack_root, tile.lat, tile.lon, "found",
+                  chosen=_question_ticks(pack_root, pw))
+        return "found"
     if pw.current:
         return "current"
     if choice == "never":
@@ -267,11 +308,14 @@ def optimise_choice(pack_root: str, action: str, lat: int | None = None,
     * ``"never"`` — remember it; nothing is written;
     * ``"undo"`` — forget the answer and put the original placements
       back in every optimised DSF of the pack (only the tile's with
-      ``lat``/``lon``).
+      ``lat``/``lon``);
+    * ``"ask"`` — nothing is written: the question for the tile's DSF
+      (``state="ask"``, its steps, the pack's current choice ticked) —
+      the pack row's Optimise.
 
     Returns the ``PackOptimise`` fields with ``state`` (``"optimised"``
-    | ``"never"`` | ``"undone"`` | ``"none"`` | ``"failed"``).  Never
-    raises."""
+    | ``"never"`` | ``"undone"`` | ``"ask"`` | ``"none"`` | ``"failed"``).
+    Never raises."""
     import O4_UI_Utils as UI
     out = {"pack": os.path.basename(os.path.normpath(pack_root or "")),
            "pack_root": pack_root, "lat": int(lat or 0), "lon": int(lon or 0),
@@ -288,14 +332,25 @@ def optimise_choice(pack_root: str, action: str, lat: int | None = None,
             STORE.remember(pack_root, "")
             out["files"] = undo(pack_root, lat, lon)
             out["state"] = "undone" if out["files"] else "none"
+        elif action == "ask":
+            pw = check(pack_root, int(lat or 0), int(lon or 0),
+                       read_only=False, full=True)
+            if pw is not None and pw.can_optimise:
+                _announce(pw, pack_root, int(lat or 0), int(lon or 0), "ask",
+                          chosen=_question_ticks(pack_root, pw))
+                out["state"] = "ask"
+                return out              # _announce told the front end
         else:
+            from auto_patch_v2.airport import pack_optimise as _po
             STORE.remember(pack_root, "update")
-            chosen = (_remember_steps(pack_root, steps) if steps is not None
+            chosen = (_po.chosen_steps(steps) if steps is not None
                       else _remembered_steps(pack_root))
             if not chosen:
                 raise ValueError("no step chosen")
             pw = check(pack_root, int(lat or 0), int(lon or 0),
                        read_only=False, full=True, steps=chosen)
+            if steps is not None and pw is not None:
+                _remember_steps(pack_root, chosen, (r["key"] for r in pw.steps))
             if pw is not None and pw.can_optimise and not pw.current:
                 out["state"] = _optimise(pw, pack_root, int(lat or 0),
                                          int(lon or 0))

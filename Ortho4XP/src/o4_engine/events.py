@@ -201,7 +201,7 @@ CAPABILITIES: tuple = (
     "config", "links", "siblings", "secrets", "tile_settings_write",
     # pack and library commands (before the freeze, also read by number)
     "missing_art", "library", "pack_forests", "pack_optimise",
-    "pack_optimise_steps",
+    "pack_optimise_steps", "pack_optimise_ask",
     # the flags that name what protocol 1.20-1.32 added
     "patch_insert_shape",           # 1.20, #1314
     "patch_insert_tunnel_ramp",     # 1.24, #1745
@@ -753,6 +753,9 @@ class PackOptimise(EngineEvent):
       the user already said Optimise for.
     * ``"undone"`` — (command) the original placements are back.
     * ``"never"`` — (command) the answer is remembered; nothing written.
+    * ``"ask"`` — (command ``action="ask"``, capability
+      ``pack_optimise_ask``: the pack row's Optimise) the question again,
+      asked every time, ``chosen`` ticked as the pack's current choice.
     * ``"failed"`` — ``error`` says why; the pack is as it was.
     * ``"none"`` — (command) nothing to do.
 

@@ -73,3 +73,15 @@ def test_an_edge_wall_bridge_is_never_an_entrance(tmp_path):
     t = TrenchObject(o.id, o.path, o.plan_bbox, 20.0, (((0.0, 0.0), -1),))
     assert mouth_portals([t], [o], obj8.ResourceCache(THICK), LAW, [way],
                          lambda x, y: 0.0) == []
+
+
+def test_solids_standing_over_the_ground_are_no_entrance(objs, law):
+    """LOWS bore -328's end under the house group's plates, 8.5 m over the
+    ground: a building on the bore, never the mouth's road."""
+    tunnel = OsmWay(-7, "big_roads", ((0.0, 3.0), (0.0, 300.0)), False, _T)
+    airport = _airport(objs, law, [("face", (0.0, 0.0), 0.0, 10.0, "OBJECT_AGL")], (tunnel,))
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    trenches, _notes = read_trench_objects(objects, cache, law, [tunnel])
+    assert trenches, "the raised face is still read as a trench object"
+    assert mouth_portals(trenches, objects, cache, law, [tunnel], airport.dem.z) == []

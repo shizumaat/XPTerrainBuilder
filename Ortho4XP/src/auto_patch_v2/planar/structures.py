@@ -1136,6 +1136,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         extra: dict = {} if slid_depth is None else dict(depth_m=slid_depth)
         if pin is not None:
             extra["portal"] = pin.object_id
+            if pin.floor_z is not None:
+                extra["portal_floor"] = True
             if edge is not None:
                 extra["edge_back"] = tuple(edge.back)
                 extra["edge_seats"] = edge_seats

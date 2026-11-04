@@ -566,10 +566,12 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 # airside, less its walls' bottom — never deeper than the
                 # object; the two-sided pair of the mouth-depth idiom above
                 rows.extend(seat_pair(group[0], seats[0], src_mouth))
-            elif tn.source in ("object", "door", "sunken_road") or getattr(tn, "edge_back", ()):
+            elif tn.source in ("object", "door", "sunken_road") or getattr(tn, "edge_back", ()) \
+                    or getattr(tn, "portal_floor", False):
                 # (an EDGE BRIDGE's floor is the object's: its deck level −
                 # its walls' bottom, owner RULINGS 2026-10-20am / 20ar; its
-                # cap stands in the bridge's cover, no rim reads it)
+                # cap stands in the bridge's cover, no rim reads it; an
+                # ENTRANCE object's floor is its own bottom, #1747)
                 pin(group[0], tn.mouth_z, src_mouth, senior=True)
             elif len(cap_reps) == 1:
                 # §33 (5) THE MOUTH'S FLOOR IS THE BORE DATUM, HOWEVER ITS

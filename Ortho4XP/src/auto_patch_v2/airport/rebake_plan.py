@@ -312,7 +312,18 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                       connectors=(None if getattr(part, "connectors", None) is None
                                   else tuple(v.to_dict() for v in part.connectors)),
                       adapted_frame_pids=tuple(sorted(
-                          getattr(part, "adapted_frame_pids", ()) or ())))
+                          getattr(part, "adapted_frame_pids", ()) or ())),
+                      origin_tile=_origin_tile(airport))
+
+
+def _origin_tile(airport) -> tuple[int, int] | None:
+    """The tile of the airport's reference point (#1645, ``RebakePlan.
+    origin_tile``); ``None`` for a site with no frame."""
+    o = getattr(getattr(airport, "frame", None), "origin", None)
+    if o is None:
+        return None
+    import math
+    return (int(math.floor(o[0])), int(math.floor(o[1])))
 
 
 def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,

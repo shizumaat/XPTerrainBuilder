@@ -498,6 +498,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     else:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: no {os.path.basename(graded)} "
                      "beside the patch — no body can classify as building or basin")
+    # #1645: one airport's plan names the rows of every tile it touches;
+    # this tile's DSF is written from its own rows and riders, BEFORE any
+    # reader keys on a member id (``tile_rows.for_tile``)
+    from auto_patch_v2.airport.tile_rows import for_tile as _for_tile
+    plan_, jetway_strips = _for_tile(plan_, jetway_strips, (tile.lat, tile.lon))
     # owner RULINGS 2026-10-14d (1): the base slabs over sloping ground DRAPE
     # (their up faces laid on this surface); a failure here drapes nothing
     # and never costs the pads above
@@ -602,7 +607,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             jetway_strips=jetway_strips,
             # a CLAMPED GATE is a clamp within D of the rider (#31)
             jetway_strip_m=float(law.tables.emit.design.jetway_strip_m),
-            drape=drape, drape_law=drape_law,
+            drape=drape, drape_law=drape_law, tile=(tile.lat, tile.lon),
             engine_version=_engine_version(), law_digest=digest,
             write_cuts=bool(write_enabled and not measure_only))
     _pulse.clear()
@@ -611,6 +616,13 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # only reading that says whether the pads and rims above were seen at
     # all — with none, every body reads ``class_other``.
     c.update({k: int(v) for k, v in ss.counts.items() if k.startswith("class_")})
+    # #1252: the sibling packs' rows on this plan's re-seated decks
+    from . import sibling_stage as _sib
+    siblings = (_sib.plans(plan, dump, _surface, tile,
+                           law.tables.structures.rebake.elevated_base_m)
+                if plan_key in ("", plan_.icao) else [])
+    c["sibling_packs"] = len(siblings)
+    c["sibling_deck_riders"] = sum(len(s.msl_seats) for s in siblings)
     if not write_enabled or measure_only:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: MEASURE ONLY — "
                      f"{c['conversions']} conversion(s), {c['splits']} split(s) into "
@@ -675,6 +687,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     out = dict(res.counts)
     out.update({k: v for k, v in c.items() if k.startswith("class_")})
     out["packs_written"] = 1
+    if siblings:
+        out["sibling_packs_written"] = _sib.write(
+            siblings, patch_dir, _DSFR._dsftool_path() or "DSFTool",
+            engine_version=_engine_version(), law_digest=digest)
+        out["sibling_deck_riders"] = c["sibling_deck_riders"]
     return out
 
 
@@ -883,29 +900,31 @@ def rebake_after_mesh(tile) -> dict:
                         plan_ = _rb.RebakePlan.from_json(fh.read())
                     icao = plan_.icao
                 # A PLAN WHOSE PATCH IS NOT IN THIS MESH IS NEVER PLACED
-                # (lane ``othhjunction``, #13/#15): the plan is the auto
-                # patch's design surface; a manual patch, the mode filter
-                # or a boundary skip means the mesh was built WITHOUT that
-                # surface, and placing (splitting, rewriting the pack DSF)
-                # against it seats objects on ground that is not there.
-                # ONE admission test, the patch ingest's own.
+                # (lane ``othhjunction``, #13/#15): the mode filter or a
+                # boundary skip means the mesh was built WITHOUT the
+                # airport's patch, and placing (splitting, rewriting the
+                # pack DSF) against it seats objects on ground that is not
+                # there.  ONE admission test, the patch ingest's own.  An
+                # EDITED (manual) patch IS the airport's patch in this mesh
+                # (owner RULINGS 2026-11-03e, #1637, superseding 2026-10-15d
+                # (5)): the pack is re-placed against the mesh just built —
+                # the sampler below reads the user's terrain — and the
+                # hand-set seats (#1703) are a layer of that write.
                 from . import selection as _SELECTION
                 not_applied = _SELECTION.auto_patch_not_applied(
-                    tile, icao, patch_dir=patch_dir)
+                    tile, icao, patch_dir=patch_dir, edited_ok=True)
                 if not_applied:
                     UI.vprint(0, f"  [v2 rebake] {icao}: placement SKIPPED — its "
                                  f"auto patch is not in this mesh ({not_applied})")
                     counts["airports_skipped_unapplied"] = \
                         counts.get("airports_skipped_unapplied", 0) + 1
-                    # #1703 (owner 2026-11-03): an edited patch still gets
-                    # the objects the user seated by hand — those only
-                    from . import user_seat_stage as _hand
-                    source = screen if screen is not None else plan_
-                    if _hand.seat_stage(source, tile, patch_dir, writes=bool(
-                            write_enabled and not measure_only)):
-                        written_packs.add(source.pack_root)
-                        ran_packs.add(source.pack_root)
                     continue
+                edited = _SELECTION.manual_patch_files_for(patch_dir, icao)
+                if edited:
+                    UI.vprint(0, f"  [v2 rebake] {icao}: your edited patch "
+                                 f"{', '.join(edited)} is used — the pack's objects "
+                                 f"are re-placed against this mesh, the ones you "
+                                 f"set by hand at their elevation")
                 law = Law.for_airport(icao)
                 if screen is not None:
                     plan_ = _oplan.from_screen(

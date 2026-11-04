@@ -320,6 +320,13 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
     from .wall_zone import retaining_lines, split
     held = retaining_lines(walls)
     tops = _wall_levels(planar, held, xy)   # wall-slope ground at top / foot
+    # a wall that joins a lower level holds its foot strip at the level
+    # (``planar/low_extent._join_walls``, #1306): not at its foot, not at DEM
+    from .platform import landing_vertices
+    lands = getattr(getattr(planar, "registries", None), "landings", None) or {}
+    levelled = {v for r, vs in (landing_vertices(planar).items() if lands else ())
+                if lands[r].get("wall_strips") for v in vs}
+    tops = {v: t for v, t in tops.items() if v not in levelled}
     rep["zone_flat"] = 0
     pave = frozenset(r for r, spec in law.tables.precedence.roles.items()
                      if spec.value and spec.side == "airside")
@@ -391,6 +398,8 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
            if planar.vertices[v].dem_z is not None and v in xy}
     from .wall_zone import foot_ground
     for v, dz in sorted(foot_ground(dem, xy, held).items()):
+        if v in levelled:
+            continue
         bands.append(Band(v, dz, dz,
                           Source("wall_terrace", BEYOND_WALL_RULING, (f"vertex:{v}",))))
     rep["beyond_wall_ground"] = len(bands) - len(cs.bands)
@@ -409,10 +418,11 @@ def _wall_levels(planar: PlanarMap, held: _t.Sequence, xy: _t.Mapping[int, tuple
                  ) -> dict[int, tuple[float, str]]:
     """#1661 (Q299 (a)) / #1662: every vertex only wall slopes hold
     (``planar/wall_slope``) that stands on a wall's upper face, -> the
-    wall's top as it sits there (``wall_zone.face_top``), or on its lower
+    wall's top as it sits there (``wall_zone.face_top``; in its fill,
+    ``wall_zone.fill_top``, #1600), or on its lower
     face, -> its foot (``wall_zone.face_foot``); with the row's ruling."""
     from ..model.wall_reach import is_wall_slope_ref
-    from .wall_zone import face_foot, face_top
+    from .wall_zone import face_foot, face_top, fill_top
     if not any(getattr(w, "top_profile", None) or getattr(w, "foot_profile", None)
                for w in held):
         return {}
@@ -422,6 +432,8 @@ def _wall_levels(planar: PlanarMap, held: _t.Sequence, xy: _t.Mapping[int, tuple
         if not inc or not all(is_wall_slope_ref(planar.faces[f].ref) for f in inc):
             continue
         z = face_top(held, p)
+        if z is None:
+            z = fill_top(held, p)
         if z is not None:
             out[v] = (z, WALL_TOP_RULING)
             continue

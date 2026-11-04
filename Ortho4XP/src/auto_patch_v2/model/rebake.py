@@ -393,6 +393,11 @@ class RebakePlan:
     #: origin); their connected unit takes that zero
     #: (``airport/adapted_riders.touching_adapted``).  Empty in an older plan.
     adapted_frame_pids: tuple[int, ...] = ()
+    #: THE AIRPORT'S ORIGIN TILE (#1645): the tile whose DSF rows the bare
+    #: ``dsf:obj<i>`` ids name; a neighbour tile's row is ``dsf:obj<i>@<tile>``
+    #: (``airport/dsf.row_of``).  ``None`` in an older plan: its bare ids
+    #: are the rows of whichever tile's DSF the object stage writes.
+    origin_tile: tuple[int, int] | None = None
 
     def bounds(self) -> tuple[float, float, float, float]:
         """``(min_lon, min_lat, max_lon, max_lat)`` over every witness."""
@@ -426,6 +431,8 @@ class RebakePlan:
             **({"apt_dat": self.apt_dat} if self.apt_dat else {}),
             **({"adapted_frame_pids": list(self.adapted_frame_pids)}
                if self.adapted_frame_pids else {}),
+            **({"origin_tile": list(self.origin_tile)}
+               if self.origin_tile is not None else {}),
             "units": [{
                 "id": u.id, "anchor": [u.anchor[0], u.anchor[1]], "agl_m": u.agl_m,
                 "members": [{
@@ -574,7 +581,10 @@ class RebakePlan:
                    flat=None if d.get("flat") is None else FlatDatum.from_dict(d["flat"]),
                    apt_dat=str(d.get("apt_dat") or ""),
                    adapted_frame_pids=tuple(int(q) for q in
-                                            d.get("adapted_frame_pids", ()) or ()))
+                                            d.get("adapted_frame_pids", ()) or ()),
+                   origin_tile=(None if d.get("origin_tile") is None
+                                else (int(d["origin_tile"][0]),
+                                      int(d["origin_tile"][1]))))
 
     @classmethod
     def from_json(cls, text: str) -> "RebakePlan":

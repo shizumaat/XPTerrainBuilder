@@ -52,6 +52,7 @@ import typing as _t
 import numpy as np
 
 from ..geom.terrain_deck import CELL_M, DeckGrid, TerrainFit
+from . import dsf as _dsf
 
 __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
            "placement_fits", "dem_many_of",
@@ -240,9 +241,9 @@ def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> tu
     out = []
     for r in records or ():
         oid = str(r.get("id", ""))
-        if r.get("seat") != SEAT or not oid.startswith("dsf:obj") or not oid[7:].isdigit():
+        tile, i = _dsf.row_of(oid)
+        if r.get("seat") != SEAT or tile is not None or i is None:
             continue
-        i = int(oid[7:])
         if not 0 <= i < len(rows) or str(rows[i].def_path) != str(r.get("resource")):
             continue
         row = rows[i]

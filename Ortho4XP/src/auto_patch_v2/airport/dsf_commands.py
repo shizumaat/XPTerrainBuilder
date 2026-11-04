@@ -23,7 +23,8 @@ from __future__ import annotations
 import hashlib
 import struct
 
-__all__ = ["atoms", "header_properties", "select_pool_first"]
+__all__ = ["atoms", "header_properties", "object_pool_boxes",
+           "select_pool_first"]
 
 _COOKIE = b"XPLNEDSF"
 _FOOTER = 16                       # the trailing MD5
@@ -32,6 +33,9 @@ _HEAD, _PROP = b"DAEH", b"PORP"
 _UNSELECTED = 0xFFFF
 
 _POOL_SELECT = 1
+_GEOD, _POOL = b"DOEG", b"LOOP"
+#: Object and ObjectRange: the commands that place objects
+_OBJECT_COMMANDS = frozenset((7, 8))
 #: The commands at which DSFTool's census of an OVERLAY records the
 #: current pool: SetDefinition16, Object, ObjectRange.
 _POOL_READERS = frozenset((4, 7, 8))
@@ -171,3 +175,62 @@ def select_pool_first(buf: bytes) -> bytes | None:
     out = (buf[:off] + struct.pack("<4sI", _CMDS, 8 + len(cmds)) + cmds
            + buf[off + length:body_end])
     return out + hashlib.md5(out).digest()
+
+
+_SCAL = b"LACS"
+
+
+def _pools(buf: bytes, top: list[tuple[bytes, int, int]]
+           ) -> list[tuple[int, tuple[float, ...]]]:
+    """``(plane count, (scale, offset) per plane)`` of each 16-bit point
+    pool (``POOL`` / ``SCAL`` atoms in GEOD, in file order — the index
+    ``PoolSelect`` names)."""
+    planes: list[int] = []
+    scales: list[tuple[float, ...]] = []
+    for aid, off, length in top:
+        if aid == _GEOD:
+            for kid, koff, klen in atoms(buf, off + 8, off + length):
+                if kid == _POOL:
+                    planes.append(buf[koff + 12])
+                elif kid == _SCAL:
+                    n = (klen - 8) // 4
+                    scales.append(struct.unpack_from(f"<{n}f", buf, koff + 8))
+    return [(p, scales[k] if k < len(scales) else ()) for k, p in enumerate(planes)]
+
+
+def object_pool_boxes(buf: bytes, min_planes: int = 0
+                      ) -> "list[tuple[float, float, float, float]] | None":
+    """The ``(west, south, east, north)`` box of every point pool with at
+    least ``min_planes`` planes that an ``Object`` / ``ObjectRange``
+    command places from (#1252) — read off the command stream, no DSFTool
+    dump.  ``None`` when ``buf`` is not a DSF this reads."""
+    if buf[:8] != _COOKIE or len(buf) < 12 + _FOOTER:
+        return None
+    used: set[int] = set()
+    try:
+        top = atoms(buf, 12, len(buf) - _FOOTER)
+        pools = _pools(buf, top)
+        for aid, off, length in top:
+            if aid != _CMDS:
+                continue
+            cmds, at, current = buf[off + 8:off + length], 0, _UNSELECTED
+            while at < len(cmds):
+                command = cmds[at]
+                at += 1
+                size = _operand_bytes(cmds, at, command)
+                if size is None:
+                    break
+                if command == _POOL_SELECT:
+                    current = struct.unpack_from("<H", cmds, at)[0]
+                elif (command in _OBJECT_COMMANDS and current < len(pools)
+                      and pools[current][0] >= min_planes):
+                    used.add(current)
+                at += size
+    except (ValueError, IndexError, struct.error):
+        return None
+    out = []
+    for k in sorted(used):
+        sc = pools[k][1]
+        if len(sc) >= 4:
+            out.append((sc[1], sc[3], sc[1] + sc[0], sc[3] + sc[2]))
+    return out

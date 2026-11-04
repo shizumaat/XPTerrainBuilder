@@ -239,6 +239,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
+        "auto_patch_v2.classify.blast_pad",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -426,6 +427,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
+        "auto_patch_v2.classify.blast_pad",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -859,6 +861,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
+        "auto_patch_v2.classify.blast_pad",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -935,6 +938,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.threshold_seam",
         "auto_patch_v2.constraints.transverse",
         "auto_patch_v2.constraints.trend",
+        "auto_patch_v2.constraints.viaduct_floor",
         "auto_patch_v2.constraints.wall_zone",
         "auto_patch_v2.constraints.walled_plate",
         "auto_patch_v2.constraints.water",
@@ -1141,7 +1145,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.foot_rows
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
-        constraints.edge_floor constraints.structures geom.base_slab geom.cluster_outline
+        constraints.edge_floor constraints.structures
+    constraints.viaduct_floor geom.base_slab geom.cluster_outline
         geom.containment
         geom.feet_graph geom.feet_mst geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.ground_fit model.islands model.map_memo model.platform
@@ -1348,6 +1353,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
         constraints.platform constraints.precedence constraints.edge_floor constraints.structures
+    constraints.viaduct_floor
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
@@ -1422,7 +1428,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
-    classify.apt_shoulder classify.storey_edge airport.unit_storey airport.user_roles
+    classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
+    airport.user_roles
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
@@ -1445,7 +1452,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.threshold_seam
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
-    constraints.strips constraints.edge_floor constraints.structures constraints.taxi
+    constraints.strips constraints.edge_floor constraints.structures
+    constraints.viaduct_floor constraints.taxi
     constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones geom geom.base_slab
@@ -1578,7 +1586,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
-    classify.apt_shoulder classify.storey_edge airport.unit_storey airport.user_roles
+    classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
+    airport.user_roles
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
@@ -1693,7 +1702,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
-    classify.apt_shoulder classify.storey_edge airport.unit_storey airport.user_roles
+    classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
+    airport.user_roles
     classify.facade_mint classify.gap_apron classify.gap_mint classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
     classify.pad_cut_corridor classify.pad_touch
@@ -1721,7 +1731,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.runway_yield constraints.runway_junctions constraints.seams
     constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips
-    constraints.edge_floor constraints.structures constraints.taxi constraints.taxi_trend
+    constraints.edge_floor constraints.structures
+    constraints.viaduct_floor constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones emit.graded emit.surface
     geom geom.base_slab geom.cluster_outline geom.containment geom.core_clamp
@@ -1813,7 +1824,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.ring_contact_batch
     airport.slab_plates airport.topology_cache airport.wall_class classify
     classify.airside_edge classify.evidence classify.facade_mint classify.gap_apron
-    classify.apt_shoulder classify.storey_edge airport.unit_storey airport.user_roles
+    classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
+    airport.user_roles
     classify.gap_mint classify.lot_roads classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch
     classify.retaining_wall
@@ -1892,7 +1904,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.ring_contact_batch airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
-    classify.apt_shoulder classify.storey_edge airport.unit_storey airport.user_roles
+    classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
+    airport.user_roles
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall

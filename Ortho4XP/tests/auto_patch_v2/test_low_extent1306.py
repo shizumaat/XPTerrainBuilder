@@ -13,7 +13,7 @@ from auto_patch_v2.model.registries import Registries
 from auto_patch_v2.planar import low_level as LL
 from auto_patch_v2.planar.low_extent import AirRegion
 from auto_patch_v2.planar.overlay import Region
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 from test_two_pads1214 import AIR, P, _airport, _terminal, _wall
 
 
@@ -156,3 +156,75 @@ def test_a_group_levels_vertices_are_stage_twos_but_airside_pavement_s():
                                       2: face("lot", "parking_lot", "groundside", (1, 5))},
                                ring_vertices=lambda ring: ring)
     assert stage_two_vertices(pm, {"b/p1": {}}) == frozenset({1, 2})
+
+
+def _joining(law, tmp_path, monkeypatch, gap):
+    """The terminal's level ``blk/p1`` (y 0..70) and a retaining wall
+    outside its group, its lower band ``gap`` m south of the level."""
+    import types
+
+    from auto_patch_v2.airport.obj8_grade import STEPPED
+    from auto_patch_v2.planar import pad_blocks
+    monkeypatch.setattr(pad_blocks, "unit_base", lambda P, a: (STEPPED, "u"))
+    A = _airport(_terminal(), tmp_path)
+    y0 = -gap - 10.0
+    band = box(20.0, y0, 180.0, -gap)                 # the lower band, smear 10 m
+    A.retaining_walls = (types.SimpleNamespace(
+        poly=box(20.0, y0 - 1.0, 180.0, y0), height_m=10.0, lower=band,
+        foot_profile=((0.0, 280.7), (160.0, 280.7)), resource="muro.obj"),)
+    strip = Region(role="graded_strip", ref="adjacent_ground:wall:muro.obj#0",
+                   polygon=box(20.0, y0, 180.0, y0 + 6.0), code_number=None,
+                   code_letter=None, side="airside", source="zone")
+    reg = Registries()
+    reg.held["blk"] = {"unit": "blk"}
+    region = Region(role="building", ref="blk", polygon=P, code_number=None,
+                    code_letter=None, side="airside", source="cell")
+    counts: dict = {}
+    LL.low_level_split([region], [AIR], A, law, 0.5, counts, reg=reg,
+                       air_all=[AirRegion(AIR, "cell"), strip])
+    return reg, counts
+
+
+def test_a_retaining_wall_whose_lower_face_meets_a_level_joins_it(law, tmp_path, monkeypatch):
+    """KATL control tower (#1306, owner 2026-11-04 "1306: yes"):
+    ``muro_ladrillo`` stands in no unit of the terminal's group, its lower
+    face 4 m off the apron walls' level; its foot strip is that level's
+    ground, held at the LEVEL, never at the wall's own bottom (280.7 m)."""
+    reg, counts = _joining(law, tmp_path, monkeypatch, gap=5.0)
+    held = {k: v["wall_strips"] for k, v in reg.landings.items() if v.get("wall_strips")}
+    assert held == {"blk/p1": ["adjacent_ground:wall:muro.obj#0"]}
+    (band,) = reg.landings["blk/p1"]["wall_bands"]
+    assert box(*Polygon(band).bounds).equals(box(20.0, -15.0, 180.0, -5.0))
+    assert "muro.obj -> blk/p1" in counts["low_level_wall_joins"]
+
+
+def test_a_wall_beyond_its_reach_of_every_level_joins_none(law, tmp_path, monkeypatch):
+    reg, counts = _joining(law, tmp_path, monkeypatch, gap=45.0)   # reach 40 m
+    assert not any(v.get("wall_strips") for v in reg.landings.values())
+    assert "low_level_wall_joins" not in counts
+
+
+def test_a_joined_walls_foot_strip_and_road_are_held_with_its_level():
+    """``constraints/platform.landing_vertices``: the strip's vertices are
+    the level's, and the vertices of a service road on the wall's lower
+    band, so the level rows hold them (``landing_rows``) and the wall's
+    foot hold stands down (``road_ramp.wall_release``); the road's run off
+    the band keeps its own law."""
+    import types
+
+    from auto_patch_v2.constraints.platform import landing_vertices
+
+    def face(ref, ring, role="graded_strip"):
+        return types.SimpleNamespace(ref=ref, role=role, ring=ring, holes=())
+    xy = {9: (5.0, 5.0), 10: (50.0, 5.0)}
+    pm = types.SimpleNamespace(
+        faces={0: face("b/p7", (1, 2, 3)), 1: face("adjacent_ground:wall:m#0", (3, 4, 5)),
+               2: face("adjacent_ground:wall:m#1", (6, 7, 8)),
+               3: face("small_roads:-1", (9, 10), "service_road")},
+        vertices={v: types.SimpleNamespace(xy=p) for v, p in xy.items()},
+        registries=types.SimpleNamespace(landings={
+            "b/p7": {"block": "b", "kind": "low_level",
+                     "wall_strips": ["adjacent_ground:wall:m#0"],
+                     "wall_bands": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]}}),
+        ring_vertices=lambda ring: ring)
+    assert landing_vertices(pm) == {"b/p7": [1, 2, 3, 4, 5, 9]}

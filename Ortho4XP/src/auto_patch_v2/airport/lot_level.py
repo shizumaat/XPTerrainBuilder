@@ -23,14 +23,14 @@ from ..law import Law
 from ..law.tables import airside_stage_roles, role_side
 from ..model.planar import PlanarMap
 
-__all__ = ["lot_level", "lot_level_faces"]
+__all__ = ["lot_level"]
 
 #: metres the lot is grown before the segment test: a segment along the
 #: lot's own edge is inside it
 _TOL_M = 0.05
 
 
-def lot_level_faces(walls: _t.Mapping[int, _t.Mapping]) -> list[int]:
+def _lot_faces(walls: _t.Mapping[int, _t.Mapping]) -> list[int]:
     """The lot faces of every wall record carrying a lot→pad pair."""
     return sorted({int(f) for rec in walls.values() if rec.get("pairs")
                    for f in rec.get("lots") or ()})
@@ -48,7 +48,7 @@ def _polygon(pm: PlanarMap, face):
 def lot_level(pm: PlanarMap, law: Law,
               walls: _t.Mapping[int, _t.Mapping]) -> dict[str, _t.Any]:
     """``{"lots", "pairs"}`` (module docstring); ``{}`` when no lot."""
-    lots = lot_level_faces(walls)
+    lots = _lot_faces(walls)
     if not lots:
         return {}
     pairs = _pairs(pm, law, walls, lots)

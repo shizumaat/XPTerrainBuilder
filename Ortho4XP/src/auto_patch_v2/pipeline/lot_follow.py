@@ -17,7 +17,7 @@ THE ROWS: stage 2's own set less every row with no follower in it
 pairs with a pad (``['lot_level']['pairs']``): ``z_lot - z_pad = 0``
 wherever the lot's own caps allow it, and otherwise the pad's level CLAMPED
 into the follower's cap window — the levels every chain of the set's
-``Diff`` caps from a constant leaves it (:func:`cap_windows`).  The row and
+``Diff`` caps from a constant leaves it (:func:`_cap_windows`).  The row and
 the caps then never disagree, so the lot is flat at the pad and ramps AT
 its cap to a road or a neighbour that stands at another level.  MEASURED
 HECA (``dsf:objpav394``): with the bare ``= 0`` row the caps and the row,
@@ -35,7 +35,7 @@ import typing as _t
 from ..model.constraints import ConstraintSet, Linear, Source
 from ..model.planar import PlanarMap, face_vertex_set
 
-__all__ = ["LOT_FOLLOW_RULING", "lot_followers", "lot_follow_rewrite", "cap_windows"]
+__all__ = ["LOT_FOLLOW_RULING", "lot_follow_rewrite"]
 
 #: the follower pass's lot-level row: the 10-03c lot level, registered in
 #: ``[design] one_way_rulings``, ``pad_level_rulings`` (a vertex it levels
@@ -57,7 +57,7 @@ def _record(pm: PlanarMap) -> _t.Mapping:
     return (getattr(pm, "road_terrace", None) or {}).get("lot_level") or {}
 
 
-def lot_followers(pm: PlanarMap) -> set[int]:
+def _followers(pm: PlanarMap) -> set[int]:
     """The follower vertices (module docstring)."""
     lots = {int(f) for f in _record(pm).get("lots") or ()} & set(pm.faces)
     if not lots:
@@ -69,7 +69,7 @@ def lot_followers(pm: PlanarMap) -> set[int]:
     return free - held
 
 
-def cap_windows(cs: ConstraintSet, fixed: _t.Mapping[int, float],
+def _cap_windows(cs: ConstraintSet, fixed: _t.Mapping[int, float],
                 free: _t.AbstractSet[int]) -> dict[int, tuple[float, float]]:
     """``{follower: (lo, hi)}``: the levels the set's ``Diff`` caps leave
     each follower reachable from the constants — ``hi`` the least of
@@ -109,7 +109,7 @@ def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float]
     """``(rows, constants, report)`` of the follower pass, or ``None`` when
     no lot follows (the pass does not run)."""
     from .stage_one_map import late_constraints
-    free = lot_followers(pm)
+    free = _followers(pm)
     pairs = _record(pm).get("pairs") or {}
     level = {v: q for v, q in pairs.items() if v in free and q not in free}
     if not level:
@@ -120,7 +120,7 @@ def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float]
     # beside it pulls it to one side (MEASURED HECA: a lot vertex 0.7 m off
     # ``building10``'s ring, between that ring and a road 18 m away, moved
     # 0.02 m and broke the road-fallback cap by 0.04 m)
-    win = cap_windows(late_constraints(cs, fixed)[0], fixed, free)
+    win = _cap_windows(late_constraints(cs, fixed)[0], fixed, free)
     torn = {v for v, (lo, hi) in win.items() if lo > hi}
     if torn:
         free = free - torn
@@ -129,7 +129,7 @@ def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float]
         if not level:
             return None
     kept, dropped = late_constraints(cs, fixed)
-    win = cap_windows(kept, fixed, free)
+    win = _cap_windows(kept, fixed, free)
     rows, clamped = [], 0
     for v, q in sorted(level.items()):
         lo, hi = win[v]

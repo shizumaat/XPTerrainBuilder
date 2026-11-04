@@ -58,8 +58,8 @@ def test_the_follower_pass_levels_the_lot_to_its_pad_and_moves_nothing_else(arms
     (pm0, sol0, _r0), (pm1, sol1, rep1) = arms
     assert rep1.follow_stage.get("kept") is True, rep1.follow_stage
     assert rep1.follow_stage["lot_level_rows"] > 0
-    from auto_patch_v2.pipeline.lot_follow import lot_followers
-    free = lot_followers(pm1)
+    from auto_patch_v2.pipeline.lot_follow import _followers
+    free = _followers(pm1)
     pairs = pm1.road_terrace["lot_level"]["pairs"]
     # same map, same stage 2: every non-follower is byte-identical
     assert len(sol0.z) == len(sol1.z)
@@ -89,9 +89,9 @@ def test_the_cap_window_is_every_cap_chain_from_a_constant():
     within 0.5 m of it, and one 10 m further within 1.0 m: the lot ramps AT
     its cap to the road and is flat at its pad beyond."""
     from auto_patch_v2.model.constraints import ConstraintSet, Diff, Source
-    from auto_patch_v2.pipeline.lot_follow import cap_windows
+    from auto_patch_v2.pipeline.lot_follow import _cap_windows
     src = Source("test", "common.roles longitudinal", ())
     cs = ConstraintSet.from_rows([Diff(0, 1, 0.05, 10.0, src), Diff(1, 2, 0.05, 10.0, src)])
-    win = cap_windows(cs, {0: 97.0}, {1, 2})
+    win = _cap_windows(cs, {0: 97.0}, {1, 2})
     assert win[1] == pytest.approx((96.5, 97.5))
     assert win[2] == pytest.approx((96.0, 98.0))

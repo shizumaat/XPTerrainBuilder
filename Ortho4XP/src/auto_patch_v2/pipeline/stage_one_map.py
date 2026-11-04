@@ -526,24 +526,28 @@ class StageOne:
 
 
 def stage_one_problem(cl, derive: _t.Callable[[_t.Any], tuple],
-                      caller: _t.Any = None) -> StageOne | None:
+                      caller: _t.Any = None, full: _t.Any = None) -> StageOne | None:
     """THE RIBBON-FREE STAGE-1 PROBLEM: ``derive(cl0) -> (pm, cs, strips,
     hold)`` is the CALLER's own prefix (the build's, the replay's) run on
     the classification without ribbons.  ``None`` when ``cl`` carries no
     ribbon.  The registries the derivation fills (the ribbon-free map's
     own) are recorded as the problem's, and ``caller`` (the full map's
-    ``registries``) is re-installed from its snapshot around it."""
+    ``registries``) is re-installed from its snapshot around it.  ``full``
+    (the full map): its decks and deck anchors are stage 1's
+    (``model/stage_one.from_full``, deck redesign §1)."""
     cl_b = base_pad_map(cl)
     cl_r = ribbon_free(cl_b if cl_b is not None else cl)
     cl0 = cl_r if cl_r is not None else cl_b
     if cl0 is None:
         return None
     from ..constraints.door_pad import stage_one as _no_door_pads
+    from ..model.stage_one import from_full
     from ..planar.group_low import stage_one as _no_group_levels
     from . import capture_state as _cs
     saved = _cs.collect(caller) if caller is not None else None
     try:
-        with _no_door_pads(), _no_group_levels():
+        with _no_door_pads(), _no_group_levels(), \
+                (from_full(full) if full is not None else contextlib.nullcontext()):
             pm0, cs0, strips0, hold0 = derive(cl0)
         state0 = _cs.collect(pm0.registries)
     finally:

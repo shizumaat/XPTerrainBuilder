@@ -9,7 +9,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["ReliefFloor", "FlatDetector", "FlatDatum", "Declared", "FlatSite",
+__all__ = ["ReliefFloor", "FlatDetector", "FlatDatum", "ShoreRoads", "Declared", "FlatSite",
            "FLAT_SOURCES", "DECLARED_SOURCES", "check_flat_site"]
 
 
@@ -60,6 +60,19 @@ class FlatDatum:
 
 
 @_dc.dataclass(frozen=True)
+class ShoreRoads:
+    """Issue #1885: at a flat site ON FILL, the mapped roads on the
+    airport's sea-bounded island outside the aerodrome stand at Z0
+    (``airport/flat_site_shore_roads.py``): ``fill_min_m`` is the "on fill"
+    test (Z0 above the honest S2 median), ``side_probe_m`` the hill
+    guard's reach beyond the carriageway."""
+
+    enabled: bool
+    fill_min_m: float
+    side_probe_m: float
+
+
+@_dc.dataclass(frozen=True)
 class Declared:
     """One owner-declared flat site: ``source`` ``cifp`` | ``pack_seats``
     | ``metres`` (``z0`` IS the datum, required then)."""
@@ -74,6 +87,7 @@ class FlatSite:
 
     detector: FlatDetector
     datum: FlatDatum
+    shore_roads: ShoreRoads
     declared: _t.Mapping[str, Declared] = _dc.field(default_factory=dict)
 
 
@@ -90,6 +104,9 @@ def check_flat_site(fs: FlatSite, error: type[Exception]) -> None:
     if not g or ":" in g or not g.replace("_", "").isalnum():
         raise error(f"flat_site.datum.preference {g!r}: one identifier, "
                     "no ':' (the Weights.preference prefix)")
+    if fs.shore_roads.fill_min_m < 0.0 or fs.shore_roads.side_probe_m <= 0.0:
+        raise error("flat_site.shore_roads: fill_min_m must be >= 0 and "
+                    "side_probe_m > 0")
     for icao, d in fs.declared.items():
         if len(icao) != 4 or not icao.isalnum() or icao != icao.upper():
             raise error(f"flat_site.declared.{icao}: not a 4-character "

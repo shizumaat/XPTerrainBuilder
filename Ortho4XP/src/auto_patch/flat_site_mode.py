@@ -70,6 +70,8 @@ __all__ = [
     "CLUSTER_INSET_KIND",
     "ISTHMUS_INSET_KIND",
     "island_continuity_regions",
+    # #1885 — the same island test, for the shore-road hold.
+    "airport_island",
     # #945 — the bake's water cut keeps the airport's own surfaces.
     "water_beside_site",
 ]
@@ -1104,6 +1106,20 @@ def _island_component(land, core_box):
             or maxy >= 1.0 - tol):
         return None, "mainland (the land component reaches the tile frame)"
     return found, None
+
+
+def airport_island(tile, core):
+    """``(island, refusal)`` — the sea-bounded land component the airport
+    stands on (:func:`_island_component` over the tile's cached land), the
+    R21 test the #1885 shore-road hold reads: ``core`` is the airport's
+    own extent (tile-relative).  ``(None, why)`` with no coastline data,
+    on a mainland component, or when the extent holds no land."""
+    import O4_Vector_Map as VMAP
+
+    land = VMAP.cached_tile_land_area(tile)
+    if land is None:
+        return None, "no coastline data on disk"
+    return _island_component(land, core)
 
 
 def _connecting_pieces(island, members):

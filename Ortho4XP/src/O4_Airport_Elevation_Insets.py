@@ -7640,6 +7640,58 @@ def _isthmus_base_offset_m(tile, polygon, z0_m):
         return None
 
 
+def _with_shore_roads(tile, before, record, z0_m, icao, held):
+    """Issue #1885 — ``held`` grown by the island's SHORE ROADS: at a flat
+    site on fill, the mapped roads on the airport's sea-bounded island
+    outside the aerodrome stand at Z0 instead of on the ground the
+    fill-only pass gives back (``auto_patch_v2/airport/
+    flat_site_shore_roads.py``).  Never raises: a failure leaves ``held``
+    as it was."""
+    try:
+        from auto_patch import flat_site_mode as FLAT_SITE_MODE
+        from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
+        from auto_patch_v2.airport import flat_site_shore_roads as SHORE
+        from auto_patch_v2.airport import osm as V2OSM
+        from auto_patch_v2.classify.rules import load_rules
+        from auto_patch_v2.law import Law
+
+        lat, lon = int(math.floor(tile.lat)), int(math.floor(tile.lon))
+        gate = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
+            record, lat, lon, key="gate_ll")
+
+        def ways_of(lat0, lon0, lat1, lon1):
+            radius = 0.5 * max(lat1 - lat0, lon1 - lon0)
+            return [w for feed in V2OSM.ROAD_FEEDS
+                    for w in V2OSM.load_feed(
+                        FNAMES.OSM_dir, feed, 0.5 * (lat0 + lat1),
+                        0.5 * (lon0 + lon1), radius).ways]
+
+        dem = tile.dem
+        roads_rule = load_rules().osm_roads
+        law = Law.for_airport(icao)
+        roads, why = SHORE.site_hold(
+            record, law, gate, before,
+            (dem.x0, dem.x1, dem.y0, dem.y1, dem.nxdem, dem.nydem),
+            lambda core: FLAT_SITE_MODE.airport_island(tile, core),
+            ways_of, roads_rule.ribbon_highways, lat, lon,
+            (GEO.lon_to_m(tile.lat + 0.5), GEO.lat_to_m),
+            FLAT_SITE_RELIEF.REAL_FROM_M,
+            # the ground the PATCH reads outside the aerodrome: its own
+            # roads (``boundary_reach_m``) and the pad fill that runs to them
+            roads_rule.boundary_reach_m
+            + law.tables.structures.building_pad.fill_road_reach_m)
+    except Exception as error:
+        UI.vprint(0, "   ERROR: FLAT-SITE mode could not read", icao,
+                  "'s shore roads (", type(error).__name__, ":", str(error),
+                  ") - they keep the real surface.")
+        return held
+    UI.vprint(1 if roads is None else 0,
+              "   [flat-site] %s: shore roads (#1885) — %s." % (icao, why))
+    if roads is None:
+        return held
+    return roads if held is None else held.union(roads)
+
+
 def _keep_ground_above_flat_level(tile, before, record, z0_m, icao,
                                   what="plateau"):
     """RULINGS 2026-10-26r (#1208) — the plateau is a fill, not a cut: hand
@@ -7651,6 +7703,7 @@ def _keep_ground_above_flat_level(tile, before, record, z0_m, icao,
 
     held = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
         record, int(math.floor(tile.lat)), int(math.floor(tile.lon)))
+    held = _with_shore_roads(tile, before, record, z0_m, icao, held)
     if held is None:
         UI.vprint(1, "   [flat-site] %s: the decision carries no held ground — "
                      "no post of the %s keeps a cut." % (icao, what))

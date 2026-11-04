@@ -239,8 +239,22 @@ def test_apron_cover_refuses_the_corridor_cell_it_covers(law, rules):
 
     cl = classify(_apron_over_the_parallel(100.0, 500.0), law, rules)
     cells = _par_cells(cl)
-    assert set(cells) == set(base), (sorted(cells), sorted(base))
+    # the same west/east split as the base (keyed by centroid x: the west
+    # cell's moves, see below), and the west cell is now the COVERED
+    # pavement alone
+    assert len(cells) == len(base), (sorted(cells), sorted(base))
     west = min(cells)
+    assert Polygon(cells[west].ring).bounds[0] >= 100.0 - 1e-6
+    # #1696: the base west cell also held the crossing taxi page's stub
+    # south of the parallel (x 490..500, y 15..95), which no apron covers.
+    # It leaves the covered pavement across a cross-section on its own
+    # centreline, so §43 (1)'s arm read against the cover cuts it back out
+    # as taxiway (`neck.cover_arms`) — OSM draws an apron over the apron,
+    # not over the taxiway that leaves it.
+    stub = [c for c in cl.cells if c.ref == "taxi"
+            and Polygon(c.ring).bounds[3] <= 100.0]
+    assert stub and all(c.role in TAXI_FAMILY and c.evidence.get("neck_kind") == "arm"
+                        for c in stub), [(c.role, c.evidence) for c in stub]
     for x, c in cells.items():
         if x == west:
             assert c.role == "apron" and c.kind == "apron", (x, c.role)

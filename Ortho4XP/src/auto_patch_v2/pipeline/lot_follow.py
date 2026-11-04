@@ -115,13 +115,25 @@ def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float]
     if not level:
         return None
     fixed = {v: float(z[v]) for v in range(len(z)) if v not in free}
+    # A FOLLOWER TWO CONSTANTS' CAPS CANNOT BOTH REACH (an empty window)
+    # keeps stage 2's compromise between them: re-solved, the lot levelled
+    # beside it pulls it to one side (MEASURED HECA: a lot vertex 0.7 m off
+    # ``building10``'s ring, between that ring and a road 18 m away, moved
+    # 0.02 m and broke the road-fallback cap by 0.04 m)
+    win = cap_windows(late_constraints(cs, fixed)[0], fixed, free)
+    torn = {v for v, (lo, hi) in win.items() if lo > hi}
+    if torn:
+        free = free - torn
+        fixed.update({v: float(z[v]) for v in torn})
+        level = {v: q for v, q in level.items() if v in free}
+        if not level:
+            return None
     kept, dropped = late_constraints(cs, fixed)
     win = cap_windows(kept, fixed, free)
     rows, clamped = [], 0
     for v, q in sorted(level.items()):
         lo, hi = win[v]
-        # two constants the caps cannot both reach: between them
-        t = min(max(fixed[q], lo), hi) if lo <= hi else 0.5 * (lo + hi)
+        t = min(max(fixed[q], lo), hi)
         off = t - fixed[q]
         clamped += abs(off) > 0.0
         rows.append(Linear(((int(v), 1.0), (int(q), -1.0)),
@@ -131,4 +143,5 @@ def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float]
                            follows=(int(v),)))
     cs_f = ConstraintSet.from_rows([*kept.rows(), *rows])
     return cs_f, fixed, {"followers": len(free), "lot_level_rows": len(rows),
-                         "clamped_to_cap": clamped, "dropped": dropped}
+                         "clamped_to_cap": clamped, "held_torn": len(torn),
+                         "dropped": dropped}

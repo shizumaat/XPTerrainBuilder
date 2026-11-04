@@ -10,18 +10,24 @@ object unconverted and unseated.  Two rules, both general:
   ``PROPERTY sim/west|east|south|north``) is NOT made: the placement is
   written whole, as authored, and is listed as ``Kept``;
 * a split whose body DSFTool still refuses is undone the same way and
-  the write is tried again — one object never fails the pack.
+  the write is tried again — one object never fails the pack;
+* a split whose body file the pack cannot hold (a read-only folder, as
+  vendor archives ship ``Vehicles/GPUs``) is undone BEFORE anything is
+  written: :func:`write_files` raised half-way through, after the
+  restore had removed the previous write's bodies, and the live DSF
+  still named them (KLAX 1.0.464: 165 of 195 bodies missing in the sim).
 """
 from __future__ import annotations
 
 import dataclasses as _dc
+import os
 import re
 import typing as _t
 
 from ..model.placement import Kept, PlacementPlan
 
 __all__ = ["tile_box", "off_tile_splits", "refused_point", "split_at",
-           "without_splits"]
+           "without_splits", "unwritable_splits"]
 
 _REFUSED = re.compile(r"could not place object\s+(-?[\d.]+)\s*,\s*(-?[\d.]+)")
 #: a refused point is matched to a body anchor within this (deg, ~1 m)
@@ -80,3 +86,30 @@ def without_splits(plan: PlacementPlan, indices: _t.Collection[int],
                            if sp.placement.index not in idx),
         kept=plan.kept + tuple(Kept(sp.placement.index, sp.placement.resource,
                                     reason) for sp in gone))
+
+
+def _can_write(path: str) -> bool:
+    """May this process create (or replace) the file at ``path``?  The
+    file itself when it exists, else its nearest existing folder."""
+    if os.path.exists(path):
+        return os.access(path, os.W_OK)
+    d = os.path.dirname(path)
+    while d and not os.path.isdir(d):
+        up = os.path.dirname(d)
+        if up == d:
+            return False
+        d = up
+    return bool(d) and os.access(d, os.W_OK | os.X_OK)
+
+
+def unwritable_splits(plan: PlacementPlan, pack_root: str) -> list[int]:
+    """The placement indices of splits with a body file the pack cannot
+    hold (its folder is read-only): written whole instead, so one locked
+    folder never tears the pack."""
+    out: list[int] = []
+    for sp in plan.splits:
+        if any(not _can_write(os.path.join(
+                pack_root, *b.new_resource.replace("\\", "/").split("/")))
+               for b in sp.bodies):
+            out.append(sp.placement.index)
+    return out

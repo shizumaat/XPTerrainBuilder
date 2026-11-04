@@ -76,6 +76,11 @@ class Portal:
     #: at it (``planar/structure_mouth.edge_wall_mouth``).  Empty for every
     #: portal this module reads.
     edge_walls: tuple = ()
+    #: #1747 (owner ruling 2026-11-03 "yes", LOWS): the ABSOLUTE floor an
+    #: ENTRANCE object states at the bore end — its solids' bottom where it
+    #: stands (``trench_objects.mouth_portals``); the mouth's floor is this,
+    #: never the ground less :attr:`depth_m`.  ``None`` for a roofed portal.
+    floor_z: "float | None" = None
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:

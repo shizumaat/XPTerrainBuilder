@@ -43,7 +43,7 @@ from . import obj8 as _obj8
 from .obj8_clip import _bulk_polys
 from .object_cut import _plan_segments
 
-__all__ = ["TrenchObject", "read_trench_objects", "covered_candidates"]
+__all__ = ["TrenchObject", "read_trench_objects", "covered_candidates", "mouth_portals"]
 
 
 @_dc.dataclass(frozen=True)
@@ -130,3 +130,55 @@ def read_trench_objects(objects: _t.Sequence[_obj8.PlacedObject],
                      f"{sorted({w for _p, w in at})}, outline {placed.area:.0f} m2")
     out.sort(key=lambda t: t.object_id)
     return out, sorted(notes)
+
+
+def _floor_at(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, r: float) -> "float | None":
+    """The lowest rendered solid of ``o`` whose plan triangle comes within
+    ``r`` of ``xy`` (absolute), ``None`` where none does."""
+    from shapely.geometry import Polygon
+    v, t = g.vertices, g.solid
+    if t is None or not len(t):
+        return None
+    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
+    px, py = a * v[:, 0] + b * v[:, 2] + xo, d * v[:, 0] + e * v[:, 2] + yo
+    near = np.hypot(px[t] - xy[0], py[t] - xy[1]).min(axis=1) <= r + np.ptp(
+        np.stack([px[t], py[t]], axis=-1), axis=1).max(axis=1)
+    disc = Point(xy).buffer(r)
+    low = [float(v[t[k], 1].min()) for k in np.flatnonzero(near)
+           if Polygon(np.c_[px[t[k]], py[t[k]]]).buffer(1e-3).intersects(disc)]
+    return None if not low else o.anchor_z + o.agl_m + min(low)
+
+
+def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj8.PlacedObject],
+                  cache: _obj8.ResourceCache, law, tunnel_ways, dem_z) -> list:
+    """#1747 (owner ruling 2026-11-03 "yes"; Q256 b, RULINGS 2026-10-28s
+    (6)): a trench object standing at a MAPPED TUNNEL's end is that bore's
+    ENTRANCE: the road at the mouth grades to the object's bottom where it
+    stands, and the object stays put.  One pin (``portal_objects.Portal``)
+    per such end, its ``floor_z`` the lowest solid within TWICE ``[tunnel.
+    object] bore_end_tolerance_m`` of the end (``read_portals``' reach for a
+    face, which may stand the tolerance off the end either side: LOWS's
+    west face stands 8 m out of its mapped end) and its anchor the end
+    itself (the mouth does not move).  An end with no solid within that
+    reach is no entrance."""
+    from .portal_objects import Portal
+    tol = float(law.tables.structures.tunnel.object.bore_end_tolerance_m)
+    bores = {int(w.id) for w in tunnel_ways}
+    by_id = {o.id: o for o in objects}
+    out = []
+    for t in trenches:
+        o = by_id.get(t.object_id)
+        g = None if o is None else cache.geometry(o.resolved)
+        if g is None:
+            continue
+        for xy, wid in t.ends:
+            if int(wid) not in bores:
+                continue
+            floor = _floor_at(o, g, xy, 2.0 * tol)
+            ground = float(dem_z(xy[0], xy[1]))
+            if floor is None or np.isnan(ground):
+                continue
+            out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
+                              ground - floor, 0.0, (float(xy[0]), float(xy[1])),
+                              floor_z=float(floor)))
+    return out

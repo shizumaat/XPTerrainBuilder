@@ -555,6 +555,15 @@ class ProductionDem:
         self._seeded_only = True
         return self
 
+    @property
+    def degraded_reason(self) -> str:
+        """``provenance['degraded']`` alone (``""``: not degraded) — what the
+        trend fits ask (``runway_profile.dem_degraded``).  Read whole, the
+        provenance names HOW each tile was obtained (host-seeded or
+        composed), which differs between the tile builds of one airport and
+        refused the shape stage's record on the second (#1645)."""
+        return str(self.provenance.get("degraded") or "")
+
     # ── DemSample protocol ──────────────────────────────────────────
     def z(self, x: float, y: float) -> float:
         return float(self.z_many(np.array([x]), np.array([y]))[0])

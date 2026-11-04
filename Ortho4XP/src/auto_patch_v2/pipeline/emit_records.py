@@ -68,7 +68,10 @@ def emit_inputs(fc: _t.Any, *, final: str | None, cl, yield_records, lrep, airpo
             "yield_records": dig(yield_records),
             "cells": dig(cl.cells),
             "airport": fc.airport_digest(airport),
-            "dsf_dump": dig(lrep.dsf_dump_path),
+            # #1645: a multi-tile airport's record names the full dump set
+            "dsf_dump": dig(lrep.dsf_dump_path
+                            if len(getattr(lrep, "dsf_dump_paths", ()) or ()) <= 1
+                            else tuple(p for _t, p in lrep.dsf_dump_paths)),
             "rebake": dig((bool(objects_out), kept,
                            _pcache.code_digest() if kept else None)),
             "feather_m": repr(float(feather_m))}

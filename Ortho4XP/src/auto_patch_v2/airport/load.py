@@ -48,7 +48,7 @@ from . import riders as _riders
 _log = logging.getLogger(__name__)
 
 __all__ = ["Inputs", "LoadReport", "load", "load_with_report", "join_cifp",
-           "normalise_surface", "read_apt"]
+           "normalise_surface", "read_apt", "tiles_of"]
 
 #: OSM tags that make a closed way a building footprint (v1
 #: ``_extract_osm_terminals`` / ``_is_building_evidence_tags``).
@@ -71,7 +71,9 @@ class Inputs:
     feather_m: float = 60.0
     radius_deg: float = 0.05
     apt_dat_path: str | None = None
-    dsf_dump_path: str | None = None
+    #: a ``str`` is the ORIGIN tile's dump; a mapping ``{(lat, lon): path}``
+    #: names one per tile (#1645: every tile the airport touches is read)
+    dsf_dump_path: "str | _t.Mapping[tuple[int, int], str] | None" = None
     footprint_cache_path: str | None = None
     #: ``"production"`` (03j: the core's composed tile DEM the mesh drapes
     #: on, ``dem_production.py``) or ``"authored"`` (the ``.hgt`` + inset
@@ -174,6 +176,9 @@ class LoadReport:
     paved_joins: list = _dc.field(default_factory=list)
     buildings_by_source: dict[str, int] = _dc.field(default_factory=dict)
     dsf_dump_path: str | None = None
+    #: #1645: ``((tile, dump path), ...)`` of every tile DSF read, the
+    #: origin's first — the full dump set the caches are keyed on
+    dsf_dump_paths: tuple = ()
     #: the pack's tile DSF is newer than every cached text dump (refused)
     dsf_dump_stale: bool = False
     dsf_pavements: int = 0
@@ -483,15 +488,24 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     # file.  A plan derived from a WRITTEN DSF names the bodies the last
     # write minted (LEMD: 3,934 placements against a 3,021-row pristine
     # dump) and the write half refuses it.
-    pack_dsf = _dw.pristine_dsf_path(_dsf.dsf_path_in_pack(sel.root, *tile))
-    dump_path = inputs.dsf_dump_path or _pack_dump(icao, inputs, rep, sel.name, sel.root, tile)
-    rep.dsf_dump_path = dump_path
+    # ONE AIRPORT, ONE SOLVE (spec §38 (4), RULINGS 2026-09-13am; #1645):
+    # the DSF of EVERY tile the airport's own extent touches is read, the
+    # ORIGIN tile first, so every tile build of the airport loads the same
+    # inputs.  A neighbour tile's ids carry its tile (``dsf.on_tile``).
     # #1630 (owner Q284 (a)): an OBJECT PACK replaces Global Airports'
     # objects only — the pavement pages X-Plane still draws are read from
     # the pack that serves them (``PackSelection.pages_root``)
     split = sel.pages_root != sel.root
-    pages_path = (_pack_dump(icao, inputs, rep, sel.pages_name, sel.pages_root, tile)
-                  if split else dump_path)
+    reads = []                  # (tile, mark, dump path, pages path)
+    for t in _airport_tiles(apt, (lat0, lon0)):
+        dp = (_dump_override(inputs.dsf_dump_path, t, tile)
+              or _pack_dump(icao, inputs, rep, sel.name, sel.root, t))
+        pp = (_pack_dump(icao, inputs, rep, sel.pages_name, sel.pages_root, t)
+              if split else dp)
+        reads.append((t, None if t == tile else t, dp, pp))
+    dump_path = reads[0][2]
+    rep.dsf_dump_path = dump_path
+    rep.dsf_dump_paths = tuple((t, dp) for t, _m, dp, _p in reads if dp)
     n_fac = n_obj = n_agp = n_lot = 0
     # THE ADMISSION GATE (RULINGS 2026-09-06a): the tile DSF carries EVERY
     # airport's pavement pages; a page is this airport's only within
@@ -504,23 +518,27 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     # (``conc_3.pol``) for its own SURFACE declaration (RULINGS
     # 2026-10-04d (2)), and the facade reader resolves each ``.fac`` and
     # its attached objects through it (§52).
-    have = dump_path and os.path.isfile(dump_path)
-    have_pages = split and pages_path and os.path.isfile(pages_path)
+    def _is(path) -> bool:
+        return bool(path) and os.path.isfile(path)
     index = None
-    if have or have_pages:
+    if any(_is(dp) or (split and _is(pp)) for _t0, _m, dp, pp in reads):
         lib_path = _obj8.library_index_path(inputs.mod_cache_root, inputs.xplane_root) \
             if inputs.mod_cache_root and inputs.xplane_root else ""
         index = _obj8.read_library_index(lib_path)
         rep.library_index_path = lib_path if index is not None else None
     polys = _DsfPolygons(to_xy, own_extent)
-    if have_pages:
-        polys.read(pages_path, sel.pages_root, index, pages=True, rest=False)
-    dump = (polys.read(dump_path, sel.root, index, pages=not split, rest=True)
-            if have else None)
+    dumps = []                  # (mark, dump) of every tile with objects
+    for _t1, mark, dp, pp in reads:
+        if split and _is(pp):
+            polys.read(pp, sel.pages_root, index, pages=True, rest=False, mark=mark)
+        if _is(dp):
+            dumps.append((mark, polys.read(dp, sel.root, index, pages=not split,
+                                           rest=True, mark=mark)))
     buildings.extend(polys.buildings)
     dsf_pavements, pol_sheets = polys.pavements, polys.sheets
     n_fac, n_lot, n_far = polys.n_fac, polys.n_lot, polys.n_far
-    if dump is not None:
+    window = None
+    for mark, dump in dumps:
         # #1653: the placements inside the airport's OWN extent (the
         # pages' admission extent), each given to the nearest airport of
         # its pack — never a degree box about the reference point
@@ -532,12 +550,13 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         r = inputs.radius_deg
         in_box = [abs(pl.lat - lat0) <= r and abs(pl.lon - lon0) <= r
                   for _i, pl in placed]
-        box_xy = _window.box_xy(to_xy, lat0, lon0, r)
-        reach = box_xy if own_extent is None else own_extent.union(box_xy)
-        window = _window.Window(
-            icao, own_extent, _object_pack.region_in(apt, to_xy),
-            _window.rivals(_window.pack_apt_dat(sel.root) if sel.custom else None,
-                           icao, (lat0, lon0), to_xy, reach))
+        if window is None:
+            box_xy = _window.box_xy(to_xy, lat0, lon0, r)
+            reach = box_xy if own_extent is None else own_extent.union(box_xy)
+            window = _window.Window(
+                icao, own_extent, _object_pack.region_in(apt, to_xy),
+                _window.rivals(_window.pack_apt_dat(sel.root) if sel.custom else None,
+                               icao, (lat0, lon0), to_xy, reach))
         admitted = window.admits([to_xy(pl.lon, pl.lat) for _i, pl in placed],
                                  also=in_box)
         rep.objects_outside_extent = window.n_outside
@@ -564,7 +583,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             # hardness / deck top / below-grade solids are read by the
             # structure pass from ``resolved_path`` (``airport/obj8.py``)
             dsf_objects.append(DsfObject(
-                f"dsf:obj{i}", pl.def_path, to_xy(pl.lon, pl.lat),
+                _dsf.on_tile(f"dsf:obj{i}", mark), pl.def_path, to_xy(pl.lon, pl.lat),
                 pl.heading_deg, None, False, None, agl, resolved, pl.kind))
             # ── .agp point-placed HANGARS are buildings (issue #263) ──
             # v1 ``dsf_reader.read_dsf_buildings``'s second source
@@ -583,7 +602,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                     resolved, dsf_objects[-1].xy, pl.heading_deg)
                 if _agp_ring is not None and len(_agp_ring) >= 3:
                     buildings.append(Building(
-                        f"dsf:agp{i}", _agp_ring, (), f"dsf:agp:{_agp_role}",
+                        _dsf.on_tile(f"dsf:agp{i}", mark), _agp_ring, (), f"dsf:agp:{_agp_role}",
                         None, None, dsf_objects[-1]))
                     n_agp += 1
     rep.buildings_by_source["dsf:agp"] = n_agp
@@ -593,14 +612,19 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     # (``engine_v2.fresh_object_footprints``) — named, as v1 names it, by
     # that file's stem: ``+30+031`` before the object stage first writes
     # the pack, ``+30+031.dsf`` (the ``.anchor_bak``'s) after
-    cache_path = inputs.footprint_cache_path or (
-        os.path.join(_dsf.mod_cache_dir(inputs.mod_cache_root, sel.name),
-                     _dsf.footprint_cache_name(pack_dsf))
-        if inputs.mod_cache_root else None)
-    if cache_path and os.path.isfile(cache_path):
-        rep.footprint_cache_path = cache_path
+    # (#1645: one sidecar per tile DSF read, the origin's first)
+    for t, mark, _dp, _pp in reads:
+        pack_dsf = _dw.pristine_dsf_path(_dsf.dsf_path_in_pack(sel.root, *t))
+        cache_path = (inputs.footprint_cache_path if mark is None else None) or (
+            os.path.join(_dsf.mod_cache_dir(inputs.mod_cache_root, sel.name),
+                         _dsf.footprint_cache_name(pack_dsf))
+            if inputs.mod_cache_root else None)
+        if not (cache_path and os.path.isfile(cache_path)):
+            continue
+        rep.footprint_cache_path = rep.footprint_cache_path or cache_path
         for i, (ring, kind) in enumerate(_dsf.read_footprint_cache(cache_path)):
-            buildings.append(Building(f"dsf:object{i}", _ring(ring, to_xy), (),
+            buildings.append(Building(_dsf.on_tile(f"dsf:object{i}", mark),
+                                      _ring(ring, to_xy), (),
                                       f"dsf:object:{kind}", None, None))
             n_obj += 1
     rep.buildings_by_source["dsf:fac"] = n_fac
@@ -694,7 +718,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         rep.notes.append("no elevation_root: DEM samples are NaN")
     rep.dem_provenance = dict(dem.provenance)
 
-    pack = _pack.signature(sel, block, *tile)
+    pack = _pack.signature(sel, block, *tile, also=[t for t, *_r in reads[1:]])
     airport = Airport(
         icao, apt.name, frame, apt.elevation_ft * _apt.FT_TO_M,
         tuple(runways), pavements, lines, taxi_nodes, taxi_edges, routes,
@@ -989,6 +1013,46 @@ def _projection_recorder():
     return mod
 
 
+def _airport_tiles(apt: _t.Any, origin: tuple[float, float]) -> list[tuple[int, int]]:
+    """Every 1° tile the airport's own apt.dat extent (runway ends, 110
+    pavements, 130 boundaries) touches, the ORIGIN tile (the floor of the
+    reference point ``origin``) first — ``O4_Airport_Batch.airport_tiles``'
+    rule, the one a code search selects an airport's tiles by (#542)."""
+    import O4_Airport_Batch as _batch
+    lats: list[float] = []
+    lons: list[float] = []
+    for rw in apt.runways:
+        for e in rw.ends:
+            lats.append(float(e[1]))
+            lons.append(float(e[2]))
+    for coll in (apt.pavements, apt.boundaries):
+        for it in coll:
+            for ring in it.rings:
+                for lo, la in ring:
+                    lats.append(float(la))
+                    lons.append(float(lo))
+    extent = (min(lats), min(lons), max(lats), max(lons)) if lats else None
+    home = (int(math.floor(origin[0])), int(math.floor(origin[1])))
+    return [home] + sorted(t for t in _batch.airport_tiles(origin[0], origin[1], extent)
+                           if t != home)
+
+
+def tiles_of(icao: str, xplane_root: str, law: Law | None = None) -> list[tuple[int, int]]:
+    """:func:`_airport_tiles` of ``icao`` as the load will read it — for the
+    driver that makes each tile's pack dump before the build (#1645)."""
+    icao = icao.upper()
+    _sel, _block, apt, _bres, frame = read_apt(icao, xplane_root,
+                                               law or Law.for_airport(icao))
+    return _airport_tiles(apt, frame.origin)
+
+
+def _dump_override(given: _t.Any, t: tuple[int, int], origin: tuple[int, int]):
+    """The caller's dump for tile ``t`` (``Inputs.dsf_dump_path``)."""
+    if isinstance(given, _t.Mapping):
+        return given.get(t)
+    return given if t == origin else None
+
+
 def _pack_dump(icao: str, inputs: Inputs, rep: LoadReport, name: str, root: str,
                tile: tuple[int, int]) -> str | None:
     """The cached text dump of pack ``name``'s PRISTINE tile DSF; a pack
@@ -1034,8 +1098,10 @@ class _DsfPolygons:
     def _near(self, ring) -> bool:
         return self.own_extent is None or self.own_extent.intersects(_shape_of(ring))
 
-    def read(self, dump_path: str, root: str, index, *, pages: bool, rest: bool):
-        """Read ``dump_path`` (resources resolve in ``root``); returns the dump."""
+    def read(self, dump_path: str, root: str, index, *, pages: bool, rest: bool,
+             mark: "tuple[int, int] | None" = None):
+        """Read ``dump_path`` (resources resolve in ``root``); returns the dump.
+        ``mark``: the neighbour tile it is the dump of (``dsf.on_tile``)."""
         to_xy = self.to_xy
         is_pavement = _dsf.pavement_gate(
             lambda p: _obj8.resolve_resource(p, root, index))
@@ -1088,7 +1154,7 @@ class _DsfPolygons:
                 # The overlay gate (a page painted ON apt.dat pavement)
                 # is classification's, in ``classify/evidence.py``.
                 self.pavements.append(Pavement(
-                    f"dsf:pol{i}", normalise_surface(
+                    _dsf.on_tile(f"dsf:pol{i}", mark), normalise_surface(
                         _dsf.pavement_surface_code(poly.def_path, code)),
                     ring, holes, poly.def_path))
                 continue
@@ -1096,7 +1162,7 @@ class _DsfPolygons:
             if role == "bridge" or not rest:
                 continue
             self.buildings.append(Building(
-                f"dsf:fac{i}", ring, holes, f"dsf:fac:{role}", None, None, None,
+                _dsf.on_tile(f"dsf:fac{i}", mark), ring, holes, f"dsf:fac:{role}", None, None, None,
                 _facade.read_placed(poly, root, index, to_xy)))
             self.n_fac += 1
         return dump

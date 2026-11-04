@@ -1285,7 +1285,12 @@ def id_of(key: tuple[int, int]) -> int:
 
 
 def _index_of(placement_id: str) -> int:
-    """``dsf:obj2950`` -> 2950; ``-1`` when the id does not carry one."""
+    """``dsf:obj2950`` -> 2950; ``-1`` when the id names no row of the dump
+    being written (``dsf.row_of``: a neighbour tile's row, #1645)."""
+    from .dsf import row_of
+    tile, row = row_of(placement_id)
+    if row is not None:
+        return row if tile is None else -1
     digits = "".join(ch for ch in placement_id if ch.isdigit())
     return int(digits) if digits else -1
 

@@ -133,5 +133,10 @@
   "path": "Ortho4XP/src/patch_library/index.py",
   "name": "main",
   "reason": "entry point: `python -m patch_library.index` — the patch library repository's GitHub Actions workflow (library_template/.github/workflows/index.yml) runs it from a sparse checkout"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch/engine_v2.py",
+  "name": "fresh_pack_dump",
+  "reason": "one tile's pack dump: the build reaches it through fresh_pack_dumps (#1645, every tile the airport touches) via _pack_dump_naming_its_pack; kept public for the single-tile dump twins (test_dsf_dump_atomic, test_tile_failures)"
  }
 ]

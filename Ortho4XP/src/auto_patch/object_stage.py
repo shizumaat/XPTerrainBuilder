@@ -498,6 +498,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     else:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: no {os.path.basename(graded)} "
                      "beside the patch — no body can classify as building or basin")
+    # #1645: one airport's plan names the rows of every tile it touches;
+    # this tile's DSF is written from its own rows and riders, BEFORE any
+    # reader keys on a member id (``tile_rows.for_tile``)
+    from auto_patch_v2.airport.tile_rows import for_tile as _for_tile
+    plan_, jetway_strips = _for_tile(plan_, jetway_strips, (tile.lat, tile.lon))
     # owner RULINGS 2026-10-14d (1): the base slabs over sloping ground DRAPE
     # (their up faces laid on this surface); a failure here drapes nothing
     # and never costs the pads above
@@ -602,7 +607,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             jetway_strips=jetway_strips,
             # a CLAMPED GATE is a clamp within D of the rider (#31)
             jetway_strip_m=float(law.tables.emit.design.jetway_strip_m),
-            drape=drape, drape_law=drape_law,
+            drape=drape, drape_law=drape_law, tile=(tile.lat, tile.lon),
             engine_version=_engine_version(), law_digest=digest,
             write_cuts=bool(write_enabled and not measure_only))
     _pulse.clear()

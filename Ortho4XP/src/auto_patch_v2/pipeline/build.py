@@ -359,6 +359,17 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _say(f"  [terrain-mesh] {icao}: unread ({type(exc).__name__}: {exc})", out)
     airport = _dc.replace(airport, terrain_mesh=_mesh)
     _say("  " + _tmw.log_line(icao, _mesh), out)
+    # issue #1362: the pack's own ground -- kept as authored on a companion
+    # mesh, else seated rigid with our ground under it and the user told
+    from ..airport import pack_ground as _pack_ground
+    _ground = [f for f in airport.terrain_decks if getattr(f, "ground", False)]
+    _say("  " + _pack_ground.log_line(icao, _ground, _mesh is not None), out)
+    if _ground and _mesh is not None:
+        airport = _dc.replace(airport, terrain_decks=tuple(
+            f for f in airport.terrain_decks if not getattr(f, "ground", False)))
+    elif _ground:
+        lrep.pack_ground_no_mesh = _pack_ground.notice(
+            icao, _ground, getattr(airport.pack, "name", "") or "")
     # issue #516: the sunken ramps' ground, beside the clusters it trims
     from ..airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law, ocache)

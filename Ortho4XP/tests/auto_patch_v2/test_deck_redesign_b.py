@@ -8,7 +8,6 @@ import types
 
 import pytest
 from auto_patch_v2.constraints import deck_anchor as DA
-
 from auto_patch_v2.model.structures import DeckAnchor, DeckBridge
 from auto_patch_v2.planar import deck_bridge as DB
 from shapely.geometry import LineString, Point
@@ -153,3 +152,47 @@ def test_the_placements_co_placed_with_a_deck_seat_at_its_one_zero():
     out = {OID: plate}
     RI._unit_members(out, types.SimpleNamespace(decks=(db,)), {"dsf:obj11"})
     assert out == {OID: plate, "dsf:obj10": plate}
+
+
+def test_the_ground_a_deck_rests_on_carries_no_ground_datum():
+    """Round 2 (KIAH ``obj24551`` sank 1.8 m): a ``deck_ground:*`` face's
+    vertices follow the deck — its DEM reads the road under the deck — so
+    none carries the ground datum; the same face under another ref does."""
+    from auto_patch_v2.classify.roles import Classification
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.build import build
+    from auto_patch_v2.solve.design_ground import ground_datum_vertices
+    from tests.auto_patch_v2._plate import contact_led_law
+    from tests.auto_patch_v2.test_collarlag302 import _airport, _bank_cells, _Dem
+    law = contact_led_law(Law.for_airport("ZZZZ"))
+    pm, _st = build(_airport(law, _Dem()), Classification(tuple(_bank_cells(15.0)), (), {}, ()),
+                    law)
+    base = ground_datum_vertices(pm, law)
+    f = next(f for f in pm.faces.values() if f.role == "graded_strip"
+             and set(pm.ring_vertices(f.ring)) & base)
+    mine = set(pm.ring_vertices(f.ring))
+    faces = dict(pm.faces)
+    faces[f.id] = _dc.replace(f, ref="deck_ground:dsf:obj1")
+    got = ground_datum_vertices(_dc.replace(pm, faces=faces), law)
+    assert not mine & got and (base - mine) >= got - mine
+
+
+def test_a_deck_carrying_taxiway_pavement_across_both_ends_is_a_taxi_deck():
+    """Round 2 (#1719, KIAH): with no row-1202 edge, the classified taxiway
+    crossing BOTH end lines is the family's witness; a service road is not."""
+    db = _deck()
+    taxi = types.SimpleNamespace(at_xy=lambda p: "primary_parallel")
+    one = types.SimpleNamespace(at_xy=lambda p: "primary_parallel" if p[0] < 0 else "service_road")
+    assert DB._taxi_at_both_ends(db.seats_a, db.seats_b, taxi)
+    assert not DB._taxi_at_both_ends(db.seats_a, db.seats_b, one)
+
+
+def test_under_a_slab_the_cuts_own_road_is_the_embankment_not_a_road_beside():
+    """Round 2 (KIAH ``obj24551``): the road-edge witness keeps the bank off
+    a road BESIDE the cut, never off the cut's own carriageway — under a
+    slab that runs on, between the floor's end and the slab, as the bank."""
+    db = _dc.replace(_deck(), slab=True)
+    axis, ramp, outer = _north_half(db)
+    road = _sbox(-4.0, -10.0, 4.0, 100.0)
+    _r, o = DB.deck_cut(db, axis, ramp, outer, 0.6, bank_run=9.0, roads=road)
+    assert o.contains(Point(0.0, 25.0))          # the bank band over the road

@@ -2249,6 +2249,9 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                                    object_report=_orep, rim_diagnostics=rim_diagnostics)
             print(f"[{icao}] planar stage {time.perf_counter() - _pt:.1f} s "
                   f"(work-pool budget {pool_budget()})")
+            # deck redesign: every hard deck read or refused, and why
+            for _ln in getattr(getattr(_ps, "structures", None), "hard_decks", ()) or ():
+                print(f"[{icao}] hard deck: {_ln}")
             if rim_diagnostics:
                 for _ln in rim_diagnostic_lines(pm):
                     print(f"[{icao}] {_ln}")

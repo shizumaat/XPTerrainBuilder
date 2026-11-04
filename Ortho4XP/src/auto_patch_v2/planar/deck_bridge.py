@@ -289,6 +289,11 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             ta, tb = _top_at(plate, sa, reach, top), _top_at(plate, sb, reach, top)
             # the FAMILY and the ROUTE, one per deck (``planar/deck_route``)
             fam, route, ref = carried_route(airport, piece)
+            if fam == "road" and _taxi_at_both_ends(sa, sb, roles):
+                # the airside pavement the deck carries is the second witness
+                # (KIAH's taxiway bridges, #1719: no row-1202 edge reaches
+                # them, the classified taxiway crosses both end lines)
+                fam = "taxi"
             mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
                                    tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
                                    float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb),
@@ -439,6 +444,14 @@ def _carries_movement(db: DeckBridge, roles: "CellRoles") -> bool:
     from ..classify.roles import TAXI_FAMILY
     fam = {"runway", "runway_crossing", *TAXI_FAMILY}
     return any(roles.at_xy(p) in fam for p in tuple(db.seats_a) + tuple(db.seats_b))
+
+
+def _taxi_at_both_ends(sa, sb, roles: "CellRoles") -> bool:
+    """Taxi-family or apron pavement at a seat of EACH end line — the deck
+    carries the movement area across (the classification's own roles)."""
+    from ..classify.roles import TAXI_FAMILY
+    fam = {*TAXI_FAMILY, "apron"}
+    return all(any(roles.at_xy(p) in fam for p in st) for st in (sa, sb))
 
 
 def _deck_z(airport, seats, rendered: "float | None") -> "float | None":
@@ -607,6 +620,7 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     so the void between them is the vertical step (never a floor vertex on
     the runway)."""
     big = 10.0 * (axis.length + 1000.0)
+    road = ramp          # the corridor's own carriageway, before the deck trims it
     ahead = axis.interpolate(min(axis.length, 1.0))
     keep = _half_plane(mid_line(db), (ahead.x, ahead.y), big)
     if other is not None:
@@ -648,7 +662,11 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         outer = outer.difference(uncut)
         ramp = ramp.difference(uncut.buffer(rim_off, join_style="mitre"))
     if roads is not None and not roads.is_empty:
-        beside = roads.difference(ramp.buffer(0.5, join_style="mitre"))
+        # a road BESIDE the cut, never the cut's own carriageway: under a
+        # slab the floor stops short of the deck and the road there is the
+        # embankment's (round 2, KIAH obj24551: the road ran on through the
+        # bank to the slab's edge, 0.53 m off the deck's span)
+        beside = roads.difference(unary_union([ramp, road]).buffer(0.5, join_style="mitre"))
         if not beside.is_empty:
             outer = outer.difference(beside)
 

@@ -6,6 +6,7 @@ no corpus, no DSFTool."""
 from __future__ import annotations
 
 import hashlib
+import os
 import struct
 import types
 
@@ -205,7 +206,7 @@ def test_the_scan_dumps_only_packs_placing_objects_inside_the_airport(tmp_path, 
              ("e_forests", 4): far, ("e_forests", 0): far}
     import O4_Scenery_Packs as SP
     monkeypatch.setattr(SP, "pack_enabled", lambda root, *a: True)
-    monkeypatch.setattr(SR, "_boxes", lambda r, la, lo, m: table[(r.rsplit("/", 1)[-1], m)])
+    monkeypatch.setattr(SR, "_boxes", lambda r, la, lo, m: table[(os.path.basename(r), m)])
     region = box(-97.06, 32.87, -97.0, 32.92)
     assert SR.scan(main, 32, -98, region) == ([cars], [own, lights])
     assert main and forests

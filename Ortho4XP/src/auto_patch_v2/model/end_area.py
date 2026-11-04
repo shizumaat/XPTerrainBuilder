@@ -12,7 +12,11 @@ first station where the ground stands ``emit.design.edge_min_drop_m``
 below that line AND falls steeper than
 ``zones.adjacent_ground.end_drop_min_grade`` over the
 ``emit.design.edge_probe_m`` before it — the terrain edge's own probe and
-drop (``planar/terrain_edge``), on the end's own axis.  The end area then
+drop (``planar/terrain_edge``), on the end's own axis.  A SECOND TIER (owner
+2026-11-04, #1332): ground ``zones.adjacent_ground.end_drop_deep_m`` below
+the line and falling steeper than ``end_drop_deep_grade`` is a drop too —
+a long fall a little gentler than the first tier's grade (GCLA 36: 18 %,
+14-17 m under the line), which the first tier read as fill.  The end area then
 ends at the TOP of the drop: the station where the steep run it belongs to
 began (the crest); below it the drop is raw DEM.  An end with
 no drop keeps the RSA length.  ONE reading, published in the sidecar's
@@ -54,8 +58,10 @@ def end_area_length(dem, end_xy, unit, law: Law, cn, cl, status: int = 0,
     d_ = law.tables.emit.design
     step = float(d_.edge_grid_m)
     probe = float(d_.edge_probe_m)
-    drop = float(d_.edge_min_drop_m)
-    grade = float(law.tables.zones.adjacent_ground.end_drop_min_grade)
+    ag = law.tables.zones.adjacent_ground
+    # (deficit, grade) per tier: 15g (C)'s, and the deep one (#1332)
+    tiers = ((float(d_.edge_min_drop_m), float(ag.end_drop_min_grade)),
+             (float(ag.end_drop_deep_m), float(ag.end_drop_deep_grade)))
     prof = runway_end_profile(law, cn, cl, status)
     try:
         z0 = float(dem.z(*end_xy))
@@ -64,20 +70,21 @@ def end_area_length(dem, end_xy, unit, law: Law, cn, cl, status: int = 0,
     n = int(rsa // step)
     k = max(1, int(round(probe / step)))
     zs: list[float] = []
-    crest = 0.0                 # where the current steep run began
+    crest = [0.0] * len(tiers)  # per tier: where the current steep run began
     for i in range(n + 1):
         d = i * step
         z = float(dem.z(end_xy[0] + unit[0] * d, end_xy[1] + unit[1] * d))
         if not math.isfinite(z):
             return rsa
         zs.append(z)
-        if i == 0 or (zs[i - 1] - z) / step <= grade:
-            crest = d           # not falling steeply into this station
         deficit = (z0 - prof.fall_m(d)) - z
-        if deficit > drop and i >= k and (zs[i - k] - z) / probe > grade:
-            if cap_s is not None and crest >= cap_s - probe:
-                return rsa          # the plate's own step (docstring)
-            return crest
+        for t, (drop, grade) in enumerate(tiers):
+            if i == 0 or (zs[i - 1] - z) / step <= grade:
+                crest[t] = d    # not falling steeply into this station
+            if deficit > drop and i >= k and (zs[i - k] - z) / probe > grade:
+                if cap_s is not None and crest[t] >= cap_s - probe:
+                    return rsa      # the plate's own step (docstring)
+                return crest[t]
     return rsa
 
 

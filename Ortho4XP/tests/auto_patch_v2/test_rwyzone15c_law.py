@@ -248,3 +248,18 @@ def test_a_strip_pair_on_non_runway_pavement_is_the_pavement_edge_s(icao):
     assert generator_slack_m(icao, ins.coarse_noise_m) == pytest.approx(
         ins.coarse_noise_m - ins.rounding_noise_m)
     assert end_profile_noise_m(icao) == pytest.approx(generator_slack_m(icao, ins.strip_edge_noise_m))
+
+
+def test_a_long_fall_gentler_than_the_escarpment_is_a_drop_too(faa):
+    """Owner 2026-11-04 (#1332, GCLA 36): ground falling 18 % from 40 m out
+    — under the 20 % tier, but metres under the lawful line — ends the end
+    area at its top (the second tier); a 12 % fall stays filled."""
+    from auto_patch_v2.model.end_area import end_area_length
+    rsa = runway_safety_area_length_m(faa, 4, "D")
+    ag = faa.tables.zones.adjacent_ground
+    assert ag.end_drop_deep_grade < 0.18 < ag.end_drop_min_grade
+    got = end_area_length(_Profile(40.0, 0.18), (1000.0, 0.0), (1.0, 0.0), faa, 4, "D")
+    step = faa.tables.emit.design.edge_grid_m
+    assert 40.0 - step <= got <= 40.0 + step
+    assert end_area_length(_Profile(40.0, 0.12), (1000.0, 0.0), (1.0, 0.0), faa, 4, "D") \
+        == pytest.approx(rsa)

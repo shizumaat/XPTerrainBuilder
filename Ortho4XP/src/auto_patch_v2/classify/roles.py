@@ -104,6 +104,7 @@ from ..model.frame import XY
 from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52, §53
 from .airside_edge import airside_edge_flip
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
+from .blast_pad import blast_pad_end
 from .storey_edge import STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
@@ -330,6 +331,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     while qi < len(queue):
         face, neck_ev = queue[qi]
         qi += 1
+        # #1332 (owner 2026-11-04): pavement past a runway end with no
+        # declared overrun is a blast pad that follows the DEM — no cell
+        if not neck_ev and not _touching(face, taxi_tree, taxi_parts, rules) \
+                and not _touching(face, truck_tree, truck_parts, rules):
+            bp = blast_pad_end(face, airport.runways, law, rules.cells.on_tol_m)
+            if bp is not None:
+                stats["blast_pads"] = stats.get("blast_pads", 0) + 1
+                notes.append(f"blast pad past {bp[0]} end {bp[1]}: "
+                             f"{face.area:.0f} m2 follows the DEM (#1332)")
+                continue
         # §40 (1): pavement running along a runway ring IS the runway's
         # shoulder — decided before every other rung, and out of the
         # corridor ladder, the demotion and the §27 pass entirely

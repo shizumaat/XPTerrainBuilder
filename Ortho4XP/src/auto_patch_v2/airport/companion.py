@@ -49,7 +49,7 @@ import typing as _t
 from ..model.airport import DsfObject, SceneryPack
 from . import dsf as _dsf
 from .pack import authored_source
-from .pack_local import admitted, ships_objects
+from .pack_local import admitted, ships_objects, tile_candidates
 
 __all__ = ["COMPANION_PLAN", "dump_candidates", "find",
            "plans", "place"]
@@ -70,34 +70,11 @@ class Companion:
     rows: tuple[tuple[int, _t.Any], ...]
 
 
-def _candidates(main_root: str, lat: int, lon: int) -> list[str]:
-    """The Custom Scenery packs beside ``main_root`` that could be a
-    companion: enabled, not the serving pack, no apt.dat, a DSF for the
-    tile.  In folder-name order."""
-    import O4_Scenery_Packs as _SP
-    scenery = os.path.dirname(os.path.normpath(main_root))
-    if os.path.basename(scenery) != "Custom Scenery" or not os.path.isdir(scenery):
-        return []
-    main = os.path.realpath(main_root)
-    out = []
-    for name in sorted(os.listdir(scenery)):
-        root = os.path.join(scenery, name)
-        if not os.path.isdir(root) or os.path.realpath(root) == main:
-            continue
-        if os.path.isfile(os.path.join(root, "Earth nav data", "apt.dat")):
-            continue
-        if not os.path.isfile(_dsf.dsf_path_in_pack(root, lat, lon)):
-            continue
-        if _SP.pack_enabled(root):
-            out.append(root)
-    return out
-
-
 def dump_candidates(main_root: str, lat: int, lon: int) -> list[str]:
-    """The candidate packs (``_candidates``) that ship objects of their
+    """The candidate packs (``pack_local.tile_candidates``) that ship objects of their
     own: the packs whose tile DSF the pre-build refresh dumps
     (``engine_v2.fresh_pack_dump``) so :func:`find` can read them."""
-    return [r for r in _candidates(main_root, lat, lon) if ships_objects(r)]
+    return [r for r in tile_candidates(main_root, lat, lon) if ships_objects(r)]
 
 
 def _region(airport):

@@ -616,6 +616,13 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # only reading that says whether the pads and rims above were seen at
     # all — with none, every body reads ``class_other``.
     c.update({k: int(v) for k, v in ss.counts.items() if k.startswith("class_")})
+    # #1252: the sibling packs' rows on this plan's re-seated decks
+    from . import sibling_stage as _sib
+    siblings = (_sib.plans(plan, dump, _surface, tile,
+                           law.tables.structures.rebake.elevated_base_m)
+                if plan_key in ("", plan_.icao) else [])
+    c["sibling_packs"] = len(siblings)
+    c["sibling_deck_riders"] = sum(len(s.msl_seats) for s in siblings)
     if not write_enabled or measure_only:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: MEASURE ONLY — "
                      f"{c['conversions']} conversion(s), {c['splits']} split(s) into "
@@ -680,6 +687,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     out = dict(res.counts)
     out.update({k: v for k, v in c.items() if k.startswith("class_")})
     out["packs_written"] = 1
+    if siblings:
+        out["sibling_packs_written"] = _sib.write(
+            siblings, patch_dir, _DSFR._dsftool_path() or "DSFTool",
+            engine_version=_engine_version(), law_digest=digest)
+        out["sibling_deck_riders"] = c["sibling_deck_riders"]
     return out
 
 

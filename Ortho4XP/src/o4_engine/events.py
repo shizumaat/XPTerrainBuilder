@@ -718,6 +718,9 @@ class PackOptimise(EngineEvent):
       the user already said Optimise for.
     * ``"undone"`` — (command) the original placements are back.
     * ``"never"`` — (command) the answer is remembered; nothing written.
+    * ``"ask"`` — (command ``action="ask"``, capability
+      ``pack_optimise_ask``: the pack row's Optimise) the question again,
+      asked every time, ``chosen`` ticked as the pack's current choice.
     * ``"failed"`` — ``error`` says why; the pack is as it was.
     * ``"none"`` — (command) nothing to do.
 

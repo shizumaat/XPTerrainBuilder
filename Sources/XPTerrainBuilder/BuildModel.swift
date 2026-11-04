@@ -2163,7 +2163,10 @@ final class BuildModel: ObservableObject {
         if optimise.state == "optimised" || optimise.state == "undone" {
             packOptimiseChanged += 1
         }
-        guard optimise.state == "found", optimise.canOptimise,
+        // "ask": the pack row's Optimise — asked every time it is pressed
+        if optimise.state == "ask" { packOptimiseSeen.remove(optimise.id) }
+        guard optimise.state == "found" || optimise.state == "ask",
+              optimise.canOptimise,
               !packOptimiseSeen.contains(optimise.id) else { return }
         packOptimiseSeen.insert(optimise.id)
         if packOptimisePrompt == nil {
@@ -2190,14 +2193,16 @@ final class BuildModel: ObservableObject {
         packOptimisePrompt = packOptimiseQueue.isEmpty ? nil : packOptimiseQueue.removeFirst()
     }
 
-    /// The pack row's Optimise (the tile's DSF) or Undo optimise (every
+    /// The pack row's Optimise (the question for the tile's DSF, its
+    /// steps ticked as the pack's current choice) or Undo optimise (every
     /// optimised DSF of the pack).
     func packOptimiseFromRow(packPath: String, undo: Bool, tile: TileCoord) {
         connectIfNeeded()
         if undo {
             client?.packOptimise(packRoot: packPath, action: "undo")
         } else {
-            client?.packOptimise(packRoot: packPath, action: "update",
+            // the question with the pack's current choice ticked
+            client?.packOptimise(packRoot: packPath, action: "ask",
                                  lat: tile.lat, lon: tile.lon)
         }
     }

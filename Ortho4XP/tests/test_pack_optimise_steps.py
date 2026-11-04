@@ -54,26 +54,75 @@ def test_each_step_s_estimate(tmp_path, monkeypatch):
     assert swap["count"] == 2 and swap["tris"] > 0
 
 
-def test_the_last_choice_is_remembered_and_revert_forgets_it(tmp_path, monkeypatch):
+def _stub(tmp_path, monkeypatch, steps=("dedupe", "swap")):
+    """Store paths in tmp; a check that returns a weight offering ``steps``;
+    the write stubbed; the UI hook collected."""
+    import O4_UI_Utils as UI
     paths = {}
     monkeypatch.setattr(PC, "store_path", lambda name: paths.setdefault(
         name, str(tmp_path / "prefs" / name)))
-    seen = []
-    pw = OS.PackWeight("P", str(tmp_path / "x.dsf"), 1, 1, 1, {}, PO.default_recipe())
-    monkeypatch.setattr(OS, "check", lambda *a, **k: seen.append(k["steps"]) or pw)
-    monkeypatch.setattr(OS, "_optimise", lambda *a: "optimised")
+    seen = {"checks": [], "events": [], "writes": 0}
+    rows = tuple({"key": k, "count": 1, "tris": 1, "mb": 0.0} for k in steps)
+
+    def check(*a, **k):
+        seen["checks"].append(k.get("steps"))
+        return OS.PackWeight("P", str(tmp_path / "x.dsf"), 60_000_000, 1, 1, {},
+                             PO.default_recipe(), 0, rows, PO.STEPS)
+
+    def write(*a):
+        seen["writes"] += 1
+        return "optimised"
+    monkeypatch.setattr(OS, "check", check)
+    monkeypatch.setattr(OS, "_optimise", write)
+    monkeypatch.setattr(UI, "pack_optimise", lambda **f: seen["events"].append(f))
+    monkeypatch.setattr(UI, "vprint", lambda *a, **k: None)
+    return seen
+
+
+def test_the_last_choice_is_remembered_and_revert_forgets_it(tmp_path, monkeypatch):
+    seen = _stub(tmp_path, monkeypatch)
     root = str(tmp_path)
     OS.optimise_choice(root, "update", 25, 51, steps=["swap", "dedupe"])
     assert OS._remembered_steps(root) == ("dedupe", "swap")
     OS.optimise_choice(root, "update", 25, 51)
-    assert seen == [("dedupe", "swap"), ("dedupe", "swap")], "a re-Optimise remembers"
-    OS.optimise_choice(root, "update", 25, 51, steps=list(PO.STEPS))
-    assert OS.STEPS_STORE.choice(root) == "", "every step is the default"
+    assert seen["checks"] == [("dedupe", "swap"), ("dedupe", "swap")], "a re-Optimise remembers"
     OS.optimise_choice(root, "update", 25, 51, steps=["textures"])
     from auto_patch import object_rebake as OR
     OR.restore_detail(root)
     assert OS._remembered_steps(root) == PO.STEPS
     assert OS.optimise_choice(root, "update", 25, 51, steps=[])["state"] == "failed"
+
+
+def test_a_build_asks_again_for_steps_never_shown(tmp_path, monkeypatch):
+    """Owner 2026-11-04: an Optimise answered before the steps existed (or
+    before a step was offered) asks again on the next build; a choice that
+    covers every offered step keeps applying silently."""
+    import types
+    plan = types.SimpleNamespace(pack_root=str(tmp_path))
+    tile = types.SimpleNamespace(lat=25, lon=51)
+    seen = _stub(tmp_path, monkeypatch)
+    OS.STORE.remember(str(tmp_path), "update")             # answered on 1.0.461
+    assert OS.optimise_stage(plan, tile, writes=True) == "found"
+    assert seen["writes"] == 0 and seen["events"][-1]["state"] == "found"
+    assert seen["events"][-1]["chosen"] == [], "never asked: every box on"
+    OS.optimise_choice(str(tmp_path), "update", 25, 51, steps=["dedupe"])
+    writes = seen["writes"]
+    assert OS.optimise_stage(plan, tile, writes=True) == "optimised"
+    assert seen["writes"] == writes + 1, "every offered step was shown: silent"
+    seen2 = _stub(tmp_path, monkeypatch, steps=("dedupe", "swap", "textures"))
+    assert OS.optimise_stage(plan, tile, writes=True) == "found", "a new step asks"
+    assert seen2["events"][-1]["chosen"] == ["dedupe", "textures"], \
+        "the last choice ticked, the new step on, the unticked one off"
+
+
+def test_the_row_asks_with_the_current_choice(tmp_path, monkeypatch):
+    seen = _stub(tmp_path, monkeypatch)
+    root = str(tmp_path)
+    OS.optimise_choice(root, "update", 25, 51, steps=["swap"])
+    out = OS.optimise_choice(root, "ask", 25, 51)
+    assert out["state"] == "ask" and seen["events"][-1]["state"] == "ask"
+    assert seen["events"][-1]["chosen"] == ["swap"]
+    assert seen["writes"] == 1, "asking writes nothing"
 
 
 def test_the_wire_carries_the_steps():

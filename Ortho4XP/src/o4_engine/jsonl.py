@@ -634,7 +634,8 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
                           "tile_info", "config", "links", "siblings",
                           "secrets", "tile_settings_write",
                           "missing_art", "library", "pack_forests",
-                          "pack_optimise", "pack_optimise_steps"))))
+                          "pack_optimise", "pack_optimise_steps",
+                          "pack_optimise_ask"))))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

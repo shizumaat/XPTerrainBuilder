@@ -83,6 +83,7 @@ from ..model.structures import UNDERPASS_NOTE, Basin, Tunnel, profile_z
 from .edge_floor import DECK_FLOOR, edge_seats_of, seat_pair, sloped_floor_rows
 from .precedence import view
 from .geometry import nearest_vertex_of_containing_cell
+from .viaduct_floor import is_viaduct_half, viaduct_floor_rows
 
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
            "reconcile_datums", "structure_of", "rim_level", "rim_contacts",
@@ -293,6 +294,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     for f in planar.faces.values():
         faces_by_ref.setdefault(f.ref.split("#")[0], []).append(f)
     seats_of = edge_seats_of(planar, law)
+    via_stations: dict[str, list[tuple[float, list[int]]]] = {}
     for tn in tunnels:
         inputs = (tn.id, *(f"osm:{w}" for w in tn.ways))
         src_ramp = Source(GEN, "tunnel.ramp_max_grade (2026-08-07 r4; 2026-08-30)", inputs)
@@ -428,6 +430,12 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             for s, vs in groups:
                 if len(vs) > 1:
                     rows.append(Flat(tuple(vs), src_flat))
+            if src_profile is not None and tn.profile and is_viaduct_half(tn):
+                # an R6 viaduct road's floor is level B under the SOLVED
+                # apron beside it, one platform per road (#1808): its
+                # stations go to ``viaduct_floor``, never pinned at the plan
+                via_stations.setdefault(tn.id, []).extend(groups)
+                continue
             if src_profile is not None and tn.profile:
                 # a sunken road: the floor IS the plate — every station
                 # group pinned at its y (the plate's own grade, under the
@@ -566,10 +574,12 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 # airside, less its walls' bottom — never deeper than the
                 # object; the two-sided pair of the mouth-depth idiom above
                 rows.extend(seat_pair(group[0], seats[0], src_mouth))
-            elif tn.source in ("object", "door", "sunken_road") or getattr(tn, "edge_back", ()):
+            elif tn.source in ("object", "door", "sunken_road") or getattr(tn, "edge_back", ()) \
+                    or getattr(tn, "portal_floor", False):
                 # (an EDGE BRIDGE's floor is the object's: its deck level −
                 # its walls' bottom, owner RULINGS 2026-10-20am / 20ar; its
-                # cap stands in the bridge's cover, no rim reads it)
+                # cap stands in the bridge's cover, no rim reads it; an
+                # ENTRANCE object's floor is its own bottom, #1747)
                 pin(group[0], tn.mouth_z, src_mouth, senior=True)
             elif len(cap_reps) == 1:
                 # §33 (5) THE MOUTH'S FLOOR IS THE BORE DATUM, HOWEVER ITS
@@ -735,6 +745,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                         for dv in grp:
                             rows.append(Band(dv, lo, hi, src_ends))
     rows.extend(pins.values())
+    rows.extend(viaduct_floor_rows(planar, law, tunnels, via_stations))
     return rows
 
 

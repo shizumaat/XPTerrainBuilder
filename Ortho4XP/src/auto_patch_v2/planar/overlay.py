@@ -39,6 +39,7 @@ from ..law.tables import (authority_rank, chord_cap_m, input_quantum_m, is_rigid
 from ..airport.wall_sides import band_setbacks
 from ..model.airport import Airport
 from ..model.registries import Registries
+from ..model.wall_reach import is_wall_fill_ref
 from .chords import densify, ring_lines, stations
 from .lidar_road import survey_road_trenches
 from .road_yield import road_carriageways, rsa_carriageways
@@ -305,6 +306,8 @@ def build_arrangement(airport: Airport, classification: Classification,
             edge_lines.extend(z.edge_lines)
         # #1661 (Q299 (a)): the hill over a retaining wall's upper face is
         # graded ground of its own, held at the wall's top (``wall_slope``)
+        air_cells = [r.polygon for r in regions
+                     if r.source != "zone" and r.side == "airside"]
         for ref, g in wall_slopes(tuple(getattr(airport, "retaining_walls", ()) or ()),
                                   [r.polygon for r in regions if r.source == "zone"],
                                   [r.polygon for r in regions if r.source != "zone"]
@@ -312,7 +315,8 @@ def build_arrangement(airport: Airport, classification: Classification,
                                   + [Polygon(k) for k in classification.keepouts
                                      if len(k) >= 3],
                                   law.tables.zones.adjacent_ground.groundside_cutback_m
-                                  + snap_margin_m(law), 2.0 * input_quantum_m(law)):
+                                  + snap_margin_m(law), 2.0 * input_quantum_m(law),
+                                  weld=air_cells):
             regions.append(Region("graded_strip", ref, g, None, None,
                                   role_side(law, "graded_strip"), "zone"))
 
@@ -810,7 +814,9 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
     keep: list[tuple[Polygon, Region] | None] = list(faces)
     hosts = set(host_roles)
     refused = set(refuse_roles)
-    order = sorted((i for i, (_p, r) in enumerate(faces) if r.source == "zone"),
+    # a wall's fill is held at the wall's top, narrow by construction (#1600)
+    order = sorted((i for i, (_p, r) in enumerate(faces)
+                    if r.source == "zone" and not is_wall_fill_ref(r.ref)),
                    key=lambda i: faces[i][0].area)
 
     def _thawed(poly) -> bool:

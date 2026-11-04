@@ -37,7 +37,7 @@ __all__ = ["DsfPolygon", "DsfPlacement", "DsfDump", "find_text_dump",
            "pavement_verdict", "names_soft_ground",
            "is_pavement_def", "pavement_gate", "building_role_for_def", "read_footprint_cache",
            "footprint_cache_name",
-           "mod_cache_dir"]
+           "mod_cache_dir", "on_tile", "row_of"]
 
 
 @_dc.dataclass(frozen=True)
@@ -94,6 +94,41 @@ def dsf_path_in_pack(pack_root: str, lat: int, lon: int) -> str:
     block = f"{(lat // 10) * 10:+03d}{(lon // 10) * 10:+04d}"
     return os.path.join(pack_root, "Earth nav data", block,
                         f"{lat:+03d}{lon:+04d}.dsf")
+
+
+#: THE TILE MARK of a row id minted from a NEIGHBOUR tile's DSF (issue
+#: #1645; spec §38 (4), RULINGS 2026-09-13am "ONE AIRPORT, ONE SOLVE,
+#: PER-TILE PIECES"): ``dsf:obj12@+33-112`` is row 12 of tile +33-112's
+#: dump.  The airport's ORIGIN tile (the floor of its reference point)
+#: keeps the bare ``dsf:obj12``, so a single-tile airport's ids are
+#: unchanged.
+TILE_MARK = "@"
+
+
+def on_tile(oid: str, tile: "tuple[int, int] | None") -> str:
+    """``oid`` marked as a row of ``tile``'s dump; ``None`` = the origin."""
+    if tile is None:
+        return oid
+    return f"{oid}{TILE_MARK}{int(tile[0]):+03d}{int(tile[1]):+04d}"
+
+
+def row_of(oid: str) -> "tuple[tuple[int, int] | None, int | None]":
+    """``(tile, row)`` of a placement id ``dsf:obj<row>[@<tile>]`` —
+    ``tile`` ``None`` for the origin tile's dump, ``row`` ``None`` for an
+    id that names no dump row.  THE ONE PARSE of a placement's row: every
+    reader that joins an id back to a DSF row asks this."""
+    s = str(oid)
+    if not s.startswith("dsf:obj"):
+        return None, None
+    body, mark, tail = s[7:].partition(TILE_MARK)
+    if not body.isdigit():
+        return None, None
+    if not mark:
+        return None, int(body)
+    m = re.fullmatch(r"([+-]\d{2})([+-]\d{3})", tail)
+    if m is None:
+        return None, None
+    return (int(m.group(1)), int(m.group(2))), int(body)
 
 
 def text_dump_tag(dsf_path: str) -> str:

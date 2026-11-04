@@ -89,6 +89,7 @@ import math
 
 import typing as _t
 
+from ..airport import dsf as _dsf
 from ..constraints import runway_end_report as _end_report
 from ..constraints.contiguity import road_station_caps
 from ..constraints.eat import eat_rects as _eat_rects
@@ -859,12 +860,14 @@ def jetway_strips_ll(planar: PlanarMap, airport: Airport, strips: _t.Any,
             # jetways, which then read ``no_host``); and it re-derived the
             # gap against the strip's pad_ref, not the face the rider rides
             # (gaps of 71-300 m on a four-face ref).
-            idx = (int(oid[7:]) if oid.startswith("dsf:obj")
-                   and oid[7:].isdigit() else None)
+            # #1645: a NEIGHBOUR tile's row also names its tile (8th
+            # element), so the writer of each tile's DSF joins only its own
+            rtile, idx = _dsf.row_of(oid)
             riders.append([round(la, 9), round(lo, 9), o.path,
                            round(float(ra.reach_m if ra else 0.0), 3), idx,
                            ra.host_ref if ra else "",
-                           round(float(ra.gap_m), 3) if ra else None])
+                           round(float(ra.gap_m), 3) if ra else None]
+                          + ([list(rtile)] if rtile is not None else []))
         out.append({
             "id": st.id, "pad_ref": st.pad_ref, "level": d.get("level"),
             "rider_count": len(st.riders), "riders": riders,
@@ -1041,6 +1044,11 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
         step = 0.0
         if z is not None and j.pairs:
             step = max(abs(float(z[a]) - float(z[b])) for a, b in j.pairs)
+            if j.gap:
+                # a gap step is read back off the EMITTED elevations by the
+                # strip families (27y), so it carries the emit's rounding as
+                # ``pad_terrace_joints`` does (#883: 1.1964 declared, 1.20 read)
+                step += _EMIT_Z_ROUND_M
         out.append({"points": pts, "step_m": round(step, 4), "declared_step_m": round(step, 4),
                     "faced": False, "kind": "apron_terrace", "faces": [], "shapes": list(j.shapes),
                     "gap": bool(j.gap), "roles": list(j.roles), "pairs": len(j.pairs),

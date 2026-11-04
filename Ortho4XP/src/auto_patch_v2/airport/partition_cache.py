@@ -220,21 +220,13 @@ def dump_digest(dump_path: str) -> str | None:
     return h.hexdigest()
 
 
-#: A split body's NAME (``obj8_split.body_resource_name``): the first of
-#: the three witnesses :func:`_pack_content` asks for.
-_BODY_NAME = re.compile(r"__b\d+(?:_[0-9a-f]{8})?\.obj$", re.I)
-
-
 def _pack_content(ents: _t.Sequence[tuple[str, int, float, str]],
                   pack_root: str, airport) -> list[tuple[str, int, float, str]]:
     """``ents`` without the ENGINE-MINTED split bodies (module doc): a
-    file is dropped only when its name is a split body's, its head carries
-    the writer's ``CUT_MARK`` (the test ``placement_write.write_files``
-    replaces a file on) and NO placement of ``airport`` resolves to it."""
-    suspects = [e for e in ents if _BODY_NAME.search(e[0])]
-    if not suspects:
-        return list(ents)
-    from ..model.placement import CUT_MARK
+    file is dropped only when it is one (``obj8_split.is_minted_body``:
+    the split NAME and the writer's ``CUT_MARK`` in its head) and NO
+    placement of ``airport`` resolves to it."""
+    from .obj8_split import is_minted_body
     from .pack import live_path_of
 
     def _norm(p: str) -> str:
@@ -242,16 +234,9 @@ def _pack_content(ents: _t.Sequence[tuple[str, int, float, str]],
     read = {_norm(live_path_of(str(o.resolved_path)))
             for o in getattr(airport, "dsf_objects", None) or ()
             if getattr(o, "resolved_path", None)}
-    minted: set[str] = set()
-    for rel, _sz, _mt, src in suspects:
-        if _norm(os.path.join(pack_root, rel)) in read:
-            continue
-        try:
-            with open(src, "r", encoding="utf-8", errors="replace") as fh:
-                if CUT_MARK in fh.read(4096):
-                    minted.add(rel)
-        except OSError:
-            continue
+    minted = {rel for rel, _sz, _mt, src in ents
+              if _norm(os.path.join(pack_root, rel)) not in read
+              and is_minted_body(rel, src)}
     return [e for e in ents if e[0] not in minted]
 
 
@@ -481,7 +466,8 @@ def hold_companion(pack_root: str, icao: str, suffix: str, digest: str,
 
 def fingerprint(airport, law, *, dump_path: str | None,
                 radius_deg: float | None,
-                pristine: "dict[str, list] | None" = None) -> str | None:
+                pristine: "dict[str, list] | None" = None,
+                more_dumps: _t.Sequence[str] = ()) -> str | None:
     """The fingerprint of everything the cached reading is a function of
     (module doc), or ``None`` when it cannot be taken (no pack, no dump)
     — in which case nothing is cached.
@@ -508,6 +494,13 @@ def fingerprint(airport, law, *, dump_path: str | None,
     if dd is None:
         return None
     h.update(f"dump:{dd}|".encode())
+    # #1645: the NEIGHBOUR tiles' dumps the load also read (``LoadReport.
+    # dsf_dump_paths``) — keyed on the full set; none for a one-tile airport
+    for extra in more_dumps:
+        ed = dump_digest(extra)
+        if ed is None:
+            return None
+        h.update(f"dump+:{os.path.basename(extra)}:{ed}|".encode())
     ents = (pristine or {}).get(pack_root) or pristine_stamps(pack_root)
     if not ents:
         return None                     # no pristine reading: no cache

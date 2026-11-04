@@ -16,7 +16,7 @@ no terrain, and a DSF written by this engine is never a companion (its
 last build.  Limit: a 7z-compressed DSF's header cannot be read without a
 dump, so it is not _screened in.
 
-The pack is found by COVERAGE alone (``airport/companion._candidates``:
+The pack is found by COVERAGE alone (``airport/pack_local.tile_candidates``:
 an enabled pack beside the airport's with no apt.dat and the tile's DSF),
 never by name.  The pre-build refresh dumps it (``engine_v2.
 fresh_pack_dump``, :func:`dump_candidates`); the load stage reads the made
@@ -227,11 +227,11 @@ def _screened(path: str) -> bool:
 
 def dump_candidates(main_root: str, lat: int, lon: int) -> list[str]:
     """The installed packs whose tile DSF may be a companion mesh
-    (``companion._candidates``, then :func:`_screened`): the packs whose
+    (``pack_local.tile_candidates``, then :func:`_screened`): the packs whose
     DSF the pre-build refresh dumps (``engine_v2.fresh_pack_dump``) so
     :func:`read` finds the dump -- the load stage never runs DSFTool."""
-    from . import companion as _companion
-    return [r for r in _companion._candidates(main_root, lat, lon)
+    from .pack_local import tile_candidates
+    return [r for r in tile_candidates(main_root, lat, lon)
             if _screened(_dsf.dsf_path_in_pack(r, lat, lon))]
 
 

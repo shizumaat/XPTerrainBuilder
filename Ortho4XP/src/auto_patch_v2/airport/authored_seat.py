@@ -35,6 +35,8 @@ import math
 import statistics
 import typing as _t
 
+from . import dsf as _dsf
+
 __all__ = ["SEAT_AUTHORED", "SEAT_RESEATED", "lifted_by_own_depth", "anchor_family_key", "crest_over",
            "crest_in_band", "rim_over", "rim_in_band", "stated_height",
            "pack_proud_height", "kept_ids", "kept_rows", "reseated_rows"]
@@ -145,9 +147,9 @@ def reseated_rows(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> frozenset[in
     out = set()
     for r in records:
         oid = str(r.get("id"))
-        if r.get("seat") == SEAT_RESEATED and oid.startswith("dsf:obj") \
-                and oid[7:].isdigit():
-            out.add(int(oid[7:]))
+        tile, row = _dsf.row_of(oid)
+        if r.get("seat") == SEAT_RESEATED and tile is None and row is not None:
+            out.add(row)
     return frozenset(out)
 
 
@@ -160,6 +162,7 @@ def kept_rows(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> frozenset[int]:
     names no dump row keeps none."""
     out = set()
     for oid in kept_ids(records):
-        if oid.startswith("dsf:obj") and oid[7:].isdigit():
-            out.add(int(oid[7:]))
+        tile, row = _dsf.row_of(oid)
+        if tile is None and row is not None:
+            out.add(row)
     return frozenset(out)

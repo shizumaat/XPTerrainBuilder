@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from auto_patch_v2.airport.road_descent import descend, descent_line, envelope
+from auto_patch_v2.airport.road_descent import climb, descend, descent_line, envelope
 from auto_patch_v2.geom.ramp_grade import built_grade, least_grade
 
 DESIGN, CAP, LANE = 0.05, 0.10, 7.0
@@ -266,3 +266,66 @@ def test_the_log_line_states_at_cap_and_over_cap_as_two_counts():
     assert "9 at the cap 10 %;" in line, line
     assert "10 with a run the cap does not bring down)" in line, line
     assert line.startswith("ramps built: 38 of a lane width or more"), line
+
+
+# ── #1531: THE MIRROR — A ROAD CLIMBS OUT OF A PAD CUT INTO THE HILL ────
+
+def _climb(adj, mouths, floors, _end_of=None, design=DESIGN):
+    return climb(adj, mouths, lambda v: mouths.get(v, floors.get(v)), floors,
+                 design, CAP, LANE)
+
+
+def test_a_contact_under_its_floor_climbs_out_at_the_design_grade():
+    """A pad cut 10 m into the hill: the road leaves it at the pad's level
+    and climbs at 5 % until it meets its floor; beyond, nothing."""
+    adj, floors, xs, end_of = _road(400.0)
+    d = _climb(adj, {0: -DROP}, floors, end_of)
+    assert [r["grade"] for r in d.ramps] == [DESIGN] and d.ramps[0]["fits"]
+    for i, x in enumerate(xs):
+        if x <= DROP / DESIGN:
+            assert d.label[i] == pytest.approx(-DROP + DESIGN * x)
+        else:
+            assert i not in d.label
+    # it IS the descent, mirrored
+    up = _descend(adj, {0: DROP}, floors, end_of)
+    assert d.label == pytest.approx({v: -z for v, z in up.label.items()})
+
+
+def test_a_cut_steepens_only_to_reach_the_next_fixed_contact():
+    """Owner 2026-11-04: "prefer 5% max, allowed to go to 10% only when
+    it's required to reach between pads, lots, or airside that can't
+    move".  A cut whose road ENDS 137 m on stays at 5 % (the end is no
+    fixed thing); two contacts 100 m apart and 7.3 m apart in level under
+    a high floor are connected at 7.3 %; 12.5 % asks more than the cap,
+    which is never exceeded."""
+    adj, floors, xs, end_of = _road(DROP / 0.073)
+    (r,) = _climb(adj, {0: -DROP}, floors).ramps
+    assert r["grade"] == r["steepest"] == DESIGN and r["why"] == ""
+    adj, floors, xs, _e = _road(100.0)
+    floors = {v: 50.0 for v in floors if v != len(xs) - 1}
+    d = _climb(adj, {0: -7.3, len(xs) - 1: 0.0}, floors)
+    by = {x["mouth"]: x for x in d.ramps}
+    assert by[0]["grade"] == pytest.approx(0.073) and by[0]["why"] == "the next contact at 100 m"
+    assert d.label[len(xs) - 1] == pytest.approx(0.0)
+    adj, floors, xs, _e = _road(80.0)
+    floors = {v: 50.0 for v in floors if v != len(xs) - 1}
+    d = _climb(adj, {0: -DROP, len(xs) - 1: 0.0}, floors)
+    assert d.ramps[0]["steepest"] == CAP and not d.ramps[0]["fits"]
+    for i, x in enumerate(xs):
+        assert d.label[i] <= -DROP + CAP * x + 1e-9
+
+
+def test_a_contact_on_or_over_its_floor_cuts_nothing():
+    """The road that can follow its floor from the contact builds no cut,
+    and a contact standing OVER its floor is the descent's, not the cut's."""
+    adj, floors, _xs, end_of = _road(200.0)
+    assert _climb(adj, {0: 0.0}, floors, end_of).ramps == []
+    assert _climb(adj, {0: DROP}, floors, end_of).ramps == []
+
+
+def test_the_log_line_names_the_cuts():
+    line = descent_line({"cuts": 2, "cuts_steepened": 1, "on_cut": 14,
+                         "max_below_dem_m": 3.25})
+    assert line.startswith("ramps built: ")
+    assert ("/ cuts built: 2 (1 steepened, 0 at the cap), 14 vertices on a cut "
+            "up to 3.25 m under the DEM") in line

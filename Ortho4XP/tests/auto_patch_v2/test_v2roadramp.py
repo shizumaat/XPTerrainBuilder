@@ -30,6 +30,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from auto_patch_v2.airport.road_descent import descent_line
 from auto_patch_v2.airport.road_profile import preferred_road_z
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import GENERATORS, generate
@@ -487,3 +488,85 @@ def test_a_ring_edge_is_always_priced_across_a_route_boundary(law):
     assert re.search(r"if j != i \+ 1 and not \(i == 0 and j == n - 1\)", gen)
     cen = (_P(__file__).resolve().parents[2] / "tools" / "check_grade.py").read_text(encoding="utf-8")
     assert "A RING EDGE IS ALWAYS PRICED" in cen
+
+
+# ── #1531: THE MIRROR — THE ROAD CLIMBS OUT OF A CUT ON A CUT RAMP ──────
+
+class _Cut(_Hill):
+    """The apron's edge (``y = -20``, the road's mouth) stands at the foot of
+    a hill that rises 12 m beside it — the mirror of :class:`_Shelf`."""
+
+    def z(self, x, y):
+        return PLATEAU_Z + 12.0 * min(1.0, max(0.0, (y + 20.0) / 2.0))
+
+
+def _cut_map(law, *, published: bool):
+    """The cut airport; ``published`` gives the apron its own level half a
+    metre over its ground, the way the apron trend does, so its contact
+    CANNOT MOVE."""
+    import dataclasses as _dc
+
+    from auto_patch_v2.classify.rules import load_rules
+    airport, r = _airport(law, _Cut())
+    pm, _rep = _map(law, airport, _cells(r, road_len=400.0), ramp=False)
+    if published:
+        apron = {v for f in pm.faces.values() if f.role == "apron"
+                 for v in pm.ring_vertices(f.ring)}
+        pm = _dc.replace(pm, apron_trend_z={v: PLATEAU_Z + 0.5 for v in apron})
+    rep: dict = {}
+    pm = with_road_ramp(pm, law, airport, rep, service=load_rules().service)
+    return airport, pm, rep
+
+
+def test_the_road_climbs_out_of_a_cut_at_its_design_grade(law):
+    """A mouth on an apron held 11.5 m under the ground beside it, 400 m of
+    road: the target leaves the contact at the apron's level and CLIMBS at
+    the design grade until it meets its floor — never over ``level +
+    design·s``, so never over the road's cap; the hard ceiling ``target +
+    visual_m`` is the cut."""
+    airport, pm, rep = _cut_map(law, published=True)
+    tg = road_ramp_targets(pm, law, airport).targets
+    design = rep["design"]
+    assert rep["cuts"] > 0 and rep["on_cut"] > 0 and rep["max_below_dem_m"] > 1.0, rep
+    top = PLATEAU_Z + 12.0
+    on_cut = 0
+    for v in tg:
+        x, y = pm.vertices[v].xy
+        s = max(0.0, y + 20.0)
+        assert tg[v] <= PLATEAU_Z + 0.5 + design * s + 0.6, (v, s, tg[v])
+        if 40.0 < s < 12.0 / design - 40.0:
+            on_cut += 1
+            assert tg[v] < airport.dem.z(x, y) - 1.0, (v, s, tg[v])
+        if s > 12.0 / design + 40.0:
+            assert tg[v] == pytest.approx(top, abs=0.1), (v, s, tg[v])
+    assert on_cut
+    assert "/ cuts built: " in descent_line(rep)
+
+
+def test_a_contact_on_its_own_ground_makes_no_cut(law):
+    """Owner 2026-11-04: a cut leaves only from a contact that cannot
+    move.  The same hill with no published apron level: the contact's
+    level is the DEM under it, it stands on its ground, and the road
+    follows its floor — no cut (VHHH ``dsf:pol270``, 11.4 m)."""
+    _a, _pm, rep = _cut_map(law, published=False)
+    assert rep["cuts"] == 0 and rep["on_cut"] == 0, rep
+
+
+def test_a_mouth_on_a_held_pad_is_at_the_pad_s_level():
+    """#1531 A: a pad (and a landing) cut into the hill is held at its
+    level; a road's contact there stands at that level, not the ground
+    the pad was cut out of.  Its BANK's vertices take the pad's level
+    only where it is under the ground (the ramp mouths' ``min``)."""
+    from types import SimpleNamespace as NS
+
+    from auto_patch_v2.model.platform import held_levels
+    faces = {1: NS(ref="padA", ring=(1, 2, 3), holes=()),
+             2: NS(ref="padA#collar", ring=(3, 4, 5), holes=()),
+             3: NS(ref="padA/landing0", ring=(6, 7, 8), holes=()),
+             4: NS(ref="other", ring=(9, 10, 11), holes=())}
+    reg = NS(held={"padA": {"datum_pred": 7.3, "samples_reach": [float("inf"), 0.2]}},
+             landings={"padA/landing0": {"block": "padA", "y": 0.1}})
+    pm = NS(registries=reg, faces=faces, ring_vertices=lambda c: list(c))
+    plat, bank = held_levels(pm)
+    assert plat == {1: 7.5, 2: 7.5, 3: 7.5, 6: 7.6, 7: 7.6, 8: 7.6}
+    assert bank == {4: 7.5, 5: 7.5}

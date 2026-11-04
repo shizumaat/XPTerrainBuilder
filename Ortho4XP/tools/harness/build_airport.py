@@ -1705,13 +1705,14 @@ def schema_stale_osm_layers(root, lat, lon) -> list:
 
 def unverified_inset_negatives(state, lat, lon) -> list:
     """The DEGRADED-TIER refusal (owner RULINGS 2026-09-13b (2)) and the
-    ONCE-PER-VERSION re-probe refusal (owner RULINGS 2026-09-15aq (4)).
+    RECHECK-AGE re-probe refusal (owner 2026-11-04).
 
     Two doors, one refusal: both name a ``no-coverage`` record the next
     pass would RE-PROBE, and a re-probe fetches into the shared data
     repo.  13b's covers a CAPABILITY-GATED provider whose record carries
-    no capability stamp; 15aq's covers a CAPABILITY-FREE provider whose
-    record carries another engine's version.
+    no capability stamp; the other covers a CAPABILITY-FREE provider whose
+    record is older than ``elevation_recheck_days`` or was asked under
+    another provider version.
 
     A ``no-coverage`` in the inset index recorded for a CAPABILITY-GATED
     provider by a run that did not record its capabilities is UNVERIFIED:
@@ -1744,25 +1745,20 @@ def unverified_inset_negatives(state, lat, lon) -> list:
         print(f"  [harness] unverified-inset check skipped ({exc!r})")
         return []
     out = []
-    for (icao, code, recorded) in version_stale:
-        # THE ONCE-PER-VERSION RE-PROBE (owner RULINGS 2026-09-15aq (4)).
-        # ``code`` declares NO required capability, so 13b's door below
-        # cannot reach it; its negative would be permanent.  The TNM
-        # outage of 2026-09-15 wrote 20 such false negatives across the
-        # two Phoenix tiles (RULINGS 2026-09-15q).  Each engine version
-        # re-asks once — which FETCHES into the shared repo, so the
-        # harness refuses up front and names the flag.  The APP's own
-        # build path takes the re-probe; the harness never does.
+    for (icao, code, why) in version_stale:
+        # THE RECHECK AGE (owner 2026-11-04, replacing RULINGS 2026-09-15aq
+        # (4)'s once per engine version).  ``code`` declares NO required
+        # capability, so 13b's door below cannot reach it; its negative is
+        # asked again when older than ``elevation_recheck_days`` or when
+        # the provider's own version moved — which FETCHES into the shared
+        # repo, so the harness refuses up front and names the flag.  The
+        # APP's own build path takes the re-probe; the harness never does.
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
                     f"index.json [{icao}:{code}]",
-                    f"a no-coverage negative for {code} recorded by engine "
-                    f"{recorded or 'an unrecorded version'} — this engine is "
-                    f"{running}, and a capability-free provider's negative "
-                    f"is RE-ASKED once per version (a TNM 200 error envelope "
-                    f"minted 20 false ones on the Phoenix tiles on "
-                    f"2026-09-15), so the build would re-probe {code} and "
-                    f"re-cut the inset mid-build"))
+                    f"a no-coverage negative for {code} is due to be asked "
+                    f"again ({why}; this engine is {running}), so the build "
+                    f"would re-probe {code} and re-cut the inset mid-build"))
     for (icao, code, capabilities) in unverified:
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
@@ -4298,7 +4294,8 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     # unbuildable through the harness on 09-12 while the app built it.
     # ONE implementation, called from both entries (RULINGS ``7e90032``);
     # the dump lands in the LANE-LOCAL mod-cache overlay armed above.
-    from auto_patch.engine_v2 import fresh_pack_dump            # noqa: E402
+    from auto_patch.engine_v2 import airport_tiles as v2_airport_tiles  # noqa: E402
+    from auto_patch.engine_v2 import fresh_pack_dumps           # noqa: E402
     from auto_patch.engine_v2 import stage_cache_enabled        # noqa: E402
     # THE APP'S PROGRESS WIRING, the same object (issue #136): the step
     # banners and the >=60 s heartbeat print LIVE here through
@@ -4331,10 +4328,13 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     # stubs ``default_inputs`` with a dict — there is no pack to dump then.
     tile = resolve_tile_for(icao, root) if dataclasses.is_dataclass(inputs) else None
     if tile is not None:
-        dump = fresh_pack_dump(inputs.xplane_root, icao, *tile)
-        if dump:
-            inputs = dataclasses.replace(inputs, dsf_dump_path=dump)
-            prog.note(f"pack DSF dump (pristine read frame): {dump}")
+        # #1645: the dump of EVERY tile the airport touches, as the app's
+        dumps = fresh_pack_dumps(inputs.xplane_root, icao,
+                                 v2_airport_tiles(inputs.xplane_root, icao, *tile))
+        if dumps:
+            inputs = dataclasses.replace(inputs, dsf_dump_path=dumps)
+            for dump in dumps.values():
+                prog.note(f"pack DSF dump (pristine read frame): {dump}")
         # #1697: the pavements classified by hand beside the lane's patch,
         # read as the tile build reads them (``engine_v2.user_role_inputs``)
         import O4_File_Names as FNAMES                          # noqa: E402

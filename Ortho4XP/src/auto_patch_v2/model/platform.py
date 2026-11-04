@@ -20,7 +20,7 @@ __all__ = ["structure_vertices", "Platform", "LANDING_SEP",
            "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
            "datum_vertices", "stage_air_vertices",
-           "HOLD_RULING", "HOLD_DATUM_RULING", "FILL_KINDS", "fill_levels",
+           "HOLD_RULING", "HOLD_DATUM_RULING", "FILL_KINDS", "fill_levels", "held_levels",
            "widest_reach"]
 
 #: The head of the FRONTAGE HOLD rows (flat-pad spec §1 (2); RULINGS
@@ -175,6 +175,40 @@ def fill_levels(planar: _t.Any, kinds: "_t.Collection[str] | None" = None
             for cyc in (f.ring, *f.holes):
                 rec["vertices"].update(planar.ring_vertices(cyc))
     return out
+
+
+def held_levels(planar: _t.Any) -> tuple[dict[int, float], dict[int, float]]:
+    """``(platform vertices, bank vertices) -> the level they are HELD at``
+    — every vertex of a HELD block's face (``registries.held`` with a
+    predicted datum: ``datum_pred`` + its widest reach band, the HIGHEST
+    level the solve may hold it at, as :func:`fill_levels` reads a fill)
+    or of a landing's platform (:func:`fill_levels`' ``z_hi``), and
+    separately every vertex of their BANKS (``#collar`` / ``#strip``)
+    that is no platform vertex.  #1531: a road's contact on a pad cut into
+    a hill stands at the pad's level, not at the ground the pad was cut
+    out of.  The level is the HIGH estimate because its reader
+    (``airport/road_ramp``'s cut ramp) makes it a CEILING on the road
+    beside the pad: a ceiling under the level the pad is solved at would
+    pull the pad's weld (airside is king)."""
+    from .planar import is_bank_ref, platform_ref_of
+    reg = planar.registries
+    fills = fill_levels(planar)
+    plat: dict[int, float] = {}
+    bank: dict[int, float] = {}
+    for f in planar.faces.values():
+        ref = platform_ref_of(f.ref)
+        hb = reg.held.get(ref) or {}
+        if hb.get("datum_pred") is not None:
+            z = float(hb["datum_pred"]) + widest_reach(hb)
+        elif ref in fills:
+            z = fills[ref]["z_hi"]
+        else:
+            continue
+        into = bank if is_bank_ref(f.ref) else plat
+        for cyc in (f.ring, *f.holes):
+            for v in planar.ring_vertices(cyc):
+                into[v] = max(into.get(v, z), z)
+    return plat, {v: z for v, z in bank.items() if v not in plat}
 
 
 def plateau_vertices(planar: _t.Any, law: _t.Any = None) -> dict[str, set[int]]:

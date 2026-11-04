@@ -368,6 +368,36 @@ def _pack_dump_naming_its_pack(xplane_root: str, icao: str, lat: int,
         raise
 
 
+def airport_tiles(xplane_root: str, icao: str, lat: int, lon: int
+                  ) -> list[tuple[int, int]]:
+    """Every tile the airport's load reads (``airport.load.tiles_of``; issue
+    #1645, spec §38 (4) "one airport, one solve"), the origin first; the
+    build tile ``(lat, lon)`` alone when the apt.dat cannot be read (the
+    load stage then refuses by name)."""
+    try:
+        from auto_patch_v2.airport.load import tiles_of
+        return tiles_of(icao, xplane_root)
+    except Exception as exc:                # the load stage will refuse loudly
+        import logging
+        logging.getLogger(__name__).warning(
+            "airport tile set unread for %s: %s", icao, exc)
+        return [(int(lat), int(lon))]
+
+
+def fresh_pack_dumps(xplane_root: str, icao: str,
+                     tiles: "list[tuple[int, int]]") -> dict[tuple[int, int], str]:
+    """:func:`fresh_pack_dump` for every tile of :func:`airport_tiles`,
+    keyed ``(lat, lon)`` — the ``Inputs.dsf_dump_path`` mapping, so each
+    tile build of one airport loads the same dumps (#1645).  The pack's
+    name rides on any exception (:func:`_pack_dump_naming_its_pack`)."""
+    out: dict[tuple[int, int], str] = {}
+    for t in tiles:
+        dump = _pack_dump_naming_its_pack(xplane_root, icao, *t)
+        if dump:
+            out[(int(t[0]), int(t[1]))] = dump
+    return out
+
+
 def _stamp_header(task: dict) -> dict[str, str]:
     """The ``<osm>`` root attributes the driver's freshness gate reads back
     (``layout.read_patch_source`` → ``_auto_patch_is_current``), rendered
@@ -411,7 +441,9 @@ def _stamp_header(task: dict) -> dict[str, str]:
         from .driver import _dsf_identities_now
         stamps = dict(fresh)
         stamps["o4_fresh_v"] = _prov.FRESHNESS_SCHEMA_VERSION
-        tiles_key = f"{int(task['tile_lat'])},{int(task['tile_lon'])}"
+        # #1645: every tile DSF the airport's one solve read
+        tiles_key = task.get("dsf_tiles_key") or (
+            f"{int(task['tile_lat'])},{int(task['tile_lon'])}")
         stamps["o4_dsf_tiles"] = tiles_key
         stamps["o4_dsf"] = (_dsf_identities_now(apt, tiles_key)
                             if apt else "unknown")
@@ -535,12 +567,13 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             prog.line(line)
 
         seeds = {(lat, lon): tile_dem} if tile_dem is not None else None
+        tiles = airport_tiles(task["xp_root"], icao, lat, lon)
         inputs = Inputs(
             xplane_root=task["xp_root"], cifp_dir=task.get("cifp_path") or "",
             osm_root=FNAMES.OSM_dir, elevation_root=FNAMES.Elevation_dir,
             mod_cache_root=FNAMES.airport_mod_cache_root(),
-            dsf_dump_path=_pack_dump_naming_its_pack(
-                task["xp_root"], icao, lat, lon),
+            # #1645: the dump of EVERY tile the airport touches
+            dsf_dump_path=fresh_pack_dumps(task["xp_root"], icao, tiles),
             dem_frame="production", production_dem_tiles=seeds,
             core_hosted=True,
             road_grade_limit=task.get("road_grade_limit"),
@@ -574,6 +607,7 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             _xq = None if _xq_raw in (None, "") else float(_xq_raw)
         except ValueError:
             _xq = None
+        task = {**task, "dsf_tiles_key": ";".join(f"{a},{b}" for a, b in tiles)}
         cfg = Config(header_extra=_stamp_header(task),
                      xplat_dump=bool(os.environ.get("O4_V2_XPLAT_DIGEST")),
                      xplat_quantise_m=_xq, stage_cache=stage_cache_enabled())

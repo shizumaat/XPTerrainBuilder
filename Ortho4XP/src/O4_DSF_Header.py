@@ -22,7 +22,7 @@ import lzma
 import struct
 from typing import Optional
 
-__all__ = ["HEAD_BYTES", "dsf_properties", "dsf_is_overlay"]
+__all__ = ["HEAD_BYTES", "dsf_bytes", "dsf_properties", "dsf_is_overlay"]
 
 #: How much of the DSF a check decodes: HEAD comes first in every DSF.
 HEAD_BYTES = 1 << 16
@@ -41,25 +41,56 @@ _RAW_FILTERS = (
 )
 
 
-def _seven_zip_head(handle) -> bytes:
-    """The first :data:`HEAD_BYTES` of the one file a 7z DSF holds, or
-    ``b""`` when no supported coder decodes it to a DSF."""
+def _seven_zip_head(handle, max_length: int = HEAD_BYTES,
+                    packed_cap: int = _PACKED_CAP) -> bytes:
+    """The first ``max_length`` bytes (``-1``: all) of the one file a 7z
+    DSF holds, or ``b""`` when no supported coder decodes it to a DSF."""
     handle.seek(0)
     header = handle.read(_SIGNATURE_HEADER)
     if len(header) < _SIGNATURE_HEADER:
         return b""
     packed_size = struct.unpack_from("<Q", header, 12)[0]
-    packed = handle.read(min(packed_size, _PACKED_CAP))
+    packed = handle.read(packed_size if packed_cap < 0
+                         else min(packed_size, packed_cap))
     for filters in _RAW_FILTERS:
         try:
             out = lzma.LZMADecompressor(
                 lzma.FORMAT_RAW, filters=[filters]).decompress(
-                    packed, max_length=HEAD_BYTES)
+                    packed, max_length=max_length)
         except lzma.LZMAError:
             continue
         if out.startswith(_DSF_COOKIE):
             return out
     return b""
+
+
+def dsf_bytes(path: str) -> bytes:
+    """The WHOLE DSF, decompressed when the file is a 7z; ``b""`` when it
+    cannot be read or decoded as a DSF (#1252: the object commands are
+    read without a DSFTool dump)."""
+    try:
+        with open(path, "rb") as handle:
+            start = handle.read(len(_SEVEN_ZIP))
+            if start.startswith(_SEVEN_ZIP):
+                return _whole(_seven_zip_head(handle, -1, -1))
+            buf = start + handle.read()
+    except OSError:
+        return b""
+    return buf if buf.startswith(_DSF_COOKIE) else b""
+
+
+def _whole(buf: bytes) -> bytes:
+    """``buf`` cut to the DSF's own length: its top-level atoms and the
+    16-byte MD5.  A raw LZMA1 stream (7z, no end marker) decodes a byte
+    or more past the file (Global_Forests_v2 +32-098: one), which put the
+    footer in the wrong place."""
+    off = 12
+    while off + 8 <= len(buf):
+        length = struct.unpack_from("<I", buf, off + 4)[0]
+        if length < 8 or off + length > len(buf) - 16:
+            break
+        off += length
+    return buf[:off + 16] if off > 12 and off + 16 <= len(buf) else buf
 
 
 def _head(path: str) -> bytes:

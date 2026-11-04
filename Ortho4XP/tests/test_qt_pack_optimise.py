@@ -173,7 +173,7 @@ def test_an_optimise_refreshes_the_pack_rows(window, monkeypatch):
     assert calls == [1, 1] and window._pack_art_boxes == []
 
 
-def test_the_pack_row_optimises_or_undoes(window, monkeypatch):
+def test_the_pack_row_asks_or_undoes(window, monkeypatch):
     sent = []
     monkeypatch.setattr(window._session, "pack_optimise",
                         lambda **kw: sent.append(kw))
@@ -187,9 +187,25 @@ def test_the_pack_row_optimises_or_undoes(window, monkeypatch):
     [undo] = [b for b in buttons if b.toolTip() == QTOPT.UNDO_HELP]
     opt.click()
     undo.click()
-    assert sent == [{"pack_root": "/X/CS/Some Pack", "action": "update",
+    assert sent == [{"pack_root": "/X/CS/Some Pack", "action": "ask",
                      "lat": 29, "lon": -96},
-                    {"pack_root": "/X/CS/B", "action": "undo"}]
+                    {"pack_root": "/X/CS/B", "action": "undo"}], \
+        "the row's Optimise opens the question (#1707, owner 2026-11-04)"
+
+
+def test_ask_opens_the_question_every_time(window):
+    window._on_engine_event(_event(steps=STEPS))
+    [box] = window._pack_art_boxes
+    box.reject()
+    assert window._pack_art_boxes == []
+    window._on_engine_event(_event(steps=STEPS))
+    assert window._pack_art_boxes == [], "a build's found asks once"
+    window._on_engine_event(_event(steps=STEPS, state="ask", chosen=["swap"]))
+    [box] = window._pack_art_boxes
+    assert box.checked_steps() == ["swap"], "the current choice ticked"
+    box.reject()
+    window._on_engine_event(_event(steps=STEPS, state="ask"))
+    assert len(window._pack_art_boxes) == 1, "asked every time"
 
 
 # ── the steps (owner 2026-11-03: checkboxes, all on, explained) ─────────

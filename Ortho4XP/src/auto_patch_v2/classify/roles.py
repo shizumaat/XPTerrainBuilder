@@ -104,9 +104,10 @@ from ..model.frame import XY
 from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52, §53
 from .airside_edge import airside_edge_flip
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
+from .blast_pad import blast_pad_end
 from .storey_edge import STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
-from .neck import necks_of, split_at_necks
+from .neck import cover_arms, necks_of, split_at_necks
 from .open_default import (apron_evidence, open_pavement_role,
                            unclassified_groundside_role)
 from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m, gridded,
@@ -330,6 +331,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     while qi < len(queue):
         face, neck_ev = queue[qi]
         qi += 1
+        # #1332 (owner 2026-11-04): pavement past a runway end with no
+        # declared overrun is a blast pad that follows the DEM — no cell
+        if not neck_ev and not _touching(face, taxi_tree, taxi_parts, rules) \
+                and not _touching(face, truck_tree, truck_parts, rules):
+            bp = blast_pad_end(face, airport.runways, law, rules.cells.on_tol_m)
+            if bp is not None:
+                stats["blast_pads"] = stats.get("blast_pads", 0) + 1
+                notes.append(f"blast pad past {bp[0]} end {bp[1]}: "
+                             f"{face.area:.0f} m2 follows the DEM (#1332)")
+                continue
         # §40 (1): pavement running along a runway ring IS the runway's
         # shoulder — decided before every other rung, and out of the
         # corridor ladder, the demotion and the §27 pass entirely
@@ -513,7 +524,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                            or neck_ev.get("neck_new_apron"))
         if not already_cut and (kind == "apron" or apron_refused):
             pieces = _neck_pieces(face, rules, to_ll, notes, stats,
-                                  start_tree, _ladder_taxi)
+                                  start_tree, _ladder_taxi,
+                                  apron_u if cover >= rules.lot.apron_cover_fraction
+                                  else None)
             if pieces:
                 if evid.get("startup_refused_corridor"):
                     pieces = [(p, dict(m, startup_refused_parent=1.0)
@@ -872,7 +885,7 @@ def _mouth_ll(mouth, to_ll) -> str:
 
 def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
                  stats: dict, start_tree: STRtree | None = None,
-                 taxi_of=None) -> list[tuple[Polygon, dict]]:
+                 taxi_of=None, cover=None) -> list[tuple[Polygon, dict]]:
     """§43 AN APRON ENDS AT ITS MOUTH (owner RULINGS 2026-09-14c item 2):
     ``face`` cut at the mouths of its NECKS (``classify/neck.py``), as
     ``(polygon, mark)`` pairs for the scorer's worklist — empty where the
@@ -889,8 +902,16 @@ def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
     face the ladder reads as a CORRIDOR is not offered — "roads joining
     two lots do not cut", and a taxiway is not an apron that ends.  "A
     taxiway running ALONG an apron edge does not cut" needs no rule at
-    all: such pavement never narrows, so ``necks_of`` finds nothing."""
+    all: such pavement never narrows, so ``necks_of`` finds nothing.
+
+    ``cover`` (#1696) is the mapped apron where §40 (2) refused this face
+    the corridor kind on it: a face with no width cut is read once more
+    for arms leaving the covered pavement (``neck.cover_arms``), gated as
+    the #314 re-read (taxi evidence, no startup)."""
     necks = necks_of(face, rules)
+    if not necks and cover is not None:
+        necks = cover_arms(face, cover, rules)
+        stats["apron_cover_arms"] = stats.get("apron_cover_arms", 0) + len(necks)
     # #262 / #314: A NARROW STRETCH THAT HOLDS A 1300 STARTUP IS NOT CUT.
     # "A startup location is where an aircraft PARKS, and a taxiway has no
     # parking position on it" — the same rung that refuses the corridor

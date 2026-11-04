@@ -623,17 +623,21 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     # dump lands in whatever root was just resolved, which is lane-local
     # whenever an overlay is armed.
     try:
-        from auto_patch.engine_v2 import fresh_pack_dump as _fresh_dump
+        from auto_patch.engine_v2 import airport_tiles as _apt_tiles
+        from auto_patch.engine_v2 import fresh_pack_dumps as _fresh_dumps
         _harness = str(ROOT / "tools" / "harness")
         if _harness not in sys.path:
             sys.path.insert(0, _harness)
         from build_airport import resolve_tile_for as _resolve_tile
         _tile = _resolve_tile(icao, ROOT)
         if _tile is not None:
-            _dump = _fresh_dump(inputs.xplane_root, icao, *_tile)
-            if _dump:
-                inputs = _dc.replace(inputs, dsf_dump_path=_dump)
-                print(f"  pack DSF dump (pristine read frame): {_dump}")
+            # #1645: every tile the airport touches, as the build reads
+            _dumps = _fresh_dumps(inputs.xplane_root, icao,
+                                  _apt_tiles(inputs.xplane_root, icao, *_tile))
+            if _dumps:
+                inputs = _dc.replace(inputs, dsf_dump_path=_dumps)
+                for _dump in _dumps.values():
+                    print(f"  pack DSF dump (pristine read frame): {_dump}")
     except Exception as exc:                # the load stage refuses loudly
         print(f"  pack dump refresh skipped for {icao}: {exc}")
     t = time.perf_counter()

@@ -567,7 +567,9 @@ def _live_file_is_engine_written(live_path: str,
         return False
 
 
-def pristine_object_fingerprint_entries(pack_root: str) -> list[str]:
+def pristine_object_fingerprint_entries(
+        pack_root: str,
+        skip: _t.Callable[[str, str], bool] | None = None) -> list[str]:
     """One fingerprint entry per pack-local ``.obj``, keyed on its
     PRISTINE state (owner ruling 2026-08-13).
 
@@ -587,6 +589,10 @@ def pristine_object_fingerprint_entries(pack_root: str) -> list[str]:
     the sha256 of a large baked object is read at most once per process
     per state — the readers ask for this fingerprint several times per
     build (buildings, pavements, once per airport of a tile).
+
+    ``skip(relative_path, live_path)``, when given, leaves a file out: the
+    caller's reading NEVER PARSES it (the footprint readers' engine-minted
+    split bodies, which the pristine DSF they read cannot reference).
     """
     recorded_hashes_by_resource = _recorded_hashes_by_resource(pack_root)
     entries: list[str] = []
@@ -596,6 +602,8 @@ def pristine_object_fingerprint_entries(pack_root: str) -> list[str]:
                 continue
             live_path = os.path.join(directory, file_name)
             relative_path = os.path.relpath(live_path, pack_root)
+            if skip is not None and skip(relative_path, live_path):
+                continue
             live_stat = _fingerprint_stat(live_path)
             if live_stat is None:
                 continue

@@ -550,17 +550,39 @@ def landing_vertices(planar: PlanarMap) -> dict[str, list[int]]:
     """``{landing ref: its platform vertices}`` (rings and holes; the
     collar excluded) over ``planar.registries.landings`` — ONE reading, the
     level rows and the DEM-datum withdrawal (``pads.pad_datum_withdrawn``)
-    ask it."""
-    if not planar.registries.landings:
+    ask it.  A lower level's ``wall_strips`` (the foot strips of the
+    retaining walls that join it, ``planar/low_extent._join_walls``, #1306)
+    are its vertices too, and so is every vertex of a service road on such
+    a wall's lower band (``wall_bands``)."""
+    lands = planar.registries.landings
+    if not lands:
         return {}
+    from shapely.geometry import Point
+    owner = {str(s): r for r, rec in lands.items() for s in rec.get("wall_strips", ())}
+    bands = _wall_bands(lands)
     out: dict[str, set[int]] = {}
     for f in planar.faces.values():
-        r = str(f.ref)
-        if r in planar.registries.landings:
+        r = owner.get(str(f.ref), str(f.ref))
+        if r in lands:
             vs = out.setdefault(r, set())
             for ring in (f.ring, *f.holes):
                 vs.update(planar.ring_vertices(ring))
+        elif bands and f.role == "service_road":
+            for v in planar.ring_vertices(f.ring):
+                p = Point(planar.vertices[v].xy)
+                r2 = next((r2 for r2, g in bands if g.covers(p)), None)
+                if r2 is not None:
+                    out.setdefault(r2, set()).add(v)
     return {r: sorted(v) for r, v in out.items()}
+
+
+def _wall_bands(lands) -> list:
+    """``[(level ref, band)]``: the lower bands of the retaining walls that
+    join a level (its record's ``wall_bands``), half a metre wider."""
+    from shapely.geometry import Polygon
+    from shapely.prepared import prep
+    return [(r, prep(Polygon(c).buffer(0.5))) for r, rec in lands.items()
+            for c in rec.get("wall_bands", ()) if len(c) >= 4]
 
 
 def landing_rows(planar: PlanarMap, law: Law,

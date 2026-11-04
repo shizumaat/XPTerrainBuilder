@@ -280,15 +280,44 @@ def test_a_pad_only_vertex_still_takes_its_foot(law):
     assert set(off) <= set(own)          # nothing on the fronting pad
 
 
-def test_a_groundside_face_is_not_senior_here(law):
-    """09-01g leaves a rim vertex a LOT shares to the lot, and §28 is where
-    a groundside frontage is stated: §30 (2) narrows to the AIRSIDE side by
-    ``role_side`` and mints nothing against a car park."""
+def test_a_groundside_road_or_lot_vertex_takes_no_relief(law):
+    """Owner ruling 2026-11-04 on #1855 ("1855: yes"; supersedes this twin's
+    12u reading): a pad vertex a GROUNDSIDE road / lot face shares is
+    levelled by that face, never by the plate, so it takes offset 0 — in
+    the rows and the published sidecar alike (one derivation).  The pad's
+    OWN vertices keep their feet."""
     pm, airport = _pm(law, _cells("parking_lot"))
-    vs = _pad_vertices(pm)
+    lot = set()
+    for f in pm.faces.values():
+        if f.ref == "faceA":
+            for r in (f.ring, *(f.holes or ())):
+                lot |= set(pm.ring_vertices(r))
+    vs = sorted({v for f in pm.faces.values() if f.ref.split("#")[0] == "padA"
+                 for r in [f.ring, *(f.holes or ())] for v in pm.ring_vertices(r)})
+    shared = set(vs) & lot
+    assert shared, "the pad's rim is shared with the lot"
     off = _offsets(pm, law, airport, vs)
-    assert off, "a groundside neighbour does not withdraw the relief target"
-    assert min(off.values()) == pytest.approx(-2.20, abs=1e-6)
+    assert not (set(off) & shared), sorted(set(off) & shared)
+    assert all(o == pytest.approx(-2.20, abs=1e-6) for o in off.values())
+
+
+def test_a_held_frontage_contact_takes_no_relief(law, monkeypatch):
+    """The same ruling: a held block's frontage-hold contact and its datum
+    column are levelled by the hold's hard rows — no relief there."""
+    cells = _cells("apron") + [Cell(3, "building", "padB", PAD_B, (), None, None,
+                                    "airside", "pad", {})]
+    pm, airport = _pm(law, cells)
+    f = next(f for f in pm.faces.values() if f.ref == "padB")
+    own = sorted(set(pm.ring_vertices(f.ring)))
+    assert len(own) >= 3
+    base = _offsets(pm, law, airport, own)
+    assert base
+    v_hold, v_dat = sorted(base)[0], sorted(base)[-1]
+    monkeypatch.setattr("auto_patch_v2.constraints.platform.hold_sets",
+                        lambda _p, _l: [("padB", v_dat, [v_hold], 1, 0)])
+    off = _offsets(pm, law, airport, own)
+    assert v_hold not in off and v_dat not in off
+    assert set(off) == set(base) - {v_hold, v_dat}
 
 
 # ── (3a) THE REPLAY'S CAPTURE IS THE BUILD'S WHOLE PRE-SOLVE HALF ───────

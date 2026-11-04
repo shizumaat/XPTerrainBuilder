@@ -31,8 +31,10 @@ region and a riser's width, less the airside (cells and zones) and
 min_area_m2`` is minted ``<block>/p<k>`` (kind ``low_level``, the nearest
 level's witness and block) at THE OBJECTS' BOTTOM: the densest
 ``PLANE_BAND_M`` plane of the lower parts' feet on it (27h), with its riser
-strip ``#strip`` along the pads it faces.  The KATL control tower and brick
-wall stand in no unit of the terminal's group and are not taken in (27h).
+strip ``#strip`` along the pads it faces.  The KATL control tower stands in
+no unit of the terminal's group and is not taken in (27h); a retaining wall
+outside the group whose lower face meets a level JOINS it -- its foot strip
+is held at the level (:func:`_join_walls`, owner 2026-11-04 on #1306).
 """
 from __future__ import annotations
 
@@ -129,12 +131,14 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
         po = plane_of(str(r.ref))
         if po is not None:
             n_k[po[0]] = max(n_k.get(po[0], 0), po[1])
+    own_walls: list = []
     for ui, refs in sorted(units.items()):
         rec0 = lows[refs[0]]
         t = float(rec0["top_y"])
         lower = feet.lower(ui, t + float(rec0["y_hi"]))
         if not lower:
             continue
+        own_walls.extend(p.poly for p in lower if p.reach > 0.0)
         bodies, walls = _footprint(lower, pave, near, w, airport, law, t)
         taken = Polygon()
         if beyond and not bodies.is_empty:
@@ -177,6 +181,10 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
                                  "y_feet": round(y, 3), "area_m2": round(q.area, 1),
                                  "low_parts": 0, "extent_of": host}
             pads = unary_union([pads, q.buffer(w, join_style=2)])
+    _join_walls(reg, {**{r: v for r, v in lows.items() if r in by_ref},
+                      **{str(r.ref): reg.landings[str(r.ref)] for r in made
+                         if str(r.ref) in reg.landings}},
+                by_ref, made, air_all, airport, own_walls, counts)
     if made:
         counts["low_level_extents"] = sum(1 for v in reg.landings.values()
                                           if v.get("extent_of"))
@@ -184,6 +192,60 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
             f"{k} of {v['extent_of']} y {v['y_feet']:+.2f} {v['area_m2']:g} m2"
             for k, v in sorted(reg.landings.items()) if v.get("extent_of"))
     return regs + made
+
+
+def _join_walls(reg: Registries, levels: dict, by_ref: dict, made: list, air_all,
+                airport, own_walls: list, counts: dict) -> None:
+    """A RETAINING WALL WHOSE LOWER FACE MEETS A LOWER LEVEL JOINS IT (#1306;
+    owner 2026-11-04 "1306: yes", amending RULINGS 2026-10-27h for this
+    case): a pack retaining wall standing in no group's lower parts whose
+    LOWER band (``airport/wall_sides``) comes within its own reach
+    ``max(4 h, 20 m)`` of a lower level's region -- its foot strip (the
+    wall slope over its lower band, ``planar/wall_slope``) is that level's
+    ground, held at the LEVEL (``constraints/platform.landing_vertices``),
+    never at the wall's own foot: the wall's real bottom may stand far
+    under it -- and so is the road along it, on that band.  MEASURED KATL:
+    ``muro_ladrillo.obj`` (foot read 280.7 m, raised to the real ground
+    292.2-292.8) 3 m off ``building46/p7`` (the apron walls' lower level,
+    291.1); ``small_roads:-12992`` on its band at 291.2-294.3.  The strip
+    refs (``wall_strips``) and the band (``wall_bands``, frame xy) are
+    recorded on the nearest level's record."""
+    walls = tuple(getattr(airport, "retaining_walls", ()) or ())
+    if not walls or not levels:
+        return
+    from ..model.wall_reach import is_wall_slope_ref, wall_reach_m
+    polys = {ref: unary_union([r.polygon for r in by_ref.get(ref, ())]
+                              + [r.polygon for r in made if str(r.ref) == ref])
+             for ref in levels}
+    polys = {k: g for k, g in polys.items() if not g.is_empty}
+    strips = [r for r in air_all if is_wall_slope_ref(getattr(r, "ref", ""))
+              and r.polygon is not None and not r.polygon.is_empty]
+    taken: set[str] = set()
+    joined = []
+    for w in walls:
+        band = getattr(w, "lower", None)
+        if band is None or band.is_empty or not getattr(w, "foot_profile", None) \
+                or any(o.intersection(w.poly).area >= 0.5 * w.poly.area for o in own_walls):
+            continue
+        reach = wall_reach_m(float(w.height_m))
+        near = [(g.distance(band), ref) for ref, g in polys.items()]
+        d, host = min(near) if near else (math.inf, None)
+        if host is None or d > reach:
+            continue
+        refs = sorted(str(r.ref) for r in strips if str(r.ref) not in taken
+                      and r.polygon.intersection(band).area >= 0.5 * r.polygon.area)
+        if not refs:
+            continue
+        taken.update(refs)
+        rec = reg.landings[host]
+        rec["wall_strips"] = sorted({*rec.get("wall_strips", ()), *refs})
+        rec["wall_bands"] = [*rec.get("wall_bands", ()),
+                             *([[round(x, 3), round(y, 3)] for x, y in g.exterior.coords]
+                               for g in nonempty_polygon_parts(band))]
+        joined.append(f"{getattr(w, 'resource', '') or 'wall'} -> {host} ({d:.1f} m, "
+                      f"{len(refs)} strips)")
+    if joined:
+        counts["low_level_wall_joins"] = "; ".join(joined)
 
 
 class _Feet:

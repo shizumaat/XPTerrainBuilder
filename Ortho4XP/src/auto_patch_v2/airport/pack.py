@@ -161,7 +161,7 @@ def tile_dsf_path(pack_root: str, lat: int, lon: int) -> str | None:
 
 
 def signature(sel: PackSelection, block: list[str], lat: int,
-              lon: int) -> SceneryPack:
+              lon: int, also: _t.Sequence[tuple[int, int]] = ()) -> SceneryPack:
     """The pack signature: the airport's own apt.dat block hash (the
     whole Global file is hundreds of MB; the block is what is read), the
     tile DSF's file hash, and — §44 (4) — the BORROWED block's path and
@@ -172,14 +172,28 @@ def signature(sel: PackSelection, block: list[str], lat: int,
     # #1630: the pages' DSF too, when another pack serves them
     pages = tile_dsf_path(sel.pages_root, lat, lon) if sel.pages_from else None
     paths += (pages,) if pages and pages != dsf else ()
+    # #1645: the NEIGHBOUR tiles' DSFs the airport's load also reads
+    for t in also:
+        extra = tile_dsf_path(sel.root, *t)
+        if extra and extra not in paths:
+            paths += (extra,)
     # #1630: an OBJECT PACK's folder is not the apt.dat's; name it
     own = os.path.dirname(os.path.dirname(sel.apt_dat_path))
     return SceneryPack(sel.name, sel.apt_dat_path, block_sha256(block),
-                       paths, tuple(sha256_file(p) for p in paths),
+                       paths, tuple(sha256_file(_read_frame(p)) for p in paths),
                        sel.borrow.apt_dat_path, sel.borrow.block_sha256,
                        flatten_declared=flatten_declared(block),
                        root="" if os.path.normpath(sel.root) == os.path.normpath(own)
                        else sel.root)
+
+
+def _read_frame(dsf: str) -> str:
+    """The file a DSF's hash is taken of: its PRISTINE read frame (RULINGS
+    2026-09-11m, ``dsf_write.pristine_dsf_path``) — the object stage
+    rewrites the live file after each tile build, and #1645's second tile
+    build of one airport must read the same signature as the first."""
+    from .backup_state import classify_dsf
+    return classify_dsf(dsf).read_path
 
 
 def flatten_declared(block: _t.Sequence[str]) -> bool:

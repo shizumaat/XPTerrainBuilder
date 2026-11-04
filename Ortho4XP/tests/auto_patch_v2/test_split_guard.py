@@ -99,3 +99,34 @@ def test_an_unplaceable_split_is_written_whole(pack, tmp_path, monkeypatch,
     assert [k.index for k in res.plan.kept] == [1]
     assert any("TEST" in n and "objects/b.obj" in n for n in res.notes)
     assert not (root / "objects/b__b0.obj").exists(), "orphan body removed"
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="POSIX folder modes (a read-only vendor folder)")
+def test_a_split_into_a_read_only_folder_is_written_whole(tmp_path, monkeypatch):
+    """RED ON BASE (KLAX 1.0.464): ``write_files`` raised EACCES on a
+    read-only pack folder AFTER the restore had removed the previous
+    write's bodies, so the live DSF named 165 missing body files.  The
+    split is undone before anything is written; the rest of the plan is."""
+    import os
+
+    from auto_patch_v2.airport import placement_write as PW
+    from tests.auto_patch_v2.test_backup_state import (
+        DUMP4, _pack, _stand_in_dsftool, _tncm)
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    tool = _stand_in_dsftool(tmp_path, monkeypatch)
+    plan, files = _tncm(pack, dsf)
+    assert SG.unwritable_splits(plan, str(pack)) == []
+    os.chmod(pack / "objects", 0o555)
+    try:
+        assert SG.unwritable_splits(plan, str(pack)) == [1]
+        res = PW.apply_plan(plan, files, tool, patch_dir=str(tmp_path / "p"),
+                            work_dir=str(tmp_path / "w"))
+    finally:
+        os.chmod(pack / "objects", 0o755)
+    live = dsf.read_text(encoding="utf-8")
+    assert "b__b" not in live and res.files_written == ()
+    assert "OBJECT_MSL 1 -63.11 18.041 6.0 20.0" in live, "written whole"
+    assert "OBJECT 0 -63.1 18.04" in live, "the rest of the plan is written"
+    assert [k.index for k in res.plan.kept] == [1]
+    assert "read-only" in res.plan.kept[0].reason

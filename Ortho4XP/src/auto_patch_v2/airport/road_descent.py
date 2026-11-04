@@ -38,6 +38,20 @@ The product is the HIGHER envelope of every contact's ramp: per vertex
 the highest ramp standing over it, and the route distance that ramp
 walked.  ``airport/road_ramp.road_ramp_targets`` lifts it onto the route
 and takes its max with the floor.
+
+THE MIRROR, A CUT RAMP (#1531; owner intent 2026-11-03/04: "a road leaves
+a held pad at the pad's level and climbs out of the hill on a cut ramp"):
+a contact cut INTO a hill stands UNDER the road's floor, and the road
+leaving it climbs at the same design grade until it meets the floor —
+:func:`climb`, which is :func:`descend` on the NEGATED levels, so every
+rule above carries over word for word with "down" read "up": a contact
+the road can leave on its floor inside its cap builds no cut, a cut ends
+at its first meet, a run steepens toward the cap only where the run to the
+NEXT CONTACT is short (the road's own end asks nothing: owner 2026-11-04,
+"10% only when it's required to reach between pads, lots, or airside that
+can't move"), and it is never deeper under the floor than where it left.  The
+product is the LOWER envelope — per vertex the lowest cut standing under
+it — a CEILING the road's target may not stand over.
 """
 from __future__ import annotations
 
@@ -47,7 +61,7 @@ import typing as _t
 
 from ..geom.ramp_grade import built_grade, least_grade
 
-__all__ = ["Descent", "descend", "descent_line", "envelope"]
+__all__ = ["Descent", "climb", "descend", "descent_line", "envelope"]
 
 Adjacency = _t.Mapping[int, _t.Sequence[tuple[int, float]]]
 Level = _t.Callable[[int], "float | None"]
@@ -274,6 +288,30 @@ def descend(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
     return Descent(lab, walked, ramps)
 
 
+def climb(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
+          floors: _t.Mapping[int, float], design: float, cap: float,
+          lane: float, stand: float = STAND_M) -> Descent:
+    """THE LOWER ENVELOPE OF THE CUT RAMPS (the mirror of :func:`descend`,
+    #1531): the road leaving a contact that stands under its floor climbs
+    out at the design grade.  It IS :func:`descend` on negated levels;
+    ``label`` is returned in true sign — per vertex the LOWEST cut over
+    it, the ceiling the road's target may not stand above.
+
+    A CUT STEEPENS ONLY TO CONNECT FIXED ENDS (owner 2026-11-04T04:20Z:
+    "Road climbs: prefer 5% max, allowed to go to 10% only when it's
+    required to reach between pads, lots, or airside that can't move"):
+    its runs end at the NEXT CONTACT only — the road's own end is no run
+    (``end_of`` answers ``None``), so a climb is never steepened just to
+    shorten its cut."""
+    def neg(v: int) -> "float | None":
+        z = level(v)
+        return None if z is None else -z
+    d = descend(adj, {m: -z for m, z in mouths.items()}, neg,
+                {v: -z for v, z in floors.items()}, design, cap, lane,
+                lambda _v: None, stand)
+    return Descent({v: -z for v, z in d.label.items()}, d.walked, d.ramps)
+
+
 def descent_line(rep: _t.Mapping[str, _t.Any]) -> str:
     """The build log's line for the ramps (the report keys
     ``road_ramp_targets`` publishes).  ``ramps_at_cap`` (a ramp whose
@@ -290,4 +328,8 @@ def descent_line(rep: _t.Mapping[str, _t.Any]) -> str:
             f"{rep.get('ramps_over_cap', 0)} with a run the cap does not "
             f"bring down), "
             f"{rep.get('ramp_total_m', 0.0):.0f} m of ramp, longest "
-            f"{rep.get('ramp_longest_m', 0.0):.0f} m")
+            f"{rep.get('ramp_longest_m', 0.0):.0f} m / cuts built: "
+            f"{rep.get('cuts', 0)} ({rep.get('cuts_steepened', 0)} steepened, "
+            f"{rep.get('cuts_at_cap', 0)} at the cap), {rep.get('on_cut', 0)} "
+            f"vertices on a cut up to {rep.get('max_below_dem_m', 0.0):.2f} m "
+            f"under the DEM")

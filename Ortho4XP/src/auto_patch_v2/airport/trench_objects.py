@@ -29,6 +29,7 @@ Nothing here names a pack, a resource or an airport.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 import os
 import typing as _t
 
@@ -149,6 +150,15 @@ def _floor_at(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, r: float) -> 
     return None if not low else o.anchor_z + o.agl_m + min(low)
 
 
+def _ground_max(dem_z, xy: XY, r: float) -> float:
+    """The highest ground within ``r`` of ``xy`` (a 1 m-spaced sample)."""
+    n = int(math.ceil(r))
+    zs = [float(dem_z(xy[0] + i, xy[1] + j)) for i in range(-n, n + 1)
+          for j in range(-n, n + 1) if i * i + j * j <= r * r]
+    zs = [z for z in zs if not math.isnan(z)]
+    return max(zs) if zs else math.inf
+
+
 def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj8.PlacedObject],
                   cache: _obj8.ResourceCache, law, tunnel_ways, dem_z) -> list:
     """#1747 (owner ruling 2026-11-03 "yes"; Q256 b, RULINGS 2026-10-28s
@@ -160,10 +170,13 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     face, which may stand the tolerance off the end either side: LOWS's
     west face stands 8 m out of its mapped end) and its anchor the end
     itself (the mouth does not move).  An end with no solid within that
-    reach is no entrance, and an edge-wall bridge is never one."""
+    reach is no entrance, nor is one whose solids there stand more than
+    ``[placement] split_tol_m`` over the highest ground in that reach (a
+    building on the bore), and an edge-wall bridge is never one."""
     from .hanging_objects import edge_wall_reading
     from .portal_objects import Portal
     tol = float(law.tables.structures.tunnel.object.bore_end_tolerance_m)
+    split_tol = float(law.tables.structures.placement.split_tol_m)
     bores = {int(w.id) for w in tunnel_ways}
     by_id = {o.id: o for o in objects}
     out = []
@@ -180,6 +193,11 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             floor = _floor_at(o, g, xy, 2.0 * tol)
             ground = float(dem_z(xy[0], xy[1]))
             if floor is None or np.isnan(ground):
+                continue
+            if floor > _ground_max(dem_z, xy, 2.0 * tol) + split_tol:
+                # its solids there stand OVER the ground: a building on the
+                # bore, never the mouth's road (LOWS's north house plates
+                # stood 8.5 m over bore -328's end)
                 continue
             out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
                               ground - floor, 0.0, (float(xy[0]), float(xy[1])),

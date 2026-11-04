@@ -664,6 +664,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.constraints.threshold_seam",
     "auto_patch_v2.constraints.transverse",
     "auto_patch_v2.constraints.trend",
+    "auto_patch_v2.constraints.viaduct_floor",
     "auto_patch_v2.constraints.wall_zone",
     "auto_patch_v2.constraints.walled_plate",
     "auto_patch_v2.constraints.water",

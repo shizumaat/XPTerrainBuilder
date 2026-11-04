@@ -314,6 +314,11 @@ class AdjacentGround:
     #: profile's lawful fall AND falls steeper than this over
     #: ``emit.design.edge_probe_m`` — PROPOSED, for the owner's ratification
     end_drop_min_grade: float
+    #: THE SECOND DROP TIER (owner 2026-11-04, #1332): ground this far
+    #: below the lawful fall, falling steeper than ``end_drop_deep_grade``
+    #: over the probe, is a drop too (``model/end_area``)
+    end_drop_deep_m: float
+    end_drop_deep_grade: float
     #: 19ad THE BAND HOLDS ITS GRADE BESIDE A ROAD THROUGH ZONE 2 (owner
     #: RULINGS 2026-10-20c, 39; ``planar/road_shadow``): a band vertex within
     #: the probe of a road's axis reads the DEM at the probe — the road's

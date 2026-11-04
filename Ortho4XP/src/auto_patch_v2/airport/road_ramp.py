@@ -15,12 +15,24 @@ airside is king — the road's target along ROUTE distance ``s`` is
     target(s) = max(clamp(s), z_contact - grade * s)
 
 It descends at its DESIGN grade (``[road_contact] ramp_grade``, 5 %) until
-it meets the FLOOR and follows it from there (where the floor stands above
-the contact the road is on its floor at once); between two contacts the two
+it meets the FLOOR and follows it from there; between two contacts the two
 ramps meet at their HIGHER envelope; a road with NO airside contact targets
-the floor alone.  THE ROAD'S LONGITUDINAL CAP IS A CEILING, NEVER THE GRADE
-THE RAMP IS BUILT AT (owner RULINGS 2026-10-08c (1), 2026-10-09c (2b)): the
-ramp steepens toward it only where the design grade cannot meet the floor
+the floor alone.
+
+THE MIRROR, A CUT RAMP (#1531; owner intent 2026-11-03/04: "a road leaves
+a held pad at the pad's level and climbs out of the hill on a cut ramp";
+RULINGS 2026-10-20d already makes a road climb TO a fill).  Where the floor
+stands ABOVE the contact — a pad cut into a hill — the road leaves at the
+contact's level and CLIMBS at the same design grade until it meets the
+floor (``road_descent.climb``, the same descent on negated levels):
+
+    target(s) = min(max(clamp(s), descent(s)), climb(s))
+
+and the hard ceiling ``target + visual_m`` below IS the cut.  No new row.
+
+THE ROAD'S LONGITUDINAL CAP IS A CEILING, NEVER THE GRADE THE RAMP IS
+BUILT AT (owner RULINGS 2026-10-08c (1), 2026-10-09c (2b)): the ramp
+steepens toward it only where the design grade cannot meet the floor
 — or the next contact's level — in the run the road has, and then at the
 smallest grade that does (:mod:`road_descent`, the mapped-tunnel rule of
 §34 (1a)).
@@ -82,8 +94,8 @@ from ..law.tables import (
 from ..model.airport import Airport
 from ..model.frame import rotated_rectangle
 from ..model.planar import PlanarMap
-from ..model.platform import fill_levels
-from .road_descent import STAND_M, descend
+from ..model.platform import fill_levels, held_levels
+from .road_descent import STAND_M, climb, descend
 
 __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
            "road_route_frame", "reach_contacts", "merge_routes",
@@ -350,7 +362,9 @@ def _contacts(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law
     """THE MOUTHS: every vertex of a road face whose senior role is an
     AIRSIDE one, with the airside's own level there — the published
     airside target (``apron_trend_z`` / ``taxi_trend_z`` / ``preferred_z``)
-    where the vertex carries one, never below the DEM under it."""
+    where the vertex carries one, never below the DEM under it.  The CUT
+    a road climbs out of a held pad on leaves from the pad's own level
+    instead (:func:`road_ramp_targets`, #1531, ``model.platform.held_levels``)."""
     out: dict[int, float] = {}
     for fid, f in pm.faces.items():
         if f.role not in roads:
@@ -408,16 +422,18 @@ def _connected(adj: _t.Mapping[int, list[tuple[int, float]]],
     return seen
 
 
-def _lift(ss: _t.Sequence[float], vals: _t.Sequence[float], cap: float
-          ) -> dict[float, float]:
+def _lift(ss: _t.Sequence[float], vals: _t.Sequence[float], cap: float,
+          lower: bool = False) -> dict[float, float]:
     """§37 (8) ONTO THE ROUTE: the cap-Lipschitz UPPER envelope of the
     per-vertex descent labels at the stations of ONE route, so the ramp is
-    ONE VALUE PER STATION and can never tilt a section."""
+    ONE VALUE PER STATION and can never tilt a section.  ``lower``: the
+    LOWER envelope, for the cut ramps' ceilings (#1531, the mirror)."""
+    pick, k = (min, cap) if lower else (max, -cap)
     out = list(vals)
     for i in range(1, len(out)):                            # forward
-        out[i] = max(out[i], out[i - 1] - cap * (ss[i] - ss[i - 1]))
+        out[i] = pick(out[i], out[i - 1] + k * (ss[i] - ss[i - 1]))
     for i in range(len(out) - 2, -1, -1):                   # backward
-        out[i] = max(out[i], out[i + 1] - cap * (ss[i + 1] - ss[i]))
+        out[i] = pick(out[i], out[i + 1] + k * (ss[i + 1] - ss[i]))
     return {s_: z_ for s_, z_ in zip(ss, out)}
 
 
@@ -742,7 +758,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     (ROUTE, STATION) ALONE — §37 (8)'s "the ramp target is the road's
     CENTRELINE profile per station" (owner RULINGS 2026-09-13bb).
 
-    ``target(r, s) = max(clamp_r(s), envelope_r(s))``
+    ``target(r, s) = min(max(clamp_r(s), envelope_r(s)), cut_r(s))``
 
     * ``clamp_r(s)`` — the core's own cap-Lipschitz profile at that station
       of THE ROUTE THE FRAME NAMES (§37 (6) amended, RULINGS 2026-09-13be),
@@ -752,7 +768,12 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
       the design grade, steepened toward the cap only where the run cannot
       fit it; RULINGS 2026-10-09c (2b)),
       LIFTED ONTO THE ROUTE as the cap-Lipschitz upper envelope of the
-      stations it reached.
+      stations it reached;
+    * ``cut_r(s)`` — its MIRROR (#1531): the climb out of every contact
+      that stands under the road's floor (a pad cut into a hill), the same
+      walk on negated levels (:func:`road_descent.climb`), lifted as the
+      cap-Lipschitz LOWER envelope; ``+inf`` where no cut reaches.  The
+      report counts ``cuts`` / ``on_cut`` / ``max_below_dem_m``.
 
     Both terms are cap-Lipschitz in ``s``, so two vertices of one section
     differ by at most ``cap_l × |Δs|`` — inside §37 (7)'s pair bound
@@ -786,11 +807,38 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # predicted level, never its DEM — the road reaches the high side, and
     # the ceiling may not hold it on the ground the fill covers; the road
     # climbs to the fill by this alone (no second road profile)
+    plat, bank = held_levels(pm)
     for rec in fill_levels(pm).values():
         for v in rec["vertices"] & mouths.keys():
             mouths[v] = max(mouths[v], rec["z_hi"])
     walled = _on_retaining(pm, mouths, retaining)
     mouths = {v: z for v, z in mouths.items() if v not in walled}
+    # #1531, THE MIRROR: the level a CUT leaves from.  A mouth on a held pad
+    # (a block or a landing) is at the pad's own level — a pad cut INTO a
+    # hill stands under the ground it was cut out of, and the road leaves it
+    # there and climbs out (``road_descent.climb``); the DEM is not
+    # consulted.  A mouth on the pad's BANK (its collar) takes the pad's
+    # level only where that is under the ground: a bank in a cut falls to
+    # the pad, one round a fill keeps its toe on the ground.  The pad's
+    # level is its HIGH estimate (``held_levels``): the cut is a ceiling,
+    # and a ceiling under the pad's solved level would pull the pad.  The
+    # descent keeps ``mouths`` as it was (its target only lifts the road).
+    # A CUT LEAVES ONLY FROM A CONTACT THAT CANNOT MOVE (owner 2026-11-04T04:20Z:
+    # "... between pads, lots, or airside that can't move"): a held pad, its
+    # landing or bank, or an airside / lot contact whose own published level
+    # stands over its ground.  A contact whose level is the DEM under it
+    # stands on its ground and makes no cut — the road follows its floor
+    # there.  MEASURED VHHH: ``dsf:pol270`` on the DEM at 10.35 cut
+    # ``small_roads:-5194#6`` 11.4 m into a DEM bump.  (A published airside
+    # level UNDER its ground is a pre-solve estimate, not a held row; read
+    # as a cut's level it cut that road 16.8 m — measured, not taken.)
+    cut_from = {v: z for v, z in mouths.items()
+                if v in plat or v in bank or pm.vertices[v].dem_z is None
+                or z > float(pm.vertices[v].dem_z) + STAND_M}
+    for v in cut_from.keys() & plat.keys():
+        cut_from[v] = plat[v]
+    for v in cut_from.keys() & bank.keys():
+        cut_from[v] = min(cut_from[v], bank[v])
     caps = [role_cap(law, r).longitudinal for r in roads if role_cap(law, r)]
     cap = min(caps) if caps else None
     rep: dict[str, _t.Any] = {"vertices": len(owned), "mouths": len(mouths),
@@ -883,14 +931,31 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     design = float(rc.ramp_grade)
     g, reach, ramps = descend(adj, mouths, _level, floor_of, design, cap, lane, _route_end)
     rep.update(_ramp_figures(ramps, design, cap))
+    # THE MIRROR (#1531): a contact cut INTO the hill stands under the
+    # road's floor, and the road climbs out of it on a cut ramp — the SAME
+    # descent on negated levels (``road_descent.climb``), its lower
+    # envelope a ceiling on the target.  The mouths' own seeds carry no
+    # cone of their own (a contact the road can follow its floor from
+    # builds none), so only the vertices a cut reached are lifted.
+    cut_lab, _cw, cut_ramps = climb(adj, cut_from,
+                                    lambda v: cut_from[v] if v in cut_from else floor_of.get(v),
+                                    floor_of, design, cap, lane)
+    cut_fig = _ramp_figures(cut_ramps, design, cap)
+    rep.update({"cuts": cut_fig["ramps"], "cuts_steepened": cut_fig["ramps_steepened"],
+                "cuts_at_cap": cut_fig["ramps_at_cap"], "cut_total_m": cut_fig["ramp_total_m"],
+                "cuts_steepest": cut_fig["ramps_steepest"], "on_cut": 0,
+                "max_below_dem_m": 0.0})
     joined = _connected(adj, mouths)
     # ONTO THE ROUTE (§37 (8)): per route, the cap-Lipschitz UPPER envelope
     # of the descent values at the stations that carry one — so the ramp is
     # ONE VALUE PER STATION and not one per vertex.
     env: dict[int, dict[float, float]] = {}
+    env_c: dict[int, dict[float, float]] = {}
     for r, items in by_route.items():
         ss = [s_ for s_, _v in items]
         env[r] = _lift(ss, [g.get(v, -math.inf) for _s, v in items], cap)
+        env_c[r] = _lift(ss, [cut_lab.get(v, math.inf) if v not in mouths else math.inf
+                              for _s, v in items], cap, lower=True)
     targets: dict[int, float] = {}
     for v in sorted(owned):
         vx = pm.vertices[v]
@@ -902,7 +967,8 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
             continue
         floor = floor_of[v]                   # the core's clamp AT THAT STATION
         ramp = env.get(r, {}).get(st, -math.inf)
-        t = max(floor, ramp)
+        cut = env_c.get(r, {}).get(st, math.inf)
+        t = min(max(floor, ramp), cut)        # the cut ramp's ceiling wins
         targets[v] = t
         # the REPORT reads the terrain under the same station
         through_d: list = []
@@ -916,7 +982,11 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                                           abs(floor - dem_route))
         if v not in joined:
             rep["no_contact"] += 1
-        if ramp >= floor + STAND_M:
+        if cut <= floor - STAND_M:
+            rep["on_cut"] += 1
+            if dem_route - t > rep["max_below_dem_m"]:
+                rep["max_below_dem_m"], rep["_deepest_cut"] = dem_route - t, v
+        elif ramp >= floor + STAND_M:
             rep["on_ramp"] += 1
             rep["max_above_dem_m"] = max(rep["max_above_dem_m"], t - dem_route)
             rep["max_reach_m"] = max(rep["max_reach_m"], reach.get(v, 0.0))
@@ -924,6 +994,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
             rep["on_dem"] += 1
     rep["targets"] = len(targets)
     rep["max_above_dem_m"] = round(rep["max_above_dem_m"], 3)
+    rep["max_below_dem_m"] = round(rep["max_below_dem_m"], 3)
     rep["max_reach_m"] = round(rep["max_reach_m"], 1)
     rep["max_route_off_vertex_dem_m"] = round(rep["max_route_off_vertex_dem_m"], 3)
     rep["max_clamp_over_dem_m"] = round(rep.get("max_clamp_over_dem_m", 0.0), 3)

@@ -1022,3 +1022,27 @@ this round), `lfpg6/LFPG.pkl`, `lowregion4/KLAX.pkl`.
   the T2 wall declared (the wall-terrace release of `airport/road_ramp.
   wall_terraces`, a storey wall that retains its height) -- a consumer census
   of its own (riser, pad_terrace, road terrace, publication, census reader).
+
+**Site numbers, round 5 as built** (replays `--from planar` on the
+registered captures; controls: KIAH and KATL the branch with the seeds
+patched off, LFPG the round-4b head 5829e7731):
+- KIAH: `building88/p1..p3` one level at 24.09 m (wall feet -3.93 under the
+  zero; station remnant 27.97-28.01, Terminal D 28.08); verify 629 (control
+  632; the round-4b head's own 629 rows); census adjudicated 584 (control
+  585); run-out ends 4, all refused `no_datum` (conforming pad); airside
+  movers 3 (0.11 / 0.08 / 0.01 m, the apron sliver at 29.98711, -95.33286,
+  inherited from round 4b); the 13 structure movers are groundside
+  `tunnel_ramp` / `tunnel_wall` rim vertices at 29.98736, -95.33087, 0.10-0.13
+  m, no road contact (the ramp follows the lowered lot: §2.3 outcome (b)).
+  Closing build `lowregion5_KIAH` rc 0, 547 s, census adjudicated 751 (the
+  round-4b build `lowregion4_KIAH`, at f888dcd8f before 4b's last commits, 732:
+  the +19 are the classes the 4b commits brought, `cross_shape` 5,
+  `frontage_near_miss` 2, `within_shape` +9 on `pav62#beyond1`; the replay
+  reads round 5 equal to the 4b head).
+- KATL: verify 2200 -> 2199 (`road_cross_section` 53 -> 52), `level_runouts` 0.
+- LFPG: T1 `building82/p1` minted at -5.19 (13,744 m2) under `T1_16-18`,
+  soffit -2.99 -- **2.20 m clear**; `building67/p1` -5.51 (5.41 m clear);
+  the T2 region `building34/35/51/64/p1 + building35/p2` at -6.97 unchanged;
+  run-out ends 0; verify 3164 -> 3166 (`pad_flat` 83 -> 85, the T1 level);
+  census adjudicated 2403 -> 2403, 0 new rows; solve-owned airside movers
+  1 x 0.01 m.

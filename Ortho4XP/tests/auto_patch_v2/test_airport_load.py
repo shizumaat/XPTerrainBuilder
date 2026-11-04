@@ -927,15 +927,18 @@ def test_a_withdrawn_borrow_keeps_only_a_boundary_it_took():
         assert ("only the row-130 BOUNDARY" in got.line("ZZQQ")) is took
 
 
-def test_gap_sheets_do_not_count_toward_coverage(tmp_path):
-    """20bb: the same squares as SURFACE-only gap sheets leave the
-    pack with no pavement source — the borrow stands."""
+def test_visible_pol_sheets_count_toward_coverage(tmp_path):
+    """#883 (20al (1)): the same squares as SURFACE-only ``.pol`` gap
+    sheets -- visible pages the pack draws with a hard surface -- are the
+    pack's own pavement: 50 % >= 25 %, no Global pavement is borrowed,
+    and the sheets stay sheets (never pavement sources, §60)."""
     a, rep = _scenery_fixture(tmp_path, 1, 2)
     assert len(a.gap_sheets) == 2
-    assert rep.pavement_source["borrowed_pavements"] == 4
-    assert rep.pavement_source["scenery_coverage"] is None
-    assert len([p for p in a.pavements if p.source == "global_airports"]) == 4
-    assert "BORROWED from" in rep.pavement_borrow_line
+    ps = rep.pavement_source
+    assert ps["borrowed_pavements"] == 0
+    assert ps["scenery_pavements"] == 2 and 0.45 < ps["scenery_coverage"] < 0.55
+    assert not [p for p in a.pavements if p.source == "global_airports"]
+    assert not [p for p in a.pavements if p.id.startswith("dsf:pol")]
 
 
 def test_scenery_under_the_key_keeps_the_borrow(tmp_path):

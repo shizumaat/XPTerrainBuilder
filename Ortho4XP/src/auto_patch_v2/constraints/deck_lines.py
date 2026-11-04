@@ -16,7 +16,7 @@ from ..law import Law
 from ..model.planar import PlanarMap
 from ..model.structures import DeckBridge
 
-__all__ = ["EndLine", "end_lines", "anchor_of", "cut_faces"]
+__all__ = ["end_lines", "anchor_of", "cut_faces"]
 
 XY = tuple[float, float]
 

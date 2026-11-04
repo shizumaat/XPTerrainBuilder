@@ -9,7 +9,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["ReliefFloor", "FlatDetector", "FlatDatum", "ShoreRoads", "Declared", "FlatSite",
+__all__ = ["ReliefFloor", "FlatDetector", "FlatDatum", "Declared", "FlatSite",
            "FLAT_SOURCES", "DECLARED_SOURCES", "check_flat_site"]
 
 

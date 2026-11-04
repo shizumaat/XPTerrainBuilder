@@ -25,10 +25,9 @@ import pytest
 from elevation_access import base as ea_base
 from elevation_access import recheck as ea_recheck
 from elevation_access import refusal_rest as REST
-from tests.inset_code import patch_inset_code
-from tests.test_provider_query_error import (_WFS_DEFINITION, _response,
-                                             _stub_get)
 from elevation_access import registry as ea_registry
+from tests.inset_code import patch_inset_code
+from tests.test_provider_query_error import _WFS_DEFINITION, _response, _stub_get
 
 #: three airports of one tile, all inside the provider's box
 _BOXES = {"LFAA": (2.30, 49.00, 2.36, 49.05),

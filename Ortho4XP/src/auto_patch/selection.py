@@ -443,7 +443,7 @@ def manual_patch_files_for(patch_dir, icao):
         and FNAMES.patch_file_icao(f) == icao.upper())
 
 
-def auto_patch_not_applied(tile, icao, patch_dir=None):
+def auto_patch_not_applied(tile, icao, patch_dir=None, *, edited_ok=False):
     """Why ``<ICAO>_auto.patch.osm`` is NOT part of this tile's mesh, or
     ``None`` when it is.
 
@@ -459,7 +459,12 @@ def auto_patch_not_applied(tile, icao, patch_dir=None):
 
     Reasons, in ``include_patches``'s order: the auto patch file is absent,
     the ``auto_patch`` mode does not admit the code, this build's boundary
-    choice skipped it, or a manual patch covers it."""
+    choice skipped it, or a manual patch covers it.
+
+    ``edited_ok`` — the object stage's question (owner RULINGS 2026-11-03e,
+    #1637): a manual (edited) patch that covers the airport is the
+    airport's patch IN this mesh, so the pack's objects are re-placed
+    against it; only the other three reasons stand the placement down."""
     import O4_File_Names as FNAMES
 
     icao = str(icao).upper()
@@ -476,7 +481,7 @@ def auto_patch_not_applied(tile, icao, patch_dir=None):
         if candidate.disposition == "boundary_skipped"
     }:
         return "boundary choice: skipped"
-    manual = manual_patch_files_for(patch_dir, icao)
+    manual = () if edited_ok else manual_patch_files_for(patch_dir, icao)
     if manual:
         return "manual patch %s is used instead" % ", ".join(manual)
     return None

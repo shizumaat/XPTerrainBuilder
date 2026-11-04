@@ -5,8 +5,9 @@ massing measurement"; the Mac app's ``PatchSurfaceLocator``,
 
 Each placement stands at ``preview_surface(anchor) + agl + y``, turned by
 its heading — X-Plane's own drape at the anchor, so ground lowered under a
-building leaves it floating as it would in the sim (re-seating is off for
-an edited patch).  The preview surface is the patch surface where the
+building leaves it floating as the pack's last placement stands (the next
+build re-places the pack against the edited ground, owner RULINGS
+2026-11-03e).  The preview surface is the patch surface where the
 anchor lies on a patch shape, else the terrain grid; in "Last build" it is
 the last build's mesh.  Vertical exaggeration lifts the SEAT only:
 buildings keep their true height.

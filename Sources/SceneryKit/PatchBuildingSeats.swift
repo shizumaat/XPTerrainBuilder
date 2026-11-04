@@ -4,8 +4,9 @@ import simd
 // Where the pack's buildings stand in the 3D preview (patch-editor spec
 // §5): each placement at `preview_surface(anchor) + agl + y`, turned by its
 // heading — X-Plane's own drape at the anchor, so ground lowered under a
-// building leaves it floating as it would in the sim (re-seating is off for
-// an edited patch). The preview surface is the patch surface where the
+// building leaves it floating as the pack's last placement stands (the
+// next build re-places the pack against the edited ground, owner RULINGS
+// 2026-11-03e). The preview surface is the patch surface where the
 // anchor lies on a patch shape, else the terrain grid.
 
 /// The preview surface under a point: which patch shape (if any) and its

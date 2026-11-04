@@ -245,6 +245,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
+        "auto_patch_v2.classify.overlay_roads",
         "auto_patch_v2.classify.pad_cut_corridor",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.reachability",
@@ -431,6 +432,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
+        "auto_patch_v2.classify.overlay_roads",
         "auto_patch_v2.classify.pad_cut_corridor",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.ramp_runout",
@@ -859,6 +861,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
+        "auto_patch_v2.classify.overlay_roads",
         "auto_patch_v2.classify.pad_cut_corridor",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.reachability",
@@ -1384,7 +1387,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
-    classify.neck classify.open_default
+    classify.neck classify.open_default classify.overlay_roads
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
@@ -1537,7 +1540,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
-    classify.neck classify.open_default
+    classify.neck classify.open_default classify.overlay_roads
     classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
@@ -1650,7 +1653,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.facade_mint classify.gap_apron classify.gap_mint classify.gap_terrace
-    classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
+    classify.lot_roads classify.neck classify.open_default classify.overlay_roads
+    classify.pad_road_exit
     classify.pad_cut_corridor classify.pad_touch
     classify.ramp_runout classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint
@@ -1767,7 +1771,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.slab_plates airport.topology_cache airport.wall_class classify
     classify.airside_edge classify.evidence classify.facade_mint classify.gap_apron
     classify.apt_shoulder classify.storey_edge airport.unit_storey
-    classify.gap_mint classify.lot_roads classify.neck classify.open_default
+    classify.gap_mint classify.lot_roads classify.neck classify.open_default classify.overlay_roads
     classify.pad_cut_corridor classify.pad_touch
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
@@ -1845,7 +1849,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
-    classify.neck classify.open_default
+    classify.neck classify.open_default classify.overlay_roads
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources

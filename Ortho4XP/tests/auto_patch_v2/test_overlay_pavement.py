@@ -60,7 +60,7 @@ def test_road_links_keep_the_chains_that_touch_the_airport():
                 points=((300.0, 300.0), (400.0, 300.0))),        # elsewhere
             way(kind="footways", tags={"highway": "footway"},
                 points=((50.0, 80.0), (200.0, 80.0)))]           # not a road feed
-    links = OV.road_links(ways, OWN, REGION, law)
+    links = OV._road_links(ways, OWN, REGION, law)
     assert links.intersects(box(190, 45, 195, 55))
     assert not links.intersects(box(350, 295, 355, 305))
     assert not links.intersects(box(150, 78, 160, 82))

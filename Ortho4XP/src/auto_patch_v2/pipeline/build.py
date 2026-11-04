@@ -614,7 +614,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # OWNER RULINGS 2026-10-15i (3), option (b): the taxi trend's SECOND
     # PASS — the apron levels stage 1 solved become trend contacts, bound
     # here because ``solve`` may not import ``constraints``
-    from ..constraints.taxi_trend import stage_one_retarget
+    from ..constraints.taxi_trend import low_hold_retarget, stage_one_retarget
 
     def _solve() -> tuple:
         size: dict[str, int] = {}
@@ -624,7 +624,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             stage2_rewrite=lambda lv: _stage2_rewrite(lv),
             hold=pre.hold, stage1=_s1,
             trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
-                                                              lv, tt2))
+                                                              lv, tt2),
+            # issue #517: no bulge between two junctions pass 1b holds low
+            hold_rewrite=lambda pm_x, lv: low_hold_retarget(pm_x, law, lv, tt2))
         return sol, rep, size, tt2, None if _s1 is None else dict(_s1.report)
     # THE SOLVE'S RECORD (stage-cache spec §4b.4; ``pipeline/solve_record``):
     # keyed on the prefix's records and the ribbon-free prefix's, never
@@ -642,13 +644,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             k: tt2_rep.get(k) for k in ("retarget_moved", "retarget_worst_m",
                                         "extra_contacts", "short_connectors",
                                         "hold_passes", "hold_residual_m",
-                                        "hold_stalled")}
+                                        "hold_stalled", "low_hold_spans",
+                                        "low_hold_moved", "low_hold_worst_m")}
         _say(f"[{icao}] taxi trend second pass (15i (3)): "
              f"{tt2_rep.get('extra_contacts', 0)} apron levels as contacts, "
              f"{tt2_rep.get('retarget_moved', 0)} targets moved (worst "
              f"{tt2_rep.get('retarget_worst_m', 0.0):.2f} m)"
              + ("" if tt2_rep.get("retarget_moved") else " — first pass stands")
-             + f"; {len(tt2_rep.get('short_connectors') or ())} short connector(s)", out)
+             + f"; {len(tt2_rep.get('short_connectors') or ())} short connector(s)"
+             + f"; {tt2_rep.get('low_hold_spans', 0)} span(s) between two low "
+               f"holds, {tt2_rep.get('low_hold_moved', 0)} targets ceiled (worst "
+               f"{tt2_rep.get('low_hold_worst_m', 0.0):.2f} m)", out)
         for r in (tt2_rep.get("short_connectors") or ())[:20]:
             _say(f"[{icao}] SHORT CONNECTOR at {r['ll'][0]:.7f},{r['ll'][1]:.7f}: "
                  f"run {r['run_m']:.1f} m, height {r['height_m']:.2f} m needs "

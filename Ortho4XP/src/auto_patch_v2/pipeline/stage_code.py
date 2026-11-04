@@ -567,6 +567,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.road_yield",
         "auto_patch_v2.planar.shape_airside",
         "auto_patch_v2.planar.shape_mouths",
+        "auto_patch_v2.planar.shape_pad_corner",
         "auto_patch_v2.planar.shape_parts",
         "auto_patch_v2.planar.shapes",
         "auto_patch_v2.planar.shore",
@@ -1009,6 +1010,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar",
         "auto_patch_v2.planar.shape_airside",
         "auto_patch_v2.planar.shape_mouths",
+        "auto_patch_v2.planar.shape_pad_corner",
         "auto_patch_v2.planar.shape_parts",
         "auto_patch_v2.planar.shapes",
         "auto_patch_v2.planar.strip_keepout",
@@ -1461,7 +1463,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     model.constraints model.end_area model.frame model.ground_fit model.hard_plane
     model.islands model.map_memo model.placement model.planar model.platform model.pulse
     model.rebake model.registries model.structures model.threshold_datum pipeline.shapes
-    planar.shape_airside planar.shape_mouths planar.shape_parts planar.shapes
+    planar.shape_airside planar.shape_mouths
+    planar.shape_pad_corner planar.shape_parts planar.shapes
     planar.strip_keepout
     classify.reachability
     constraints.door_pad
@@ -1622,6 +1625,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
     planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
+    planar.shape_pad_corner
     planar.shape_parts planar.shapes planar.shore planar.station_level planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_fence
     planar.structure_geometry
@@ -1749,6 +1753,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
     planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
+    planar.shape_pad_corner
     planar.shape_parts planar.shapes planar.shore planar.station_level planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_fence
     planar.structure_geometry
@@ -1842,7 +1847,8 @@ CODE_MODULES["emit"] = _mods("""
     model.threshold_datum pipeline.authored_seats pipeline.emit_stage
     pipeline.publication pipeline.rebake_inputs pipeline.ribbon_steps
     pipeline.runway_report pipeline.seam_report pipeline.terrace_witness planar.cluster
-    planar.shape_airside planar.shape_mouths planar.shape_parts planar.shapes
+    planar.shape_airside planar.shape_mouths
+    planar.shape_pad_corner planar.shape_parts planar.shapes
     planar.strip_keepout solve solve.api solve.design solve.design_assemble
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
@@ -1919,7 +1925,8 @@ CODE_MODULES["verify"] = _mods("""
     model.placement model.planar model.platform model.pulse model.rebake
     model.registries model.structures model.threshold_datum pipeline.publication
     pipeline.ribbon_steps pipeline.verify_stage planar.cluster planar.shape_airside
-    planar.shape_mouths planar.shape_parts planar.shapes planar.strip_keepout
+    planar.shape_mouths
+    planar.shape_pad_corner planar.shape_parts planar.shapes planar.strip_keepout
     solve.design_roles solve.ground_band verify verify.census verify.channel
     verify.chord_work verify.contiguity verify.cutback verify.eat verify.frame
     verify.frontage verify.jetway verify.keepout verify.no_step verify.pads verify.pins

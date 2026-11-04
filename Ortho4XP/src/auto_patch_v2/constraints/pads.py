@@ -665,7 +665,8 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # unit-platform spec §3 P1/P2: a COLLAR face rides its platform's plane
     # group for the frontage it carries, never for the plate — its
     # vertices are priced by ``constraints.platform`` alone
-    per_face = {q: g for q, r_, g in _pad_groups(planar, law)
+    from .cluster_pad import plate_groups
+    per_face = {q: g for q, r_, g in plate_groups(planar, law, airport)
                 if not is_bank_ref(r_)}
     n_cross = 0
     # §16g (10) (11) (a) THE PAD'S PLATE IS ONE-WAY TOWARD THE PAD (owner

@@ -698,6 +698,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.face_index",
         "auto_patch_v2.constraints.geometry",
         "auto_patch_v2.constraints.group_level",
+        "auto_patch_v2.constraints.pad_lower_frontage",
         "auto_patch_v2.constraints.pad_relief",
         "auto_patch_v2.constraints.pad_warning",
         "auto_patch_v2.constraints.pads",
@@ -905,6 +906,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.no_step",
         "auto_patch_v2.constraints.pad_frontage_gs",
         "auto_patch_v2.constraints.pad_fronting",
+        "auto_patch_v2.constraints.pad_lower_frontage",
         "auto_patch_v2.constraints.pad_ramp",
         "auto_patch_v2.constraints.pad_relief",
         "auto_patch_v2.constraints.pad_warning",
@@ -1135,6 +1137,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "flat_site": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1152,6 +1155,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.ground_fit model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.face_index constraints.group_level
+        constraints.pad_lower_frontage
     """),
     "groundside": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1170,6 +1174,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "door_pad": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1187,6 +1192,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "no_step": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1204,6 +1210,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.islands model.map_memo model.platform model.threshold_datum
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "pad_frontage_gs": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1215,6 +1222,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "pad_fronting": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1225,6 +1233,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.union_find model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "pads": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1235,6 +1244,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "platform": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1245,6 +1255,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "proximity": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1265,6 +1276,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1277,6 +1289,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "edge_deck": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1308,6 +1321,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "runway_mean_slope": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1324,6 +1338,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "runway_profile": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1359,6 +1374,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "taxi": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1370,6 +1386,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.pad_lower_frontage
     """),
     "transverse": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1482,6 +1499,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     model.stage_one
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped
     law.walled_plate_schema model.walled_plate
+    constraints.pad_lower_frontage
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     geom.exact
@@ -1533,6 +1551,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     geom.slope_pad
     geom.foot_planes constraints.group_level constraints.face_index
     airport.dem airport.walled_plate law.walled_plate_schema model.walled_plate
+    constraints.pad_lower_frontage
 """)
 
 #: THE SOLVE AND THE LAST STAGE (spec §4b.4, §4b.5; #843 step 9b): the solve
@@ -1659,6 +1678,7 @@ CODE_MODULES["solve"] = _mods("""
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low
     airport.walled_plate law.walled_plate_schema model.stage_one model.walled_plate
     planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
+    constraints.pad_lower_frontage
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.exact
@@ -1789,6 +1809,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped law.walled_plate_schema
     model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
+    constraints.pad_lower_frontage
 """)
 CODE_MODULES["emit"] = _mods("""
     geom.exact
@@ -1873,6 +1894,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index
     airport.walled_plate law.walled_plate_schema model.walled_plate
+    constraints.pad_lower_frontage
 """)
 CODE_MODULES["verify"] = _mods("""
     geom.exact
@@ -1950,6 +1972,7 @@ CODE_MODULES["verify"] = _mods("""
     model.road_yield pipeline.band_road_wall
     geom.foot_planes constraints.group_level constraints.face_index
     airport.walled_plate law.walled_plate_schema model.walled_plate
+    constraints.pad_lower_frontage
 """)
 
 

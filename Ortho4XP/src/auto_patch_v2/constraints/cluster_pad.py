@@ -50,7 +50,7 @@ from ..law.tables import footprint_touch_m
 
 __all__ = ["cluster_polys", "cluster_pad_faces",
            "YIELDED", "TOUCHING_STEPS", "NO_OUTLINE", "pad_cluster_mismatch",
-           "plane_groups", "cluster_offsets", "cluster_pairs"]
+           "plane_groups", "plate_groups", "cluster_offsets", "cluster_pairs"]
 
 
 #: §16g (10) (2): the clusters :func:`cluster_polys` dropped for carrying
@@ -423,6 +423,21 @@ YIELDED: dict[str, tuple[int, ...]] = {}
 #: to gate: MEASURED at HECA the gate kept 1 face of 22 and 1 of 73.
 #: Refuted mechanisms are deleted, not kept gated.
 
+def plate_groups(planar: PlanarMap, law: Law, airport: Airport | None
+                 ) -> list[tuple[int, str, list[int]]]:
+    """:func:`pads._pad_groups` less the rim vertices a lower-level road or
+    lot keeps (``pad_lower_frontage``, owner 2026-11-04 #1852): the vertex
+    set of every pad PLATE, read by :func:`plane_groups` and the plate's
+    per-face pairs (``pads._pad_rows``) alike."""
+    from .pad_lower_frontage import released_vertices
+    groups = _pad_groups(planar, law)
+    out = released_vertices(planar, law, airport)
+    if not out:
+        return groups
+    kept = [(fid, ref, [v for v in g if v not in out]) for fid, ref, g in groups]
+    return [k for k in kept if len(k[2]) >= 2]     # ``_pad_groups``'s own floor
+
+
 def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
                   ) -> list[tuple[int, str, list[int], tuple[int, ...]]]:
     """§30 (4): THE GROUPS A PAD *PLANE* IS PRICED OVER — every pad its
@@ -440,7 +455,7 @@ def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
     partition — the same relation the object stage's §16f (7) binds the
     objects with, so the plane the design surface makes and the plane the
     objects seat on are one thing by construction."""
-    groups = _pad_groups(planar, law)
+    groups = plate_groups(planar, law, airport)
     # unit-platform spec §3 P1 / P9: a platform pad is TWO faces — the
     # PLATFORM (the plate, its vertices the group) and the COLLAR (priced
     # by ``constraints.platform``, never by the plate).  The collar's face

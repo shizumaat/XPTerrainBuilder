@@ -432,6 +432,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     pair across a joint (``planar.shape_of_vertex``: two shapes) is
     withheld — the solve priced none, so the readers price none (a
     ``taxi_route_pairs`` entry becomes the null record: no law edge)."""
+    from ..constraints.pad_lower_frontage import released_offsets
     ll = {vid: [v.key[0], v.key[1]] for vid, v in planar.vertices.items()}
     _envelope = ground_envelope(planar, law)
     ax_out = []
@@ -736,9 +737,12 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # such pad as a plane-residual row.  Empty list = no pad
             # carries a target, which is every airport whose objects are
             # authored flat-footed and the law disarmed.
+            # #1852: a released lower-level rim vertex publishes its drop
+            # under the pad's level the same way (``pad_lower_frontage``)
             "pad_relief": [[ll[v][0], ll[v][1], round(o, 4)]
-                           for v, o in sorted(pad_relief_offsets(planar, law,
-                                                                 airport).items())],
+                           for v, o in sorted({**pad_relief_offsets(planar, law, airport),
+                                               **released_offsets(planar, law, airport,
+                                                                  z)}.items())],
             # THE END-AROUND TAXIWAY RECTS (spec §36): one record per
             # ACCEPTED rect — its end, its runway, its regulation value and
             # the vertices it pinned, read off the FINAL constraint set so

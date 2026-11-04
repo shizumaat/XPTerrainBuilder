@@ -5,14 +5,13 @@ from __future__ import annotations
 
 import types
 
-from shapely.geometry import box
-
 from auto_patch_v2.airport import object_window as OW
+from shapely.geometry import box
 
 
 def test_an_unplaceable_block_is_skipped(monkeypatch, tmp_path):
     p = tmp_path / "apt.dat"
-    p.write_text("I\n")
+    p.write_text("I\n", encoding="utf-8", newline="\n")
 
     def _boom():
         raise ValueError("no reference point derivable")

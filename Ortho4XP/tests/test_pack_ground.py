@@ -8,7 +8,6 @@ from __future__ import annotations
 import types
 
 import numpy as np
-
 from auto_patch_v2.airport import pack_ground as PG
 from auto_patch_v2.airport.obj8 import HARD
 from auto_patch_v2.constraints import water as W

@@ -42,6 +42,12 @@ from O4_Cfg_Vars import road_neighbourhood_law as _road_neighbourhood_law
 ROAD_GRADE_CAP_DEFAULT = _road_cap_from_law()
 import O4_Config_Utils as CFG
 
+#: the tile EDGE's vertices: each edge is cut into this many equal segments
+#: and every point takes the tile DEM ("gluing").  The v2 seam pins read the
+#: edge as these points' straight line (``[emit.seam] edge_segments``, owner
+#: 2026-11-04 LOWS; twin ``test_seam_edge_line``)
+GLUE_SEGMENTS = 2048
+
 good_imagery_list = ()
 
 
@@ -1457,7 +1463,7 @@ def build_poly_file(tile):
 
     # Gluing edges
     UI.vprint(0, "-> Inserting additional boundary edges for gluing")
-    segs = 2048
+    segs = GLUE_SEGMENTS
     gluing_network = geometry.MultiLineString(
         [
             geometry.LineString(

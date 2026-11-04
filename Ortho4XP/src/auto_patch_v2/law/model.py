@@ -796,6 +796,8 @@ class Seam:
 
     half_width_m: float
     ask_reach_m: float
+    #: the mesh's tile-edge segments per degree (``constraints/seams``)
+    edge_segments: int
 
 
 @_dc.dataclass(frozen=True)

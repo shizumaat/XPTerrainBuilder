@@ -928,6 +928,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.threshold_seam",
         "auto_patch_v2.constraints.transverse",
         "auto_patch_v2.constraints.trend",
+        "auto_patch_v2.constraints.viaduct_floor",
         "auto_patch_v2.constraints.wall_zone",
         "auto_patch_v2.constraints.walled_plate",
         "auto_patch_v2.constraints.water",
@@ -1127,7 +1128,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.foot_rows
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
-        constraints.edge_floor constraints.structures geom.base_slab geom.cluster_outline
+        constraints.edge_floor constraints.structures
+    constraints.viaduct_floor geom.base_slab geom.cluster_outline
         geom.containment
         geom.feet_graph geom.feet_mst geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.ground_fit model.islands model.map_memo model.platform
@@ -1314,6 +1316,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
         constraints.platform constraints.precedence constraints.edge_floor constraints.structures
+    constraints.viaduct_floor
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
@@ -1405,7 +1408,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.threshold_seam
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
-    constraints.strips constraints.edge_floor constraints.structures constraints.taxi
+    constraints.strips constraints.edge_floor constraints.structures
+    constraints.viaduct_floor constraints.taxi
     constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones geom geom.base_slab
@@ -1676,7 +1680,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.runway_yield constraints.runway_junctions constraints.seams
     constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips
-    constraints.edge_floor constraints.structures constraints.taxi constraints.taxi_trend
+    constraints.edge_floor constraints.structures
+    constraints.viaduct_floor constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones emit.graded emit.surface
     geom geom.base_slab geom.cluster_outline geom.containment geom.core_clamp

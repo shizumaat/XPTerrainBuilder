@@ -19,7 +19,10 @@ THE LEVEL: the road along the covered run is lowered to ``apron −
 every airside apron cell within ``[tunnel] viaduct_apron_reach_m`` of the
 run; beyond each end of the run it climbs back along its own mapped chain at
 the tunnel's design grade (R4: ``ramp_grade``, never above
-``ramp_max_grade``) to meet the ground.
+``ramp_max_grade``) to meet the ground.  That level is the PLAN the trench and its
+climbs are laid out by; the solve holds each run's floor the same depth
+under the SOLVED airside beside it (owner RULINGS 2026-11-03b Q342 a;
+``constraints/viaduct_floor``, #1808).
 
 THE MODEL is Law B's (RULINGS 2026-09-08b/c, ``door_ramps.sunken_groups``):
 an OPEN trench whose floor is the stated profile per station, pinned by the

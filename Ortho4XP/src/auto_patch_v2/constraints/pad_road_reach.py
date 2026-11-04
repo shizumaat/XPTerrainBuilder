@@ -33,6 +33,7 @@ import dataclasses as _dc
 import heapq
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap
 from ..model.constraints import ConstraintSet, Diff
@@ -116,7 +117,7 @@ def pad_road_reach(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float]
             for e in face_edge_ids(f):
                 a, b = E[e].a, E[e].b
                 (ax, ay), (bx, by) = V[a].xy, V[b].xy
-                d = ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+                d = exact.hypot(ax - bx, ay - by)
                 adj.setdefault(a, []).append((b, d))
                 adj.setdefault(b, []).append((a, d))
         ends = {v: owner(v) for v in adj if v in fixed}

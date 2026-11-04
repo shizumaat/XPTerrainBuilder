@@ -18,6 +18,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+from ..geom import exact
 from ..geom.ramp_grade import built_grade, least_grade
 from ..law import Law
 from ..law.tables import family, role_cap
@@ -226,7 +227,7 @@ def _wall_step_rows(planar: PlanarMap, walls: _t.Mapping[int, _t.Mapping]) -> li
         h = float(rec.get("height_m") or 0.0)
         for lv in lo:
             x, y = planar.vertices[lv].xy
-            uv = min(up, key=lambda q: (math.hypot(planar.vertices[q].xy[0] - x,
+            uv = min(up, key=lambda q: (exact.hypot(planar.vertices[q].xy[0] - x,
                                                    planar.vertices[q].xy[1] - y), q))
             rows.append(Linear(((int(lv), 1.0), (int(uv), -1.0)), -h, None,
                                Source("wall_terrace", WALL_STEP_RULING,

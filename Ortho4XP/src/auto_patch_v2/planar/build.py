@@ -337,7 +337,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # structures step ends here and the arrangement's begins)
     _pulse.mark("structures")
     _pulse.tick("building the planar arrangement")
-    arr = build_arrangement(airport, classification, law, grid_m)
+    arr = build_arrangement(airport, classification, law, grid_m, level_b=level_b)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,

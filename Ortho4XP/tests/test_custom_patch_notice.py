@@ -45,3 +45,31 @@ def test_custom_patch_beside_auto_is_announced_once(tmp_path, monkeypatch,
 def test_auto_patch_alone_is_not_announced(tmp_path, monkeypatch, capsys):
     _include(tmp_path, monkeypatch, ["ZZZZ_auto.patch.osm"])
     assert "CUSTOM patch" not in capsys.readouterr().out
+
+
+def _edited(tmp_path, monkeypatch, made, running):
+    (tmp_path / "ZZZZ_edited.patch.osm").write_text(
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        f"<osm version='0.6' o4_edited_from_engine='{made}' "
+        "o4_user_edited='1'>\n</osm>\n", encoding="utf-8", newline="")
+    import auto_patch.provenance as PROV
+    monkeypatch.setattr(PROV, "engine_version", lambda: running)
+    _include(tmp_path, monkeypatch, [])
+
+
+def test_edited_patch_older_than_engine_is_named(tmp_path, monkeypatch,
+                                                 capsys):
+    """#1637: an edited patch made by an older engine says so — it does
+    not carry the fixes since."""
+    _edited(tmp_path, monkeypatch, "1.50.1874", "1.50.1901")
+    out = capsys.readouterr().out
+    assert "(user-edited)" in out
+    assert "made by engine 1.50.1874, older than this engine 1.50.1901" in out
+
+
+@pytest.mark.parametrize("running", ["1.50.1874", "1.50.900", "absent"])
+def test_edited_patch_not_older_is_not_named(tmp_path, monkeypatch, capsys,
+                                             running):
+    _edited(tmp_path, monkeypatch, "1.50.1874", running)
+    out = capsys.readouterr().out
+    assert "(user-edited)" in out and "made by engine" not in out

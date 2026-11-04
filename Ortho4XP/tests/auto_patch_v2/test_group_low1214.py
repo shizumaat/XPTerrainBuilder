@@ -124,6 +124,13 @@ def test_between_the_stages_the_tie_becomes_a_pin_on_stage_1s_levels(monkeypatch
     cs, rep = G.group_level_rewrite(pm, None, ConstraintSet.from_rows(rows), levels)
     z0, n = rep["levels"]["b/p1"]
     assert n == 3 and z0 == pytest.approx(105.2)
+    # every vertex of the level is pinned at it, not one pin and a rigid
+    # chain (#1717: one far conflict relaxed the lone pin and floated the
+    # level rigid with it)
     pins = [r for r in cs.linears if len(r.terms) == 1]
-    assert len(pins) == 2 and pins[0].hi == pytest.approx(97.7)
-    assert all(len(r.terms) <= 2 for r in cs.linears) and len(cs.linears) == 4
+    assert len(pins) == len(cs.linears) == 4
+    assert {r.terms[0][0] for r in pins} == {1, 2}
+    for r in pins:
+        (_v, c), = r.terms
+        bound = r.hi if r.hi is not None else r.lo
+        assert bound == pytest.approx(97.7 * c)

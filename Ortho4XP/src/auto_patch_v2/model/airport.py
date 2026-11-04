@@ -515,3 +515,8 @@ class Airport:
     #: meets a runway; ``None`` = no imagery (every junction stands, the vote
     #: abstains), an absent id = no contact read (its junction stands)
     paved_joins: _t.Mapping[str, bool] | None = None
+    #: THE HAND-SET ROLES (#1697, ``airport/user_roles``): ``(pavement id,
+    #: role)`` per pack pavement the user classified in the patch editor —
+    #: a user edit the classifier applies to that pavement's cells, never
+    #: overrides (RULINGS 2026-10-15d).  ``()`` = none.
+    role_overrides: tuple[tuple[str, str], ...] = ()

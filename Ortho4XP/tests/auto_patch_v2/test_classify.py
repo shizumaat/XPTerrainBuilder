@@ -597,3 +597,18 @@ def test_a_junction_buffer_that_self_intersects_is_repaired():
                      if not line.lstrip().startswith("#"))
     assert "if not near.is_valid:" in code and "near = near.buffer(0)" in code, \
         "the junction buffer repair is gone — HECA dies in classify again"
+
+
+def test_a_hand_set_role_is_final(law):
+    """#1697 (RULINGS 2026-10-15d): the detached island is a groundside lot;
+    classified by hand as apron, every cell of it is apron, airside."""
+    import dataclasses as dc
+    ap = _synthetic(gate=True)
+    ap = dc.replace(ap, pavements=tuple(dc.replace(p, id="pav9") if p.id == "island" else p
+                                        for p in ap.pavements))
+    before = [c for c in classify(ap, law).cells if c.ref == "pav9"]
+    assert before and {c.role for c in before} == {"parking_lot"}
+    after = [c for c in classify(dc.replace(ap, role_overrides=(("pav9", "apron"),)),
+                                 law).cells if c.ref == "pav9"]
+    assert {(c.role, c.side) for c in after} == {("apron", "airside")}
+    assert after[0].evidence["classified_as"] == "parking_lot"

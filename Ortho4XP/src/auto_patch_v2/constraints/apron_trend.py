@@ -52,6 +52,7 @@ import typing as _t
 
 import numpy as np
 
+from ..geom import exact
 from .runway_chord import dem_degraded
 from .surface_trend import cell_samples, surface_trend_of
 from ..law import Law
@@ -317,6 +318,6 @@ def apron_trend_block(pm: PlanarMap, law: Law,
     n = max(1, sum(r["vertices"] for r in rows))
     return {"bodies": len(rows), "vertices": len(at),
             "worst_residual_m": round(worst, 3),
-            "rms_m": round(_math.sqrt(sum(r["rms_m"] ** 2 * r["vertices"]
+            "rms_m": round(_math.sqrt(sum(exact.sq(r["rms_m"]) * r["vertices"]
                                           for r in rows) / n), 3),
             "by_body": rows[:12]}

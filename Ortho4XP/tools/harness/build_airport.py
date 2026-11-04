@@ -4335,6 +4335,15 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
         if dump:
             inputs = dataclasses.replace(inputs, dsf_dump_path=dump)
             prog.note(f"pack DSF dump (pristine read frame): {dump}")
+        # #1697: the pavements classified by hand beside the lane's patch,
+        # read as the tile build reads them (``engine_v2.user_role_inputs``)
+        import O4_File_Names as FNAMES                          # noqa: E402
+        from auto_patch.engine_v2 import user_role_inputs      # noqa: E402
+        roles = user_role_inputs(FNAMES.patch_dir(*tile), icao, prog.note,
+                                 inputs.xplane_root, *tile)
+        if roles:
+            inputs = dataclasses.replace(inputs, role_overrides=roles)
+            prog.note(f"hand-set classifications: {len(roles)} row(s)")
     v2_dir = out_dir / f"{tag}.v2"
     lines: list = []
     t0 = time.time()

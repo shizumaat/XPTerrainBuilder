@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import math
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import runway_shoulder_cap
 from ..model.airport import Airport
@@ -92,7 +93,7 @@ def _nearest(vw, edges, grid, cell, fid, p, own: frozenset[int]):
                 l2 = dx * dx + dy * dy
                 u = ((p[0] - ax) * dx + (p[1] - ay) * dy) / l2 if l2 >= 1e-12 else 0.0
                 t = max(0.0, min(1.0, u))
-                d = math.hypot(p[0] - ax - t * dx, p[1] - ay - t * dy)
+                d = exact.hypot(p[0] - ax - t * dx, p[1] - ay - t * dy)
                 if best is None or d < best[0]:
                     best = (d, a, b, t)
     if best is None or (best[1] in own or best[2] in own) and best[0] < 1e-6:

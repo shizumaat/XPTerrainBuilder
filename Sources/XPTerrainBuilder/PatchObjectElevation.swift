@@ -23,7 +23,7 @@ extension PatchObjectInspector {
     /// the engine has `object_seat_set`.
     var canSetElevation: Bool {
         guard selected?.object != nil, let build = patch?.build else { return false }
-        return O4ProtocolVersion.supportsObjectSeatSet(build.protocolHello?.protocolVersion ?? "")
+        return build.engineCapabilities.supports(O4EngineCapabilities.objectSeatSet)
     }
 
     /// Store the selected object's bottom (m MSL); nil: back to the object

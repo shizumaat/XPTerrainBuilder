@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..model.constraints import ConstraintSet, Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -31,7 +32,7 @@ PAD_RAMP_RULING = ("roads.groundside_road ramp from the pad "
 
 def _dist(planar: PlanarMap, a: int, b: int) -> float:
     (ax, ay), (bx, by) = planar.vertices[a].xy, planar.vertices[b].xy
-    return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+    return exact.hypot(ax - bx, ay - by)
 
 
 def stand_off_m(law: Law) -> float:

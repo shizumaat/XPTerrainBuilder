@@ -376,6 +376,8 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
         # THE AIRPORT'S OWN PHOTOS the terrain witness read (#1359, owner
         # RULINGS 2026-10-26y): a provider, zoom or texture change rebuilds
         "o4_imagery": _prov.imagery_identity(imagery_paths),
+        # THE USER'S HAND-SET PAVEMENT ROLES (#1697): set or cleared, regrade
+        "o4_user_roles": _prov.user_roles_identity(tile, icao),
     }
 
 
@@ -584,6 +586,13 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
         _rebuild_reason(icao, "o4_library")
         UI.lvprint(0, "   Auto-patch:", icao, "library patch no longer matches —",
                    adopted[1] + "; solving it here.")
+        return False
+    from . import provenance as _prov
+    if adopted is not None and (meta.get("freshness") or {}).get("o4_user_roles", "none") \
+            != _prov.user_roles_identity(tile, icao):
+        # #1697: a role the user set here since the library patch was laid
+        # (the entry's own roles were laid with it, so they match)
+        _rebuild_reason(icao, "o4_user_roles")
         return False
     if adopted is not None:
         UI.lvprint(0, "   Auto-patch:", icao, "library patch matches your pack "

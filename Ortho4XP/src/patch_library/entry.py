@@ -4,8 +4,9 @@ What an entry carries is the census of spec §2: the airport's PATCH
 FAMILY (``O4_Unpatched_Airports.airport_patch_family`` — the patch, its
 ``.axes.json`` sidecar, the graded surface, the object plan and screen,
 the companion plans), each read by a later step of the user's build, and
-the user's EDITS (the patch editor's ``<ICAO>_edited.patch.osm``; role
-overrides join ``edits.json`` when #1697 lands).  Not carried: the
+the user's EDITS (the patch editor's ``<ICAO>_edited.patch.osm``, and the
+pavements classified by hand — #1697 ``auto_patch_v2.airport.user_roles``
+rows — as ``edits.json``'s ``role_overrides``).  Not carried: the
 object stage's local refusal marker, the build log, the tile-wide
 object-anchor worklist (the user's build writes its own), imagery, and
 anything of a scenery pack.
@@ -44,6 +45,18 @@ REQUIRED = ("{icao}_auto.patch.osm", "{icao}_auto.patch.osm.axes.json",
 
 _XZ_PRESET = 6
 _REFUSED_SUFFIX = ".screen.refused"
+
+
+def _role_rows(patch_dir: str, icao: str) -> list:
+    """The airport's hand-set pavement roles as ``edits.json`` carries them
+    (no local path in a row: source id, ring digest, role, the evidence)."""
+    from auto_patch_v2.airport import user_roles as _ur
+    try:
+        rows = _ur.read(patch_dir, icao)
+    except (OSError, ValueError) as exc:
+        raise LibraryRefused("%s's hand-set classifications are unreadable (%s)"
+                             % (icao, exc)) from exc
+    return [rows[s].to_dict() for s in sorted(rows)]
 
 
 def _family(patch_dir: str, icao: str) -> list:
@@ -174,7 +187,7 @@ def package(tile, icao: str, *, kind: str, publisher: str, version: int,
                 "notes": notes}
     edits = {"format": FORMAT, "edited_patch": next(
         (n for n in listed if n.startswith(L.EDITED + "/")), None),
-        "role_overrides": []}
+        "role_overrides": _role_rows(patch_dir, icao)}
     files[L.MANIFEST] = (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode("utf-8")
     files[L.EDITS] = (json.dumps(edits, indent=1, sort_keys=True) + "\n").encode("utf-8")
     files[L.ATTRIBUTION] = _attribution(manifest)

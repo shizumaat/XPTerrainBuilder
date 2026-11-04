@@ -18,6 +18,7 @@ import O4_Qt_Map as QTMAP
 import O4_Qt_Object_Seat as SEAT
 import O4_Qt_Patch_Elevation_Dialog as ELEVDIALOG
 import O4_Qt_Patch_Reference as REFERENCE
+import O4_Qt_Patch_Role as ROLE
 from O4_Qt_Object_Inspector import ObjectInspector
 from O4_Qt_Pack_Outlines import PackOutlines
 from O4_Qt_Patch_Controller import PatchController
@@ -90,6 +91,10 @@ class PatchEditor:
         self.panel.inspector.layout().insertWidget(0, self.object_box)
         self.model.status_changed.connect(self.object_box.refresh)
         self.object_dialog = None
+        # #1697: the selected shape's classification, under its ref
+        self.role_row = ROLE.RoleRow(self.engine, self.model)
+        shapes = self.panel.shape_box.layout()
+        shapes.insertWidget(shapes.indexOf(self.panel.shape_rows["ref"][0]) + 1, self.role_row)
         self._window, self._map, self._built = window, map_view, built
         #: The 3D preview window, made the first time it is opened.
         self.preview = None

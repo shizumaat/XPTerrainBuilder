@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..geom import exact
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Band, Diff, Linear, Offset, Row, Source
@@ -55,7 +56,7 @@ def under_plate_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
         tsrc = Source("walled_plate_under", TARGET_RULING, tuple(p.ids))
         for vid in under:
             x, y = planar.vertices[vid].xy
-            k = int(np.argmin(np.hypot(sxy[:, 0] - x, sxy[:, 1] - y)))
+            k = int(np.argmin(exact.hypot_array(sxy[:, 0] - x, sxy[:, 1] - y)))
             top = float(sz[k]) - clear
             out.append(Band(int(vid), None, top, src))
             # the hidden ground's design target IS that level (soft, at the
@@ -157,7 +158,7 @@ def _station_ground(airport: Airport, p, law: Law
         q = inner.interpolate(inner.project(pt))
         o = outer.interpolate(outer.project(q))
         dx, dy = q.x - o.x, q.y - o.y
-        n = float(np.hypot(dx, dy))
+        n = float(exact.hypot_array(dx, dy))
         sx, sy = (float(x) + dx / n * back, float(y) + dy / n * back) if n > 0 else (x, y)
         xy.append((float(x), float(y)))
         zs.append(float(dem.z(sx, sy)))

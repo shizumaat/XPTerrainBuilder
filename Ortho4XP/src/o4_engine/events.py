@@ -179,7 +179,42 @@ from typing import Any, Optional
 # 1.32 (2026-11-03, additive, #1729): ``tidy_scenery_packs`` — the packs
 # scenery_packs.ini does not list yet, filed into their kind's group
 # (meshes below every ortho); answers ``added`` and ``backup``.
+#
+# THE NUMBER IS FROZEN AT 1.32 (owner RULINGS 2026-11-03d (1), item 3):
+# a new engine feature is a CAPABILITY FLAG in :data:`CAPABILITIES`, never
+# a bump — six PRs of one batch each claimed "1.24", and two features of
+# one day carry 1.24 and 1.25 out of date order.  A flag is a name, so
+# parallel PRs add theirs without colliding; a front end offers a feature
+# when the hello's ``capabilities`` names it (an engine before the freeze
+# names none of the new ones and is still read by the number).
+# ``tests/test_engine_capabilities.py`` holds both halves: the number, and
+# every flag the Mac app asks for being one the engine announces.
 PROTOCOL_VERSION = "1.32"
+
+#: THE ENGINE'S CAPABILITY FLAGS — announced in every :class:`EngineHello`
+#: (the JSONL transport's and the in-process session's alike).  APPEND a
+#: flag with its feature, one dated line each; never rename or drop one (a
+#: released front end asks for it by name).
+CAPABILITIES: tuple = (
+    # the session core
+    "scan", "build", "enqueue_build", "cancel", "cancel_tile", "tile_info",
+    "config", "links", "siblings", "secrets", "tile_settings_write",
+    # pack and library commands (before the freeze, also read by number)
+    "missing_art", "library", "pack_forests", "pack_optimise",
+    "pack_optimise_steps",
+    # the flags that name what protocol 1.20-1.32 added
+    "patch_insert_shape",           # 1.20, #1314
+    "patch_insert_tunnel_ramp",     # 1.24, #1745
+    "object_seat",                  # 1.25, #1702
+    "slow_step",                    # 1.26, #1351
+    "imagery_freshness",            # 1.27, #1666
+    "tile_mesh_order",              # 1.28, #1729
+    "library_entries",              # 1.29, #1699 phase 2
+    "object_seat_set",              # 1.30, #1703
+    "tidy_scenery_packs",           # 1.32, #1729
+    # -- after the freeze: one flag per feature, appended below --
+    "patch_roles",                  # 2026-11-03, #1697 patch_roles / patch_role_set
+)
 
 
 @dataclass(frozen=True)
@@ -201,7 +236,7 @@ class EngineHello(EngineEvent):
 
     ortho4xp_version: str = ""
     protocol: str = PROTOCOL_VERSION
-    capabilities: tuple = ()
+    capabilities: tuple = CAPABILITIES
 
 
 @dataclass(frozen=True)

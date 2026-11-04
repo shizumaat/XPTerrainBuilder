@@ -86,6 +86,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law, LawError
 from ..law.tables import airside_rate_per_m, is_rigid_role, role_family
 from ..model.airport import Airport
@@ -1258,7 +1259,7 @@ def turn_cos(pa, pb, pc) -> float | None:
     ONE helper for the generator and both readers of the airside rate."""
     ux, uy = pb[0] - pa[0], pb[1] - pa[1]
     vx, vy = pc[0] - pb[0], pc[1] - pb[1]
-    n = math.hypot(ux, uy) * math.hypot(vx, vy)
+    n = exact.hypot(ux, uy) * exact.hypot(vx, vy)
     return None if n <= 1e-12 else (ux * vx + uy * vy) / n
 
 

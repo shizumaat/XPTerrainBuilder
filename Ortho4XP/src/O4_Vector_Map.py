@@ -26,6 +26,7 @@ from auto_patch import driver as AUTOPATCH
 from auto_patch import selection as _SELECTION
 from auto_patch import osm_aeroway as OSMAERO
 from auto_patch.build_support import is_user_edited_patch as _is_user_edited_patch
+
 # The road grade cap, one constant for the whole engine (census #115),
 # read from the V2 LAW TABLE since 2026-09-17 (lane ``v1retire`` round 1,
 # session ruling (c)): the user knob ``road_grade_limit`` defaults to the
@@ -42,6 +43,23 @@ ROAD_GRADE_CAP_DEFAULT = _road_cap_from_law()
 import O4_Config_Utils as CFG
 
 good_imagery_list = ()
+
+
+def _custom_patch_label(path):
+    """The CUSTOM patch line's label of one file: ``(user-edited)``, and
+    the engine that made it when that engine is older than this one
+    (#1637: the patch predates this engine's fixes)."""
+    from auto_patch.build_support import patch_predates_engine
+    from auto_patch.provenance import engine_version
+    label = " (user-edited)" if _is_user_edited_patch(path) else ""
+    running = engine_version()
+    made = patch_predates_engine(path, running)
+    if made:
+        label += (" (made by engine %s, older than this engine %s: it does "
+                  "not carry the fixes since; open the airport's auto patch "
+                  "in the editor again to pick them up)" % (made, running))
+    return label
+
 
 ################################################################################
 # OSM layer download specifications, shared between the include_* encoders
@@ -4001,8 +4019,7 @@ def include_patches(vector_map, tile):
     # is LABELLED (user-edited).
     for icao in sorted(i for i in manual_icao_codes if i):
         manual = [
-            f + (" (user-edited)" if _is_user_edited_patch(
-                os.path.join(patch_dir, f)) else "")
+            f + _custom_patch_label(os.path.join(patch_dir, f))
             for f in _SELECTION.manual_patch_files_for(patch_dir, icao)]
         UI.vprint(
             0,

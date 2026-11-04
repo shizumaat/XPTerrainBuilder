@@ -21,6 +21,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from ..geom import exact
 from ..geom.ramp_profile import axis_ground, lead_section, strip_level
 from ..law import Law
 from ..model.constraints import Band, ConstraintSet, Diff, Linear, Source
@@ -241,13 +242,12 @@ def _chord_rows(planar: PlanarMap, sides: _t.Mapping[bool, list], cap: float,
     at its station (within one metre) at the cross-fall cap.  The level
     rows bound the strip against its landing; these bound it between its
     own vertices (MEASURED, HECA: a 19.6 % chord inside the bounds)."""
-    import math
     xy = planar.vertices
     rows: list = []
 
     def d(a: int, b: int) -> float:
         (ax, ay), (bx, by) = xy[a].xy, xy[b].xy
-        return math.hypot(ax - bx, ay - by)
+        return exact.hypot(ax - bx, ay - by)
     for pts in sides.values():
         pts = sorted(pts)
         rows.extend(Diff(a, b, cap, d(a, b), src) for (_s0, a), (_s1, b) in zip(pts, pts[1:])

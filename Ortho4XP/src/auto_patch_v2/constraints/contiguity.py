@@ -33,6 +33,7 @@ import typing as _t
 from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import family, role_cap
 from ..model.planar import PlanarMap
@@ -214,7 +215,7 @@ def cap_at(stations: _t.Sequence[Station], x: float, y: float) -> float | None:
     — the one join convention)."""
     best: tuple[float, float | None] | None = None
     for st in stations:
-        d = (st.xy[0] - x) ** 2 + (st.xy[1] - y) ** 2
+        d = exact.sq(st.xy[0] - x) + exact.sq(st.xy[1] - y)
         if best is None or d < best[0]:
             best = (d, st.cap)
     return None if best is None else best[1]

@@ -9,8 +9,9 @@ stands on here): the frames are the plan's, read right after it is built.
 when it was not — a sibling moved with a garage that stayed put is torn
 geometry.
 
-A pack this airport's earlier build wrote and whose riders are gone now is
-written again with none, which puts its pristine rows back.
+A pack this airport's earlier build wrote and whose rows are all as
+authored now is written again with none, which puts its pristine rows
+back.
 
 Nothing here raises into the build: a failed pack is one log line and the
 next pack goes on.
@@ -32,10 +33,11 @@ def _say(msg: str, level: int = 1) -> None:
 def plans(plan: _t.Any, dump: _t.Any, surface: _t.Callable, tile: _t.Any,
           contact_m: float) -> list:
     """``[sibling PlacementPlan]`` to write for the airport ``plan``: every
-    sibling with a deck rider, and every one this airport wrote before."""
+    sibling with a deck rider or a free row inside the airport
+    (``sibling_riders``), and every one this airport wrote before."""
     import O4_File_Names as FNAMES
-    from auto_patch_v2.airport import frame_riders as _dr
     from auto_patch_v2.airport import dsf as _dsf
+    from auto_patch_v2.airport import frame_riders as _dr
     from auto_patch_v2.airport import sibling_riders as _sr
     from auto_patch_v2.airport.dsf_write import pristine_dsf_path
     from auto_patch_v2.airport.unpatched_pack import seated_airports
@@ -49,6 +51,9 @@ def plans(plan: _t.Any, dump: _t.Any, surface: _t.Callable, tile: _t.Any,
         frames = (_dr.frame_moves(dump, plan.pack_root, plan.splits,
                                   plan.msl_seats, plan.conversions, surface)
                   if roots else [])
+        region = _sr.airport_region(plan.pack_root, plan.icao) if roots else None
+        over = (_dr.over_objects(dump, plan.pack_root)
+                if region is not None else None)
     except Exception as exc:
         _say(f"  [v2 placement] {plan.icao}: sibling packs not read ({exc})")
         _say(traceback.format_exc(), 2)
@@ -58,7 +63,7 @@ def plans(plan: _t.Any, dump: _t.Any, surface: _t.Callable, tile: _t.Any,
         try:
             dsf_path = _dsf.dsf_path_in_pack(root, tile.lat, tile.lon)
             before = plan.icao in seated_airports(dsf_path)
-            if not frames and not before:
+            if not frames and region is None and not before:
                 continue
             cache = _dsf.mod_cache_dir(FNAMES.airport_mod_cache_root(), name)
             text = _DSFR.ensure_dsf_text_path(pristine_dsf_path(dsf_path), cache)
@@ -67,13 +72,16 @@ def plans(plan: _t.Any, dump: _t.Any, surface: _t.Callable, tile: _t.Any,
                      "text dump; skipped")
                 continue
             sdump = _dsf.read_dump(text)
-            sp = _sr.sibling_plan(plan, frames, root, sdump, dsf_path, contact_m)
-            if sp.msl_seats or before:
+            sp = _sr.sibling_plan(plan, frames, root, sdump, dsf_path, contact_m,
+                                  region, over)
+            if sp.msl_seats or sp.conversions or before:
                 out.append(sp)
                 _say(f"  [v2 placement] {plan.icao}: sibling {name}: "
                      f"{len(sp.msl_seats)} row(s) on the airport's re-seated "
                      f"decks moved with them"
-                     + (_moves(sp, sdump) if sp.msl_seats else ""))
+                     + (_moves(sp, sdump) if sp.msl_seats else "")
+                     + f"; {len(sp.conversions)} free row(s) inside the "
+                       f"airport seated on the new ground")
         except Exception as exc:
             _say(f"  [v2 placement] {plan.icao}: sibling {name} failed ({exc})")
             _say(traceback.format_exc(), 2)

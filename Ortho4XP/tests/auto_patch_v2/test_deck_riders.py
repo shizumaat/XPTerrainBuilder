@@ -9,8 +9,8 @@ import hashlib
 import struct
 import types
 
-from auto_patch_v2.airport import frame_riders as DR
 from auto_patch_v2.airport import dsf_commands
+from auto_patch_v2.airport import frame_riders as DR
 from auto_patch_v2.airport import placement_write as PW
 from auto_patch_v2.airport import sibling_riders as SR
 from auto_patch_v2.model.placement import (
@@ -185,3 +185,41 @@ def test_sibling_candidates_are_library_only_packs_with_elevated_rows(tmp_path, 
     monkeypatch.setattr(SR, "_places_elevated", lambda p: "d_flat" not in p)
     assert SR.candidates(main, 32, -98) == [cars]
     assert own and flat
+
+
+def _apt(tmp_path, d=0.01):
+    """An airport pack whose apt.dat boundary is a square of +-``d`` deg."""
+    nav = tmp_path / "Earth nav data"
+    nav.mkdir(exist_ok=True)
+    ring = [(LAT - d, LON - d), (LAT - d, LON + d), (LAT + d, LON + d), (LAT + d, LON - d)]
+    lines = ["I", "1100 Version", "", "1 600 1 0 XXXX Test", "130 Airport Boundary"]
+    lines += [f"111 {la:.8f} {lo:.8f}" for la, lo in ring[:-1]]
+    lines += [f"113 {ring[-1][0]:.8f} {ring[-1][1]:.8f}", "", "99", ""]
+    (nav / "apt.dat").write_text("\n".join(lines), encoding="utf-8", newline="\n")
+
+
+def test_a_free_sibling_row_inside_the_airport_is_seated_on_the_new_ground(tmp_path):
+    """Owner 2026-11-04: a secondary pack's object on top of / overlapping
+    no other object is seated on the new ground; on a deck it rides; over
+    an object it does not stand on, or outside the airport, it stays."""
+    g = _garage(tmp_path)
+    _apt(tmp_path)
+    main_rows = [_row(g, ZA)]
+    (f,) = _frames(tmp_path, main_rows)
+    region = SR.airport_region(str(tmp_path), "XXXX")
+    over = DR.over_objects(types.SimpleNamespace(placements=main_rows), str(tmp_path))
+    assert over(LAT + 5 * M, LON) and not over(LAT + 60 * M, LON)
+    sib = types.SimpleNamespace(placements=[
+        _row("lib/cars/car.obj", ZA + DECK + 0.14, north=5),     # rides
+        _row("lib/cars/car.obj", ZA + 3.0, north=5),            # over, not on
+        _row("lib/cars/car.obj", 191.1, north=60),              # free: ground
+        _row("lib/cars/car.obj", 191.1, north=5000),            # outside
+        _row("lib/cars/car.obj", 0.0, north=60, kind="OBJECT")])
+    main = PlacementPlan("XXXX", "main", str(tmp_path), "m.dsf", "m.dsf.anchor_bak",
+                         Provenance("", "1.0", "law"))
+    sp = SR.sibling_plan(main, [f], str(tmp_path / "cars"), sib,
+                         str(tmp_path / "cars" / "t.dsf"), 0.5, region, over)
+    assert [m.index for m in sp.msl_seats] == [0]
+    assert [c.index for c in sp.conversions] == [2]
+    assert sp.provenance.counts["free_rows_on_ground"] == 1
+    assert SR.airport_region(str(tmp_path), "YYYY") is None

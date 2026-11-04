@@ -56,7 +56,7 @@ import typing as _t
 import numpy as np
 
 __all__ = ["frame_rider_seats", "FRAME_RIDER", "MOVE_MIN_M", "DECK_RIDER",
-           "frame_moves", "rider_seats"]
+           "frame_moves", "rider_seats", "over_objects"]
 
 #: the ``MslSeat.why`` the lifted half writes
 FRAME_RIDER = "frame_rider"
@@ -336,3 +336,34 @@ def rider_seats(rows: _t.Sequence[_t.Any], candidates: _t.Iterable[int],
         counts["deck_riders_moved"] = counts.get("deck_riders_moved", 0) + len(out)
         counts["deck_rider_frames"] = len(frames)
     return tuple(out)
+
+
+def over_objects(dump: _t.Any, pack_root: str
+                 ) -> _t.Callable[[float, float], bool]:
+    """``(lat, lon) -> bool``: does the point stand over a static solid
+    triangle of ANY object the pack places (every row kind, its authored
+    geometry)?  The owner's 2026-11-04 witness for a sibling row that is
+    "on top of / overlaps" another object (#1252); a resource that does
+    not resolve inside the pack has no footprint here."""
+    from .pack import authored_source
+    rows = list(getattr(dump, "placements", ()) or ())
+    memo: dict[str, "_Deck | None"] = {}
+    placed: list[_FrameMove] = []
+    for i, row in enumerate(rows):
+        res = str(row.def_path)
+        if res not in memo:
+            phys = os.path.join(pack_root or "", res)
+            path, _r = authored_source(phys, pack_root)
+            memo[res] = (_Deck.read(path) if pack_root and res.lower().endswith(".obj")
+                         and path and os.path.isfile(path) else None)
+        if memo[res] is not None:
+            placed.append(_FrameMove(i, float(row.lat), float(row.lon),
+                                     float(row.heading_deg), 0.0, memo[res], 0.0))
+
+    def over(lat: float, lon: float) -> bool:
+        for f in placed:
+            x, z = _local(f, lat, lon)
+            if x * x + z * z <= f.deck.reach ** 2 and f.deck.heights(x, z)[0].shape[0]:
+                return True
+        return False
+    return over

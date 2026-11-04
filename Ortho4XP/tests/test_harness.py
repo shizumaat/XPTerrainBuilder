@@ -12214,3 +12214,49 @@ def test_an_unmarked_patch_without_a_frame_still_refuses(cg, census_mod, tmp_pat
     assert not isinstance(info.value, cg.UserEditedPatchUnjudged)
     with pytest.raises(SystemExit):
         census_mod.main([str(osm), "--no-cache"])
+
+
+# ── THE OPEN EDGE IN A BOX (census.py --open-edge-box; RULINGS 2026-11-03e) ──
+_OPEN_EDGE_OSM = (
+    "<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"
+    "  <node id='-1' lat='30.0' lon='31.0'><tag k='alt_abs' v='{z}' /></node>\n"
+    "  <node id='-2' lat='30.0' lon='31.0001'><tag k='alt_abs' v='{z}' /></node>\n"
+    "  <node id='-3' lat='30.0001' lon='31.0001'><tag k='alt_abs' v='{z}' /></node>\n"
+    "  <node id='-4' lat='30.0001' lon='31.0'><tag k='alt_abs' v='{z}' /></node>\n"
+    "  <node id='-5' lat='30.0' lon='31.0002'><tag k='alt_abs' v='10' /></node>\n"
+    "  <node id='-6' lat='30.0001' lon='31.0002'><tag k='alt_abs' v='10' /></node>\n"
+    "  <node id='-7' lat='30.0' lon='31.0001'><tag k='alt_abs' v='10' /></node>\n"
+    "  <node id='-8' lat='30.0001' lon='31.0001'><tag k='alt_abs' v='10' /></node>\n"
+    "  <way id='-10'><nd ref='-1' /><nd ref='-2' /><nd ref='-3' /><nd ref='-4' />"
+    "<nd ref='-1' /><tag k='role' v='apron' /><tag k='ref' v='high' /></way>\n"
+    "  <way id='-11'><nd ref='-7' /><nd ref='-5' /><nd ref='-6' /><nd ref='-8' />"
+    "<nd ref='-7' /><tag k='role' v='apron' /><tag k='ref' v='flat' /></way>\n"
+    "</osm>\n")
+
+
+def test_the_open_edge_box_prices_only_the_open_boundary_off_the_dem(cg, tmp_path):
+    """Two 10 m-ish squares sharing an edge on a flat 10 m DEM: the square
+    standing at 12 m is off the DEM along its three OPEN sides only (the
+    shared side has a face across it — a geometric join, the two rings
+    carry their own nodes there); the square at 10 m reads 0."""
+    oe = _load("harness_twin_open_edge", HARNESS / "census_open_edge.py")
+    osm = tmp_path / "open.osm"
+    osm.write_text(_OPEN_EDGE_OSM.format(z=12), encoding="utf-8", newline="\n")
+    nodes, ways = cg._parse_osm(osm)
+    rep = oe.open_edge_box(nodes, ways, lambda la, lo: 10.0, 30.00005, 31.0001, 50.0)
+    by = {q["ref"]: q for q in rep["refs"]}
+    side_x = 0.0001 * oe._M_PER_DEG * math.cos(math.radians(30.00005))
+    side_y = 0.0001 * oe._M_PER_DEG
+    assert by["high"]["off_m"] == pytest.approx(2 * side_x + side_y, abs=0.2)
+    assert by["high"]["worst"][2] == pytest.approx(2.0)
+    assert by["flat"]["off_m"] == 0.0
+    assert by["flat"]["open_m"] == pytest.approx(2 * side_x + side_y, abs=0.2)
+    assert rep["off_m"] == by["high"]["off_m"]
+    # the bar: an edge 0.4 m off reads nothing at the default 0.5 m
+    osm.write_text(_OPEN_EDGE_OSM.format(z=10.4), encoding="utf-8", newline="\n")
+    nodes, ways = cg._parse_osm(osm)
+    assert oe.open_edge_box(nodes, ways, lambda la, lo: 10.0, 30.00005, 31.0001, 50.0
+                            )["off_m"] == 0.0
+    assert oe.parse_box("1,2,3") == (1.0, 2.0, 3.0)
+    with pytest.raises(ValueError):
+        oe.parse_box("1,2")

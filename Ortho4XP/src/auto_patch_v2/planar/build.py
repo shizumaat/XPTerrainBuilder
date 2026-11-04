@@ -47,6 +47,7 @@ from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
 from .deck_bridge import deck_bridges, deck_ground
 from .level_depth import airport_level_b
+from .level_regions import level_seeds
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
@@ -295,9 +296,13 @@ def build(airport: Airport, classification: Classification, law: Law,
     # THE AIRPORT'S LEVEL B, read ONCE before the decks (RULINGS 2026-11-03b,
     # ``planar/level_depth``): a deck whose frame states no floor takes it
     level_b, level_b_note = airport_level_b(airport, classification, law)
+    # THE LEVEL SEEDS, read ONCE beside it (round 4, ``planar/level_regions``):
+    # the units whose walls stand a storey under their zero
+    seeds, seed_notes = level_seeds(airport, classification, law)
     decks, deck_notes = deck_bridges(objects, cache, classification, airport, law,
                                      tstats.trench_objects, level_b=level_b)
-    deck_notes = [f"level B: {level_b_note}", *deck_notes]
+    deck_notes = [f"level B: {level_b_note}",
+                  *(f"level seed: {n}" for n in seed_notes), *deck_notes]
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,
                                                        portals=tstats.portals,
@@ -337,7 +342,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     # structures step ends here and the arrangement's begins)
     _pulse.mark("structures")
     _pulse.tick("building the planar arrangement")
-    arr = build_arrangement(airport, classification, law, grid_m, level_b=level_b)
+    arr = build_arrangement(airport, classification, law, grid_m, level_b=level_b,
+                            level_seeds=seeds)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,

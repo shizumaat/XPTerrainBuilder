@@ -520,7 +520,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                     storey_lots: _t.Sequence = (),
                     air_all: _t.Sequence | None = None,
                     beyond: _t.Sequence = (),
-                    lots: _t.Sequence = ()) -> list:
+                    lots: _t.Sequence = (), seeds: _t.Sequence = ()) -> list:
     """The pad regions ``out`` with every held block whose unit carries a
     lower storey split into its high block, its low level ``<ref>/p1`` and
     the riser strip (module docstring); each low level registered in
@@ -531,7 +531,10 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     airside or structure REGION, the zones among them (default: ``air_polys`` as
     pavement); ``beyond`` the apron pieces no aircraft reaches once the
     pads stand (``planar/reach_after_pads``), which it takes in; ``lots``
-    the parking lots a level's fill band is cut along (``planar/low_fill``)."""
+    the parking lots a level's fill band is cut along (``planar/low_fill``);
+    ``seeds`` the units whose walls stand a storey under their zero, whose
+    lower levels take the unreachable pieces they touch
+    (``planar/level_regions.seed_levels``, round 4)."""
     from ..airport.obj8_grade import STEPPED
     from .group_low import plan_group_low
     from .pad_blocks import unit_base
@@ -637,9 +640,10 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         reg.landing_runouts.update(cut_runouts(cut_levels, held, airport, law, taken,
                                                grid, counts,
                                                rail=bool(counts.get("station_levels"))))
-    if not done:
-        return out
     from .low_extent import AirRegion, extend_levels
+    air_all = air_all if air_all is not None else [AirRegion(g, "cell") for g in air_polys]
+    if not done and not seeds:
+        return out
     res: list = []
     for r in out:
         ref = str(r.ref)
@@ -649,9 +653,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                 done[ref] = None
             continue
         res.append(r)
-    res = extend_levels(res, reg, air_all if air_all is not None
-                        else [AirRegion(g, "cell") for g in air_polys],
-                        airport, law, grid, counts, beyond)
+    res = extend_levels(res, reg, air_all, airport, law, grid, counts, beyond)
+    res = _seeded(res, reg, seeds, air_all, airport, law, grid, counts, beyond)
     # 28s (3) (#1572): a lower level's fill along a lot is cut off
     from .low_fill import cut_fill_bands
     res = cut_fill_bands(res, reg, lots, airport, law, grid, counts, LOW_KIND)
@@ -669,6 +672,15 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         f"{k} on {v['block']} +{v['y']:.2f} {v['area_m2']:g} m2"
         for k, v in sorted(reg.landings.items()) if v.get("kind") == UP_KIND)
     return res
+
+
+def _seeded(regs: list, reg: Registries, seeds, air_all, airport, law, grid: float,
+            counts: dict, beyond) -> list:
+    """``regs`` with the seeds' lower levels (``planar/level_regions``)."""
+    if not seeds:
+        return regs
+    from .level_regions import seed_levels
+    return seed_levels(regs, reg, seeds, air_all, airport, law, grid, counts, beyond)
 
 
 def _group_floors(airport, air_polys, tree, law) -> _t.Callable[[int], _t.Any]:

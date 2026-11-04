@@ -231,6 +231,9 @@ class LoadReport:
     #: The flat-pack witness record (``airport/flat_pack.record``; set by
     #: the pipeline once the pack partition is read — ``report.load.flat_pack``).
     flat_pack: dict | None = None
+    #: issue #1362: the ``PackGroundNoMesh`` fields when the pack supplies
+    #: its own ground and no companion terrain mesh is installed
+    pack_ground_no_mesh: dict | None = None
     #: the runway chord fit's coverage (RULINGS 2026-09-08d (1); ``constraints/runway_chord.py``)
     runway_chord: dict | None = None
     #: the taxi chains' trend fit coverage (owner RULINGS 2026-09-10v (1);

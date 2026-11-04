@@ -88,6 +88,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.one_building",
     "auto_patch_v2.airport.open_frame_seat",
     "auto_patch_v2.airport.pack",
+    "auto_patch_v2.airport.pack_ground",
     "auto_patch_v2.airport.pack_local",
     "auto_patch_v2.airport.pack_partition",
     "auto_patch_v2.airport.pack_work",

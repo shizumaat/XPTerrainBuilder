@@ -27,9 +27,8 @@ composed placement edits (:func:`apply`) and records them in the DSF's
 later write of that DSF — a placement, a forest upgrade, an omission —
 keeps them, and the airport's own recorded edits stay as the placement
 plan built them (an Automatic puts the row back exactly).  A build that
-uses an edited patch (RULINGS 2026-10-15d (5): the object stage does not
-run) still writes the seats, and ONLY them
-(the object stage's ``user_seat_stage``).
+uses an edited patch re-places the pack against its mesh like any other
+(owner RULINGS 2026-11-03e, #1637), the seats layered on that write.
 
 :func:`apply` is pure: a placement plan with every seated row taken out
 of the conversions, splits, riders and kept list and written

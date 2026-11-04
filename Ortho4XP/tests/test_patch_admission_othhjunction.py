@@ -8,6 +8,12 @@ auto-patch ... (manual patch exists)" at verbosity 1 only), yet the object
 stage still placed the 08:15 ``o4_v2_rebake_OTHH.json`` plan — 726 bodies
 split into 2,222 files, the pack DSF rewritten — against the AUTO patch's
 design surface, which the mesh did not have.
+
+Owner RULINGS 2026-11-03e (#1637) superseded that for an EDITED (manual)
+patch: it IS the airport's patch in the mesh, so the object stage re-places
+the pack against the mesh built from it (the hand-set seats of #1703 a
+layer of that write); the mode filter and a boundary skip still stand the
+placement down.
 """
 
 import types
@@ -56,6 +62,17 @@ def test_a_manual_patch_overrides_and_is_named(tmp_path):
     assert SELECTION.auto_patch_not_applied(_Tile(), "OTHH", str(tmp_path)) is None
 
 
+def test_the_object_stage_admits_an_edited_patch(tmp_path):
+    """RULINGS 2026-11-03e: ``edited_ok`` — the object stage's question —
+    admits a manual patch, never the other three reasons."""
+    _touch(tmp_path / "OTHH_auto.patch.osm")
+    _touch(tmp_path / "OTHH_edited.patch.osm")
+    assert SELECTION.auto_patch_not_applied(_Tile(), "OTHH", str(tmp_path),
+                                            edited_ok=True) is None
+    assert SELECTION.auto_patch_not_applied(_Tile(mode="None"), "OTHH", str(tmp_path),
+                                            edited_ok=True) == "auto_patch=None"
+
+
 def test_missing_file_and_mode_filter(tmp_path):
     assert "no OTHH_auto.patch.osm" in SELECTION.auto_patch_not_applied(
         _Tile(), "OTHH", str(tmp_path))
@@ -92,8 +109,6 @@ def rebake_stage(tmp_path, monkeypatch):
     monkeypatch.setattr(_rb.RebakePlan, "from_json", classmethod(
         lambda cls, _t: types.SimpleNamespace(
             icao="OTHH", units=[], skipped=[],
-            # #1703: a manual patch still runs the hand-set seat stage,
-            # which reads the pack (none here: nothing is written)
             pack_root=str(tmp_path / "no pack"))))
     monkeypatch.delenv("O4_PACK_WRITES", raising=False)
     return _Tile(str(tmp_path)), patch_dir
@@ -106,9 +121,23 @@ def test_rebake_places_a_plan_whose_patch_is_in_the_mesh(rebake_stage):
     assert "airports_skipped_unapplied" not in counts
 
 
-def test_rebake_skips_a_plan_a_manual_patch_overrode(rebake_stage, capsys):
+def test_rebake_places_a_plan_an_edited_patch_covers(rebake_stage, capsys):
+    """#1637 (RULINGS 2026-11-03e): an edited patch no longer leaves the
+    pack baked against an older mesh — the plan is placed."""
     tile, patch_dir = rebake_stage
-    _touch(patch_dir / "OTHH.patch.osm")
+    _touch(patch_dir / "OTHH_edited.patch.osm")
+    counts = object_stage.rebake_after_mesh(tile)
+    assert counts["airports"] == 1
+    assert counts["airports_failed"] == 0
+    assert "airports_skipped_unapplied" not in counts
+    out = capsys.readouterr().out
+    assert "placement SKIPPED" not in out
+    assert "your edited patch OTHH_edited.patch.osm is used" in out
+
+
+def test_rebake_skips_a_plan_the_mode_filter_left_out(rebake_stage, capsys):
+    tile, _ = rebake_stage
+    tile.auto_patch = "None"
     counts = object_stage.rebake_after_mesh(tile)
     assert counts["airports"] == 0
     assert counts["airports_failed"] == 0

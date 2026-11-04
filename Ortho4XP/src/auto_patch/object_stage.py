@@ -883,29 +883,31 @@ def rebake_after_mesh(tile) -> dict:
                         plan_ = _rb.RebakePlan.from_json(fh.read())
                     icao = plan_.icao
                 # A PLAN WHOSE PATCH IS NOT IN THIS MESH IS NEVER PLACED
-                # (lane ``othhjunction``, #13/#15): the plan is the auto
-                # patch's design surface; a manual patch, the mode filter
-                # or a boundary skip means the mesh was built WITHOUT that
-                # surface, and placing (splitting, rewriting the pack DSF)
-                # against it seats objects on ground that is not there.
-                # ONE admission test, the patch ingest's own.
+                # (lane ``othhjunction``, #13/#15): the mode filter or a
+                # boundary skip means the mesh was built WITHOUT the
+                # airport's patch, and placing (splitting, rewriting the
+                # pack DSF) against it seats objects on ground that is not
+                # there.  ONE admission test, the patch ingest's own.  An
+                # EDITED (manual) patch IS the airport's patch in this mesh
+                # (owner RULINGS 2026-11-03e, #1637, superseding 2026-10-15d
+                # (5)): the pack is re-placed against the mesh just built —
+                # the sampler below reads the user's terrain — and the
+                # hand-set seats (#1703) are a layer of that write.
                 from . import selection as _SELECTION
                 not_applied = _SELECTION.auto_patch_not_applied(
-                    tile, icao, patch_dir=patch_dir)
+                    tile, icao, patch_dir=patch_dir, edited_ok=True)
                 if not_applied:
                     UI.vprint(0, f"  [v2 rebake] {icao}: placement SKIPPED — its "
                                  f"auto patch is not in this mesh ({not_applied})")
                     counts["airports_skipped_unapplied"] = \
                         counts.get("airports_skipped_unapplied", 0) + 1
-                    # #1703 (owner 2026-11-03): an edited patch still gets
-                    # the objects the user seated by hand — those only
-                    from . import user_seat_stage as _hand
-                    source = screen if screen is not None else plan_
-                    if _hand.seat_stage(source, tile, patch_dir, writes=bool(
-                            write_enabled and not measure_only)):
-                        written_packs.add(source.pack_root)
-                        ran_packs.add(source.pack_root)
                     continue
+                edited = _SELECTION.manual_patch_files_for(patch_dir, icao)
+                if edited:
+                    UI.vprint(0, f"  [v2 rebake] {icao}: your edited patch "
+                                 f"{', '.join(edited)} is used — the pack's objects "
+                                 f"are re-placed against this mesh, the ones you "
+                                 f"set by hand at their elevation")
                 law = Law.for_airport(icao)
                 if screen is not None:
                     plan_ = _oplan.from_screen(

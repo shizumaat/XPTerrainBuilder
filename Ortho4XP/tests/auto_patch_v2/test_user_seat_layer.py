@@ -6,19 +6,22 @@ Synthetic ``tmp_path`` pack written through the real ``apply_plan`` /
 ``test_backup_state`` (the live DSF IS the edited dump text): TNCM's
 placement converts row 0 and splits row 1, rows 2 and 3 are the pack's.
 
-1. a build with the EDITED patch writes the hand-set row and nothing
-   else — every other line of the live DSF byte-identical, the airport's
-   recorded placement untouched; again, it writes nothing;
-2. Automatic (the seat cleared) gives back the DSF byte for byte — a
-   split row's bodies too, which the seat never removed;
-3. a later auto-patch placement still applies it, and a write that
-   knows nothing of seats (a forest upgrade, an omission) keeps it;
-4. no seat, or no edited patch: the stage writes nothing;
-5. the inspector reads the record: "Set by hand", or "rebuild".
+A build with the EDITED patch re-places the pack against its mesh like
+any other (owner RULINGS 2026-11-03e, #1637), the seats layered on it:
+
+1. the re-placement with a hand-set row changes that row and nothing
+   else; Automatic (the seat cleared) gives back the DSF byte for byte —
+   a split row's bodies too, which the seat never removed;
+2. the re-seat moves the rows the user did not set; a hand-set seat WINS
+   over the re-seat of its row;
+3. a later placement still applies it, and a write that knows nothing of
+   seats (a forest upgrade, an omission) keeps it;
+4. the inspector reads the record: "Set by hand", or "rebuild".
 """
 from __future__ import annotations
 
-import os
+import dataclasses
+import itertools
 import types
 
 import pytest
@@ -62,15 +65,10 @@ def world(tmp_path, monkeypatch):
         (patch / name).write_text("<osm/>\n", encoding="utf-8", newline="")
     plan, files = _tncm(pack, dsf)
     PW.apply_plan(plan, files, tool, patch_dir=str(patch), work_dir=str(tmp_path / "w0"))
-    dump = ENGINE._PackDump(pack.name, str(dsf), str(dsf) + PM.BACKUP_SUFFIX,
-                            "", str(tmp_path))
-    monkeypatch.setattr(ENGINE, "pack_dump", lambda *a, **k: dump)
     monkeypatch.setattr(ENGINE, "_engine_version", lambda: "1.0.352")
     monkeypatch.setattr(DSFR, "_dsftool_path", lambda: tool)
     monkeypatch.setattr(DSFR, "ensure_dsf_text_path", lambda *a, **k: None)
-    return types.SimpleNamespace(pack=pack, dsf=dsf, tool=tool, patch=patch, tmp=tmp_path,
-                                 source=types.SimpleNamespace(icao="TNCM", pack_root=str(pack)),
-                                 tile=types.SimpleNamespace(lat=18, lon=-64))
+    return types.SimpleNamespace(pack=pack, dsf=dsf, tool=tool, patch=patch, tmp=tmp_path)
 
 
 def _seat(world, index, model, lat, lon, zero):
@@ -79,8 +77,16 @@ def _seat(world, index, model, lat, lon, zero):
                 index=index)
 
 
-def _stage(world, writes=True):
-    return STAGE.seat_stage(world.source, world.tile, str(world.patch), writes=writes)
+_RUN = itertools.count(10)
+
+
+def _stage(world, plan_files=None):
+    """The edited-patch build's placement write (``object_stage``): TNCM
+    re-placed, the seats beside the patch over it; the DSF's write result."""
+    plan, files = plan_files or _tncm(world.pack, world.dsf)
+    return PW.apply_plan(plan, files, world.tool, patch_dir=str(world.patch),
+                         work_dir=str(world.tmp / f"w{next(_RUN)}"),
+                         seats=STAGE.file_seats(str(world.patch), "TNCM")).dsf
 
 
 def _text(dsf):
@@ -106,14 +112,14 @@ def _airport_row(dsf):
     return row
 
 
-# ── 1 + 2 ───────────────────────────────────────────────────────────────
+# ── 1 ───────────────────────────────────────────────────────────────────
 
-def test_an_edited_patch_writes_only_the_hand_set_row_and_automatic_undoes_it(world):
+def test_an_edited_patch_places_the_hand_set_row_and_automatic_undoes_it(world):
     before, placed = _text(world.dsf), _airport_row(world.dsf)
     assert ROW3 in before
     _seat(world, 3, "objects/d.obj", 18.11, -63.16, 12.5)
 
-    assert _stage(world) is True
+    assert _stage(world).hand_seated == (3,)
     after = _text(world.dsf)
     old, new = before.splitlines(True), after.splitlines(True)
     assert len(old) == len(new)
@@ -122,12 +128,9 @@ def test_an_edited_patch_writes_only_the_hand_set_row_and_automatic_undoes_it(wo
     assert _airport_row(world.dsf) == placed, "TNCM's placement is recorded as it was"
     rec = _record_doc(world.dsf)["dsfs"][DSF][US.RECORD_KEY]
     assert rec["applied"] == [3] and rec["airports"]["TNCM"][0]["zero_m"] == 12.5
-    # the DSF already carries it: nothing is written again
-    stamp = os.stat(world.dsf).st_mtime_ns
-    assert _stage(world) is False and os.stat(world.dsf).st_mtime_ns == stamp
 
     _seat(world, 3, "", 0, 0, None)                   # Automatic
-    assert _stage(world) is True
+    assert _stage(world).hand_seated == ()
     assert _text(world.dsf) == before
     assert _record_doc(world.dsf)["dsfs"][DSF][US.RECORD_KEY] is None
 
@@ -137,7 +140,7 @@ def test_a_split_row_is_placed_whole_and_its_bodies_come_back(world):
     assert _objs(world.pack) == ["b__b0.obj", "b__b1.obj"]
     _seat(world, 1, "objects/b.obj", 18.041, -63.11, 30.0)
 
-    assert _stage(world) is True
+    assert _stage(world).hand_seated == (1,)
     after = _text(world.dsf)
     whole = ("OBJECT_MSL", "objects/b.obj", "-63.110000000", "18.041000000", "30.0000",
              "20.000000")
@@ -147,8 +150,39 @@ def test_a_split_row_is_placed_whole_and_its_bodies_come_back(world):
     assert _objs(world.pack) == ["b__b0.obj", "b__b1.obj"], "kept for the Undo"
 
     _seat(world, 1, "", 0, 0, None)
-    assert _stage(world) is True
+    _stage(world)
     assert _text(world.dsf) == before
+
+
+# ── 2 ───────────────────────────────────────────────────────────────────
+
+def _reseated(world):
+    """TNCM's plan against a NEW mesh (the edited ground): row 2, which the
+    10-24 placement left at 7.0 m, is seated by its row at 9.5 m."""
+    plan, files = _tncm(world.pack, world.dsf)
+    seat = PM.MslSeat(2, "objects/c.obj", -63.15, 18.1, 30.0, 9.5, "surface")
+    return dataclasses.replace(plan, msl_seats=(seat,)), files
+
+
+def _row2(text):
+    return [float(r[4]) for r in _rows(text) if r[1] == "objects/c.obj"]
+
+
+def test_the_re_seat_moves_the_rows_the_user_did_not_set(world):
+    """#1637: the pack's old placement is never left in place — row 2
+    follows the new mesh; the hand-set row 3 stands where it was set."""
+    assert _row2(_text(world.dsf)) == [7.0]
+    _seat(world, 3, "objects/d.obj", 18.11, -63.16, 12.5)
+    assert _stage(world, _reseated(world)).hand_seated == (3,)
+    text = _text(world.dsf)
+    assert _row2(text) == [9.5]
+    assert SEATED3 in text
+
+
+def test_a_hand_set_seat_wins_over_the_re_seat_of_its_row(world):
+    _seat(world, 2, "objects/c.obj", 18.1, -63.15, 42.0)
+    assert _stage(world, _reseated(world)).hand_seated == (2,)
+    assert _row2(_text(world.dsf)) == [42.0]
 
 
 # ── 3 ───────────────────────────────────────────────────────────────────
@@ -186,24 +220,12 @@ def test_a_seat_on_a_changed_row_is_refused_and_named(world):
 
 # ── 4 ───────────────────────────────────────────────────────────────────
 
-def test_no_seat_or_no_edited_patch_writes_nothing(world):
-    stamp = os.stat(world.dsf).st_mtime_ns
-    assert _stage(world) is False                         # no seat
-    _seat(world, 3, "objects/d.obj", 18.11, -63.16, 12.5)
-    assert _stage(world, writes=False) is False           # a lane build
-    os.remove(world.patch / "TNCM_edited.patch.osm")
-    assert _stage(world) is False                         # the auto patch is in the mesh
-    assert os.stat(world.dsf).st_mtime_ns == stamp
-
-
-# ── 5 ───────────────────────────────────────────────────────────────────
-
 def test_the_inspector_says_set_by_hand_once_the_dsf_has_it(world, monkeypatch):
     tile = "+18-064"
     monkeypatch.setattr(FNAMES, "patch_dir", lambda *a: str(world.patch))
     _seat(world, 3, "objects/d.obj", 18.11, -63.16, 12.5)
     rec = OS.object_seat(tile, "TNCM", 3, 18.11, -63.16)
     assert rec["why"] == "Set by hand at 12.5 m MSL; rebuild the tile to place it there"
-    assert _stage(world) is True
+    assert _stage(world).hand_seated == (3,)
     assert OS.object_seat(tile, "TNCM", 3, 18.11, -63.16)["why"] == \
         "Set by hand at 12.5 m MSL"

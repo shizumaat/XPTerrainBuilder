@@ -428,3 +428,28 @@ def test_apply_never_trusts_an_entry_member_name(world, tmp_path):
     assert APPLY._member(manifest, "solved/o4_v2_rebake_KXXX~1.json.xz", L.SOLVED,
                          L.SOLVED_NAME_RE) == "o4_v2_rebake_KXXX~1.json"
     assert L.parse_entry_dir("entries/KXXX/../0123456789ab/v1") is None
+
+
+def test_hand_set_roles_travel_in_edits_json(world):
+    """#1697: the publisher's hand-set pavement roles are the entry's
+    ``role_overrides``, laid where the receiver has none; the adopted patch
+    stays current with them, and a role the receiver then sets regrades."""
+    from auto_patch_v2.airport import user_roles as UR
+    a = world["a"]
+    UR.set_role(str(a.patches), ICAO, UR.RoleOverride("pav7", "r", "apron", was="stub"),
+                source="pav7")
+    patch = a.patches / "KXXX_auto.patch.osm"
+    text = patch.read_text(encoding="utf-8").replace(
+        "o4_marker=", "o4_user_roles='%s' o4_marker=" % UR.digest(str(a.patches), ICAO), 1)
+    patch.write_text(text, encoding="utf-8", newline="\n")
+    _sign_in(world)
+    out, _v = _publish(world)
+    world["fake"].merge(out["number"])
+    b = world["b"].live(world["mp"])
+    done = APPLY.apply_entry(SCAN.check(force=True)["rows"][0]["entry"])
+    assert done["roles"] == 1
+    assert UR.read(str(b.patches), ICAO)["pav7"].role == "apron"
+    b_patch = str(b.patches / "KXXX_auto.patch.osm")
+    assert DRIVER._auto_patch_is_current(b_patch, str(b.xp), ICAO, tile=b.tile)
+    UR.set_role(str(b.patches), ICAO, UR.RoleOverride("pav7", "r", "stub"), source="pav7")
+    assert not DRIVER._auto_patch_is_current(b_patch, str(b.xp), ICAO, tile=b.tile)

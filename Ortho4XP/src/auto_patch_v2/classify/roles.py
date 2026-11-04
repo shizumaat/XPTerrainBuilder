@@ -797,6 +797,13 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                                         _walls, rules.cells.min_area_m2,
                                         snap_margin_m(law))
     stats.update(_wstats)
+    # #1697 THE HAND-SET ROLES, LAST: a pavement the user classified in the
+    # patch editor is that role in every pavement cell of it — a user edit
+    # no verdict above overrides (RULINGS 2026-10-15d; ``airport/user_roles``)
+    _hand = getattr(airport, "role_overrides", ()) or ()
+    if _hand:
+        from ..airport.user_roles import apply as _user_roles
+        cells, stats["user_roles"] = _user_roles(cells, _hand, lambda r: role_side(law, r))
     cut: list[CutLine] = []
     for ln, c in taxi_parts:
         cut.append(CutLine("taxi_centerline", f"taxi{c.id}", tuple(ln.coords),

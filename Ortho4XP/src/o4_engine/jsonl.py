@@ -186,6 +186,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .mesh_commands import mesh_crop
     from .object_seat import object_seat
     from .object_seat_edit import object_seat_set
+    from .patch_roles import patch_role_set, patch_roles
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .plan_estimate import start_plan_estimate
@@ -308,6 +309,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # ... and its elevation set by hand (protocol 1.30, #1703): a user
         # edit beside the patch the object stage honours; synchronous.
         "object_seat_set": object_seat_set,
+        # A pack pavement's classification set by hand (protocol 1.26,
+        # #1697): a user edit beside the patch the classifier honours on
+        # every rebuild; synchronous (one apt.dat block read).
+        "patch_roles": patch_roles,
+        "patch_role_set": patch_role_set,
         # Cursor elevation (protocol 1.14, #1308): the built mesh's
         # elevation at a point, else the DEM's.  Never loads on THIS
         # thread: an uncached source loads on a daemon thread and the
@@ -628,13 +634,10 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         session.subscribe(lambda event: write_obj(serialize_event(event)))
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.
+        # ``capabilities`` defaults to ``events.CAPABILITIES`` — ONE list
+        # for both hellos (RULINGS 2026-11-03d (1) item 3)
         write_obj(serialize_event(EngineHello(
-            ortho4xp_version=_ortho4xp_version(),
-            capabilities=("scan", "build", "enqueue_build", "cancel",
-                          "tile_info", "config", "links", "siblings",
-                          "secrets", "tile_settings_write",
-                          "missing_art", "library", "pack_forests",
-                          "pack_optimise", "pack_optimise_steps"))))
+            ortho4xp_version=_ortho4xp_version())))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

@@ -64,6 +64,7 @@ import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
+from ..geom import exact
 from ..geom.core_clamp import ENGINE_DIR, core_vector_utils
 from ..geom.coverage import coverage_polygon
 from ..law import Law
@@ -120,7 +121,7 @@ def _signed_offset(line: LineString, s: float, pt: XY) -> float:
     a = line.interpolate(max(0.0, s - e))
     b = line.interpolate(min(line.length, s + e))
     ux, uy = b.x - a.x, b.y - a.y
-    n = math.hypot(ux, uy)
+    n = exact.hypot(ux, uy)
     if n <= 0.0:
         return 0.0
     f = line.interpolate(s)
@@ -166,8 +167,8 @@ def face_axis(ring: _t.Sequence[XY], step_m: float) -> list[XY] | None:
     if rect.geom_type != "Polygon":
         return None
     c = list(rect.exterior.coords)[:4]
-    e0 = math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1])
-    e1 = math.hypot(c[2][0] - c[1][0], c[2][1] - c[1][1])
+    e0 = exact.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1])
+    e1 = exact.hypot(c[2][0] - c[1][0], c[2][1] - c[1][1])
     if max(e0, e1) < 1e-6:
         return None
     if e0 >= e1:
@@ -206,7 +207,7 @@ def stations(points: _t.Sequence[XY], station_m: float) -> np.ndarray:
     out: list[XY] = []
     for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
         out.append((x0, y0))
-        L = math.hypot(x1 - x0, y1 - y0)
+        L = exact.hypot(x1 - x0, y1 - y0)
         ins = int(L // station_m) if station_m > 0 else 0
         for j in range(1, ins + 1):
             t = j / (ins + 1)
@@ -217,7 +218,7 @@ def stations(points: _t.Sequence[XY], station_m: float) -> np.ndarray:
 
 def _arclength(xy: np.ndarray) -> np.ndarray:
     d = np.diff(xy, axis=0)
-    return np.concatenate(([0.0], np.cumsum(np.hypot(d[:, 0], d[:, 1]))))
+    return np.concatenate(([0.0], np.cumsum(exact.hypot_array(d[:, 0], d[:, 1]))))
 
 
 def neighbourhood_profile(s: np.ndarray, dem: np.ndarray, in_band: np.ndarray,
@@ -272,7 +273,7 @@ def clamp_way(kind: str, ref: str, points: _t.Sequence[XY],
     xy = stations(points, station_m)
     # collapse coincident consecutive stations (a zero-length segment)
     keep = np.ones(len(xy), bool)
-    keep[1:] = np.hypot(*(np.diff(xy, axis=0).T)) > 1e-9
+    keep[1:] = exact.hypot_array(*(np.diff(xy, axis=0).T)) > 1e-9
     xy = xy[keep]
     if len(xy) < 2:
         return []

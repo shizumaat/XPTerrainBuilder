@@ -24,6 +24,7 @@ import typing as _t
 
 from shapely.geometry import Point, Polygon
 
+from ..geom import exact
 from ..model.planar import PlanarMap
 
 XY = tuple[float, float]
@@ -123,7 +124,7 @@ def ring_vertex_ids(pm: PlanarMap, cycle: _t.Sequence[int]) -> list[int]:
 
 
 def polyline_length(pts: _t.Sequence[XY]) -> float:
-    return sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
+    return sum(exact.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
 
 
 # ── axes ─────────────────────────────────────────────────────────────────
@@ -168,7 +169,7 @@ def _min_area_rect_of_points(
     best = None
     for (ax, ay), (bx, by) in edges:
         dx, dy = bx - ax, by - ay
-        L = math.hypot(dx, dy)
+        L = exact.hypot(dx, dy)
         if L < 1e-9:
             continue
         ux, uy = dx / L, dy / L
@@ -234,7 +235,7 @@ def long_axis(pts: _t.Sequence[XY]) -> tuple[XY, float, XY] | None:
         ax, ay = pts[i]
         bx, by = pts[(i + 1) % len(pts)]
         dx, dy = bx - ax, by - ay
-        L = math.hypot(dx, dy)
+        L = exact.hypot(dx, dy)
         if L < 1e-9:
             continue
         ux, uy = dx / L, dy / L
@@ -260,7 +261,7 @@ def pair_is_transverse(axis: XY | None, dx: float, dy: float,
     (``grade_law.pair_is_transverse``)."""
     if axis is None:
         return False
-    d = math.hypot(dx, dy)
+    d = exact.hypot(dx, dy)
     if d < 1e-9:
         return False
     cos_t = abs(dx * axis[0] + dy * axis[1]) / d
@@ -281,12 +282,12 @@ def station_indices(ring: _t.Sequence[XY], cluster_m: float
         xi, yi = ring[i]
         for j in range(i + 1, n):
             xj, yj = ring[j]
-            d2 = (xj - xi) ** 2 + (yj - yi) ** 2
+            d2 = exact.sq(xj - xi) + exact.sq(yj - yi)
             if d2 > best:
                 best, ax, ay, bx, by = d2, xi, yi, xj, yj
     if best <= 0.0:
         return None
-    length = best ** 0.5
+    length = math.sqrt(best)
     ux, uy = (bx - ax) / length, (by - ay) / length
     st = [((ring[i][0] - ax) * ux + (ring[i][1] - ay) * uy) for i in range(n)]
     order = sorted(range(n), key=lambda i: st[i])
@@ -309,7 +310,7 @@ def longitudinal_runs(points: _t.Sequence[XY], axis: XY,
     ``axis`` and inside the footprint
     (``grade_law.runway_strip_longitudinal_runs``)."""
     ux, uy = axis
-    norm = math.hypot(ux, uy)
+    norm = exact.hypot(ux, uy)
     if norm < 1e-12:
         return []
     ux, uy = ux / norm, uy / norm
@@ -348,7 +349,7 @@ def rect_ring(a: XY, b: XY, s0: float, s1: float, half: float) -> list[XY]:
     axis ``a -> b`` (``grade_law.runway_strip_wall_keepout_rings``'s
     ``_rect``)."""
     dx, dy = b[0] - a[0], b[1] - a[1]
-    L = math.hypot(dx, dy)
+    L = exact.hypot(dx, dy)
     ux, uy = dx / L, dy / L
     px, py = -uy, ux
     corners = ((s0, -half), (s1, -half), (s1, half), (s0, half))
@@ -381,8 +382,8 @@ def point_in_rect_ring(px: float, py: float, ring: _t.Sequence[XY],
     ox, oy = ring[0]
     e1x, e1y = ring[1][0] - ox, ring[1][1] - oy
     e2x, e2y = ring[3][0] - ox, ring[3][1] - oy
-    l1 = math.hypot(e1x, e1y)
-    l2 = math.hypot(e2x, e2y)
+    l1 = exact.hypot(e1x, e1y)
+    l2 = exact.hypot(e2x, e2y)
     if l1 <= 2.0 * margin or l2 <= 2.0 * margin:
         return False
     t1 = ((px - ox) * e1x + (py - oy) * e1y) / l1
@@ -405,7 +406,7 @@ def project_to_chain(p: XY, chain: _t.Sequence[XY]
         t = ((p[0] - ax) * vx + (p[1] - ay) * vy) / l2
         t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
         qx, qy = ax + t * vx, ay + t * vy
-        d = math.hypot(p[0] - qx, p[1] - qy)
+        d = exact.hypot(p[0] - qx, p[1] - qy)
         if d < best[0]:
             best = (d, k, t, s + t * math.sqrt(l2))
         s += math.sqrt(l2)
@@ -452,7 +453,7 @@ def chains_within(chains: _t.Sequence[_t.Sequence[XY]], r: float,
             t = ((p[0] - ax) * vx + (p[1] - ay) * vy) / l2
             t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
             qx, qy = ax + t * vx, ay + t * vy
-            if math.hypot(p[0] - qx, p[1] - qy) <= r:
+            if exact.hypot(p[0] - qx, p[1] - qy) <= r:
                 return True
         return False
     return near
@@ -546,7 +547,7 @@ def walk_transects(shapes: _t.Sequence[TransectShape],
         priced = priced_roles_for_axis(axis)
         for k in range(len(poly) - 1):
             (x1, y1), (x2, y2) = poly[k], poly[k + 1]
-            seg_len = math.hypot(x2 - x1, y2 - y1)
+            seg_len = exact.hypot(x2 - x1, y2 - y1)
             if seg_len < 1e-6:
                 continue
             tx, ty = (x2 - x1) / seg_len, (y2 - y1) / seg_len
@@ -658,6 +659,6 @@ def nearest_vertex_fn(planar: PlanarMap, vertices: _t.Iterable[int]):
     xy = np.array([planar.vertices[v].xy for v in ids], dtype=float)
 
     def nearest(x: float, y: float) -> int:
-        return ids[int(np.argmin((xy[:, 0] - x) ** 2 + (xy[:, 1] - y) ** 2))]
+        return ids[int(np.argmin(exact.sq(xy[:, 0] - x) + exact.sq(xy[:, 1] - y)))]
     nearest.air = frozenset(ids)
     return nearest

@@ -67,6 +67,7 @@ from __future__ import annotations
 from shapely.geometry import Point
 from shapely.strtree import STRtree
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import role_side
 from ..model.airport import Airport
@@ -177,7 +178,7 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
             best_d2 = r2
             for j in tree.query(pt.buffer(radius)):
                 fx, fy = foot_pts[int(j)].x, foot_pts[int(j)].y
-                d2 = (fx - x) ** 2 + (fy - y) ** 2
+                d2 = exact.sq(fx - x) + exact.sq(fy - y)
                 if d2 <= best_d2:
                     best_d2 = d2
                     best = int(j)

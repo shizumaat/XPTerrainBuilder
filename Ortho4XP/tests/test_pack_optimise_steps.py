@@ -80,5 +80,5 @@ def test_the_wire_carries_the_steps():
     ev = EV.PackOptimise(steps=[{"key": "swap", "count": 3, "tris": 9, "mb": 0.0}],
                          chosen=["swap"])
     assert ev.steps[0]["key"] == "swap" and ev.chosen == ["swap"]
-    src = os.path.join(os.path.dirname(__file__), "..", "src", "o4_engine", "jsonl.py")
-    assert '"pack_optimise_steps"' in open(src, encoding="utf-8").read()
+    from o4_engine.events import CAPABILITIES
+    assert "pack_optimise_steps" in CAPABILITIES

@@ -73,6 +73,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.reference_code import status_by_ref
 from ..law.tables import (
@@ -162,7 +163,7 @@ def _nearest_edge(vw: View, v: int, edges: list, grid: dict, cell: float,
                 l2 = vx * vx + vy * vy
                 t = 0.0 if l2 < 1e-18 else max(0.0, min(
                     1.0, ((x - ax) * vx + (y - ay) * vy) / l2))
-                d = math.hypot(x - (ax + t * vx), y - (ay + t * vy))
+                d = exact.hypot(x - (ax + t * vx), y - (ay + t * vy))
                 half = half_of(edges[k])
                 if half is None or d > half:
                     continue
@@ -778,9 +779,9 @@ def _blend_partner(ctx: "_Context", v: int, k: int, t: float, d: float
         t2 = 0.0 if l2 < 1e-18 else max(0.0, min(
             1.0, ((x - px) * ux + (y - py) * uy) / l2))
         fx, fy = px + t2 * ux, py + t2 * uy
-        if math.hypot(fx - f1[0], fy - f1[1]) <= tol:
+        if exact.hypot(fx - f1[0], fy - f1[1]) <= tol:
             continue                 # the same foot (a shared corner)
-        d2 = math.hypot(x - fx, y - fy)
+        d2 = exact.hypot(x - fx, y - fy)
         if d2 - d >= blend_m:
             continue
         key = (e2[5] == e[5], d2)

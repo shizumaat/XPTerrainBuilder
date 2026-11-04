@@ -44,9 +44,9 @@ generators are untouched."""
 from __future__ import annotations
 
 import dataclasses as _dc
-import math
 import typing as _t
 
+from ..geom import exact
 from ..model.constraints import Linear
 from ..model.wall_reach import BEHIND_SHARE, wall_reach_m, wall_smear_m
 
@@ -123,7 +123,7 @@ def _on_lower_side(w: RetainingLine, g: int,
     vertices it reaches without crossing the wall is a lower one (the
     reading ``solve/wall_cut._side_of`` makes)."""
     from shapely.geometry import LineString
-    for _d, q in sorted((math.dist(xy[g], xy[q]), q) for q in w.side if q in xy):
+    for _d, q in sorted((exact.dist(xy[g], xy[q]), q) for q in w.side if q in xy):
         if not LineString([xy[g], xy[q]]).intersects(w.poly):
             return w.side[q] == "lower"
     return False
@@ -168,7 +168,7 @@ def _ahead(poly, f: tuple[float, float], g: tuple[float, float], reach: float) -
     ``reach`` past ``g``: ``g`` is between the pavement and the wall."""
     from shapely.geometry import LineString
     dx, dy = g[0] - f[0], g[1] - f[1]
-    n = math.hypot(dx, dy)
+    n = exact.hypot(dx, dy)
     if n <= 1e-9:
         return False
     return LineString([g, (g[0] + dx / n * reach, g[1] + dy / n * reach)]).intersects(poly)
@@ -321,6 +321,6 @@ def foot_ground(dem: _t.Mapping[int, float], xy: _t.Mapping[int, tuple[float, fl
             side = [q for q in past
                     if not LineString([xy[v], xy[q]]).intersects(w.poly)]
             if side:
-                q = min(side, key=lambda q: (math.dist(xy[v], xy[q]), q))
+                q = min(side, key=lambda q: (exact.dist(xy[v], xy[q]), q))
                 out[v] = min(out[v], float(dem[q]))
     return out

@@ -52,9 +52,9 @@ the groundside against the airside's fixed values.
 """
 from __future__ import annotations
 
-import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import pavement_fallback_cap, pavement_roles
 from ..model.constraints import Diff, Pin, Row, Source
@@ -160,7 +160,7 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         if a in collar_v or b in collar_v or (a in pinned and b in pinned):
             return
         (xa, ya), (xb, yb) = xy[a], xy[b]
-        d = math.hypot(xa - xb, ya - yb)
+        d = exact.hypot(xa - xb, ya - yb)
         if d <= 0.0:
             return
         out.append(Diff(key[0], key[1], cap, d, src, follows=follows))

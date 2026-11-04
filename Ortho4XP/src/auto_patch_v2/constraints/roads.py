@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import family, role_cap, role_side
 from ..model.airport import Airport
@@ -448,7 +449,7 @@ def hole_pairs(xy: _t.Mapping[int, tuple[float, float]],
             if v in on_outer:
                 continue
             x, y = xy[v]
-            dd = np.hypot(pts[:, 0] - x, pts[:, 1] - y)
+            dd = exact.hypot_array(pts[:, 0] - x, pts[:, 1] - y)
             k = int(np.argmin(dd))
             if float(dd[k]) >= min_d:
                 out.append((v, outer[k], float(dd[k])))

@@ -94,9 +94,11 @@ def top_or_bottom_menu(parent, top: float, bottom: float,
 
 
 class SeatStep(QUndoCommand):
-    """One hand-set elevation as an undo step: ``redo`` stores ``after``,
-    ``undo`` ``before`` (zeros, m MSL; None = the stage's own seat).  The
-    first ``redo`` (the push) is the write that already happened."""
+    """One value the engine stored at once, as an undo step: ``redo``
+    stores ``after``, ``undo`` ``before`` — an object's zero (m MSL; None =
+    the stage's own seat), or a pavement's hand-set role (#1697; None = the
+    classifier's own).  The first ``redo`` (the push) is the write that
+    already happened."""
 
     def __init__(self, name: str, send: _t.Callable[[float | None], None],
                  before: float | None, after: float | None):

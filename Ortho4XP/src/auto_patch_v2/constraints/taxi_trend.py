@@ -65,6 +65,7 @@ import typing as _t
 
 import numpy as np
 
+from ..geom import exact
 from .precedence import view
 from .runway_chord import dem_degraded
 from .taxi_trend_cap import capped_chain, held_by_contacts
@@ -150,7 +151,7 @@ def _chains(pm: PlanarMap, law: Law) -> list[_Chain]:
         st = [0.0]
         for a, b in zip(ch, ch[1:]):
             (ax, ay), (bx, by) = pm.vertices[a].xy, pm.vertices[b].xy
-            st.append(st[-1] + _math.hypot(bx - ax, by - ay))
+            st.append(st[-1] + exact.hypot(bx - ax, by - ay))
         pins = tuple(v for v in ch
                      if any(pm.faces[f].role in rwy
                             for f in pm.vertices[v].incident_faces))
@@ -616,7 +617,7 @@ def taxi_trend_block(pm: PlanarMap, law: Law,
     rows.sort(key=lambda r: -r["max_m"])
     return {"chains": len(rows), "vertices": len(tt),
             "worst_residual_m": round(worst, 3),
-            "rms_m": round(_math.sqrt(sum(r["rms_m"] ** 2 * r["vertices"]
+            "rms_m": round(_math.sqrt(sum(exact.sq(r["rms_m"]) * r["vertices"]
                                           for r in rows)
                                       / max(1, sum(r["vertices"] for r in rows))), 3),
             "by_chain": rows[:12]}

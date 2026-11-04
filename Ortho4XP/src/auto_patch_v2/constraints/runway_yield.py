@@ -53,6 +53,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.inset_class import lidar_credible
 from ..law.tables import pavement_fallback_cap, role_cap, role_family, yielded_curve_rate
@@ -203,8 +204,8 @@ def _pin_sources(pm: PlanarMap, law: Law, airport: Airport, vw, chains
         for end in rw.ends:
             if end.threshold_elev_m is None or not own:
                 continue
-            v = min(own, key=lambda q: (vw.xy[q][0] - end.xy[0]) ** 2
-                    + (vw.xy[q][1] - end.xy[1]) ** 2)
+            v = min(own, key=lambda q: exact.sq(vw.xy[q][0] - end.xy[0])
+                    + exact.sq(vw.xy[q][1] - end.xy[1]))
             name_of.setdefault(v, f"RWY {end.name}")
     # an end no survey pins, named by its case (``end_pin_cases``: the
     # apt.dat datum 30z (2), 22a's DEM end, a flagged CIFP end, 26e's lidar)
@@ -294,8 +295,8 @@ def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
                 if not st:
                     continue
                 i = min(range(len(st)),
-                        key=lambda k: (vw.xy[st[k]][0] - vw.xy[v][0]) ** 2
-                        + (vw.xy[st[k]][1] - vw.xy[v][1]) ** 2)
+                        key=lambda k: exact.sq(vw.xy[st[k]][0] - vw.xy[v][0])
+                        + exact.sq(vw.xy[st[k]][1] - vw.xy[v][1]))
             old = at.get(i)
             if old is None or _SENIORITY[p.kind] < _SENIORITY[old.kind]:
                 at[i] = p

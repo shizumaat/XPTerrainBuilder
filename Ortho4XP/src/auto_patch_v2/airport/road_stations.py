@@ -19,6 +19,8 @@ import typing as _t
 
 import numpy as np
 
+from ..geom import exact
+
 __all__ = ["StationTable"]
 
 
@@ -36,7 +38,7 @@ class StationTable:
         for xy in polylines:
             xy = np.asarray(xy, dtype=float)
             dd = np.diff(xy, axis=0)
-            L = np.hypot(dd[:, 0], dd[:, 1])
+            L = exact.hypot_array(dd[:, 0], dd[:, 1])
             starts.append(k)
             k += len(dd)
             a.append(xy[:-1])
@@ -61,7 +63,7 @@ class StationTable:
         with np.errstate(divide="ignore", invalid="ignore"):
             r = (px * self.d[:, 0] + py * self.d[:, 1]) / self.len2
         r = np.clip(np.nan_to_num(r, nan=0.0), 0.0, 1.0)
-        dist = np.hypot(px - r * self.d[:, 0], py - r * self.d[:, 1])
+        dist = exact.hypot_array(px - r * self.d[:, 0], py - r * self.d[:, 1])
         best = np.minimum.reduceat(dist, self.starts)
         idx = np.where(dist == best[self.own], self.ids, len(dist))
         first = np.minimum.reduceat(idx, self.starts)

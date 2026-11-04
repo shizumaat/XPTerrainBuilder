@@ -2547,6 +2547,12 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     except ImportError:
         pass
     try:
+        # issue #359: the build's follower pass (the lot follows its pad)
+        from auto_patch_v2.pipeline.lot_follow import lot_follow_rewrite
+        _kw["follow_rewrite"] = lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z)
+    except ImportError:
+        pass
+    try:
         # flat-pad spec v2 §1 / §2: the build's own hold binding
         from auto_patch_v2.constraints.no_step import hold_pass
         _kw["hold"] = hold_pass(pm, law, airport)
@@ -2658,6 +2664,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
               f"{max((abs(c[2]) for c in _s['clamps']), default=0.0)} m "
               f"{sorted({c[1] for c in _s['clamps']})}")
     print(f"[{icao}] solve (ONE pass, 08k): {wall:.1f} s status {sol.status.value}")
+    # issue #359: the follower pass after stage 2 (the lot follows its pad)
+    print(f"[{icao}] follower pass (#359): "
+          f"{getattr(rep, 'follow_stage', None) or 'did not run (no lot follows)'}")
     print(f"[{icao}] resume {resume}; rows {cs.counts()}; dropped generators {drop or '-'}; "
           f"solve {wall:.1f} s status {sol.status.value}; {rep.line()}")
     print(f"[{icao}] LP size: {size}")

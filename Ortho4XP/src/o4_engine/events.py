@@ -214,6 +214,7 @@ CAPABILITIES: tuple = (
     "tidy_scenery_packs",           # 1.32, #1729
     # -- after the freeze: one flag per feature, appended below --
     "patch_roles",                  # 2026-11-03, #1697 patch_roles / patch_role_set
+    "pack_ground_notice",           # 2026-11-04, #1362 BuildDone warning pack_ground_no_mesh
 )
 
 

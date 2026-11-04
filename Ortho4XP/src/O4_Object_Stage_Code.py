@@ -171,6 +171,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.pack_art",
     "auto_patch_v2.airport.pack_forests",
     "auto_patch_v2.airport.pack_forests_map",
+    "auto_patch_v2.airport.pack_ground",
     "auto_patch_v2.airport.pack_journal",
     "auto_patch_v2.airport.pack_local",
     "auto_patch_v2.airport.pack_optimise",

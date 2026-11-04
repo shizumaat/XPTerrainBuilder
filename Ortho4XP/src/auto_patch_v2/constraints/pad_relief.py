@@ -52,6 +52,20 @@ jetways, stood on apron in 1.0.398 and founded no target; under the
 grown pad it founded a -5.579 m relief target that the census read as
 a 5.58 m ``plane_gradient``.
 
+**AND A VERTEX ANOTHER LAW LEVELS TAKES NONE** (owner ruling 2026-11-04
+on issue #1855, "1855: yes").  A pad vertex a GROUNDSIDE road or
+parking / lot face shares, and a HELD block's frontage-hold contact or
+datum column (``platform.hold_sets``), is levelled by that other law —
+the road's join, the hold's hard row — never by the plate.  An offset
+there is a relief the solve cannot build, and because the plate prices
+it RELATIVE to every other vertex (``Diff.rel``), the whole plate
+follows the fixed vertex flat while the sidecar still publishes the
+offset.  MEASURED VHHH ``building40``: 24 offsets 0.62..2.24 m published,
+the pad emitted flat at 7.29..7.32 m, a 1.43 m census ``within_shape``
+row; ``--why-from`` on v11564 bound it through a ``service_road`` /
+``parking_lot`` vertex and a frontage-hold contact.  Such a vertex takes
+offset 0, in the rows and the sidecar alike (one derivation, here).
+
 **NEAREST FOOT, NEVER INTERPOLATED.**  A pad vertex takes the target of
 the nearest foot within ``[placement] relief_radius_m`` and otherwise
 keeps the level.  Two feet 40 m apart say nothing about the ground
@@ -93,6 +107,28 @@ def _jetway_ground(planar: PlanarMap) -> list:
     return out
 
 
+def _otherwise_levelled(planar: PlanarMap, law: Law) -> set[int]:
+    """The pad vertices whose level another law fixes (module doc, #1855):
+    every vertex of a GROUNDSIDE pavement face (a road, a parking / lot
+    face — its mapped ribbons included: the join levels them too) and
+    every held block's frontage-hold contact and datum column."""
+    if not getattr(planar, "faces", None):
+        return set()                     # a map with no faces levels nothing
+    from ..law.tables import is_rigid_role, pavement_roles
+    from .platform import hold_sets
+    ground = {r for r in pavement_roles(law)
+              if not is_rigid_role(law, r) and role_side(law, r) == "groundside"}
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if f.role in ground:
+            for ring in (f.ring, *f.holes):
+                out.update(planar.ring_vertices(ring))
+    for _ref, dv, weld, _n, _r in hold_sets(planar, law):
+        out.update(weld)
+        out.add(dv)
+    return out
+
+
 def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
                        ) -> dict[int, float]:
     """``vertex -> the metres the terrain there stands above the pad's
@@ -123,6 +159,7 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
     for role, vs, _poly in geoms:
         if role_side(law, role) == "airside":
             senior |= vs
+    senior |= _otherwise_levelled(planar, law)
     if jetway:
         jt = STRtree(jetway)
         senior |= {v for _f, _r, group, _p in pads for v in group

@@ -53,7 +53,7 @@ def honest(xs, ys):
 
 
 def _hold(ways):
-    return SHORE.shore_road_hold(ways, HIGHWAYS, GATE, ISLAND, honest, Z0, 1.0,
+    return SHORE._road_hold(ways, HIGHWAYS, GATE, ISLAND, honest, Z0, 1.0,
                                  30.0, 9.3, M_PER_DEG, *TILE, LAW)
 
 
@@ -95,7 +95,7 @@ def test_what_is_never_held(way):
 
 
 def test_no_island_holds_nothing():
-    held, _ = SHORE.shore_road_hold([DECK], HIGHWAYS, GATE, None, honest, Z0, 1.0,
+    held, _ = SHORE._road_hold([DECK], HIGHWAYS, GATE, None, honest, Z0, 1.0,
                                     30.0, 9.3, M_PER_DEG, *TILE, LAW)
     assert held is None
 
@@ -103,7 +103,7 @@ def test_no_island_holds_nothing():
 @pytest.mark.parametrize("median,expect", [(2.0, True), (6.8, True), (7.0, False), (None, False)])
 def test_on_fill_is_z0_above_the_honest_median(median, expect):
     rec = {"z0_m": Z0, "signals": {"s2": {"median_m": median}}}
-    assert SHORE.on_fill(rec, 0.5) is expect
+    assert SHORE._on_fill(rec, 0.5) is expect
 
 
 def _snapshot():
@@ -147,9 +147,9 @@ def test_the_patch_road_reach_outside_the_aerodrome_is_never_held():
     """``clear_m`` (``osm_roads.boundary_reach_m``): the roads the patch
     ribbons and grades itself just outside the boundary keep their DEM."""
     way = _way([(0.5058, 0.5040), (0.5058, 0.5090)])       # ~85 m east of the gate
-    held, _ = SHORE.shore_road_hold([way], HIGHWAYS, GATE, ISLAND, honest, Z0, 1.0,
+    held, _ = SHORE._road_hold([way], HIGHWAYS, GATE, ISLAND, honest, Z0, 1.0,
                                     30.0, 9.3, M_PER_DEG, *TILE, LAW, clear_m=150.0)
     assert held is None
-    held, _ = SHORE.shore_road_hold([way], HIGHWAYS, GATE, ISLAND, honest, Z0, 1.0,
+    held, _ = SHORE._road_hold([way], HIGHWAYS, GATE, ISLAND, honest, Z0, 1.0,
                                     30.0, 9.3, M_PER_DEG, *TILE, LAW, clear_m=0.0)
     assert held is not None

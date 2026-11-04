@@ -63,7 +63,7 @@ from shapely.ops import unary_union
 from .deck_signature import is_tunnel_way
 from .road_ways import ribbon_half_width_m
 
-__all__ = ["shore_road_hold", "on_fill", "site_hold"]
+__all__ = ["site_hold"]
 
 
 def _metres(geom, scale):
@@ -110,7 +110,7 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
     return out
 
 
-def shore_road_hold(ways: _t.Iterable[_t.Any], highways: _t.Collection[str],
+def _road_hold(ways: _t.Iterable[_t.Any], highways: _t.Collection[str],
                     gate, island, honest: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
                     z0_m: float, flat_within_m: float, side_probe_m: float,
                     post_m: float, metres_per_degree: tuple[float, float],
@@ -177,7 +177,7 @@ def shore_road_hold(ways: _t.Iterable[_t.Any], highways: _t.Collection[str],
     return _metres(held, (1.0 / sx, 1.0 / sy)), report
 
 
-def on_fill(record: _t.Mapping, fill_min_m: float) -> bool:
+def _on_fill(record: _t.Mapping, fill_min_m: float) -> bool:
     """Does the plateau RAISE this airport — Z0 at least ``fill_min_m``
     above the detector's honest S2 median (``[shore_roads] fill_min_m``)?"""
     s2 = ((record.get("signals") or {}).get("s2") or {})
@@ -223,7 +223,7 @@ def site_hold(record: _t.Mapping, law, gate, snapshot, frame, island_of,
     cfg = law.tables.flat_site.shore_roads
     if not cfg.enabled or snapshot is None or gate is None:
         return None, "off"
-    if not on_fill(record, cfg.fill_min_m):
+    if not _on_fill(record, cfg.fill_min_m):
         return None, "not on fill"
     island, refusal = island_of(gate)
     if island is None:
@@ -234,7 +234,7 @@ def site_hold(record: _t.Mapping, law, gate, snapshot, frame, island_of,
     x0, _x1, _y0, y1, _nx, _ny = frame
     lon0, lon1 = tile_lon + x0 + col_min * x_step, tile_lon + x0 + col_max * x_step
     lat0, lat1 = tile_lat + y1 - row_max * y_step, tile_lat + y1 - row_min * y_step
-    held, rep = shore_road_hold(
+    held, rep = _road_hold(
         ways_of(lat0, lon0, lat1, lon1), highways, gate, island, honest,
         float(record["z0_m"]), real_from_m, cfg.side_probe_m,
         abs(x_step) * lon_m, (lon_m, lat_m), tile_lat, tile_lon, law, clear_m)

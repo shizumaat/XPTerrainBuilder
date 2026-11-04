@@ -320,6 +320,13 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
     from .wall_zone import retaining_lines, split
     held = retaining_lines(walls)
     tops = _wall_levels(planar, held, xy)   # wall-slope ground at top / foot
+    # a wall that joins a lower level holds its foot strip at the level
+    # (``planar/low_extent._join_walls``, #1306): not at its foot, not at DEM
+    from .platform import landing_vertices
+    lands = getattr(getattr(planar, "registries", None), "landings", None) or {}
+    levelled = {v for r, vs in (landing_vertices(planar).items() if lands else ())
+                if lands[r].get("wall_strips") for v in vs}
+    tops = {v: t for v, t in tops.items() if v not in levelled}
     rep["zone_flat"] = 0
     pave = frozenset(r for r, spec in law.tables.precedence.roles.items()
                      if spec.value and spec.side == "airside")
@@ -391,6 +398,8 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
            if planar.vertices[v].dem_z is not None and v in xy}
     from .wall_zone import foot_ground
     for v, dz in sorted(foot_ground(dem, xy, held).items()):
+        if v in levelled:
+            continue
         bands.append(Band(v, dz, dz,
                           Source("wall_terrace", BEYOND_WALL_RULING, (f"vertex:{v}",))))
     rep["beyond_wall_ground"] = len(bands) - len(cs.bands)

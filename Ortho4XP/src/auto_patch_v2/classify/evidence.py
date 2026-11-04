@@ -295,6 +295,9 @@ def build_evidence(airport: Airport, rules: Rules,
     wall_clip = {k: clip_a[k] + clip_d[k] for k in clip_a}
     apt_union = unary_union([g for _i, g in apt_pav]) if apt_pav else Polygon()
     dsf_pav, dsf_dropped = _dsf_pavements(dsf_raw, apt_union, boundary, rules)
+    # #1598: an overlay page is cut at the mapped roads inside it
+    from .overlay_roads import split_overlays_at_roads
+    dsf_pav, _n_cut = split_overlays_at_roads(dsf_pav, airport, law, rules)
     pav = apt_pav + dsf_pav
     pavement_union = unary_union([g for _i, g in pav]) if pav else Polygon()
 

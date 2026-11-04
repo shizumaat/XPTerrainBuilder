@@ -657,7 +657,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         sel.root, tile, inputs.mod_cache_root, index,
         lambda d, r: _DsfPolygons(to_xy, own_extent).pages_of(d, r, index),
         _own_extent(runways, tuple(pavements) + tuple(dsf_pavements), (), 0.0),
-        airport_region(runways, pavements, boundaries), law, rep.notes.append)
+        airport_region(runways, pavements, boundaries), law, osm_ways, rep.notes.append)
     rep.overlay_pavements = len(over)
     rep.overlay_pavement_m2 = float(sum(_sheet_area(p) for p in over))
     pavements = pavements + tuple(dsf_pavements) + tuple(over)

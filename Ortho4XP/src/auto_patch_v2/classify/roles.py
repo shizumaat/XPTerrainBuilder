@@ -291,7 +291,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # it is its own face and is kinded by evidence — never dissolved into
     # the page it merely touches (``sources.object_body_cuts``).
     obj_cuts = object_body_cuts(ev, region)
-    src_cuts = src_cuts + obj_cuts
+    # #1598: an overlay piece is its own face, never part of the apron it meets
+    from .overlay_roads import overlay_cuts
+    src_cuts = src_cuts + obj_cuts + overlay_cuts(ev, region)
     stats["object_body_cuts"] = len(obj_cuts)
     faces = _slice(region, taxi_parts, truck_parts, spurs + src_cuts, rules)
     stats["slice_faces"] = len(faces)

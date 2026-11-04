@@ -23,8 +23,12 @@ page clipped to the boundary (row 130, else the runway and pavement
 outline: ``load.airport_region``), MINUS the own pavement and the pages
 drawn over it (dump order is draw order), opened by ``[identity]
 overlay_pavement_sliver_m`` (an edge mismatch between the two packs is no
-pavement); a piece is kept when it meets the own pavement within
-``overlay_pavement_reach_m``.  Each piece is a ``dsf:overlay<k>`` source
+pavement); a piece is kept when it TOUCHES the own pavement (within
+``[identity] weld_spacing_m``) or is LINKED to it by a mapped road whose
+chain touches both (:func:`road_links`; owner 2026-11-04), or touches a
+piece so connected (DEM prep's stamp reads no roads: touch only).  Inside, the
+mapped roads cut it (``classify/evidence``: the roads become road ribbons,
+the pieces between them separate lots -- overlay pages only).  Each piece is a ``dsf:overlay<k>`` source
 (``model.airport.OVERLAY_PREFIX``) with its page's surface, one source per
 page; classification scores it as it scores a pack page, but keeps it only
 as a LOT or a ROAD and never flips it to apron by edge contact
@@ -42,7 +46,8 @@ from ..model.airport import OVERLAY_PREFIX
 from . import dsf as _dsf
 from .pack_local import tile_candidates
 
-__all__ = ["OVERLAY_PREFIX", "dump_candidates", "held_pieces", "load_pavements"]
+__all__ = ["OVERLAY_PREFIX", "dump_candidates", "held_pieces", "load_pavements",
+           "road_links"]
 
 
 
@@ -83,11 +88,37 @@ def _read_pack_pages(root: str, lat: int, lon: int, mod_cache_root: str, read
     return dump, read(dump)
 
 
-def _evidence(pages: _t.Sequence[tuple[_t.Any, _t.Any]], own, region, law
-              ) -> list[tuple[_t.Any, _t.Any]]:
+def road_links(osm_ways, own, region, law):
+    """The mapped roads that LINK a piece to the airport (owner 2026-11-04:
+    "the hilltop lot has a road running down the hill that should touch the
+    airport pavement"): the carriageways (``road_ways.ribbon_half_width_m``)
+    of the at-grade road-feed ways (``model.planar.OSM_RIBBON_FEEDS``)
+    inside ``region``, merged into connected chains, keeping the chains
+    that touch ``own``.  One shapely geometry, or ``None``."""
+    from shapely.ops import unary_union
+
+    from ..geom.parts import polygon_parts_with_area
+    from ..model.planar import OSM_RIBBON_FEEDS
+    from .road_ways import ribbon_half_width_m, road_ways
+    if own is None or region is None:
+        return None
+    lanes = [ln.buffer(ribbon_half_width_m(w.tags, law), cap_style="flat")
+             for w, ln in road_ways(osm_ways)
+             if getattr(w, "kind", "") in OSM_RIBBON_FEEDS and ln.intersects(region)]
+    if not lanes:
+        return None
+    touch = own.buffer(float(law.tables.emit.identity.weld_spacing_m))
+    chains = [c for c in polygon_parts_with_area(unary_union(lanes).intersection(region))
+              if c.intersects(touch)]
+    return unary_union(chains) if chains else None
+
+
+def _evidence(pages: _t.Sequence[tuple[_t.Any, _t.Any]], own, region, law,
+              links=None) -> list[tuple[_t.Any, _t.Any]]:
     """The pieces one overlay pack adds (module doc): ``pages`` is its
     ``(shapely polygon, tag)`` pavement pages, ``own`` the airport's own
-    pavement and runways, ``region`` its boundary (``load.airport_region``).
+    pavement and runways, ``region`` its boundary (``load.airport_region``),
+    ``links`` the road chains touching ``own`` (:func:`road_links`).
     Returns ``(piece, tag of its page)``; empty when no page meets ``own``."""
     from ..geom.parts import polygon_parts_with_area
     if not pages or own is None or own.is_empty or region is None or region.is_empty:
@@ -96,8 +127,8 @@ def _evidence(pages: _t.Sequence[tuple[_t.Any, _t.Any]], own, region, law
     if not any(p.intersects(own) for p, _tag in pages):
         return []
     w = float(ident.overlay_pavement_sliver_m)
-    reach = own.buffer(float(ident.overlay_pavement_reach_m))
-    out, taken = [], own
+    touch = own.buffer(float(ident.weld_spacing_m))
+    cand, taken = [], own
     # each page keeps what is its own: a page drawn later lies on top
     # (dump order is draw order), so the pages are taken last first
     for page, tag in reversed(pages):
@@ -106,20 +137,33 @@ def _evidence(pages: _t.Sequence[tuple[_t.Any, _t.Any]], own, region, law
         if w > 0 and not rest.is_empty:
             rest = rest.buffer(-w, join_style="mitre").buffer(
                 w, join_style="mitre").intersection(rest)
-        out.extend((piece, tag) for piece in polygon_parts_with_area(rest)
-                   if piece.intersects(reach))
-    return out
+        cand.extend((piece, tag) for piece in polygon_parts_with_area(rest))
+    # connected to the airport: touching its pavement, linked by a road, or
+    # touching a piece already connected (an overlay lot beside an overlay
+    # road beside the apron) -- to the fixpoint
+    keep = [False] * len(cand)
+    grow = True
+    while grow:
+        grow = False
+        for i, (piece, _tag) in enumerate(cand):
+            if keep[i]:
+                continue
+            if piece.intersects(touch) or (links is not None and piece.intersects(links)):
+                keep[i] = grow = True
+                touch = touch.union(piece.buffer(float(ident.weld_spacing_m)))
+    return [c for c, k in zip(cand, keep, strict=True) if k]
 
 
 def load_pavements(main_root: str, tile: tuple[int, int], mod_cache_root: str | None,
                    index, read_pages: _t.Callable[[str, str], list], own, region, law,
-                   say: _t.Callable[[str], None] = lambda _m: None) -> list:
+                   osm_ways=(), say: _t.Callable[[str], None] = lambda _m: None) -> list:
     """The overlay pieces as the load mints them: ``dsf:overlay<k>``
     ``Pavement`` records (module doc).  ``index`` is the library index;
     ``read_pages(dump, root)`` is the
     load's own page reader (``load._DsfPolygons``: the pavement gate and
     the admission extent); ``own`` the airport's pavement and runways so
-    far and ``region`` its boundary, as shapely geometries.  A candidate
+    far and ``region`` its boundary, as shapely geometries; ``osm_ways``
+    the mapped ways (:func:`road_links`).  A candidate
     with no made dump is named and skipped."""
     import dataclasses as _dc
 
@@ -127,6 +171,7 @@ def load_pavements(main_root: str, tile: tuple[int, int], mod_cache_root: str | 
     if not (main_root and mod_cache_root):
         return []
     out: list = []
+    links = road_links(osm_ways, own, region, law)
     for root in dump_candidates(main_root, *tile, index=index):
         name = os.path.basename(os.path.normpath(root))
         got = _read_pack_pages(root, *tile, mod_cache_root, lambda d, r=root: read_pages(d, r))
@@ -140,7 +185,7 @@ def load_pavements(main_root: str, tile: tuple[int, int], mod_cache_root: str | 
             p = p if p.is_valid else p.buffer(0)
             if not p.is_empty:
                 pages.append((p, pav))
-        pieces = _evidence(pages, own, region, law)
+        pieces = _evidence(pages, own, region, law, links)
         for piece, pav in pieces:
             out.append(_dc.replace(
                 pav, id=f"{OVERLAY_PREFIX}{len(out)}",

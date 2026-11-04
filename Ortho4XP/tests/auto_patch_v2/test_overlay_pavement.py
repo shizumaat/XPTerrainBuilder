@@ -11,7 +11,7 @@ from shapely.geometry import Polygon, box
 
 LAW = types.SimpleNamespace(tables=types.SimpleNamespace(emit=types.SimpleNamespace(
     identity=types.SimpleNamespace(overlay_pavement_sliver_m=3.0,
-                                   overlay_pavement_reach_m=50.0))))
+                                   weld_spacing_m=1.0))))
 OWN = box(0, 0, 100, 100)
 REGION = box(-500, -500, 500, 500)
 
@@ -35,15 +35,35 @@ def test_an_edge_mismatch_is_no_pavement():
     assert OV._evidence([(box(0, 0, 101, 100), "a")], OWN, REGION, LAW) == []
 
 
-def test_only_inside_the_airport_and_touching_its_pavement():
+def test_only_inside_the_airport_and_touching_or_linked_by_a_road():
     pages = [(box(0, 0, 100, 100), "a"),            # meets the own pavement
-             (box(130, 0, 170, 40), "near"),        # 30 m off: inside the reach
-             (box(300, 0, 340, 40), "far")]         # 200 m off, inside the boundary
-    assert sorted(t for _p, t in OV._evidence(pages, OWN, REGION, LAW)) == ["near"]
+             (box(100, 0, 120, 40), "touch"),       # touches it
+             (box(150, 0, 190, 40), "linked"),      # 50 m off, a road to it
+             (box(300, 0, 340, 40), "far")]         # 200 m off, no road
+    road = box(95, 15, 160, 25)                     # a road chain touching both
+    assert sorted(t for _p, t in OV._evidence(pages, OWN, REGION, LAW)) == ["touch"]
+    assert sorted(t for _p, t in OV._evidence(pages, OWN, REGION, LAW, road)) == [
+        "linked", "touch"]
     # the boundary clips: a page running out of the airport keeps its inside
     got = OV._evidence([(box(0, 0, 160, 100), "a")], OWN, box(-10, -10, 120, 120), LAW)
     assert [p.bounds for p, _t in got] == [(100.0, 0.0, 120.0, 100.0)]
     assert OV._evidence(pages, OWN, None, LAW) == []
+
+
+def test_road_links_keep_the_chains_that_touch_the_airport():
+    from auto_patch_v2.law import Law
+    law = Law.for_airport("XXXX")
+    way = types.SimpleNamespace
+    ways = [way(kind="airport_small_roads", tags={"highway": "service"},
+                points=((50.0, 50.0), (200.0, 50.0))),           # from the apron out
+            way(kind="airport_small_roads", tags={"highway": "service"},
+                points=((300.0, 300.0), (400.0, 300.0))),        # elsewhere
+            way(kind="footways", tags={"highway": "footway"},
+                points=((50.0, 80.0), (200.0, 80.0)))]           # not a road feed
+    links = OV.road_links(ways, OWN, REGION, law)
+    assert links.intersects(box(190, 45, 195, 55))
+    assert not links.intersects(box(350, 295, 355, 305))
+    assert not links.intersects(box(150, 78, 160, 82))
 
 
 def test_an_overlay_piece_stays_a_lot_or_a_road():
@@ -58,6 +78,7 @@ def test_each_page_keeps_its_own_piece_the_later_drawn_on_top():
     # a lot page drawn over a broad taxi page: two sources, as the pack's
     # own pages are, never one merged piece
     pages = [(box(0, 0, 200, 100), "taxi"), (box(100, 0, 130, 100), "lot")]
+    # (the taxi piece is kept through the lot it touches)
     got = {t: p.bounds for p, t in OV._evidence(pages, OWN, REGION, LAW)}
     assert got == {"lot": (100.0, 0.0, 130.0, 100.0), "taxi": (130.0, 0.0, 200.0, 100.0)}
 
@@ -104,7 +125,7 @@ def test_pieces_are_minted_as_dsf_overlay_sources(tmp_path, monkeypatch):
                         lambda root, la, lo, mc, read: ("dump", read("dump")))
     notes = []
     got = OV.load_pavements("/cs/main", (1, 2), "/mc", None, lambda d, r: [page],
-                            OWN, REGION, LAW, notes.append)
+                            OWN, REGION, LAW, say=notes.append)
     assert [p.id for p in got] == ["dsf:overlay0"]
     assert got[0].description == "Pack/Asphalt_Top_Plain.pol"
     assert abs(Polygon(got[0].outer).area - 4000) < 1e-6

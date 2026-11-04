@@ -29,6 +29,7 @@ import shapely
 from shapely.geometry import LineString, Polygon
 from shapely.ops import substring, unary_union
 
+from ..model.airport import OVERLAY_PREFIX
 from ..model.planar import is_gap_ref
 from ..geom.parts import line_parts
 from .evidence import polygon_parts
@@ -42,10 +43,13 @@ LOT_ROLES = ("parking_lot", "groundside_pavement")
 
 
 def lot_cells(cells) -> list[tuple[object, Polygon]]:
-    """The standing lots among ``cells``: ``(cell, polygon)``."""
+    """The standing lots among ``cells``: ``(cell, polygon)``.  An OVERLAY
+    lot (#1598, ``classify/overlay_roads``) never absorbs a road: its roads
+    were cut out to be ribboned."""
     return [(c, Polygon(c.ring, c.holes)) for c in cells
             if c.role in LOT_ROLES and c.side == "groundside"
-            and not is_gap_ref(getattr(c, "ref", ""))]
+            and not is_gap_ref(getattr(c, "ref", ""))
+            and not str(getattr(c, "ref", "")).startswith(OVERLAY_PREFIX)]
 
 
 def lot_stretches(line: LineString, lots_union, reach_m: float,

@@ -68,10 +68,61 @@ def test_a_fill_vertex_off_both_faces_is_held_at_the_top():
 
 def test_only_slope_vertices_in_the_fill_are_held():
     lines = [_line(((0.0, 300.0), (200.0, 300.0)))]
-    fill = types.SimpleNamespace(ref=f"{WALL_SLOPE_REF_PREFIX}w#2")
+    fill = types.SimpleNamespace(ref=f"{WALL_SLOPE_REF_PREFIX}w#fill2")
     pad = types.SimpleNamespace(ref="building7")
     vx = {1: types.SimpleNamespace(incident_faces=(0,)),
           2: types.SimpleNamespace(incident_faces=(0, 1))}
     pm = types.SimpleNamespace(vertices=vx, faces={0: fill, 1: pad})
     got = RR._wall_levels(pm, lines, {1: (63.0, 0.0), 2: (62.0, 10.0)})
     assert got == {1: (300.0, RR.WALL_TOP_RULING)}
+
+
+def test_the_fill_spans_only_the_stretch_that_retains():
+    # the top retains along the first half of the upper face only (the lower
+    # level wraps round the other half): the fill stops there
+    top = tuple((float(s), 300.0 if s <= 100 else None) for s in range(0, 201))
+    got = [g for _r, g in wall_slopes([_sides(top)], [], [], 1.0, 0.02)
+           if g.within(WALL.buffer(1e-6))]
+    y0, y1 = got[0].bounds[1], got[0].bounds[3]
+    up = _faces()[0]
+    assert len(got) == 1 and abs((y1 - y0) - 100.5) < 0.6
+    assert got[0].distance(up.interpolate(10.0)) < 1e-6
+    assert got[0].distance(up.interpolate(190.0)) > 50.0
+
+
+def test_a_thin_wall_takes_no_fill():
+    thin = box(60.0, -100.0, 61.5, 100.0)
+    a, b = WS._wall_faces(thin)
+    up, lo = (a, b) if abs(a.coords[0][0] - 60.0) < 1e-9 else (b, a)
+    w = WS.WallSides(thin, 20.0, 20.0, None, None, 6.0, "w", None, up,
+                     ((0.0, 300.0), (200.0, 300.0)), lo, None)
+    assert wall_slopes([w], [], [], 1.0, 0.02) == []
+
+
+def test_the_fill_stands_off_a_zone_band_across_the_wall():
+    zone = box(50.0, -10.0, 70.0, 10.0)
+    got = [g for _r, g in wall_slopes([_sides(((0.0, 300.0), (200.0, 300.0)))], [zone],
+                                      [], 1.0, 0.02) if g.within(WALL.buffer(1e-6))]
+    assert got and all(g.distance(zone) >= 1.0 - 1e-6 for g in got)
+
+
+def test_the_fill_welds_to_the_airside_on_the_upper_face():
+    apron = box(40.0, -100.0, 60.0, 100.0)          # the upper level's pavement
+    got = [g for _r, g in wall_slopes([_sides(((0.0, 300.0), (200.0, 300.0)))], [],
+                                      [apron], 1.0, 0.02, weld=[apron])
+           if g.within(WALL.buffer(1e-6))]
+    assert got and min(g.bounds[0] for g in got) <= 60.0 + 1e-6
+
+
+def test_a_fill_is_never_a_sliver_zone():
+    from auto_patch_v2.planar.overlay import Region, dissolve_sliver_zones
+    fill = box(60.0, -10.0, 62.0, 10.0)             # 2 m wide, 40 m2
+    apron = box(40.0, -10.0, 60.0, 10.0)
+    faces = [(fill, Region("graded_strip", f"{WALL_SLOPE_REF_PREFIX}w#fill3", fill,
+                           None, None, "airside", "zone")),
+             (apron, Region("apron", "pav1", apron, None, None, "airside", "cell"))]
+    got, dissolved, dropped, _a, _r = dissolve_sliver_zones(faces, 50.0, 3.0, ("apron",))
+    assert (dissolved, dropped) == (0, 0) and got == faces
+    strip = [(fill, Region("graded_strip", f"{WALL_SLOPE_REF_PREFIX}w#3", fill,
+                           None, None, "airside", "zone")), faces[1]]
+    assert dissolve_sliver_zones(strip, 50.0, 3.0, ("apron",))[1] == 1

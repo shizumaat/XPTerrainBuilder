@@ -41,9 +41,10 @@ import dataclasses as _dc
 import typing as _t
 
 import shapely
+from shapely.ops import substring
 
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
-from ..model.wall_reach import FILL_SLOT_M, WALL_SLOPE_REF_PREFIX, is_wall_slope_ref
+from ..model.wall_reach import FILL_SLOT_M, WALL_FILL_MARK, WALL_SLOPE_REF_PREFIX, is_wall_slope_ref
 
 __all__ = ["wall_slopes", "slope_sides", "SLOPE_VERTEX_M"]
 
@@ -55,7 +56,8 @@ SLOPE_VERTEX_M = 5.0
 
 
 def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
-                cut_m: float, hairline_m: float) -> list[tuple[str, _t.Any]]:
+                cut_m: float, hairline_m: float, weld: _t.Sequence = ()
+                ) -> list[tuple[str, _t.Any]]:
     """``(ref, polygon)`` per wall-slope piece: every retaining wall's upper
     band (``WallSides.upper``) whose top is read (``top_profile``) and its
     lower band (``WallSides.lower``) whose foot is read (``foot_profile``,
@@ -68,50 +70,90 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
     shares no vertex with a cell, whose level is its own law — a road or a
     pad past the wall's end stands at the lower level, and the gap
     terraces (measured KATL replay: a slope vertex shared with a road past
-    ``muro_concreto``'s end held it 11.7 m over its own run)."""
+    ``muro_concreto``'s end held it 11.7 m over its own run).  The FILL
+    stands off the zone bands too and welds to the cells of ``apart`` that
+    are also in ``weld`` (the airside cells, by identity): the pavement on
+    a retaining wall's upper face is its upper level, and a fill line under
+    the zones' weld spacing of an airside rim is the rim's own
+    (``planar/zone_pass``) — stood off, a fill between two airside rims lost
+    both its edges and no face (measured KATL replay, ``muro_concreto5``)."""
     live = [(w, band) for w in walls for band, read in
             ((w.upper, getattr(w, "top_profile", None)),
              (getattr(w, "lower", None), getattr(w, "foot_profile", None)))
             if read and band is not None and not band.is_empty]
-    live = [(w, fixed_difference(band, w.poly)) for w, band in live] \
-        + [(w, f) for w in walls if _retains(w)
-           for f in (_fill(w),) if f is not None and not f.is_empty]
-    if not live:
+    fills = [(w, f) for w in walls for f in (_fill(w),) if f is not None and not f.is_empty]
+    if not live and not fills:
         return []
-    held = canonical_union([g for g in taken if g is not None and not g.is_empty]
-                           + [g.buffer(cut_m, join_style="mitre", mitre_limit=2.0)
-                              for g in apart if g is not None and not g.is_empty])
+    zones = [g for g in taken if g is not None and not g.is_empty]
+    cells = [g.buffer(cut_m, join_style="mitre", mitre_limit=2.0)
+             for g in apart if g is not None and not g.is_empty]
+    held = canonical_union(zones + cells)
+    # the fill stands off a zone band crossing the footprint or meeting its
+    # end, at its own level (measured KATL replay: welded, a zone vertex 4 m
+    # from the held top stood 6.6 m under it), and welds to the airside
+    welded = {id(g) for g in weld}
+    held_fill = canonical_union([g.buffer(cut_m, join_style="mitre", mitre_limit=2.0)
+                                 for g in zones] + [
+        g.buffer(cut_m, join_style="mitre", mitre_limit=2.0)
+        for g in apart if g is not None and not g.is_empty and id(g) not in welded])
+    live = [(w, fixed_difference(band, w.poly), held, "#") for w, band in live] \
+        + [(w, f, held_fill, WALL_FILL_MARK) for w, f in fills]
     out: list[tuple[str, _t.Any]] = []
     k = 0
-    for w, band in live:
-        g = band
-        if held is not None and not held.is_empty:
-            g = fixed_difference(g, held)
+    for w, g, keep_off, mark in live:
+        if keep_off is not None and not keep_off.is_empty:
+            g = fixed_difference(g, keep_off)
         if out:     # two walls' bands meet: the first piece holds the overlap
             g = fixed_difference(g, canonical_union([p for _r, p in out]))
         for part in shapely.get_parts(g):
             if part.geom_type != "Polygon" or part.area < 1.0 \
                     or is_hairline(part, hairline_m):
                 continue
-            out.append((f"{WALL_SLOPE_REF_PREFIX}{w.resource}#{k}",
+            out.append((f"{WALL_SLOPE_REF_PREFIX}{w.resource}{mark}{k}",
                         shapely.segmentize(part, SLOPE_VERTEX_M)))
             k += 1
     return out
 
 
-def _retains(w) -> bool:
-    """The wall's top retains a hill at one station at least."""
-    return any(z is not None for _s, z in (getattr(w, "top_profile", None) or ()))
+def _retaining_runs(profile) -> list[tuple[float, float]]:
+    """``(s0, s1)`` per run of consecutive stations of ``profile`` that
+    retain a hill (``z`` not None), half a station spacing out either way."""
+    st = list(profile or ())
+    half = 0.5 * (st[1][0] - st[0][0]) if len(st) > 1 else 0.0
+    runs: list[tuple[float, float]] = []
+    for s_, z in st:
+        if z is None:
+            continue
+        if runs and s_ - runs[-1][1] <= 2.0 * half + 1e-9:
+            runs[-1] = (runs[-1][0], s_ + half)
+        else:
+            runs.append((s_ - half, s_ + half))
+    return runs
 
 
 def _fill(w):
-    """THE FILL (module doc): the footprint less the
-    :data:`FILL_SLOT_M` strip along its lower face; ``None`` unread."""
-    face = getattr(w, "lower_face", None)
-    if face is None or w.poly is None or w.poly.is_empty:
+    """THE FILL (module doc): the footprint across the stretches of the
+    upper face whose top retains a hill (a stretch that retains none is the
+    lower level wrapping round the wall, ``wall_sides._retaining_stations``),
+    less the :data:`FILL_SLOT_M` strip along its lower face; ``None`` when
+    unread, retaining nowhere, or thinner than two slots (measured KATL
+    ``muro_ladrillo``, 1.5 m thick: a solid wall whose top covers it)."""
+    face, up = getattr(w, "lower_face", None), getattr(w, "upper_face", None)
+    runs = _retaining_runs(getattr(w, "top_profile", None))
+    if face is None or up is None or not runs or w.poly is None or w.poly.is_empty:
         return None
-    return fixed_difference(w.poly, face.buffer(FILL_SLOT_M, cap_style="flat",
-                                                join_style="mitre", mitre_limit=2.0))
+    wide = 2.0 * w.poly.area / w.poly.length
+    if wide < 2.0 * FILL_SLOT_M:
+        return None     # a thin wall: its own top covers its footprint
+    reach = 2.0 * wide + FILL_SLOT_M
+    across = canonical_union([
+        substring(up, max(0.0, s0), min(up.length, s1)).buffer(
+            reach, cap_style="flat", join_style="mitre", mitre_limit=2.0)
+        for s0, s1 in runs if min(up.length, s1) > max(0.0, s0)])
+    if across is None or across.is_empty:
+        return None
+    slot = face.buffer(FILL_SLOT_M, cap_style="flat", join_style="mitre", mitre_limit=2.0)
+    return fixed_difference(fixed_difference(w.poly, slot), fixed_difference(w.poly, across))
 
 
 def slope_sides(faces: _t.Mapping[int, _t.Any],

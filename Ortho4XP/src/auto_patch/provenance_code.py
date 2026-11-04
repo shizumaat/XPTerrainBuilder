@@ -934,6 +934,8 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "elevation_access.layered_warp",
     "elevation_access.mask_coverage",
     "elevation_access.provider_fill",
+    "elevation_access.recheck",
+    "elevation_access.refusal_rest",
     "elevation_access.registry",
     "elevation_access.sea_cell",
     "elevation_access.stac_assets",

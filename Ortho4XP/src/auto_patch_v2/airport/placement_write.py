@@ -62,6 +62,7 @@ from . import dsf_write as _dw
 from . import footprint_unit as _fu
 from . import pack_journal as _pj
 from . import placement_plan as _pp
+from . import split_guard as _sg
 
 __all__ = ["PlacementWriteResult", "RestoreResult", "build_plan", "write_files",
            "restore_pack_objects", "apply_plan"]
@@ -589,6 +590,14 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
     v = _bs.classify_dsf(plan.dsf_path)
     if not v.may_write:
         raise _dw.BackupUnproven(_dw._stand_down_line(v))
+    # a body the pack cannot hold (a read-only folder) is written whole,
+    # decided BEFORE the restore removes the previous write's bodies
+    locked = _sg.unwritable_splits(plan, plan.pack_root)
+    if locked:
+        plan = _sg.without_splits(plan, locked,
+                                  "split undone: the pack folder is read-only")
+        keep = {r.replace("\\", "/") for r in plan.new_resources()}
+        files = [f for f in files if f.resource.replace("\\", "/") in keep]
     # #598: the pack as it is NOW, kept until this build completes
     _pj.snapshot(plan.pack_root, plan.dsf_path, new_bodies=[
         os.path.join(plan.pack_root, *f.resource.replace("\\", "/").split("/"))

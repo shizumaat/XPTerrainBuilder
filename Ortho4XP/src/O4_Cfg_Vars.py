@@ -110,6 +110,19 @@ cfg_app_vars = {
         "default": 180.0,
         "hint": "How old, in days, a stored regional extract may grow before background maintenance re-downloads it at application start. OpenStreetMap edits reach scenery slowly, so the default trades roughly half a year of staleness for far fewer multi-hundred-megabyte downloads.",
     },
+    # Owner 2026-11-04: a rebuild re-asks an elevation provider only when
+    # its recorded answer is this old (or the provider itself changed).
+    "elevation_recheck_days": {
+        "type": float,
+        "default": 30.0,
+        "hint": (
+            "How old, in days, a recorded answer from an elevation provider "
+            "may grow before a build asks that provider again: a 'no data "
+            "here' at an airport, or the check for a finer survey over an "
+            "airport inset already stored. Asking costs one query per "
+            "airport and provider; a provider whose definition changes is "
+            "asked again at once whatever this says."),
+    },
     # Settings > Storage (#1724): the automatic cleanup, off by default.
     "storage_auto_clean_days": {
         "type": int,
@@ -204,22 +217,25 @@ cfg_app_vars = {
     "slow_step_alert_minutes": {
         "type": int,
         "default": 5,
-        "values": (0, 5, 10, 15, 30, 60),
+        # On / off since #1351 2026-11-04 (the alert fires on a STUCK
+        # step, never a long one): any value above 0 is On.
+        "values": (0, 5),
         "value_labels": {
             0: "Off",
-            5: "5 minutes",
-            10: "10 minutes",
-            15: "15 minutes",
-            30: "30 minutes",
-            60: "1 hour",
+            5: "On",
         },
+        # The minute values the setting offered before 2026-11-04 all
+        # meant On: migrated on read (``cleanup_retired_cfg_keys``).
+        "legacy_values": {"10": "5", "15": "5", "30": "5", "60": "5"},
         "hint": (
-            "When one build step of a tile runs longer than this, and "
-            "longer than this machine's earlier builds of that step, the "
-            "app says what the step is doing, why it is slow and when it "
-            "should finish, and offers to continue, to finish on coarser "
-            "data where the step can, or to cancel the tile. Off never "
-            "asks."),
+            "When a build step of a tile is stuck -- a download has "
+            "stopped or is crawling, a server keeps refusing, a counted "
+            "step has finished nothing for ten minutes, another build has "
+            "held a file it needs for five minutes, or the disk is full -- "
+            "the app says what is stuck and why, and offers to continue, "
+            "to finish on coarser data where the step can, or to cancel "
+            "the tile. A step that is only long (many tiles queued, a "
+            "busy processor) never asks. Off never asks."),
     },
     "check_tms_response": {
         "module": "IMG",
@@ -605,7 +621,7 @@ cfg_tile_vars = {
     },
     "masks_width": {
         "type": list,
-        "default": 100,
+        "default": 500,
         "hint": "Maximum extent of the masks perpendicularly to the coastline (rough definition). NOTE: The value is now in meters, it used to be in ZL14 pixel size in earlier verions, the scale is roughly one to ten between both.",
     },
     "inland_shore_feather_m": {
@@ -857,6 +873,7 @@ list_app_vars = [
     "osm_regional_extracts",
     "osm_extract_foreground_download",
     "osm_extract_refresh_days",
+    "elevation_recheck_days",
     "base_elevation_source",
     # APP-level by design (spec §C.4, RULINGS 2026-09-18a/18j): the
     # "Airports on a tile edge" answer.  It lives in ``cfg_app_vars``; it
@@ -1172,6 +1189,69 @@ def cleanup_retired_cfg_keys(source):
         return lines
     except Exception:
         # A cleanup that raises is a cleanup that breaks builds.
+        return []
+
+
+#: CHANGED REGISTRY DEFAULTS.  The engine writes EVERY default into the
+#: global cfg on first run (``O4_Config_Utils``), so a raised default
+#: never reaches an existing user: their file holds the old one as if
+#: chosen.  :func:`migrate_changed_defaults` rewrites a stored OLD
+#: default to the new one ONCE per global cfg and records it in
+#: ``<cfg>.defaults`` (one var per line); afterwards the var is never
+#: touched in that file, so a value set by hand later (the old default
+#: included) is kept.  A value other than the old default is never
+#: changed; tile cfgs (sparse overrides) are not migrated.
+
+#: var -> (old default as stored, new default).  Owner 2026-11-04:
+#: masks_width 100 -> 500 to show the improved bathymetry and coastline.
+CHANGED_DEFAULTS = {"masks_width": ("100", "500")}
+
+
+def _register_path(cfg_path):
+    return cfg_path + ".defaults"
+
+
+def _read_register(cfg_path):
+    try:
+        with open(_register_path(cfg_path), encoding="utf-8") as f:
+            return {line.strip() for line in f if line.strip()}
+    except OSError:
+        return set()
+
+
+def migrate_changed_defaults(cfg_path):
+    """Apply :data:`CHANGED_DEFAULTS` to the global cfg at *cfg_path*.
+
+    :returns: INFO lines for the caller to print (possibly empty).
+        Never raises: a cfg that cannot be rewritten keeps its value.
+    """
+    try:
+        if not os.path.isfile(cfg_path):
+            return []
+        done = _read_register(cfg_path)
+        pending = [v for v in CHANGED_DEFAULTS if v not in done]
+        if not pending:
+            return []
+        import O4_Settings_Model as SETTINGS
+
+        data = SETTINGS._parse_cfg(cfg_path, strip_quotes=False)
+        lines, changed = [], False
+        for var in pending:
+            old, new = CHANGED_DEFAULTS[var]
+            if str(data.get(var, "")).strip() == old:
+                data[var] = new
+                changed = True
+                lines.append("raised " + var + " from the old default "
+                             + old + " to the new default " + new
+                             + " in " + cfg_path)
+        if changed:
+            SETTINGS._write_atomic_with_backup(cfg_path, data)
+        with open(_register_path(cfg_path), "a", encoding="utf-8",
+                  newline="\n") as f:
+            for var in pending:
+                f.write(var + "\n")
+        return lines
+    except Exception:
         return []
 
 

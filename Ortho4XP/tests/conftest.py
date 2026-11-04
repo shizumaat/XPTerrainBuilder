@@ -410,6 +410,20 @@ def _edit_cache_session_is_per_test(monkeypatch, tmp_path_factory, request):
 
 
 @pytest.fixture(autouse=True)
+def _provider_refusal_rest_is_per_test(monkeypatch):
+    """No test inherits another's 24-hour provider rest
+    (``elevation_access.refusal_rest``): a refusal one test provokes would
+    otherwise silence the same provider code for every later test."""
+    import elevation_access.refusal_rest as REST
+    monkeypatch.setattr(REST, "_MEMORY", {})
+    monkeypatch.setattr(REST, "_LOADED_FROM", [None])
+    monkeypatch.setattr(REST, "_NOTED", set())
+    monkeypatch.setattr(REST, "_ANSWERED", set())
+    monkeypatch.setattr(REST, "_GATES", {})
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _no_test_window_writes_the_engine_stderr_log_into_the_tree(
         monkeypatch, tmp_path_factory):
     """A Qt test window that starts a build does not write ``logs/`` here.

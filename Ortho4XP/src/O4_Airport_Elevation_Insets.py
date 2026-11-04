@@ -170,6 +170,8 @@ from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access import fetch_scratch as FETCH_SCRATCH
 from elevation_access import inset_trim as INSET_TRIM
 from elevation_access.fetch_slots import held_inset_fetch_slot
+from elevation_access import recheck as ea_recheck
+from elevation_access import refusal_rest as ea_refusal_rest
 from elevation_access import footprints as ea_footprints
 from elevation_access import mask_coverage as ea_mask_coverage
 from elevation_access.las_tiles import LAS_FOOTPRINT_KEY, _buffer_geometry_m
@@ -713,13 +715,17 @@ def run_capability_record(definition):
     that engine HAD.  A provider that requires NONE still gets the
     engine stamp with an empty capability list (owner RULINGS
     2026-09-15aq (4)): nothing about it can be capability-degraded, but
-    the VERSION is what decides whether its durable negative is re-asked
-    once on the next engine.
+    the PROVIDER VERSION (:func:`elevation_access.recheck.
+    provider_version`) and the stamp's ``checked`` date decide whether its
+    durable negative is asked again (owner 2026-11-04); ``engine`` is
+    kept as a record of who wrote it, never compared.
     """
     required = provider_required_capabilities(definition)
     if not required:
         return {"engine": _engine_version(), "capabilities": [],
-                "negative_law": NEGATIVE_LAW}
+                "negative_law": NEGATIVE_LAW,
+                "provider_version": ea_recheck.provider_version(
+                    definition, [], NEGATIVE_LAW)}
     have = []
     for capability in required:
         if capability == CAPABILITY_LERC and lerc_decode_available():
@@ -729,7 +735,9 @@ def run_capability_record(definition):
         elif capability == CAPABILITY_LAZ and laz_reader_available():
             have.append(capability)
     return {"engine": _engine_version(), "capabilities": have,
-            "negative_law": NEGATIVE_LAW}
+            "negative_law": NEGATIVE_LAW,
+            "provider_version": ea_recheck.provider_version(
+                definition, have, NEGATIVE_LAW)}
 
 
 def _engine_version():
@@ -751,10 +759,14 @@ def engine_version():
 
 
 def _record_run_capabilities(airport_record, code, definition):
-    """Stamp the run's capability record for ``code`` into the record."""
+    """Stamp the run's capability record for ``code`` into the record,
+    dated: ``checked`` is the day the provider was ASKED (or, for a
+    foreign provider, judged), which :func:`negative_is_version_stale`
+    ages against ``elevation_recheck_days``."""
     record = run_capability_record(definition)
     if record is None:
         return
+    record["checked"] = datetime.date.today().isoformat()
     capabilities = airport_record.get("capabilities")
     if not isinstance(capabilities, dict):
         capabilities = {}
@@ -768,14 +780,15 @@ def _foreign_negative_settled(airport_record, code, definition,
 
     True when the record already says ``no-coverage`` for ``code`` with a
     capability stamp under the current query law, and neither re-probe
-    predicate (13b's :func:`negative_is_unverified`, 15aq (4)'s
+    predicate (13b's :func:`negative_is_unverified`, the recheck age's
     :func:`negative_is_version_stale`) would call it into question.  The
     fetch loop then leaves the record alone instead of re-stamping the
     running engine version on it: that re-stamp is a MATERIAL index
     change, and on a warm corpus it became a write into the shared data
     repo on every engine version bump (#1776 -- KPDX SWISSALTI3D, BIKF).
-    A negative a predicate WOULD question is still stamped, exactly once
-    per version, as #1238 requires.
+    A negative a predicate WOULD question is still stamped -- once per
+    recheck age or provider version, never per engine -- as #1238
+    requires (no query: a foreign provider is never asked).
     """
     if not isinstance(airport_record, dict):
         return False
@@ -868,42 +881,75 @@ def negative_is_unverified(airport_record, code, definition,
     )
 
 
-def recorded_engine_version(airport_record, code):
-    """The engine version stamped beside ``code``'s status, or ``None``."""
-    if not isinstance(airport_record, dict):
-        return None
-    capabilities = airport_record.get("capabilities")
-    if not isinstance(capabilities, dict):
-        return None
-    stamp = capabilities.get(code)
-    if not isinstance(stamp, dict):
-        return None
-    engine = stamp.get("engine")
-    return str(engine) if engine is not None else None
+def _capability_stamp(airport_record, code):
+    """The stamp beside ``code``'s status, or ``None``."""
+    capabilities = (airport_record.get("capabilities")
+                    if isinstance(airport_record, dict) else None)
+    stamp = (capabilities.get(code)
+             if isinstance(capabilities, dict) else None)
+    return stamp if isinstance(stamp, dict) else None
+
+
+def _provider_version_moved(airport_record, code, definition):
+    """Was ``code``'s status recorded under ANOTHER provider version?
+
+    The version is :func:`elevation_access.recheck.provider_version`
+    (the definition, this run's capabilities for it, the query law).  A
+    stamp that records none predates the field: it is MIGRATED IN PLACE
+    -- read as asked under the current version -- and never re-probed
+    for the schema change alone (owner 2026-11-04)."""
+    stamp = _capability_stamp(airport_record, code)
+    recorded = stamp.get("provider_version") if stamp else None
+    if recorded is None:
+        return False
+    return recorded != run_capability_record(definition)["provider_version"]
+
+
+def _recorded_check_date(airport_record, code):
+    """The day ``code`` was last asked for this airport (ISO), or ``None``.
+
+    The stamp's own ``checked``; a stamp written before stamps were
+    dated is migrated in place to the record's ``checked`` (the last day
+    any provider was asked for the airport -- no later than the day this
+    one was)."""
+    stamp = _capability_stamp(airport_record, code)
+    if stamp and stamp.get("checked"):
+        return str(stamp["checked"])
+    if isinstance(airport_record, dict) and airport_record.get("checked"):
+        return str(airport_record["checked"])
+    return None
+
+
+def _negative_recheck_reason(airport_record, code, definition):
+    """Why a due capability-free negative is asked again, for one line."""
+    if negative_predates_query_law(airport_record, code):
+        return "recorded before refused queries stopped counting as one"
+    if _provider_version_moved(airport_record, code, definition):
+        return "the provider's definition or capabilities changed since"
+    return ("checked %s, more than %g days ago (elevation_recheck_days)"
+            % (_recorded_check_date(airport_record, code),
+               ea_recheck.recheck_days()))
 
 
 def negative_is_version_stale(airport_record, code, definition,
                               bounding_box=None):
-    """Is this ``no-coverage`` a CAPABILITY-FREE one from another engine?
+    """Is this CAPABILITY-FREE ``no-coverage`` due to be asked again?
 
-    Owner RULINGS 2026-09-15aq (4).  The 13b door above
-    (:func:`negative_is_unverified`) can only reach a provider that
-    DECLARES a required capability -- USGS3DEP declares none, so the 20
-    false negatives the TNM outage of 2026-09-15 wrote across the two
-    Phoenix tiles (RULINGS 2026-09-15q attributed the writer) were
-    PERMANENT: nothing in the index could ever call them into question.
-
-    The ruling makes the ENGINE VERSION the discriminator: each version
-    re-asks every capability-free negative once (one discovery query per
-    airport per version, ~0.4 s when the service is up).  The re-probe
-    stamps the running version whatever the answer, so a genuine empty
-    listing stays no-coverage and is not asked again until the next
-    version.
+    Owner 2026-11-04, replacing RULINGS 2026-09-15aq (4)'s once per
+    ENGINE version: a negative is asked again when it is older than the
+    ``elevation_recheck_days`` setting (:func:`_recorded_check_date`), when
+    THE PROVIDER's version moved (:func:`_provider_version_moved`), or
+    when it predates the query-error law (#1328).  The Phoenix
+    protection stands without the version door: the TNM outage's 20
+    false negatives of 2026-09-15 were 200 error envelopes, which
+    ``discovery_listing_items`` now raises as transient -- they are never
+    recorded -- and a negative the old engines DID record is due within
+    the recheck age.
 
     False for a capability-GATED provider (13b's door owns those,
-    unchanged), for any status but ``no-coverage``, and -- so no engine
-    release churns every index on earth -- for a negative that only says
-    "this provider's own declared box does not reach here".  That one is
+    unchanged), for any status but ``no-coverage``, and -- so no release
+    churns every index on earth -- for a negative that only says "this
+    provider's own declared box does not reach here".  That one is
     re-derived from the boxes, needs no query, and is short-circuited
     before any fetch.
     """
@@ -920,10 +966,10 @@ def negative_is_version_stale(airport_record, code, definition,
     ):
         return False
     # A negative from before the query-error law may be a refused query
-    # (#1328): re-asked once even under the same engine version.
-    return (recorded_engine_version(airport_record, code)
-            != _engine_version()
-            or negative_predates_query_law(airport_record, code))
+    # (#1328): re-asked once whatever its age.
+    return (negative_predates_query_law(airport_record, code)
+            or _provider_version_moved(airport_record, code, definition)
+            or ea_recheck.is_due(_recorded_check_date(airport_record, code)))
 
 
 def _bounding_box_hull(boxes):
@@ -1397,6 +1443,18 @@ def _rung_ask_signature(rung_definition):
     return dict(run_capability_record(rung_definition), definition=digest)
 
 
+def _same_ask_signature(recorded, rung_definition):
+    """Was a rung declined under the signature that still holds?  The
+    DEFINITION digest and the CAPABILITIES compare; the engine version a
+    signature also records does not (owner 2026-11-04: a new engine
+    release is no reason to ask a provider again)."""
+    if not isinstance(recorded, dict):
+        return False
+    current = _rung_ask_signature(rung_definition)
+    return all(recorded.get(key) == current.get(key)
+               for key in ("definition", "capabilities"))
+
+
 def _cap_declined_listing(error, rung_strategy):
     """The listing ids a rung was DECLINED over by a per-airport cap -- or,
     THE PRODUCT CLASS (#1210), over a listed tile whose own bytes the
@@ -1429,18 +1487,18 @@ def _rung_missing_capabilities(rung_definition):
 def _rung_stands_without_capability(attempt, rung_definition):
     """THE DECODER CLASS (#595): was this rung recorded ``unavailable``
     while the engine LACKED a capability it needs, under the signature
-    that still holds (:func:`_rung_ask_signature`: same definition, same
-    engine, same capabilities)?  Whatever it lists, this engine still
+    that still holds (:func:`_same_ask_signature`: same definition, same
+    capabilities)?  Whatever it lists, this engine still
     cannot read it, so the build-time re-check does not ask it and does
-    not re-run the ladder for it.  The capability appearing -- or a new
-    engine, or an edited definition -- moves the signature and the rung
-    is asked again."""
+    not re-run the ladder for it.  The capability appearing -- or an
+    edited definition -- moves the signature and the rung is asked
+    again."""
     return bool(
         isinstance(attempt, dict)
         and attempt.get("outcome") == "unavailable"
         and attempt.get("missing_capabilities")
-        and attempt.get("declined_under")
-        == _rung_ask_signature(rung_definition))
+        and _same_ask_signature(attempt.get("declined_under"),
+                                rung_definition))
 
 
 def _provenance_listing_ids(provenance):
@@ -1585,6 +1643,18 @@ def _fetch_through_resolution_ladder(
             factory = ACCESS_STRATEGIES.get(
                 rung_definition.get("access_strategy"))
             rung_strategy = factory() if factory else None
+        resting = (ea_refusal_rest.resting_refusal(rung_definition.get("code"))
+                   if index > 0 else None)
+        if resting is not None:
+            # A refusing provider rests a day (owner 2026-11-04): this
+            # rung is no answer this build, as for an outage (30t).
+            ea_refusal_rest.note_resting_once(rung_definition.get("code"),
+                                              resting)
+            attempt["outcome"] = "transient"
+            attempt["transient_reason"] = "resting after a refusal: %s" % (
+                resting.get("reason"),)
+            attempt["valid_fraction"] = 0.0
+            return (attempt, None)
         if rung_strategy is None:
             unavailable = "no access strategy named %r" % (
                 rung_definition.get("access_strategy"),)
@@ -1603,6 +1673,9 @@ def _fetch_through_resolution_ladder(
                 # ``unavailable:<reason>`` -- never a durable no-coverage.
                 if index == 0:
                     unavailable_errors.append(error)
+                if ea_refusal_rest.is_refusal(error):
+                    ea_refusal_rest.remember_refusal(
+                        rung_definition.get("code"), error, base_name)
                 unavailable = error.reason
                 declined_listing = _cap_declined_listing(error, rung_strategy)
             except TransientFetchError as error:
@@ -1615,6 +1688,9 @@ def _fetch_through_resolution_ladder(
                 attempt["transient_reason"] = str(error)
                 attempt["valid_fraction"] = 0.0
                 transient_errors.append(error)
+                if ea_refusal_rest.is_refusal(error):
+                    ea_refusal_rest.remember_refusal(
+                        rung_definition.get("code"), error, base_name)
                 if os.path.isfile(rung_path):
                     os.remove(rung_path)
                 return (attempt, None)
@@ -4025,8 +4101,8 @@ def _stored_rung_listing(attempt, rung_definition=None):
         return None
     if attempt.get("outcome") == "unavailable" and (
             rung_definition is None
-            or attempt.get("declined_under")
-            != _rung_ask_signature(rung_definition)):
+            or not _same_ask_signature(attempt.get("declined_under"),
+                                       rung_definition)):
         return None
     if isinstance(attempt.get("listing_ids"), list):
         return [str(value) for value in attempt["listing_ids"]]
@@ -4192,6 +4268,13 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
     * discovery transient -> ``"transient"``: the cached inset stands
       (RULINGS 2026-09-30t: an outage is no answer).
 
+    THE RECHECK AGE (owner 2026-11-04): a stored ``unchanged`` answer for
+    the same rungs under the same provider versions (``rung_versions``)
+    that is not older than ``elevation_recheck_days`` is returned as it
+    stands -- no query.  A rung whose provider is resting after a refusal
+    (``elevation_access.refusal_rest``) is not asked and counts as
+    transient.
+
     A rung whose own coverage box misses ``bounding_box`` is not asked.
     Returns ``None`` when nothing applies (no sidecar, no ladder, rung 0
     or no rung delivered), else ``{"rung", "rungs_checked", "checked",
@@ -4207,19 +4290,47 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
     if selection is None:
         return None
     (sidecar, meta, ladder, labels, stored, finer) = selection
+    askable = [
+        (label, rung_definition) for (label, rung_definition) in finer
+        if _coverage_bbox_intersects(rung_definition, bounding_box)
+        and ACCESS_STRATEGIES.get(rung_definition.get("access_strategy"))
+        is not None]
+    before = ladder.get("recheck") if isinstance(
+        ladder.get("recheck"), dict) else {}
+    rung_versions = [run_capability_record(rung_definition)["provider_version"]
+                     for (_label, rung_definition) in askable]
+    if (before.get("result") == "unchanged"
+            and before.get("rungs_checked")
+            == [labels.index(label) for (label, _d) in askable]
+            and before.get("rung_versions", rung_versions) == rung_versions
+            and before.get("checked")
+            and not ea_recheck.is_due(before["checked"])):
+        # THE RECHECK AGE (owner 2026-11-04): the same rungs, under the
+        # same provider versions, were asked within elevation_recheck_days
+        # and listed nothing new -- the answer on record stands, and no
+        # index is queried this build.  (A stamp from before
+        # ``rung_versions`` is read as asked under the current ones.)
+        return dict(before)
     new_ids = []
     checked = []
     transient = False
-    for (label, rung_definition) in finer:
-        if not _coverage_bbox_intersects(rung_definition, bounding_box):
-            continue
+    for (label, rung_definition) in askable:
         factory = ACCESS_STRATEGIES.get(rung_definition.get("access_strategy"))
-        if factory is None:
-            continue
         checked.append(labels.index(label))
+        resting = ea_refusal_rest.resting_refusal(rung_definition.get("code"))
+        if resting is not None:
+            # A refusing provider rests a day: this rung stands as
+            # recorded, exactly as for an outage (30t).
+            ea_refusal_rest.note_resting_once(rung_definition.get("code"),
+                                              resting)
+            transient = True
+            continue
         try:
             sources = factory().discover(rung_definition, bounding_box)
         except Exception as error:
+            if ea_refusal_rest.is_refusal(error):
+                ea_refusal_rest.remember_refusal(
+                    rung_definition.get("code"), error, icao)
             # An outage is no answer (30t): THIS rung stands as recorded,
             # and the other finer rungs are still asked -- one rung's
             # outage must not hide another rung's new listing.
@@ -4245,12 +4356,18 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
         "checked": datetime.date.today().isoformat(),
         "result": result,
         "new_source_ids": sorted(set(new_ids)),
+        "rung_versions": rung_versions,
     }
     if record:
-        before = ladder.get("recheck") if isinstance(
-            ladder.get("recheck"), dict) else {}
-        if (before.get("result"), before.get("new_source_ids")) != (
-                recheck["result"], recheck["new_source_ids"]):
+        # A date-only change is written once the stored date is itself
+        # due -- else, past the recheck age, every build would ask again.
+        if (before.get("result"), before.get("new_source_ids"),
+                before.get("rung_versions", rung_versions)) != (
+                recheck["result"], recheck["new_source_ids"],
+                rung_versions) or (
+                recheck["result"] == "unchanged"
+                and (not before.get("checked")
+                     or ea_recheck.is_due(before["checked"]))):
             if _write_refused_by_armed_guard(sidecar):
                 # §11 (4e): under an ARMED shared-repo guard the stamp is
                 # NOT ATTEMPTED (an attempted-and-caught refusal fails the
@@ -4720,6 +4837,14 @@ def ensure_airport_insets(
             with fetch_counter_lock:
                 fetch_counter[0] += 1
 
+    def _rest_keeps_cached(code, resting, cached_inset_is_stale,
+                           destination):
+        """A REFUSING PROVIDER RESTS A DAY (owner 2026-11-04): it is not
+        asked, the record is left as it stands, and one line per provider
+        says so.  True when a cached inset a refetch wanted is kept."""
+        ea_refusal_rest.note_resting_once(code, resting)
+        return cached_inset_is_stale and os.path.isfile(destination)
+
     def _fetch_airport_insets(icao):
         bounding_box = airport_bounding_boxes[icao]
         polygon = (airport_polygons or {}).get(icao)
@@ -4849,9 +4974,11 @@ def ensure_airport_insets(
                 if not cached_inset_is_stale:
                     # THE BUILD-TIME LADDER RE-CHECK (owner RULINGS
                     # 2026-09-30aw (2)): an inset a coarser rung delivered
-                    # re-asks the finer rungs' discovery on every build
-                    # (one index query each, no download).  A new listing
-                    # re-runs the whole ladder beside the cached raster.
+                    # re-asks the finer rungs' discovery (one index query
+                    # each, no download) once its last asking is older
+                    # than elevation_recheck_days (owner 2026-11-04).  A
+                    # new listing re-runs the whole ladder beside the
+                    # cached raster.
                     recheck = ladder_recheck(lat, lon, icao, code,
                                              bounding_box, record=True)
                     if recheck is not None and (
@@ -4940,22 +5067,16 @@ def ensure_airport_insets(
                        .upper()),
                 )
             elif version_stale:
-                # ONCE PER ENGINE VERSION (owner RULINGS 2026-09-15aq (4)).
-                # This provider declares no capability, so 13b's door
-                # above cannot reach it and the negative on disk would
-                # otherwise be permanent -- as the 20 the TNM outage of
-                # 2026-09-15 wrote across the Phoenix tiles were.  The
-                # probe below stamps THIS version whatever it answers, so
-                # a genuine empty listing is not asked again until the
-                # next one.
+                # DUE AGAIN (owner 2026-11-04): older than
+                # elevation_recheck_days, or the provider changed.  The
+                # probe below stamps today's date and the provider's
+                # version whatever it answers, so a genuine empty listing
+                # is not asked again until it is due again.
                 UI.vprint(
                     1,
-                    "    [insets] %s: re-probing %s (no-coverage recorded "
-                    "by engine %s, this is %s) - once per version"
-                    % (icao, code,
-                       recorded_engine_version(airport_record, code)
-                       or "an unrecorded version",
-                       _engine_version()),
+                    "    [insets] %s: re-probing %s (no-coverage %s)"
+                    % (icao, code, _negative_recheck_reason(
+                        airport_record, code, definition)),
                 )
             if not has_gdal:
                 airport_record[code] = unavailable_status(
@@ -4970,14 +5091,13 @@ def ensure_airport_insets(
                     "be asked again)" % (icao, code),
                 )
                 continue
-            UI.vprint(
-                1,
-                "    Fetching elevation inset for",
-                icao,
-                "from",
-                code,
-            )
-            _count_fetch_attempt()
+            resting = ea_refusal_rest.resting_refusal(code)
+            if resting is not None:
+                if _rest_keeps_cached(code, resting, cached_inset_is_stale,
+                                      destination):
+                    airport_record[code] = "ok"
+                    break
+                continue
             # EVERY fetch works in a private scratch folder (#583) and
             # only the finished raster is moved onto the cache: a failed
             # or killed fetch leaves the cache directory as it was, and a
@@ -5009,21 +5129,30 @@ def ensure_airport_insets(
                 # and the refusal is on the guard's record.
                 EXTWRITE.declare_external_write(
                     destination, writer="the airport inset fetch")
-                with held_inset_fetch_slot(code):
-                    slow_note.start()
-                    provenance = fetch_inset(
-                        definition,
-                        bounding_box,
-                        _inset_target_resolution_m(
-                            definition, target_resolution_m
-                        ),
-                        fetch_destination,
-                        footprint_prefetch=footprint_prefetch,
-                        resolution_ladder=True,
-                        **_footprint_kwargs(
-                            (airport_polygons or {}).get(icao),
-                            "footprint_polygon"),
-                    )
+                # THE FIRST ASKING GOES ALONE (owner 2026-11-04): until the
+                # provider has answered once in this process the other
+                # airports wait, so a refusal is heard once, not once per
+                # worker; it yields the rest that landed meanwhile.
+                with ea_refusal_rest.first_answer_gate(code, icao) as resting, \
+                        held_inset_fetch_slot(code):
+                    if resting is None:
+                        UI.vprint(1, "    Fetching elevation inset for",
+                                  icao, "from", code)
+                        _count_fetch_attempt()
+                        slow_note.start()
+                        provenance = fetch_inset(
+                            definition,
+                            bounding_box,
+                            _inset_target_resolution_m(
+                                definition, target_resolution_m
+                            ),
+                            fetch_destination,
+                            footprint_prefetch=footprint_prefetch,
+                            resolution_ladder=True,
+                            **_footprint_kwargs(
+                                (airport_polygons or {}).get(icao),
+                                "footprint_polygon"),
+                        )
             except ProviderUnavailable as error:
                 # A MISSING CAPABILITY (owner RULINGS 2026-09-13b (1)):
                 # the engine could not ask, so the answer is
@@ -5052,6 +5181,13 @@ def ensure_airport_insets(
                 fetch_error = str(error)
             finally:
                 slow_note.cancel()
+            if resting is not None:
+                FETCH_SCRATCH.discard(fetch_destination)
+                if _rest_keeps_cached(code, resting, cached_inset_is_stale,
+                                      destination):
+                    airport_record[code] = "ok"
+                    break
+                continue
             if provenance is not None and inset_carries_no_relief(
                     fetch_destination):
                 # THE FLAT-FILL RULE (#1171): a provider asked beyond its
@@ -6410,11 +6546,13 @@ def unverified_capability_negatives(lat, lon, provider_definitions=None):
 
 def version_stale_capability_free_negatives(lat, lon,
                                             provider_definitions=None):
-    """Every CAPABILITY-FREE no-coverage negative from another engine.
+    """Every CAPABILITY-FREE no-coverage negative that is due again.
 
-    ``[(icao, provider code, recorded version or None), ...]`` -- the
-    records a next pass would RE-PROBE under owner RULINGS 2026-09-15aq
-    (4), sorted.  Cheap: one JSON read, no network, no raster.
+    ``[(icao, provider code, why), ...]`` -- the records a next pass
+    would RE-PROBE (:func:`negative_is_version_stale`: older than
+    ``elevation_recheck_days``, a moved provider version, or before the
+    query-error law; ``why`` is :func:`_negative_recheck_reason`), sorted.
+    Cheap: one JSON read, no network, no raster.
 
     THE ONE PREDICATE for that question, exactly as
     :func:`unverified_capability_negatives` is for 13b's door: the
@@ -6442,7 +6580,8 @@ def version_stale_capability_free_negatives(lat, lon,
             if negative_is_version_stale(airport_record, code, definition):
                 out.append(
                     (icao, code,
-                     recorded_engine_version(airport_record, code))
+                     _negative_recheck_reason(airport_record, code,
+                                             definition))
                 )
     return out
 

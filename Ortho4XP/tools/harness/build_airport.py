@@ -1705,13 +1705,14 @@ def schema_stale_osm_layers(root, lat, lon) -> list:
 
 def unverified_inset_negatives(state, lat, lon) -> list:
     """The DEGRADED-TIER refusal (owner RULINGS 2026-09-13b (2)) and the
-    ONCE-PER-VERSION re-probe refusal (owner RULINGS 2026-09-15aq (4)).
+    RECHECK-AGE re-probe refusal (owner 2026-11-04).
 
     Two doors, one refusal: both name a ``no-coverage`` record the next
     pass would RE-PROBE, and a re-probe fetches into the shared data
     repo.  13b's covers a CAPABILITY-GATED provider whose record carries
-    no capability stamp; 15aq's covers a CAPABILITY-FREE provider whose
-    record carries another engine's version.
+    no capability stamp; the other covers a CAPABILITY-FREE provider whose
+    record is older than ``elevation_recheck_days`` or was asked under
+    another provider version.
 
     A ``no-coverage`` in the inset index recorded for a CAPABILITY-GATED
     provider by a run that did not record its capabilities is UNVERIFIED:
@@ -1744,25 +1745,20 @@ def unverified_inset_negatives(state, lat, lon) -> list:
         print(f"  [harness] unverified-inset check skipped ({exc!r})")
         return []
     out = []
-    for (icao, code, recorded) in version_stale:
-        # THE ONCE-PER-VERSION RE-PROBE (owner RULINGS 2026-09-15aq (4)).
-        # ``code`` declares NO required capability, so 13b's door below
-        # cannot reach it; its negative would be permanent.  The TNM
-        # outage of 2026-09-15 wrote 20 such false negatives across the
-        # two Phoenix tiles (RULINGS 2026-09-15q).  Each engine version
-        # re-asks once — which FETCHES into the shared repo, so the
-        # harness refuses up front and names the flag.  The APP's own
-        # build path takes the re-probe; the harness never does.
+    for (icao, code, why) in version_stale:
+        # THE RECHECK AGE (owner 2026-11-04, replacing RULINGS 2026-09-15aq
+        # (4)'s once per engine version).  ``code`` declares NO required
+        # capability, so 13b's door below cannot reach it; its negative is
+        # asked again when older than ``elevation_recheck_days`` or when
+        # the provider's own version moved — which FETCHES into the shared
+        # repo, so the harness refuses up front and names the flag.  The
+        # APP's own build path takes the re-probe; the harness never does.
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
                     f"index.json [{icao}:{code}]",
-                    f"a no-coverage negative for {code} recorded by engine "
-                    f"{recorded or 'an unrecorded version'} — this engine is "
-                    f"{running}, and a capability-free provider's negative "
-                    f"is RE-ASKED once per version (a TNM 200 error envelope "
-                    f"minted 20 false ones on the Phoenix tiles on "
-                    f"2026-09-15), so the build would re-probe {code} and "
-                    f"re-cut the inset mid-build"))
+                    f"a no-coverage negative for {code} is due to be asked "
+                    f"again ({why}; this engine is {running}), so the build "
+                    f"would re-probe {code} and re-cut the inset mid-build"))
     for (icao, code, capabilities) in unverified:
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/"

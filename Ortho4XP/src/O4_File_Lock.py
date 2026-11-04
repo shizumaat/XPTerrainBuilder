@@ -53,6 +53,26 @@ STALE_LOCK_AGE_SECONDS: float = 3600.0
 # holds the lock.
 ACQUISITION_POLL_INTERVAL_SECONDS: float = 0.2
 
+# The locks this process is waiting for right now: lock path -> when the
+# wait began.  The stuck-step alert reads it (#1351, ``lock_waits``).
+_waits: dict = {}
+_waits_lock = threading.Lock()
+
+
+def lock_waits() -> list:
+    """``[(lock_path, waiting_since), ...]``: the cache locks this process
+    is waiting for because another holder has them, longest first."""
+    with _waits_lock:
+        return sorted(_waits.items(), key=lambda item: item[1])
+
+
+def _note_wait(lock_path: str, waiting: bool) -> None:
+    with _waits_lock:
+        if waiting:
+            _waits.setdefault(lock_path, time.time())
+        else:
+            _waits.pop(lock_path, None)
+
 
 def _write_holder_identity(lock_file_descriptor: int) -> None:
     """Record this process's identity inside the freshly created lock file.
@@ -212,7 +232,26 @@ def hold_file_lock(
     """
     lock_path = target_path + ".lock"
     deadline = time.monotonic() + timeout_seconds
-    acquired = False
+    try:
+        acquired = _acquire(lock_path, deadline)
+    finally:
+        _note_wait(lock_path, False)
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            try:
+                os.remove(lock_path)
+            except OSError:
+                # A stale-break by another process, or a manual cleanup,
+                # already removed our lock file -- nothing more to do.
+                pass
+
+
+def _acquire(lock_path: str, deadline: float) -> bool:
+    """:func:`hold_file_lock`'s acquisition loop: True once held, False
+    when it proceeds without the lock.  A contended wait is noted for
+    :func:`lock_waits` while it lasts."""
     announced_stale_break = False
     while True:
         try:
@@ -221,6 +260,7 @@ def hold_file_lock(
             )
         except FileExistsError:
             # Someone else holds it (or crashed holding it).
+            _note_wait(lock_path, True)
             identity = _read_identity(lock_path)
             if _lock_file_is_stale(lock_path, identity):
                 if not announced_stale_break:
@@ -242,7 +282,7 @@ def hold_file_lock(
                     "- proceeding without it (a duplicated download is the "
                     "only risk).",
                 )
-                break
+                return False
             time.sleep(ACQUISITION_POLL_INTERVAL_SECONDS)
             continue
         except OSError as error:
@@ -259,18 +299,7 @@ def hold_file_lock(
                 lock_path,
                 "(%s) - proceeding without it." % error,
             )
-            break
+            return False
         else:
             _write_holder_identity(lock_file_descriptor)
-            acquired = True
-            break
-    try:
-        yield acquired
-    finally:
-        if acquired:
-            try:
-                os.remove(lock_path)
-            except OSError:
-                # A stale-break by another process, or a manual cleanup,
-                # already removed our lock file -- nothing more to do.
-                pass
+            return True

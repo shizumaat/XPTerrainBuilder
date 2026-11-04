@@ -329,11 +329,11 @@ class StepProgress(EngineEvent):
 
 @dataclass(frozen=True)
 class SlowStep(EngineEvent):
-    """One step of one tile ran past its slow-step threshold (#1351).
+    """One step of one tile is STUCK (#1351; never merely long).
 
     The ENGINE writes every word (``o4_engine.slow_step``): ``title`` and
-    ``message`` (what the step is doing, why it is slow, the ETA at the
-    current rate) are shown verbatim, ``options`` are the answers the
+    ``message`` (what is stuck, why, the ETA at the current rate) are
+    shown verbatim, ``options`` are the answers the
     step supports — ``"continue"``, ``"coarser"`` (only where the running
     phase can finish on coarser data), ``"cancel"`` — with their button
     words in ``option_labels``, in order.  A front end shows it

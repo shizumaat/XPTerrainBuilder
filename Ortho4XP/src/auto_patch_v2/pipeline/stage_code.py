@@ -685,6 +685,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_ramp",
         "auto_patch_v2.airport.road_stations",
+        "auto_patch_v2.airport.wall_air",
         "auto_patch_v2.airport.wall_class",
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.constraints",
@@ -1633,7 +1634,8 @@ CODE_MODULES["solve"] = _mods("""
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed
+    solve.project solve.project_strip solve.rows solve.runway_first solve.wall_cut
+    solve.wall_floor solve.warm_seed
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
@@ -1760,7 +1762,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed
+    solve.project solve.project_strip solve.rows solve.runway_first solve.wall_cut
+    solve.wall_floor solve.warm_seed
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
@@ -1812,7 +1815,8 @@ CODE_MODULES["emit"] = _mods("""
     classify.gap_mint classify.lot_roads classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch
     classify.retaining_wall
-    airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
+    airport.wall_sides airport.wall_air classify.wall_cutback model.wall_reach
+    classify.ribbon_mint classify.roles
     classify.rules classify.sources classify.taxi_letter classify.wall_clip constraints.apron
     constraints.apron_shelf constraints.apron_trend constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
@@ -1847,7 +1851,8 @@ CODE_MODULES["emit"] = _mods("""
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
     solve.flex solve.ground_band solve.linear solve.pin_yield solve.project
-    solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed verify.roads
+    solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.wall_floor
+    solve.warm_seed verify.roads
     classify.reachability
     geom.slope_pad
     airport.riser_wall

@@ -150,6 +150,11 @@ SIDE_RANKED_HEADS = ("rulesets.common.pavement_max_grade ceiling",
 #: the tier of ``[design] hard_conflict_tiers`` a groundside row of a
 #: :data:`SIDE_RANKED_HEADS` head takes
 GROUNDSIDE_TIER = "groundside"
+#: THE HEADS HALF A TIER UNDER THEIR OWN (owner RULINGS 2026-10-28s (2),
+#: #507): the wall floor ranks below the runway's first hold it shares the
+#: last tier with — the runway's bend wins the conflict — with no tier
+#: added to the ladder (:func:`cap_seniority`)
+JUNIOR_HEADS = ("structures.wall_terrace airside step",)
 
 
 def row_tiers(planar: PlanarMap, law: Law, one: list, rows: np.ndarray,
@@ -211,7 +216,8 @@ def row_tiers(planar: PlanarMap, law: Law, one: list, rows: np.ndarray,
 
 def cap_seniority(law: Law, heads: _t.Sequence[str], tiers: np.ndarray
                   ) -> np.ndarray:
-    """THE PRICE EXPONENT EACH ROW ADDS TO ITS TIER'S (0 or one HALF tier).
+    """THE PRICE EXPONENT EACH ROW ADDS TO ITS TIER'S (0, or one HALF tier:
+    up for a side-ranked cap, down for a :data:`JUNIOR_HEADS` row).
     A :data:`SIDE_RANKED_HEADS` row that :func:`row_tiers` ranked in
     :data:`GROUNDSIDE_TIER` is a lot's or a road's own GRADE CAP.  It left
     the taxi tier so that it never outranks a pad (09j (1)); it did not
@@ -229,7 +235,9 @@ def cap_seniority(law: Law, heads: _t.Sequence[str], tiers: np.ndarray
     d = design_law(law)
     gs = list(d.hard_conflict_tiers).index(GROUNDSIDE_TIER)
     side_ranked = frozenset(SIDE_RANKED_HEADS)
-    return np.array([0.5 if (h in side_ranked and int(t) == gs) else 0.0
+    junior = frozenset(JUNIOR_HEADS)
+    return np.array([0.5 if (h in side_ranked and int(t) == gs)
+                     else (-0.5 if h in junior else 0.0)
                      for h, t in zip(heads, tiers)], dtype=float)
 
 

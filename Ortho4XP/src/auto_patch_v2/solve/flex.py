@@ -121,7 +121,8 @@ def stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, hold: _t.Any,
     t1 = time.perf_counter()
     if cs1a is None:
         cs, got, y1 = yield_stage_one(planar, cs, law, solve1(planar, cs), solve1)
-        return planar, cs, got, None, y1
+        cs, got, yw = _wall_floor(planar, cs, law, got, solve1)
+        return planar, cs, got, None, y1 + yw
     cs1a, got, y1 = yield_stage_one(planar, cs1a, law, solve1(planar, cs1a), solve1)
     _sol, rep, _d, _f, levels, _sz = got
     w1a = time.perf_counter() - t1
@@ -139,7 +140,8 @@ def stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, hold: _t.Any,
                                 if getattr(rep, "hard_feasibility", None)
                                 is not None else None)}
     if cs1b is None:
-        return planar, cs1a, got, rec, y1
+        cs1a, got, yw = _wall_floor(planar, cs1a, law, got, solve1)
+        return planar, cs1a, got, rec, y1 + yw
     res = getattr(hold, "result", None)
     rec["interval"] = dict(getattr(res, "stats", None) or {})
     # §5: the fronting set is published on the map pass 1b solves
@@ -157,9 +159,25 @@ def stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, hold: _t.Any,
                                          solve1(planar, hold.widened(cs1b)), solve1)
         y1b = y1b + y1c
         rec["weld_rewidened"] = n_re
+    cs1b, got, yw = _wall_floor(planar, cs1b, law, got, solve1)
+    y1b = y1b + yw
     if hasattr(hold, "seal"):
         # THE WELD PROJECTION (owner RULINGS 2026-10-08c (4) / 08d (2);
         # ``constraints/weld_floor``): a weld off its datum under the floor takes its
         # datum before stage 2 substitutes the airside
         rec["weld_seal"] = hold.seal(got[4], got[0].z, got[1])
     return planar, cs1b, got, rec, y1 + y1b
+
+
+def _wall_floor(planar: PlanarMap, cs: ConstraintSet, law: Law, got: tuple,
+                solve1: _t.Callable[[PlanarMap, ConstraintSet], tuple]
+                ) -> tuple[ConstraintSet, tuple, list[dict]]:
+    """THE AIRSIDE STEP ACROSS A PACK WALL (owner RULINGS 2026-10-28s (2),
+    #507; ``solve/wall_floor``): stage 1's last answer re-solved ONCE with
+    the floors of the pairs it stood over their wall — the input itself
+    where none did.  The pass's record goes on the answer's report."""
+    from .wall_floor import wall_floor_pass
+    cs, got, y, rec = wall_floor_pass(planar, cs, law, got, solve1, yield_stage_one)
+    if rec is not None and hasattr(got[1], "wall_floor"):
+        got[1].wall_floor = rec
+    return cs, got, y

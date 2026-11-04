@@ -416,6 +416,10 @@ class DesignReport:
     #: (4)) and therefore did NOT fix.
     staged: bool = False
     stages: dict[str, _t.Any] = _dc.field(default_factory=dict)
+    #: owner RULINGS 2026-10-28s (2) (#507): stage 1's wall-floor pass
+    #: (``solve/wall_floor.wall_floor_pass``), ``None`` where no airside
+    #: pair stood over its wall
+    wall_floor: dict | None = None
     stage_dropped_rows: int = 0
     stage1_fixed: int = 0
     stage1_unlevelled: int = 0

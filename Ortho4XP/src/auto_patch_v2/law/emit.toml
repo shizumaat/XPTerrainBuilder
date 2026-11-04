@@ -911,6 +911,7 @@ hard_rulings = [
   "door airside give",                                   # #798 round 3 (owner RULINGS 2026-10-19ac): an airside vertex a door pad's hard rows reach is solved in stage 2 within door_airside_give_m of its stage-1 level (constraints/door_pad.blend_release)
   "structures.walled_plate under-plate cap",            # owner RULINGS 2026-10-27t/u (#1201): the ground under a runway-end walled plate never rises through its top (constraints/walled_plate)
   "rulesets.runway.first_hold",                          # owner RULINGS 2026-11-02a (4) (#1742): each runway column within runway_first_slack_m of its stage-0 value (solve/runway_first) - the LAST conflict tier, so it yields to every airside hard law
+  "structures.wall_terrace airside step",                # owner RULINGS 2026-10-28s (2) Q250 a (#507): across a declared pack wall the lower airside pavement stands at most the wall's height below the upper (solve/wall_floor, one re-solve of stage 1 where a pair stood over) - the LAST tier, half a tier under the runway's first hold (solve/feasibility.cap_seniority): the runway's bend and the taxi and apron caps win; a relaxed floor is a named residual
 ]
 # THE APRON'S PLANE ROW IS HARD ON THE APRON ONLY (flat-pad spec v2 §5, owner
 # RULINGS 2026-09-30be/30bf): ``plane_gradient`` is minted on EVERY governed
@@ -963,7 +964,8 @@ hard_conflict_ranks = [
    "gap slab welds to the pavement beside it across the stand-off",   # #712: with the follow rows
    "rulesets.common.pavement_max_grade ceiling, last stage",           # §55 (5): below the follow and lot rows — bounded by the terrace floor the cut welds
    "rulesets.common.road_max_grade pavement fallback, last stage",
-   "rulesets.runway.first_hold"],                                     # 11-02a (4): stage 1 carries no groundside row, so in stage 1 the hold is the LOWEST law - it bends before any airside hard law yields
+   "rulesets.runway.first_hold",                                      # 11-02a (4): stage 1 carries no groundside row, so in stage 1 the hold is the LOWEST law - it bends before any airside hard law yields
+   "structures.wall_terrace airside step"],                          # 28s (2) Q250 a (#507): half a tier under the hold (feasibility.JUNIOR_HEADS)
 ]
 # the price ratio between two adjacent tiers in the elastic LP's objective
 # (min SUM w_tier * s): the relaxation lands on the lowest tier a conflict

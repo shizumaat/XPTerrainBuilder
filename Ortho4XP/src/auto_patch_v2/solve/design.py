@@ -343,6 +343,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               "rounds": rep2.rounds, "wall_s": round(w2, 3)}}
     if pass1a is not None:
         rep2.stages["stage1a"] = pass1a
+    if rep1.wall_floor is not None:          # 28s (2), #507
+        rep2.stages["wall_floor"] = rep1.wall_floor
     rep2.stages["stage0"] = first.bend(levels if stage1 is None else levels1)
     if stage1 is not None:
         rep2.stages["stage1_map"] = dict(stage1.report)   # #100 option (c)

@@ -1915,6 +1915,10 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     terr = {**terr, "wall": wall_terraces(
         pm, law, walls, terr,
         float(service.retaining_wall_reach_m)) if walls else {}}
+    # OWNER RULINGS 2026-10-28s (2) (Q250 a, #507): the airside pavement
+    # pairs across each pack wall — geometry only, floors ``solve/wall_floor``
+    from .wall_air import wall_air_pairs
+    terr = {**terr, "wall_air": wall_air_pairs(pm, law, walls)}
     # OWNER RULINGS 2026-10-03l: a non-ribbon road is in the terrace only
     # along that wall witness (the ONE trim, here at the derivation site)
     road_caps = [role_cap(law, r).longitudinal for r in _road_roles(law)

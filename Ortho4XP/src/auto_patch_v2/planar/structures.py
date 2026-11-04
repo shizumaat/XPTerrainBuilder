@@ -606,7 +606,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         mouth_z = c.floor_z if c is not None else road_f if road_f is not None else \
             pin.floor_z if pin is not None and pin.floor_z is not None else \
             mouth_dem - (tn.mouth_depth_m if pin is None else pin.depth_m)
-        slid_depth = None if pin is None else mouth_dem - mouth_z   # #1028: a slid mouth's road profile
+        # #1028: a slid mouth's road profile
+        slid_depth = None if pin is None else mouth_dem - mouth_z
         if face:
             # a bare face's top is flush with the ground beside the cover
             # (RULINGS 2026-10-26p Q168, 20am / 20ar), never over the cap's

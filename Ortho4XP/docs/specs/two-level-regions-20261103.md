@@ -836,3 +836,213 @@ With the corridor taken, the 143,000 m2 level `building35/p2` solved at
 **Not in this round:** the landside zones (S3/O1), the A1 under 09R/27L
 (S4), the bare ground the owner lowered (D6), and §2.2 steps 3–8 (ground
 between, enclosed faces, run-outs).
+
+## 16. Round 4 (lane lowregion4, 2026-11-04): object-witnessed seeds, one depth per region
+
+Built from the Fable round-4 review (owner yes 2026-11-04T16:03Z: "the changes
+are mostly around identifying more cases with more accuracy"). One new module,
+`planar/level_regions` (the region record's derivation, one responsibility).
+
+**What is built.**
+1. **W1, walls below the zero (`level_seeds`)**, read ONCE in `planar/build`
+   beside `airport_level_b`: per partition unit, the walled parts
+   (`[placement] chain_min_height_m`) that are no supports
+   (`geom/foot_planes.is_support`) whose densest `PLANE_BAND_M` foot plane
+   stands at least `[building_pad] low_level_min_step_m` under the unit's
+   zero (its stand-side floor where the stands read one, else its authored
+   zero) are a seed; footprint = their rings, depth = zero - feet plane. No
+   held block, STEPPED base or stand is needed. MEASURED KIAH (capture
+   kiahstation): `KIAH_Trainstation2.obj` (unit 60) on the §20 conforming
+   pad `building88`, two walled parts with feet at y -3.93; KATL 13 seeds,
+   LFPG 6, EGLL 9, KPHX 2.
+2. **Step (b), the unreachable pieces a seed touches (`seed_levels`)**, run
+   inside `low_level.low_level_split` after `low_extent.extend_levels`:
+   each `#beyond` piece within `pad_frontage_m` of a seed footprint, less
+   the pads + a riser and the airside + `pad_frontage_m`, is minted
+   `<block>/p<k>` (kind `low_level`, witness `walls`) of the held block it
+   FRONTS (the predicted-datum block sharing most of its rim), at `y_lo =
+   -depth` under that block's datum, with its riser strip along the pads
+   and every open edge (`low_extent._riser`). The ground confirms it
+   (#1115, in world terms): the piece's DEM median must stand under
+   `datum_pred - depth / 2`; EGLL's 9 seeds mint nothing on it (a storey
+   over level ground).
+3. **Steps (f) + §3, one region, one depth (`region_depths`)**: lower
+   levels held at one zero (one group's witnesses and top, or one block's
+   datum) that touch and whose floors lie within one `PLANE_BAND_M` are one
+   region at the area-weighted median floor. Floors a band or more apart
+   keep their object step (KATL `building46` p5-p7, 27h). The riser strips
+   between members keep their refs and stand flat (re-reffing them into
+   the level moved 4 riser-top vertices 6.3-7.6 m at the strips'
+   junctions, MEASURED LFPG replay, refuted and removed).
+
+**Refuted and removed in the round.**
+- A seed arming the covered reach read (`reach_under_covers`): it turned
+  EGLL (2 parts, 13,813 m2) and KPHX (1 part, 2,653 m2) covered apron
+  groundside with no ladder depth to take them (dry A/B; S1's measured
+  KPHX cost of the same was +68 adjudicated and 487 airside movers). It
+  stays gated on an object-stated level B until the ladder (§3) mints
+  covered regions.
+- Opening the riser across the at-grade roads leaving a level (the road's
+  own law as its run-out): KIAH replay within_shape 112 -> 321,
+  road_cross_section 28 -> 52. Step 8's run-outs need the climbing
+  run-out record (below).
+
+**Not built this round** (spec §1 W2/W3, §2 steps (c) (d) (e) (g), §4):
+W2 as a seed on its own; W3 decks over mapped roads (KLAX) and the
+viaduct_road replacement; (c) region roads/rails; (d) through covers;
+(e) enclosed faces; (g) run-outs -- a lowered region's roads CLIMB out,
+and `cut_runout` / `constraints/ramp_runout.landing_runout_rows` are
+written for a run-out that descends (a sign on the record and the mirrored
+rows); the region record `PlanarMap.level_regions`; `region_depth`'s
+ladder rungs 2-5.
+
+### 16.1 Round 4b (owner 2026-11-04T18:31Z / 18:42Z / 19:09Z)
+
+**Built.**
+- **A building the roads run through is one flat lower level.** A W1 seed
+  now carries its PASSAGE: the at-grade mapped carriageways across its
+  footprint. Its pad is cut by `low_level.level_cut` (whole, frontage band
+  kept as the block) into ONE flat level at the walls' depth, tied to the
+  pad's own block. The unreachable pieces it touches join it (step (b)),
+  each with a riser that fills the airside keep-off up to a riser short of
+  the apron rim. A seed with no passage (a basement, a storey over level
+  ground) mints nothing. This replaces round 4's step (b) on its own.
+- **Clearance (owner 18:42Z).** The object's underside over the passage is
+  read from its own OBJ geometry (`planar/level_underside`: the lowest
+  horizontal static solid per 2 m cell above the floor; the lowest sloped
+  solid reported apart) against `[tunnel] clearance_m` (5.0, "the road's
+  vertical clearance under the roof"; no new key). Where the soffit stands
+  less than that over the walls' feet, no level is minted and the note says
+  so: the walls and the clearance disagreeing is the owner's to rule.
+  - KIAH station: soffit y +1.36 over feet at -3.93, so 5.29 m clear.
+  - LFPG T1 (`T1_16-18`): soffit -2.99 over -5.19, so 2.20 m (SHORT, no level).
+  - LFPG 2A (`2A_50/51`): soffit -0.10 over -5.51, so 5.41 m.
+- **Step 8 run-outs, the road half.** `cut_runout.cut_runouts(roads=True)`:
+  - The roads' ROUTES are walked through junctions (`viaduct_road._route`).
+  - There is one end per route.
+  - The run is laid off the level furthest from the ground (one plane band).
+  - The record's `sign` is -1 where the road climbs.
+  - `constraints/ramp_runout.landing_runout_rows` mirrors its rows by that
+    sign, anchored on a level vertex (`from_level`).
+  - A riser opens only where a minted run-out leaves through it.
+
+**Refuted and removed.**
+- **W3 deck levels at KLAX** (one covered World Way stretch, 9,810 m2 at
+  T2's depth, the skybridge pads cut through as covers). Adjudicated rose
+  205 -> 291, from 4.4 m terrace steps against the T5 / walkway pads, the
+  level bent 4.07 m by relaxed landing rows, and road-exit steps.
+  - The KLAX case needs the riser exemption and the terrace declaration
+    extended to the OTHER pads a region meets (`constraints/riser.
+    riser_sets` reads only the level's own block, and the census reads an
+    undeclared pad-to-level step as `terrace_actual_step`).
+  - Attempt kept in the lane scratch, not in the tree.
+- **Run-outs for the levels the other passes mint** (`region_runouts`,
+  KATL `building46`, LFPG T2). KATL road_cross_section 53 -> 208 with
+  crossings grouped (strips up to 111 m wide), then 53 -> 225 with one end
+  per route. Two attempts; withdrawn. LFPG's T2 corridor therefore has no
+  run-outs to the D1/A1 roads this round.
+- **Releasing the run-out ground from the pads by the riser exemption**
+  (`ground_refs`): the station level was pulled to 27.9 m. Withdrawn.
+
+## 17. Round 5 (lane lowregion5, 2026-11-04): run-outs per road, stage-1 gate, T1 at its walls
+
+Built from the Fable review's spec (TWO-ROUND-CAP-REVIEW #1852/#1717, E1/E2/E4,
+F1/F2) and the owner's rulings of 2026-11-04T20:47Z (airside movement under
+0.5 m that mints no violation is allowed while grading is refined; KLAX back
+in scope as a flat region up to the terminal walls; LFPG T1 at the walls'
+depth). Captures: `kiahstation/KIAH.pkl`, `katl1306/KATL.pkl` (registered
+this round), `lfpg6/LFPG.pkl`, `lowregion4/KLAX.pkl`.
+
+**Built.**
+- **E1, a region's own strips take none of its ends** (`level_regions._run_out`):
+  the riser strips of the levels whose run-outs are read are left out of
+  `taken`; every other pad and the airside still take an end, now NAMED
+  (`level_runout_ends["taken_by"]`: `lat,lon` and the takers' refs).
+- **E2, one end per crossing, its strip its own road** (`cut_runout._road_runouts`):
+  `_routes` returns each route with its crossing way's carriageway
+  half-width (ribbon classes only); an end is one route's crossing of the
+  rim (never grouped across `END_M`; two routes over one crossing are one
+  end), its strip that half-width either side, clipped to that route's own
+  carriageway (never the union of every carriageway).
+- **E4**: run-outs are read only for the levels `seed_levels` mints (the
+  passage level and its pieces); no other pass's level asks for them.
+- **T1 at its walls (owner 20:47Z)**: a seed whose object's soffit stands
+  short of `[tunnel] clearance_m` over its wall feet is minted at the walls'
+  depth anyway; the note and the record report the clearance.
+
+**Measured and not built.**
+- **F1/F2 (the passage level off stage 1's map; its vertices freed from
+  stage 1's carried levels).** Built and replayed at KIAH: verify 629, the
+  same 629 rows as the round-4b head, the stage-1 map's 25,113 vertices the
+  control's, `building88` still 27.97-28.01 against the control's
+  28.00-28.08 and the same 3 apron movers (0.11 / 0.08 / 0.01 m at
+  29.98711, -95.33286). The stage-1 map is not re-derived through
+  `low_level_split`, so the premise (the level re-seats D_88 on stage 1's
+  map) is refuted; the movers are the station pad's remnant band and its
+  apron sliver in stage 2. They carry two small airside rows the control
+  has not (`pad_frontage_infeasible` 0.047 m at the mover, `frontage_near_miss`
+  0.05 m on `pav62#plateau:building56`). Withdrawn.
+- **KIAH run-outs.** The spec's mechanism (§1.2 of the review: the region's
+  own strips take every end) is not the one at work: the probe on the
+  round-4b head reads all 4 ends refused `no_datum` -- `building88` is a §20
+  conforming pad, whose `datum_pred` is `None`. With a datum injected
+  (probe), the head minted 1 and refused 3 (taker `building94`); with E1/E2,
+  4 minted, 1 refused (`building94`). Laid off the fronted block's predicted
+  datum (`building56`, 26.96; the pad solves at 28.08) the replay read verify
+  632 -> 704 (`road_cross_section` 28 -> 63, `within_shape` 112 -> 140),
+  census adjudicated 585 -> 612, tunnel walls east of the station moved up to
+  1.85 m; with the solved datum injected (oracle arm, 28.08) 632 -> 710,
+  adjudicated 585 -> 619 (`within_shape` +12, `pavement_over_road_cap` +13,
+  `cross_shape` +5). So the run-outs themselves, not the prediction, cost the
+  rows at KIAH; the conforming-pad datum is not supplied and KIAH's exits stay
+  refused `no_datum` (counted).
+- **KLAX, three attempts, all withdrawn** (control replay: verify 477,
+  census adjudicated 205):
+  1. *A storey beside its roads*: a W1 seed whose at-grade carriageways run
+     within `pad_frontage_m` of its walls (T2, `building84`, unit 129, y -4.40)
+     minted the pad as one level at 32.13 m plus the curb carriageway as a
+     piece, with two run-outs: verify 477 -> 748 (`road_cross_section` 9 ->
+     175), census 205 -> 930 (`hard_conflict` +418): the World Way ribbons
+     span the level and the walkway pads (36.5 m) beside it.
+  2. *Covered road out of the pads*: the carriageway under pack geometry
+     standing `clearance_m` up leaves the pad (the walkway pads
+     `building49/53/68/75/80`): verify 477 -> 750 (`road_cross_section` 9 ->
+     179): the road stands between the two pad halves at 36 m.
+  3. *Elevated objects stand on no pad*: dropping every pad most of whose
+     ground lies under parts based `clearance_m` up separates the five KLAX
+     walkway pads (92-96 %) but also takes KATL's terminal pads
+     (`building33/35/39/50`: split roof objects, `Techos_Terminales` at base
+     y 9.6, 86-100 %) and KLAX's Delta hangar (82 %). No witness read off the
+     parts separates a walkway over a road from a terminal authored as a
+     separate roof object: an owner/spec question, not a threshold.
+  The KLAX finding for the next round: the World Way ribbons at T2 rise
+  32.6 -> 36.2 m to the T2 pad's edge and 32.5 -> 36.5 m under the walkway
+  pads (control `lowregion4b_KLAX`); a flat region up to the walls needs the
+  walkway pads gone (a witness for "elevated over a road") AND the step at
+  the T2 wall declared (the wall-terrace release of `airport/road_ramp.
+  wall_terraces`, a storey wall that retains its height) -- a consumer census
+  of its own (riser, pad_terrace, road terrace, publication, census reader).
+
+**Site numbers, round 5 as built** (replays `--from planar` on the
+registered captures; controls: KIAH and KATL the branch with the seeds
+patched off, LFPG the round-4b head 5829e7731):
+- KIAH: `building88/p1..p3` one level at 24.09 m (wall feet -3.93 under the
+  zero; station remnant 27.97-28.01, Terminal D 28.08); verify 629 (control
+  632; the round-4b head's own 629 rows); census adjudicated 584 (control
+  585); run-out ends 4, all refused `no_datum` (conforming pad); airside
+  movers 3 (0.11 / 0.08 / 0.01 m, the apron sliver at 29.98711, -95.33286,
+  inherited from round 4b); the 13 structure movers are groundside
+  `tunnel_ramp` / `tunnel_wall` rim vertices at 29.98736, -95.33087, 0.10-0.13
+  m, no road contact (the ramp follows the lowered lot: §2.3 outcome (b)).
+  Closing build `lowregion5_KIAH` rc 0, 547 s, census adjudicated 751 (the
+  round-4b build `lowregion4_KIAH`, at f888dcd8f before 4b's last commits, 732:
+  the +19 are the classes the 4b commits brought, `cross_shape` 5,
+  `frontage_near_miss` 2, `within_shape` +9 on `pav62#beyond1`; the replay
+  reads round 5 equal to the 4b head).
+- KATL: verify 2200 -> 2199 (`road_cross_section` 53 -> 52), `level_runouts` 0.
+- LFPG: T1 `building82/p1` minted at -5.19 (13,744 m2) under `T1_16-18`,
+  soffit -2.99 -- **2.20 m clear**; `building67/p1` -5.51 (5.41 m clear);
+  the T2 region `building34/35/51/64/p1 + building35/p2` at -6.97 unchanged;
+  run-out ends 0; verify 3164 -> 3166 (`pad_flat` 83 -> 85, the T1 level);
+  census adjudicated 2403 -> 2403, 0 new rows; solve-owned airside movers
+  1 x 0.01 m.

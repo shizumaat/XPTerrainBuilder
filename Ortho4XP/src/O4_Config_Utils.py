@@ -35,6 +35,7 @@ from O4_Cfg_Vars import (
     list_vector_vars,
     cfg_stamp_key,
     cleanup_retired_cfg_keys,
+    migrate_changed_defaults,
     legacy_cfg_value,
     _legacy_cfg_reported,
     retired_cfg_keys,
@@ -151,9 +152,7 @@ try:
         UI.lvprint(0, "   INFO:", _info)
     # A raised registry default reaches a cfg that stored the old one
     # automatically (owner 2026-11-04, masks_width 100 -> 500).
-    import O4_Cfg_Default_Migrations as DEFAULT_MIGRATIONS
-
-    for _info in DEFAULT_MIGRATIONS.migrate_changed_defaults(global_cfg_file):
+    for _info in migrate_changed_defaults(global_cfg_file):
         UI.lvprint(0, "   INFO:", _info)
 except FileNotFoundError:
     # Create a new global config file using default values
@@ -170,9 +169,7 @@ except FileNotFoundError:
     _LOGGER.info("No global config file found. New config created using defaults.")
     # A fresh file holds the NEW defaults: register them as migrated so a
     # value later set by hand to an old default is never rewritten.
-    import O4_Cfg_Default_Migrations as DEFAULT_MIGRATIONS
-
-    DEFAULT_MIGRATIONS.migrate_changed_defaults(global_cfg_file)
+    migrate_changed_defaults(global_cfg_file)
 except Exception as e:
     _LOGGER.error("Error accessing global config file: %s", e)
 

@@ -1,8 +1,7 @@
-"""Twin of O4_Cfg_Default_Migrations: an automatically stored OLD default
+"""Twin of O4_Cfg_Vars.migrate_changed_defaults: an automatically stored OLD default
 is raised once; a value set by hand is never changed."""
 
-import O4_Cfg_Default_Migrations as M
-import O4_Cfg_Vars
+import O4_Cfg_Vars as M
 
 
 def _cfg(tmp_path, body):
@@ -13,7 +12,7 @@ def _cfg(tmp_path, body):
 
 def test_registry_default_is_the_new_one():
     for var, (_old, new) in M.CHANGED_DEFAULTS.items():
-        assert str(O4_Cfg_Vars.cfg_vars[var]["default"]) == new
+        assert str(M.cfg_vars[var]["default"]) == new
 
 
 def test_stored_old_default_is_raised_once(tmp_path):

@@ -6,11 +6,17 @@ place because neither layer may read the other's."""
 from __future__ import annotations
 
 __all__ = ["BEHIND_SHARE", "wall_reach_m", "wall_smear_m", "WALL_SLOPE_REF_PREFIX",
-           "is_wall_slope_ref"]
+           "is_wall_slope_ref", "FILL_SLOT_M"]
 
 #: the face ref of a wall-slope piece (``planar/wall_slope``, #1661):
 #: ``adjacent_ground:wall:<resource>#<k>``
 WALL_SLOPE_REF_PREFIX = "adjacent_ground:wall:"
+
+#: THE WALL'S FILL (#1600): the strip along a retaining wall's LOWER face
+#: its footprint's fill (``planar/wall_slope``) leaves to the mesh, where
+#: the step from the wall's top down to its foot is made; the rest of the
+#: footprint is held at the top (``constraints/wall_zone.fill_top``)
+FILL_SLOT_M = 1.0
 
 #: how far behind a pavement edge a wall still stands "at" that edge: the
 #: share of the wall's own reach (``max(4 h, 20 m)``) — 5 m for a short wall

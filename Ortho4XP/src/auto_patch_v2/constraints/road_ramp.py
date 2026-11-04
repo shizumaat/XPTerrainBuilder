@@ -408,10 +408,11 @@ def _wall_levels(planar: PlanarMap, held: _t.Sequence, xy: _t.Mapping[int, tuple
                  ) -> dict[int, tuple[float, str]]:
     """#1661 (Q299 (a)) / #1662: every vertex only wall slopes hold
     (``planar/wall_slope``) that stands on a wall's upper face, -> the
-    wall's top as it sits there (``wall_zone.face_top``), or on its lower
+    wall's top as it sits there (``wall_zone.face_top``; in its fill,
+    ``wall_zone.fill_top``, #1600), or on its lower
     face, -> its foot (``wall_zone.face_foot``); with the row's ruling."""
     from ..model.wall_reach import is_wall_slope_ref
-    from .wall_zone import face_foot, face_top
+    from .wall_zone import face_foot, face_top, fill_top
     if not any(getattr(w, "top_profile", None) or getattr(w, "foot_profile", None)
                for w in held):
         return {}
@@ -421,6 +422,8 @@ def _wall_levels(planar: PlanarMap, held: _t.Sequence, xy: _t.Mapping[int, tuple
         if not inc or not all(is_wall_slope_ref(planar.faces[f].ref) for f in inc):
             continue
         z = face_top(held, p)
+        if z is None:
+            z = fill_top(held, p)
         if z is not None:
             out[v] = (z, WALL_TOP_RULING)
             continue

@@ -39,6 +39,14 @@ piece excluded — it bounds the open cut, ``airport/road_ramp``):
   289.5 m and the slumped DEM beside it at 296-301 m, so pavement draped
   there showed through the wall's lower face.
 
+* IN THE WALL (#1600) — a vertex of the wall's FILL (``planar/
+  wall_slope``: its footprint less the strip along the lower face) standing
+  off both faces is held at the wall's top too (:func:`fill_top`): the back
+  of the wall is buried.  MEASURED KATL ``muro_concreto5`` (two sheets
+  3.4 m apart with no top): its footprint, left to the mesh, read the
+  smeared step as a hole between the plateau (300.49 m) and the pads beside
+  it (300.7 m).
+
 Geometry only, read off the published wall records; the rows' own
 generators are untouched."""
 from __future__ import annotations
@@ -48,10 +56,10 @@ import math
 import typing as _t
 
 from ..model.constraints import Linear
-from ..model.wall_reach import BEHIND_SHARE, wall_reach_m, wall_smear_m
+from ..model.wall_reach import BEHIND_SHARE, FILL_SLOT_M, wall_reach_m, wall_smear_m
 
 __all__ = ["RetainingLine", "retaining_lines", "split", "flat", "foot_ground",
-           "face_top", "face_foot", "BEHIND_SHARE", "TOP_FACE_M"]
+           "face_top", "face_foot", "fill_top", "BEHIND_SHARE", "TOP_FACE_M"]
 
 #: how near the upper face a vertex stands ON it: the identity grid's snap
 #: (a ring vertex of the wall slope lies on the footprint, snapped)
@@ -292,6 +300,30 @@ def face_foot(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> flo
                 return None     # a station that retains nothing
             a = np.asarray(st, float)
             return float(np.interp(s_, a[:, 0], a[:, 1]))
+    return None
+
+
+def fill_top(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> float | None:
+    """The wall's top at ``xy`` where it stands IN a wall's footprint, more
+    than :data:`TOP_FACE_M` off the upper face (:func:`face_top` reads it
+    there) and at least half of :data:`~..model.wall_reach.FILL_SLOT_M`
+    off the lower face (the slot's edge, its fill's): the top interpolated
+    along the stations that retain a hill (a lid over a stretch that
+    retains none); ``None`` elsewhere."""
+    import numpy as np
+    from shapely.geometry import Point
+    p = Point(xy)
+    for w in lines:
+        if not w.top_profile or w.upper_face is None or w.lower_face is None:
+            continue
+        if w.poly.distance(p) > 0.25 * FILL_SLOT_M or w.upper_face.distance(p) <= TOP_FACE_M \
+                or w.lower_face.distance(p) < 0.5 * FILL_SLOT_M:
+            continue
+        st = [t for t in w.top_profile if t[1] is not None]
+        if not st:
+            return None
+        a = np.asarray(st, float)
+        return float(np.interp(w.upper_face.project(p), a[:, 0], a[:, 1]))
     return None
 
 

@@ -25,6 +25,15 @@ should be flattened out to the bottom of the wall").  MEASURED KATL
 ``muro_concreto`` (capture on f82de7dfe): the strip between pad
 ``building46/p5`` (289.29 m) and the foot (289.5 m) was left to a slumped
 mesh at 296-301 m, and pavement draped there showed through the wall.
+THE FILL (issue #1600): a retaining wall's FOOTPRINT, left to the mesh, read
+the lidar's smeared step, and a wall drawn as two sheets with no top (KATL
+``muro_concreto5``: two faces 3.4 m apart, open between them) showed it as
+a hole behind the wall.  The back of the wall is buried (Q299 (a)): the
+footprint is graded ground too, one more piece of the family, less the
+:data:`~..model.wall_reach.FILL_SLOT_M` strip along the lower face (the
+mesh makes the step from top to foot there, behind the lower face); its
+vertices off the faces are held at the wall's top
+(``constraints/wall_zone.fill_top``).
 Geometry only; no airport is named (RULINGS 2026-10-05e)."""
 from __future__ import annotations
 
@@ -34,7 +43,7 @@ import typing as _t
 import shapely
 
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
-from ..model.wall_reach import WALL_SLOPE_REF_PREFIX, is_wall_slope_ref
+from ..model.wall_reach import FILL_SLOT_M, WALL_SLOPE_REF_PREFIX, is_wall_slope_ref
 
 __all__ = ["wall_slopes", "slope_sides", "SLOPE_VERTEX_M"]
 
@@ -51,7 +60,8 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
     band (``WallSides.upper``) whose top is read (``top_profile``) and its
     lower band (``WallSides.lower``) whose foot is read (``foot_profile``,
     #1662), less
-    its footprint, every polygon in ``taken`` (the zone bands: the slope
+    its footprint, and the fill of its footprint (#1600, :func:`_fill`);
+    each less every polygon in ``taken`` (the zone bands: the slope
     welds to their edge) and every polygon in ``apart`` grown by ``cut_m``
     (the cells — pavement, pads, roads —, the late road ribbons and the
     structure keep-outs, at the zones' groundside stand-off): a slope
@@ -63,6 +73,9 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
             ((w.upper, getattr(w, "top_profile", None)),
              (getattr(w, "lower", None), getattr(w, "foot_profile", None)))
             if read and band is not None and not band.is_empty]
+    live = [(w, fixed_difference(band, w.poly)) for w, band in live] \
+        + [(w, f) for w in walls if _retains(w)
+           for f in (_fill(w),) if f is not None and not f.is_empty]
     if not live:
         return []
     held = canonical_union([g for g in taken if g is not None and not g.is_empty]
@@ -71,7 +84,7 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
     out: list[tuple[str, _t.Any]] = []
     k = 0
     for w, band in live:
-        g = fixed_difference(band, w.poly)
+        g = band
         if held is not None and not held.is_empty:
             g = fixed_difference(g, held)
         if out:     # two walls' bands meet: the first piece holds the overlap
@@ -84,6 +97,21 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
                         shapely.segmentize(part, SLOPE_VERTEX_M)))
             k += 1
     return out
+
+
+def _retains(w) -> bool:
+    """The wall's top retains a hill at one station at least."""
+    return any(z is not None for _s, z in (getattr(w, "top_profile", None) or ()))
+
+
+def _fill(w):
+    """THE FILL (module doc): the footprint less the
+    :data:`FILL_SLOT_M` strip along its lower face; ``None`` unread."""
+    face = getattr(w, "lower_face", None)
+    if face is None or w.poly is None or w.poly.is_empty:
+        return None
+    return fixed_difference(w.poly, face.buffer(FILL_SLOT_M, cap_style="flat",
+                                                join_style="mitre", mitre_limit=2.0))
 
 
 def slope_sides(faces: _t.Mapping[int, _t.Any],

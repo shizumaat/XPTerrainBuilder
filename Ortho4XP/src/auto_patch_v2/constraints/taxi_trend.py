@@ -68,7 +68,8 @@ import numpy as np
 from ..geom import exact
 from .precedence import view
 from .runway_chord import dem_degraded
-from .taxi_trend_cap import capped_chain, ceiled, held_by_contacts, low_hold_spans
+from .taxi_trend_cap import (capped_chain, ceiled, held_by_contacts, low_hold_spans,
+                             lowered_within_budget)
 from .trend import shift_through, trend_of
 from ..law import Law
 from ..law.tables import is_value_role
@@ -120,6 +121,7 @@ class TaxiTrendReport(_t.TypedDict, total=False):
     contacts: int             # runway (+ stage-1 apron) values the targets reach
     low_hold_spans: int       # pass 1b: chain spans ceiled between two low holds
     low_hold_moved: int       # of their targets, moved past the materiality
+    low_hold_beyond: int      # of those, past a span (carried down within budget)
     low_hold_worst_m: float   # the largest such move
     extra_contacts: int       # of those, the stage-1 apron levels
     by_chain: list            # [{"chain", "ll", "vertices", "pins", "length_m"}]
@@ -612,14 +614,19 @@ def low_hold_retarget(pm: PlanarMap, law: Law,
                 s = c.stations[j] + t * (c.stations[j + 1] - c.stations[j])
                 new[v] = min(new.get(v, have[v]), ceiled(spans, s, have[v]))
     tol = float(law.tables.emit.materiality.elevation_m)
-    moved = [have[v] - z for v, z in new.items()]
+    # the targets past a span carried down within budget of it, so the
+    # ceiling is never a step the solve trades against the caps
+    out = lowered_within_budget(pm, law, have, new) if new else dict(have)
+    moved = [have[v] - z for v, z in out.items()]
     rep: TaxiTrendReport = {} if report is None else report
     rep["low_hold_spans"] = n_spans
     rep["low_hold_moved"] = sum(1 for d in moved if d > tol)
+    rep["low_hold_beyond"] = sum(1 for v, z in out.items()
+                                 if v not in new and have[v] - z > tol)
     rep["low_hold_worst_m"] = round(max(moved, default=0.0), 3)
     if not rep["low_hold_moved"]:
         return None
-    return {**have, **new}
+    return out
 
 
 def with_taxi_trend(pm: PlanarMap, law: Law, airport: Airport,

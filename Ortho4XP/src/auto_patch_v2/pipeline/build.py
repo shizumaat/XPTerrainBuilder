@@ -644,7 +644,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             k: tt2_rep.get(k) for k in ("retarget_moved", "retarget_worst_m",
                                         "extra_contacts", "short_connectors",
                                         "hold_passes", "hold_residual_m",
-                                        "hold_stalled", "low_hold_spans",
+                                        "hold_stalled", "low_hold_spans", "low_hold_beyond",
                                         "low_hold_moved", "low_hold_worst_m")}
         _say(f"[{icao}] taxi trend second pass (15i (3)): "
              f"{tt2_rep.get('extra_contacts', 0)} apron levels as contacts, "
@@ -653,7 +653,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              + ("" if tt2_rep.get("retarget_moved") else " — first pass stands")
              + f"; {len(tt2_rep.get('short_connectors') or ())} short connector(s)"
              + f"; {tt2_rep.get('low_hold_spans', 0)} span(s) between two low "
-               f"holds, {tt2_rep.get('low_hold_moved', 0)} targets ceiled (worst "
+               f"holds, {tt2_rep.get('low_hold_moved', 0)} targets ceiled "
+               f"({tt2_rep.get('low_hold_beyond', 0)} past a span; worst "
                f"{tt2_rep.get('low_hold_worst_m', 0.0):.2f} m)", out)
         for r in (tt2_rep.get("short_connectors") or ())[:20]:
             _say(f"[{icao}] SHORT CONNECTOR at {r['ll'][0]:.7f},{r['ll'][1]:.7f}: "

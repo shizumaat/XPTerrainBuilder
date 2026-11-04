@@ -340,7 +340,8 @@ def test_two_low_holds_take_the_bulge_out_of_the_span(two_junctions, law):
     """Both junctions held 1 m under their targets (pass 1b): every
     interior target of the span stands at or under the line between the
     held levels and the crest comes down; the junctions are targeted at
-    their held level and the parallel outside the span is not moved."""
+    their held level and the parallel outside the span comes down only as
+    far as the no-step budget from them asks (never below it)."""
     pm, airport = two_junctions
     par, junc = _junctions(pm, law)
     assert len(junc) == 2, junc
@@ -361,8 +362,39 @@ def test_two_low_holds_take_the_bulge_out_of_the_span(two_junctions, law):
     crest = max(inner, key=lambda v: base[v])
     assert got[crest] < base[crest] - 1.0, (got[crest], base[crest])
     outer = [v for v in par.vertices if (st[v] < sa or st[v] > sb) and v in got]
-    assert outer and all(got[v] == base[v] for v in outer)
+    assert outer
+    for v in outer:                     # carried down, never past the budget
+        hold, s_h = (va, sa) if st[v] < sa else (vb, sb)
+        assert got[v] == base[v] or got[v] >= held[hold] - 1e-9
+        assert got[v] == base[v] or got[v] <= held[hold] + 0.015 * abs(st[v] - s_h) + 1e-6
+    far = [v for v in outer if min(abs(st[v] - sa), abs(st[v] - sb)) > 200.0]
+    assert far and all(got[v] == base[v] for v in far), rep
     assert all(got[v] <= base[v] for v in got)       # one-sided: never raised
+    assert rep["low_hold_beyond"] > 0, rep
+
+
+def test_the_ceiling_is_carried_within_the_no_step_budget(two_junctions, law):
+    """``taxi_trend_cap.lowered_within_budget``: a target lowered beside
+    unlowered ones carries its neighbours down to its no-step budget one
+    ``hard_tol_m`` tight (the within-shape idiom ``cap − hard_tol_m / d``),
+    and nothing already inside that budget moves."""
+    from auto_patch_v2.constraints.taxi_trend_cap import lowered_within_budget
+    from auto_patch_v2.law.tables import design as design_law
+    pm, _airport = two_junctions
+    par, junc = _junctions(pm, law)
+    base = dict(pm.taxi_trend_z)
+    (_sa, va), _ = junc
+    got = lowered_within_budget(pm, law, base, {va: base[va] - 2.0})
+    assert got[va] == base[va] - 2.0
+    moved = [v for v in got if got[v] < base[v] - 1e-6 and v != va]
+    assert moved and all(got[v] >= got[va] for v in moved)
+    st = dict(zip(par.vertices, par.stations, strict=True))
+    tol = float(design_law(law).hard_tol_m)
+    for v in moved:
+        if v in st:                     # along the parallel: the budget's own line
+            d = abs(st[v] - st[va])
+            assert got[v] <= got[va] + 0.015 * d - tol + 1e-6 or got[v] == base[v]
+    assert lowered_within_budget(pm, law, base, {}) == base
 
 
 def test_holds_on_or_above_their_targets_move_nothing(two_junctions, law):

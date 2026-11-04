@@ -949,14 +949,18 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             if _b is None:
                 return r
             if not _z:
-                z = _open_zero(r.bodies) if mm is _b.m else None
+                # a deck body seated over the pack's own cut (26d) keeps its
+                # seat and states no frame zero (``cut_deck_seat.seated``)
+                z = (_open_zero([b for b in r.bodies if not _cds.seated(b)])
+                     if mm is _b.m else None)
                 if z is None:
                     return r
                 _z.append(z)
                 counts["refused_bridge_frames"] = counts.get("refused_bridge_frames", 0) + 1
             return _frame_zero(r, mm, _z[0],
                                f"one bridge frame at its deck's zero {_z[0]:.2f} "
-                               "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)")
+                               "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)",
+                               keep=_cds.seated)
 
         # owner RULINGS 2026-10-26d (#1331): outside a class-A frame, a
         # pack deck body over the pack's own cut sits flush with what it

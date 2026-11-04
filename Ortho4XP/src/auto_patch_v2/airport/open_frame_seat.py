@@ -135,12 +135,15 @@ def open_zero(bodies: _t.Sequence[_t.Any]) -> "float | None":
     return dat[0] if dat else min(z for z, _b in zs)
 
 
-def frame_zero(record: _t.Any, m: _t.Any, target: float, why: str) -> _t.Any:
+def frame_zero(record: _t.Any, m: _t.Any, target: float, why: str,
+               keep: "_t.Callable[[_t.Any], bool] | None" = None) -> _t.Any:
     """Every seated body of ``record`` not already at ``target`` re-anchored
-    to it (10-22c/f: a bridge's frame moves as one), its file renamed."""
+    to it (10-22c/f: a bridge's frame moves as one), its file renamed; a
+    body ``keep`` accepts keeps its own zero."""
     return _at_zero(record, m, target,
-                    lambda b: abs(float(b.anchor.surface_z) - float(b.anchor.y_zero)
-                                  - target) > 1e-6, why)
+                    lambda b: (keep is None or not keep(b))
+                    and abs(float(b.anchor.surface_z) - float(b.anchor.y_zero)
+                            - target) > 1e-6, why)
 
 
 def _at_zero(record: _t.Any, m: _t.Any, target: float,

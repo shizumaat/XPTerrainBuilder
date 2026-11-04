@@ -146,3 +146,20 @@ def test_the_planar_cut_is_stamped_on_its_objects_seat_record():
     _stamp_cut_rings(seats, types.SimpleNamespace(structures=(tn, osm)),
                      types.SimpleNamespace(frame=frame))
     assert seats["dsf:obj1"][CDS.CUT_RING] == [[40.0, -3.0], [40.0, 7.0], [50.0, 7.0]]
+
+
+def test_a_bridge_frame_zero_keeps_a_deck_seated_over_its_cut(tmp_path):
+    """LGAV 1.0.464: the trench stack carries two taxiway decks over two
+    pack cuts; the refused-bridge frame zero (10-22c/d) read off the first
+    deck put the second 3.1 m under its taxiway.  A body this reading
+    seated keeps its seat (``seated``); the frame's other bodies move."""
+    from auto_patch_v2.airport import open_frame_seat as OFS
+    rec = _seat(tmp_path, (_cut(),))
+    b = rec.bodies[0]
+    assert CDS.seated(b) and not CDS.seated(_record().bodies[0])
+    m = types.SimpleNamespace(resource="objects/deck.obj", zero_y=0.0)
+    stack = _record(zero=77.0).bodies[0]
+    both = Split(0, "dsf:obj0", "objects/deck.obj", "/x/deck.obj", LAT, LON, 0.0, (b, stack))
+    out = OFS.frame_zero(both, m, 76.0, "one bridge frame", keep=CDS.seated)
+    assert out.bodies[0] is b and abs(_zero(out.bodies[0]) - 0.5 * (TAXI_N + TAXI_S)) < 1e-6
+    assert abs(_zero(out.bodies[1]) - 76.0) < 1e-6

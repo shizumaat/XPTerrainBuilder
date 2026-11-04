@@ -35,12 +35,25 @@ from ..model.planar import ROAD_ROLES
 from . import airside_deck_seat as _ads
 from .placement_file import authored_offset, named_body
 
-__all__ = ["CUT_RING", "cut_rings", "carries_airside", "carries_road", "end_ground",
-           "seat_cut_decks"]
+__all__ = ["CUT_RING", "SEAT_REASON", "seated", "cut_rings", "carries_airside",
+           "carries_road", "end_ground", "seat_cut_decks"]
 
 #: The ``authored_seats`` record key carrying a pack object cut's
 #: footprint ring as ``[[lat, lon], ...]``.
 CUT_RING = "cut_ring"
+
+#: the anchor reason a body this reading seated opens with
+SEAT_REASON = "pack deck over the pack's cut"
+
+
+def seated(body: _t.Any) -> bool:
+    """Did this reading seat ``body`` (its deck flush with what it carries)?
+    A frame zero laid on its frame afterwards (``placement_plan``'s refused
+    bridge frame, 10-22c/d) keeps it: LGAV's trench stack carries two
+    taxiway decks over two pack cuts 1.5 km apart, flush at 76.88 and
+    80.02, and the frame zero read off the first put the second 3.1 m
+    under its taxiway."""
+    return str(getattr(getattr(body, "anchor", None), "reason", "") or "").startswith(SEAT_REASON)
 
 
 def cut_rings(records: _t.Iterable[_t.Mapping[str, _t.Any]]
@@ -170,7 +183,7 @@ def _seat_body(record, m, b, slab, origin, surface, cuts, step_m, on_fraction, c
     off = authored_offset(la, lo, y0, record.lat, record.lon, record.heading)
     a2 = _dc.replace(a, lat=la, lon=lo, surface_z=float(sz), y_zero=y0, offset=off,
                      datum=True,
-                     reason=(f"pack deck over the pack's cut: flush with the solved surface "
+                     reason=(f"{SEAT_REASON}: flush with the solved surface "
                              f"at its end lines {z1:.2f} / {z2:.2f} (deck top y {t1:+.2f} / "
                              f"{t2:+.2f}), zero {zero:.2f} (RULINGS 2026-10-26d; was: "
                              f"{a.reason})"))

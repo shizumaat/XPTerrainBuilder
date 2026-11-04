@@ -447,11 +447,12 @@ def _carries_movement(db: DeckBridge, roles: "CellRoles") -> bool:
 
 
 def _taxi_at_both_ends(sa, sb, roles: "CellRoles") -> bool:
-    """Taxi-family or apron pavement at a seat of EACH end line — the deck
-    carries the movement area across (the classification's own roles)."""
+    """Taxi-family pavement at a seat of EACH end line — the deck carries a
+    taxiway across (the classification's own roles).  An apron is no
+    witness: KLAX's ``Road_Bridge`` (a service road over Sepulveda, owner
+    2026-11-03T23:07Z) lands on apron at one end."""
     from ..classify.roles import TAXI_FAMILY
-    fam = {*TAXI_FAMILY, "apron"}
-    return all(any(roles.at_xy(p) in fam for p in st) for st in (sa, sb))
+    return all(any(roles.at_xy(p) in TAXI_FAMILY for p in st) for st in (sa, sb))
 
 
 def _deck_z(airport, seats, rendered: "float | None") -> "float | None":

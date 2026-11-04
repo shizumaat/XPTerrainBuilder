@@ -183,8 +183,10 @@ def test_a_deck_carrying_taxiway_pavement_across_both_ends_is_a_taxi_deck():
     db = _deck()
     taxi = types.SimpleNamespace(at_xy=lambda p: "primary_parallel")
     one = types.SimpleNamespace(at_xy=lambda p: "primary_parallel" if p[0] < 0 else "service_road")
+    apron = types.SimpleNamespace(at_xy=lambda p: "primary_parallel" if p[0] < 0 else "apron")
     assert DB._taxi_at_both_ends(db.seats_a, db.seats_b, taxi)
     assert not DB._taxi_at_both_ends(db.seats_a, db.seats_b, one)
+    assert not DB._taxi_at_both_ends(db.seats_a, db.seats_b, apron)     # KLAX Road_Bridge
 
 
 def test_under_a_slab_the_cuts_own_road_is_the_embankment_not_a_road_beside():

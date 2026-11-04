@@ -551,6 +551,17 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             role = "junction"
         else:
             role = "apron"
+        # owner ruling 2026-11-04 (#1877): a §43 ARM no taxi centreline
+        # touches, holding no stand, at most `apron.arm_road_max_width_m`
+        # wide is the service road it carries.  A NECK (between two aprons)
+        # is not an arm: §27 flips a road there straight back to apron
+        # (measured HECA pav131, 9.3 m x 896 m2)
+        if is_neck and neck_ev.get("neck_kind") == "arm" and not taxi \
+                and not _holds_startup(face, start_tree) and \
+                neck_ev.get("neck_width_m", float("inf")) <= rules.apron.arm_road_max_width_m:
+            role = "service_road"
+            evid = dict(evid, arm_road=1.0)
+            stats["arm_roads"] = stats.get("arm_roads", 0) + 1
         letter = None
         if role in TAXI_FAMILY:
             ls = [c.letter for c in taxi if c.letter]

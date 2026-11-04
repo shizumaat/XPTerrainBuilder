@@ -87,3 +87,27 @@ def test_the_width_reading_itself():
     assert narrow_road(Polygon(_rect(0.0, 0.0, 300.0, 60.0)), rules) is None
     # a 30 m x 400 m strip has no 50 m lobe but is wider than a road
     assert narrow_road(Polygon(_rect(0.0, 0.0, 400.0, 30.0)), rules) is None
+
+
+def _arm_roles(width: float, law):
+    """The M1 synthetic apron with a 200 m arm off its north edge that no
+    taxi centreline touches: the roles of the cells over the arm."""
+    a = _synthetic(gate=True)
+    arm = Pavement("arm", Surface.ASPHALT, _rect(600.0, 500.0, 600.0 + width, 700.0), ())
+    cl = classify(_dc.replace(a, pavements=a.pavements + (arm,)), law)
+    probe = Polygon(_rect(600.0, 560.0, 600.0 + width, 700.0))
+    return {c.role for c in cl.cells
+            if Polygon(c.ring, c.holes).intersection(probe).area > 1.0}
+
+
+def test_a_road_wide_arm_with_no_taxiway_is_a_service_road(law):
+    """Owner ruling 2026-11-04 (#1877): an arm §43 cuts off an apron, no
+    taxi centreline and no stand on it, at most
+    ``apron.arm_road_max_width_m`` (12 m) wide, is a service road."""
+    assert _arm_roles(8.0, law) == {"service_road"}
+
+
+def test_a_stand_bay_wide_arm_stays_taxi_family(law):
+    """A 20 m arm is wider than the rule: the §43 cut keeps it a junction."""
+    roles = _arm_roles(20.0, law)
+    assert "service_road" not in roles and "junction" in roles, roles

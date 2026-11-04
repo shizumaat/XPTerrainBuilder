@@ -567,7 +567,8 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     """:func:`mouth_at_pavement` for a mouth a pack PORTAL pins: never
     slid.  The stops are read at the mapped mouth; those the mouth's own
     end (its cap and first spacing of ramp, ``mouth_ring``) stands in are
-    the portal's opening and dropped — the rest end the ramp's top.  A
+    the portal's opening and dropped, building pads alike (the portal's own
+    footprint) — the rest end the ramp's top.  A
     TAXIWAY face at the opening is never dropped (clause 1): its ref is
     returned instead (a string), and the caller slides the mouth — unless
     ``taxi_yields`` is false (an edge bridge's pin is never slid)."""
@@ -584,6 +585,11 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
         if hit and taxi_yields:
             return hit[0]
         stops = [(p, r) for p, r in stops if not p.intersects(mouth_ring)]
+        # #1747 / owner 2026-11-04 (LOWS 15): a building PAD the opening
+        # stands in is the portal object's own footprint (an entrance's
+        # walls read as a building): the ramp grades into it to the
+        # object's bottom, and only the pads beyond end its top
+        pads = [(p, r) for p, r in pads if not p.intersects(mouth_ring)]
     if own_lines:
         stops = [(p, r) for p, r in stops if not any(
             _runs_along(ln, p, _narrow_width(p), grid) for ln in own_lines)]

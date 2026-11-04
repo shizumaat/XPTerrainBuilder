@@ -72,7 +72,19 @@ def cutting_corridors(airport, law, covered: "bool | None" = None, widen: float 
             continue
         half = (0.5 + float(widen)) * mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
         strips.append(LineString(w.points).buffer(half, cap_style="flat"))
-    return unary_union(strips) if strips else None
+    return _one_trench(unary_union(strips), tn) if strips else None
+
+
+def _one_trench(C, tn):
+    """PARALLEL TRACKS SHARE ONE CUT (#1659 (2)): the corridor union closed
+    across every gap narrower than one default carriageway
+    (``lane_width_m`` x ``default_lanes``).  MEASURED LFLL (app 1.0.464,
+    station side 45.717248, 5.075256): five ``cutting=yes`` tracks 4-8 m
+    apart each trimmed their own 7 m corridor, and the pad left between
+    them stood at its level (239.37 m) in strips 1.0-3.6 m wide and up to
+    349 m long over the 227.5 m trench floor."""
+    r = 0.5 * float(tn.lane_width_m) * int(tn.default_lanes)
+    return C.buffer(r, join_style=2).buffer(-r, join_style=2).union(C)
 
 
 def trim_cut_corridors(parts: list, airport, law) -> list:

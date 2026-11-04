@@ -158,10 +158,19 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
 def _seat_z(airport: Airport, unit, member, to_xy) -> float | None:
     """The absolute elevation of ``member``'s zero as it sits
     (:attr:`WallComponent.seat_z`): the DEM at its origin plus the unit's
-    authored ``agl``; ``None`` for a member on a converted MSL zero."""
+    authored ``agl``; ``None`` for a member on a converted MSL zero, and for
+    a member of a RUNWAY-END WALLED PLATE (``Airport.walled_plates``, owner
+    RULINGS 2026-10-27u, #1201): its zero is not where it sits — its top is
+    seated on the solved safety area at its inner edge and its bottom sinks
+    where that puts it, so no ground is held to a top or foot read off its
+    origin.  MEASURED KSEA 16C (sim read 2026-11-04): the origin stands on
+    the runway, its "as it sits" top read 131.1 m over a safety-area DEM of
+    118.4 m, and the wall slopes held the safety area's end up to it."""
     dem = getattr(airport, "dem", None)
     org = _origin(unit, member)
     if dem is None or org is None or float(getattr(member, "zero_y", 0.0) or 0.0) != 0.0:
+        return None
+    if getattr(member, "id", None) in _walled_plate_ids(airport):
         return None
     lat, lon = org
     import numpy as np
@@ -172,6 +181,11 @@ def _seat_z(airport: Airport, unit, member, to_xy) -> float | None:
     if not math.isfinite(z):
         return None
     return z + float(getattr(unit, "agl_m", 0.0) or 0.0)
+
+
+def _walled_plate_ids(airport: Airport) -> frozenset:
+    """The placement ids of every walled plate's origin set."""
+    return frozenset(i for p in (getattr(airport, "walled_plates", ()) or ()) for i in p.ids)
 
 
 def _origin(unit, member) -> tuple | None:

@@ -466,7 +466,8 @@ def hold_companion(pack_root: str, icao: str, suffix: str, digest: str,
 
 def fingerprint(airport, law, *, dump_path: str | None,
                 radius_deg: float | None,
-                pristine: "dict[str, list] | None" = None) -> str | None:
+                pristine: "dict[str, list] | None" = None,
+                more_dumps: _t.Sequence[str] = ()) -> str | None:
     """The fingerprint of everything the cached reading is a function of
     (module doc), or ``None`` when it cannot be taken (no pack, no dump)
     — in which case nothing is cached.
@@ -493,6 +494,13 @@ def fingerprint(airport, law, *, dump_path: str | None,
     if dd is None:
         return None
     h.update(f"dump:{dd}|".encode())
+    # #1645: the NEIGHBOUR tiles' dumps the load also read (``LoadReport.
+    # dsf_dump_paths``) — keyed on the full set; none for a one-tile airport
+    for extra in more_dumps:
+        ed = dump_digest(extra)
+        if ed is None:
+            return None
+        h.update(f"dump+:{os.path.basename(extra)}:{ed}|".encode())
     ents = (pristine or {}).get(pack_root) or pristine_stamps(pack_root)
     if not ents:
         return None                     # no pristine reading: no cache

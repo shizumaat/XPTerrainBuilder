@@ -43,7 +43,8 @@ from .stage_one_map import (late_constraints, late_fixed, late_followers,
                             late_rim_levels, row_vertices)
 
 __all__ = ["late_stations", "cut_classification", "run_late_stage", "run_last_stages",
-           "late_cut", "late_derive", "late_solve", "LateCut", "BEHIND_STEP"]
+           "late_cut", "late_derive", "late_solve", "LateCut", "BEHIND_STEP",
+           "follower_join_yields"]
 
 #: THE CELLS BEHIND A DECLARED STEP (spec §60 (9) R1) — a structure's floor
 #: and ramp roles and its wall void, read from their two owners: never a
@@ -215,6 +216,26 @@ def _pad_levels(pm, z, law: Law) -> dict[str, float]:
         if is_rigid_role(law, f.role):
             acc.setdefault(str(f.ref), []).extend(float(z[v]) for v in face_vertex_set(pm, f))
     return {ref: statistics.median(zs) for ref, zs in acc.items() if zs}
+
+
+def follower_join_yields(pm, cs: ConstraintSet, fixed: _t.Mapping[int, float],
+                         yield_heads: _t.AbstractSet[str],
+                         known: _t.AbstractSet[int] = frozenset()) -> list[dict]:
+    """A FOLLOWER'S JOIN PIN THE LAST STAGE RELEASES IS A YIELD (owner
+    RULINGS 2026-09-27a (10); #1093): ``late_constraints`` drops every
+    yielding pin on a follower (spec §53 (17)), so each §37 (9) join among
+    them is recorded as a released join (``pin_yield`` shape) — the core
+    ribbon then takes the level the follower solves to, as for every
+    released join.  Unrecorded, the sidecar kept the ribbon's own altitude
+    and the census read a step the mesh never carries (MEASURED, KCLT
+    ``small_roads:-8201``: 5.18 m once a run-out bank took the join's
+    vertex off the pad's rim).  ``known``: joins already recorded."""
+    joins = getattr(pm, "road_coverage_join", None) or {}
+    return [{"v": int(p.v), "xy": tuple(float(c) for c in pm.vertices[p.v].xy),
+             "pinned_m": round(float(p.z), 4), "z_m": round(float(p.z), 4),
+             "excess_m": 0.0, "stage": "late"}
+            for p in cs.pins if p.v in joins and p.v not in fixed and p.v not in known
+            and str(p.source.ruling).split("(")[0].strip() in yield_heads]
 
 
 def _carry_pin_yield(base_solution, pm_base, pm_full) -> list[dict]:
@@ -406,8 +427,11 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     # widening reads it here and the sidecar publishes THIS value
     # (``report["stage"]``), so the census follows the stage, never a copy
     floor_m = float(law.tables.emit.terrace.pad_terrace_floor_m)
+    yheads = frozenset(getattr(_design_law(law), "yielding_pin_rulings", ()) or ())
+    pad_joins.extend(follower_join_yields(pm, cs, fixed, yheads,
+                                          {int(r["v"]) for r in pad_joins}))
     cs, dropped = late_constraints(
-        cs, fixed, frozenset(getattr(_design_law(law), "yielding_pin_rulings", ()) or ()),
+        cs, fixed, yheads,
         widen_heads=frozenset(r.split("(")[0].strip()
                               for r in (_CEILING_RULING, _FALLBACK_RULING)),
         widen_floor_m=floor_m)

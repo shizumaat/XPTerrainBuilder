@@ -28,7 +28,8 @@ pavement); a piece is kept when it TOUCHES the own pavement (within
 chain touches both (:func:`road_links`; owner 2026-11-04), or touches a
 piece so connected (DEM prep's stamp reads no roads: touch only).  Inside, the
 mapped roads cut it (``classify/evidence``: the roads become road ribbons,
-the pieces between them separate lots -- overlay pages only).  Each piece is a ``dsf:overlay<k>`` source
+the pieces between them separate lots -- overlay pages only).  Each piece
+is a ``dsf:overlay<k>`` source
 (``model.airport.OVERLAY_PREFIX``) with its page's surface, one source per
 page; classification scores it as it scores a pack page, but keeps it only
 as a LOT or a ROAD and never flips it to apron by edge contact

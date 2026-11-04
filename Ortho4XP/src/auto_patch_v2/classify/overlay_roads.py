@@ -29,7 +29,8 @@ def split_overlays_at_roads(pages, airport, law, rules) -> tuple[list, int]:
     every overlay page cut at the carriageways of the mapped roads the
     ribbon mint ribbons; the pieces at least ``[cells] min_area_m2`` are
     ``<id>#r<k>``.  Returns ``(pages, overlay pages cut)``."""
-    from .ribbon_mint import _ribbon_ways      # lazy: it imports this package
+    # lazy: ribbon_mint imports this package
+    from .ribbon_mint import _ribbon_ways
     if law is None or not any(pid.startswith(OVERLAY_PREFIX) for pid, _g in pages):
         return list(pages), 0
     ways = _ribbon_ways(airport, rules)

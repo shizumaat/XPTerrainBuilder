@@ -2822,8 +2822,9 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
 
     ``placement_write.apply_plan`` is the call that rewrites the serving
     pack's DSF, re-bakes its ``.obj`` bodies and leaves the
-    ``.anchor_bak`` backups — in the OWNER'S install.  Its only engine
-    caller is ``auto_patch.object_stage._place_objects``, reached only from
+    ``.anchor_bak`` backups — in the OWNER'S install.  Its engine callers
+    are ``auto_patch.object_stage._place_objects`` and the sibling-pack
+    write it calls (``sibling_stage.write``, #1252), reached only from
     ``rebake_after_mesh``, which only the object-stage step
     (``O4_Object_Stage.run``) calls; that step is run only by a TILE build
     (``O4_Mesh_Utils.build_mesh``) or a tile-bundle import on the user's
@@ -2837,7 +2838,17 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     callers = {p.relative_to(src).as_posix() for p in src.rglob("*.py")
                if "apply_plan(" in p.read_text(errors="replace", encoding="utf-8")
                and "def apply_plan(" not in p.read_text(errors="replace", encoding="utf-8")}
-    assert callers == {"auto_patch/object_stage.py"}, callers
+    # #1252: the sibling packs' deck riders are written through the SAME
+    # ``apply_plan`` by ``sibling_stage.write``, whose only caller is
+    # ``object_stage._place_objects`` right after the airport pack's own
+    # write — the tile path still owns every pack write
+    assert callers == {"auto_patch/object_stage.py",
+                       "auto_patch/sibling_stage.py"}, callers
+    sibling_callers = {
+        p.relative_to(src).as_posix() for p in src.rglob("*.py")
+        if "_sib.write(" in p.read_text(errors="replace", encoding="utf-8")
+        or "sibling_stage.write(" in p.read_text(errors="replace", encoding="utf-8")}
+    assert sibling_callers == {"auto_patch/object_stage.py"}, sibling_callers
     rebake_callers = {
         p.relative_to(src).as_posix() for p in src.rglob("*.py")
         if ".rebake_after_mesh(" in p.read_text(errors="replace",

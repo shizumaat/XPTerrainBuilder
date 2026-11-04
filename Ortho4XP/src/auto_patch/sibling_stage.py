@@ -35,57 +35,101 @@ def plans(plan: _t.Any, dump: _t.Any, surface: _t.Callable, tile: _t.Any,
     """``[sibling PlacementPlan]`` to write for the airport ``plan``: every
     sibling with a deck rider or a free row inside the airport
     (``sibling_riders``), and every one this airport wrote before."""
-    import O4_File_Names as FNAMES
-    from auto_patch_v2.airport import dsf as _dsf
     from auto_patch_v2.airport import frame_riders as _dr
     from auto_patch_v2.airport import sibling_riders as _sr
-    from auto_patch_v2.airport.dsf_write import pristine_dsf_path
-    from auto_patch_v2.airport.unpatched_pack import seated_airports
-
-    from . import dsf_reader as _DSFR
     if contact_m <= 0.0:
         return []
-    out = []
     try:
-        roots = _sr.candidates(plan.pack_root, tile.lat, tile.lon)
-        frames = (_dr.frame_moves(dump, plan.pack_root, plan.splits,
-                                  plan.msl_seats, plan.conversions, surface)
-                  if roots else [])
-        region = _sr.airport_region(plan.pack_root, plan.icao) if roots else None
-        over = (_dr.over_objects(dump, plan.pack_root)
-                if region is not None else None)
+        region = _sr.airport_region(plan.pack_root, plan.icao)
+        roots, others = _sr.scan(plan.pack_root, tile.lat, tile.lon, region)
+        if not roots:
+            return []
+        frames = _dr.frame_moves(dump, plan.pack_root, plan.splits,
+                                 plan.msl_seats, plan.conversions, surface)
+        dumps = {r: _dump(plan.icao, r, tile, make=True) for r in roots}
+        dumps.update({r: _dump(plan.icao, r, tile, make=False) for r in others})
+        over = None
+        if region is not None:
+            index = _library_index(plan.pack_root)
+            over = _dr.over_objects(
+                [("", dump, plan.pack_root, index)]
+                + [(r, d, r, index) for r, d in dumps.items() if d is not None],
+                box=region.bounds)
     except Exception as exc:
         _say(f"  [v2 placement] {plan.icao}: sibling packs not read ({exc})")
         _say(traceback.format_exc(), 2)
         return []
+    out = []
     for root in roots:
-        name = os.path.basename(os.path.normpath(root))
-        try:
-            dsf_path = _dsf.dsf_path_in_pack(root, tile.lat, tile.lon)
-            before = plan.icao in seated_airports(dsf_path)
-            if not frames and region is None and not before:
-                continue
-            cache = _dsf.mod_cache_dir(FNAMES.airport_mod_cache_root(), name)
-            text = _DSFR.ensure_dsf_text_path(pristine_dsf_path(dsf_path), cache)
-            if not text:
-                _say(f"  [v2 placement] {plan.icao}: sibling {name}: no DSF "
-                     "text dump; skipped")
-                continue
-            sdump = _dsf.read_dump(text)
-            sp = _sr.sibling_plan(plan, frames, root, sdump, dsf_path, contact_m,
-                                  region, over)
-            if sp.msl_seats or sp.conversions or before:
-                out.append(sp)
-                _say(f"  [v2 placement] {plan.icao}: sibling {name}: "
-                     f"{len(sp.msl_seats)} row(s) on the airport's re-seated "
-                     f"decks moved with them"
-                     + (_moves(sp, sdump) if sp.msl_seats else "")
-                     + f"; {len(sp.conversions)} free row(s) inside the "
-                       f"airport seated on the new ground")
-        except Exception as exc:
-            _say(f"  [v2 placement] {plan.icao}: sibling {name} failed ({exc})")
-            _say(traceback.format_exc(), 2)
+        sp = _plan_one(plan, frames, root, dumps.get(root), tile, contact_m,
+                       region, over)
+        if sp is not None:
+            out.append(sp)
     return out
+
+
+def _dump(icao: str, root: str, tile: _t.Any, *, make: bool) -> _t.Any:
+    """The pack's pristine tile-DSF dump: made when ``make`` (a sibling,
+    like the airport pack's own), else only read when the mod cache has
+    it (a neighbour); ``None`` when there is none."""
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import dsf as _dsf
+    from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+
+    from . import dsf_reader as _DSFR
+    name = os.path.basename(os.path.normpath(root))
+    dsf = pristine_dsf_path(_dsf.dsf_path_in_pack(root, tile.lat, tile.lon))
+    try:
+        if make:
+            text = _DSFR.ensure_dsf_text_path(
+                dsf, _dsf.mod_cache_dir(FNAMES.airport_mod_cache_root(), name))
+        else:
+            text = _dsf.find_text_dump(FNAMES.airport_mod_cache_root(), name,
+                                       tile.lat, tile.lon, dsf_path=dsf)
+        return _dsf.read_dump(text) if text else None
+    except Exception as exc:
+        _say(f"  [v2 placement] {icao}: {name}: no DSF text dump ({exc})")
+        return None
+
+
+def _library_index(pack_root: str) -> "_t.Mapping[str, str] | None":
+    """The install's library index, read-only (``obj8.read_library_index``:
+    never rebuilt here)."""
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import obj8
+    xplane = os.path.dirname(os.path.dirname(os.path.normpath(pack_root)))
+    return obj8.read_library_index(obj8.library_index_path(
+        FNAMES.airport_mod_cache_root(), xplane))
+
+
+def _plan_one(plan, frames, root, sdump, tile, contact_m, region, over):
+    """One sibling's plan, or ``None`` when it changes nothing and this
+    airport never wrote it."""
+    from auto_patch_v2.airport import dsf as _dsf
+    from auto_patch_v2.airport import sibling_riders as _sr
+    from auto_patch_v2.airport.unpatched_pack import seated_airports
+    name = os.path.basename(os.path.normpath(root))
+    try:
+        dsf_path = _dsf.dsf_path_in_pack(root, tile.lat, tile.lon)
+        before = plan.icao in seated_airports(dsf_path)
+        if sdump is None:
+            _say(f"  [v2 placement] {plan.icao}: sibling {name}: no DSF "
+                 "text dump; skipped")
+            return None
+        sp = _sr.sibling_plan(plan, frames, root, sdump, dsf_path, contact_m,
+                              region, over, key=root)
+        if not (sp.msl_seats or sp.conversions or before):
+            return None
+        _say(f"  [v2 placement] {plan.icao}: sibling {name}: "
+             f"{len(sp.msl_seats)} row(s) on the airport's re-seated decks "
+             f"moved with them" + (_moves(sp, sdump) if sp.msl_seats else "")
+             + f"; {len(sp.conversions)} free row(s) inside the airport "
+               f"seated on the new ground")
+        return sp
+    except Exception as exc:
+        _say(f"  [v2 placement] {plan.icao}: sibling {name} failed ({exc})")
+        _say(traceback.format_exc(), 2)
+        return None
 
 
 def _moves(sp: _t.Any, dump: _t.Any) -> str:

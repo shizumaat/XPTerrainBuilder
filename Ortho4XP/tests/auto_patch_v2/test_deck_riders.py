@@ -152,23 +152,42 @@ def _atom(name: bytes, payload: bytes) -> bytes:
     return struct.pack("<4sI", name[::-1], 8 + len(payload)) + payload
 
 
-def _dsf(cmds: bytes, planes=(3, 4)) -> bytes:
-    geod = b"".join(_atom(b"POOL", struct.pack("<IB", 0, p)) for p in planes)
+def _dsf(cmds: bytes, pools=((3, -98.0, 32.0), (4, -97.05, 32.88))) -> bytes:
+    """Pools ``(planes, west, south)``, each 1/32 deg square (SCAL pairs
+    ``(scale, offset)`` per plane)."""
+    geod = b""
+    for planes, w, s in pools:
+        geod += _atom(b"POOL", struct.pack("<IB", 0, planes))
+        sc = [1 / 32, w, 1 / 32, s] + [360.0, 0.0] * (planes - 2)
+        geod += _atom(b"SCAL", struct.pack(f"<{len(sc)}f", *sc))
     body = (b"XPLNEDSF" + struct.pack("<I", 1)
             + _atom(b"HEAD", _atom(b"PROP", b"sim/west\0-98\0"))
             + _atom(b"GEOD", geod) + _atom(b"CMDS", cmds))
     return body + hashlib.md5(body).digest()
 
 
-def test_the_gate_reads_the_pool_an_object_is_placed_from():
+def test_the_gate_reads_the_pools_objects_are_placed_from():
     select = lambda k: struct.pack("<BH", 1, k)  # noqa: E731
     place = struct.pack("<BH", 7, 0)
-    assert dsf_commands.places_elevated_objects(_dsf(select(0) + place)) is False
-    assert dsf_commands.places_elevated_objects(_dsf(select(1) + place)) is True
-    assert dsf_commands.places_elevated_objects(b"not a dsf") is None
+    boxes = dsf_commands.object_pool_boxes
+    assert boxes(_dsf(select(0) + place), 4) == []
+    (box,) = boxes(_dsf(select(1) + place), 4)
+    assert abs(box[0] + 97.05) < 1e-4 and abs(box[3] - (32.88 + 1 / 32)) < 1e-4
+    assert len(boxes(_dsf(select(0) + place + select(1) + place))) == 2
+    assert boxes(b"not a dsf") is None
 
 
-def test_sibling_candidates_are_library_only_packs_with_elevated_rows(tmp_path, monkeypatch):
+def test_a_raw_lzma_tail_is_cut_off_the_dsf():
+    """A 7z raw LZMA1 stream decodes a byte past the file (Global_Forests_v2):
+    the footer is found by the atoms, not by the length."""
+    from O4_DSF_Header import _whole
+    buf = _dsf(struct.pack("<BH", 1, 1))
+    assert _whole(buf + b"\x2d") == buf and _whole(buf) == buf
+    assert dsf_commands.object_pool_boxes(_whole(buf + b"\x2d")) == []
+
+
+def test_the_scan_dumps_only_packs_placing_objects_inside_the_airport(tmp_path, monkeypatch):
+    from shapely.geometry import box
     scenery = tmp_path / "Custom Scenery"
 
     def pack(name, *, obj=False):
@@ -179,12 +198,17 @@ def test_sibling_candidates_are_library_only_packs_with_elevated_rows(tmp_path, 
             (root / "a.obj").write_text("I\n", encoding="utf-8", newline="\n")
         return str(root)
     main, cars, own = pack("a_main", obj=True), pack("b_cars"), pack("c_own", obj=True)
-    flat = pack("d_flat")
+    lights, forests = pack("d_lights"), pack("e_forests")
+    near, far = [(-97.05, 32.88, -97.02, 32.91)], [(-97.6, 32.1, -97.5, 32.2)]
+    table = {("b_cars", 4): near, ("b_cars", 0): near, ("c_own", 0): near,
+             ("d_lights", 4): [], ("d_lights", 0): near,
+             ("e_forests", 4): far, ("e_forests", 0): far}
     import O4_Scenery_Packs as SP
     monkeypatch.setattr(SP, "pack_enabled", lambda root, *a: True)
-    monkeypatch.setattr(SR, "_places_elevated", lambda p: "d_flat" not in p)
-    assert SR.candidates(main, 32, -98) == [cars]
-    assert own and flat
+    monkeypatch.setattr(SR, "_boxes", lambda r, la, lo, m: table[(r.rsplit("/", 1)[-1], m)])
+    region = box(-97.06, 32.87, -97.0, 32.92)
+    assert SR.scan(main, 32, -98, region) == ([cars], [own, lights])
+    assert main and forests
 
 
 def _apt(tmp_path, d=0.01):
@@ -207,18 +231,28 @@ def test_a_free_sibling_row_inside_the_airport_is_seated_on_the_new_ground(tmp_p
     main_rows = [_row(g, ZA)]
     (f,) = _frames(tmp_path, main_rows)
     region = SR.airport_region(str(tmp_path), "XXXX")
-    over = DR.over_objects(types.SimpleNamespace(placements=main_rows), str(tmp_path))
-    assert over(LAT + 5 * M, LON) and not over(LAT + 60 * M, LON)
+    car = _garage(tmp_path, "car.obj")           # a 20 x 20 m "car", for its footprint
+    index = {"lib/cars/car.obj": str(tmp_path / car)}
     sib = types.SimpleNamespace(placements=[
         _row("lib/cars/car.obj", ZA + DECK + 0.14, north=5),     # rides
         _row("lib/cars/car.obj", ZA + 3.0, north=5),            # over, not on
         _row("lib/cars/car.obj", 191.1, north=60),              # free: ground
         _row("lib/cars/car.obj", 191.1, north=5000),            # outside
-        _row("lib/cars/car.obj", 0.0, north=60, kind="OBJECT")])
+        _row("lib/cars/car.obj", 0.0, north=60, kind="OBJECT"),  # same model
+        _row("lib/cars/car.obj", 191.1, north=-60)])             # over a neighbour's
+    other = types.SimpleNamespace(placements=[_row("lib/cars/car.obj", 0.0, north=-65,
+                                                   kind="OBJECT")])
+    cars = str(tmp_path / "cars")
+    over = DR.over_objects([("", types.SimpleNamespace(placements=main_rows),
+                             str(tmp_path), None),
+                            (cars, sib, cars, index), ("lights", other, "x", index)],
+                           box=region.bounds)
+    assert over(LAT + 5 * M, LON) and not over(LAT + 200 * M, LON)
+    assert over(LAT + 60 * M, LON) and not over(LAT + 60 * M, LON, (cars, LAT + 60 * M, LON))
     main = PlacementPlan("XXXX", "main", str(tmp_path), "m.dsf", "m.dsf.anchor_bak",
                          Provenance("", "1.0", "law"))
-    sp = SR.sibling_plan(main, [f], str(tmp_path / "cars"), sib,
-                         str(tmp_path / "cars" / "t.dsf"), 0.5, region, over)
+    sp = SR.sibling_plan(main, [f], cars, sib, str(tmp_path / "cars" / "t.dsf"),
+                         0.5, region, over, key=cars)
     assert [m.index for m in sp.msl_seats] == [0]
     assert [c.index for c in sp.conversions] == [2]
     assert sp.provenance.counts["free_rows_on_ground"] == 1

@@ -338,32 +338,55 @@ def rider_seats(rows: _t.Sequence[_t.Any], candidates: _t.Iterable[int],
     return tuple(out)
 
 
-def over_objects(dump: _t.Any, pack_root: str
-                 ) -> _t.Callable[[float, float], bool]:
-    """``(lat, lon) -> bool``: does the point stand over a static solid
-    triangle of ANY object the pack places (every row kind, its authored
-    geometry)?  The owner's 2026-11-04 witness for a sibling row that is
-    "on top of / overlaps" another object (#1252); a resource that does
-    not resolve inside the pack has no footprint here."""
+def over_objects(sources: _t.Iterable[tuple[_t.Hashable, _t.Any, str,
+                                            "_t.Mapping[str, str] | None"]],
+                 box: "tuple[float, float, float, float] | None" = None
+                 ) -> _t.Callable[..., bool]:
+    """``over(lat, lon, skip=None) -> bool``: does the point stand over a
+    static solid triangle of ANY object the ``sources`` place?  Each source
+    is ``(key, dump, pack_root, library index)``: every row kind, its
+    authored geometry, a library path resolved through the index
+    (``obj8.resolve_resource``).  ``box`` ``(west, south, east, north)``
+    keeps only the rows inside it.  ``skip = (key, lat, lon)`` leaves out
+    that source's rows at that very origin — the row asking, and the other
+    files of its own model (``msl_feet``'s rigid set).  The owner's
+    2026-11-04 witness for a sibling row "on top of / overlapping" another
+    object (#1252)."""
+    from .obj8 import resolve_resource
     from .pack import authored_source
-    rows = list(getattr(dump, "placements", ()) or ())
-    memo: dict[str, "_Deck | None"] = {}
-    placed: list[_FrameMove] = []
-    for i, row in enumerate(rows):
-        res = str(row.def_path)
-        if res not in memo:
-            phys = os.path.join(pack_root or "", res)
-            path, _r = authored_source(phys, pack_root)
-            memo[res] = (_Deck.read(path) if pack_root and res.lower().endswith(".obj")
-                         and path and os.path.isfile(path) else None)
-        if memo[res] is not None:
-            placed.append(_FrameMove(i, float(row.lat), float(row.lon),
-                                     float(row.heading_deg), 0.0, memo[res], 0.0))
+    memo: dict[tuple, "_Deck | None"] = {}
+    placed: list[tuple[_t.Hashable, _FrameMove]] = []
+    for key, dump, root, index in sources:
+        for i, row in enumerate(getattr(dump, "placements", ()) or ()):
+            la, lo = float(row.lat), float(row.lon)
+            if box is not None and not (box[0] <= lo <= box[2] and box[1] <= la <= box[3]):
+                continue
+            res = str(row.def_path)
+            if (root, res) not in memo:
+                phys = (resolve_resource(res, root, index)
+                        if res.lower().endswith(".obj") else None)
+                path = authored_source(phys, root)[0] if phys else None
+                memo[(root, res)] = _Deck.read(path) if path else None
+            if memo[(root, res)] is not None:
+                placed.append((key, _FrameMove(i, la, lo, float(row.heading_deg),
+                                               0.0, memo[(root, res)], 0.0)))
+    lat = np.array([f.lat for _k, f in placed])
+    lon = np.array([f.lon for _k, f in placed])
+    reach = np.array([f.deck.reach for _k, f in placed])
 
-    def over(lat: float, lon: float) -> bool:
-        for f in placed:
-            x, z = _local(f, lat, lon)
-            if x * x + z * z <= f.deck.reach ** 2 and f.deck.heights(x, z)[0].shape[0]:
+    def over(la: float, lo: float, skip: "tuple | None" = None) -> bool:
+        if not placed:
+            return False
+        e = (lon - lo) * _M_PER_DEG * math.cos(math.radians(la))
+        n = (lat - la) * _M_PER_DEG
+        for k in np.flatnonzero(e * e + n * n <= reach * reach):
+            key, f = placed[int(k)]
+            if (skip is not None and key == skip[0]
+                    and round(f.lat, 8) == round(skip[1], 8)
+                    and round(f.lon, 8) == round(skip[2], 8)):
+                continue
+            x, z = _local(f, la, lo)
+            if f.deck.heights(x, z)[0].shape[0]:
                 return True
         return False
     return over

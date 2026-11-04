@@ -13,8 +13,10 @@ and NO object of their own (``pack_local.tile_candidates`` less
 ``pack_local.ships_objects``: a pack that
 ships objects inside the airport is a companion, re-seated by its own
 plan — RULINGS 2026-10-28p (5)); and a DSF that places an object from an
-elevation pool at all (``dsf_commands.places_elevated_objects``, read off
-the command stream without a dump, ~1 s for 20 packs).
+elevation pool (``dsf_commands.object_pool_boxes``, read off
+the command stream without a dump, ~1 s for 20 packs) whose box meets
+the airport's boundary — a pack whose objects all lie elsewhere on the
+tile (Global_Forests_v2) is never dumped.
 
 THE ROWS, all ``OBJECT_MSL`` (an on-ground row already follows the new
 mesh, an ``OBJECT_AGL`` row is kept as authored, 14g (1)):
@@ -44,30 +46,55 @@ import typing as _t
 
 from ..model.placement import Conversion, PlacementPlan, Provenance
 
-__all__ = ["RIDER_KEY", "airport_region", "candidates", "sibling_plan"]
+__all__ = ["RIDER_KEY", "airport_region", "scan", "sibling_plan"]
 
+#: an object point with an elevation (OBJECT_MSL / OBJECT_AGL) has a
+#: fourth pool plane after longitude, latitude and heading
+_ELEVATED = 4
 #: the plan JSON key of the ``k``-th sibling written for ``icao``
 #: (``o4_v2_placement_<ICAO>~riders<k>.json``)
 RIDER_KEY = "{icao}~riders{k}"
 
 
-def _places_elevated(dsf_path: str) -> bool:
-    """Does the DSF place any object from an elevation pool?  A file that
-    cannot be read this way is read (``True``): the dump decides."""
+def _boxes(root: str, lat: int, lon: int, min_planes: int
+           ) -> "list[tuple[float, float, float, float]] | None":
+    """The boxes of the point pools the pack's tile DSF places objects from
+    (``dsf_commands.object_pool_boxes``), read from its pristine file."""
     from O4_DSF_Header import dsf_bytes
 
-    from .dsf_commands import places_elevated_objects
-    verdict = places_elevated_objects(dsf_bytes(dsf_path))
-    return verdict is not False
-
-
-def candidates(main_root: str, lat: int, lon: int) -> list[str]:
-    """The sibling packs of ``main_root`` on the tile (module doc)."""
     from . import dsf as _dsf
+    from .dsf_commands import object_pool_boxes
     from .dsf_write import pristine_dsf_path
+    return object_pool_boxes(dsf_bytes(pristine_dsf_path(
+        _dsf.dsf_path_in_pack(root, lat, lon))), min_planes)
+
+
+def _meets(boxes: "list | None", region: _t.Any) -> bool:
+    """Does any box meet the region's bounds?  An unreadable DSF does
+    (``None``: the dump decides); no region, any box does."""
+    if boxes is None:
+        return True
+    if region is None:
+        return bool(boxes)
+    w, s, e, n = region.bounds
+    return any(b[0] <= e and b[2] >= w and b[1] <= n and b[3] >= s for b in boxes)
+
+
+def scan(main_root: str, lat: int, lon: int, region: _t.Any = None
+         ) -> tuple[list[str], list[str]]:
+    """``(siblings, neighbours)`` of ``main_root`` on the tile (module doc):
+    the siblings place an ELEVATED object (a fourth pool plane) in a pool
+    meeting the airport's region; the neighbours are every other candidate
+    pack placing any object there (the "other objects" a free row may
+    overlap).  A pack placing nothing there is never dumped."""
     from .pack_local import ships_objects, tile_candidates
-    return [r for r in tile_candidates(main_root, lat, lon) if not ships_objects(r)
-            and _places_elevated(pristine_dsf_path(_dsf.dsf_path_in_pack(r, lat, lon)))]
+    sibs, others = [], []
+    for r in tile_candidates(main_root, lat, lon):
+        if not ships_objects(r) and _meets(_boxes(r, lat, lon, _ELEVATED), region):
+            sibs.append(r)
+        elif _meets(_boxes(r, lat, lon, 0), region):
+            others.append(r)
+    return sibs, others
 
 
 def airport_region(pack_root: str, icao: str) -> _t.Any:
@@ -93,11 +120,12 @@ def airport_region(pack_root: str, icao: str) -> _t.Any:
 def sibling_plan(main: PlacementPlan, frames: _t.Sequence[_t.Any], root: str,
                  dump: _t.Any, dsf_path: str, contact_m: float,
                  region: _t.Any = None,
-                 over: "_t.Callable[[float, float], bool] | None" = None
-                 ) -> PlacementPlan:
+                 over: "_t.Callable[..., bool] | None" = None,
+                 key: _t.Hashable = None) -> PlacementPlan:
     """The sibling's plan (module doc): its deck riders' row seats, and —
     with a ``region`` and an ``over`` test — the on-ground conversions of
-    its free ``OBJECT_MSL`` rows inside the airport."""
+    its free ``OBJECT_MSL`` rows inside the airport.  ``key`` is this
+    pack's source key in ``over`` (its own row is never "another object")."""
     from shapely.geometry import Point
     from shapely.prepared import prep
 
@@ -113,7 +141,8 @@ def sibling_plan(main: PlacementPlan, frames: _t.Sequence[_t.Any], root: str,
         for i, p in enumerate(rows):
             if (p.kind == KIND_MSL and i not in ridden
                     and inside.contains(Point(float(p.lon), float(p.lat)))
-                    and not over(float(p.lat), float(p.lon))):
+                    and not over(float(p.lat), float(p.lon),
+                                 (key, float(p.lat), float(p.lon)))):
                 conversions.append(Conversion(i, p.def_path, p.lon, p.lat,
                                               p.heading_deg, p.kind,
                                               0.0 if p.elevation is None

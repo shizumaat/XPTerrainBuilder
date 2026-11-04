@@ -72,11 +72,25 @@ def dsf_bytes(path: str) -> bytes:
         with open(path, "rb") as handle:
             start = handle.read(len(_SEVEN_ZIP))
             if start.startswith(_SEVEN_ZIP):
-                return _seven_zip_head(handle, -1, -1)
+                return _whole(_seven_zip_head(handle, -1, -1))
             buf = start + handle.read()
     except OSError:
         return b""
     return buf if buf.startswith(_DSF_COOKIE) else b""
+
+
+def _whole(buf: bytes) -> bytes:
+    """``buf`` cut to the DSF's own length: its top-level atoms and the
+    16-byte MD5.  A raw LZMA1 stream (7z, no end marker) decodes a byte
+    or more past the file (Global_Forests_v2 +32-098: one), which put the
+    footer in the wrong place."""
+    off = 12
+    while off + 8 <= len(buf):
+        length = struct.unpack_from("<I", buf, off + 4)[0]
+        if length < 8 or off + length > len(buf) - 16:
+            break
+        off += length
+    return buf[:off + 16] if off > 12 and off + 16 <= len(buf) else buf
 
 
 def _head(path: str) -> bytes:

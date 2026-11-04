@@ -352,6 +352,8 @@ class DesignReport:
     #: strip projected onto its host pad's final plane after the solve
     #: (``solve/project_strip.project_facade_strips``)
     facade_strip: dict = _dc.field(default_factory=dict)
+    #: THE FOLLOWER PASS after stage 2 (issue #359; ``solve/follow_stage``)
+    follow_stage: dict = _dc.field(default_factory=dict)
     #: THE RUNWAY'S FLEX (flat-pad spec v2 §1 / §6 A11, RULINGS
     #: 2026-09-30as): per PULLED runway its budget, lift, used share and
     #: pulling pad (``constraints/no_step.HoldPass.finish``); empty where no
@@ -688,6 +690,7 @@ class DesignReport:
                 "zone_projection": self.zone_projection.as_dict(),
                 "jetway_strip": self.jetway_strip.as_dict(),
                 "facade_strip": dict(self.facade_strip),
+                "follow_stage": dict(self.follow_stage),
                 "runway_flex": self.runway_flex,
                 "fronting_promoted": self.fronting_promoted,
                 "fronting_promoted_by": self.fronting_promoted_by,

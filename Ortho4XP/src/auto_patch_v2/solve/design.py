@@ -131,7 +131,10 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  stage1: _t.Any = None,
                  trend_rewrite: _t.Callable[
                      [PlanarMap, _t.Mapping[int, float]],
-                     _t.Mapping[int, float] | None] | None = None
+                     _t.Mapping[int, float] | None] | None = None,
+                 follow_rewrite: _t.Callable[
+                     [ConstraintSet, _t.Sequence[float]],
+                     tuple[ConstraintSet, dict[int, float], dict] | None] | None = None
                  ) -> tuple[Solution, DesignReport]:
     """THE DESIGN SURFACE, in ONE stage or TWO (§20b).
 
@@ -164,6 +167,9 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     them, and every later stage-1 solve (pass 1b, a pin yield) is assembled
     on the same targets: ONE extra pass, never a loop.  Ignored by the
     single solve.
+
+    ``follow_rewrite`` (#359): the caller's FOLLOWER PASS after stage 2
+    (``pipeline/lot_follow``), solved once by ``solve/follow_stage``.
 
     ``[design] staged_solve`` false is the single solve this module has
     always been: one problem, one report.  True is §20b THE STAGED SOLVE
@@ -298,6 +304,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               method=method, low_rank=low_rank, fixed=fixed2,
                               seed=seed2)
     yielded: list[dict] = []
+    cs2_used = cs
     if sol2.z and yield_heads:     # issue #778: each pin by its own conflict
         def _stage2(cs_x: ConstraintSet):
             return _solve_stage(planar2, cs_x, law, options, size_out=size_out,
@@ -308,6 +315,13 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                                                 _stage2, among=among2)
         for r in yielded:
             r["stage"] = 2
+        cs2_used = _cs2
+    if follow_rewrite is not None and sol2.z:
+        from .follow_stage import solve_follow
+        sol2, rep2.follow_stage = solve_follow(
+            cs2_used, sol2, follow_rewrite, lambda cs_f, fx: _solve_stage(
+                planar2, cs_f, law, options, method=method, low_rank=low_rank,
+                fixed=fx))
     rep2.reach_seed = seed_rep
     # issue #143: the §37 (9) joins the rewrite released because their road
     # row is welded to a stage-1 constant (``road_ramp.welded_join_release``)

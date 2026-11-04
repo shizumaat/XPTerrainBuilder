@@ -139,6 +139,11 @@ REMEDIES = {
                         "below it from the tile's info.",
     "elevation_link": "{connect}, or replace the link with an empty "
                       "folder, then build the tile again.",
+    # a pack whose ground objects were made for a terrain mesh of its own
+    # (#1362): only the user can install it
+    "companion_mesh": "If that scenery pack comes with a terrain pack, "
+                      "install it as its manual says, then build the tile "
+                      "again.",
 }
 
 UNMAPPED = "unexpected_error"          # an exception nobody catalogued
@@ -250,6 +255,14 @@ CATALOGUE = {
         "some of its aerial images are missing.",
         "{textures} could not be downloaded from {imagery_source}, so they "
         "show as white squares.", "network", severity="degraded"),
+    # the pack supplies its own ground and no terrain mesh of its own is
+    # installed (#1362, owner RULINGS 2026-11-04 option A): built, with our
+    # ground shaped under the pack's
+    "pack_ground_no_mesh": Entry(
+        "{airports} has no terrain mesh of its own installed.",
+        "{pack} models the airport's ground as objects, and no terrain "
+        "pack for them was found, so the app shaped the ground under them "
+        "itself.", "companion_mesh", severity="degraded"),
     "inset_fetch_failed": Entry(
         "the detailed elevation for {airports} could not be downloaded.",
         "{inset_source} did not answer, so the ground there was shaped from "

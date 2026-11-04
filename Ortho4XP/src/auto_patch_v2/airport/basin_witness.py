@@ -113,6 +113,9 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
     # replaces for its own placements
     from . import walled_plate as _walled_plate
     objs = _walled_plate.mark(airport, objs, cache, law)
+    # THE PACK'S OWN GROUND (issue #1362): its frame set is one rigid body
+    from . import pack_ground as _pack_ground
+    objs = _pack_ground.mark(airport, objs, cache)
     cache.placed["objects"] = (objs, rep)
     return objs, rep
 

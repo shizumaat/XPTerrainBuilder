@@ -615,6 +615,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # PASS — the apron levels stage 1 solved become trend contacts, bound
     # here because ``solve`` may not import ``constraints``
     from ..constraints.taxi_trend import stage_one_retarget
+    # issue #359: the lot over a declared wall follows its pad after stage 2
+    from .lot_follow import lot_follow_rewrite
 
     def _solve() -> tuple:
         size: dict[str, int] = {}
@@ -624,7 +626,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             stage2_rewrite=lambda lv: _stage2_rewrite(lv),
             hold=pre.hold, stage1=_s1,
             trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
-                                                              lv, tt2))
+                                                              lv, tt2),
+            follow_rewrite=lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z))
         return sol, rep, size, tt2, None if _s1 is None else dict(_s1.report)
     # THE SOLVE'S RECORD (stage-cache spec §4b.4; ``pipeline/solve_record``):
     # keyed on the prefix's records and the ribbon-free prefix's, never

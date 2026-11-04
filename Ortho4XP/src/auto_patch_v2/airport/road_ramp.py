@@ -1915,6 +1915,10 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     terr = {**terr, "wall": wall_terraces(
         pm, law, walls, terr,
         float(service.retaining_wall_reach_m)) if walls else {}}
+    # issue #359: the lot over a declared wall takes its pad's level — its
+    # own key, rows only in the follower pass (``constraints/lot_follow``)
+    from .lot_level import lot_level
+    terr["lot_level"] = lot_level(pm, law, terr["wall"])
     # OWNER RULINGS 2026-10-03l: a non-ribbon road is in the terrace only
     # along that wall witness (the ONE trim, here at the derivation site)
     road_caps = [role_cap(law, r).longitudinal for r in _road_roles(law)
@@ -1944,6 +1948,7 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         report["terrace_pad"] = len(terr.get("pad", {}))
         report["terrace_walled"] = len(terr.get("walled", {}))
         report["wall_terraces"] = len(terr.get("wall", {}))
+        report["lot_level"] = len((terr.get("lot_level") or {}).get("pairs") or ())
         report["terrace_below_wall"] = len(below)
     # OWNER RULINGS 2026-10-22h (#1254): the public-road faces whose own
     # target runs over the road cap — the rows yield there

@@ -297,6 +297,13 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     _taken = (settled | frozenset(m.index for m in msl)
               | frozenset(c.index for c in conversions))
     msl = msl + frame_rider_seats(dump, splits, surface, _taken, msl_counts)
+    # #1639: a lifted row whose lift now buries its feet stands on them
+    msl = msl + _mf.lifted_feet_seats(
+        dump, (_taken | frozenset(m.index for m in msl)
+               | frozenset(r.index for r in riders)
+               | frozenset(k.index for k in (getattr(ss, "kept", ()) or ()))),
+        surface, pack_root,
+        ss.unit_seats, tol_m=feet_tol_m, counts=msl_counts)
     from . import riders as _riders
     counts: dict[str, int] = {"conversions": len(conversions),
                               "authored_rows_kept": authored_rows,

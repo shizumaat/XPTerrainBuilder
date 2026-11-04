@@ -1310,6 +1310,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.threshold_datum
     """),
     "deck_anchor": _mods(_GENERATOR_CORE + """
+        geom.exact
         law.inset_class
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads

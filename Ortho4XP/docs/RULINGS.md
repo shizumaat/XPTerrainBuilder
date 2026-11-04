@@ -10587,3 +10587,36 @@ The model is the review doc "Bridges, tunnels and cuts: the two-level model" (ht
 - (2) Worktrees (14:00:16Z): "do we really need 50 simultaneous worktrees? … would it be more efficient for a new lane to take over an existing worktree" — cap 16, reuse merged worktrees ("Good", 14:01:15Z). Supersedes the 50 cap of 11-03c (10).
 - (3) LFPG T2 (15:03:44Z): "That's a better fallback then leaving buildings floating by several meters, and history has taught us that any modifications on a tile boundary have caused problems, so it's the best solution I can think for this situation." — where a flat-built group has no single lawful level, each building is seated flat at its own lawful level as close to the group's zero as possible, stepping between neighbours; tile boundaries are never modified for it. (15:06:03Z) "implement it and let me test it in the sim" (no section views needed for it).
 - (4) Bridge-end anchors (16:00:07Z): "we need airside to perfectly match each end of a bridge … If we calculate those end points for every bridge correctly and add them to the solve as an anchor like a tile seam or CIFP threshold … then the solve should grade smoothly to those spots, and we can subsequently cut out the right amount of terrain under it … This should be in beta 7." Same code for runways and taxiways. (16:08:44Z) "a bridge only enters the solve if the scenery pack provides a clear object with a hard deck for that location. Without that airside all solves as it does now, and we simply cut a tunnel up to the edge without moving airside." Spec: Ortho4XP/docs/specs/deck-end-anchors-20261103.md.
+
+**2026-11-03e: bridges and decks, LFPG T2, pack optimise, seating, grading, cross-tile, process (owner, Noah, 2026-11-03/04, verbatim where quoted; times UTC).**
+Bridges and decks (#1671 family; spec Ortho4XP/docs/specs/deck-end-anchors-20261103.md, amended by the redesign below):
+- (1) Q1–Q3 (16:20:37Z): "1. accepted / 2. tile edges trump everything and both terrain and objects must be adjusted as need to match. A deck near or under a threshold should ideally be seated as close as possible to the CIFP value. LPMA is a good test case of one entire end of a runway being on a hard deck. / 3. Accepted recommendation".
+- (2) KIAH slab rule (16:39:23Z): a bridge that is not a hard deck is a surface-level sim object — terrain stays under it and is cut to either side like a tunnel ramp, the cut sized from the object's width (current cuts are too small). (16:53:39Z "1") the slab-deck trench is the object's width wall to wall (~32 m).
+- (3) Bridge ends (16:56:16Z): "Unless there's evidence such as a wall object or road edge requiring a vertical cut under the bridge, assume a sloping embankment coming down from bridge ends to the trench bottom." Amends 2026-11-03b (2) for bridge ends.
+- (4) (18:10Z) LFPG runways do not follow the dip under a bridge (blind trend accepted); taxiway bridges always get the same fixed ends as runway bridges (KBNA twy L +0.46 m accepted).
+- (5) (19:04Z) ENGM: a walled trench with global hard_deck anchors where a runway or taxiway crosses; LPMA: an unmarked object under a runway end counts as a deck.
+- (6) (20:17Z) deck-end anchors go to a redesign after three missed rounds. (21:16Z) Q1 yes: pavement beside a deck cut meets it as a vertical step; pavement is never cut or banked outside the object. Q2: bridge ends are treated like a building pad — elevation feasible from the route graph, the object re-seats, airside pavement welds and grades exactly to the deck (redesign option b; runway decks sit on the blind-trend runway profile).
+- (7) (23:02Z) ends touching airside stay flush with airside pavement; which part is flush depends on bridge or tunnel, road or taxiway, over or under.
+- (8) (23:21Z) EDDF: co-placed hard-deck pieces of one unit share one zero (sim check after).
+LFPG T2:
+- (9) (16:44:51Z): "I would like to see LFPG built with the most accurate terrain, bridges all correct, and the central corridor for T2 cut. Keep the object group together and let the east end float, since this is a limitation of the scenery package and we can't shape the terrain to match without violating the tile boundary or grade law. I will review in-sim." Supersedes the per-building seating of 2026-11-03d (3) for T2 (branch claude/flatA-spec kept, shelved).
+Pack optimise (#1707, with 2026-11-03c (6)):
+- (10) (18:07Z) "Allow parked road cars to be swapped" (a minority Blank.obj variant is acceptable).
+- (11) (18:25Z) the optimise dialog lists each step with an explanation and estimated impact, all on by default, a checkbox to disable each (both apps, #1244).
+Seating:
+- (12) #1471 (22:16Z): the people-mover rail is never a taxiway bridge and never contacts airside.
+- (13) #1637 (23:02Z) option (b): when a build uses an edited patch, pack objects are re-placed on the new mesh plus the hand-set seats (with 2026-11-03c (8)).
+- (14) Sibling packs (2026-11-04T00:08Z): secondary-pack objects not on or overlapping any other object are seated on the new ground (sibling MSL rows inside the airport boundary become on-ground); deck riders keep their deck (#1252/#1836).
+- (15) LOWS (23:21Z): the ramp grades to the entrance object's bottom; the houses stay.
+Grading:
+- (16) #1093 (23:06Z): no OPEN patch edge more than 0.5 m off the DEM (the open edge, not the corner vertex).
+- (17) #1598 (2026-11-04T00:00Z) yes: a draped-pavement overlay pack (AEP Overlays) whose pavement meets the airport pack is read as pavement evidence only; its objects are never seated.
+- (18) #1531 (23:16Z): the road follows the hill; the building pad is cut flat into the hill. (00:28Z "Yes to recommendations") building40's level = raw DEM where it meets the fill on its downhill frontage, held flat, hill cut behind.
+- (19) #517 (23:16Z): the primary parallel cuts the hill between apron entrances, smooth, with no runway effect (goes to a two-round-cap review with this intent).
+- (20) #883 (23:16Z): the joint runs along the pad corner. #1332 (23:16Z): the airport is GCLA. (00:28Z) a second drop tier (≥ 5 m under the end line and > 15 % over a 15 m probe), and undeclared pavement past a runway end reads as a blast pad following the DEM under its cap.
+- (21) #1842 (00:28Z): visible hard-surface .pol pages count as the pack's own pavement. Amends 2026-10-20bb (invisible gap-fillers still do not count).
+Cross-tile:
+- (22) #1645 (00:40Z): a cross-tile airport solves and fails as a whole (one solve, one verdict); tiles share resources and caches (objects are not re-read each tile build); tile seams stay locked to the DEM (no seam-strip grading). Drops the first half of 2026-10-29a Q294 (b). (23:21Z) review first; work starts only where the multi-tile design has a gap.
+Process (standing):
+- (23) (22:16Z) always run as many lanes as the plan allows (8, the cap of 2026-11-03d (1)) while open issues remain; clean finished worktrees as they finish (2026-11-03d (2)); refresh data caches as needed through `build_airport.py --refresh-data` (RULINGS e9daef5). (22:23Z) #1252, #517, #1264 go into Beta 7.
+- (24) (23:21Z) SKIP section views this week: supersedes 2026-11-03b (8) Q347 a until further notice. Reuse-first is already law (CLAUDE.md "Reuse and readable modules", RULINGS 2026-10-04); lanes fixing bugs they find is 2026-11-03c (11).

@@ -176,10 +176,11 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
         from .wall_class import wall_class_components
         comps = wall_class_components(airport, cfg)
     clear = float(getattr(cfg, "retaining_wall_clear_step_m", 0.0) or 0.0)
+    plates = _walled_plate_ids(airport)
     out = []
     for w in comps:
         h = float(w.retained_m or w.height_m)
-        if not w.retains or h <= clear:
+        if not w.retains or h <= clear or getattr(getattr(w, "member", None), "id", None) in plates:
             continue
         smear = wall_smear_m(h)
         for g in w.pieces:
@@ -212,6 +213,21 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
                                  None if core.is_empty else core,
                                  uf, top, lf, foot))
     return tuple(out)
+
+
+def _walled_plate_ids(airport) -> frozenset:
+    """THE WALLED PLATE IS NOT A TWO-LEVEL WALL HERE (#1201; owner RULINGS
+    2026-10-27t/u, sim read 2026-11-04): the placement ids of every
+    runway-end walled plate's origin set (``Airport.walled_plates``).  Its
+    walls retain the safety area, but their top is SEATED on that safety
+    area at the plate's inner edge after the solve and their bottom sinks
+    where that puts it — so no band stops short of them, no wall slope holds
+    a hill to a top read off the origin as it sits, and no foot is held
+    (the plate's ground is ``constraints/walled_plate``'s).  MEASURED KSEA
+    16C (the pack origin on the runway): its "as it sits" top read 131.1 m,
+    the wall slopes held the safety area's last 30 m up to it over a DEM of
+    120-122 m, and the plate's seat read that lifted ground (130.55 m)."""
+    return frozenset(i for p in (getattr(airport, "walled_plates", ()) or ()) for i in p.ids)
 
 
 def _retaining_stations(dem, face: LineString, profile: tuple, smear: float,

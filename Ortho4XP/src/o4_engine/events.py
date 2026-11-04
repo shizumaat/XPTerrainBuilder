@@ -201,7 +201,7 @@ CAPABILITIES: tuple = (
     "config", "links", "siblings", "secrets", "tile_settings_write",
     # pack and library commands (before the freeze, also read by number)
     "missing_art", "library", "pack_forests", "pack_optimise",
-    "pack_optimise_steps",
+    "pack_optimise_steps", "pack_optimise_ask",
     # the flags that name what protocol 1.20-1.32 added
     "patch_insert_shape",           # 1.20, #1314
     "patch_insert_tunnel_ramp",     # 1.24, #1745

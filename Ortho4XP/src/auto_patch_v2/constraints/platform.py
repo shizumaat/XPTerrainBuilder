@@ -231,6 +231,9 @@ def _bank_rows(planar: PlanarMap, law: Law,
     # the COVERAGE EDGE: a vertex of an edge with no face on one side
     edge_v = {v for e in planar.edges.values()
               if e.left_face is None or e.right_face is None for v in (e.a, e.b)}
+    from ..law.tables import road_family_roles
+    road = frozenset(road_family_roles(law))
+    ramp_runs = frozenset(getattr(planar, "ramp_runouts", None) or ())
     for pref, cfids, pfids in pairs:
         inner = sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]]
                         for v in r})
@@ -345,6 +348,14 @@ def _bank_rows(planar: PlanarMap, law: Law,
                 keep.append(o)             # a welded contact always leads
                 continue
             inc = [q for q in planar.vertices[o].incident_faces if q not in own_f]
+            if pref in ramp_runs and any(planar.faces[q].role in road for q in inc):
+                # A RUN-OUT'S BANK STOPS AT A ROAD'S EDGE (owner 2026-11-04,
+                # #1093 rule 1): the road keeps its own level and grade; the
+                # bank slopes down beside it and never ties it to the strip.
+                # MEASURED (KCLT east foot, matched control): 1:3 rows from
+                # the strip to ``small_roads:-11471`` / ``-8197#1`` vertices
+                # the bank shared held ``runout:2`` 0.26 m under its profile
+                continue
             other = [q for q in inc if planar.faces[q].role == planar.faces[cfids[0]].role
                      and pad_base_ref(planar.faces[q].ref) != base]
             if o in edge_v:

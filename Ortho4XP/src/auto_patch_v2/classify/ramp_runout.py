@@ -208,16 +208,24 @@ def _side_ring(held, box: Polygon, z_of: _t.Callable[[float, float], float], dem
 
 def _held_banks(pm_base, xy: np.ndarray, zz: np.ndarray, cells: list, back: Polygon,
                 box: Polygon, occupied, air: _t.AbstractSet[str], dem, k: float,
-                dmax: float, band: float, snap: float, touch: float,
-                road_roles: _t.AbstractSet[str]) -> list[Polygon]:
-    """The bank parts off a foot's HELD GROUND (:func:`_side_ring`): the
-    base map's non-airside faces under the foot's last metres (``back``),
-    and the pad-road cells touching them inside ``box``, never across a
-    road's far end (:func:`_road_ends`); each edge's level
-    is the nearest base-map vertex's (a pad road beside its pad stands at
-    the pad's rim).  An airside face is never banked (airside is king); a
-    part narrower than ``touch`` (the touch grid, wider than the last
-    stage's stand-off) is minted only in a slot of the held ground."""
+                dmax: float, band: float, snap: float, touch: float, slot_m: float
+                ) -> tuple[list[Polygon], list[Polygon]]:
+    """``(banks, slots)`` off a foot's HELD GROUND: the base map's
+    non-airside faces under the foot's last metres (``back``) and the
+    pad-road cells touching them inside ``box``.  Each edge's level is the
+    nearest base-map vertex's (a pad road beside its pad stands at the
+    pad's rim).  An airside face is never banked (airside is king).
+
+    THE SLOTS FIRST (owner 2026-11-04, #1093 rule 2): an unmapped slot
+    narrower than ``2 slot_m`` (twice the touch grid) between held faces standing within ``band``
+    of one level is part of the held ground and is FILLED to it
+    (:func:`_slots`), never banked into.  THE BANKS: the daylight polygon
+    (:func:`_side_ring`) less the slots and what the patch holds; a part
+    narrower than ``touch`` (the touch grid, wider than the late stage's
+    stand-off) against another face is not minted — it re-nodes that face
+    instead (MEASURED, KCLT west foot: a 1 m wedge between the pad road
+    and a standing road gave the road two pad-level vertices, 22
+    within-shape rows to 4.5 m)."""
     from scipy.spatial import cKDTree
 
     from .evidence import polygon_parts
@@ -233,76 +241,72 @@ def _held_banks(pm_base, xy: np.ndarray, zz: np.ndarray, cells: list, back: Poly
             refs.add(str(f.ref))
             held.append(q)
     if not held:
-        return []
+        return [], []
     # the held ground in the base map's faces (snapped to the identity
     # lattice: the slots the emitted patch leaves) AND in the cells' own
     # geometry (what ``occupied`` is made of)
     held.extend(q for c in cells if str(c.ref) in refs
                 for q in [Polygon(c.ring, c.holes)] if q.is_valid and not q.is_empty)
     core = unary_union(held)
-    roads, ends = [], []
     for c in cells:
         ev = getattr(c, "evidence", None) or {}
-        if ev.get("ramp_runout") or ev.get(BANK_EVIDENCE):
+        if ev.get("ramp_runout") or ev.get(BANK_EVIDENCE) or not ev.get("pad_road"):
             continue
         q = Polygon(c.ring, c.holes)
-        if not q.is_valid or not q.intersects(box.buffer(dmax)):
-            continue
-        if ev.get("pad_road") and q.intersects(box) and q.distance(core) <= touch:
+        if q.is_valid and q.intersects(box) and q.distance(core) <= touch:
             held.append(q)
-        if c.role in road_roles:
-            roads.append(q)
-    for q in roads:
-        ends.extend(_road_ends(q, core, dmax, touch))
     tree = cKDTree(xy)
 
     def z_of(x: float, y: float) -> float:
         return float(zz[tree.query((x, y))[1]])
     ground = unary_union(held).buffer(0)
+    slots, steps = _slots(ground, box, occupied, z_of, slot_m, band, snap, touch)
     ring = _side_ring(ground, box, z_of, dem, k, dmax, band)
     if ring is None:
-        return []
-    # a road's far END is where the core's ribbon carries the road on
-    # (``emit/road_join``, §37 (9)): no bank across it (MEASURED, KCLT: a
-    # bank past ``small_roads:-8201``'s end took the coverage join, 5.18 m
-    # off the ribbon)
-    ring = ring.difference(unary_union(ends)) if ends else ring
-    # a part narrower than the touch grid fills a SLOT between the held
-    # ground and the run-out's own cells, or is not minted: against any
-    # other face it re-nodes that face instead (MEASURED, KCLT west foot: a
-    # 1 m wedge between the pad road and a standing road gave the road two
-    # pad-level vertices, 22 within-shape rows to 4.5 m)
-    mine = unary_union([ground, *(Polygon(c.ring, c.holes) for c in cells
-                                  if (getattr(c, "evidence", None) or {}).get("ramp_runout")
-                                  or (getattr(c, "evidence", None) or {}).get(BANK_EVIDENCE))])
+        return [], slots
+    taken = unary_union([occupied, *slots, *steps])
+    own = [Polygon(c.ring, c.holes) for c in cells
+           for ev in [getattr(c, "evidence", None) or {}]
+           if ev.get("ramp_runout") or ev.get(BANK_EVIDENCE)]
+    mine = unary_union([ground, *slots, *own])
     others = occupied.difference(mine.buffer(snap))
-    return [b for b in polygon_parts(shapely.set_precision(ring.difference(occupied), snap))
-            if b.area >= touch * touch and (not b.buffer(-0.5 * touch).is_empty
-                                            or b.distance(others) >= 0.5 * touch)]
+    banks = [b for b in polygon_parts(shapely.set_precision(ring.difference(taken), snap))
+             if b.area >= touch * touch and (not b.buffer(-0.5 * touch).is_empty
+                                             or b.distance(others) >= 0.5 * touch)]
+    return banks, slots
 
 
-def _road_ends(q: Polygon, core, reach: float, touch: float) -> list[Polygon]:
-    """The CORRIDORS past a road cell's far ends: each short side of its
-    minimum rotated rectangle that lies off the held ``core`` (farther than
-    ``touch``), extruded outward along the road's long axis by ``reach``."""
-    with np.errstate(divide="ignore", invalid="ignore"):     # an axis-aligned cell
-        c = list(q.minimum_rotated_rectangle.exterior.coords)[:4]
-    if len(c) < 4:
-        return []
-    sides = [(c[i], c[(i + 1) % 4]) for i in range(4)]
-    L = [_math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in sides]
-    from shapely.geometry import Point
-    i = 0 if L[0] <= L[1] else 1
-    out = []
-    for a, b in (sides[i], sides[i + 2]):
-        mid = Point((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-        if mid.distance(core) <= touch:
-            continue
-        ox, oy = mid.x - q.centroid.x, mid.y - q.centroid.y
-        n = _math.hypot(ox, oy) or 1.0
-        ux, uy = ox / n * reach, oy / n * reach
-        out.append(Polygon([a, b, (b[0] + ux, b[1] + uy), (a[0] + ux, a[1] + uy)]))
-    return out
+def _slots(ground, box: Polygon, occupied, z_of: _t.Callable[[float, float], float],
+           r: float, band: float, snap: float, touch: float
+           ) -> tuple[list[Polygon], list[Polygon]]:
+    """THE SLOTS OF THE HELD GROUND (owner 2026-11-04, #1093 rule 2: "an
+    unmapped slot between held faces is filled to the level of the faces
+    around it"): inside ``box``, the open ground the morphological CLOSING
+    of ``ground`` by ``r`` adds (a gap narrower than ``2 r`` between two
+    held faces, or an inlet of one), that nothing holds, and whose rim
+    stands within ``band`` of one level.  MEASURED (KCLT departures ramp,
+    35.22238, -80.94241): a 1.5-3 m slot between ``gap:0``,
+    ``building75`` and ``small_roads:-11471#1``, all three at ~+5.6 m over
+    the DEM, left 33 m of open edge in the run-out's box.
+
+    ``(level, steps)``: a slot whose rim stands at TWO levels is no slot of
+    one held ground but the step between two faces; it is neither filled
+    nor banked into (the banks' own wedge rule: MEASURED, KCLT west foot,
+    a 2-3 m wedge between ``gap:1`` and the pad road ``-6064#1`` re-noded
+    the strip and ``gap:1``, 8 within-shape rows at 10.3-20 %)."""
+    from .evidence import polygon_parts
+    if r <= 0.0:
+        return [], []
+    shut = ground.buffer(r, join_style="mitre").buffer(-r, join_style="mitre")
+    gap = shut.difference(ground).difference(occupied).intersection(box)
+    level, steps = [], []
+    for q in polygon_parts(shapely.set_precision(gap, snap)):
+        zs = [z_of(x, y) for x, y in q.exterior.coords]
+        if max(zs) - min(zs) > band:
+            steps.append(q)
+        elif q.area >= touch * touch:
+            level.append(q)
+    return level, steps
 
 
 def _run_box(lip, direction, s1: float, h: float, m: float) -> Polygon:
@@ -338,7 +342,7 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     from .roles import Cell
     rep: dict[str, _t.Any] = {"feet": 0, "ungraded": 0, "landing": 0, "at_grade": 0, "blocked": 0,
                               "runouts": 0, "run_m": 0.0, "banks": 0, "bank_m2": 0.0,
-                              "side_banks": 0, "side_bank_m2": 0.0,
+                              "side_banks": 0, "side_banks_m2": 0.0, "slots": 0, "slots_m2": 0.0,
                               "list": []}
     dem = getattr(airport, "dem", None)
     frame = getattr(airport, "frame", None)
@@ -368,9 +372,8 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     occupied = unary_union([Polygon(c.ring, c.holes) for c in cl.cells] + [landings])
     cells = list(cl.cells)
     to_ll = frame.transformers()[1]
-    from ..law.tables import airside_stage_roles, road_family_roles
+    from ..law.tables import airside_stage_roles
     air = frozenset(airside_stage_roles(law))
-    roads = frozenset(road_family_roles(law))
     for f in feet:
         (lx, ly), (dx, dy), w = f.lip, f.direction, f.width_m
         nx, ny = -dy, dx
@@ -478,11 +481,11 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
             # the faces the patch holds under the deck's last metres and the
             # pad roads beside them bank down to the daylight line inside the
             # run-out's box, as the strip's own bank does
-            got = _held_banks(pm_base, xy, zz, cells, back,
-                              _run_box(f.lip, f.direction, s0 + run, h, bank_max),
-                              occupied, air, dem, k_bank, bank_max, band, snap, touch,
-                              roads)
-            for b in got:
+            banks, slots = _held_banks(pm_base, xy, zz, cells, back,
+                                       _run_box(f.lip, f.direction, s0 + run, h, bank_max),
+                                       occupied, air, dem, k_bank, bank_max, band, snap, touch,
+                                       touch)
+            for b, key in [*((q, "slots") for q in slots), *((q, "side_banks") for q in banks)]:
                 k, _q = min(own, key=lambda kq: kq[1].distance(b))
                 cells.append(Cell(len(cells), "building", f"{RUNOUT_PREFIX}:{k}{COLLAR_SUFFIX}",
                                   tuple(b.exterior.coords)[:-1],
@@ -490,8 +493,8 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
                                   None, None, role_side(law, "building"), "building",
                                   {BANK_EVIDENCE: 1.0}))
                 occupied = unary_union([occupied, b])
-                rep["side_banks"] += 1
-                rep["side_bank_m2"] = round(rep["side_bank_m2"] + b.area, 1)
+                rep[key] += 1
+                rep[key + "_m2"] = round(rep[key + "_m2"] + b.area, 1)
         rep["run_m"] = round(rep["run_m"] + run, 1)
         rep["list"].append(f"{f.member} foot {lat:.7f},{lon:.7f} z0 {z0:.2f} dem "
                            f"{dem0:.2f} run {run:.0f} m x {w:.0f} m")

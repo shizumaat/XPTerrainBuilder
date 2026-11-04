@@ -91,7 +91,46 @@ def runout_rows(planar: PlanarMap, law: Law, cs: ConstraintSet,
     rows.extend(brows)
     if not rows:
         return cs, rep
+    rows, rep["clamped"] = _within_caps(rows, cs, levels)
     return _dc.replace(cs, linears=tuple(cs.linears) + tuple(rows)), rep
+
+
+def _within_caps(rows: list, cs: ConstraintSet, levels: _t.Mapping[int, float]
+                 ) -> tuple[list, int]:
+    """Each one-vertex design row's target, clamped into what the HARD caps
+    to the stage's constants allow (``|z_v - z_c| <= cap d`` of every hard
+    ``Diff`` from ``v`` to a constant ``c``) — the module's own rule, "where
+    a standing face stops the strip short, the road's caps steepen it",
+    read off the caps themselves.  MEASURED (KCLT east foot, #1093 r4): the
+    strip's vertex 8.5 m from the standing ``gap:0`` corner it starts at
+    took a target 0.17 m over what the road's 10 % cap from that corner
+    and its 1.5 % airside-follower cap to ``big_roads:-6300`` let it reach
+    together, a design miss on every solve.  ``(rows, clamped)``."""
+    ids = {r.terms[0][0] for r in rows if len(r.terms) == 1}
+    lo_b: dict[int, float] = {}
+    hi_b: dict[int, float] = {}
+    for r in cs.diffs:
+        if r.soft is not None:
+            continue
+        # ``-w <= (z_a - z_b) - rel <= w``
+        for v, c, sgn in ((r.a, r.b, 1.0), (r.b, r.a, -1.0)):
+            if v in ids and c in levels:
+                w, mid = r.cap * r.d, float(levels[c]) + sgn * float(r.rel)
+                lo_b[v] = max(lo_b.get(v, -1e9), mid - w)
+                hi_b[v] = min(hi_b.get(v, 1e9), mid + w)
+    out, n = [], 0
+    for r in rows:
+        v = r.terms[0][0] if len(r.terms) == 1 else None
+        if v in lo_b and r.lo == r.hi:
+            # two caps that cannot both hold leave the target at the
+            # nearer of them (the solve holds the vertex between them)
+            a, b = sorted((lo_b[v], hi_b[v]))
+            t = min(b, max(a, float(r.lo)))
+            if t != r.lo:
+                n += 1
+                r = _dc.replace(r, lo=t, hi=t)
+        out.append(r)
+    return out, n
 
 
 def _lead(planar: PlanarMap, f, r: tuple, levels: _t.Mapping[int, float]

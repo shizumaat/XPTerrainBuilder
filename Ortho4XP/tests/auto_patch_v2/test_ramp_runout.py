@@ -188,7 +188,7 @@ class _Planar:
 def test_the_runout_rows_lay_the_design_grade_to_the_dem(law):
     pm = _Planar([(0, -3), (8, -3), (8, -83), (0, -83)], 10.0)
     cs, rep = runout_rows(pm, law, ConstraintSet(), levels={0: 14.0, 1: 14.0})
-    assert rep == {"faces": 1, "rows": 2, "bank_faces": 0, "bank_rows": 0}
+    assert rep == {"faces": 1, "rows": 2, "bank_faces": 0, "bank_rows": 0, "clamped": 0}
     rows = [r for r in cs.linears if r.source.ruling == RUNOUT_RULING]
     assert {r.terms[0][0] for r in rows} == {2, 3}
     # 80 m on at 5 % the ramp has come down the whole 4 m: the DEM
@@ -508,3 +508,62 @@ def test_a_bank_banks_off_the_nearer_standing_edge(law):
     lo = {r.terms[0][0]: r.lo for r in cs.linears if r.source.ruling == BANK_RULING}
     k = float(law.tables.emit.design.bank_slope)
     assert lo[5] == pytest.approx(max(10.0, 13.0 - 4.0 * k), abs=0.01)
+
+
+def _slotted(tmp_path, law, east_level):
+    """The pavement under the foot with a 2 m unmapped inlet beside the
+    ramp (x -3..-1, from the patch edge 13 m in), its west arm standing at
+    14 m and its east at ``east_level``."""
+    rf._MEMO.clear()
+    part = _partition(tmp_path, [(0, 8, 0, -100, 0.0, 6.0)])
+    ap = types.SimpleNamespace(partition=part, dem=_Dem(), frame=_frame())
+    ring = [(-6.0, -3.0), (-3.0, -3.0), (-3.0, 10.0), (-1.0, 10.0), (-1.0, -3.0),
+            (12.0, -3.0), (12.0, 100.0), (-6.0, 100.0)]
+    pav = Polygon(ring)
+    from auto_patch_v2.classify.roles import Classification
+    cl = Classification((_cell(0, "groundside_pavement", "gap:0", pav),), (), {}, ())
+    pm = types.SimpleNamespace(
+        vertices={k: types.SimpleNamespace(xy=xy) for k, xy in enumerate(ring)},
+        faces={0: types.SimpleNamespace(id=0, ref="gap:0", role="groundside_pavement",
+                                        ring=tuple(range(len(ring))))},
+        ring_vertices=lambda cycle: tuple(cycle))
+    z = {k: (14.0 if xy[0] <= -3.0 else east_level) for k, xy in enumerate(ring)}
+    return mint_ramp_runouts(cl, ap, law, load_rules(), pm, z), pav
+
+
+def test_a_slot_between_held_faces_is_filled(tmp_path, law):
+    # owner 2026-11-04 (#1093 rule 2; KCLT 35.22238, -80.94241): an
+    # unmapped slot narrower than twice the stand-off between faces the
+    # patch holds at one level is part of the held ground — filled, never
+    # banked into, never left as open edge
+    (cl, rep), pav = _slotted(tmp_path, law, 14.0)
+    assert rep["slots"] == 1, rep
+    slot = Polygon([(-3.0, -3.0), (-1.0, -3.0), (-1.0, 10.0), (-3.0, 10.0)])
+    got = [Polygon(c.ring) for c in cl.cells if c.ref.startswith("runout:0#")]
+    filled = sum(q.intersection(slot).area for q in got)
+    assert filled == pytest.approx(slot.area, rel=0.1)
+    assert all(q.intersection(pav).area < 0.01 for q in got)
+
+
+def test_a_slot_between_two_levels_is_not_a_fill(tmp_path, law):
+    # the same slot between faces 1.5 m apart in level is no slot of ONE
+    # held ground: it is left to the banks' own rules
+    (cl, rep), _pav = _slotted(tmp_path, law, 15.5)
+    assert rep["slots"] == 0, rep
+
+
+def test_a_design_target_stays_inside_the_caps_to_its_constants():
+    # #1093 r4 (KCLT east foot): a strip vertex 8.5 m from the standing
+    # corner it starts at (222.04, road cap 10 %) and 5.7 m from a standing
+    # ribbon vertex (221.02, airside-follower cap 1.5 %) cannot reach its
+    # 221.36 profile: the target is the nearer cap, never a standing miss
+    from auto_patch_v2.constraints.ramp_runout import _within_caps
+    from auto_patch_v2.model.constraints import Diff, Linear, Source
+    src = Source("twin", "twin", ())
+    cs = ConstraintSet.from_rows([Diff(1, 2, 0.10, 8.5, src), Diff(1, 3, 0.015, 5.7, src),
+                                  Diff(4, 2, 0.10, 10.0, src)])
+    rows = [Linear(((1, 1.0),), 221.36, 221.36, src), Linear(((4, 1.0),), 221.5, 221.5, src)]
+    out, n = _within_caps(rows, cs, {2: 222.04, 3: 221.02})
+    assert n == 1
+    assert out[0].lo == out[0].hi == pytest.approx(222.04 - 0.85)
+    assert out[1].lo == 221.5            # inside its cap: untouched

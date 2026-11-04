@@ -2565,6 +2565,27 @@ def print_compare(reports: list) -> None:
                   + f"{cells[-1] - cells[0]:>+15d}")
 
 
+def _open_edges(args, cg, reports: list) -> None:
+    """``--open-edge-box``: each patch's open-edge read per box, printed and
+    stored on its report (``rep["open_edge"]``) — read fresh, never cached."""
+    if args.dem_capture is None:
+        raise SystemExit("REFUSING: --open-edge-box needs --dem-capture PKL "
+                         "(the emitted patch carries no DEM)")
+    oe = _harness_module("census_open_edge",
+                         ROOT / "tools" / "harness" / "census_open_edge.py")
+    dem = load_by_path("pad_edge_read", ROOT / "tools" / "pad_edge_read.py"
+                       ).capture_dem(args.dem_capture)
+    boxes = [oe.parse_box(b) for b in args.open_edge_box]
+    standoff = 0.0 if args.open_edge_raw else oe.stand_off_m()
+    for osm, rep in zip(args.patches, reports, strict=False):
+        nodes, ways = cg._parse_osm(osm)
+        rep["open_edge"] = [oe.open_edge_box(nodes, ways, dem, *b, off=args.open_edge_off,
+                                             standoff=standoff) for b in boxes]
+        print(f"\n{osm.name}")
+        for r in rep["open_edge"]:
+            print("\n".join(oe.format_open_edge(r)))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -2661,6 +2682,20 @@ def main(argv=None) -> int:
                          "inside a zone / crossing one / unrelated) — the "
                          "reading that says whether the ramp law is "
                          "granting relief where the defects actually are")
+    ap.add_argument("--open-edge-box", action="append", default=[], metavar="LAT,LON,R",
+                    help="the metres of OPEN patch edge (no other face across "
+                         "it: the patch meets raw ground) within R m of the "
+                         "site standing more than --open-edge-off off the DEM, "
+                         "per ref (census_open_edge.py; owner RULINGS "
+                         "2026-11-03e); needs --dem-capture; repeatable")
+    ap.add_argument("--open-edge-off", type=float, default=0.5,
+                    help="the --open-edge-box bar in metres (default 0.5)")
+    ap.add_argument("--open-edge-raw", action="store_true",
+                    help="--open-edge-box without the stand-off bridge: every "
+                         "boundary sample is open (lane lramp2's reading)")
+    ap.add_argument("--dem-capture", type=Path, default=None,
+                    help="a v2_solve_replay --capture pickle: the build's DEM "
+                         "for --open-edge-box (the patch carries none)")
     ap.add_argument("--no-cache", action="store_true",
                     help="neither read nor write the census cache.  The "
                          "cache serves a byte-identical report (plus one "
@@ -2796,6 +2831,8 @@ def main(argv=None) -> int:
             print_report(rep, args.top, cg)
     if not args.quiet:
         print_compare(reports)
+    if args.open_edge_box:
+        _open_edges(args, cg, reports)
     if args.row_class:
         cc = _harness_module("census_class",
                              ROOT / "tools" / "harness" / "census_class.py")

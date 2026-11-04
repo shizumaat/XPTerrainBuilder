@@ -159,6 +159,7 @@ _LAYOUT: list = [
         ("osm_regional_extracts", "Use stored regional map data when available?", "app", False,
          "Faster than downloading each tile, and kinder to the map servers."),
         ("osm_extract_refresh_days", "Extract refresh age (days)", "app", True, ""),
+        ("elevation_recheck_days", "Elevation source re-check age (days)", "app", True, ""),
         ("http_timeout", "HTTP timeout (s)", "app", True, ""),
         ("max_connect_retries", "Connection retries", "app", True, ""),
         ("max_baddata_retries", "Bad-data retries", "app", True, ""),

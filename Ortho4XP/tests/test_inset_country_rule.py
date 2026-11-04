@@ -85,7 +85,7 @@ def test_a_settled_foreign_negative_is_not_restamped(tmp_path, monkeypatch):
     box does not reach the airport, is left as recorded -- re-stamping the
     running version on it was a shared-repo write on every version bump.
     One whose provider's box DOES reach the airport is still re-stamped
-    once per version (#1238)."""
+    once its recheck age has passed (#1238) -- with no query."""
     far = dict(_definition("CHFAKE", "CHE", 100),
                coverage_bbox=(5.9, 45.8, 10.5, 47.8))
     near = _definition("USFAKE", "USA", 90)
@@ -95,6 +95,7 @@ def test_a_settled_foreign_negative_is_not_restamped(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     INSETS._write_index(48, -124, {"CYZZ": {
         "CHFAKE": INSETS.NO_COVERAGE, "USFAKE": INSETS.NO_COVERAGE,
+        "checked": "2026-01-01",
         "capabilities": {"CHFAKE": dict(old), "USFAKE": dict(old)}}})
     _asked, record = _run(tmp_path, monkeypatch, [far, near, globe],
                           "CYZZ", "CAN")

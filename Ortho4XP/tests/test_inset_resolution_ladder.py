@@ -477,12 +477,19 @@ def test_cap_declined_rung_is_not_refetched_for_the_same_listing(
         INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
         assert calls["fetch"] == []
         assert _sidecar()["ladder"]["recheck"]["result"] == "unchanged"
-    # A NEW tile in the index asks again ...
+    # Within elevation_recheck_days the answer on record stands: the
+    # index is not asked (owner 2026-11-04) ...
     plan["FAKEPIT"]["listing"] = ["T1", "T2", "T3", "T4"]
-    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert INSETS.ladder_recheck(
+        39, -107, "KASE", "FAKE3DEP", BOX)["result"] == "unchanged"
+    # ... past it, a NEW tile in the index asks again ...
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(INSETS.ea_recheck, "is_due", lambda *_a, **_k: True)
+        recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
     assert (recheck["result"], recheck["new_source_ids"]) == (
         "new-listing", ["T4"])
-    # ... and so does an edited definition (the user raised the cap).
+    # ... and an edited definition (the user raised the cap) asks at
+    # once, whatever the age.
     plan["FAKEPIT"]["listing"] = ["T1", "T2", "T3"]
     assert INSETS.ladder_recheck(
         39, -107, "KASE", "FAKE3DEP", BOX)["result"] == "unchanged"
@@ -526,7 +533,9 @@ def test_product_refused_rung_settles_after_a_transient_record(
         INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
         assert calls["fetch"] == []
     plan["FAKEPIT"]["listing"] = ["T1", "T2", "T3"]
-    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    with pytest.MonkeyPatch.context() as mp:      # past the recheck age
+        mp.setattr(INSETS.ea_recheck, "is_due", lambda *_a, **_k: True)
+        recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
     assert (recheck["result"], recheck["new_source_ids"]) == (
         "new-listing", ["T3"])
 

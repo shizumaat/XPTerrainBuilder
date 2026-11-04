@@ -99,6 +99,7 @@ enum SettingsLayout {
             SettingItem("overpass_server_choice", "Map data server", .app, summary: "Where map data downloads from when no stored regional copy covers the tile."),
             SettingItem("osm_regional_extracts", "Use stored regional map data when available?", .app, summary: "Faster than downloading each tile, and kinder to the map servers."),
             SettingItem("osm_extract_refresh_days", "Extract refresh age (days)", .app, expert: true),
+            SettingItem("elevation_recheck_days", "Elevation source re-check age (days)", .app, expert: true),
             SettingItem("http_timeout", "HTTP timeout (s)", .app, expert: true),
             SettingItem("max_connect_retries", "Connection retries", .app, expert: true),
             SettingItem("max_baddata_retries", "Bad-data retries", .app, expert: true),

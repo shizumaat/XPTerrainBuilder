@@ -435,6 +435,22 @@ class PlanarMap:
     #: pavement crosses (``planar/overpass_deck._Overpass``), read before
     #: the solve; the object stage seats each on the road beneath.
     overpasses: tuple = ()
+    #: THE DECK END-LINE ANCHORS (spec ``deck-end-anchors-20261103``;
+    #: owner RULINGS 2026-11-03c, additive): one ``structures.DeckAnchor``
+    #: per end line of every pack hard deck the airport's pavement drives
+    #: across, derived ONCE beside the runway caps
+    #: (``constraints/runway_chord.with_runway_chord`` →
+    #: ``constraints/deck_anchor.derive``) and read back by the pins, the
+    #: chord knots, the crown stand-down and the sidecar.  Empty: no pack
+    #: hard deck, every row as before.
+    deck_anchors: tuple = ()
+    #: THE PACK DECKS (deck redesign §1, additive): one
+    #: structures.DeckBridge per deck piece the airport's pavement
+    #: drives across, derived ONCE on the full map (planar/deck_bridge.
+    #: deck_bridges; stage 1's map reads the full map's, from_full) and
+    #: read by the anchors, the deck rows and the object stage's plate —
+    #: whether or not a corridor runs under it.
+    decks: tuple = ()
     #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,
     #: additive): vertex id -> the elevation the objective pulls it to.
     #: A road-family vertex prefers the CORE's clamped, laterally-levelled

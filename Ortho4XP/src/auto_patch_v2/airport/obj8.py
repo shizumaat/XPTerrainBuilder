@@ -107,12 +107,26 @@ class ObjGeometry:
         KIAH's taxiway bridges flag only their 2 m side faces and carry the
         taxiway on an ``ATTR_hard`` plate; read as flagged, the deck had no
         outline and no bridge was read (owner 2026-10-30, kiahdeck)."""
+        return self._deck_plate()[0]
+
+    @property
+    def hard_plate(self) -> bool:
+        """THE SLAB WITNESS (deck-end-anchors round 3 §1): the deck read by
+        :attr:`hard_deck` is an ``ATTR_hard`` plate — the author flagged
+        ``ATTR_hard_deck`` only on edge-on faces — so the body is solid
+        from the ground up (OBJ8: ``ATTR_hard`` is solid, ``ATTR_hard_deck``
+        a surface one passes under).  A deck whose plan-bearing triangles
+        carry ``ATTR_hard_deck`` is ``False``: cut under it."""
+        return self._deck_plate()[1]
+
+    def _deck_plate(self) -> tuple[np.ndarray, bool]:
+        """``(the deck's triangles, whether they are the ATTR_hard plate)``."""
         deck = self.solid[self.hardness == HARD_DECK]
         if not deck.shape[0] or _plan_bearing(self.vertices, deck).any():
-            return deck
+            return deck, False
         hard = self.solid[self.hardness == HARD]
         plate = hard[_plan_bearing(self.vertices, hard)]
-        return plate if plate.shape[0] else deck
+        return (plate, True) if plate.shape[0] else (deck, False)
 
 
 #: a triangle whose plan (x, z) area is at most this stands edge-on: a

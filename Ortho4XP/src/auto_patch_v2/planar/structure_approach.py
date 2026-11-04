@@ -474,7 +474,8 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     region.corridor_prints = [c.footprint for c in corridors]
     region.corridor_objects = {i for c in corridors for i in c.objects}
     region.deck_objects = {i for d in decks for i in d.members}
-    region.deck_polys = [d.polygon for d in decks]
+    from .deck_bridge import deck_polygon
+    region.deck_polys = [deck_polygon(d) for d in decks]
     return region
 
 

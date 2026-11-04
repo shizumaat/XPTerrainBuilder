@@ -710,6 +710,11 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     half_of = runway_half_widths(airport)
     rows: list[Row] = []
     done: set[int] = set()
+    # Q3 a (deck-end-anchors spec §4): over the run into a deck the deck is
+    # the runway's surface and carries no crown — the floor stands down for
+    # a vertex whose bracketing ridge station is a deck anchor, and on the
+    # deck's end-line stations (:func:`_deck_edge`)
+    anchors, stations = _deck_edge(planar)
     for f in vw.faces_of_role(RUNWAY_FAMILY):
         ref_ids = [f.ref] if f.role == "runway" else f.ref.split("+")
         # §40 (2): the crown floor stops at the runway edge (see
@@ -728,6 +733,9 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 continue
             done.add(v)
             d, a, b, t = ft
+            if v in stations or (anchors and ((a in anchors and t < 1.0)
+                                              or (b in anchors and t > 0.0))):
+                continue
             drop = crown * (min(d, half) if half > 0.0 else d)
             terms = ((v, 1.0), (a, -(1.0 - t)), (b, -t))
             if t <= 0.0:
@@ -740,6 +748,22 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # and the built drop is what v2 declares)
             rows.append(Linear(terms, None, -drop, src, f"crown:{v}", drop))
     return rows
+
+
+def _deck_edge(planar: PlanarMap) -> tuple[frozenset[int], frozenset[int]]:
+    """THE RUNWAY TREATS A DECK EDGE LIKE A TILE SEAM (owner 2026-11-04T07:09Z:
+    "Runways treat a bridge deck like a tile seam, they flatten to match the
+    object edge"): the ridge vertices of every pinned RUNWAY deck anchor
+    (``PlanarMap.deck_anchors``) and every station on their end lines.  On
+    a station the crown and the transverse floor stand down exactly as on
+    a tile-seam pin (§38, :func:`runway_transverse`), so the edge takes the
+    deck's flush level (LFPG H18r / H19: the crown floor held the runway
+    edge 0.205 / 0.283 m under the deck); ``verify/runway`` reads the same
+    stations off the published ``deck_anchors``."""
+    ans = [a for a in getattr(planar, "deck_anchors", ()) or ()
+           if a.pinned and a.family == "runway"]
+    return (frozenset(int(a.v) for a in ans),
+            frozenset(int(v) for a in ans for v in a.stations))
 
 
 def _transverse_owners(vw, chains: dict, half_of: dict) -> dict[int, str]:
@@ -803,6 +827,7 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     rows: list[Row] = []
     done: set[int] = set()
     owner = _transverse_owners(vw, chains, half_of)
+    seam = planar.seam_vertices | _deck_edge(planar)[1]     # the deck edge is a seam
     for f in vw.faces_of_role(("runway",)):
         chs = chains.get(f.ref, [])
         if not chs:
@@ -840,7 +865,7 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
             else:
                 terms = ((a, 1.0 - t), (b, t), (v, -1.0))
             lo = -bound
-            if v not in planar.seam_vertices and _abeam(vw, v, a, b, t, ends, law):
+            if v not in seam and _abeam(vw, v, a, b, t, ends, law):
                 lo = min(bound, runway_crown_floor(law, d, half, f.code_letter,
                                                    f.code_number, crossed.get(v)))
             rows.append(Linear(terms, lo, bound, src))

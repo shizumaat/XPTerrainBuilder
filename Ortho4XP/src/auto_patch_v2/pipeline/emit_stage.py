@@ -53,7 +53,7 @@ from .rebake_inputs import _rebake_inputs
 from .seam_report import seam_yield_block
 
 __all__ = ["MOVED_M", "borrowed_apt_dat_stamp", "displacement_by_role", "with_join_yield",
-           "with_threshold_yield",
+           "with_threshold_yield", "with_deck_levels",
            "post_solve", "patch_header", "Rebaked", "Emitted", "emit", "say_joint_steps",
            "render", "install"]
 
@@ -155,6 +155,23 @@ def with_threshold_yield(icao: str, pm, law: Law, airport, sol, pin_yield,
             f"{end} v{v} at {lat:.8f},{lon:.8f} CIFP {cifp:.3f} -> built "
             f"{zb:.3f} m ({zb - cifp:+.3f} m), {d:.1f} m from the seam")
     return _dc.replace(pm, threshold_seam_yield=recs)
+
+
+def with_deck_levels(icao: str, pm, sol, out: _t.Callable[[str], None]):
+    """``pm`` with each taxi or road deck's anchors at the level the solve
+    built (deck redesign §5 (b), ``constraints/deck_anchor.settle``), each
+    deck said in one line."""
+    from ..constraints.deck_anchor import settle
+    pm2 = settle(pm, sol.z or None)
+    if pm2 is pm:
+        return pm
+    before = {(a.object_id, a.end): a.z_m for a in pm.deck_anchors}
+    for a in pm2.deck_anchors:
+        if a.family != "runway":
+            out(f"[{icao}] {a.family.upper()} DECK LEVEL (deck redesign §5 b): {a.object_id} "
+                f"end {a.end} {a.z_m:.3f} m (pre-solve estimate "
+                f"{before.get((a.object_id, a.end), 0.0):.3f})")
+    return pm2
 
 
 def post_solve(icao: str, pm, law: Law, airport, sol, cs, design_rep, tt_rep, fv, lrep,

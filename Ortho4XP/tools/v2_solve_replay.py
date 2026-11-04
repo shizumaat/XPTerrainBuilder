@@ -2253,6 +2253,9 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                                    object_report=_orep, rim_diagnostics=rim_diagnostics)
             print(f"[{icao}] planar stage {time.perf_counter() - _pt:.1f} s "
                   f"(work-pool budget {pool_budget()})")
+            # deck redesign: every hard deck read or refused, and why
+            for _ln in getattr(getattr(_ps, "structures", None), "hard_decks", ()) or ():
+                print(f"[{icao}] hard deck: {_ln}")
             if rim_diagnostics:
                 for _ln in rim_diagnostic_lines(pm):
                     print(f"[{icao}] {_ln}")
@@ -2416,7 +2419,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                     rows=(lambda cs0: drop_rows(cs0, drop, check=False)) if drop else None)
                 return rec.derived()
             _t1 = time.perf_counter()
-            s1 = stage_one_problem(cl, _ribbon_free, pm.registries)
+            s1 = stage_one_problem(cl, _ribbon_free, pm.registries, full=pm)
             if s1 is not None:
                 s1.bind(pm)
                 print(f"[{icao}] stage 1 on the ribbon-free map (#100 (c)): {s1.report} "
@@ -2654,6 +2657,12 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                   [*(prob["late"]["rep"]["pin_yield"] if late_from is not None
                                      else ()), *rep.pin_yield], print)
     except (ImportError, AttributeError):
+        pass
+    try:
+        # deck redesign §5 (b): the build's own post-solve deck levels
+        from auto_patch_v2.pipeline.emit_stage import with_deck_levels
+        pm = with_deck_levels(icao, pm, sol, print)
+    except ImportError:
         pass
     print(f"[{icao}] {rep.jetway_strip.line()}")
     for _s in rep.jetway_strip.strips:

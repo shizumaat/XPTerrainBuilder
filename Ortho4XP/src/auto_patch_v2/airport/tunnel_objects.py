@@ -1031,7 +1031,8 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     from .portal_objects import read_portals
     portals, p_refused = read_portals(_object_cut.placement_order(objects), cache, law,
                                       tunnel_ways, claimed_ids | {i for c in out
-                                                                  for i in c.objects})
+                                                                  for i in c.objects},
+                                      dem_z=getattr(getattr(airport, "dem", None), "z", None))
     stats.portals = tuple(portals)
     stats.refused.extend(p_refused)
     # 2026-10-28s (5)/(6): the open walled trench objects at a road's end

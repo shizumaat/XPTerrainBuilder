@@ -24,6 +24,18 @@ reads the building's own lower storey along it and mints the pad's LOWER
 LEVEL over it (``planar/covered_cut``, RULINGS 2026-10-23b's two pads at
 the objects' bottom, 27h), and trims what no level takes
 (``covered_cut.trim_uncut``), so a pad still never fills a cut.
+
+A PAD NEVER PAVES A MAPPED ROAD (issue #1852).  An open vehicular way
+(``rules.osm_roads.ribbon_highways``; never a bridge, a bore or a covered
+passage, which keep their own readings above) that runs THROUGH a pad
+outline runs under an elevated span of the object the pad was read from
+— a building does not stand on a road.  At KIAH the elevated rail station
+(``KIAH_Trainstation2``) spans the lower terminal roadway; its footprint
+pad laid 28.0 m over the road the DEM and the station's own glass facade
+(authored 3.9 m below the station's zero) put at ~24–25 m, so the facade
+stood on the road and the connector cleared it by ~1 m.  The road's
+carriageway leaves the pad here, at the one derivation site, and grades
+as road.
 """
 from __future__ import annotations
 
@@ -35,7 +47,7 @@ from shapely.ops import unary_union
 from ..airport.deck_signature import is_bridge_way, is_tunnel_way
 from ..airport.road_ways import mapped_width_m
 
-__all__ = ["cutting_corridors", "trim_cut_corridors", "CUT_TRIMMED"]
+__all__ = ["cutting_corridors", "road_corridors", "trim_cut_corridors", "CUT_TRIMMED"]
 
 #: the last run's count of pad parts the corridor cut (diagnostics)
 CUT_TRIMMED: dict[str, float] = {}
@@ -75,12 +87,37 @@ def cutting_corridors(airport, law, covered: "bool | None" = None, widen: float 
     return unary_union(strips) if strips else None
 
 
-def trim_cut_corridors(parts: list, airport, law) -> list:
-    """Every pad part minus the mapped OPEN cutting corridors (geometry
-    only; the caller splits the parts and mints the refs).  A covered
-    cutting stays in the pad for the planar stage (module docstring)."""
+def road_corridors(airport, law, highways) -> "object | None":
+    """The union of every OPEN vehicular road's carriageway (``highways``:
+    ``rules.osm_roads.ribbon_highways``), or ``None`` — no bridge, no
+    admitted bore and no covered passage (module docstring, #1852)."""
+    classes = set(highways or ())
+    if law is None or not classes:
+        return None
+    tn = law.tables.structures.tunnel
+    admitted = tuple(tn.admitted_values)
+    strips = []
+    for w in getattr(airport, "osm_ways", ()) or ():
+        tags = getattr(w, "tags", None) or {}
+        if (len(w.points) < 2 or tags.get("highway") not in classes
+                or is_bridge_way(tags) or is_tunnel_way(tags, admitted)
+                or _is_covered(tags)):
+            continue
+        half = 0.5 * mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
+        strips.append(LineString(w.points).buffer(half, cap_style="flat"))
+    return unary_union(strips) if strips else None
+
+
+def trim_cut_corridors(parts: list, airport, law, highways=()) -> list:
+    """Every pad part minus the mapped OPEN cutting corridors and, with
+    ``highways``, the open road carriageways (geometry only; the caller
+    splits the parts and mints the refs).  A covered cutting stays in the
+    pad for the planar stage (module docstring)."""
     CUT_TRIMMED.clear()
     corr = cutting_corridors(airport, law, covered=False) if law is not None else None
+    roads = road_corridors(airport, law, highways)
+    if roads is not None and not roads.is_empty:
+        corr = roads if corr is None or corr.is_empty else corr.union(roads)
     if corr is None or corr.is_empty:
         return parts
     out, n, area = [], 0, 0.0

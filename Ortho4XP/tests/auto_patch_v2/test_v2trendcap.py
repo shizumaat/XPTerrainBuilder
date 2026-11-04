@@ -271,3 +271,139 @@ def test_the_second_pass_is_one_extra_stage_one_solve(apron_problem, law):
         return tt.stage_one_retarget(pm_x, law, airport, lv)
     sol, _rep = solve_design(pm, cs, law, trend_rewrite=rewrite)
     assert sol.z and len(calls) == 1, calls
+
+
+# ── BETWEEN TWO LOW HOLDS (#517; ``taxi_trend_cap.ceiled_between_holds``) ──
+
+HILL_X = (-200.0, 200.0)   # the two junctions the hill crests between
+HILL_RISE = 3.0            # the crest above the junctions' ground
+
+
+class _HillDem:
+    """A crest under the parallel between its two connectors (the SPJC L
+    shape at fixture scale: down to one junction, up, down to the next)."""
+
+    provenance = {"synthetic": "a 3 m crest between two connectors"}
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0 + HILL_RISE * max(0.0, 1.0 - abs(x) / 400.0)
+
+    def bounds(self):
+        return (-9000.0, -9000.0, 9000.0, 9000.0)
+
+
+@pytest.fixture(scope="module")
+def two_junctions(law):
+    """The runway, the 1 km parallel and two connectors meeting it at
+    :data:`HILL_X`, before any solve."""
+    from auto_patch_v2.classify.roles import Cell, Classification, CutLine
+    from auto_patch_v2.constraints.runway_chord import with_runway_chord
+    from auto_patch_v2.planar.build import build
+    from tests.auto_patch_v2.test_crown import HALF_WIDTH, _rect
+    airport, r = T._airport(law, _HillDem())
+    cells = [Cell(0, "runway", "09/27", _rect(r, -T.RUN_LEN / 2, -HALF_WIDTH,
+                                              T.RUN_LEN / 2, HALF_WIDTH), (), 3,
+                  "D", "airside", "runway", {}),
+             Cell(1, "primary_parallel", "pavT",
+                  _rect(r, -T.TAXI_LEN / 2, 200.0, T.TAXI_LEN / 2, 223.0), (),
+                  None, "D", "airside", "taxi", {})]
+    cuts = [CutLine("taxi_centerline", "pavT",
+                    (r((-T.TAXI_LEN / 2, 211.5)), r((T.TAXI_LEN / 2, 211.5))))]
+    for i, x in enumerate(HILL_X):
+        cells.append(Cell(2 + i, "stub", f"link{i}",
+                          _rect(r, x - 11.5, 223.0, x + 11.5, 300.0), (),
+                          None, "D", "airside", "taxi", {}))
+        cuts.append(CutLine("taxi_centerline", f"link{i}",
+                            (r((x, 211.5)), r((x, 300.0)))))
+    pm, _st = build(airport, Classification(tuple(cells), tuple(cuts), {}, ()),
+                    law)
+    pm = tt.with_taxi_trend(with_runway_chord(pm, law, airport), law, airport)
+    return pm, airport
+
+
+def _junctions(pm, law):
+    """The parallel's vertices it shares with a connector, by station."""
+    chains = tt.taxi_chains(pm, law)
+    par = _parallel(pm, law)
+    others = {v for c in chains if c.bl != par.bl for v in c.vertices}
+    st = dict(zip(par.vertices, par.stations, strict=True))
+    return par, sorted((st[v], v) for v in par.vertices if v in others)
+
+
+def _levels(pm, par, base, at_junctions):
+    """A stage-1 answer along the parallel: on its targets, except the
+    junctions, held where ``at_junctions`` says."""
+    return {**{v: base[v] for v in par.vertices if v in base}, **at_junctions}
+
+
+def test_two_low_holds_take_the_bulge_out_of_the_span(two_junctions, law):
+    """Both junctions held 1 m under their targets (pass 1b): every
+    interior target of the span stands at or under the line between the
+    held levels and the crest comes down; the junctions are targeted at
+    their held level and the parallel outside the span comes down only as
+    far as the no-step budget from them asks (never below it)."""
+    pm, airport = two_junctions
+    par, junc = _junctions(pm, law)
+    assert len(junc) == 2, junc
+    base = pm.taxi_trend_z
+    held = _levels(pm, par, base, {v: base[v] - 1.0 for _s, v in junc})
+    rep: dict = {}
+    got = tt.low_hold_retarget(pm, law, held, rep)
+    assert got is not None and rep["low_hold_spans"] == 1, rep
+    assert set(got) == set(base)
+    (sa, va), (sb, vb) = junc
+    assert got[va] == held[va] and got[vb] == held[vb]
+    st = dict(zip(par.vertices, par.stations, strict=True))
+    inner = [v for v in par.vertices if sa < st[v] < sb and v in got]
+    assert inner
+    for v in inner:
+        line = held[va] + (held[vb] - held[va]) * (st[v] - sa) / (sb - sa)
+        assert got[v] <= min(line, base[v]) + 1e-9
+    crest = max(inner, key=lambda v: base[v])
+    assert got[crest] < base[crest] - 1.0, (got[crest], base[crest])
+    outer = [v for v in par.vertices if (st[v] < sa or st[v] > sb) and v in got]
+    assert outer
+    for v in outer:                     # carried down, never past the budget
+        hold, s_h = (va, sa) if st[v] < sa else (vb, sb)
+        assert got[v] == base[v] or got[v] >= held[hold] - 1e-9
+        assert got[v] == base[v] or got[v] <= held[hold] + 0.015 * abs(st[v] - s_h) + 1e-6
+    far = [v for v in outer if min(abs(st[v] - sa), abs(st[v] - sb)) > 200.0]
+    assert far and all(got[v] == base[v] for v in far), rep
+    assert all(got[v] <= base[v] for v in got)       # one-sided: never raised
+    assert rep["low_hold_beyond"] > 0, rep
+
+
+def test_the_ceiling_is_carried_within_the_no_step_budget(two_junctions, law):
+    """``taxi_trend_cap.lowered_within_budget``: a target lowered beside
+    unlowered ones carries its neighbours down to its no-step budget one
+    ``hard_tol_m`` tight (the within-shape idiom ``cap − hard_tol_m / d``),
+    and nothing already inside that budget moves."""
+    from auto_patch_v2.constraints.taxi_trend_cap import lowered_within_budget
+    from auto_patch_v2.law.tables import design as design_law
+    pm, _airport = two_junctions
+    par, junc = _junctions(pm, law)
+    base = dict(pm.taxi_trend_z)
+    (_sa, va), _ = junc
+    got = lowered_within_budget(pm, law, base, {va: base[va] - 2.0})
+    assert got[va] == base[va] - 2.0
+    moved = [v for v in got if got[v] < base[v] - 1e-6 and v != va]
+    assert moved and all(got[v] >= got[va] for v in moved)
+    st = dict(zip(par.vertices, par.stations, strict=True))
+    tol = float(design_law(law).hard_tol_m)
+    for v in moved:
+        if v in st:                     # along the parallel: the budget's own line
+            d = abs(st[v] - st[va])
+            assert got[v] <= got[va] + 0.015 * d - tol + 1e-6 or got[v] == base[v]
+    assert lowered_within_budget(pm, law, base, {}) == base
+
+
+def test_holds_on_or_above_their_targets_move_nothing(two_junctions, law):
+    """The identity: junctions held at (or over) their targets ceil
+    nothing, and nothing is re-solved."""
+    pm, _airport = two_junctions
+    par, junc = _junctions(pm, law)
+    base = pm.taxi_trend_z
+    held = _levels(pm, par, base, {v: base[v] + 0.3 for _s, v in junc})
+    rep: dict = {}
+    assert tt.low_hold_retarget(pm, law, held, rep) is None
+    assert rep["low_hold_spans"] == 0, rep

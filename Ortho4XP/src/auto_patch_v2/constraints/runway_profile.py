@@ -113,7 +113,11 @@ def dem_degraded(airport: Airport) -> str:
     trend fitted to a surface the harness has refused is an invented
     value (plan §2).  (Lives here, not in ``runway_chord``, because
     :func:`datum_pins` reads it; ``runway_chord`` re-exports it.)"""
-    prov = getattr(getattr(airport, "dem", None), "provenance", None) or {}
+    dem = getattr(airport, "dem", None)
+    reason = getattr(dem, "degraded_reason", None)    # #1645: the one key read
+    if isinstance(reason, str):
+        return reason
+    prov = getattr(dem, "provenance", None) or {}
     try:
         return str(prov.get("degraded") or "")
     except Exception:                     # a sampler with no mapping provenance

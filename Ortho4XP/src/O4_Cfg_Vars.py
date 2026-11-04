@@ -605,7 +605,7 @@ cfg_tile_vars = {
     },
     "masks_width": {
         "type": list,
-        "default": 100,
+        "default": 500,
         "hint": "Maximum extent of the masks perpendicularly to the coastline (rough definition). NOTE: The value is now in meters, it used to be in ZL14 pixel size in earlier verions, the scale is roughly one to ten between both.",
     },
     "inland_shore_feather_m": {

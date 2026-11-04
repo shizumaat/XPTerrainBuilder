@@ -149,6 +149,12 @@ try:
     # it was read from and reported once, never warned about forever.
     for _info in cleanup_retired_cfg_keys(global_cfg_file):
         UI.lvprint(0, "   INFO:", _info)
+    # A raised registry default reaches a cfg that stored the old one
+    # automatically (owner 2026-11-04, masks_width 100 -> 500).
+    import O4_Cfg_Default_Migrations as DEFAULT_MIGRATIONS
+
+    for _info in DEFAULT_MIGRATIONS.migrate_changed_defaults(global_cfg_file):
+        UI.lvprint(0, "   INFO:", _info)
 except FileNotFoundError:
     # Create a new global config file using default values
     os.makedirs(os.path.dirname(global_cfg_file), exist_ok=True)
@@ -162,6 +168,11 @@ except FileNotFoundError:
         for var, value in cfg_app_vars.items():
             file.write(var + "=" + str(value["default"]) + "\n")
     _LOGGER.info("No global config file found. New config created using defaults.")
+    # A fresh file holds the NEW defaults: register them as migrated so a
+    # value later set by hand to an old default is never rewritten.
+    import O4_Cfg_Default_Migrations as DEFAULT_MIGRATIONS
+
+    DEFAULT_MIGRATIONS.migrate_changed_defaults(global_cfg_file)
 except Exception as e:
     _LOGGER.error("Error accessing global config file: %s", e)
 

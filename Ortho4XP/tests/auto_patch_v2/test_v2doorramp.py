@@ -135,6 +135,25 @@ def _plinth_obj(path):
     return _write(path, vt, tris)
 
 
+def _lot_obj(path):
+    """Issue #1659 (LFLL): ONE object drawn from one anchor (the pack's
+    origin), carrying 400 m east of it a building and a CAR parked
+    outside its south face — a 4.5 x 2 m box from the zero up — and
+    nothing under its zero.  The ground rises 2 m over those 400 m
+    (``_PlaneDem``), so the car's floor stands 2 m under the LOCAL
+    ground, yet it is no well."""
+    vt: list = []
+    tris: list = []
+    _slab(vt, tris, 385.0, 415.0, -10.0, 10.0, 0.0, 8.0)
+    for x0, x1, z0, z1 in ((397.75, 398.0, 11.0, 13.0), (402.0, 402.25, 11.0, 13.0),
+                           (398.0, 402.0, 11.0, 11.25), (398.0, 402.0, 12.75, 13.0)):
+        _slab(vt, tris, x0, x1, z0, z1, 0.0, 1.5)      # an open-topped body
+    b = len(vt)
+    vt += [(397.75, 0.0, 11.0), (402.25, 0.0, 11.0), (402.25, 0.0, 13.0), (397.75, 0.0, 13.0)]
+    tris += [(b, b + 1, b + 2), (b, b + 2, b + 3)]     # its floor, AT the zero
+    return _write(path, vt, tris)
+
+
 def _sloped_slab(vt, tris, x0, x1, z0, z1, y_z0, y_z1, thick):
     """A slab whose top descends from ``y_z0`` at ``z0`` to ``y_z1`` at
     ``z1`` (along authored z), ``thick`` thick: top, bottom, four sides,
@@ -186,6 +205,7 @@ def objs(tmp_path_factory):
             "roofed": _roofed_well_obj(d / "roofed.obj"),
             "wide": _wide_well_obj(d / "wide.obj"),
             "plinth": _plinth_obj(d / "plinth.obj"),
+            "lot": _lot_obj(d / "lot.obj"),
             "road": _road_obj(d / "road.obj"),
             "road_level": _road_obj(d / "road_level.obj", level=True),
             "road_open": _road_obj(d / "road_open.obj", roof=False)}
@@ -417,6 +437,18 @@ def test_a_foundation_under_a_standing_object_is_not_a_door(objs, law):
     assert ds.wells == 1 and [os.path.basename(w.resource) for w in wells] == ["door.obj"], \
         (ds.wells, ds.refused)
     assert any("FOUNDATION" in r and "plinth.obj" in r for r in ds.refused), ds.refused
+
+
+def test_a_car_at_its_zero_under_a_higher_ground_is_no_door(objs, law):
+    """Issue #1659 (LFLL on 1.0.445): parked cars and service vehicles on
+    a lot 2 m under the lidar DEM read as 32 door wells — their floors
+    stood under the LOCAL ground.  A door's sill is a below-grade floor
+    of the object itself: it stands under the object's OWN zero (OTHH's
+    well plates at -1.70).  The fixture door beside it is still a door."""
+    airport, cache, objects = _read(objs, law, [("lot", (0.0, -300.0), 0.0, 0.0, "OBJECT"),
+                                                ("door", (300.0, 0.0), 0.0, 0.0, "OBJECT")])
+    wells, ds = read_door_wells(airport, objects, cache, law)
+    assert [os.path.basename(w.resource) for w in wells] == ["door.obj"], (ds.wells, ds.refused)
 
 
 def test_a_moving_part_never_witnesses(objs, law, tmp_path):

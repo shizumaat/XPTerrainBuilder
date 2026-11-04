@@ -604,6 +604,11 @@ def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
                 f"2026-10-28d): floor {mouth_z:.2f} = its deck level {mouth_dem:.2f} − its "
                 f"walls' bottom {pin.depth_m:.2f} (20am / 20ar); the span behind the back "
                 f"is covered ground")
+    if getattr(pin, "floor_z", None) is not None:
+        return (f"mouth pinned by the entrance object {pin.object_id} "
+                f"{pin.resource.rsplit('/', 1)[-1]} (#1747, Q256 b): floor {mouth_z:.2f} = "
+                f"its solids' bottom where it stands (ground {mouth_dem:.2f}); the object "
+                f"stays put")
     return (f"mouth pinned by the pack portal {pin.object_id} "
             f"{pin.resource.rsplit('/', 1)[-1]} (#971 'or object if one is provided', "
             f"#1343): floor {mouth_z:.2f} = ground {mouth_dem:.2f} − its roof top "

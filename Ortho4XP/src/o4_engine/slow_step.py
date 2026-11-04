@@ -46,8 +46,8 @@ import O4_File_Lock as FLOCK
 import O4_File_Names as FNAMES
 
 from . import download_meter
-from .task_meter import idlest_phase, request_coarser, slowest_phase
 from .events import SlowStep
+from .task_meter import idlest_phase, request_coarser, slowest_phase
 
 __all__ = ["CRAWL_BYTES_PER_SECOND", "CRAWL_SECONDS", "DEFAULT_ALERT_MINUTES",
            "DISK_FREE_MIN_BYTES", "LOCK_WAIT_SECONDS", "NO_PROGRESS_SECONDS",

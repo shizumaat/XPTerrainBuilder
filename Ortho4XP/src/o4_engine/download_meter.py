@@ -197,6 +197,8 @@ def watch_transfers() -> bool:
     except Exception:
         return False
     send = requests.Session.send
+    if getattr(send, "_o4_metered", False):
+        return True                  # already wrapped (a reset flag)
     read = HTTPResponse.read
     read_chunked = HTTPResponse.read_chunked
 
@@ -226,6 +228,7 @@ def watch_transfers() -> bool:
                 _progressed(len(chunk))
             yield chunk
 
+    metered_send._o4_metered = True
     requests.Session.send = metered_send
     HTTPResponse.read = metered_read
     HTTPResponse.read_chunked = metered_read_chunked

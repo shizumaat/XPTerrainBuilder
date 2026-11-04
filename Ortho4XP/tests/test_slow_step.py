@@ -11,8 +11,7 @@ sys.path.insert(0, "src")
 
 import O4_Tile_Failures as FAIL  # noqa: E402
 import O4_Vector_Map as VMAP  # noqa: E402
-from o4_engine import (  # noqa: E402
-    download_meter, events, jsonl, parallel, slow_step, task_meter)
+from o4_engine import download_meter, events, jsonl, parallel, slow_step, task_meter  # noqa: E402
 from o4_engine.session import EngineSession, build_done  # noqa: E402
 
 TILE = (56, -4)
@@ -222,6 +221,8 @@ def test_the_transfer_hooks_count_bytes_and_verdicts(monkeypatch):
     monkeypatch.undo()
     download_meter._reset_for_tests()
     from urllib3.response import HTTPResponse
+    # Another test of this worker may have wrapped them already: the
+    # wrapper is idempotent, and each is put back as found.
     monkeypatch.setattr(requests.Session, "send", requests.Session.send)
     for name in ("read", "read_chunked"):
         monkeypatch.setattr(HTTPResponse, name, getattr(HTTPResponse, name))

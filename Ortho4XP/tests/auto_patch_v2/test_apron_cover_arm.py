@@ -16,7 +16,6 @@ from auto_patch_v2.classify.roles import _neck_pieces
 from auto_patch_v2.classify.rules import load_rules
 from shapely.geometry import box
 
-
 ident = lambda x, y: (x, y)                            # noqa: E731
 
 

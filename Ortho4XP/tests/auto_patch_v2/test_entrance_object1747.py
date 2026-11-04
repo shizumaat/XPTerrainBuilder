@@ -13,7 +13,6 @@ from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import OsmWay
 from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.planar.structure_mouth import portal_note
-
 from test_tunnel_objects import _airport, _slab, _write
 
 _T = {"highway": "primary", "lanes": "2", "tunnel": "yes", "layer": "-1"}

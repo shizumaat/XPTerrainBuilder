@@ -566,14 +566,30 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             if getattr(tn, "deck_bridge", ""):
                 src_mouth = Source(GEN, DECK_FLOOR, inputs)
             sloped = len(seats) > 1 and len(getattr(tn, "edge_floor_s", ())) == 2
+            # A HARD DECK WHOSE FLOOR IS THE LADDER'S (#1903, owner
+            # 2026-11-05: airside is never lifted by the cut): the floor
+            # stands at least its least depth under the deck (the airport's
+            # level B, else ``[tunnel] clearance_m``; ``Tunnel.deck_floor_min_m``)
+            # and may sink further -- only the "deep enough" row of each pair; the
+            # ladder's depth is the ramp's design target, never a tie that
+            # lifts the deck (KIAH_Bridge1: 0.85 / 1.40 m, its taxiway too)
+            least = float(getattr(tn, "deck_floor_min_m", 0.0) or 0.0)
+            ladder = bool(seats) and least > 0.0
+            if ladder:
+                seats = [(v, least) for v, _d in seats]
             if len(group) > 1 and not sloped:
                 rows.append(Flat(group, src_mouth))
-            if sloped:
+            if sloped and ladder:
+                rows.extend(sloped_floor_rows(datum_groups, seats[:2], tn.edge_floor_s,
+                                              src_mouth)[::2])
+            elif sloped:
                 # A TRENCH TWO EDGE BRIDGES SHARE runs linearly from each
                 # one's own bottom to the other's (owner RULINGS 2026-10-28u
                 # Q271 (b); ``constraints/edge_floor``)
                 rows.extend(sloped_floor_rows(datum_groups, seats[:2], tn.edge_floor_s,
                                               src_mouth))
+            elif ladder:
+                rows.append(seat_pair(group[0], seats[0], src_mouth)[0])
             elif seats:
                 # AN EDGE BRIDGE'S FLOOR HANGS FROM ITS SEAT (owner sim read
                 # 2026-10-28T14:26Z points 2 / 4; RULINGS 2026-10-20am / 20ar):

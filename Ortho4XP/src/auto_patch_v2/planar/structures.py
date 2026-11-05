@@ -1197,7 +1197,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 extra.update(edge_seats=edge_seats, deck_bridge=deck.object_id,
                              deck_ring=tuple(deck.ring), depth_m=deck.depth_m,
                              deck_top_y=0.5 * (deck.top_a + deck.top_b),
-                             deck_walled=bool(getattr(deck, "walls", ())))
+                             deck_walled=bool(getattr(deck, "walls", ())),
+                             deck_floor_min_m=float(getattr(deck, "floor_min_m", 0.0)))
                 if edge_floor:
                     extra["edge_floor_s"] = edge_floor
         profile_out: tuple = ()

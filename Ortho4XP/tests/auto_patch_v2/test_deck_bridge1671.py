@@ -447,3 +447,26 @@ def test_the_survey_is_never_read_under_a_deck(tmp_path):
     (db,), notes = _slab_read(tmp_path, airport)
     (ref,), _n = _slab_read(tmp_path, AIRPORT)
     assert abs(db.depth_m - ref.depth_m) < 1e-6 and "surveyed road" not in notes[0]
+
+
+def test_a_ladder_floor_never_lifts_its_deck(tmp_path):
+    """#1903 (owner 2026-11-05: airside never moves by the cut; KIAH_Bridge1
+    lifted 0.85 / 1.40 m with its taxiway): a deck whose frame stops short
+    of the road takes the ladder's floor (``floor_min_m``), and its floor row is
+    ONE-SIDED — at least ``[tunnel] clearance_m`` under the deck seat,
+    free to sink; a frame whose own bottom states the floor keeps the pair."""
+    (db,), _n = _slab_read(tmp_path, AIRPORT)
+    assert db.floor_min_m == LAW.tables.structures.tunnel.clearance_m
+    (tmp_path / "w").mkdir()
+    assert _bridge(tmp_path / "w").floor_min_m == 0.0
+    (lb,), _n = _slab_read(tmp_path / "w", AIRPORT, level_b=7.0)
+    assert lb.floor_min_m == 7.0          # level B keeps its depth (LFPG A1: 7 m)
+    rows = EF.seat_pair(9, (3, float(LAW.tables.structures.tunnel.clearance_m)),
+                        Source("structures", "x", ()))
+    assert rows[0].lo is None and abs(rows[0].hi + LAW.tables.structures.tunnel.clearance_m) < 1e-12
+    # the trench two ladder decks share (``edge_floor_s``): every other row
+    # of the sloped pairs is the deep-enough half
+    two = EF.sloped_floor_rows([(5.0, [9]), (8.0, [10])], ((3, 5.0), (4, 5.0)), (0.0, 10.0),
+                               Source("structures", "x", ()))[::2]
+    assert len(two) == 2 and all(r.lo is None and abs(r.hi + 5.0) < 1e-12 for r in two)
+    assert all(dict(r.terms)[v] == 1.0 for r, v in zip(two, (9, 10), strict=True))

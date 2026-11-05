@@ -3396,9 +3396,8 @@ def _airport_pack_dsf_paths(xplane_root, bounding_box_wgs84):
     for pack_name in sorted(os.listdir(custom_scenery_directory)):
         if pack_name == "Global Airports" or pack_name in disabled:
             continue
-        nav_data_directory = os.path.join(
-            custom_scenery_directory, pack_name, "Earth nav data"
-        )
+        nav_data_directory = _scenery_packs.earth_nav_data(   # any case, #1887
+            os.path.join(custom_scenery_directory, pack_name))
         if not os.path.isfile(os.path.join(nav_data_directory, "apt.dat")):
             continue
         for tile_relative_path in tile_relative_paths:

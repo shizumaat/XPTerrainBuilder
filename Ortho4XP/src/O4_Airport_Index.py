@@ -52,6 +52,7 @@ from dataclasses import dataclass
 from typing import Iterable, Iterator, List, Optional, Tuple
 
 import O4_Airport_Rank as RANK
+import O4_Scenery_Packs as SP
 
 __all__ = [
     "AirportEntry",
@@ -152,16 +153,12 @@ class AirportEntry:
 # ---------------------------------------------------------------------------
 # The folders (relative to the X-Plane root) that may hold a Global
 # Airports ``apt.dat``, highest priority first.  The ``Earth nav data``
-# level is appended per spelling by :func:`find_apt_dats`.
+# level is found (any case) by :func:`find_apt_dats`.
 _APT_DAT_FOLDERS = (
     ("Global Scenery", "Global Airports"),                    # XP12
     ("Custom Scenery", "Global Airports"),                    # XP11
     ("Resources", "default scenery", "default apt dat"),      # shipped default
 )
-
-# Both spellings of the nav-data folder, in preference order.  Linux is
-# case-sensitive and packs in the wild carry either.
-_NAV_DATA_SPELLINGS = ("Earth nav data", "Earth Nav Data")
 
 
 def find_apt_dats(xplane_dir: str) -> List[str]:
@@ -175,12 +172,11 @@ def find_apt_dats(xplane_dir: str) -> List[str]:
        airports X-Plane itself ships, the last resort when neither
        Global Airports pack is installed)
 
-    Each is tried with both nav-data spellings (``Earth nav data`` and
-    ``Earth Nav Data``), and only the FIRST spelling that exists is taken:
-    on a case-insensitive volume both answer for the same file, and a
-    duplicated path would make :func:`build_index` stream the same 380 MB
-    file twice.  The same file reached through two candidates (a symlinked
-    pack) is likewise emitted once.
+    The nav-data folder is matched without regard to case
+    (``O4_Scenery_Packs.earth_nav_data``, #1887: ``Earth nav data``,
+    ``Earth Nav Data``, ``earth nav data``), one path per candidate.  The
+    same file reached through two candidates (a symlinked pack) is emitted
+    once, so :func:`build_index` never streams the 380 MB file twice.
 
     Args:
         xplane_dir: Path to the X-Plane installation root.
@@ -192,15 +188,14 @@ def find_apt_dats(xplane_dir: str) -> List[str]:
     found: List[str] = []
     seen: set = set()
     for folder in _APT_DAT_FOLDERS:
-        for nav_data in _NAV_DATA_SPELLINGS:
-            path = os.path.join(xplane_dir, *folder, nav_data, "apt.dat")
-            if not os.path.isfile(path):
-                continue
-            key = os.path.normcase(os.path.realpath(path))
-            if key not in seen:
-                seen.add(key)
-                found.append(path)
-            break   # this candidate answered; never take its other spelling
+        path = os.path.join(SP.earth_nav_data(os.path.join(xplane_dir, *folder)),
+                            "apt.dat")
+        if not os.path.isfile(path):
+            continue
+        key = os.path.normcase(os.path.realpath(path))
+        if key not in seen:
+            seen.add(key)
+            found.append(path)
     return found
 
 

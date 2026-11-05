@@ -131,9 +131,9 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
     """The decision record for ``site`` on DEM prep's raster ``tile_dem``:
     :func:`flat_site.record` plus ``origin`` (the frame), ``region`` (the
     dilated, water-cut rings the datum covers), ``gate`` (the margin-0 gate
-    extent, water-cut), ``region_ll`` (the region's rings in ``(lon,
-    lat)``), ``footprint_ll`` (the region before its water cut — the
-    plateau's footprint, #1144) and ``held`` / ``held_ll``
+    extent, water-cut) and ``gate_ll`` (its rings in ``(lon, lat)``, #1885),
+    ``region_ll`` (the region's rings in ``(lon, lat)``), ``footprint_ll``
+    (the region before its water cut — the plateau's footprint, #1144) and ``held`` / ``held_ll``
     (apt.dat pavements ∪ runways ∪, at a substituting site, the pack's
     draped pavement pages read from ``mod_cache_root`` and each runway's
     graded strip, ``airport.runway_strip.strip_band``; margin 0:
@@ -206,6 +206,10 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
                        for o, hs in fv.region],
                gate=[[list(map(list, o)), [list(map(list, h)) for h in hs]]
                      for o, hs in gate_rings],
+               # #1885: the aerodrome itself in (lon, lat) — inside it the
+               # patch grades the groundside roads; the shore-road hold
+               # acts only outside it
+               gate_ll=_ll(gate_rings),
                region_ll=_ll(fv.region),
                footprint_ll=_ll(footprint_rings),
                # RULINGS 2026-10-27d / 27v: pavement and the runway strips

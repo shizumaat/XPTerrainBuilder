@@ -567,6 +567,15 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 # Q271 (b); ``constraints/edge_floor``)
                 rows.extend(sloped_floor_rows(datum_groups, seats[:2], tn.edge_floor_s,
                                               src_mouth))
+            elif seats and getattr(tn, "deck_ladder", False):
+                # A HARD DECK WHOSE FLOOR IS THE LADDER'S (#1903, owner
+                # 2026-11-05: airside is never lifted by the cut): the floor
+                # stands at least ``[tunnel] clearance_m`` under the deck and
+                # may sink further — ONE row; the ladder's depth is the
+                # ramp's design target, never a tie that lifts the deck
+                v0, _d = seats[0]
+                rows.append(seat_pair(group[0], (v0, float(tn_law.clearance_m)),
+                                      src_mouth)[0])
             elif seats:
                 # AN EDGE BRIDGE'S FLOOR HANGS FROM ITS SEAT (owner sim read
                 # 2026-10-28T14:26Z points 2 / 4; RULINGS 2026-10-20am / 20ar):

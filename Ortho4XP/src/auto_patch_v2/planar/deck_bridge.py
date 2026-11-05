@@ -434,7 +434,7 @@ def _road_floor(db: DeckBridge, law, notes: list[str], level_b: "float | None",
                  f"{top - db.bottom_y:.2f} m under its deck, short of the road; the floor "
                  f"stands {depth:.2f} m under the deck ({why}, RULINGS 2026-11-03b / "
                  f"2026-10-30g)")
-    return _dc.replace(db, bottom_y=top - depth)
+    return _dc.replace(db, bottom_y=top - depth, ladder=True)
 
 
 def _carries_movement(db: DeckBridge, roles: "CellRoles") -> bool:

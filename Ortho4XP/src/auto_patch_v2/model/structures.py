@@ -371,6 +371,10 @@ class Tunnel:
     #: that deck's frame models WALLS under it (``DeckBridge.walls``): the
     #: cut is vertical at them; with none it banks (owner 2026-11-03T16:56Z)
     deck_walled: bool = False
+    #: that deck's floor is the lower level's LADDER, not its frame's bottom
+    #: (``DeckBridge.ladder``): the floor may sink under it, never rise
+    #: closer than ``[tunnel] clearance_m`` (constraints/structures, #1903)
+    deck_ladder: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -441,6 +445,10 @@ class DeckBridge:
     #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3)); ``()``
     #: for a deck the pack models no wall under
     walls: tuple = ()
+    #: the floor is the lower level's ladder (``planar/deck_bridge.
+    #: _road_floor``: the frame stops short of the road), not the object's
+    #: own bottom
+    ladder: bool = False
     #: what states the deck: ``hard_deck`` (an ``ATTR_hard_deck`` /
     #: signature plate, or an ``ATTR_hard`` plate: owner 2026-11-05T21:31Z)
     witness: str = "hard_deck"

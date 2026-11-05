@@ -216,7 +216,7 @@ def post_solve(icao: str, pm, law: Law, airport, sol, cs, design_rep, tt_rep, fv
              f"fails this airport (issue #623)")
     if sol.status.value in ("optimal", "feasible") and pm.seam_vertices:
         tol = law.tables.emit.materiality.elevation_m
-        from ..constraints.seams import seam_pin_z     # the value each pin holds
+        from ..constraints.seams import seam_pin_z  # the value each pin holds
         res_seam = sorted(((abs(sol.z[v] - z), v)
                            for v, z in seam_pin_z(pm, law, airport).items()),
                           reverse=True)

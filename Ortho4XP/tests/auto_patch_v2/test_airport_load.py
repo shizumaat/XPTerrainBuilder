@@ -753,6 +753,35 @@ def test_disabled_pack_never_wins_the_selection(tmp_path):
     assert A.find_apt_dat(str(root), _BORROW_ICAO) == _apt(root, "BBB Pack")
 
 
+def test_ini_priority_beats_the_alphabet(tmp_path):
+    """#1887 (SBSP): X-Plane draws the airport of the pack HIGHEST in
+    scenery_packs.ini, not the alphabetically first one — and that pack's
+    ``earth nav data`` folder is lower case."""
+    root = _two_pack_root(tmp_path)
+    low = root / "Custom Scenery" / "zzz Pack" / "earth nav data" / "apt.dat"
+    _apt_file(low, _CUSTOM_THIN)
+    _ini(root, ["SCENERY_PACK Custom Scenery/zzz Pack/",
+                "SCENERY_PACK Custom Scenery/BBB Pack/",
+                "SCENERY_PACK Custom Scenery/AAA Pack/"])
+    got = A.find_apt_dat(str(root), _BORROW_ICAO)
+    assert os.path.samefile(got, low)
+    assert P.select_pack(str(root), _BORROW_ICAO).name == "zzz Pack"
+
+
+def test_top_pack_without_pavement_beats_a_paved_lower_pack(tmp_path):
+    """Owner RULINGS 2026-11-05 (#1887): the TOP enabled pack serves the
+    airport even when its block has no row-110 pavement (v1's "first with
+    pavement" tie-break is gone); §44's borrow supplies the pavement."""
+    root = _borrow_root(tmp_path, _CUSTOM_THIN, _GLOBAL_FOUR)   # AAA: paved
+    _apt_file(root / "Custom Scenery" / "ZZZ Bare" / "Earth nav data"
+              / "apt.dat", "")                                  # no row 110
+    _ini(root, ["SCENERY_PACK Custom Scenery/ZZZ Bare/",
+                "SCENERY_PACK Custom Scenery/AAA Pack/"])
+    assert A.find_apt_dat(str(root), _BORROW_ICAO) == _apt(root, "ZZZ Bare")
+    sel = P.select_pack(str(root), _BORROW_ICAO, _borrow_law())
+    assert sel.name == "ZZZ Bare" and sel.borrowed_apt_dat_path
+
+
 def test_sole_source_disabled_pack_falls_back_to_global(tmp_path):
     """The airport is still BUILT — from what the sim actually draws."""
     root = _borrow_root(tmp_path, _CUSTOM_THIN, _GLOBAL_FOUR)

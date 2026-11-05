@@ -368,9 +368,6 @@ class Tunnel:
     #: object stage seats its zero at the end lines' solved surface less it
     #: (``pipeline/rebake_inputs._edge_seat_plates``)
     deck_top_y: float = 0.0
-    #: that deck is a SLAB (``planar/deck_bridge.DeckBridge.slab``): the
-    #: ground under it is held flush with it and no cut runs under it
-    deck_slab: bool = False
     #: that deck's frame models WALLS under it (``DeckBridge.walls``): the
     #: cut is vertical at them; with none it banks (owner 2026-11-03T16:56Z)
     deck_walled: bool = False
@@ -404,10 +401,9 @@ class DeckAnchor:
     yielding: bool = False
     pinned: bool = True
     note: str = ""
-    #: how the cut meets this deck (owner 2026-11-03T16:56Z): ``bank`` (the
-    #: default embankment from the end down to the trench floor), ``walls``
-    #: (a pack wall under the deck: vertical) or ``slab`` (no cut under it;
-    #: the trench beside it banks across the object's width)
+    #: how the cut meets this deck (owner 2026-11-03T16:56Z, 2026-11-05T21:31Z):
+    #: ``bank`` (the embankments parallel to the cut under it) or ``walls``
+    #: (a pack wall under the deck: vertical)
     cut: str = "bank"
     #: the end line's identity on every map: its deck's stations (frame xy,
     #: DeckBridge.seats_a / seats_b) — stage 1's map takes the full
@@ -445,12 +441,8 @@ class DeckBridge:
     #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3)); ``()``
     #: for a deck the pack models no wall under
     walls: tuple = ()
-    #: a SLAB deck (``planar/deck_bridge._is_slab``): the ground under it is
-    #: kept at the deck and the road's cut stops at its edges (owner
-    #: 2026-11-03T16:39:23Z)
-    slab: bool = False
     #: what states the deck: ``hard_deck`` (an ``ATTR_hard_deck`` /
-    #: signature plate) or ``slab`` (an ``ATTR_hard`` plate)
+    #: signature plate, or an ``ATTR_hard`` plate: owner 2026-11-05T21:31Z)
     witness: str = "hard_deck"
     #: the deck's family, from the most senior route it carries: ``runway``
     #: where a runway axis crosses it, ``taxi`` where row-1202 taxi edges do,
@@ -465,7 +457,7 @@ class DeckBridge:
     route_ref: str = ""
     #: how the cut meets the deck, set once the corridors are cut
     #: (``planar/deck_bridge.with_cuts``): ``none`` (no bore runs under it),
-    #: ``bank``, ``walls`` or ``slab`` — the sidecar ``deck_anchors[*].cut``
+    #: ``bank`` or ``walls`` — the sidecar ``deck_anchors[*].cut``
     cut: str = "none"
 
     @property

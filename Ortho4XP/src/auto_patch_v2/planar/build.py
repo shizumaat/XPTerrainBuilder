@@ -328,7 +328,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     decks = with_cuts(decks, tunnels)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
-    classification, ground_notes = deck_ground(classification, tunnels, law, decks)
+    classification, ground_notes = deck_ground(classification, tunnels, law)
     sstats.hard_decks.extend(ground_notes)
     # THE ROAD OVERPASSES, read ONCE before the solve too (owner RULINGS
     # 2026-10-30f (1) / (5), ``planar/overpass_deck``): the object stage

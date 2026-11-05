@@ -106,11 +106,11 @@ def _ring_polygon(ring: tuple) -> Polygon:
 def with_cuts(decks: _t.Sequence[DeckBridge], tunnels) -> tuple[DeckBridge, ...]:
     """``decks`` with ``cut`` read off the corridors once they are cut: a
     deck whose end line a trench seats on (``Tunnel.edge_seats``, its own
-    deck's or the one it runs on under) is cut — ``slab``, ``walls`` (its
-    frame models walls under it) or ``bank``; every other is ``none``."""
+    deck's or the one it runs on under) is cut — ``walls`` (its frame
+    models walls under it) or ``bank``; every other is ``none``."""
     cut = {tuple(tuple(p) for p in st) for t in tunnels if getattr(t, "deck_bridge", "")
            for _o, st, _d in getattr(t, "edge_seats", ()) or ()}
-    return tuple(_dc.replace(db, cut=("slab" if db.slab else "walls" if db.walls else "bank")
+    return tuple(_dc.replace(db, cut=("walls" if db.walls else "bank")
                              if tuple(tuple(p) for p in db.seats_a) in cut else "none")
                  for db in decks)
 
@@ -180,12 +180,13 @@ def _plate(cache, decks) -> list[tuple[float, float, float]]:
     return out
 
 
-def _is_slab(cache, decks) -> bool:
-    """THE SLAB WITNESS (round 3 §1): a deck placement's plate is the
-    ``ATTR_hard`` plate (``ObjGeometry.hard_plate``) — a hard surface solid
-    from the ground up, which aircraft drive on and nothing passes under.
-    A plate flagged ``ATTR_hard_deck`` is a deck the road passes under,
-    however thin its frame (LFPG's plate-only decks: one 13 m plate)."""
+def _hard_plate(cache, decks) -> bool:
+    """A deck placement's plate is the ``ATTR_hard`` plate
+    (``ObjGeometry.hard_plate``; ``ATTR_hard_deck`` only on its edge-on
+    faces, KIAH_Bridge1/2): its end lines' tops are the plate AT them
+    (:func:`_end_top`).  It is a HARD DECK like an ``ATTR_hard_deck`` plate:
+    the ground is cut fully under it (owner 2026-11-05T21:31Z, amending
+    RULINGS 2026-11-03e (2) "the KIAH slab rule")."""
     for d in decks:
         g = cache.geometry(d.resolved) if d.resolved else None
         if g is not None and g.hard_plate:
@@ -257,7 +258,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
         d = decks[0]
         u = unary_union([q.hard_deck for q in decks])
         plate = _plate(cache, decks)
-        solid = _is_slab(cache, decks)
+        solid = _hard_plate(cache, decks)
         top = max((y for _x, _y, y in plate), default=None)
         if top is None or d.deck_top_z is None:
             continue
@@ -304,10 +305,9 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             db = _road_floor(db, law, notes, level_b, _carries_movement(db, roles))
             if solid:
                 notes.append(f"{db.object_id} {db.resource.rsplit('/', 1)[-1]}: an ATTR_hard "
-                             f"plate (ATTR_hard_deck only on its edge-on faces) — a SLAB: the "
-                             f"ground under it is kept at the deck and the cut stops at its "
-                             f"edges (owner 2026-11-03T16:39Z)")
-                db = _dc.replace(db, slab=True, witness="slab")
+                             f"plate (ATTR_hard_deck only on its edge-on faces) — a hard "
+                             f"deck: the ground is cut fully under it (owner "
+                             f"2026-11-05T21:31Z)")
                 reach = max(2.0 * step, 3.0)
                 db = _dc.replace(db, top_a=_end_top(plate, db.seats_a, reach, db.top_a),
                                  top_b=_end_top(plate, db.seats_b, reach, db.top_b))
@@ -409,11 +409,10 @@ def _road_floor(db: DeckBridge, law, notes: list[str], level_b: "float | None",
                 movement: bool) -> DeckBridge:
     """``db`` with the floor the road passes at under it (RULINGS 2026-10-30a
     (2): the road "passes completely under it").  It sets ONLY the floor;
-    whether the deck is a slab is the plate's own witness (:func:`_is_slab`).
     A frame reaching ``[tunnel] clearance_m`` or more under its deck top
     reaches the road: its bottom is the floor (30g (2), KBNA's walled frame)
     -- the object states it.  A frame stopping short of it states no road
-    level (LFPG's plate-only decks; KIAH's slabs: 0.12 m from top to
+    level (LFPG's plate-only decks; KIAH's ATTR_hard plates: 0.12 m from top to
     bottom).  Its floor is the lower level's ladder (RULINGS 2026-11-03b
     Q344 a, spec two-level-regions §13): the airport's level B
     (``level_b``), else ``[tunnel] mouth_depth_m`` under a deck carrying a
@@ -560,18 +559,13 @@ def _gap_line(db: DeckBridge, other: DeckBridge) -> tuple[XY, float]:
 def deck_mouth(axis: LineString, inward: XY, db: DeckBridge) -> tuple[LineString, float]:
     """``(axis, metres moved)``: the mouth of a bore under ``db`` stands at
     the deck's MIDLINE (:func:`mid_line`) — the two mouths of one bore
-    each cut half the deck, flat at its floor, and climb beyond its edge.
-    Under a SLAB (``db.slab``) the ground stays under the deck: the mouth
-    stands at the deck's edge on its own side, and the cut stops there."""
+    each cut half the deck, flat at its floor, and climb beyond its edge."""
     from .structure_mouth import _moved_in
     m = axis.coords[0]
     r, off = mid_line(db)
     dot = inward[0] * r[0] + inward[1] * r[1]
     if abs(dot) <= 1e-6:
         return axis, 0.0
-    if db.slab:
-        lo, hi = project_span(db.ring, r)
-        off = hi if m[0] * r[0] + m[1] * r[1] > off else lo
     return _moved_in(axis, inward, (off - (m[0] * r[0] + m[1] * r[1])) / dot)
 
 
@@ -603,11 +597,10 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     (:func:`_walled_trench`, RULINGS 2026-10-30f (3)).  ``band`` is this
     corridor's LANE of the deck — ``(lo, hi)`` across the road
     (``planar/deck_bores.lane_band``): the bank stops halfway to the next
-    carriageway's own cut.  Under a SLAB the floor stops ``bank_run`` short
-    of the deck's edge: no wall stands there, so the ground comes down from
-    the deck to the trench floor as an embankment (owner 2026-11-03T16:56Z:
-    "assume a sloping embankment coming down from bridge ends to the trench
-    bottom").  ``roads``: the mapped road ribbons beside the cut — THE
+    carriageway's own cut.  No bank stands across the road at the deck's
+    edge (owner 2026-11-05T21:31Z: "the embankment is only parallel to the
+    cut under the bridge"; amends 2026-11-03e (3)).  ``roads``: the mapped
+    road ribbons beside the cut — THE
     ROAD-EDGE WITNESS (16:56Z): the bank never cuts into one; the cut's
     rim stands at its edge (vertical where it meets the carriageway).
 
@@ -629,23 +622,8 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         keep = keep.intersection(_half_plane(_gap_line(db, other), (c.x, c.y), big))
     if band is not None:
         keep = keep.intersection(_lane_strip(db, band, big))
-    walled = None if db.slab else _walled_trench(db, inset, other)
-    if db.slab:
-        # owner 2026-11-03T16:39Z: no cut under a slab — the corridor stops
-        # at the deck's edge, the ground under it is the deck's; and
-        # (16:53Z) the trench beside it is as wide as the object, wall to
-        # wall: the deck's whole extent across the road, ``inset`` inside it
-        lo, hi = project_span(db.ring, across_dir(db))
-        r, n = _road_dir(db), across_dir(db)
-        s0, s1 = project_span(list(outer.exterior.coords), r)
-        along = Polygon([(r[0] * t + n[0] * u, r[1] * t + n[1] * u)
-                         for t, u in ((s0, -big), (s1, -big), (s1, big), (s0, big))])
-        wide = _lane_strip(db, (lo + inset, hi - inset), big).intersection(along)
-        outer = unary_union([outer, wide.intersection(keep)])
-        ramp = ramp.difference(deck_polygon(db).buffer(bank_run, join_style="mitre")
-                               if bank_run > 0.0 else deck_polygon(db))
-        outer = outer.difference(deck_polygon(db))
-    elif walled is not None:
+    walled = _walled_trench(db, inset, other)
+    if walled is not None:
         # 30f (3): the floor runs to the walls' inner faces, the rim stands
         # ``inset`` behind them — no bank climbs the walls
         floor, rim = walled
@@ -663,10 +641,9 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         outer = outer.difference(uncut)
         ramp = ramp.difference(uncut.buffer(rim_off, join_style="mitre"))
     if roads is not None and not roads.is_empty:
-        # a road BESIDE the cut, never the cut's own carriageway: under a
-        # slab the floor stops short of the deck and the road there is the
-        # embankment's (round 2, KIAH obj24551: the road ran on through the
-        # bank to the slab's edge, 0.53 m off the deck's span)
+        # a road BESIDE the cut, never the cut's own carriageway (round 2,
+        # KIAH obj24551: the road ran on through the bank to the deck's
+        # edge, 0.53 m off the deck's span)
         beside = roads.difference(unary_union([ramp, road]).buffer(0.5, join_style="mitre"))
         if not beside.is_empty:
             outer = outer.difference(beside)
@@ -744,7 +721,7 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     return unary_union(floors), unary_union(rims)
 
 
-def deck_ground(classification, tunnels, law, decks: _t.Sequence[DeckBridge] = ()) -> tuple:
+def deck_ground(classification, tunnels, law) -> tuple:
     """``(classification with the deck-ground cells, notes)`` (module doc,
     THE GROUND THE DECK RESTS ON): for each hard deck a corridor was cut
     under, the part of its reach (``model/structures.deck_reach``: the ring,
@@ -753,8 +730,8 @@ def deck_ground(classification, tunnels, law, decks: _t.Sequence[DeckBridge] = (
     cell ``deck_ground:<object>`` — ground, never pavement; its level is the
     deck span's (``constraints/edge_deck``), so it carries no zone class.
     A piece narrower than the identity spacing is a seam of the overlay,
-    not ground, and is dropped.  The slabs are ``decks`` (``cut`` set,
-    :func:`with_cuts`): a deck no corridor runs under mints no ground."""
+    not ground, and is dropped: a deck no corridor runs under mints no
+    ground."""
     rings: dict[tuple, Polygon] = {}
     for t in tunnels:
         pts = deck_reach(t)
@@ -763,7 +740,7 @@ def deck_ground(classification, tunnels, law, decks: _t.Sequence[DeckBridge] = (
             rings.setdefault((t.deck_bridge, tuple(reach.exterior.coords)), reach)
     if not rings:
         return classification, []
-    cells, notes = _slab_ground(list(classification.cells), decks, law)
+    cells, notes = list(classification.cells), []
     polys = [Polygon(c.ring, c.holes) for c in cells if len(c.ring) >= 3]
     taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys])
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
@@ -790,56 +767,6 @@ def _ground_cell(law, oid: str, k: int, part: Polygon) -> Cell:
                 tuple(tuple(h.coords)[:-1] for h in part.interiors),
                 None, None, role_side(law, "graded_strip"), "structure",
                 {"deck_ground": 1.0, "area_m2": part.area})
-
-
-def _slab_ground(cells: list, decks, law) -> tuple[list, list[str]]:
-    """``(cells, notes)`` with the ground UNDER A SLAB the deck's (round 3
-    §3): inside a slab's ring every cell aircraft do not roll on
-    (``law.tables.rolled_on_roles``; never a road name list) becomes deck
-    ground ``deck_ground:<object>#k``, so its vertices carry only the deck's
-    span pair (``constraints/edge_deck``) — a mapped road or strip kept
-    under the slab held its own rows and lifted the end line's seat
-    (KIAH ``obj24551`` end B, 39 pairs on one seat)."""
-    from ..law.tables import rolled_on_roles
-    slabs: dict[str, Polygon] = {}
-    for db in decks:
-        if db.cut == "slab" and len(db.ring) >= 3:
-            slabs.setdefault(db.object_id, deck_polygon(db))
-    if not slabs:
-        return cells, []
-    keep = rolled_on_roles(law) | {"tunnel_ramp", "retaining_wall"}
-    spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
-    out: list = []
-    taken: dict[str, list] = {}
-    for c in cells:
-        if c.role in keep or len(c.ring) < 3 or str(c.ref).startswith(DECK_GROUND_REF + ":"):
-            out.append(c)
-            continue
-        p = Polygon(c.ring, c.holes)
-        p = p if p.is_valid else p.buffer(0.0)
-        hit = [(oid, r) for oid, r in sorted(slabs.items()) if p.intersects(r)
-               and p.intersection(r).area > 0.25]
-        if not hit:
-            out.append(c)
-            continue
-        rest = p
-        for oid, r in hit:
-            under = [q for q in polygon_parts_with_area(rest.intersection(r))
-                     if not is_hairline(q, spacing)]
-            taken.setdefault(oid, []).extend(under)
-            rest = fixed_difference(rest, r)
-        for k, part in enumerate(q for q in polygon_parts_with_area(rest)
-                                 if not is_hairline(q, spacing)):
-            out.append(_dc.replace(c, ref=c.ref if k == 0 else f"{c.ref}#{k}",
-                                   ring=tuple(part.exterior.coords)[:-1],
-                                   holes=tuple(tuple(h.coords)[:-1] for h in part.interiors)))
-    notes = []
-    for oid, parts in sorted(taken.items()):
-        out.extend(_ground_cell(law, oid, 100 + k, q) for k, q in enumerate(parts))
-        notes.append(f"{oid}: under the SLAB, {len(parts)} face(s) "
-                     f"{sum(q.area for q in parts):.0f} m2 of ground the aircraft do not roll "
-                     f"on are the deck's ground (round 3 §3)")
-    return out, notes
 
 
 def deck_pin(db: DeckBridge, mouth):

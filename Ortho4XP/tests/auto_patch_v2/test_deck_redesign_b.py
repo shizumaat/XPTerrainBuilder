@@ -189,17 +189,6 @@ def test_a_deck_carrying_taxiway_pavement_across_both_ends_is_a_taxi_deck():
     assert not DB._taxi_at_both_ends(db.seats_a, db.seats_b, apron)     # KLAX Road_Bridge
 
 
-def test_under_a_slab_the_cuts_own_road_is_the_embankment_not_a_road_beside():
-    """Round 2 (KIAH ``obj24551``): the road-edge witness keeps the bank off
-    a road BESIDE the cut, never off the cut's own carriageway — under a
-    slab that runs on, between the floor's end and the slab, as the bank."""
-    db = _dc.replace(_deck(), slab=True)
-    axis, ramp, outer = _north_half(db)
-    road = _sbox(-4.0, -10.0, 4.0, 100.0)
-    _r, o = DB.deck_cut(db, axis, ramp, outer, 0.6, bank_run=9.0, roads=road)
-    assert o.contains(Point(0.0, 25.0))          # the bank band over the road
-
-
 def _span_map(roles):
     """A deck's ring (``_deck``) with a seat on each end line, a cut under it
     (floor face 0..3 on the road's axis) and three vertices inside the ring:

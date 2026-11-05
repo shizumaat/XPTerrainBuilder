@@ -381,9 +381,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     runway_u = unary_union([p for p, c in zip(polys, cells) if c.role in RUNWAY_FAMILY]) \
         if any(c.role in RUNWAY_FAMILY for c in cells) else None
     # deck redesign §3 (b)/(c): the runway family a deck cut never takes —
-    # every runway outside the wall-less, slab-less deck rings — is its RIM
+    # every runway outside the deck rings — is its RIM
     deck_uncut = runway_u.difference(unary_union(
-        [deck_polygon(db) for db in deck_bridges if not db.slab])) \
+        [deck_polygon(db) for db in deck_bridges])) \
         if runway_u is not None and deck_bridges else None
     # §34 (12) (3)'s protected set (``structure_service``); an OSM bore's
     # ramp STOPS SHORT of these, a pack-stated corridor is never bound
@@ -551,10 +551,18 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             keep_out=[(strip_u, "runway_strip")] if strip_u is not None and pin is None
             and edge is None and not decked_by else ())
         if pin is not None and clear is not None and clear[4].startswith(PORTAL_YIELDS):
+            # the MOUTH yields to the taxiway at the opening (clause 1); the
+            # DEPTH does not when the object states it (20am / 20ar): a
+            # hanging face, or an object that states its floor (an entrance
+            # object, a tall roofed portal) keeps it at the slid mouth
+            # (#1903 KLAX: Underpass_2 fell to the bore law, 3.5 m under it)
+            keeps = pin.hanging or pin.floor_z is not None
             stats.portals_unpinned.append(f"{tid}: {pin.object_id} — {clear[4]}"
                                           + (" (a hanging face keeps its depth: 20am / 20ar)"
-                                             if pin.hanging else ""))
-            if not pin.hanging:
+                                             if pin.hanging else
+                                             f" (the object states its floor {pin.floor_z:.2f}: "
+                                             f"kept, 20am / 20ar)" if keeps else ""))
+            if not keeps:
                 pin = None
         face = pin is not None and pin.hanging and edge is None   # a bare face (Q168)
         if clear is not None and clear[0] is None:
@@ -1189,7 +1197,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 extra.update(edge_seats=edge_seats, deck_bridge=deck.object_id,
                              deck_ring=tuple(deck.ring), depth_m=deck.depth_m,
                              deck_top_y=0.5 * (deck.top_a + deck.top_b),
-                             deck_slab=bool(getattr(deck, "slab", False)),
                              deck_walled=bool(getattr(deck, "walls", ())))
                 if edge_floor:
                     extra["edge_floor_s"] = edge_floor
@@ -1420,10 +1427,9 @@ def deck_cover_of(tunnels, tid_deck) -> object:
     was cut under and every ``deck_top`` deck ring — never a corridor's
     footprint past the ring (round 2's mask, retracted: the runway LFPG
     left uncut at S4 stood INSIDE H18r's ring, the halves' banks split as
-    two lanes, ``deck_bores.deck_lanes``).  A SLAB's ring is never in it
-    (round 3 §1): the ground under a slab is the deck's, never cut."""
+    two lanes, ``deck_bores.deck_lanes``)."""
     return unary_union(
         [deck_polygon(db) for t, db in ((t, tid_deck.get(t.id)) for t in tunnels)
-         if db is not None and not getattr(db, "slab", False)]
+         if db is not None]
         + [Polygon(d.ring) for t in tunnels for d in t.decks
            if d.datum == "deck_top" and len(d.ring) >= 3])

@@ -165,8 +165,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     trench under it (``model/structures.deck_reach``) — that is no seat and
     no trench floor takes the pair to its nearest seat; an airside vertex
     there a ceiling from the deck's zero instead (#1692: the pavement under
-    the deck never stands through it), flush both ways over a SLAB (the
-    pavement inside its ring IS the deck's surface).  ``pool``: the seats a
+    the deck never stands through it).  ``pool``: the seats a
     span vertex may take (the object's own and its trenches' other decks');
     ``done``: the vertices an earlier object already spans (each once);
     ``skip``: the roles no span vertex carries (the trench floor's, the
@@ -184,11 +183,9 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     done = set() if done is None else done
     decks = list({tuple(e.deck.ring): e.deck for e in es}.values())
     inside = prep(unary_union([Polygon(d.ring).buffer(0.5) for d in decks]))
-    slabs = [Polygon(d.ring).buffer(0.5) for d in decks if d.cut == "slab"]
-    on_slab = prep(unary_union(slabs)) if slabs else None
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
     beyond = prep(unary_union(hulls).buffer(0.5)) if hulls else inside
-    in_cut = _in_cut(planar, tunnels, slabs)
+    in_cut = _in_cut(planar, tunnels)
     src = Source(GEN, RULING, (oid, oid, "deck span"))
     under = Source(GEN, RIGID, (oid, oid, "under the deck"))
     top_of = _station_tops(ends)
@@ -209,20 +206,17 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
             continue
         done.add(v)
         if v in air:
-            both = on_slab is not None and on_slab.contains(p)
-            rows.append(_from_zero(v, top_of, top_of.get(a), -flush if both else None, flush,
-                                   under))
+            rows.append(_from_zero(v, top_of, top_of.get(a), None, flush, under))
             continue
         rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
         rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))
     return rows
 
 
-def _in_cut(planar: PlanarMap, tunnels, slabs) -> "_t.Callable[[_t.Any], bool]":
+def _in_cut(planar: PlanarMap, tunnels) -> "_t.Callable[[_t.Any], bool]":
     """Whether a point stands inside a cut under the deck — the floor and
     void faces of the trenches ``tunnels`` (``deck_lines.cut_faces``) and
-    their footprints — less the ``slabs`` (the pavement inside a slab's
-    ring IS the deck's surface)."""
+    their footprints."""
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
@@ -233,8 +227,6 @@ def _in_cut(planar: PlanarMap, tunnels, slabs) -> "_t.Callable[[_t.Any], bool]":
     if not rings:
         return lambda _p: False
     cut = unary_union([Polygon(r).buffer(0.0) for r in rings])
-    if slabs:
-        cut = cut.difference(unary_union(slabs))
     if cut.is_empty:
         return lambda _p: False
     within = prep(cut)

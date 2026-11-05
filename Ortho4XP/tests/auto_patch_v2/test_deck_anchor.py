@@ -180,35 +180,34 @@ def test_the_census_reads_a_station_off_the_one_zero():
     assert check_deck_end_flush(None, nodes, [w]) == []
 
 
-def test_a_slab_keeps_its_ground_and_the_cut_stops_at_its_edges(tmp_path):
-    """Owner 2026-11-03T16:39:23Z: a deck aircraft cannot drive UNDER (a
-    slab: the frame stops short of the road, nothing below the plate) keeps
-    the terrain under it — the mouth stands at the deck's edge and the cut
-    takes nothing inside the ring; a deck reaching the road is unchanged."""
+def test_an_attr_hard_plate_is_cut_fully_under_with_no_bank_at_its_edges(tmp_path):
+    """Owner 2026-11-05T21:31Z (amends RULINGS 2026-11-03e (2)/(3), the KIAH
+    slab rule): "Any bridge that has a hard deck, cut the ground fully under
+    it.  the embankment is only parallel to the cut under the bridge."  An
+    ``ATTR_hard`` plate (KIAH_Bridge1/2) is a hard deck like an
+    ``ATTR_hard_deck`` one: the mouth stands at the deck's MIDLINE, the
+    floor runs under the whole ring, and no bank stands across the road at
+    the deck's edge."""
     from auto_patch_v2.planar import deck_bridge as DBR
     from shapely.geometry import LineString
     from shapely.geometry import box as _sbox
     from tests.auto_patch_v2 import test_deck_bridge1671 as T
-    (slab,), _n = T._slab_read(tmp_path, T.AIRPORT)
-    assert slab.slab
+    (deck,), notes = T._slab_read(tmp_path, T.AIRPORT)
+    assert deck.witness == "hard_deck" and any("cut fully under" in n for n in notes)
     axis = LineString([(0.0, 23.0), (0.0, 120.0)])
-    moved, _d = DBR.deck_mouth(axis, (0.0, -1.0), slab)
-    assert abs(moved.coords[0][1] - 20.0) < 0.5        # the slab's edge, not its midline
+    moved, _d = DBR.deck_mouth(axis, (0.0, -1.0), deck)
+    r, off = DBR.mid_line(deck)
+    assert abs(moved.coords[0][0] * r[0] + moved.coords[0][1] * r[1] - off) < 1e-6
     ramp = _sbox(-4.0, -30.0, 4.0, 100.0)
-    r2, o2 = DBR.deck_cut(slab, moved, ramp, ramp.buffer(1.6, join_style="mitre"), 0.6)
-    ring = DBR.deck_polygon(slab)
-    assert r2.intersection(ring).area < 1e-6 and o2.intersection(ring).area < 1e-6
-    # 16:56Z: no wall at the slab's edge — the floor stops a 1:3 bank short of it
-    r3, _o3 = DBR.deck_cut(slab, moved, ramp, ramp.buffer(1.6, join_style="mitre"), 0.6,
+    r2, _o2 = DBR.deck_cut(deck, moved, ramp, ramp.buffer(1.6, join_style="mitre"), 0.6,
                            bank_run=6.0)
-    assert r3.distance(DBR.deck_polygon(slab)) > 5.9
-    # 16:53Z: the trench beside the slab is the object's width, wall to wall
-    lo, hi = DBR.project_span(slab.ring, DBR.across_dir(slab))
-    u0, u1 = DBR.project_span(list(o2.exterior.coords), DBR.across_dir(slab))
-    assert abs(u0 - (lo + 0.6)) < 1e-6 and abs(u1 - (hi - 0.6)) < 1e-6
-    (tmp_path / "w").mkdir()
-    assert not T._bridge(tmp_path / "w").slab
-
+    ring = DBR.deck_polygon(deck)
+    # the floor runs under the ring along the road up to the midline: no
+    # 1:3 bank across the road at the deck's edge
+    lo, hi = DBR.project_span(list(r2.intersection(ring).exterior.coords), r)
+    s0, s1 = DBR.project_span(deck.ring, r)
+    assert r2.intersection(ring).area > 0.0
+    assert min(abs(lo - s0), abs(hi - s1)) < 0.6 + 1e-6 and min(abs(lo - off), abs(hi - off)) < 1e-6
 
 def test_the_rebake_plan_carries_the_zero_the_anchors_state(site, law):
     """§3: the deck member's ``anchor_zero`` is the plate zero the object
@@ -265,20 +264,19 @@ def test_the_end_lines_are_the_pair_the_carried_route_crosses():
     assert DBR._end_pair([along, across], None, to_xy, []) is along
 
 
-def test_the_slab_witness_is_the_plates_own_attribute(tmp_path):
-    """Round 3 §1 (OBJ8: ``ATTR_hard_deck`` is a hard surface one passes
-    under, ``ATTR_hard`` is solid from the ground up).  (A) a plate carried
-    on ``ATTR_hard`` with the flag only on its edge-on sides is a SLAB; (B) a
+def test_every_hard_plate_is_a_deck_the_road_passes_under(tmp_path):
+    """Round 3 §1 as amended (owner 2026-11-05T21:31Z): (A) a plate carried
+    on ``ATTR_hard`` with the flag only on its edge-on sides, and (B) a
     13 m plate-only ``ATTR_hard_deck`` deck with no frame under it (LFPG's
-    H18r) is NOT: its floor is the level-B ladder under its top and the
-    corridor cuts under it; (C) a slab's ring is never in the runway
-    family's blade mask (``structures.deck_cover_of``)."""
+    H18r), are both hard decks: the floor is the level-B ladder under the
+    top and both rings are in the runway family's blade mask
+    (``structures.deck_cover_of``)."""
     from auto_patch_v2.airport import obj8 as O
     from auto_patch_v2.planar import deck_bridge as DBR
     from auto_patch_v2.planar.structures import deck_cover_of
     from tests.auto_patch_v2 import test_deck_bridge1671 as T
     (slab,), _n = T._slab_read(tmp_path, T.AIRPORT, level_b=7.0)
-    assert slab.slab and O.parse_obj8(T._slab_obj(tmp_path)).hard_plate
+    assert O.parse_obj8(T._slab_obj(tmp_path)).hard_plate
     (tmp_path / "b").mkdir()
     plate = T._write(tmp_path / "b" / "plate.obj",
                      [T._box(-20.0, -20.0, 40.0, 40.0, 0.01, y0=13.10)], hard=(0,))
@@ -287,54 +285,22 @@ def test_the_slab_witness_is_the_plates_own_attribute(tmp_path):
     o.deck_top_z = 113.11
     (deck,), _n = DBR.deck_bridges([o], O.ResourceCache(T.THICK), T._classification(),
                                     T.AIRPORT, T.LAW, (), level_b=7.0)
-    assert not deck.slab and abs(deck.depth_m - 7.0) < 1e-6
-    assert abs(deck.bottom_y - (13.11 - 7.0)) < 1e-6
+    assert abs(deck.depth_m - 7.0) < 1e-6 and abs(deck.bottom_y - (13.11 - 7.0)) < 1e-6
     tn = _dc.replace(_tunnel(), id="t1", footprint=())
-    hard = deck_cover_of([tn], {"t1": deck})
-    assert abs(hard.area - DBR.deck_polygon(deck).area) < 1e-6
-    assert deck_cover_of([tn], {"t1": slab}).is_empty
+    for d in (deck, slab):
+        assert abs(deck_cover_of([tn], {"t1": d}).area - DBR.deck_polygon(d).area) < 1e-6
 
-
-def test_under_a_slab_the_ground_is_the_decks_and_the_taxi_anchor_is_a_station():
-    """Round 3 §3 (twin D, KIAH ``obj24551`` end B): a mapped road cell
-    inside a slab's ring becomes deck ground ``deck_ground:*`` (its rows
-    were the road's, lifting the seat); the taxiway's own cells stay; and a
-    taxi deck's pinned vertex is the seat STATION nearest where the carried
-    chain crosses the end line, never a junction vertex beside it."""
+def test_a_taxi_decks_anchor_is_the_station_the_carried_chain_crosses():
+    """Round 3 §3 (twin D, KIAH ``obj24551`` end B): a taxi deck's pinned
+    vertex is the seat STATION nearest where the carried chain crosses the
+    end line, never a junction vertex beside it."""
     import types
-
-    from auto_patch_v2.planar import deck_bridge as DBR
-    from shapely.geometry import Polygon
-    from shapely.geometry import box as _sbox
-    from tests.auto_patch_v2 import test_deck_bridge1671 as T
-    ring = _sbox(-20.0, -20.0, 20.0, 20.0)
-    road = T._cell(1, "service_road", _sbox(-30.0, -4.0, 30.0, 4.0))
-    taxi = T._cell(0, T.TAXI, _sbox(-10.0, -100.0, 10.0, -20.0))
-    slab = types.SimpleNamespace(deck_bridge="dsf:obj9", deck_slab=True,
-                                 deck_ring=tuple(ring.exterior.coords)[:-1],
-                                 edge_seats=(("dsf:obj9", ((-20.0, -20.0), (20.0, -20.0)), 1.0),
-                                             ("dsf:obj9", ((-20.0, 20.0), (20.0, 20.0)), 1.0)))
-    @_dc.dataclass(frozen=True)
-    class _Cl:
-        cells: tuple
-    deck = types.SimpleNamespace(object_id="dsf:obj9", cut="slab", ring=slab.deck_ring)
-    out, notes = DBR.deck_ground(_Cl((taxi, road)), [slab], T.LAW, [deck])
-    roads = [Polygon(c.ring) for c in out.cells if c.role == "service_road"]
-    assert roads and all(p.intersection(ring).area < 1e-6 for p in roads)
-    assert abs(sum(p.area for p in roads) - 2 * 10.0 * 8.0) < 1e-6
-    under = [Polygon(c.ring) for c in out.cells if str(c.ref).startswith("deck_ground:dsf:obj9")]
-    assert abs(sum(p.intersection(ring).area for p in under) - ring.area) < 1e-6
-    assert any(c.role == T.TAXI for c in out.cells) and any("SLAB" in n for n in notes)
-    # the anchor: stations at x = -20..20 step 10; the chain crosses at x = 3.5
     xy = {k: (-20.0 + 10.0 * k, -20.0) for k in range(5)}
     xy.update({10: (3.5, -60.0), 11: (3.6, 5.0), 12: (4.5, -19.0)})
     vw = types.SimpleNamespace(xy=xy)
     st = [xy[k] for k in range(5)]
     assert DA._taxi_vertex(vw, (10, 11), st, list(range(5))) == 2
     assert DA._taxi_vertex(vw, None, st, list(range(5))) == 2
-
-
-# ── deck redesign PR A (§1): decks on the map, one derivation for both maps ──
 
 def test_a_deck_record_with_no_tunnel_is_read_by_anchors_rows_and_the_plate(site, law):
     """§0 / §1: the anchors, the deck rows and the object stage's plate read

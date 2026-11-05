@@ -169,3 +169,62 @@ def test_the_entrance_face_is_seated_on_its_portals_floor_face_by_face():
     took.clear()
     seat_faces(rec, types.SimpleNamespace(id="dsf:obj8"), entrance_zeros(recs), at_zero)
     assert took == []
+
+
+def test_a_portal_yielding_to_a_taxiway_keeps_the_floor_its_object_states(law):
+    """#1903 (KLAX Sepulveda south, ``Underpass_2``): a taxiway at the
+    opening slides the mouth out of it (clause 1), but the object still
+    states the road's level (20am / 20ar): the slid mouth keeps the
+    entrance's floor.  It fell to the bore law's depth, the cut 3.5 m under
+    the object's floor.  A portal stating no floor yields its depth too."""
+    from auto_patch_v2.airport.portal_objects import Portal
+    from auto_patch_v2.classify.roles import Cell, Classification
+    from auto_patch_v2.planar.structures import build_structures
+    from test_mouth_at_pavement971 import _airport as _bore_airport
+    from test_mouth_at_pavement971 import _base_cells, _rect
+    tn = law.tables.structures.tunnel
+    cells = _base_cells() + [Cell(1, "stub", "twy", _rect(-63, -40, 63, 40), (), None, "D",
+                                  "airside", "taxiway", {})]
+
+    def run(floor):
+        portals = [Portal(f"dsf:obj{i}", "objects/entrance.obj", (x, 0.0), -101, 3.0, 0.0,
+                          (x, 0.0), floor_z=floor) for i, x in ((1, -60.0), (2, 60.0))]
+        _cl, tunnels, st = build_structures(_bore_airport(law),
+                                            Classification(tuple(cells), (), {}, ()), law,
+                                            portals=portals)
+        assert len(tunnels) == 2, st.refused
+        assert len(st.portals_unpinned) == 2, st.portals_unpinned
+        return tunnels
+    clear = tn.wall_gap_m + tn.wall_gap_m + tn.wall_band_width_m
+    for t in run(696.0):
+        assert abs(t.axis[0][0]) >= 63.0 + clear - 1e-6, t.axis[0]     # the mouth slid
+        assert t.mouth_z == pytest.approx(696.0, abs=1e-6)            # its floor kept
+        assert t.portal == f"dsf:obj{1 if t.axis[0][0] < 0 else 2}"
+    for t in run(None):
+        assert not t.portal and t.mouth_z < 696.0 - 1.0              # the bore law's
+
+
+def test_an_unsplit_row_with_one_entrance_is_seated_on_its_row():
+    """#1903 (KLAX ``Underpass_2``, one file at three anchors: the plan skips
+    it, so no body takes the entrance seat and X-Plane drew its face 0.8 m
+    over the floor): a row the plan does not split, carrying ONE entrance,
+    is written ``OBJECT_MSL`` at that seat's zero.  A split row's bodies
+    take it (unchanged), and a row with two entrances (LOWS ``domiki``: two
+    faces, two zeros) is never seated whole."""
+    import types
+
+    from auto_patch_v2.airport.terrain_shaped import ENTRANCE_SEAT, row_seats
+    row = types.SimpleNamespace(def_path="objects/u.obj", lat=33.93, lon=-118.39,
+                                heading_deg=173.0, kind="OBJECT", elevation=None)
+    dump = types.SimpleNamespace(placements=[row, row])
+
+    def rec(i, z):
+        return {"id": f"dsf:obj{i}", "resource": "objects/u.obj", "datum": "portal",
+                "seat": ENTRANCE_SEAT, "elevation": z, "end": [33.93, -118.39],
+                "reach_m": 10.0}
+    one = [rec(0, 31.938)]
+    assert [(m.index, m.elevation, m.why) for m in row_seats(dump, one, frozenset())] == [
+        (0, 31.938, "entrance_face")]
+    assert row_seats(dump, one) == ()                       # no split set: a body's seat
+    assert row_seats(dump, one, frozenset({0})) == ()       # split: its bodies take it
+    assert row_seats(dump, one + [rec(0, 30.0)], frozenset()) == ()   # two faces

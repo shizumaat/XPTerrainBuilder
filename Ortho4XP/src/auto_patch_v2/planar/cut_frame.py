@@ -40,7 +40,7 @@ from shapely.geometry import Polygon
 
 from ..airport.cut_deck_seat import end_ground
 from ..airport.tunnel_objects import _seat
-from .deck_bridge import CellRoles, _slab, _top_at, co_placed
+from .deck_bridge import CellRoles, _plate, _top_at, co_placed
 
 __all__ = ["frame_cuts", "FRAME_NOTE"]
 
@@ -127,7 +127,7 @@ def frame_cuts(tunnels: _t.Sequence, objects, cache, classification, airport, la
             continue
         (g1, g2), (l1, l2) = ends
         sa, sb = (tuple(to_xy(lo, la) for la, lo, _z in e) for e in (l1, l2))
-        slab = _slab(cache, [d])
+        slab = _plate(cache, [d])
         top = max(y for _x, _y, y in slab)
         reach = max(2.0 * step, 3.0)
         ta, tb = _top_at(slab, sa, reach, top), _top_at(slab, sb, reach, top)

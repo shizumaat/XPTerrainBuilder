@@ -81,3 +81,56 @@ def test_a_route_beyond_the_ceiling_is_held_there_and_reported(law):
     assert _caps(pm, law) == {round(ceiling, 6)}
     assert "NOT MET" in route_lines("ZZZZ", pm.taxi_routes)[0]
     assert r.as_dict()["over_ceiling"] is True
+
+
+def _via_apron(law, drop_m: float):
+    """Runway, stub up, an APRON, stub up, runway: the route crosses the
+    apron (owner 2026-11-05 06:01Z, option a: the apron shares the route's
+    exception)."""
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+
+    def rwy(ref, a, b, y, z):
+        return Runway(ref, 45.0, 1, (
+            RunwayEnd(a, (-600.0, y), (60.5, -135.5), 0.0, 0.0, z, "fixture"),
+            RunwayEnd(b, (600.0, y), (60.5, -135.5), 0.0, 0.0, z, "fixture")), 3, "D")
+    rws = (rwy("09L/27R", "09L", "27R", 0.0, 700.0),
+           rwy("09R/27L", "09R", "27L", 400.0, 700.0 - drop_m))
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    airport = Airport("ZZZZ", "Synthetic", frame, 700.0, rws, (), (), {}, (),
+                      (), (), (), (), (), (), pack, _RampDem(), law.ruleset_key)
+    cells = (
+        Cell(0, "runway", "09L/27R", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
+             "airside", "runway", {}),
+        Cell(1, "runway", "09R/27L", _rect(-600, 377.5, 600, 422.5), (), 3, "D",
+             "airside", "runway", {}),
+        Cell(2, "stub", "stubS", _rect(-11.5, 22.5, 11.5, 150), (), None, "D",
+             "airside", "taxi", {}),
+        Cell(3, "apron", "apronM", _rect(-60, 150, 60, 250), (), None, None,
+             "airside", "apron", {}),
+        Cell(4, "stub", "stubN", _rect(-11.5, 250, 11.5, 377.5), (), None, "D",
+             "airside", "taxi", {}),
+    )
+    cuts = (CutLine("taxi_centerline", "stubS", ((0.0, 0.0), (0.0, 150.0))),
+            CutLine("taxi_centerline", "stubN", ((0.0, 250.0), (0.0, 400.0))))
+    pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
+    return with_runway_chord(pm, law, airport)
+
+
+def test_an_apron_on_the_route_rises_with_it(law):
+    from auto_patch_v2.constraints.precedence import face_cap
+    pm = _via_apron(law, 7.0)
+    assert pm.taxi_routes, "no route yielded"
+    r = max(pm.taxi_routes, key=lambda x: x.cap)
+    assert not r.over_ceiling and 0.015 < r.cap <= 0.02
+    aprons = [f for f in pm.faces.values() if f.role == "apron"]
+    assert aprons and all(f.id in r.aprons for f in aprons)
+    for f in aprons:
+        assert face_cap(law, f, pm)[0] == pytest.approx(r.cap)
+    assert _caps(pm, law, "stubS") == {round(r.cap, 6)}
+
+
+def test_an_apron_off_any_failing_route_keeps_its_cap(law):
+    from auto_patch_v2.constraints.precedence import face_cap
+    pm = _via_apron(law, 3.0)
+    assert pm.taxi_routes == ()
+    assert all(face_cap(law, f, pm)[0] == 0.015 for f in pm.faces.values() if f.role == "apron")

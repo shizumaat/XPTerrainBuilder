@@ -51,13 +51,22 @@ def metres(a: Sequence[float], b: Sequence[float]) -> float:
                            math.radians(b[1] - a[1]) * math.cos(la))
 
 
-def stretch_caps(axes: Optional[Mapping]) -> dict[str, float]:
-    """Centreline ref -> its strictest stretch cap (sidecar ``stretches``:
-    ``[points, cap, letter, ref]``)."""
-    out: dict[str, float] = {}
+def _seg(p: Sequence[float], q: Sequence[float]) -> tuple:
+    a, b = (round(p[0], 7), round(p[1], 7)), (round(q[0], 7), round(q[1], 7))
+    return (a, b) if a <= b else (b, a)
+
+
+def stretch_caps(axes: Optional[Mapping]) -> dict:
+    """The stretch caps of the sidecar ``stretches`` (``[points, cap,
+    letter, ref]``): by SEGMENT (its two ends, 1e-7 deg) — a ref's
+    stretches may carry different caps (a yielded route, 11-05a) — and by
+    ref, the strictest, for a segment no stretch lists."""
+    out: dict = {}
     for st in (axes or {}).get("stretches", ()):
         cap, ref = float(st[1]), str(st[-1])
         out[ref] = min(cap, out.get(ref, cap))
+        for p, q in zip(st[0], st[0][1:], strict=False):
+            out[_seg(p, q)] = max(cap, out.get(_seg(p, q), cap))
     return out
 
 
@@ -88,7 +97,7 @@ def read(graded: Mapping, caps: Mapping[str, float], default_cap: float,
             d = metres(p, q)
             s.append(s[-1] + d)
             if d > 0.0:
-                edges.append((abs(q[2] - p[2]) / d, d, ref, cap, p, q))
+                edges.append((abs(q[2] - p[2]) / d, d, ref, float(caps.get(_seg(p, q), cap)), p, q))
         for w in wins:
             t = 0.0
             while len(pts) > 1 and t + w <= s[-1] + 1e-9:

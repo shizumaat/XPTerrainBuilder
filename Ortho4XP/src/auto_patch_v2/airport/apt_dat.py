@@ -498,9 +498,10 @@ def _find_apt_dat(xplane_root: str, icao: str) -> str | None:
     ``SBSP Scenery_pack`` (ini row 1095) beat the ``c_BRA … GloballArt``
     pack the sim draws (row 132) because ``S`` sorts before ``c``; the
     ``Earth nav data`` folder is matched without regard to case
-    (``O4_Scenery_Packs.earth_nav_data``).  It reads: its runways, lights, lines, startups, metadata and its DSF
-    objects.  Among SEVERAL custom packs the precedence stays v1's (the
-    first with row-110 pavement, else the first).  The old tail — "a pack
+    (``O4_Scenery_Packs.earth_nav_data``).  It reads: its runways, lights,
+    lines, startups, metadata and its DSF objects.  Among SEVERAL custom
+    packs the precedence stays v1's (the first with row-110 pavement, else
+    the first).  The old tail — "a pack
     without pavement is the fallback of last resort", under which a
     pavement-less custom pack LOST the selection to Global Airports and
     its objects were never read — is DELETED; ``airport/borrow.py``

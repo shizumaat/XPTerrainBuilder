@@ -753,6 +753,21 @@ def test_disabled_pack_never_wins_the_selection(tmp_path):
     assert A.find_apt_dat(str(root), _BORROW_ICAO) == _apt(root, "BBB Pack")
 
 
+def test_ini_priority_beats_the_alphabet(tmp_path):
+    """#1887 (SBSP): X-Plane draws the airport of the pack HIGHEST in
+    scenery_packs.ini, not the alphabetically first one — and that pack's
+    ``earth nav data`` folder is lower case."""
+    root = _two_pack_root(tmp_path)
+    low = root / "Custom Scenery" / "zzz Pack" / "earth nav data" / "apt.dat"
+    _apt_file(low, _CUSTOM_THIN)
+    _ini(root, ["SCENERY_PACK Custom Scenery/zzz Pack/",
+                "SCENERY_PACK Custom Scenery/BBB Pack/",
+                "SCENERY_PACK Custom Scenery/AAA Pack/"])
+    got = A.find_apt_dat(str(root), _BORROW_ICAO)
+    assert os.path.samefile(got, low)
+    assert P.select_pack(str(root), _BORROW_ICAO).name == "zzz Pack"
+
+
 def test_sole_source_disabled_pack_falls_back_to_global(tmp_path):
     """The airport is still BUILT — from what the sim actually draws."""
     root = _borrow_root(tmp_path, _CUSTOM_THIN, _GLOBAL_FOUR)

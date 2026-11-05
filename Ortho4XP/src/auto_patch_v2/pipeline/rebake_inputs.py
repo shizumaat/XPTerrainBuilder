@@ -120,10 +120,6 @@ def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
     m under the taxiway).  The anchor reads it FIRST (§16e's datum,
     ``anchor_rule.datum_of``), ahead of the basin rim."""
     out: dict[str, tuple] = {}
-    seats_of = None
-    if law is not None and any(getattr(t, "deck_bridge", "") for t in pm.structures):
-        from ..constraints.edge_floor import edge_seats_of
-        seats_of = edge_seats_of(pm, law, combine=False)
     for ov in getattr(pm, "overpasses", ()) or ():
         # a ROAD OVERPASS (``planar/overpass_deck``, RULINGS 2026-10-30f
         # (5)): its zero on the road beneath, every deck piece's stations
@@ -132,9 +128,12 @@ def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
             out[ov.object_id] = (y, st + [tuple(p) for p in ov.stations
                                           if tuple(p) not in st], *rest)
     tops: dict[str, dict] = {}
+    if law is not None and getattr(pm, "decks", ()):
+        from ..constraints.deck_lines import end_lines
+        for oid, es in sorted(end_lines(pm, law).items()):
+            _deck_plate(out, oid, es, kept, pm, tops)
     for tn in pm.structures:
         if getattr(tn, "deck_bridge", ""):
-            _deck_plate(out, tn, kept, pm, seats_of, tops)
             continue
         for oid, seat, _depth in getattr(tn, "edge_seats", ()) or ():
             if oid not in kept:
@@ -155,38 +154,35 @@ DECK_PLATE = "deck"
 OVERPASS_PLATE = "overpass"
 
 
-def _deck_plate(out: dict, tn, kept, pm=None, seats_of=None,
-                tops: "dict | None" = None) -> None:
-    """A HARD-DECK BRIDGE's deck member (owner RULINGS 2026-10-30a (1),
-    ``planar/deck_bridge``): ``(deck top y, every end line's stations, 0.0,
-    DECK_PLATE)`` — its zero is the solved surface at its end lines less its
-    top, ONE zero for the whole frame (``airside_deck_seat.airside_zero``
-    reads it first); the stations of every deck piece of the object, the
-    pieces a trench meets on its way included.
+def _deck_plate(out: dict, oid: str, es, kept, pm, tops: dict) -> None:
+    """A PACK DECK's deck member (owner RULINGS 2026-10-30a (1),
+    ``planar/deck_bridge``; deck redesign §1: read off ``PlanarMap.decks``
+    whether or not a corridor runs under it): ``(deck top y, every end
+    line's stations, 0.0, DECK_PLATE[, anchor zero])`` — its zero is the
+    solved surface at its end lines less its top, ONE zero for the whole
+    frame (``airside_deck_seat.airside_zero`` reads it first); ``es`` its
+    end lines (``constraints/deck_lines``), every deck piece of the object.
 
     #1692: the stations are the SEAT VERTICES the design solve held flush
-    (``constraints/edge_floor.edge_seats_of``, ``seats_of``) — the pavement
-    the end lines name — never the raw ring points: a facing contact that
-    wraps the deck's corner stands its last stations on the side edge
-    beside the trench, and KBNA's walled cut read them 166.6-171.6 m, the
-    zero 0.53 m under the taxiway."""
-    oid = tn.deck_bridge
-    if oid in kept:
+    (the pavement the end lines name) — never the raw ring points: a
+    facing contact that wraps the deck's corner stands its last stations
+    on the side edge beside the trench, and KBNA's walled cut read them
+    166.6-171.6 m, the zero 0.53 m under the taxiway."""
+    if oid in kept or not es:
         return
-    y, st, *rest = out.get(oid, (float(tn.deck_top_y), [], 0.0, DECK_PLATE))
-    got = seats_of(tn) if seats_of is not None else ()
-    # the frame's bottom: the deck top less its two ends' mean depth
-    own = [float(d) for o, _s, d in tn.edge_seats[:2] if o == oid]
-    bottom = float(tn.deck_top_y) - sum(own) / len(own) if own else None
-    for k, (o, stations, depth) in enumerate(tn.edge_seats):
-        if o != oid:
-            continue
-        pts = ([tuple(pm.vertices[v].xy) for v, _w in got[k][0]] if k < len(got)
-               else [tuple(p) for p in stations])
-        if tops is not None and bottom is not None:
-            by_pt = tops.setdefault(oid, {})
-            for p in pts:
-                by_pt.setdefault(p, bottom + float(depth))
+    deck = es[0].deck
+    bottom = float(deck.bottom_y)
+    y, st, *rest = out.get(oid, (0.5 * (deck.top_a + deck.top_b), [], 0.0, DECK_PLATE))
+    # deck-end-anchors spec §3: the zero the anchors state — the anchor's
+    # level less its end line's top, less the frame's bottom
+    held = [a for a in getattr(pm, "deck_anchors", ()) or () if a.object_id == oid]
+    if held and len(rest) < 3:
+        rest = [*rest, held[0].z_m - held[0].top_y - bottom]
+    by_pt = tops.setdefault(oid, {})
+    for e in es:
+        pts = [tuple(pm.vertices[v].xy) for v, _w in e.terms]
+        for p in pts:
+            by_pt.setdefault(p, bottom + float(e.depth))
         st = st + [p for p in pts if p not in st]
     out[oid] = (y, st, *rest)
 

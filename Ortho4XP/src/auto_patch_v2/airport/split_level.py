@@ -18,7 +18,8 @@ inside the terrain.
 
 THE GROUND CONFIRMS IT (the open side faces the higher ground): the DEM
 just outside the open sides stands at least half the step over the DEM
-just outside the closed sides.  A hangar door on level ground is an open
+just outside the closed side across from them, and spans less than the
+step along them (one upper level).  A hangar door on level ground is an open
 side too; the ground refuses it.
 
 Pure reading: no law constant lives here; nothing names a pack, a resource
@@ -179,14 +180,14 @@ def side_feet(v: np.ndarray, t: np.ndarray, sides: _t.Sequence[tuple], probe: fl
     return out
 
 
-def _ground(dem_z, side: LineString, centre) -> "float | None":
-    """The median DEM ``_GROUND_OUT_M`` outside ``side`` (away from the
+def _ground(dem_z, side: LineString, centre) -> "list[float]":
+    """The DEM ``_GROUND_OUT_M`` outside ``side`` (away from the
     footprint's ``centre``) at ``_GROUND_STATIONS`` stations."""
     (x0, y0), (x1, y1) = side.coords[0], side.coords[-1]
     dx, dy = x1 - x0, y1 - y0
     L = math.hypot(dx, dy)
     if L <= 0.0:
-        return None
+        return []
     nx, ny = dy / L, -dx / L
     mx, my = 0.5 * (x0 + x1), 0.5 * (y0 + y1)
     if (centre[0] - mx) * nx + (centre[1] - my) * ny > 0.0:
@@ -200,7 +201,7 @@ def _ground(dem_z, side: LineString, centre) -> "float | None":
             continue
         if z == z:
             zs.append(z)
-    return _st.median(zs) if zs else None
+    return zs
 
 
 def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
@@ -247,18 +248,31 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
         centre = foot[0].centroid.coords[0]
         opened = [s for s, f in zip(segs, feet, strict=True) if f is None or f >= y_lo + step]
         closed = [s for s, f in zip(segs, feet, strict=True) if f is not None and f < y_lo + step]
-        g_open = [g for s in opened if (g := _ground(dem_z, s, centre)) is not None]
-        g_closed = [g for s in closed if (g := _ground(dem_z, s, centre)) is not None]
+        is_open = [f is None or f >= y_lo + step for f in feet]
+        # the LOW side is the closed side across the building from an open
+        # one (the sides running up the slope between them read both levels)
+        across = [segs[(i + 2) % 4] for i in range(4)
+                  if is_open[i] and not is_open[(i + 2) % 4]]
+        g_open = [z for s in opened for z in _ground(dem_z, s, centre)]
+        g_closed = [z for s in (across or closed) for z in _ground(dem_z, s, centre)]
         name = o.path.rsplit("/", 1)[-1]
         if not g_open or not g_closed:
             continue
         go, gc = _st.median(g_open), _st.median(g_closed)
-        verdict = go - gc >= 0.5 * (y_up - y_lo)
+        half = 0.5 * (y_up - y_lo)
+        # the open side meets ONE upper ground: its relief along the open
+        # walls stays under the step (a building whose "open" sides follow a
+        # slope a storey high is a skirt on it, not two levels)
+        spread = max(g_open) - min(g_open)
+        why = ("" if go - gc >= half else ": refused, the open side's ground is not the higher")
+        why = why or ("" if spread <= 2.0 * half else f": refused, the open side's ground "
+                      f"spans {spread:.1f} m (no one upper level)")
+        verdict = not why
         notes.append(f"{o.id} {name} (+{len(fam) - 1}): feet "
                      + "/".join("-" if f is None else f"{f:.1f}" for f in feet)
-                     + f", floors {y_lo:.1f} / {y_up:.1f}, ground open {go:.1f} closed {gc:.1f}"
-                     + (": SPLIT-LEVEL" if verdict else ": refused, the open side's ground "
-                        "is not the higher"))
+                     + f", floors {y_lo:.1f} / {y_up:.1f}, ground open {go:.1f} (spans "
+                     f"{spread:.1f}) closed {gc:.1f}"
+                     + (": SPLIT-LEVEL" if verdict else why))
         if not verdict:
             continue
         out.append(SplitLevel(str(o.id), tuple(str(m.id) for m in fam),

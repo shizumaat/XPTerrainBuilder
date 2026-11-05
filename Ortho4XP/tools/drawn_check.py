@@ -401,8 +401,25 @@ def check_split(rec, drawn, tol):
     rows = [i for i, p in enumerate(drawn.rows) if stem(p.def_path) in stems]
     lon, lat = rec["anchor_longitude_latitude"]
     kx = M_PER_DEG * math.cos(math.radians(lat))
+    # the building's own placements: a pack places one resource many times,
+    # so only the rows anchored within the building's reach (its open sides'
+    # farthest point from its floor) are its own
+    reach = max([math.hypot((q[1] - lon) * kx, (q[0] - lat) * M_PER_DEG)
+                 for sd in rec.get("open_sides_ll", []) for q in sd] or [300.0])
     rows = [i for i in rows if math.hypot((drawn.rows[i].lon - lon) * kx,
-                                          (drawn.rows[i].lat - lat) * M_PER_DEG) < 300.0]
+                                          (drawn.rows[i].lat - lat) * M_PER_DEG) <= reach]
+    # ... and of those, the ONE frame (anchor) whose vertices centre nearest
+    # its floor: the split-level family is one placement frame
+    if rows:
+        def centre_d(i):
+            v = drawn.vertices(i)
+            if v is None:
+                return math.inf
+            return math.hypot((float(numpy.mean(v[0])) - lon) * kx,
+                              (float(numpy.mean(v[1])) - lat) * M_PER_DEG)
+        best = drawn.rows[min(rows, key=centre_d)]
+        rows = [i for i in rows if abs(drawn.rows[i].lon - best.lon) * kx < 0.05
+                and abs(drawn.rows[i].lat - best.lat) * M_PER_DEG < 0.05]
     y_lo = float(rec.get("plate_y_m") or 0.0)
     y_up = y_lo + float(rec.get("floor_below_rim_m") or 0.0)
     out = {"site": f"split_level {rec.get('floor_ref')}", "lat": round(lat, 6),
@@ -504,6 +521,10 @@ def run(args):
     patch = os.path.join(patch_dir, f"{args.icao}_auto.patch.osm")
     sidecar = json.load(open(patch + ".axes.json", encoding="utf-8"))
     plans = load_plans(patch_dir, args.icao)
+    if getattr(args, "plan", None):
+        # a pack COPY's written plan (``v2_rebake_replay.py plan --write-pack
+        # COPY --plan-out PLAN``): its ``pack_root`` / ``dsf_path`` name the copy
+        plans[tile] = json.load(open(args.plan, encoding="utf-8"))
     if tile not in plans:
         sys.exit(f"no o4_v2_placement_{args.icao}.json for {tile} under "
                  f"{os.path.dirname(patch_dir)}")
@@ -519,7 +540,13 @@ def run(args):
         for t, plan in sorted(plans.items()):
             written += dump_dsf(plan["dsf_path"], tmp).placements
             pristine[t] = dump_dsf(pristine_dsf_path(plan["dsf_path"]), tmp)
-    mesh = drawn_mesh([stream_dsf(f) for f in tile_dsfs], bbox)
+    if getattr(args, "mesh", None):
+        # the tile's built ``Data+XX+YYY.mesh`` -- the triangles the tile DSF
+        # is written from -- where the build ran the geometry half only
+        mesh = MeshElevationSampler(args.mesh, bbox)
+        tile_dsfs = [args.mesh]
+    else:
+        mesh = drawn_mesh([stream_dsf(f) for f in tile_dsfs], bbox)
     claims = read_claims(sidecar, tile, plans, pristine)
     drawn = Drawn(written, pack_root, mesh)
     rows = [check_site(s, drawn, claims, args.radius, args.tol)
@@ -573,6 +600,8 @@ def main(argv=None):
     ap.add_argument("--radius", type=float, default=15.0, metavar="M")
     ap.add_argument("--tol", type=float, default=0.3, metavar="M")
     ap.add_argument("--margin", type=float, default=0.012, metavar="DEG")
+    ap.add_argument("--plan", help="the written o4_v2_placement_<ICAO>.json of a pack copy")
+    ap.add_argument("--mesh", help="the tile's Data+XX+YYY.mesh in place of its DSF")
     ap.add_argument("--json", help="write the report here")
     ap.add_argument("--against", help="baseline --json: list moved sites")
     args = ap.parse_args(argv)

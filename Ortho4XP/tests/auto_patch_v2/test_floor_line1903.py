@@ -86,3 +86,21 @@ def test_the_profile_runs_from_the_corridors_mouth():
     prof = _floor_profile(line, [(10.0, 0.0), (0.0, 0.0)])
     assert prof == ((0.0, 5.0), (5.0, 6.0), (10.0, 7.0))
     assert _floor_profile(line[:1], [(0.0, 0.0), (1.0, 0.0)]) == ()
+
+
+def test_a_cuts_own_frame_reads_its_end_lines_outside(monkeypatch):
+    """#1903: the class-A seat of a frame holding a pack cut's own object
+    reads the end lines one step OUTSIDE the deck — on its edge is the
+    trench (EGLL 3/3a seated 1.25 m down the cut's slope) — and every
+    other frame reads them on the edge, as before."""
+    import types
+
+    from auto_patch_v2.airport import airside_deck_seat as ADS
+    seen = []
+    monkeypatch.setattr(ADS, "airside_zero",
+                        lambda m, *a, outside=False, **k: seen.append(outside))
+    staged = [types.SimpleNamespace(m=types.SimpleNamespace(id="dsf:obj1")),
+              types.SimpleNamespace(m=types.SimpleNamespace(id="dsf:obj2"))]
+    ADS.airside_frame(staged, (), None, {}, 1.0, None, frozenset({"dsf:obj2"}))
+    ADS.airside_frame(staged, (), None, {}, 1.0, None)
+    assert seen == [True, True, False, False]

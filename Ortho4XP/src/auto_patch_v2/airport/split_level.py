@@ -37,7 +37,7 @@ from shapely.geometry import LineString, Polygon
 from . import obj8 as _obj8
 from .object_cut import _face_normals_y
 
-__all__ = ["SplitLevel", "read_split_levels", "side_feet"]
+__all__ = ["SplitLevel", "read_split_levels"]
 
 #: the height band a wall side is read in (metres of authored y)
 BAND_M = 1.0
@@ -128,7 +128,7 @@ def wall_box(v: np.ndarray, t: np.ndarray) -> "list[tuple[float, float]] | None"
             ((x0, z0), (x1, z0), (x1, z1), (x0, z1))]
 
 
-def side_feet(v: np.ndarray, t: np.ndarray, sides: _t.Sequence[tuple], probe: float,
+def _side_feet(v: np.ndarray, t: np.ndarray, sides: _t.Sequence[tuple], probe: float,
               cover: float) -> list[float | None]:
     """Each side's FOOT (module docstring): the lowest ``BAND_M`` band over
     which the wall faces FACING OUT of that side (their outward normal --
@@ -228,7 +228,7 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
         if cs is None or Polygon(cs).area < pmin:
             continue
         sides = [(cs[i], cs[(i + 1) % 4]) for i in range(4)]
-        feet = side_feet(v, t, sides, probe, cover)
+        feet = _side_feet(v, t, sides, probe, cover)
         known = [f for f in feet if f is not None]
         if len(known) < 2:
             continue

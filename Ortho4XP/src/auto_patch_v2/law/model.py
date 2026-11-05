@@ -574,7 +574,7 @@ class BuildingPad:
     #: at least this share of the side's length; ``0`` disarms the reader
     split_level_wall_cover: float = 0.0
     #: ... read on the wall faces within this of the side's line (metres)
-    split_level_probe_m: float = 3.0
+    split_level_probe_m: float = 0.0
     #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
     #: ``airport/jetways.py``): ``None`` = no expansion
     jetway_root_reach_m: float | None = None

@@ -96,8 +96,13 @@ def test_the_entry_modules_are_where_the_build_enters_each_stage():
     module, the stage's closure must be re-rooted there."""
     from auto_patch_v2 import classify
     from auto_patch_v2.airport import flat_site_read, road_profile, road_ramp
-    from auto_patch_v2.constraints import (apron_trend, eat, runway_chord, taxi_route_yield,
-                                           taxi_trend)
+    from auto_patch_v2.constraints import (
+        apron_trend,
+        eat,
+        runway_chord,
+        taxi_route_yield,
+        taxi_trend,
+    )
     from auto_patch_v2.emit import road_join
     from auto_patch_v2.pipeline import shapes
     # ``planar/__init__`` re-exports ``build``, shadowing the submodule

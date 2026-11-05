@@ -10,7 +10,7 @@ from __future__ import annotations
 import types
 
 import numpy as np
-from auto_patch_v2.airport.split_level import read_split_levels, side_feet, wall_box
+from auto_patch_v2.airport.split_level import _side_feet, read_split_levels, wall_box
 from auto_patch_v2.classify.storey_edge import StoreyBand, ground_confirms
 from auto_patch_v2.constraints.structures import _split_floor_rows
 from auto_patch_v2.law import Law
@@ -45,7 +45,7 @@ def _building(open_below: float):
 def test_the_open_side_foot_is_the_upper_floor():
     v, t = _building(12.0)
     cs = wall_box(v, t)
-    feet = side_feet(v, t, [(cs[i], cs[(i + 1) % 4]) for i in range(4)], 3.0, 0.5)
+    feet = _side_feet(v, t, [(cs[i], cs[(i + 1) % 4]) for i in range(4)], 3.0, 0.5)
     assert sorted(f for f in feet if f is not None) == [0.0, 0.0, 0.0, 12.0]
 
 

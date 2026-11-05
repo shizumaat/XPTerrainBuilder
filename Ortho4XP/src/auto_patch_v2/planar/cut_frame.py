@@ -110,6 +110,17 @@ def frame_cuts(tunnels: _t.Sequence, objects, cache, classification, airport, la
         fp = Polygon(tn.footprint) if len(getattr(tn, "footprint", ()) or ()) >= 3 else None
         got = None if not mine or fp is None else _piece_over(
             mine, fp if fp.is_valid else fp.buffer(0.0), on)
+        # #1903: no other deck frames it, but its OWN cover is a hard deck
+        # the object stage seats flush at its end lines (RULINGS 2026-10-22n;
+        # EGLL ``3.obj`` over ``3a.obj``): the floor rides THAT zero — a
+        # floor read under the anchor's uncut ground (25.36) left the walls
+        # 2.1 m under the cut once the cover sat on its end lines (23.22)
+        own = [d for d in decks if P is not None and str(d.id) == own_cover.get(tn.id)
+               and co_placed(d, P, tol)]
+        if got is None and own and fp is not None:
+            got = _piece_over(own, fp if fp.is_valid else fp.buffer(0.0), on)
+            mine = own if got is not None else mine
+        own_frame = got is not None and str(got[0].id) == own_cover.get(tn.id)
         if got is None:
             if mine:
                 notes.append(f"{tn.id}: no piece of its frame's {len(mine)} pack deck(s) stands "
@@ -139,16 +150,22 @@ def frame_cuts(tunnels: _t.Sequence, objects, cache, classification, airport, la
         # taxiways leave 0.3-1.0 m off (four readings of one deck 77.07 /
         # 77.45 / 76.09 / 76.88 seated); a floor read low strands the riding
         # walls' bottom over it (a gap), one read high only buries it
-        z0 = max(frame + floor_y, float(tn.mouth_z))
+        # ...save under its OWN cover: the object it seats is the cut's own
+        # walls, so the floor is where they end in the frame they are drawn
+        z0 = frame + floor_y if own_frame else max(frame + floor_y, float(tn.mouth_z))
         # the object's own floor per station (#1903) rides the same frame
         lift = z0 - float(tn.mouth_z)
         out.append(_dc.replace(
-            tn, mouth_z=z0, cut_frame=(str(d.id), frame),
+            # (its own cover is seated by the object stage's own end-line
+            # rule, 10-22n — no frame zero is laid on it)
+            tn, mouth_z=z0, cut_frame=() if own_frame else (str(d.id), frame),
             profile=tuple((s, z + lift) for s, z in (getattr(tn, "profile", ()) or ())),
             notes=(*tn.notes, f"{FRAME_NOTE} {d.id} (owner 2026-11-05 §0.5): floor {z0:.2f} = "
                               f"the deck's zero {frame:.2f} flush at its end lines "
                               f"{g1:.2f} / {g2:.2f} (deck top {ta:+.2f} / {tb:+.2f}) "
-                              f"{floor_y:+.2f}, never under the pack's floor "
-                              f"{tn.mouth_z:.2f}")))
+                              f"{floor_y:+.2f}, " + (
+                                  f"its own cover: the walls' bottom in the frame they are "
+                                  f"drawn in, read {tn.mouth_z:.2f}" if own_frame else
+                                  f"never under the pack's floor {tn.mouth_z:.2f}"))))
         notes.append(f"{tn.id}: {out[-1].notes[-1]}")
     return out, notes

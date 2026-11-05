@@ -478,7 +478,11 @@ def cmd_plan(args: argparse.Namespace) -> int:
         jetway_strip_m=getattr(getattr(law.tables.emit, "design", None),
                                "jetway_strip_m", None),
         pads=pads, rims=rims, engine_version="", law_digest="",
-        write_cuts=bool(args.write_pack))
+        write_cuts=bool(args.write_pack),
+        # #1645: the plan's rows are narrowed to THIS tile's DSF, as the app
+        # does (without it a neighbour-origin plan's ids stay ``@<tile>``
+        # and every placement reads index -1)
+        tile=(int(lat), int(lon)))
     if args.write_pack:
         # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut
         # and written into a pack COPY by ``placement_write.apply_plan``

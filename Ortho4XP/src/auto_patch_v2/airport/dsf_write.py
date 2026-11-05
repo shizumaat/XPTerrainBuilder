@@ -447,10 +447,14 @@ def _body_row(toks: _t.Sequence[str], b: _t.Any, def_index: int) -> str:
     """One body's row.  On-ground, unless the plan says the body KEEPS the
     author's lift (owner RULINGS 2026-10-14g (1), ``Body.lift_m``): then
     ``OBJECT_AGL`` with the authored row's elevation token copied verbatim
-    — which must be the lift the plan decided on."""
+    — which must be the lift the plan decided on.  A body the plan seats
+    by its ROW (#1903, ``Body.msl_z``) is ``OBJECT_MSL`` at that height."""
     head = (KIND_ON_GROUND, str(def_index), _num(b.anchor.lon, 9),
             _num(b.anchor.lat, 9))
     hdg = _num(b.anchor.heading_deg, 6)
+    msl = getattr(b, "msl_z", None)
+    if msl is not None:
+        return " ".join((KIND_MSL,) + head[1:] + (_num(float(msl), 4), hdg))
     lift = float(getattr(b, "lift_m", 0.0) or 0.0)
     if not lift:
         return " ".join(head + (hdg,))

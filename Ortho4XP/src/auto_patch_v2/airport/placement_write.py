@@ -203,7 +203,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           frame_tilt_max_deg=frame_tilt_max_deg,
                           rows=getattr(dump, "placements", None),
                           authored_keep_tol_m=authored_keep_tol_m,
-                          drape=drape, drape_law=drape_law)
+                          drape=drape, drape_law=drape_law,
+                          tile_box=_sg.box_of_tile(tile, dsf_path))
     splits, kept = _pp.to_placement_records(ss)
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,

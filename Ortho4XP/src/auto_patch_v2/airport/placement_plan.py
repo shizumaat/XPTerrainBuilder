@@ -120,6 +120,7 @@ from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
 from . import channel_zero as _chz_mod  # noqa: E402
 from . import cut_deck_seat as _cds  # noqa: E402
 from . import entrance_seat as _ens  # noqa: E402
+from . import split_guard as _sg  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
     airside_deck as _airside_deck, airside_frame as _airside_frame,
     deck_owns_its_datum as _deck_owns_its_datum, refused_bridge as _refused_bridge)
@@ -220,7 +221,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # (``slab_drape.drape_plan``: member id -> components) and
                  # the draped writer's law (``obj8_drape.DrapeLaw``)
                  drape: "_t.Mapping[str, frozenset[int]] | None" = None,
-                 drape_law: _t.Any = None) -> SplitSet:
+                 drape_law: _t.Any = None,
+                 # #1903: the DSF's tile ``(west, south, east, north)``; a body
+                 # anchored off it keeps its seat by its row
+                 # (``split_guard.on_tile``).  ``None`` disarms
+                 tile_box: "tuple[float, float, float, float] | None" = None
+                 ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
     (1)) and each anchored by the generic rule of 11e (2).
@@ -311,6 +317,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
     # #1747: each entrance face's zero at its portal (``entrance_seat``)
     _entr = _ens.entrance_zeros(getattr(plan, "authored_seats", ()) or ())
+
+    def _on_tile(r, mm):
+        # #1903: a body off the DSF's tile keeps its seat (``split_guard``)
+        return _sg.on_tile(r, tile_box, lambda b: _ens.face_zero(b, mm, _entr))
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,
@@ -1110,6 +1120,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
+                record = _on_tile(record, m)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=landed,
                               always_write=True, tilted_whole=tilted_whole,
@@ -1205,6 +1216,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
+                record = _on_tile(record, m)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=landed,
                               always_write=True, tilted_whole=tilted_whole,
@@ -1250,6 +1262,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     off_row = True
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
+                record = _on_tile(record, m)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=landed,
                               always_write=off_row, tilted_whole=tilted_whole,
@@ -1390,7 +1403,7 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
                      if str(b.anchor.reason).startswith(_fu.UNIT_REASON)
                      else ""),
             connector_of=b.anchor.connector_of,
-            lift_m=b.lift_m) for b in s.bodies))
+            lift_m=b.lift_m, msl_z=b.msl_z) for b in s.bodies))
         for s in ss.splits)
     kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)
     return splits, kept

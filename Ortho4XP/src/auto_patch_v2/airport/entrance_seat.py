@@ -21,7 +21,7 @@ import typing as _t
 from ..model.frame import m_per_deg_exact as _mpd
 from .terrain_shaped import ENTRANCE_SEAT
 
-__all__ = ["entrance_zeros", "seat_faces", "SEAT_REASON"]
+__all__ = ["entrance_zeros", "seat_faces", "face_zero", "SEAT_REASON"]
 
 #: the anchor reason a face this reading seated opens with
 SEAT_REASON = "entrance face on its portal's floor"
@@ -61,3 +61,17 @@ def seat_faces(record: _t.Any, m: _t.Any, zeros: _t.Mapping[str, _t.Sequence[tup
                          lambda b, _a=la, _o=lo, _r=reach: _near(b, _a, _o, _r),
                          f"{SEAT_REASON} at zero {zero:.2f} (#1747, RULINGS 2026-11-03e (15))")
     return record
+
+
+def face_zero(b: _t.Any, m: _t.Any, zeros: _t.Mapping[str, _t.Sequence[tuple]]
+              ) -> float | None:
+    """The zero an entrance end of placement ``m`` gives body ``b`` — the one
+    :func:`seat_faces` lays on it (the last end within reach wins, as there)
+    — or ``None``.  Read where no ground under ``b``'s anchor can carry the
+    seat: a face off the DSF's tile keeps it by its row (#1903,
+    ``split_guard.on_tile``)."""
+    got = None
+    for la, lo, reach, zero in zeros.get(str(getattr(m, "id", "")), ()):
+        if _near(b, la, lo, reach):
+            got = float(zero)
+    return got

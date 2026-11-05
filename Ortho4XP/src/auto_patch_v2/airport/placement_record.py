@@ -109,11 +109,15 @@ class Body:
     #: owner RULINGS 2026-10-14g (1): the authored ``OBJECT_AGL`` lift the
     #: body's row keeps (``authored_landing.body_lift``), 0 on-ground
     lift_m: float = 0.0
+    #: #1903: the row's ``OBJECT_MSL`` elevation (``model.placement.Body``)
+    msl_z: float | None = None
 
     def to_dict(self) -> dict[str, _t.Any]:
         d = self._dict()
         if self.lift_m:
             d["lift_m"] = self.lift_m
+        if self.msl_z is not None:
+            d["msl_z"] = self.msl_z
         return d
 
     def _dict(self) -> dict[str, _t.Any]:

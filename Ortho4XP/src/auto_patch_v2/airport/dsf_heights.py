@@ -116,8 +116,15 @@ def pin_heights(text: str) -> str:
 _ELEVATED = ("OBJECT_MSL ", "OBJECT_AGL ")
 
 
-def _lowest_row_elevation(text: str) -> float | None:
-    low = None
+#: the coarsest quantum a written row may be encoded at: the round trip's
+#: own elevation tolerance (``dsf_write.TOL_ELEV_M``), which a row encoded
+#: at a coarser one fails (the encode floors to the quantum)
+_FINE_QUANTUM = 0.0625
+
+
+def _row_elevations(text: str) -> tuple[float, float] | None:
+    """``(lowest, highest)`` elevation of the elevated object rows."""
+    low = high = None
     for line in text.splitlines():
         if not line.startswith(_ELEVATED):
             continue
@@ -127,7 +134,8 @@ def _lowest_row_elevation(text: str) -> float | None:
         except (IndexError, ValueError):
             continue
         low = z if low is None else min(low, z)
-    return low
+        high = z if high is None else max(high, z)
+    return None if low is None else (low, high)
 
 
 def cover_row_elevations(text: str) -> str:
@@ -142,10 +150,17 @@ def cover_row_elevations(text: str) -> str:
     under it.  The base drops to the whole metre under the lowest row
     (``GuessGoodHeights`` floors its offset the same way); a text whose
     rows all lie at or above the base is returned unchanged, byte for
-    byte."""
-    low = _lowest_row_elevation(text)
-    if low is None:
+    byte.
+
+    #1903: a pristine DSF with NO elevated row pins DSFLib's empty answer,
+    ``HEIGHTS 0.50000``, and a row the plan writes there (a body seated by
+    its row) was encoded 0.27 m under its seat and refused by the round
+    trip.  Where the quantum is coarser than :data:`_FINE_QUANTUM` the row
+    is ``GuessGoodHeights`` over the written rows themselves."""
+    got = _row_elevations(text)
+    if got is None:
         return text
+    low, high = got
     lines = text.splitlines(keepends=True)
     for i, line in enumerate(lines):
         if _HEIGHTS_LINE.match(line) is None:
@@ -155,10 +170,16 @@ def cover_row_elevations(text: str) -> str:
             quantum, base = float(toks[1]), float(toks[2])
         except (IndexError, ValueError):
             return text
+        eol = _HEIGHTS_LINE.match(line).group(1) or ""
+        if quantum > _FINE_QUANTUM:
+            scale, offs = _guess_good_heights(low, high, high - low)
+            if scale / 65535.0 < quantum:
+                lines[i] = (f"HEIGHTS {scale / 65535.0:.5f} {offs:.1f}  "
+                            f"# max encodeable {offs + scale:.5f}{eol}")
+                return "".join(lines)
         if low >= base:
             return text
         offs = float(math.floor(low))
-        eol = _HEIGHTS_LINE.match(line).group(1) or ""
         lines[i] = (f"HEIGHTS {toks[1]} {offs:.1f}  # max encodeable "
                     f"{offs + quantum * 65535.0:.5f}{eol}")
         return "".join(lines)

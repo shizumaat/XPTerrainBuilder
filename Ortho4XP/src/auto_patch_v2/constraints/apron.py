@@ -85,6 +85,7 @@ from ..model.planar import PlanarMap, is_osm_ribbon_ref
 from .geometry import (chord_midpoints_hit, chords_covered, face_cover,
                        chains_within, principal_axis)
 from .precedence import View, view
+from .taxi_route_yield import pad_hold
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
            "face_width", "STATS", "PREFERENCE_GROUP", "PREFERENCE_RULING",
@@ -121,8 +122,13 @@ class _Tier:
     own group ``apron:<face>:<k>``."""
 
     def __init__(self, fid: int, ref: str, hard: float | None, preferred: float | None,
-                 generator: str = GEN, ruling: str = PREFERENCE_RULING) -> None:
+                 generator: str = GEN, ruling: str = PREFERENCE_RULING,
+                 held: tuple | None = None) -> None:
         self.fid, self.hard, self.preferred = fid, hard, preferred
+        #: 11-05a (owner 2026-11-05 13:57Z): on an apron a taxi route raised,
+        #: ``(pad vertices, table cap)`` — a row touching a pad keeps the
+        #: table (``taxi_route_yield.pad_hold``)
+        self.held = held
         self.k = 0
         self.generator = generator
         self.ruling = ruling        # the preference row's citation
@@ -171,7 +177,10 @@ class _Tier:
         a, b, d, src, k = item
         out: list[Row] = []
         if self.hard is not None:
-            out.append(Diff(a, b, self.hard, d, src))
+            hard = self.hard
+            if self.held is not None and (a in self.held[0] or b in self.held[0]):
+                hard = min(hard, self.held[1])
+            out.append(Diff(a, b, hard, d, src))
         if self.preferred is not None:
             g = f"{PREFERENCE_GROUP}:{self.fid}:{k}"
             out.append(Diff(a, b, self.preferred, d,
@@ -228,7 +237,8 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
         # and its preference is the yielded head; every other face reads
         # the table, as before
         own = vw.caps[f.id][0] if vw.caps[f.id] is not None else cap.longitudinal
-        tier = (_Tier(f.id, f.ref, own, pref_l, ruling=YIELDED_PREFERENCE_RULING)
+        tier = (_Tier(f.id, f.ref, own, pref_l, ruling=YIELDED_PREFERENCE_RULING,
+                      held=pad_hold(planar, law, f.id))
                 if own > cap.longitudinal
                 else _Tier(f.id, f.ref, cap.longitudinal, pref_l))
         src_ring = Source(GEN, "common.roles.apron ring edge (2026-08-21b)",

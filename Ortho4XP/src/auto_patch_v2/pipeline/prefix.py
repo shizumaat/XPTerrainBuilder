@@ -149,6 +149,10 @@ def _channels(icao: str, pm, law, law_c, airport, road_profiles, road_rep, road_
                       for _r, rc in sorted(_caps.items()) if rc.yielded]
     for _line in yielded_lines(icao, _caps, law.ruleset.authority):
         out(_line)
+    # 11-05a (issue #1893): one loud line per yielded taxi route
+    from ..constraints.taxi_route_yield import route_lines
+    for _line in route_lines(icao, getattr(pm, "taxi_routes", None) or ()):
+        out(_line)
     # THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1); spec
     # §8.6): every taxi centreline chain takes the ground's LONG-WAVE TREND
     # along itself — the same §21 fit at the same window — shifted linearly

@@ -76,6 +76,7 @@ from ..model.planar import PlanarMap
 from .precedence import View, view
 from .routes import CENTRELINE, CONTACT, CROSSING, LATERAL, route_pairs, routes
 from .stretches import AxisIndex, Stretches, edge_cap, pair_caps, stretches
+from .taxi_route_yield import pad_hold
 
 __all__ = ["taxi_chain", "taxi_centerlines", "triangle_planes",
            "pad_vertices", "plane_rows", "box_rows",
@@ -299,7 +300,11 @@ def triangle_planes(planar: PlanarMap, law: Law, airport: Airport
         f = planar.faces[fid]
         src = Source(GEN, "plane_gradient (user 2026-07-05)",
                      (f"face:{fid}", f.ref))
-        rows.extend(plane_rows(ring, vw.xy, cap[0], src))
+        lon = cap[0]
+        held = pad_hold(planar, law, fid)        # 11-05a: a pad's triangle keeps the table
+        if held is not None and not held[0].isdisjoint(ring):
+            lon = min(lon, held[1])
+        rows.extend(plane_rows(ring, vw.xy, lon, src))
     return rows
 
 

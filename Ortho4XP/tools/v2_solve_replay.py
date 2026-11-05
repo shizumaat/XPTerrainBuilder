@@ -2553,6 +2553,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         # issue #359: the build's follower pass (the lot follows its pad)
         from auto_patch_v2.pipeline.lot_follow import lot_follow_rewrite
         _kw["follow_rewrite"] = lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z)
+        # issue #517: the build's ceiling between two junctions held low
+        from auto_patch_v2.constraints.taxi_trend import low_hold_retarget
+        _kw["hold_rewrite"] = (lambda pm_x, lv: low_hold_retarget(pm_x, law, lv, _tt2))
     except ImportError:
         pass
     try:
@@ -2617,7 +2620,14 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
               f"{_tt2.get('retarget_worst_m', 0.0):.2f} m); hold "
               f"{_tt2.get('hold_passes')} passes, residual "
               f"{_tt2.get('hold_residual_m')} m"
-              + (" (stalled)" if _tt2.get("hold_stalled") else ""))
+              + (" (stalled)" if _tt2.get("hold_stalled") else "")
+              + f"; {_tt2.get('low_hold_spans', 0)} span(s) between two low holds ("
+                f"{_tt2.get('low_hold_refused', 0)} chain(s) smoothed less: past the "
+                "no-step window), "
+                f"{_tt2.get('low_hold_moved', 0)} targets ceiled "
+                f"({_tt2.get('low_hold_beyond', 0)} past a span; worst "
+                f"{_tt2.get('low_hold_worst_m', 0.0):.2f} m) over "
+                f"{_tt2.get('low_hold_calls', 0)} stage-1 solve(s)")
         for _r in (_tt2.get("short_connectors") or ())[:20]:
             print(f"    SHORT CONNECTOR at {_r['ll'][0]:.7f},{_r['ll'][1]:.7f}: run "
                   f"{_r['run_m']:.1f} m, height {_r['height_m']:.2f} m needs "
@@ -2891,8 +2901,10 @@ def _null_twin(_null, held: dict, trace, sol, rep, law, strips, n: int, method: 
         else:
             cs_x = _null.with_bands(cs, bands)
         kw["stage2_rewrite"] = lambda lv: reach_seed_rewrite(pm, law, cs_x, lv)
-        from auto_patch_v2.constraints.taxi_trend import stage_one_retarget
+        from auto_patch_v2.constraints.taxi_trend import (low_hold_retarget,
+                                                          stage_one_retarget)
         kw["trend_rewrite"] = lambda pm_x, lv: stage_one_retarget(pm_x, law, None, lv)
+        kw["hold_rewrite"] = lambda pm_x, lv: low_hold_retarget(pm_x, law, lv)
         return solve_design(pm, cs_x, law, Options(verbose=verbose), method=method,
                             strips=strips, **kw)
     t = time.perf_counter()

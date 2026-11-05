@@ -765,4 +765,16 @@ def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
         return _dc.replace(pm, runway_caps=caps, **extra) if caps else pm
     merged = dict(pm.preferred_z)
     merged.update(targets)
-    return _dc.replace(pm, preferred_z=merged, runway_caps=caps, **extra)
+    out = _dc.replace(pm, preferred_z=merged, runway_caps=caps, **extra)
+    # 11-05a (issue #1893): a taxi route its letter cap cannot run between
+    # the runways' levels — the levels set just above — yields, derived
+    # HERE beside the taxi yield (empty, and nothing built, where none)
+    from .taxi_route_yield import apron_yields
+    from .taxi_route_yield import derive as _derive_routes
+    routes_ = _derive_routes(out, law, airport)
+    if not routes_:
+        return out
+    # an APRON the route crosses rises with it (owner 2026-11-05 06:01Z,
+    # option a) through the 10-10j apron channel, ``taxi_caps``
+    return _dc.replace(out, taxi_routes=routes_,
+                       taxi_caps=apron_yields(out, law, routes_, out.taxi_caps))

@@ -151,6 +151,15 @@ shoulder_transverse_max = 0.025                            # §40 (2) as amended
 longitudinal = { by_letter = { "A" = 0.030, "B" = 0.030, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.9.10
 transverse   = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.9.11
 transverse_min = 0.010                                    # recorded, not bound (owner question 5)
+# THE TAXI ROUTE EXCEPTION (owner RULINGS 2026-11-05a, issue #1893): "It should
+# be 1.5% everywhere that's physically possible, allowing exceptions up to 2%
+# when there's no other way and spreading it across the largest possible
+# distance."  Where two FIXED levels (the runways' own profile targets) are
+# joined by a taxi route whose length at the letter cap cannot lose their
+# height difference, that route's stretches take the smallest uniform grade
+# that fits (constraints/taxi_route_yield.py) — never above THIS; a route
+# needing more is reported, never silently accepted.
+longitudinal_exception_max = 0.020
 # THE TAXIWAY GRADE-CHANGE RATE (owner RULINGS 2026-10-15l (1); audit row 2):
 # Annex 14 §3.9.9 — a change of slope accomplished by a curved surface of at
 # least 30 m per 1 % at code C-F, 25 m per 1 % at A/B.  Metres of curve per
@@ -253,6 +262,15 @@ end_zone_max_grade_change = { by_letter = { "C" = 0.0, "D" = 0.0, "E" = 0.0, "F"
 longitudinal = { by_letter = { "A" = 0.015, "B" = 0.015, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §4 taxiway family
 transverse   = { by_letter = { "A" = 0.015, "B" = 0.015, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }
 transverse_min = 0.010
+# THE TAXI ROUTE EXCEPTION (owner RULINGS 2026-11-05a, issue #1893): "It should
+# be 1.5% everywhere that's physically possible, allowing exceptions up to 2%
+# when there's no other way and spreading it across the largest possible
+# distance."  Where two FIXED levels (the runways' own profile targets) are
+# joined by a taxi route whose length at the letter cap cannot lose their
+# height difference, that route's stretches take the smallest uniform grade
+# that fits (constraints/taxi_route_yield.py) — never above THIS; a route
+# needing more is reported, never silently accepted.
+longitudinal_exception_max = 0.020
 # THE TAXIWAY GRADE-CHANGE RATE (owner RULINGS 2026-10-15l (1); audit row 2):
 # AC 150/5300-13B §4.14.1 (3)(b) — vertical curves of at least 100 ft
 # (30.5 m) per 1 % of change, at every ADG; the 3 % maximum change of

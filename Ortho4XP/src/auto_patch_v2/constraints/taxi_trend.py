@@ -68,7 +68,8 @@ import numpy as np
 from ..geom import exact
 from .precedence import view
 from .runway_chord import dem_degraded
-from .taxi_trend_cap import capped_chain, held_by_contacts
+from .taxi_trend_cap import (capped_chain, ceiled, held_by_contacts, low_hold_spans,
+                             lowered_within_budget)
 from .trend import shift_through, trend_of
 from ..law import Law
 from ..law.tables import is_value_role
@@ -76,7 +77,7 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
 __all__ = ["TaxiTrendReport", "taxi_trend_targets", "with_taxi_trend",
-           "stage_one_retarget",
+           "stage_one_retarget", "low_hold_retarget",
            "taxi_trend_block", "taxi_chains", "chain_of_face",
            "taxi_xsec_feet", "TAXI_CENTERLINE"]
 
@@ -118,6 +119,12 @@ class TaxiTrendReport(_t.TypedDict, total=False):
     hold_stalled: bool        # it stopped on no progress, not on settling
     short_connectors: list    # contact pairs too close to lose their height at the cap
     contacts: int             # runway (+ stage-1 apron) values the targets reach
+    low_hold_spans: int       # pass 1b: chain spans ceiled between two low holds
+    low_hold_moved: int       # of their targets, moved past the materiality
+    low_hold_beyond: int      # of those, past a span (carried down within budget)
+    low_hold_worst_m: float   # the largest such move
+    low_hold_refused: int     # chains the window could not absorb whole (smoothed less)
+    low_hold_calls: int       # the stage-1 solves the four above are summed over
     extra_contacts: int       # of those, the stage-1 apron levels
     by_chain: list            # [{"chain", "ll", "vertices", "pins", "length_m"}]
 
@@ -567,6 +574,90 @@ def stage_one_retarget(pm: PlanarMap, law: Law, airport: Airport,
     rep["retarget_moved"] = sum(1 for d in moved if d > tol)
     rep["retarget_worst_m"] = round(max(moved, default=0.0), 3)
     return out if rep["retarget_moved"] else None
+
+
+def low_hold_retarget(pm: PlanarMap, law: Law,
+                      levels: _t.Mapping[int, float],
+                      report: TaxiTrendReport | None = None
+                      ) -> dict[int, float] | None:
+    """BETWEEN TWO LOW HOLDS (issue #517; ``taxi_trend_cap`` hold (3)): the
+    published targets of ``pm`` with every chain span between two LOW
+    HOLDS (``taxi_trend_cap.low_hold_spans``: local minima of the held
+    stage-1 ``levels`` — pass 1b, the hold rows in — along the chain, more
+    than ``[cockpit] visual_m`` under their targets) CEILED at the line
+    between the two held levels — the centreline's interior vertices at
+    their own station, the faces a long chain speaks for (§8.6.1, the
+    trend extension's own walk and reach) at their foot's, and the two
+    holds at the level they are held at.  The trend is never shifted
+    through a hold and nothing outside a span moves: the span alone stops
+    bulging back up toward the ground between two entrances held low.
+    ``None`` when nothing moves by the elevation materiality."""
+    have = pm.taxi_trend_z
+    if not have or not levels:
+        return None
+    margin = float(law.tables.emit.cockpit.visual_m)
+    window = float(law.tables.emit.design.runway_profile_window_m)
+    reach = float(law.tables.emit.design.taxi_trend_face_reach_m)
+    chains = _chains(pm, law)
+    on_chain = {v for c in chains for v in c.vertices}
+    faces_of = _faces_of_chain(pm, law, chains)
+    # a chain shorter than the no-step window holds no bulge of its own:
+    # the law already prices its two ends as one pair (HECA, #517: 3-30 m
+    # junction leaves "spanned" between holds 0.0-0.1 m apart)
+    min_chain = float(law.tables.emit.no_step.window_m)
+    new: dict[int, float] = {}
+    groups: list[set[int]] = []          # one per chain: carried, or dropped, whole
+    n_spans = 0
+    for i, c in enumerate(chains):
+        if c.length_m < min_chain:
+            continue
+        spans = low_hold_spans(c, levels, have, margin)
+        if not spans:
+            continue
+        n_spans += len(spans)
+        grp: set[int] = set()
+        groups.append(grp)
+        ends = {s for sp in spans for s in (sp[0], sp[2])}
+        for v, s in zip(c.vertices, c.stations, strict=True):
+            if v in have:
+                z = float(levels[v]) if s in ends else ceiled(spans, s, have[v])
+                new[v] = min(new.get(v, have[v]), z)
+                grp.add(v)
+        if c.length_m < 0.5 * window:
+            continue                     # only a LONG chain speaks across
+        cand = [v for v in _face_candidates(pm, law, faces_of.get(i, []), on_chain)
+                if v in have]
+        for v, j, t, d in _feet(pm, c, cand):
+            if d <= reach:
+                s = c.stations[j] + t * (c.stations[j + 1] - c.stations[j])
+                new[v] = min(new.get(v, have[v]), ceiled(spans, s, have[v]))
+                grp.add(v)
+    tol = float(law.tables.emit.materiality.elevation_m)
+    # the targets past a span carried down within budget of it, so the
+    # ceiling is never a step the solve trades against the caps; a chain
+    # whose ceiling the law's window cannot absorb is smoothed less
+    refused: list[int] = []
+    out = (lowered_within_budget(pm, law, have, new, groups, refused,
+                                 floor={v: min(float(have[v]), float(z))
+                                        for v, z in levels.items() if v in have})
+           if new else dict(have))
+    moved = [have[v] - z for v, z in out.items()]
+    # called once per later stage-1 solve: the report SUMS the calls (the
+    # last call alone read "1 span, worst 0.59 m" at HECA while the first
+    # had moved 1628 targets that stood for every later solve)
+    rep: TaxiTrendReport = {} if report is None else report
+    n_moved = sum(1 for d in moved if d > tol)
+    rep["low_hold_calls"] = rep.get("low_hold_calls", 0) + 1
+    rep["low_hold_spans"] = rep.get("low_hold_spans", 0) + n_spans
+    rep["low_hold_refused"] = rep.get("low_hold_refused", 0) + len(refused)
+    rep["low_hold_moved"] = rep.get("low_hold_moved", 0) + n_moved
+    rep["low_hold_beyond"] = rep.get("low_hold_beyond", 0) + sum(
+        1 for v, z in out.items() if v not in new and have[v] - z > tol)
+    rep["low_hold_worst_m"] = max(rep.get("low_hold_worst_m", 0.0),
+                                  round(max(moved, default=0.0), 3))
+    if not n_moved:
+        return None
+    return out
 
 
 def with_taxi_trend(pm: PlanarMap, law: Law, airport: Airport,

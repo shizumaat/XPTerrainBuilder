@@ -153,6 +153,32 @@ def _fail_build_tasks(failures: list, patch_dir: str) -> None:
     raise AutoPatchBuildFailure(failures, stale_left=stale_left)
 
 
+def _record_pack_ground(tile, results: list) -> None:
+    """Issue #1362 (owner RULINGS 2026-11-04, option A): every airport whose
+    pack supplies its own ground with no companion terrain mesh installed
+    is one loud warning and one DEGRADED ``pack_ground_no_mesh`` row, which
+    the tile's ``BuildDone`` names in both apps.  The rows are restated on
+    every pass (an empty list clears an earlier one)."""
+    import O4_Unpatched_Airports as UNPATCHED
+
+    rows = []
+    for r in results:
+        note = r.get("pack_ground_no_mesh") if r.get("ok") else None
+        if not note:
+            continue
+        UI.loud_warning("   Auto-patch: " + str(note.get("icao", "")) + ": "
+                        + str(note.get("pack", "")) + " supplies its own ground ("
+                        + str(note.get("resource", "")) + "); no terrain mesh of "
+                        "its own is installed, so the ground under it was shaped here")
+        rows.append({"code": "pack_ground_no_mesh", "airport": note.get("icao", ""),
+                     "pack": note.get("pack", ""),
+                     "detail": "hard ground %s covers %.0f%% of the runways"
+                               % (note.get("resource", ""),
+                                  100.0 * float(note.get("runway_cover") or 0.0))})
+    if rows or any(r.get("ok") for r in results):
+        UNPATCHED.record_degraded(tile, "pack-ground", rows)
+
+
 def describe_auto_patch_failures(failures: list) -> str:
     """One line naming every failed airport, its stage and its cause.
 
@@ -1515,6 +1541,8 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         # in-run from the pad frame and this build's own solved patch, so
         # there is nothing to remember: ``object_pad_records`` travel back
         # on the result for the log and the verifier and stop there.
+
+    _record_pack_ground(tile, [by_icao.get(t["icao"]) or {} for t in tasks])
 
     # ── THE MANIFEST VERIFICATION (H1) ──────────────────────────────────
     # Every airport in ``tasks`` was collected BECAUSE it needs a rebuild,

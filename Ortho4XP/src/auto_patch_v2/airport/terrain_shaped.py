@@ -22,7 +22,7 @@ placement is terrain-shaped when all of these hold:
   ``MIN_RELIEF_M`` (a deck is a plane on a road's grade, however long:
   every hard deck of KBNA, KIAH and LFPG departs from its plane by under
   2 m; a terrain skin is the hill -- 15.8 m);
-* it FOLLOWS the ground -- at the rigid best fit (:func:`_fit`), more than
+* it FOLLOWS the ground -- at the rigid best fit (:func:`fit`), more than
   ``MIN_FOLLOW`` of its covered cells hold the DEM inside the deck's own
   span there or within ``FOLLOW_BAND_M`` of it (a deck over a gap has the
   ground far under its span);
@@ -55,7 +55,7 @@ from ..geom.terrain_deck import CELL_M, DeckGrid, TerrainFit
 from . import dsf as _dsf
 
 __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
-           "placement_fits", "dem_many_of",
+           "placement_fits", "fit", "grid_of_triangles", "dem_many_of",
            "grid_of_resource", "seat_records", "log_line", "row_seats"]
 
 MIN_AREA_M2 = 20_000.0
@@ -74,21 +74,34 @@ def _deck_grid(g: _t.Any) -> "DeckGrid | None":
     if tri is None or not len(tri):
         return None
     p = g.vertices[np.asarray(tri)]
+    if _extent_m2(p) < MIN_AREA_M2:
+        return None
+    grid = grid_of_triangles(p)
+    if grid.area_m2 < MIN_AREA_M2 or grid.relief_m < MIN_RELIEF_M:
+        return None
+    return grid
+
+
+def _extent_m2(p: np.ndarray) -> float:
+    """The plan bounding-box area of the triangles ``p`` on the grid."""
+    ni = int(math.ceil((float(p[:, :, 0].max()) - float(p[:, :, 0].min())) / CELL_M)) + 1
+    nj = int(math.ceil((float(p[:, :, 2].max()) - float(p[:, :, 2].min())) / CELL_M)) + 1
+    return ni * nj * CELL_M * CELL_M
+
+
+def grid_of_triangles(p: np.ndarray) -> DeckGrid:
+    """The :class:`DeckGrid` of the authored triangles ``p`` (``(n, 3, 3)``,
+    ungated): each covered cell's lowest and highest surface."""
     x0, z0 = float(p[:, :, 0].min()), float(p[:, :, 2].min())
     ni = int(math.ceil((float(p[:, :, 0].max()) - x0) / CELL_M)) + 1
     nj = int(math.ceil((float(p[:, :, 2].max()) - z0) / CELL_M)) + 1
-    if ni * nj * CELL_M * CELL_M < MIN_AREA_M2:
-        return None
     bot = np.full((ni, nj), np.inf)
     top = np.full((ni, nj), -np.inf)
     for t in p:
         _bin(t, x0, z0, bot, top)
     bot[~np.isfinite(bot)] = np.nan
     top[~np.isfinite(top)] = np.nan
-    grid = DeckGrid(x0, z0, bot, top)
-    if grid.area_m2 < MIN_AREA_M2 or grid.relief_m < MIN_RELIEF_M:
-        return None
-    return grid
+    return DeckGrid(x0, z0, bot, top)
 
 
 def _bin(t: np.ndarray, x0: float, z0: float, bot: np.ndarray, top: np.ndarray) -> None:
@@ -138,7 +151,7 @@ def _path_grid(path: str) -> "DeckGrid | None":
     return _file_grid(path, st.st_mtime_ns, st.st_size)
 
 
-def _fit(grid: DeckGrid, xy: tuple[float, float], heading_deg: float,
+def fit(grid: DeckGrid, xy: tuple[float, float], heading_deg: float,
         dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray]
         ) -> "tuple[float, float] | None":
     """``(z0, follow)`` -- THE RIGID FIT of one placement of ``grid`` (module
@@ -184,7 +197,7 @@ def placement_fits(placements: _t.Iterable[tuple],
         if is_stock_library_resource(dpath) or frames[origin_key(xy, hdg)] > 1:
             continue
         grid = grid_of(dpath)
-        got = None if grid is None else _fit(grid, xy, hdg, dem_many)
+        got = None if grid is None else fit(grid, xy, hdg, dem_many)
         if got is None or got[1] <= MIN_FOLLOW:
             continue
         out[oid] = TerrainFit(oid, dpath, xy, hdg, got[0], got[1], grid.area_m2,

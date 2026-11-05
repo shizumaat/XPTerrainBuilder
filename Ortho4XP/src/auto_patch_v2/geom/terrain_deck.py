@@ -74,6 +74,10 @@ class TerrainFit:
     area_m2: float
     relief_m: float
     grid: DeckGrid = _dc.field(repr=False, compare=False)
+    #: the PACK'S OWN GROUND (``airport/pack_ground``, issue #1362): the
+    #: ground stands ``UNDER_M`` under the deck's TOP everywhere it covers,
+    #: never left on a DEM inside the span
+    ground: bool = False
 
     def local(self, x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Frame ``(east, north)`` -> authored plan ``(x, z)`` (the inverse
@@ -89,12 +93,15 @@ def target_at(f: TerrainFit, x: np.ndarray, y: np.ndarray, dem: np.ndarray
               ) -> tuple[np.ndarray, np.ndarray]:
     """``(target z, under the deck)`` at frame points ``(x, y)`` with ground
     ``dem``: the deck surface nearest the ground there (``UNDER_M`` under
-    it), or the ground itself where it lies inside the deck's span."""
+    it), or the ground itself where it lies inside the deck's span -- for
+    the pack's own ground (``f.ground``) always the top less ``UNDER_M``."""
     lx, lz = f.local(x, y)
     i, j, ok = f.grid.cell_of(lx, lz)
     out = np.asarray(dem, dtype=float).copy()
     if ok.any():
-        lo = f.z0 + f.grid.bot[i[ok], j[ok]] - UNDER_M
         hi = f.z0 + f.grid.top[i[ok], j[ok]] - UNDER_M
-        out[ok] = np.clip(out[ok], lo, hi)
+        if f.ground:
+            out[ok] = hi
+        else:
+            out[ok] = np.clip(out[ok], f.z0 + f.grid.bot[i[ok], j[ok]] - UNDER_M, hi)
     return out, ok

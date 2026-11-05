@@ -1502,7 +1502,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
 
     # a TORN pack (its DSF names bodies that are gone) goes back on its
     # original first: no write may compose a row whose art is missing
-    from . import torn_pack as _tp           # lazy: torn_pack reads this module
+    # lazy: torn_pack reads this module
+    from . import torn_pack as _tp
     mended = _tp.repair(pack_root, dsf_path)
 
     # ── §12a: IS THE BACKUP STILL THE PACK'S? ───────────────────────────

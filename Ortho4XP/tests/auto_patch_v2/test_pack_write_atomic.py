@@ -24,18 +24,21 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from auto_patch_v2.airport import backup_state as B
 from auto_patch_v2.airport import dsf_heights as DH
 from auto_patch_v2.airport import dsf_write as DW
 from auto_patch_v2.airport import placement_write as PW
 from auto_patch_v2.airport import torn_pack as TP
-
 from auto_patch_v2.model import placement as PM
 from test_backup_state import DUMP4, _Cut, _plan, _split, _tncm  # noqa: E402
 from test_pack_journal import _bytes  # noqa: E402
 from test_unpatched_pack import _clean_memo, seated  # noqa: E402,F401
 
+
+@pytest.fixture
+def world(seated):  # noqa: F811
+    """``test_unpatched_pack``'s seated pack (TNCM + TFFG, one DSF)."""
+    return seated
 
 # ── the encode refusal ──────────────────────────────────────────────────
 
@@ -81,25 +84,25 @@ def test_a_row_with_no_counterpart_is_still_unmatched():
 # ── all or nothing ──────────────────────────────────────────────────────
 
 def test_a_failed_encode_leaves_the_seated_pack_byte_identical(
-        seated, monkeypatch):
-    seated.write(_tncm, "w1")
-    before = _bytes(seated.pack)
+        world, monkeypatch):
+    world.write(_tncm, "w1")
+    before = _bytes(world.pack)
 
     def refused(*_a, **_k):
         raise DW.DsfToolError("ERROR: could not place object 1, 2, 0.0")
 
     monkeypatch.setattr(DW, "encode", refused)
     # a new cut: the restore removes b__b0/b__b1, the write mints b__c0
-    plan = _plan(seated.pack, seated.dsf, icao="TNCM",
+    plan = _plan(world.pack, world.dsf, icao="TNCM",
                  conversions=(PM.Conversion(0, "objects/a.obj", -63.1, 18.04,
                                             10.0, "OBJECT_MSL", 5.0),),
                  splits=(_split(1, "objects/b.obj", -63.11, 18.041, 20.0,
                                 ["objects/b__c0.obj"]),))
     files = [_Cut("objects/b__c0.obj")]
     with pytest.raises(DW.DsfToolError):
-        PW.apply_plan(plan, files, seated.tool, patch_dir=seated.patch,
-                      work_dir=str(seated.tmp / "w2"))
-    assert _bytes(seated.pack) == before
+        PW.apply_plan(plan, files, world.tool, patch_dir=world.patch,
+                      work_dir=str(world.tmp / "w2"))
+    assert _bytes(world.pack) == before
 
 
 # ── the torn pack ───────────────────────────────────────────────────────
@@ -111,53 +114,53 @@ def _tear(world) -> str:
     return "objects/b__b0.obj"
 
 
-def test_a_torn_pack_is_put_back_on_its_original(seated):
-    seated.write(_tncm, "w1")
-    missing = _tear(seated)
-    assert B.classify_dsf(str(seated.dsf)).state is B.State.OURS
+def test_a_torn_pack_is_put_back_on_its_original(world):
+    world.write(_tncm, "w1")
+    missing = _tear(world)
+    assert B.classify_dsf(str(world.dsf)).state is B.State.OURS
 
-    got = TP.repair(str(seated.pack), str(seated.dsf))
+    got = TP.repair(str(world.pack), str(world.dsf))
 
     assert got is not None and got.restored_original
     assert got.missing == (missing,) and got.airports == ("TNCM",)
-    assert seated.dsf.read_text(encoding="utf-8") == DUMP4
-    assert not (seated.pack / "objects" / "b__b1.obj").exists()
-    assert TP.missing_bodies(str(seated.pack), str(seated.dsf)) == {}
-    assert TP.repair(str(seated.pack), str(seated.dsf)) is None
+    assert world.dsf.read_text(encoding="utf-8") == DUMP4
+    assert not (world.pack / "objects" / "b__b1.obj").exists()
+    assert TP.missing_bodies(str(world.pack), str(world.dsf)) == {}
+    assert TP.repair(str(world.pack), str(world.dsf)) is None
 
 
-def test_the_next_write_of_a_torn_pack_seats_it_again(seated):
-    seated.write(_tncm, "w1")
-    seated_once = _bytes(seated.pack)
-    _tear(seated)
+def test_the_next_write_of_a_torn_pack_seats_it_again(world):
+    world.write(_tncm, "w1")
+    seated_once = _bytes(world.pack)
+    _tear(world)
 
-    seated.write(_tncm, "w2")
+    world.write(_tncm, "w2")
 
-    after = _bytes(seated.pack)
+    after = _bytes(world.pack)
     assert sorted(n for n in after if "__b" in n) == [
         "objects/b__b0.obj", "objects/b__b1.obj"]
-    assert after[os.path.relpath(str(seated.dsf), str(seated.pack)).replace(
+    assert after[os.path.relpath(str(world.dsf), str(world.pack)).replace(
         os.sep, "/")] == seated_once[os.path.relpath(
-            str(seated.dsf), str(seated.pack)).replace(os.sep, "/")]
+            str(world.dsf), str(world.pack)).replace(os.sep, "/")]
 
 
-def test_an_original_dsf_beside_a_stale_record_only_loses_the_row(seated):
-    seated.write(_tncm, "w1")
-    _tear(seated)
-    backup = str(seated.dsf) + B.BACKUP_SUFFIX
+def test_an_original_dsf_beside_a_stale_record_only_loses_the_row(world):
+    world.write(_tncm, "w1")
+    _tear(world)
+    backup = str(world.dsf) + B.BACKUP_SUFFIX
     with open(backup, "rb") as fh:
-        seated.dsf.write_bytes(fh.read())        # restored by hand
+        world.dsf.write_bytes(fh.read())        # restored by hand
     B.invalidate_memo()
 
-    got = TP.repair(str(seated.pack), str(seated.dsf))
+    got = TP.repair(str(world.pack), str(world.dsf))
 
     assert got is not None and not got.restored_original
-    assert seated.dsf.read_text(encoding="utf-8") == DUMP4
-    assert TP.missing_bodies(str(seated.pack), str(seated.dsf)) == {}
+    assert world.dsf.read_text(encoding="utf-8") == DUMP4
+    assert TP.missing_bodies(str(world.pack), str(world.dsf)) == {}
 
 
-def test_a_whole_pack_is_left_alone(seated):
-    seated.write(_tncm, "w1")
-    before = _bytes(seated.pack)
-    assert TP.repair(str(seated.pack), str(seated.dsf)) is None
-    assert _bytes(seated.pack) == before
+def test_a_whole_pack_is_left_alone(world):
+    world.write(_tncm, "w1")
+    before = _bytes(world.pack)
+    assert TP.repair(str(world.pack), str(world.dsf)) is None
+    assert _bytes(world.pack) == before

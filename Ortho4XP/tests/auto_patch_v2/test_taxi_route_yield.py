@@ -116,17 +116,27 @@ def _via_apron(law, drop_m: float):
     return with_runway_chord(pm, law, airport)
 
 
-def test_an_apron_on_the_route_rises_with_it(law):
+def test_the_route_s_own_apron_pairs_rise_and_the_face_does_not(law):
+    """Owner 2026-11-05 13:02Z: only the portion of the apron the taxi
+    route passes through steepens — per ROW, never the whole face."""
+    from auto_patch_v2.constraints.apron import apron_within_shape
     from auto_patch_v2.constraints.precedence import face_cap
+    from auto_patch_v2.constraints.taxi_route_yield import route_pair_caps
+    from auto_patch_v2.model.constraints import Diff
     pm = _via_apron(law, 7.0)
     assert pm.taxi_routes, "no route yielded"
     r = max(pm.taxi_routes, key=lambda x: x.cap)
     assert not r.over_ceiling and 0.015 < r.cap <= 0.02
+    assert r.apron_pairs and _caps(pm, law, "stubS") == {round(r.cap, 6)}
     aprons = [f for f in pm.faces.values() if f.role == "apron"]
-    assert aprons and all(f.id in r.aprons for f in aprons)
-    for f in aprons:
-        assert face_cap(law, f, pm)[0] == pytest.approx(r.cap)
-    assert _caps(pm, law, "stubS") == {round(r.cap, 6)}
+    assert aprons and all(face_cap(law, f, pm)[0] == 0.015 for f in aprons)
+    lifted = route_pair_caps(pm)
+    hard = [x for x in apron_within_shape(pm, law, None)
+            if isinstance(x, Diff) and x.soft is None]
+    on = [x for x in hard if (min(x.a, x.b), max(x.a, x.b)) in lifted]
+    off = [x for x in hard if (min(x.a, x.b), max(x.a, x.b)) not in lifted]
+    assert on and all(x.cap > 0.015 for x in on)
+    assert off and all(x.cap == pytest.approx(0.015) for x in off)
 
 
 def test_an_apron_off_any_failing_route_keeps_its_cap(law):

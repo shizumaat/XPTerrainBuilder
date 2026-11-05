@@ -447,3 +447,18 @@ def test_the_survey_is_never_read_under_a_deck(tmp_path):
     (db,), notes = _slab_read(tmp_path, airport)
     (ref,), _n = _slab_read(tmp_path, AIRPORT)
     assert abs(db.depth_m - ref.depth_m) < 1e-6 and "surveyed road" not in notes[0]
+
+
+def test_a_ladder_floor_never_lifts_its_deck(tmp_path):
+    """#1903 (owner 2026-11-05: airside never moves by the cut; KIAH_Bridge1
+    lifted 0.85 / 1.40 m with its taxiway): a deck whose frame stops short
+    of the road takes the ladder's floor (``ladder``), and its floor row is
+    ONE-SIDED — at least ``[tunnel] clearance_m`` under the deck seat,
+    free to sink; a frame whose own bottom states the floor keeps the pair."""
+    (db,), _n = _slab_read(tmp_path, AIRPORT)
+    assert db.ladder
+    (tmp_path / "w").mkdir()
+    assert not _bridge(tmp_path / "w").ladder
+    rows = EF.seat_pair(9, (3, float(LAW.tables.structures.tunnel.clearance_m)),
+                        Source("structures", "x", ()))
+    assert rows[0].lo is None and abs(rows[0].hi + LAW.tables.structures.tunnel.clearance_m) < 1e-12

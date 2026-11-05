@@ -139,26 +139,32 @@ def cut_seats(m: _t.Any, origin: "tuple[float, float] | None", surface: _t.Any,
 def seat_under(body: _t.Any, seats: _t.Sequence[tuple[tuple, float]],
                on_fraction: float) -> "float | None":
     """THE DECK'S RIDERS (#1883): the zero of the seated deck piece
-    ``body`` stands on — at least ``on_fraction`` of its plan box inside
-    the piece's box, and nothing of it (``geom_pts``, authored y) lower
-    than the deck's slab: a plant on the trench floor under the deck is no
-    rider — or ``None``.  A rail or a light on the deck keeps its
-    authored height over it: LGAV's bridge rails (``Bridge_Fences``, one
-    stack with the decks) stood on their own grounds 2.5-6.8 m under the
-    re-seated decks."""
+    ``body`` stands at — at least ``on_fraction`` of its written geometry
+    (``geom_pts``; its plan box where it publishes none) inside the piece's
+    box, and its top reaching the deck's slab — or ``None``.  A rail on the
+    deck and the bridge's own edge walls under it keep their authored
+    height to the deck; a plant on the trench floor under the deck (its top
+    12 m below the slab) is no rider.  MEASURED LGAV (FlyTampa stack, one
+    anchor): the rails stood 2.5-6.8 m and the walled bridge object
+    ``Trench_01`` 13.4 m under the re-seated decks (1.0.464 / 1.0.465)."""
     box = getattr(body, "geom_box", None) or getattr(body, "plan_box", None)
     if box is None or body.anchor.surface_z is None or seated(body):
         return None
-    low = min((float(q[2]) for q in getattr(body, "geom_pts", ()) or ()), default=None)
+    pts = tuple(getattr(body, "geom_pts", ()) or ())
+    top = max((float(q[2]) for q in pts), default=None)
     area = max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
     best = None
     for sb, zero in seats:
-        w = min(box[2], sb[2]) - max(box[0], sb[0])
-        h = min(box[3], sb[3]) - max(box[1], sb[1])
-        frac = (max(0.0, w) * max(0.0, h) / area if area > 0.0
-                else float(sb[0] <= box[0] <= sb[2] and sb[1] <= box[1] <= sb[3]))
-        if low is not None and low < sb[4]:
+        if top is not None and top < sb[4]:
             continue
+        if pts:
+            frac = sum(1 for q in pts if sb[0] <= q[0] <= sb[2] and sb[1] <= q[1] <= sb[3]
+                       ) / len(pts)
+        else:
+            w = min(box[2], sb[2]) - max(box[0], sb[0])
+            h = min(box[3], sb[3]) - max(box[1], sb[1])
+            frac = (max(0.0, w) * max(0.0, h) / area if area > 0.0
+                    else float(sb[0] <= box[0] <= sb[2] and sb[1] <= box[1] <= sb[3]))
         if frac >= on_fraction and (best is None or frac > best[0]):
             best = (frac, zero)
     return None if best is None else best[1]

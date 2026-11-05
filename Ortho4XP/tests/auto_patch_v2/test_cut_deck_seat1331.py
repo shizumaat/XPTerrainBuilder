@@ -166,15 +166,16 @@ def test_a_bridge_frame_zero_keeps_a_deck_seated_over_its_cut(tmp_path):
 
 
 def _rider(low_y, zero=77.0, frac=1.0):
-    """A rail on the deck (``low_y`` its lowest authored y), standing on its
+    """A rail on the deck (``low_y`` its authored y), standing on its
     own ground at ``zero``; ``frac`` of its box over the deck."""
     a = AR.Anchor(AR.OTHER, LAT, LON, TRENCH - zero, "own ground", TRENCH,
                   offset=(0.0, TRENCH - zero, 0.0))
     w = 2.0 * HALF_X / MO
     lo0 = LON - HALF_X / MO + (1.0 - frac) * w
     box = (S, lo0, N, lo0 + w)
+    pts = tuple((LAT, lo0 + (k + 0.5) * w / 10.0, low_y) for k in range(10))
     return Body(0, AR.OTHER, (), a, "objects/rail__b0.obj", geom_box=box, plan_box=box,
-                geom_pts=((LAT, LON, low_y),))
+                geom_pts=pts)
 
 
 def test_what_stands_on_a_deck_seated_over_its_cut_rides_its_seat(tmp_path):
@@ -191,3 +192,16 @@ def test_what_stands_on_a_deck_seated_over_its_cut_rides_its_seat(tmp_path):
     assert CDS.seat_under(_rider(0.4, frac=0.3), seats, 0.5) is None
     assert CDS.seat_under(deck, seats, 0.5) is None              # the deck itself
     assert CDS.cut_seats(m, (LAT, LON), _surface(), (), 2.0, 0.5) == []
+
+
+def test_the_bridges_own_walls_under_the_deck_ride_it_too(tmp_path):
+    """LGAV ``Trench_01`` (the walled bridge at the second site, -12.67 to
+    +0.44): its top reaches the deck's slab, so it rides the deck's seat
+    (it stood 13.4 m under it at the channel floor's crest plate)."""
+    m = _member(_deck_obj(tmp_path))
+    seats = CDS.cut_seats(m, (LAT, LON), _surface(), (_cut(),), 2.0, 0.5)
+    wall = _rider(-12.0)
+    wall = Body(0, AR.OTHER, (), wall.anchor, "objects/wall__b0.obj", geom_box=wall.geom_box,
+                plan_box=wall.plan_box,
+                geom_pts=wall.geom_pts[:5] + tuple((q[0], q[1], 0.4) for q in wall.geom_pts[5:]))
+    assert abs(CDS.seat_under(wall, seats, 0.5) - seats[0][1]) < 1e-6

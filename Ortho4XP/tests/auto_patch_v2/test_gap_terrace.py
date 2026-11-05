@@ -209,7 +209,11 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # part (gap:0/s0/lot2, 345 m2) and the 361 m2 sliver beside the apron at
     # 30.1250, 31.4061 is a piece of its own (gap:36, the later refs moving
     # up by one) — (92, 34, 60, 9) before.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (94, 34, 60, 9)
+    # RE-RECORDED (#1876, owner sim read on #1877): ``dsf:objpav115`` is a
+    # service road, so the 399 m2 apron gap piece beside it (30.1268, 31.4092)
+    # is a groundside piece (gap:37, 273 m2) cut as one part more —
+    # (94, 34, 60, 9) before.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (95, 34, 60, 9)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)

@@ -167,8 +167,8 @@ def rim_relief_m(P: Polygon, air, near_m: float, dem, slope_max: float
 
 def platform_split(base_regions, pad_regions, law: Law,
                    grid: float = 0.0, dem=None, airport=None, *,
-                   reg: Registries, storey: _t.Mapping[str, float] | None = None
-                   ) -> tuple[list, dict]:
+                   reg: Registries, storey: _t.Mapping[str, float] | None = None,
+                   seeds: _t.Sequence = ()) -> tuple[list, dict]:
     """THE BLOCK PLANNER (module docstring).  Returns ``(pad_regions,
     counts)``.
 
@@ -349,7 +349,8 @@ def platform_split(base_regions, pad_regions, law: Law,
                           # #1717: the corridor level lost 29-50 k m2 as "fill
                           # along" its own unreachable apron)
                           lots=[r.polygon for r in base_regions if r.polygon is not None
-                                and r.role in LOT_ROLES and BEYOND not in str(r.ref)])
+                                and r.role in LOT_ROLES and BEYOND not in str(r.ref)],
+                          seeds=seeds)
     counts["platforms"] = sum(1 for p in platforms if not p.refused)
     counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(

@@ -207,11 +207,14 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     which may stand the tolerance off the end either side: LOWS's west face
     stands 8 m out of its mapped end).
 
-    THE FACE IS SEATED WITH ITS TOP ON THE GROUND OVER IT, ITS BOTTOM ON THE
-    FLOOR: ``floor_z`` = the surveyed ground over the face's top
+    A FACE IS SEATED WITH ITS TOP ON THE GROUND OVER IT, ITS BOTTOM ON THE
+    FLOOR: where the solids there top out flush with the object's zero
+    (``cover_flush_m``) and hang a wall's height (``shell_floor_min_m``)
+    under it, ``floor_z`` = the surveyed ground over the face's top
     (:func:`_cover_over`) less the face's height (top − bottom), and
     ``bottom_y`` the face's bottom under the object's zero, so the object
-    stage seats that face at the floor (``Tunnel.portal_seat``).  MEASURED
+    stage seats that face at the floor (``Tunnel.portal_seat``).  Any other
+    entrance (a floor plate, a sheet) keeps its bottom at the pack's zero.  MEASURED
     LOWS (1.0.465): the floor was read at the pack's own zero — 4.0 m over
     the ground at the face (its zero is the DEM at the anchor 650 m away) —
     giving a 0.5 m "ramp" 12-24 m long (a pit), while the object stage set
@@ -223,7 +226,9 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     bore), and an edge-wall bridge is never one."""
     from .hanging_objects import edge_wall_reading
     from .portal_objects import Portal
-    tol = float(law.tables.structures.tunnel.object.bore_end_tolerance_m)
+    ob = law.tables.structures.tunnel.object
+    tol = float(ob.bore_end_tolerance_m)
+    flush, floor_min = float(ob.cover_flush_m), float(ob.shell_floor_min_m)
     split_tol = float(law.tables.structures.placement.split_tol_m)
     bores = {int(w.id) for w in tunnel_ways}
     by_id = {o.id: o for o in objects}
@@ -249,9 +254,16 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
                 # bore, never the mouth's road (LOWS's north house plates
                 # stood 8.5 m over bore -328's end)
                 continue
-            cover = _cover_over(plan, dem_z)
+            # A FACE: its top flush with the object's own zero (``cover_flush_m``)
+            # over a wall's height (``shell_floor_min_m``) of solids.  A
+            # floor plate deep under the zero (LFLL ``TGV_LY_13``: top -10.01,
+            # bottom -10.06) or a shallow sheet is no face: its bottom stays
+            # where the pack's zero puts it
+            cover = _cover_over(plan, dem_z) if (
+                abs(top) <= flush and top - bottom >= floor_min) else None
             floor = (zero + bottom) if cover is None else cover - (top - bottom)
             out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
                               ground - floor, 0.0, (float(xy[0]), float(xy[1])),
-                              floor_z=float(floor), bottom_y=float(bottom)))
+                              floor_z=float(floor),
+                              bottom_y=None if cover is None else float(bottom)))
     return out

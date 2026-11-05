@@ -249,3 +249,23 @@ def test_the_framed_cut_takes_the_zero_of_the_deck_seated_over_its_ring():
     assert CDS.stands_in(near, ring_ll, 0.5) and not CDS.stands_in(far, ring_ll, 0.5)
     assert CDS.framed_zero("dsf:obj3", seats, recs) is None
     assert CDS.framed_zero("dsf:obj2", seats[:1], recs) is None
+
+
+def test_a_cuts_own_cover_never_frames_it():
+    """``planar/cut_frame``: a signature-B pair's COVER (VHHH, EGLL ``3.obj``
+    over ``3a.obj``) is the cut's roof, never a deck that frames it — read
+    as one, EGLL's floor moved 1.39 m off its walls' bottom (Q167)."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.cut_frame import frame_cuts
+    from shapely.geometry import box
+    shell = types.SimpleNamespace(id="dsf:obj1", xy=(0.0, 0.0), heading_deg=0.0, path="s.obj")
+    cover = types.SimpleNamespace(id="dsf:obj2", xy=(0.0, 0.0), heading_deg=0.0, path="c.obj",
+                                  deck_kind="flag", hard_deck=box(-10, -10, 10, 10))
+    tn = types.SimpleNamespace(id="object-cut:s.obj@0", source="object", objects=("dsf:obj1",),
+                               footprint=((-12, -12), (12, -12), (12, 12), (-12, 12)),
+                               mouth_z=70.0, notes=())
+    airport = types.SimpleNamespace(dsf_objects=(), frame=types.SimpleNamespace(
+        transformers=lambda: (None, None)))
+    out, notes = frame_cuts([tn], [shell, cover], object(), object(), airport,
+                            Law.for_airport("ZZZZ"), (("object-cut:s.obj@0", "dsf:obj2"),))
+    assert out == [tn] and notes == []

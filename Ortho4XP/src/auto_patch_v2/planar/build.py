@@ -309,7 +309,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     sstats.hard_decks.extend(deck_notes)
     # a pack deck over a pack object cut frames that cut (owner 2026-11-05
     # §0.5, ``planar/cut_frame``): its floor at the deck's seated zero
-    tunnels, frame_notes = frame_cuts(tunnels, objects, cache, classification, airport, law)
+    tunnels, frame_notes = frame_cuts(tunnels, objects, cache, classification, airport, law,
+                                      tstats.shell_covers)
     sstats.hard_decks.extend(frame_notes)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)

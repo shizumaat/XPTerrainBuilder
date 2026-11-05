@@ -28,7 +28,8 @@ def law():
 @pytest.fixture(scope="module")
 def objs(tmp_path_factory):
     """A 12 m entrance FACE (a retaining wall over the bore's end): solids
-    from 5 m under its zero to 2 m over it, no roof."""
+    from 5 m under its zero to its top 0.5 m over it, no roof; and a FLOOR
+    sheet 5 m under its zero (no face: LFLL ``TGV_LY_13``)."""
     d = tmp_path_factory.mktemp("pack") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
@@ -36,8 +37,11 @@ def objs(tmp_path_factory):
                                                          newline="")
     vt: list = []
     tris: list = []
-    _slab(vt, tris, -6.0, 6.0, -0.3, 0.3, -5.0, 2.0)
-    return {"dir": d, "face": _write(d / "face.obj", vt, tris)}
+    _slab(vt, tris, -6.0, 6.0, -0.3, 0.3, -5.0, 0.5)
+    face = _write(d / "face.obj", vt, tris)
+    vt, tris = [], []
+    _slab(vt, tris, -6.0, 6.0, -6.0, 6.0, -5.2, -5.0)
+    return {"dir": d, "face": face, "sheet": _write(d / "sheet.obj", vt, tris)}
 
 
 def test_an_entrance_object_pins_the_mouth_at_its_bottom(objs, law):
@@ -53,17 +57,26 @@ def test_an_entrance_object_pins_the_mouth_at_its_bottom(objs, law):
     p = pins[0]
     base = objects[0].anchor_z + objects[0].agl_m
     # Q-A (2026-11-05): the floor AT THE PORTAL is the face's bottom with the
-    # face seated on the ground over it — the ground (flat, ``base``) less
-    # the face's height (its top plate +2 over its bottom -5; the ground the
-    # highest DEM over that plate), never its
-    # bottom at the pack's own zero; ``bottom_y`` seats the face there
-    assert p.floor_z == pytest.approx(airport.dem.z(6.0, 0.0) - 7.0, abs=0.01)
+    # face seated on the ground over it — the ground less the face's height
+    # (its top plate +0.5 over its bottom -5; the ground the highest DEM over
+    # that plate), never its bottom at the pack's own zero; ``bottom_y``
+    # seats the face there
+    assert p.floor_z == pytest.approx(airport.dem.z(6.0, 0.0) - 5.5, abs=0.01)
     assert p.bottom_y == pytest.approx(-5.0, abs=0.01)
     assert p.anchor_xy == p.end_xy               # the mouth does not move
     assert "entrance object" in portal_note(p, base, p.floor_z)
     # a road end the face does not stand at is no entrance: a covered or
     # untagged way's end is never pinned here
     assert mouth_portals(trenches, objects, cache, law, [], airport.dem.z) == []
+    # a floor sheet deep under its zero is no face: its bottom stays where the
+    # pack's zero puts it, and the object stage seats nothing
+    airport = _airport(objs, law, [("sheet", (0.0, 0.0), 0.0, 0.0, "OBJECT")], (tunnel,))
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    trenches, _notes = read_trench_objects(objects, cache, law, [tunnel])
+    pins = mouth_portals(trenches, objects, cache, law, [tunnel], airport.dem.z)
+    assert pins and pins[0].bottom_y is None
+    assert pins[0].floor_z == pytest.approx(objects[0].anchor_z - 5.2, abs=0.01)
 
 
 def test_an_edge_wall_bridge_is_never_an_entrance(tmp_path):

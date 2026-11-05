@@ -6,7 +6,7 @@ senior" / 2026-09-09q (1) for that case; with 2026-10-26d Q142 b).
 
 A pack OBJECT cut (``Tunnel.source == "object"``: a shell the planar map
 read, ``airport/object_cut``) whose placement shares its frame — one
-anchor, one heading (``deck_bridge.co_placed``) — with a FLAG hard deck
+anchor, one heading (``deck_bridge.co_placed``) — with a FLAG (or signature) hard deck
 whose piece stands at least ``[deck] on_fraction`` over the cut's
 footprint is that deck's cut.  The object stage seats the deck flush with
 what it carries at its two END LINES (``airport/cut_deck_seat``, 26d) and
@@ -79,11 +79,14 @@ def _piece_over(decks, footprint: Polygon, on_fraction: float):
     return None if best is None else best[1:]
 
 
-def frame_cuts(tunnels: _t.Sequence, objects, cache, classification, airport, law
-               ) -> tuple[list, list[str]]:
+def frame_cuts(tunnels: _t.Sequence, objects, cache, classification, airport, law,
+               covers: _t.Iterable[tuple[str, str]] = ()) -> tuple[list, list[str]]:
     """``(tunnels, notes)``: every object cut a co-placed flag deck stands
     over carries that deck's frame (module doc); every other tunnel as it
-    was."""
+    was.  ``covers`` (``TunnelObjectStats.shell_covers``) names each cut's
+    own COVER — its roof, the signature-B pair (VHHH, EGLL), never a deck
+    that frames it."""
+    own_cover = dict(covers)
     if not objects or cache is None or classification is None:
         return list(tunnels), []
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
@@ -92,7 +95,7 @@ def frame_cuts(tunnels: _t.Sequence, objects, cache, classification, airport, la
     msl = {o.id: o.y_offset_m for o in getattr(airport, "dsf_objects", ())
            if o.kind == "OBJECT_MSL"}
     by_id = {str(o.id): o for o in objects}
-    decks = [o for o in objects if str(getattr(o, "deck_kind", "") or "") == "flag"
+    decks = [o for o in objects if str(getattr(o, "deck_kind", "") or "") in ("flag", "signature")
              and getattr(o, "hard_deck", None) is not None and not o.hard_deck.is_empty]
     surf = None
     to_xy, to_ll = airport.frame.transformers()
@@ -102,11 +105,14 @@ def frame_cuts(tunnels: _t.Sequence, objects, cache, classification, airport, la
             and tn.objects else None
         # the cut's DECK is another member of its frame: never its own plate
         mine = [d for d in decks if P is not None and str(d.id) not in tn.objects
-                and co_placed(d, P, tol)]
+                and str(d.id) != own_cover.get(tn.id) and co_placed(d, P, tol)]
         fp = Polygon(tn.footprint) if len(getattr(tn, "footprint", ()) or ()) >= 3 else None
         got = None if not mine or fp is None else _piece_over(
             mine, fp if fp.is_valid else fp.buffer(0.0), on)
         if got is None:
+            if mine:
+                notes.append(f"{tn.id}: no piece of its frame's {len(mine)} pack deck(s) stands "
+                             f"{on:.0%} over it — the cut keeps the pack's zero")
             out.append(tn)
             continue
         d, piece = got

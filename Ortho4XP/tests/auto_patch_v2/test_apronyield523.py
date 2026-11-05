@@ -229,4 +229,6 @@ def test_the_connectors_sit_inside_their_caps_once_the_apron_follows(yielded, la
     cs0, _c, _w = generate(before, law, airport)
     sol0, _r0 = solve_design(before, cs0, law)
     worst0 = max(_stub_grade(before, sol0.z, -350.0), _stub_grade(before, sol0.z, 350.0))
-    assert worst0 > cap + 0.01
+    # still over the yielded cap; by less since 11-05a (#1893) made the
+    # centreline law hard (2.95 % against 2.52 %; it was over by > 1 pp)
+    assert worst0 > cap + 0.002

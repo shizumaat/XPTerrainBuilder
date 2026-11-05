@@ -551,10 +551,18 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             keep_out=[(strip_u, "runway_strip")] if strip_u is not None and pin is None
             and edge is None and not decked_by else ())
         if pin is not None and clear is not None and clear[4].startswith(PORTAL_YIELDS):
+            # the MOUTH yields to the taxiway at the opening (clause 1); the
+            # DEPTH does not when the object states it (20am / 20ar): a
+            # hanging face, or an object that states its floor (an entrance
+            # object, a tall roofed portal) keeps it at the slid mouth
+            # (#1903 KLAX: Underpass_2 fell to the bore law, 3.5 m under it)
+            keeps = pin.hanging or pin.floor_z is not None
             stats.portals_unpinned.append(f"{tid}: {pin.object_id} — {clear[4]}"
                                           + (" (a hanging face keeps its depth: 20am / 20ar)"
-                                             if pin.hanging else ""))
-            if not pin.hanging:
+                                             if pin.hanging else
+                                             f" (the object states its floor {pin.floor_z:.2f}: "
+                                             f"kept, 20am / 20ar)" if keeps else ""))
+            if not keeps:
                 pin = None
         face = pin is not None and pin.hanging and edge is None   # a bare face (Q168)
         if clear is not None and clear[0] is None:

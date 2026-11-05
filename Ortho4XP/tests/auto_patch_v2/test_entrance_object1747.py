@@ -169,3 +169,36 @@ def test_the_entrance_face_is_seated_on_its_portals_floor_face_by_face():
     took.clear()
     seat_faces(rec, types.SimpleNamespace(id="dsf:obj8"), entrance_zeros(recs), at_zero)
     assert took == []
+
+
+def test_a_portal_yielding_to_a_taxiway_keeps_the_floor_its_object_states(law):
+    """#1903 (KLAX Sepulveda south, ``Underpass_2``): a taxiway at the
+    opening slides the mouth out of it (clause 1), but the object still
+    states the road's level (20am / 20ar): the slid mouth keeps the
+    entrance's floor.  It fell to the bore law's depth, the cut 3.5 m under
+    the object's floor.  A portal stating no floor yields its depth too."""
+    from auto_patch_v2.airport.portal_objects import Portal
+    from auto_patch_v2.classify.roles import Cell, Classification
+    from auto_patch_v2.planar.structures import build_structures
+    from test_mouth_at_pavement971 import _airport as _bore_airport
+    from test_mouth_at_pavement971 import _base_cells, _rect
+    tn = law.tables.structures.tunnel
+    cells = _base_cells() + [Cell(1, "stub", "twy", _rect(-63, -40, 63, 40), (), None, "D",
+                                  "airside", "taxiway", {})]
+
+    def run(floor):
+        portals = [Portal(f"dsf:obj{i}", "objects/entrance.obj", (x, 0.0), -101, 3.0, 0.0,
+                          (x, 0.0), floor_z=floor) for i, x in ((1, -60.0), (2, 60.0))]
+        _cl, tunnels, st = build_structures(_bore_airport(law),
+                                            Classification(tuple(cells), (), {}, ()), law,
+                                            portals=portals)
+        assert len(tunnels) == 2, st.refused
+        assert len(st.portals_unpinned) == 2, st.portals_unpinned
+        return tunnels
+    clear = tn.wall_gap_m + tn.wall_gap_m + tn.wall_band_width_m
+    for t in run(696.0):
+        assert abs(t.axis[0][0]) >= 63.0 + clear - 1e-6, t.axis[0]     # the mouth slid
+        assert t.mouth_z == pytest.approx(696.0, abs=1e-6)            # its floor kept
+        assert t.portal == f"dsf:obj{1 if t.axis[0][0] < 0 else 2}"
+    for t in run(None):
+        assert not t.portal and t.mouth_z < 696.0 - 1.0              # the bore law's

@@ -146,3 +146,62 @@ def test_the_planar_cut_is_stamped_on_its_objects_seat_record():
     _stamp_cut_rings(seats, types.SimpleNamespace(structures=(tn, osm)),
                      types.SimpleNamespace(frame=frame))
     assert seats["dsf:obj1"][CDS.CUT_RING] == [[40.0, -3.0], [40.0, 7.0], [50.0, 7.0]]
+
+
+def test_a_bridge_frame_zero_keeps_a_deck_seated_over_its_cut(tmp_path):
+    """LGAV 1.0.464: the trench stack carries two taxiway decks over two
+    pack cuts; the refused-bridge frame zero (10-22c/d) read off the first
+    deck put the second 3.1 m under its taxiway.  A body this reading
+    seated keeps its seat (``seated``); the frame's other bodies move."""
+    from auto_patch_v2.airport import open_frame_seat as OFS
+    rec = _seat(tmp_path, (_cut(),))
+    b = rec.bodies[0]
+    assert CDS.seated(b) and not CDS.seated(_record().bodies[0])
+    m = types.SimpleNamespace(resource="objects/deck.obj", zero_y=0.0)
+    stack = _record(zero=77.0).bodies[0]
+    both = Split(0, "dsf:obj0", "objects/deck.obj", "/x/deck.obj", LAT, LON, 0.0, (b, stack))
+    out = OFS.frame_zero(both, m, 76.0, "one bridge frame", keep=CDS.seated)
+    assert out.bodies[0] is b and abs(_zero(out.bodies[0]) - 0.5 * (TAXI_N + TAXI_S)) < 1e-6
+    assert abs(_zero(out.bodies[1]) - 76.0) < 1e-6
+
+
+def _rider(low_y, zero=77.0, frac=1.0):
+    """A rail on the deck (``low_y`` its authored y), standing on its
+    own ground at ``zero``; ``frac`` of its box over the deck."""
+    a = AR.Anchor(AR.OTHER, LAT, LON, TRENCH - zero, "own ground", TRENCH,
+                  offset=(0.0, TRENCH - zero, 0.0))
+    w = 2.0 * HALF_X / MO
+    lo0 = LON - HALF_X / MO + (1.0 - frac) * w
+    box = (S, lo0, N, lo0 + w)
+    pts = tuple((LAT, lo0 + (k + 0.5) * w / 10.0, low_y) for k in range(10))
+    return Body(0, AR.OTHER, (), a, "objects/rail__b0.obj", geom_box=box, plan_box=box,
+                geom_pts=pts)
+
+
+def test_what_stands_on_a_deck_seated_over_its_cut_rides_its_seat(tmp_path):
+    """#1883 (LGAV ``Bridge_Fences`` on ``Trench_00``): the deck's pieces
+    are read before its bodies, at the zero its body takes, and a rail on
+    the deck takes it; a plant on the trench floor under the deck, or a
+    body mostly off the deck, does not."""
+    m = _member(_deck_obj(tmp_path))
+    seats = CDS.cut_seats(m, (LAT, LON), _surface(), (_cut(),), 2.0, 0.5)
+    deck = _seat(tmp_path, (_cut(),)).bodies[0]
+    assert len(seats) == 1 and abs(seats[0][1] - _zero(deck)) < 1e-6
+    assert abs(CDS.seat_under(_rider(0.4), seats, 0.5) - _zero(deck)) < 1e-6
+    assert CDS.seat_under(_rider(-6.0), seats, 0.5) is None      # under the deck
+    assert CDS.seat_under(_rider(0.4, frac=0.3), seats, 0.5) is None
+    assert CDS.seat_under(deck, seats, 0.5) is None              # the deck itself
+    assert CDS.cut_seats(m, (LAT, LON), _surface(), (), 2.0, 0.5) == []
+
+
+def test_the_bridges_own_walls_under_the_deck_ride_it_too(tmp_path):
+    """LGAV ``Trench_01`` (the walled bridge at the second site, -12.67 to
+    +0.44): its top reaches the deck's slab, so it rides the deck's seat
+    (it stood 13.4 m under it at the channel floor's crest plate)."""
+    m = _member(_deck_obj(tmp_path))
+    seats = CDS.cut_seats(m, (LAT, LON), _surface(), (_cut(),), 2.0, 0.5)
+    wall = _rider(-12.0)
+    wall = Body(0, AR.OTHER, (), wall.anchor, "objects/wall__b0.obj", geom_box=wall.geom_box,
+                plan_box=wall.plan_box,
+                geom_pts=wall.geom_pts[:5] + tuple((q[0], q[1], 0.4) for q in wall.geom_pts[5:]))
+    assert abs(CDS.seat_under(wall, seats, 0.5) - seats[0][1]) < 1e-6

@@ -164,3 +164,31 @@ def test_a_whole_pack_is_left_alone(world):
     before = _bytes(world.pack)
     assert TP.repair(str(world.pack), str(world.dsf)) is None
     assert _bytes(world.pack) == before
+
+
+def _tncm_recut(pack, dsf):
+    """TNCM again, its split cut differently: one body kept by name, one new."""
+    plan = _plan(pack, dsf, icao="TNCM",
+                 conversions=(PM.Conversion(0, "objects/a.obj", -63.1, 18.04,
+                                            10.0, "OBJECT_MSL", 5.0),),
+                 splits=(_split(1, "objects/b.obj", -63.11, 18.041, 20.0,
+                                ["objects/b__b0.obj", "objects/b__c1.obj"]),))
+    return plan, [_Cut("objects/b__b0.obj"), _Cut("objects/b__c1.obj")]
+
+
+def test_a_rewrite_with_a_new_cut_writes_its_bodies(world):
+    # 1.0.468: the restore removed the previous bodies and the write laid
+    # the new ones; write_pack's own torn check then read the PREVIOUS
+    # record (b__b1 now gone) as a torn pack and removed the new bodies
+    # that share its names -> "REFUSING to write a DSF naming N body
+    # file(s) that do not exist in the pack" at nearly every airport
+    world.write(_tncm, "w1")
+
+    world.write(_tncm_recut, "w2")
+
+    after = _bytes(world.pack)
+    assert sorted(n for n in after if "__" in n) == [
+        "objects/b__b0.obj", "objects/b__c1.obj"]
+    assert TP.missing_bodies(str(world.pack), str(world.dsf)) == {}
+    text = world.dsf.read_text(encoding="utf-8")
+    assert "objects/b__c1.obj" in text and "objects/b__b1.obj" not in text

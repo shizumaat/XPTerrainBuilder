@@ -621,7 +621,7 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                              allow_live_install=allow_live_install,
                              work_dir=work_dir, engine_version=engine_version,
                              law_digest=law_digest, body_files=written,
-                             omit=omit, seats=seats)
+                             omit=omit, seats=seats, mend=False)
     if mended is not None:
         dsf = _dc.replace(dsf, notes=(mended.line(),) + tuple(dsf.notes))
     if getattr(dsf, "plan", None) is not None:

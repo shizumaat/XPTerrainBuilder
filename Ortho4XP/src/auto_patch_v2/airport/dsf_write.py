@@ -1441,7 +1441,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                drop: _t.Collection[str] = (),
                forests: _t.Mapping[str, str] | None = None,
                seats: _us.ByAirport | None = None,
-               optimise: _t.Mapping[str, _t.Any] | None = None) -> WriteResult:
+               optimise: _t.Mapping[str, _t.Any] | None = None,
+               mend: bool = True) -> WriteResult:
     """Apply ``plan`` to the pack's DSF (§3.3-§3.5).
 
     The pristine DSF is kept ONCE as ``<name>.dsf.anchor_bak`` and is
@@ -1501,10 +1502,16 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             f"passes allow_live_install=True)")
 
     # a TORN pack (its DSF names bodies that are gone) goes back on its
-    # original first: no write may compose a row whose art is missing
-    # lazy: torn_pack reads this module
-    from . import torn_pack as _tp
-    mended = _tp.repair(pack_root, dsf_path)
+    # original first: no write may compose a row whose art is missing.
+    # ``mend=False`` is ``placement_write.apply_plan``, which mended
+    # BEFORE its restore: mid-write the record still names the previous
+    # bodies the restore removed, and reading that as torn removed the
+    # new bodies of the same names (1.0.468, nearly every airport)
+    mended = None
+    if mend:
+        # lazy: torn_pack reads this module
+        from . import torn_pack as _tp
+        mended = _tp.repair(pack_root, dsf_path)
 
     # ── §12a: IS THE BACKUP STILL THE PACK'S? ───────────────────────────
     verdict = _bs.classify_dsf(dsf_path)

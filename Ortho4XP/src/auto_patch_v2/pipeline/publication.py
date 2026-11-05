@@ -1432,7 +1432,8 @@ def basin_facilities(planar: PlanarMap, law: Law,
         # that plus the clearance — which is what ``emit/rebake`` seats to
         # (``Member.plate_clearance_m``), so the published expectation and
         # the seat read the same number.
-        seat_expect = float(b.seat_expect_m) + (floor_m + clearance - float(b.floor_z))
+        b_clear = b.clearance(clearance)
+        seat_expect = float(b.seat_expect_m) + (floor_m + b_clear - float(b.floor_z))
         out.append({
             "resources": list(b.objects),
             "anchor_longitude_latitude": [lon, lat],
@@ -1442,7 +1443,10 @@ def basin_facilities(planar: PlanarMap, law: Law,
             "floor_max_m": round(max(f_zs), 3) if f_zs else round(float(b.floor_z), 3),
             "floor_declared_m": round(b.floor_z, 3),
             "floor_below_rim_m": round(depth, 3),
-            "floor_clearance_m": round(clearance, 3),
+            "floor_clearance_m": round(b_clear, 3),
+            "kind": b.kind,
+            "open_sides_ll": [[[round(la, 9), round(lo, 9)] for la, lo in seg]
+                              for seg in b.open_sides_ll],
             "rim_law_m": round(rim_law, 3),
             "emitted_rim_min_m": rim_parts[0] if rim_parts else None,
             "emitted_rim_max_m": rim_parts[-1] if rim_parts else None,

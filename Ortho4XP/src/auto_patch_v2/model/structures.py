@@ -718,6 +718,19 @@ class Basin:
     #: (``pipeline/authored_seats``).  ``None`` for a PLAIN pit (no lift:
     #: the author stated no seat, the floor-plate seat governs as before).
     rim_cut_m: float | None = None
+    #: A SPLIT-LEVEL BUILDING'S PIT (``planar/split_level_pit``): the open
+    #: sides (frame segments) whose rim the floor follows, and the plate
+    #: clearance it states (``None`` = ``[basin] floor_clearance_m``; a
+    #: building's lower floor stands ON its floor: 0)
+    open_sides: tuple[tuple[XY, ...], ...] = ()
+    #: ... the same sides as ``(lat, lon)`` (what the sidecar publishes)
+    open_sides_ll: tuple[tuple[tuple[float, float], ...], ...] = ()
+    clearance_m: float | None = None
+
+    def clearance(self, law_clearance_m: float) -> float:
+        """The plate clearance this basin states (:attr:`clearance_m`, else
+        the law's) -- the ONE reading every consumer takes."""
+        return float(law_clearance_m) if self.clearance_m is None else float(self.clearance_m)
 
     def deck_z_at(self, x: float, y: float) -> float | None:
         """This basin's ramp deck elevation over ``(x, y)``, or ``None``
@@ -747,4 +760,4 @@ class Basin:
         depth = -float(self.solid_min_y_m)
         if depth <= 1e-6:
             depth = float(self.rim_estimate_m) - float(self.floor_z)
-        return 0.0 if depth <= 1e-6 else depth + float(clearance_m)
+        return 0.0 if depth <= 1e-6 else depth + self.clearance(clearance_m)

@@ -130,3 +130,26 @@ def test_against_flags_moved_sites():
     now = [{"site": "a", "verdict": "PASS", "delta": -0.06},
            {"site": "b", "verdict": "FAIL", "delta": 4.5}]
     assert DC.compare(now, base) == ["b: PASS 0.0 -> FAIL 4.5"]
+
+
+def _split(tmp_path, msl_elev):
+    _rows, drawn = _world(tmp_path, msl_elev)
+    rec = {"kind": "split_level", "floor_ref": "basin_floor:0",
+           "resources": ["objects/portal.obj"], "anchor_longitude_latitude": [LON, LAT],
+           "plate_y_m": -5.0, "floor_below_rim_m": 5.0, "floor_m": 95.0,
+           # the open side 5 m east of the anchor, north-south
+           "open_sides_ll": [[[LAT - 0.00005, LON + 0.00005], [LAT + 0.00005, LON + 0.00005]]]}
+    return DC.check_split(rec, drawn, 0.3)
+
+
+def test_split_level_lower_floor_on_the_floor_upper_at_the_ground(tmp_path):
+    row = _split(tmp_path, 100.0)       # zero 100: lower floor 95, upper 100 = mesh
+    assert row["upper_floor"] == pytest.approx(100.0)
+    assert row["open_ground_median"] == pytest.approx(100.0)
+    # the drawn floor is the flat 100 m mesh: the lower floor 5 m under it fails
+    assert any("lower floor - drawn floor" in f for f in row["fails"])
+
+
+def test_split_level_upper_floor_over_the_ground_is_a_gap(tmp_path):
+    row = _split(tmp_path, 104.0)
+    assert any("gap to the terrain" in f for f in row["fails"])

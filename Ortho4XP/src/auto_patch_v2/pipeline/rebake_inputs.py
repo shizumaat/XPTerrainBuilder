@@ -96,13 +96,19 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
         # "plate" members were terminal slabs the basin half claimed at
         # the T4S basin's own −7.048 / +5.206 / … plate y, standing them
         # 12–17 m off their own feet — spec §11.4).
-        if b.witness_id and b.witness_id not in kept:
+        # A SPLIT-LEVEL BUILDING (``planar/split_level_pit``) is one frame:
+        # every member seats its lower floor on the floor, as one
+        seated = (b.member_ids if b.kind == "split_level" else (b.witness_id,)) \
+            if b.witness_id else ()
+        for oid in seated:
+            if oid in kept:
+                continue
             # ... and the plate stands ``floor_clearance_m`` ABOVE the
             # trench floor its stations read (11t §24 (2)): the floor row
             # dropped the terrain by that much so the plate renders, and a
             # seat without it would chase the object straight back down.
-            out.setdefault(b.witness_id, (float(b.plate_y_m), pts,
-                                          float(law.tables.structures.basin.floor_clearance_m)))
+            out.setdefault(oid, (float(b.plate_y_m), pts,
+                                 b.clearance(law.tables.structures.basin.floor_clearance_m)))
     return out
 
 

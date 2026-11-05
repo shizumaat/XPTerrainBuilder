@@ -631,7 +631,9 @@ def low_hold_retarget(pm: PlanarMap, law: Law,
     # ceiling is never a step the solve trades against the caps; a chain
     # whose ceiling the law's window cannot absorb is smoothed less
     refused: list[int] = []
-    out = (lowered_within_budget(pm, law, have, new, groups, refused)
+    out = (lowered_within_budget(pm, law, have, new, groups, refused,
+                                 floor={v: min(float(have[v]), float(z))
+                                        for v, z in levels.items() if v in have})
            if new else dict(have))
     moved = [have[v] - z for v, z in out.items()]
     # called once per later stage-1 solve: the report SUMS the calls (the

@@ -156,7 +156,8 @@ def ceiled(spans: _t.Sequence[Span], s: float, t: float) -> float:
 def lowered_within_budget(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float],
                           lowered: _t.Mapping[int, float],
                           groups: _t.Sequence[_t.Collection[int]] | None = None,
-                          refused: list[int] | None = None) -> dict[int, float]:
+                          refused: list[int] | None = None,
+                          floor: _t.Mapping[int, float] | None = None) -> dict[int, float]:
     """HOLD (3)'s ceiling carried to the targets it would step past: every
     target (``targets``) at most THE NO-STEP BUDGET above the ``lowered``
     ones — the pairs hold (2) holds (:func:`_pairs`, :func:`_box_pairs`),
@@ -195,7 +196,7 @@ def lowered_within_budget(pm: PlanarMap, law: Law, targets: _t.Mapping[int, floa
     for gi, grp in enumerate(groups if groups is not None else [list(lowered)]):
         drop = {v: float(targets[v]) - float(lowered[v]) for v in grp
                 if v in lowered and v in targets}
-        got = _carried(own, targets, _scaled(targets, drop, 1.0), tol, window)
+        got = _carried(own, targets, _scaled(targets, drop, 1.0), tol, window, floor)
         if got is None:
             # the deepest ceiling the window absorbs: bisect the group's
             # depth to the elevation materiality (none at all when even
@@ -235,7 +236,8 @@ def _carry_pairs(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float]
 
 
 def _carried(own: dict[int, list], targets: _t.Mapping[int, float],
-             seeds: dict[int, float], tol: float, window: float
+             seeds: dict[int, float], tol: float, window: float,
+             floor: _t.Mapping[int, float] | None = None
              ) -> dict[int, float] | None:
     """One group's carry (:func:`lowered_within_budget`): the lowered
     targets, ``None`` when a needed lowering lies past ``window``."""
@@ -248,10 +250,11 @@ def _carried(own: dict[int, list], targets: _t.Mapping[int, float],
         if z > out.get(u, targets[u]) + 1e-12:
             continue
         for w, b, d in own.get(u, ()):
-            cand = max(z + max(0.0, float(b) - tol), float(targets[w]) - drop)
+            cand = max(z + max(0.0, float(b) - tol), float(targets[w]) - drop,
+                       float(floor.get(w, -np.inf)) if floor else -np.inf)
             if cand >= out.get(w, targets[w]) - _MOVED_M:
                 continue
-            if r + float(d) > window:
+            if r + float(d) > window and floor is None:
                 return None
             out[w] = cand
             heapq.heappush(heap, (cand, r + float(d), drop, w))

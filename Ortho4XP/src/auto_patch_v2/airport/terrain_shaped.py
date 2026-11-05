@@ -56,7 +56,8 @@ from . import dsf as _dsf
 
 __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
            "placement_fits", "fit", "grid_of_triangles", "dem_many_of",
-           "grid_of_resource", "seat_records", "log_line", "row_seats"]
+           "grid_of_resource", "seat_records", "log_line", "row_seats",
+           "PORTAL_SEAT", "ENTRANCE_SEAT", "portal_seat_records"]
 
 MIN_AREA_M2 = 20_000.0
 MIN_RELIEF_M = 5.0
@@ -64,6 +65,15 @@ MIN_FOLLOW = 0.5
 FOLLOW_BAND_M = 1.5
 #: the seat record's ``seat`` value (``RebakePlan.authored_seats``)
 SEAT = "terrain fit"
+#: a roofed portal's row seated at its pinned mouth floor (owner
+#: 2026-11-04 ENTC: "the tunnel mouth objects are still not seated at the
+#: bottom of the ramp"; ``Tunnel.portal_seat``)
+PORTAL_SEAT = "portal floor"
+#: #1747: an ENTRANCE object's face seated with its bottom on its portal's
+#: floor -- a BODY's seat (the object stands at both ends, and carries more),
+#: never the row's (``row_seats`` writes none)
+ENTRANCE_SEAT = "entrance face"
+_WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor"}
 
 
 def _deck_grid(g: _t.Any) -> "DeckGrid | None":
@@ -245,8 +255,32 @@ def log_line(icao: str, decks: _t.Sequence[TerrainFit]) -> str:
         f"{f.area_m2:,.0f} m2, relief {f.relief_m:.1f} m" for f in decks)
 
 
+def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None) -> list[dict[str, _t.Any]]:
+    """One record per roofed portal seated at its mouth's pinned floor
+    (``Tunnel.portal_seat``) -- the row :func:`row_seats` writes there --
+    and per ENTRANCE face (#1747; ``to_ll`` the frame's xy -> (lat, lon)):
+    seat :data:`ENTRANCE_SEAT`, its ``end`` ``[lat, lon]``, the elevation its
+    zero, which ``airport/entrance_seat`` lays on the face's own body."""
+    out = []
+    for tn in structures:
+        ps = getattr(tn, "portal_seat", ())
+        if not ps or not tn.portal:
+            continue
+        rec = {"id": tn.portal, "resource": ps[0], "datum": "portal",
+               "seat": PORTAL_SEAT, "elevation": round(float(ps[1]), 3)}
+        if len(ps) > 2:
+            if to_ll is None:
+                continue
+            lat, lon = to_ll(*ps[2])
+            rec.update(seat=ENTRANCE_SEAT, end=[round(float(lat), 9), round(float(lon), 9)],
+                       reach_m=float(ps[3]) if len(ps) > 3 else 0.0)
+        out.append(rec)
+    return out
+
+
 def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> tuple:
-    """The ``model.placement.MslSeat`` of every :func:`seat_records` record
+    """The ``model.placement.MslSeat`` of every :func:`seat_records` and
+    :func:`portal_seat_records` record
     naming a row of ``dump`` (``dsf:obj<i>`` is row ``i``): the placement
     written as ``OBJECT_MSL`` at its fitted ``z0``, whole."""
     from ..model.placement import MslSeat
@@ -255,12 +289,12 @@ def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> tu
     for r in records or ():
         oid = str(r.get("id", ""))
         tile, i = _dsf.row_of(oid)
-        if r.get("seat") != SEAT or tile is not None or i is None:
+        if r.get("seat") not in _WHY or tile is not None or i is None:
             continue
         if not 0 <= i < len(rows) or str(rows[i].def_path) != str(r.get("resource")):
             continue
         row = rows[i]
         out.append(MslSeat(i, str(row.def_path), float(row.lon), float(row.lat),
                            float(getattr(row, "heading_deg", 0.0)),
-                           float(r["elevation"]), "terrain_fit"))
+                           float(r["elevation"]), _WHY[str(r.get("seat"))]))
     return tuple(out)

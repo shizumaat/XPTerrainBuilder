@@ -49,6 +49,7 @@ emitted object pad; else ``other``.
 from __future__ import annotations
 
 import dataclasses as _dc
+import functools as _functools
 import json
 import math
 import os as _os
@@ -116,14 +117,16 @@ from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
 # caller's and every twin's import path is unchanged ──
 # #1214: the airside hard deck (class A) and the one-zero groups live next
 # door; the round-2 private names stay importable from here
+from . import channel_zero as _chz_mod  # noqa: E402
 from . import cut_deck_seat as _cds  # noqa: E402
+from . import entrance_seat as _ens  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
     airside_deck as _airside_deck, airside_frame as _airside_frame,
     deck_owns_its_datum as _deck_owns_its_datum, refused_bridge as _refused_bridge)
 from .open_frame_seat import (  # noqa: E402
     OPEN_KINDS as _OPEN_KINDS, body_root as _body_root,
     frame_root_boxes as _frame_root_boxes, frame_zero as _frame_zero,
-    group_zero as _group_zero, open_zero as _open_zero,
+    group_zero as _group_zero, open_zero as _open_zero, at_zero as _at_zero,
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
     rigid_open as _rigid_open, root_zeros as _root_zeros)
 from .pad_level_group import pad_level_links as _pad_level_links  # noqa: E402
@@ -134,6 +137,25 @@ from .placement_file import (  # noqa: E402,F401
     _note_tilted_kept_whole, _own_ground_file, _split_by_unit,
     _unit_carried_file)
 
+
+
+def _rides_frame(ring: _t.Any, on_fraction: float, body: _t.Any) -> bool:
+    """A body of a framed cut standing in its ring, not already seated as a
+    deck (owner 2026-11-05 §0.5; ``cut_deck_seat.stands_in``)."""
+    return not _cds.seated(body) and _cds.stands_in(body, ring, on_fraction)
+
+
+def _keeps_seat(ring: _t.Any, on_fraction: float, seats: _t.Sequence, body: _t.Any) -> bool:
+    """A body a refused bridge frame's zero leaves at its own seat: a deck
+    seated over the pack's cut, a body riding one (#1883), or a framed
+    cut's body in its ring (:func:`_rides_frame`)."""
+    return ((ring is not None and _rides_frame(ring, on_fraction, body)) or _cds.seated(body)
+            or _cds.seat_under(body, seats, on_fraction) is not None)
+
+
+def _in_channel(n: str, body: _t.Any) -> bool:
+    """Is ``body`` a rim body of channel ``n`` (``channel_zero.rim_channel``)?"""
+    return _chz_mod.rim_channel(body) == n
 
 
 def build_splits(plan: RebakePlan, surface: _ar.Surface,
@@ -287,6 +309,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     reseated = _aseat.reseated_rows(getattr(plan, "authored_seats", ()) or ())
     # 26d (#1331): the pack object cuts' rings, published on the seat records
     _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
+    # #1747: each entrance face's zero at its portal (``entrance_seat``)
+    _entr = _ens.entrance_zeros(getattr(plan, "authored_seats", ()) or ())
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,
@@ -944,24 +968,56 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # still moves as one, at its deck's own zero, the deck cut first
         bridge = None if airside is not None else _refused_bridge(staged, decks, surface)
         _bz: list[float] = []
+        # #1883: what stands on a deck seated over the pack's cut rides that
+        # seat (``cut_deck_seat.cut_seats``, read before the deck is cut)
+        _seats = (_cds.cut_seats(bridge.m, getattr(bridge.m, "origin", None) or tuple(u.anchor),
+                                 surface, _cuts, abutment_step_m, deck_on_fraction)
+                  if bridge is not None and _cuts else [])
 
-        def _one_bridge(r, mm, _b=bridge, _z=_bz):
+        def _one_bridge(r, mm, _b=bridge, _z=_bz, _s=_seats):
             if _b is None:
                 return r
+            # owner 2026-11-05 §0.5: the cut a seated deck frames rides it
+            fz = _cds.framed_zero(getattr(mm, "id", ""), _s,
+                                  getattr(plan, "authored_seats", ()) or ())
+            if fz is not None:
+                r = _at_zero(r, mm, fz[0], _functools.partial(_rides_frame, fz[2],
+                                                               deck_on_fraction),
+                             f"the cut the deck seated over it frames, at {fz[0]:.2f} "
+                             f"(owner 2026-11-05 §0.5; residual to its floor's frame "
+                             f"{fz[1]:+.2f} m)")
+            for zero in sorted({z for b in r.bodies
+                                if (z := _cds.seat_under(b, _s, deck_on_fraction)) is not None}):
+                r = _at_zero(r, mm, zero,
+                             lambda b, _q=zero: _cds.seat_under(b, _s, deck_on_fraction) == _q,
+                             f"on the deck seated over the pack's cut at {zero:.2f} (#1883)")
             if not _z:
-                z = _open_zero(r.bodies) if mm is _b.m else None
+                # a deck body seated over the pack's own cut (26d) keeps its
+                # seat and states no frame zero (``cut_deck_seat.seated``)
+                z = (_open_zero([b for b in r.bodies if not _cds.seated(b)])
+                     if mm is _b.m else None)
                 if z is None:
                     return r
                 _z.append(z)
                 counts["refused_bridge_frames"] = counts.get("refused_bridge_frames", 0) + 1
             return _frame_zero(r, mm, _z[0],
                                f"one bridge frame at its deck's zero {_z[0]:.2f} "
-                               "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)")
+                               "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)",
+                               keep=_functools.partial(_keeps_seat, None if fz is None
+                                                       else fz[2], deck_on_fraction, _s))
+
+        # #1883: a pack-floored channel's frame at the zero its floor was
+        # read at, never at the rim (``channel_zero``)
+        _chz = _chz_mod.channel_zeros((st.m for st in staged), surface)
 
         # owner RULINGS 2026-10-26d (#1331): outside a class-A frame, a
         # pack deck body over the pack's own cut sits flush with what it
         # carries (``cut_deck_seat``)
-        def _cut_decks(r, mm, _u=u, _air=airside):
+        def _cut_decks(r, mm, _u=u, _air=airside, _cz=_chz):
+            r = _ens.seat_faces(r, mm, _entr, _at_zero)
+            for n, zero in sorted(_cz.items()):
+                r = _at_zero(r, mm, zero, _functools.partial(_in_channel, n),
+                             f"the channel's pack floor zero {zero:.2f} (#1883)")
             if _air is not None or not _cuts:
                 return r
             return _cds.seat_cut_decks(r, mm, getattr(mm, "origin", None) or tuple(_u.anchor),

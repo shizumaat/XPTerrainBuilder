@@ -45,6 +45,7 @@ from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
 from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
+from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
@@ -310,6 +311,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                                          tstats.trench_objects, level_b=level_b)
     deck_notes = [f"level B: {level_b_note}",
                   *(f"level seed: {n}" for n in seed_notes), *deck_notes]
+    cl_read = classification   # the roles before the cuts (``planar/cut_frame``)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,
                                                        portals=tstats.portals,
@@ -318,6 +320,11 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        deck_bridges=decks,
                                                        level_b=level_b)
     sstats.hard_decks.extend(deck_notes)
+    # a pack deck over a pack object cut frames that cut (owner 2026-11-05
+    # §0.5, ``planar/cut_frame``): its floor at the deck's seated zero
+    tunnels, frame_notes = frame_cuts(tunnels, objects, cache, cl_read, airport, law,
+                                      tstats.shell_covers)
+    sstats.hard_decks.extend(frame_notes)
     decks = with_cuts(decks, tunnels)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
@@ -327,7 +334,9 @@ def build(airport: Airport, classification: Classification, law: Law,
     # 2026-10-30f (1) / (5), ``planar/overpass_deck``): the object stage
     # seats each deck's zero on the road beneath
     overpasses, over_notes = road_overpasses(objects, cache, classification, airport,
-                                             law, decks)
+                                             law, decks,
+                                             [o for tn in tunnels if tn.source == "object"
+                                              for o in tn.objects])
     sstats.hard_decks.extend(over_notes)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
     # 2026-09-15; RULINGS 2026-09-15y): the ONE road-family face the

@@ -321,6 +321,14 @@ class Tunnel:
     #: (``Portal.floor_z``): the mouth's floor is pinned at :attr:`mouth_z`,
     #: never tied to the cap by a depth
     portal_floor: bool = False
+    #: owner 2026-11-04 (ENTC): a ROOFED portal with a pinned floor stands
+    #: with its zero ON that floor — ``(resource, floor z)``, which the
+    #: object stage writes as the row's seat (``airport/terrain_shaped.
+    #: row_seats``, seat ``"portal floor"``); an ENTRANCE object's face
+    #: (#1747) ``(resource, its zero, the bore end xy, reach m)`` — the face
+    #: standing within reach of that end is seated with its bottom on the floor
+    #: (``airport/entrance_seat``); ``()`` otherwise
+    portal_seat: tuple = ()
     #: owner RULINGS 2026-10-27l / 2026-10-28d: the BACK line of the edge
     #: bridge that pinned this trench (``planar/bridge_span``), or ``()`` —
     #: a terrain deck over it is level with the airside abeam
@@ -350,6 +358,12 @@ class Tunnel:
     #: trench runs on to another; ``deck_ring`` is the deck's outline
     deck_bridge: str = ""
     deck_ring: tuple[XY, ...] = ()
+    #: owner 2026-11-05 §0.5 (#1331 / #1883): a pack OBJECT cut a co-placed
+    #: flag deck stands over (``planar/cut_frame``): ``(deck id, the frame
+    #: zero its floor was read at)`` — the deck's zero flush with what it
+    #: carries at its end lines; :attr:`mouth_z` is that zero plus the
+    #: shell's floor plate.  ``()`` otherwise
+    cut_frame: tuple = ()
     #: that deck's authored top (its mean over the two end lines): the
     #: object stage seats its zero at the end lines' solved surface less it
     #: (``pipeline/rebake_inputs._edge_seat_plates``)

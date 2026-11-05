@@ -146,3 +146,127 @@ def test_the_planar_cut_is_stamped_on_its_objects_seat_record():
     _stamp_cut_rings(seats, types.SimpleNamespace(structures=(tn, osm)),
                      types.SimpleNamespace(frame=frame))
     assert seats["dsf:obj1"][CDS.CUT_RING] == [[40.0, -3.0], [40.0, 7.0], [50.0, 7.0]]
+
+
+def test_a_bridge_frame_zero_keeps_a_deck_seated_over_its_cut(tmp_path):
+    """LGAV 1.0.464: the trench stack carries two taxiway decks over two
+    pack cuts; the refused-bridge frame zero (10-22c/d) read off the first
+    deck put the second 3.1 m under its taxiway.  A body this reading
+    seated keeps its seat (``seated``); the frame's other bodies move."""
+    from auto_patch_v2.airport import open_frame_seat as OFS
+    rec = _seat(tmp_path, (_cut(),))
+    b = rec.bodies[0]
+    assert CDS.seated(b) and not CDS.seated(_record().bodies[0])
+    m = types.SimpleNamespace(resource="objects/deck.obj", zero_y=0.0)
+    stack = _record(zero=77.0).bodies[0]
+    both = Split(0, "dsf:obj0", "objects/deck.obj", "/x/deck.obj", LAT, LON, 0.0, (b, stack))
+    out = OFS.frame_zero(both, m, 76.0, "one bridge frame", keep=CDS.seated)
+    assert out.bodies[0] is b and abs(_zero(out.bodies[0]) - 0.5 * (TAXI_N + TAXI_S)) < 1e-6
+    assert abs(_zero(out.bodies[1]) - 76.0) < 1e-6
+
+
+def _rider(low_y, zero=77.0, frac=1.0):
+    """A rail on the deck (``low_y`` its authored y), standing on its
+    own ground at ``zero``; ``frac`` of its box over the deck."""
+    a = AR.Anchor(AR.OTHER, LAT, LON, TRENCH - zero, "own ground", TRENCH,
+                  offset=(0.0, TRENCH - zero, 0.0))
+    w = 2.0 * HALF_X / MO
+    lo0 = LON - HALF_X / MO + (1.0 - frac) * w
+    box = (S, lo0, N, lo0 + w)
+    pts = tuple((LAT, lo0 + (k + 0.5) * w / 10.0, low_y) for k in range(10))
+    return Body(0, AR.OTHER, (), a, "objects/rail__b0.obj", geom_box=box, plan_box=box,
+                geom_pts=pts)
+
+
+def test_what_stands_on_a_deck_seated_over_its_cut_rides_its_seat(tmp_path):
+    """#1883 (LGAV ``Bridge_Fences`` on ``Trench_00``): the deck's pieces
+    are read before its bodies, at the zero its body takes, and a rail on
+    the deck takes it; a plant on the trench floor under the deck, or a
+    body mostly off the deck, does not."""
+    m = _member(_deck_obj(tmp_path))
+    seats = CDS.cut_seats(m, (LAT, LON), _surface(), (_cut(),), 2.0, 0.5)
+    deck = _seat(tmp_path, (_cut(),)).bodies[0]
+    assert len(seats) == 1 and abs(seats[0][1] - _zero(deck)) < 1e-6
+    assert abs(CDS.seat_under(_rider(0.4), seats, 0.5) - _zero(deck)) < 1e-6
+    assert CDS.seat_under(_rider(-6.0), seats, 0.5) is None      # under the deck
+    assert CDS.seat_under(_rider(0.4, frac=0.3), seats, 0.5) is None
+    assert CDS.seat_under(deck, seats, 0.5) is None              # the deck itself
+    assert CDS.cut_seats(m, (LAT, LON), _surface(), (), 2.0, 0.5) == []
+
+
+def test_the_bridges_own_walls_under_the_deck_ride_it_too(tmp_path):
+    """LGAV ``Trench_01`` (the walled bridge at the second site, -12.67 to
+    +0.44): its top reaches the deck's slab, so it rides the deck's seat
+    (it stood 13.4 m under it at the channel floor's crest plate)."""
+    m = _member(_deck_obj(tmp_path))
+    seats = CDS.cut_seats(m, (LAT, LON), _surface(), (_cut(),), 2.0, 0.5)
+    wall = _rider(-12.0)
+    wall = Body(0, AR.OTHER, (), wall.anchor, "objects/wall__b0.obj", geom_box=wall.geom_box,
+                plan_box=wall.plan_box,
+                geom_pts=wall.geom_pts[:5] + tuple((q[0], q[1], 0.4) for q in wall.geom_pts[5:]))
+    assert abs(CDS.seat_under(wall, seats, 0.5) - seats[0][1]) < 1e-6
+
+
+def test_a_cut_its_packs_deck_frames_rides_the_deck_never_its_authored_seat():
+    """Owner 2026-11-05 §0.5 (amends 09q (1)): LGAV ``Trench_02`` stood at
+    the stack's zero 2.3 m under the deck seated over it (1.0.465) because
+    its crest was in band — "authored (cut)", never re-seated.  A cut a
+    co-placed pack deck frames (``Tunnel.cut_frame``, ``planar/cut_frame``)
+    is re-seated; the same cut with no deck over it keeps its seat."""
+    from auto_patch_v2.airport import authored_seat as AS
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.pipeline.authored_seats import kept_ids, seat_records
+
+    def tn(oid, frame):
+        return types.SimpleNamespace(source="object", objects=(oid,), resource="t.obj",
+                                     authored_crest_m=((0.0, 0.0),), cut_frame=frame)
+    framed = ((("dsf:obj9", ((0.0, 0.0),), 4.0), ("dsf:obj9", ((5.0, 0.0),), 4.0)))
+    pm = types.SimpleNamespace(structures=(tn("dsf:obj1", ()), tn("dsf:obj2", framed)),
+                               basins=())
+    recs = seat_records(pm, Law.for_airport("ZZZZ"))
+    assert recs["dsf:obj1"]["seat"] == AS.SEAT_AUTHORED
+    assert recs["dsf:obj2"]["seat"] == AS.SEAT_RESEATED
+    assert kept_ids(recs) == {"dsf:obj1"}
+
+
+def test_the_framed_cut_takes_the_zero_of_the_deck_seated_over_its_ring():
+    """Owner 2026-11-05 §0.5: the cut member rides the deck piece seated
+    over ITS OWN ring (the piece's box centre inside it), and the residual
+    to the frame its floor was read at is reported; a cut with no frame
+    zero on its record, or no deck over its ring, rides nothing."""
+    ring = [[40.0, -3.0], [40.0, -2.99], [40.01, -2.99], [40.01, -3.0]]
+    recs = [{"id": "dsf:obj2", CDS.CUT_RING: ring, CDS.CUT_FRAME_Z: 79.9},
+            {"id": "dsf:obj3", CDS.CUT_RING: ring}]
+    seats = [((40.5, -2.5, 40.6, -2.4, 0.0), 70.0),          # a deck over another cut
+             ((40.004, -2.996, 40.006, -2.994, 0.0), 80.02)]
+    zero, res, ring_ll = CDS.framed_zero("dsf:obj2", seats, recs)
+    assert abs(zero - 80.02) < 1e-9 and abs(res - 0.12) < 1e-9
+    # only the member's bodies standing in the ring ride it (a long
+    # object's pieces 1.5 km away keep their own seat)
+    near = types.SimpleNamespace(geom_pts=((40.005, -2.995, 0.0), (40.006, -2.994, -4.0)))
+    far = types.SimpleNamespace(geom_pts=((40.005, -2.995, 0.0), (40.5, -2.5, -4.0),
+                                          (40.5, -2.49, -4.0)))
+    assert CDS.stands_in(near, ring_ll, 0.5) and not CDS.stands_in(far, ring_ll, 0.5)
+    assert CDS.framed_zero("dsf:obj3", seats, recs) is None
+    assert CDS.framed_zero("dsf:obj2", seats[:1], recs) is None
+
+
+def test_a_cuts_own_cover_never_frames_it():
+    """``planar/cut_frame``: a signature-B pair's COVER (VHHH, EGLL ``3.obj``
+    over ``3a.obj``) is the cut's roof, never a deck that frames it — read
+    as one, EGLL's floor moved 1.39 m off its walls' bottom (Q167)."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.cut_frame import frame_cuts
+    shell = types.SimpleNamespace(id="dsf:obj1", xy=(0.0, 0.0), heading_deg=0.0, path="s.obj")
+    cover = types.SimpleNamespace(id="dsf:obj2", xy=(0.0, 0.0), heading_deg=0.0, path="c.obj",
+                                  deck_kind="flag",
+                                  hard_deck=CDS.Polygon([(-10, -10), (10, -10), (10, 10),
+                                                         (-10, 10)]))
+    tn = types.SimpleNamespace(id="object-cut:s.obj@0", source="object", objects=("dsf:obj1",),
+                               footprint=((-12, -12), (12, -12), (12, 12), (-12, 12)),
+                               mouth_z=70.0, notes=())
+    airport = types.SimpleNamespace(dsf_objects=(), frame=types.SimpleNamespace(
+        transformers=lambda: (None, None)))
+    out, notes = frame_cuts([tn], [shell, cover], object(), object(), airport,
+                            Law.for_airport("ZZZZ"), (("object-cut:s.obj@0", "dsf:obj2"),))
+    assert out == [tn] and notes == []

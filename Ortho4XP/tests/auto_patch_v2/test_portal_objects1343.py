@@ -169,3 +169,39 @@ def test_a_pinned_mouth_stands_under_its_portals_anchor():
     assert list(moved.coords)[1:] == list(axis.coords)
     same, d0 = SM.portal_mouth(axis, inward, (0.0, -1.5))
     assert same is axis and d0 == 0.0
+
+
+def test_a_tall_roof_the_surveyed_ground_covers_is_a_portal(tmp_path):
+    """ENTC (owner 2026-11-04: "the tunnel mouth objects are sticking way
+    above the surface instead of seating at the bottom of a ramp sized to
+    the object"): ``ENTC_Tunnel.obj``'s roof stands 12.93 m over its zero,
+    over the bore law's ``mouth_depth_m``, and was refused as a building.
+    The survey separates the two: the ground over the roof stands a cut's
+    depth (``[channel] object_min_depth_m``) over the ground at the bore's
+    end, where a building on a bore stands on flat ground."""
+    tall = LAW.tables.structures.tunnel.mouth_depth_m + 5.0
+    rise = LAW.tables.structures.channel.object_min_depth_m
+    o = _placed(_portal(tmp_path, roof_y=tall))
+
+    def covered(x, y):
+        return 3.0 + (rise + 0.5 if y < -1.0 else 0.0)
+
+    got, refused = P.read_portals([o], O.ResourceCache(THICK), LAW, [BORE], dem_z=covered)
+    assert len(got) == 1 and not refused, refused
+    assert abs(got[0].depth_m - tall) < 1e-6           # the ramp is sized to the object
+    got, refused = P.read_portals([o], O.ResourceCache(THICK), LAW, [BORE],
+                                  dem_z=lambda x, y: 3.0)
+    assert got == [] and "a building on the bore, not a portal" in refused[0]
+    # its floor is the ground ON ITS ROOF less its roof top (the cap's ground
+    # stands inside the surveyed cut)
+    got, _r = P.read_portals([o], O.ResourceCache(THICK), LAW, [BORE], dem_z=covered)
+    assert abs(got[0].floor_z - (3.0 + rise + 0.5 - tall)) < 1e-6
+
+
+def test_a_roofed_portals_opening_is_its_roof_across_the_bore(tmp_path):
+    """ENTC (owner 2026-11-04: "tunnel ramps not matching tunnel mouth
+    width"): the ramp takes the portal's OPENING, its roof's width across
+    the bore at the end (the fixture's roof: 14 m across a bore running
+    north)."""
+    got, _r = _read([_placed(_portal(tmp_path))])
+    assert abs(got[0].opening_m - 14.0) < 1e-6

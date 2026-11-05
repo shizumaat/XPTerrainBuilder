@@ -96,6 +96,13 @@ pad_slope_max            = 0.01  # RULINGS 2026-09-05f (moved here from the dele
 # arm: owner 2026-07-24, seam contacts enter the profile as hard anchors), and
 # each tile's patch carries only the faces on its side.
 half_width_m = 5.0
+# The tile EDGE the mesh builds (``O4_Vector_Map.GLUE_SEGMENTS``, twin
+# ``test_seam_edge_line``): each 1-degree edge cut into this many equal
+# segments, every point at the tile DEM.  A seam pin takes that edge's
+# straight line between its two points at the pin's station (owner
+# 2026-11-04, LOWS: the dense DEM at the pin against the edge's 54 m
+# segments put a ±0.24 m, 7.5 % kink across the 3.2 m strip).
+edge_segments = 2048
 
 # THE BOUNDARY DIALOG'S REACH (spec insets-follow-patch-set-spec.md §C.1,
 # RULINGS 2026-09-18h/18i): an airport whose AIRSIDE CLAIM — apt.dat row

@@ -77,6 +77,7 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
             out[oid] = (float(tn.plate_y_m or tn.depth_m), pts,
                         float((seats.get(oid) or {}).get("proud_m") or 0.0))
     out.update(_edge_seat_plates(pm, kept, law))
+    _channel_plates(out, pm, kept)
     if law.tables.structures.basin.seat != "floor_plate":
         return out
     for b in pm.basins:
@@ -107,6 +108,29 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
 
 #: the plate kind of an EDGE BRIDGE's seat (``anchor_rule.datum_of``)
 EDGE_PLATE = "edge"
+#: the plate kind of a CHANNEL's pack floor witness, ``"channel:<n>"``
+#: (``airport/channel_zero``)
+CHANNEL_PLATE = "channel:"
+
+
+def _channel_plates(out: dict, pm, kept) -> None:
+    """A CHANNEL WHOSE FLOOR THE PACK STATES (§45 (3) (i), ``datum_source
+    == "pack"``): its floor IS its witness placement's deepest solid at the
+    zero the planar stage read it at, so the witness is seated with that
+    solid ON the floor -- ``(0.0, floor stations, 0.0, "channel:<n>")``,
+    the y filled from the object by ``rebake_plan`` -- and every body of
+    its frame the channel's rim would seat takes the same zero
+    (``airport/channel_zero``; #1883, LGAV's trench stack: its liner
+    pieces on the rim stood 58.6-68.8 against a 66.47 floor)."""
+    for ch in getattr(pm, "channels", ()) or ():
+        if getattr(ch, "datum_source", "") != "pack" or len(ch.axis) < 2:
+            continue
+        n = str(ch.id).rsplit(":", 1)[-1]
+        k = max(1, len(ch.axis) // 8)
+        st = [tuple(p) for p in ch.axis[k:-k:k]] or [tuple(ch.axis[len(ch.axis) // 2])]
+        for oid in getattr(ch, "witness_ids", ()) or ():
+            if oid not in kept:
+                out.setdefault(oid, (0.0, st, 0.0, CHANNEL_PLATE + n))
 
 
 def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
@@ -276,7 +300,7 @@ def _stamp_cut_rings(seats: dict, pm, airport) -> None:
     ring, ``[[lat, lon], ...]``, on the seat record of every placement it
     was read from (``airport/cut_deck_seat.CUT_RING``) — the witness the
     object stage reads to seat a pack deck over the pack's own cut."""
-    from ..airport.cut_deck_seat import CUT_RING
+    from ..airport.cut_deck_seat import CUT_FRAME_Z, CUT_RING
     to_ll = airport.frame.transformers()[1]
     for tn in getattr(pm, "structures", ()):
         if getattr(tn, "source", "") != "object":
@@ -288,6 +312,9 @@ def _stamp_cut_rings(seats: dict, pm, airport) -> None:
         for oid in tn.objects:
             if oid in seats:
                 seats[oid][CUT_RING] = ll
+                if getattr(tn, "cut_frame", ()):
+                    # owner 2026-11-05 §0.5: the frame zero its floor was read at
+                    seats[oid][CUT_FRAME_Z] = round(float(tn.cut_frame[1]), 3)
 
 
 def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
@@ -319,7 +346,9 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
     return {
         "tunnel_objects": _plate_seats(pm, law, seats),
         "authored_seats": (tuple(seats[k] for k in sorted(seats))
-                           + tuple(_ts.seat_records(airport))),
+                           + tuple(_ts.seat_records(airport))
+                           + tuple(_ts.portal_seat_records(pm.structures,
+                                                           airport.frame.transformers()[1]))),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``

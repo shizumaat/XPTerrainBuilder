@@ -301,7 +301,7 @@ def triangle_planes(planar: PlanarMap, law: Law, airport: Airport
         src = Source(GEN, "plane_gradient (user 2026-07-05)",
                      (f"face:{fid}", f.ref))
         lon = cap[0]
-        held = pad_hold(planar, law, fid, airport)   # 11-05a: a pad's / stand's triangle keeps the table
+        held = pad_hold(planar, law, fid)        # 11-05a: a pad's triangle keeps the table
         if held is not None and not held[0].isdisjoint(ring):
             lon = min(lon, held[1])
         rows.extend(plane_rows(ring, vw.xy, lon, src))

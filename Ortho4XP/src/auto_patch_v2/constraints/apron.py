@@ -238,7 +238,7 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
         # the table, as before
         own = vw.caps[f.id][0] if vw.caps[f.id] is not None else cap.longitudinal
         tier = (_Tier(f.id, f.ref, own, pref_l, ruling=YIELDED_PREFERENCE_RULING,
-                      held=pad_hold(planar, law, f.id, airport))
+                      held=pad_hold(planar, law, f.id))
                 if own > cap.longitudinal
                 else _Tier(f.id, f.ref, cap.longitudinal, pref_l))
         src_ring = Source(GEN, "common.roles.apron ring edge (2026-08-21b)",

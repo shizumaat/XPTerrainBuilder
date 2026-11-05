@@ -124,12 +124,11 @@ def test_an_apron_on_the_route_rises_with_it(law):
     assert not r.over_ceiling and 0.015 < r.cap <= 0.02
     aprons = [f for f in pm.faces.values() if f.role == "apron"]
     assert aprons and all(f.id in r.aprons for f in aprons)
-    # owner 2026-11-05 13:57Z / 14:08Z: the crossed apron is STRETCHED — its
-    # hard maximum is the universal pavement fallback (never a target); the
-    # route keeps its own cap
-    from auto_patch_v2.law.tables import pavement_fallback_cap
+    # owner 2026-11-05 13:57Z: the crossed apron's hard MAXIMUM is the
+    # exception ceiling (never a target); the route keeps its own cap
+    ceiling = law.ruleset.taxi.longitudinal_exception_max
     for f in aprons:
-        assert face_cap(law, f, pm)[0] == pytest.approx(pavement_fallback_cap(law))
+        assert face_cap(law, f, pm)[0] == pytest.approx(ceiling)
     assert _caps(pm, law, "stubS") == {round(r.cap, 6)}
 
 

@@ -133,6 +133,33 @@ class MeshElevationSampler:
         bounds: tuple[float, float, float, float],
         margin_degrees: float = 0.002,
     ) -> None:
+        vertices, triangles, triangle_attributes = _read_mesh_cached(
+            mesh_path)
+        self._retain(vertices, triangles, triangle_attributes, bounds,
+                     margin_degrees)
+
+    @classmethod
+    def from_arrays(
+        cls,
+        vertices: numpy.ndarray,
+        triangles: numpy.ndarray,
+        triangle_attributes: numpy.ndarray,
+        bounds: tuple[float, float, float, float],
+        margin_degrees: float = 0.002,
+    ) -> "MeshElevationSampler":
+        """The same sampler over triangles already in memory — e.g. a DSF's
+        drawn mesh (``tools/drawn_check.py``) rather than a ``.mesh`` file.
+        Arrays are as :meth:`_read_mesh` returns them (0-based indices)."""
+        sampler = cls.__new__(cls)
+        sampler._retain(numpy.asarray(vertices, dtype=numpy.float64),
+                        numpy.asarray(triangles, dtype=numpy.int64),
+                        numpy.asarray(triangle_attributes, dtype=numpy.int64),
+                        bounds, margin_degrees)
+        return sampler
+
+    def _retain(self, vertices, triangles, triangle_attributes, bounds,
+                margin_degrees) -> None:
+        """Keep the triangles overlapping ``bounds`` and index them."""
         minimum_longitude, minimum_latitude, maximum_longitude, maximum_latitude = (
             bounds
         )
@@ -140,9 +167,6 @@ class MeshElevationSampler:
         minimum_latitude -= margin_degrees
         maximum_longitude += margin_degrees
         maximum_latitude += margin_degrees
-
-        vertices, triangles, triangle_attributes = _read_mesh_cached(
-            mesh_path)
 
         vertex_inside_bounds = (
             (vertices[:, 0] >= minimum_longitude)

@@ -133,13 +133,19 @@ def frame_cuts(tunnels: _t.Sequence, objects, cache, classification, airport, la
         ta, tb = _top_at(slab, sa, reach, top), _top_at(slab, sb, reach, top)
         # one frame, one zero: the shell's floor plate under the deck's zero
         floor_y = float(tn.mouth_z) - _seat(P, msl) + (_seat(P, msl) - _seat(d, msl))
-        z0 = 0.5 * ((g1 - ta) + (g2 - tb)) + floor_y
+        frame = 0.5 * ((g1 - ta) + (g2 - tb))
+        # THE FRAME RAISES A CUT, NEVER SINKS IT under the pack's own floor:
+        # the end lines are read on the DEM before the solve, which LGAV's
+        # taxiways leave 0.3-1.0 m off (four readings of one deck 77.07 /
+        # 77.45 / 76.09 / 76.88 seated); a floor read low strands the riding
+        # walls' bottom over it (a gap), one read high only buries it
+        z0 = max(frame + floor_y, float(tn.mouth_z))
         out.append(_dc.replace(
-            tn, mouth_z=z0,
-            cut_frame=(str(d.id), z0 - floor_y),
+            tn, mouth_z=z0, cut_frame=(str(d.id), frame),
             notes=(*tn.notes, f"{FRAME_NOTE} {d.id} (owner 2026-11-05 §0.5): floor {z0:.2f} = "
-                              f"the deck's zero {z0 - floor_y:.2f} flush at its end lines "
+                              f"the deck's zero {frame:.2f} flush at its end lines "
                               f"{g1:.2f} / {g2:.2f} (deck top {ta:+.2f} / {tb:+.2f}) "
-                              f"{floor_y:+.2f}; was {tn.mouth_z:.2f} at the pack's zero")))
+                              f"{floor_y:+.2f}, never under the pack's floor "
+                              f"{tn.mouth_z:.2f}")))
         notes.append(f"{tn.id}: {out[-1].notes[-1]}")
     return out, notes

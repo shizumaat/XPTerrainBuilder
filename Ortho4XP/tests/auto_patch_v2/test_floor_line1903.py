@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from shapely.geometry import LineString
-
 from auto_patch_v2.airport import obj8, object_cut
 from auto_patch_v2.airport.tunnel_objects import _floor_profile
 from auto_patch_v2.law import Law
+from shapely.geometry import LineString
 
 
 @pytest.fixture(scope="module")

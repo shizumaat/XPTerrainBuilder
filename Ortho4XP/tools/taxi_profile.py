@@ -22,20 +22,21 @@ Twin: ``tests/test_taxi_profile.py``.
 """
 from __future__ import annotations
 
-# The console is UTF-8 before anything prints (#171, #125): ONE derivation
-# site, ``src/O4_Console_Encoding.py``.  Twin: ``tests/test_console_encoding.py``.
-import os as _o4os, sys as _o4sys                                    # noqa: E402
-_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
-    _o4os.path.abspath(__file__))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
-_o4console.configure_console_streams()
-
 import argparse
 import bisect
 import json
 import math
+import os
+import sys
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
+
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``.  Twin: ``tests/test_console_encoding.py``.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console  # noqa: E402
+
+_o4console.configure_console_streams()
 
 _R = 6371008.8
 #: a reading within this many metres of the cap x length is rounding (the

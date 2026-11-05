@@ -371,6 +371,10 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # ``o4_grade_law_cap_taxi_yield`` (:data:`TAXI_YIELD_CAP_TAG`, read per
     # pair in ``_check_within_shape``); v2 verify reads this list.
     "taxi_yield_caps",
+    # 11-05a THE TAXI ROUTE EXCEPTION (issue #1893): per yielded route its
+    # ends, needed grade and raised cap.  EVIDENCE: the raised cap rides on
+    # the published ``stretches`` / ``axes`` the taxi readers price.
+    "taxi_route_caps",
     # THE DESIGN SURFACE's residual per family (RULINGS 2026-09-08t, sidecar
     # ``design``, replacing ``law_tiers``): rounds, unknowns, rows, the hard
     # runway rows and per family how many targets were missed and by how

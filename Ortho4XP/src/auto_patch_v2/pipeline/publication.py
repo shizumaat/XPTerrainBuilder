@@ -588,6 +588,13 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                 ty.as_dict() for _f, ty in sorted(
                     (getattr(planar, "taxi_caps", None) or {}).items())
                 if isinstance(ty, _TaxiYield)],
+            # 11-05a THE TAXI ROUTE EXCEPTION (issue #1893): per yielded route
+            # its two fixed ends, length, needed grade and the cap its
+            # stretches were raised to (``over_ceiling`` where even the
+            # ceiling cannot join them).  EVIDENCE: the cap itself rides on
+            # the published ``stretches`` / ``axes``.  Empty where none.
+            "taxi_route_caps": [r.as_dict() for r in
+                                (getattr(planar, "taxi_routes", None) or ())],
             # §30 (4) THE CLUSTER PADS (owner RULINGS 2026-09-13bj item 1):
             # what the object stage's §16g seats a big terminal on, and
             # what the report reads to name the apron faces that stayed

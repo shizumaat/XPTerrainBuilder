@@ -462,6 +462,15 @@ class PlanarMap:
     #: through ``constraints.precedence.taxi_cap_for`` (``face_cap``,
     #: ``stretches``).  Empty where no runway yielded: reads as before.
     taxi_caps: _t.Mapping[int, _t.Any] = _dc.field(default_factory=dict)
+    #: THE TAXI ROUTE EXCEPTION (owner RULINGS 2026-11-05a, issue #1893,
+    #: additive): the ``constraints.taxi_route_yield.TaxiRoute`` records —
+    #: each a route between two fixed levels its letter cap cannot join,
+    #: the stretch edges it runs over and the smallest uniform cap that
+    #: fits (at most ``taxi.longitudinal_exception_max``).  Derived ONCE
+    #: beside ``taxi_caps`` (``with_runway_chord``) and read back through
+    #: ``constraints.stretches`` (the stretch's ``cap_l``).  Empty where
+    #: every route fits its letter: reads as before.
+    taxi_routes: tuple = ()
     #: THE FRONTING SET (flat-pad spec v2 §5, RULINGS 2026-09-30y (3) /
     #: 30as): the vertices of every face that carries a held block's relief
     #: — the apron bodies welded to it, the junction / taxi faces touching

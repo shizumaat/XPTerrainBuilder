@@ -720,4 +720,10 @@ def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
         return _dc.replace(pm, runway_caps=caps, **extra) if caps else pm
     merged = dict(pm.preferred_z)
     merged.update(targets)
-    return _dc.replace(pm, preferred_z=merged, runway_caps=caps, **extra)
+    out = _dc.replace(pm, preferred_z=merged, runway_caps=caps, **extra)
+    # 11-05a (issue #1893): a taxi route its letter cap cannot run between
+    # the runways' levels — the levels set just above — yields, derived
+    # HERE beside the taxi yield (empty, and nothing built, where none)
+    from .taxi_route_yield import derive as _derive_routes
+    routes_ = _derive_routes(out, law, airport)
+    return _dc.replace(out, taxi_routes=routes_) if routes_ else out

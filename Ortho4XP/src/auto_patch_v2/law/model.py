@@ -130,6 +130,11 @@ class TaxiLaw:
     #: metres of vertical curve per ``common.vertical_curve_k_grade_unit``
     #: of grade change, by letter (Annex 14 §3.9.9 / AC §4.14.1 (3)(b))
     curve_k_m: CodeTable | None = None
+    #: THE TAXI ROUTE EXCEPTION'S CEILING (owner RULINGS 2026-11-05a, #1893):
+    #: the most a route between two fixed levels may be raised to when its
+    #: letter cap cannot join them (``constraints/taxi_route_yield``);
+    #: ``None`` = no route ever yields
+    longitudinal_exception_max: float | None = None
 
 
 @_dc.dataclass(frozen=True)

@@ -111,6 +111,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # 30ah (1) (issue #135): per tied taxi-family face its yielded cap and
     # the runway that yielded it — LAW INPUT for v2 verify
     "taxi_yield_caps",
+    # 11-05a (issue #1893): per yielded taxi ROUTE its ends, needed grade and
+    # raised cap — EVIDENCE (the cap rides on ``stretches`` / ``axes``)
+    "taxi_route_caps",
     # flat-pad spec v2 §6 A11 (RULINGS 2026-09-30as): per PULLED runway its
     # flex budget, lift, used share and pulling pad — EVIDENCE, not law
     "runway_flex",

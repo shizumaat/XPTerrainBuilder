@@ -882,6 +882,7 @@ hard_rulings = [
   "rulesets.runway.vertical_curve_k_m / max_grade_change",  # 06b law 1: the vertical curve K
   "rulesets.runway.longitudinal",                        # the runway's max grade along the profile
   "rulesets.runway.end_zone",                            # the same, at its ceiling in the end zones
+  "rulesets.taxi.longitudinal centreline",               # owner RULINGS 2026-11-05a (#1893): "It should be 1.5% everywhere that's physically possible" - the taxiway's longitudinal law along every centreline edge is HARD EVERYWHERE, not on the fronting set alone (30bb F2), at its stretch cap; a route between fixed levels its letter cannot join carries the yielded cap of constraints/taxi_route_yield (at most taxi.longitudinal_exception_max).  MEASURED priced at `law` 300: HECA 1.0.465 carried 173 centreline edges >= 10 m over 1.5 %
   "rulesets.runway.mean_slope_max",                      # Annex 14 §3.1.13 (audit §4 M1, RULINGS 2026-10-15l (1)): the runway's max - min over its length, yielded to its own pins (constraints/runway_mean_slope.py)
   "rulesets.common.pavement_max_grade ceiling",          # 09-09b (4): the 5 % pavement ceiling / 8 % free road
   "rulesets.common.road_max_grade pavement fallback",    # 09-29ac (#105): the ROAD cap is the fallback ceiling of EVERY pavement pair — ring edges and welded neighbours <= 1 m no family caps lower (constraints/pavement_cap.py)

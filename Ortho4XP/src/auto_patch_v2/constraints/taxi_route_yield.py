@@ -50,7 +50,8 @@ from ..law.tables import role_family
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
-__all__ = ["TaxiRoute", "ROUTE_REF", "apron_yields", "derive", "edge_key", "pad_hold", "route_lines"]
+__all__ = ["TaxiRoute", "ROUTE_REF", "apron_yields", "derive", "edge_key", "pad_hold",
+           "route_lines"]
 
 #: an interval shorter than this is the solver's tolerance, not a law gap
 #: (metres; ``[design] hard_tol_m`` is the solve's own held bar)

@@ -1144,6 +1144,11 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     "apron": _mods(_GENERATOR_CORE + """
         geom.exact
         constraints.apron constraints.geometry constraints.precedence model.airport
+        constraints.cluster_pad constraints.face_index constraints.group_level
+        constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence geom.slope_pad
+        geom.triangulate geom.union_find model.islands model.map_memo model.platform
     """),
     "channel": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1158,7 +1163,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.runway_junctions
         constraints.threshold_seam
         constraints.shoulder_crossing constraints.stretches constraints.taxi
-        constraints.taxi_route_yield constraints.taxi_trend constraints.taxi_trend_cap constraints.trend
+        constraints.taxi_route_yield constraints.taxi_trend constraints.taxi_trend_cap
+        constraints.trend
         geom.base_slab geom.cluster_outline geom.containment geom.core_clamp
         geom.pad_evidence geom.triangulate geom.union_find law.inset_class model.airport
         model.islands model.map_memo model.platform
@@ -1184,6 +1190,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.ground_fit model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.face_index constraints.group_level
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "groundside": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1202,12 +1209,18 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "door_pad": _mods(_GENERATOR_CORE + """
         geom.exact
         constraints.apron constraints.door_pad constraints.geometry constraints.precedence
         geom.slope_pad model.airport
         model.stage_one
+        constraints.cluster_pad constraints.face_index constraints.group_level
+        constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence geom.triangulate
+        geom.union_find model.islands model.map_memo model.platform
     """),
     "junction_mesh": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1219,6 +1232,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.taxi_route_yield
     """),
     "no_step": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1236,6 +1250,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.islands model.map_memo model.platform model.threshold_datum
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.taxi constraints.taxi_route_yield
     """),
     "pad_frontage_gs": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1247,6 +1262,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "pad_fronting": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1257,6 +1273,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.union_find model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "pads": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1267,6 +1284,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "platform": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1277,6 +1295,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "proximity": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1297,6 +1316,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1309,6 +1329,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "edge_deck": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1344,6 +1365,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.deck_anchor constraints.edge_floor
         constraints.deck_lines
         model.stage_one
+        constraints.taxi constraints.taxi_route_yield
 """),
     "runway_chord": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1363,6 +1385,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.deck_anchor constraints.edge_floor
         constraints.deck_lines
         model.stage_one
+        constraints.taxi constraints.taxi_route_yield
 """),
     "runway_mean_slope": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1382,6 +1405,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.deck_anchor constraints.edge_floor
         constraints.deck_lines
         model.stage_one
+        constraints.taxi constraints.taxi_route_yield
 """),
     "runway_profile": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1417,6 +1441,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "taxi": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1428,6 +1453,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.taxi_route_yield
     """),
     "transverse": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -1435,6 +1461,10 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.precedence constraints.roads constraints.stretches
         constraints.strips constraints.transverse geom.containment model.airport
         model.end_area model.islands model.map_memo model.platform model.threshold_datum
+        constraints.apron constraints.cluster_pad constraints.face_index constraints.group_level
+        constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
+        constraints.routes constraints.taxi constraints.taxi_route_yield geom.base_slab
+        geom.cluster_outline geom.pad_evidence geom.slope_pad geom.triangulate geom.union_find
     """),
     "terrain_shaped": _mods(_GENERATOR_CORE + """
         constraints.terrain_shaped geom.terrain_deck model.airport
@@ -1543,6 +1573,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped
     law.walled_plate_schema model.walled_plate
     constraints.deck_anchor
+    constraints.taxi_route_yield
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     geom.exact
@@ -1595,6 +1626,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     geom.slope_pad
     geom.foot_planes constraints.group_level constraints.face_index
     airport.dem airport.walled_plate law.walled_plate_schema model.walled_plate
+    constraints.taxi constraints.taxi_route_yield
 """)
 
 #: THE SOLVE AND THE LAST STAGE (spec §4b.4, §4b.5; #843 step 9b): the solve
@@ -1728,6 +1760,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
     constraints.deck_anchor constraints.edge_floor
     constraints.deck_lines
+    constraints.taxi_route_yield
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     solve.follow_stage
@@ -1865,6 +1898,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped law.walled_plate_schema
     model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
     constraints.deck_anchor
+    constraints.taxi_route_yield
 """)
 CODE_MODULES["emit"] = _mods("""
     airport.lot_level solve.follow_stage
@@ -1954,6 +1988,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.walled_plate law.walled_plate_schema model.walled_plate
     constraints.deck_anchor
     model.stage_one
+    constraints.taxi_route_yield
 """)
 CODE_MODULES["verify"] = _mods("""
     geom.exact
@@ -2036,6 +2071,7 @@ CODE_MODULES["verify"] = _mods("""
     constraints.deck_lines
     model.stage_one
     verify.deck_flush
+    constraints.taxi_route_yield
 """)
 
 

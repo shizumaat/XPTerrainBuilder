@@ -96,7 +96,8 @@ def test_the_entry_modules_are_where_the_build_enters_each_stage():
     module, the stage's closure must be re-rooted there."""
     from auto_patch_v2 import classify
     from auto_patch_v2.airport import flat_site_read, road_profile, road_ramp
-    from auto_patch_v2.constraints import apron_trend, eat, runway_chord, taxi_trend
+    from auto_patch_v2.constraints import (apron_trend, eat, runway_chord, taxi_route_yield,
+                                           taxi_trend)
     from auto_patch_v2.emit import road_join
     from auto_patch_v2.pipeline import shapes
     # ``planar/__init__`` re-exports ``build``, shadowing the submodule
@@ -118,6 +119,7 @@ def test_the_entry_modules_are_where_the_build_enters_each_stage():
         "road_profile": {road_profile.preferred_road_z.__module__},
         # the target channels the shape record is keyed on (#843)
         "channels": {runway_chord.with_runway_chord.__module__,
+                     taxi_route_yield.route_lines.__module__,
                      taxi_trend.with_taxi_trend.__module__,
                      apron_trend.with_apron_trend.__module__,
                      eat.withdraw_trend_over_reach.__module__,

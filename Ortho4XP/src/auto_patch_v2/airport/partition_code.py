@@ -71,6 +71,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.deck_signature",
     "auto_patch_v2.airport.dem",
     "auto_patch_v2.airport.dsf",
+    "auto_patch_v2.airport.entrance_seat",
     "auto_patch_v2.airport.file_hash",
     "auto_patch_v2.airport.footprint_carry",
     "auto_patch_v2.airport.footprint_connector",

@@ -36,7 +36,7 @@ from . import airside_deck_seat as _ads
 from .placement_file import authored_offset, named_body
 
 __all__ = ["CUT_RING", "CUT_FRAME_Z", "SEAT_REASON", "seated", "cut_seats", "seat_under",
-           "framed_zero", "cut_rings",
+           "framed_zero", "stands_in", "cut_rings",
            "carries_airside", "carries_road", "end_ground", "seat_cut_decks"]
 
 #: The ``authored_seats`` record key carrying a pack object cut's
@@ -177,14 +177,14 @@ def seat_under(body: _t.Any, seats: _t.Sequence[tuple[tuple, float]],
 
 def framed_zero(member_id: str, seats: _t.Sequence[tuple[tuple, float]],
                 records: _t.Iterable[_t.Mapping[str, _t.Any]]
-                ) -> "tuple[float, float] | None":
-    """Owner 2026-11-05 §0.5: ``(zero, residual)`` for the CUT member
+                ) -> "tuple[float, float, Polygon] | None":
+    """Owner 2026-11-05 §0.5: ``(zero, residual, ring)`` for the CUT member
     ``member_id`` a pack deck frames — the zero of the deck piece seated
     over its own cut ring (:func:`cut_seats`; the piece's box centre inside
-    the ring) and that zero less the frame zero the planar map read its
-    floor at (:data:`CUT_FRAME_Z`) — or ``None``.  Its walls ride the deck
-    whatever their height: the deck is the cut's frame, not a thing on it
-    (:func:`seat_under`'s riders)."""
+    the ring), that zero less the frame zero the planar map read its floor
+    at (:data:`CUT_FRAME_Z`), and the ring (``(lon, lat)``) — or ``None``.
+    Its walls there ride the deck whatever their height: the deck is the
+    cut's frame, not a thing on it (:func:`seat_under`'s riders)."""
     rec = next((r for r in records or () if hasattr(r, "get")
                 and str(r.get("id")) == str(member_id)
                 and r.get(CUT_FRAME_Z) is not None and r.get(CUT_RING)), None)
@@ -194,8 +194,22 @@ def framed_zero(member_id: str, seats: _t.Sequence[tuple[tuple, float]],
     ring = ring if ring.is_valid else ring.buffer(0)
     for sb, zero in seats:
         if ring.contains(Point(0.5 * (sb[1] + sb[3]), 0.5 * (sb[0] + sb[2]))):
-            return float(zero), float(zero) - float(rec[CUT_FRAME_Z])
+            return float(zero), float(zero) - float(rec[CUT_FRAME_Z]), ring
     return None
+
+
+def stands_in(body: _t.Any, ring: Polygon, on_fraction: float) -> bool:
+    """Does at least ``on_fraction`` of ``body``'s written geometry
+    (``geom_pts``; its box centre where it publishes none) stand inside
+    ``ring`` (``(lon, lat)``)?  A body of the cut member elsewhere along a
+    long object (LGAV ``Trench_02``'s pieces 1.5 km from the deck) keeps
+    its own seat."""
+    pts = tuple(getattr(body, "geom_pts", ()) or ())
+    if pts:
+        return sum(1 for q in pts if ring.contains(Point(q[1], q[0]))) >= on_fraction * len(pts)
+    box = getattr(body, "geom_box", None) or getattr(body, "plan_box", None)
+    return box is not None and ring.contains(Point(0.5 * (box[1] + box[3]),
+                                                   0.5 * (box[0] + box[2])))
 
 
 def cut_rings(records: _t.Iterable[_t.Mapping[str, _t.Any]]

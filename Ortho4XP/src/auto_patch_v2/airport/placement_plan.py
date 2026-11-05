@@ -49,6 +49,7 @@ emitted object pad; else ``other``.
 from __future__ import annotations
 
 import dataclasses as _dc
+import functools as _functools
 import json
 import math
 import os as _os
@@ -136,6 +137,25 @@ from .placement_file import (  # noqa: E402,F401
     _note_tilted_kept_whole, _own_ground_file, _split_by_unit,
     _unit_carried_file)
 
+
+
+def _rides_frame(ring: _t.Any, on_fraction: float, body: _t.Any) -> bool:
+    """A body of a framed cut standing in its ring, not already seated as a
+    deck (owner 2026-11-05 §0.5; ``cut_deck_seat.stands_in``)."""
+    return not _cds.seated(body) and _cds.stands_in(body, ring, on_fraction)
+
+
+def _keeps_seat(ring: _t.Any, on_fraction: float, seats: _t.Sequence, body: _t.Any) -> bool:
+    """A body a refused bridge frame's zero leaves at its own seat: a deck
+    seated over the pack's cut, a body riding one (#1883), or a framed
+    cut's body in its ring (:func:`_rides_frame`)."""
+    return ((ring is not None and _rides_frame(ring, on_fraction, body)) or _cds.seated(body)
+            or _cds.seat_under(body, seats, on_fraction) is not None)
+
+
+def _in_channel(n: str, body: _t.Any) -> bool:
+    """Is ``body`` a rim body of channel ``n`` (``channel_zero.rim_channel``)?"""
+    return _chz_mod.rim_channel(body) == n
 
 
 def build_splits(plan: RebakePlan, surface: _ar.Surface,
@@ -961,7 +981,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             fz = _cds.framed_zero(getattr(mm, "id", ""), _s,
                                   getattr(plan, "authored_seats", ()) or ())
             if fz is not None:
-                r = _at_zero(r, mm, fz[0], lambda b: not _cds.seated(b),
+                r = _at_zero(r, mm, fz[0], _functools.partial(_rides_frame, fz[2],
+                                                               deck_on_fraction),
                              f"the cut the deck seated over it frames, at {fz[0]:.2f} "
                              f"(owner 2026-11-05 §0.5; residual to its floor's frame "
                              f"{fz[1]:+.2f} m)")
@@ -982,8 +1003,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             return _frame_zero(r, mm, _z[0],
                                f"one bridge frame at its deck's zero {_z[0]:.2f} "
                                "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)",
-                               keep=lambda b, _s=_s, _f=fz: _f is not None or _cds.seated(b)
-                               or _cds.seat_under(b, _s, deck_on_fraction) is not None)
+                               keep=_functools.partial(_keeps_seat, None if fz is None
+                                                       else fz[2], deck_on_fraction, _s))
 
         # #1883: a pack-floored channel's frame at the zero its floor was
         # read at, never at the rim (``channel_zero``)
@@ -995,7 +1016,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         def _cut_decks(r, mm, _u=u, _air=airside, _cz=_chz):
             r = _ens.seat_faces(r, mm, _entr, _at_zero)
             for n, zero in sorted(_cz.items()):
-                r = _at_zero(r, mm, zero, lambda b, _n=n: _chz_mod.rim_channel(b) == _n,
+                r = _at_zero(r, mm, zero, _functools.partial(_in_channel, n),
                              f"the channel's pack floor zero {zero:.2f} (#1883)")
             if _air is not None or not _cuts:
                 return r

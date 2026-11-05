@@ -239,7 +239,13 @@ def test_the_framed_cut_takes_the_zero_of_the_deck_seated_over_its_ring():
             {"id": "dsf:obj3", CDS.CUT_RING: ring}]
     seats = [((40.5, -2.5, 40.6, -2.4, 0.0), 70.0),          # a deck over another cut
              ((40.004, -2.996, 40.006, -2.994, 0.0), 80.02)]
-    zero, res = CDS.framed_zero("dsf:obj2", seats, recs)
+    zero, res, ring_ll = CDS.framed_zero("dsf:obj2", seats, recs)
     assert abs(zero - 80.02) < 1e-9 and abs(res - 0.12) < 1e-9
+    # only the member's bodies standing in the ring ride it (a long
+    # object's pieces 1.5 km away keep their own seat)
+    near = types.SimpleNamespace(geom_pts=((40.005, -2.995, 0.0), (40.006, -2.994, -4.0)))
+    far = types.SimpleNamespace(geom_pts=((40.005, -2.995, 0.0), (40.5, -2.5, -4.0),
+                                          (40.5, -2.49, -4.0)))
+    assert CDS.stands_in(near, ring_ll, 0.5) and not CDS.stands_in(far, ring_ll, 0.5)
     assert CDS.framed_zero("dsf:obj3", seats, recs) is None
     assert CDS.framed_zero("dsf:obj2", seats[:1], recs) is None

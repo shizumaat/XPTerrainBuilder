@@ -62,6 +62,7 @@ class Apron:
     arm_min_aspect: float
     arm_mouth_max_factor: float
     arm_reread_factor: float
+    arm_road_max_width_m: float
 
 
 @_dc.dataclass(frozen=True)

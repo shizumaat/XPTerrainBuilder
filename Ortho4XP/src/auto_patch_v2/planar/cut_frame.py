@@ -140,8 +140,11 @@ def frame_cuts(tunnels: _t.Sequence, objects, cache, classification, airport, la
         # 77.45 / 76.09 / 76.88 seated); a floor read low strands the riding
         # walls' bottom over it (a gap), one read high only buries it
         z0 = max(frame + floor_y, float(tn.mouth_z))
+        # the object's own floor per station (#1903) rides the same frame
+        lift = z0 - float(tn.mouth_z)
         out.append(_dc.replace(
             tn, mouth_z=z0, cut_frame=(str(d.id), frame),
+            profile=tuple((s, z + lift) for s, z in (getattr(tn, "profile", ()) or ())),
             notes=(*tn.notes, f"{FRAME_NOTE} {d.id} (owner 2026-11-05 §0.5): floor {z0:.2f} = "
                               f"the deck's zero {frame:.2f} flush at its end lines "
                               f"{g1:.2f} / {g2:.2f} (deck top {ta:+.2f} / {tb:+.2f}) "

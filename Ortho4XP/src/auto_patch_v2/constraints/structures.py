@@ -327,6 +327,13 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                               "(2026-09-03b L1; 2026-09-05n-4) under an object corridor", inputs)
             src_mouth = Source(GEN, "tunnel.object.mouth_depth = floor_slab: ground(mouth) − "
                               "the floor slab or mouth_depth_m (2026-09-05n-1; 2026-09-08l)", inputs)
+            if tn.profile:
+                # #1903 (owner 2026-11-05: "All the cuts are open trenches,
+                # the objects provide hard bridge roofs where needed"): a
+                # shell that states its floor is cut to that floor per
+                # station inside its walls — its ramps where they climb
+                src_bottom = Source(GEN, "tunnel.object: the floor = the object's own floor "
+                                    "under its axis per station (#1903)", inputs)
         elif tn.source == "door":
             # THE DOOR RAMP (RULINGS 2026-09-08b/c Law A): the well floor
             # pinned at the SILL, the ramp at the grade the well gives (07e), the

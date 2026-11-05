@@ -154,7 +154,8 @@ def _row_face(row) -> int | None:
     return None if tag is None else int(tag[5:])
 
 
-def _graph(pm: PlanarMap, law: Law, airport, st) -> list[tuple[int, int, float, float, tuple | None]]:
+def _graph(pm: PlanarMap, law: Law, airport, st
+           ) -> list[tuple[int, int, float, float, tuple | None]]:
     """THE HARD PAIR GRAPH the route reads: ``(a, b, cap, metres, key)`` per
     row — ``key`` ``("s", stretch)`` / ``("f", apron face)`` where the row
     rises with a route, ``None`` where it never does.  A lateral hop to a
@@ -169,7 +170,8 @@ def _graph(pm: PlanarMap, law: Law, airport, st) -> list[tuple[int, int, float, 
             e = pm.edges[eid]
             sid_of[(min(e.a, e.b), max(e.a, e.b))] = s.id
     rows = [*taxi.taxi_centerlines(pm, law, airport), *taxi.taxi_chain(pm, law, airport),
-            *apron.apron_within_shape(pm, law, airport), *apron.apron_edge_portions(pm, law, airport)]
+            *apron.apron_within_shape(pm, law, airport),
+            *apron.apron_edge_portions(pm, law, airport)]
     out: list[tuple[int, int, float, float, tuple | None]] = []
     for r in rows:
         h = _head(r)

@@ -724,7 +724,8 @@ def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
     # 11-05a (issue #1893): a taxi route its letter cap cannot run between
     # the runways' levels — the levels set just above — yields, derived
     # HERE beside the taxi yield (empty, and nothing built, where none)
-    from .taxi_route_yield import apron_yields, derive as _derive_routes
+    from .taxi_route_yield import apron_yields
+    from .taxi_route_yield import derive as _derive_routes
     routes_ = _derive_routes(out, law, airport)
     if not routes_:
         return out

@@ -50,7 +50,7 @@ from ..law.tables import role_family
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
-__all__ = ["TaxiRoute", "derive", "edge_key", "route_lines", "route_pair_caps"]
+__all__ = ["TaxiRoute", "apron_yields", "derive", "edge_key", "route_lines"]
 
 #: an interval shorter than this is the solver's tolerance, not a law gap
 #: (metres; ``[design] hard_tol_m`` is the solve's own held bar)
@@ -75,16 +75,9 @@ class TaxiRoute:
     table: float
     over_ceiling: bool
     edges: frozenset[tuple[tuple[float, float], tuple[float, float]]]
-    #: the APRON faces the route crosses (reported)
+    #: the APRON faces the route crosses (ruled 06:01Z, option a): they rise
+    #: with it, through ``PlanarMap.taxi_caps`` (the 10-10j apron channel)
     aprons: tuple[int, ...] = ()
-    #: THE APRON PAIRS that rise with it (owner 2026-11-05 13:02Z / 13:06Z):
-    #: ONLY the hard apron rows ON the route's own path through the apron —
-    #: the longitudinal run along the route; every lateral row keeps the
-    #: apron's law, so the membrane grades the apron smoothly between the
-    #: path and its other edges.  By canonical keys, read back per row by
-    #: ``apron._Tier`` (:func:`route_pair_caps`); a row touching a pad
-    #: never rises (the pad stays welded)
-    apron_pairs: frozenset = frozenset()
 
     def as_dict(self) -> dict[str, _t.Any]:
         """The PUBLISHED record (sidecar ``taxi_route_caps``)."""
@@ -94,7 +87,7 @@ class TaxiRoute:
                 "length_m": round(self.length_m, 1), "needed": round(self.needed, 6),
                 "cap": round(self.cap, 6), "table": self.table,
                 "over_ceiling": self.over_ceiling, "edges": len(self.edges),
-                "aprons": len(self.aprons), "apron_pairs": len(self.apron_pairs)}
+                "aprons": len(self.aprons)}
 
 
 def _contacts(pm: PlanarMap, law: Law, nodes: _t.Iterable[int]) -> dict[int, float]:
@@ -155,6 +148,12 @@ def _head(row) -> str:
     return row.source.ruling.split(" (")[0].strip()
 
 
+def _row_face(row) -> int | None:
+    tag = next((t for t in (row.source.inputs or ()) if isinstance(t, str)
+                and t.startswith("face:")), None)
+    return None if tag is None else int(tag[5:])
+
+
 def _graph(pm: PlanarMap, law: Law, airport, st
            ) -> list[tuple[int, int, float, float, tuple | None]]:
     """THE HARD PAIR GRAPH the route reads: ``(a, b, cap, metres, key)`` per
@@ -170,9 +169,6 @@ def _graph(pm: PlanarMap, law: Law, airport, st
         for eid in s.edges:
             e = pm.edges[eid]
             sid_of[(min(e.a, e.b), max(e.a, e.b))] = s.id
-    from ..law.tables import is_rigid_role
-    pad_v = {v for f in pm.faces.values() if is_rigid_role(law, f.role)
-             for v in pm.ring_vertices(f.ring)}
     rows = [*taxi.taxi_centerlines(pm, law, airport), *taxi.taxi_chain(pm, law, airport),
             *apron.apron_within_shape(pm, law, airport),
             *apron.apron_edge_portions(pm, law, airport)]
@@ -188,9 +184,8 @@ def _graph(pm: PlanarMap, law: Law, airport, st
                 sid = sid_of.get((min(a, b), max(a, b)))
                 out.append((a, b, cap, float(r.d), None if sid is None else ("s", sid)))
             elif h in _APRON_RISES:
-                # a row touching a pad never rises: the pad stays welded
-                key = None if a in pad_v or b in pad_v else ("p", (min(a, b), max(a, b)))
-                out.append((a, b, cap, float(r.d), key))
+                f = _row_face(r)
+                out.append((a, b, cap, float(r.d), None if f is None else ("f", f)))
             elif h in _FIXED:
                 out.append((a, b, cap, float(r.d), None))
         elif isinstance(r, Linear) and h in _FIXED and len(r.terms) == 3:
@@ -210,6 +205,7 @@ def derive(pm: PlanarMap, law: Law, airport: Airport | None) -> tuple[TaxiRoute,
     ceiling = getattr(law.ruleset.taxi, "longitudinal_exception_max", None)
     if ceiling is None or not pm.preferred_z:
         return ()
+    from .precedence import face_cap
     from .stretches import build_stretches
     st = build_stretches(pm, law)
     edges = _graph(pm, law, airport, st)
@@ -217,13 +213,10 @@ def derive(pm: PlanarMap, law: Law, airport: Airport | None) -> tuple[TaxiRoute,
     if len(fixed) < 2:
         return ()
 
-    own: dict[tuple, float] = {}
-    for _a, _b, c, _ln, k in edges:
-        if k is not None:
-            own[k] = min(c, own.get(k, c))
-
     def table(key: tuple) -> float:
-        return st.items[key[1]].cap_l if key[0] == "s" else own[key]
+        if key[0] == "s":
+            return st.items[key[1]].cap_l
+        return face_cap(law, pm.faces[key[1]], pm)[0]
     lift: dict[tuple, float] = {}
 
     def weight(j: int) -> _t.Callable[[], float]:
@@ -270,48 +263,27 @@ def derive(pm: PlanarMap, law: Law, airport: Airport | None) -> tuple[TaxiRoute,
                              need + margin > float(ceiling),
                              frozenset(edge_key(pm, e) for k in keys if k[0] == "s"
                                        for e in st.items[k[1]].edges),
-                             tuple(sorted({f for k in keys if k[0] == "p"
-                                           for f in _faces_of(pm, k[1])})),
-                             frozenset(_pair_key(pm, *k[1]) for k in keys if k[0] == "p")))
+                             tuple(sorted(k[1] for k in keys if k[0] == "f"))))
         if not raised:
             break                                     # held at the ceiling: §5a names the rest
     return tuple(out)
 
 
-def _pair_key(pm: PlanarMap, a: int, b: int) -> tuple:
-    ka, kb = tuple(pm.vertices[a].key), tuple(pm.vertices[b].key)
-    return (ka, kb) if ka <= kb else (kb, ka)
-
-
-def _faces_of(pm: PlanarMap, pair: tuple[int, int]) -> set[int]:
-    a, b = pair
-    return set(pm.vertices[a].incident_faces) & set(pm.vertices[b].incident_faces)
-
-
-_PAIR_CACHE: dict[int, tuple[PlanarMap, dict]] = {}
-
-
-def route_pair_caps(pm: PlanarMap) -> dict[tuple[int, int], float]:
-    """``(a, b)`` (vertex ids, ``a < b``) -> the route cap of every apron
-    pair a yielded route raised (:attr:`TaxiRoute.apron_pairs`); empty
-    where no route crosses an apron.  Cached per map."""
-    hit = _PAIR_CACHE.get(id(pm))
-    if hit is not None and hit[0] is pm:
-        return hit[1]
-    out: dict[tuple[int, int], float] = {}
-    routes_ = getattr(pm, "taxi_routes", None) or ()
-    if any(r.apron_pairs for r in routes_):
-        ids: dict[tuple, list[int]] = {}
-        for vid, v in pm.vertices.items():
-            ids.setdefault(tuple(v.key), []).append(vid)
-        for r in routes_:
-            for ka, kb in r.apron_pairs:
-                for a in ids.get(ka, ()):
-                    for b in ids.get(kb, ()):
-                        k = (a, b) if a < b else (b, a)
-                        out[k] = max(float(r.cap), out.get(k, 0.0))
-    _PAIR_CACHE.clear()
-    _PAIR_CACHE[id(pm)] = (pm, out)
+def apron_yields(pm: PlanarMap, law: Law, routes_: _t.Sequence[TaxiRoute],
+                 caps: _t.Mapping[int, _t.Any]) -> dict[int, _t.Any]:
+    """``caps`` (``PlanarMap.taxi_caps``) with every apron face a route
+    crosses at that route's cap — the record ``face_cap`` already reads for
+    an apron that follows (10-10j); the larger cap where a face has two."""
+    from .precedence import face_cap
+    from .runway_yield import TaxiYield
+    out = dict(caps)
+    for r in routes_:
+        for f in r.aprons:
+            had = out.get(f)
+            if had is not None and had.cap >= r.cap:
+                continue
+            table = face_cap(law, pm.faces[f], None)[0]
+            out[f] = TaxiYield(f, "taxi route (11-05a)", float(r.cap), table, float(r.cap))
     return out
 
 

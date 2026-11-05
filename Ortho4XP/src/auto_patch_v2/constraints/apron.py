@@ -76,8 +76,6 @@ nothing minted here.
 """
 from __future__ import annotations
 
-import typing as _t
-
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap, role_preferred_cap, snap_margin_m
 from ..model.airport import Airport
@@ -87,7 +85,6 @@ from ..model.planar import PlanarMap, is_osm_ribbon_ref
 from .geometry import (chord_midpoints_hit, chords_covered, face_cover,
                        chains_within, principal_axis)
 from .precedence import View, view
-from .taxi_route_yield import route_pair_caps
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
            "face_width", "STATS", "PREFERENCE_GROUP", "PREFERENCE_RULING",
@@ -124,14 +121,8 @@ class _Tier:
     own group ``apron:<face>:<k>``."""
 
     def __init__(self, fid: int, ref: str, hard: float | None, preferred: float | None,
-                 generator: str = GEN, ruling: str = PREFERENCE_RULING,
-                 lift: _t.Mapping[tuple[int, int], float] | None = None) -> None:
+                 generator: str = GEN, ruling: str = PREFERENCE_RULING) -> None:
         self.fid, self.hard, self.preferred = fid, hard, preferred
-        #: 11-05a (owner 2026-11-05 13:02Z): a pair on a yielded taxi
-        #: route's path through the apron takes the route's cap
-        #: (``taxi_route_yield.route_pair_caps``); every other pair keeps
-        #: the face's
-        self.lift = lift or {}
         self.k = 0
         self.generator = generator
         self.ruling = ruling        # the preference row's citation
@@ -180,8 +171,7 @@ class _Tier:
         a, b, d, src, k = item
         out: list[Row] = []
         if self.hard is not None:
-            hard = max(self.hard, self.lift.get((a, b) if a < b else (b, a), 0.0))
-            out.append(Diff(a, b, hard, d, src))
+            out.append(Diff(a, b, self.hard, d, src))
         if self.preferred is not None:
             g = f"{PREFERENCE_GROUP}:{self.fid}:{k}"
             out.append(Diff(a, b, self.preferred, d,
@@ -202,7 +192,6 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
     with the 1 % preference row beside each; body chords within the body
     gate likewise (the 5 % back-edge class is not modelled — owed)."""
     vw = view(planar, law)
-    lift = route_pair_caps(planar)     # 11-05a: a yielded route's own pairs
     cap = role_cap(law, "apron")
     if cap is None:
         return []
@@ -239,9 +228,9 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
         # and its preference is the yielded head; every other face reads
         # the table, as before
         own = vw.caps[f.id][0] if vw.caps[f.id] is not None else cap.longitudinal
-        tier = (_Tier(f.id, f.ref, own, pref_l, ruling=YIELDED_PREFERENCE_RULING, lift=lift)
+        tier = (_Tier(f.id, f.ref, own, pref_l, ruling=YIELDED_PREFERENCE_RULING)
                 if own > cap.longitudinal
-                else _Tier(f.id, f.ref, cap.longitudinal, pref_l, lift=lift))
+                else _Tier(f.id, f.ref, cap.longitudinal, pref_l))
         src_ring = Source(GEN, "common.roles.apron ring edge (2026-08-21b)",
                           (f"face:{f.id}", f.ref))
         src_spine = Source(GEN, "common.roles.apron frontage chord (2026-08-21c)",
@@ -427,7 +416,6 @@ def apron_edge_portions(planar: PlanarMap, law: Law, airport: Airport
     holds it), the PREFERENCE row wherever the face's cap is looser than
     the preference."""
     vw = view(planar, law)
-    lift = route_pair_caps(planar)     # 11-05a: a yielded route's own pairs
     cap = role_cap(law, "apron")
     if cap is None:
         return []
@@ -467,7 +455,7 @@ def apron_edge_portions(planar: PlanarMap, law: Law, airport: Airport
             continue
         src = Source(GEN_EDGE, "common.roles.apron on the shared edge portion (04t-2)",
                      (f"face:{fid}", f.ref))
-        tier = _Tier(fid, f.ref, hard_here, pref_here, GEN_EDGE, lift=lift)
+        tier = _Tier(fid, f.ref, hard_here, pref_here, GEN_EDGE)
         for run in runs:
             for i in range(len(run)):
                 for j in range(i + 1, len(run)):

@@ -569,6 +569,12 @@ class BuildingPad:
     #: stand at least this far under its frontage level carries a LOWER
     #: level (``planar/low_level``); ``0`` disarms it
     low_level_min_step_m: float = 0.0
+    #: A SPLIT-LEVEL BUILDING (owner 2026-11-05, ``airport/split_level``):
+    #: a wall side counts as CLOSED at a height where its wall faces cover
+    #: at least this share of the side's length; ``0`` disarms the reader
+    split_level_wall_cover: float = 0.0
+    #: ... read on the wall faces within this of the side's line (metres)
+    split_level_probe_m: float = 3.0
     #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
     #: ``airport/jetways.py``): ``None`` = no expansion
     jetway_root_reach_m: float | None = None

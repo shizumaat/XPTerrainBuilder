@@ -302,11 +302,14 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
 def _keep_across(final: list[list], i: int, run, storey, cuts, to_xy) -> None:
     """Record on ``final[i]`` that §27 kept it groundside across a storey
     (``classify.storey_edge``), and hand its run to ``cuts``."""
-    from .storey_edge import STOREY_M_KEY, STOREY_Y_KEY, storey_height
+    from .storey_edge import (STOREY_M_KEY, STOREY_UNCONFIRMED_KEY, STOREY_Y_KEY,
+                              ground_confirms, storey_height)
     h = storey_height(storey, run, to_xy) if to_xy is not None else None
     ev = dict(final[i][4], **{STOREY_M_KEY: round(float(run.length), 1)})
     if h is not None:
-        ev[STOREY_Y_KEY] = h
+        # #1905: an upper floor over lower ground is no level of the lot
+        ok = ground_confirms(storey, final[i][2], run, h)
+        ev[STOREY_Y_KEY if ok is not False else STOREY_UNCONFIRMED_KEY] = h
     final[i][4] = ev
     if cuts is not None:
         cuts[i] = run

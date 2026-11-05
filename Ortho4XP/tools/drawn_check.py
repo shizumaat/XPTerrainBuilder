@@ -31,6 +31,15 @@ drawn vertex.  Bars (#1903 brief):
 - ramp relief (way top - floor) > 0 at a CUT-role ramp;
 - no claimed object KEPT with "split undone" in its plan.
 
+SPLIT-LEVEL BUILDINGS (the sidecar's ``basin_facilities`` of kind
+``split_level``, ``planar/split_level_pit``): per building, its written
+rows' drawn zero, its lower floor (zero + ``plate_y_m``) against the drawn
+mesh over its floor, and its upper floor (+ ``floor_below_rim_m``) against
+the drawn mesh 1 m outside each open side.  Bars: |lower floor - drawn
+floor| <= tol; |upper floor - median open-side ground| <= tol; no open-side
+station with the ground more than tol under the upper floor (a gap that
+shows the open wall).
+
 A site with no claimed object within R is UNCLAIMED (reported, no bar).
 ``lowest any`` is the lowest drawn vertex of ANY pack row within R -- the
 rc1903 instrument's own column.  Exit 1 if any bar fails.
@@ -358,6 +367,82 @@ def check_site(site, drawn, claims, radius_m, tol):
     return row
 
 
+def _base(drawn, i):
+    """The drawn zero of written row ``i`` (module docstring's placement)."""
+    p = drawn.rows[i]
+    if p.kind == "OBJECT_MSL":
+        return p.elevation
+    return mesh_z(drawn.mesh, p.lon, p.lat) + (
+        p.elevation or 0.0 if p.kind == "OBJECT_AGL" else 0.0)
+
+
+def _outside(seg, centre, out_m, n=5):
+    """``n`` (lon, lat) stations ``out_m`` outside the (lat, lon) segment
+    ``seg``, away from ``centre`` (lon, lat)."""
+    (la0, lo0), (la1, lo1) = seg[0], seg[-1]
+    kx = M_PER_DEG * math.cos(math.radians(la0))
+    x0, y0, x1, y1 = lo0 * kx, la0 * M_PER_DEG, lo1 * kx, la1 * M_PER_DEG
+    L = math.hypot(x1 - x0, y1 - y0) or 1.0
+    nx, ny = (y1 - y0) / L, -(x1 - x0) / L
+    cx, cy = centre[0] * kx, centre[1] * M_PER_DEG
+    if (cx - 0.5 * (x0 + x1)) * nx + (cy - 0.5 * (y0 + y1)) * ny > 0.0:
+        nx, ny = -nx, -ny
+    out = []
+    for k in range(n):
+        f = (k + 0.5) / n
+        out.append(((x0 + f * (x1 - x0) + nx * out_m) / kx,
+                    (y0 + f * (y1 - y0) + ny * out_m) / M_PER_DEG))
+    return out
+
+
+def check_split(rec, drawn, tol):
+    """One split-level building's row (module docstring)."""
+    stems = {stem(r) for r in rec.get("resources", [])}
+    rows = [i for i, p in enumerate(drawn.rows) if stem(p.def_path) in stems]
+    lon, lat = rec["anchor_longitude_latitude"]
+    kx = M_PER_DEG * math.cos(math.radians(lat))
+    rows = [i for i in rows if math.hypot((drawn.rows[i].lon - lon) * kx,
+                                          (drawn.rows[i].lat - lat) * M_PER_DEG) < 300.0]
+    y_lo = float(rec.get("plate_y_m") or 0.0)
+    y_up = y_lo + float(rec.get("floor_below_rim_m") or 0.0)
+    out = {"site": f"split_level {rec.get('floor_ref')}", "lat": round(lat, 6),
+           "lon": round(lon, 6), "resources": sorted(stems), "rows": len(rows),
+           "fails": [], "role": "SPLIT"}
+    if not rows:
+        out["fails"].append("no written row of the building")
+        out["verdict"] = "FAIL"
+        return out
+    zeros = [_base(drawn, i) for i in rows]
+    z0 = float(numpy.nanmedian(zeros))
+    floor = mesh_z(drawn.mesh, lon, lat)
+    ground = [mesh_z(drawn.mesh, x, y) for sd in rec.get("open_sides_ll", [])
+              for x, y in _outside(sd, (lon, lat), 1.0)]
+    ground = [g for g in ground if not math.isnan(g)]
+    out.update({"zero": round(z0, 2), "zero_spread": round(max(zeros) - min(zeros), 2),
+                "lower_floor": round(z0 + y_lo, 2), "drawn_floor": round(floor, 2),
+                "patch_floor": rec.get("floor_m"), "upper_floor": round(z0 + y_up, 2),
+                "open_ground_median": round(float(numpy.median(ground)), 2) if ground else None,
+                "open_ground_min": round(min(ground), 2) if ground else None})
+    d_lo = z0 + y_lo - floor
+    out["delta"] = round(d_lo, 2)
+    if math.isnan(d_lo) or abs(d_lo) > tol:
+        out["fails"].append(f"lower floor - drawn floor {d_lo:+.2f} > {tol}")
+    if out["zero_spread"] > tol:
+        out["fails"].append(f"rows seated {out['zero_spread']:.2f} m apart")
+    if ground:
+        d_up = out["open_ground_median"] - (z0 + y_up)
+        out["delta_upper"] = round(d_up, 2)
+        if abs(d_up) > tol:
+            out["fails"].append(f"open-side ground - upper floor {d_up:+.2f} > {tol}")
+        gap = (z0 + y_up) - min(ground)
+        if gap > tol:
+            out["fails"].append(f"open wall shows a {gap:.2f} m gap to the terrain")
+    else:
+        out["fails"].append("no drawn ground outside the open side")
+    out["verdict"] = "FAIL" if out["fails"] else "PASS"
+    return out
+
+
 def compare(rows, base_rows, tol=0.05):
     """Sites whose verdict or delta moved against a baseline run."""
     base = {r["site"]: r for r in base_rows}
@@ -439,6 +524,8 @@ def run(args):
     drawn = Drawn(written, pack_root, mesh)
     rows = [check_site(s, drawn, claims, args.radius, args.tol)
             for s in read_sites(patch, sidecar, args.radius)]
+    rows += [check_split(r, drawn, args.tol) for r in sidecar.get("basin_facilities", [])
+             if r.get("kind") == "split_level"]
     return {"icao": args.icao, "tile": tile, "pack_root": pack_root,
             "tile_dsfs": tile_dsfs, "tol_m": args.tol, "radius_m": args.radius,
             "claims": [dataclasses.asdict(c) for c in claims], "sites": rows}
@@ -447,6 +534,16 @@ def run(args):
 def print_report(rep):
     print(f"DRAWN CHECK {rep['icao']} {rep['tile']}  pack {rep['pack_root']}")
     for r in rep["sites"]:
+        if r.get("role") == "SPLIT":
+            print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} "
+                  f"{','.join(os.path.basename(x) for x in r['resources'])} rows {r['rows']}: "
+                  f"lower floor {r.get('lower_floor')} on drawn floor {r.get('drawn_floor')} "
+                  f"(patch {r.get('patch_floor')}), upper floor {r.get('upper_floor')} vs "
+                  f"open-side ground {r.get('open_ground_median')} (min "
+                  f"{r.get('open_ground_min')})")
+            for f in r["fails"]:
+                print(f"       FAIL {f}")
+            continue
         rel = "" if r["relief"] is None else f" relief {r['relief']:+.2f}"
         low = r["lowest_any"]
         print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} floor "

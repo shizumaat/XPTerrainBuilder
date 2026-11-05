@@ -38,13 +38,15 @@ from ..law import Law
 from ..law.tables import role_side, snap_margin_m
 from .evidence import polygon_parts
 
-__all__ = ["STOREY_M_KEY", "STOREY_Y_KEY", "StoreyBand", "knife_storeys",
-           "storey_band", "storey_height"]
+__all__ = ["STOREY_M_KEY", "STOREY_Y_KEY", "STOREY_UNCONFIRMED_KEY", "StoreyBand",
+           "ground_confirms", "knife_storeys", "storey_band", "storey_height"]
 
 #: evidence: metres of a lot's apron contact §27 read as across a storey
 STOREY_M_KEY = "airside_edge_storey_m"
 #: evidence: that storey's authored rise over its unit's airside floor (m)
 STOREY_Y_KEY = "airside_edge_storey_y"
+#: evidence: a storey rise the lot's ground does not confirm (reported)
+STOREY_UNCONFIRMED_KEY = "airside_edge_storey_unconfirmed_y"
 
 
 @_dc.dataclass(frozen=True)
@@ -56,6 +58,10 @@ class StoreyBand:
     storeys: tuple
     weld_m: float
     air: _t.Any = None
+    #: the airport's DEM (``z(x, y)``), the ground witness of a storey
+    dem: _t.Any = None
+    #: how far from the run the ground is read (``[design] pad_frontage_m``)
+    reach_m: float = 0.0
 
 
 def storey_band(airport, law: Law, cells, final) -> "StoreyBand | None":
@@ -71,9 +77,11 @@ def storey_band(airport, law: Law, cells, final) -> "StoreyBand | None":
     st = upper_storeys(airport, law, air)
     if not st:
         return None
+    from ..law.tables import design as design_law
     weld = float(law.tables.emit.identity.weld_spacing_m)
     return StoreyBand(unary_union([s.footprint for s in st]).buffer(weld), tuple(st),
-                      weld, air)
+                      weld, air, getattr(airport, "dem", None),
+                      float(design_law(law).pad_frontage_m))
 
 
 def storey_height(band: StoreyBand, run, to_xy) -> "float | None":
@@ -85,6 +93,50 @@ def storey_height(band: StoreyBand, run, to_xy) -> "float | None":
             if s.footprint.buffer(band.weld_m).intersects(zone) for p in s.parts
             if (g := part_footprint(p, to_xy)) is not None and g.intersects(zone)]
     return float(min(_st.multimode(rise))) if rise else None
+
+
+def _median_dem(dem, g, step: float = 2.0) -> "float | None":
+    """The median DEM over ``g`` on a ``step`` grid (at most ~400 samples)."""
+    import math
+
+    from shapely.geometry import Point
+    if dem is None or g is None or g.is_empty:
+        return None
+    x0, y0, x1, y1 = g.bounds
+    h = max(step, math.sqrt(max(g.area, 1.0) / 400.0))
+    zs = []
+    y = y0 + 0.5 * h
+    while y < y1:
+        x = x0 + 0.5 * h
+        while x < x1:
+            if g.contains(Point(x, y)):
+                try:
+                    z = float(dem.z(x, y))
+                except Exception:  # noqa: BLE001 -- off the raster
+                    z = float("nan")
+                if z == z:
+                    zs.append(z)
+            x += h
+        y += h
+    return _st.median(zs) if zs else None
+
+
+def ground_confirms(band: StoreyBand, lot, run, rise: float) -> "bool | None":
+    """Whether the lot's own ground stands at least half the storey ``rise``
+    above the airside pavement along ``run`` (module docstring): the DEM
+    median over the lot against the median over the airside within the
+    lot's mean depth off the run (its area over the run's length, at least
+    the band's ``reach_m``).  ``None`` where either side has no ground to
+    read (no verdict: the storey stands as read)."""
+    if (band.dem is None or band.air is None or lot is None or run is None
+            or run.is_empty or run.length <= 0.0):
+        return None
+    reach = max(float(band.reach_m), float(lot.area) / float(run.length))
+    z_lot = _median_dem(band.dem, lot)
+    z_air = _median_dem(band.dem, band.air.intersection(run.buffer(reach)))
+    if z_lot is None or z_air is None:
+        return None
+    return z_lot - z_air >= 0.5 * float(rise)
 
 
 def knife_storeys(final: list[list], cuts: _t.Mapping[int, _t.Any], law: Law,

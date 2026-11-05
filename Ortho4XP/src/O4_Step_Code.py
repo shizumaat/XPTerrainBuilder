@@ -503,6 +503,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.constraints.structures",
     "auto_patch_v2.constraints.surface_trend",
     "auto_patch_v2.constraints.taxi",
+    "auto_patch_v2.constraints.taxi_route_yield",
     "auto_patch_v2.constraints.taxi_trend",
     "auto_patch_v2.constraints.taxi_trend_cap",
     "auto_patch_v2.constraints.threshold_seam",

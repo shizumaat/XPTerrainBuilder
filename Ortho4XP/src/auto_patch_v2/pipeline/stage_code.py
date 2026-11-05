@@ -69,6 +69,7 @@ ENTRY_MODULES: dict[str, tuple[str, ...]] = {
     "road_profile": ("auto_patch_v2.airport.road_profile",),
     "channels": ("auto_patch_v2.airport.road_ramp", "auto_patch_v2.constraints.apron_trend",
                  "auto_patch_v2.constraints.eat", "auto_patch_v2.constraints.runway_chord",
+                 "auto_patch_v2.constraints.taxi_route_yield",
                  "auto_patch_v2.constraints.taxi_trend", "auto_patch_v2.emit.road_join"),
     "shapes": ("auto_patch_v2.pipeline.shapes",),
 }
@@ -726,6 +727,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.stretches",
         "auto_patch_v2.constraints.surface_trend",
         "auto_patch_v2.constraints.taxi",
+        "auto_patch_v2.constraints.taxi_route_yield",
         "auto_patch_v2.constraints.taxi_trend",
         "auto_patch_v2.constraints.taxi_trend_cap",
         "auto_patch_v2.constraints.threshold_seam",
@@ -952,6 +954,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.strips",
         "auto_patch_v2.constraints.structures",
         "auto_patch_v2.constraints.taxi",
+        "auto_patch_v2.constraints.taxi_route_yield",
         "auto_patch_v2.constraints.taxi_trend",
         "auto_patch_v2.constraints.taxi_trend_cap",
         "auto_patch_v2.constraints.terrain_shaped",
@@ -1150,7 +1153,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.runway_junctions
         constraints.threshold_seam
         constraints.shoulder_crossing constraints.stretches constraints.taxi
-        constraints.taxi_trend constraints.taxi_trend_cap constraints.trend
+        constraints.taxi_route_yield constraints.taxi_trend constraints.taxi_trend_cap constraints.trend
         geom.base_slab geom.cluster_outline geom.containment geom.core_clamp
         geom.pad_evidence geom.triangulate geom.union_find law.inset_class model.airport
         model.islands model.map_memo model.platform
@@ -2047,6 +2050,7 @@ ENTRY_MODULES["solve"] = ("auto_patch_v2.solve.design", "auto_patch_v2.solve.api
                           "auto_patch_v2.constraints.group_level",
                           "auto_patch_v2.constraints.no_step",
                           "auto_patch_v2.constraints.road_ramp",
+                          "auto_patch_v2.constraints.taxi_route_yield",
                           "auto_patch_v2.constraints.taxi_trend",
                           "auto_patch_v2.pipeline.lot_follow",
                           "auto_patch_v2.pipeline.stage_one_map",

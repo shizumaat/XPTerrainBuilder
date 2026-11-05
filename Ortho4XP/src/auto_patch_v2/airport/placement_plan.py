@@ -315,6 +315,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     reseated = _aseat.reseated_rows(getattr(plan, "authored_seats", ()) or ())
     # 26d (#1331): the pack object cuts' rings, published on the seat records
     _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
+    # #1903: ...and the placements those cuts are (their own roofs' end lines)
+    _cut_ids = frozenset(str(r.get("id")) for r in getattr(plan, "authored_seats", ()) or ()
+                         if hasattr(r, "get") and r.get(_cds.CUT_RING))
     # #1747: each entrance face's zero at its portal (``entrance_seat``)
     _entr = _ens.entrance_zeros(getattr(plan, "authored_seats", ()) or ())
 
@@ -972,7 +975,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # (every member a deck or a deck candidate: a bridge, a canopy)
         # moves as ONE rigid group
         airside = _airside_frame(staged, decks, surface, counts,
-                                 abutment_step_m, tuple(u.anchor))
+                                 abutment_step_m, tuple(u.anchor), _cut_ids)
         # owner RULINGS 2026-10-27c with 10-22c/d (#1471): a BRIDGE frame
         # class A refuses (no taxiway or apron pavement across its deck)
         # still moves as one, at its deck's own zero, the deck cut first

@@ -251,22 +251,49 @@ def test_the_framed_cut_takes_the_zero_of_the_deck_seated_over_its_ring():
     assert CDS.framed_zero("dsf:obj2", seats[:1], recs) is None
 
 
-def test_a_cuts_own_cover_never_frames_it():
-    """``planar/cut_frame``: a signature-B pair's COVER (VHHH, EGLL ``3.obj``
-    over ``3a.obj``) is the cut's roof, never a deck that frames it — read
-    as one, EGLL's floor moved 1.39 m off its walls' bottom (Q167)."""
+def test_a_cuts_own_cover_frames_its_floor_but_lays_no_frame_zero(monkeypatch):
+    """``planar/cut_frame`` (#1903, amends round 3's "never frames it"): a
+    signature-B pair's COVER (EGLL ``3.obj`` over ``3a.obj``) is seated by
+    the object stage at its own end lines (10-22n), so the cut's floor is
+    read in THAT frame — the walls' bottom where they are drawn (the floor
+    under the anchor's uncut ground left them 2.1 m under the cut, drawn).
+    It may SINK the floor, and no frame zero is laid on the cover."""
+    import dataclasses as dc
+
     from auto_patch_v2.law import Law
-    from auto_patch_v2.planar.cut_frame import frame_cuts
-    shell = types.SimpleNamespace(id="dsf:obj1", xy=(0.0, 0.0), heading_deg=0.0, path="s.obj")
-    cover = types.SimpleNamespace(id="dsf:obj2", xy=(0.0, 0.0), heading_deg=0.0, path="c.obj",
-                                  deck_kind="flag",
-                                  hard_deck=CDS.Polygon([(-10, -10), (10, -10), (10, 10),
-                                                         (-10, 10)]))
-    tn = types.SimpleNamespace(id="object-cut:s.obj@0", source="object", objects=("dsf:obj1",),
-                               footprint=((-12, -12), (12, -12), (12, 12), (-12, 12)),
-                               mouth_z=70.0, notes=())
+    from auto_patch_v2.planar import cut_frame as CF
+
+    @dc.dataclass(frozen=True)
+    class Tn:
+        id: str
+        source: str
+        objects: tuple
+        footprint: tuple
+        mouth_z: float
+        notes: tuple
+        profile: tuple = ()
+        cut_frame: tuple = ()
+
+    def placed(i, kind=None, deck=None):
+        return types.SimpleNamespace(id=i, xy=(0.0, 0.0), heading_deg=0.0, path=f"{i}.obj",
+                                     kind="OBJECT", anchor_z=75.0, agl_m=0.0,
+                                     deck_kind=kind, hard_deck=deck)
+    shell = placed("dsf:obj1")
+    cover = placed("dsf:obj2", "flag", CDS.Polygon([(-10, -10), (10, -10), (10, 10),
+                                                    (-10, 10)]))
+    tn = Tn("object-cut:s.obj@0", "object", ("dsf:obj1",),
+            ((-12, -12), (12, -12), (12, 12), (-12, 12)), 70.0, (),
+            ((0.0, 72.0), (10.0, 70.0)))
+    monkeypatch.setattr(CF, "_PlanarSurface", lambda *_a: None)
+    monkeypatch.setattr(CF, "end_ground", lambda *_a: (
+        (73.0, 73.0), (((0.0, 0.0, 73.0),), ((0.0, 0.0, 73.0),))))
+    monkeypatch.setattr(CF, "_plate", lambda *_a: [(0.0, 0.0, 0.0)])
+    monkeypatch.setattr(CF, "_top_at", lambda *_a: 0.0)
     airport = types.SimpleNamespace(dsf_objects=(), frame=types.SimpleNamespace(
-        transformers=lambda: (None, None)))
-    out, notes = frame_cuts([tn], [shell, cover], object(), object(), airport,
-                            Law.for_airport("ZZZZ"), (("object-cut:s.obj@0", "dsf:obj2"),))
-    assert out == [tn] and notes == []
+        transformers=lambda: (lambda x, y: (x, y), lambda x, y: (y, x))))
+    out, _notes = CF.frame_cuts([tn], [shell, cover], object(), object(), airport,
+                                Law.for_airport("ZZZZ"), (("object-cut:s.obj@0", "dsf:obj2"),))
+    (got,) = out
+    assert got.mouth_z == 68.0                     # zero 73 + the floor 5 m under 75
+    assert got.profile == ((0.0, 70.0), (10.0, 68.0))
+    assert got.cut_frame == ()

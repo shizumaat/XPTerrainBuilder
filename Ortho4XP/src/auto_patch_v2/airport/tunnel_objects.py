@@ -191,6 +191,11 @@ class Corridor:
     #: The OSM tunnel way ids whose END stands at a mouth of this corridor
     #: (08o: those mouths PAIR with the corridor in ``planar/structures``).
     bore_ways: tuple[int, ...] = ()
+    #: THE FLOOR PER STATION ``((s, z), ...)`` from the mouth (#1903): the
+    #: object's own floor under its axis (``object_cut.floor_line``) — the
+    #: generator pins the trench to it inside the walls; empty = the floor
+    #: is ``floor_z`` (and the design line) everywhere.
+    profile: tuple[tuple[float, float], ...] = ()
 
 
 @_dc.dataclass
@@ -858,7 +863,18 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
                     float(sts2[-1].s), width, False, False, mean_t, mean_t, kind, flat,
                     mouth_dem, float(cut.floor_z), band, trench, footprint,
                     cut.ends[mouth], mouth_dem, 0.0, tuple(notes), depth, False,
-                    cut.floor_y, tuple(sorted(set(bores[0]) | set(bores[1]))))
+                    cut.floor_y, tuple(sorted(set(bores[0]) | set(bores[1]))),
+                    _floor_profile(cut.floor_line, axis2))
+
+
+def _floor_profile(line, axis) -> tuple[tuple[float, float], ...]:
+    """``object_cut.floor_line`` as ``(s, z)`` along the corridor's own
+    axis from its mouth, one row per station, in order."""
+    if len(line) < 2 or len(axis) < 2:
+        return ()
+    ax = LineString(axis)
+    rows = sorted({round(ax.project(Point(x, y)), 3): z for x, y, z in line}.items())
+    return tuple((float(s), float(z)) for s, z in rows) if len(rows) >= 2 else ()
 
 
 def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],

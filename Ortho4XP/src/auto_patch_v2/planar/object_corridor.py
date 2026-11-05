@@ -92,7 +92,8 @@ class Group:
     #: through (the tunnel law).
     stop_at_pavement: bool = False
     #: A sunken road's floor profile ``((s, z), ...)`` — the plate's own y
-    #: per station, pinned by the generator; empty for every other group.
+    #: per station, pinned by the generator — or an object corridor's own
+    #: floor under its axis (#1903, ``Corridor.profile``); empty otherwise.
     profile: tuple[tuple[float, float], ...] = ()
     # ── LAW C (RULINGS 2026-09-08m/08n; ``planar/wall_corridor_ramps.py``) ──
     #: Which cells STOP the climb beyond the walls (``stop_at_pavement``):
@@ -206,7 +207,8 @@ def object_groups(corridors: _t.Sequence, osm: list[OsmWay], law: Law, reach: fl
                          c.mouth_closed, c.far_closed, half_fn, rim_fn,
                          standoff(c.mouth_thickness_m) if c.mouth_closed else None,
                          standoff(c.far_thickness_m) if c.far_closed else None,
-                         min(tn.ramp_max_grade, needed) if not c.flat else 0.0))
+                         min(tn.ramp_max_grade, needed) if not c.flat else 0.0,
+                         profile=tuple(getattr(c, "profile", ()))))
     return out
 
 

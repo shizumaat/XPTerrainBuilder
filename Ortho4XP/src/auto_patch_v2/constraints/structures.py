@@ -561,13 +561,15 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             sloped = len(seats) > 1 and len(getattr(tn, "edge_floor_s", ())) == 2
             # A HARD DECK WHOSE FLOOR IS THE LADDER'S (#1903, owner
             # 2026-11-05: airside is never lifted by the cut): the floor
-            # stands at least ``[tunnel] clearance_m`` under the deck and may
-            # sink further -- only the "deep enough" row of each pair; the
+            # stands at least its least depth under the deck (the airport's
+            # level B, else ``[tunnel] clearance_m``; ``Tunnel.deck_floor_min_m``)
+            # and may sink further -- only the "deep enough" row of each pair; the
             # ladder's depth is the ramp's design target, never a tie that
             # lifts the deck (KIAH_Bridge1: 0.85 / 1.40 m, its taxiway too)
-            ladder = bool(seats) and getattr(tn, "deck_ladder", False)
+            least = float(getattr(tn, "deck_floor_min_m", 0.0) or 0.0)
+            ladder = bool(seats) and least > 0.0
             if ladder:
-                seats = [(v, float(tn_law.clearance_m)) for v, _d in seats]
+                seats = [(v, least) for v, _d in seats]
             if len(group) > 1 and not sloped:
                 rows.append(Flat(group, src_mouth))
             if sloped and ladder:

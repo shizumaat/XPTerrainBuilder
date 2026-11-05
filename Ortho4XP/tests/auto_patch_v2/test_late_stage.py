@@ -137,6 +137,25 @@ def test_a_yielding_pin_on_a_follower_is_released():
     assert len(list(som.late_constraints(ConstraintSet.from_rows(rows), {1: 10.0})[0].rows())) == 2
 
 
+
+def test_a_released_follower_join_is_published_as_a_yield():
+    """#1093 (27a (10)): the join pin the last stage releases on a follower
+    is recorded as a released join, so the core ribbon takes the patch's
+    level there; a pin on a constant, a pin that is no join and a join
+    already recorded are not (KCLT ``small_roads:-8201``: 5.18 m)."""
+    from auto_patch_v2.model.constraints import ConstraintSet, Pin, Source
+    from auto_patch_v2.pipeline.late_stage import follower_join_yields
+    join = Source("road_coverage_join", "roads.coverage_edge join (27a (10))", ())
+    rows = [Pin(v=7, z=215.75, source=join), Pin(v=1, z=99.0, source=join),
+            Pin(v=8, z=50.0, source=join), Pin(v=9, z=60.0, source=join)]
+    pm = types.SimpleNamespace(
+        road_coverage_join={7: 215.75, 1: 99.0, 9: 60.0},
+        vertices={v: types.SimpleNamespace(xy=(float(v), 0.0)) for v in (1, 7, 8, 9)})
+    got = follower_join_yields(pm, ConstraintSet.from_rows(rows), {1: 10.0},
+                               frozenset({"roads.coverage_edge join"}), known={9})
+    assert [(r["v"], r["pinned_m"]) for r in got] == [(7, 215.75)]
+
+
 def test_a_follower_one_emitted_point_with_a_constant_keeps_its_base_level():
     """Spec §53 (18): the emitter merges two vertices closer than the
     identity spacing, and the survivor may be the follower — it is then the

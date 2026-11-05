@@ -133,6 +133,24 @@ def read_trench_objects(objects: _t.Sequence[_obj8.PlacedObject],
     return out, sorted(notes)
 
 
+def _near_solids(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, r: float
+                 ) -> "tuple[np.ndarray, np.ndarray, np.ndarray] | None":
+    """``(placed x, placed y, solid triangle indices)`` of ``o``'s solids
+    whose plan triangle comes within ``r`` of ``xy``, or ``None``."""
+    from shapely.geometry import Polygon
+    v, t = g.vertices, g.solid
+    if t is None or not len(t):
+        return None
+    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
+    px, py = a * v[:, 0] + b * v[:, 2] + xo, d * v[:, 0] + e * v[:, 2] + yo
+    near = np.hypot(px[t] - xy[0], py[t] - xy[1]).min(axis=1) <= r + np.ptp(
+        np.stack([px[t], py[t]], axis=-1), axis=1).max(axis=1)
+    disc = Point(xy).buffer(r)
+    ks = [k for k in np.flatnonzero(near)
+          if Polygon(np.c_[px[t[k]], py[t[k]]]).buffer(1e-3).intersects(disc)]
+    return (px, py, np.asarray(ks)) if ks else None
+
+
 def _face_at(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, r: float, law
              ) -> "tuple[float, float, object] | None":
     """The ENTRANCE FACE of ``o`` at the bore end ``xy``: ``(bottom y, top y,
@@ -144,18 +162,10 @@ def _face_at(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, r: float, law
     from shapely.geometry import Polygon
     ob = law.tables.structures.tunnel.object
     v, t = g.vertices, g.solid
-    if t is None or not len(t):
+    got = _near_solids(o, g, xy, r)
+    if got is None:
         return None
-    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
-    px, py = a * v[:, 0] + b * v[:, 2] + xo, d * v[:, 0] + e * v[:, 2] + yo
-    near = np.hypot(px[t] - xy[0], py[t] - xy[1]).min(axis=1) <= r + np.ptp(
-        np.stack([px[t], py[t]], axis=-1), axis=1).max(axis=1)
-    disc = Point(xy).buffer(r)
-    ks = [k for k in np.flatnonzero(near)
-          if Polygon(np.c_[px[t[k]], py[t[k]]]).buffer(1e-3).intersects(disc)]
-    if not ks:
-        return None
-    ks_a = np.asarray(ks)
+    px, py, ks_a = got
     bottom = float(v[t[ks_a], 1].min())
     plate = _face_normals_y(v, t[ks_a]) >= ob.plate_normal_y_min
     if not plate.any():
@@ -170,6 +180,38 @@ def _face_at(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, r: float, law
     plan = shapely.union_all(np.array([Polygon(np.c_[px[q], py[q]]).buffer(1e-3)
                                        for q in t[ks_a[plate][sel]]], dtype=object))
     return bottom, float(tops[sel].max()), plan
+
+
+def _wall_opening(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, into: "XY | None",
+                  r: float, law) -> float:
+    """An ENTRANCE face's OPENING at the bore end ``xy``: the span across the
+    bore (``into``) between the nearest breaks of the face's foot either side
+    of the mapped road's line — the across-bore offsets of its solids'
+    vertices standing on its bottom (within ``cover_flush_m`` of the lowest
+    solid within ``r`` of the end, along the bore no further than those
+    solids reach), where its walls and the trench walls meet it.  ``0.0``
+    where no break bounds it on both sides (owner 2026-11-05 LOWS: "the
+    tunnel ramp is not wide enough. Shouldn't its size be set by the tunnel
+    mouth object?").  MEASURED LOWS ``domiki_lows_48``: the face's opening
+    panel spans 21.2 m between its walls at both ends (each end's two
+    carriageways inside it); the mapped road's ramp was 14-15 m."""
+    from .portal_objects import across_bore
+    got = None if into is None else _near_solids(o, g, xy, r)
+    if got is None:
+        return 0.0
+    px, py, near = got
+    v, t = g.vertices, g.solid
+    along = (px - xy[0]) * into[0] + (py - xy[1]) * into[1]
+    across = np.asarray(across_bore(np.c_[px, py], xy, into))
+    flush = float(law.tables.structures.tunnel.object.cover_flush_m)
+    ks = np.unique(t[near])
+    lo, hi = float(along[ks].min()), float(along[ks].max())
+    foot = np.unique(t[(v[t, 1].min(axis=1) <= float(v[ks, 1].min()) + flush)
+                       & (along[t].max(axis=1) >= lo) & (along[t].min(axis=1) <= hi)])
+    foot = foot[(v[foot, 1] <= float(v[ks, 1].min()) + flush)
+                & (along[foot] >= lo) & (along[foot] <= hi)]
+    left, right = across[foot][across[foot] < 0.0], across[foot][across[foot] > 0.0]
+    return float(right.min() - left.max()) if len(left) and len(right) else 0.0
 
 
 def _cover_over(plan, dem_z) -> "float | None":
@@ -225,7 +267,8 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     highest ground in that reach at the pack's zero (a building on the
     bore), and an edge-wall bridge is never one."""
     from .hanging_objects import edge_wall_reading
-    from .portal_objects import Portal
+    from .portal_objects import Portal, _bore_dirs
+    into = _bore_dirs(tunnel_ways)
     ob = law.tables.structures.tunnel.object
     tol = float(ob.bore_end_tolerance_m)
     flush, floor_min = float(ob.cover_flush_m), float(ob.shell_floor_min_m)
@@ -265,5 +308,8 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
                               ground - floor, 0.0, (float(xy[0]), float(xy[1])),
                               floor_z=float(floor),
+                              opening_m=_wall_opening(
+                                  o, g, xy, into.get(((float(xy[0]), float(xy[1])), int(wid))),
+                                  2.0 * tol, law),
                               bottom_y=None if cover is None else float(bottom)))
     return out

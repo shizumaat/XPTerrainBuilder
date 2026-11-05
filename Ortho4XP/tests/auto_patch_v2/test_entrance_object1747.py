@@ -228,3 +228,28 @@ def test_an_unsplit_row_with_one_entrance_is_seated_on_its_row():
     assert row_seats(dump, one) == ()                       # no split set: a body's seat
     assert row_seats(dump, one, frozenset({0})) == ()       # split: its bodies take it
     assert row_seats(dump, one + [rec(0, 30.0)], frozenset()) == ()   # two faces
+
+
+def test_an_entrance_faces_opening_is_the_gap_between_its_walls(tmp_path, law):
+    """Owner 2026-11-05 (LOWS): "the tunnel ramp is not wide enough.
+    Shouldn't its size be set by the tunnel mouth object?"  An entrance face
+    authored as two 4 m walls either side of a 12 m opening panel pins its
+    ramp 12 m wide (``Portal.opening_m``, read across the bore between the
+    breaks of the face's foot), never the face's 20 m extent."""
+    d = tmp_path / "objects"
+    d.mkdir()
+    (tmp_path / "Earth nav data").mkdir()
+    (tmp_path / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8",
+                                                         newline="")
+    vt: list = []
+    tris: list = []
+    for x0, x1 in ((-10.0, -6.0), (-6.0, 6.0), (6.0, 10.0)):
+        _slab(vt, tris, x0, x1, -0.3, 0.3, -5.0, 0.5)
+    objs = {"dir": d, "face3": _write(d / "face3.obj", vt, tris)}
+    tunnel = OsmWay(-7, "big_roads", ((0.0, 3.0), (0.0, 300.0)), False, _T)
+    airport = _airport(objs, law, [("face3", (0.0, 0.0), 0.0, 0.0, "OBJECT")], (tunnel,))
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    trenches, _notes = read_trench_objects(objects, cache, law, [tunnel])
+    pins = mouth_portals(trenches, objects, cache, law, [tunnel], airport.dem.z)
+    assert [p.opening_m for p in pins] == [pytest.approx(12.0, abs=0.01)]

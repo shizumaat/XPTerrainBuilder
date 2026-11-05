@@ -47,7 +47,7 @@ from .hanging_objects import edge_wall_reading, flush_hanging
 from .obj8_clip import _bulk_polys
 from .object_cut import _face_normals_y, _plan_area
 
-__all__ = ["Portal", "read_portals", "portal_of", "roof_reading"]
+__all__ = ["Portal", "across_bore", "read_portals", "portal_of", "roof_reading"]
 
 
 @_dc.dataclass(frozen=True)
@@ -83,9 +83,12 @@ class Portal:
     #: ``mouth_depth_m``, owner 2026-11-04 ENTC) states it too: the surveyed
     #: ground on its roof less its roof top.  ``None`` for any other portal.
     floor_z: "float | None" = None
-    #: a ROOFED portal's OPENING: its roof's width across the bore at the
-    #: end (owner 2026-11-04 ENTC: "tunnel ramps not matching tunnel mouth
-    #: width") — the ramp's width at the mouth; ``0.0`` for any other pin
+    #: a portal's OPENING across the bore at the end — a ROOFED portal's
+    #: roof width (owner 2026-11-04 ENTC: "tunnel ramps not matching tunnel
+    #: mouth width"), an ENTRANCE face's gap between its walls
+    #: (``trench_objects.mouth_portals``, owner 2026-11-05 LOWS "shouldn't
+    #: its size be set by the tunnel mouth object?") — the ramp's width at
+    #: the mouth; ``0.0`` for any other pin
     opening_m: float = 0.0
     #: #1747 (Q-A 2026-11-05): an ENTRANCE object's face bottom under its
     #: zero at this end (``trench_objects.mouth_portals``) — the object stage
@@ -118,14 +121,20 @@ def _bore_dirs(tunnel_ways) -> dict[tuple[XY, int], XY]:
     return out
 
 
+def across_bore(pts, end_xy: XY, into: XY) -> list[float]:
+    """Each plan point's offset ACROSS the bore (direction ``into``) from
+    its end ``end_xy``: the one axis every portal's opening is read on."""
+    nx, ny = -into[1], into[0]
+    return [(float(x) - end_xy[0]) * nx + (float(y) - end_xy[1]) * ny for x, y in pts]
+
+
 def _opening_width(roof, end_xy: XY, into: "XY | None") -> float:
     """A roofed portal's OPENING: the extent of its placed roof plan across
     the bore's direction ``into`` (``0.0`` without one)."""
     if roof is None or roof.is_empty or into is None:
         return 0.0
-    nx, ny = -into[1], into[0]
-    pts = [c for g in getattr(roof, "geoms", [roof]) for c in g.exterior.coords]
-    s = [(x - end_xy[0]) * nx + (y - end_xy[1]) * ny for x, y in pts]
+    s = across_bore([c for g in getattr(roof, "geoms", [roof]) for c in g.exterior.coords],
+                    end_xy, into)
     return float(max(s) - min(s)) if s else 0.0
 
 

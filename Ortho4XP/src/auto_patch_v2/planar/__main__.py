@@ -394,7 +394,7 @@ def structure_records(airport, cl, law) -> dict:
                                             edge_bridges=bridges,
                                             trenches=tstats.trench_objects)
     from .cut_frame import frame_cuts
-    tunnels, _frame_notes = frame_cuts(tunnels, objects, cache, cl2, airport, law,
+    tunnels, _frame_notes = frame_cuts(tunnels, objects, cache, cl, airport, law,
                                        tstats.shell_covers)
     # the rim diagnostics are read HERE, on demand (owner RULINGS
     # 2026-10-04x (2)): a build's basin notes carry neither

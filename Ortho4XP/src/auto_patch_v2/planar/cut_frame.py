@@ -14,7 +14,8 @@ the cut's walls ride it, so the cut's FLOOR is read at the same frame: the
 deck's seated zero plus the shell's floor plate.  The end lines are the
 object stage's own reading (``cut_deck_seat.end_ground``: the pavement or
 road the deck carries, one step outside its edge), made here on the
-classification's roles and the DEM (:class:`_PlanarSurface`), the deck
+classification's roles BEFORE the cuts (the cut's own trench and walls
+stand where the deck's ends meet the pavement) and the DEM (:class:`_PlanarSurface`), the deck
 tops there as a hard-deck bridge's (``deck_bridge``), and the floor
 (``Tunnel.mouth_z``, pinned as every object cut's is) stands at that zero
 plus the shell's floor plate.  The object stage re-reads the zero on the

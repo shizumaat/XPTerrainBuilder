@@ -56,7 +56,8 @@ from . import dsf as _dsf
 
 __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
            "placement_fits", "dem_many_of",
-           "grid_of_resource", "seat_records", "log_line", "row_seats"]
+           "grid_of_resource", "seat_records", "log_line", "row_seats",
+           "PORTAL_SEAT", "portal_seat_records"]
 
 MIN_AREA_M2 = 20_000.0
 MIN_RELIEF_M = 5.0
@@ -64,6 +65,11 @@ MIN_FOLLOW = 0.5
 FOLLOW_BAND_M = 1.5
 #: the seat record's ``seat`` value (``RebakePlan.authored_seats``)
 SEAT = "terrain fit"
+#: a roofed portal's row seated at its pinned mouth floor (owner
+#: 2026-11-04 ENTC: "the tunnel mouth objects are still not seated at the
+#: bottom of the ramp"; ``Tunnel.portal_seat``)
+PORTAL_SEAT = "portal floor"
+_WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor"}
 
 
 def _deck_grid(g: _t.Any) -> "DeckGrid | None":
@@ -232,8 +238,17 @@ def log_line(icao: str, decks: _t.Sequence[TerrainFit]) -> str:
         f"{f.area_m2:,.0f} m2, relief {f.relief_m:.1f} m" for f in decks)
 
 
+def portal_seat_records(structures: _t.Iterable[_t.Any]) -> list[dict[str, _t.Any]]:
+    """One record per roofed portal seated at its mouth's pinned floor
+    (``Tunnel.portal_seat``) -- the row :func:`row_seats` writes there."""
+    return [{"id": tn.portal, "resource": tn.portal_seat[0], "datum": "portal",
+             "seat": PORTAL_SEAT, "elevation": round(float(tn.portal_seat[1]), 3)}
+            for tn in structures if getattr(tn, "portal_seat", ()) and tn.portal]
+
+
 def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> tuple:
-    """The ``model.placement.MslSeat`` of every :func:`seat_records` record
+    """The ``model.placement.MslSeat`` of every :func:`seat_records` and
+    :func:`portal_seat_records` record
     naming a row of ``dump`` (``dsf:obj<i>`` is row ``i``): the placement
     written as ``OBJECT_MSL`` at its fitted ``z0``, whole."""
     from ..model.placement import MslSeat
@@ -242,12 +257,12 @@ def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> tu
     for r in records or ():
         oid = str(r.get("id", ""))
         tile, i = _dsf.row_of(oid)
-        if r.get("seat") != SEAT or tile is not None or i is None:
+        if r.get("seat") not in _WHY or tile is not None or i is None:
             continue
         if not 0 <= i < len(rows) or str(rows[i].def_path) != str(r.get("resource")):
             continue
         row = rows[i]
         out.append(MslSeat(i, str(row.def_path), float(row.lon), float(row.lat),
                            float(getattr(row, "heading_deg", 0.0)),
-                           float(r["elevation"]), "terrain_fit"))
+                           float(r["elevation"]), _WHY[str(r.get("seat"))]))
     return tuple(out)

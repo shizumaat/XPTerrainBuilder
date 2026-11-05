@@ -263,7 +263,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # the road reach stands (stops a mouth, clips a ramp) but admits none (22g)
     on_field = field_region_for(airport, law, cover_polygons(classification)
                                 + [c.footprint for c in corridors],
-                                corridors, deck_bridges)  # 27a (3): never a pack building
+                                corridors, deck_bridges,  # 27a (3): never a pack building
+                                portals=portals)
     stats.approach_corridors = len(on_field.corridor or ())
     stats.runway_bands = len(on_field.band or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
@@ -454,6 +455,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             deck_pin(deck, members[0]) if deck is not None else None if c is not None else next(
             (q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
                          for m in members) if q is not None), None)
+        # owner 2026-11-04 (ENTC): a ROOFED portal's ramp is as wide as its
+        # opening, edge to edge along the axis (no pavement trace)
+        opening = 0.0 if pin is None else float(getattr(pin, "opening_m", 0.0) or 0.0)
+        if opening > 0.0:
+            half = 0.5 * opening
         if deck is not None:
             axis_ln, moved = deck_mouth(axis_ln, inward, deck)
             mouth = tuple(axis_ln.coords[0])
@@ -886,14 +892,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 # stops the ramp, the walls still cut it (08-26)
                 host = {ref for ref in host
                         if ref not in pad_refs or _pad_relief_m(airport, pad_poly[ref]) <= band_m}
-        half_fn = g.half_fn
+        half_fn = None if opening > 0.0 else g.half_fn
         traced: list[str] = []
         # §34 (12) (3) / #971: a MAPPED bore's ramp stops short of airside and
         # of the pavement over it (``structure_mouth``); a pack-stated corridor
         # is authored geometry — its crossing of airside IS an underpass
         # (RULINGS 2026-09-15w) — and keeps the building pads alone
         osm_stops, osm_tree = clear[2:4] if clear is not None else (pads, pad_tree)
-        if c is None:
+        if c is None and opening <= 0.0:
             # THE RAMP WIDTH FROM THE PAVEMENT (2026-09-06b (2)): a pavement
             # tracing the road sets the ramp's edges per station
             pav_hw, traced = pavement_half_widths(axis_fn, ss, cells, polys, law, half)
@@ -1138,6 +1144,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             extra["portal"] = pin.object_id
             if pin.floor_z is not None:
                 extra["portal_floor"] = True
+                if opening > 0.0:
+                    # a roofed portal's zero is the road at its mouth: the
+                    # object stage seats it at the pinned floor (ENTC)
+                    extra["portal_seat"] = (pin.resource, float(mouth_z))
             if edge is not None:
                 extra["edge_back"] = tuple(edge.back)
                 extra["edge_seats"] = edge_seats

@@ -307,7 +307,8 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
     return {
         "tunnel_objects": _plate_seats(pm, law, seats),
         "authored_seats": (tuple(seats[k] for k in sorted(seats))
-                           + tuple(_ts.seat_records(airport))),
+                           + tuple(_ts.seat_records(airport))
+                           + tuple(_ts.portal_seat_records(pm.structures))),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``

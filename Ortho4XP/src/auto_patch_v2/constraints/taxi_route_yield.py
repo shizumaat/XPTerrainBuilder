@@ -50,7 +50,7 @@ from ..law.tables import role_family
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
-__all__ = ["TaxiRoute", "apron_yields", "derive", "edge_key", "route_lines"]
+__all__ = ["TaxiRoute", "ROUTE_REF", "PLATEAU_TAG", "apron_yields", "derive", "edge_key", "pad_hold", "route_lines"]
 
 #: an interval shorter than this is the solver's tolerance, not a law gap
 #: (metres; ``[design] hard_tol_m`` is the solve's own held bar)
@@ -269,22 +269,78 @@ def derive(pm: PlanarMap, law: Law, airport: Airport | None) -> tuple[TaxiRoute,
     return tuple(out)
 
 
+#: the ``TaxiYield.ref`` of an apron a yielded route crosses
+ROUTE_REF = "taxi route (11-05a)"
+#: a stand-zone plateau face's ref marker (``planar/pad_cut.plateau_cut``)
+PLATEAU_TAG = "#plateau:"
+
+
 def apron_yields(pm: PlanarMap, law: Law, routes_: _t.Sequence[TaxiRoute],
                  caps: _t.Mapping[int, _t.Any]) -> dict[int, _t.Any]:
     """``caps`` (``PlanarMap.taxi_caps``) with every apron face a route
-    crosses at that route's cap — the record ``face_cap`` already reads for
-    an apron that follows (10-10j); the larger cap where a face has two."""
+    crosses STRETCHED (owner 2026-11-05 13:57Z / 14:08Z: "if we get the pads
+    right, and the taxiroute graded right, then aprons should just weld
+    between the two with almost no limit when stretched"): its hard MAXIMUM
+    lifted to the universal pavement fallback (29ac, the ceiling every
+    pavement keeps), never a target — the apron's preference and
+    smoothness rows are unchanged, so it steepens only where the solve
+    needs it; the record ``face_cap`` already reads for an apron that
+    follows (10-10j).  A STAND (a plateau face) never stretches, and a row
+    touching a pad or a stand keeps the table (:func:`pad_hold`)."""
+    from ..law.tables import pavement_fallback_cap
     from .precedence import face_cap
     from .runway_yield import TaxiYield
+    top = float(pavement_fallback_cap(law))
     out = dict(caps)
     for r in routes_:
         for f in r.aprons:
+            face = pm.faces[f]
+            if PLATEAU_TAG in face.ref:
+                continue                        # a stand keeps its own law
             had = out.get(f)
-            if had is not None and had.cap >= r.cap:
+            if had is not None and had.cap >= top:
                 continue
-            table = face_cap(law, pm.faces[f], None)[0]
-            out[f] = TaxiYield(f, "taxi route (11-05a)", float(r.cap), table, float(r.cap))
+            table = face_cap(law, face, None)[0]
+            out[f] = TaxiYield(f, ROUTE_REF, max(top, table), table, float(r.cap))
     return out
+
+
+_PADS: dict[int, tuple[PlanarMap, frozenset[int]]] = {}
+
+
+def pad_hold(pm: PlanarMap, law: Law, fid: int, airport: Airport | None = None
+             ) -> tuple[frozenset[int], float] | None:
+    """For an apron a route stretched (:data:`ROUTE_REF`): ``(the held
+    vertices, the face's table cap)`` — every pad vertex and every vertex
+    within ``[design] stand_zone_radius_m`` of a 1300 STAND startup
+    (``stand_zone_startup_kinds``): a row or plane touching one keeps the
+    table, so pads stay welded and stands keep their law (13:57Z / 14:08Z);
+    ``None`` for every other face."""
+    rec = (getattr(pm, "taxi_caps", None) or {}).get(fid)
+    if rec is None or getattr(rec, "ref", None) != ROUTE_REF:
+        return None
+    hit = _PADS.get(id(pm))
+    if hit is None or hit[0] is not pm:
+        from ..law.tables import design as design_law
+        from .precedence import view
+        from .taxi import pad_vertices
+        vw = view(pm, law)
+        held = set(pad_vertices(vw))
+        d = design_law(law)
+        kinds = frozenset(d.stand_zone_startup_kinds)
+        rz = float(d.stand_zone_radius_m)
+        stands = [s.xy for s in (getattr(airport, "startups", None) or ()) if s.kind in kinds]
+        if stands and rz > 0.0:
+            import numpy as np
+            from scipy.spatial import cKDTree
+            ids = list(vw.xy)
+            got = cKDTree(np.asarray(stands, float)).query(
+                np.asarray([vw.xy[v] for v in ids], float), distance_upper_bound=rz)[0]
+            held.update(v for v, dd in zip(ids, got, strict=True) if dd <= rz)
+        hit = (pm, frozenset(held))
+        _PADS.clear()
+        _PADS[id(pm)] = hit
+    return hit[1], float(rec.table)
 
 
 def edge_key(pm: PlanarMap, eid: int) -> tuple[tuple[float, float], tuple[float, float]]:

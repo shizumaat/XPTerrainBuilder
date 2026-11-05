@@ -558,6 +558,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.thin_plates",
     "auto_patch_v2.airport.tile_rows",
     "auto_patch_v2.airport.topology_cache",
+    "auto_patch_v2.airport.torn_pack",
     "auto_patch_v2.airport.trench_objects",
     "auto_patch_v2.airport.tunnel_objects",
     "auto_patch_v2.airport.tunnel_walls",

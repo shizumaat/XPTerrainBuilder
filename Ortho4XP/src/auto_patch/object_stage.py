@@ -1012,7 +1012,8 @@ def rebake_after_mesh(tile) -> dict:
                         ran_packs.add(plan_.pack_root)
             except Exception as exc:
                 counts["airports_failed"] += 1
-                UI.vprint(0, f"  [v2 rebake] {icao}: placement failed ({exc}); continuing")
+                UI.vprint(0, f"  [v2 rebake] {icao}: placement failed ({exc}); "
+                            f"continuing (a failed write leaves the pack as it was)")
                 UI.vprint(2, traceback.format_exc())
         counts["packs_written"] = len(written_packs)
         if reuse is not None:

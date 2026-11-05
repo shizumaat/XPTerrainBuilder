@@ -392,6 +392,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.geom.terrain_deck",
     "auto_patch_v2.airport.thin_plates",
     "auto_patch_v2.airport.topology_cache",
+    "auto_patch_v2.airport.torn_pack",
     "auto_patch_v2.airport.trench_objects",
     "auto_patch_v2.airport.tunnel_objects",
     "auto_patch_v2.airport.tunnel_walls",

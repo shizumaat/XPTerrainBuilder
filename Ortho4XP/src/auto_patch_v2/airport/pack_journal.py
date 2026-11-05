@@ -30,10 +30,12 @@ separator appears only where a file is opened.
 """
 from __future__ import annotations
 
+import contextlib
 import dataclasses as _dc
 import json
 import os
 import shutil
+import tempfile
 import typing as _t
 
 from . import backup_state as _bs
@@ -41,7 +43,7 @@ from . import dsf_write as _dw
 from .file_hash import sha256_file
 
 __all__ = ["RESTORED", "UNPROVEN", "Replayed", "path_for", "begin", "end",
-           "snapshot", "pending", "journalled_dsfs", "replay", "discard"]
+           "snapshot", "transaction", "pending", "journalled_dsfs", "replay", "discard"]
 
 #: the pack's files are as they were before the build
 RESTORED = "restored"
@@ -136,8 +138,13 @@ def snapshot(pack_root: str, dsf_path: str,
     ``new_bodies`` are the body files the caller is about to write (every
     call adds its own): the record names them only once the DSF write has
     got that far, and a build killed before it must still remove them."""
-    journal = _active
-    if not journal or not os.path.isfile(dsf_path):
+    if _active:
+        _snapshot_into(_active, pack_root, dsf_path, new_bodies)
+
+
+def _snapshot_into(journal: str, pack_root: str, dsf_path: str,
+                   new_bodies: _t.Iterable[str]) -> None:
+    if not os.path.isfile(dsf_path):
         return
     dsf_path = os.path.abspath(dsf_path)
     entries = _read(journal)
@@ -164,6 +171,34 @@ def snapshot(pack_root: str, dsf_path: str,
             shutil.copy2(body, os.path.join(journal, f"{n}.b{k}.obj"))
             entry["bodies"].append([_rel(pack_root, body), f"{n}.b{k}.obj"])
     _write(journal, entries + [entry])
+
+
+@contextlib.contextmanager
+def transaction(pack_root: str, dsf_path: str,
+                new_bodies: _t.Iterable[str] = ()) -> _t.Iterator[None]:
+    """ONE pack write, all or nothing.  The DSF, its record and the bodies
+    it names are kept aside (as :func:`snapshot` keeps them for a build);
+    a raise inside the block puts them back — the previous bodies first,
+    then the DSF, then the ``new_bodies`` the write minted are removed —
+    and re-raises.  Outside a build too: a failed encode must never leave
+    a DSF naming the bodies the restore step removed."""
+    tmp = tempfile.mkdtemp(prefix="o4_pack_txn_")
+    try:
+        _snapshot_into(tmp, pack_root, dsf_path, new_bodies)
+        try:
+            yield
+        except Exception:
+            # a stop (KeyboardInterrupt, a kill) is the build journal's
+            # (:func:`replay`, #598): only a failed write is undone here
+            for entry in _read(tmp):
+                try:
+                    _put_back(tmp, entry)
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
+            _bs.invalidate_memo()
+            raise
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def pending(build_dir: str, tile_name: str) -> bool:

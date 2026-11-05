@@ -202,3 +202,29 @@ def test_a_portal_yielding_to_a_taxiway_keeps_the_floor_its_object_states(law):
         assert t.portal == f"dsf:obj{1 if t.axis[0][0] < 0 else 2}"
     for t in run(None):
         assert not t.portal and t.mouth_z < 696.0 - 1.0              # the bore law's
+
+
+def test_an_unsplit_row_with_one_entrance_is_seated_on_its_row():
+    """#1903 (KLAX ``Underpass_2``, one file at three anchors: the plan skips
+    it, so no body takes the entrance seat and X-Plane drew its face 0.8 m
+    over the floor): a row the plan does not split, carrying ONE entrance,
+    is written ``OBJECT_MSL`` at that seat's zero.  A split row's bodies
+    take it (unchanged), and a row with two entrances (LOWS ``domiki``: two
+    faces, two zeros) is never seated whole."""
+    import types
+
+    from auto_patch_v2.airport.terrain_shaped import ENTRANCE_SEAT, row_seats
+    row = types.SimpleNamespace(def_path="objects/u.obj", lat=33.93, lon=-118.39,
+                                heading_deg=173.0, kind="OBJECT", elevation=None)
+    dump = types.SimpleNamespace(placements=[row, row])
+
+    def rec(i, z):
+        return {"id": f"dsf:obj{i}", "resource": "objects/u.obj", "datum": "portal",
+                "seat": ENTRANCE_SEAT, "elevation": z, "end": [33.93, -118.39],
+                "reach_m": 10.0}
+    one = [rec(0, 31.938)]
+    assert [(m.index, m.elevation, m.why) for m in row_seats(dump, one, frozenset())] == [
+        (0, 31.938, "entrance_face")]
+    assert row_seats(dump, one) == ()                       # no split set: a body's seat
+    assert row_seats(dump, one, frozenset({0})) == ()       # split: its bodies take it
+    assert row_seats(dump, one + [rec(0, 30.0)], frozenset()) == ()   # two faces

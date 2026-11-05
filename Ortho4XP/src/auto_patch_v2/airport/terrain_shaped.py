@@ -71,9 +71,10 @@ SEAT = "terrain fit"
 PORTAL_SEAT = "portal floor"
 #: #1747: an ENTRANCE object's face seated with its bottom on its portal's
 #: floor -- a BODY's seat (the object stands at both ends, and carries more),
-#: never the row's (``row_seats`` writes none)
+#: the row's only where the plan splits it into no body (``row_seats``
+#: ``unsplit``; #1903)
 ENTRANCE_SEAT = "entrance face"
-_WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor"}
+_WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face"}
 
 
 def _deck_grid(g: _t.Any) -> "DeckGrid | None":
@@ -278,18 +279,33 @@ def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None) -> list[dic
     return out
 
 
-def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> tuple:
+def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]],
+              split: "_t.AbstractSet[int] | None" = None) -> tuple:
     """The ``model.placement.MslSeat`` of every :func:`seat_records` and
     :func:`portal_seat_records` record
     naming a row of ``dump`` (``dsf:obj<i>`` is row ``i``): the placement
-    written as ``OBJECT_MSL`` at its fitted ``z0``, whole."""
+    written as ``OBJECT_MSL`` at its fitted ``z0``, whole.
+
+    An :data:`ENTRANCE_SEAT` is a body's seat, so it seats its ROW only when
+    ``split`` (the rows the plan splits) is given, the row is not in it, and
+    the row carries that one entrance (#1903 KLAX: ``Underpass_2`` stands at
+    three anchors, the plan skips it, and its face stood 0.8 m over the
+    floor its reader set)."""
     from ..model.placement import MslSeat
     rows = list(getattr(dump, "placements", ()) or ())
+    records = list(records or ())
+    faces: dict[str, int] = {}
+    for r in records:
+        if r.get("seat") == ENTRANCE_SEAT:
+            faces[str(r.get("id", ""))] = faces.get(str(r.get("id", "")), 0) + 1
     out = []
-    for r in records or ():
+    for r in records:
         oid = str(r.get("id", ""))
         tile, i = _dsf.row_of(oid)
         if r.get("seat") not in _WHY or tile is not None or i is None:
+            continue
+        if r.get("seat") == ENTRANCE_SEAT and (split is None or i in split
+                                               or faces.get(oid, 0) != 1):
             continue
         if not 0 <= i < len(rows) or str(rows[i].def_path) != str(r.get("resource")):
             continue

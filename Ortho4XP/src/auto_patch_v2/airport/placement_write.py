@@ -271,8 +271,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     landed = landed_keeps(ss)
     # issue #1730: a terrain-shaped hard deck's row is seated at its DEM fit
     from . import terrain_shaped as _ts
-    terrain = _ts.row_seats(dump, _records)
     _split_ix = frozenset(s.placement.index for s in splits)
+    terrain = _ts.row_seats(dump, _records, _split_ix)
     _terrain_ix = frozenset(m.index for m in terrain)
     settled = (_split_ix | kept_idx | features | landed | _terrain_ix)
     _rows = list(getattr(dump, "placements", ()) or ())

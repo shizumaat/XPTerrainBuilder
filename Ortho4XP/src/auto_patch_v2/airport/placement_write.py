@@ -63,6 +63,7 @@ from . import footprint_unit as _fu
 from . import pack_journal as _pj
 from . import placement_plan as _pp
 from . import split_guard as _sg
+from . import torn_pack as _tp
 
 __all__ = ["PlacementWriteResult", "RestoreResult", "build_plan", "write_files",
            "restore_pack_objects", "apply_plan"]
@@ -594,6 +595,9 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
     stands down (rows D2 / D8) nothing at all happens — no restore, no
     cut file, no record — and ``BackupUnproven`` reaches the caller: a
     pack half-written against a DSF we may not touch is torn geometry."""
+    # a TORN pack (its DSF names bodies that are gone) is put back on its
+    # original first, so neither the write nor its rollback keeps it torn
+    mended = _tp.repair(plan.pack_root, plan.dsf_path)
     v = _bs.classify_dsf(plan.dsf_path)
     if not v.may_write:
         raise _dw.BackupUnproven(_dw._stand_down_line(v))
@@ -606,19 +610,27 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
         keep = {r.replace("\\", "/") for r in plan.new_resources()}
         files = [f for f in files if f.resource.replace("\\", "/") in keep]
     # #598: the pack as it is NOW, kept until this build completes
-    _pj.snapshot(plan.pack_root, plan.dsf_path, new_bodies=[
-        os.path.join(plan.pack_root, *f.resource.replace("\\", "/").split("/"))
-        for f in files])
-    restore = restore_pack_objects(plan.pack_root,
-                                   allow_live_install=allow_live_install,
-                                   dsf_path=plan.dsf_path, icao=plan.icao)
-    written = write_files(plan.pack_root, files,
-                          allow_live_install=allow_live_install)
-    dsf = _dw.write_pack(plan.pack_root, plan, tool,
-                         allow_live_install=allow_live_install,
-                         work_dir=work_dir, engine_version=engine_version,
-                         law_digest=law_digest, body_files=written,
-                         omit=omit, seats=seats)
+    minted = [os.path.join(plan.pack_root,
+                           *f.resource.replace("\\", "/").split("/"))
+              for f in files]
+    _pj.snapshot(plan.pack_root, plan.dsf_path, new_bodies=minted)
+    # ALL OR NOTHING: the restore removes the previous write's bodies and
+    # the new ones land before the DSF that names them is encoded; a raise
+    # anywhere in the three puts the pack back as it was (PAKT 1.0.465,
+    # KLAX 1.0.464: a failed encode left a DSF naming removed bodies)
+    with _pj.transaction(plan.pack_root, plan.dsf_path, new_bodies=minted):
+        restore = restore_pack_objects(plan.pack_root,
+                                       allow_live_install=allow_live_install,
+                                       dsf_path=plan.dsf_path, icao=plan.icao)
+        written = write_files(plan.pack_root, files,
+                              allow_live_install=allow_live_install)
+        dsf = _dw.write_pack(plan.pack_root, plan, tool,
+                             allow_live_install=allow_live_install,
+                             work_dir=work_dir, engine_version=engine_version,
+                             law_digest=law_digest, body_files=written,
+                             omit=omit, seats=seats)
+    if mended is not None:
+        dsf = _dc.replace(dsf, notes=(mended.line(),) + tuple(dsf.notes))
     if getattr(dsf, "plan", None) is not None:
         plan = dsf.plan          # #1246: a split the DSF refused is undone
     refreshed = None

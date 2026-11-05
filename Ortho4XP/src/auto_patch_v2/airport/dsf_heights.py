@@ -112,4 +112,57 @@ def pin_heights(text: str) -> str:
     return text
 
 
-__all__ = ["pin_heights", "pool_header"]
+#: the elevated object rows: ``OBJECT_MSL|OBJECT_AGL idx lon lat z hdg``
+_ELEVATED = ("OBJECT_MSL ", "OBJECT_AGL ")
+
+
+def _lowest_row_elevation(text: str) -> float | None:
+    low = None
+    for line in text.splitlines():
+        if not line.startswith(_ELEVATED):
+            continue
+        toks = line.split()
+        try:
+            z = float(toks[4])
+        except (IndexError, ValueError):
+            continue
+        low = z if low is None else min(low, z)
+    return low
+
+
+def cover_row_elevations(text: str) -> str:
+    """``text`` with its ``HEIGHTS`` base lowered to cover the lowest
+    elevated object row it carries, the quantum kept.
+
+    ``--text2dsf`` encodes an elevation as ``base + quantum * q`` with
+    ``q >= 0``, so a row below the base is refused — ``ERROR: could not
+    place object`` — and the WHOLE file with it.  The pinned base comes
+    from the pristine pools; a seat the plan writes at the sea surface
+    (a ferry ramp at -0.08 m MSL) or at a below-sea-level airport lies
+    under it.  The base drops to the whole metre under the lowest row
+    (``GuessGoodHeights`` floors its offset the same way); a text whose
+    rows all lie at or above the base is returned unchanged, byte for
+    byte."""
+    low = _lowest_row_elevation(text)
+    if low is None:
+        return text
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if _HEIGHTS_LINE.match(line) is None:
+            continue
+        toks = line.split()
+        try:
+            quantum, base = float(toks[1]), float(toks[2])
+        except (IndexError, ValueError):
+            return text
+        if low >= base:
+            return text
+        offs = float(math.floor(low))
+        eol = _HEIGHTS_LINE.match(line).group(1) or ""
+        lines[i] = (f"HEIGHTS {toks[1]} {offs:.1f}  # max encodeable "
+                    f"{offs + quantum * 65535.0:.5f}{eol}")
+        return "".join(lines)
+    return text
+
+
+__all__ = ["cover_row_elevations", "pin_heights", "pool_header"]

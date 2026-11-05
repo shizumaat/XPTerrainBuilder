@@ -1064,6 +1064,33 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
     used = [False] * len(b)
     pairs: list = []
     unmatched = 0
+    if tiebreak:
+        # KLGB +33-119 (9,012 rows of one grass object a few cm apart):
+        # nearest-first let an early row take a later row's only fitting
+        # counterpart and the chain ended in a 5 m, 107 deg "drift" on an
+        # untouched round trip.  Every row that CAN have a counterpart
+        # inside every tolerance gets one (a maximum matching); only the
+        # rest fall through to nearest-first below.
+        cells: dict[tuple[int, int], list[int]] = {}
+        for k, o in enumerate(b):
+            cells.setdefault((math.floor(o[0] / tol), math.floor(o[1] / tol)),
+                             []).append(k)
+        fits = []
+        for row in a:
+            cx, cy = math.floor(row[0] / tol), math.floor(row[1] / tol)
+            near = [k for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                    for k in cells.get((cx + dx, cy + dy), ())
+                    if _fits(row, b[k], tol, dims, tol_heading)]
+            near.sort(key=lambda k, r=row: sum(abs(b[k][i] - r[i])
+                                               for i in range(dims)))
+            fits.append(near)
+        owner = _max_matching(fits, len(b))
+        for cand, i in enumerate(owner):
+            if i >= 0:
+                used[cand] = True
+                pairs.append((a[i], b[cand]))
+        done = set(owner)
+        a = [row for i, row in enumerate(a) if i not in done]
     for row in a:
         j = bisect_left(lons, row[0] - tol)
         best, bd = None, (2, 1e18)
@@ -1074,13 +1101,8 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
                 d = sum(abs(o[i] - row[i]) for i in range(dims))
                 miss = 0
                 if tiebreak:
-                    ha = _ang(o[-1], row[-1])
-                    d += 1e-9 * ha
-                    fits = (all(abs(o[i] - row[i]) <= tol for i in range(dims))
-                            and ha <= tol_heading
-                            and (len(row) < 4
-                                 or abs(o[2] - row[2]) <= TOL_ELEV_M))
-                    miss = 0 if fits else 1
+                    d += 1e-9 * _ang(o[-1], row[-1])
+                    miss = 0 if _fits(row, o, tol, dims, tol_heading) else 1
                 if (miss, d) < bd:
                     bd, best = (miss, d), cand
             j += 1
@@ -1090,6 +1112,49 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
         used[best] = True
         pairs.append((row, b[best]))
     return unmatched, pairs
+
+
+def _fits(row: _t.Sequence[float], o: _t.Sequence[float], tol: float,
+          dims: int, tol_heading: float) -> bool:
+    """Whether ``o`` is ``row``'s counterpart inside every tolerance."""
+    return (all(abs(o[i] - row[i]) <= tol for i in range(dims))
+            and _ang(o[-1], row[-1]) <= tol_heading
+            and (len(row) < 4 or abs(o[2] - row[2]) <= TOL_ELEV_M))
+
+
+def _max_matching(fits: _t.Sequence[_t.Sequence[int]], n_b: int) -> list[int]:
+    """``owner[j]``: the row of ``fits`` matched to candidate ``j`` (``-1``
+    for none) — a MAXIMUM matching (augmenting paths, iterative; the
+    greedy first pass leaves almost every row done)."""
+    owner = [-1] * n_b
+    held: dict[int, int] = {}               # row -> its candidate
+    for i, cands in enumerate(fits):
+        for j in cands:
+            if owner[j] < 0:
+                owner[j], held[i] = i, j
+                break
+    for root, cands in enumerate(fits):
+        if root in held or not cands:
+            continue
+        via: dict[int, int] = {}            # candidate -> the row reaching it
+        stack, free = [root], -1
+        while stack and free < 0:
+            i = stack.pop()
+            for j in fits[i]:
+                if j in via:
+                    continue
+                via[j] = i
+                if owner[j] < 0:
+                    free = j
+                    break
+                stack.append(owner[j])
+        j = free
+        while j >= 0:                       # flip the path back to root
+            i = via[j]
+            nxt = held.get(i, -1)
+            owner[j], held[i] = i, j
+            j = nxt if i != root else -1
+    return owner
 
 
 def _ang(a: float, b: float) -> float:
@@ -1351,6 +1416,22 @@ def _refuse_missing_bodies(pack_root: str, plan: _t.Any) -> None:
 
 
 def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
+               work_dir: str | None = None, **kw: _t.Any) -> WriteResult:
+    """Apply ``plan`` to the pack's DSF — :func:`_write_pack` (every
+    keyword is its).  Without ``work_dir`` the dumps and the encode go in
+    a temp folder that is REMOVED afterwards, written or not: it held two
+    full dumps of the pack per write and was never removed (3,321 of
+    them, 10 GB, on the owner's drive on 2026-11-04)."""
+    if work_dir:
+        return _write_pack(pack_root, plan, tool, work_dir=work_dir, **kw)
+    work = tempfile.mkdtemp(prefix="o4_dsf_write_")
+    try:
+        return _write_pack(pack_root, plan, tool, work_dir=work, **kw)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                allow_live_install: bool = False,
                work_dir: str | None = None,
                engine_version: str = "",
@@ -1419,11 +1500,17 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             f"(spec §3.5 — a lane writes a COPY of the pack; the app's driver "
             f"passes allow_live_install=True)")
 
+    # a TORN pack (its DSF names bodies that are gone) goes back on its
+    # original first: no write may compose a row whose art is missing
+    # lazy: torn_pack reads this module
+    from . import torn_pack as _tp
+    mended = _tp.repair(pack_root, dsf_path)
+
     # ── §12a: IS THE BACKUP STILL THE PACK'S? ───────────────────────────
     verdict = _bs.classify_dsf(dsf_path)
     if not verdict.may_write:
         raise BackupUnproven(_stand_down_line(verdict))
-    notes: list[str] = []
+    notes: list[str] = [mended.line()] if mended else []
     superseded = preserved = ""
     if verdict.state is State.REPLACED:
         # D5: THE USER'S NEW FILE.  Retire the old backup under a stamped
@@ -1515,6 +1602,8 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             pinned, placed, omit,
             engine_version or plan.provenance.engine_version, optimise)
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
+        # a seat under the pinned HEIGHTS base cannot be encoded
+        edited = _dh.cover_row_elevations(edited)
         with open(edited_text, "w", encoding="utf-8",
                   errors="surrogateescape", newline="\n") as fh:
             fh.write(edited)

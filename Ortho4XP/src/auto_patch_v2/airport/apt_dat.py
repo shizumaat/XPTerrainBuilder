@@ -500,9 +500,13 @@ def _find_apt_dat(xplane_root: str, icao: str) -> str | None:
     ``Earth nav data`` folder is matched without regard to case
     (``O4_Scenery_Packs.earth_nav_data``).  It reads: its runways, lights,
     lines, startups, metadata and its DSF objects.  Among SEVERAL custom
-    packs the precedence stays v1's (the first with row-110 pavement, else
-    the first).  The old tail — "a pack
-    without pavement is the fallback of last resort", under which a
+    packs the TOP one wins whether or not its block carries row-110
+    pavement (owner RULINGS 2026-11-05, #1887, replacing v1's "first with
+    pavement" tie-break): X-Plane draws that pack's airport, and
+    ``airport/borrow.py`` supplies the pavement it lacks.  Among the Global
+    Airports candidates the first with pavement still wins.  The old
+    tail — "a pack without pavement is the fallback of last resort", under
+    which a
     pavement-less custom pack LOST the selection to Global Airports and
     its objects were never read — is DELETED; ``airport/borrow.py``
     (§44 (2), (3)) does that work by borrowing the PAVEMENT alone.
@@ -529,11 +533,10 @@ def _find_apt_dat(xplane_root: str, icao: str) -> str | None:
             p = os.path.join(_scenery_packs.earth_nav_data(
                 os.path.join(custom_root, entry)), "apt.dat")
             if os.path.isfile(p) and file_has_airport(p, icao):
-                cands.append(p)
-    if not cands:
-        for p in global_candidates(xplane_root):
-            if os.path.isfile(p) and file_has_airport(p, icao):
-                cands.append(p)
+                return p        # RULINGS 2026-11-05: the top pack, pavement or not
+    for p in global_candidates(xplane_root):
+        if os.path.isfile(p) and file_has_airport(p, icao):
+            cands.append(p)
     for c in cands:
         if _has_pavement(c, icao):
             return c

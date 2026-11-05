@@ -384,8 +384,8 @@ def test_the_ceiling_is_carried_within_the_no_step_budget(two_junctions, law):
     par, junc = _junctions(pm, law)
     base = dict(pm.taxi_trend_z)
     (_sa, va), _ = junc
-    got = lowered_within_budget(pm, law, base, {va: base[va] - 2.0})
-    assert got[va] == base[va] - 2.0
+    got = lowered_within_budget(pm, law, base, {va: base[va] - 1.0})
+    assert got[va] == base[va] - 1.0
     moved = [v for v in got if got[v] < base[v] - 1e-6 and v != va]
     assert moved and all(got[v] >= got[va] for v in moved)
     st = dict(zip(par.vertices, par.stations, strict=True))
@@ -395,6 +395,25 @@ def test_the_ceiling_is_carried_within_the_no_step_budget(two_junctions, law):
             d = abs(st[v] - st[va])
             assert got[v] <= got[va] + 0.015 * d - tol + 1e-6 or got[v] == base[v]
     assert lowered_within_budget(pm, law, base, {}) == base
+
+
+def test_a_ceiling_the_window_cannot_absorb_is_cut_to_what_it_can(two_junctions, law):
+    """The smoothing is a preference (owner 2026-11-04, #517): a lowering
+    whose carry would have to reach past ``[no_step] window_m`` (4 m at a
+    1.5 % cap needs some 270 m) is cut to the depth the window absorbs, an
+    absorbable group beside it stands whole, and no carried target moves
+    more than its seed."""
+    from auto_patch_v2.constraints.taxi_trend_cap import lowered_within_budget
+    pm, _airport = two_junctions
+    _par, junc = _junctions(pm, law)
+    base = dict(pm.taxi_trend_z)
+    (_sa, va), (_sb, vb) = junc
+    refused: list[int] = []
+    low = {va: base[va] - 4.0, vb: base[vb] - 1.0}
+    got = lowered_within_budget(pm, law, base, low, [[va], [vb]], refused)
+    assert refused == [0]
+    assert base[va] - 4.0 < got[va] < base[va] and got[vb] == base[vb] - 1.0
+    assert all(base[v] - got[v] <= base[va] - got[va] + 1e-9 for v in got)
 
 
 def test_holds_on_or_above_their_targets_move_nothing(two_junctions, law):

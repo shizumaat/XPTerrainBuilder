@@ -154,7 +154,9 @@ def ceiled(spans: _t.Sequence[Span], s: float, t: float) -> float:
 
 
 def lowered_within_budget(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float],
-                          lowered: _t.Mapping[int, float]) -> dict[int, float]:
+                          lowered: _t.Mapping[int, float],
+                          groups: _t.Sequence[_t.Collection[int]] | None = None,
+                          refused: list[int] | None = None) -> dict[int, float]:
     """HOLD (3)'s ceiling carried to the targets it would step past: every
     target (``targets``) at most THE NO-STEP BUDGET above the ``lowered``
     ones — the pairs hold (2) holds (:func:`_pairs`, :func:`_box_pairs`),
@@ -165,31 +167,94 @@ def lowered_within_budget(pm: PlanarMap, law: Law, targets: _t.Mapping[int, floa
     2.1 m over 53 m past a hold) that the solve trades against the caps;
     lowering the far side down to the budget (a Dijkstra from the lowered
     targets — it only lowers, and nothing within budget moves) removes it.
-    Returns ``targets`` with ``lowered`` and every target so held."""
-    from ..law.tables import design as design_law
+
+    The smoothing is a PREFERENCE (owner 2026-11-04 on #517: "reducing
+    curvature ... where feasible within grade law and without any negative
+    impacts on other areas"), so the carry is the no-step law's own reach
+    and never more.  A carried target is lowered by no more than the
+    lowered one it is carried from was (the span's own ceiling depth), and
+    only inside ``[no_step] window_m`` route metres of it.  ``groups``
+    (default: all of ``lowered`` as one) are carried independently, each
+    from the unlowered ``targets``; a group whose carry would have to
+    reach past the window is NOT absorbable there, and is smoothed only as
+    deep as the window absorbs (its depth bisected to the elevation
+    materiality; nothing when not even that) — less smoothing, never a
+    lowering that walks the network (HECA, #517: unbounded, the ceiling of
+    one 77 m span walked 1277 targets of the 05C/23C north-west taxiways
+    down by up to 10.2 m).  The index of each group so reduced is appended
+    to ``refused``.  Returns ``targets`` with the groups' lowered values
+    and every target they hold."""
     out = {v: float(t) for v, t in targets.items()}
-    out.update({v: min(out.get(v, z), float(z)) for v, z in lowered.items()})
     if not lowered:
         return out
-    ns = law.tables.emit.no_step
+    own = _carry_pairs(pm, law, out)
+    from ..law.tables import design as design_law
     tol = float(design_law(law).hard_tol_m)
-    g = routes(pm, law, None)
-    own = {v: [(u, b) for u, b, _d in ps] for v, ps in
-           _pairs(g, out, float(ns.window_m), int(ns.k), set(out)).items()}
+    window = float(law.tables.emit.no_step.window_m)
+    res = float(law.tables.emit.materiality.elevation_m)
+    for gi, grp in enumerate(groups if groups is not None else [list(lowered)]):
+        drop = {v: float(targets[v]) - float(lowered[v]) for v in grp
+                if v in lowered and v in targets}
+        got = _carried(own, targets, _scaled(targets, drop, 1.0), tol, window)
+        if got is None:
+            # the deepest ceiling the window absorbs: bisect the group's
+            # depth to the elevation materiality (none at all when even
+            # that much would have to walk past the window)
+            if refused is not None:
+                refused.append(gi)
+            lo, hi, deep = 0.0, 1.0, max(drop.values(), default=0.0)
+            while (hi - lo) * deep > res:
+                mid = 0.5 * (lo + hi)
+                trial = _carried(own, targets, _scaled(targets, drop, mid), tol, window)
+                lo, hi, got = (mid, hi, trial) if trial is not None else (lo, mid, got)
+            if got is None:
+                continue
+        for v, z in got.items():
+            out[v] = min(out[v], z)
+    return out
+
+
+def _scaled(targets: _t.Mapping[int, float], drop: dict[int, float], f: float
+            ) -> dict[int, float]:
+    """The seeds of one group lowered by ``f`` of their ``drop``."""
+    return {v: float(targets[v]) - f * d for v, d in drop.items()}
+
+
+def _carry_pairs(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float]
+                 ) -> dict[int, list]:
+    """vertex -> ``[(other, budget, metres), ...]``: hold (2)'s route pairs
+    and box pairs among ``targets``."""
+    ns = law.tables.emit.no_step
+    own = {v: list(ps) for v, ps in _pairs(routes(pm, law, None), targets,
+                                           float(ns.window_m), int(ns.k),
+                                           set(targets)).items()}
     for v, ps in _box_pairs(pm, law, None).items():
-        if v in out:
-            own.setdefault(v, []).extend((u, b) for u, b, _d in ps if u in out)
-    heap = [(out[v], v) for v in lowered if v in out]
+        if v in targets:
+            own.setdefault(v, []).extend(p for p in ps if p[0] in targets)
+    return own
+
+
+def _carried(own: dict[int, list], targets: _t.Mapping[int, float],
+             seeds: dict[int, float], tol: float, window: float
+             ) -> dict[int, float] | None:
+    """One group's carry (:func:`lowered_within_budget`): the lowered
+    targets, ``None`` when a needed lowering lies past ``window``."""
+    out = dict(seeds)
+    # (level, route metres from its seed, the seed's own drop, vertex)
+    heap = [(z, 0.0, float(targets[v]) - z, v) for v, z in seeds.items() if v in targets]
     heapq.heapify(heap)
     while heap:
-        z, u = heapq.heappop(heap)
-        if z > out[u] + 1e-12:
+        z, r, drop, u = heapq.heappop(heap)
+        if z > out.get(u, targets[u]) + 1e-12:
             continue
-        for w, b in own.get(u, ()):
-            cand = z + max(0.0, float(b) - tol)
-            if cand < out[w] - _MOVED_M:
-                out[w] = cand
-                heapq.heappush(heap, (cand, w))
+        for w, b, d in own.get(u, ()):
+            cand = max(z + max(0.0, float(b) - tol), float(targets[w]) - drop)
+            if cand >= out.get(w, targets[w]) - _MOVED_M:
+                continue
+            if r + float(d) > window:
+                return None
+            out[w] = cand
+            heapq.heappush(heap, (cand, r + float(d), drop, w))
     return out
 
 

@@ -123,6 +123,8 @@ class TaxiTrendReport(_t.TypedDict, total=False):
     low_hold_moved: int       # of their targets, moved past the materiality
     low_hold_beyond: int      # of those, past a span (carried down within budget)
     low_hold_worst_m: float   # the largest such move
+    low_hold_refused: int     # chains the window could not absorb whole (smoothed less)
+    low_hold_calls: int       # the stage-1 solves the four above are summed over
     extra_contacts: int       # of those, the stage-1 apron levels
     by_chain: list            # [{"chain", "ll", "vertices", "pins", "length_m"}]
 
@@ -593,18 +595,28 @@ def low_hold_retarget(pm: PlanarMap, law: Law,
     chains = _chains(pm, law)
     on_chain = {v for c in chains for v in c.vertices}
     faces_of = _faces_of_chain(pm, law, chains)
+    # a chain shorter than the no-step window holds no bulge of its own:
+    # the law already prices its two ends as one pair (HECA, #517: 3-30 m
+    # junction leaves "spanned" between holds 0.0-0.1 m apart)
+    min_chain = float(law.tables.emit.no_step.window_m)
     new: dict[int, float] = {}
+    groups: list[set[int]] = []          # one per chain: carried, or dropped, whole
     n_spans = 0
     for i, c in enumerate(chains):
+        if c.length_m < min_chain:
+            continue
         spans = low_hold_spans(c, levels, have, margin)
         if not spans:
             continue
         n_spans += len(spans)
+        grp: set[int] = set()
+        groups.append(grp)
         ends = {s for sp in spans for s in (sp[0], sp[2])}
         for v, s in zip(c.vertices, c.stations, strict=True):
             if v in have:
                 z = float(levels[v]) if s in ends else ceiled(spans, s, have[v])
                 new[v] = min(new.get(v, have[v]), z)
+                grp.add(v)
         if c.length_m < 0.5 * window:
             continue                     # only a LONG chain speaks across
         cand = [v for v in _face_candidates(pm, law, faces_of.get(i, []), on_chain)
@@ -613,18 +625,29 @@ def low_hold_retarget(pm: PlanarMap, law: Law,
             if d <= reach:
                 s = c.stations[j] + t * (c.stations[j + 1] - c.stations[j])
                 new[v] = min(new.get(v, have[v]), ceiled(spans, s, have[v]))
+                grp.add(v)
     tol = float(law.tables.emit.materiality.elevation_m)
     # the targets past a span carried down within budget of it, so the
-    # ceiling is never a step the solve trades against the caps
-    out = lowered_within_budget(pm, law, have, new) if new else dict(have)
+    # ceiling is never a step the solve trades against the caps; a chain
+    # whose ceiling the law's window cannot absorb is smoothed less
+    refused: list[int] = []
+    out = (lowered_within_budget(pm, law, have, new, groups, refused)
+           if new else dict(have))
     moved = [have[v] - z for v, z in out.items()]
+    # called once per later stage-1 solve: the report SUMS the calls (the
+    # last call alone read "1 span, worst 0.59 m" at HECA while the first
+    # had moved 1628 targets that stood for every later solve)
     rep: TaxiTrendReport = {} if report is None else report
-    rep["low_hold_spans"] = n_spans
-    rep["low_hold_moved"] = sum(1 for d in moved if d > tol)
-    rep["low_hold_beyond"] = sum(1 for v, z in out.items()
-                                 if v not in new and have[v] - z > tol)
-    rep["low_hold_worst_m"] = round(max(moved, default=0.0), 3)
-    if not rep["low_hold_moved"]:
+    n_moved = sum(1 for d in moved if d > tol)
+    rep["low_hold_calls"] = rep.get("low_hold_calls", 0) + 1
+    rep["low_hold_spans"] = rep.get("low_hold_spans", 0) + n_spans
+    rep["low_hold_refused"] = rep.get("low_hold_refused", 0) + len(refused)
+    rep["low_hold_moved"] = rep.get("low_hold_moved", 0) + n_moved
+    rep["low_hold_beyond"] = rep.get("low_hold_beyond", 0) + sum(
+        1 for v, z in out.items() if v not in new and have[v] - z > tol)
+    rep["low_hold_worst_m"] = max(rep.get("low_hold_worst_m", 0.0),
+                                  round(max(moved, default=0.0), 3))
+    if not n_moved:
         return None
     return out
 

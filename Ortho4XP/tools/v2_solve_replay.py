@@ -2615,10 +2615,13 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
               f"{_tt2.get('hold_passes')} passes, residual "
               f"{_tt2.get('hold_residual_m')} m"
               + (" (stalled)" if _tt2.get("hold_stalled") else "")
-              + f"; {_tt2.get('low_hold_spans', 0)} span(s) between two low holds, "
+              + f"; {_tt2.get('low_hold_spans', 0)} span(s) between two low holds ("
+                f"{_tt2.get('low_hold_refused', 0)} chain(s) smoothed less: past the "
+                "no-step window), "
                 f"{_tt2.get('low_hold_moved', 0)} targets ceiled "
                 f"({_tt2.get('low_hold_beyond', 0)} past a span; worst "
-                f"{_tt2.get('low_hold_worst_m', 0.0):.2f} m)")
+                f"{_tt2.get('low_hold_worst_m', 0.0):.2f} m) over "
+                f"{_tt2.get('low_hold_calls', 0)} stage-1 solve(s)")
         for _r in (_tt2.get("short_connectors") or ())[:20]:
             print(f"    SHORT CONNECTOR at {_r['ll'][0]:.7f},{_r['ll'][1]:.7f}: run "
                   f"{_r['run_m']:.1f} m, height {_r['height_m']:.2f} m needs "

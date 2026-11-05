@@ -290,9 +290,9 @@ def test_the_slab_witness_is_the_plates_own_attribute(tmp_path):
     assert not deck.slab and abs(deck.depth_m - 7.0) < 1e-6
     assert abs(deck.bottom_y - (13.11 - 7.0)) < 1e-6
     tn = _dc.replace(_tunnel(), id="t1", footprint=())
-    hard = deck_cover_of([tn], {"t1": deck}, lambda _db: False)
+    hard = deck_cover_of([tn], {"t1": deck})
     assert abs(hard.area - DBR.deck_polygon(deck).area) < 1e-6
-    assert deck_cover_of([tn], {"t1": slab}, lambda _db: False).is_empty
+    assert deck_cover_of([tn], {"t1": slab}).is_empty
 
 
 def test_under_a_slab_the_ground_is_the_decks_and_the_taxi_anchor_is_a_station():
@@ -422,4 +422,4 @@ def test_the_family_is_the_decks_from_its_carried_route():
     fam, route, ref = DR.carried_route(ap, _sbox(-20.0, 280.0, 20.0, 320.0))
     # 600 m on south of the crossing edge; north it stops at the turn
     assert (fam, ref) == ("taxi", "") and route[0] == (0.0, -400.0) and route[-1] == (0.0, 800.0)
-    assert DR.carried_route(ap, _sbox(900.0, 900.0, 950.0, 950.0)) == ("taxi", (), "")
+    assert DR.carried_route(ap, _sbox(900.0, 900.0, 950.0, 950.0)) == ("road", (), "")

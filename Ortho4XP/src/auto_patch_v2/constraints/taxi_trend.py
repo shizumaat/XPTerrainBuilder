@@ -385,10 +385,16 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
     # answer, JUNIOR to the runway's values (``held_by_contacts``)
     junior = {int(v): float(z) for v, z in (extra_contacts or {}).items()
               if int(v) not in contacts}
+    # THE BRIDGE WINDOWS ARE BLIND (deck redesign PR B round 2; owner
+    # 2026-11-03T21:16Z Q2: a deck's level is what the ROUTE GRAPH makes
+    # feasible): the DEM inside a deck's ring or its cut reads the road
+    # under it — KIAH's taxiway bridge obj24551 sank 1.8 m to it
+    from .deck_anchor import blind, deck_holes
+    inside = blind(deck_holes(pm))
     for c in chains:
         samples = [(s, float(pm.vertices[v].dem_z))
                    for v, s in zip(c.vertices, c.stations)
-                   if pm.vertices[v].dem_z is not None]
+                   if pm.vertices[v].dem_z is not None and not inside(pm.vertices[v].xy)]
         tr = trend_of(samples, window)
         if tr is None:
             n_no += 1

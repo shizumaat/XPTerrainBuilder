@@ -37,6 +37,7 @@ from .emit_stage import (  # noqa: F401
     borrowed_apt_dat_stamp,
     displacement_by_role,
     post_solve,
+    with_deck_levels,
     with_join_yield,
     with_threshold_yield,
 )
@@ -726,6 +727,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pm = with_join_yield(icao, pm, law, airport, sol, _pin_yield, out)
     # OWNER RULINGS 2026-10-26b: THE TILE SEAM OUTRANKS A CIFP THRESHOLD
     pm = with_threshold_yield(icao, pm, law, airport, sol, _pin_yield, out)
+    # deck redesign §5 (b): a taxi deck's level is the one the airside solved
+    pm = with_deck_levels(icao, pm, sol, out)
     # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
     # nothing is re-solved on a built step
     # THE SEAM PASSES ARE DELETED (§38 (1); owner RULINGS 2026-09-13ah,

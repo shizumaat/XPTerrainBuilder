@@ -14,7 +14,7 @@ from __future__ import annotations
 from .frame import Patch, Row, row
 from .pins import JOIN_DP, _by_ll
 
-__all__ = ["FAMILY_DECK_END_FLUSH", "deck_end_flush"]
+__all__ = ["FAMILY_DECK_END_FLUSH", "deck_end_flush", "deck_edge_vertices"]
 
 FAMILY_DECK_END_FLUSH = "deck_end_flush"
 
@@ -33,6 +33,18 @@ def _read(ends, by_ll) -> list:
                 seen.add(k)
                 read.append((k, *by_ll[k], float(r.get("top_y") or 0.0)))
     return read
+
+
+def deck_edge_vertices(p: Patch) -> set[int]:
+    """The vertex ids of every station of a pinned RUNWAY deck anchor in the
+    publication's ``deck_anchors`` — where the runway's crown floor stands
+    down as on a tile-seam pin (``constraints/runway_profile._deck_edge``)."""
+    want = {_key(lat, lon) for r in (p.publication.get("deck_anchors") or ())
+            if r.get("pinned") and r.get("family") == "runway"
+            for lat, lon in r.get("stations") or ()}
+    if not want:
+        return set()
+    return {vid for vid, ll in p.ll.items() if _key(*ll[:2]) in want}
 
 
 def deck_end_flush(p: Patch) -> list[Row]:

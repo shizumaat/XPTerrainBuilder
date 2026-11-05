@@ -17,10 +17,10 @@ terminal from it; neither re-derives the set.
 """
 from __future__ import annotations
 
-
 from ..law import Law
 from ..law.tables import bend_class
 from ..model.planar import PlanarMap
+from ..model.structures import DECK_GROUND_REF
 from .design_roles import bend_roles, pavement_roles
 
 __all__ = ["ground_roles", "ground_datum_vertices", "ground_rim_vertices",
@@ -86,12 +86,20 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
         for ring in (f.ring, *f.holes):
             pav.update(planar.ring_vertices(ring))
 
+    # THE GROUND A DECK RESTS ON FOLLOWS THE DECK (deck redesign PR B round
+    # 2; owner 2026-11-03T21:16Z Q2: the level is what the ROUTE GRAPH makes
+    # feasible): its DEM reads the road under the deck, and a datum there,
+    # tied to the stations by the deck's span, sank KIAH's taxiway bridge
+    # obj24551 1.8 m toward the road under it
+    decked = {v for f in planar.faces.values()
+              if str(getattr(f, "ref", "")).startswith(DECK_GROUND_REF + ":")
+              for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
     out: set[int] = set()
     for fid in outer:
         f = planar.faces[fid]
         for ring in (f.ring, *f.holes):
             for v in planar.ring_vertices(ring):
-                if v in pav or v in out:
+                if v in pav or v in out or v in decked:
                     continue
                 if planar.vertices[v].dem_z is None:
                     continue

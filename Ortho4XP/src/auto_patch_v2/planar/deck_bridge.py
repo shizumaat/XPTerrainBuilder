@@ -289,6 +289,11 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             ta, tb = _top_at(plate, sa, reach, top), _top_at(plate, sb, reach, top)
             # the FAMILY and the ROUTE, one per deck (``planar/deck_route``)
             fam, route, ref = carried_route(airport, piece)
+            if fam == "road" and _taxi_at_both_ends(sa, sb, roles):
+                # the airside pavement the deck carries is the second witness
+                # (KIAH's taxiway bridges, #1719: no row-1202 edge reaches
+                # them, the classified taxiway crosses both end lines)
+                fam = "taxi"
             mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
                                    tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
                                    float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb),
@@ -441,6 +446,15 @@ def _carries_movement(db: DeckBridge, roles: "CellRoles") -> bool:
     return any(roles.at_xy(p) in fam for p in tuple(db.seats_a) + tuple(db.seats_b))
 
 
+def _taxi_at_both_ends(sa, sb, roles: "CellRoles") -> bool:
+    """Taxi-family pavement at a seat of EACH end line — the deck carries a
+    taxiway across (the classification's own roles).  An apron is no
+    witness: KLAX's ``Road_Bridge`` (a service road over Sepulveda, owner
+    2026-11-03T23:07Z) lands on apron at one end."""
+    from ..classify.roles import TAXI_FAMILY
+    return all(any(roles.at_xy(p) in TAXI_FAMILY for p in st) for st in (sa, sb))
+
+
 def _deck_z(airport, seats, rendered: "float | None") -> "float | None":
     """The pre-solve estimate of the deck top: the ground at its end lines,
     where the design solve will grade the taxiway it is flush with (the
@@ -577,7 +591,7 @@ def _half_plane(line: tuple[XY, float], toward: XY, big: float) -> Polygon:
 def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
              other: "DeckBridge | None" = None,
              band: "tuple[float, float] | None" = None, bank_run: float = 0.0,
-             roads=None):
+             roads=None, uncut=None, rim_off: float = 0.0):
     """``(ramp, outer)`` of a corridor under ``db`` (module doc): clipped to
     its own side of the deck's midline (the mouth line — the bore's other
     mouth cuts the rest, so no end cap stands across the trench) and,
@@ -595,8 +609,19 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     "assume a sloping embankment coming down from bridge ends to the trench
     bottom").  ``roads``: the mapped road ribbons beside the cut — THE
     ROAD-EDGE WITNESS (16:56Z): the bank never cuts into one; the cut's
-    rim stands at its edge (vertical where it meets the carriageway)."""
+    rim stands at its edge (vertical where it meets the carriageway).
+
+    Deck redesign §3 (owner 2026-11-03T21:16Z Q1 "yes"; RULINGS 2026-11-03b
+    Q343 a): under a wall-less hard deck the cut takes the WHOLE ring
+    ``inset`` inside its edge, its floor running at level B to the toe of a
+    ``bank_run`` bank from each end line (:func:`_floor_under`; the road's
+    own width where that is wider); and ``uncut`` — the runway-family
+    pavement no deck ring carries, which the cut never takes — stands as a
+    RIM: the cut stops at its edge and the floor ``rim_off`` short of it,
+    so the void between them is the vertical step (never a floor vertex on
+    the runway)."""
     big = 10.0 * (axis.length + 1000.0)
+    road = ramp          # the corridor's own carriageway, before the deck trims it
     ahead = axis.interpolate(min(axis.length, 1.0))
     keep = _half_plane(mid_line(db), (ahead.x, ahead.y), big)
     if other is not None:
@@ -630,9 +655,19 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         bank = deck_polygon(db).buffer(-inset, join_style="mitre")
         if not bank.is_empty:
             outer = unary_union([outer, bank])
+            floor = _floor_under(db, bank, bank_run)
+            if floor is not None:
+                ramp = unary_union([ramp, floor])
 
+    if uncut is not None and not uncut.is_empty and outer.intersects(uncut):
+        outer = outer.difference(uncut)
+        ramp = ramp.difference(uncut.buffer(rim_off, join_style="mitre"))
     if roads is not None and not roads.is_empty:
-        beside = roads.difference(ramp.buffer(0.5, join_style="mitre"))
+        # a road BESIDE the cut, never the cut's own carriageway: under a
+        # slab the floor stops short of the deck and the road there is the
+        # embankment's (round 2, KIAH obj24551: the road ran on through the
+        # bank to the slab's edge, 0.53 m off the deck's span)
+        beside = roads.difference(unary_union([ramp, road]).buffer(0.5, join_style="mitre"))
         if not beside.is_empty:
             outer = outer.difference(beside)
 
@@ -641,6 +676,33 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         parts = [q for q in getattr(g, "geoms", [g]) if q.geom_type == "Polygon" and q.area > 0]
         return max(parts, key=lambda q: q.area) if parts else fallback
     return one(ramp, ramp), one(outer, outer)
+
+
+def _floor_under(db: DeckBridge, bank: Polygon, bank_run: float) -> "Polygon | None":
+    """THE FLOOR UNDER A WALL-LESS DECK (deck redesign §3 (a)): the ring
+    ``bank`` (already ``inset`` inside its edge) less a ``bank_run`` band
+    along each end line — the banks rise from the floor to the end lines
+    at ``[design] bank_slope``.  ``None`` where nothing is left."""
+    if bank_run <= 0.0:
+        return None
+    big = 10.0 * (math.sqrt(max(bank.area, 1.0)) + bank_run)
+    ends = [_end_band(st, bank_run, big) for st in (db.seats_a, db.seats_b) if st]
+    floor = bank.difference(unary_union(ends)) if ends else bank
+    parts = [q for q in getattr(floor, "geoms", [floor])
+             if q.geom_type == "Polygon" and q.area > 1.0]
+    return unary_union(parts) if parts else None
+
+
+def _end_band(stations, run: float, big: float) -> Polygon:
+    """The band ``run`` deep on the deck's side of an end line, run on
+    ``big`` past its ends (the bank's plan, :func:`_floor_under`)."""
+    (x0, y0), (x1, y1) = stations[0], stations[-1]
+    n = math.hypot(x1 - x0, y1 - y0)
+    if n <= 1e-9:
+        return Point(x0, y0).buffer(run)
+    ux, uy = (x1 - x0) / n, (y1 - y0) / n
+    return LineString([(x0 - ux * big, y0 - uy * big), (x1 + ux * big, y1 + uy * big)]).buffer(
+        run, cap_style="flat")
 
 
 def _lane_strip(db: DeckBridge, band: tuple[float, float], big: float) -> Polygon:

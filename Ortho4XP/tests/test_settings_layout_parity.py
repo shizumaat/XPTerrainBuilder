@@ -101,8 +101,16 @@ def test_expert_rows_close_their_category():
 def test_the_technical_knobs_are_expert():
     # The issue's named knobs: mesh, mask and texture-format tuning.
     for name in ("curvature_tol", "min_angle", "limit_tris", "mask_zl",
-                 "texture_mode", "masks_width", "apt_curv_tol"):
+                 "masks_width", "apt_curv_tol"):
         assert SM.get_setting(name).advanced, name
+
+
+def test_texture_mode_leads_imagery():
+    # Owner 2026-11-05: the X-Plane-textures-only choice is the first,
+    # non-expert row of Imagery in both apps.
+    imagery = dict((k, m) for k, _t, m in SM._LAYOUT)["imagery"]
+    assert imagery[0][0] == "texture_mode"
+    assert not SM.get_setting("texture_mode").advanced
 
 
 def test_secondary_text():

@@ -42,7 +42,7 @@ from ..model.frame import XY
 from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .obj8_clip import _bulk_polys
-from .object_cut import _plan_segments
+from .object_cut import _face_normals_y, _plan_area, _plan_segments
 
 __all__ = ["TrenchObject", "read_trench_objects", "covered_candidates", "mouth_portals"]
 
@@ -133,10 +133,16 @@ def read_trench_objects(objects: _t.Sequence[_obj8.PlacedObject],
     return out, sorted(notes)
 
 
-def _floor_at(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, r: float) -> "float | None":
-    """The lowest rendered solid of ``o`` whose plan triangle comes within
-    ``r`` of ``xy`` (absolute), ``None`` where none does."""
+def _face_at(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, r: float, law
+             ) -> "tuple[float, float, object] | None":
+    """The ENTRANCE FACE of ``o`` at the bore end ``xy``: ``(bottom y, top y,
+    top plan)`` of its solids whose plan triangle comes within ``r`` of
+    ``xy`` — the bottom the lowest of them under the object's zero, the top
+    the level of the largest near-horizontal plate bin among them (the
+    face's own top, never a parapet rail), its plan placed in the airport
+    frame — or ``None`` where no solid stands there."""
     from shapely.geometry import Polygon
+    ob = law.tables.structures.tunnel.object
     v, t = g.vertices, g.solid
     if t is None or not len(t):
         return None
@@ -145,9 +151,39 @@ def _floor_at(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, r: float) -> 
     near = np.hypot(px[t] - xy[0], py[t] - xy[1]).min(axis=1) <= r + np.ptp(
         np.stack([px[t], py[t]], axis=-1), axis=1).max(axis=1)
     disc = Point(xy).buffer(r)
-    low = [float(v[t[k], 1].min()) for k in np.flatnonzero(near)
-           if Polygon(np.c_[px[t[k]], py[t[k]]]).buffer(1e-3).intersects(disc)]
-    return None if not low else o.anchor_z + o.agl_m + min(low)
+    ks = [k for k in np.flatnonzero(near)
+          if Polygon(np.c_[px[t[k]], py[t[k]]]).buffer(1e-3).intersects(disc)]
+    if not ks:
+        return None
+    ks_a = np.asarray(ks)
+    bottom = float(v[t[ks_a], 1].min())
+    plate = _face_normals_y(v, t[ks_a]) >= ob.plate_normal_y_min
+    if not plate.any():
+        return bottom, float(v[t[ks_a], 1].max()), None
+    tops = v[t[ks_a[plate]], 1].max(axis=1)
+    bins: dict[int, float] = {}
+    for k, ar in zip(np.floor(tops / ob.plate_bin_m).astype(int).tolist(),
+                     _plan_area(v, t[ks_a[plate]]).tolist(), strict=True):
+        bins[k] = bins.get(k, 0.0) + ar
+    best = max(bins, key=lambda k: bins[k])
+    sel = np.floor(tops / ob.plate_bin_m).astype(int) == best
+    plan = shapely.union_all(np.array([Polygon(np.c_[px[q], py[q]]).buffer(1e-3)
+                                       for q in t[ks_a[plate][sel]]], dtype=object))
+    return bottom, float(tops[sel].max()), plan
+
+
+def _cover_over(plan, dem_z) -> "float | None":
+    """The surveyed ground over a face's top: the highest DEM sample over its
+    plan (its vertices and an inner point; ``portal_objects`` reads a roof's
+    cover the same way)."""
+    if plan is None or plan.is_empty:
+        return None
+    pts = [plan.representative_point().coords[0]]
+    for q in getattr(plan, "geoms", [plan]):
+        pts.extend(q.exterior.coords)
+    zs = [float(dem_z(x, y)) for x, y in pts]
+    zs = [z for z in zs if not math.isnan(z)]
+    return max(zs) if zs else None
 
 
 def _ground_max(dem_z, xy: XY, r: float) -> float:
@@ -161,18 +197,30 @@ def _ground_max(dem_z, xy: XY, r: float) -> float:
 
 def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj8.PlacedObject],
                   cache: _obj8.ResourceCache, law, tunnel_ways, dem_z) -> list:
-    """#1747 (owner ruling 2026-11-03 "yes"; Q256 b, RULINGS 2026-10-28s
-    (6)): a trench object standing at a MAPPED TUNNEL's end is that bore's
-    ENTRANCE: the road at the mouth grades to the object's bottom where it
-    stands, and the object stays put.  One pin (``portal_objects.Portal``)
-    per such end, its ``floor_z`` the lowest solid within TWICE ``[tunnel.
-    object] bore_end_tolerance_m`` of the end (``read_portals``' reach for a
-    face, which may stand the tolerance off the end either side: LOWS's
-    west face stands 8 m out of its mapped end) and its anchor the end
-    itself (the mouth does not move).  An end with no solid within that
-    reach is no entrance, nor is one whose solids there stand more than
-    ``[placement] split_tol_m`` over the highest ground in that reach (a
-    building on the bore), and an edge-wall bridge is never one."""
+    """#1747 (owner ruling 2026-11-03 "yes"; RULINGS 2026-11-03e (15), Q-A
+    2026-11-05 "the floor at the PORTAL"; Q256 b, 2026-10-28s (6)): a trench
+    object standing at a MAPPED TUNNEL's end is that bore's ENTRANCE: the
+    road at the mouth grades to the object's bottom AT THE PORTAL.  One pin
+    (``portal_objects.Portal``) per such end, read off the object's FACE
+    there (:func:`_face_at`, within TWICE ``[tunnel.object]
+    bore_end_tolerance_m`` of the end — ``read_portals``' reach for a face,
+    which may stand the tolerance off the end either side: LOWS's west face
+    stands 8 m out of its mapped end).
+
+    THE FACE IS SEATED WITH ITS TOP ON THE GROUND OVER IT, ITS BOTTOM ON THE
+    FLOOR: ``floor_z`` = the surveyed ground over the face's top
+    (:func:`_cover_over`) less the face's height (top − bottom), and
+    ``bottom_y`` the face's bottom under the object's zero, so the object
+    stage seats that face at the floor (``Tunnel.portal_seat``).  MEASURED
+    LOWS (1.0.465): the floor was read at the pack's own zero — 4.0 m over
+    the ground at the face (its zero is the DEM at the anchor 650 m away) —
+    giving a 0.5 m "ramp" 12-24 m long (a pit), while the object stage set
+    the face's bottom on the apron, 5 m proud: neither seated the mouth.
+
+    An end with no solid within that reach is no entrance, nor is one
+    whose solids there stand more than ``[placement] split_tol_m`` over the
+    highest ground in that reach at the pack's zero (a building on the
+    bore), and an edge-wall bridge is never one."""
     from .hanging_objects import edge_wall_reading
     from .portal_objects import Portal
     tol = float(law.tables.structures.tunnel.object.bore_end_tolerance_m)
@@ -187,19 +235,23 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             # an EDGE-WALL BRIDGE pins by its back's crossing, never by an
             # end's distance (``read_portals``; owner RULINGS 2026-10-28d)
             continue
+        zero = float(o.anchor_z + o.agl_m)
         for xy, wid in t.ends:
             if int(wid) not in bores:
                 continue
-            floor = _floor_at(o, g, xy, 2.0 * tol)
+            face = _face_at(o, g, xy, 2.0 * tol, law)
             ground = float(dem_z(xy[0], xy[1]))
-            if floor is None or np.isnan(ground):
+            if face is None or np.isnan(ground):
                 continue
-            if floor > _ground_max(dem_z, xy, 2.0 * tol) + split_tol:
+            bottom, top, plan = face
+            if zero + bottom > _ground_max(dem_z, xy, 2.0 * tol) + split_tol:
                 # its solids there stand OVER the ground: a building on the
                 # bore, never the mouth's road (LOWS's north house plates
                 # stood 8.5 m over bore -328's end)
                 continue
+            cover = _cover_over(plan, dem_z)
+            floor = (zero + bottom) if cover is None else cover - (top - bottom)
             out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
                               ground - floor, 0.0, (float(xy[0]), float(xy[1])),
-                              floor_z=float(floor)))
+                              floor_z=float(floor), bottom_y=float(bottom)))
     return out

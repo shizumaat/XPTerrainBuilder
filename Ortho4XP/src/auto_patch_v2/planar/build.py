@@ -45,6 +45,7 @@ from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
 from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
+from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground
 from .level_depth import airport_level_b
 from .overpass_deck import road_overpasses
@@ -306,6 +307,10 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        deck_bridges=decks,
                                                        level_b=level_b)
     sstats.hard_decks.extend(deck_notes)
+    # a pack deck over a pack object cut frames that cut (owner 2026-11-05
+    # §0.5, ``planar/cut_frame``): its floor at the deck's seated zero
+    tunnels, frame_notes = frame_cuts(tunnels, objects, cache, classification, airport, law)
+    sstats.hard_decks.extend(frame_notes)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
     classification, ground_notes = deck_ground(classification, tunnels, law)

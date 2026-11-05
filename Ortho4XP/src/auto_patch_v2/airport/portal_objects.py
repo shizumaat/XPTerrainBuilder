@@ -87,6 +87,11 @@ class Portal:
     #: end (owner 2026-11-04 ENTC: "tunnel ramps not matching tunnel mouth
     #: width") — the ramp's width at the mouth; ``0.0`` for any other pin
     opening_m: float = 0.0
+    #: #1747 (Q-A 2026-11-05): an ENTRANCE object's face bottom under its
+    #: zero at this end (``trench_objects.mouth_portals``) — the object stage
+    #: seats that face with its bottom on :attr:`floor_z`
+    #: (``Tunnel.portal_seat``); ``None`` for any other pin
+    bottom_y: "float | None" = None
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:

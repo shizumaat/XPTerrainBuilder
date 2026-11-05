@@ -330,7 +330,8 @@ def crossing_roads(axis: LineString, index, law: Law,
     build_structures``'s truncation loop).  Not a road through it: a road
     the axis or one of ``routes`` (the members' own approaches) runs ALONG
     (the ramp's own road, or its other feed's copy), a road that only ENDS
-    on the axis (a junction with the ramp's road), and a road on a bridge
+    on the axis (a junction with the ramp's road), a road whose two ends
+    stand on the ramp's own roads (a crossover between its carriageways), and a road on a bridge
     over it (its deck, §34 (12) (4)).  Roads the classification carries as
     cells already stop it (``structure_mouth`` clause 4); this reads the
     mapped way, so a road beyond the classified cover stops it too."""
@@ -350,6 +351,11 @@ def crossing_roads(axis: LineString, index, law: Law,
         hits = [g for g in shapely.get_parts(axis.intersection(ln)) if g.geom_type == "Point"]
         if not any(min(g.distance(e) for e in ends) > _ALONG_MIN_M for g in hits):
             continue                                   # it ends on the axis: a junction
+        if all(min(r.distance(e) for r in own) <= _ALONG_TOL_M for e in ends):
+            # BOTH its ends on the ramp's own roads: a link between them (a
+            # dual carriageway's crossover), never a road through the ramp
+            # (#1747, LOWS: an 8 m crossover 12 m out stopped the west ramp)
+            continue
         out.append((ln.buffer(carriageway_width_m(w.tags, law) / 2.0, cap_style="flat"),
                     f"osm:{w.id}"))
     return out

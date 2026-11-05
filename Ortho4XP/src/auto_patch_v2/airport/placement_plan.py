@@ -118,6 +118,7 @@ from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
 # door; the round-2 private names stay importable from here
 from . import channel_zero as _chz_mod  # noqa: E402
 from . import cut_deck_seat as _cds  # noqa: E402
+from . import entrance_seat as _ens  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
     airside_deck as _airside_deck, airside_frame as _airside_frame,
     deck_owns_its_datum as _deck_owns_its_datum, refused_bridge as _refused_bridge)
@@ -288,6 +289,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     reseated = _aseat.reseated_rows(getattr(plan, "authored_seats", ()) or ())
     # 26d (#1331): the pack object cuts' rings, published on the seat records
     _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
+    # #1747: each entrance face's zero at its portal (``entrance_seat``)
+    _entr = _ens.entrance_zeros(getattr(plan, "authored_seats", ()) or ())
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,
@@ -954,6 +957,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         def _one_bridge(r, mm, _b=bridge, _z=_bz, _s=_seats):
             if _b is None:
                 return r
+            # owner 2026-11-05 §0.5: the cut a seated deck frames rides it
+            fz = _cds.framed_zero(getattr(mm, "id", ""), _s,
+                                  getattr(plan, "authored_seats", ()) or ())
+            if fz is not None:
+                r = _at_zero(r, mm, fz[0], lambda b: not _cds.seated(b),
+                             f"the cut the deck seated over it frames, at {fz[0]:.2f} "
+                             f"(owner 2026-11-05 §0.5; residual to its floor's frame "
+                             f"{fz[1]:+.2f} m)")
             for zero in sorted({z for b in r.bodies
                                 if (z := _cds.seat_under(b, _s, deck_on_fraction)) is not None}):
                 r = _at_zero(r, mm, zero,
@@ -971,8 +982,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             return _frame_zero(r, mm, _z[0],
                                f"one bridge frame at its deck's zero {_z[0]:.2f} "
                                "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)",
-                               keep=lambda b, _s=_s: _cds.seated(b) or _cds.seat_under(
-                                   b, _s, deck_on_fraction) is not None)
+                               keep=lambda b, _s=_s, _f=fz: _f is not None or _cds.seated(b)
+                               or _cds.seat_under(b, _s, deck_on_fraction) is not None)
 
         # #1883: a pack-floored channel's frame at the zero its floor was
         # read at, never at the rim (``channel_zero``)
@@ -982,6 +993,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # pack deck body over the pack's own cut sits flush with what it
         # carries (``cut_deck_seat``)
         def _cut_decks(r, mm, _u=u, _air=airside, _cz=_chz):
+            r = _ens.seat_faces(r, mm, _entr, _at_zero)
             for n, zero in sorted(_cz.items()):
                 r = _at_zero(r, mm, zero, lambda b, _n=n: _chz_mod.rim_channel(b) == _n,
                              f"the channel's pack floor zero {zero:.2f} (#1883)")

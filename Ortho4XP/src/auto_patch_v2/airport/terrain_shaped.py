@@ -57,7 +57,7 @@ from . import dsf as _dsf
 __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
            "placement_fits", "dem_many_of",
            "grid_of_resource", "seat_records", "log_line", "row_seats",
-           "PORTAL_SEAT", "portal_seat_records"]
+           "PORTAL_SEAT", "ENTRANCE_SEAT", "portal_seat_records"]
 
 MIN_AREA_M2 = 20_000.0
 MIN_RELIEF_M = 5.0
@@ -69,6 +69,10 @@ SEAT = "terrain fit"
 #: 2026-11-04 ENTC: "the tunnel mouth objects are still not seated at the
 #: bottom of the ramp"; ``Tunnel.portal_seat``)
 PORTAL_SEAT = "portal floor"
+#: #1747: an ENTRANCE object's face seated with its bottom on its portal's
+#: floor -- a BODY's seat (the object stands at both ends, and carries more),
+#: never the row's (``row_seats`` writes none)
+ENTRANCE_SEAT = "entrance face"
 _WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor"}
 
 
@@ -238,12 +242,27 @@ def log_line(icao: str, decks: _t.Sequence[TerrainFit]) -> str:
         f"{f.area_m2:,.0f} m2, relief {f.relief_m:.1f} m" for f in decks)
 
 
-def portal_seat_records(structures: _t.Iterable[_t.Any]) -> list[dict[str, _t.Any]]:
+def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None) -> list[dict[str, _t.Any]]:
     """One record per roofed portal seated at its mouth's pinned floor
-    (``Tunnel.portal_seat``) -- the row :func:`row_seats` writes there."""
-    return [{"id": tn.portal, "resource": tn.portal_seat[0], "datum": "portal",
-             "seat": PORTAL_SEAT, "elevation": round(float(tn.portal_seat[1]), 3)}
-            for tn in structures if getattr(tn, "portal_seat", ()) and tn.portal]
+    (``Tunnel.portal_seat``) -- the row :func:`row_seats` writes there --
+    and per ENTRANCE face (#1747; ``to_ll`` the frame's xy -> (lat, lon)):
+    seat :data:`ENTRANCE_SEAT`, its ``end`` ``[lat, lon]``, the elevation its
+    zero, which ``airport/entrance_seat`` lays on the face's own body."""
+    out = []
+    for tn in structures:
+        ps = getattr(tn, "portal_seat", ())
+        if not ps or not tn.portal:
+            continue
+        rec = {"id": tn.portal, "resource": ps[0], "datum": "portal",
+               "seat": PORTAL_SEAT, "elevation": round(float(ps[1]), 3)}
+        if len(ps) > 2:
+            if to_ll is None:
+                continue
+            lat, lon = to_ll(*ps[2])
+            rec.update(seat=ENTRANCE_SEAT, end=[round(float(lat), 9), round(float(lon), 9)],
+                       reach_m=float(ps[3]) if len(ps) > 3 else 0.0)
+        out.append(rec)
+    return out
 
 
 def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> tuple:

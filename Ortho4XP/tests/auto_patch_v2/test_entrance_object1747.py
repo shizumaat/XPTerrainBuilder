@@ -1,8 +1,10 @@
 """Twin for #1747 (owner ruling 2026-11-03 "yes", LOWS; Q256 b, RULINGS
 2026-10-28s (6)): a pack trench object standing at a mapped TUNNEL's end is
-that bore's ENTRANCE — the mouth's floor is the object's bottom where it
-stands (``trench_objects.mouth_portals``), the object stays put, and the
-structure pass reads that floor (``structures``: ``Portal.floor_z``).
+that bore's ENTRANCE — the mouth's floor is the object's bottom at the
+portal with its face seated on the ground over it (Q-A 2026-11-05;
+``trench_objects.mouth_portals``), the structure pass reads that floor
+(``structures``: ``Portal.floor_z``) and the object stage seats the face
+there (``airport/entrance_seat``).
 Synthetic OBJ8 and ways; law values read from the tables."""
 from __future__ import annotations
 
@@ -50,7 +52,13 @@ def test_an_entrance_object_pins_the_mouth_at_its_bottom(objs, law):
     assert [(p.end_xy, p.way_id) for p in pins] == [((0.0, 3.0), -7)]
     p = pins[0]
     base = objects[0].anchor_z + objects[0].agl_m
-    assert p.floor_z == pytest.approx(base - 5.0, abs=0.01)
+    # Q-A (2026-11-05): the floor AT THE PORTAL is the face's bottom with the
+    # face seated on the ground over it — the ground (flat, ``base``) less
+    # the face's height (its top plate +2 over its bottom -5; the ground the
+    # highest DEM over that plate), never its
+    # bottom at the pack's own zero; ``bottom_y`` seats the face there
+    assert p.floor_z == pytest.approx(airport.dem.z(6.0, 0.0) - 7.0, abs=0.01)
+    assert p.bottom_y == pytest.approx(-5.0, abs=0.01)
     assert p.anchor_xy == p.end_xy               # the mouth does not move
     assert "entrance object" in portal_note(p, base, p.floor_z)
     # a road end the face does not stand at is no entrance: a covered or
@@ -115,3 +123,36 @@ def test_the_entrances_own_pad_never_stops_its_ramp(law):
     _cl, tunnels, st = run(own + [("house", (120.0, -30.0, 160.0, 30.0))])
     east = [t for t in tunnels if t.axis[0][0] > 0]
     assert east and max(x for x, _y in east[0].axis) < 120.0, (st.refused, east)
+
+
+def test_the_entrance_face_is_seated_on_its_portals_floor_face_by_face():
+    """#1747 (Q-A 2026-11-05; RULINGS 2026-11-03e (15) "the houses stay"):
+    the structure pass publishes each entrance face's zero with its bore end
+    (``Tunnel.portal_seat``), the seat record carries the end, and only the
+    bodies standing within reach of that end take that zero — a house of
+    the same object, and the other portal's face, keep theirs.  The row
+    itself is never written as one seat (``row_seats``)."""
+    import types
+
+    from auto_patch_v2.airport.entrance_seat import entrance_zeros, seat_faces
+    from auto_patch_v2.airport.terrain_shaped import ENTRANCE_SEAT, portal_seat_records, row_seats
+    tn = types.SimpleNamespace(portal="dsf:obj7", portal_seat=("objects/e.obj", 430.95,
+                                                               (100.0, 200.0), 10.0))
+    recs = portal_seat_records([tn], lambda x, y: (47.0 + y * 1e-5, 13.0 + x * 1e-5))
+    assert recs == [{"id": "dsf:obj7", "resource": "objects/e.obj", "datum": "portal",
+                     "seat": ENTRANCE_SEAT, "elevation": 430.95,
+                     "end": [47.002, 13.001], "reach_m": 10.0}]
+    assert row_seats(types.SimpleNamespace(placements=[]), recs) == ()
+    face = types.SimpleNamespace(geom_box=(47.00195, 13.0009, 47.0021, 13.00105))
+    house = types.SimpleNamespace(geom_box=(47.01, 13.01, 47.011, 13.011))
+    rec = types.SimpleNamespace(bodies=(face, house))
+    took = []
+
+    def at_zero(r, m, zero, take, why):
+        took.extend((b, zero) for b in r.bodies if take(b))
+        return r
+    seat_faces(rec, types.SimpleNamespace(id="dsf:obj7"), entrance_zeros(recs), at_zero)
+    assert took == [(face, 430.95)]
+    took.clear()
+    seat_faces(rec, types.SimpleNamespace(id="dsf:obj8"), entrance_zeros(recs), at_zero)
+    assert took == []

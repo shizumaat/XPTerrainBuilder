@@ -27,7 +27,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-from shapely.geometry import MultiPoint, Polygon
+from shapely.geometry import MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 
 from ..model.frame import m_per_deg_exact as _mpd
@@ -35,12 +35,17 @@ from ..model.planar import ROAD_ROLES
 from . import airside_deck_seat as _ads
 from .placement_file import authored_offset, named_body
 
-__all__ = ["CUT_RING", "SEAT_REASON", "seated", "cut_seats", "seat_under", "cut_rings",
+__all__ = ["CUT_RING", "CUT_FRAME_Z", "SEAT_REASON", "seated", "cut_seats", "seat_under",
+           "framed_zero", "cut_rings",
            "carries_airside", "carries_road", "end_ground", "seat_cut_decks"]
 
 #: The ``authored_seats`` record key carrying a pack object cut's
 #: footprint ring as ``[[lat, lon], ...]``.
 CUT_RING = "cut_ring"
+
+#: The seat record key carrying the frame zero the planar map read a cut
+#: its pack's deck frames at (``planar/cut_frame``, ``Tunnel.cut_frame``).
+CUT_FRAME_Z = "cut_frame_z"
 
 #: the anchor reason a body this reading seated opens with
 SEAT_REASON = "pack deck over the pack's cut"
@@ -168,6 +173,29 @@ def seat_under(body: _t.Any, seats: _t.Sequence[tuple[tuple, float]],
         if frac >= on_fraction and (best is None or frac > best[0]):
             best = (frac, zero)
     return None if best is None else best[1]
+
+
+def framed_zero(member_id: str, seats: _t.Sequence[tuple[tuple, float]],
+                records: _t.Iterable[_t.Mapping[str, _t.Any]]
+                ) -> "tuple[float, float] | None":
+    """Owner 2026-11-05 §0.5: ``(zero, residual)`` for the CUT member
+    ``member_id`` a pack deck frames — the zero of the deck piece seated
+    over its own cut ring (:func:`cut_seats`; the piece's box centre inside
+    the ring) and that zero less the frame zero the planar map read its
+    floor at (:data:`CUT_FRAME_Z`) — or ``None``.  Its walls ride the deck
+    whatever their height: the deck is the cut's frame, not a thing on it
+    (:func:`seat_under`'s riders)."""
+    rec = next((r for r in records or () if hasattr(r, "get")
+                and str(r.get("id")) == str(member_id)
+                and r.get(CUT_FRAME_Z) is not None and r.get(CUT_RING)), None)
+    if rec is None or not seats:
+        return None
+    ring = Polygon([(float(lo), float(la)) for la, lo in rec[CUT_RING]])
+    ring = ring if ring.is_valid else ring.buffer(0)
+    for sb, zero in seats:
+        if ring.contains(Point(0.5 * (sb[1] + sb[3]), 0.5 * (sb[0] + sb[2]))):
+            return float(zero), float(zero) - float(rec[CUT_FRAME_Z])
+    return None
 
 
 def cut_rings(records: _t.Iterable[_t.Mapping[str, _t.Any]]

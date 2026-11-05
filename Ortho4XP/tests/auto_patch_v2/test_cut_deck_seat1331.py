@@ -205,3 +205,41 @@ def test_the_bridges_own_walls_under_the_deck_ride_it_too(tmp_path):
                 plan_box=wall.plan_box,
                 geom_pts=wall.geom_pts[:5] + tuple((q[0], q[1], 0.4) for q in wall.geom_pts[5:]))
     assert abs(CDS.seat_under(wall, seats, 0.5) - seats[0][1]) < 1e-6
+
+
+def test_a_cut_its_packs_deck_frames_rides_the_deck_never_its_authored_seat():
+    """Owner 2026-11-05 §0.5 (amends 09q (1)): LGAV ``Trench_02`` stood at
+    the stack's zero 2.3 m under the deck seated over it (1.0.465) because
+    its crest was in band — "authored (cut)", never re-seated.  A cut a
+    co-placed pack deck frames (``Tunnel.cut_frame``, ``planar/cut_frame``)
+    is re-seated; the same cut with no deck over it keeps its seat."""
+    from auto_patch_v2.airport import authored_seat as AS
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.pipeline.authored_seats import kept_ids, seat_records
+
+    def tn(oid, frame):
+        return types.SimpleNamespace(source="object", objects=(oid,), resource="t.obj",
+                                     authored_crest_m=((0.0, 0.0),), cut_frame=frame)
+    framed = ((("dsf:obj9", ((0.0, 0.0),), 4.0), ("dsf:obj9", ((5.0, 0.0),), 4.0)))
+    pm = types.SimpleNamespace(structures=(tn("dsf:obj1", ()), tn("dsf:obj2", framed)),
+                               basins=())
+    recs = seat_records(pm, Law.for_airport("ZZZZ"))
+    assert recs["dsf:obj1"]["seat"] == AS.SEAT_AUTHORED
+    assert recs["dsf:obj2"]["seat"] == AS.SEAT_RESEATED
+    assert kept_ids(recs) == {"dsf:obj1"}
+
+
+def test_the_framed_cut_takes_the_zero_of_the_deck_seated_over_its_ring():
+    """Owner 2026-11-05 §0.5: the cut member rides the deck piece seated
+    over ITS OWN ring (the piece's box centre inside it), and the residual
+    to the frame its floor was read at is reported; a cut with no frame
+    zero on its record, or no deck over its ring, rides nothing."""
+    ring = [[40.0, -3.0], [40.0, -2.99], [40.01, -2.99], [40.01, -3.0]]
+    recs = [{"id": "dsf:obj2", CDS.CUT_RING: ring, CDS.CUT_FRAME_Z: 79.9},
+            {"id": "dsf:obj3", CDS.CUT_RING: ring}]
+    seats = [((40.5, -2.5, 40.6, -2.4, 0.0), 70.0),          # a deck over another cut
+             ((40.004, -2.996, 40.006, -2.994, 0.0), 80.02)]
+    zero, res = CDS.framed_zero("dsf:obj2", seats, recs)
+    assert abs(zero - 80.02) < 1e-9 and abs(res - 0.12) < 1e-9
+    assert CDS.framed_zero("dsf:obj3", seats, recs) is None
+    assert CDS.framed_zero("dsf:obj2", seats[:1], recs) is None

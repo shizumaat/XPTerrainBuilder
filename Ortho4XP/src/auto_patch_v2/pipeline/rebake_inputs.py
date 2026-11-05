@@ -288,7 +288,7 @@ def _stamp_cut_rings(seats: dict, pm, airport) -> None:
     ring, ``[[lat, lon], ...]``, on the seat record of every placement it
     was read from (``airport/cut_deck_seat.CUT_RING``) — the witness the
     object stage reads to seat a pack deck over the pack's own cut."""
-    from ..airport.cut_deck_seat import CUT_RING
+    from ..airport.cut_deck_seat import CUT_FRAME_Z, CUT_RING
     to_ll = airport.frame.transformers()[1]
     for tn in getattr(pm, "structures", ()):
         if getattr(tn, "source", "") != "object":
@@ -300,6 +300,9 @@ def _stamp_cut_rings(seats: dict, pm, airport) -> None:
         for oid in tn.objects:
             if oid in seats:
                 seats[oid][CUT_RING] = ll
+                if getattr(tn, "cut_frame", ()):
+                    # owner 2026-11-05 §0.5: the frame zero its floor was read at
+                    seats[oid][CUT_FRAME_Z] = round(float(tn.cut_frame[1]), 3)
 
 
 def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
@@ -332,7 +335,8 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
         "tunnel_objects": _plate_seats(pm, law, seats),
         "authored_seats": (tuple(seats[k] for k in sorted(seats))
                            + tuple(_ts.seat_records(airport))
-                           + tuple(_ts.portal_seat_records(pm.structures))),
+                           + tuple(_ts.portal_seat_records(pm.structures,
+                                                           airport.frame.transformers()[1]))),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``

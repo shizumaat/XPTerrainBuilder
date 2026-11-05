@@ -13,8 +13,9 @@ THE WITNESS.  The fixed levels are the runways' own profile targets
 solves to.  On THE CHAIN (``routes.build_routes``, the rows RULINGS 05ac
 makes the taxi law: the centreline stretches, the runway ridges, the
 crossings and the LATERAL hops at the transverse cap — the hop is what ties
-a stub's centreline to the runway edge it meets; never a pad contact), every vertex's lawful interval from the fixed
-levels is ``[max_r z_r − b(r, v), min_r z_r + b(r, v)]`` with ``b`` the
+a stub's centreline to the runway edge it meets; never a pad contact),
+every vertex's lawful interval from the fixed levels is
+``[max_r z_r − b(r, v), min_r z_r + b(r, v)]`` with ``b`` the
 least ``Σ cap·len`` (two multi-source Dijkstras).  An EMPTY interval is the
 proof: the highest and lowest contacts that close it are joined by a route
 (the two shortest-budget paths through that vertex) whose stretches cannot

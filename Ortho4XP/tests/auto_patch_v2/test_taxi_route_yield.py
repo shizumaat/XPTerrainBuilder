@@ -10,7 +10,6 @@ connector between them (``test_taxiyield135``'s builder).  The connector's
 from __future__ import annotations
 
 import pytest
-
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.constraints.runway_chord import with_runway_chord
 from auto_patch_v2.constraints.stretches import stretches
@@ -19,7 +18,6 @@ from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar.build import build
-
 from test_routes import _RampDem, _rect
 
 
@@ -35,7 +33,8 @@ def _pair(law, drop_m: float):
         return Runway(ref, 45.0, 1, (
             RunwayEnd(a, (-600.0, y), (60.5, -135.5), 0.0, 0.0, z, "fixture"),
             RunwayEnd(b, (600.0, y), (60.5, -135.5), 0.0, 0.0, z, "fixture")), 3, "D")
-    rws = (rwy("09L/27R", "09L", "27R", 0.0, 700.0), rwy("09R/27L", "09R", "27L", 400.0, 700.0 - drop_m))
+    rws = (rwy("09L/27R", "09L", "27R", 0.0, 700.0),
+           rwy("09R/27L", "09R", "27L", 400.0, 700.0 - drop_m))
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     airport = Airport("ZZZZ", "Synthetic", frame, 700.0, rws, (), (), {}, (),
                       (), (), (), (), (), (), pack, _RampDem(), law.ruleset_key)

@@ -257,10 +257,11 @@ def test_a_cuts_own_cover_never_frames_it():
     as one, EGLL's floor moved 1.39 m off its walls' bottom (Q167)."""
     from auto_patch_v2.law import Law
     from auto_patch_v2.planar.cut_frame import frame_cuts
-    from shapely.geometry import box
     shell = types.SimpleNamespace(id="dsf:obj1", xy=(0.0, 0.0), heading_deg=0.0, path="s.obj")
     cover = types.SimpleNamespace(id="dsf:obj2", xy=(0.0, 0.0), heading_deg=0.0, path="c.obj",
-                                  deck_kind="flag", hard_deck=box(-10, -10, 10, 10))
+                                  deck_kind="flag",
+                                  hard_deck=CDS.Polygon([(-10, -10), (10, -10), (10, 10),
+                                                         (-10, 10)]))
     tn = types.SimpleNamespace(id="object-cut:s.obj@0", source="object", objects=("dsf:obj1",),
                                footprint=((-12, -12), (12, -12), (12, 12), (-12, 12)),
                                mouth_z=70.0, notes=())

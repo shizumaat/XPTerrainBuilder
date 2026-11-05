@@ -214,6 +214,10 @@ class TunnelObjectStats:
     #: never a basin").
     shells: int = 0
     shell_claimed: tuple[str, ...] = ()
+    #: ``(corridor id, its cover's placement id)`` per signature-B corridor
+    #: — the cover is the cut's own roof, never a deck that frames it
+    #: (``planar/cut_frame``)
+    shell_covers: tuple[tuple[str, str], ...] = ()
     #: the pack PORTALS over mapped bore ends (``airport/portal_objects``;
     #: #971 "or object if one is provided", #1343): each pins its mouth
     portals: tuple = ()
@@ -884,6 +888,7 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     shell_ids: set[str] = set()
     claimed_ids: set[str] = set()
     shell_corridors: list[Corridor] = []
+    shell_cuts: list = []
     for cut in cuts:
         c = shell_corridor(cut, airport, tunnel_ways, law)
         if isinstance(c, str):
@@ -891,12 +896,16 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                  f"a signature-B shell, but {c}")
             continue
         shell_corridors.append(c)
+        shell_cuts.append(cut)
         shell_ids.add(cut.object_id)
         claimed_ids.add(cut.object_id)
         if cut.cover_object_id:
             claimed_ids.add(cut.cover_object_id)
     stats.shells = len(shell_corridors)
     stats.shell_claimed = tuple(sorted(claimed_ids))
+    stats.shell_covers = tuple(sorted((c.id, cut.cover_object_id) for c, cut in
+                                      zip(shell_corridors, shell_cuts, strict=True)
+                                      if cut.cover_object_id))
     stats.refused.extend(cstats.refused)
     sigs: dict[str, WallSignature | str] = {}
     counts: dict[str, int] = {}
@@ -1031,7 +1040,8 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     from .portal_objects import read_portals
     portals, p_refused = read_portals(_object_cut.placement_order(objects), cache, law,
                                       tunnel_ways, claimed_ids | {i for c in out
-                                                                  for i in c.objects})
+                                                                  for i in c.objects},
+                                      dem_z=getattr(getattr(airport, "dem", None), "z", None))
     stats.portals = tuple(portals)
     stats.refused.extend(p_refused)
     # 2026-10-28s (5)/(6): the open walled trench objects at a road's end

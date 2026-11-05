@@ -330,7 +330,8 @@ def crossing_roads(axis: LineString, index, law: Law,
     build_structures``'s truncation loop).  Not a road through it: a road
     the axis or one of ``routes`` (the members' own approaches) runs ALONG
     (the ramp's own road, or its other feed's copy), a road that only ENDS
-    on the axis (a junction with the ramp's road), and a road on a bridge
+    on the axis (a junction with the ramp's road), a road whose two ends
+    stand on the ramp's own roads (a crossover between its carriageways), and a road on a bridge
     over it (its deck, §34 (12) (4)).  Roads the classification carries as
     cells already stop it (``structure_mouth`` clause 4); this reads the
     mapped way, so a road beyond the classified cover stops it too."""
@@ -350,6 +351,11 @@ def crossing_roads(axis: LineString, index, law: Law,
         hits = [g for g in shapely.get_parts(axis.intersection(ln)) if g.geom_type == "Point"]
         if not any(min(g.distance(e) for e in ends) > _ALONG_MIN_M for g in hits):
             continue                                   # it ends on the axis: a junction
+        if all(min(r.distance(e) for r in own) <= _ALONG_TOL_M for e in ends):
+            # BOTH its ends on the ramp's own roads: a link between them (a
+            # dual carriageway's crossover), never a road through the ramp
+            # (#1747, LOWS: an 8 m crossover 12 m out stopped the west ramp)
+            continue
         out.append((ln.buffer(carriageway_width_m(w.tags, law) / 2.0, cap_style="flat"),
                     f"osm:{w.id}"))
     return out
@@ -453,7 +459,8 @@ def under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
 
 
 def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
-                     corridors: _t.Sequence = (), decks: _t.Sequence = ()) -> "FieldRegion":
+                     corridors: _t.Sequence = (), decks: _t.Sequence = (),
+                     portals: _t.Sequence = ()) -> "FieldRegion":
     """THE REGION A MOUTH MAY STAND IN, assembled in ONE place: the
     classified cover (with the roofed corridors' footprints, which the
     caller passes in ``polys``) ⊕ ``[tunnel] mouth_standoff_m``, union
@@ -465,7 +472,10 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     2026-09-27a (3)).  ``decks`` are the HARD-DECK BRIDGES
     (``planar/deck_bridge``, RULINGS 2026-10-30a): their frames are the
     bridge, never a building or an elevated part over the bore, and their
-    decks are cover (§34 (12) (5) (c))."""
+    decks are cover (§34 (12) (5) (c)).  ``portals`` are the pack PORTALS
+    pinning bore ends (``airport/portal_objects``: roofed, hanging and
+    entrance objects) — each a portal witness at its end
+    (``planar/end_witness``; owner 2026-11-04 KBUF)."""
     region = FieldRegion(list(polys),
                          law.tables.structures.tunnel.mouth_standoff_m,
                          approach_corridor_of(airport, law),
@@ -475,6 +485,7 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     region.corridor_objects = {i for c in corridors for i in c.objects}
     region.deck_objects = {i for d in decks for i in d.members}
     region.deck_polys = [d.polygon for d in decks]
+    region.portal_ends = [(tuple(p.end_xy), p.object_id, p.resource) for p in portals]
     return region
 
 

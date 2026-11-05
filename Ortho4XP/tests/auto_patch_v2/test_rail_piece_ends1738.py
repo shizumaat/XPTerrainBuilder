@@ -189,3 +189,21 @@ def test_r3_station_corridors_take_every_railway_and_keep_to_the_parts(law):
     pad = Polygon([(-30, -100), (30, -100), (30, 250), (-30, 250)])
     kept = _keep_to_parts(allc.intersection(pad), [(None, station)], openc, 5.0)
     assert kept.bounds[3] <= 45.0 + 1e-6 and kept.bounds[1] == pytest.approx(-100.0)
+
+
+def test_a_pack_portal_at_the_end_is_its_witness(law):
+    """KBUF 1.0.464 (owner 2026-11-04: "the nearer four: two under the
+    runway, and two in the parking lot are not getting a ramp or mouth
+    object seating"): both service bores carried a pack portal at each end
+    (``Road_Tunnel.obj``, ``KBUF_Terminal_Parking_Underpass.obj``), read by
+    ``read_portals``, and were refused "no portal witness".  A portal
+    pinning the end is witness 6; one beyond the tolerance is none."""
+    from auto_patch_v2.airport.portal_objects import Portal
+    from auto_patch_v2.planar.end_witness import EndWitness
+    from auto_patch_v2.planar.structure_approach import field_region_for
+    tol = law.tables.structures.tunnel.object.bore_end_tolerance_m
+    pin = Portal("dsf:obj1", "objects/portal.obj", (0.0, 0.0), -9, 6.0, 200.0, (0.0, 0.0))
+    ap = SimpleNamespace(osm_ways=[], runways=(), frame=None, partition=None)
+    w = EndWitness(field_region_for(ap, law, [], portals=[pin]), law)
+    assert "portal.obj" in (w.at((tol - 0.5, 0.0), []) or "")
+    assert w.at((tol + 5.0, 0.0), []) is None

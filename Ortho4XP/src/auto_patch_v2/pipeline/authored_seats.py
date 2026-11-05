@@ -36,16 +36,21 @@ def seat_records(pm: _t.Any, law: _t.Any) -> dict[str, dict[str, _t.Any]]:
     st = law.tables.structures
     crest_max = float(st.tunnel.object.authored_crest_max_m)
     walls: list[tuple[str, str, float, float]] = []
+    #: owner 2026-11-05 §0.5 (amends 09q (1)): a cut a pack deck frames
+    #: (``Tunnel.cut_frame``) rides that deck — never kept at its own seat
+    framed: set[str] = set()
     for tn in getattr(pm, "structures", ()):
         if getattr(tn, "source", "") != "object":
             continue
+        if getattr(tn, "cut_frame", ()):
+            framed.update(tn.objects)
         for oid, hh in zip(tn.objects, getattr(tn, "authored_crest_m", ()) or ()):
             walls.append((oid, tn.resource, float(hh[0]), float(hh[1])))
     proud = _seat.pack_proud_height(_seat.stated_height(hc, hu, crest_max)
                                     for _o, _r, hc, hu in walls)
     out: dict[str, dict[str, _t.Any]] = {}
     for oid, res, hc, hu in walls:
-        kept = _seat.crest_in_band(hc, crest_max)
+        kept = _seat.crest_in_band(hc, crest_max) and oid not in framed
         out[oid] = {"id": oid, "resource": res, "datum": "crest",
                     "seat": _seat.SEAT_AUTHORED if kept else _seat.SEAT_RESEATED,
                     "h_cut_m": hc, "h_uncut_m": hu,

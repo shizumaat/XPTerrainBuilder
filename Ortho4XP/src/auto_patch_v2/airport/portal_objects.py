@@ -79,8 +79,19 @@ class Portal:
     #: #1747 (owner ruling 2026-11-03 "yes", LOWS): the ABSOLUTE floor an
     #: ENTRANCE object states at the bore end — its solids' bottom where it
     #: stands (``trench_objects.mouth_portals``); the mouth's floor is this,
-    #: never the ground less :attr:`depth_m`.  ``None`` for a roofed portal.
+    #: never the ground less :attr:`depth_m`.  A TALL roofed portal (over
+    #: ``mouth_depth_m``, owner 2026-11-04 ENTC) states it too: the surveyed
+    #: ground on its roof less its roof top.  ``None`` for any other portal.
     floor_z: "float | None" = None
+    #: a ROOFED portal's OPENING: its roof's width across the bore at the
+    #: end (owner 2026-11-04 ENTC: "tunnel ramps not matching tunnel mouth
+    #: width") — the ramp's width at the mouth; ``0.0`` for any other pin
+    opening_m: float = 0.0
+    #: #1747 (Q-A 2026-11-05): an ENTRANCE object's face bottom under its
+    #: zero at this end (``trench_objects.mouth_portals``) — the object stage
+    #: seats that face with its bottom on :attr:`floor_z`
+    #: (``Tunnel.portal_seat``); ``None`` for any other pin
+    bottom_y: "float | None" = None
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -91,6 +102,31 @@ def _ends(tunnel_ways) -> list[tuple[XY, int]]:
             out.append(((float(pts[0][0]), float(pts[0][1])), int(w.id)))
             out.append(((float(pts[-1][0]), float(pts[-1][1])), int(w.id)))
     return out
+
+
+def _bore_dirs(tunnel_ways) -> dict[tuple[XY, int], XY]:
+    """The unit direction INTO each bore from each of its ends."""
+    out: dict[tuple[XY, int], XY] = {}
+    for w in tunnel_ways:
+        pts = [(float(x), float(y)) for x, y in w.points]
+        if len(pts) < 2:
+            continue
+        for a, b in ((pts[0], pts[1]), (pts[-1], pts[-2])):
+            d = math.hypot(b[0] - a[0], b[1] - a[1])
+            if d > 0.0:
+                out[(a, int(w.id))] = ((b[0] - a[0]) / d, (b[1] - a[1]) / d)
+    return out
+
+
+def _opening_width(roof, end_xy: XY, into: "XY | None") -> float:
+    """A roofed portal's OPENING: the extent of its placed roof plan across
+    the bore's direction ``into`` (``0.0`` without one)."""
+    if roof is None or roof.is_empty or into is None:
+        return 0.0
+    nx, ny = -into[1], into[0]
+    pts = [c for g in getattr(roof, "geoms", [roof]) for c in g.exterior.coords]
+    s = [(x - end_xy[0]) * nx + (y - end_xy[1]) * ny for x, y in pts]
+    return float(max(s) - min(s)) if s else 0.0
 
 
 def roof_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
@@ -160,17 +196,44 @@ def hanging_reading(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, law
     return top - bottom, tuple((float(x), float(y)) for x, y in ring)
 
 
+def _ground_covers_roof(roof, end_xy: XY, dem_z, law) -> "float | None":
+    """The surveyed ground over a portal's ROOF (the highest DEM sample
+    over the roof plan, its vertices and an inner point) when it stands at
+    least ``[channel] object_min_depth_m`` — the survey's own reading of a
+    cut (RULINGS 2026-10-28k (232 a)) — over the ground at its bore end,
+    else ``None``: no cover stands on the roof."""
+    if dem_z is None or roof is None or roof.is_empty:
+        return None
+    end = float(dem_z(end_xy[0], end_xy[1]))
+    pts = [roof.representative_point().coords[0]]
+    for g in getattr(roof, "geoms", [roof]):
+        pts.extend(g.exterior.coords)
+    zs = [float(dem_z(x, y)) for x, y in pts]
+    zs = [z for z in zs if not math.isnan(z)]
+    if math.isnan(end) or not zs:
+        return None
+    cover = max(zs)
+    return cover if cover - end >= float(law.tables.structures.channel.object_min_depth_m) \
+        else None
+
+
 def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
-                 law, tunnel_ways, taken: _t.AbstractSet[str] = frozenset()
+                 law, tunnel_ways, taken: _t.AbstractSet[str] = frozenset(), dem_z=None
                  ) -> tuple[list[Portal], list[str]]:
     """Every pack portal standing over a mapped bore end, and one refusal
-    line per roofed-looking candidate that is not one."""
+    line per roofed-looking candidate that is not one.  ``dem_z`` (the
+    airport's DEM) reads a TALL portal: a roof over ``mouth_depth_m`` is a
+    portal only where the surveyed ground stands on it
+    (:func:`_ground_covers_roof`; owner 2026-11-04 ENTC "seating at the
+    bottom of a ramp sized to the object"), a building on the bore where
+    it does not."""
     tn = law.tables.structures.tunnel
     tol = float(tn.object.bore_end_tolerance_m)
     ends = _ends(tunnel_ways)
     if not ends:
         return [], []
     tree = STRtree([Point(p) for p, _w in ends])
+    into = _bore_dirs(tunnel_ways)
     readings: dict[str, "tuple[float, float] | str"] = {}
     out: list[Portal] = []
     refused: list[str] = []
@@ -228,15 +291,25 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                            f"{law.tables.structures.bridge.clearance_minimum_m}): a deck, "
                            f"not a portal")
             continue
+        cover: dict[int, float] = {}
         if depth > tn.mouth_depth_m:
-            refused.append(f"{o.id} {name}: roofed over a bore end, but its roof top "
-                           f"{depth:.2f} m stands over the bore law's mouth_depth_m "
-                           f"{tn.mouth_depth_m}: a building on the bore, not a portal")
-            continue
+            cover = {j: z for j in near
+                     if (z := _ground_covers_roof(roof, ends[j][0], dem_z, law)) is not None}
+            near = sorted(cover)
+            if not near:
+                refused.append(f"{o.id} {name}: roofed over a bore end, but its roof top "
+                               f"{depth:.2f} m stands over the bore law's mouth_depth_m "
+                               f"{tn.mouth_depth_m} and no surveyed ground stands on its "
+                               f"roof: a building on the bore, not a portal")
+                continue
         for j in near:
             xy, wid = ends[j]
+            # a tall portal's floor is the ground ON ITS ROOF less its roof
+            # top: the ground at the cap stands inside the surveyed cut
             out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,
-                              (float(o.xy[0]), float(o.xy[1]))))
+                              (float(o.xy[0]), float(o.xy[1])),
+                              floor_z=(cover[j] - depth) if j in cover else None,
+                              opening_m=_opening_width(roof, xy, into.get((xy, wid)))))
     out.sort(key=lambda p: (p.end_xy, p.object_id))
     return out, refused
 

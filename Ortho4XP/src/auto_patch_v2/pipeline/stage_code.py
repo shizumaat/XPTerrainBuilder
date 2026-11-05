@@ -161,6 +161,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bulk_geos",
+        "auto_patch_v2.airport.channel_zero",
         "auto_patch_v2.airport.cluster_profile",
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
@@ -169,6 +170,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
         "auto_patch_v2.airport.dsf",
+        "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.footprint_carry",
@@ -325,6 +327,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bulk_geos",
+        "auto_patch_v2.airport.channel_zero",
         "auto_patch_v2.airport.cluster_profile",
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
@@ -336,6 +339,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dem_witness",
         "auto_patch_v2.airport.door_wells",
         "auto_patch_v2.airport.dsf",
+        "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.footprint_carry",
@@ -531,6 +535,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.chords",
     "auto_patch_v2.planar.covered_bores", "auto_patch_v2.planar.covered_cut",
         "auto_patch_v2.planar.covered_ground",
+        "auto_patch_v2.planar.cut_frame",
         "auto_patch_v2.planar.cut_runout",
         "auto_patch_v2.planar.deck_bores",
         "auto_patch_v2.planar.deck_bridge",
@@ -783,6 +788,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bulk_geos",
+        "auto_patch_v2.airport.channel_zero",
         "auto_patch_v2.airport.cluster_profile",
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
@@ -791,6 +797,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
         "auto_patch_v2.airport.dsf",
+        "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.footprint_carry",
@@ -1421,6 +1428,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.placement_leaves airport.placement_motion airport.placement_orphan
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
+    airport.channel_zero airport.entrance_seat
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
@@ -1506,6 +1514,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.placement_file airport.placement_geom airport.placement_leaves
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
+    airport.channel_zero airport.entrance_seat
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.pool
@@ -1572,6 +1581,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.placement_file airport.placement_geom airport.placement_leaves
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
+    airport.channel_zero airport.entrance_seat
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
@@ -1626,7 +1636,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
-    planar.deck_bridge planar.deck_walls
+    planar.cut_frame planar.deck_bridge planar.deck_walls
     planar.door_ramps planar.dual_width planar.edges planar.end_witness planar.landing
     planar.landing_runout planar.level_depth
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
@@ -1688,6 +1698,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.placement_file airport.placement_geom airport.placement_leaves
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
+    airport.channel_zero airport.entrance_seat
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
@@ -1756,7 +1767,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
-    planar.deck_bridge planar.deck_walls
+    planar.cut_frame planar.deck_bridge planar.deck_walls
     planar.door_ramps planar.dual_width planar.edges planar.end_witness planar.landing
     planar.landing_runout planar.level_depth
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
@@ -1813,6 +1824,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.placement_leaves airport.placement_motion airport.placement_orphan
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
+    airport.channel_zero airport.entrance_seat
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
@@ -1897,6 +1909,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.placement_leaves airport.placement_motion airport.placement_orphan
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
+    airport.channel_zero airport.entrance_seat
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets

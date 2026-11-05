@@ -379,6 +379,10 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
         counts["plate_members"] += 1
     # an EDGE BRIDGE's seat (``pipeline/rebake_inputs._edge_seat_plates``)
     plate_kind = str(rest[1]) if o.id in plates and len(rest) > 1 else ""
+    if plate_kind.startswith("channel:") and getattr(o, "solid_min_z", None) is not None:
+        # a channel's pack floor witness (``rebake_inputs._channel_plates``):
+        # the y its deepest solid stands at over its own zero
+        plate_y = float(o.solid_min_z) - float(o.anchor_z) - float(o.agl_m or 0.0)
     wp = getattr(o, "walled_plate", None)
     if wp is not None:
         # owner RULINGS 2026-10-27u (#1201): A WALLED PLATE AT A RUNWAY END

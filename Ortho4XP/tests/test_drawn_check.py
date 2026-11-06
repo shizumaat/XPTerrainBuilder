@@ -10,12 +10,16 @@ import sys
 import numpy as np
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+_TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools")
+sys.path.insert(0, _TOOLS)
 
-import drawn_check as DC                                             # noqa: E402
-from auto_patch.mesh_sampler import MeshElevationSampler              # noqa: E402
-from auto_patch_v2.airport.dsf_mesh import expand_primitive, physical_triangles  # noqa: E402
-from auto_patch_v2.airport.obj8 import Component                     # noqa: E402
+import drawn_check as DC  # noqa: E402
+from auto_patch.mesh_sampler import MeshElevationSampler  # noqa: E402
+from auto_patch_v2.airport.dsf_mesh import (  # noqa: E402
+    expand_primitive,
+    physical_triangles,
+)
+from auto_patch_v2.airport.obj8 import Component  # noqa: E402
 
 LAT, LON = 40.0, 10.0
 
@@ -31,7 +35,8 @@ def test_physical_triangles_keeps_physical_patches_in_the_box():
     text = (_text(1, 1, sq)                                       # strip: 2 triangles
             + _text(0, 0, sq[:3])                                 # overlay patch: not drawn ground
             + _text(1, 2, sq)                                     # fan: 2 triangles
-            + _text(1, 0, [(11.0, 41.0, 1.0), (11.001, 41.0, 1.0), (11.0, 41.001, 1.0)]))  # off the box
+            + _text(1, 0, [(11.0, 41.0, 1.0), (11.001, 41.0, 1.0),
+                           (11.0, 41.001, 1.0)]))           # off the box
     got = physical_triangles(text, (9.99, 39.99, 10.01, 40.01))
     assert got.shape == (4, 3, 3)
     assert set(np.unique(got[:, :, 2])) == {5.0, 6.0, 7.0, 8.0}
@@ -53,8 +58,9 @@ class _Mesh:
         self.frame, self.f = frame, f
 
     def z(self, lat, lon):
-        e, n = self.frame.enter(np.asarray(lat, float).reshape(-1), np.asarray(lon, float).reshape(-1))
-        return np.array([self.f(a, b) for a, b in zip(e, n)], float)
+        lat, lon = np.asarray(lat, float).reshape(-1), np.asarray(lon, float).reshape(-1)
+        e, n = self.frame.enter(lat, lon)
+        return np.array([self.f(a, b) for a, b in zip(e, n, strict=True)], float)
 
 
 def _trench(base: float):
@@ -112,7 +118,8 @@ def test_a_box_is_a_convex_body():
     rec = DC.measure(V, Component(tris, 0, 8, 0, 0, False, np.arange(len(tris))), fr,
                      _Mesh(fr, lambda e, n: b), _no_others)
     assert rec["shape"]["class"] == "convex body"
-    assert all(abs(sd["foot_minus_mesh"]["p50"]) <= DC.PAVEMENT_BAR_M for sd in rec["outline_sides"])
+    feet = [sd["foot_minus_mesh"]["p50"] for sd in rec["outline_sides"]]
+    assert feet and all(abs(f) <= DC.PAVEMENT_BAR_M for f in feet)
 
 
 def test_the_surface_outside_is_the_higher_of_mesh_and_object():
@@ -132,7 +139,7 @@ def test_row_base_follows_the_row_kind():
 
 def test_placed_vertices_turn_by_heading():
     class G:
-        vertices = np.array([[0.0, 0.0, -10.0]])                      # 10 m north of the origin (z south)
+        vertices = np.array([[0.0, 0.0, -10.0]])        # 10 m north of the origin (z south)
     v = DC.placed_vertices(G, 0.0, 0.0, 90.0, 5.0)[0]
     assert v[0] == pytest.approx(10.0) and v[1] == pytest.approx(0.0, abs=1e-9) and v[2] == 5.0
     assert math.isclose(DC.Frame(LAT, LON).leave(*DC.Frame(LAT, LON).enter(LAT, LON))[0], LAT)

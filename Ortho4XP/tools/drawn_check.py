@@ -45,12 +45,6 @@ Usage::
 """
 from __future__ import annotations
 
-import os as _o4os, sys as _o4sys                                    # noqa: E402
-_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
-    _o4os.path.abspath(__file__))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
-_o4console.configure_console_streams()
-
 import argparse
 import dataclasses as dc
 import glob
@@ -63,6 +57,14 @@ import sys
 import tempfile
 
 import numpy as np
+
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py`` (the standard-library imports above
+# print nothing).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console  # noqa: E402, I001
+
+_o4console.configure_console_streams()
 
 #: owner visibility bars (memory judge-by-visibility-bars, 2026-10-15)
 PAVEMENT_BAR_M = 0.05
@@ -175,7 +177,7 @@ class DrawnMesh:
         out = np.full(lat.shape, np.nan)
         if not lat.size:
             return out
-        keys = np.array([tile_of(a, o) for a, o in zip(lat, lon)])
+        keys = np.array([tile_of(a, o) for a, o in zip(lat, lon, strict=True)])
         for tile, smp in self.samplers.items():
             m = keys == tile
             if m.any():
@@ -334,7 +336,8 @@ def rasterise(p: np.ndarray, max_cells: int = 160000) -> Raster | None:
             np.minimum.at(low, k, zz)
     top[~np.isfinite(top)] = np.nan
     low[~np.isfinite(low)] = np.nan
-    return Raster(float(lo[0]), float(lo[1]), step, top.reshape(nrow, ncol), low.reshape(nrow, ncol))
+    return Raster(float(lo[0]), float(lo[1]), step,
+                  top.reshape(nrow, ncol), low.reshape(nrow, ncol))
 
 
 def boundary_cells(r: Raster) -> tuple[np.ndarray, np.ndarray]:
@@ -462,7 +465,8 @@ def measure(V: np.ndarray, comp, frame: Frame, mesh: DrawnMesh, others,
         runs.append(edge_run(sel, be, bn, bdir, btop, blow, outside, from_obj, r.step,
                              frame, mesh))
     rec["open_runs"] = sorted(runs, key=lambda q: -q["length_m"])
-    rec["stretches"] = stretches(ce[near][~stacked], cn[near][~stacked], (low - mz)[~stacked], frame)
+    rec["stretches"] = stretches(ce[near][~stacked], cn[near][~stacked],
+                                 (low - mz)[~stacked], frame)
     rec["walled_outline_pct"] = round(100.0 * float(walled.mean()), 1) if len(walled) else 0.0
     rec["outline_sides"] = outline_sides(foot - in_mesh, sides_of(bdir, axis), bdir, be, bn, frame)
     rec["mesh_under_minus_rim"] = stats(mz - rim_ground)
@@ -515,7 +519,8 @@ def outline_reach(P: np.ndarray, be, bn, step: float) -> tuple[np.ndarray, np.nd
     from scipy.spatial import cKDTree
     tree = cKDTree(P[:, :2])
     lo, hi = np.full(len(be), np.nan), np.full(len(be), np.nan)
-    for k, nb in enumerate(tree.query_ball_point(np.column_stack([be, bn]), WALL_REACH_M + step / 2)):
+    near = tree.query_ball_point(np.column_stack([be, bn]), WALL_REACH_M + step / 2)
+    for k, nb in enumerate(near):
         if nb:
             lo[k], hi[k] = P[nb, 2].min(), P[nb, 2].max()
     return lo, hi
@@ -688,7 +693,8 @@ class OtherSurfaces:
             if mn is None:
                 return out
             for k in range(len(e)):
-                m = (mn[:, 0] <= e[k]) & (mx[:, 0] >= e[k]) & (mn[:, 1] <= n[k]) & (mx[:, 1] >= n[k])
+                m = ((mn[:, 0] <= e[k]) & (mx[:, 0] >= e[k])
+                     & (mn[:, 1] <= n[k]) & (mx[:, 1] >= n[k]))
                 if not m.any():
                     continue
                 t = tris[m]
@@ -777,7 +783,8 @@ def measure_site(s: Site, items: list[dict], mesh: DrawnMesh) -> dict:
                 continue
             rec.update({"row": pl["row"], "tile": pl["tile"],
                         "pack": os.path.basename(pl["root"].rstrip("/")), "def": p.def_path,
-                        "kind": p.kind, "component": ci, "anchor": [round(p.lat, 7), round(p.lon, 7)],
+                        "kind": p.kind, "component": ci,
+                        "anchor": [round(p.lat, 7), round(p.lon, 7)],
                         "anchor_dist_m": round(float(math.hypot(*fr.enter(p.lat, p.lon))), 1),
                         "heading": p.heading_deg, "base_z": rnd(pl["base"]),
                         "mesh_at_anchor": rnd(pl["g0"]), "deck": bool(comp.deck),
@@ -838,19 +845,22 @@ def verdict_lines(rec: dict) -> list[str]:
     if fp.get("n"):
         tag = ("FLOATING" if fp["p50"] > GROUND_BAR_M else
                "BURIED" if fp["p50"] < -GROUND_BAR_M else "on mesh")
-        out.append(f"    bottom - mesh ({'open floor' if use_open else 'under cover'}, {fp['n']} pts): "
+        where = "open floor" if use_open else "under cover"
+        out.append(f"    bottom - mesh ({where}, {fp['n']} pts): "
                    f"p05 {fp['p05']:+.2f} p50 {fp['p50']:+.2f} p95 {fp['p95']:+.2f}  "
                    f"floating {fp['floating_pct']}% buried {fp['buried_pct']}% -> {tag}")
     bad = [q for q in rec.get("stretches", []) if abs(q["p50"]) > GROUND_BAR_M]
     if bad:
-        out.append(f"    stretches off the mesh ({len(bad)} of {len(rec['stretches'])} x {STRETCH_M:g} m): " +
+        out.append(f"    stretches off the mesh ({len(bad)} of {len(rec['stretches'])}"
+                   f" x {STRETCH_M:g} m): " +
                    "; ".join(f"{q['p50']:+.2f} @{q['at'][0]:.5f},{q['at'][1]:.5f}"
                              for q in sorted(bad, key=lambda q: -abs(q["p50"]))[:6]))
     for run in [q for q in rec["open_runs"] if q["length_m"] >= PRINT_RUN_M][:8]:
         st = run["step_m"]
         if st is None:
             continue
-        tag = ("flush" if abs(st) <= PAVEMENT_BAR_M else "EDGE BELOW OUTSIDE (buried)" if st < 0 else "EDGE ABOVE OUTSIDE (step/drop)")
+        tag = ("flush" if abs(st) <= PAVEMENT_BAR_M else
+               "EDGE BELOW OUTSIDE (buried)" if st < 0 else "EDGE ABOVE OUTSIDE (step/drop)")
         line = (f"    open edge {run['length_m']:.1f} m @{run['at'][0]:.6f},{run['at'][1]:.6f}: "
                 f"top {run['top_z']} floor {run['floor_z']} outside {run['outside_z']}"
                 f"{' (object)' if run['outside_is_object_pct'] > 50 else ''}"
@@ -863,14 +873,17 @@ def verdict_lines(rec: dict) -> list[str]:
         out.append(line)
     for sd in rec.get("outline_sides", []):
         f = sd["foot_minus_mesh"]
-        out.append(f"    outline facing {sd['faces_deg']:3.0f} deg @{sd['at'][0]:.6f},{sd['at'][1]:.6f}: "
+        out.append(f"    outline facing {sd['faces_deg']:3.0f} deg"
+                   f" @{sd['at'][0]:.6f},{sd['at'][1]:.6f}: "
                    f"wall foot - mesh p05 {f['p05']:+.2f} p50 {f['p50']:+.2f} p95 {f['p95']:+.2f}")
     mu = rec.get("mesh_under_minus_rim", {})
     if mu.get("n"):
-        out.append(f"    mesh under the plan - mesh just outside: p05 {mu['p05']:+.2f} p50 {mu['p50']:+.2f} "
+        out.append(f"    mesh under the plan - mesh just outside: p05 {mu['p05']:+.2f}"
+                   f" p50 {mu['p50']:+.2f} "
                    f"p95 {mu['p95']:+.2f} (a cut under it reads negative)")
     sh = rec["shape"]
-    out.append(f"    shape: {sh['class']} (hollow {sh['hollow_pct']}%, covered {sh['covered_pct']}%, "
+    out.append(f"    shape: {sh['class']} (hollow {sh['hollow_pct']}%,"
+               f" covered {sh['covered_pct']}%, "
                f"own rim {sh['own_rim_z']}, inner top p50 {sh['inner_top_p50']}, "
                f"rim - ground {sh['rim_minus_ground']})")
     return out
@@ -885,7 +898,8 @@ def print_report(rep: dict, top_n: int) -> None:
         for miss in s.get("unresolved", [])[:10]:
             print(f"  UNRESOLVED (drawn as nothing): {miss}")
         for rec in sorted(s["components"], key=lambda q: -q["plan_m2"])[:top_n]:
-            print(f"  {rec['pack'][:34]} {rec['tile']} obj{rec['row']} {rec['def']} c{rec['component']}"
+            print(f"  {rec['pack'][:34]} {rec['tile']} obj{rec['row']} {rec['def']}"
+                  f" c{rec['component']}"
                   f" {rec['kind']} base {rec['base_z']} (mesh@anchor {rec['mesh_at_anchor']},"
                   f" anchor {rec['anchor_dist_m']:.0f} m off){' DECK' if rec['deck'] else ''}"
                   f" | {rec['dist_m']} m from site, plan {rec['plan_m2']} m2,"
@@ -917,9 +931,9 @@ def main(argv=None) -> int:
     ap.add_argument("--json", default=None, help="write the full report here")
     args = ap.parse_args(argv)
     if args.custom_scenery is None or args.mod_cache is None:
-        import O4_Config_Utils                                    # noqa: F401
-        from auto_patch_v2.planar.__main__ import _cfg_value
+        import O4_Config_Utils  # noqa: F401
         import O4_File_Names as FNAMES
+        from auto_patch_v2.planar.__main__ import _cfg_value
         args.custom_scenery = args.custom_scenery or _cfg_value("custom_scenery_dir") \
             or os.path.expanduser("~/X-Plane 12/Custom Scenery")
         args.mod_cache = args.mod_cache or FNAMES.airport_mod_cache_root()

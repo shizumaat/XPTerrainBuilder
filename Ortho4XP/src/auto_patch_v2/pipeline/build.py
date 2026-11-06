@@ -490,6 +490,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # flagged runway and every moved pin, named
     for _line in lrep.end_pin_lines:
         _say(f"  [load] {_line}", out)
+    for _line in getattr(lrep, "old_dem_fill_lines", ()):     # #1915, 11-06a (2)
+        _say(f"  [load] {_line}", out)
     # #1697: the user's hand-set classifications, applied and refused
     if airport.role_overrides:
         _say(f"  [load] {len(airport.role_overrides)} pavement(s) classified by hand: "

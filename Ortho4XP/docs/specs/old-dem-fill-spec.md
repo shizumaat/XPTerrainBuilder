@@ -10,9 +10,9 @@ stands when it agrees with the field, landed on `claude/fhshfill` 701c1b2a9).
 FHSH is where the defect was found and the closing test; the rule reads
 every airport (RULINGS 2026-10-05e). Lane `fhshfill`, 2026-11-06.
 
-**Status: STOPPED for the owner. §7 Q1 is an intent question that §2 (4)
-needs; Q2 is a sibling defect the build exposed.** Nothing in §2 is
-implemented.
+**Status: IMPLEMENTED on `claude/fhshfill2` (lane `fhshfill2`) after the
+owner's answers, RULINGS 2026-11-06b (3)-(5); §8 records what was built and
+where it departs from §2.** §0-§7 are the spec as stopped.
 
 ## 0. What the build shows now (site numbers first)
 
@@ -202,3 +202,84 @@ definition the highest point of its landing area. (a) Where the DEM
 predates the airport (§1's witness), no runway or airside level may stand
 above the field elevation plus the DEM class's tolerance: the trends yield
 to it — recommended; (b) leave the trends as they are.
+
+## 8. As built (lane `fhshfill2`, RULINGS 2026-11-06b (3)-(5))
+
+ONE derivation site, `airport/old_dem_fill.attach`, called by the loader
+right after `end_pins.verify`.  It wraps the airport's DEM sampler
+(`FillDem`): every reader of the ground — the end area (`model/end_area`),
+the terrain edge, the zones' datum (`dem_z`), the road profiles, the pack's
+object reads, the workers (`dem_shared`) — reads the ground AS BUILT.  An
+airport with no fill station is returned unchanged.
+
+* **Witness** (§1): the stood pin line more than `grade_disagree_m[class]`
+  over the DEM on the centreline; the run extends, per half of the band,
+  while the pin line stands over the DEM on the centreline or that half's
+  edge.  A sampler of no stated class is no witness (end_pins' rule).
+* **Crest**: each run's half-band, `zone2_half_width_m` + half the runway
+  width from the centreline (the zone is measured off the runway CELL's
+  edge, which a pack may draw off the apt.dat centreline; under-covered,
+  the zone ring hung over the embankment), run out over the end area at a
+  fill end, at the pin line's level.
+* **Fill surface** `F = max(DEM, C)` inside the footprint; `C` the highest
+  of the crest's cone and every terrace's cone at
+  `zones.adjacent_ground.old_dem_fill_slope` (0.667, 1V:1.5H, PROPOSED).
+  The crest's cone is shadowed past a terrace road and steepens to land on
+  a terrace closer than the slope allows (the straight face from the
+  crest's edge to the kerb): the strip keeps its width, the road its level.
+* **Terraces** (2026-11-06b (4), Q2): a mapped road with a dip inside the
+  crest's cone holds its LOWER RIM over that dip — the lower of the highest
+  ground along the road behind and ahead (where it meets undisturbed ground
+  on its lower side), flat while it wraps the fill; a road ending on another
+  road's terrace takes that level as its rim (junction).  This replaces
+  "exits of the cone", which moved with the slope and the RSA (FHSH: road
+  -33 at 255/244 m with 1:2, 238 m with 1:1.5).
+* **End area**: a terrace station ahead of a fill end sets the end area
+  back to where the embankment from the end's level reaches it (+ half-width
+  + stand-off).  Read by `model/end_area` off `F` (the drop is the
+  embankment's top) — no change to that module.
+* **Bank** (§2 (3)): `planar/fill_bank` — the footprint less the zones
+  (welded), the cells / ribbons / keep-outs (stood off) and the water, as
+  `graded_strip` pieces with ref `fill_bank:<k>` (DEVIATION from §2 (3)'s
+  new role `fill_bank`: the wall-slope precedent, no new role literal; the
+  zone law binds nothing to it, the census's `adjacent_ground_step` does not
+  read it).  NOT split into radial quads (§3): the drawn faces are ruled
+  between crest ring and toe ring (FHSH 1:1.9-1:2 drawn).
+* **Toe**: `constraints/fill_bank.fill_toe_pins` pins every bank-only
+  vertex on the patch's open edge at `F` (the DEM at the toe, the terrace
+  beside a road) — the weak datum alone left the toe 3.2 m off the DEM.
+* **Ceiling** (2026-11-06b (5), Q3): with a fill, `F` inside the airside
+  envelope (every runway band + end areas, every pavement) is cut to field +
+  tolerance, falling back to the DEM at the fill slope.  No hard row: at
+  FHSH the ceiling is 323.2 m and the runway peaks at 317.0 m, so it binds
+  nothing there.
+* **Q1** (2026-11-06b (3)): `_field_vouches` already requires rule (b)
+  (701c1b2a9); twin `test_a_flat_airports_equal_pair_is_untouched`.
+
+Not built: the radial quads (§3), a census `fill_bank_slope` family (§4
+C13), the tile-seam stop (§2 (4)), the per-region sidecar record (C16; the
+load report carries `old_dem_fill`).
+
+## 9. The runway crest at field (lane `fhshcrest`, RULINGS 2026-11-06c (1))
+
+ONE site, `constraints/runway_chord._chords` (the runway target's
+derivation).  The witness is read off the sampler (`FillDem.predates_airport`;
+`constraints` never imports `airport`).  On a DEM older than the airport the
+trend's BOW off the line through the pins is scaled by the largest `k` in
+[0, 1] that keeps it at or under the apt.dat field elevation between the
+pins (`_crest_at_field`): the ends stay at their pins, the crest keeps its
+station and drops to field, and the curvature only falls.  Past a pin (a
+displaced threshold's overhang) the target is held at field (`_Chord.ceiling`),
+never under the line through the pins.  Elsewhere the crest over field is a
+report line (`by_runway.crest_over_field_m`, the load report's "runway crest
+over field (report only)"), no geometry change.  This supersedes the
+field + tolerance ceiling of 06b (5) for the runway target only; the
+airside-envelope ceiling in `FillDem` is unchanged.
+
+FHSH replay (capture fhshfill2/FHSH_r2, `--from constraints`): stage 1
+INFEASIBLE (155 rows, 2.16 m) -> SETTLED (0/16236 hard over 0.02 m); runway
+peak 317.01 m at s 1041 -> 311.24 m at s 1101 (field 311.20); 20 end
+312.24 -> 311.39 m (the overhang's held target is rounded by the K law,
++0.19 m); law-true 870 -> 127, CRITICAL visual 33 -> 30; the strip seam
+tears at -15.96098, -5.64516 (3.61 / 3.25 m) are gone.  The 20-end sea-cliff
+rows (zone 2 beyond the north end, 15 -> 15) are NOT the profile's.

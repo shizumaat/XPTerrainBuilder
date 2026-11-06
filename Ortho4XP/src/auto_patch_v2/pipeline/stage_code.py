@@ -367,6 +367,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.object_cut",
         "auto_patch_v2.airport.object_floor",
         "auto_patch_v2.airport.object_pack",
+        "auto_patch_v2.airport.old_dem_fill",
         "auto_patch_v2.airport.one_building",
         "auto_patch_v2.airport.open_frame_seat",
         "auto_patch_v2.airport.pack",
@@ -557,6 +558,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.dual_width",
         "auto_patch_v2.planar.edges",
         "auto_patch_v2.planar.end_witness",
+        "auto_patch_v2.planar.fill_bank",
         "auto_patch_v2.planar.fill_riser",
         "auto_patch_v2.planar.fill_road",
         "auto_patch_v2.planar.group_low",
@@ -930,6 +932,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.edge_floor",
         "auto_patch_v2.constraints.end_lip",
         "auto_patch_v2.constraints.face_index",
+        "auto_patch_v2.constraints.fill_bank",
         "auto_patch_v2.constraints.flat_site",
         "auto_patch_v2.constraints.foot_rows",
         "auto_patch_v2.constraints.geometry",
@@ -1129,6 +1132,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "groundside_frontage_level": "pad_frontage_gs",
     "eat_anchor_rect": "eat",
     "water_pins": "water",
+    "fill_toe_pins": "fill_bank",
     "seam_pins": "seams",
     "flat_datum": "flat_site",
     "foot_rows": "foot_rows",
@@ -1188,6 +1192,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.deck_lines
         model.stage_one
 """),
+    "fill_bank": _mods(_GENERATOR_CORE + """
+        constraints.fill_bank model.airport
+    """),
     "flat_site": _mods(_GENERATOR_CORE + """
         geom.exact
         constraints.flat_site constraints.geometry constraints.precedence model.airport
@@ -1501,6 +1508,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    constraints.fill_bank
     constraints.object_floor geom.lowest_face
     geom.exact
         law.runway_ends_schema law.terrain_witness_schema
@@ -1656,6 +1664,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    airport.old_dem_fill planar.fill_bank
     airport.object_floor geom.lowest_face planar.object_floor_cells
     pipeline.lot_follow solve.follow_stage
     geom.exact
@@ -1783,6 +1792,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.taxi_route_yield
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    airport.old_dem_fill constraints.fill_bank planar.fill_bank
     airport.object_floor constraints.object_floor geom.lowest_face planar.object_floor_cells
     solve.follow_stage
     geom.exact

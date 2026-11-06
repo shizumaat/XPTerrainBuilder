@@ -51,7 +51,9 @@ from .wall_slope import wall_slopes
 from .weld import WeldStats, weld_cells
 from .ridge_reach import reach_pavement_edge
 from .shore import pack_shore_walls
-from .zones import shore_declarations, shore_wedge_m, zone_regions
+from .zones import shore_declarations, shore_region, shore_wedge_m, zone_regions
+from .fill_bank import fill_bank_pieces
+from ..airport.old_dem_fill import fill_model_of
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
            "airside_union",
@@ -346,6 +348,20 @@ def build_arrangement(airport: Airport, classification: Classification,
                                   law.tables.zones.adjacent_ground.groundside_cutback_m
                                   + snap_margin_m(law), 2.0 * input_quantum_m(law),
                                   weld=air_cells):
+            regions.append(Region("graded_strip", ref, g, None, None,
+                                  role_side(law, "graded_strip"), "zone"))
+        # #1915 (RULINGS 2026-11-06a (2)): the old-DEM fill's bank, crest to
+        # toe, is graded ground of its own (``planar/fill_bank``)
+        _bank = fill_bank_pieces(
+            airport, [r.polygon for r in regions if r.source == "zone"],
+            [r.polygon for r in regions if r.source != "zone"]
+            + [Polygon(c.ring, c.holes) for c in ribbon_cells]
+            + [Polygon(k) for k in classification.keepouts if len(k) >= 3],
+            law.tables.zones.adjacent_ground.groundside_cutback_m + snap_margin_m(law),
+            2.0 * input_quantum_m(law), float(law.tables.emit.design.edge_grid_m),
+            water=shore_region(cells, getattr(airport, "dem", None), sea_only=False)
+            if fill_model_of(airport) is not None else None)
+        for ref, g in _bank:
             regions.append(Region("graded_strip", ref, g, None, None,
                                   role_side(law, "graded_strip"), "zone"))
 

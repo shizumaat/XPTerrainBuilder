@@ -324,6 +324,10 @@ class AdjacentGround:
     #: over the probe, is a drop too (``model/end_area``)
     end_drop_deep_m: float
     end_drop_deep_grade: float
+    #: THE OLD-DEM FILL (owner RULINGS 2026-11-06a (2), 2026-11-06b (4);
+    #: ``airport/old_dem_fill``): the grade the fill falls at from the
+    #: runway band's crest and from each road terrace to the DEM
+    old_dem_fill_slope: float
     #: 19ad THE BAND HOLDS ITS GRADE BESIDE A ROAD THROUGH ZONE 2 (owner
     #: RULINGS 2026-10-20c, 39; ``planar/road_shadow``): a band vertex within
     #: the probe of a road's axis reads the DEM at the probe — the road's

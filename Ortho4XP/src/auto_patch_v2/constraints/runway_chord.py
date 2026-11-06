@@ -77,6 +77,17 @@ The window is longer than any DEM artefact the owner has read as
 ridge, so the runway bends with the ground's TREND and cannot undulate
 with the ground.
 
+THE CREST STANDS AT FIELD ON OLD DATA (owner RULINGS 2026-11-06c (1),
+#1915): "field elevation is the highest point of the runways".  Where the
+DEM is flagged older than the airport (``airport/old_dem_fill``'s witness,
+read off the sampler: :func:`_dem_predates_airport`) the trend's BOW off
+the straight chord is scaled down (:func:`_crest_at_field`) until no
+profile point stands above the apt.dat field elevation: the ends stay at
+their pins, the crest stays where the DEM places it, lowered to field, and
+scaling the bow only lowers its curvature (the K law is never spent).
+Elsewhere the crest over field is a REPORT line only (``by_runway``
+``crest_over_field_m``), no geometry change.
+
 The K rows, the max-grade rows, the transverse maximum and the pins stay
 HARD; the profile smoothness stays senior to this term: the runway runs
 between its holds and FILLS or CUTS toward the target wherever nothing
@@ -163,6 +174,20 @@ class _Chord:
     #: degraded DEM frame or a ridge with no samples to fit — and every
     #: method below then reproduces the straight chord byte for byte.
     trend: _Trend | None = None
+    #: THE BOW SCALE (RULINGS 2026-11-06c (1)): the fraction of the trend's
+    #: departure from the line through the control points the target keeps
+    #: — ``1.0`` everywhere but a runway on a DEM older than the airport
+    #: whose crest would stand above field (:func:`_crest_at_field`)
+    bow_scale: float = 1.0
+    #: the stations the runway itself spans (its two ends, ``(0, L)``;
+    #: a displaced threshold's pin lies inside) — the crest is read over
+    #: the whole runway, not only between the pins
+    span: tuple[float, float] | None = None
+    #: THE FIELD CEILING (RULINGS 2026-11-06c (1)): with the bow scaled,
+    #: the runway past its pins (a displaced threshold's overhang, where
+    #: the trend runs on unscaled ground) is held at or under it too —
+    #: never under the line through the pins.  ``None``: no ceiling
+    ceiling: float | None = None
 
     def station(self, x: float, y: float) -> float:
         return (x - self.a_xy[0]) * self.ux + (y - self.a_xy[1]) * self.uy
@@ -183,7 +208,12 @@ class _Chord:
         the value a GOVERNING runway hands the crossing (v1's ``agreed``,
         §17.1).  Under §21 that is the trend through the pins, not the
         straight chord; with no trend it IS the straight chord."""
-        return self._through(((self.s0, self.z0), (self.s1, self.z1)), s)
+        return self._capped(self._through(((self.s0, self.z0), (self.s1, self.z1)), s), s)
+
+    def _capped(self, z: float, s: float) -> float:
+        if self.ceiling is None:
+            return z
+        return min(z, max(self.ceiling, self.straight_z(s)))
 
     def z(self, s: float) -> float:
         """The target profile at station ``s``: the trend carried through
@@ -191,8 +221,8 @@ class _Chord:
         (§17.2) — by a PIECEWISE LINEAR correction (module docstring)."""
         if not self.knots:
             return self.own_z(s)
-        return self._through(((self.s0, self.z0), *self.knots,
-                              (self.s1, self.z1)), s)
+        return self._capped(self._through(((self.s0, self.z0), *self.knots,
+                                           (self.s1, self.z1)), s), s)
 
     def _through(self, pts: tuple[tuple[float, float], ...], s: float) -> float:
         """``pts`` are the control points, ascending in station.  With no
@@ -212,9 +242,25 @@ class _Chord:
                              self.trend.at(sb))
                 if t is None or ta is None or tb is None:
                     return za + (zb - za) * f     # the window is empty: the chord
-                ca, cb = za - ta, zb - tb
-                return t + ca + (cb - ca) * f
+                if self.bow_scale == 1.0:     # the unscaled trend, byte for byte
+                    ca, cb = za - ta, zb - tb
+                    return t + ca + (cb - ca) * f
+                bow = (t - ta) - (tb - ta) * f
+                return za + (zb - za) * f + self.bow_scale * bow
         return pts[-1][1]
+
+    def stations(self, step: float) -> list[float]:
+        """Every ``step`` metres over the runway's own span and its pins
+        (both ends included)."""
+        lo, hi = self.span or (self.s0, self.s1)
+        lo, hi = min(lo, self.s0), max(hi, self.s1)
+        n = max(1, int((hi - lo) / max(step, 1e-3)))
+        return [lo + (hi - lo) * i / n for i in range(n + 1)]
+
+    def crest(self, step: float) -> tuple[float, float]:
+        """``(station, z)`` of this runway's OWN target's highest point,
+        read every ``step`` metres over the runway (:meth:`stations`)."""
+        return max(((s, self.own_z(s)) for s in self.stations(step)), key=lambda q: q[1])
 
     def threshold_distance(self, s: float) -> float:
         """How far the station ``s`` is from this runway's NEAREST CIFP
@@ -251,6 +297,35 @@ def _trend(vw, chains: dict[str, list[list[int]]], rw_id: str, c: _Chord,
                       and (inside is None or not inside(vw.xy[v]))), window_m)
 
 
+def _dem_predates_airport(airport: Airport) -> bool:
+    """Whether the airport's DEM is flagged OLDER THAN THE AIRPORT — the
+    old-DEM fill witness (RULINGS 2026-11-06a (2)), read off the sampler
+    ``airport/old_dem_fill`` wraps (one key, as :func:`dem_degraded` reads
+    the degraded frame; ``constraints`` never imports ``airport``)."""
+    return bool(getattr(getattr(airport, "dem", None), "predates_airport", False))
+
+
+def _crest_at_field(c: _Chord, field: float, step: float) -> _Chord:
+    """``c`` with its own target never above ``field`` (RULINGS
+    2026-11-06c (1)): between the pins the bow is scaled by the largest
+    ``k`` in ``[0, 1]`` with ``line(s) + k x bow(s) <= field`` — the pins
+    stay, the crest keeps its place and drops to field, and the curvature
+    only falls; past a pin (a displaced threshold's overhang) the target
+    is held at the ceiling.  A runway whose pins themselves stand over
+    field keeps only the line (``k = 0``)."""
+    if c.trend is None or c.crest(step)[1] <= field:
+        return c
+    k = 1.0
+    n = max(1, int((c.s1 - c.s0) / max(step, 1e-3)))
+    for i in range(n + 1):
+        s = c.s0 + (c.s1 - c.s0) * i / n
+        line = c.straight_z(s)
+        bow = c.own_z(s) - line
+        if bow > 0.0:
+            k = min(k, max(0.0, (field - line) / bow))
+    return _dc.replace(c, bow_scale=k, ceiling=field)
+
+
 def _chords(pm: PlanarMap, law: Law, airport: Airport
             ) -> tuple[dict[str, _Chord], int]:
     """Runway id -> its TARGET PROFILE (the trend through its two threshold
@@ -264,6 +339,9 @@ def _chords(pm: PlanarMap, law: Law, airport: Airport
     degraded = dem_degraded(airport)
     holes = deck_holes(pm)
     inside = blind(holes) if holes else None
+    field = getattr(airport, "elevation_m", None)
+    at_field = field is not None and _dem_predates_airport(airport)
+    step = float(law.tables.emit.design.edge_grid_m)
     chords: dict[str, _Chord] = {}
     n_without = 0
     for rw in airport.runways:
@@ -282,9 +360,11 @@ def _chords(pm: PlanarMap, law: Law, airport: Airport
         if st[p1] - st[p0] <= 0.0:
             n_without += 1
             continue
-        c = _Chord(a_xy, ux, uy, st[p0], st[p1], pins[p0], pins[p1])
+        c = _Chord(a_xy, ux, uy, st[p0], st[p1], pins[p0], pins[p1], span=(0.0, L))
         if not degraded:
             c = _dc.replace(c, trend=_trend(vw, chains, rw.id, c, pm, window, inside))
+        if at_field:
+            c = _crest_at_field(c, float(field), step)
         chords[rw.id] = c
     return chords, n_without
 
@@ -640,12 +720,20 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
         # HOW FAR THE TARGET LEAVES THE STRAIGHT CHORD, per runway: the
         # curvature §21 buys, read at the target itself rather than at the
         # built surface (the report block does the built read)
+        # THE CREST AGAINST FIELD (RULINGS 2026-11-06c (1)): capped on a
+        # DEM older than the airport, a report line everywhere else
+        field = getattr(airport, "elevation_m", None)
+        step = float(law.tables.emit.design.edge_grid_m)
         report["by_runway"] = [
             {"runway": r, "kind": c.kind,
              "trend_max_off_chord_m": round(max(
                  (abs(c.z(c.s0 + (c.s1 - c.s0) * i / 40.0)
                       - c.straight_z(c.s0 + (c.s1 - c.s0) * i / 40.0))
-                  for i in range(41)), default=0.0), 3)}
+                  for i in range(41)), default=0.0), 3),
+             "crest_s_m": round(c.crest(step)[0], 1), "crest_m": round(c.crest(step)[1], 3),
+             "crest_over_field_m": (round(c.crest(step)[1] - float(field), 3)
+                                    if field is not None else None),
+             "bow_scale": round(c.bow_scale, 4), "field_capped": c.ceiling is not None}
             for r, c in sorted(chords.items())]
         report["crossings"] = [
             {"pair": x.pair, "governing": x.governing, "other": x.other,

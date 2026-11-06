@@ -43,6 +43,7 @@ __all__ = ["NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Face", "Brea
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
            "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "plane_origin_ref", "BLOCK_SEP",
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
+           "FILL_BANK_PREFIX", "is_fill_bank_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
@@ -112,6 +113,16 @@ def is_bank_ref(ref: object) -> bool:
     """Is this face a 1:3 BANK of a pad — a collar or an inter-block strip?
     The readers that skip one (over every cap by law) skip the other."""
     return is_collar_ref(ref) or is_strip_ref(ref)
+
+
+#: #1915 (owner RULINGS 2026-11-06a (2)): the face ref of an old-DEM fill's
+#: bank piece (``planar/fill_bank``) — graded ground, no zone class
+FILL_BANK_PREFIX = "fill_bank:"
+
+
+def is_fill_bank_ref(ref: object) -> bool:
+    """Is this face a piece of an old-DEM fill's bank?"""
+    return str(ref or "").startswith(FILL_BANK_PREFIX)
 
 
 def platform_ref_of(ref: object) -> str:

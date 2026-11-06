@@ -31,6 +31,7 @@ from . import cifp as _cifp
 from . import end_pins as _end_pins
 from . import imagery_read as _imagery
 from . import junction_witness as _junction_witness
+from . import old_dem_fill as _old_dem_fill
 from . import runway_end_witness as _end_witness
 from . import runway_refs as _refs
 from . import dem as _dem
@@ -161,6 +162,10 @@ class LoadReport:
     #: sources whose cache held this airport
     end_pins: list = _dc.field(default_factory=list)
     end_pin_lines: tuple[str, ...] = ()
+    #: THE OLD-DEM FILL (``old_dem_fill.attach``; RULINGS 2026-11-06a (2)):
+    #: one record per fill run and terrace, and its loud lines
+    old_dem_fill: list = _dc.field(default_factory=list)
+    old_dem_fill_lines: tuple[str, ...] = ()
     #: #1697: one line per hand-set role NOT applied (its pavement changed)
     role_override_lines: tuple[str, ...] = ()
     end_pin_crosscheck: tuple[str, ...] = ()
@@ -754,6 +759,14 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.end_pin_lines = tuple(end_lines)
     rep.end_pin_crosscheck = tuple(src for src, _e in refs)
     for _line in end_lines:
+        _log.warning(_line)
+    # THE DEM OLDER THAN THE AIRPORT IS FILL (owner RULINGS 2026-11-06a (2),
+    # 2026-11-06b (4)/(5); #1915): read off the pins that now stand, ONE site
+    # (``old_dem_fill``) — the sampler every later reader takes reads the
+    # ground as built
+    airport, rep.old_dem_fill, fill_lines = _old_dem_fill.attach(airport, law)
+    rep.old_dem_fill_lines = tuple(fill_lines)
+    for _line in fill_lines:
         _log.warning(_line)
     # THE JUNCTION WITNESS (owner RULINGS 2026-10-27n / 28b): which pavements
     # the imagery shows PAVED where they meet a STEEP runway — it flattens

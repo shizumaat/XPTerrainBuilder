@@ -36,7 +36,8 @@ def first_and_compacted(p):
                 try:
                     ts = json.loads(line).get("timestamp")
                     if ts:
-                        first = time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+                        parsed = time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S")
+                        first = time.mktime(parsed) - time.timezone
                 except Exception:
                     pass
             if '"isCompactSummary":true' in line.replace(" ", ""):

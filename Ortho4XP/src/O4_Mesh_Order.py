@@ -31,7 +31,7 @@ import O4_DSF_Header as HEADER
 import O4_File_Names as FNAMES
 import O4_Scenery_Packs as SP
 
-__all__ = ["LOCAL_MESH_TILES", "ACTIONS", "tile_mesh_order",
+__all__ = ["LOCAL_MESH_TILES", "ACTIONS", "drawn_mesh_dsf", "tile_mesh_order",
            "apply_mesh_order", "warning_lines", "degraded_rows",
            "HIDDEN_BY_DETAIL", "HIDES_DETAIL"]
 
@@ -64,6 +64,16 @@ def _drawn_order(custom_scenery_dir: str, lat: int, lon: int,
         elif HEADER.dsf_is_overlay(dsf) is False:
             meshes.append((index, name))
     return ours, meshes
+
+
+def drawn_mesh_dsf(custom_scenery_dir: str, lat: int, lon: int) -> str | None:
+    """The base-mesh DSF X-Plane draws on the tile: the first one in the
+    load order (``tools/drawn_check.py``, #1903), or ``None``."""
+    for name in SP.load_order(custom_scenery_dir):
+        dsf = FNAMES.dsf_file(os.path.join(custom_scenery_dir, name), lat, lon)
+        if os.path.isfile(dsf) and HEADER.dsf_is_overlay(dsf) is False:
+            return dsf
+    return None
 
 
 def _is_local_mesh(custom_scenery_dir: str, name: str) -> bool:

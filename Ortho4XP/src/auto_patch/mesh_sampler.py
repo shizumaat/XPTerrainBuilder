@@ -157,6 +157,24 @@ class MeshElevationSampler:
                         bounds, margin_degrees)
         return sampler
 
+    @classmethod
+    def from_triangles(
+        cls,
+        corners: numpy.ndarray,
+        bounds: tuple[float, float, float, float],
+        margin_degrees: float = 0.0,
+    ) -> "MeshElevationSampler":
+        """The sampler over loose triangles ``(n, 3, 3)`` of ``(longitude,
+        latitude, elevation_metres)`` corners -- a DSF's drawn terrain
+        (``auto_patch_v2.airport.dsf_mesh.physical_triangles``) rather than
+        a ``.mesh`` file.  Every triangle reads as land (attribute 0)."""
+        corners = numpy.asarray(corners, dtype=numpy.float64).reshape(-1, 3, 3)
+        count = corners.shape[0]
+        return cls.from_arrays(
+            corners.reshape(-1, 3),
+            numpy.arange(3 * count, dtype=numpy.int64).reshape(count, 3),
+            numpy.zeros(count, dtype=numpy.int64), bounds, margin_degrees)
+
     def _retain(self, vertices, triangles, triangle_attributes, bounds,
                 margin_degrees) -> None:
         """Keep the triangles overlapping ``bounds`` and index them."""

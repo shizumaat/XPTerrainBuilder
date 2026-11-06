@@ -259,3 +259,27 @@ airport with no fill station is returned unchanged.
 Not built: the radial quads (§3), a census `fill_bank_slope` family (§4
 C13), the tile-seam stop (§2 (4)), the per-region sidecar record (C16; the
 load report carries `old_dem_fill`).
+
+## 9. The runway crest at field (lane `fhshcrest`, RULINGS 2026-11-06c (1))
+
+ONE site, `constraints/runway_chord._chords` (the runway target's
+derivation).  The witness is read off the sampler (`FillDem.predates_airport`;
+`constraints` never imports `airport`).  On a DEM older than the airport the
+trend's BOW off the line through the pins is scaled by the largest `k` in
+[0, 1] that keeps it at or under the apt.dat field elevation between the
+pins (`_crest_at_field`): the ends stay at their pins, the crest keeps its
+station and drops to field, and the curvature only falls.  Past a pin (a
+displaced threshold's overhang) the target is held at field (`_Chord.ceiling`),
+never under the line through the pins.  Elsewhere the crest over field is a
+report line (`by_runway.crest_over_field_m`, the load report's "runway crest
+over field (report only)"), no geometry change.  This supersedes the
+field + tolerance ceiling of 06b (5) for the runway target only; the
+airside-envelope ceiling in `FillDem` is unchanged.
+
+FHSH replay (capture fhshfill2/FHSH_r2, `--from constraints`): stage 1
+INFEASIBLE (155 rows, 2.16 m) -> SETTLED (0/16236 hard over 0.02 m); runway
+peak 317.01 m at s 1041 -> 311.24 m at s 1101 (field 311.20); 20 end
+312.24 -> 311.39 m (the overhang's held target is rounded by the K law,
++0.19 m); law-true 870 -> 127, CRITICAL visual 33 -> 30; the strip seam
+tears at -15.96098, -5.64516 (3.61 / 3.25 m) are gone.  The 20-end sea-cliff
+rows (zone 2 beyond the north end, 15 -> 15) are NOT the profile's.

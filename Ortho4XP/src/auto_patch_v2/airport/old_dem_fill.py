@@ -219,6 +219,11 @@ class FillDem:
     ``z`` / ``z_many`` read the ground as built; everything else is the
     wrapped sampler's."""
 
+    #: THE WITNESS, readable without importing this package: the runway
+    #: profile caps its crest at field on a DEM older than the airport
+    #: (``constraints/runway_chord``, RULINGS 2026-11-06c (1))
+    predates_airport = True
+
     def __init__(self, inner, model: _FillModel) -> None:
         self.inner = inner
         self.model = model

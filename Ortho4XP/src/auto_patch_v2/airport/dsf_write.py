@@ -135,7 +135,7 @@ import O4_DSFTool as _dsftool
 from O4_DSFTool import DsfToolError
 
 from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
-                               KIND_AGL, KIND_MSL, KIND_ON_GROUND, POOL_QUANTA,
+                               HIDDEN, KIND_AGL, KIND_MSL, KIND_ON_GROUND, POOL_QUANTA,
                                PROVENANCE_FILENAME, TOL_DEG, PlacementPlan)
 from . import authored_landing as _al
 from . import backup_state as _bs
@@ -565,6 +565,8 @@ def edit_dump(text: str, plan: PlacementPlan,
             # (tokens copied verbatim: no coordinate is re-formatted)
             hdg = toks[5] if len(toks) > 5 else "0.000000"
             edits[i] = [" ".join((KIND_ON_GROUND, toks[1], toks[2], toks[3], hdg)) + eol]
+        elif o in msl and msl[o].why == HIDDEN:
+            edits[i] = []                       # #1914 A7: a hidden cut shell
         elif o in msl:
             # §16g (5): OBJECT_MSL idx lon lat z hdg — the elevation the
             # unit's plane (or the surface) has at this placement, on the

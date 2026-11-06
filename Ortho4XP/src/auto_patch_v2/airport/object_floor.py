@@ -28,6 +28,29 @@ plan the LOWEST is the floor (:func:`floor_z_at`).  The footprint is their
 plan union.  ``planar/object_floor_cells`` cuts it into the map and
 ``constraints/object_floor`` pins every vertex of it to the surface.
 
+THE CONCAVE CUT SHELL (#1883 round 3, #1914; spec lgav-corridor-cut-and-
+deck-ends-20261106 A1-A4, A7).  A §33 (6) B shell (``object_cut``: walls
+and floor in one object, over a cover) that is no floor object but an
+OPEN-TOP HOLLOW standing under its own zero (``_has_floor``) — its top
+surface ``hollow_m`` or more under its own rim over
+``shell_hollow_min_share`` of its inner plan (``geom/shape_class``, the
+classification ``tools/drawn_site_check`` shares) — is the pack's own
+ground: its surface is ALL its solid faces (banks included), its footprint
+the plan of the faces standing under its rim, and its frame every
+placement co-placed with it.  Where several floors and shells stand over
+one point the ground is the LOWEST: a shallower one inside a deeper one
+owns no ground there (a bridge liner inside the corridor shell).  A shell
+that is the deepest surface with its rim at the ground (``shell_rim_ground_m``
+over ``shell_rim_ground_share`` of its outline) is HIDDEN when
+``hide_concave_shells`` (owner 2026-11-06T16:13Z): its row is left out of
+the written DSF, the terrain IS its surface.
+
+THE FRAME'S ONE ZERO (B1).  Every placement of a floor's frame is written
+whole at the zero the floor was read at — the pack's shared datum — except
+a hard-deck piece the airport's pavement drives across
+(``planar/object_floor_cells.floor_decks``), which is seated flush with its
+taxiway at both end lines.
+
 Every number is a law-table value; nothing here names a pack or an airport.
 """
 from __future__ import annotations
@@ -39,6 +62,7 @@ import numpy as np
 import shapely
 from shapely.ops import unary_union
 
+from ..geom import shape_class as _shape
 from ..geom.lowest_face import floor_z_at  # noqa: F401  (re-exported)
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
@@ -46,9 +70,17 @@ from . import terrain_shaped as _ts
 from .hanging_objects import _co_placed, _has_floor
 from .object_cut import _base, _face_normals_y, _plan_segments, placement_order, valid_polygon
 
-__all__ = ["ObjectFloor", "read_object_floors", "floor_z_at", "seat_records", "floor_portals",
-           "FLOOR_REF",
-           "FLOOR_WALL_REF"]
+__all__ = ["ObjectFloor", "FloorDeck", "read_object_floors", "floor_z_at", "seat_records",
+           "floor_portals", "owns_ground", "FLOOR_REF", "FLOOR_WALL_REF", "SHELL",
+           "HIDDEN_SEAT", "FRAME_SEAT"]
+
+#: :attr:`ObjectFloor.kind` of a concave cut shell (else ``"floor"``)
+SHELL = "shell"
+#: the seat record's ``seat`` of a hidden shell's row (A7): the row is
+#: dropped from the written DSF (``terrain_shaped.row_seats``)
+HIDDEN_SEAT = _ts.HIDDEN_SEAT
+#: the seat record's ``seat`` of a deck placement of a floor's frame (B1/B2)
+FRAME_SEAT = _ts.FRAME_SEAT
 
 #: The planar ref of a floor's cut face (``FLOOR_REF + id``) and of the
 #: void band around it (``FLOOR_WALL_REF + id``).
@@ -72,10 +104,46 @@ class ObjectFloor:
     footprint: object
     faces: np.ndarray = _dc.field(repr=False, compare=False)
     notes: tuple[str, ...] = ()
-    #: ``(placement id, resource, zero)`` of the floor and each cover: the
-    #: rows written WHOLE at their read zero (:func:`seat_records`) — the cut
-    #: is that zero's floor, so the authored seat is the one that lands on it
+    #: ``(placement id, resource, zero)`` of the floor and every placement
+    #: of its frame: the rows written WHOLE at their read zero
+    #: (:func:`seat_records`) — the cut is that zero's floor, so the
+    #: authored seat is the one that lands on it (B1)
     seats: tuple[tuple[str, str, float], ...] = ()
+    #: ``"floor"`` (a floor object or a §33 (6) B shell's plates) or
+    #: :data:`SHELL` (a concave cut shell, its whole surface)
+    kind: str = "floor"
+    #: a shell's own rim (absolute z)
+    rim_z: "float | None" = None
+    #: A7: the shell's row is left out of the written DSF
+    hidden: bool = False
+    #: B2: the hard-deck pieces of its frame the pavement drives across
+    decks: tuple = ()
+
+
+@_dc.dataclass(frozen=True)
+class FloorDeck:
+    """B2: one hard-deck piece of a floor's frame the airport's pavement
+    drives across (``planar/object_floor_cells.floor_decks``): ``ring`` its
+    plan (frame xy), ``seats_a`` / ``seats_b`` its two END LINES' stations
+    and ``top_a`` / ``top_b`` the authored deck top (y) there.  The solve
+    holds the pavement at both end lines flush with ONE zero of this piece
+    (``constraints/edge_deck``); the object stage seats the piece there."""
+
+    id: str
+    object_id: str
+    resource: str
+    ring: tuple
+    seats_a: tuple
+    seats_b: tuple
+    top_a: float
+    top_b: float
+
+
+def owns_ground(f: "ObjectFloor") -> bool:
+    """Does ``f`` own any ground (A4: a shallower surface inside a deeper
+    one owns none)?"""
+    fp = f.footprint
+    return fp is not None and not fp.is_empty and fp.area > 0.0
 
 
 def _floor_share(g: "_obj8.ObjGeometry | None", law) -> float:
@@ -142,28 +210,118 @@ def _placed_floor(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float, law)
     return faces, foot
 
 
-def _within(faces: np.ndarray, outline, law):
-    """``(faces, footprint)`` of the placed floor faces whose plan centroid
-    stands inside ``outline``, or ``None`` short of a plate's worth."""
+def _placed_all(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float) -> np.ndarray:
+    """Every solid face of ``o`` in the frame, absolute z (A2)."""
+    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
+    F = g.vertices[g.solid]
+    return np.stack([a * F[:, :, 0] + b * F[:, :, 2] + xo, d * F[:, :, 0] + e * F[:, :, 2] + yo,
+                     zero + F[:, :, 1]], axis=2)
+
+
+def _shell_candidate(g: "_obj8.ObjGeometry | None", law) -> bool:
+    """A cheap pre-read: the plan of the faces standing ``shell_floor_min_m``
+    under the zero carries ``shell_hollow_min_share`` of the solid's plan
+    (a building over a basement carries its roofs and floors above)."""
     ob = law.tables.structures.tunnel.object
-    if outline is None or outline.is_empty:
-        return None
-    cx, cy = faces[:, :, 0].mean(axis=1), faces[:, :, 1].mean(axis=1)
-    keep = shapely.contains_xy(outline.buffer(1.0), cx, cy)
-    if not keep.any():
-        return None
-    faces = faces[keep]
+    if g is None or not len(g.solid):
+        return False
+    P = g.vertices[g.solid]
+    plan = 0.5 * np.abs((P[:, 1, 0] - P[:, 0, 0]) * (P[:, 2, 2] - P[:, 0, 2])
+                        - (P[:, 2, 0] - P[:, 0, 0]) * (P[:, 1, 2] - P[:, 0, 2]))
+    tot = float(plan.sum())
+    deep = P[:, :, 1].mean(axis=1) <= -ob.shell_floor_min_m
+    return tot > 0.0 and float(plan[deep].sum()) >= ob.shell_hollow_min_share * tot
+
+
+def _shape_of(faces: np.ndarray, law) -> tuple[dict, "_shape.Raster | None"]:
+    """``(shape reading, raster)`` of placed faces (``geom/shape_class``)."""
+    ob = law.tables.structures.tunnel.object
+    r = _shape.rasterise(faces, int(ob.shell_raster_cells))
+    return _shape.shape_of(r, faces.reshape(-1, 3), band_m=ob.shell_rim_band_m,
+                           reach_m=ob.wall_face_max_thickness_m, hollow_m=ob.hollow_m,
+                           stacked_m=ob.shell_stacked_m, flat_m=ob.shell_flat_m,
+                           min_share=ob.shell_hollow_min_share), r
+
+
+def _under_rim(faces: np.ndarray, rim: float, law):
+    """A3: the plan union of the shell's faces standing under its own rim
+    (the hollow, banks and lips; never the crest above it), or ``None``
+    short of a plate's worth.  MEASURED LGAV ``Trench_06``: the pack's floor
+    stands up to 8 m OVER the DEM along the south-west kilometre (its
+    plateau is the pack's, the DEM's ground falls away), so the design
+    ground cannot bound it — the shell's own rim does."""
+    ob = law.tables.structures.tunnel.object
     tris = shapely.polygons(faces[:, :, :2])
-    foot = valid_polygon(unary_union(tris[shapely.area(tris) > 1e-6]))
+    keep = (shapely.area(tris) > 1e-6) & (faces[:, :, 2].mean(axis=1) <= rim)
+    foot = valid_polygon(unary_union(tris[keep])) if keep.any() else None
     if foot is None or foot.area < ob.plate_min_area_m2:
         return None
-    return faces, foot
+    return foot
+
+
+def _rim_at_ground(r: "_shape.Raster | None", ground, foot, law) -> float:
+    """A7: the share of the shell's outline band whose own top stands
+    within ``shell_rim_ground_m`` of the DESIGN ground there — the shell's
+    own surface where its footprint owns the ground (A3: the cut is cut to
+    it), else ``ground`` (the DEM).  MEASURED LGAV ``Trench_06``: against
+    the DEM alone 15 % (its south-west kilometre stands on a plateau the DEM
+    does not have); the terrain there is the shell's own once it is cut."""
+    ob = law.tables.structures.tunnel.object
+    if r is None or ground is None:
+        return 0.0
+    band, _inner = _shape.outline_band(r, ob.shell_rim_band_m)
+    ij = np.argwhere(band)
+    if not len(ij):
+        return 0.0
+    e, n = r.centres(ij)
+    top = r.top[band]
+    owned = shapely.contains_xy(foot.buffer(ob.shell_rim_ground_m), e, n)
+    gz = np.where(owned, top, np.asarray(ground(e, n), float))
+    ok = np.isfinite(gz)
+    if not ok.any():
+        return 0.0
+    return float((np.abs(top[ok] - gz[ok]) <= ob.shell_rim_ground_m).mean())
+
+
+def _deepest(floors: list["ObjectFloor"], law, notes: list[str]) -> list["ObjectFloor"]:
+    """A4: the ground under several floors is the LOWEST — each floor less
+    the plan of every other floor standing deeper over their overlap (a
+    bridge liner inside the corridor shell owns no ground there)."""
+    ob = law.tables.structures.tunnel.object
+    out = []
+    for f in floors:
+        fp = f.footprint
+        for g in floors:
+            if g is f or fp is None or fp.is_empty or not fp.intersects(g.footprint):
+                continue
+            ov = fp.intersection(g.footprint)
+            if ov.area < ob.plate_min_area_m2:
+                continue
+            q = [p.representative_point() for p in getattr(ov, "geoms", [ov])
+                 if p.area >= 1.0]
+            xs, ys = [p.x for p in q], [p.y for p in q]
+            zf = floor_z_at(f.faces, xs, ys, edge_m=0.5)
+            zg = floor_z_at(g.faces, xs, ys, edge_m=0.5)
+            if np.isfinite(zf).any() and np.isfinite(zg).any() and \
+                    float(np.nanmedian(zg)) < float(np.nanmedian(zf)) - ob.hollow_m:
+                fp = fp.difference(g.footprint)
+        if fp is not f.footprint:
+            # a shallower shell INSIDE a deeper one (most of it) owns none
+            inside = f.footprint.area - fp.area >= 0.5 * f.footprint.area
+            fp = fp if fp.area >= ob.plate_min_area_m2 and not inside else shapely.Polygon()
+            notes.append(f"{f.id}: a deeper surface owns its ground — "
+                         f"{f.footprint.area - fp.area:.0f} m2 withdrawn, "
+                         f"{fp.area:.0f} m2 left (A4)")
+            f = _dc.replace(f, footprint=fp, hidden=False)
+        out.append(f)
+    return out
 
 
 def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                        law, msl: _t.Mapping[str, float],
                        taken: _t.AbstractSet[str] = frozenset(),
-                       shells: _t.Mapping[str, str] | None = None
+                       shells: _t.Mapping[str, str] | None = None,
+                       ground: "_t.Callable | None" = None
                        ) -> tuple[list[ObjectFloor], list[str]]:
     """Every FLOOR OBJECT (module doc) as an :class:`ObjectFloor`, and one
     note per floor read or refused.  ``taken`` are placement ids another
@@ -171,9 +329,10 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
     ``shells`` maps each placement ``object_cut`` admitted as a §33 (6) B
     shell (walls and floor in one object) to ``(its cover's placement id,
     the region between its walls)`` — only those are read as floors
-    without being floor objects, only that cover is theirs, and only their
-    faces over that region are the floor (a shell's own model can reach far
-    past its trench: LGAV ``Trench_06``, 362,036 m2 of plates).  A
+    without being floor objects, and only that cover is theirs; a CONCAVE
+    SHELL (module doc) is read whole, its frame every co-placed placement.
+    ``ground(xs, ys)`` is the design ground (the DEM) A7 reads the rim
+    against.  A
     shared-datum pack co-places everything (LGAV ``Trench_0x``, one
     anchor), so co-placement alone is no tunnel
     evidence: a floor object's cover must also stand its walls ON the
@@ -207,8 +366,15 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                       and _walled_share(placed_floor[1], p, cache, law)
                       >= ob.floor_walled_min_share]
         elif o.id in shells:
-            # a SHELL (its own walls and floor, §33 (6) B): its cover is the
-            # one object_cut paired it with
+            # a SHELL (its own walls and floor, §33 (6) B): a CONCAVE CUT
+            # SHELL (#1883 r3 A1) is the pack's own ground, its frame every
+            # co-placed placement; else its cover is the one object_cut
+            # paired it with
+            got = _concave(o, g, msl, law, mates, ground, notes) \
+                if _shell_candidate(g, law) else None
+            if got is not None:
+                out.append(got)
+                continue
             covers = [p for p in mates if p.id == shells[o.id][0]]
         else:
             continue
@@ -223,12 +389,6 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
             notes.append(f"{o.id} {_base(o.path)}: no below-grade floor face of a plate's worth")
             continue
         faces, foot = got
-        if o.id in shells and share < ob.floor_object_min_share:
-            got = _within(faces, shells[o.id][1], law)
-            if got is None:
-                notes.append(f"{o.id} {_base(o.path)}: no floor face over its trench outline")
-                continue
-            faces, foot = got
         k = k_by_res.get(o.path, 0)
         k_by_res[o.path] = k + 1
         fz = float(faces[:, :, 2].min())
@@ -236,11 +396,44 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                 f"floor {fz:.2f} (zero {zero:.2f}), the floor of "
                 + ", ".join(_base(p.path) for p in covers))
         notes.append(note)
-        seats = tuple((p.id, p.path, _zero(p, msl)) for p in (o, *covers))
+        # B1: the frame's every placement at the zero the floor was read at
+        seats = tuple((p.id, p.path, _zero(p, msl)) for p in (o, *covers, *(
+            p for p in mates if p not in covers)))
         out.append(ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@{k}", o.id, o.path,
                                tuple(p.id for p in covers), zero, fz, foot, faces, (note,),
                                seats))
+    out = _deepest(out, law, notes)
     return out, notes
+
+
+def _concave(o, g, msl, law, mates, ground, notes: list[str]) -> "ObjectFloor | None":
+    """A concave cut shell's :class:`ObjectFloor`, or ``None`` (a note
+    says why) — A1-A3, A7's hiding read here."""
+    ob = law.tables.structures.tunnel.object
+    zero = _zero(o, msl)
+    faces = _placed_all(o, g, zero)
+    sh, r = _shape_of(faces, law)
+    if sh["class"] != _shape.CONCAVE:
+        return None
+    foot = _under_rim(faces, float(sh["rim"]), law)
+    if foot is None:
+        notes.append(f"{o.id} {_base(o.path)}: a concave shell with no plate's worth under "
+                     f"its rim")
+        return None
+    at_ground = _rim_at_ground(r, ground, foot, law)
+    hidden = bool(ob.hide_concave_shells) and at_ground >= ob.shell_rim_ground_share
+    fz = float(faces[:, :, 2].min())
+    note = (f"concave shell {_base(o.path)}: {len(faces)} faces, hollow "
+            f"{100 * sh['hollow']:.1f} %, rim {sh['rim']:.2f}, footprint {foot.area:.0f} m2 "
+            f"under it, lowest {fz:.2f} (zero {zero:.2f}); rim at the ground over "
+            f"{100 * at_ground:.0f} % of its outline -> "
+            + ("HIDDEN (A7)" if hidden else "drawn") + "; frame "
+            + ", ".join(_base(p.path) for p in mates))
+    notes.append(note)
+    seats = tuple((p.id, p.path, _zero(p, msl)) for p in (o, *mates))
+    return ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@shell", o.id, o.path,
+                       tuple(p.id for p in mates), zero, fz, foot, faces, (note,), seats,
+                       kind=SHELL, rim_z=float(sh["rim"]), hidden=hidden)
 
 
 def _zero(o: _obj8.PlacedObject, msl: _t.Mapping[str, float]) -> float:
@@ -249,14 +442,37 @@ def _zero(o: _obj8.PlacedObject, msl: _t.Mapping[str, float]) -> float:
     return float(msl[o.id]) if o.kind == "OBJECT_MSL" else float(o.anchor_z + o.agl_m)
 
 
-def seat_records(floors: _t.Iterable[ObjectFloor]) -> list[dict[str, _t.Any]]:
-    """One seat record per placement of every object floor (the floor and
-    its covers): written WHOLE as ``OBJECT_MSL`` at the zero the cut was
-    read from ("mouths seat at that floor; walls end on it") — never split
-    and re-seated on feet that stand in its own cut."""
-    return [{"id": pid, "resource": res, "datum": "object_floor", "seat": _ts.OBJECT_FLOOR_SEAT,
-             "elevation": round(float(z), 3)}
-            for f in floors for pid, res, z in f.seats]
+def seat_records(floors: _t.Iterable[ObjectFloor], to_ll=None) -> list[dict[str, _t.Any]]:
+    """One seat record per placement of every object floor's frame: written
+    WHOLE as ``OBJECT_MSL`` at the zero the cut was read from ("mouths seat
+    at that floor; walls end on it") — never split and re-seated on feet
+    that stand in its own cut — each placement once; a HIDDEN shell's own
+    row :data:`HIDDEN_SEAT` (A7).  With ``to_ll`` a floor owning ground
+    carries its footprint's ring (``cut_deck_seat.CUT_RING``): the pack cut a
+    deck of its frame is seated over (B2)."""
+    from .cut_deck_seat import CUT_RING
+    out: list[dict[str, _t.Any]] = []
+    seen: set[str] = set()
+    for f in floors:
+        for pid, res, z in f.seats:
+            if pid in seen:
+                continue
+            seen.add(pid)
+            hide = f.hidden and pid == f.object_id
+            rec = {"id": pid, "resource": res, "datum": "object_floor",
+                   "seat": HIDDEN_SEAT if hide else _ts.OBJECT_FLOOR_SEAT,
+                   "elevation": round(float(z), 3)}
+            if pid == f.object_id and to_ll is not None and f.decks and owns_ground(f):
+                part = max(getattr(f.footprint, "geoms", [f.footprint]), key=lambda q: q.area)
+                rec[CUT_RING] = [[round(la, 9), round(lo, 9)] for la, lo in
+                                 (to_ll(x, y) for x, y in part.exterior.coords)]
+            out.append(rec)
+        for d in f.decks:
+            if d.object_id not in seen:
+                seen.add(d.object_id)
+                out.append({"id": d.object_id, "resource": d.resource, "datum": "object_floor",
+                            "seat": FRAME_SEAT, "elevation": round(float(f.zero_z), 3)})
+    return out
 
 
 def floor_portals(portals: _t.Sequence, floors: _t.Sequence[ObjectFloor]) -> tuple:
@@ -267,7 +483,7 @@ def floor_portals(portals: _t.Sequence, floors: _t.Sequence[ObjectFloor]) -> tup
     deepest level, nor a face bottom the object stage would re-seat (EGLL
     11 west mouth: the portal pinned 16.14, 11b's lowest plate, where the
     floor stands 17.16 at that end).  A portal off every floor is unchanged."""
-    by_id = {pid: f for f in floors for pid, _r, _z in f.seats}
+    by_id = {pid: f for f in floors if owns_ground(f) for pid, _r, _z in f.seats}
     if not by_id:
         return tuple(portals)
     out = []

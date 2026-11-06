@@ -57,7 +57,8 @@ from . import dsf as _dsf
 __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
            "placement_fits", "fit", "grid_of_triangles", "dem_many_of",
            "grid_of_resource", "seat_records", "log_line", "row_seats",
-           "PORTAL_SEAT", "ENTRANCE_SEAT", "OBJECT_FLOOR_SEAT", "portal_seat_records"]
+           "PORTAL_SEAT", "ENTRANCE_SEAT", "OBJECT_FLOOR_SEAT", "HIDDEN_SEAT",
+           "FRAME_SEAT", "frame_zeros", "portal_seat_records"]
 
 MIN_AREA_M2 = 20_000.0
 MIN_RELIEF_M = 5.0
@@ -77,8 +78,16 @@ ENTRANCE_SEAT = "entrance face"
 #: #1903: a trench object's floor and covers at the zero their cut was read
 #: from (``airport/object_floor.seat_records``)
 OBJECT_FLOOR_SEAT = "object floor"
+#: #1914 A7: a hidden concave cut shell's row, LEFT OUT of the written DSF
+#: (``airport/object_floor.seat_records``; ``model.placement.HIDDEN``)
+HIDDEN_SEAT = "hidden shell"
+#: #1883 r3 B1/B2: a DECK placement of a pack cut's frame
+#: (``airport/object_floor.seat_records``): the plan seats its bodies at the
+#: record's ``elevation`` (the frame's zero) and its deck pieces flush with
+#: what they carry (``placement_plan``, :func:`frame_zeros`)
+FRAME_SEAT = "object floor frame"
 _WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
-        OBJECT_FLOOR_SEAT: "object_floor"}
+        OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden"}
 
 
 def _deck_grid(g: _t.Any) -> "DeckGrid | None":
@@ -281,6 +290,12 @@ def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None) -> list[dic
                        reach_m=float(ps[3]) if len(ps) > 3 else 0.0)
         out.append(rec)
     return out
+
+
+def frame_zeros(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> dict[str, float]:
+    """Placement id -> the frame zero of every :data:`FRAME_SEAT` record."""
+    return {str(r.get("id")): float(r["elevation"]) for r in records or ()
+            if hasattr(r, "get") and r.get("seat") == FRAME_SEAT}
 
 
 def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]],

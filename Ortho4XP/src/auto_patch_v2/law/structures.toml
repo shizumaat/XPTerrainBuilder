@@ -197,6 +197,32 @@ floor_object_min_share = 0.9
 # Measured: EGLL covers 82-99 % (5.obj 82 %); a shared-datum stack (LGAV
 # Trench_0x) and KBNA Metropolitan-part7 0-2 %.
 floor_walled_min_share = 0.5
+# THE PACK'S CUT SHELL IS THE GROUND (#1883 round 3, #1914; spec
+# lgav-corridor-cut-and-deck-ends-20261106 A1-A7; ``airport/object_floor``,
+# ``geom/shape_class``): a CONCAVE SHELL is an open-top hollow whose top
+# stands hollow_m or more under its own rim (the p90 of the highest geometry
+# on its outline band, shell_rim_band_m wide) over shell_hollow_min_share of
+# its inner plan, one surface per plan point (two more than shell_stacked_m
+# apart are a cover over a floor).  Measured LGAV Trench_06: 98.8 % hollow,
+# rim 78.89, inner top p50 69.9; the liners Trench_01 / Trench_02 85-87 %.
+hollow_m              = 1.0
+shell_hollow_min_share = 0.5
+shell_stacked_m       = 1.5
+shell_flat_m          = 1.0
+shell_rim_band_m      = 1.0
+shell_raster_cells    = 40000
+# A5: the footprint splits along the shell's creases (faces folding more than
+# this): each cell is one plane, so the mesh's harmonic interior IS the
+# shell (O4_Mesh_Utils.interpolate_free_interior_altitudes reproduces a
+# planar ring exactly).  LGAV Trench_06: 855 planes at 0.5 deg.
+crease_deg            = 0.5
+# A7 (#1914, owner 2026-11-06T16:13Z "Yes, let's hide cut shells"): a shell
+# that is the deepest stated surface, its rim within shell_rim_ground_m of the
+# design ground over shell_rim_ground_share of its outline, is left out of the
+# written DSF; convex bodies are never hidden.
+hide_concave_shells   = true
+shell_rim_ground_m     = 0.5
+shell_rim_ground_share = 0.5
 cover_station_m      = 25.0
 # C — THIN SURFACE WALLS AND PARAPETS (LEMD).  Solids under
 # parapet_max_height_m tall (LEMD's walls are 0.91-2.01 m and SIT on the

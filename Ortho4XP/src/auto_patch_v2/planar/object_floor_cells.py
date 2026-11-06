@@ -8,6 +8,14 @@ floor's own profile, and a VOID band (role ``retaining_wall``, ref
 are two rings, and the mesh makes the wall between them where the pack's
 own walls stand.
 
+A CONCAVE CUT SHELL's footprint (``ObjectFloor.kind == "shell"``, #1883
+round 3 A5) is cut into one face per PLANE of the shell
+(``geom/plane_groups``: its faces meeting without a crease of more than
+``crease_deg`` or a step of more than ``hollow_m``): a planar ring is
+reproduced exactly by the mesh's harmonic interior, so the faces carry the
+shell's floor, banks and lips, never a membrane spanned over them.  A floor
+that owns no ground (A4: a shallower one inside a deeper) enters no cell.
+
 The footprint is SENIOR to every other structure cell over it — the
 object's floor owns the ground inside its footprint, so a mapped bore's
 ramp or another reader's trench is trimmed back to the footprint's rim
@@ -25,11 +33,15 @@ from shapely.ops import unary_union
 from ..airport.object_floor import (
     FLOOR_REF,
     FLOOR_WALL_REF,
+    SHELL,
     ObjectFloor,
     floor_portals,
+    owns_ground,
     read_object_floors,
 )
 from ..geom.parts import polygon_parts_with_area
+from ..geom.plane_groups import plane_groups
+from .floor_decks import floor_decks
 
 __all__ = ["add_object_floor_cells", "floor_mouths", "not_floors", "object_floor_stage"]
 
@@ -56,6 +68,9 @@ def add_object_floor_cells(floors: _t.Sequence[ObjectFloor], law, new_cells: lis
                           if c.role in _RUNWAY_FAMILY])
     n = 0
     for fl in floors:
+        if not owns_ground(fl):
+            notes.append(f"{fl.id}: a deeper surface owns the ground over it — no cell (A4)")
+            continue
         foot = fl.footprint
         if not runway.is_empty:
             foot = foot.difference(runway.buffer(band_m, join_style="mitre"))
@@ -74,9 +89,10 @@ def add_object_floor_cells(floors: _t.Sequence[ObjectFloor], law, new_cells: lis
             else:
                 kept.append((role, ref, part, tid))
         new_cells[:] = kept
-        for k, q in enumerate(parts):
-            dense = shapely.segmentize(q, float(ob.wall_sample_m))
-            new_cells.append(("tunnel_trench", fl.id + (f"#{k}" if k else ""), dense, fl.id))
+        faces = _planes(fl, foot, law) if fl.kind == SHELL else \
+            [shapely.segmentize(q, float(ob.wall_sample_m)) for q in parts]
+        for k, q in enumerate(faces):
+            new_cells.append(("tunnel_trench", fl.id + (f"#{k}" if k else ""), q, fl.id))
         wall_ref = FLOOR_WALL_REF + fl.id[len(FLOOR_REF):]
         for k, q in enumerate(_parts(outer.difference(foot))):
             new_cells.append(("retaining_wall", wall_ref + (f"#{k}" if k else ""), q, fl.id))
@@ -85,12 +101,34 @@ def add_object_floor_cells(floors: _t.Sequence[ObjectFloor], law, new_cells: lis
             hull_knives.append(q)
             keepouts.append(q)
         notes.append(f"{fl.id}: the floor's footprint {foot.area:.0f} m2 is the cut "
-                     f"(floor {fl.floor_z:.2f}), its rim {band_m:.1f} m outside it")
+                     f"(floor {fl.floor_z:.2f}, {len(faces)} face(s)), its rim {band_m:.1f} m "
+                     f"outside it")
         n += 1
     return n
 
 
-def object_floor_stage(airport, objects, cache, law, corridors, tstats) -> tuple[list, list]:
+def _planes(fl: ObjectFloor, foot, law) -> list:
+    """A5: the shell's footprint as one polygon per plane of the shell
+    (module doc), largest first, each disjoint from those before it."""
+    ob = law.tables.structures.tunnel.object
+    taken = None
+    out = []
+    for g in plane_groups(fl.faces, float(ob.crease_deg), float(ob.hollow_m)):
+        tris = shapely.polygons(fl.faces[g][:, :, :2])
+        poly = shapely.union_all(tris[shapely.area(tris) > 1e-6]).intersection(foot)
+        if taken is not None:
+            poly = poly.difference(taken)
+        parts = _parts(poly)
+        if not parts:
+            continue
+        out.extend(parts)
+        taken = unary_union(parts) if taken is None else taken.union(unary_union(parts))
+    rest = _parts(foot.difference(taken)) if taken is not None else _parts(foot)
+    return out + rest
+
+
+def object_floor_stage(airport, objects, cache, law, corridors, tstats,
+                       classification=None) -> tuple[list, list]:
     """``(floors, corridors)``: every trench object's floor read ONCE
     (``airport/object_floor``), the axis corridors they supersede dropped (a
     split shell's floor read as a corridor), their placements claimed out of
@@ -102,7 +140,11 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats) -> tuple
     cover_of = dict(getattr(tstats, "shell_covers", ()) or ())
     shells = {o: (cover_of[c.id], _between_walls(c, law)) for c in corridors
               if c.id.startswith("object-cut:") and c.id in cover_of for o in c.objects}
-    floors, notes = read_object_floors(objects, cache, law, msl, shells=shells)
+    from ..airport.dem import dem_z_many
+    floors, notes = read_object_floors(objects, cache, law, msl, shells=shells,
+                                       ground=lambda xs, ys: dem_z_many(airport.dem, xs, ys))
+    floors, deck_notes = floor_decks(floors, objects, cache, classification, airport, law)
+    notes.extend(f"object floor {n}" for n in deck_notes)
     floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}
     if floor_ids:
         corridors = [c for c in corridors if not (set(c.objects) & floor_ids)]
@@ -125,6 +167,7 @@ def floor_mouths(tunnels: _t.Sequence, floors: _t.Sequence, law) -> tuple[list, 
     from shapely.ops import nearest_points
 
     from ..airport.object_floor import floor_z_at
+    floors = [f for f in floors if owns_ground(f)]
     if not floors:
         return list(tunnels), []
     tol = float(law.tables.structures.tunnel.object.bore_end_tolerance_m)

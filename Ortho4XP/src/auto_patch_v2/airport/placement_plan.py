@@ -117,10 +117,10 @@ from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
 # caller's and every twin's import path is unchanged ──
 # #1214: the airside hard deck (class A) and the one-zero groups live next
 # door; the round-2 private names stay importable from here
-from . import channel_zero as _chz_mod  # noqa: E402
 from . import cut_deck_seat as _cds  # noqa: E402
 from . import entrance_seat as _ens  # noqa: E402
 from . import split_guard as _sg  # noqa: E402
+from . import terrain_shaped as _tsh  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
     airside_deck as _airside_deck, airside_frame as _airside_frame,
     deck_owns_its_datum as _deck_owns_its_datum, refused_bridge as _refused_bridge)
@@ -146,17 +146,17 @@ def _rides_frame(ring: _t.Any, on_fraction: float, body: _t.Any) -> bool:
     return not _cds.seated(body) and _cds.stands_in(body, ring, on_fraction)
 
 
+def _unseated(body: _t.Any) -> bool:
+    """A body no deck seat placed (``cut_deck_seat.seated``)."""
+    return not _cds.seated(body)
+
+
 def _keeps_seat(ring: _t.Any, on_fraction: float, seats: _t.Sequence, body: _t.Any) -> bool:
     """A body a refused bridge frame's zero leaves at its own seat: a deck
     seated over the pack's cut, a body riding one (#1883), or a framed
     cut's body in its ring (:func:`_rides_frame`)."""
     return ((ring is not None and _rides_frame(ring, on_fraction, body)) or _cds.seated(body)
             or _cds.seat_under(body, seats, on_fraction) is not None)
-
-
-def _in_channel(n: str, body: _t.Any) -> bool:
-    """Is ``body`` a rim body of channel ``n`` (``channel_zero.rim_channel``)?"""
-    return _chz_mod.rim_channel(body) == n
 
 
 def build_splits(plan: RebakePlan, surface: _ar.Surface,
@@ -315,6 +315,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     reseated = _aseat.reseated_rows(getattr(plan, "authored_seats", ()) or ())
     # 26d (#1331): the pack object cuts' rings, published on the seat records
     _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
+    # #1883 r3 B1: a pack cut's frame at the zero its floor was read at
+    _floor_zero = _tsh.frame_zeros(getattr(plan, "authored_seats", ()) or ())
     # #1903: ...and the placements those cuts are (their own roofs' end lines)
     _cut_ids = frozenset(str(r.get("id")) for r in getattr(plan, "authored_seats", ()) or ()
                          if hasattr(r, "get") and r.get(_cds.CUT_RING))
@@ -988,7 +990,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                   if bridge is not None and _cuts else [])
 
         def _one_bridge(r, mm, _b=bridge, _z=_bz, _s=_seats):
-            if _b is None:
+            if _b is None or getattr(mm, "id", "") in _floor_zero:
                 return r
             # owner 2026-11-05 §0.5: the cut a seated deck frames rides it
             fz = _cds.framed_zero(getattr(mm, "id", ""), _s,
@@ -1019,19 +1021,18 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                keep=_functools.partial(_keeps_seat, None if fz is None
                                                        else fz[2], deck_on_fraction, _s))
 
-        # #1883: a pack-floored channel's frame at the zero its floor was
-        # read at, never at the rim (``channel_zero``)
-        _chz = _chz_mod.channel_zeros((st.m for st in staged), surface)
-
         # owner RULINGS 2026-10-26d (#1331): outside a class-A frame, a
         # pack deck body over the pack's own cut sits flush with what it
-        # carries (``cut_deck_seat``)
-        def _cut_decks(r, mm, _u=u, _air=airside, _cz=_chz):
+        # carries (``cut_deck_seat``); #1883 r3 B1/B2: a deck placement of a
+        # pack cut's frame — its bodies at the frame's zero, its deck pieces
+        # flush with what they carry, whatever the frame reads as
+        def _cut_decks(r, mm, _u=u, _air=airside):
             r = _ens.seat_faces(r, mm, _entr, _at_zero)
-            for n, zero in sorted(_cz.items()):
-                r = _at_zero(r, mm, zero, _functools.partial(_in_channel, n),
-                             f"the channel's pack floor zero {zero:.2f} (#1883)")
-            if _air is not None or not _cuts:
+            fz = _floor_zero.get(getattr(mm, "id", ""))
+            if fz is not None:
+                r = _at_zero(r, mm, fz, _unseated,
+                             f"the pack cut's frame zero {fz:.2f} (#1883 r3 B1)")
+            if (_air is not None and fz is None) or not _cuts:
                 return r
             return _cds.seat_cut_decks(r, mm, getattr(mm, "origin", None) or tuple(_u.anchor),
                                        surface, _cuts, abutment_step_m,

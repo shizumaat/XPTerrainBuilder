@@ -77,7 +77,6 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
             out[oid] = (float(tn.plate_y_m or tn.depth_m), pts,
                         float((seats.get(oid) or {}).get("proud_m") or 0.0))
     out.update(_edge_seat_plates(pm, kept, law))
-    _channel_plates(out, pm, kept)
     if law.tables.structures.basin.seat != "floor_plate":
         return out
     for b in pm.basins:
@@ -121,31 +120,6 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
 EDGE_PLATE = "edge"
 #: the plate kind of a SPLIT-LEVEL building's lower floor (``planar/split_level_pit``)
 SPLIT_PLATE = "split_level"
-#: the plate kind of a CHANNEL's pack floor witness, ``"channel:<n>"``
-#: (``airport/channel_zero``)
-CHANNEL_PLATE = "channel:"
-
-
-def _channel_plates(out: dict, pm, kept) -> None:
-    """A CHANNEL WHOSE FLOOR THE PACK STATES (§45 (3) (i), ``datum_source
-    == "pack"``): its floor IS its witness placement's deepest solid at the
-    zero the planar stage read it at, so the witness is seated with that
-    solid ON the floor -- ``(0.0, floor stations, 0.0, "channel:<n>")``,
-    the y filled from the object by ``rebake_plan`` -- and every body of
-    its frame the channel's rim would seat takes the same zero
-    (``airport/channel_zero``; #1883, LGAV's trench stack: its liner
-    pieces on the rim stood 58.6-68.8 against a 66.47 floor)."""
-    for ch in getattr(pm, "channels", ()) or ():
-        if getattr(ch, "datum_source", "") != "pack" or len(ch.axis) < 2:
-            continue
-        n = str(ch.id).rsplit(":", 1)[-1]
-        k = max(1, len(ch.axis) // 8)
-        st = [tuple(p) for p in ch.axis[k:-k:k]] or [tuple(ch.axis[len(ch.axis) // 2])]
-        for oid in getattr(ch, "witness_ids", ()) or ():
-            if oid not in kept:
-                out.setdefault(oid, (0.0, st, 0.0, CHANNEL_PLATE + n))
-
-
 def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
     """Placement id -> ``(0.0, [seat], 0.0, EDGE_PLATE)`` for every edge
     bridge an edge trench meets (``Tunnel.edge_seats``,
@@ -358,8 +332,9 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
     from ..airport import object_floor as _of
     from ..airport import terrain_shaped as _ts
     floors = tuple(getattr(pm, "object_floors", ()) or ())
-    # #1903: a trench object's floor and covers are written whole at their
-    # read zero — no other seat moves them
+    # #1903: a trench object's floor and its frame are written whole at
+    # their read zero — no other seat moves them (a deck of the frame the
+    # pavement drives across is planned: ``ObjectFloor.decks``, B2)
     excluded |= {pid for f in floors for pid, _r, _z in f.seats}
     return {
         "tunnel_objects": _plate_seats(pm, law, seats),
@@ -367,7 +342,7 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
                            + tuple(_ts.seat_records(airport))
                            + tuple(_ts.portal_seat_records(pm.structures,
                                                            airport.frame.transformers()[1]))
-                           + tuple(_of.seat_records(floors))),
+                           + tuple(_of.seat_records(floors, airport.frame.transformers()[1]))),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``

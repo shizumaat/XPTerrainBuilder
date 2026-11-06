@@ -40,7 +40,7 @@ from .overlay import Arrangement, build_arrangement
 from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
-from .object_floor_cells import floor_mouths, object_floor_stage
+from .object_floor_cells import floor_mouths, not_floors, object_floor_stage
 from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
@@ -265,6 +265,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # A TRENCH OBJECT'S OWN FLOOR IS THE CUT (#1903, owner 2026-11-06):
     # read ONCE, here and in the structures replay alike
     floors, corridors = object_floor_stage(airport, objects, cache, law, corridors, tstats)
+    roads, wells = not_floors(roads, floors), not_floors(wells, floors)
     tstats.refused.extend(pstats.refused)
     # the wall corridors are a pack read too (#362): of the classification
     # they read the FIELD's cover alone (and, in the structures replay, the

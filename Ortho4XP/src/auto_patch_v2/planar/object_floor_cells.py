@@ -25,7 +25,7 @@ from shapely.ops import unary_union
 from ..airport.object_floor import (FLOOR_REF, FLOOR_WALL_REF, floor_portals,
                                    read_object_floors)
 
-__all__ = ["add_object_floor_cells", "floor_mouths", "object_floor_stage"]
+__all__ = ["add_object_floor_cells", "floor_mouths", "not_floors", "object_floor_stage"]
 
 _RUNWAY_FAMILY = ("runway", "runway_crossing")
 
@@ -143,3 +143,13 @@ def floor_mouths(tunnels: _t.Sequence, floors: _t.Sequence, law) -> tuple[list, 
         out.append(_dc.replace(tn, mouth_z=z, notes=(*tn.notes, note)))
         notes.append(note)
     return out, notes
+
+
+def not_floors(records: _t.Sequence, floors: _t.Sequence) -> list:
+    """``records`` (sunken roads, door wells — any reading with
+    ``objects``) less those reading a trench object's floor or cover: the
+    object's own floor is the cut there, read ONCE (KBNA
+    ``Metropolitan-part2``: the sunken-road reading cut its plate's lowest
+    y, 173.30, outside the floor's footprint, 0.38 m under the floor)."""
+    ids = {pid for f in floors for pid, _r, _z in f.seats}
+    return [r for r in records if not (set(getattr(r, "objects", ()) or ()) & ids)]

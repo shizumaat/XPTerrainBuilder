@@ -14,7 +14,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import PlanarMap
-from . import (apron, cluster_pad, deck_anchor, eat, edge_deck, flat_site, foot_rows,
+from . import (apron, cluster_pad, deck_anchor, eat, edge_deck, fill_bank, flat_site, foot_rows,
                groundside, hard_plane, door_pad,
                junction_mesh,
                no_step, object_floor, pad_frontage_gs, pad_fronting, pads,
@@ -154,6 +154,8 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # (:func:`eat.withdraw_against_senior`, the post-pass below).
     ("eat_anchor_rect", eat.eat_pins),
     ("water_pins", water.water_pins),
+    # #1915 (RULINGS 2026-11-06a (2)): the old-DEM fill's toe is on the ground
+    ("fill_toe_pins", fill_bank.fill_toe_pins),
     ("seam_pins", seams.seam_pins),
     ("flat_datum", flat_site.flat_datum),
     # THE FOOT ROWS (owner RULINGS 2026-09-11q; spec §11b): a rigid body

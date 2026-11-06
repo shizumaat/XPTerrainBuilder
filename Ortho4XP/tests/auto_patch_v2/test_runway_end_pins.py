@@ -305,6 +305,25 @@ def test_the_field_never_vouches_for_a_placeholder(law):
     assert [e.pin_source for e in rw.ends] == ["dem", "dem"] and rw.ends[0].pin_flags == "d,b"
 
 
+def test_a_flat_airports_equal_pair_is_untouched(law):
+    """Owner RULINGS 2026-11-06b (3): the same-number exclusion bites only
+    where rule (b) fires — at a flat airport equal CIFP thresholds are
+    expected.  On a flat coarse DEM the equal pair a few metres off the
+    field (SDIB's numbers, no fall under it) and the equal pair AT the
+    field both stand as CIFP, unflagged; the same pair over the older DEM's
+    fall is the (b) case :func:`test_the_field_never_vouches_for_a_placeholder`
+    reads."""
+    for pair, elev in (((727.0, 727.0), 730.0), ((730.0, 730.0), 730.0)):
+        airport, _pm = _site(law, _Classed(0.0, None), pair, elev=elev)
+        airport, recs, lines = EP.verify(_cifp_airport(airport), law)
+        rw = airport.runways[0]
+        assert lines == [], (pair, lines)
+        assert [e.pin_source for e in rw.ends] == ["cifp", "cifp"]
+        assert [e.threshold_elev_m for e in rw.ends] == list(pair)
+        assert all(not e.pin_flags for e in rw.ends)
+        assert all(not r["flags"] for r in recs)
+
+
 # ── apt.dat-only ends (#1394, 26e) and the unmatched end (22a) ───────────
 
 def test_an_apt_dat_only_end_gives_way_to_the_lidar(law):

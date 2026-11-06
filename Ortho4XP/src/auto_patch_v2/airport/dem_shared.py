@@ -26,6 +26,7 @@ import typing as _t
 from pyproj import Transformer
 
 from .dem_production import ProductionDem, _BakedTile
+from .old_dem_fill import FillDem
 from .pool import SharedArrays, attach
 
 __all__ = ["ColdTile", "WarmDem", "share", "revive"]
@@ -59,6 +60,9 @@ def _name(key: tuple[int, int]) -> str:
 def share(dem) -> tuple[SharedArrays | None, tuple]:
     """``(the shared block to close when the workers are done, token)``.
     Raises ``OSError`` when the machine will not give the memory."""
+    if isinstance(dem, FillDem):        # the old-DEM fill rides on the shared pages
+        shared, inner = share(dem.inner)
+        return shared, ("fill", inner, dem.model)
     if not isinstance(dem, ProductionDem):
         return None, ("as_is", dem)
     tiles = dict(dem._tiles)
@@ -71,6 +75,8 @@ def revive(token: tuple) -> _t.Any:
     """The worker's sampler for a :func:`share` token."""
     if token[0] == "as_is":
         return token[1]
+    if token[0] == "fill":
+        return FillDem(revive(token[1]), token[2])
     _kind, frame, icao, rows, spec = token
     arrays = attach(spec) if spec else {}
     tiles = {k: None if r is None else _BakedTile(k[0], k[1], arrays[_name(k)], *r)

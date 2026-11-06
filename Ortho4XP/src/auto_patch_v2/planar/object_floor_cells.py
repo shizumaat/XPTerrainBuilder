@@ -29,6 +29,7 @@ from ..airport.object_floor import (
     floor_portals,
     read_object_floors,
 )
+from ..geom.parts import polygon_parts_with_area
 
 __all__ = ["add_object_floor_cells", "floor_mouths", "not_floors", "object_floor_stage"]
 
@@ -36,10 +37,8 @@ _RUNWAY_FAMILY = ("runway", "runway_crossing")
 
 
 def _parts(geom) -> list:
-    if geom is None or geom.is_empty:
-        return []
-    return [g for g in shapely.get_parts(geom)
-            if g.geom_type == "Polygon" and g.area > 0.25]
+    """The Polygons of ``geom`` over a quarter square metre."""
+    return polygon_parts_with_area(geom, 0.25)
 
 
 def add_object_floor_cells(floors: _t.Sequence[ObjectFloor], law, new_cells: list, footprints: list,

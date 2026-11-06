@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import sys
 
+import O4_UI_Utils as UI
+
 __all__ = ["copy_dir", "ensure_copy"]
 
 _COPY_PREFIX = "copy:"
@@ -44,7 +46,8 @@ def ensure_copy(pack_root: str) -> str | None:
         return target
     os.makedirs(os.path.dirname(target), exist_ok=True)
     if sys.platform == "darwin":
-        subprocess.run(["cp", "-cR", pack_root, target], check=True)
+        subprocess.run(["cp", "-cR", pack_root, target], check=True,
+                       **UI.external_tool_keyword_arguments())
     else:
         shutil.copytree(pack_root, target, symlinks=True)
     return target

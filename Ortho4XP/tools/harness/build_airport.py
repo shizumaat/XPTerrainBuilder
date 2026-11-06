@@ -272,6 +272,7 @@ _SNAPSHOT_DIR = (CS.arm_snapshot_env(sys.argv[1:])
                  if __name__ == "__main__" else None)
 import artifact_ledger as AL                             # noqa: E402
 import inset_preflight as IPF                            # noqa: E402
+import pack_copy_arm as PCA                              # noqa: E402
 from shared_repo_guard import (                          # noqa: E402,F401
     DATA_REPO, HARNESS_STATE, LOCK_DIR, REFRESH_LEDGER, SHARED_DATA_DIRS,
     REFRESH_SCOPES, scope_of, scope_description, shared_repo_snapshot,
@@ -791,13 +792,15 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False,
         print(f"  [harness] COLD, and this run's --refresh-data {scope} "
               f"DERIVES it before the build (re-judged afterwards): {text}")
     if problems and not allow_degraded:
-        raise SystemExit(
+        exc = SystemExit(
             "REFUSING: the DEM frame is COLD, and a cold frame degrades "
             "SILENTLY (log line only) into a different surface:\n  - "
             + "\n  - ".join(t for _s, t in problems)
             + "\nWarm the cache, or pass --allow-degraded-dem to measure in "
               "the degraded frame KNOWINGLY (it is recorded either way).  "
               "Never quote a DEM elevation from a degraded frame.")
+        exc.scopes = sorted({sc for sc, _t in problems})
+        raise exc
     for _s, p in problems:
         print(f"  [harness] DEGRADED DEM FRAME (accepted by flag): {p}")
 
@@ -851,6 +854,23 @@ def require_shared_data(mounts: dict, *, allow_private: bool = False) -> None:
     for n in private:
         print(f"  [harness] PRIVATE DATA (accepted by flag): {n} -> "
               f"{mounts[n]['realpath']}")
+
+
+def predicted_band_rows(lat, lon) -> list:
+    """:func:`bathymetry_band_admission` on the tile's cfg as the build
+    will read it (the tile DSF always runs since the geometry DSF), for
+    the pre-flight; ``[]`` when the frame cannot be read here (the step-1
+    admission in ``build_tile`` still judges it)."""
+    try:
+        if str(ROOT / "src") not in sys.path:
+            sys.path.append(str(ROOT / "src"))
+        import O4_Config_Utils as CFG
+        tile = CFG.Tile(lat, lon, "")
+        tile.read_from_config()
+        return bathymetry_band_admission(tile, ROOT, dsf_step_runs=True)
+    except Exception as exc:
+        print(f"  [harness] pre-flight band check deferred to step 1 ({exc!r})")
+        return []
 
 
 def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
@@ -1840,6 +1860,37 @@ def bathymetry_band_admission(tile, root, dsf_step_runs: bool) -> list:
     return out
 
 
+def _scoped_exit(scopes, message) -> SystemExit:
+    exc = SystemExit(message)
+    exc.scopes = sorted(scopes)
+    return exc
+
+
+def refresh_preflight(checks) -> None:
+    """THE ONE PRE-FLIGHT (owner 2026-11-06T00:09Z): run EVERY refusing
+    check before step 1 and refuse ONCE, listing every refresh scope the
+    build needs — never one refusal per run.  ``checks`` are callables
+    that raise ``SystemExit`` (carrying ``.scopes`` when they name one)."""
+    refusals, scopes = [], set()
+    for check in checks:
+        try:
+            check()
+        except SystemExit as exc:
+            if not isinstance(exc.code, str):
+                raise
+            refusals.append(exc.code)
+            scopes.update(getattr(exc, "scopes", ()) or ())
+    if not refusals:
+        return
+    if len(refusals) == 1 and not scopes:
+        raise SystemExit(refusals[0])
+    raise _scoped_exit(scopes, (
+        f"REFUSING: the pre-flight found {len(refusals)} refusal(s):\n\n"
+        + "\n\n".join(refusals)
+        + (f"\n\nEVERY refresh this build needs, in one command:\n"
+           f"    --refresh-data {','.join(sorted(scopes))}" if scopes else "")))
+
+
 def require_no_implicit_refresh(missing: list, requested: set) -> None:
     """The refusal.  A build must never mutate the shared repo as a side
     effect (ruling §2) — so a missing artifact stops the build and names
@@ -1851,7 +1902,7 @@ def require_no_implicit_refresh(missing: list, requested: set) -> None:
         return
     scopes = sorted({s for s, _a, _w in unauthorised})
     lines = "\n  ".join(f"[{s}] {a}\n      {w}" for s, a, w in unauthorised)
-    raise SystemExit(
+    raise _scoped_exit(scopes,
         f"REFUSING: {len(unauthorised)} artifact(s) are MISSING from the "
         f"shared data repo, and building would fetch or regenerate them as "
         f"a SIDE EFFECT:\n  {lines}\n"
@@ -3438,6 +3489,10 @@ def imagery_capability(tile, cfg_provenance) -> dict:
 #: mode the engine does not dispatch on).
 TEXTURE_MODES = ("full_ortho", "airport_ortho", "default_xplane")
 
+#: The mode a tile with NO provider builds its tile DSF in: the engine's
+#: own no-orthophoto mode (``build_tile`` falls back to it).
+GEOMETRY_TEXTURE_MODE = "default_xplane"
+
 
 def resolve_tile_frame(lat: int, lon: int, build_dir, prog=None,
                        texture_mode=None):
@@ -4619,6 +4674,20 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
     # ``tools/run_tile_mesh_only.py`` (RULINGS 2026-08-31d).
     tile, cfg_provenance, imagery = resolve_tile_frame(
         lat, lon, build_dir, prog, texture_mode=texture_mode)
+    if not imagery["ok"] and texture_mode is None:
+        # THE GEOMETRY TILE DSF (owner 2026-11-06T00:09Z, "Why are we
+        # unable to run tests during development?"): a tile with no
+        # provider used to skip steps 3+4, so the lane had NO tile DSF and
+        # every drawn check read the owner's old mesh.  The engine's own
+        # ``default_xplane`` texture mode reads no orthophoto (no provider,
+        # no imagery download), so the tile DSF is written over the same
+        # mesh.  Recorded in the frame; ``--texture-mode`` still wins.
+        tile, cfg_provenance, imagery = resolve_tile_frame(
+            lat, lon, build_dir, prog, texture_mode=GEOMETRY_TEXTURE_MODE)
+        cfg_provenance.setdefault("texture_mode", {})["source"] = (
+            "geometry tile DSF: no provider resolved (owner 2026-11-06)")
+        prog.note(f"no imagery provider: building the GEOMETRY tile DSF in "
+                  f"texture_mode {GEOMETRY_TEXTURE_MODE} (no orthophoto read)")
     prog.note(f"tile {lat:+d}{lon:+d} build_dir={tile.build_dir} "
               f"website={tile.default_website} zl={tile.default_zl} "
               f"texture_mode={getattr(tile, 'texture_mode', 'full_ortho')} "
@@ -4904,6 +4973,10 @@ def main(argv=None) -> int:
                     help="build against a PRIVATE data corpus instead of "
                          "the shared repo, KNOWINGLY (recorded); its "
                          "numbers are not comparable with any other lane's")
+    ap.add_argument("--pack-copy", default=None, metavar="DIR",
+                    help="--tile: the object stage writes an APFS clone of "
+                         "each airport pack under DIR, never the owner's "
+                         "install (drawn_check.py --tag reads it)")
     ap.add_argument("--geometry-only", action="store_true",
                     help="build the plan geometry only "
                          "(compute_elevations=False, the pipeline's own "
@@ -4982,6 +5055,15 @@ def main(argv=None) -> int:
             raise SystemExit(
                 f"REFUSING: unknown --refresh-data scope(s) "
                 f"{sorted(unknown)}.  Known scopes: {sorted(all_scopes)}")
+    if args.pack_copy and not args.tile:
+        raise SystemExit("REFUSING: --pack-copy is a --tile option (the "
+                         "object stage runs after the tile mesh).")
+    if args.pack_copy and "pack_rebake" in requested:
+        raise SystemExit("REFUSING: --pack-copy with --refresh-data "
+                         "pack_rebake — the copy IS the write target.")
+    if args.pack_copy:
+        args.pack_copy = PCA.require_pack_copy_dir(args.pack_copy,
+                                                   xplane_install_roots())
     # ── THE ARTIFACT LEDGER'S REFUSALS (BS2) ─────────────────────────
     # Each combination below would turn a served artifact into a claim it
     # cannot support.  They are refused rather than silently ignored: a
@@ -5190,6 +5272,7 @@ def main(argv=None) -> int:
                   f"{state['base_raster']} insets={state['airport_insets']} "
                   f"airports_layer={state['airports_layer']} "
                   f"overlay={state['tile_overlay']}")
+        checks = []   # THE ONE PRE-FLIGHT: refused once, below
         if args.refresh_only:
             # A WARM RUN IS NOT A MEASUREMENT (2026-09-15, round 6).  The
             # pre-flight exists to stop a BUILD reading a cold or stale
@@ -5206,13 +5289,12 @@ def main(argv=None) -> int:
                       "is judged AFTER the derivations, on the requested "
                       "scope(s) alone")
         elif args.dem is None:
-            require_dem_frame(state, allow_degraded=args.allow_degraded_dem,
-                              requested=requested,
-                              inset_problem=inset_problem,
-                              ring_problem=ring_problem,
-                              inset_dir_expected=insets_expected(
-                                  state, lat, lon,
-                                  None if args.tile else args.icao))
+            checks.append(lambda: require_dem_frame(
+                state, allow_degraded=args.allow_degraded_dem,
+                requested=requested, inset_problem=inset_problem,
+                ring_problem=ring_problem,
+                inset_dir_expected=insets_expected(
+                    state, lat, lon, None if args.tile else args.icao)))
         else:
             prog.note("constant-DEM oracle build: the real DEM frame is "
                       "SUBSTITUTED, so its cache warmth cannot confound "
@@ -5220,12 +5302,18 @@ def main(argv=None) -> int:
         # A missing artifact is a DOWNLOAD this build would perform as a
         # side effect.  Named and refused unless explicitly authorised.
         if not args.refresh_only:
-            require_no_implicit_refresh(
+            checks.append(lambda: require_no_implicit_refresh(
                 missing_shared_artifacts(root, lat, lon,
                                          None if args.tile else args.icao,
                                          state=state,
                                          inset_problem=inset_problem),
-                requested)
+                requested))
+            if args.tile:
+                # the tile's bathymetry band, judged HERE as well as at
+                # step 1, so its scope joins the one refusal
+                checks.append(lambda: require_no_implicit_refresh(
+                    predicted_band_rows(lat, lon), requested))
+        refresh_preflight(checks)
     else:
         prog.note(f"WARNING: could not resolve the anchor tile for "
                   f"{args.icao} — the DEM cache state is UNKNOWN for this "
@@ -5314,6 +5402,20 @@ def main(argv=None) -> int:
 
     os.environ.setdefault("O4_LOG_VERBOSITY", "1")   # the sidecar gate
 
+    # #1906: pack_rebake writes the owner's REAL packs -- refused whenever
+    # a pack this build would write (a plan's pack_root, or any pack
+    # carrying the tile) lies under the install.  Before any lock is held.
+    if "pack_rebake" in requested and lat is not None:
+        _inst = xplane_install_roots()
+        _roots = list(pack_roots_for_tile(lat, lon, _inst[0]) if _inst else ())
+        try:
+            import O4_File_Names as _FN
+            _roots += PCA.plan_pack_roots(_FN.patch_dir(lat, lon))
+        except Exception:
+            pass
+        _why = PCA.pack_rebake_refusal(requested, _roots, _inst)
+        if _why:
+            raise SystemExit(_why)
     # LOCK FIRST, then snapshot: a concurrent lane's authorised refresh
     # landing between the two would be attributed to this build.
     locks = [RefreshLock(sc, lane=str(root),
@@ -5516,6 +5618,9 @@ def main(argv=None) -> int:
                                                authorised=requested,
                                                tiles=[(lat, lon)],
                                                lane_root=root)
+            if args.pack_copy:
+                redirects["pack_copy"] = PCA.arm_pack_copy(
+                    args.pack_copy, PACK_WRITES_ENV, prog)
             with guard:                    # build_patch arms its own
                 result = build_tile(
                     lat, lon,

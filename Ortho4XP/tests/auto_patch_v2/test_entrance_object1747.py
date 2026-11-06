@@ -253,3 +253,30 @@ def test_an_entrance_faces_opening_is_the_gap_between_its_walls(tmp_path, law):
     trenches, _notes = read_trench_objects(objects, cache, law, [tunnel])
     pins = mouth_portals(trenches, objects, cache, law, [tunnel], airport.dem.z)
     assert [p.opening_m for p in pins] == [pytest.approx(12.0, abs=0.01)]
+
+
+def test_an_entrance_with_an_opening_is_seated_as_an_entrance_never_as_a_roofed_portal(law):
+    """LOWS 1.0.472 (owner sim read 2026-11-06: "both tunnel-mouth objects
+    are under ground"): once an entrance pin carried its wall gap
+    (``Portal.opening_m``, the ramp's width), the structure pass took it for
+    a ROOFED portal — whose zero is the road at its mouth — and published
+    ``(resource, floor)``: the whole entrance row was written ``OBJECT_MSL``
+    with its ZERO on the floor, both faces 4-6 m under the ground.  A pin
+    with a face bottom (``bottom_y``) is an entrance whatever its opening:
+    its seat is the face's zero (floor − bottom) at its end."""
+    from auto_patch_v2.airport.portal_objects import Portal
+    from auto_patch_v2.classify.roles import Classification
+    from auto_patch_v2.planar.structures import build_structures
+    from test_mouth_at_pavement971 import _airport as _bore_airport
+    from test_mouth_at_pavement971 import _base_cells
+    portals = [Portal(f"dsf:obj{i}", "objects/entrance.obj", (x, 0.0), -101, 6.0, 0.0,
+                      (x, 0.0), floor_z=694.0, opening_m=12.0, bottom_y=-5.0)
+               for i, x in ((1, -60.0), (2, 60.0))]
+    _cl, tunnels, st = build_structures(_bore_airport(law), Classification(
+        tuple(_base_cells()), (), {}, ()), law, portals=portals)
+    assert len(tunnels) == 2, st.refused
+    for tn in tunnels:
+        ps = tn.portal_seat
+        assert len(ps) == 4, ps                  # the entrance seat, with its end
+        assert ps[0] == "objects/entrance.obj"
+        assert ps[1] == pytest.approx(694.0 + 5.0, abs=0.05), ps

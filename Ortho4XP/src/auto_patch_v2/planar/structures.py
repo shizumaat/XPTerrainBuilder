@@ -1185,17 +1185,21 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             extra["portal"] = pin.object_id
             if pin.floor_z is not None:
                 extra["portal_floor"] = True
-                if opening > 0.0:
-                    # a roofed portal's zero is the road at its mouth: the
-                    # object stage seats it at the pinned floor (ENTC)
-                    extra["portal_seat"] = (pin.resource, float(mouth_z))
-                elif getattr(pin, "bottom_y", None) is not None:
+                if getattr(pin, "bottom_y", None) is not None:
                     # #1747 (Q-A): an ENTRANCE face stands with its bottom on
                     # the floor at its portal — its zero, and the end that
-                    # names which of its faces (``airport/entrance_seat``)
+                    # names which of its faces (``airport/entrance_seat``).
+                    # Read BEFORE the opening: an entrance states one too
+                    # (its wall gap, the ramp's width), and taken for a
+                    # roofed portal its whole row was seated with its ZERO
+                    # on the floor (LOWS 1.0.472: both faces 4-6 m buried)
                     extra["portal_seat"] = (pin.resource, float(mouth_z) - float(pin.bottom_y),
                                             tuple(pin.end_xy),
                                             2.0 * float(tn.object.bore_end_tolerance_m))
+                elif opening > 0.0:
+                    # a roofed portal's zero is the road at its mouth: the
+                    # object stage seats it at the pinned floor (ENTC)
+                    extra["portal_seat"] = (pin.resource, float(mouth_z))
             if edge is not None:
                 extra["edge_back"] = tuple(edge.back)
                 extra["edge_seats"] = edge_seats

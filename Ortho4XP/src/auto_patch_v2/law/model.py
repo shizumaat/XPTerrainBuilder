@@ -579,6 +579,10 @@ class BuildingPad:
     #: to the lower floor (owner sim read 2026-11-05T23:55Z); ``0`` = the
     #: footprint alone
     split_level_back_cut_m: float = 0.0
+    #: ... except a tall side with a groundside road within this of it: the
+    #: road keeps its profile and the ground meets the wall at it (owner
+    #: 2026-11-06T02:40Z); ``0`` = always cut
+    split_level_road_reach_m: float = 0.0
     #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
     #: ``airport/jetways.py``): ``None`` = no expansion
     jetway_root_reach_m: float | None = None

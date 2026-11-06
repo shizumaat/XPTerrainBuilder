@@ -42,6 +42,7 @@ ground (#1903 KBNA 1.0.470, the Murfreesboro Pike underpass).  Nothing
 here names a pack, a resource or an airport."""
 from __future__ import annotations
 
+import dataclasses as _dc
 import typing as _t
 
 from shapely.geometry import LineString, Point, Polygon
@@ -51,7 +52,7 @@ from shapely.prepared import prep
 from ..airport.deck_roof import read_deck_roofs
 from ..airport.split_level import SplitLevel, read_split_levels
 from ..geom.parts import polygon_parts_with_area
-from ..law.tables import apron_roles, frontage_roles, pavement_roles
+from ..law.tables import apron_roles, frontage_roles, pavement_roles, role_side
 from ..model.structures import Basin
 from .basin_geometry import _region_floor, _rim
 
@@ -85,8 +86,12 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         return [], [], [], notes, []
     grid = float(law.tables.emit.identity.min_distinct_spacing_m)
     band = float(law.tables.structures.cutout.ring_floor_m)
-    reach = float(getattr(law.tables.structures.building_pad, "split_level_back_cut_m", 0.0)
-                  or 0.0)
+    bp = law.tables.structures.building_pad
+    reach = float(getattr(bp, "split_level_back_cut_m", 0.0) or 0.0)
+    road_reach = float(getattr(bp, "split_level_road_reach_m", 0.0) or 0.0)
+    gside = frozenset(r for r in pr if role_side(law, r) == "groundside")
+    roads_g = unary_union([p for p, c in zip(polys, cells, strict=True)
+                           if c.role in gside]).buffer(0)
     hard = [p for p, c in zip(polys, cells, strict=True)
             if c.role in runway_roles or c.kind == "structure"]
     blocked = unary_union(list(hard)) if hard else None
@@ -129,7 +134,13 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         others = [b for j, b in enumerate(boxes) if j != i and b is not None]
         keep = unary_union([g for g in [blocked, None if pave.is_empty else pave, pits, *others]
                             if g is not None])
-        rim = _rim(_cut_region(sl, reach, keep, own), 0.0, grid) or own
+        # a tall side with a groundside road at its base is not cut: the
+        # ground meets the wall at the road's own (sloping) height
+        cut_sides = tuple(c for c in sl.closed_sides
+                          if road_reach <= 0.0 or roads_g.is_empty
+                          or c.distance(roads_g) > road_reach)
+        rim = _rim(_cut_region(_dc.replace(sl, closed_sides=cut_sides), reach, keep, own),
+                   0.0, grid) or own
         if pits is not None:
             rim = _largest(rim.difference(pits)) or own
         floors = _region_floor(rim, band, [], grid)

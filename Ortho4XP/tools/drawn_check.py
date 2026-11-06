@@ -419,6 +419,7 @@ def road_nodes(patch_path, icao):
 
 
 #: a road node this near a back station is the road AT the building's base
+#: (``run`` reads ``[building_pad] split_level_road_reach_m`` over it)
 ROAD_AT_BASE_M = 6.0
 
 
@@ -653,6 +654,10 @@ def run(args):
             for s in read_sites(patch, sidecar, args.radius)]
     lifts = body_offsets_y(plans.values())
     roads = road_nodes(patch, args.icao)
+    global ROAD_AT_BASE_M
+    from auto_patch_v2.law import Law
+    ROAD_AT_BASE_M = float(getattr(Law.for_airport(args.icao).tables.structures.building_pad,
+                                   "split_level_road_reach_m", 0.0) or ROAD_AT_BASE_M)
     rows += [check_split(r, drawn, args.tol, lifts, roads)
              for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
     return {"icao": args.icao, "tile": tile, "pack_root": pack_root,

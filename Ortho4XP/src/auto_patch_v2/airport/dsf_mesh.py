@@ -90,8 +90,10 @@ def stream_text(dsf_path: str, tool: str, timeout: float = 900.0):
             return
         os.mkfifo(text)
         _external_writes.declare_external_write(text, writer="DSFTool")
+        import O4_UI_Utils as _ui
         proc = subprocess.Popen([tool, "--dsf2text", dsf_path, text],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                **_ui.external_tool_keyword_arguments())
         try:
             with open(text, encoding="utf-8", errors="replace") as fh:
                 yield fh

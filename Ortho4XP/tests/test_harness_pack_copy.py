@@ -12,8 +12,8 @@ import pytest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools", "harness"))
 
-import pack_copy_arm as PCA                                 # noqa: E402
-from auto_patch import pack_copy as PC                      # noqa: E402
+import pack_copy_arm as PCA  # noqa: E402
+from auto_patch import pack_copy as PC  # noqa: E402
 
 
 def test_copy_dir_refused_inside_install(tmp_path):

@@ -21,15 +21,20 @@ wall, under the building's own wall), and
   ``Basin.clearance_m`` 0).
 
 Refused, by name: a building over the runway family, over a structure, or
-over another pit.  Nothing here names a pack, a resource or an airport."""
+over another pit; and a box a mapped ROAD RUNS THROUGH (an OSM ``highway`` line
+cuts the box in two or more pieces): the "open" sides of an underpass are a road's
+way under it, and pitting it sank the bridge with its deck under the
+ground (#1903 KBNA 1.0.470, the Murfreesboro Pike underpass).  Nothing
+here names a pack, a resource or an airport."""
 from __future__ import annotations
 
 import typing as _t
 
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..airport.split_level import SplitLevel, read_split_levels
+from ..geom.fixed_overlay import is_hairline
 from ..geom.parts import polygon_parts_with_area
 from ..model.structures import Basin
 from .basin_geometry import _region_floor, _rim
@@ -54,6 +59,7 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     hard = [p for p, c in zip(polys, cells, strict=True)
             if c.role in runway_roles or c.kind == "structure"]
     blocked = unary_union(list(hard) + list(taken)) if (hard or taken) else None
+    roads = _roads(airport)
     basins: list[Basin] = []
     new_cells: list[tuple] = []
     knives: list[Polygon] = []
@@ -68,6 +74,11 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         if blocked is not None and rim.intersects(blocked):
             refused.append(f"{sl.id} {name}: the split-level box meets the runway family, a "
                            "structure or another pit")
+            continue
+        if _road_through(rim, roads, grid):
+            refused.append(f"{sl.id} {name}: a mapped road runs through the split-level box "
+                           "(it cuts the box in two or more pieces) — a road's underpass, "
+                           "not a building cut into a slope")
             continue
         floors = _region_floor(rim, band, [], grid)
         if not floors:
@@ -84,6 +95,34 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         knives.append(rim)
         basins.append(_record(airport, sl, k, rim, floors, floor_ref, wall_ref))
     return basins, new_cells, knives, notes, refused
+
+
+#: OSM ``highway`` values no vehicle runs on: a footpath may cross a
+#: building in the map (an indoor corridor), a road never does
+_ON_FOOT = frozenset({"footway", "path", "steps", "pedestrian", "cycleway", "corridor",
+                      "bridleway", "elevator"})
+
+
+def _roads(airport) -> list[LineString]:
+    """The mapped roads: every OSM way whose ``highway`` a vehicle runs
+    on, as built, bridged or tunnelled.  The OSM line, not the classified
+    cell: a road under a pack structure is cut out of the cells there (the
+    structure's own ramp, ``planar/structure_service``) but its way still
+    runs on."""
+    return [LineString(w.points) for w in getattr(airport, "osm_ways", ()) or ()
+            if (w.tags or {}).get("highway", "") not in ("", *_ON_FOOT)
+            and len(w.points) >= 2]
+
+
+def _road_through(rim: Polygon, roads: _t.Sequence[LineString], grid: float) -> bool:
+    """A road RUNS THROUGH ``rim``: the box less the roads crossing it
+    (``grid`` wide) falls into two or more pieces wider than the grid."""
+    hit = [ln.buffer(0.5 * grid, cap_style="flat") for ln in roads if ln.intersects(rim)]
+    if not hit:
+        return False
+    rest = [q for q in polygon_parts_with_area(rim.difference(unary_union(hit)))
+            if not is_hairline(q, grid)]
+    return len(rest) >= 2
 
 
 def _record(airport, sl: SplitLevel, k: int, rim: Polygon, floors, floor_ref: str,

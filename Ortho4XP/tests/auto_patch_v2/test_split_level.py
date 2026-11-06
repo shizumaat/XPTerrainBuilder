@@ -102,3 +102,19 @@ def test_an_upper_floor_over_lower_ground_is_no_level_of_the_lot():
     assert ground_confirms(_band(_Dem(lambda x, y: 28.6 + 5.4 * (y > 0))), lot, run,
                            6.0) is True
     assert ground_confirms(_band(None), lot, run, 6.0) is None
+
+
+def test_a_box_a_road_runs_through_is_an_underpass_not_a_split_level():
+    # #1903 KBNA 1.0.470: an underpass read as split-level sank its bridge
+    from auto_patch_v2.planar.split_level_pit import _road_through, _roads
+    rim = box(0.0, 0.0, 40.0, 30.0)
+    way = lambda pts, hw: types.SimpleNamespace(points=pts, tags={"highway": hw})  # noqa: E731
+    air = types.SimpleNamespace(osm_ways=(
+        way(((20.0, -10.0), (20.0, 40.0)), "primary"),       # through
+        way(((5.0, -10.0), (5.0, 10.0)), "service"),         # a driveway into it
+        way(((30.0, -10.0), (30.0, 40.0)), "footway")))      # a corridor on foot
+    roads = _roads(air)
+    assert len(roads) == 2
+    assert _road_through(rim, roads, 0.5) is True
+    assert _road_through(rim, roads[1:], 0.5) is False
+    assert _road_through(rim, [], 0.5) is False

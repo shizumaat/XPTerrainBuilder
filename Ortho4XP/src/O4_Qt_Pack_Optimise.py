@@ -30,14 +30,13 @@ on; the box never blocks the event loop.
 
 from __future__ import annotations
 
+from O4_Qt_Choice_Dialog import ChoiceDialog
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialogButtonBox,
     QLabel,
     QVBoxLayout,
 )
-
-from O4_Qt_Choice_Dialog import ChoiceDialog
 
 # --- copy (verbatim; identical to the Swift alert) ----------------------
 TITLE = "Optimise “{pack}”?"

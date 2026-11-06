@@ -19,14 +19,13 @@ in the middle of a build and the build goes on.
 
 from __future__ import annotations
 
+from O4_Qt_Choice_Dialog import ChoiceDialog
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialogButtonBox,
     QLabel,
     QVBoxLayout,
 )
-
-from O4_Qt_Choice_Dialog import ChoiceDialog
 
 # --- copy (verbatim; identical to the Swift sheet) ----------------------
 TITLE = "Adjust “{pack}”?"

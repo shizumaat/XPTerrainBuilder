@@ -37,12 +37,13 @@ import typing as _t
 
 import numpy as np
 import shapely
+import shapely.affinity
 from shapely.ops import unary_union
 
 from . import obj8 as _obj8
 from . import terrain_shaped as _ts
 from .hanging_objects import _co_placed, _has_floor
-from .object_cut import _base, _cover_plate, _face_normals_y, placement_order, valid_polygon
+from .object_cut import _base, _face_normals_y, _plan_segments, placement_order, valid_polygon
 
 __all__ = ["ObjectFloor", "read_object_floors", "floor_z_at", "seat_records", "floor_portals",
            "FLOOR_REF",
@@ -139,6 +140,31 @@ def _floor_share(g: "_obj8.ObjGeometry | None", law) -> float:
     return float(area[_face_normals_y(v, t) >= ob.plate_normal_y_min].sum()) / tot
 
 
+def _walled_share(foot, p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law) -> float:
+    """The share of the floor footprint's ring (frame) within
+    ``wall_face_max_thickness_m`` of ``p``'s wall faces reaching
+    ``shell_floor_min_m`` under its zero — the cover's walls standing on
+    the floor's edges ("walls end on it")."""
+    ob = law.tables.structures.tunnel.object
+    g = cache.geometry(p.resolved)
+    if g is None or not len(g.solid):
+        return 0.0
+    v, t = g.vertices, g.solid
+    w = t[_face_normals_y(v, t) < ob.plate_normal_y_min]
+    if len(w):
+        w = w[v[w][:, :, 1].min(axis=1) <= -ob.shell_floor_min_m]
+    segs = _plan_segments(v, w) if len(w) else []
+    if not segs:
+        return 0.0
+    a, b, d, e, xo, yo = _obj8.placement_affine(p.xy, p.heading_deg)
+    walls = shapely.affinity.affine_transform(unary_union(segs), [a, b, d, e, xo, yo])
+    ring = foot.boundary
+    if ring.length <= 0.0:
+        return 0.0
+    return float(ring.intersection(walls.buffer(ob.wall_face_max_thickness_m)).length
+                 / ring.length)
+
+
 def _placed_floor(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float, law):
     """``(faces, footprint)`` of the floor's below-grade faces in the frame,
     or ``None`` when they carry less than a plate's worth."""
@@ -162,19 +188,44 @@ def _placed_floor(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float, law)
     return faces, foot
 
 
+def _within(faces: np.ndarray, outline, law):
+    """``(faces, footprint)`` of the placed floor faces whose plan centroid
+    stands inside ``outline``, or ``None`` short of a plate's worth."""
+    ob = law.tables.structures.tunnel.object
+    if outline is None or outline.is_empty:
+        return None
+    cx, cy = faces[:, :, 0].mean(axis=1), faces[:, :, 1].mean(axis=1)
+    keep = shapely.contains_xy(outline.buffer(1.0), cx, cy)
+    if not keep.any():
+        return None
+    faces = faces[keep]
+    tris = shapely.polygons(faces[:, :, :2])
+    foot = valid_polygon(unary_union(tris[shapely.area(tris) > 1e-6]))
+    if foot is None or foot.area < ob.plate_min_area_m2:
+        return None
+    return faces, foot
+
+
 def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                        law, msl: _t.Mapping[str, float],
                        taken: _t.AbstractSet[str] = frozenset(),
-                       shells: _t.AbstractSet[str] = frozenset()
+                       shells: _t.Mapping[str, str] | None = None
                        ) -> tuple[list[ObjectFloor], list[str]]:
     """Every FLOOR OBJECT (module doc) as an :class:`ObjectFloor`, and one
     note per floor read or refused.  ``taken`` are placement ids another
     reader already cuts by their own floor (an object is read once);
-    ``shells`` the placements ``object_cut`` admitted as §33 (6) B shells
-    (walls and floor in one object, a flush hard deck co-placed) — only
-    those are read as floors without being floor objects: a shared-datum
-    pack co-places everything (LGAV ``Trench_0x``, one anchor), so
-    co-placement alone is no tunnel evidence."""
+    ``shells`` maps each placement ``object_cut`` admitted as a §33 (6) B
+    shell (walls and floor in one object) to ``(its cover's placement id,
+    the region between its walls)`` — only those are read as floors
+    without being floor objects, only that cover is theirs, and only their
+    faces over that region are the floor (a shell's own model can reach far
+    past its trench: LGAV ``Trench_06``, 362,036 m2 of plates).  A shared-datum pack co-places everything (LGAV
+    ``Trench_0x``, one anchor), so co-placement alone is no tunnel
+    evidence: a floor object's cover must also stand its walls ON the
+    floor's edges — at least ``floor_walled_min_share`` of the footprint's
+    ring within ``wall_face_max_thickness_m`` of the cover's deep wall
+    faces (EGLL 82-99 %; LGAV's stack and KBNA ``Metropolitan-part7``
+    0-2 %)."""
     ob = law.tables.structures.tunnel.object
     placed = [o for o in placement_order(objects)
               if o.resolved is not None and not _obj8.is_stock_library_resource(o.path)]
@@ -188,18 +239,22 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
         share = _floor_share(g, law)
         mates = [p for p in placed
                  if p.id != o.id and _co_placed(o, p, ob.cover_placement_tol_m)]
+        shells = shells or {}
         if share >= ob.floor_object_min_share:
             # a FLOOR object: its cover is a co-placed structure hanging
-            # under its zero (the walls it floors)
+            # under its zero whose walls stand on the floor's edges
             covers = [p for p in mates
                       if cache.y_range(p.resolved)[0] <= -ob.shell_floor_min_m
                       and _floor_share(cache.geometry(p.resolved), law)
                       < ob.floor_object_min_share]
+            placed_floor = _placed_floor(o, g, 0.0, law)
+            covers = [p for p in covers if placed_floor is not None
+                      and _walled_share(placed_floor[1], p, cache, law)
+                      >= ob.floor_walled_min_share]
         elif o.id in shells:
             # a SHELL (its own walls and floor, §33 (6) B): its cover is the
-            # co-placed flush hard deck
-            covers = [p for p in mates if _cover_plate(cache.geometry(p.resolved), law)[0]
-                      is not None]
+            # one object_cut paired it with
+            covers = [p for p in mates if p.id == shells[o.id][0]]
         else:
             continue
         if not covers:
@@ -213,6 +268,12 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
             notes.append(f"{o.id} {_base(o.path)}: no below-grade floor face of a plate's worth")
             continue
         faces, foot = got
+        if o.id in shells and share < ob.floor_object_min_share:
+            got = _within(faces, shells[o.id][1], law)
+            if got is None:
+                notes.append(f"{o.id} {_base(o.path)}: no floor face over its trench outline")
+                continue
+            faces, foot = got
         k = k_by_res.get(o.path, 0)
         k_by_res[o.path] = k + 1
         fz = float(faces[:, :, 2].min())

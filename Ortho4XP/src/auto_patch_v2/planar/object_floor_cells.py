@@ -94,7 +94,9 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats) -> tuple
     updated in place).  ``planar.build.build`` and the ``--stage
     structures`` replay share it."""
     msl = {o.id: o.y_offset_m for o in airport.dsf_objects if o.kind == "OBJECT_MSL"}
-    shells = frozenset(o for c in corridors if c.id.startswith("object-cut:") for o in c.objects)
+    cover_of = dict(getattr(tstats, "shell_covers", ()) or ())
+    shells = {o: (cover_of[c.id], _between_walls(c, law)) for c in corridors
+              if c.id.startswith("object-cut:") and c.id in cover_of for o in c.objects}
     floors, notes = read_object_floors(objects, cache, law, msl, shells=shells)
     floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}
     if floor_ids:
@@ -152,3 +154,18 @@ def not_floors(records: _t.Sequence, floors: _t.Sequence) -> list:
     y, 173.30, outside the floor's footprint, 0.38 m under the floor)."""
     ids = {pid for f in floors for pid, _r, _z in f.seats}
     return [r for r in records if not (set(getattr(r, "objects", ()) or ()) & ids)]
+
+
+def _between_walls(c, law):
+    """A shell corridor's region between its walls' inner faces (its
+    stations), widened by a wall's thickness — the trench a shell's own
+    model floors; its outline can reach far past it (LGAV ``Trench_06``)."""
+    from shapely.geometry import Polygon
+
+    from ..airport.object_cut import valid_polygon
+    left, right = c.stations_inner()
+    if len(left) < 2:
+        return None
+    poly = valid_polygon(Polygon(list(left) + list(reversed(right))))
+    t = float(law.tables.structures.tunnel.object.wall_face_max_thickness_m)
+    return None if poly is None else poly.buffer(t, join_style="mitre")

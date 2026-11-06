@@ -374,7 +374,7 @@ def structure_records(airport, cl, law) -> dict:
     tstats.plates = pstats.plates
     tstats.refused.extend(pstats.refused)
     from .object_floor_cells import not_floors, object_floor_stage
-    floors, corridors = object_floor_stage(airport, objects, cache, law, corridors, tstats)
+    floors, corridors = object_floor_stage(airport, objects, cache, law, corridors, tstats, cl)
     roads, wells = not_floors(roads, floors), not_floors(wells, floors)
     from .structure_approach import wall_field
     walls_c, wstats = read_wall_corridors(airport, objects, cache, law, cl,

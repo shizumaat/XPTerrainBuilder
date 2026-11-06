@@ -20,7 +20,7 @@ XY = tuple[float, float]
 LL = tuple[float, float]
 Key = tuple[float, float]
 
-__all__ = ["m_per_deg_exact", "XY", "LL", "Key", "Frame", "identity_key",
+__all__ = ["m_per_deg_exact", "xplane_metre_scale", "XY", "LL", "Key", "Frame", "identity_key",
            "identity_slack_m"]
 
 #: THE FRAME HAS TWO PROJECTIONS, AND THE DIFFERENCE BETWEEN THEM IS THE
@@ -202,3 +202,19 @@ def m_per_deg_exact(lat: float) -> tuple[float, float]:
     r = math.radians(lat)
     return (111_132.954 - 559.822 * math.cos(2 * r) + 1.175 * math.cos(4 * r),
             111_412.84 * math.cos(r) - 93.5 * math.cos(3 * r))
+
+
+#: X-Plane's earth radius, metres: the sphere an OBJ's local metres are laid
+#: out on (``airport/pack_trees.EARTH_R``)
+XPLANE_EARTH_R = 6378145.0
+
+
+def xplane_metre_scale(lat: float) -> tuple[float, float]:
+    """``(east, north)``: the frame's metres per metre of an OBJ placed at
+    ``lat`` -- X-Plane lays an object's metres out on its sphere
+    (:data:`XPLANE_EARTH_R`), the frame is WGS84.  MEASURED LGAV
+    (37.93 N, #1883 r3): 1.0012 east, 0.9971 north, so a pack shell's face
+    1 km north of its anchor read 2.9 m off where X-Plane draws it."""
+    deg = XPLANE_EARTH_R * math.pi / 180.0
+    m_lat, m_lon = m_per_deg_exact(lat)
+    return m_lon / (deg * math.cos(math.radians(lat))), m_lat / deg

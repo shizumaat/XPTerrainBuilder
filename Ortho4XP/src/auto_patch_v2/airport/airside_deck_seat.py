@@ -202,7 +202,8 @@ LL = tuple[float, float]
 
 
 def facing_contacts(ring: _t.Sequence[tuple[float, float]],
-                    surface: _ar.Surface, step_m: float, every: bool = False
+                    surface: _ar.Surface, step_m: float, every: bool = False,
+                    carried: "_t.Callable[[str | None], bool] | None" = None
                     ) -> "tuple[list[LL], list[LL]] | list | None":
     """Owner RULINGS 2026-10-27c (Q183, #1471; narrows 10-22n class A): A
     STRUCTURE IS A TAXIWAY BRIDGE ONLY IF THE AIRPORT'S OWN TAXIWAY OR
@@ -227,7 +228,9 @@ def facing_contacts(ring: _t.Sequence[tuple[float, float]],
     stations ``(lat, lon)`` — the deck's END LINES where the taxiway
     drives onto it (``planar/deck_bridge`` seats the deck there) — or
     ``None``; with ``every``, the list of every facing pair in that order
-    (``planar/deck_bridge`` picks the one the road under it runs along)."""
+    (``planar/deck_bridge`` picks the one the road under it runs along).
+    ``carried`` replaces the pavement predicate (a ROAD deck over a pack
+    cut, ``planar/floor_decks``)."""
     roles = getattr(surface, "roles", None)
     if roles is None or step_m <= 0.0 or len(ring) < 3:
         return [] if every else None
@@ -238,7 +241,7 @@ def facing_contacts(ring: _t.Sequence[tuple[float, float]],
 
     from .airside_group_seat import airside_pavement
     from .rebake_plan import _mpd
-    pave = airside_pavement(surface)
+    pave = carried or airside_pavement(surface)
     got = roles.roles_many([q[2] for q in per], [q[3] for q in per])
     runs = _contacts([pave(r) for r in got])
     if len(runs) < 2:

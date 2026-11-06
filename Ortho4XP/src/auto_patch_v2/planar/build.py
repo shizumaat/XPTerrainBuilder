@@ -264,8 +264,10 @@ def build(airport: Airport, classification: Classification, law: Law,
     tstats.plates = pstats.plates
     # A TRENCH OBJECT'S OWN FLOOR IS THE CUT (#1903, owner 2026-11-06):
     # read ONCE, here and in the structures replay alike
-    floors, corridors = object_floor_stage(airport, objects, cache, law, corridors, tstats)
+    floors, corridors = object_floor_stage(airport, objects, cache, law, corridors, tstats,
+                                           classification)
     roads, wells = not_floors(roads, floors), not_floors(wells, floors)
+    floor_frame = {pid for f in floors for pid in (f.object_id, *f.covers)}
     tstats.refused.extend(pstats.refused)
     # the wall corridors are a pack read too (#362): of the classification
     # they read the FIELD's cover alone (and, in the structures replay, the
@@ -312,7 +314,10 @@ def build(airport: Airport, classification: Classification, law: Law,
         decks = tuple(getattr(full, "decks", ()) or ())
         deck_notes = [f"{len(decks)} deck(s) read from the full map (deck redesign §1)"]
     else:
-        decks, deck_notes = deck_bridges(objects, cache, classification, airport, law,
+        # a pack cut's own frame is read by its floor (``planar/floor_decks``):
+        # its decks are no hard-deck bridges here (#1883 r3 B2)
+        decks, deck_notes = deck_bridges([o for o in objects if o.id not in floor_frame],
+                                         cache, classification, airport, law,
                                          tstats.trench_objects, level_b=level_b)
     deck_notes = [f"level B: {level_b_note}",
                   *(f"level seed: {n}" for n in seed_notes), *deck_notes]
@@ -344,7 +349,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     overpasses, over_notes = road_overpasses(objects, cache, classification, airport,
                                              law, decks,
                                              [o for tn in tunnels if tn.source == "object"
-                                              for o in tn.objects])
+                                              for o in tn.objects] + sorted(floor_frame))
     sstats.hard_decks.extend(over_notes)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
     # 2026-09-15; RULINGS 2026-09-15y): the ONE road-family face the

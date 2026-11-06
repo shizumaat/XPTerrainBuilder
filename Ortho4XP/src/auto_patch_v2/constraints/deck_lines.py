@@ -16,7 +16,7 @@ from ..law import Law
 from ..model.planar import PlanarMap
 from ..model.structures import DeckBridge
 
-__all__ = ["end_lines", "anchor_of", "cut_faces"]
+__all__ = ["end_lines", "floor_end_lines", "anchor_of", "cut_faces"]
 
 XY = tuple[float, float]
 
@@ -56,6 +56,38 @@ def end_lines(planar: PlanarMap, law: Law) -> dict[str, list[EndLine]]:
             out.setdefault(db.object_id, []).append(EndLine(
                 db, line, _mean_terms([near(x, y) for x, y in line]), float(depth)))
     return out
+
+
+def floor_end_lines(planar: PlanarMap, law: Law) -> dict[str, list[EndLine]]:
+    """Deck piece id -> its two end lines, for every deck over a pack's cut
+    (``ObjectFloor.decks``, ``planar/floor_decks``; #1883 r3 B2): each its
+    OWN zero (LGAV ``Trench_00``'s pieces stand 3.1 m apart), the seat the
+    mean of each station's nearest map vertex OFF the cut (a vertex of a
+    face that is no structure: the pavement or ground the deck ends on)
+    within two ``abutment_sample_step_m``, the depth its top (``bottom`` 0)."""
+    from ..geom import exact
+    from ..law.tables import is_structure_role
+    from .edge_floor import _mean_terms
+    from .geometry import nearest_vertex_fn
+    decks = [d for f in (getattr(planar, "object_floors", ()) or ()) for d in f.decks]
+    if not decks:
+        return {}
+    ids = {v for v, vx in planar.vertices.items()
+           if any(not is_structure_role(law, planar.faces[f].role)
+                  for f in vx.incident_faces if f in planar.faces)}
+    near = nearest_vertex_fn(planar, ids)
+    if near is None:
+        return {}
+    reach = 2.0 * float(law.tables.structures.bridge.abutment_sample_step_m)
+    out: dict[str, list[EndLine]] = {}
+    for d in decks:
+        for st, top in ((d.seats_a, d.top_a), (d.seats_b, d.top_b)):
+            vs = [v for x, y in st if (v := near(x, y)) is not None
+                  and exact.sq(planar.vertices[v].xy[0] - x)
+                  + exact.sq(planar.vertices[v].xy[1] - y) <= reach * reach]
+            if vs:
+                out.setdefault(d.id, []).append(EndLine(d, tuple(st), _mean_terms(vs), float(top)))
+    return {k: v for k, v in out.items() if len(v) == 2}
 
 
 def anchor_of(planar: PlanarMap, oid: str, line: tuple) -> "_t.Any | None":

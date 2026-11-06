@@ -102,6 +102,12 @@ class Provenance:
                    {str(k): int(v) for k, v in dict(d.get("counts", {})).items()})
 
 
+#: ``MslSeat.why`` of a row LEFT OUT of the written DSF (#1914 A7, owner
+#: 2026-11-06T16:13Z "hide cut shells": a concave cut shell whose surface the
+#: terrain now is); ``dsf_write.edit_dump`` deletes it
+HIDDEN = "hidden"
+
+
 @_dc.dataclass(frozen=True)
 class MslSeat:
     """§16g (5) (owner RULINGS 2026-09-13bw; owner 2026-09-11a/b "you can
@@ -121,7 +127,8 @@ class MslSeat:
     heading_deg: float
     #: the absolute MSL elevation written into the row
     elevation: float
-    #: what chose it — ``unit`` (a footprint unit's plane) or ``surface``
+    #: what chose it — ``unit`` (a footprint unit's plane) or ``surface``;
+    #: :data:`HIDDEN` drops the row from the written DSF (#1914 A7)
     why: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:

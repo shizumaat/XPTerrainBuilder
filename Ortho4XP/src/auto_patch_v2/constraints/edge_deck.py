@@ -87,13 +87,15 @@ def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                    getattr(t, "edge_covers", ()) or any(d.datum != "deck_top" for d in t.decks))]
     decked = [t for t in getattr(planar, "structures", ()) or ()
               if getattr(t, "deck_bridge", "")]
+    floor_rows = _floor_deck_rows(planar, law)
     if not tunnels and not getattr(planar, "decks", ()):
-        return []
+        return floor_rows
     nearest = airside_nearest(planar, law)
     if nearest is None:
-        return []
+        return floor_rows
     rows: list[Row] = _deck_rows(planar, law, decked, nearest.air) \
         if getattr(planar, "decks", ()) else []
+    rows.extend(floor_rows)
     for tn in tunnels:
         src = Source(GEN, RULING, (tn.id, tn.portal, "span"))
         for v in _span_vertices(planar, law, tn) - nearest.air:
@@ -154,6 +156,33 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
                                _FLOOR_ROLES | roads))
         rows.extend(_station_rows(oid, ends, flush, _held_levels(planar, oid, es)))
         rows.extend(_rigid_rows(oid, ends))
+    return rows
+
+
+def _floor_deck_rows(planar: PlanarMap, law: Law) -> list[Row]:
+    """A DECK OVER THE PACK'S CUT (#1883 r3 B2, ``planar/floor_decks``;
+    owner RULINGS 2026-11-04a (16)): per piece, every station flush with
+    the piece's ONE zero, both end lines held to it by the deck-top
+    difference (:func:`_station_rows`, :func:`_rigid_rows`) and the ground
+    under the deck outside the cut flush with its seats, an airside vertex
+    there never through it (:func:`_span_rows`) — the pavement flattens to
+    the deck end, the deck never tilts.  The cut under it is the floor's:
+    its pinned faces are never spanned."""
+    from .deck_lines import floor_end_lines
+    lines = floor_end_lines(planar, law)
+    if not lines:
+        return []
+    from ..model.platform import stage_air_vertices
+    flush = float(law.tables.structures.bridge.deck_flush_m)
+    air = stage_air_vertices(planar, law)
+    rows: list[Row] = []
+    done: set[int] = set()
+    for pid, es in sorted(lines.items()):
+        ends = [(e.terms, e.depth) for e in es]
+        rows.extend(_span_rows(planar, pid, es, (), air, ends, flush, None, done,
+                               _FLOOR_ROLES | {"tunnel_trench"}))
+        rows.extend(_station_rows(pid, ends, flush))
+        rows.extend(_rigid_rows(pid, ends))
     return rows
 
 

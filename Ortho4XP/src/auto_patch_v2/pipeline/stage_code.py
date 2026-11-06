@@ -163,7 +163,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bulk_geos",
-        "auto_patch_v2.airport.channel_zero",
         "auto_patch_v2.airport.cluster_profile",
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
@@ -332,7 +331,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bulk_geos",
-        "auto_patch_v2.airport.channel_zero",
         "auto_patch_v2.airport.cluster_profile",
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
@@ -476,10 +474,12 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
+        "auto_patch_v2.geom.plane_groups",
         "auto_patch_v2.geom.proportions",
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.ramp_profile",
         "auto_patch_v2.geom.rotated_rect",
+        "auto_patch_v2.geom.shape_class",
         "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.terrain_deck",
         "auto_patch_v2.geom.triangulate",
@@ -558,10 +558,11 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.dual_width",
         "auto_patch_v2.planar.edges",
         "auto_patch_v2.planar.end_witness",
-        "auto_patch_v2.planar.fill_bank",
         "auto_patch_v2.planar.entrance_skirt",
+        "auto_patch_v2.planar.fill_bank",
         "auto_patch_v2.planar.fill_riser",
         "auto_patch_v2.planar.fill_road",
+        "auto_patch_v2.planar.floor_decks",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
@@ -815,7 +816,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bulk_geos",
-        "auto_patch_v2.airport.channel_zero",
         "auto_patch_v2.airport.cluster_profile",
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
@@ -1536,7 +1536,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.placement_leaves airport.placement_motion airport.placement_orphan
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
-    airport.channel_zero airport.entrance_seat airport.split_guard
+     airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
@@ -1626,7 +1626,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.placement_file airport.placement_geom airport.placement_leaves
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
-    airport.channel_zero airport.entrance_seat airport.split_guard
+     airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.pool
@@ -1668,6 +1668,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
     airport.old_dem_fill planar.fill_bank
+    geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor geom.lowest_face planar.object_floor_cells
     pipeline.lot_follow solve.follow_stage
     geom.exact
@@ -1698,7 +1699,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.placement_file airport.placement_geom airport.placement_leaves
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
-    airport.channel_zero airport.entrance_seat airport.split_guard
+     airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
@@ -1796,6 +1797,7 @@ CODE_MODULES["solve"] = _mods("""
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
+    geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor constraints.object_floor geom.lowest_face planar.object_floor_cells
     solve.follow_stage
     geom.exact
@@ -1826,7 +1828,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.placement_file airport.placement_geom airport.placement_leaves
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
-    airport.channel_zero airport.entrance_seat airport.split_guard
+     airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
@@ -1937,6 +1939,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.taxi_route_yield
 """)
 CODE_MODULES["emit"] = _mods("""
+    geom.shape_class
     airport.hanging_objects airport.object_cut airport.object_floor airport.wall_geometry
     geom.lowest_face geom.vector
     airport.lot_level solve.follow_stage
@@ -1963,7 +1966,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.placement_leaves airport.placement_motion airport.placement_orphan
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
-    airport.channel_zero airport.entrance_seat airport.split_guard
+     airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
@@ -2053,7 +2056,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.placement_leaves airport.placement_motion airport.placement_orphan
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
-    airport.channel_zero airport.entrance_seat airport.split_guard
+     airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets

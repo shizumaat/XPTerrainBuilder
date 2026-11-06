@@ -3903,6 +3903,12 @@ def _write_index(lat, lon, index):
 # while float noise from recomputing the same box never does.
 INSET_BOUNDING_BOX_TOLERANCE_DEGREES = 1e-6
 
+#: THE RE-CUT SLACK (owner ruling 2026-11-06T00:33Z, "yes, up to 10m is
+#: fine"): a cached inset whose cut window misses the required window by at
+#: most this many metres on any side is CURRENT -- or by one of its own
+#: pixels, when a pixel is coarser (``inset_recut_is_needed``).
+INSET_RECUT_SLACK_M = 10.0
+
 
 def _bounding_box_extends_beyond(
     requested_box, recorded_box,
@@ -4086,13 +4092,18 @@ def inset_recut_is_needed(lat, lon, icao, provider_code, required_box):
                                                  provider_code)
     if requested_box is None:
         return False
-    # ONE INSET PIXEL OF SLACK (owner 2026-11-06T00:12Z, "We have all the
-    # DEM insets, they're not stale"): a required window that drifts a few
-    # metres with code changes is still served by the raster when it lies
-    # within one of its pixels of the cut window -- re-asking would return
-    # the same pixels.  Only a window falling further outside is stale.
-    tol_lon, tol_lat = _inset_pixel_degrees(lat, lon, icao, provider_code)
+    # THE RE-CUT SLACK (owner 2026-11-06T00:12Z, "We have all the DEM
+    # insets, they're not stale"; ruled 00:33Z "yes, up to 10m is fine"):
+    # a required window that drifts a few metres with code changes is
+    # still served when it lies within max(one inset pixel,
+    # INSET_RECUT_SLACK_M) of the cut window.  Only a window falling
+    # further outside is stale.
     west, south, east, north = requested_box
+    pixel_lon, pixel_lat = _inset_pixel_degrees(lat, lon, icao, provider_code)
+    slack_lat = INSET_RECUT_SLACK_M / 111320.0
+    slack_lon = slack_lat / max(
+        math.cos(math.radians((south + north) / 2.0)), 1e-6)
+    tol_lon, tol_lat = max(pixel_lon, slack_lon), max(pixel_lat, slack_lat)
     return _bounding_box_extends_beyond(
         required_box, (west - tol_lon, south - tol_lat,
                        east + tol_lon, north + tol_lat))

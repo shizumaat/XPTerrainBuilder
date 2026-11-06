@@ -60,7 +60,7 @@ from .pack_trees_map import (
     TREE_WORDS,
 )
 
-__all__ = ["FlatTrees", "flat_trees", "local_forest_target",
+__all__ = ["FlatTrees", "flat_trees", "local_forest_target", "for_top_m",
            "name_words",
            "convert_objects", "body_base", "POINT_FOREST"]
 
@@ -231,11 +231,12 @@ def _size_for(family: str, height: float) -> str:
 
 # ── a pack's own .for ────────────────────────────────────────────────────
 
-def local_forest_target(path: str) -> str:
-    """The X-Plane 12 3D forest for a pack's own flat ``.for``; ``""``
-    for ground cover or an unreadable file (module doc)."""
+def _read_for(path: str
+              ) -> tuple[list[float], list[tuple[float, float, float]]] | None:
+    """A ``.for``'s ``SPACING`` and ``TREE`` rows as ``(freq, aspect,
+    max height)``; ``None`` when unreadable or treeless."""
     spacing: list[float] = []
-    rows: list[tuple[float, float, float]] = []       # (freq, aspect, max h)
+    rows: list[tuple[float, float, float]] = []
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             for raw in fh:
@@ -252,9 +253,23 @@ def local_forest_target(path: str) -> str:
                 except ValueError:
                     continue
     except OSError:
+        return None
+    return (spacing, rows) if rows else None
+
+
+def for_top_m(path: str) -> float | None:
+    """The tallest tree a ``.for`` file draws; ``None`` when unreadable."""
+    read = _read_for(path)
+    return None if read is None else max(r[2] for r in read[1])
+
+
+def local_forest_target(path: str) -> str:
+    """The X-Plane 12 3D forest for a pack's own flat ``.for``; ``""``
+    for ground cover or an unreadable file (module doc)."""
+    read = _read_for(path)
+    if read is None:
         return ""
-    if not rows:
-        return ""
+    spacing, rows = read
     total = sum(r[0] for r in rows) or float(len(rows))
     wt = [(r[0] or 1.0) / total for r in rows]
     tall = sum(w * r[2] for w, r in zip(wt, rows, strict=True))

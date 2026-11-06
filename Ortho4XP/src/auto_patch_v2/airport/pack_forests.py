@@ -69,8 +69,10 @@ RECORD_KEY = "forest_upgrade"
 #: the upgrade's rules (the map and the strip clearing): a record written
 #: under another is stale and re-applied from the pristine DSF (#1920 —
 #: 1: the first map; 2: low vegetation stays low, trees off the strips;
-#: 3: low vegetation takes X-Plane 12 ground cover, only grass on strips)
-UPGRADE_VERSION = 3
+#: 3: low vegetation takes X-Plane 12 ground cover, only grass on strips;
+#: 4: shrubs are barberry, and the pack's own kept tall vegetation is
+#: cleared off the strips too — RULINGS 2026-11-06d (7)(8))
+UPGRADE_VERSION = 4
 #: a ``.for`` line keyword that only X-Plane 12's 3D trees use
 KEYWORDS_3D = frozenset({"SHADER_3D", "MESH"})
 
@@ -262,18 +264,36 @@ def apply_upgrade(edited: str, pristine: str, renames: _t.Mapping[str, str],
 
 def clear_strips(text: str, targets: _t.Collection[str], pack_root: str
                  ) -> tuple[str, int]:
-    """The upgrade's 3D trees and shrubs (``targets`` and every
-    ``FAMILIES`` member) cleared of the pack's runway, safety-area and
-    taxiway strips (``pack_trees_clear``, issue #1920).  Grass — a
-    planter no taller than ``pack_trees_map.GRASS_M`` — stays there.
-    Returns the text and the polygons changed."""
-    want = ({t for t in targets if PLANTERS.get(t, (math.inf,))[0] > GRASS_M}
-            | {p for sizes in FAMILIES.values() for p, _h in sizes})
+    """Every vegetation item taller than grass cleared of the pack's
+    runway, safety-area and taxiway strips (``pack_trees_clear``, issue
+    #1920; owner RULINGS 2026-11-06d (8): "Yes remove tall items in
+    restricted areas"): every ``.for`` definition the DSF declares — the
+    upgrade's targets and the pack's own kept files alike — except a
+    planter no taller than ``pack_trees_map.GRASS_M`` and a pack file
+    whose tallest tree is no taller (:func:`_tall_forest`).  ``targets``
+    is kept for the callers; every definition is judged.  Returns the
+    text and the polygons changed."""
+    del targets
     defs = declared_definitions(text.splitlines())["polygon"]
-    tree_defs = {i for i, p in enumerate(defs) if p in want}
+    tree_defs = {i for i, p in enumerate(defs) if _tall_forest(p, pack_root)}
     if not tree_defs:
         return text, 0
     return _clear.clear_trees(text, tree_defs, _clear.clear_areas(pack_root))
+
+
+def _tall_forest(path: str, pack_root: str) -> bool:
+    """A ``.for`` that may draw above :data:`GRASS_M`: a library forest
+    that is not a grass planter, or a pack file whose tallest tree is
+    taller (an unreadable one counts as tall)."""
+    if not path.lower().endswith(".for"):
+        return False
+    if path in PLANTERS:
+        return PLANTERS[path][0] > GRASS_M
+    local = os.path.join(pack_root, path.replace("\\", "/").replace(":", "/"))
+    if not os.path.isfile(local):
+        return True
+    top = _pt.for_top_m(local)
+    return top is None or top > GRASS_M
 
 
 def decision_key(pristine_sha256: str, renames: _t.Mapping[str, str]) -> str:

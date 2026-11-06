@@ -173,10 +173,12 @@ GRASS_M = 1.0
 #: (grass, reed, flowers: the pack's own ground cover) takes grass, never
 #: taller than the strip's :data:`GRASS_M`; ``shrub`` takes shrubs lower
 #: than the lowest source a shrub can be (``pack_trees.GROUND_COVER_M``).
-#: Green, not dry: the file says nothing of climate (as :data:`LOCAL_FOREST`).
+#: Grass is green, not dry: the file says nothing of climate (as
+#: :data:`LOCAL_FOREST`); shrubs are barberry with tall grass (owner
+#: RULINGS 2026-11-06d (7): "Shrubs, yes switch to barberry").
 LOW_CLASS: dict[str, tuple[float, tuple[str, ...]]] = {
     "grass": (GRASS_M, (_P + "grass_green_1.for",)),
-    "shrub": (1.5, (_P + "shrubs_green_1.for", _P + "shrubs_green_2.for")),
+    "shrub": (1.5, (_P + "shrubs_red_1.for",)),
 }
 
 #: a word of a pack ``.for``'s name that makes it grass-class ground cover

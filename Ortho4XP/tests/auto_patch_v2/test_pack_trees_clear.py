@@ -97,9 +97,12 @@ def test_point_forests_lose_the_trees_inside(tmp_path):
     assert n == 1 and text.count("POLYGON_POINT") == 1
 
 
-def test_a_forest_the_upgrade_did_not_write_is_left_alone(tmp_path):
+def test_the_packs_own_grass_is_left_alone(tmp_path):
+    # not written by the upgrade and no taller than grass: it stays
+    root = _pack(tmp_path)
+    _own_for(tmp_path, "Vegetation/grass.for", 0.9)
     dump = _dump(_square(20, 1000), defs=("Vegetation/grass.for",))
-    assert PF.clear_strips(dump, {TREE}, _pack(tmp_path)) == (dump, 0)
+    assert PF.clear_strips(dump, {TREE}, root) == (dump, 0)
 
 
 def test_a_pack_without_an_apt_dat_clears_nothing(tmp_path):
@@ -127,9 +130,37 @@ def test_a_line_forest_crossing_the_strip_goes_whole(tmp_path):
 def test_only_grass_stands_on_the_strips(tmp_path):
     # a shrub planter (1.1 m) is cleared like a tree; grass (1.0 m) stays
     grass = "lib/vegetation/planters/ground/grass_green_1.for"
-    shrub = "lib/vegetation/planters/ground/shrubs_green_1.for"
+    shrub = "lib/vegetation/planters/ground/shrubs_red_1.for"
     dump = _dump(_square(20, 1000), _square(20, 1000).replace(
         "BEGIN_POLYGON 0", "BEGIN_POLYGON 1"), defs=(grass, shrub))
     text, n = PF.clear_strips(dump, {grass, shrub}, _pack(tmp_path))
     assert n == 1
     assert "BEGIN_POLYGON 0 255" in text and "BEGIN_POLYGON 1 " not in text
+
+
+def _own_for(root, rel: str, top_m: float) -> None:
+    # one TREE row: s t w h offset freq min max quads (max height = top_m)
+    p = root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("A\n800\nFOREST\nTEXTURE t.png\nSPACING 3 3\n"
+                 f"TREE 0 0 128 256 64 50 {top_m * 0.6} {top_m} 1 palm\n")
+
+
+def test_the_packs_own_tall_forest_is_cleared_in_the_strip_only(tmp_path):
+    # RULINGS 2026-11-06d (8): a kept own file (D2V/reed.for, 6 m) is
+    # cleared inside the strip and stays outside; own grass (0.8 m) stays
+    root = _pack(tmp_path)
+    _own_for(tmp_path, "D2V/reed.for", 6.0)
+    _own_for(tmp_path, "D2V/lawn.for", 0.8)
+    inside, outside = _square(20, 1000), _square(500, 1000)
+    lawn = _square(20, 1200).replace("BEGIN_POLYGON 0", "BEGIN_POLYGON 1")
+    text, n = PF.clear_strips(_dump(inside, outside, lawn,
+                                    defs=("D2V/reed.for", "D2V/lawn.for")),
+                              set(), root)
+    assert n == 1
+    assert text.count("BEGIN_POLYGON 0 255") == 1        # the outside one
+    assert "BEGIN_POLYGON 1 255" in text
+
+
+def test_a_recorded_upgrade_before_the_ruling_is_redone():
+    assert PF.UPGRADE_VERSION >= 4

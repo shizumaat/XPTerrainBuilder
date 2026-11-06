@@ -111,9 +111,9 @@ def test_a_local_forest_maps_by_its_trees(tmp_path, rows, spacing, want):
 
 
 @pytest.mark.parametrize("rows,want", [
-    ([(600, 600, 100, 1, 3)], "shrubs_green_1"),          # shrubs, 1-3 m
-    ([(450, 128, 70, 0.6, 1.5)], "shrubs_green_1"),       # unnamed, to 1.5 m
-    ([(316, 231, 5, 1.0, 1.5), (400, 231, 25, 1.9, 2.5)], "shrubs_green_1"),
+    ([(600, 600, 100, 1, 3)], "shrubs_red_1"),          # shrubs, 1-3 m
+    ([(450, 128, 70, 0.6, 1.5)], "shrubs_red_1"),       # unnamed, to 1.5 m
+    ([(316, 231, 5, 1.0, 1.5), (400, 231, 25, 1.9, 2.5)], "shrubs_red_1"),
 ])
 def test_low_vegetation_is_never_mapped_to_trees(tmp_path, rows, want):
     # #1920: X-Plane 12's shrb_* forests are 2-13 m trees; a pack's own

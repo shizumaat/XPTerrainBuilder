@@ -22,7 +22,7 @@ from auto_patch_v2.airport.pack_trees_map import GRASS_M, LOW_CLASS, PLANTERS
 from conftest import xplane_root
 
 GRASS = "lib/vegetation/planters/ground/grass_green_1.for"
-SHRUB = "lib/vegetation/planters/ground/shrubs_green_1.for"
+SHRUB = "lib/vegetation/planters/ground/shrubs_red_1.for"
 
 
 def _for(path: Path, rows, spacing="3 3") -> str:

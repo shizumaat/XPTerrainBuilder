@@ -986,11 +986,17 @@ def _split_floor_rows(floor_vs: _t.Sequence[int], follow: _t.Sequence[int],
     # rim the ground shares is held at the ONE upper floor too -- the floor
     # is their mean less the step, so the open side's ground is one flat
     # level the object stage seats the upper floor on (KLAX Terminal_2's
-    # 194 m open side sagged 0.38 m under its flat upper floor)
+    # 194 m open side sagged 0.38 m under its flat upper floor).  The rows
+    # tie the shared rim to ITSELF -- airside vertices only -- so the
+    # AIRSIDE stage carries them (a row naming the floor is stage 2's, and
+    # stage 2 holds the airside at stage 1's values: §20b) and the apron
+    # comes to one level, the way a held pad's frontage does
     src_flat = Source(GEN, BASIN_FLOOR_RULING + " (owner 2026-11-06T03:24Z (a): the open "
                       "side's ground held flat at the upper floor)", inputs)
-    rows.extend(Linear(((int(v), 1.0), (d, -1.0)), depth, depth, src_flat, follows=(int(v),))
-                for v in follow if int(v) not in {int(h) for h in held})
+    hs = {int(h) for h in held}
+    flat = [int(v) for v in follow if int(v) not in hs]
+    rows.extend(Linear(((v, 1.0), (flat[0], -1.0)), 0.0, 0.0, src_flat, follows=(v,))
+                for v in flat[1:])
     return rows
 
 

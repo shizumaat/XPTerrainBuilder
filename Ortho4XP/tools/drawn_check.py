@@ -541,7 +541,7 @@ def check_split(rec, drawn, tol, lifts=None, roads=None):
             ref.append(z0 + y_lo if road is None else road)
     out["back_on_road"] = sum(1 for r in ref if r != z0 + y_lo)
     if back:
-        d_b = [g - r for g, r in zip(back, ref)]
+        d_b = [g - r for g, r in zip(back, ref, strict=True)]
         out["back_ground_median"] = round(float(numpy.median(back)), 2)
         out["delta_back_max"] = round(max(d_b, key=abs), 2)
         if abs(out["delta_back_max"]) > tol:

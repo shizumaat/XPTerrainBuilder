@@ -4684,7 +4684,7 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
         # mesh.  Recorded in the frame; ``--texture-mode`` still wins.
         tile, cfg_provenance, imagery = resolve_tile_frame(
             lat, lon, build_dir, prog, texture_mode=GEOMETRY_TEXTURE_MODE)
-        cfg_provenance["texture_mode"]["source"] = (
+        cfg_provenance.setdefault("texture_mode", {})["source"] = (
             "geometry tile DSF: no provider resolved (owner 2026-11-06)")
         prog.note(f"no imagery provider: building the GEOMETRY tile DSF in "
                   f"texture_mode {GEOMETRY_TEXTURE_MODE} (no orthophoto read)")
@@ -5272,6 +5272,7 @@ def main(argv=None) -> int:
                   f"{state['base_raster']} insets={state['airport_insets']} "
                   f"airports_layer={state['airports_layer']} "
                   f"overlay={state['tile_overlay']}")
+        checks = []   # THE ONE PRE-FLIGHT: refused once, below
         if args.refresh_only:
             # A WARM RUN IS NOT A MEASUREMENT (2026-09-15, round 6).  The
             # pre-flight exists to stop a BUILD reading a cold or stale
@@ -5287,9 +5288,6 @@ def main(argv=None) -> int:
                       "run reads nothing and builds nothing); the frame "
                       "is judged AFTER the derivations, on the requested "
                       "scope(s) alone")
-        checks = []
-        if args.refresh_only:
-            pass
         elif args.dem is None:
             checks.append(lambda: require_dem_frame(
                 state, allow_degraded=args.allow_degraded_dem,

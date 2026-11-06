@@ -45,6 +45,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+import shapely
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import linemerge, unary_union
 from shapely.prepared import prep
@@ -89,6 +90,7 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     bp = law.tables.structures.building_pad
     reach = float(getattr(bp, "split_level_back_cut_m", 0.0) or 0.0)
     road_reach = float(getattr(bp, "split_level_road_reach_m", 0.0) or 0.0)
+    rim_step = float(getattr(bp, "split_level_rim_step_m", 0.0) or 0.0)
     gside = frozenset(r for r in pr if role_side(law, r) == "groundside")
     roads_g = unary_union([p for p, c in zip(polys, cells, strict=True)
                            if c.role in gside]).buffer(0)
@@ -143,6 +145,9 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
                    0.0, grid) or own
         if pits is not None:
             rim = _largest(rim.difference(pits)) or own
+        if rim_step > 0.0:
+            # stationed: the open side is held flat along its length
+            rim = shapely.segmentize(rim, rim_step)
         floors = _region_floor(rim, band, [], grid)
         if not floors:
             refused.append(f"{sl.id} {name}: no floor inside the {band:.2f} m wall band")

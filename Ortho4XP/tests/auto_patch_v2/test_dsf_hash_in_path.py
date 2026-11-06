@@ -11,7 +11,6 @@ import struct
 from pathlib import Path
 
 import pytest
-
 from auto_patch.dsf_reader import _dsftool_path
 from auto_patch_v2.airport import dsf_write as W
 

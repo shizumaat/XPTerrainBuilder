@@ -27,7 +27,8 @@ def _repo(tmp_path):
     for name in ("engine_stamp.sh", "tree_dirty.sh"):
         shutil.copy(REPO / "scripts" / name, root / "scripts" / name)
     (root / "Ortho4XP/src").mkdir(parents=True)
-    (root / "Ortho4XP/src/O4_Version.py").write_text("version = '1.0'\n", encoding="utf-8", newline="\n")
+    (root / "Ortho4XP/src/O4_Version.py").write_text(
+        "version = '1.0'\n", encoding="utf-8", newline="\n")
     (root / "Ortho4XP/src/code.py").write_text("x = 1\n", encoding="utf-8", newline="\n")
     _git(root, "init", "-q")
     _git(root, "add", "-A")
@@ -48,7 +49,8 @@ def test_matching_stamp_reports_embedded_commit(tmp_path):
     root, frozen = _repo(tmp_path)
     assert _stamp("write", frozen, root).returncode == 0
     # The version bump both scripts make is not dirt.
-    (root / "Ortho4XP/src/O4_Version.py").write_text("version = '1.1'\n", encoding="utf-8", newline="\n")
+    (root / "Ortho4XP/src/O4_Version.py").write_text(
+        "version = '1.1'\n", encoding="utf-8", newline="\n")
     r = _stamp("check", frozen, root)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == _git(root, "rev-parse", "HEAD")

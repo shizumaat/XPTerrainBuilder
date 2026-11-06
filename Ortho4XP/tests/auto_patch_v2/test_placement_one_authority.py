@@ -12,12 +12,23 @@ from __future__ import annotations
 import types
 
 import pytest
-
 from auto_patch_v2.airport import dsf_write as W
-from auto_patch_v2.airport.terrain_shaped import (ENTRANCE_SEAT, OBJECT_FLOOR_SEAT,
-                                                  PORTAL_SEAT, SEAT, row_seats)
-from auto_patch_v2.model.placement import (Anchor, Body, MslSeat, PlacementPlan,
-                                           PlacementRef, Provenance, Split)
+from auto_patch_v2.airport.terrain_shaped import (
+    ENTRANCE_SEAT,
+    OBJECT_FLOOR_SEAT,
+    PORTAL_SEAT,
+    SEAT,
+    row_seats,
+)
+from auto_patch_v2.model.placement import (
+    Anchor,
+    Body,
+    MslSeat,
+    PlacementPlan,
+    PlacementRef,
+    Provenance,
+    Split,
+)
 
 
 def _row(path):

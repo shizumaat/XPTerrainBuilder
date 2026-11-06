@@ -27,6 +27,7 @@ from elevation_access.discovery import (
 from elevation_access.failures import cap_exceeded_unavailable
 from elevation_access.gdal_support import gdal, has_gdal
 from elevation_access.registry import register_access_strategy
+from elevation_access.tls_trust import requests_verify
 from elevation_access.vertical_units import _raster_vertical_unit
 from elevation_access.warp import (
     _geotiff_has_valid_data,
@@ -76,9 +77,24 @@ class TileGridHttpStrategy:
         )
 
     def _tile_names_from_index(self, definition):
-        """The cached filename list of the provider's directory index."""
-        import requests
+        """The cached tile-name list of the provider's index.
 
+        ``None`` only when the definition has no ``index_url``.  An index
+        that cannot be read RAISES (issue #1923): the tile names are
+        only in the index, so there is nothing to probe without it --
+        the old ``None`` sent ``discover`` down the template path and
+        probed the literal ``{file_name}``.  No answer, a 429/5xx or an
+        index that names nothing is :class:`TransientFetchError`; a
+        refusal or a vanished index (401/403/404/...) is
+        :class:`ProviderUnavailable`.  Neither says anything about
+        coverage.
+
+        An ``index_url`` that is a GDAL virtual path (``/vsizip//vsicurl/
+        https://...zip``) is ONE remote archive whose members are the
+        tiles (Hamburg's whole-city GeoTIFF zip): its central directory
+        is listed through ranged reads, and each name is the member's
+        full virtual path, read in place by the warp.
+        """
         index_url = definition.get("index_url")
         if not index_url:
             return None
@@ -87,15 +103,72 @@ class TileGridHttpStrategy:
                 return json.load(handle)
         except (OSError, ValueError):
             pass
-        try:
-            response = requests.get(index_url, timeout=120)
-        except Exception as error:
-            UI.vprint(
-                1, "   WARNING: tile index request failed:", str(error)
+        if index_url.startswith("/vsi"):
+            names = self._names_from_archive(index_url)
+        else:
+            names = self._names_from_http(definition, index_url)
+        if not names:
+            raise TransientFetchError(
+                "tile index %s named no tile files - transient, NOT "
+                "recorded as no-coverage" % index_url
             )
-            return None
-        if response.status_code != 200:
-            return None
+        os.makedirs(
+            os.path.dirname(self.index_path(definition)), exist_ok=True
+        )
+        with open(self.index_path(definition), "w", newline="\n") as handle:
+            json.dump(names, handle)
+        return names
+
+    def _names_from_archive(self, index_url):
+        """Full virtual paths of the raster members of a remote archive."""
+        if not has_gdal:
+            raise TransientFetchError(
+                "tile index %s needs GDAL to list, and GDAL is not "
+                "available - transient" % index_url
+            )
+        try:
+            members = gdal.ReadDirRecursive(index_url)
+        except Exception as error:
+            members = None
+            reason = str(error)
+        else:
+            reason = "no listing"
+        if members is None:
+            raise TransientFetchError(
+                "tile index %s unavailable (%s) - transient, NOT recorded "
+                "as no-coverage" % (index_url, reason)
+            )
+        return sorted(
+            index_url.rstrip("/") + "/" + member for member in members
+            if member.lower().endswith((".tif", ".tiff", ".xyz"))
+        )
+
+    def _names_from_http(self, definition, index_url):
+        """File names in a JSON or HTML/plain-text index over HTTP."""
+        import requests
+
+        try:
+            response = requests.get(
+                index_url, timeout=120, verify=requests_verify(definition)
+            )
+        except ProviderUnavailable:
+            raise
+        except Exception as error:
+            raise TransientFetchError(
+                "tile index %s unavailable (no answer: %s) - transient, "
+                "NOT recorded as no-coverage" % (index_url, error)
+            ) from error
+        outcome = http_answer_outcome(response.status_code)
+        if outcome in (HTTP_OUTCOME_UNAVAILABLE, HTTP_OUTCOME_ABSENT):
+            raise ProviderUnavailable(
+                "tile index %s answered status %s - recorded unavailable, "
+                "not no-coverage" % (index_url, response.status_code)
+            )
+        if outcome != HTTP_OUTCOME_OK:
+            raise TransientFetchError(
+                "tile index %s answered status %s - transient, NOT "
+                "recorded as no-coverage" % (index_url, response.status_code)
+            )
         names = []
 
         def _collect(node):
@@ -123,13 +196,6 @@ class TileGridHttpStrategy:
                 )
             )
             names = sorted(set(names))
-        if not names:
-            return None
-        os.makedirs(
-            os.path.dirname(self.index_path(definition)), exist_ok=True
-        )
-        with open(self.index_path(definition), "w", newline="\n") as handle:
-            json.dump(names, handle)
         return names
 
     def discover(self, definition, bounding_box_wgs84):
@@ -175,9 +241,16 @@ class TileGridHttpStrategy:
                 "%d tiles" % maximum_tiles, "max_tiles_per_airport")
         index_names = self._tile_names_from_index(definition)
         template = definition["tile_url_template"]
+        if index_names is None and "{file_name}" in template:
+            raise ProviderUnavailable(
+                "%s: tile_url_template names {file_name} but the "
+                "definition has no index_url to fill it from"
+                % definition.get("code")
+            )
         headers = self._http_headers(definition)
         sources = []
         session = requests.Session()
+        session.verify = requests_verify(definition)
         for (easting, northing) in candidates:
             if index_names is not None:
                 token = definition.get(
@@ -192,8 +265,9 @@ class TileGridHttpStrategy:
                     continue
                 best_match = sorted(matches)[-1]
                 # Index entries that are already full URLs (the
-                # Schleswig-Holstein GeoJSON) need no template at all.
-                if best_match.startswith("http"):
+                # Schleswig-Holstein GeoJSON) or archive member paths
+                # (Hamburg's zip) need no template at all.
+                if best_match.startswith(("http", "/vsi")):
                     url = best_match
                 else:
                     url = template.replace("{file_name}", best_match)
@@ -377,6 +451,7 @@ class TileGridHttpStrategy:
         import requests
 
         headers = self._http_headers(definition)
+        verify = requests_verify(definition)
         zip_inner_suffix = definition.get("zip_inner_suffix")
         warp_inputs = []
         scratch_paths = []
@@ -390,7 +465,8 @@ class TileGridHttpStrategy:
             scratch_path = destination_path + ".tile%d%s" % (number, suffix)
             try:
                 response = requests.get(
-                    entry["url"], timeout=300, headers=headers
+                    entry["url"], timeout=300, headers=headers,
+                    verify=verify,
                 )
                 if response.status_code != 200:
                     continue

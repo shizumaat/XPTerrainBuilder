@@ -21,6 +21,10 @@ role=bathymetry
 access_strategy=tile_grid_http
 tile_url_template={file_name}
 index_url=https://geodaten.schleswig-holstein.de/gaialight-sh/_apps/dladownload/single.php?file=DGM1_SH__Massendownload.geojson&id=4
+# Same host as SCHLESWIGHOLSTEIN1M: the missing intermediate, pinned
+# (issue #1923; see that definition).
+tls_extra_ca=D-TRUST_BR_CA_1-20-1_2020.pem
+tls_extra_ca_sha256=199ab2aaafff40401e0a3b7b87ee9964659effa94a1fecbe918ae136e4b4e0a8
 fetch_mode=download
 download_suffix=.xyz
 tile_size_km=1

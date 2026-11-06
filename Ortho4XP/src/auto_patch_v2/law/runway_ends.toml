@@ -9,6 +9,7 @@
 # None names an airport (RULINGS 2026-10-05e).
 
 field_equal_ft        = 3.0    # (a), (e) a CIFP end "equals the field elevation" within this (CIFP is whole feet; an apt.dat field from another cycle moves by a foot or two)
+field_agree_m         = 10.0   # owner RULINGS 2026-11-06a (1) (#1915): a CIFP pair whose ends both lie within this of the apt.dat field elevation STANDS though (b) fires — the DEM may predate the airport ("within about 10 m"); never waives (a), (d), (e), nor a pair that is one number (placeholder_spread_ft)
 placeholder_spread_ft = 1.0    # (a) the runway's CIFP ends are the SAME number within this
 crosscheck_tol_ft     = 3.0    # (c) a cached cross-check source disagrees with a CIFP end beyond this (26a: "more than a few feet")
 zero_placeholder_ft   = 0.5    # (d) RULINGS 2026-10-26j: every CIFP end within this of 0 ft is a placeholder ("CIFP runway-end heights of 0 ft at both ends are untrusted"); flagged with no DEM needed

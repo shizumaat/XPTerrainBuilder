@@ -28,6 +28,19 @@ ONE derivation, at load, on the Airport every reader takes:
       by more than the tier's grade tolerance: (a)'s witness with one end
       (1Z1 16: CIFP 1249.7 m = the field, lidar 1230.4 m; its 34 record
       lies 390 m beyond the apt.dat end and the join refuses it).
+  THE FIELD VOUCHES (owner RULINGS 2026-11-06a (1), #1915) — (b) alone
+  no longer refutes a CIFP pair whose every end lies within
+  ``runway_ends.field_agree_m`` of the official field elevation: the DEM
+  may predate the airport (FHSH: Copernicus 2010-2014 shows the valley
+  about 55 m under the 02 threshold that the fill now carries; CIFP
+  303.89 / 308.76 m, field 311.5 m).  (b) is still RECORDED; the
+  placeholder rules (a), (d), (e) are never waived — a field-equal pair
+  is (a)'s witness, not corroboration — and (c) is judged as if alone.
+  A pair that is ONE number (within ``placeholder_spread_ft``) states no
+  grade of its own, so the field cannot vouch for it either: (a)'s
+  pattern a few feet off the field (census 2026-11-06: 25 of the 69
+  runways the field would otherwise stand, SDIB 925.07 / 925.07 m against
+  a 47 m DEM fall) still follows the DEM.
   A flagged runway's CIFP is not truth: each source of 26a's order whose
   end-to-end difference agrees with the DEM's supplies the ends — and a
   runway flagged by (c) ALONE keeps its CIFP unless the source fits the
@@ -240,6 +253,17 @@ def _flags(rw: Runway, field_m: float, cifp: dict[int, float], dem_pin, refs,
     return flags, seen
 
 
+def _field_vouches(flags: list[str], cifp: dict[int, float], field_m: float, t) -> bool:
+    """THE FIELD VOUCHES (owner RULINGS 2026-11-06a (1)): rule (b) fired,
+    no placeholder rule did, the pair carries a grade of its own (not one
+    number), and every CIFP end lies within ``field_agree_m`` of the field
+    elevation — (b) then refutes nothing."""
+    zs = list(cifp.values())
+    return ("b" in flags and not {"a", "d", "e"} & set(flags) and len(zs) == 2
+            and abs(zs[1] - zs[0]) > t.placeholder_spread_ft * FT + 1e-6
+            and all(abs(z - field_m) <= float(t.field_agree_m) for z in zs))
+
+
 def verify(airport: Airport, law: Law, refs: _t.Sequence = (),
            klass: str | None = "") -> tuple[Airport, list[dict], list[str]]:
     """THE RULE (module docstring) on ``airport``: the airport with every
@@ -272,14 +296,19 @@ def verify(airport: Airport, law: Law, refs: _t.Sequence = (),
         flags, seen = _flags(rw, field_m, cifp, dem_pin, refs, t, klass) if cifp else ([], {})
         ends = list(rw.ends)
         decided = ""
+        vouched = bool(flags) and _field_vouches(flags, cifp, field_m, t)
+        judged = {f for f in flags if not (vouched and f == "b")}
         if flags:
             # RULINGS 2026-10-26m: flagged by (c) ALONE, the CIFP is not yet
             # refuted — a source takes it off truth only where the source
-            # fits the DEM BETTER than the CIFP does; otherwise CIFP stands
-            c_only = set(flags) == {"c"}
+            # fits the DEM BETTER than the CIFP does; otherwise CIFP stands.
+            # RULINGS 2026-11-06a (1): a (b) the field vouches against is
+            # not judged — the CIFP stands, or (c) is judged alone
+            c_only = judged <= {"c"}
             decided = CIFP if c_only else "dem"
             cifp_miss = _misfit(cifp, dem_pin)
-            for src, got in _ref_pair(rw, refs):
+            # the field vouching and nothing else firing, no source is tried
+            for src, got in (_ref_pair(rw, refs) if judged else ()):
                 if not (set(cifp) <= set(got) and _agrees(got, dem_end, tol_dem)):
                     continue
                 if c_only and not _misfit({k: got[k].elevation_m for k in cifp},
@@ -299,7 +328,7 @@ def verify(airport: Airport, law: Law, refs: _t.Sequence = (),
                 ends = [e if k not in cifp else _dc.replace(e, cifp_elev_m=None)
                         for k, e in enumerate(ends)]
             lines.append(_line(airport.icao, rw, flags, cifp, field_m, dem_pin, klass,
-                               seen, decided))
+                               seen, decided, vouched))
         new = _dc.replace(rw, ends=(ends[0], ends[1]))
         runways.append(new)
         for k, e in enumerate(new.ends):
@@ -324,7 +353,8 @@ def verify(airport: Airport, law: Law, refs: _t.Sequence = (),
     return _dc.replace(airport, runways=tuple(runways)), records, lines
 
 
-def _line(icao: str, rw: Runway, flags, cifp, field_m, dem_pin, klass, seen, decided) -> str:
+def _line(icao: str, rw: Runway, flags, cifp, field_m, dem_pin, klass, seen, decided,
+          vouched: bool = False) -> str:
     """The ONE loud line of a flagged runway: every value the rule read."""
     def m(v):
         return "-" if v is None else f"{v:.2f}"
@@ -333,6 +363,9 @@ def _line(icao: str, rw: Runway, flags, cifp, field_m, dem_pin, klass, seen, dec
     dem = "/".join(m(v) for v in dem_pin)
     xs = "; ".join(f"{s} " + "/".join(m(v.get(n)) for n in names) for s, v in seen.items())
     then = ("the ends follow the DEM" if decided == "dem"
+            else "CIFP stands: within the field elevation's agreement, the DEM may "
+                 "predate the airport (RULINGS 2026-11-06a (1))"
+            if decided == CIFP and vouched and "c" not in flags
             else "CIFP stands: no source fits the DEM better (RULINGS 2026-10-26m)"
             if decided == CIFP else f"the ends take {decided}'s values")
     return (f"CIFP THRESHOLDS FLAGGED (#1342, RULINGS 2026-10-25a) {icao} {rw.id} rule "

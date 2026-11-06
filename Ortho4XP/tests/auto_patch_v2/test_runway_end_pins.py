@@ -251,6 +251,60 @@ def test_a_lone_cifp_end_stands_off_the_field_on_the_dem_or_unclassed(law):
         assert lines == [] and airport.runways[0].ends[0].threshold_elev_m == 700.0, dem
 
 
+# ── THE FIELD VOUCHES (owner RULINGS 2026-11-06a (1), #1915) ─────────────
+
+def _old_dem():
+    """FHSH's class: a coarse DEM older than the airport — the valley the
+    fill now covers lies 55 m under the 09 end, 60 m of fall over 1,200 m."""
+    return _Classed(0.05, None)
+
+
+def test_a_cifp_pair_near_the_field_stands_against_an_older_dem(law):
+    """CIFP 725.1 / 730.0 m (4.9 m end to end), field 732.7 m, the DEM
+    670 / 730 m: (b) fires, but both ends lie within ``field_agree_m`` of
+    the field — the CIFP stands, (b) is recorded, the line says why."""
+    airport, pm = _site(law, _old_dem(), (725.1, 730.0), elev=732.7)
+    airport, recs, lines = EP.verify(_cifp_airport(airport), law)
+    rw = airport.runways[0]
+    assert [e.pin_source for e in rw.ends] == ["cifp", "cifp"]
+    assert [e.threshold_elev_m for e in rw.ends] == [725.1, 730.0]
+    assert all(e.cifp_elev_m is None for e in rw.ends)
+    assert [r["flags"] for r in recs] == [["b"], ["b"]]
+    assert recs[0]["dem_m"] == pytest.approx(670.0, abs=1.0)        # the 60 m window median
+    assert len(lines) == 1 and "rule (b)" in lines[0] and "11-06a (1)" in lines[0]
+    assert CASE_FLAGGED not in {p.case for p in end_pin_cases(pm, law, airport).values()}
+    assert [r["pin_m"] for r in runway_end_report.records(pm, law, airport)] == [725.1, 730.0]
+
+
+def test_a_cifp_pair_off_the_field_still_follows_the_older_dem(law):
+    """The same pair with the field 19.9 m over the low end — beyond
+    ``field_agree_m``: (b) alone refutes it, the ends follow the DEM."""
+    t = EP.runway_ends(law)
+    airport, pm = _site(law, _old_dem(), (725.1, 730.0), elev=725.1 + t.field_agree_m + 9.9)
+    airport, _recs, lines = EP.verify(_cifp_airport(airport), law)
+    assert [e.pin_source for e in airport.runways[0].ends] == ["dem", "dem"]
+    assert "follow the DEM" in lines[0]
+
+
+def test_the_field_never_vouches_for_a_placeholder(law):
+    """(a) and (d) are not waived by the field: a same-number pair AT the
+    field elevation against the older DEM (CBR2's pattern) still follows
+    the DEM, so does one number 3 m off the field (no grade of its own,
+    SDIB's pattern), and so do 0 ft ends at a field 5 m up."""
+    airport, _pm = _site(law, _old_dem(), (730.0, 730.0), elev=730.0)
+    airport, _recs, _lines = EP.verify(_cifp_airport(airport), law)
+    rw = airport.runways[0]
+    assert [e.pin_source for e in rw.ends] == ["dem", "dem"] and rw.ends[0].pin_flags == "a,b"
+    airport, _pm = _site(law, _old_dem(), (727.0, 727.0), elev=730.0)
+    airport, _recs, _lines = EP.verify(_cifp_airport(airport), law)
+    rw = airport.runways[0]
+    assert [e.pin_source for e in rw.ends] == ["dem", "dem"] and rw.ends[0].pin_flags == "b"
+    airport, _pm = _site(law, _old_dem(), (0.0, 0.0), elev=5.0)
+    airport, _recs, _lines = EP.verify(_cifp_airport(airport), law)
+    rw = airport.runways[0]
+    assert [e.pin_source for e in rw.ends] == ["dem", "dem"] and rw.ends[0].pin_flags == "d,b"
+
+
 # ── apt.dat-only ends (#1394, 26e) and the unmatched end (22a) ───────────
 
 def test_an_apt_dat_only_end_gives_way_to_the_lidar(law):

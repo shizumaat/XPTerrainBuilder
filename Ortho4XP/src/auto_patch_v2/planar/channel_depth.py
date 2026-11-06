@@ -191,16 +191,17 @@ def _next_way(coords: list, end: int, pool: _t.Sequence, used: list[int]):
 
 
 def rejoin(profile: tuple[tuple[float, float], ...], length: float,
-           ground_at: _t.Callable[[float], float], grade: float
+           ground_at: _t.Callable[[float], float], grade: float, run_on: float
            ) -> tuple[tuple[float, float], ...]:
     """§45 (16) "beyond the ends §37 governs and the floor rejoins the road's
-    own profile at ≤ ``ramp_max_grade``": where the axis runs on past an
-    end of the profile (the corridor's way continues outside), the floor
+    own profile at ≤ ``ramp_max_grade``": where the axis runs on at least
+    ``run_on`` past an end of the profile (the corridor's way continues
+    outside), the floor
     within ramp reach of that end stays within ``grade`` of the ground
     there — the road it hands over to.  An end that is the axis's own end
     hands over to nothing and is left as the members state it."""
     out = list(profile)
-    for k, beyond in ((0, profile[0][0] > _NODE_M), (-1, profile[-1][0] < length - _NODE_M)):
+    for k, beyond in ((0, profile[0][0] >= run_on), (-1, profile[-1][0] <= length - run_on)):
         g = ground_at(profile[k][0]) if beyond else float("nan")
         if g != g:
             continue

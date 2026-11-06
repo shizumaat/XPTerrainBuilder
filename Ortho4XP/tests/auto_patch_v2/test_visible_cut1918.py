@@ -108,9 +108,9 @@ def test_the_axis_runs_on_along_its_continuation_inside_the_cut():
 
 def test_the_floor_rejoins_the_road_where_its_way_runs_on():
     prof = ((100.0, 75.0), (150.0, 70.0), (300.0, 70.0), (500.0, 70.0))
-    out = dict(CD.rejoin(prof, 500.0, lambda s: 65.0, 0.10))
+    out = dict(CD.rejoin(prof, 530.0, lambda s: 65.0, 0.10, 50.0))
     # the way runs on past s 100 (the axis starts at 0): the floor there
     # hands over to the ground (65) at no more than 10 %
     assert abs(out[100.0] - 65.0) < 1e-9 and abs(out[150.0] - 70.0) < 1e-9
-    # s 500 is the axis's own end: nothing to hand over to, left as stated
+    # 30 m of axis past s 500 is no road running on: left as stated
     assert out[500.0] == 70.0 and out[300.0] == 70.0

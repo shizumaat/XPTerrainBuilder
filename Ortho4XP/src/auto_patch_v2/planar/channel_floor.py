@@ -65,7 +65,8 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
         for c in grp:
             c.witnesses.add("pack")
         visible = rejoin(tuple(visible), axis_ln.length,
-                         lambda s: dem_z_at(airport, axis_fn(s)), tn.ramp_max_grade)
+                         lambda s: dem_z_at(airport, axis_fn(s)), tn.ramp_max_grade,
+                         ch.corridor_min_length_m)
         zs = [z for _s, z in visible]
         stats.notes.append(f"{cid}: floor from the visible cut (§45 (3) (i), 2026-11-06d (6)) "
                            f"— the bottoms of the pack's members lying on it, "

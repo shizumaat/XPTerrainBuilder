@@ -16,9 +16,11 @@ member lies ON the cut:
   or a pier's foundation — and states nothing either;
 * every other component reaching ``object_min_depth_m`` under the shell's
   rim (the surrounding grade the pack states) LIES ON THE CUT — a wall or
-  pier foot, a kerb footing, a lamp column, a bank liner — and its vertices
-  standing that far under the rim are the cut's witness points
-  (:attr:`VisibleCut.points`, each tagged with its component).
+  pier foot, a kerb footing, a lamp column, a bank liner — and its surface
+  standing that far under the rim, sampled every quarter ``[channel]
+  station_m`` (a long liner's vertices can stand a station apart), gives the
+  cut's witness points (:attr:`VisibleCut.points`, each tagged with its
+  component).
 
 The channel reads them along its axis (``planar/channel_depth``): a member's
 lowest point at a station is its foot there, the feet are the floor profile
@@ -67,6 +69,7 @@ def _read_visible_cut(f: ObjectFloor, objects: _t.Mapping[str, _obj8.PlacedObjec
     deep = float(f.rim_z if f.rim_z is not None else f.zero_z) \
         - float(law.tables.structures.channel.object_min_depth_m)
     decked = {d.object_id for d in f.decks}
+    step = float(law.tables.structures.channel.station_m) / 4.0
     got: list[np.ndarray] = []
     count = {"cover": 0, "buried": 0}
     for pid, _res, zero in f.seats:
@@ -86,7 +89,7 @@ def _read_visible_cut(f: ObjectFloor, objects: _t.Mapping[str, _obj8.PlacedObjec
                 count[kind] += 1
             if kind != "cut":
                 continue
-            pts = fc.reshape(-1, 3)
+            pts = _dense(fc, step)
             pts = pts[pts[:, 2] <= deep]
             got.append(np.column_stack([pts, np.full(len(pts), float(len(got)))]))
     pts = np.concatenate(got) if got else np.zeros((0, 4))
@@ -95,6 +98,22 @@ def _read_visible_cut(f: ObjectFloor, objects: _t.Mapping[str, _obj8.PlacedObjec
             f"{count['buried']} buried" if len(pts)
             else f"{f.id}: visible cut — no visible member lies on the cut")
     return VisibleCut(f.id, pts, count["cover"], count["buried"], (note,), f.footprint)
+
+
+def _dense(fc: np.ndarray, step: float) -> np.ndarray:
+    """Points on the faces ``fc`` no farther than about ``step`` apart:
+    each triangle subdivided evenly by its longest edge."""
+    out = [fc.reshape(-1, 3)]
+    edge = np.max(np.linalg.norm(fc - np.roll(fc, 1, axis=1), axis=2), axis=1)
+    for n in np.unique(np.ceil(edge / max(step, 1e-6)).astype(int)):
+        if n < 2:
+            continue
+        i, j = np.meshgrid(np.arange(n + 1), np.arange(n + 1), indexing="ij")
+        keep = (i + j) <= n
+        a, b = (i[keep] / n)[:, None], (j[keep] / n)[:, None]
+        for t in fc[np.ceil(edge / max(step, 1e-6)).astype(int) == n]:
+            out.append(t[0] + a * (t[1] - t[0]) + b * (t[2] - t[0]))
+    return np.concatenate(out)
 
 
 def _member(fc: np.ndarray, f: ObjectFloor, span: float, deep: float,

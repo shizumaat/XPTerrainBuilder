@@ -429,6 +429,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.tunnel_walls",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.user_roles",
+        "auto_patch_v2.airport.visible_cut",
         "auto_patch_v2.airport.wall_class",
         "auto_patch_v2.airport.wall_corridor_probe",
         "auto_patch_v2.airport.wall_corridors",
@@ -541,6 +542,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.build",
         "auto_patch_v2.planar.channel",
         "auto_patch_v2.planar.channel_claims",
+        "auto_patch_v2.planar.channel_depth",
         "auto_patch_v2.planar.channel_floor",
         "auto_patch_v2.planar.channel_geometry",
         "auto_patch_v2.planar.channel_witness",
@@ -1670,6 +1672,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor geom.lowest_face planar.object_floor_cells
+    airport.visible_cut planar.channel_depth
     pipeline.lot_follow solve.follow_stage
     geom.exact
         law.runway_ends_schema law.terrain_witness_schema
@@ -1799,6 +1802,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor constraints.object_floor geom.lowest_face planar.object_floor_cells
+    airport.visible_cut planar.channel_depth
     solve.follow_stage
     geom.exact
         law.runway_ends_schema law.terrain_witness_schema

@@ -78,6 +78,7 @@ def test_a_bore_mouth_beside_a_floor_seats_at_that_floor(tmp_path):
     far = _dc_replace(near, id="tunnel:-2@0", axis=((0.0, 40.0), (0.0, 70.0)))
     out, notes = floor_mouths([near, far], floors, LAW)
     assert out[0].mouth_z > 99.7 and out[1].mouth_z == 92.5 and len(notes) == 1
+    assert out[0].portal_floor and not out[1].portal_floor
     road = types.SimpleNamespace(objects=("dsf:obj2",))
     other = types.SimpleNamespace(objects=("dsf:obj9",))
     assert not_floors([road, other], floors) == [other]

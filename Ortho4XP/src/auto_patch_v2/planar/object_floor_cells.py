@@ -147,7 +147,11 @@ def floor_mouths(tunnels: _t.Sequence, floors: _t.Sequence, law) -> tuple[list, 
             continue
         note = (f"{tn.id}: the mouth {best[0]:.1f} m from {f.id} seats at that floor "
                 f"{z:.2f} (was {tn.mouth_z:.2f}; #1903 'mouths seat at that floor')")
-        out.append(_dc.replace(tn, mouth_z=z, notes=(*tn.notes, note)))
+        # an absolute floor, pinned senior at the mouth (``portal_floor``):
+        # never the bore's depth under the end cap's crest
+        out.append(_dc.replace(tn, mouth_z=z, portal_floor=True,
+                               depth_m=max(0.0, float(tn.mouth_dem_z) - z),
+                               notes=(*tn.notes, note)))
         notes.append(note)
     return out, notes
 

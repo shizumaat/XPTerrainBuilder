@@ -10646,3 +10646,9 @@ Walls and decks (#1671 family; with 2026-11-03e (1)–(8)):
 - (16) (07:09Z) runways treat a bridge deck end line like a tile seam: the runway flattens to match the object edge, and the crown yields. Extends 2026-11-03e (2) Q2 ("tile edges trump everything") to deck end lines.
 Process (standing):
 - (17) Usage plan (01:53Z): run at full pace (8 lanes, 2026-11-03e (23)) to 85 % weekly usage; the last 15 % goes to completion, regressions and ship; issues not started by then move to Beta 8.
+
+**2026-11-06a: CIFP ends against an old DEM, embankment fill, contact bar, centreline yield (owner, Noah, 2026-11-06; times UTC).**
+- (1) #1915 (15:34Z, "Yes to both"): amends 2026-10-25a (b). A CIFP runway-end height stands when it agrees with the official field elevation (apt.dat) within about 10 m, even when the CIFP end-to-end grade disagrees with the DEM. The DEM may predate the airport (FHSH: Copernicus 2010-2014 shows the Dry Gut valley ≈ 55 m under the 02 threshold; CIFP 303.89/308.76 m, field 311.5 m). Disagreement with the DEM alone no longer refutes CIFP.
+- (2) #1915 (15:34Z): when the DEM is older than the airport (it sits well below CIFP-stood runway ends or the field elevation), the graded surface is built up to the runway as FILL (an embankment), never pulled down to the DEM. Spec first; it meets the runway cap yield and the adjacent-ground law.
+- (3) (14:24Z) the test_v2taxidatum contact bar is the 5 cm pavement visibility bar (2026-10-15).
+- (4) (14:24Z) runway #1, apron #2, taxiways #3: the 1.5 % taxiway centreline yields before the runway hold (hard_conflict_yield_first, 9e7671078).

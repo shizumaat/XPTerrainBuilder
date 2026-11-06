@@ -6,21 +6,22 @@ from __future__ import annotations
 
 import math
 
-from shapely.geometry import Point
-
 from auto_patch_v2.airport import pack_forests as PF
 from auto_patch_v2.airport import pack_trees_clear as PC
+from shapely.geometry import Point
 
 # a N-S code-4 precision runway (3,000 m, 45 m) and one taxiway east of it
 LAT0, LON0 = 37.90, 23.90
 M_LAT = 1.0 / (math.pi * PC.EARTH_R / 180.0)
 M_LON = M_LAT / math.cos(math.radians(LAT0))
 DLAT = 3000.0 * M_LAT
+RW100 = (f"100 45.00 1 0 0.25 1 2 0 01 {LAT0:.8f} {LON0:.8f} 0 0 3 0 0 0 "
+         f"19 {LAT0 + DLAT:.8f} {LON0:.8f} 0 0 3 0 0 0")
 APT = f"""I
 1200 Version
 
 1 300 0 0 ZZZZ Synthetic
-100 45.00 1 0 0.25 1 2 0 01 {LAT0:.8f} {LON0:.8f} 0 0 3 0 0 0 19 {LAT0 + DLAT:.8f} {LON0:.8f} 0 0 3 0 0 0
+{RW100}
 1201 {LAT0 + 1500 * M_LAT:.8f} {LON0 + 400 * M_LON:.8f} both 1 a
 1201 {LAT0 + 1500 * M_LAT:.8f} {LON0 + 600 * M_LON:.8f} both 2 b
 1202 1 2 twoway taxiway_E A
@@ -121,3 +122,14 @@ def test_a_line_forest_crossing_the_strip_goes_whole(tmp_path):
              + "END_WINDING\nEND_POLYGON\n")
     text, n = PF.clear_strips(_dump(block), {TREE}, _pack(tmp_path))
     assert n == 1 and "BEGIN_POLYGON" not in text
+
+
+def test_only_grass_stands_on_the_strips(tmp_path):
+    # a shrub planter (1.1 m) is cleared like a tree; grass (1.0 m) stays
+    grass = "lib/vegetation/planters/ground/grass_green_1.for"
+    shrub = "lib/vegetation/planters/ground/shrubs_green_1.for"
+    dump = _dump(_square(20, 1000), _square(20, 1000).replace(
+        "BEGIN_POLYGON 0", "BEGIN_POLYGON 1"), defs=(grass, shrub))
+    text, n = PF.clear_strips(dump, {grass, shrub}, _pack(tmp_path))
+    assert n == 1
+    assert "BEGIN_POLYGON 0 255" in text and "BEGIN_POLYGON 1 " not in text

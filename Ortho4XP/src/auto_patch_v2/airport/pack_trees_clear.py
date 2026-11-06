@@ -22,8 +22,10 @@ tree is one.  Any pack, any airport:
 * THE CLEARING — :func:`clear_trees`: every polygon of a definition the
   upgrade wrote (a 3D tree forest) loses what lies inside the areas — an
   area forest is cut (its rings differenced), a point forest loses the
-  trees inside, a line forest whose edges reach an area goes whole.  Ground cover the upgrade leaves alone (the
-  pack's own grass and shrubs, ``pack_trees.local_forest_target``) stays.
+  trees inside, a line forest whose edges reach an area goes whole.  The upgrade's
+  X-Plane 12 shrubs are cleared like trees; its grass (a planter no
+  taller than ``pack_trees_map.GRASS_M``) and what it leaves alone stay
+  (``pack_forests.clear_strips`` picks the definitions).
 """
 from __future__ import annotations
 

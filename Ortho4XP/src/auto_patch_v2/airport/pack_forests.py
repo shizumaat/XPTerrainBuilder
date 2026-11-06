@@ -26,10 +26,11 @@ resources."  This module owns the pure halves, any pack, any tile:
   name is UNMAPPED: reported, never guessed.
 * A PACK'S OWN TREES (issue #1710, :mod:`.pack_trees`): its own flat
   ``.for`` maps to the 3D forest of the tree type and density its
-  ``TREE`` rows read (``pack_trees.local_forest_target``; ground cover
-  maps to nothing), and its own flat tree OBJECTS (``kind="object"``)
-  to the X-Plane 12 3D tree species of the same kind — under the same
-  "this install provides it as 3D" rule.
+  ``TREE`` rows read (``pack_trees.local_forest_target``; its grass and
+  shrubs to X-Plane 12 ground cover of no greater height), and its own
+  flat tree OBJECTS (``kind="object"``) to the X-Plane 12 3D tree
+  species of the same kind — under the same "this install provides it
+  as 3D" rule.
 * THE RENAME — :func:`_rename_definitions`: the dump text with the mapped
   ``POLYGON_DEF`` rows pointing at their targets.  Only those rows change;
   every polygon keeps its index, its points and every other byte.
@@ -46,15 +47,17 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import hashlib
+import math
 import os
 import typing as _t
 
 from . import pack_trees as _pt
 from . import pack_trees_clear as _clear
+from . import pack_trees_density as _density
 from .obj8 import resolve_resource
 from .pack_art import FIRST_PATHS, count_uses, declared_definitions
 from .pack_forests_map import FOREST_MAP
-from .pack_trees_map import FAMILIES
+from .pack_trees_map import FAMILIES, GRASS_M, PLANTERS
 
 __all__ = ["old_forests",
            "renames_of", "apply_upgrade", "record",
@@ -65,8 +68,9 @@ __all__ = ["old_forests",
 RECORD_KEY = "forest_upgrade"
 #: the upgrade's rules (the map and the strip clearing): a record written
 #: under another is stale and re-applied from the pristine DSF (#1920 —
-#: 1: the first map; 2: low vegetation stays low, trees off the strips)
-UPGRADE_VERSION = 2
+#: 1: the first map; 2: low vegetation stays low, trees off the strips;
+#: 3: low vegetation takes X-Plane 12 ground cover, only grass on strips)
+UPGRADE_VERSION = 3
 #: a ``.for`` line keyword that only X-Plane 12's 3D trees use
 KEYWORDS_3D = frozenset({"SHADER_3D", "MESH"})
 
@@ -242,10 +246,13 @@ def apply_upgrade(edited: str, pristine: str, renames: _t.Mapping[str, str],
     """What the DSF write applies for an accepted upgrade: the forest
     renames (:func:`_rename_definitions`) and the tree objects' rewrite
     (``pack_trees.convert_objects``; a renames key whose target is a
-    ``FAMILIES`` key).  Returns the text and the definitions changed."""
+    ``FAMILIES`` key), a planter's polygons at the pack's plant count
+    (``pack_trees_density``) and the strips cleared (:func:`clear_strips`).
+    Returns the text and the definitions changed."""
     objects = {k: v for k, v in renames.items() if v in FAMILIES}
     forests = {k: v for k, v in renames.items() if v not in FAMILIES}
-    text, n = _rename_definitions(edited, forests)
+    text, _thinned = _density.keep_plant_count(edited, forests, pack_root)
+    text, n = _rename_definitions(text, forests)
     text, converted, _trees = _pt.convert_objects(text, pristine, objects,
                                                   pack_root)
     if renames:
@@ -255,11 +262,13 @@ def apply_upgrade(edited: str, pristine: str, renames: _t.Mapping[str, str],
 
 def clear_strips(text: str, targets: _t.Collection[str], pack_root: str
                  ) -> tuple[str, int]:
-    """The upgrade's 3D trees (``targets`` and every ``FAMILIES`` member)
-    cleared of the pack's runway, safety-area and taxiway strips
-    (``pack_trees_clear``, issue #1920).  Returns the text and the
-    polygons changed."""
-    want = set(targets) | {p for sizes in FAMILIES.values() for p, _h in sizes}
+    """The upgrade's 3D trees and shrubs (``targets`` and every
+    ``FAMILIES`` member) cleared of the pack's runway, safety-area and
+    taxiway strips (``pack_trees_clear``, issue #1920).  Grass — a
+    planter no taller than ``pack_trees_map.GRASS_M`` — stays there.
+    Returns the text and the polygons changed."""
+    want = ({t for t in targets if PLANTERS.get(t, (math.inf,))[0] > GRASS_M}
+            | {p for sizes in FAMILIES.values() for p, _h in sizes})
     defs = declared_definitions(text.splitlines())["polygon"]
     tree_defs = {i for i, p in enumerate(defs) if p in want}
     if not tree_defs:

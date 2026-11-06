@@ -20,11 +20,28 @@ the offer and the record carry.
 (:func:`.pack_trees.local_forest_target`).  The file says nothing about
 climate or moisture, so the temperate, wet member of each type is used
 (the X-Plane 12 forests of the same names as the issue #1360 map).
+
+:data:`PLANTERS` — the X-Plane 12 3D GROUND cover a pack's own LOW
+vegetation maps to (owner 2026-11-06, issue #1920 follow-up: "use xp12
+resources where possible if they meet the height requirements"): the
+``lib/vegetation/planters/ground/*`` forests of the same install file
+(never ``planters/high/*``, raised planters), each with the largest
+``max h`` of its ``TREE`` rows (fields 8-9 are min / max height; the
+summer file, the other seasons read the same), its ``SPACING`` (a
+planter is ground cover at half a metre: a polygon keeps the pack's
+plant count, :mod:`.pack_trees_density`) and the plants it holds.
+They are inline plant meshes only — no object, no pot or box.
+:data:`LOW_CLASS` — a low-vegetation class -> (height cap m, the
+planters in order of preference); the first whose height is within the
+cap is the target (:func:`.pack_trees.local_forest_target`).
+``tests/auto_patch_v2/test_pack_trees_planters.py`` re-reads the
+installed library when there is one.
 No row names an airport or a pack.
 """
 from __future__ import annotations
 
-__all__ = ["FAMILIES", "LOCAL_FOREST", "NAME_FAMILY", "TREE_WORDS"]
+__all__ = ["FAMILIES", "LOCAL_FOREST", "NAME_FAMILY", "TREE_WORDS",
+           "PLANTERS", "LOW_CLASS", "GRASS_WORDS", "GRASS_M"]
 
 _T = "lib/vegetation/trees/"
 
@@ -118,8 +135,8 @@ TREE_WORDS = frozenset({"tree", "trees", "veg", "vegetation", "forest",
 
 #: (tree type, sparse) -> the X-Plane 12 3D forest for a pack's own flat
 #: ``.for``; type is ``broad`` | ``coni`` | ``mixed`` (a pack's own shrubs
-#: and grass map to nothing: X-Plane 12's ``shrb_*`` forests are small
-#: trees, issue #1920)
+#: and grass map to :data:`PLANTERS`, never to X-Plane 12's ``shrb_*``
+#: forests, which are small trees, issue #1920)
 LOCAL_FOREST: dict[tuple[str, bool], str] = {
     ("broad", False): "lib/g8/broad_tmp_wet.for",
     ("broad", True): "lib/g8/broad_sp_tmp_wet.for",
@@ -128,3 +145,41 @@ LOCAL_FOREST: dict[tuple[str, bool], str] = {
     ("mixed", False): "lib/g8/mixed_tmp_wet.for",
     ("mixed", True): "lib/g8/mixed_sp_tmp_wet.for",
 }
+
+_P = "lib/vegetation/planters/ground/"
+
+#: virtual path -> (max height m, SPACING m (x, z), the plants it holds)
+PLANTERS: dict[str, tuple[float, tuple[float, float], tuple[str, ...]]] = {
+    _P + "grass_green_1.for": (1.0, (0.5, 0.5),
+                               ("grass", "dryGrass", "tallGrass", "tallWeed")),
+    _P + "grass_dry_1.for": (1.0, (0.5, 0.5),
+                             ("grass", "dryGrass", "tallGrass", "sm_stone")),
+    _P + "shrubs_green_1.for": (1.1, (0.6, 0.6),
+                                ("buxus", "lilac", "prunus", "sorbus",
+                                 "grass", "dryGrass")),
+    _P + "shrubs_green_2.for": (1.1, (0.6, 0.6),
+                                ("buxus", "prunus", "sorbus", "grass",
+                                 "dryGrass")),
+    _P + "shrubs_red_1.for": (1.1, (0.6, 0.6),
+                              ("barberry", "tallGrass", "grass", "dryGrass")),
+}
+
+#: the height a plant may reach inside a runway strip, safety area or
+#: taxiway strip: grass only (issue #1920; a shrub planter is cleared there
+#: like a tree)
+GRASS_M = 1.0
+
+#: class -> (height cap m, planters in order of preference).  ``grass``
+#: (grass, reed, flowers: the pack's own ground cover) takes grass, never
+#: taller than the strip's :data:`GRASS_M`; ``shrub`` takes shrubs lower
+#: than the lowest source a shrub can be (``pack_trees.GROUND_COVER_M``).
+#: Green, not dry: the file says nothing of climate (as :data:`LOCAL_FOREST`).
+LOW_CLASS: dict[str, tuple[float, tuple[str, ...]]] = {
+    "grass": (GRASS_M, (_P + "grass_green_1.for",)),
+    "shrub": (1.5, (_P + "shrubs_green_1.for", _P + "shrubs_green_2.for")),
+}
+
+#: a word of a pack ``.for``'s name that makes it grass-class ground cover
+GRASS_WORDS = frozenset({"grass", "grasses", "reed", "reeds",
+                         "flower", "flowers", "weed", "weeds", "meadow",
+                         "hay", "sedge", "rush", "rushes"})

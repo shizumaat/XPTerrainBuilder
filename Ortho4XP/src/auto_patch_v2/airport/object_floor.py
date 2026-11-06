@@ -43,7 +43,12 @@ owns no ground there (a bridge liner inside the corridor shell).  A shell
 that is the deepest surface with its rim at the ground (``shell_rim_ground_m``
 over ``shell_rim_ground_share`` of its outline) is HIDDEN when
 ``hide_concave_shells`` (owner 2026-11-06T16:13Z): its row is left out of
-the written DSF, the terrain IS its surface.
+the written DSF — and it leaves the terrain solve (2026-11-06d (1)): it owns
+no ground and pins nothing (:func:`owns_ground`), the cut it stood for is
+graded by the map's own laws (channel, road profiles, banks); its footprint
+stays a witness of the cut's extent (:func:`has_footprint`: the deck pieces
+over it, the cut ring they are seated by; A4's withdrawal of the shallower
+shells inside it).
 
 THE FRAME'S ONE ZERO (B1).  Every placement of a floor's frame is written
 whole at the zero the floor was read at — the pack's shared datum — except
@@ -71,7 +76,7 @@ from .hanging_objects import _co_placed, _has_floor
 from .object_cut import _base, _face_normals_y, _plan_segments, placement_order, valid_polygon
 
 __all__ = ["ObjectFloor", "FloorDeck", "read_object_floors", "floor_z_at", "seat_records",
-           "floor_portals", "owns_ground", "FLOOR_REF", "FLOOR_WALL_REF", "SHELL",
+           "floor_portals", "owns_ground", "has_footprint", "FLOOR_REF", "FLOOR_WALL_REF", "SHELL",
            "HIDDEN_SEAT", "FRAME_SEAT"]
 
 #: :attr:`ObjectFloor.kind` of a concave cut shell (else ``"floor"``)
@@ -140,8 +145,16 @@ class FloorDeck:
 
 
 def owns_ground(f: "ObjectFloor") -> bool:
-    """Does ``f`` own any ground (A4: a shallower surface inside a deeper
-    one owns none)?"""
+    """Does ``f`` own any ground — cut cells, pins, portal and mouth seats
+    (A4: a shallower surface inside a deeper one owns none; 2026-11-06d (1):
+    a HIDDEN shell owns none, it leaves the terrain solve)?"""
+    return not f.hidden and has_footprint(f)
+
+
+def has_footprint(f: "ObjectFloor") -> bool:
+    """Does ``f`` state a cut's extent — its footprint, read as a WITNESS
+    even when hidden (2026-11-06d (1): the deck pieces over it, the cut ring
+    the object stage seats them by)?"""
     fp = f.footprint
     return fp is not None and not fp.is_empty and fp.area > 0.0
 
@@ -470,7 +483,7 @@ def seat_records(floors: _t.Iterable[ObjectFloor], to_ll=None) -> list[dict[str,
     decks = {d.object_id: (d.resource, f.zero_z) for f in floors for d in f.decks}
     rings = {}
     for f in floors:
-        if to_ll is not None and f.decks and owns_ground(f):
+        if to_ll is not None and f.decks and has_footprint(f):
             part = max(getattr(f.footprint, "geoms", [f.footprint]), key=lambda q: q.area)
             rings[f.object_id] = [[round(la, 9), round(lo, 9)] for la, lo in
                                   (to_ll(x, y) for x, y in part.exterior.coords)]

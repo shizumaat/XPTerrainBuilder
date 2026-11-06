@@ -14,7 +14,8 @@ round 3 A5) is cut into one face per PLANE of the shell
 ``crease_deg`` or a step of more than ``hollow_m``): a planar ring is
 reproduced exactly by the mesh's harmonic interior, so the faces carry the
 shell's floor, banks and lips, never a membrane spanned over them.  A floor
-that owns no ground (A4: a shallower one inside a deeper) enters no cell.
+that owns no ground (A4: a shallower one inside a deeper; a hidden shell,
+2026-11-06d (1)) enters no cell.
 
 The footprint is SENIOR to every other structure cell over it — the
 object's floor owns the ground inside its footprint, so a mapped bore's
@@ -69,7 +70,9 @@ def add_object_floor_cells(floors: _t.Sequence[ObjectFloor], law, new_cells: lis
     n = 0
     for fl in floors:
         if not owns_ground(fl):
-            notes.append(f"{fl.id}: a deeper surface owns the ground over it — no cell (A4)")
+            notes.append(f"{fl.id}: hidden, it leaves the terrain solve — no cell (2026-11-06d)"
+                         if fl.hidden else
+                         f"{fl.id}: a deeper surface owns the ground over it — no cell (A4)")
             continue
         foot = fl.footprint
         if not runway.is_empty:

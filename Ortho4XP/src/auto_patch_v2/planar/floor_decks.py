@@ -34,7 +34,7 @@ import shapely
 import shapely.affinity
 from shapely.ops import unary_union
 
-from ..airport.object_floor import SHELL, FloorDeck, ObjectFloor, owns_ground
+from ..airport.object_floor import SHELL, FloorDeck, ObjectFloor, has_footprint
 from ..geom.parts import polygon_parts_with_area
 from ..model.frame import xplane_metre_scale
 from ..model.planar import ROAD_ROLES
@@ -44,7 +44,7 @@ __all__ = ["floor_decks"]
 
 def floor_decks(floors: _t.Sequence[ObjectFloor], objects, cache, classification, airport,
                 law) -> tuple[list[ObjectFloor], list[str]]:
-    """``(floors, notes)``: each floor owning ground with the hard-deck
+    """``(floors, notes)``: each shell stating a cut (hidden or not) with the hard-deck
     pieces of its frame the pavement drives across (``ObjectFloor.decks``),
     those placements out of its whole-row seats (they are seated by their
     end lines, module doc)."""
@@ -64,7 +64,7 @@ def floor_decks(floors: _t.Sequence[ObjectFloor], objects, cache, classification
     out: list[ObjectFloor] = []
     notes: list[str] = []
     for f in floors:
-        if f.kind != SHELL or not owns_ground(f):
+        if f.kind != SHELL or not has_footprint(f):
             # a floor OBJECT's covers are its tunnel (walls and roof as one,
             # EGLL ``2.obj``): written whole with it at its zero
             out.append(f)

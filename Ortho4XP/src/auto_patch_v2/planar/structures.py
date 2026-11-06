@@ -297,7 +297,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.bores_no_mouth = len(bores) - len(covered)
     stats.bores_mouth_only = len(mouth_only)
     stats.mouth_only_bores = ["+".join(str(w.id) for w in b.ways) for b in mouth_only][:12]
-    if not covered and not corridors and not extra_groups and not channels:
+    if not covered and not corridors and not extra_groups and not channels \
+            and not object_floors:
         return classification, (), stats
     # THE PRECEDENCE PER MOUTH (05n-3, ``tunnel.object.source_precedence``):
     # an OSM bore mouth inside an object corridor's footprint is the
@@ -306,12 +307,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # replaced; one covered at one end ships an object ramp there and an
     # OSM ramp at the other.
     replaced_ways: dict[str, list[int]] = {}
-    if corridors and tn.object.source_precedence[0] == "object":
+    # #1903: a mouth inside a trench object's own floor is that object's too
+    # — the floor is the cut there, its ramps are the object's own
+    owners = [*corridors, *object_floors]
+    if owners and tn.object.source_precedence[0] == "object":
         tol = tn.object.bore_end_tolerance_m    # 2026-09-08o: a bore end within it PAIRS
         kept = []
         by_bore: dict[int, list[str | None]] = {}
         for m in mouth_list:
-            cid = mouth_covered_by(m.xy, corridors, tol)
+            cid = mouth_covered_by(m.xy, owners, tol)
             by_bore.setdefault(id(m.bore), []).append(cid)
             if cid is None:
                 kept.append(m)

@@ -349,12 +349,18 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
     _stamp_cut_rings(seats, pm, airport)
     # issue #1730: a terrain-shaped hard deck's row is seated at its DEM fit
     from ..airport import terrain_shaped as _ts
+    from ..airport import object_floor as _of
+    floors = tuple(getattr(pm, "object_floors", ()) or ())
+    # #1903: a trench object's floor and covers are written whole at their
+    # read zero — no other seat moves them
+    excluded |= {pid for f in floors for pid, _r, _z in f.seats}
     return {
         "tunnel_objects": _plate_seats(pm, law, seats),
         "authored_seats": (tuple(seats[k] for k in sorted(seats))
                            + tuple(_ts.seat_records(airport))
                            + tuple(_ts.portal_seat_records(pm.structures,
-                                                           airport.frame.transformers()[1]))),
+                                                           airport.frame.transformers()[1]))
+                           + tuple(_of.seat_records(floors))),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``

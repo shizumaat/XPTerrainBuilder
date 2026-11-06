@@ -48,3 +48,16 @@ def test_a_floor_with_no_cover_is_not_a_tunnels(tmp_path):
     floors, notes = OF.read_object_floors([_placed(_ramped_floor(tmp_path), "dsf:obj2")],
                                           cache, LAW, {})
     assert floors == [] and any("no co-placed cover" in n for n in notes)
+
+
+def test_the_floor_and_its_cover_are_seated_whole_at_their_read_zero(tmp_path):
+    """Mouths seat at the floor, walls end on it: both rows are written
+    OBJECT_MSL at the zero the cut was read from (no split re-seat)."""
+    from auto_patch_v2.airport import terrain_shaped as TS
+    cache = O.ResourceCache(THICK)
+    objs = [_placed(_cover(tmp_path), "dsf:obj1"), _placed(_ramped_floor(tmp_path), "dsf:obj2")]
+    floors, _notes = OF.read_object_floors(objs, cache, LAW, {})
+    recs = OF.seat_records(floors)
+    assert {(r["id"], r["elevation"], r["seat"]) for r in recs} == {
+        ("dsf:obj2", 100.0, TS.OBJECT_FLOOR_SEAT), ("dsf:obj1", 100.0, TS.OBJECT_FLOOR_SEAT)}
+    assert TS.OBJECT_FLOOR_SEAT in TS._WHY

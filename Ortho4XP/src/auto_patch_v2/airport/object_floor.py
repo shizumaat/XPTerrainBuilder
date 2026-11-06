@@ -40,15 +40,20 @@ import shapely
 from shapely.ops import unary_union
 
 from . import obj8 as _obj8
+from . import terrain_shaped as _ts
 from .hanging_objects import _co_placed, _has_floor
 from .object_cut import _base, _cover_plate, _face_normals_y, placement_order, valid_polygon
 
-__all__ = ["ObjectFloor", "read_object_floors", "floor_z_at", "FLOOR_REF", "FLOOR_WALL_REF"]
+__all__ = ["ObjectFloor", "read_object_floors", "floor_z_at", "seat_records", "FLOOR_REF",
+           "FLOOR_WALL_REF", "FLOOR_SEAT"]
 
 #: The planar ref of a floor's cut face (``FLOOR_REF + id``) and of the
 #: void band around it (``FLOOR_WALL_REF + id``).
 FLOOR_REF = "object_floor:"
 FLOOR_WALL_REF = "object_floor_wall:"
+#: the seat record's ``seat`` value (``terrain_shaped.row_seats``): the row
+#: written whole, ``OBJECT_MSL`` at the zero its floor was cut from
+FLOOR_SEAT = _ts.OBJECT_FLOOR_SEAT
 
 
 @_dc.dataclass(frozen=True)
@@ -67,6 +72,10 @@ class ObjectFloor:
     footprint: object
     faces: np.ndarray = _dc.field(repr=False, compare=False)
     notes: tuple[str, ...] = ()
+    #: ``(placement id, resource, zero)`` of the floor and each cover: the
+    #: rows written WHOLE at their read zero (:func:`seat_records`) — the cut
+    #: is that zero's floor, so the authored seat is the one that lands on it
+    seats: tuple[tuple[str, str, float], ...] = ()
 
 
 def floor_z_at(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float],
@@ -197,7 +206,7 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                          f"no co-placed cover (walls under its zero, or a flush hard deck "
                          f"over its own walls): not a tunnel's floor")
             continue
-        zero = float(msl[o.id]) if o.kind == "OBJECT_MSL" else float(o.anchor_z + o.agl_m)
+        zero = _zero(o, msl)
         got = _placed_floor(o, g, zero, law)
         if got is None:
             notes.append(f"{o.id} {_base(o.path)}: no below-grade floor face of a plate's worth")
@@ -210,6 +219,24 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                 f"floor {fz:.2f} (zero {zero:.2f}), the floor of "
                 + ", ".join(_base(p.path) for p in covers))
         notes.append(note)
+        seats = tuple((p.id, p.path, _zero(p, msl)) for p in (o, *covers))
         out.append(ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@{k}", o.id, o.path,
-                               tuple(p.id for p in covers), zero, fz, foot, faces, (note,)))
+                               tuple(p.id for p in covers), zero, fz, foot, faces, (note,),
+                               seats))
     return out, notes
+
+
+def _zero(o: _obj8.PlacedObject, msl: _t.Mapping[str, float]) -> float:
+    """The placement's zero as read: its MSL elevation, or the ground under
+    its anchor plus its AGL."""
+    return float(msl[o.id]) if o.kind == "OBJECT_MSL" else float(o.anchor_z + o.agl_m)
+
+
+def seat_records(floors: _t.Iterable[ObjectFloor]) -> list[dict[str, _t.Any]]:
+    """One seat record per placement of every object floor (the floor and
+    its covers): written WHOLE as ``OBJECT_MSL`` at the zero the cut was
+    read from ("mouths seat at that floor; walls end on it") — never split
+    and re-seated on feet that stand in its own cut."""
+    return [{"id": pid, "resource": res, "datum": "object_floor", "seat": FLOOR_SEAT,
+             "elevation": round(float(z), 3)}
+            for f in floors for pid, res, z in f.seats]

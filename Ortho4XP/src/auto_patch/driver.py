@@ -443,7 +443,9 @@ def auto_patch_stale_inputs(meta: dict, patch_file: str, xp_root: str,
         stale.append(("o4_apt_dat", meta["apt_dat"], apt_now))
     else:
         try:
-            mtime_now: float | None = os.path.getmtime(apt_now)
+            # #1916: the read frame's date (the flatten strip is not an update)
+            from auto_patch_v2.airport.apt_flatten import read_mtime
+            mtime_now: float | None = read_mtime(apt_now)
         except OSError:
             mtime_now = None
         stored = meta.get("apt_dat_mtime")

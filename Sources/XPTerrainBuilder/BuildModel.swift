@@ -1232,6 +1232,8 @@ final class BuildModel: ObservableObject {
             slowStep(step)
         case .packOptimise(let optimise):
             packOptimise(optimise)
+        case .packAdjust(let adjust):
+            packAdjust(adjust)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -2149,6 +2151,44 @@ final class BuildModel: ObservableObject {
     func undoPackForests(packPath: String) {
         connectIfNeeded()
         client?.packForests(packRoot: packPath, action: "undo")
+    }
+
+    /// The package adjustments question to present, or nil (#1916).
+    @Published var packAdjustPrompt: O4PackAdjust?
+    /// Questions waiting behind the one on screen, in arrival order.
+    private var packAdjustQueue: [O4PackAdjust] = []
+    /// Every question already asked this session (one per pack, tile and
+    /// row set — each airport of a pack runs the check).
+    private var packAdjustSeen: Set<String> = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_pack_adjust`): a question
+    /// with a choice in it asks once; an applied or undone answer refreshes
+    /// the tile's Modified airports rows.
+    private func packAdjust(_ adjust: O4PackAdjust) {
+        if adjust.state == "applied" || adjust.state == "undone" {
+            packForestsChanged += 1
+        }
+        if adjust.state == "ask" { packAdjustSeen.remove(adjust.id) }
+        guard adjust.asks, !packAdjustSeen.contains(adjust.id) else { return }
+        packAdjustSeen.insert(adjust.id)
+        if packAdjustPrompt == nil {
+            packAdjustPrompt = adjust
+        } else {
+            packAdjustQueue.append(adjust)
+        }
+    }
+
+    /// The user's answer to the question on screen: "update" (the checked
+    /// rows) or "never" sends `pack_adjust` with every row shown; nil (Not
+    /// now) sends nothing.
+    func answerPackAdjustPrompt(action: String?, items: [String] = []) {
+        if let adjust = packAdjustPrompt, let action {
+            client?.packAdjust(packRoot: adjust.packRoot, action: action,
+                               lat: adjust.lat, lon: adjust.lon,
+                               items: action == "update" ? items : nil,
+                               shown: adjust.choices.map(\.key))
+        }
+        packAdjustPrompt = packAdjustQueue.isEmpty ? nil : packAdjustQueue.removeFirst()
     }
 
     /// The "Optimise pack" question to present, or nil (#1707).

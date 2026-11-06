@@ -368,7 +368,8 @@ def _decode_block(raw: bytes) -> list[str]:
 
 
 def _scan_airport_block(path: str, icao: str) -> list[str] | None:
-    """The pre-index linear scan — the fallback, and the twins' oracle."""
+    """The pre-index linear scan — the fallback, and the twins' oracle
+    (``path`` is already the read frame)."""
     out: list[str] = []
     inside = False
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -402,6 +403,10 @@ def read_airport_block(path: str, icao: str) -> list[str] | None:
     """The lines of ``icao``'s block (header included, up to the next
     header or the ``99`` terminator), or ``None``."""
     icao = icao.upper()
+    # #1916: a pack apt.dat the app stripped of its flatten flag is read
+    # as shipped (``apt_flatten.read_path``, the one apt.dat read frame)
+    from .apt_flatten import read_path
+    path = read_path(path)
     index = _block_index(path)
     if index is None:
         return None

@@ -213,6 +213,21 @@ def pack_old_forests(**fields):
 
 
 ################################################################################
+def pack_adjust(**fields):
+    """An airport pack's adjustments — the rows that ask (trees, draped
+    photos) and the automatic one (the flatten flag) — or the outcome of
+    the user's answer (issue #1916).
+
+    ``fields`` are the ``PackAdjust`` event's.  No-op without an engine
+    session or GUI and never raises.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.pack_adjust_event(**fields)
+        except Exception:
+            pass
+
+
 def pack_optimise(**fields):
     """An airport pack "Optimise pack" can lighten, or the outcome of the
     user's answer (issue #1707).

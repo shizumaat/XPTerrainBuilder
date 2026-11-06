@@ -153,6 +153,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.airside_group_seat",
         "auto_patch_v2.airport.anchor_rule",
         "auto_patch_v2.airport.apt_dat",
+        "auto_patch_v2.airport.apt_flatten",
         "auto_patch_v2.airport.authored_landing",
         "auto_patch_v2.airport.authored_seat",
         "auto_patch_v2.airport.backup_state",
@@ -320,6 +321,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.airside_group_seat",
         "auto_patch_v2.airport.anchor_rule",
         "auto_patch_v2.airport.apt_dat",
+        "auto_patch_v2.airport.apt_flatten",
         "auto_patch_v2.airport.authored_landing",
         "auto_patch_v2.airport.authored_seat",
         "auto_patch_v2.airport.backup_state",
@@ -800,6 +802,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.airside_group_seat",
         "auto_patch_v2.airport.anchor_rule",
         "auto_patch_v2.airport.apt_dat",
+        "auto_patch_v2.airport.apt_flatten",
         "auto_patch_v2.airport.authored_landing",
         "auto_patch_v2.airport.authored_seat",
         "auto_patch_v2.airport.backup_state",
@@ -1502,6 +1505,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     geom.exact
         law.runway_ends_schema law.terrain_witness_schema
     airport classify model pipeline planar airport.anchor_rule airport.apt_dat
+    airport.apt_flatten
     airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
@@ -1591,6 +1595,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     geom.exact
         law.inset_class law.runway_ends_schema law.terrain_witness_schema
     airport constraints model airport.anchor_rule airport.apt_dat
+    airport.apt_flatten
     airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
@@ -1657,6 +1662,7 @@ CODE_MODULES["solve"] = _mods("""
         law.runway_ends_schema law.terrain_witness_schema
     airport classify constraints model pipeline planar solve airport.anchor_rule
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
+    airport.apt_flatten
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
     airport.bridge_family airport.bulk_geos airport.cluster_profile airport.contact
     airport.contents airport.deck_signature airport.dem geom.water_level airport.dem_production
@@ -1783,6 +1789,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
         law.runway_ends_schema law.terrain_witness_schema
     airport classify emit model pipeline planar solve airport.anchor_rule
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
+    airport.apt_flatten
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
     airport.bridge_family airport.bulk_geos airport.cluster_profile airport.contact
     airport.contents airport.deck_signature airport.dem geom.water_level airport.dem_production
@@ -1924,6 +1931,7 @@ CODE_MODULES["emit"] = _mods("""
         constraints.runway_end_report law.runway_ends_schema law.terrain_witness_schema
     airport constraints emit model pipeline planar verify airport.anchor_rule
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
+    airport.apt_flatten
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
     airport.deck_signature airport.dem airport.dem_witness airport.dsf geom.water_level
@@ -2013,6 +2021,7 @@ CODE_MODULES["verify"] = _mods("""
         constraints.runway_end_report law.runway_ends_schema law.terrain_witness_schema
     airport classify constraints emit model pipeline planar solve airport.anchor_rule
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
+    airport.apt_flatten
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
     airport.deck_signature airport.dem airport.dem_witness airport.dsf

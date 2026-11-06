@@ -44,7 +44,8 @@ HEAVY = OS.PackWeight("Some Pack", "/p/+25+051.dsf", 275_000_000,
 @pytest.fixture
 def choices(tmp_path, monkeypatch):
     paths = {n: str(tmp_path / "prefs" / n)
-             for n in (OS.CHOICES_NAME, FS.CHOICES_NAME, PC.OPTIMISE_STEPS)}
+             for n in (OS.CHOICES_NAME, FS.CHOICES_NAME, PC.OPTIMISE_STEPS,
+                       PC.DRAPE_CHOICES)}
     monkeypatch.setattr(PC, "store_path", lambda name: paths[name])
     return paths
 

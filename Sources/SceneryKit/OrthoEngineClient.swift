@@ -336,6 +336,10 @@ public enum O4Event: Sendable, Equatable {
     /// found by the object stage, or the outcome of a build or a
     /// `pack_optimise` command. See `O4PackOptimise`.
     case packOptimise(O4PackOptimise)
+    /// An airport pack's adjustments as one question (capability
+    /// `pack_adjust`, #1916): found by the object stage, the report, or a
+    /// `pack_adjust` command's outcome. See `O4PackAdjust`.
+    case packAdjust(O4PackAdjust)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -539,6 +543,22 @@ public enum O4Event: Sendable, Equatable {
                         mb: (row["mb"] as? NSNumber)?.doubleValue ?? 0)
                 },
                 chosen: (object["chosen"] as? [Any])?.compactMap { $0 as? String } ?? []))
+        // Another STRING LITERAL match: `class PackAdjust` in
+        // Ortho4XP/src/o4_engine/events.py.
+        case "PackAdjust":
+            return .packAdjust(O4PackAdjust(
+                pack: string("pack"), packRoot: string("pack_root"),
+                lat: int("lat"), lon: int("lon"),
+                items: ((object["items"] as? [[String: Any]]) ?? []).map { row in
+                    O4PackAdjustItem(
+                        key: row["key"] as? String ?? "",
+                        count: (row["count"] as? NSNumber)?.intValue ?? 0,
+                        uses: (row["uses"] as? NSNumber)?.intValue ?? 0,
+                        automatic: (row["automatic"] as? NSNumber)?.boolValue ?? false)
+                },
+                files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                state: object["state"] as? String ?? "found",
+                error: string("error")))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -983,7 +1003,25 @@ public final class OrthoEngineClient: @unchecked Sendable {
                        extra: steps.map { ["steps": $0] } ?? [:])
     }
 
-    /// A per-pack choice command (`pack_forests`, `pack_optimise`): the
+    // MARK: - Package adjustments (capability pack_adjust)
+
+    /// The user's answer about a pack's adjustments (#1916): action
+    /// "update" with `items` the rows left checked and `shown` every row
+    /// the question showed (a shown row left out is remembered as never),
+    /// "never" with `shown`, "undo", or "ask" (the report). The engine
+    /// replies `{"status": "started"}` and completes with a `packAdjust`
+    /// event.
+    public func packAdjust(packRoot: String, action: String,
+                           lat: Int? = nil, lon: Int? = nil,
+                           items: [String]? = nil, shown: [String]? = nil) {
+        var extra: [String: Any] = [:]
+        if let items { extra["items"] = items }
+        if let shown { extra["shown"] = shown }
+        sendPackChoice("pack_adjust", packRoot: packRoot, action: action,
+                       lat: lat, lon: lon, extra: extra)
+    }
+
+    /// A per-pack choice command (`pack_forests`, `pack_optimise`, `pack_adjust`): the
     /// tile's DSF with lat/lon, the whole pack without.
     private func sendPackChoice(_ command: String, packRoot: String,
                                 action: String, lat: Int?, lon: Int?,

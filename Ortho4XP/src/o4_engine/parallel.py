@@ -605,6 +605,8 @@ _FORWARDED_EVENT_TYPES = (
     "SlowStep",
     # #1707: ... and a pack "Optimise pack" can lighten.
     "PackOptimise",
+    # #1916: ... and a pack's adjustments (trees, draped photos, flatten).
+    "PackAdjust",
     "Log",
 )
 

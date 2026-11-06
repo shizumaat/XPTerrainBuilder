@@ -46,6 +46,7 @@ from .events import (
     PackMissingArt,
     PackOldForests,
     PackOptimise,
+    PackAdjust,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     SlowStep,
     StepProgress,
@@ -2000,6 +2001,28 @@ class EngineSession:
         """A pack "Optimise pack" can lighten (#1707): the
         ``PackOptimise`` event (``UI.pack_optimise`` hook)."""
         self._emit_known(PackOptimise, fields)
+
+    def pack_adjust_event(self, **fields):
+        """A pack's adjustments (#1916): the ``PackAdjust`` event
+        (``UI.pack_adjust`` hook)."""
+        self._emit_known(PackAdjust, fields)
+
+    def pack_adjust(self, pack_root="", action="", lat=None, lon=None,
+                    items=None, shown=None):
+        """THE USER'S ANSWER (capability ``pack_adjust``, #1916):
+        ``action`` is ``"update"`` (the rows of ``items`` applied, the rows
+        of ``shown`` left unticked remembered as never), ``"never"``,
+        ``"undo"`` or ``"ask"`` (the report: the rows that apply now).
+        Replies ``{"status": "started"}`` at once and completes with a
+        ``PackAdjust`` event (``adjust_stage.adjust_choice``)."""
+        from auto_patch import adjust_stage as _AS
+        picked = None if items is None else [str(x) for x in items]
+        seen = None if shown is None else [str(x) for x in shown]
+        return self._pack_choice_worker(
+            "o4-pack-adjust",
+            lambda r, a, la, lo: _AS.adjust_choice(r, a, la, lo, items=picked,
+                                                   shown=seen),
+            pack_root, action, lat, lon)
 
     def _emit_known(self, cls, fields):
         """``cls(**fields)`` emitted, its unknown fields dropped so an

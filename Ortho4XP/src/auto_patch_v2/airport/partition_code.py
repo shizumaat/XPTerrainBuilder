@@ -54,6 +54,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.airside_group_seat",
     "auto_patch_v2.airport.anchor_rule",
     "auto_patch_v2.airport.apt_dat",
+    "auto_patch_v2.airport.apt_flatten",
     "auto_patch_v2.airport.authored_landing",
     "auto_patch_v2.airport.authored_seat",
     "auto_patch_v2.airport.backup_state",

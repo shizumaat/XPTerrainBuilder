@@ -142,6 +142,8 @@ struct MapMainView: View {
         // An airport pack "Optimise pack" can lighten (protocol 1.31,
         // #1707): its own modifier, so this expression stays type-checkable.
         .modifier(PackOptimisePrompt(buildModel: buildModel))
+        // An airport pack's adjustments (capability pack_adjust, #1916).
+        .modifier(PackAdjustPrompt(buildModel: buildModel))
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
             set: { if !$0 { controller.errorMessage = nil } }

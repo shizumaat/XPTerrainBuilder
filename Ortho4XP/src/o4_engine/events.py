@@ -215,6 +215,7 @@ CAPABILITIES: tuple = (
     # -- after the freeze: one flag per feature, appended below --
     "patch_roles",                  # 2026-11-03, #1697 patch_roles / patch_role_set
     "pack_ground_notice",           # 2026-11-04, #1362 BuildDone warning pack_ground_no_mesh
+    "pack_adjust",                  # 2026-11-06, #1916 PackAdjust + pack_adjust
 )
 
 
@@ -786,6 +787,47 @@ class PackOptimise(EngineEvent):
     swapped: int = 0
     steps: list = field(default_factory=list)
     chosen: list = field(default_factory=list)
+    files: list = field(default_factory=list)
+    state: str = "found"
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class PackAdjust(EngineEvent):
+    """An airport pack's ADJUSTMENTS (issue #1916): every change the app
+    makes or offers to make to a pack it modifies, as ONE question.
+
+    Emitted by the object stage (``auto_patch.adjust_stage``) for a pack
+    the build modifies when a row still needs the user's answer, and as
+    the completion of a ``pack_adjust`` command (capability
+    ``pack_adjust``; it replies ``{"status": "started"}`` at once).
+    ``items`` is one ``{"key", "count", "uses", "automatic",
+    "first_paths"}`` per adjustment that applies: ``"trees"`` (``count``
+    old flat forest definitions with an X-Plane 12 3D equivalent),
+    ``"drapes"`` (``count`` draped photo definitions over the airport,
+    ``uses`` their polygons) — each a checkbox, checked by default — and
+    ``"flatten"`` (``automatic``: the apt.dat's ``1302 flatten 1`` is
+    removed on every write; listed, never a choice).  ``state``:
+
+    * ``"found"`` — (build) ask, once per pack and tile: **Apply** sends
+      ``pack_adjust`` with ``action="update"``, ``items`` the rows left
+      checked and ``shown`` every row shown; **Never for this pack**
+      ``action="never"`` with ``shown``; **Not now** sends nothing.
+    * ``"ask"`` — (command ``action="ask"``) the report: the same rows.
+    * ``"applied"`` / ``"never"`` / ``"undone"`` / ``"none"`` /
+      ``"failed"`` (``error`` says why) — a command's outcome; ``files``
+      lists what was rewritten.
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
+    pack: str = ""
+    pack_root: str = ""
+    lat: int = 0
+    lon: int = 0
+    items: list = field(default_factory=list)
     files: list = field(default_factory=list)
     state: str = "found"
     error: str = ""

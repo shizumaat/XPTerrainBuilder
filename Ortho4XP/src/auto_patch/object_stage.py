@@ -951,10 +951,11 @@ def rebake_after_mesh(tile) -> dict:
                               and _pack_copy.copy_dir() is None)
                 art = _art_stage(plan_, tile, writes=writes,
                                  place=bool(plan_.units))
-                # #1360: ... and its old flat forests (the placement write
-                # below re-applies an upgrade this records)
-                from . import forest_stage as _forests
-                _forests.forest_stage(plan_, tile, writes=writes)
+                # #1360/#1916: ... and its adjustments — the old flat
+                # forests, the draped photos, the apt.dat's flatten flag
+                # (the placement write below re-applies what they record)
+                from . import adjust_stage as _adjust
+                _adjust.adjust_stage(plan_, tile, writes=writes)
                 # #1707: ... and whether the user's "Optimise pack" applies
                 from . import optimise_stage as _optimise
                 _optimise.optimise_stage(plan_, tile, writes=writes)

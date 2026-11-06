@@ -143,6 +143,7 @@ from . import dsf_commands as _cmds
 from . import dsf_dump_key as _dk
 from . import dsf_heights as _dh
 from . import pack_art as _pa
+from . import pack_drapes as _pd
 from . import pack_forests as _pf
 from . import pack_optimise as _po
 from . import split_guard as _sg
@@ -1499,6 +1500,7 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                forests: _t.Mapping[str, str] | None = None,
                seats: _us.ByAirport | None = None,
                optimise: _t.Mapping[str, _t.Any] | None = None,
+               drapes: _t.Sequence[_pa.MissingDef] | None = None,
                mend: bool = True) -> WriteResult:
     """Apply ``plan`` to the pack's DSF (§3.3-§3.5).
 
@@ -1546,7 +1548,13 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     accepted (``pack_optimise``): its duplicate placements leave the dump
     with the plan's own §15 (4) drops, before the omission.  ``None``
     re-applies the recipe the record holds for this pristine DSF, ``{}``
-    writes without it (Undo).  The record gains ``pack_optimise``."""
+    writes without it (Undo).  The record gains ``pack_optimise``.
+
+    ``drapes`` (issue #1916) is the pack's draped orthophotos the user
+    chose to hide (``pack_drapes.draped_orthos``): their definitions and
+    every polygon drawing one leave the dump with the omission.  ``None``
+    keeps the hiding the record holds for this pristine DSF, ``()``
+    writes without it (Undo).  The record gains ``hidden_drapes``."""
     dsf_path = plan.dsf_path or ""
     if not os.path.isfile(dsf_path):
         raise FileNotFoundError(f"DSF not found: {dsf_path!r}")
@@ -1648,6 +1656,12 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     rows = _us.placements(pristine_text) if hand else ()
     if optimise is None:
         optimise = _po.recorded(prior_entry, backup_sha)
+    if drapes is None:
+        drapes = _pd.recorded(prior_entry, backup_sha)
+    # one omission: the missing art the user accepted and the photos hidden
+    gone = {(m.kind, m.index) for m in omit}
+    omit_all = tuple(omit) + tuple(m for m in drapes
+                                   if (m.kind, m.index) not in gone)
     generated = _po.write_generated(pack_root, optimise) if optimise else []
     siblings, sibling_rows = _sibling_plans(prior_entry, plan, text,
                                             backup_sha, drop, notes)
@@ -1663,7 +1677,7 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         placed, seated, refused = _us.apply(composed, _us.union(hand), rows)
         _refuse_missing_bodies(pack_root, placed)            # #1214 R1
         edited, omitted, unused, optimised, swapped = _edited_text(
-            pinned, placed, omit,
+            pinned, placed, omit_all,
             engine_version or plan.provenance.engine_version, optimise)
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
         # a seat under the pinned HEIGHTS base cannot be encoded
@@ -1774,6 +1788,9 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         # #1703: the objects the user seated by hand, or None
         _us.RECORD_KEY: (_us.record(backup_sha, hand, seated, _bs.stamp())
                          if hand else None),
+        # #1916: the pack's draped photos the user chose to hide, or None
+        _pd.RECORD_KEY: (_pd.record(backup_sha, drapes, omitted, _bs.stamp())
+                         if drapes else None),
         # #1707: the "Optimise pack" recipe the user accepted, or None
         _po.RECORD_KEY: (_po.record(backup_sha, optimise, optimised,
                                     _bs.stamp(), {"swaps": swapped,

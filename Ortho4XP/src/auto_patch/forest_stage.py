@@ -148,12 +148,15 @@ def _upgrade(pf: PackForests, pack_root: str, lat: int, lon: int) -> str:
     return "upgraded"
 
 
-def forest_stage(plan_, tile, *, writes: bool) -> str:
+def forest_stage(plan_, tile, *, writes: bool,
+                 found: _t.Callable[[PackForests], _t.Any] | None = None) -> str:
     """The 3D trees step of ONE airport's pack, ahead of its placement
     write (which re-applies whatever this step recorded).  Returns what
     happened — ``""`` (nothing to say), ``"found"`` (the user is asked),
     ``"upgraded"``, ``"failed"``, ``"never"``, ``"current"`` — for the
-    log and the twins.  Never raises."""
+    log and the twins.  ``found`` takes the check instead of the
+    ``PackOldForests`` question (#1916: the trees are one row of the
+    pack's adjustments, ``adjust_stage``).  Never raises."""
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import pack_forests as _pf
     pack_root = getattr(plan_, "pack_root", "") or ""
@@ -173,7 +176,10 @@ def forest_stage(plan_, tile, *, writes: bool) -> str:
         return "never"
     if writes and choice == "update":
         return _upgrade(pf, pack_root, tile.lat, tile.lon)
-    _announce(pf, pack_root, tile.lat, tile.lon, "found")
+    if found is not None:
+        found(pf)
+    else:
+        _announce(pf, pack_root, tile.lat, tile.lon, "found")
     return "found"
 
 

@@ -1,6 +1,7 @@
 """THE REWRITE AND THE UNDO of a user's choice for an airport pack that
-every write re-applies: the X-Plane 12 3D trees (#1360, ``forest_stage``)
-and "Optimise pack" (#1707, ``optimise_stage``).
+every write re-applies: the X-Plane 12 3D trees (#1360, ``forest_stage``),
+"Optimise pack" (#1707, ``optimise_stage``) and the hidden draped photos
+(#1916, ``drape_stage``).
 
 * :func:`rewrite_dsf` — the pack DSF written again from its pristine
   backup with everything of ours as recorded (every airport's placement
@@ -25,7 +26,8 @@ __all__ = ["rewrite_dsf", "undo_recorded"]
 
 def rewrite_dsf(pack_root: str, pack_name: str, dsf: str,
                 **choice: _t.Any) -> str:
-    """The pack DSF written with ``choice`` (``forests=`` or ``optimise=``)
+    """The pack DSF written with ``choice`` (``forests=``, ``optimise=`` or
+    ``drapes=``)
     and everything else of ours as recorded; returns the backup path."""
     import O4_File_Names as FNAMES
     from auto_patch_v2.airport import backup_state as _bs
@@ -59,12 +61,13 @@ def _others_recorded(entry: _t.Mapping[str, _t.Any], record_key: str) -> bool:
     ``record_key`` choice: an airport's seating, an accepted omission, or
     the other recorded choice."""
     from auto_patch_v2.airport import pack_art as _pa
+    from auto_patch_v2.airport import pack_drapes as _pd
     from auto_patch_v2.airport import pack_forests as _pf
     from auto_patch_v2.airport import pack_optimise as _po
     sha = entry.get("backup_sha256") or ""
     if entry.get("airports") or _pa.recorded(entry, sha):
         return True
-    return any(m.recorded(entry, sha) for m in (_pf, _po)
+    return any(m.recorded(entry, sha) for m in (_pf, _po, _pd)
                if m.RECORD_KEY != record_key)
 
 

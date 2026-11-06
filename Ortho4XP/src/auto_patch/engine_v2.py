@@ -433,7 +433,9 @@ def _stamp_header(task: dict) -> dict[str, str]:
     if apt:
         hdr["o4_apt_dat"] = urllib.parse.quote(str(apt))
         try:
-            hdr["o4_apt_dat_mtime"] = f"{os.path.getmtime(apt):.6f}"
+            # #1916: the shipped file's date, not the flatten strip's
+            from auto_patch_v2.airport.apt_flatten import read_mtime
+            hdr["o4_apt_dat_mtime"] = f"{read_mtime(str(apt)):.6f}"
         except OSError:
             pass
     fresh = task.get("freshness")

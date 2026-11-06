@@ -3559,19 +3559,32 @@ class MainWindow(QMainWindow):
                 files = []
         self.custom_patch_label.setText(
             CUSTOM_PATCHES.info_text(files) if files else "")
-        self.use_auto_patch_btn.setEnabled(not self._building)
+        self._sync_use_auto_patch_btn()
         self._info_layout.setRowVisible(self.custom_patch_row, bool(files))
         if tile is not None:
             bands = self.map.custom_patched()
             self.map.set_custom_patched(
                 bands | {tile} if files else bands - {tile})
 
+    def _tile_in_run(self, tile):
+        """#1922: *tile* is queued or building in the current run (a
+        live Activity row) — the per-tile actions wait for it alone."""
+        state = self._progress_states.get(tile)
+        return (self._building and tile in self._run_tiles
+                and not (state and ACTORDER.is_finished(state[0], state[1])))
+
+    def _sync_use_auto_patch_btn(self):
+        """Use auto patch waits only while ITS tile is in the run."""
+        tile = getattr(self, "_custom_patch_tile", None)
+        self.use_auto_patch_btn.setEnabled(
+            tile is not None and not self._tile_in_run(tile))
+
     def _use_auto_patch(self):
         """Use auto patch: set the active tile's custom patches aside."""
         import O4_Custom_Patches as CUSTOM_PATCHES
 
         tile = self._custom_patch_tile
-        if tile is None or self._building:
+        if tile is None or self._tile_in_run(tile):
             return
         try:
             moved = CUSTOM_PATCHES.use_auto_patch(tile[0], tile[1])
@@ -4618,6 +4631,8 @@ class MainWindow(QMainWindow):
         under the live ones, #1341)."""
         self._paint_row_state(tile)
         self._sync_row_order()
+        if tile == self._custom_patch_tile:
+            self._sync_use_auto_patch_btn()
 
     def _paint_row_state(self, tile):
         """Repaint one Activity row: status text and colour, the title
@@ -5135,6 +5150,7 @@ class MainWindow(QMainWindow):
 
     def _on_run_done(self, event):
         self._building = False
+        self._sync_use_auto_patch_btn()
         self._storage_auto_clean()
         for box in list(self._slow_step_boxes.values()):
             box.close()

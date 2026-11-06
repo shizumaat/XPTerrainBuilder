@@ -268,7 +268,9 @@ def build(airport: Airport, classification: Classification, law: Law,
     # claimed out of the basin intake like a shell's
     floors, floor_notes = read_object_floors(
         objects, cache, law,
-        {o.id: o.y_offset_m for o in airport.dsf_objects if o.kind == "OBJECT_MSL"})
+        {o.id: o.y_offset_m for o in airport.dsf_objects if o.kind == "OBJECT_MSL"},
+        shells=frozenset(o for c in corridors if c.id.startswith("object-cut:")
+                         for o in c.objects))
     floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}
     if floor_ids:
         corridors = [c for c in corridors if not (set(c.objects) & floor_ids)]

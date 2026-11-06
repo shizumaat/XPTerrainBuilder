@@ -1343,10 +1343,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.tunnels = len(tunnels)
     stats.survey_cuts = len(survey_cuts)
     keepouts.extend(survey_cuts)
+    # the channel's cells first: an object floor over a channel owns its
+    # footprint and trims the channel back to its rim (#1903, LGAV)
+    channels_in = add_channel_cells(channels, law, new_cells, footprints, keepouts, stats)
     floors_in = add_object_floor_cells(object_floors, law, new_cells, footprints, hull_knives,
                                        keepouts, cells, polys, stats.object_floors)
-    if not add_channel_cells(channels, law, new_cells, footprints, keepouts, stats) \
-            and not tunnels and not floors_in:
+    if not channels_in and not tunnels and not floors_in:
         if survey_cuts:          # R2: nothing built, the survey's trenches still keep out
             return _dc.replace(classification, keepouts=tuple(classification.keepouts) + tuple(
                 tuple(k.exterior.coords)[:-1] for k in survey_cuts)), (), stats

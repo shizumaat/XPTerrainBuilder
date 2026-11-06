@@ -41,7 +41,7 @@ from shapely.ops import unary_union
 
 from . import obj8 as _obj8
 from .hanging_objects import _co_placed, _has_floor
-from .object_cut import _base, _face_normals_y, placement_order, valid_polygon
+from .object_cut import _base, _cover_plate, _face_normals_y, placement_order, valid_polygon
 
 __all__ = ["ObjectFloor", "read_object_floors", "floor_z_at", "FLOOR_REF", "FLOOR_WALL_REF"]
 
@@ -154,11 +154,17 @@ def _placed_floor(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float, law)
 
 def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                        law, msl: _t.Mapping[str, float],
-                       taken: _t.AbstractSet[str] = frozenset()
+                       taken: _t.AbstractSet[str] = frozenset(),
+                       shells: _t.AbstractSet[str] = frozenset()
                        ) -> tuple[list[ObjectFloor], list[str]]:
     """Every FLOOR OBJECT (module doc) as an :class:`ObjectFloor`, and one
     note per floor read or refused.  ``taken`` are placement ids another
-    reader already cuts by their own floor (an object is read once)."""
+    reader already cuts by their own floor (an object is read once);
+    ``shells`` the placements ``object_cut`` admitted as §33 (6) B shells
+    (walls and floor in one object, a flush hard deck co-placed) — only
+    those are read as floors without being floor objects: a shared-datum
+    pack co-places everything (LGAV ``Trench_0x``, one anchor), so
+    co-placement alone is no tunnel evidence."""
     ob = law.tables.structures.tunnel.object
     placed = [o for o in placement_order(objects)
               if o.resolved is not None and not _obj8.is_stock_library_resource(o.path)]
@@ -170,15 +176,26 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
             continue
         g = cache.geometry(o.resolved)
         share = _floor_share(g, law)
-        if share < ob.floor_object_min_share:
+        mates = [p for p in placed
+                 if p.id != o.id and _co_placed(o, p, ob.cover_placement_tol_m)]
+        if share >= ob.floor_object_min_share:
+            # a FLOOR object: its cover is a co-placed structure hanging
+            # under its zero (the walls it floors)
+            covers = [p for p in mates
+                      if cache.y_range(p.resolved)[0] <= -ob.shell_floor_min_m
+                      and _floor_share(cache.geometry(p.resolved), law)
+                      < ob.floor_object_min_share]
+        elif o.id in shells:
+            # a SHELL (its own walls and floor, §33 (6) B): its cover is the
+            # co-placed flush hard deck
+            covers = [p for p in mates if _cover_plate(cache.geometry(p.resolved), law)[0]
+                      is not None]
+        else:
             continue
-        covers = [p for p in placed
-                  if p.id != o.id and _co_placed(o, p, ob.cover_placement_tol_m)
-                  and cache.y_range(p.resolved)[0] <= -ob.shell_floor_min_m
-                  and _floor_share(cache.geometry(p.resolved), law) < ob.floor_object_min_share]
         if not covers:
             notes.append(f"{o.id} {_base(o.path)}: a floor ({share:.0%} near-horizontal) with "
-                         f"no co-placed cover reaching under its zero: not a tunnel's floor")
+                         f"no co-placed cover (walls under its zero, or a flush hard deck "
+                         f"over its own walls): not a tunnel's floor")
             continue
         zero = float(msl[o.id]) if o.kind == "OBJECT_MSL" else float(o.anchor_z + o.agl_m)
         got = _placed_floor(o, g, zero, law)

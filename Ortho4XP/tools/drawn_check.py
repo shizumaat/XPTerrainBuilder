@@ -532,15 +532,22 @@ def check_split(rec, drawn, tol, lifts=None, roads=None):
     # ... or, where a groundside road runs along the base, at the ROAD's
     # height there (owner 2026-11-06T02:40Z: "at SBSP the road at the base
     # of the building on the groundside is sloping up")
-    st = [(x, y) for sd in behind for x, y in _outside(sd, (lon, lat), 1.0)]
-    back, ref = [], []
-    for x, y in st:
-        g = mesh_z(drawn.mesh, x, y)
-        if not math.isnan(g):
-            road = _road_at(roads, x, y)
+    # -- the pit's own reading, per side: a side with a road at its base is
+    # judged at its road stations only (past the road's end it is the
+    # governed ground, no bar); a side with none, at the lower floor
+    back, ref, n_road = [], [], 0
+    for sd in behind:
+        st = _outside(sd, (lon, lat), 1.0)
+        at = [_road_at(roads, x, y) for x, y in st]
+        roaded = any(r is not None for r in at)
+        for (x, y), road in zip(st, at, strict=True):
+            g = mesh_z(drawn.mesh, x, y)
+            if math.isnan(g) or (roaded and road is None):
+                continue
             back.append(g)
             ref.append(z0 + y_lo if road is None else road)
-    out["back_on_road"] = sum(1 for r in ref if r != z0 + y_lo)
+            n_road += road is not None
+    out["back_on_road"] = n_road
     if back:
         d_b = [g - r for g, r in zip(back, ref, strict=True)]
         out["back_ground_median"] = round(float(numpy.median(back)), 2)

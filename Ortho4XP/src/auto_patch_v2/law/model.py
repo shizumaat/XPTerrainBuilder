@@ -583,6 +583,9 @@ class BuildingPad:
     #: road keeps its profile and the ground meets the wall at it (owner
     #: 2026-11-06T02:40Z); ``0`` = always cut
     split_level_road_reach_m: float = 0.0
+    #: ... and the pit's rim carries a vertex at least this often (the open
+    #: side held flat along its length); ``0`` = the corners only
+    split_level_rim_step_m: float = 0.0
     #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
     #: ``airport/jetways.py``): ``None`` = no expansion
     jetway_root_reach_m: float | None = None

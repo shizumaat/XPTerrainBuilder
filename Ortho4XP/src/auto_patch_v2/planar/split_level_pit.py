@@ -41,9 +41,10 @@ from shapely.geometry import Point, Polygon
 from shapely.ops import linemerge, unary_union
 from shapely.prepared import prep
 
+from ..airport.deck_roof import read_deck_roofs
 from ..airport.split_level import SplitLevel, read_split_levels
 from ..geom.parts import polygon_parts_with_area
-from ..law.tables import frontage_roles
+from ..law.tables import apron_roles, frontage_roles
 from ..model.structures import Basin
 from .basin_geometry import _region_floor, _rim
 
@@ -61,8 +62,17 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     building of ``objects`` (module docstring); refs numbered from ``k0``."""
     fr = frontage_roles(law)
     air = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in fr]).buffer(0)
-    sls, notes = read_split_levels(objects, cache, law, getattr(airport.dem, "z", None),
-                                   None if air.is_empty else prep(air))
+    dem_z, a_p = getattr(airport.dem, "z", None), None if air.is_empty else prep(air)
+    sls, notes = read_split_levels(objects, cache, law, dem_z, a_p)
+    # a DECK-ROOFED building (``airport/deck_roof``) is a split-level whose
+    # upper floor is its roof; a family read both ways is read once
+    ap = unary_union([p for p, c in zip(polys, cells, strict=True)
+                      if c.role in apron_roles(law)]).buffer(0)
+    roofs, roof_notes = read_deck_roofs(objects, cache, law, dem_z,
+                                        None if ap.is_empty else prep(ap))
+    seen = {m for sl in sls for m in sl.member_ids}
+    sls = sls + [r for r in roofs if not seen.intersection(r.member_ids)]
+    notes = notes + roof_notes
     if not sls:
         return [], [], [], notes, []
     grid = float(law.tables.emit.identity.min_distinct_spacing_m)
@@ -71,13 +81,14 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
                   or 0.0)
     hard = [p for p, c in zip(polys, cells, strict=True)
             if c.role in runway_roles or c.kind == "structure"]
-    blocked = unary_union(list(hard) + list(taken)) if (hard or taken) else None
+    blocked = unary_union(list(hard)) if hard else None
     basins: list[Basin] = []
     new_cells: list[tuple] = []
     knives: list[Polygon] = []
     refused: list[str] = []
     boxes = [_rim(sl.footprint, 0.0, grid) for sl in sls]
-    pits = None                      # the split-level pits cut so far
+    # the pits cut so far: the other basins', then each split-level's
+    pits = unary_union(list(taken)) if taken else None
     for i, sl in enumerate(sls):
         k = k0 + len(basins)
         box = boxes[i]
@@ -86,14 +97,15 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
             refused.append(f"{sl.id} {name}: the split-level box does not survive the grid")
             continue
         if blocked is not None and box.intersects(blocked):
-            refused.append(f"{sl.id} {name}: the split-level box meets the runway family, a "
-                           "structure or another pit")
+            refused.append(f"{sl.id} {name}: the split-level box meets the runway family or "
+                           "a structure")
             continue
         # A ROW OF SPLIT-LEVEL BUILDINGS (SBSP's hangars on the embankment)
-        # shares walls: a box yields what a neighbour's pit already took
+        # shares walls, and a member's own basin (a covered pit under a
+        # hangar) is cut already: a box yields what another pit took
         own = box if pits is None else _largest(box.difference(pits))
         if own is None or own.area < 0.5 * box.area:
-            refused.append(f"{sl.id} {name}: the split-level box is taken by a neighbour's pit")
+            refused.append(f"{sl.id} {name}: the split-level box is taken by another pit")
             continue
         # the back is cut on the groundside only: never into airside
         # pavement, a neighbour's box or its pit

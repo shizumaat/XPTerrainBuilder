@@ -184,7 +184,8 @@ def _print_old_dem(rows) -> None:
           f"{ {k: dict(v) for k, v in sorted(by.items())} }")
     for r in sorted(rows, key=lambda r: -r["deepest_m"]):
         if r["fires_tol"] or r["fires"]:
-            print(f"    {r['icao']} {r['runway']:9s} {r['class']:6s} deepest {r['deepest_m']:7.2f} m"
+            print(f"    {r['icao']} {r['runway']:9s} {r['class']:6s} "
+                  f"deepest {r['deepest_m']:7.2f} m"
                   f"  tol {r['tol_m']:g} -> {'FIRES' if r['fires_tol'] else '-'}"
                   f"  margin {r['margin_m']:g} -> {'FIRES' if r['fires'] else '-'}")
 
@@ -201,7 +202,8 @@ def main(argv=None) -> int:
     ap.add_argument("--all-apt", action="store_true",
                     help="every apt.dat airport, not only the CIFP ones")
     ap.add_argument("--old-dem", action="store_true",
-                    help="also judge THE OLD-DEM FILL WITNESS (#1915, airport/old_dem_fill.witness)")
+                    help="also judge THE OLD-DEM FILL WITNESS "
+                         "(#1915, airport/old_dem_fill.witness)")
     a = ap.parse_args(argv)
     law = load_default()
     order = law.tables.runway_ends.crosscheck_order

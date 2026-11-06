@@ -667,7 +667,7 @@ final class BuildModel: ObservableObject {
     /// next build auto-patches those airports.
     func useAutoPatch(for coord: TileCoord) {
         connectIfNeeded()
-        guard let client, !isBuilding else { return }
+        guard let client, !tileInRun(coord) else { return }
         Task { [weak self] in
             do {
                 let reply = try await client.useAutoPatch(tile: coord.key)

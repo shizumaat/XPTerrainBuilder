@@ -34,7 +34,7 @@ and floor in one object, over a cover) that is no floor object but an
 OPEN-TOP HOLLOW standing under its own zero (``_has_floor``) — its top
 surface ``hollow_m`` or more under its own rim over
 ``shell_hollow_min_share`` of its inner plan (``geom/shape_class``, the
-classification ``tools/drawn_site_check`` shares) — is the pack's own
+classification ``tools/drawn_site`` shares) — is the pack's own
 ground: its surface is ALL its solid faces (banks included), its footprint
 the plan of the faces standing under its rim, and its frame every
 placement co-placed with it.  Where several floors and shells stand over

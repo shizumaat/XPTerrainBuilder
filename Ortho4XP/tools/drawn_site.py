@@ -284,19 +284,10 @@ def plan_triangles(V: np.ndarray, tris: np.ndarray) -> np.ndarray:
 
 # ── one component, rasterised in plan ────────────────────────────────────
 
-@dc.dataclass
-class Raster:
-    """The component's plan on a grid: per cell its top and lowest surface
-    z (``nan`` where uncovered)."""
-
-    e0: float
-    n0: float
-    step: float
-    top: np.ndarray
-    low: np.ndarray
-
-    def centres(self, ij: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        return self.e0 + (ij[:, 1] + 0.5) * self.step, self.n0 + (ij[:, 0] + 0.5) * self.step
+# the plan raster and the shape witness are the engine's own
+# (``auto_patch_v2.geom.shape_class``, #1914): ONE classification
+from auto_patch_v2.geom import shape_class as _shape  # noqa: E402
+from auto_patch_v2.geom.shape_class import Raster  # noqa: E402,F401
 
 
 def in_square(p: np.ndarray, clip_m: float) -> np.ndarray:
@@ -309,35 +300,7 @@ def in_square(p: np.ndarray, clip_m: float) -> np.ndarray:
 
 def rasterise(p: np.ndarray, max_cells: int = 160000) -> Raster | None:
     """Top and lowest surface of plan triangles ``p`` per grid cell."""
-    if not p.shape[0]:
-        return None
-    lo, hi = p[:, :, :2].reshape(-1, 2).min(0), p[:, :, :2].reshape(-1, 2).max(0)
-    span = hi - lo
-    step = max(0.5, math.sqrt(max(span[0] * span[1], 1.0) / max_cells))
-    ncol, nrow = int(span[0] // step) + 1, int(span[1] // step) + 1
-    top = np.full(nrow * ncol, -np.inf)
-    low = np.full(nrow * ncol, np.inf)
-    for t in p:
-        (x1, y1, z1), (x2, y2, z2), (x3, y3, z3) = t
-        c0, c1 = int((min(x1, x2, x3) - lo[0]) // step), int((max(x1, x2, x3) - lo[0]) // step)
-        r0, r1 = int((min(y1, y2, y3) - lo[1]) // step), int((max(y1, y2, y3) - lo[1]) // step)
-        cc, rr = np.meshgrid(np.arange(c0, c1 + 1), np.arange(r0, r1 + 1))
-        cc, rr = cc.ravel(), rr.ravel()
-        cx, cy = lo[0] + (cc + 0.5) * step, lo[1] + (rr + 0.5) * step
-        d = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
-        w1 = ((y2 - y3) * (cx - x3) + (x3 - x2) * (cy - y3)) / d
-        w2 = ((y3 - y1) * (cx - x3) + (x1 - x3) * (cy - y3)) / d
-        w3 = 1.0 - w1 - w2
-        m = (w1 >= -1e-6) & (w2 >= -1e-6) & (w3 >= -1e-6)
-        if m.any():
-            zz = w1[m] * z1 + w2[m] * z2 + w3[m] * z3
-            k = rr[m] * ncol + cc[m]
-            np.maximum.at(top, k, zz)
-            np.minimum.at(low, k, zz)
-    top[~np.isfinite(top)] = np.nan
-    low[~np.isfinite(low)] = np.nan
-    return Raster(float(lo[0]), float(lo[1]), step,
-                  top.reshape(nrow, ncol), low.reshape(nrow, ncol))
+    return _shape.rasterise(p, max_cells)
 
 
 def boundary_cells(r: Raster) -> tuple[np.ndarray, np.ndarray]:
@@ -516,14 +479,7 @@ def outline_reach(P: np.ndarray, be, bn, step: float) -> tuple[np.ndarray, np.nd
     """Per outline cell, the lowest and highest geometry within
     :data:`WALL_REACH_M` in plan (``nan`` where none): a wall's foot and
     top."""
-    from scipy.spatial import cKDTree
-    tree = cKDTree(P[:, :2])
-    lo, hi = np.full(len(be), np.nan), np.full(len(be), np.nan)
-    near = tree.query_ball_point(np.column_stack([be, bn]), WALL_REACH_M + step / 2)
-    for k, nb in enumerate(near):
-        if nb:
-            lo[k], hi[k] = P[nb, 2].min(), P[nb, 2].max()
-    return lo, hi
+    return _shape.outline_reach(P, be, bn, WALL_REACH_M + step / 2)
 
 
 def outline_sides(d: np.ndarray, side: np.ndarray, bdir, be, bn, frame: Frame) -> list[dict]:
@@ -633,14 +589,7 @@ def shape_witness(r: Raster, P: np.ndarray, rim_ground: float, relief: float) ->
     convex body (its top is its highest part).  ``rim_minus_ground`` (the
     drawn mesh just outside) says whether that rim stands at grade -- a
     cut shell's wall tops meet the ground -- and is reported, not used."""
-    cov = ~np.isnan(r.top)
-    k = max(1, int(round(RIM_BAND_M / r.step)))
-    pad = np.pad(cov, k, constant_values=False)
-    inner = cov.copy()
-    for di in range(-k, k + 1):
-        for dj in range(-k, k + 1):
-            inner &= pad[k + di:k + di + cov.shape[0], k + dj:k + dj + cov.shape[1]]
-    band = cov & ~inner
+    band, inner = _shape.outline_band(r, RIM_BAND_M)
     if relief < FLAT_PLATE_M:
         return {"class": "flat plate (deck / pad)", "hollow_pct": 0.0, "covered_pct": 0.0,
                 "own_rim_z": rnd(np.nanmax(r.top)), "inner_top_p50": rnd(np.nanmedian(r.top)),
@@ -652,11 +601,11 @@ def shape_witness(r: Raster, P: np.ndarray, rim_ground: float, relief: float) ->
     _foot, crest = outline_reach(P, *r.centres(bij), r.step)
     rim = float(np.percentile(np.fmax(r.top[band], crest), 90))
     top_in = r.top[inner]
-    single = (top_in - r.low[inner]) <= STACKED_M
-    hollow_pct = 100.0 * float(((top_in < rim - HOLLOW_M) & single).mean())
-    covered_pct = 100.0 * float((~single).mean())
-    cls = ("concave cut shell" if hollow_pct >= 50.0 else
-           "covered (deck/roof over floor)" if covered_pct >= 50.0 else "convex body")
+    got, hollow, covered = _shape.shape_class(top_in, r.low[inner], rim, hollow_m=HOLLOW_M,
+                                              stacked_m=STACKED_M)
+    hollow_pct, covered_pct = 100.0 * hollow, 100.0 * covered
+    cls = {_shape.CONCAVE: "concave cut shell",
+           _shape.COVERED: "covered (deck/roof over floor)"}.get(got, "convex body")
     return {"class": cls, "hollow_pct": round(hollow_pct, 1), "covered_pct": round(covered_pct, 1),
             "own_rim_z": rnd(rim), "inner_top_p50": rnd(np.median(top_in)),
             "rim_minus_ground": rnd(rim - rim_ground)}

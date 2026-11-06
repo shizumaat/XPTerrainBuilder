@@ -2,7 +2,7 @@
 
 ONE classification, two readers: the engine's object-floor reader
 (``airport/object_floor``: a CONCAVE CUT SHELL is a stated ground) and the
-drawn instrument (``tools/drawn_site_check.shape_witness``).  Both raster
+drawn instrument (``tools/drawn_site.shape_witness``).  Both raster
 the solid's plan (:func:`rasterise`: per grid cell its TOP and its LOWEST
 surface), read the solid's OWN RIM — the 90th percentile of the highest
 geometry on its outline band (:func:`outline_band`, :func:`outline_reach`)

@@ -58,7 +58,7 @@ def test_one_shape_reading_serves_the_engine_and_the_drawn_instrument(tmp_path):
     top, low = np.array([0.0, 0.0, 0.0]), np.array([-6.0, -6.0, 0.0])
     assert SC.shape_class(top, low, 0.5, hollow_m=1.0, stacked_m=1.5)[0] == SC.COVERED
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-    import drawn_site_check as DC
+    import drawn_site as DC
     assert DC._shape is SC
 
 

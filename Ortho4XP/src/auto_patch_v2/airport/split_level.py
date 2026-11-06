@@ -47,7 +47,9 @@ import statistics as _st
 import typing as _t
 
 import numpy as np
+import shapely
 from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import unary_union
 
 from . import obj8 as _obj8
 from .object_cut import _face_normals_y
@@ -88,6 +90,18 @@ class SplitLevel:
     ground_closed_m: float
     #: the anchor of the family, frame xy
     anchor_xy: tuple[float, float]
+    #: THE PLAN THE BUILDING COVERS (frame metres): its solids' plan,
+    #: closed by ``[building_pad] split_level_probe_m`` -- the pit's plan,
+    #: never the whole :attr:`footprint` box (``None``: the box).  A
+    #: terminal's rotated box holds the apron between its piers (KLAX
+    #: ``Terminal_2``: 14,342 of 33,694 m2 built), and a pit over the box
+    #: sank that apron a storey (owner sim read 1.0.472)
+    plan: "Polygon | None" = None
+
+    @property
+    def pit_plan(self) -> Polygon:
+        """The plan the pit is cut under: :attr:`plan`, else the box."""
+        return self.footprint if self.plan is None else self.plan
 
 
 def _families(objects: _t.Sequence[_obj8.PlacedObject]) -> list[list[_obj8.PlacedObject]]:
@@ -145,6 +159,41 @@ def wall_box(v: np.ndarray, t: np.ndarray) -> "list[tuple[float, float]] | None"
     back = np.array([[co, si], [-si, co]])
     return [tuple((np.array(p) @ back).tolist()) for p in
             ((x0, z0), (x1, z0), (x1, z1), (x0, z1))]
+
+
+def _covered_plan(v: np.ndarray, t: np.ndarray, close_m: float, min_hole_m2: float
+                 ) -> "Polygon | None":
+    """The plan the solids ``(v, t)`` COVER (authored ``(x, z)``): the union
+    of their non-vertical faces' plan triangles, closed by ``close_m``
+    (walls a door apart are one building), holes under ``min_hole_m2``
+    filled; the largest part, or ``None``."""
+    ny = _face_normals_y(v, t)
+    P = v[t[ny >= _VERTICAL_NY]][:, :, [0, 2]]
+    if not len(P):
+        return None
+    tris = [g for g in shapely.polygons(P).tolist() if g is not None and g.area > 1e-6]
+    if not tris:
+        return None
+    u = unary_union([g.buffer(0) for g in tris]).buffer(close_m, join_style="mitre")
+    u = u.buffer(-close_m, join_style="mitre")
+    parts = [g for g in getattr(u, "geoms", [u]) if g.geom_type == "Polygon" and g.area > 0.0]
+    if not parts:
+        return None
+    big = max(parts, key=lambda g: g.area)
+    return Polygon(big.exterior, [h for h in big.interiors if Polygon(h).area >= min_hole_m2])
+
+
+def _open_edges(plan: Polygon, closed: _t.Sequence[LineString], probe: float
+                ) -> list[LineString]:
+    """The OPEN boundary of a pit under ``plan``: its outline away from the
+    TALL sides (``closed``, the box's sides walled down to the lower
+    floor, more than ``probe`` off them) -- the open side and every edge
+    between piers, all of it facing the upper ground."""
+    edge = plan.exterior
+    if closed:
+        edge = edge.difference(unary_union(list(closed)).buffer(probe, cap_style="flat"))
+    parts = getattr(edge, "geoms", [edge])
+    return [g for g in parts if g.geom_type == "LineString" and g.length > 0.0]
 
 
 def _side_feet(v: np.ndarray, t: np.ndarray, sides: _t.Sequence[tuple], probe: float,
@@ -340,8 +389,15 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
                      + (f": SPLIT-LEVEL (by the {by})" if verdict else why))
         if not verdict:
             continue
+        cov = _covered_plan(v, t, probe, pmin)
+        plan = None if cov is None else Polygon(
+            [frame(c) for c in cov.exterior.coords],
+            [[frame(c) for c in h.coords] for h in cov.interiors])
+        if plan is not None:
+            opened = _open_edges(plan, closed, probe) or opened
         out.append(SplitLevel(str(o.id), tuple(str(m.id) for m in fam),
                               tuple(sorted({m.path for m in fam})), foot[0],
                               round(y_lo, 3), round(y_up, 3), tuple(opened), tuple(closed),
-                              round(go, 3), round(gc, 3), (float(o.xy[0]), float(o.xy[1]))))
+                              round(go, 3), round(gc, 3), (float(o.xy[0]), float(o.xy[1])),
+                              plan))
     return out, notes

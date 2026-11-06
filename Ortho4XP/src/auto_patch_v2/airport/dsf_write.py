@@ -761,66 +761,119 @@ def text_properties(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def replace_properties(dsf_path: str, props: _t.Sequence[tuple[str, str]]
-                       ) -> None:
-    """Rewrite the ``HEAD/PROP`` atom of an UNCOMPRESSED DSF so it holds
-    exactly ``props`` (null-terminated name, value pairs), fix the
-    ``HEAD`` length and the trailing MD5.  No other byte moves: DSF atoms
-    reference each other by INDEX, never by file offset."""
+def _rewrite_strings(dsf_path: str, parent: bytes, child: bytes,
+                     strings: _t.Sequence[str]) -> None:
+    """Rewrite the ``parent``/``child`` string-table atom of an
+    UNCOMPRESSED DSF (ids as stored, byte-reversed) so it holds exactly
+    ``strings``, each null-terminated, and fix the parent's length and the
+    trailing MD5.  No other byte moves: DSF atoms reference each other by
+    INDEX, never by file offset."""
     with open(dsf_path, "rb") as fh:
         buf = fh.read()
     if buf[:8] != b"XPLNEDSF" or len(buf) < 28:
         raise ValueError(f"{dsf_path}: not an uncompressed DSF")
     body_end = len(buf) - 16
-    top = _cmds.atoms(buf, 12, body_end)
-    head = [a for a in top if a[0] == b"DAEH"]
-    if len(head) != 1:
-        raise ValueError(f"{dsf_path}: {len(head)} HEAD atoms")
-    _hid, hoff, hlen = head[0]
-    kids = _cmds.atoms(buf, hoff + 8, hoff + hlen)
-    prop = [a for a in kids if a[0] == b"PORP"]
-    if len(prop) != 1:
-        raise ValueError(f"{dsf_path}: {len(prop)} PROP atoms")
-    _pid, poff, plen = prop[0]
-    payload = b"".join(n.encode("utf-8", "surrogateescape") + b"\0"
-                       + v.encode("utf-8", "surrogateescape") + b"\0"
-                       for n, v in props)
-    new_prop = struct.pack("<4sI", b"PORP", 8 + len(payload)) + payload
-    new_head_body = buf[hoff + 8:poff] + new_prop + buf[poff + plen:hoff + hlen]
-    new_head = struct.pack("<4sI", b"DAEH", 8 + len(new_head_body)) + new_head_body
-    out = buf[:hoff] + new_head + buf[hoff + hlen:body_end]
+    top = [a for a in _cmds.atoms(buf, 12, body_end) if a[0] == parent]
+    if len(top) != 1:
+        raise ValueError(f"{dsf_path}: {len(top)} {parent[::-1].decode()} atoms")
+    _hid, hoff, hlen = top[0]
+    kids = [a for a in _cmds.atoms(buf, hoff + 8, hoff + hlen) if a[0] == child]
+    if len(kids) != 1:
+        raise ValueError(f"{dsf_path}: {len(kids)} {child[::-1].decode()} atoms")
+    _pid, poff, plen = kids[0]
+    payload = b"".join(x.encode("utf-8", "surrogateescape") + b"\0" for x in strings)
+    new_kid = struct.pack("<4sI", child, 8 + len(payload)) + payload
+    body = buf[hoff + 8:poff] + new_kid + buf[poff + plen:hoff + hlen]
+    out = (buf[:hoff] + struct.pack("<4sI", parent, 8 + len(body)) + body
+           + buf[hoff + hlen:body_end])
     out += hashlib.md5(out).digest()
     with open(dsf_path, "wb") as fh:
         fh.write(out)
 
 
+def replace_properties(dsf_path: str, props: _t.Sequence[tuple[str, str]]
+                       ) -> None:
+    """Rewrite the ``HEAD/PROP`` atom of an UNCOMPRESSED DSF so it holds
+    exactly ``props`` (null-terminated name, value pairs)."""
+    _rewrite_strings(dsf_path, b"DAEH", b"PORP",
+                     [x for n, v in props for x in (n, v)])
+
+
+#: The ``DEFN`` child atom (as stored) of each definition row keyword.
+DEF_ATOMS = {"TERRAIN_DEF": b"TRET", "OBJECT_DEF": b"TJBO",
+             "POLYGON_DEF": b"YLOP", "NETWORK_DEF": b"WTEN",
+             "RASTER_DEF": b"NMED"}
+
+
+def _text_defs(text: str) -> dict[str, list[str]]:
+    """The definition paths of a dump by keyword, in order, each taken
+    VERBATIM (everything after the keyword's single separating space)."""
+    out: dict[str, list[str]] = {}
+    for raw in text.splitlines():
+        kw, _sep, rest = raw.rstrip("\r\n").partition(" ")
+        if kw in DEF_ATOMS:
+            out.setdefault(kw, []).append(rest)
+    return out
+
+
+def _replace_defs(dsf_path: str, defs: _t.Mapping[str, _t.Sequence[str]]) -> None:
+    """Rewrite the ``DEFN`` string tables of ``defs``' keywords so each
+    holds exactly those paths, in order (:func:`_text_defs`)."""
+    for kw, paths in defs.items():
+        _rewrite_strings(dsf_path, b"NFED", DEF_ATOMS[kw], paths)
+
+
+def _reader_cuts(raw: str) -> bool:
+    """Does DSFTool 2.4's TEXT READER cut this row?  A row over
+    :data:`DSFTOOL_LINE_MAX` (#23), or a row with a ``#`` anywhere: the
+    reader takes ``#`` as the start of a comment wherever it stands
+    (measured, DSFTool 2.4.0-b1, 2026-11-06: ``POLYGON_DEF Ground
+    Textures/RWY#/Arrow.pol`` came back ``Ground Textures/RWY`` -- CYHM's
+    round-trip refusal; a pack path may carry a ``#``)."""
+    return len(raw) > DSFTOOL_LINE_MAX or "#" in raw
+
+
 def encode(text_path: str, dsf_out: str, tool: str) -> str:
     """``DSFTool --text2dsf`` into ``dsf_out``; returns it.
 
-    #23: a ``PROPERTY`` row longer than :data:`DSFTOOL_LINE_MAX` is cut
-    by DSFTool's reader, so the encoded file's property atom is then
-    rewritten from the text's rows verbatim (:func:`replace_properties`).
-    Any OTHER row that long has no such repair and is refused before the
-    encode — a silently shortened def path or command is not a write."""
+    A row DSFTool's reader cuts (:func:`_reader_cuts`: too long, or a
+    ``#`` in it) is repaired after the encode when it is a ``PROPERTY``
+    row (the ``HEAD/PROP`` atom, :func:`replace_properties`, #23) or a
+    definition row (its ``DEFN`` string table, :func:`_replace_defs`):
+    both atoms are string tables written from the text's rows verbatim.
+    Any OTHER row that long has no repair and is refused before the
+    encode -- a silently shortened def path or command is not a write; a
+    ``#`` on any other row is a trailing comment (``HEIGHTS ... # max
+    encodeable``), DSFTool's own."""
     if not tool or not os.path.isfile(tool):
         raise RuntimeError(f"DSFTool binary required, got {tool!r}")
     with open(text_path, "r", encoding="utf-8", errors="surrogateescape") as fh:
         text = fh.read()
     long_props = False
+    cut_defs: set[str] = set()
     for n, raw in enumerate(text.splitlines(), 1):
-        if len(raw) > DSFTOOL_LINE_MAX:
-            if raw.startswith("PROPERTY "):
-                long_props = True
-            elif not raw.lstrip().startswith("#"):
-                raise RuntimeError(
-                    f"{text_path}:{n}: {len(raw)}-character row, DSFTool's "
-                    f"text reader keeps {DSFTOOL_LINE_MAX}: {raw[:60]!r}")
+        if raw.lstrip().startswith("#") or not _reader_cuts(raw):
+            continue
+        kw = raw.partition(" ")[0]
+        if kw == "PROPERTY":
+            long_props = True
+        elif kw in DEF_ATOMS:
+            cut_defs.add(kw)
+        elif len(raw) <= DSFTOOL_LINE_MAX:
+            continue        # a trailing comment, as DSFTool writes one
+        else:
+            raise RuntimeError(
+                f"{text_path}:{n}: {len(raw)}-character row, DSFTool's "
+                f"text reader keeps {DSFTOOL_LINE_MAX}: {raw[:60]!r}")
     os.makedirs(os.path.dirname(os.path.abspath(dsf_out)) or ".", exist_ok=True)
     _run([tool, "--text2dsf", text_path, dsf_out], writes=dsf_out)
     if not os.path.isfile(dsf_out):
         raise RuntimeError(f"DSFTool wrote no DSF at {dsf_out}")
     if long_props:
         replace_properties(dsf_out, text_properties(text))
+    if cut_defs:
+        defs = _text_defs(text)
+        _replace_defs(dsf_out, {kw: defs[kw] for kw in cut_defs})
     return dsf_out
 
 

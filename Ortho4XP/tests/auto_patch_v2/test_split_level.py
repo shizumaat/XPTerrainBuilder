@@ -194,3 +194,30 @@ def test_a_box_a_road_runs_under_is_an_underpass_not_a_split_level():
     assert _road_under(rim, roads[:1], 0.5) and _road_under(rim, roads[1:], 0.5)
     assert not _road_under(box(50.0, 0.0, 60.0, 30.0), roads, 0.5)
     assert not _road_under(rim, [], 0.5)
+
+
+def test_the_pit_is_under_the_building_not_its_box():
+    """Owner sim read 1.0.472, KLAX: "a big trench under the split level
+    building ... drops way below airside".  A terminal's rotated wall box
+    holds the apron between its piers (KLAX Terminal_2: 14,342 of 33,694 m2
+    built); the pit's plan is what the building's roof covers
+    (``SplitLevel.pit_plan``), and a walls-only model keeps the box."""
+    v, t = _building(12.0)
+    objs, cache = _placed(v, t)
+    sls, _ = read_split_levels(objs, cache, LAW, lambda x, y: 100.0 - 0.6 * y)
+    assert sls[0].plan is None and sls[0].pit_plan.area == sls[0].footprint.area
+    v, t = list(map(tuple, v)), [tuple(x) for x in t]
+    i = len(v)                                     # a roof over the west half only
+    v += [(0.0, 24.0, 0.0), (20.0, 24.0, 0.0), (20.0, 24.0, 30.0), (0.0, 24.0, 30.0)]
+    t += [(i, i + 1, i + 2), (i, i + 2, i + 3)]
+    objs, cache = _placed(np.array(v, float), np.array(t, int))
+    sls, _ = read_split_levels(objs, cache, LAW, lambda x, y: 100.0 - 0.6 * y)
+    assert abs(sls[0].pit_plan.area - 600.0) < 1.0 and sls[0].footprint.area > 1150.0
+    # its OPEN boundary is the plan's outline off the tall sides (the floor
+    # follows it: with none, each floor vertex took its nearest rim less
+    # the step, and the back cut's low rim sank KLAX Terminal_8's floor
+    # 3.2 m under its lower floor)
+    tall = sls[0].closed_sides
+    assert sls[0].open_sides and all(min(e.distance(c) for c in tall) >= 0.0
+                                     for e in sls[0].open_sides)
+    assert all(e.within(sls[0].pit_plan.exterior.buffer(1e-6)) for e in sls[0].open_sides)

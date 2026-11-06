@@ -6,7 +6,8 @@ A building ``airport/split_level`` reads as split-level stands with its
 lower floor ``y_lo`` on the low ground and its open side -- the lower
 storeys' open wall, inside the terrain -- against the higher ground at its
 upper floor ``y_up``.  It is minted as a BASIN (``planar/basins``: the cut
-under an object is the object's): the RIM is the building's wall box, the
+under an object is the object's): the RIM is the plan the building covers
+(``SplitLevel.pit_plan``: its solids' plan, never its rotated box), the
 FLOOR is the rim less the ``[cutout] ring_floor_m`` wall band (the mesh's
 wall, under the building's own wall), and
 
@@ -124,8 +125,14 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         # A ROW OF SPLIT-LEVEL BUILDINGS (SBSP's hangars on the embankment)
         # shares walls, and a member's own basin (a covered pit under a
         # hangar) is cut already: a box yields what another pit took
-        own = box if pits is None else _largest(box.difference(pits))
-        if own is None or own.area < 0.5 * box.area:
+        # THE PIT IS UNDER THE BUILDING (owner sim read 1.0.472, KLAX: "a
+        # big trench under the split level building ... drops way below
+        # airside"): its plan is what the building covers
+        # (``SplitLevel.pit_plan``), never the apron its rotated box holds
+        # between piers -- the box only screens the refusals above
+        under = _rim(sl.pit_plan, 0.0, grid) or box
+        own = under if pits is None else _largest(under.difference(pits))
+        if own is None or own.area < 0.5 * under.area:
             refused.append(f"{sl.id} {name}: the split-level box is taken by another pit")
             continue
         # the back is cut in bare ground only: never into pavement -- the

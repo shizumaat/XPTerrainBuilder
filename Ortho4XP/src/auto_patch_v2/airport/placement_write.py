@@ -65,7 +65,8 @@ from . import placement_plan as _pp
 from . import split_guard as _sg
 from . import torn_pack as _tp
 
-__all__ = ["PlacementWriteResult", "RestoreResult", "build_plan", "write_files",
+__all__ = ["PlacementWriteResult", "RestoreResult", "build_plan", "placement_records",
+           "write_files",
            "restore_pack_objects", "apply_plan"]
 
 #: v1's seat kept the authored bytes beside the file it baked.
@@ -205,13 +206,14 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           authored_keep_tol_m=authored_keep_tol_m,
                           drape=drape, drape_law=drape_law,
                           tile_box=_sg.box_of_tile(tile, dsf_path))
-    splits, kept = _pp.to_placement_records(ss)
+    splits, kept = placement_records(ss, dump, rebake_plan)
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,
         pads=pads, jetway_strips=jetway_strips, gate_m=jetway_strip_m,
         keep_tol_m=authored_keep_tol_m, feet_tol_m=split_tol_m,
         elevated_m=elevated_base_m)
-    files = tuple(f for s in ss.splits for f in s.files)
+    _split_ix = frozenset(sp.placement.index for sp in splits)
+    files = tuple(f for s in ss.splits if s.index in _split_ix for f in s.files)
     counts = dict(ss.counts)
     counts.update(counts_extra)
     plan = PlacementPlan(
@@ -222,6 +224,34 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         riders=tuple(riders),
         jetway_strips=tuple(dict(j) for j in (jetway_strips or ())))
     return plan, files, ss
+
+
+def placement_records(ss: _t.Any, dump: _t.Any, rebake_plan: _t.Any) -> tuple[tuple, tuple]:
+    """THE ONE SITE a placement's AUTHORITY is decided at: ``(splits,
+    kept)`` of the split set ``ss``, each placement taking exactly ONE of
+    the two edits that replace its row -- its SPLIT (bodies) or a WHOLE-ROW
+    SEAT (``terrain_shaped.row_seats``: a terrain-shaped deck's fit, a
+    roofed portal at its pinned mouth floor, an object floor).  A row the
+    plan records a whole-row seat for is seated whole, as that record says,
+    and its split is withdrawn here (``Kept``, the reason naming the seat);
+    an ENTRANCE face is a body's seat and defers to the split
+    (``row_seats``).  Placement 7230 at KLAX (``Misc/Underpass_1.obj``) was
+    split at a basin rim AND seated at its portal floor, and the writer
+    refused the whole pack (``dsf_write.edit_dump``: "both row-seated and
+    converted/split") -- no seat of this airport was written."""
+    from . import terrain_shaped as _ts
+    splits, kept = _pp.to_placement_records(ss)
+    records = getattr(rebake_plan, "authored_seats", ()) or ()
+    split_ix = frozenset(sp.placement.index for sp in splits)
+    whole = {m.index: m.why for m in _ts.row_seats(dump, records, split_ix)
+             if m.index in split_ix}
+    if not whole:
+        return splits, kept
+    from ..model.placement import Kept
+    return (tuple(sp for sp in splits if sp.placement.index not in whole),
+            tuple(kept) + tuple(Kept(sp.placement.index, sp.placement.resource,
+                                     f"seated whole on its row ({whole[sp.placement.index]})")
+                                for sp in splits if sp.placement.index in whole))
 
 
 def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence,

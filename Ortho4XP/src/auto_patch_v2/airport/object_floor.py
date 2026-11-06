@@ -44,7 +44,8 @@ from . import terrain_shaped as _ts
 from .hanging_objects import _co_placed, _has_floor
 from .object_cut import _base, _cover_plate, _face_normals_y, placement_order, valid_polygon
 
-__all__ = ["ObjectFloor", "read_object_floors", "floor_z_at", "seat_records", "FLOOR_REF",
+__all__ = ["ObjectFloor", "read_object_floors", "floor_z_at", "seat_records", "floor_portals",
+           "FLOOR_REF",
            "FLOOR_WALL_REF", "FLOOR_SEAT"]
 
 #: The planar ref of a floor's cut face (``FLOOR_REF + id``) and of the
@@ -240,3 +241,31 @@ def seat_records(floors: _t.Iterable[ObjectFloor]) -> list[dict[str, _t.Any]]:
     return [{"id": pid, "resource": res, "datum": "object_floor", "seat": FLOOR_SEAT,
              "elevation": round(float(z), 3)}
             for f in floors for pid, res, z in f.seats]
+
+
+def floor_portals(portals: _t.Sequence, floors: _t.Sequence[ObjectFloor]) -> tuple:
+    """The pack portals with every pin a trench object's floor states read
+    off THAT floor (#1903, owner 2026-11-06 "mouths seat at that floor"): a
+    portal on the floor object or one of its covers takes the floor's own
+    height at the footprint point nearest its bore end — never the floor's
+    deepest level, nor a face bottom the object stage would re-seat (EGLL
+    11 west mouth: the portal pinned 16.14, 11b's lowest plate, where the
+    floor stands 17.16 at that end).  A portal off every floor is unchanged."""
+    by_id = {pid: f for f in floors for pid, _r, _z in f.seats}
+    if not by_id:
+        return tuple(portals)
+    out = []
+    for p in portals:
+        f = by_id.get(p.object_id)
+        if f is None:
+            out.append(p)
+            continue
+        from shapely.geometry import Point
+        from shapely.ops import nearest_points
+        q = nearest_points(f.footprint, Point(p.end_xy))[0]
+        z = floor_z_at(f.faces, [q.x], [q.y], edge_m=0.5)[0]
+        if z != z:
+            out.append(p)
+            continue
+        out.append(_dc.replace(p, floor_z=float(z), bottom_y=None))
+    return tuple(out)

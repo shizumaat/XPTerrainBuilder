@@ -40,7 +40,7 @@ from .overlay import Arrangement, build_arrangement
 from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
-from ..airport.object_floor import read_object_floors
+from .object_floor_cells import floor_mouths, object_floor_stage
 from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
@@ -262,20 +262,9 @@ def build(airport: Airport, classification: Classification, law: Law,
                                          pr.plates, pr.plate_stats)
     wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
     tstats.plates = pstats.plates
-    # A TRENCH OBJECT'S OWN FLOOR IS THE CUT (#1903, owner 2026-11-06;
-    # ``airport/object_floor``): read ONCE here; it supersedes the axis
-    # corridor a split shell's floor was read as, and its placements are
-    # claimed out of the basin intake like a shell's
-    floors, floor_notes = read_object_floors(
-        objects, cache, law,
-        {o.id: o.y_offset_m for o in airport.dsf_objects if o.kind == "OBJECT_MSL"},
-        shells=frozenset(o for c in corridors if c.id.startswith("object-cut:")
-                         for o in c.objects))
-    floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}
-    if floor_ids:
-        corridors = [c for c in corridors if not (set(c.objects) & floor_ids)]
-        tstats.shell_claimed = tuple(sorted(set(tstats.shell_claimed) | floor_ids))
-    tstats.refused.extend(n for n in floor_notes if not n.startswith("object floor"))
+    # A TRENCH OBJECT'S OWN FLOOR IS THE CUT (#1903, owner 2026-11-06):
+    # read ONCE, here and in the structures replay alike
+    floors, corridors = object_floor_stage(airport, objects, cache, law, corridors, tstats)
     tstats.refused.extend(pstats.refused)
     # the wall corridors are a pack read too (#362): of the classification
     # they read the FIELD's cover alone (and, in the structures replay, the
@@ -341,6 +330,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     tunnels, frame_notes = frame_cuts(tunnels, objects, cache, cl_read, airport, law,
                                       tstats.shell_covers)
     sstats.hard_decks.extend(frame_notes)
+    tunnels, mouth_notes = floor_mouths(tunnels, floors, law)
+    sstats.object_floors.extend(mouth_notes)
     decks = with_cuts(decks, tunnels)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)

@@ -16,14 +16,16 @@ pavement like every structure (the knife), never the runway family.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import typing as _t
 
 import shapely
 from shapely.ops import unary_union
 
-from ..airport.object_floor import FLOOR_REF, FLOOR_WALL_REF
+from ..airport.object_floor import (FLOOR_REF, FLOOR_WALL_REF, floor_portals,
+                                   read_object_floors)
 
-__all__ = ["add_object_floor_cells"]
+__all__ = ["add_object_floor_cells", "floor_mouths", "object_floor_stage"]
 
 _RUNWAY_FAMILY = ("runway", "runway_crossing")
 
@@ -82,3 +84,62 @@ def add_object_floor_cells(floors: _t.Sequence, law, new_cells: list, footprints
                      f"(floor {fl.floor_z:.2f}), its rim {band_m:.1f} m outside it")
         n += 1
     return n
+
+
+def object_floor_stage(airport, objects, cache, law, corridors, tstats) -> tuple[list, list]:
+    """``(floors, corridors)``: every trench object's floor read ONCE
+    (``airport/object_floor``), the axis corridors they supersede dropped (a
+    split shell's floor read as a corridor), their placements claimed out of
+    the basin intake like a shell's, the refusals noted, and every pack
+    portal on a floor pinned at that floor's own height (``tstats`` is
+    updated in place).  ``planar.build.build`` and the ``--stage
+    structures`` replay share it."""
+    msl = {o.id: o.y_offset_m for o in airport.dsf_objects if o.kind == "OBJECT_MSL"}
+    shells = frozenset(o for c in corridors if c.id.startswith("object-cut:") for o in c.objects)
+    floors, notes = read_object_floors(objects, cache, law, msl, shells=shells)
+    floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}
+    if floor_ids:
+        corridors = [c for c in corridors if not (set(c.objects) & floor_ids)]
+        tstats.shell_claimed = tuple(sorted(set(tstats.shell_claimed) | floor_ids))
+    tstats.refused.extend(n for n in notes if not n.startswith("object floor"))
+    tstats.portals = floor_portals(tstats.portals, floors)
+    return floors, list(corridors)
+
+
+def floor_mouths(tunnels: _t.Sequence, floors: _t.Sequence, law) -> tuple[list, list[str]]:
+    """``(tunnels, notes)``: every mapped bore whose MOUTH stands within
+    ``bore_end_tolerance_m`` of a trench object's floor seats its mouth at
+    that floor's own height at the nearest footprint point ("mouths seat at
+    that floor", owner 2026-11-06) — over the bore law, the survey's road
+    and the mouth-at-pavement slide alike (EGLL 11 west mouth: the lidar
+    road under the portal pinned 16.16 where 11b's floor stands 17.16, and
+    the drawn 11 / 11a stood 1.02 m over the cut).  Every other tunnel as
+    it was."""
+    from shapely.geometry import Point
+    from shapely.ops import nearest_points
+
+    from ..airport.object_floor import floor_z_at
+    if not floors:
+        return list(tunnels), []
+    tol = float(law.tables.structures.tunnel.object.bore_end_tolerance_m)
+    out, notes = [], []
+    for tn in tunnels:
+        if getattr(tn, "source", "") != "osm" or not tn.axis:
+            out.append(tn)
+            continue
+        m = Point(tn.axis[0])
+        best = min(((f.footprint.distance(m), f) for f in floors), key=lambda t: t[0])
+        if best[0] > tol:
+            out.append(tn)
+            continue
+        f = best[1]
+        q = nearest_points(f.footprint, m)[0]
+        z = float(floor_z_at(f.faces, [q.x], [q.y], edge_m=0.5)[0])
+        if z != z:
+            out.append(tn)
+            continue
+        note = (f"{tn.id}: the mouth {best[0]:.1f} m from {f.id} seats at that floor "
+                f"{z:.2f} (was {tn.mouth_z:.2f}; #1903 'mouths seat at that floor')")
+        out.append(_dc.replace(tn, mouth_z=z, notes=(*tn.notes, note)))
+        notes.append(note)
+    return out, notes

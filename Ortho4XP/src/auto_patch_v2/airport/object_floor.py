@@ -47,15 +47,12 @@ from .object_cut import _base, _face_normals_y, _plan_segments, placement_order,
 
 __all__ = ["ObjectFloor", "read_object_floors", "floor_z_at", "seat_records", "floor_portals",
            "FLOOR_REF",
-           "FLOOR_WALL_REF", "FLOOR_SEAT"]
+           "FLOOR_WALL_REF"]
 
 #: The planar ref of a floor's cut face (``FLOOR_REF + id``) and of the
 #: void band around it (``FLOOR_WALL_REF + id``).
 FLOOR_REF = "object_floor:"
 FLOOR_WALL_REF = "object_floor_wall:"
-#: the seat record's ``seat`` value (``terrain_shaped.row_seats``): the row
-#: written whole, ``OBJECT_MSL`` at the zero its floor was cut from
-FLOOR_SEAT = _ts.OBJECT_FLOOR_SEAT
 
 
 @_dc.dataclass(frozen=True)
@@ -219,8 +216,9 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
     the region between its walls)`` — only those are read as floors
     without being floor objects, only that cover is theirs, and only their
     faces over that region are the floor (a shell's own model can reach far
-    past its trench: LGAV ``Trench_06``, 362,036 m2 of plates).  A shared-datum pack co-places everything (LGAV
-    ``Trench_0x``, one anchor), so co-placement alone is no tunnel
+    past its trench: LGAV ``Trench_06``, 362,036 m2 of plates).  A
+    shared-datum pack co-places everything (LGAV ``Trench_0x``, one
+    anchor), so co-placement alone is no tunnel
     evidence: a floor object's cover must also stand its walls ON the
     floor's edges — at least ``floor_walled_min_share`` of the footprint's
     ring within ``wall_face_max_thickness_m`` of the cover's deep wall
@@ -299,7 +297,7 @@ def seat_records(floors: _t.Iterable[ObjectFloor]) -> list[dict[str, _t.Any]]:
     its covers): written WHOLE as ``OBJECT_MSL`` at the zero the cut was
     read from ("mouths seat at that floor; walls end on it") — never split
     and re-seated on feet that stand in its own cut."""
-    return [{"id": pid, "resource": res, "datum": "object_floor", "seat": FLOOR_SEAT,
+    return [{"id": pid, "resource": res, "datum": "object_floor", "seat": _ts.OBJECT_FLOOR_SEAT,
              "elevation": round(float(z), 3)}
             for f in floors for pid, res, z in f.seats]
 

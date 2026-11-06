@@ -22,7 +22,13 @@ import typing as _t
 import shapely
 from shapely.ops import unary_union
 
-from ..airport.object_floor import FLOOR_REF, FLOOR_WALL_REF, floor_portals, read_object_floors
+from ..airport.object_floor import (
+    FLOOR_REF,
+    FLOOR_WALL_REF,
+    ObjectFloor,
+    floor_portals,
+    read_object_floors,
+)
 
 __all__ = ["add_object_floor_cells", "floor_mouths", "not_floors", "object_floor_stage"]
 
@@ -36,7 +42,7 @@ def _parts(geom) -> list:
             if g.geom_type == "Polygon" and g.area > 0.25]
 
 
-def add_object_floor_cells(floors: _t.Sequence, law, new_cells: list, footprints: list,
+def add_object_floor_cells(floors: _t.Sequence[ObjectFloor], law, new_cells: list, footprints: list,
                            hull_knives: list, keepouts: list, cells, polys,
                            notes: list[str]) -> int:
     """Append every object floor's cut face and void band to ``new_cells``

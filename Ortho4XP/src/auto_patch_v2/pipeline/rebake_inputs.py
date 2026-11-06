@@ -348,8 +348,8 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
     excluded |= _authored_seats.kept_ids(seats)
     _stamp_cut_rings(seats, pm, airport)
     # issue #1730: a terrain-shaped hard deck's row is seated at its DEM fit
-    from ..airport import terrain_shaped as _ts
     from ..airport import object_floor as _of
+    from ..airport import terrain_shaped as _ts
     floors = tuple(getattr(pm, "object_floors", ()) or ())
     # #1903: a trench object's floor and covers are written whole at their
     # read zero — no other seat moves them

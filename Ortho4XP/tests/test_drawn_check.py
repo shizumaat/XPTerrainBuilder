@@ -1,155 +1,138 @@
-"""Twin for ``tools/drawn_check.py`` (#1903): the drawn-vs-cut gate.
-
-A synthetic world in DSFTool text: a flat drawn tile mesh at 100 m (plus a
-NON-physical overlay patch at 500 m that X-Plane does not collide with and
-the gate must ignore), a pack dump with one ``OBJECT_MSL`` row -- whose
-elevation comes BEFORE the heading in DSFTool text -- and one ``OBJECT``
-row, a 4-vertex OBJ hanging 5 m below its zero, and a patch whose tunnel
-ramp floors at 95 m.  The gate must place the MSL row at its elevation,
-the OBJECT row on the drawn mesh, and read the bars from those."""
+"""Twin of ``tools/drawn_check.py`` (#1903): the drawn-mesh reader, the
+loose-triangle sampler and the per-component readings, on synthetic
+geometry -- no DSFTool, no installed scenery."""
 from __future__ import annotations
 
+import math
+import os
 import sys
-from pathlib import Path
 
+import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
 
-import drawn_check as DC  # noqa: E402
-from auto_patch_v2.airport import dsf as dsf_text  # noqa: E402
+import drawn_check as DC                                             # noqa: E402
+from auto_patch.mesh_sampler import MeshElevationSampler              # noqa: E402
+from auto_patch_v2.airport.dsf_mesh import expand_primitive, physical_triangles  # noqa: E402
+from auto_patch_v2.airport.obj8 import Component                     # noqa: E402
 
-LON, LAT = 10.5, 45.5
-MESH_TEXT = """\
-TERRAIN_DEF terrain_Water
-BEGIN_PATCH 0 0.0 -1.0 1 5
-BEGIN_PRIMITIVE 0
-PATCH_VERTEX 10.49 45.49 100.0 0 0
-PATCH_VERTEX 10.51 45.49 100.0 0 0
-PATCH_VERTEX 10.51 45.51 100.0 0 0
-END_PRIMITIVE
-BEGIN_PRIMITIVE 1
-PATCH_VERTEX 10.49 45.49 100.0 0 0
-PATCH_VERTEX 10.51 45.51 100.0 0 0
-PATCH_VERTEX 10.49 45.51 100.0 0 0
-END_PRIMITIVE
-END_PATCH
-BEGIN_PATCH 0 0.0 -1.0 2 5
-BEGIN_PRIMITIVE 0
-PATCH_VERTEX 10.49 45.49 500.0 0 0
-PATCH_VERTEX 10.51 45.49 500.0 0 0
-PATCH_VERTEX 10.51 45.51 500.0 0 0
-END_PRIMITIVE
-END_PATCH
-"""
-OBJ = "I\n800\nOBJ\n\nPOINT_COUNTS 4 0 0 0\n" + "".join(
-    f"VT {x} {y} {z} 0 1 0 0 0\n"
-    for x, y, z in ((-2, -5, -2), (2, -5, -2), (2, 0, 2), (-2, 0, 2)))
+LAT, LON = 40.0, 10.0
 
 
-def _world(tmp_path, msl_elev, kept_reason=None, deck=False):
-    root = tmp_path / "pack"
-    (root / "objects").mkdir(parents=True)
-    (root / "objects" / "portal.obj").write_text(OBJ, encoding="utf-8", newline="\n")
-    (root / "objects" / "other.obj").write_text(OBJ, encoding="utf-8", newline="\n")
-    dump = tmp_path / "pack.txt"
-    dump.write_text(
-        "OBJECT_DEF objects/portal.obj\nOBJECT_DEF objects/other.obj\n"
-        f"OBJECT_MSL 0 {LON} {LAT} {msl_elev} 90.0\n"
-        f"OBJECT 1 {LON + 0.0001} {LAT} 0.0\n", encoding="utf-8", newline="\n")
-    patch = tmp_path / "X_auto.patch.osm"
-    nodes = [(-1, LAT, LON, 95.0), (-2, LAT + 0.0001, LON, 96.0),
-             (-3, LAT + 0.0002, LON, 98.0)]
-    patch.write_text(
-        "<osm>" + "".join(
-            f"<node id='{i}' lat='{la}' lon='{lo}'><tag k='alt_abs' v='{z}'/></node>"
-            for i, la, lo, z in nodes)
-        + "<way id='-9'>" + "".join(f"<nd ref='{i}'/>" for i, *_ in nodes)
-        + "<tag k='role' v='tunnel_ramp'/></way></osm>", encoding="utf-8", newline="\n")
-    sidecar = {"portal_cuts": [{"id": "tunnel:-9@0", "portal": "dsf:obj0"}],
-               "tunnel_mouth_depths": [{"id": "tunnel:-9@0",
-                                        "mouth_ll": [LAT, LON], "depth_m": 5.0}]}
-    if deck:
-        sidecar["deck_anchors"] = [{"object": "dsf:obj0", "end": "A"}]
-    plan = {"kept": [{"index": 0, "resource": "objects/portal.obj",
-                      "reason": kept_reason}]} if kept_reason else {}
-    written = dsf_text.read_dump(str(dump), accept_polygon=lambda _p: False)
-    mesh = DC.drawn_mesh([iter(MESH_TEXT.splitlines(True))],
-                         (10.49, 45.49, 10.51, 45.51))
-    claims = DC.read_claims(sidecar, "+45+010", {"+45+010": plan},
-                            {"+45+010": written})
-    drawn = DC.Drawn(written.placements, str(root), mesh)
-    sites = DC.read_sites(str(patch), sidecar, 15.0)
-    return [DC.check_site(s, drawn, claims, 15.0, 0.3) for s in sites], drawn
+def _text(flags: int, ptype: int, verts) -> list[str]:
+    lines = [f"BEGIN_PATCH 0 0.0 -1.0 {flags} 5", f"BEGIN_PRIMITIVE {ptype}"]
+    lines += [f"PATCH_VERTEX {x} {y} {z} 0 0" for x, y, z in verts]
+    return lines + ["END_PRIMITIVE", "END_PATCH"]
 
 
-def test_object_msl_reads_elevation_before_heading(tmp_path):
-    _rows, drawn = _world(tmp_path, 100.0)
-    msl, obj = drawn.rows
-    assert (msl.kind, msl.elevation, msl.heading_deg) == ("OBJECT_MSL", 100.0, 90.0)
-    assert (obj.kind, obj.heading_deg) == ("OBJECT", 0.0)
-    # a swapped read would seat the row at 90 m: the bottom would read 85
-    assert drawn.vertices(0)[2].min() == pytest.approx(95.0)
+def test_physical_triangles_keeps_physical_patches_in_the_box():
+    sq = [(10.0, 40.0, 5.0), (10.001, 40.0, 6.0), (10.0, 40.001, 7.0), (10.001, 40.001, 8.0)]
+    text = (_text(1, 1, sq)                                       # strip: 2 triangles
+            + _text(0, 0, sq[:3])                                 # overlay patch: not drawn ground
+            + _text(1, 2, sq)                                     # fan: 2 triangles
+            + _text(1, 0, [(11.0, 41.0, 1.0), (11.001, 41.0, 1.0), (11.0, 41.001, 1.0)]))  # off the box
+    got = physical_triangles(text, (9.99, 39.99, 10.01, 40.01))
+    assert got.shape == (4, 3, 3)
+    assert set(np.unique(got[:, :, 2])) == {5.0, 6.0, 7.0, 8.0}
+    assert len(expand_primitive(0, sq[:3] + sq[:3])) == 2
 
 
-def test_drawn_mesh_ignores_non_physical_patches(tmp_path):
-    _rows, drawn = _world(tmp_path, 100.0)
-    assert drawn.mesh.elevation_at(LAT, LON) == pytest.approx(100.0)
-    # OBJECT row: zero = drawn mesh (100), bottom = 100 - 5
-    assert drawn.vertices(1)[2].min() == pytest.approx(95.0)
+def test_sampler_over_loose_triangles_interpolates_and_misses_outside():
+    corners = np.array([[[0, 0, 0], [1, 0, 10], [0, 1, 20]],
+                        [[1, 0, 10], [1, 1, 30], [0, 1, 20]]], float)
+    smp = MeshElevationSampler.from_triangles(corners, (0, 0, 1, 1))
+    assert smp.sample_at(0.25, 0.25).elevation_metres == pytest.approx(7.5)
+    assert smp.sample_many([0.75, 2.0], [0.75, 2.0])[1] is None
 
 
-def test_seated_cut_passes(tmp_path):
-    rows, _ = _world(tmp_path, 100.0)          # MSL 100 - 5 = floor 95
-    ramp, mouth = rows
-    assert ramp["site"] == "tunnel_ramp -9" and ramp["floor"] == 95.0
-    assert ramp["relief"] == 3.0 and ramp["role"] == "CUT"
-    assert ramp["delta"] == pytest.approx(0.0) and ramp["verdict"] == "PASS"
-    assert mouth["floor_from"] == "patch" and mouth["verdict"] == "PASS"
+class _Mesh:
+    """A drawn surface given as ``f(east, north)`` in the site frame."""
+
+    def __init__(self, frame: DC.Frame, f):
+        self.frame, self.f = frame, f
+
+    def z(self, lat, lon):
+        e, n = self.frame.enter(np.asarray(lat, float).reshape(-1), np.asarray(lon, float).reshape(-1))
+        return np.array([self.f(a, b) for a, b in zip(e, n)], float)
 
 
-def test_object_left_proud_of_the_cut_fails(tmp_path):
-    rows, _ = _world(tmp_path, 104.5,
-                     kept_reason="split undone: a body falls off the tile")
-    ramp = rows[0]
-    assert ramp["delta"] == pytest.approx(4.5) and ramp["verdict"] == "FAIL"
-    assert any("split undone" in f for f in ramp["fails"])
-    assert any("bottom-floor" in f for f in ramp["fails"])
+def _trench(base: float):
+    """An open-top trench 40 m east-west, 10 m wide: a floor 4 m down,
+    walls on its north and south sides, both ends open."""
+    V = np.array([[-20, -5, base - 4], [20, -5, base - 4], [20, 5, base - 4], [-20, 5, base - 4],
+                  [-20, -5, base], [20, -5, base], [20, 5, base], [-20, 5, base]], float)
+    tris = np.array([[0, 1, 2], [0, 2, 3],                   # floor
+                     [0, 1, 5], [0, 5, 4], [3, 2, 6], [3, 6, 7]])  # south and north walls
+    return V, Component(tris, -4.0, 0.0, 0.0, 0.0, False, np.arange(len(tris)))
 
 
-def test_deck_claim_bars_clearance_not_floor(tmp_path):
-    rows, _ = _world(tmp_path, 106.0, deck=True)
-    assert rows[0]["role"] == "DECK" and rows[0]["verdict"] == "PASS"
-    rows, _ = _world(tmp_path / "b", 99.0, deck=True)   # deck bottom 94 < 95
-    assert rows[0]["verdict"] == "FAIL"
+def _no_others(e, n):
+    return np.full(len(e), np.nan)
 
 
-def test_against_flags_moved_sites():
-    base = [{"site": "a", "verdict": "PASS", "delta": -0.07},
-            {"site": "b", "verdict": "PASS", "delta": 0.0}]
-    now = [{"site": "a", "verdict": "PASS", "delta": -0.06},
-           {"site": "b", "verdict": "FAIL", "delta": 4.5}]
-    assert DC.compare(now, base) == ["b: PASS 0.0 -> FAIL 4.5"]
+def test_trench_on_uncut_ground_reads_buried_with_terrain_over_its_ends():
+    fr = DC.Frame(LAT, LON)
+    V, comp = _trench(100.0)
+    rec = DC.measure(V, comp, fr, _Mesh(fr, lambda e, n: 100.0), _no_others)
+    assert rec["bottom_minus_mesh"]["p50"] == pytest.approx(-4.0, abs=0.01)
+    assert rec["shape"]["class"] == "concave cut shell"
+    ends = [q for q in rec["open_runs"] if q["length_m"] >= 8.0]
+    assert len(ends) == 2 and all(q["step_m"] == pytest.approx(-4.0, abs=0.01) for q in ends)
 
 
-def _split(tmp_path, msl_elev):
-    _rows, drawn = _world(tmp_path, msl_elev)
-    rec = {"kind": "split_level", "floor_ref": "basin_floor:0",
-           "resources": ["objects/portal.obj"], "anchor_longitude_latitude": [LON, LAT],
-           "plate_y_m": -5.0, "floor_below_rim_m": 5.0, "floor_m": 95.0,
-           # the open side 5 m east of the anchor, north-south
-           "open_sides_ll": [[[LAT - 0.00005, LON + 0.00005], [LAT + 0.00005, LON + 0.00005]]]}
-    return DC.check_split(rec, drawn, 0.3)
+def test_trench_in_its_cut_reads_on_the_mesh_and_flush_at_its_ends():
+    fr = DC.Frame(LAT, LON)
+    V, comp = _trench(100.0)
+    cut = lambda e, n: 96.0 if abs(n) <= 5.5 else 100.0                # noqa: E731 (cut + ramps)
+    rec = DC.measure(V, comp, fr, _Mesh(fr, cut), _no_others)
+    assert abs(rec["bottom_minus_mesh"]["p50"]) <= DC.PAVEMENT_BAR_M
+    ends = [q for q in rec["open_runs"] if q["length_m"] >= 8.0]
+    assert len(ends) == 2 and all(abs(q["step_m"]) <= DC.PAVEMENT_BAR_M for q in ends)
 
 
-def test_split_level_lower_floor_on_the_floor_upper_at_the_ground(tmp_path):
-    row = _split(tmp_path, 100.0)       # zero 100: lower floor 95, upper 100 = mesh
-    assert row["upper_floor"] == pytest.approx(100.0)
-    assert row["open_ground_median"] == pytest.approx(100.0)
-    # the drawn floor is the flat 100 m mesh: the lower floor 5 m under it fails
-    assert any("lower floor - drawn floor" in f for f in row["fails"])
+def test_deck_ends_read_the_step_to_the_ground_beyond():
+    fr = DC.Frame(LAT, LON)
+    V = np.array([[-30, -6, 101.0], [30, -6, 101.0], [30, 6, 101.0], [-30, 6, 101.0]], float)
+    comp = Component(np.array([[0, 1, 2], [0, 2, 3]]), 0.0, 0.0, 0.0, 0.0, True, np.arange(2))
+    ground = lambda e, n: 100.3 if abs(e) > 30 else 95.0                # noqa: E731
+    rec = DC.measure(V, comp, fr, _Mesh(fr, ground), _no_others)
+    ends = sorted((q for q in rec["open_runs"] if q["length_m"] < 20.0), key=lambda q: q["at"][1])
+    assert [q["step_m"] for q in ends] == [pytest.approx(0.7, abs=0.01)] * 2
+    assert rec["shape"]["class"].startswith("flat plate")
 
 
-def test_split_level_upper_floor_over_the_ground_is_a_gap(tmp_path):
-    row = _split(tmp_path, 104.0)
-    assert any("gap to the terrain" in f for f in row["fails"])
+def test_a_box_is_a_convex_body():
+    fr = DC.Frame(LAT, LON)
+    b = 100.0
+    V = np.array([[-10, -10, b], [10, -10, b], [10, 10, b], [-10, 10, b],
+                  [-10, -10, b + 8], [10, -10, b + 8], [10, 10, b + 8], [-10, 10, b + 8]], float)
+    tris = np.array([[4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
+                     [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]])
+    rec = DC.measure(V, Component(tris, 0, 8, 0, 0, False, np.arange(len(tris))), fr,
+                     _Mesh(fr, lambda e, n: b), _no_others)
+    assert rec["shape"]["class"] == "convex body"
+    assert all(abs(sd["foot_minus_mesh"]["p50"]) <= DC.PAVEMENT_BAR_M for sd in rec["outline_sides"])
+
+
+def test_the_surface_outside_is_the_higher_of_mesh_and_object():
+    out, obj = DC.drawn_outside(np.array([10.0, 10.0, np.nan]), np.array([np.nan, 11.0, 9.0]))
+    assert out.tolist() == [10.0, 11.0, 9.0] and obj.tolist() == [False, True, True]
+
+
+def test_row_base_follows_the_row_kind():
+    class P:
+        kind, elevation = "OBJECT_MSL", 42.0
+    assert DC.row_base(P, 7.0) == 42.0
+    P.kind, P.elevation = "OBJECT_AGL", 1.5
+    assert DC.row_base(P, 7.0) == 8.5
+    P.kind, P.elevation = "OBJECT", None
+    assert DC.row_base(P, 7.0) == 7.0
+
+
+def test_placed_vertices_turn_by_heading():
+    class G:
+        vertices = np.array([[0.0, 0.0, -10.0]])                      # 10 m north of the origin (z south)
+    v = DC.placed_vertices(G, 0.0, 0.0, 90.0, 5.0)[0]
+    assert v[0] == pytest.approx(10.0) and v[1] == pytest.approx(0.0, abs=1e-9) and v[2] == 5.0
+    assert math.isclose(DC.Frame(LAT, LON).leave(*DC.Frame(LAT, LON).enter(LAT, LON))[0], LAT)

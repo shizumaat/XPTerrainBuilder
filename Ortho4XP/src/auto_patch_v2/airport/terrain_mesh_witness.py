@@ -42,6 +42,7 @@ from shapely.strtree import STRtree
 
 from . import dsf as _dsf
 from .dsf_commands import header_properties
+from .dsf_mesh import expand_primitive
 
 __all__ = ["RASTER_Z", "dump_candidates", "log_line", "read"]
 
@@ -118,7 +119,7 @@ def _read_cuts(text_lines: _t.Iterable[str], raster: "_t.Callable[[float, float]
             ptype, verts = int(line.split()[1]), []
         elif line.startswith("END_PRIMITIVE"):
             if verts and any(x0 <= v[0] <= x1 and y0 <= v[1] <= y1 for v in verts):
-                tris.extend(_expand(ptype, verts))
+                tris.extend(expand_primitive(ptype, verts))
             ptype, verts = -1, []
     from shapely.prepared import prep
     fence = prep(boundary)
@@ -166,22 +167,6 @@ def _read_cuts(text_lines: _t.Iterable[str], raster: "_t.Callable[[float, float]
                 continue
             cuts.append(_MeshCut(g, float(fl), float(field - fl)))
     return float(field), cuts
-
-
-def _expand(ptype: int, v: list) -> list:
-    """A DSF primitive's triangles by vertex index: 0 a list of triangles,
-    1 a strip (every other one turned so all wind alike), 2 a fan.  The
-    winding is immaterial here (a plan footprint and a barycentric z)."""
-    if ptype == 0:
-        idx = [(k, k + 1, k + 2) for k in range(0, len(v) - 2, 3)]
-    elif ptype == 1:
-        idx = [(k, k + 1, k + 2) for k in range(len(v) - 2)]
-    elif ptype == 2:
-        idx = [(0, k, k + 1) for k in range(1, len(v) - 1)]
-    else:
-        idx = []
-    return [(v[a], v[b], v[c]) for a, b, c in idx
-            if v[a][:2] != v[b][:2] and v[b][:2] != v[c][:2] and v[a][:2] != v[c][:2]]
 
 
 class _Surface:

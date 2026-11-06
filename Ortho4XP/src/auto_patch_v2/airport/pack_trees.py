@@ -27,7 +27,9 @@ forest_mix_full.for``.  Neither had an X-Plane 12 3D equivalent in the
 * A PACK'S OWN FLAT ``.for`` — :func:`local_forest_target`: tree type
   from its ``TREE`` rows (narrow billboards are conifers; a mix of both
   is ``mixed``), sparse from ``SPACING``, and nothing for ground cover
-  (grass: every tree under :data:`GROUND_COVER_M`).
+  (grass: every tree under :data:`GROUND_COVER_M`) or low vegetation (a
+  mean height under ``SHRUB_M + 1``: X-Plane 12's 3D shrub forests are
+  small trees, issue #1920).
 """
 from __future__ import annotations
 
@@ -243,8 +245,14 @@ def local_forest_target(path: str) -> str:
         return ""
     tall = sum(w * r[2] for w, r in zip(wt, rows, strict=True))
     coni = sum(w for w, r in zip(wt, rows, strict=True) if r[1] < CONIFER_ASPECT)
-    kind = ("shrb" if tall < SHRUB_M + 1.0 else "coni" if coni >= 0.75
-            else "broad" if coni <= 0.25 else "mixed")
+    if tall < SHRUB_M + 1.0:
+        # LOW VEGETATION STAYS LOW (#1920): X-Plane 12's ``shrb_*`` forests
+        # draw 2-13 m trees (``1200 forests/sum/shrub_tmp.for``: ash,
+        # aspen, locust), so a pack's own grass, reed or shrubs keeps its
+        # own flat file — the owner's LGAV read: grass by the runways
+        # came out as small trees
+        return ""
+    kind = ("coni" if coni >= 0.75 else "broad" if coni <= 0.25 else "mixed")
     sparse = bool(spacing) and sum(spacing) / 2 > SPARSE_SPACING_M
     return LOCAL_FOREST[(kind, sparse)]
 

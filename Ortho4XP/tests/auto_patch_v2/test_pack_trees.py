@@ -104,11 +104,22 @@ def _for(rows, spacing="5 5") -> str:
     ([(577, 618, 20, 7, 15), (499, 514, 20, 7, 15)], "4.5 5", ("broad", False)),
     ([(200, 618, 50, 7, 15)], "4.5 5", ("coni", False)),
     ([(200, 618, 50, 7, 15), (600, 600, 50, 7, 15)], "14 14", ("mixed", True)),
-    ([(600, 600, 100, 1, 3)], "4 4", ("shrb", False)),
 ])
 def test_a_local_forest_maps_by_its_trees(tmp_path, rows, spacing, want):
     p = _write(tmp_path / "forest.for", _for(rows, spacing))
     assert PT.local_forest_target(str(p)) == LOCAL_FOREST[want]
+
+
+@pytest.mark.parametrize("rows", [
+    [(600, 600, 100, 1, 3)],            # shrubs, 1-3 m
+    [(450, 128, 70, 0.6, 1.5)],         # grass reaching 1.5 m (LGAV's)
+    [(316, 231, 5, 1.0, 1.5), (400, 231, 25, 1.9, 2.5)],   # reeds
+])
+def test_low_vegetation_is_never_mapped_to_trees(tmp_path, rows):
+    # #1920: X-Plane 12's shrb_* forests are 2-13 m trees; a pack's own
+    # grass, reed or shrubs keeps its own flat file
+    p = _write(tmp_path / "low.for", _for(rows, "3 3"))
+    assert PT.local_forest_target(str(p)) == ""
 
 
 def test_ground_cover_maps_to_nothing(tmp_path):

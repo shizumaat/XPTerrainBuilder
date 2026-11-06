@@ -117,7 +117,9 @@ TREE_WORDS = frozenset({"tree", "trees", "veg", "vegetation", "forest",
                         "forests", "wood", "woods"}) | frozenset(NAME_FAMILY)
 
 #: (tree type, sparse) -> the X-Plane 12 3D forest for a pack's own flat
-#: ``.for``; type is ``broad`` | ``coni`` | ``mixed`` | ``shrb``
+#: ``.for``; type is ``broad`` | ``coni`` | ``mixed`` (a pack's own shrubs
+#: and grass map to nothing: X-Plane 12's ``shrb_*`` forests are small
+#: trees, issue #1920)
 LOCAL_FOREST: dict[tuple[str, bool], str] = {
     ("broad", False): "lib/g8/broad_tmp_wet.for",
     ("broad", True): "lib/g8/broad_sp_tmp_wet.for",
@@ -125,6 +127,4 @@ LOCAL_FOREST: dict[tuple[str, bool], str] = {
     ("coni", True): "lib/g8/coni_sp_tmp_wet.for",
     ("mixed", False): "lib/g8/mixed_tmp_wet.for",
     ("mixed", True): "lib/g8/mixed_sp_tmp_wet.for",
-    ("shrb", False): "lib/g8/shrb_tmp_wet.for",
-    ("shrb", True): "lib/g8/shrb_tmp_wet.for",
 }

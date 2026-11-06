@@ -50,6 +50,7 @@ import os
 import typing as _t
 
 from . import pack_trees as _pt
+from . import pack_trees_clear as _clear
 from .obj8 import resolve_resource
 from .pack_art import FIRST_PATHS, count_uses, declared_definitions
 from .pack_forests_map import FOREST_MAP
@@ -57,10 +58,15 @@ from .pack_trees_map import FAMILIES
 
 __all__ = ["old_forests",
            "renames_of", "apply_upgrade", "record",
-           "recorded", "summary", "log_line", "RECORD_KEY"]
+           "recorded", "recorded_version", "clear_strips", "summary",
+           "log_line", "RECORD_KEY", "UPGRADE_VERSION"]
 
 #: the key of the record row (``o4_placement_provenance.json``)
 RECORD_KEY = "forest_upgrade"
+#: the upgrade's rules (the map and the strip clearing): a record written
+#: under another is stale and re-applied from the pristine DSF (#1920 —
+#: 1: the first map; 2: low vegetation stays low, trees off the strips)
+UPGRADE_VERSION = 2
 #: a ``.for`` line keyword that only X-Plane 12's 3D trees use
 KEYWORDS_3D = frozenset({"SHADER_3D", "MESH"})
 
@@ -242,7 +248,23 @@ def apply_upgrade(edited: str, pristine: str, renames: _t.Mapping[str, str],
     text, n = _rename_definitions(edited, forests)
     text, converted, _trees = _pt.convert_objects(text, pristine, objects,
                                                   pack_root)
+    if renames:
+        text, _cleared = clear_strips(text, set(forests.values()), pack_root)
     return text, n + converted
+
+
+def clear_strips(text: str, targets: _t.Collection[str], pack_root: str
+                 ) -> tuple[str, int]:
+    """The upgrade's 3D trees (``targets`` and every ``FAMILIES`` member)
+    cleared of the pack's runway, safety-area and taxiway strips
+    (``pack_trees_clear``, issue #1920).  Returns the text and the
+    polygons changed."""
+    want = set(targets) | {p for sizes in FAMILIES.values() for p, _h in sizes}
+    defs = declared_definitions(text.splitlines())["polygon"]
+    tree_defs = {i for i, p in enumerate(defs) if p in want}
+    if not tree_defs:
+        return text, 0
+    return _clear.clear_trees(text, tree_defs, _clear.clear_areas(pack_root))
 
 
 def decision_key(pristine_sha256: str, renames: _t.Mapping[str, str]) -> str:
@@ -258,7 +280,7 @@ def record(pristine_sha256: str, renames: _t.Mapping[str, str], renamed: int,
            time: str) -> dict[str, _t.Any]:
     """The :data:`RECORD_KEY` entry of ``o4_placement_provenance.json``:
     every definition changed, from what, to what."""
-    return {"accepted": True, "time": time,
+    return {"accepted": True, "time": time, "version": UPGRADE_VERSION,
             "key": decision_key(pristine_sha256, renames),
             "pristine_sha256": pristine_sha256,
             "renamed": int(renamed),
@@ -282,6 +304,14 @@ def recorded(entry: _t.Mapping[str, _t.Any] | None,
         return {}
     return renames if row.get("key") == decision_key(pristine_sha256,
                                                      renames) else {}
+
+
+def recorded_version(entry: _t.Mapping[str, _t.Any] | None) -> int:
+    """The :data:`UPGRADE_VERSION` a recorded upgrade was written under
+    (1 for a record from before the field)."""
+    row = (entry or {}).get(RECORD_KEY)
+    v = row.get("version", 1) if isinstance(row, dict) else 1
+    return v if isinstance(v, int) else 1
 
 
 def summary(old: _t.Sequence[OldForest]) -> dict[str, _t.Any]:

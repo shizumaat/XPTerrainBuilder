@@ -708,6 +708,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.geom.fixed_overlay",
     "auto_patch_v2.geom.foot_planes",
     "auto_patch_v2.geom.grid_pickle",
+    "auto_patch_v2.geom.lowest_face",
     "auto_patch_v2.geom.pad_evidence",
     "auto_patch_v2.geom.parts",
     "auto_patch_v2.geom.proportions",

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..airport.object_floor import floor_z_at
+from ..geom.lowest_face import floor_z_at
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Pin, Row, Source

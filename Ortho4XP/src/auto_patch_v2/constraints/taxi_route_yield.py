@@ -45,6 +45,7 @@ import dataclasses as _dc
 import heapq
 import typing as _t
 
+from ..geom.exact import hypot
 from ..law import Law
 from ..law.tables import role_family
 from ..model.airport import Airport
@@ -201,7 +202,7 @@ def _graph(pm: PlanarMap, law: Law, airport, st
             (v, _c), (fa, _ca), (fb, cb) = r.terms
             bound, t = float(r.hi), -float(cb)
             (xa, ya), (xb, yb) = pm.vertices[fa].xy, pm.vertices[fb].xy
-            ln = ((xa - xb) ** 2 + (ya - yb) ** 2) ** 0.5
+            ln = hypot(xa - xb, ya - yb)
             sid = sid_of.get((min(fa, fb), max(fa, fb)))
             c = st.items[sid].cap_l if sid is not None else 0.0
             out.append((int(v), int(fa), bound + t * c * ln, 1.0, None))

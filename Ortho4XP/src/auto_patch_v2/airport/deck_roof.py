@@ -38,6 +38,7 @@ import typing as _t
 import numpy as np
 from shapely.geometry import LineString, MultiPoint, Polygon
 
+from ..model.frame import rotated_rectangle
 from . import obj8 as _obj8
 from .split_level import (
     BAND_M,
@@ -94,7 +95,7 @@ def read_deck_roofs(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resou
             y_up = float(np.median(P[:, :, 1]))
             if area < pmin or float(np.ptp(P[:, :, 1])) > BAND_M:
                 continue
-            rect = MultiPoint(P[:, :, [0, 2]].reshape(-1, 2).tolist()).minimum_rotated_rectangle
+            rect = rotated_rectangle(MultiPoint(P[:, :, [0, 2]].reshape(-1, 2).tolist()))
             if rect.geom_type != "Polygon":
                 continue
             cs = list(rect.exterior.coords)[:4]

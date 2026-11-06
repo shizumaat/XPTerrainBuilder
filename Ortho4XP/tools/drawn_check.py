@@ -58,6 +58,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import sys
 import tempfile
 
@@ -792,6 +793,14 @@ def run(args) -> dict:
         raise SystemExit("drawn_check: give at least one --site or --object")
     tool = dsftool()
     work = tempfile.mkdtemp(prefix="drawn_check_")
+    try:
+        return _run(args, sites, tool, work)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _run(args, sites, tool: str, work: str) -> dict:
+    """:func:`run` with its temp folder for the pack dumps."""
     res = Resources(os.path.dirname(args.custom_scenery.rstrip("/")), args.mod_cache)
     tiles = set(args.tiles)
     for s in sites:

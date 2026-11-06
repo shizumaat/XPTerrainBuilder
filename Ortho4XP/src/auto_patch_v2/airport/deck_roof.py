@@ -39,8 +39,15 @@ import numpy as np
 from shapely.geometry import LineString, MultiPoint, Polygon
 
 from . import obj8 as _obj8
-from .split_level import (BAND_M, SplitLevel, _airside_share, _families, _ground,
-                          _side_feet, _solids)
+from .split_level import (
+    BAND_M,
+    SplitLevel,
+    _airside_share,
+    _families,
+    _ground,
+    _side_feet,
+    _solids,
+)
 
 __all__ = ["read_deck_roofs"]
 

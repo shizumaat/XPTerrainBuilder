@@ -32,8 +32,9 @@ wall, under the building's own wall), and
   ``Basin.clearance_m`` 0).
 
 Refused, by name: a building over the runway family, or over a structure
-(a box yields what another pit already took); and a box a mapped road runs UNDER (an OSM ``highway`` way tagged
-``tunnel`` or a negative ``layer`` inside it): the "open" sides of an underpass are a road's
+(a box yields what another pit already took); and a box a mapped road
+runs UNDER (an OSM ``highway`` way tagged ``tunnel`` or a negative
+``layer`` inside it): the "open" sides of an underpass are a road's
 way under it, and pitting it sank the bridge with its deck under the
 ground (#1903 KBNA 1.0.470, the Murfreesboro Pike underpass).  Nothing
 here names a pack, a resource or an airport."""

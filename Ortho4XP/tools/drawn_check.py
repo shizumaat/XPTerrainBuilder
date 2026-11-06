@@ -395,8 +395,37 @@ def _outside(seg, centre, out_m, n=5):
     return out
 
 
-def check_split(rec, drawn, tol):
-    """One split-level building's row (module docstring)."""
+def _behind(closed, opened):
+    """The ``closed`` (lat, lon) sides parallel (within 45 degrees) to an
+    ``opened`` one: the sides behind the building; all of ``closed`` when
+    it has no open side."""
+    def axis(sd):
+        (la0, lo0), (la1, lo1) = sd[0], sd[-1]
+        kx = math.cos(math.radians(la0))
+        d = ((lo1 - lo0) * kx, la1 - la0)
+        n = math.hypot(*d) or 1.0
+        return d[0] / n, d[1] / n
+    if not opened:
+        return list(closed)
+    ax = [axis(o) for o in opened]
+    return [c for c in closed
+            if any(abs(axis(c)[0] * a[0] + axis(c)[1] * a[1]) >= math.sqrt(0.5) for a in ax)]
+
+
+def body_offsets_y(plans):
+    """{written body resource: its authored y offset} over the plans' split
+    bodies: a body row's drawn zero is the AUTHORED point the cut moved to
+    its origin, so the object's own zero is the row's minus this
+    (``authored_landing.body_zero``)."""
+    return {b["new_resource"]: float((b.get("authored_offset") or [0.0, 0.0])[1])
+            for plan in plans for s in plan.get("splits", []) for b in s.get("bodies", [])
+            if b.get("new_resource")}
+
+
+def check_split(rec, drawn, tol, lifts=None):
+    """One split-level building's row (module docstring); ``lifts`` is
+    :func:`body_offsets_y` (a split body's zero is its authored point)."""
+    lifts = lifts or {}
     stems = {stem(r) for r in rec.get("resources", [])}
     rows = [i for i, p in enumerate(drawn.rows) if stem(p.def_path) in stems]
     lon, lat = rec["anchor_longitude_latitude"]
@@ -429,7 +458,7 @@ def check_split(rec, drawn, tol):
         out["fails"].append("no written row of the building")
         out["verdict"] = "FAIL"
         return out
-    zeros = [_base(drawn, i) for i in rows]
+    zeros = [_base(drawn, i) - lifts.get(drawn.rows[i].def_path, 0.0) for i in rows]
     z0 = float(numpy.nanmedian(zeros))
     floor = mesh_z(drawn.mesh, lon, lat)
     ground = [mesh_z(drawn.mesh, x, y) for sd in rec.get("open_sides_ll", [])
@@ -457,8 +486,11 @@ def check_split(rec, drawn, tol):
     else:
         out["fails"].append("no drawn ground outside the open side")
     # THE BACK IS CUT DOWN (owner sim read 2026-11-05T23:55Z): the drawn
-    # ground 1 m outside every TALL side stands at the lower floor
-    back = [mesh_z(drawn.mesh, x, y) for sd in rec.get("closed_sides_ll", [])
+    # ground 1 m outside the tall side(s) BEHIND the building -- across from
+    # its airside face (parallel to an open side) -- stands at the lower
+    # floor; a tall side running up the slope between them reads both
+    behind = _behind(rec.get("closed_sides_ll", []), rec.get("open_sides_ll", []))
+    back = [mesh_z(drawn.mesh, x, y) for sd in behind
             for x, y in _outside(sd, (lon, lat), 1.0)]
     back = [g for g in back if not math.isnan(g)]
     if back:
@@ -572,8 +604,9 @@ def run(args):
     drawn = Drawn(written, pack_root, mesh)
     rows = [check_site(s, drawn, claims, args.radius, args.tol)
             for s in read_sites(patch, sidecar, args.radius)]
-    rows += [check_split(r, drawn, args.tol) for r in sidecar.get("basin_facilities", [])
-             if r.get("kind") == "split_level"]
+    lifts = body_offsets_y(plans.values())
+    rows += [check_split(r, drawn, args.tol, lifts)
+             for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
     return {"icao": args.icao, "tile": tile, "pack_root": pack_root,
             "tile_dsfs": tile_dsfs, "tol_m": args.tol, "radius_m": args.radius,
             "claims": [dataclasses.asdict(c) for c in claims], "sites": rows}

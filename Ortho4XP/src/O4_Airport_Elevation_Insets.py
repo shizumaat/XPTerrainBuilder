@@ -4091,14 +4091,14 @@ def inset_recut_is_needed(lat, lon, icao, provider_code, required_box):
     # metres with code changes is still served by the raster when it lies
     # within one of its pixels of the cut window -- re-asking would return
     # the same pixels.  Only a window falling further outside is stale.
-    tol_lon, tol_lat = inset_pixel_degrees(lat, lon, icao, provider_code)
+    tol_lon, tol_lat = _inset_pixel_degrees(lat, lon, icao, provider_code)
     west, south, east, north = requested_box
     return _bounding_box_extends_beyond(
         required_box, (west - tol_lon, south - tol_lat,
                        east + tol_lon, north + tol_lat))
 
 
-def inset_pixel_degrees(lat, lon, icao, provider_code):
+def _inset_pixel_degrees(lat, lon, icao, provider_code):
     """``(lon_deg, lat_deg)``: one pixel of ``icao``'s cached inset, from
     its manifest's ``resolution_m`` (``native_resolution_m`` as fallback)
     at the box's latitude; ``(0.0, 0.0)`` when the manifest cannot say,

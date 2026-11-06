@@ -40,12 +40,12 @@ def test_drift_beyond_one_pixel_is_stale(tmp_path, monkeypatch):
 
 def test_unjudgeable_pixel_adds_no_slack(tmp_path, monkeypatch):
     _manifest(tmp_path, monkeypatch, None)
-    assert INSETS.inset_pixel_degrees(51, -1, "X", "c") == (0.0, 0.0)
+    assert INSETS._inset_pixel_degrees(51, -1, "X", "c") == (0.0, 0.0)
     assert INSETS.inset_recut_is_needed(51, -1, "X", "c", _north(0.5))
 
 
 def test_lon_pixel_widens_with_latitude(tmp_path, monkeypatch):
     _manifest(tmp_path, monkeypatch, 30.0)
-    lon_deg, lat_deg = INSETS.inset_pixel_degrees(51, -1, "X", "c")
+    lon_deg, lat_deg = INSETS._inset_pixel_degrees(51, -1, "X", "c")
     assert abs(lat_deg - 30.0 / 111320.0) < 1e-12
     assert 1.5 < lon_deg / lat_deg < 1.7          # 1 / cos(51.3 deg)

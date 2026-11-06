@@ -34,7 +34,10 @@ done
 [ -z "$missing" ] || die "branches with commits not in $REF:$missing\n  merge them, or name them as SKIP_BRANCH with the reason in the handoff"
 
 # 2. Engine first, from the test ref; then the signed app.
-PREV=$(cat Sources/XPTerrainBuilder/Resources/VERSION)
+# The previous TEST app's version (main's VERSION lags the test branches).
+APP=dist.nosync/XPTerrainBuilder.app
+PREV="${XPTB_PREV_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null)}"
+[ -n "$PREV" ] || die "no previous app version: set XPTB_PREV_VERSION"
 restore() { git checkout -q -- Sources/XPTerrainBuilder/Resources/VERSION Ortho4XP/src/O4_Version.py 2>/dev/null; git checkout -q main; }
 trap restore EXIT
 git checkout -q --detach "$SHA" || die "checkout $SHA failed"
@@ -44,9 +47,11 @@ rm -rf Ortho4XP/dist Ortho4XP/build
 XPTB_SIGN_IDENTITY="$IDENTITY" ./scripts/make_app.sh release || die "make_app failed"
 
 # 3. Verify what the owner will run.
-APP=dist.nosync/XPTerrainBuilder.app
 codesign -dv "$APP" 2>&1 | grep -q "TeamIdentifier=$TEAM" || die "app is not signed with team $TEAM"
-stamp=$(grep -m1 '^commit' "$APP/Contents/Resources/Engine/_internal/ENGINE_STAMP.txt" 2>/dev/null | awk '{print $2}')
-[ -n "$stamp" ] && [ "${stamp#$SHA}" != "$stamp" -o "${SHA#$stamp}" != "$SHA" ] \
-  || echo "WARNING: could not read the engine stamp; check make_app's 'embedded engine commit' line"
-echo "TEST APP OK: $(cat "$APP/Contents/Resources/VERSION" 2>/dev/null) at $SHA, team $TEAM"
+ENG="$APP/Contents/Resources/Engine"
+stamp=$(sed -n 's/^commit=//p' "$ENG/ENGINE_STAMP.txt" 2>/dev/null | head -1)
+[ "$stamp" = "$SHA" ] || die "engine stamp '$stamp' is not $SHA (stale engine)"
+grep -q '^dirty=0' "$ENG/ENGINE_STAMP.txt" || die "engine was built from a dirty tree"
+[ -n "$(find "$ENG/Ortho4XP" -mmin -120)" ] || die "engine binary is older than 2 h"
+VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
+echo "TEST APP OK: $VER at $SHA, team $TEAM (was $PREV)"

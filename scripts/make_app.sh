@@ -61,7 +61,16 @@ COMMIT_SHA="${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo un
 if [[ "$COMMIT_SHA" != unknown ]] && bash "$ROOT/scripts/tree_dirty.sh" "$ROOT"; then
   COMMIT_SHA="$COMMIT_SHA-dirty"
 fi
-echo "Engine $ENGINE_VERSION, commit $COMMIT_SHA"
+# The log names the commit of the engine actually EMBEDDED (a stale frozen
+# engine reported the source sha, 1.0.471): a frozen engine must carry a
+# stamp matching this tree (scripts/engine_stamp.sh), else we refuse.
+FROZEN="$ROOT/Ortho4XP/dist/Ortho4XP"
+if [[ -x "$FROZEN/Ortho4XP" ]]; then
+  EMBEDDED_SHA="$(bash "$ROOT/scripts/engine_stamp.sh" check "$FROZEN" "$ROOT")" || exit 1
+else
+  EMBEDDED_SHA="$COMMIT_SHA (source tree)"
+fi
+echo "Engine $ENGINE_VERSION, embedded engine commit $EMBEDDED_SHA, app commit $COMMIT_SHA"
 
 cd "$ROOT"
 swift build --build-system native -c "$CONFIG"
@@ -87,7 +96,6 @@ done
 # Python runtime and packages, nothing for the user to install. Falls back
 # to embedding the engine source tree (dev builds), which needs a system
 # python3 with the engine's packages.
-FROZEN="$ROOT/Ortho4XP/dist/Ortho4XP"
 if [[ -x "$FROZEN/Ortho4XP" ]]; then
   echo "Embedding frozen engine (self-contained)"
   # Utils/win + Utils/lin are the engine's Windows/Linux helper binaries

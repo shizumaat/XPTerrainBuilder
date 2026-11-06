@@ -22,8 +22,7 @@ import typing as _t
 import shapely
 from shapely.ops import unary_union
 
-from ..airport.object_floor import (FLOOR_REF, FLOOR_WALL_REF, floor_portals,
-                                   read_object_floors)
+from ..airport.object_floor import FLOOR_REF, FLOOR_WALL_REF, floor_portals, read_object_floors
 
 __all__ = ["add_object_floor_cells", "floor_mouths", "not_floors", "object_floor_stage"]
 

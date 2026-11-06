@@ -61,3 +61,28 @@ def test_the_floor_and_its_cover_are_seated_whole_at_their_read_zero(tmp_path):
     assert {(r["id"], r["elevation"], r["seat"]) for r in recs} == {
         ("dsf:obj2", 100.0, TS.OBJECT_FLOOR_SEAT), ("dsf:obj1", 100.0, TS.OBJECT_FLOOR_SEAT)}
     assert TS.OBJECT_FLOOR_SEAT in TS._WHY
+
+
+def test_a_bore_mouth_beside_a_floor_seats_at_that_floor(tmp_path):
+    """EGLL 11 west mouth: a mapped bore ending 1.8 m off the floor takes the
+    floor's height at the nearest footprint point, not the survey's road."""
+    import types
+
+    from auto_patch_v2.model.structures import Tunnel
+    from auto_patch_v2.planar.object_floor_cells import floor_mouths, not_floors
+    cache = O.ResourceCache(THICK)
+    objs = [_placed(_cover(tmp_path), "dsf:obj1"), _placed(_ramped_floor(tmp_path), "dsf:obj2")]
+    floors, _notes = OF.read_object_floors(objs, cache, LAW, {})
+    near = Tunnel("tunnel:-1@0", (-1,), ((0.0, 2.0), (0.0, 30.0)), 4.0, 100.0, 92.5, 30.0, 0.0,
+                  ("tunnel_ramp",), "tunnel_wall", ())
+    far = _dc_replace(near, id="tunnel:-2@0", axis=((0.0, 40.0), (0.0, 70.0)))
+    out, notes = floor_mouths([near, far], floors, LAW)
+    assert out[0].mouth_z > 99.7 and out[1].mouth_z == 92.5 and len(notes) == 1
+    road = types.SimpleNamespace(objects=("dsf:obj2",))
+    other = types.SimpleNamespace(objects=("dsf:obj9",))
+    assert not_floors([road, other], floors) == [other]
+
+
+def _dc_replace(obj, **kw):
+    import dataclasses
+    return dataclasses.replace(obj, **kw)

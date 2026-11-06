@@ -456,6 +456,18 @@ def check_split(rec, drawn, tol):
             out["fails"].append(f"open wall shows a {gap:.2f} m gap to the terrain")
     else:
         out["fails"].append("no drawn ground outside the open side")
+    # THE BACK IS CUT DOWN (owner sim read 2026-11-05T23:55Z): the drawn
+    # ground 1 m outside every TALL side stands at the lower floor
+    back = [mesh_z(drawn.mesh, x, y) for sd in rec.get("closed_sides_ll", [])
+            for x, y in _outside(sd, (lon, lat), 1.0)]
+    back = [g for g in back if not math.isnan(g)]
+    if back:
+        d_b = [g - (z0 + y_lo) for g in back]
+        out["back_ground_median"] = round(float(numpy.median(back)), 2)
+        out["delta_back_max"] = round(max(d_b, key=abs), 2)
+        if abs(out["delta_back_max"]) > tol:
+            out["fails"].append(f"tall-side ground - lower floor {out['delta_back_max']:+.2f}"
+                                f" > {tol}")
     out["verdict"] = "FAIL" if out["fails"] else "PASS"
     return out
 

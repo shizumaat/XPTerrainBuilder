@@ -575,6 +575,10 @@ class BuildingPad:
     split_level_wall_cover: float = 0.0
     #: ... read on the wall faces within this of the side's line (metres)
     split_level_probe_m: float = 0.0
+    #: ... and its pit reaches this far outside every TALL side, cut down
+    #: to the lower floor (owner sim read 2026-11-05T23:55Z); ``0`` = the
+    #: footprint alone
+    split_level_back_cut_m: float = 0.0
     #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
     #: ``airport/jetways.py``): ``None`` = no expansion
     jetway_root_reach_m: float | None = None

@@ -102,3 +102,26 @@ def test_an_upper_floor_over_lower_ground_is_no_level_of_the_lot():
     assert ground_confirms(_band(_Dem(lambda x, y: 28.6 + 5.4 * (y > 0))), lot, run,
                            6.0) is True
     assert ground_confirms(_band(None), lot, run, 6.0) is None
+
+
+def test_back_cut_reaches_past_the_tall_sides_only():
+    """THE BACK IS CUT DOWN (owner sim read 2026-11-05T23:55Z): the pit
+    reaches ``split_level_back_cut_m`` outside the three tall sides (the
+    corners between them taken), never past the open (airside) side, and
+    yields to what is blocked."""
+    from auto_patch_v2.airport.split_level import SplitLevel
+    from auto_patch_v2.planar.split_level_pit import _cut_region
+    from shapely.geometry import Point
+    foot = box(0.0, 0.0, 10.0, 10.0)
+    open_ = (LineString([(0.0, 10.0), (10.0, 10.0)]),)
+    tall = (LineString([(10.0, 10.0), (10.0, 0.0)]), LineString([(10.0, 0.0), (0.0, 0.0)]),
+            LineString([(0.0, 0.0), (0.0, 10.0)]))
+    sl = SplitLevel("o", ("o",), ("a.obj",), foot, 0.0, 6.0, open_, tall, 6.0, 0.0,
+                    (5.0, 5.0))
+    region = _cut_region(sl, 5.0, None)
+    assert abs(region.area - 300.0) < 1e-6
+    assert region.contains(Point(-4.0, -4.0)) and region.contains(Point(12.0, 9.0))
+    assert not region.contains(Point(5.0, 11.0))          # the airside: no reach
+    assert _cut_region(sl, 0.0, None).equals(foot)
+    clipped = _cut_region(sl, 5.0, box(-10.0, -10.0, 20.0, -2.0))
+    assert abs(clipped.area - (300.0 - 60.0)) < 1e-6

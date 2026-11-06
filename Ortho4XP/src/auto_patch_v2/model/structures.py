@@ -727,6 +727,9 @@ class Basin:
     open_sides: tuple[tuple[XY, ...], ...] = ()
     #: ... the same sides as ``(lat, lon)`` (what the sidecar publishes)
     open_sides_ll: tuple[tuple[tuple[float, float], ...], ...] = ()
+    #: ... and its TALL sides (walls down to the lower floor), ``(lat,
+    #: lon)``: the terrain outside them is cut down to the lower floor
+    closed_sides_ll: tuple[tuple[tuple[float, float], ...], ...] = ()
     clearance_m: float | None = None
 
     def clearance(self, law_clearance_m: float) -> float:

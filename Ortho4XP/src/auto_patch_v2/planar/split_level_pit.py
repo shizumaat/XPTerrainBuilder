@@ -15,6 +15,16 @@ wall, under the building's own wall), and
   upper floor sits at the graded upper ground, wherever the solve puts it;
 * the rim is the ground's (the DEM where bare, the governed ground where
   shared): on the open side the terrain is held up to the wall, no gap;
+* THE BACK IS CUT DOWN (owner sim read 2026-11-05T23:55Z, SBSP / KLAX
+  #1909: "the apron should extend up to the building face on the
+  airside, while the outside retaining wall and building floors should be
+  exposed by cutting the terrain down around the back"): the pit reaches
+  ``[building_pad] split_level_back_cut_m`` outside every TALL side (its
+  walls run down to the lower floor), so the floor -- the lower floor --
+  runs out past them and the rim climbs back to the ground beyond; the
+  open side stays the rim, flush at the upper floor.  The reach yields to
+  the runway family, structures and other pits (it is clipped, never
+  refused);
 * every member of the building is seated with its lower floor ON the
   floor (``pipeline/rebake_inputs``, ``Basin.kind`` ``split_level``: one
   frame, one seat), with no plate clearance (a floor, not a plate:
@@ -27,7 +37,7 @@ from __future__ import annotations
 import typing as _t
 
 from shapely.geometry import Point, Polygon
-from shapely.ops import unary_union
+from shapely.ops import linemerge, unary_union
 
 from ..airport.split_level import SplitLevel, read_split_levels
 from ..geom.parts import polygon_parts_with_area
@@ -51,6 +61,8 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         return [], [], [], notes, []
     grid = float(law.tables.emit.identity.min_distinct_spacing_m)
     band = float(law.tables.structures.cutout.ring_floor_m)
+    reach = float(getattr(law.tables.structures.building_pad, "split_level_back_cut_m", 0.0)
+                  or 0.0)
     hard = [p for p, c in zip(polys, cells, strict=True)
             if c.role in runway_roles or c.kind == "structure"]
     blocked = unary_union(list(hard) + list(taken)) if (hard or taken) else None
@@ -60,15 +72,16 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     refused: list[str] = []
     for sl in sls:
         k = k0 + len(basins)
-        rim = _rim(sl.footprint, 0.0, grid)
+        box = _rim(sl.footprint, 0.0, grid)
         name = sl.paths[0].rsplit("/", 1)[-1]
-        if rim is None:
+        if box is None:
             refused.append(f"{sl.id} {name}: the split-level box does not survive the grid")
             continue
-        if blocked is not None and rim.intersects(blocked):
+        if blocked is not None and box.intersects(blocked):
             refused.append(f"{sl.id} {name}: the split-level box meets the runway family, a "
                            "structure or another pit")
             continue
+        rim = _rim(_cut_region(sl, reach, blocked), 0.0, grid) or box
         floors = _region_floor(rim, band, [], grid)
         if not floors:
             refused.append(f"{sl.id} {name}: no floor inside the {band:.2f} m wall band")
@@ -84,6 +97,22 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         knives.append(rim)
         basins.append(_record(airport, sl, k, rim, floors, floor_ref, wall_ref))
     return basins, new_cells, knives, notes, refused
+
+
+def _cut_region(sl: SplitLevel, reach: float, blocked) -> Polygon:
+    """The pit's plan (module docstring): the building's box and, ``reach``
+    outside its TALL sides (``SplitLevel.closed_sides``, chained so two
+    meeting sides take the corner between them), the strip the back is
+    cut down in, less ``blocked``; the part holding the box."""
+    if reach <= 0.0 or not sl.closed_sides:
+        return sl.footprint
+    chain = linemerge(unary_union(list(sl.closed_sides)))
+    strip = chain.buffer(reach, cap_style="flat", join_style="mitre")
+    if blocked is not None:
+        strip = strip.difference(blocked)
+    region = unary_union([sl.footprint, strip]).buffer(0)
+    parts = [g for g in getattr(region, "geoms", [region]) if g.intersects(sl.footprint)]
+    return max(parts, key=lambda g: g.area) if parts else sl.footprint
 
 
 def _record(airport, sl: SplitLevel, k: int, rim: Polygon, floors, floor_ref: str,
@@ -107,4 +136,6 @@ def _record(airport, sl: SplitLevel, k: int, rim: Polygon, floors, floor_ref: st
         anchor_inside_floor=any(f.contains(Point(sl.anchor_xy)) for f in floors),
         open_sides=tuple(tuple(s.coords) for s in sl.open_sides),
         open_sides_ll=tuple(tuple(tuple(float(q) for q in to_ll(x, y)) for x, y in s.coords)
-                            for s in sl.open_sides), clearance_m=0.0)
+                            for s in sl.open_sides),
+        closed_sides_ll=tuple(tuple(tuple(float(q) for q in to_ll(x, y)) for x, y in s.coords)
+                              for s in sl.closed_sides), clearance_m=0.0)

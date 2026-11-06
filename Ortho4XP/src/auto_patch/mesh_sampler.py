@@ -132,11 +132,9 @@ class MeshElevationSampler:
         mesh_path: str,
         bounds: tuple[float, float, float, float],
         margin_degrees: float = 0.002,
-        *,
-        arrays: "tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray] | None" = None,
     ) -> None:
-        vertices, triangles, triangle_attributes = (
-            arrays if arrays is not None else _read_mesh_cached(mesh_path))
+        vertices, triangles, triangle_attributes = _read_mesh_cached(
+            mesh_path)
         self._retain(vertices, triangles, triangle_attributes, bounds,
                      margin_degrees)
 

@@ -23,8 +23,9 @@ wall, under the building's own wall), and
   walls run down to the lower floor), so the floor -- the lower floor --
   runs out past them and the rim climbs back to the ground beyond; the
   open side stays the rim, flush at the upper floor.  The reach yields to
-  the runway family, structures and other pits (it is clipped, never
-  refused);
+  the runway family, structures, other pits and every airside pavement
+  (the frontage roles: the cut is groundside only, no airside trench; it
+  is clipped, never refused);
 * every member of the building is seated with its lower floor ON the
   floor (``pipeline/rebake_inputs``, ``Basin.kind`` ``split_level``: one
   frame, one seat), with no plate clearance (a floor, not a plate:
@@ -38,9 +39,11 @@ import typing as _t
 
 from shapely.geometry import Point, Polygon
 from shapely.ops import linemerge, unary_union
+from shapely.prepared import prep
 
 from ..airport.split_level import SplitLevel, read_split_levels
 from ..geom.parts import polygon_parts_with_area
+from ..law.tables import frontage_roles
 from ..model.structures import Basin
 from .basin_geometry import _region_floor, _rim
 
@@ -56,7 +59,10 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
                      ) -> tuple[list[Basin], list[tuple], list[Polygon], list[str], list[str]]:
     """``(basins, new cells, knives, notes, refusals)`` of every split-level
     building of ``objects`` (module docstring); refs numbered from ``k0``."""
-    sls, notes = read_split_levels(objects, cache, law, getattr(airport.dem, "z", None))
+    fr = frontage_roles(law)
+    air = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in fr]).buffer(0)
+    sls, notes = read_split_levels(objects, cache, law, getattr(airport.dem, "z", None),
+                                   None if air.is_empty else prep(air))
     if not sls:
         return [], [], [], notes, []
     grid = float(law.tables.emit.identity.min_distinct_spacing_m)
@@ -70,9 +76,11 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     new_cells: list[tuple] = []
     knives: list[Polygon] = []
     refused: list[str] = []
-    for sl in sls:
+    boxes = [_rim(sl.footprint, 0.0, grid) for sl in sls]
+    pits = None                      # the split-level pits cut so far
+    for i, sl in enumerate(sls):
         k = k0 + len(basins)
-        box = _rim(sl.footprint, 0.0, grid)
+        box = boxes[i]
         name = sl.paths[0].rsplit("/", 1)[-1]
         if box is None:
             refused.append(f"{sl.id} {name}: the split-level box does not survive the grid")
@@ -81,12 +89,25 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
             refused.append(f"{sl.id} {name}: the split-level box meets the runway family, a "
                            "structure or another pit")
             continue
-        rim = _rim(_cut_region(sl, reach, blocked), 0.0, grid) or box
+        # A ROW OF SPLIT-LEVEL BUILDINGS (SBSP's hangars on the embankment)
+        # shares walls: a box yields what a neighbour's pit already took
+        own = box if pits is None else _largest(box.difference(pits))
+        if own is None or own.area < 0.5 * box.area:
+            refused.append(f"{sl.id} {name}: the split-level box is taken by a neighbour's pit")
+            continue
+        # the back is cut on the groundside only: never into airside
+        # pavement, a neighbour's box or its pit
+        others = [b for j, b in enumerate(boxes) if j != i and b is not None]
+        keep = unary_union([g for g in [blocked, None if air.is_empty else air, pits, *others]
+                            if g is not None])
+        rim = _rim(_cut_region(sl, reach, keep, own), 0.0, grid) or own
+        if pits is not None:
+            rim = _largest(rim.difference(pits)) or own
         floors = _region_floor(rim, band, [], grid)
         if not floors:
             refused.append(f"{sl.id} {name}: no floor inside the {band:.2f} m wall band")
             continue
-        blocked = rim if blocked is None else blocked.union(rim)
+        pits = rim if pits is None else pits.union(rim)
         floor_ref, wall_ref = f"basin_floor:{k}", f"basin_wall:{k}"
         for j, f in enumerate(floors):
             new_cells.append((floor_role, floor_ref if j == 0 else f"{floor_ref}#{j}", f,
@@ -99,20 +120,30 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     return basins, new_cells, knives, notes, refused
 
 
-def _cut_region(sl: SplitLevel, reach: float, blocked) -> Polygon:
-    """The pit's plan (module docstring): the building's box and, ``reach``
-    outside its TALL sides (``SplitLevel.closed_sides``, chained so two
-    meeting sides take the corner between them), the strip the back is
-    cut down in, less ``blocked``; the part holding the box."""
+def _largest(geom) -> "Polygon | None":
+    """The largest polygon part of ``geom``, or ``None``."""
+    parts = polygon_parts_with_area(geom)
+    return max(parts, key=lambda g: g.area) if parts else None
+
+
+def _cut_region(sl: SplitLevel, reach: float, blocked, footprint=None) -> Polygon:
+    """The pit's plan (module docstring): the building's box (``footprint``,
+    default ``sl.footprint``) and, ``reach`` outside its TALL sides
+    (``SplitLevel.closed_sides``, chained so two meeting sides take the
+    corner between them), the strip the back is cut down in, less
+    ``blocked``; the part holding the box."""
+    foot = sl.footprint if footprint is None else footprint
     if reach <= 0.0 or not sl.closed_sides:
-        return sl.footprint
-    chain = linemerge(unary_union(list(sl.closed_sides)))
+        return foot
+    sides = unary_union(list(sl.closed_sides))
+    # one tall side unions to a LineString, which linemerge refuses
+    chain = sides if sides.geom_type == "LineString" else linemerge(sides)
     strip = chain.buffer(reach, cap_style="flat", join_style="mitre")
     if blocked is not None:
         strip = strip.difference(blocked)
-    region = unary_union([sl.footprint, strip]).buffer(0)
-    parts = [g for g in getattr(region, "geoms", [region]) if g.intersects(sl.footprint)]
-    return max(parts, key=lambda g: g.area) if parts else sl.footprint
+    region = unary_union([foot, strip]).buffer(0)
+    parts = [g for g in getattr(region, "geoms", [region]) if g.intersects(foot)]
+    return max(parts, key=lambda g: g.area) if parts else foot
 
 
 def _record(airport, sl: SplitLevel, k: int, rim: Polygon, floors, floor_ref: str,

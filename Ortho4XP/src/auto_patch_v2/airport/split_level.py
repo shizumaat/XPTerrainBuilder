@@ -22,6 +22,17 @@ just outside the closed side across from them, and spans less than the
 step along them (one upper level).  A hangar door on level ground is an open
 side too; the ground refuses it.
 
+OR THE MAP CONFIRMS IT (owner 2026-11-05/06, SBSP / KLAX / LFSB: "the
+bottom of the upper floor's walls sits on airside ... the lower storeys
+extend down to the terrain on the groundside"): where the DEM is too coarse
+or too flat to show the step (an airport inset under a row of hangars on
+an embankment), the open side FACES AIRSIDE -- at least half its stations
+``_GROUND_OUT_M`` out lie on airside pavement -- and the low side across
+from it does not, and the ground does not refute it (the low side's DEM
+stands under half a step over the open side's).  A hangar door opening
+onto the apron on level ground reads its interior walls as closed (they
+face out of the door), so its door side has no high foot.
+
 Pure reading: no law constant lives here; nothing names a pack, a resource
 or an airport.  ``planar/split_level_pit`` turns a record into the pit."""
 from __future__ import annotations
@@ -32,7 +43,7 @@ import statistics as _st
 import typing as _t
 
 import numpy as np
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 
 from . import obj8 as _obj8
 from .object_cut import _face_normals_y
@@ -183,6 +194,20 @@ def _side_feet(v: np.ndarray, t: np.ndarray, sides: _t.Sequence[tuple], probe: f
 def _ground(dem_z, side: LineString, centre) -> "list[float]":
     """The DEM ``_GROUND_OUT_M`` outside ``side`` (away from the
     footprint's ``centre``) at ``_GROUND_STATIONS`` stations."""
+    zs = []
+    for x, y in _stations(side, centre):
+        try:
+            z = float(dem_z(x, y))
+        except Exception:  # noqa: BLE001 -- off the raster
+            continue
+        if z == z:
+            zs.append(z)
+    return zs
+
+
+def _stations(side: LineString, centre) -> "list[tuple[float, float]]":
+    """The ``_GROUND_STATIONS`` points ``_GROUND_OUT_M`` outside ``side``
+    (away from the footprint's ``centre``)."""
     (x0, y0), (x1, y1) = side.coords[0], side.coords[-1]
     dx, dy = x1 - x0, y1 - y0
     L = math.hypot(dx, dy)
@@ -192,22 +217,22 @@ def _ground(dem_z, side: LineString, centre) -> "list[float]":
     mx, my = 0.5 * (x0 + x1), 0.5 * (y0 + y1)
     if (centre[0] - mx) * nx + (centre[1] - my) * ny > 0.0:
         nx, ny = -nx, -ny
-    zs = []
-    for i in range(_GROUND_STATIONS):
-        f = (i + 0.5) / _GROUND_STATIONS
-        try:
-            z = float(dem_z(x0 + f * dx + nx * _GROUND_OUT_M, y0 + f * dy + ny * _GROUND_OUT_M))
-        except Exception:  # noqa: BLE001 -- off the raster
-            continue
-        if z == z:
-            zs.append(z)
-    return zs
+    return [(x0 + f * dx + nx * _GROUND_OUT_M, y0 + f * dy + ny * _GROUND_OUT_M)
+            for f in ((i + 0.5) / _GROUND_STATIONS for i in range(_GROUND_STATIONS))]
+
+
+def _airside_share(airside, side: LineString, centre) -> float:
+    """The share of :func:`_stations` outside ``side`` lying on
+    ``airside`` (a prepared plan geometry)."""
+    pts = _stations(side, centre)
+    return sum(bool(airside.contains(Point(p))) for p in pts) / len(pts) if pts else 0.0
 
 
 def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
-                      law, dem_z) -> tuple[list[SplitLevel], list[str]]:
+                      law, dem_z, airside=None) -> tuple[list[SplitLevel], list[str]]:
     """Every split-level building of ``objects`` (module docstring) and one
-    note per family read with an open side."""
+    note per family read with an open side.  ``airside`` (a prepared plan
+    geometry of the airside pavement, frame metres) arms the map witness."""
     bp = law.tables.structures.building_pad
     cover = float(getattr(bp, "split_level_wall_cover", 0.0) or 0.0)
     step = float(getattr(bp, "low_level_min_step_m", 0.0) or 0.0)
@@ -264,7 +289,12 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
         # walls stays under the step (a building whose "open" sides follow a
         # slope a storey high is a skirt on it, not two levels)
         spread = max(g_open) - min(g_open)
-        why = ("" if go - gc >= half else ": refused, the open side's ground is not the higher")
+        by = "ground" if go - gc >= half else ""
+        if not by and airside is not None and across and gc - go < half:
+            a_open = _st.mean(_airside_share(airside, s, centre) for s in opened)
+            a_low = _st.mean(_airside_share(airside, s, centre) for s in across)
+            by = "map" if a_open >= 0.5 > a_low else ""
+        why = "" if by else ": refused, the open side's ground is not the higher"
         why = why or ("" if spread <= 2.0 * half else f": refused, the open side's ground "
                       f"spans {spread:.1f} m (no one upper level)")
         verdict = not why
@@ -272,7 +302,7 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
                      + "/".join("-" if f is None else f"{f:.1f}" for f in feet)
                      + f", floors {y_lo:.1f} / {y_up:.1f}, ground open {go:.1f} (spans "
                      f"{spread:.1f}) closed {gc:.1f}"
-                     + (": SPLIT-LEVEL" if verdict else why))
+                     + (f": SPLIT-LEVEL (by the {by})" if verdict else why))
         if not verdict:
             continue
         out.append(SplitLevel(str(o.id), tuple(str(m.id) for m in fam),

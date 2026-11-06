@@ -610,6 +610,14 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
             and getattr(m, "plate_stations", ())):
         return Datum(float(plate_y), tuple(m.plate_stations),
                      "walled plate (RULINGS 2026-10-27u)")
+    # A SPLIT-LEVEL BUILDING'S LOWER FLOOR meets its pit floor at its
+    # stations at any authored height (owner 2026-11-05/06, #1909;
+    # ``pipeline/rebake_inputs.SPLIT_PLATE``): a floor authored under the
+    # zero is no rim-seated basin plate
+    if (plate_y is not None and getattr(m, "plate_kind", "") == "split_level"
+            and getattr(m, "plate_stations", ())):
+        return Datum(float(plate_y), tuple(m.plate_stations),
+                     "split-level lower floor (#1909)")
     # an EDGE BRIDGE's top is flush with the airside it edges (owner RULINGS
     # 2026-10-27r; ``pipeline/rebake_inputs._edge_seat_plates``): its zero at
     # its seat, ahead of the basin rim its trench draws

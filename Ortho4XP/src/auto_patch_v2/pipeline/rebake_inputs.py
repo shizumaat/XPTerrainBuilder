@@ -107,13 +107,20 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
             # trench floor its stations read (11t §24 (2)): the floor row
             # dropped the terrain by that much so the plate renders, and a
             # seat without it would chase the object straight back down.
-            out.setdefault(oid, (float(b.plate_y_m), pts,
-                                 b.clearance(law.tables.structures.basin.floor_clearance_m)))
+            # ... and a split-level building's lower floor is a DATUM: it
+            # meets the floor at its stations at any authored height (a
+            # lower floor authored under the zero, KLAX's terminals at y -4,
+            # otherwise kept its zero on the pit floor and sank a storey)
+            clear = b.clearance(law.tables.structures.basin.floor_clearance_m)
+            out.setdefault(oid, (float(b.plate_y_m), pts, clear, SPLIT_PLATE)
+                           if b.kind == "split_level" else (float(b.plate_y_m), pts, clear))
     return out
 
 
 #: the plate kind of an EDGE BRIDGE's seat (``anchor_rule.datum_of``)
 EDGE_PLATE = "edge"
+#: the plate kind of a SPLIT-LEVEL building's lower floor (``planar/split_level_pit``)
+SPLIT_PLATE = "split_level"
 #: the plate kind of a CHANNEL's pack floor witness, ``"channel:<n>"``
 #: (``airport/channel_zero``)
 CHANNEL_PLATE = "channel:"

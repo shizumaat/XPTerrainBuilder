@@ -31,7 +31,7 @@ DATUM_CLEARANCE = "clearance"  # (iii) deck top - bridge.clearance_m
 def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_ln,
                   axis_fn, ss: list[float], decks: list[Deck], half: float,
                   objects: _t.Sequence, stats, packs: _t.Sequence[str] = (),
-                  lidar: bool = False):
+                  lidar: bool = False, visible=None):
     """§45 (3) THE FLOOR DATUM — precedence, then "Cut the road down".
 
     (i) the pack's floor plates along the axis; (ii) a CREDIBLE lidar
@@ -39,6 +39,12 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
     the floor is the deck top − ``bridge.clearance_m`` and between decks
     the road's own longitudinal law clamped ≤ that datum and
     ≤ ``ramp_max_grade``.  Returns ``(profile, datum, wall shape, witness)``.
+
+    (i) READ OFF A VISIBLE CUT (owner RULINGS 2026-11-06d (6)): where a
+    hidden shell stood over the corridor, ``visible`` is the profile its
+    visible members' bottoms state along the axis
+    (``planar/channel_depth.cut_profile``) and it IS the pack's floor — a
+    profile, never one flat datum, and never the hidden shell's faces.
 
     The clamp is stated as ``min over decks of (z_d + grade·|s − s_d|)``,
     which IS "≤ that datum and ≤ ramp_max_grade" written once: two decks
@@ -54,6 +60,18 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
     good = [z for z in samples if not math.isnan(z)]
     crest_est = (sum(good) / len(good)) if good else float("nan")
 
+    if visible:
+        from .channel_depth import rejoin
+        for c in grp:
+            c.witnesses.add("pack")
+        visible = rejoin(tuple(visible), axis_ln.length,
+                         lambda s: dem_z_at(airport, axis_fn(s)), tn.ramp_max_grade)
+        zs = [z for _s, z in visible]
+        stats.notes.append(f"{cid}: floor from the visible cut (§45 (3) (i), 2026-11-06d (6)) "
+                           f"— the bottoms of the pack's members lying on it, "
+                           f"{min(zs):.2f}..{max(zs):.2f} m over {len(visible)} station(s) "
+                           f"against a crest of {crest_est:.2f}")
+        return tuple(visible), DATUM_PACK, "face", "visible cut"
     # (i) THE PACK'S FLOOR PLATES — the SAME witness set the width (10)
     # (i) read, never a second read at a second radius
     packs = list(packs)

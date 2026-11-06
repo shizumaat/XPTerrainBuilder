@@ -40,6 +40,7 @@ from ..airport.object_floor import (
     owns_ground,
     read_object_floors,
 )
+from ..airport.visible_cut import visible_cuts
 from ..geom.parts import polygon_parts_with_area
 from ..geom.plane_groups import plane_groups
 from .floor_decks import floor_decks
@@ -131,14 +132,16 @@ def _planes(fl: ObjectFloor, foot, law) -> list:
 
 
 def object_floor_stage(airport, objects, cache, law, corridors, tstats,
-                       classification=None) -> tuple[list, list]:
-    """``(floors, corridors)``: every trench object's floor read ONCE
+                       classification=None) -> tuple[list, list, list]:
+    """``(floors, corridors, cuts)``: every trench object's floor read ONCE
     (``airport/object_floor``), the axis corridors they supersede dropped (a
     split shell's floor read as a corridor), their placements claimed out of
     the basin intake like a shell's, the refusals noted, and every pack
     portal on a floor pinned at that floor's own height (``tstats`` is
-    updated in place).  ``planar.build.build`` and the ``--stage
-    structures`` replay share it."""
+    updated in place); each HIDDEN shell's visible cut
+    (``airport/visible_cut``, 2026-11-06d (6)) is returned in ``cuts``, the
+    channels' depth witness.  ``planar.build.build`` and the
+    ``--stage structures`` replay share it."""
     msl = {o.id: o.y_offset_m for o in airport.dsf_objects if o.kind == "OBJECT_MSL"}
     cover_of = dict(getattr(tstats, "shell_covers", ()) or ())
     shells = {o: (cover_of[c.id], _between_walls(c, law)) for c in corridors
@@ -156,7 +159,9 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats,
         tstats.shell_claimed = tuple(sorted(set(tstats.shell_claimed) | floor_ids))
     tstats.refused.extend(n for n in notes if not n.startswith("object floor"))
     tstats.portals = floor_portals(tstats.portals, floors)
-    return floors, list(corridors)
+    cuts = visible_cuts(floors, objects, cache, law,
+                        scale=xplane_metre_scale(airport.frame.origin[0]))
+    return floors, list(corridors), cuts
 
 
 def floor_mouths(tunnels: _t.Sequence, floors: _t.Sequence, law) -> tuple[list, list[str]]:

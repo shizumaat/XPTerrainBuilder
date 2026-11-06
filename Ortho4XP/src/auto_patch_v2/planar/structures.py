@@ -101,6 +101,7 @@ from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
                                   wall_corridor_note, wall_corridor_profile)
 from ..airport.dem import dem_z_at
 from ..airport.object_cut import largest_polygon
+from ..airport.object_floor import owns_ground
 from .structure_approach import (FieldRegion, apply_plates, cover_polygons, standing_cover,
                                  approach_ground as _approach_ground,
                                  carriageway_width_m, cut_gap_cells,
@@ -309,8 +310,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # OSM ramp at the other.
     replaced_ways: dict[str, list[int]] = {}
     # #1903: a mouth inside a trench object's own floor is that object's too
-    # — the floor is the cut there, its ramps are the object's own
-    owners = [*corridors, *object_floors]
+    # — the floor is the cut there, its ramps are the object's own (a HIDDEN
+    # shell owns no ground and takes no mapped mouth, 2026-11-06d (1))
+    owners = [*corridors, *(f for f in object_floors if owns_ground(f))]
     if owners and tn.object.source_precedence[0] == "object":
         tol = tn.object.bore_end_tolerance_m    # 2026-09-08o: a bore end within it PAIRS
         kept = []

@@ -58,6 +58,8 @@ from .channel_geometry import (_across, _bank_toe_half, _bank_width, _deck_ring,
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
 from .channel_floor import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
                             channel_floor as _floor)
+from .channel_depth import (cut_feet, cut_halves, cut_points, cut_profile, cut_span,
+                            extend_axis)
 from .structure_underpass import aeroway_decks
 from ..airport.dem import dem_z_at
 
@@ -124,6 +126,15 @@ def _is_road_or_rail(w: OsmWay, law: Law) -> bool:
     if is_bridge(w):
         return False           # a bridge way is the CROSSING, not the channel
     return bool(tags.get("highway") or tags.get("railway"))
+
+
+def _kind(w) -> str:
+    """A way's kind for the axis's continuation: ``"rail"``, ``"road"`` or
+    ``""`` (a bridge way is the crossing, never the corridor)."""
+    tags = getattr(w, "tags", None) or {}
+    if w is None or len(getattr(w, "points", ())) < 2 or is_bridge(w):
+        return ""
+    return "rail" if tags.get("railway") else ("road" if tags.get("highway") else "")
 
 
 # ── (1) IDENTIFICATION ───────────────────────────────────────────────────
@@ -262,7 +273,8 @@ def identify_channels(airport: Airport, classification, law: Law,
                       objects: _t.Sequence = (),
                       claimed_ways: _t.AbstractSet[int] = frozenset(),
                       pit_shell_ids: _t.AbstractSet[str] = frozenset(),
-                      synth_ways: _t.AbstractSet = frozenset()
+                      synth_ways: _t.AbstractSet = frozenset(),
+                      cuts: _t.Sequence = ()
                       ) -> tuple[list[Channel], ChannelStats]:
     """THE CHANNEL RECORDS (§45 (1)–(7)), derived ONCE.
 
@@ -298,6 +310,10 @@ def identify_channels(airport: Airport, classification, law: Law,
         is: a placement in it is a PIT SHELL and is never a (1) (c)
         wall/floor witness.  A channel left without a depth witness by
         it then faces (c).
+
+    ``cuts`` are the HIDDEN shells' visible cuts (``airport/visible_cut``,
+    owner RULINGS 2026-11-06d (6)): over a corridor they state the floor
+    profile, the half-width and the reach (``planar/channel_depth``).
     """
     stats = ChannelStats()
     ch = law.tables.structures.channel
@@ -395,7 +411,7 @@ def identify_channels(airport: Airport, classification, law: Law,
     channels: list[Channel] = []
     for k, grp in enumerate(groups):
         c = _build_one(airport, law, f"channel:{k}", grp, union, objects, stats,
-                       pit_shell_ids)
+                       pit_shell_ids, cuts)
         if c is not None:
             channels.append(c)
     stats.channels = len(channels)
@@ -447,7 +463,8 @@ def _merge(cands: list[_Cand], merge_m: float, cap_m: float) -> list[list[_Cand]
 
 def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
                objects: _t.Sequence, stats: ChannelStats,
-               pit_shells: _t.AbstractSet[str] = frozenset()) -> Channel | None:
+               pit_shells: _t.AbstractSet[str] = frozenset(),
+               cuts: _t.Sequence = ()) -> Channel | None:
     """One channel's record: the axis, the decks, the corridor's
     half-width, the FLOOR (§45 (3)), the walls (§45 (5)) and the ends."""
     ch = law.tables.structures.channel
@@ -458,7 +475,16 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # carriageways 121 m apart would put the axis on the median that is
     # real fill (scout §2a).  The other members ride beside it.
     lead = max(grp, key=lambda c: c.line.length)
-    axis_ln = lead.line
+    # 2026-11-06d (6): under a VISIBLE CUT the axis runs on along the lead
+    # way's own continuation while the cut's members do
+    # (``planar/channel_depth.extend_axis``)
+    axis_ln, run_on = extend_axis(lead.line, airport.osm_ways, cuts,
+                                  ch.corridor_max_half_width_m, _kind)
+    if run_on:
+        stats.notes.append(f"{cid}: the axis runs on along way(s) "
+                           f"{'+'.join(str(i) for i in run_on)} — the visible cut's members "
+                           f"continue past the lead way's end (2026-11-06d (6)); "
+                           f"{lead.line.length:.0f} -> {axis_ln.length:.0f} m")
     step = ch.station_m
     ss = [min(axis_ln.length, k * step) for k in range(int(axis_ln.length // step) + 1)]
     if not ss or ss[-1] < axis_ln.length - 1e-6:
@@ -575,7 +601,8 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
             stats.notes.append(
                 f"{cid}: §45 (20) way(s) {names} stay with their §34 (5) SYNTHESISED "
                 f"bore(s) — this channel states no depth witness")
-            return _build_one(airport, law, cid, kept, union, objects, stats, pit_shells)
+            return _build_one(airport, law, cid, kept, union, objects, stats, pit_shells,
+                              cuts)
     if half_walls:
         half_at, width_src = min(cap, max(half_walls, half_base)), "pack walls (10) (i)"
     elif lidar:
@@ -613,6 +640,13 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # ≤ ``ramp_max_grade`` — §37's join, not a second ramp of ours.
     ends = _ends(airport, law, decks, axis_ln, axis_fn, half_at, objects, packs,
                  lidar)
+    # 2026-11-06d (6): A VISIBLE CUT over the corridor (a hidden shell's
+    # members lying on it, ``planar/channel_depth``) reaches the ends to the
+    # stations its members span
+    cut_pts = cut_points(cuts, axis_ln, cap)
+    span = cut_span(cut_pts)
+    if span is not None:
+        ends = (max(0.0, min(ends[0], span[0])), min(axis_ln.length, max(ends[1], span[1])))
     # Everything from here (the profile, the region, the banks) is stated
     # over the stations INSIDE the ends, and the ends are themselves
     # stations: the corridor's faces run exactly to them.
@@ -630,9 +664,10 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         return (round(la, 7), round(lo_, 7))
 
     # ── (3) THE FLOOR DATUM, in the ruled precedence ───────────────────
+    feet = cut_feet(cut_pts, ss, step) if len(cut_pts) else None
     profile, datum, wall_shape, witness_name = _floor(
         airport, law, cid, grp, axis_ln, axis_fn, ss, decks, half_at, objects, stats,
-        packs, lidar)
+        packs, lidar, visible=cut_profile(feet, ss) if feet is not None else None)
     if profile is None:
         return None
     # §45 (13) (a) A BRIDGE-ONLY WITNESS IS §34 (5)'s UNDERPASS (owner
@@ -709,8 +744,17 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     else:
         stats.datum_clearance += 1
 
+    # 2026-11-06d (6): the visible cut's members state the floor's edge and
+    # the crest at every station (``planar/channel_depth.cut_halves``)
+    halves = crests = None
+    if feet is not None and witness_name == "visible cut":
+        halves, crests = cut_halves(
+            cut_pts, feet, ss, profile, step, tn.object.shell_flat_m, half_base, cap,
+            tn.wall_gap_m + tn.wall_band_width_m, ch.corridor_min_length_m)
+        half_at, width_src = max(halves), "the visible cut (2026-11-06d (6))"
+        widths = tuple((float(s), float(h)) for s, h in zip(ss, halves, strict=True))
     # ── (5) THE WALLS: crest = the DESIGN surface, shape witness-first ──
-    left, right = _sides(axis_fn, ss, half_at)
+    left, right = _sides(axis_fn, ss, halves if halves is not None else half_at)
     walls = (ChannelWall("left", wall_shape, CREST_DESIGN, tuple(left), tuple(left),
                          witness_name),
              ChannelWall("right", wall_shape, CREST_DESIGN, tuple(right), tuple(right),
@@ -742,7 +786,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
                            law.tables.emit.identity.min_distinct_spacing_m),
                toe_top - half_at if wall_shape == "lidar" else 0.0,
                tn.wall_gap_m + tn.wall_band_width_m)
-    lo, ro = _sides(axis_fn, ss, half_at + bank)
+    lo, ro = _sides(axis_fn, ss, crests if crests is not None else half_at + bank)
     crest_ring = tuple(lo) + tuple(reversed(ro))
     wits = sorted(_wits(grp))
     notes = [f"{cid}: {len(grp)} way(s) within [channel] merge_m {ch.merge_m:.0f} m share the "

@@ -4747,6 +4747,31 @@ def _prune_lane_cache(root, prog) -> None:
         prog.note(f"lane cache: prune skipped ({exc!r})")
 
 
+def disk_floor_gate(root, tile: bool) -> None:
+    """Refuse a build when the disk is too full for it.
+
+    Owner HARD RULE 2026-11-06: the disk filled (ENOSPC) under parallel
+    tile builds and stalled every session, so a build checks free space
+    first.  A tile build needs MIN_FREE_GB_TILE, a patch build
+    MIN_FREE_GB_PATCH.  No override: free space by removing finished lane
+    worktrees and scratch builds, then run at most 4 builds at once.
+    """
+    import shutil
+    free_gb = shutil.disk_usage(str(root)).free / 1e9
+    need = MIN_FREE_GB_TILE if tile else MIN_FREE_GB_PATCH
+    if free_gb < need:
+        raise SystemExit(
+            f"REFUSING: {free_gb:.0f} GB free on the build disk, a "
+            f"{'tile' if tile else 'patch'} build needs {need} GB (owner "
+            f"HARD RULE 2026-11-06).  Push and remove finished lane "
+            f"worktrees and delete scratch builds first; run at most 4 "
+            f"builds at once.")
+
+
+MIN_FREE_GB_TILE = 30
+MIN_FREE_GB_PATCH = 5
+
+
 def main(argv=None) -> int:
     # NO ``O4_SUITE_ALLOW_NETWORK`` HERE (#177).  This used to set it:
     # lane las130's consumer-side workaround for #146, when importing
@@ -5119,6 +5144,7 @@ def main(argv=None) -> int:
             "REFUSING --refresh-only: no --refresh-data scope is "
             "authorised, so there is nothing to refresh and nothing to "
             "record.  Name the scope(s): --refresh-data osm_layers[,dem].")
+    disk_floor_gate(root, tile=bool(args.tile))
     if args.tile:
         lat, lon = args.tile
     else:

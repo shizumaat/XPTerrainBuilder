@@ -166,8 +166,10 @@ COW_AUDIT="$(cd "$(dirname "$0")" && pwd -P)/cow_audit.py"
 # until the others are completed and merged"; lowered to 16 the same day —
 # peak parallel lanes were ~12, and a finished tree is now RECYCLED rather
 # than replaced).  `up` creating a NEW tree first recycles a finished one,
-# else prunes the merged ones and refuses at this many.  O4_LANE_CAP is
-# the master's explicit override; nothing else changes it.
+# else prunes the merged ones and refuses at this many.  O4_LANE_CAP can
+# only LOWER the cap (tests use it); it can never raise it (owner HARD
+# RULE 2026-11-06: raising it filled the disk).  When the cap refuses,
+# push and remove finished lane worktrees first.
 LANE_CAP=16
 # Lane PRODUCTS a recycled tree is emptied of (under Ortho4XP/), so no
 # stale patch, tile, preview or log of the previous lane can leak into the
@@ -340,6 +342,10 @@ lane_cap_gate() {
     "$(dirname "$0")/prune_merged.sh" "$0" prune-merged --apply \
         || echo "  [ritual] WARNING: prune-merged failed; counting as is"
     _cap="${O4_LANE_CAP:-$LANE_CAP}"
+    case "$_cap" in ''|*[!0-9]*) _cap=$LANE_CAP ;; esac
+    [ "$_cap" -gt "$LANE_CAP" ] && {
+        echo "  [ritual] O4_LANE_CAP=$_cap cannot raise the cap above $LANE_CAP (owner HARD RULE 2026-11-06)" >&2
+        _cap=$LANE_CAP; }
     _lanes=$(registered_worktrees | grep '/\.claude/worktrees/')
     _count=$(printf '%s\n' "$_lanes" | grep -c .)
     [ "$_count" -lt "$_cap" ] && return 0

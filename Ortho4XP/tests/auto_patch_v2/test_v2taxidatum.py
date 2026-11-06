@@ -477,6 +477,9 @@ def _runway_touching(law, dem):
 _CONVERGED_SOLVE_SLACK_M = 0.005
 
 
+_PAVEMENT_VISIBILITY_M = 0.05   # owner visibility bar, pavement (RULINGS 12y)
+
+
 def test_a_chain_touching_a_runway_keeps_the_contact(law):
     """10v (1): the runway contact is HARD and FLUSH, and the trend is
     SHIFTED THROUGH it — the contact is never given a trend target of its
@@ -503,7 +506,11 @@ def test_a_chain_touching_a_runway_keeps_the_contact(law):
         dx, dy = pm.vertices[v].xy[0] - ax, pm.vertices[v].xy[1] - ay
         s, off = dx * ux + dy * uy, -dx * uy + dy * ux
         drop = _ridge_z(pm, law, airport, z, s) - float(z[v])
-        bar = crown * abs(off) + hold + _CONVERGED_SOLVE_SLACK_M
+        # owner 2026-11-06T14:24Z: the contact bar is the 5 cm pavement
+        # visibility bar (12y), not the solver residual — under the hard
+        # 11-05a centreline the stub lowers the edge 0.09 mm past the crown
+        bar = crown * abs(off) + hold + max(_CONVERGED_SOLVE_SLACK_M,
+                                            _PAVEMENT_VISIBILITY_M)
         assert -hold <= drop <= bar, \
             (f"a runway contact stands {drop:+.5f} m under its ridge "
              f"(bar {bar:.5f} m) — the chain's trend took the contact off "

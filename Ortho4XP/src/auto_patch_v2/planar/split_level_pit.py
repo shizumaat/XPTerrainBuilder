@@ -138,7 +138,7 @@ def _cut_region(sl: SplitLevel, reach: float, blocked, footprint=None) -> Polygo
     sides = unary_union(list(sl.closed_sides))
     # one tall side unions to a LineString, which linemerge refuses
     chain = sides if sides.geom_type == "LineString" else linemerge(sides)
-    strip = chain.buffer(reach, cap_style="flat", join_style="mitre")
+    strip = chain.buffer(reach, cap_style="flat", join_style="mitre").difference(sl.footprint)
     if blocked is not None:
         strip = strip.difference(blocked)
     region = unary_union([foot, strip]).buffer(0)

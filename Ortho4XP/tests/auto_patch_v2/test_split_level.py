@@ -125,3 +125,39 @@ def test_back_cut_reaches_past_the_tall_sides_only():
     assert _cut_region(sl, 0.0, None).equals(foot)
     clipped = _cut_region(sl, 5.0, box(-10.0, -10.0, 20.0, -2.0))
     assert abs(clipped.area - (300.0 - 60.0)) < 1e-6
+
+
+def test_the_map_confirms_a_split_level_the_flat_dem_cannot_see():
+    """THE MAP WITNESS (owner 2026-11-05/06, SBSP's hangar row): on a DEM
+    too flat to show the step, the open side facing airside pavement and
+    the low side across not facing it read the building; airside behind
+    it, or on both sides, or a low side's ground half a step higher, does
+    not."""
+    from shapely.prepared import prep
+    objs, cache = _placed(*_building(12.0))
+    south = prep(box(-50.0, -80.0, 90.0, -31.0))   # the open (+z) side lies south
+    north = prep(box(-50.0, 1.0, 90.0, 60.0))
+    both = prep(box(-50.0, -80.0, 90.0, 60.0))
+    flat = lambda x, y: 100.0                      # noqa: E731
+    sls, notes = read_split_levels(objs, cache, LAW, flat, south)
+    assert len(sls) == 1 and "by the map" in notes[0]
+    assert read_split_levels(objs, cache, LAW, flat, north)[0] == []
+    assert read_split_levels(objs, cache, LAW, flat, both)[0] == []
+    assert read_split_levels(objs, cache, LAW, lambda x, y: 100.0 + 0.3 * y, south)[0] == []
+
+
+def test_one_tall_side_and_airside_clip_the_back_cut():
+    """One tall side unions to a LineString (linemerge refused it and
+    crashed KLAX); the back cut never enters what is passed as blocked
+    (the pit passes airside pavement there), and a box clipped by a
+    neighbour's pit is the region's core."""
+    from auto_patch_v2.airport.split_level import SplitLevel
+    from auto_patch_v2.planar.split_level_pit import _cut_region
+    foot = box(0.0, 0.0, 10.0, 10.0)
+    sl = SplitLevel("o", ("o",), ("a.obj",), foot, 0.0, 6.0,
+                    (LineString([(0.0, 10.0), (10.0, 10.0)]),),
+                    (LineString([(10.0, 0.0), (0.0, 0.0)]),), 6.0, 0.0, (5.0, 5.0))
+    assert abs(_cut_region(sl, 5.0, None).area - 150.0) < 1e-6
+    assert abs(_cut_region(sl, 5.0, box(-1.0, -9.0, 4.0, 0.0)).area - 130.0) < 1e-6
+    core = box(0.0, 0.0, 6.0, 10.0)
+    assert abs(_cut_region(sl, 5.0, None, core).area - (60.0 + 50.0)) < 1e-6

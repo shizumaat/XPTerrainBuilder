@@ -31,7 +31,7 @@ import O4_File_Names as FNAMES
 
 from elevation_access.base import ProviderUnavailable
 
-__all__ = ["extra_ca_path", "requests_verify"]
+__all__ = ["requests_verify"]
 
 
 def extra_ca_path(file_name):

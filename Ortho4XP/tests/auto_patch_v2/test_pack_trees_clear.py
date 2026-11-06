@@ -32,7 +32,7 @@ TREE = "lib/g8/broad_tmp_wet.for"
 
 def _pack(tmp_path):
     (tmp_path / "Earth nav data").mkdir()
-    (tmp_path / "Earth nav data" / "apt.dat").write_text(APT)
+    (tmp_path / "Earth nav data" / "apt.dat").write_text(APT, encoding="utf-8", newline="\n")
     return str(tmp_path)
 
 
@@ -143,7 +143,8 @@ def _own_for(root, rel: str, top_m: float) -> None:
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text("A\n800\nFOREST\nTEXTURE t.png\nSPACING 3 3\n"
-                 f"TREE 0 0 128 256 64 50 {top_m * 0.6} {top_m} 1 palm\n")
+                 f"TREE 0 0 128 256 64 50 {top_m * 0.6} {top_m} 1 palm\n",
+                 encoding="utf-8", newline="\n")
 
 
 def test_the_packs_own_tall_forest_is_cleared_in_the_strip_only(tmp_path):

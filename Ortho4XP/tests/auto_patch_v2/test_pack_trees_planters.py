@@ -30,7 +30,7 @@ def _for(path: Path, rows, spacing="3 3") -> str:
     path.write_text("A\n800\nFOREST\nTEXTURE t.png\nSCALE_X 2048\n"
                     f"SCALE_Y 2048\nSPACING {spacing}\n" + "".join(
                         f"TREE 0 0 {w} {h} 0 {f} {lo} {hi} 2 1\n"
-                        for w, h, f, lo, hi in rows), encoding="utf-8")
+                        for w, h, f, lo, hi in rows), encoding="utf-8", newline="\n")
     return str(path)
 
 
@@ -109,7 +109,7 @@ def test_the_pinned_planters_are_what_the_install_ships(vpath):
         assert (float(sp[1]), float(sp[2])) == pytest.approx(spacing), rel
         names = {re.sub(r"\d*(_\d+[a-z]?)?$", "", r[-1]) for r in rows}
         assert names <= set(plants), (rel, names - set(plants))
-    sumrows = Path(_LIB, files[0]).read_text(errors="replace").splitlines()
+    sumrows = Path(_LIB, files[0]).read_text(encoding="utf-8", errors="replace").splitlines()
     assert max(float(ln.split()[8]) for ln in sumrows
                if ln.startswith("TREE")) == pytest.approx(height)
 

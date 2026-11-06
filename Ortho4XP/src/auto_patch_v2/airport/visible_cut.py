@@ -39,7 +39,7 @@ from ..geom.lowest_face import floor_z_at
 from . import obj8 as _obj8
 from .object_floor import ObjectFloor, _placed_all
 
-__all__ = ["VisibleCut", "visible_cuts"]
+__all__ = ["visible_cuts"]
 
 
 @_dc.dataclass(frozen=True)

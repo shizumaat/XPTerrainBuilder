@@ -192,6 +192,8 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.pack_optimise.weight",
     "auto_patch_v2.airport.pack_partition",
     "auto_patch_v2.airport.pack_trees",
+    "auto_patch_v2.airport.pack_trees_clear",
+    "auto_patch_v2.airport.pack_trees_density",
     "auto_patch_v2.airport.pack_trees_map",
     "auto_patch_v2.airport.pack_work",
     "auto_patch_v2.airport.pad_block_seat",

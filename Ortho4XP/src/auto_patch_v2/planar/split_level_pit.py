@@ -23,9 +23,11 @@ wall, under the building's own wall), and
   walls run down to the lower floor), so the floor -- the lower floor --
   runs out past them and the rim climbs back to the ground beyond; the
   open side stays the rim, flush at the upper floor.  The reach yields to
-  the runway family, structures, other pits and every airside pavement
-  (the frontage roles: the cut is groundside only, no airside trench; it
-  is clipped, never refused);
+  the runway family, structures, other pits and every PAVEMENT (the
+  airside: no airside trench; and a groundside road along the base, whose
+  own profile the ground meets the wall at -- owner 2026-11-06T02:40Z,
+  SBSP: the back cut follows the sloping road, not one flat pit per
+  building); it is clipped, never refused;
 * every member of the building is seated with its lower floor ON the
   floor (``pipeline/rebake_inputs``, ``Basin.kind`` ``split_level``: one
   frame, one seat), with no plate clearance (a floor, not a plate:
@@ -49,7 +51,7 @@ from shapely.prepared import prep
 from ..airport.deck_roof import read_deck_roofs
 from ..airport.split_level import SplitLevel, read_split_levels
 from ..geom.parts import polygon_parts_with_area
-from ..law.tables import apron_roles, frontage_roles
+from ..law.tables import apron_roles, frontage_roles, pavement_roles
 from ..model.structures import Basin
 from .basin_geometry import _region_floor, _rim
 
@@ -65,8 +67,9 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
                      ) -> tuple[list[Basin], list[tuple], list[Polygon], list[str], list[str]]:
     """``(basins, new cells, knives, notes, refusals)`` of every split-level
     building of ``objects`` (module docstring); refs numbered from ``k0``."""
-    fr = frontage_roles(law)
+    fr, pr = frontage_roles(law), frozenset(pavement_roles(law))
     air = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in fr]).buffer(0)
+    pave = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in pr]).buffer(0)
     dem_z, a_p = getattr(airport.dem, "z", None), None if air.is_empty else prep(air)
     sls, notes = read_split_levels(objects, cache, law, dem_z, a_p)
     # a DECK-ROOFED building (``airport/deck_roof``) is a split-level whose
@@ -118,10 +121,13 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         if own is None or own.area < 0.5 * box.area:
             refused.append(f"{sl.id} {name}: the split-level box is taken by another pit")
             continue
-        # the back is cut on the groundside only: never into airside
-        # pavement, a neighbour's box or its pit
+        # the back is cut in bare ground only: never into pavement -- the
+        # airside, or a groundside road at the base of the building, whose
+        # own profile the ground meets the wall at (owner 2026-11-06T02:40Z,
+        # SBSP: "the road at the base of the building on the groundside is
+        # sloping up") -- a neighbour's box or its pit
         others = [b for j, b in enumerate(boxes) if j != i and b is not None]
-        keep = unary_union([g for g in [blocked, None if air.is_empty else air, pits, *others]
+        keep = unary_union([g for g in [blocked, None if pave.is_empty else pave, pits, *others]
                             if g is not None])
         rim = _rim(_cut_region(sl, reach, keep, own), 0.0, grid) or own
         if pits is not None:

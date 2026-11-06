@@ -395,6 +395,44 @@ def _outside(seg, centre, out_m, n=5):
     return out
 
 
+def road_nodes(patch_path, icao):
+    """(lon, lat, z) of every node of a GROUNDSIDE road way of the patch
+    (a pavement role whose law side is groundside): the profile the ground
+    behind a split-level building meets the wall at (owner
+    2026-11-06T02:40Z)."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import pavement_roles, role_side
+    law = Law.for_airport(icao)
+    roads = {r for r in pavement_roles(law) if role_side(law, r) == "groundside"}
+    nodes, keep = {}, set()
+    for _ev, el in ET.iterparse(patch_path):
+        if el.tag == "node":
+            alt = [t.get("v") for t in el.findall("tag") if t.get("k") == "alt_abs"]
+            if alt:
+                nodes[el.get("id")] = (float(el.get("lon")), float(el.get("lat")),
+                                       float(alt[0]))
+        elif el.tag == "way":
+            if {t.get("k"): t.get("v") for t in el.findall("tag")}.get("role") in roads:
+                keep.update(n.get("ref") for n in el.findall("nd"))
+            el.clear()
+    return numpy.array([nodes[r] for r in keep if r in nodes], dtype=float).reshape(-1, 3)
+
+
+#: a road node this near a back station is the road AT the building's base
+ROAD_AT_BASE_M = 6.0
+
+
+def _road_at(roads, lon, lat):
+    """The z of the groundside road node nearest (lon, lat) within
+    :data:`ROAD_AT_BASE_M`, or ``None``."""
+    if roads is None or not len(roads):
+        return None
+    kx = M_PER_DEG * math.cos(math.radians(lat))
+    d = numpy.hypot((roads[:, 0] - lon) * kx, (roads[:, 1] - lat) * M_PER_DEG)
+    j = int(numpy.argmin(d))
+    return float(roads[j, 2]) if d[j] <= ROAD_AT_BASE_M else None
+
+
 def _behind(closed, opened):
     """The ``closed`` (lat, lon) sides parallel (within 45 degrees) to an
     ``opened`` one: the sides behind the building; all of ``closed`` when
@@ -422,7 +460,7 @@ def body_offsets_y(plans):
             if b.get("new_resource")}
 
 
-def check_split(rec, drawn, tol, lifts=None):
+def check_split(rec, drawn, tol, lifts=None, roads=None):
     """One split-level building's row (module docstring); ``lifts`` is
     :func:`body_offsets_y` (a split body's zero is its authored point)."""
     lifts = lifts or {}
@@ -490,15 +528,24 @@ def check_split(rec, drawn, tol, lifts=None):
     # its airside face (parallel to an open side) -- stands at the lower
     # floor; a tall side running up the slope between them reads both
     behind = _behind(rec.get("closed_sides_ll", []), rec.get("open_sides_ll", []))
-    back = [mesh_z(drawn.mesh, x, y) for sd in behind
-            for x, y in _outside(sd, (lon, lat), 1.0)]
-    back = [g for g in back if not math.isnan(g)]
+    # ... or, where a groundside road runs along the base, at the ROAD's
+    # height there (owner 2026-11-06T02:40Z: "at SBSP the road at the base
+    # of the building on the groundside is sloping up")
+    st = [(x, y) for sd in behind for x, y in _outside(sd, (lon, lat), 1.0)]
+    back, ref = [], []
+    for x, y in st:
+        g = mesh_z(drawn.mesh, x, y)
+        if not math.isnan(g):
+            road = _road_at(roads, x, y)
+            back.append(g)
+            ref.append(z0 + y_lo if road is None else road)
+    out["back_on_road"] = sum(1 for r in ref if r != z0 + y_lo)
     if back:
-        d_b = [g - (z0 + y_lo) for g in back]
+        d_b = [g - r for g, r in zip(back, ref)]
         out["back_ground_median"] = round(float(numpy.median(back)), 2)
         out["delta_back_max"] = round(max(d_b, key=abs), 2)
         if abs(out["delta_back_max"]) > tol:
-            out["fails"].append(f"tall-side ground - lower floor {out['delta_back_max']:+.2f}"
+            out["fails"].append(f"back ground - lower floor / road {out['delta_back_max']:+.2f}"
                                 f" > {tol}")
     out["verdict"] = "FAIL" if out["fails"] else "PASS"
     return out
@@ -605,7 +652,8 @@ def run(args):
     rows = [check_site(s, drawn, claims, args.radius, args.tol)
             for s in read_sites(patch, sidecar, args.radius)]
     lifts = body_offsets_y(plans.values())
-    rows += [check_split(r, drawn, args.tol, lifts)
+    roads = road_nodes(patch, args.icao)
+    rows += [check_split(r, drawn, args.tol, lifts, roads)
              for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
     return {"icao": args.icao, "tile": tile, "pack_root": pack_root,
             "tile_dsfs": tile_dsfs, "tol_m": args.tol, "radius_m": args.radius,

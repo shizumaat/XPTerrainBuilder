@@ -129,12 +129,21 @@ def test_back_cut_reaches_past_the_tall_sides_only():
 
 def test_the_map_confirms_a_split_level_the_flat_dem_cannot_see():
     """THE MAP WITNESS (owner 2026-11-05/06, SBSP's hangar row): on a DEM
-    too flat to show the step, the open side facing airside pavement and
-    the low side across not facing it read the building; airside behind
-    it, or on both sides, or a low side's ground half a step higher, does
+    too flat to show the step, the open side facing airside pavement, the
+    low side across not facing it and an upper floor slab read the
+    building; airside behind it, or on both sides, a low side's ground half
+    a step higher, or a door with no floor at its top (a hangar door), does
     not."""
     from shapely.prepared import prep
-    objs, cache = _placed(*_building(12.0))
+    v, t = _building(12.0)
+    door_objs, door_cache = _placed(v, t)          # the 12 m opening, no floor at its top
+    v, t = list(map(tuple, v)), [tuple(x) for x in t]
+    i = len(v)                                     # the upper floor slab inside the open side
+    v += [(0.0, 12.0, 22.0), (40.0, 12.0, 22.0), (40.0, 12.0, 30.0), (0.0, 12.0, 30.0)]
+    for tri in ((i, i + 1, i + 2), (i, i + 2, i + 3)):
+        a, b, c = (np.array(v[k]) for k in tri)
+        t.append(tri if -np.cross(b - a, c - a)[1] > 0.0 else tri[::-1])
+    objs, cache = _placed(np.array(v, float), np.array(t, int))
     south = prep(box(-50.0, -80.0, 90.0, -31.0))   # the open (+z) side lies south
     north = prep(box(-50.0, 1.0, 90.0, 60.0))
     both = prep(box(-50.0, -80.0, 90.0, 60.0))
@@ -144,6 +153,7 @@ def test_the_map_confirms_a_split_level_the_flat_dem_cannot_see():
     assert read_split_levels(objs, cache, LAW, flat, north)[0] == []
     assert read_split_levels(objs, cache, LAW, flat, both)[0] == []
     assert read_split_levels(objs, cache, LAW, lambda x, y: 100.0 + 0.3 * y, south)[0] == []
+    assert read_split_levels(door_objs, door_cache, LAW, flat, south)[0] == []   # a hangar door
 
 
 def test_one_tall_side_and_airside_clip_the_back_cut():

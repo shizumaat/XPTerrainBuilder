@@ -29,9 +29,13 @@ or too flat to show the step (an airport inset under a row of hangars on
 an embankment), the open side FACES AIRSIDE -- at least half its stations
 ``_GROUND_OUT_M`` out lie on airside pavement -- and the low side across
 from it does not, and the ground does not refute it (the low side's DEM
-stands under half a step over the open side's).  A hangar door opening
-onto the apron on level ground reads its interior walls as closed (they
-face out of the door), so its door side has no high foot.
+stands under half a step over the open side's), and the UPPER FLOOR is
+built: an up-facing floor slab at the open side's foot covers at least
+``_SLAB_SHARE`` of a ``_SLAB_DEPTH_M`` strip inside the open side.  A
+hangar door opening onto the apron reads high on its door side (nothing
+walls it below the lintel) but has no floor at the lintel: the slab
+refuses it (owner 2026-11-06T02:40Z, SBSP's grouped row: Hangar2's 15 m
+door is no storey).
 
 Pure reading: no law constant lives here; nothing names a pack, a resource
 or an airport.  ``planar/split_level_pit`` turns a record into the pit."""
@@ -56,6 +60,10 @@ BAND_M = 1.0
 #: within this many degrees
 _VERTICAL_NY = 0.3
 _ALONG_DEG = 30.0
+#: the map witness's upper-floor slab: its share of a strip this deep
+#: inside the open side
+_SLAB_SHARE = 0.25
+_SLAB_DEPTH_M = 10.0
 #: the DEM is read this far outside a side, at this many stations along it
 _GROUND_OUT_M = 3.0
 _GROUND_STATIONS = 7
@@ -228,6 +236,29 @@ def _airside_share(airside, side: LineString, centre) -> float:
     return sum(bool(airside.contains(Point(p))) for p in pts) / len(pts) if pts else 0.0
 
 
+def _slab_share(v: np.ndarray, t: np.ndarray, side: tuple, centre, y: float) -> float:
+    """The share of a ``_SLAB_DEPTH_M`` strip inside the authored side
+    ``side`` covered by up-facing horizontal solid faces at ``y`` (within
+    ``BAND_M``)."""
+    p0, p1 = np.asarray(side[0], float), np.asarray(side[1], float)
+    L = float(np.linalg.norm(p1 - p0))
+    if L <= 0.0:
+        return 0.0
+    u = (p1 - p0) / L
+    n_in = np.array([-u[1], u[0]])
+    if (np.asarray(centre, float) - p0) @ n_in < 0.0:
+        n_in = -n_in
+    P = v[t]
+    n = -np.cross(P[:, 1] - P[:, 0], P[:, 2] - P[:, 0])
+    area = 0.5 * np.linalg.norm(n, axis=1)
+    up = n[:, 1] > 0.9 * np.maximum(2.0 * area, 1e-12)
+    mid = P[:, :, [0, 2]].mean(axis=1)
+    d, s_ = (mid - p0) @ n_in, (mid - p0) @ u
+    on = up & (np.abs(P[:, :, 1].mean(axis=1) - y) < BAND_M) & (d >= 0.0) \
+        & (d <= _SLAB_DEPTH_M) & (s_ >= 0.0) & (s_ <= L)
+    return float(area[on].sum()) / (L * _SLAB_DEPTH_M)
+
+
 def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                       law, dem_z, airside=None) -> tuple[list[SplitLevel], list[str]]:
     """Every split-level building of ``objects`` (module docstring) and one
@@ -293,7 +324,11 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
         if not by and airside is not None and across and gc - go < half:
             a_open = _st.mean(_airside_share(airside, s, centre) for s in opened)
             a_low = _st.mean(_airside_share(airside, s, centre) for s in across)
-            by = "map" if a_open >= 0.5 > a_low else ""
+            ctr_a = np.mean(np.asarray(cs, float), axis=0)
+            slab = max((_slab_share(v, t, sides[i], ctr_a, feet[i]) for i in range(4)
+                        if is_open[i] and feet[i] is not None and not is_open[(i + 2) % 4]),
+                       default=0.0)
+            by = "map" if a_open >= 0.5 > a_low and slab >= _SLAB_SHARE else ""
         why = "" if by else ": refused, the open side's ground is not the higher"
         why = why or ("" if spread <= 2.0 * half else f": refused, the open side's ground "
                       f"spans {spread:.1f} m (no one upper level)")

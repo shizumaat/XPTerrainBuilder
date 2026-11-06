@@ -48,6 +48,7 @@ class TunnelObject:
     # its trench outline; more is a building (#1726)
     shell_at_zero_max_fraction: float
     cover_placement_tol_m: float       # B: the cover stands at the SAME placement — position within this, same heading
+    floor_object_min_share: float      # #1903: a FLOOR object — its near-horizontal faces carry at least this share of its solid surface
     cover_station_m: float             # B: the cover's descending profile is binned this fine along the axis; each bin's LOWEST y is a ramp station
     parapet_max_height_m: float        # C: a thin surface wall is shorter than this
     parapet_max_width_m: float         # C: …and narrower than this in plan

@@ -236,6 +236,8 @@ def read_claims(sidecar, tile, plans, pristine):
         raw += [("tunnel_object:" + r["kind"], r["id"], o) for o in r["objects"]]
     for r in sidecar.get("object_cuts", []):
         raw += [("object_cut", r["id"], o) for o in r["objects"]]
+    for r in sidecar.get("object_floors", []):
+        raw += [("object_floor", r["id"], o) for o in r["objects"]]
     for r in sidecar.get("deck_anchors", []):
         raw.append((DECK_ANCHOR, f"{r.get('end', '')}", str(r.get("object", ""))))
     claims = []

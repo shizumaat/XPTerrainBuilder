@@ -186,6 +186,12 @@ cover_flush_m        = 1.0
 # (KBWI BWI_New_Interior 100 %, KATL Techos_Terminales 82 %).
 shell_at_zero_max_fraction = 0.5
 cover_placement_tol_m = 1.0
+# A TRENCH OBJECT'S OWN FLOOR IS THE CUT (owner 2026-11-06T00:07Z, #1903;
+# ``airport/object_floor``): a FLOOR object is a placement whose near-horizontal
+# faces carry at least this share of its solid surface (3D area), co-placed with
+# the cover whose walls it floors.  Measured EGLL: 2a / 3a / 8a / 11b / 12b 100 %,
+# 9a 99 %; their covers 2 / 3 / 8 / 9 / 11 carry walls to the floor (< 60 %).
+floor_object_min_share = 0.9
 cover_station_m      = 25.0
 # C — THIN SURFACE WALLS AND PARAPETS (LEMD).  Solids under
 # parapet_max_height_m tall (LEMD's walls are 0.91-2.01 m and SIT on the

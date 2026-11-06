@@ -17,7 +17,7 @@ from ..model.planar import PlanarMap
 from . import (apron, cluster_pad, deck_anchor, eat, edge_deck, flat_site, foot_rows,
                groundside, hard_plane, door_pad,
                junction_mesh,
-               no_step, pad_frontage_gs, pad_fronting, pads,
+               no_step, object_floor, pad_frontage_gs, pad_fronting, pads,
                platform,
                proximity, ramp_runout, road_ramp, roads, routes, runway_chord, runway_mean_slope,
                runway_profile, runway_step,
@@ -162,6 +162,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("structures", structures.structures),
     ("rim_level", structures.rim_level),
     ("basins", structures.basins),
+    # THE TRENCH OBJECT'S OWN FLOOR (#1903, owner 2026-11-06): every vertex
+    # of its footprint face at the object's floor under it
+    ("object_floor", object_floor.object_floor_pins),
     # THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i): the floor
     # at the record's own profile and the crest at the governed cell's
     # SOLVED surface — after the pavement families whose value the crest

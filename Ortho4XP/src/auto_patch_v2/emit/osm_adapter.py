@@ -199,6 +199,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # ``object_cut_depth`` families price the emitted patch against, so
     # the law and its instrument read ONE reading of the object.
     "object_cuts",
+    # #1903: the trench objects' own floors (REPORT ONLY; tools/drawn_check)
+    "object_floors",
     # §16g (10) (12) (2) (Fable 2026-09-16; RULINGS 2026-09-16b):
     # ``[lat, lon, "minted"|"deleted"]`` per airside node the PAD STAGE
     # added to or removed from the arrangement's airside cells.  The

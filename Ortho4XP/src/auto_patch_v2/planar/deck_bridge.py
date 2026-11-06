@@ -80,6 +80,7 @@ from ..geom.parts import polygon_parts_with_area
 from ..law.tables import role_side
 from ..model.stage_one import from_full, full_map  # one derivation for both maps
 from ..model.structures import DECK_GROUND_REF, DeckBridge, deck_reach
+from .deck_road_ground import sink_to_road_ground
 from .deck_route import carried_route
 from .deck_walls import inner_faces, wall_faces, wall_strip
 
@@ -254,6 +255,10 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
     to_xy, to_ll = airport.frame.transformers()
     out: list[DeckBridge] = []
     notes: list[str] = []
+    plans = unary_union([o.hard_deck for o in objects if getattr(o, "hard_deck", None) is not None
+                         and not o.hard_deck.is_empty and str(getattr(o, "deck_kind", "") or "")
+                         in ("flag", "signature")])
+    band = float(law.tables.emit.cockpit.visual_m)
     for decks, frame in _frames(objects, tol):
         d = decks[0]
         u = unary_union([q.hard_deck for q in decks])
@@ -311,6 +316,9 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                 reach = max(2.0 * step, 3.0)
                 db = _dc.replace(db, top_a=_end_top(plate, db.seats_a, reach, db.top_a),
                                  top_b=_end_top(plate, db.seats_b, reach, db.top_b))
+            if db.floor_min_m > 0.0:
+                # the ladder's floor never stands above the road beside the deck
+                db = sink_to_road_ground(db, airport, deck_polygon(db), plans, notes, band)
             r, n = _road_dir(db), across_dir(db)
             out.append(_dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
                                                         0.5 * (db.top_a + db.top_b), r, n)))

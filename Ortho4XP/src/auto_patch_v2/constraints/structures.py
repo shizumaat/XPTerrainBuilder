@@ -577,6 +577,14 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             ladder = bool(seats) and least > 0.0
             if ladder:
                 seats = [(v, least) for v, _d in seats]
+                # ... and never above the floor it was planned at (the deck's
+                # top less the ladder's depth, the road's ground beside it
+                # where lower): the survey under a deck reads the deck
+                # (Q344 a), and its pull sat the floor on the least depth,
+                # metres over the road beyond (#1902, KIAH 1.0.470: a 3.79 m
+                # cliff where the ramp met the road)
+                if not math.isnan(float(tn.mouth_z)):
+                    rows.append(Linear(((group[0], 1.0),), None, float(tn.mouth_z), src_mouth))
             if len(group) > 1 and not sloped:
                 rows.append(Flat(group, src_mouth))
             if sloped and ladder:

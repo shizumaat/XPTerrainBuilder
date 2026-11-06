@@ -230,7 +230,12 @@ def _cut_region(sl: SplitLevel, reach: float, blocked, footprint=None) -> Polygo
     sides = unary_union(list(sl.closed_sides))
     # one tall side unions to a LineString, which linemerge refuses
     chain = sides if sides.geom_type == "LineString" else linemerge(sides)
-    strip = chain.buffer(reach, cap_style="flat", join_style="mitre").difference(sl.footprint)
+    band = chain.buffer(reach, cap_style="flat", join_style="mitre")
+    strip = band.difference(sl.footprint)
+    if sl.plan is not None:
+        # ... and inside the box, between the building's plan and its tall
+        # side (the strip meets the plan it reaches)
+        strip = unary_union([strip, band.intersection(sl.footprint).difference(sl.plan)])
     if blocked is not None:
         strip = strip.difference(blocked)
     region = unary_union([foot, strip]).buffer(0)

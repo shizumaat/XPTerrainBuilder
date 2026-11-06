@@ -290,11 +290,19 @@ def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]],
     naming a row of ``dump`` (``dsf:obj<i>`` is row ``i``): the placement
     written as ``OBJECT_MSL`` at its fitted ``z0``, whole.
 
-    An :data:`ENTRANCE_SEAT` is a body's seat, so it seats its ROW only when
-    ``split`` (the rows the plan splits) is given, the row is not in it, and
-    the row carries that one entrance (#1903 KLAX: ``Underpass_2`` stands at
-    three anchors, the plan skips it, and its face stood 0.8 m over the
-    floor its reader set)."""
+    ONE AUTHORITY PER PLACEMENT, decided HERE: a row the plan SPLITS
+    (``split``) is seated by its bodies, and no record seats it whole --
+    the split replaces the row, so a second seat on it is two authorities
+    and the writer refuses the pack (``dsf_write.edit_dump``; KLAX 1.0.472
+    placement 7230 ``Misc/Underpass_1.obj``, EGKK 1508: split at a basin
+    rim AND seated at a portal floor, and no seat of either airport was
+    written).  The bodies win because their seat reads the object's own
+    geometry: Underpass_1's zero is its rim (it reaches 6.6 m under it),
+    and seated whole at the portal floor its bottom stood 6.6 m under the
+    ramp.  An :data:`ENTRANCE_SEAT` further needs the row to carry that one
+    entrance (#1903 KLAX: ``Underpass_2`` stands at three anchors, the plan
+    skips it, and its face stood 0.8 m over the floor its reader set) and
+    ``split`` to be given at all (a body's seat, never the row's blind)."""
     from ..model.placement import MslSeat
     rows = list(getattr(dump, "placements", ()) or ())
     records = list(records or ())
@@ -308,8 +316,9 @@ def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]],
         tile, i = _dsf.row_of(oid)
         if r.get("seat") not in _WHY or tile is not None or i is None:
             continue
-        if r.get("seat") == ENTRANCE_SEAT and (split is None or i in split
-                                               or faces.get(oid, 0) != 1):
+        if split is not None and i in split:
+            continue
+        if r.get("seat") == ENTRANCE_SEAT and (split is None or faces.get(oid, 0) != 1):
             continue
         if not 0 <= i < len(rows) or str(rows[i].def_path) != str(r.get("resource")):
             continue

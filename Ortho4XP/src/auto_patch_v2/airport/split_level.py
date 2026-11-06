@@ -185,15 +185,28 @@ def _covered_plan(v: np.ndarray, t: np.ndarray, close_m: float, min_hole_m2: flo
 
 def _open_edges(plan: Polygon, closed: _t.Sequence[LineString], probe: float
                 ) -> list[LineString]:
-    """The OPEN boundary of a pit under ``plan``: its outline away from the
-    TALL sides (``closed``, the box's sides walled down to the lower
-    floor, more than ``probe`` off them) -- the open side and every edge
-    between piers, all of it facing the upper ground."""
-    edge = plan.exterior
-    if closed:
-        edge = edge.difference(unary_union(list(closed)).buffer(probe, cap_style="flat"))
-    parts = getattr(edge, "geoms", [edge])
-    return [g for g in parts if g.geom_type == "LineString" and g.length > 0.0]
+    """The OPEN boundary of a pit under ``plan``: the straight edges of its
+    outline that face OUT of the building (away from its centroid) and lie
+    more than ``probe`` off the TALL sides (``closed``, the box's sides
+    walled down to the lower floor) -- the open side the upper ground meets.
+    An edge facing back into the building (a notch between piers) is no
+    side of it."""
+    ring = plan.exterior
+    if ring.is_ccw:
+        ring = LineString(list(ring.coords)[::-1])
+    tall = unary_union(list(closed)).buffer(probe, cap_style="flat") if closed else None
+    cx, cy = plan.centroid.x, plan.centroid.y
+    out = []
+    pts = list(ring.coords)
+    for (x0, y0), (x1, y1) in zip(pts[:-1], pts[1:], strict=True):
+        seg = LineString([(x0, y0), (x1, y1)])
+        if seg.length <= 0.0 or (tall is not None and seg.within(tall)):
+            continue
+        # clockwise ring: the outward normal is the edge turned left
+        nx, ny = -(y1 - y0), (x1 - x0)
+        if (0.5 * (x0 + x1) - cx) * nx + (0.5 * (y0 + y1) - cy) * ny > 0.0:
+            out.append(seg)
+    return out
 
 
 def _side_feet(v: np.ndarray, t: np.ndarray, sides: _t.Sequence[tuple], probe: float,

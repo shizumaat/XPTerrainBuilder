@@ -1162,7 +1162,7 @@ def authored_rows_lines(dump, plan, ss, sampler, pack_root: str = "") -> list[st
     from auto_patch_v2.airport import authored_seat as _as
     from auto_patch_v2.airport import placement_write as PW
     from auto_patch_v2.law import Law as _L2
-    splits, _kept = PW.placement_records(ss, dump, plan)
+    splits, _kept = PP.to_placement_records(ss)
     conv, msl, riders, counts = PW.dump_rows(
         dump, plan, ss, splits, sampler, pack_root,
         tol_m=float(_L2.load().tables.emit.design.hard_tol_m),
@@ -1265,7 +1265,7 @@ def _write_pack(a, plan, ss, sampler) -> None:
     dump_text = os.path.join(work, os.path.basename(dsf_path) + ".text")
     _dw.dump(src, dump_text, tool)
     dump = _dsf.read_dump(dump_text)
-    splits, kept = PW.placement_records(ss, dump, plan)
+    splits, kept = PP.to_placement_records(ss)
     from auto_patch_v2.model.placement import PlacementPlan, Provenance
     # THE ROW HALF — conversions, §16g (5) rows, riders, and the rows an
     # AUTHORED-TO-THE-CUT seat keeps (§18) — through the SAME

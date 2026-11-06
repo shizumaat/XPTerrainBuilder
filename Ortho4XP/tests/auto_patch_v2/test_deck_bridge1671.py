@@ -470,3 +470,24 @@ def test_a_ladder_floor_never_lifts_its_deck(tmp_path):
                                Source("structures", "x", ()))[::2]
     assert len(two) == 2 and all(r.lo is None and abs(r.hi + 5.0) < 1e-12 for r in two)
     assert all(dict(r.terms)[v] == 1.0 for r, v in zip(two, (9, 10), strict=True))
+
+
+def test_a_ladder_floor_sinks_to_the_road_beside_its_deck(tmp_path):
+    """#1902 (KIAH 1.0.470 drawn mesh: the road 20.4 m beside obj24615, its
+    floor 22.62, a 3.79 m cliff where the ramp met it): where the mapped road
+    runs lower beside a ladder deck than the ladder's floor, the floor sinks
+    to the road's ground there (``planar/deck_road_ground``); a road beside
+    it at or over the ladder's floor leaves the ladder's depth."""
+    road = types.SimpleNamespace(id=-1, points=((0.0, -60.0), (0.0, 60.0)),
+                                 tags={"highway": "trunk"})
+
+    def at(beside):
+        dem = types.SimpleNamespace(z=lambda x, y: beside if abs(x) < 8.0 else 100.0)
+        return types.SimpleNamespace(frame=FRAME, dem=dem, osm_ways=(road,))
+    (low,), notes = _slab_read(tmp_path, at(90.0))
+    assert abs((low.deck_z - low.depth_m) - 90.0) < 1e-6
+    assert any("the floor sinks to it" in n for n in notes)
+    assert low.floor_min_m > 0.0               # the ladder's least depth still holds
+    (high,), _n = _slab_read(tmp_path, at(99.0))
+    (ref,), _n = _slab_read(tmp_path, AIRPORT)
+    assert abs(high.depth_m - ref.depth_m) < 1e-6

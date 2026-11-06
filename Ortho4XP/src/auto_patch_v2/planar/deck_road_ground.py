@@ -35,7 +35,7 @@ import statistics
 from shapely.geometry import LineString, Point
 from shapely.ops import linemerge, unary_union
 
-__all__ = ["road_ground_beside", "sink_to_road_ground"]
+__all__ = ["sink_to_road_ground"]
 
 #: the band beyond the deck's ring the road's ground is read in (m): past
 #: the abutment's own toe, short of the next feature along the road
@@ -61,7 +61,7 @@ def _lines_under(airport, ring) -> list:
             if g.geom_type == "LineString" and g.intersection(ring).length > 1.0]
 
 
-def road_ground_beside(airport, ring, off_decks=None) -> "float | None":
+def _road_ground_beside(airport, ring, off_decks=None) -> "float | None":
     """The lowest side's median ground along the roads under ``ring``
     (module doc), off ``off_decks`` (every hard deck's plan); ``None``
     where no road side carries :data:`MIN_SAMPLES`."""
@@ -96,7 +96,7 @@ def sink_to_road_ground(db, airport, ring, off_decks, notes: list, tol: float):
     """``db`` with its floor sunk to the road's ground beside it where that
     stands more than ``tol`` under the ladder's floor (module doc); ``db``
     unchanged otherwise."""
-    g = road_ground_beside(airport, ring, off_decks)
+    g = _road_ground_beside(airport, ring, off_decks)
     if g is None:
         return db
     top = 0.5 * (db.top_a + db.top_b)

@@ -27,8 +27,8 @@ def _repo(tmp_path):
     for name in ("engine_stamp.sh", "tree_dirty.sh"):
         shutil.copy(REPO / "scripts" / name, root / "scripts" / name)
     (root / "Ortho4XP/src").mkdir(parents=True)
-    (root / "Ortho4XP/src/O4_Version.py").write_text("version = '1.0'\n")
-    (root / "Ortho4XP/src/code.py").write_text("x = 1\n")
+    (root / "Ortho4XP/src/O4_Version.py").write_text("version = '1.0'\n", encoding="utf-8", newline="\n")
+    (root / "Ortho4XP/src/code.py").write_text("x = 1\n", encoding="utf-8", newline="\n")
     _git(root, "init", "-q")
     _git(root, "add", "-A")
     _git(root, "commit", "-qm", "a")
@@ -48,7 +48,7 @@ def test_matching_stamp_reports_embedded_commit(tmp_path):
     root, frozen = _repo(tmp_path)
     assert _stamp("write", frozen, root).returncode == 0
     # The version bump both scripts make is not dirt.
-    (root / "Ortho4XP/src/O4_Version.py").write_text("version = '1.1'\n")
+    (root / "Ortho4XP/src/O4_Version.py").write_text("version = '1.1'\n", encoding="utf-8", newline="\n")
     r = _stamp("check", frozen, root)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == _git(root, "rev-parse", "HEAD")
@@ -58,7 +58,7 @@ def test_stale_stamp_refuses_with_both_shas(tmp_path):
     root, frozen = _repo(tmp_path)
     _stamp("write", frozen, root)
     old = _git(root, "rev-parse", "HEAD")
-    (root / "Ortho4XP/src/code.py").write_text("x = 2\n")
+    (root / "Ortho4XP/src/code.py").write_text("x = 2\n", encoding="utf-8", newline="\n")
     _git(root, "commit", "-qam", "b")
     r = _stamp("check", frozen, root)
     assert r.returncode == 1
@@ -67,17 +67,17 @@ def test_stale_stamp_refuses_with_both_shas(tmp_path):
 
 def test_dirty_tree_matches_only_its_own_edits(tmp_path):
     root, frozen = _repo(tmp_path)
-    (root / "Ortho4XP/src/code.py").write_text("x = 3\n")
+    (root / "Ortho4XP/src/code.py").write_text("x = 3\n", encoding="utf-8", newline="\n")
     _stamp("write", frozen, root)
     assert _stamp("check", frozen, root).returncode == 0
-    (root / "Ortho4XP/src/code.py").write_text("x = 4\n")
+    (root / "Ortho4XP/src/code.py").write_text("x = 4\n", encoding="utf-8", newline="\n")
     r = _stamp("check", frozen, root)
     assert r.returncode == 1 and "-dirty(" in r.stderr
 
 
 def test_build_scripts_wire_the_stamp():
-    app = (REPO / "scripts/make_app.sh").read_text()
-    eng = (REPO / "scripts/make_engine.sh").read_text()
+    app = (REPO / "scripts/make_app.sh").read_text(encoding="utf-8")
+    eng = (REPO / "scripts/make_engine.sh").read_text(encoding="utf-8")
     assert 'engine_stamp.sh" check "$FROZEN"' in app
     assert "embedded engine commit $EMBEDDED_SHA" in app
     assert 'engine_stamp.sh" write "$OUT"' in eng

@@ -26,8 +26,17 @@ forest_mix_full.for``.  Neither had an X-Plane 12 3D equivalent in the
   height; the object's definition and its rows leave the DSF.
 * A PACK'S OWN FLAT ``.for`` — :func:`local_forest_target`: tree type
   from its ``TREE`` rows (narrow billboards are conifers; a mix of both
-  is ``mixed``), sparse from ``SPACING``, and nothing for ground cover
-  (grass: every tree under :data:`GROUND_COVER_M`).
+  is ``mixed``), sparse from ``SPACING``.  LOW VEGETATION (a mean
+  height under ``SHRUB_M + 1``, or every tree under
+  :data:`GROUND_COVER_M`) never maps to X-Plane 12's 3D shrub forests,
+  which are small trees (issue #1920); it maps to X-Plane 12's 3D ground
+  cover of its own class (:data:`.pack_trees_map.LOW_CLASS`): GRASS when
+  the name says grass, reed or flowers (:data:`.pack_trees_map.GRASS_WORDS`)
+  or every tree is under :data:`GROUND_COVER_M`, otherwise SHRUBS — but a
+  low tree the name calls a species (a short palm, a young fir) or whose
+  billboards are a conifer's keeps its own flat file, as does a class
+  whose planters all stand taller than its cap.  A taller ``.for`` the
+  name calls grass or reed (giant cane) keeps its own file too: never trees.
 """
 from __future__ import annotations
 
@@ -41,9 +50,18 @@ import numpy as np
 
 from .obj8 import _to_frame, parse_obj8, resolve_resource
 from .pack_art import MissingDef, declared_definitions, omit_definitions
-from .pack_trees_map import FAMILIES, LOCAL_FOREST, NAME_FAMILY, TREE_WORDS
+from .pack_trees_map import (
+    FAMILIES,
+    GRASS_WORDS,
+    LOCAL_FOREST,
+    LOW_CLASS,
+    NAME_FAMILY,
+    PLANTERS,
+    TREE_WORDS,
+)
 
-__all__ = ["FlatTrees", "flat_trees", "local_forest_target", "name_words",
+__all__ = ["FlatTrees", "flat_trees", "local_forest_target", "for_top_m",
+           "name_words",
            "convert_objects", "body_base", "POINT_FOREST"]
 
 #: quads whose plan centres are this close are one tree
@@ -213,11 +231,12 @@ def _size_for(family: str, height: float) -> str:
 
 # ── a pack's own .for ────────────────────────────────────────────────────
 
-def local_forest_target(path: str) -> str:
-    """The X-Plane 12 3D forest for a pack's own flat ``.for``; ``""``
-    for ground cover or an unreadable file (module doc)."""
+def _read_for(path: str
+              ) -> tuple[list[float], list[tuple[float, float, float]]] | None:
+    """A ``.for``'s ``SPACING`` and ``TREE`` rows as ``(freq, aspect,
+    max height)``; ``None`` when unreadable or treeless."""
     spacing: list[float] = []
-    rows: list[tuple[float, float, float]] = []       # (freq, aspect, max h)
+    rows: list[tuple[float, float, float]] = []
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             for raw in fh:
@@ -234,19 +253,60 @@ def local_forest_target(path: str) -> str:
                 except ValueError:
                     continue
     except OSError:
+        return None
+    return (spacing, rows) if rows else None
+
+
+def for_top_m(path: str) -> float | None:
+    """The tallest tree a ``.for`` file draws; ``None`` when unreadable."""
+    read = _read_for(path)
+    return None if read is None else max(r[2] for r in read[1])
+
+
+def local_forest_target(path: str) -> str:
+    """The X-Plane 12 3D forest for a pack's own flat ``.for``; ``""``
+    for ground cover or an unreadable file (module doc)."""
+    read = _read_for(path)
+    if read is None:
         return ""
-    if not rows:
-        return ""
+    spacing, rows = read
     total = sum(r[0] for r in rows) or float(len(rows))
     wt = [(r[0] or 1.0) / total for r in rows]
-    if max(r[2] for r in rows) < GROUND_COVER_M:
-        return ""
     tall = sum(w * r[2] for w, r in zip(wt, rows, strict=True))
     coni = sum(w for w, r in zip(wt, rows, strict=True) if r[1] < CONIFER_ASPECT)
-    kind = ("shrb" if tall < SHRUB_M + 1.0 else "coni" if coni >= 0.75
-            else "broad" if coni <= 0.25 else "mixed")
+    top = max(r[2] for r in rows)
+    if top < GROUND_COVER_M or tall < SHRUB_M + 1.0:
+        # LOW VEGETATION STAYS LOW (#1920): X-Plane 12's ``shrb_*`` forests
+        # draw 2-13 m trees (``1200 forests/sum/shrub_tmp.for``: ash,
+        # aspen, locust) — the owner's LGAV read: grass by the runways
+        # came out as small trees.  It takes ground cover of its class.
+        return _planter(low_class(path, top, coni))
+    if name_words(path) & GRASS_WORDS:
+        return ""           # tall reeds or grass are never trees
+    kind = ("coni" if coni >= 0.75 else "broad" if coni <= 0.25 else "mixed")
     sparse = bool(spacing) and sum(spacing) / 2 > SPARSE_SPACING_M
     return LOCAL_FOREST[(kind, sparse)]
+
+
+def low_class(path: str, top: float, coni: float) -> str:
+    """``"grass"`` | ``"shrub"`` for a pack's own low ``.for`` (module
+    doc); ``""`` for a low TREE, which keeps its own file.  ``top`` is
+    its tallest tree, ``coni`` its conifer share."""
+    words = name_words(path)
+    if words & GRASS_WORDS or top < GROUND_COVER_M:
+        return "grass"
+    shrubs = NAME_FAMILY["shrub"]
+    if coni >= 0.75 or any(NAME_FAMILY.get(w, shrubs) != shrubs
+                           or w.endswith(("tree", "trees")) for w in words):
+        return ""
+    return "shrub"
+
+
+def _planter(cls: str) -> str:
+    """The first planter of ``cls`` within its height cap; ``""`` when
+    none is (or no class)."""
+    cap, order = LOW_CLASS.get(cls, (0.0, ()))
+    return next((p for p in order if PLANTERS[p][0] <= cap), "")
 
 
 # ── the rewrite ──────────────────────────────────────────────────────────

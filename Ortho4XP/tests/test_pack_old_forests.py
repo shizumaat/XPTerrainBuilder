@@ -75,9 +75,11 @@ def stage(monkeypatch, choices):
     return seen
 
 
-def _pf(old=(MAPPED, UNMAPPED), upgraded=None):
+def _pf(old=(MAPPED, UNMAPPED), upgraded=None, version=None):
+    from auto_patch_v2.airport import pack_forests as _PF
     return FS.PackForests("Some Pack", "/p/+25+051.dsf", tuple(old),
-                          dict(upgraded or {}))
+                          dict(upgraded or {}),
+                          _PF.UPGRADE_VERSION if version is None else version)
 
 
 # ── the stage's decision ────────────────────────────────────────────────
@@ -118,6 +120,28 @@ def test_an_upgrade_already_on_disk_is_quiet(stage):
     stage["pf"] = _pf(upgraded=RENAMES)
     assert FS.forest_stage(PLAN, TILE, writes=True) == "current"
     assert stage["events"] == [] and stage["writes"] == []
+
+
+def test_an_upgrade_under_older_rules_is_redone_without_asking(stage, choices):
+    # #1920 (owner: "Including fixing old mappings"): a DSF carrying an
+    # accepted upgrade written under an older map is re-mapped from its
+    # pristine file, whether or not the answer is remembered
+    stage["pf"] = _pf(upgraded=RENAMES, version=1)
+    assert FS.forest_stage(PLAN, TILE, writes=True) == "upgraded"
+    assert stage["writes"] == [RENAMES]
+    # ... and one whose old map named a forest today's leaves alone
+    stage["writes"].clear()
+    stage["pf"] = _pf(old=(UNMAPPED,), upgraded={"forests/local.for": "x.for"})
+    assert FS.forest_stage(PLAN, TILE, writes=True) == "upgraded"
+    assert stage["writes"] == [{}]
+
+
+def test_a_redo_waits_for_a_writing_build_and_respects_never(stage, choices):
+    stage["pf"] = _pf(upgraded=RENAMES, version=1)
+    assert FS.forest_stage(PLAN, TILE, writes=False) == "found"
+    FS.set_pack_choice(PLAN.pack_root, "never")
+    assert FS.forest_stage(PLAN, TILE, writes=True) == "never"
+    assert stage["writes"] == []
 
 
 def test_never_for_this_pack_stops_the_question(stage):

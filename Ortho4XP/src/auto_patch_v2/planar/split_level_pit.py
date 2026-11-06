@@ -31,13 +31,17 @@ wall, under the building's own wall), and
   frame, one seat), with no plate clearance (a floor, not a plate:
   ``Basin.clearance_m`` 0).
 
-Refused, by name: a building over the runway family, over a structure, or
-over another pit.  Nothing here names a pack, a resource or an airport."""
+Refused, by name: a building over the runway family, or over a structure
+(a box yields what another pit already took); and a box a mapped road runs UNDER (an OSM ``highway`` way tagged
+``tunnel`` or a negative ``layer`` inside it): the "open" sides of an underpass are a road's
+way under it, and pitting it sank the bridge with its deck under the
+ground (#1903 KBNA 1.0.470, the Murfreesboro Pike underpass).  Nothing
+here names a pack, a resource or an airport."""
 from __future__ import annotations
 
 import typing as _t
 
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import linemerge, unary_union
 from shapely.prepared import prep
 
@@ -89,6 +93,7 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     boxes = [_rim(sl.footprint, 0.0, grid) for sl in sls]
     # the pits cut so far: the other basins', then each split-level's
     pits = unary_union(list(taken)) if taken else None
+    roads = _roads(airport)
     for i, sl in enumerate(sls):
         k = k0 + len(basins)
         box = boxes[i]
@@ -99,6 +104,11 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         if blocked is not None and box.intersects(blocked):
             refused.append(f"{sl.id} {name}: the split-level box meets the runway family or "
                            "a structure")
+            continue
+        if _road_under(box, roads, grid):
+            refused.append(f"{sl.id} {name}: a mapped road runs under the split-level box "
+                           "(a tunnel way inside it) — a road's underpass, "
+                           "not a building cut into a slope")
             continue
         # A ROW OF SPLIT-LEVEL BUILDINGS (SBSP's hangars on the embankment)
         # shares walls, and a member's own basin (a covered pit under a
@@ -130,6 +140,46 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         knives.append(rim)
         basins.append(_record(airport, sl, k, rim, floors, floor_ref, wall_ref))
     return basins, new_cells, knives, notes, refused
+
+
+#: OSM ``highway`` values no vehicle runs on
+_ON_FOOT = frozenset({"footway", "path", "steps", "pedestrian", "cycleway", "corridor",
+                      "bridleway", "elevator"})
+
+
+def _under(tags: _t.Mapping[str, str]) -> bool:
+    """The way runs UNDER what stands over it: ``tunnel`` (a covered
+    passage through a building's own floor, ``building_passage``, is a
+    level of that building, not a way under it) or a negative ``layer``."""
+    if str(tags.get("tunnel", "no")) not in ("no", "building_passage"):
+        return True
+    try:
+        return float(tags.get("layer", 0) or 0) < 0.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _roads(airport) -> list[LineString]:
+    """The mapped roads that run UNDER a structure: every OSM way a
+    vehicle runs on (``highway``) tagged as passing under (:func:`_under`).
+    The OSM line, not the classified cell: the road under a pack structure
+    is cut out of the cells there (the structure's own ramp,
+    ``planar/structure_service``) but its way runs on.  A road at grade
+    crossing a box is no witness (SBSP's split-level hangar: two service
+    ways cross its plan)."""
+    out = []
+    for w in getattr(airport, "osm_ways", ()) or ():
+        tags = w.tags or {}
+        if tags.get("highway", "") not in ("", *_ON_FOOT) and _under(tags) \
+                and len(w.points) >= 2:
+            out.append(LineString(w.points))
+    return out
+
+
+def _road_under(rim: Polygon, roads: _t.Sequence[LineString], grid: float) -> bool:
+    """A road runs UNDER ``rim``: more than ``grid`` of one of ``roads``
+    (:func:`_roads`) lies inside the box."""
+    return any(ln.intersection(rim).length > grid for ln in roads if ln.intersects(rim))
 
 
 def _largest(geom) -> "Polygon | None":

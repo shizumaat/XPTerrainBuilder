@@ -161,3 +161,24 @@ def test_one_tall_side_and_airside_clip_the_back_cut():
     assert abs(_cut_region(sl, 5.0, box(-1.0, -9.0, 4.0, 0.0)).area - 130.0) < 1e-6
     core = box(0.0, 0.0, 6.0, 10.0)
     assert abs(_cut_region(sl, 5.0, None, core).area - (60.0 + 50.0)) < 1e-6
+
+
+def test_a_box_a_road_runs_under_is_an_underpass_not_a_split_level():
+    # #1903 KBNA 1.0.470: an underpass read as split-level sank its bridge;
+    # SBSP's hangar (service ways at grade across its plan) stays a pit
+    from auto_patch_v2.planar.split_level_pit import _road_under, _roads
+    rim = box(0.0, 0.0, 40.0, 30.0)
+
+    def way(pts, **tags):
+        return types.SimpleNamespace(points=pts, tags=tags)
+    air = types.SimpleNamespace(osm_ways=(
+        way(((20.0, -10.0), (20.0, 12.0)), highway="primary", tunnel="yes"),
+        way(((25.0, -10.0), (25.0, 40.0)), highway="service", layer="-1"),
+        way(((5.0, -10.0), (5.0, 40.0)), highway="service"),             # at grade
+        way(((8.0, -10.0), (8.0, 40.0)), highway="service", tunnel="building_passage"),
+        way(((30.0, -10.0), (30.0, 40.0)), highway="footway", tunnel="yes")))
+    roads = _roads(air)
+    assert len(roads) == 2
+    assert _road_under(rim, roads[:1], 0.5) and _road_under(rim, roads[1:], 0.5)
+    assert not _road_under(box(50.0, 0.0, 60.0, 30.0), roads, 0.5)
+    assert not _road_under(rim, [], 0.5)

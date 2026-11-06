@@ -132,6 +132,8 @@ class MeshElevationSampler:
         mesh_path: str,
         bounds: tuple[float, float, float, float],
         margin_degrees: float = 0.002,
+        *,
+        arrays: "tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray] | None" = None,
     ) -> None:
         minimum_longitude, minimum_latitude, maximum_longitude, maximum_latitude = (
             bounds
@@ -141,8 +143,8 @@ class MeshElevationSampler:
         maximum_longitude += margin_degrees
         maximum_latitude += margin_degrees
 
-        vertices, triangles, triangle_attributes = _read_mesh_cached(
-            mesh_path)
+        vertices, triangles, triangle_attributes = (
+            arrays if arrays is not None else _read_mesh_cached(mesh_path))
 
         vertex_inside_bounds = (
             (vertices[:, 0] >= minimum_longitude)
@@ -168,6 +170,25 @@ class MeshElevationSampler:
         self._triangle_minimum = corners[:, :, :2].min(axis=1)
         self._triangle_maximum = corners[:, :, :2].max(axis=1)
         self._build_grid_index()
+
+    @classmethod
+    def from_triangles(
+        cls,
+        corners: numpy.ndarray,
+        bounds: tuple[float, float, float, float],
+        margin_degrees: float = 0.0,
+    ) -> "MeshElevationSampler":
+        """The sampler over loose triangles ``(n, 3, 3)`` of ``(longitude,
+        latitude, elevation_metres)`` corners -- a DSF's drawn terrain
+        (``auto_patch_v2.airport.dsf_mesh.physical_triangles``) rather than
+        a ``.mesh`` file.  Every triangle reads as land (attribute 0)."""
+        corners = numpy.asarray(corners, dtype=numpy.float64).reshape(-1, 3, 3)
+        count = corners.shape[0]
+        return cls(
+            "", bounds, margin_degrees,
+            arrays=(corners.reshape(-1, 3),
+                    numpy.arange(3 * count, dtype=numpy.int64).reshape(count, 3),
+                    numpy.zeros(count, dtype=numpy.int64)))
 
     # ------------------------------------------------------------------
     # The uniform-grid index (RULINGS 2026-09-12g)

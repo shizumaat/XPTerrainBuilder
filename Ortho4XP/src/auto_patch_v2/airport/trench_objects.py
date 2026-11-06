@@ -71,10 +71,11 @@ def covered_candidates(osm_ways) -> list:
             and len(w.points) >= 2]
 
 
-def _outline(g: _obj8.ObjGeometry, q: float):
-    """The authored plan union of every solid triangle: the plates' plan
-    polygons and the walls' plan segments (a vertical face has no area)."""
-    v, t = g.vertices, g.solid
+def _outline(g: _obj8.ObjGeometry, q: float, idx: "np.ndarray | None" = None):
+    """The authored plan union of every solid triangle (or of the solid
+    triangles ``idx``): the plates' plan polygons and the walls' plan
+    segments (a vertical face has no area)."""
+    v, t = g.vertices, (g.solid if idx is None else g.solid[idx])
     if t is None or not len(t):
         return None
     parts = list(_bulk_polys(v, t))

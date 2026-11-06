@@ -704,7 +704,13 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     _fallback_gate = bool(_st is not None
                           and getattr(_st, "building_evidence", False))
     _osm_ev = osm_building_evidence(airport.buildings) if _fallback_gate else None
-    _n_unvouched = _n_osm = 0
+    _n_unvouched = _n_osm = _n_mouth = 0
+    # #1747 (owner RULINGS 2026-11-06b (6)): a footprint-cache ring the
+    # tunnel mouths' walls reach into (deeper than the touch tolerance the
+    # footprints chain at) was WELDED from those walls, and a weld's members
+    # cannot be told apart: it mints no pad (``airport/entrance_shade``)
+    _mouths = getattr(airport, "entrance_shade", None)
+    _touch = float(law.tables.structures.placement.footprint_touch_m) if law is not None else 0.0
     for b in airport.buildings:
         if not b.source.startswith(admitted):
             continue
@@ -717,8 +723,13 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
                 _n_unvouched += 1
                 continue
             _n_osm += 1
+        if (_mouths is not None and b.source.startswith("dsf:object")
+                and p.buffer(-_touch).intersects(_mouths)):
+            _n_mouth += 1
+            continue
         polys.append(p)
     PAD_REFUSED["fallback_no_building_evidence"] = _n_unvouched
+    PAD_REFUSED["fallback_tunnel_mouth"] = _n_mouth
     # lane ``padgates101b``: the OSM half's own count on this half — the
     # sweep read ``osm_vouched`` 0 everywhere because that counter is the
     # CLUSTER half's alone, and the OSM half was firing here unseen

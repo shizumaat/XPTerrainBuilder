@@ -681,6 +681,8 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     from auto_patch_v2.airport.wall_shade import attach_wall_shade
     from auto_patch_v2.classify import load_rules as _load_rules
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
+    from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
+    airport = attach_entrance_shade(airport, pack_objects, ocache, law)   # #1747
     from auto_patch_v2.airport import flat_pack as _flat_pack     # flat-pack spec §1
     airport = _dc.replace(airport, flat_pack=_flat_pack.detect(airport, law))
     print(f"[{icao}] " + _flat_pack.log_line(icao, airport.flat_pack))
@@ -2213,6 +2215,11 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
                           _fe.quantum(law))
         _objs, _orep = _read_objects(airport, law, _ocache)
+        # #1747: a capture written before ``Airport.entrance_shade`` derives
+        # it here, off the pack read the classify / planar stages take
+        if getattr(airport, "entrance_shade", None) is None:
+            from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
+            airport = attach_entrance_shade(airport, _objs, _ocache, law)
     if resume == "classify":
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster

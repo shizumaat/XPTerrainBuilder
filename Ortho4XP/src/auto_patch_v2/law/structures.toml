@@ -222,6 +222,23 @@ parapet_y_min        = -0.10
 pair_spacing_min_m   = 5.0
 pair_spacing_max_m   = 40.0
 pair_overlap_min_fraction = 0.5
+# THE ENTRANCE SKIRT (owner RULINGS 2026-11-06c (3), "option 1", and its
+# 17:37Z clarification: "the terrain on the other/back side of the mouth
+# object should grade flush to the back of the object at the top of the
+# object"; ``planar/entrance_skirt``).  An ENTRANCE face (a trench object's
+# face at a mapped tunnel end, ``trench_objects.mouth_portals``) is seated
+# with its top on the ground over it; the ground UNDER its top plate and
+# within entrance_skirt_m of it is held at that top, so every edge of the
+# top is flush, and beyond it the ground falls (or rises) to the DEM at
+# emit.design.bank_slope over at most entrance_bank_max_m.  3 m: twice the
+# 1.5 m at which tools/drawn_site.py reads "the ground outside an edge" —
+# the level shoulder a pilot reads as the face's own ground, under a
+# patch-scale triangle; the bank cap is 15 m (platform_collar_max_m's
+# landing-bank width), 5 m of relief at 1:3.  MEASURED LOWS (lowspad
+# tile builds): the west face top stood +0.85 / +1.05 / +1.69 m over the
+# drawn ground at its open edges (DEM 2 m of slope under a 197 m2 top).
+entrance_skirt_m     = 3.0
+entrance_bank_max_m  = 15.0
 
 [cutout]                            # RULINGS 2026-09-06b (1) + 2026-09-08a: every below-grade OBJECT's trench = floor + at-grade rim INSIDE the wall, NO wall band
 # The owner's law: the trench floor slightly OVERLAPS the object's inner

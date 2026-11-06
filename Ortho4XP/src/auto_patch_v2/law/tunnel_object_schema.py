@@ -61,3 +61,6 @@ class TunnelObject:
     pair_spacing_min_m: float          # C: a PAIR's axes stand this far apart at least
     pair_spacing_max_m: float          # C: …and this far at most
     pair_overlap_min_fraction: float   # C: …and overlap this share of the shorter band along the axis
+    # RULINGS 2026-11-06c (3): THE ENTRANCE SKIRT (``planar/entrance_skirt``)
+    entrance_skirt_m: float            # the ground this far round the face's top is at that top
+    entrance_bank_max_m: float         # …then falls to the DEM over at most this

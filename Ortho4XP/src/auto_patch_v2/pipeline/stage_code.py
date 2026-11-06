@@ -559,6 +559,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.edges",
         "auto_patch_v2.planar.end_witness",
         "auto_patch_v2.planar.fill_bank",
+        "auto_patch_v2.planar.entrance_skirt",
         "auto_patch_v2.planar.fill_riser",
         "auto_patch_v2.planar.fill_road",
         "auto_patch_v2.planar.group_low",
@@ -931,6 +932,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.edge_deck",
         "auto_patch_v2.constraints.edge_floor",
         "auto_patch_v2.constraints.end_lip",
+        "auto_patch_v2.constraints.entrance_skirt",
         "auto_patch_v2.constraints.face_index",
         "auto_patch_v2.constraints.fill_bank",
         "auto_patch_v2.constraints.flat_site",
@@ -1204,7 +1206,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.foot_rows
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
-        constraints.edge_floor constraints.structures
+        constraints.edge_floor constraints.structures constraints.entrance_skirt
     constraints.viaduct_floor geom.base_slab geom.cluster_outline
         geom.containment
         geom.feet_graph geom.feet_mst geom.pad_evidence geom.triangulate geom.union_find
@@ -1456,6 +1458,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
         constraints.platform constraints.precedence constraints.edge_floor constraints.structures
+        constraints.entrance_skirt
     constraints.viaduct_floor
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
@@ -1565,7 +1568,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.threshold_seam
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
-    constraints.strips constraints.edge_floor constraints.structures
+    constraints.strips constraints.edge_floor constraints.structures constraints.entrance_skirt
     constraints.viaduct_floor constraints.taxi
     constraints.deck_lines
     constraints.taxi_trend
@@ -1768,7 +1771,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.structure_service planar.structure_stats
-    planar.structure_underpass planar.structures planar.terrain_edge
+    planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
@@ -1869,7 +1872,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.runway_yield constraints.runway_junctions constraints.seams
     constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips
-    constraints.edge_floor constraints.structures
+    constraints.edge_floor constraints.structures constraints.entrance_skirt
     constraints.viaduct_floor constraints.taxi constraints.taxi_trend
     constraints.deck_lines
     constraints.taxi_trend_cap constraints.transverse constraints.trend
@@ -1911,7 +1914,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.structure_service planar.structure_stats
-    planar.structure_underpass planar.structures planar.terrain_edge
+    planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground

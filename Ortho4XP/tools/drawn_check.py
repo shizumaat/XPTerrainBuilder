@@ -706,6 +706,11 @@ def print_report(rep):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if any(a == "--pack" or a.startswith("--pack=") for a in argv):
+        # the per-site reading of the installed pack (``tools/drawn_site.py``)
+        import drawn_site
+        return drawn_site.main(argv)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("icao")
     ap.add_argument("--tile", help="+LL+LLL (owner products under --patches)")

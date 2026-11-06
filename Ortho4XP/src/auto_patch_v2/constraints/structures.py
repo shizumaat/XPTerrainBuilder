@@ -79,7 +79,8 @@ from ..model.airport import Airport
 from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Source
 from ..model.frame import XY
 from ..model.planar import Face, PlanarMap
-from ..model.structures import UNDERPASS_NOTE, Basin, Tunnel, profile_z
+from ..model.structures import SKIRT_ROLE, UNDERPASS_NOTE, Basin, Tunnel, profile_z
+from .entrance_skirt import skirt_pins
 from .edge_floor import DECK_FLOOR, edge_seats_of, seat_pair, sloped_floor_rows
 from .precedence import view
 from .geometry import nearest_vertex_of_containing_cell
@@ -400,6 +401,9 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                       else (lambda v: v in on_deck or shared_with_ground(v)))
             groups = _rim_rows(planar, airport, path, wall_vs, shared, pin, src_wall,
                                own_ground=bool(getattr(tn, "edge_back", ())))
+            # RULINGS 2026-11-06c (3): an entrance face's skirt is its top
+            skirt_pins(planar, airport, law, tn, faces_by_ref, vw.vertex_faces,
+                       (*structure_roles, SKIRT_ROLE), shared, pin, inputs)
             if tn.cap_centre is not None and groups:
                 uc = path.project(Point(tn.cap_centre))
                 cap_reps.append(min(groups, key=lambda g: abs(g[0] - uc))[1][0])

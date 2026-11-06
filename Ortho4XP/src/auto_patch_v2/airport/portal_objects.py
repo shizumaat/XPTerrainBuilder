@@ -95,6 +95,12 @@ class Portal:
     #: seats that face with its bottom on :attr:`floor_z`
     #: (``Tunnel.portal_seat``); ``None`` for any other pin
     bottom_y: "float | None" = None
+    #: RULINGS 2026-11-06c (3): an ENTRANCE face's TOP — its plan (frame
+    #: metres, ``trench_objects._face_at``) and its level once seated (the
+    #: ground over it): the ramp ends at its front and the ground round it
+    #: is graded up to it (``planar/entrance_skirt``); ``None`` otherwise
+    face_plan: object = None
+    face_top_z: "float | None" = None
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:

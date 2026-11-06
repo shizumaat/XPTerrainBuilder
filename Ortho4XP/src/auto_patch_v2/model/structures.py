@@ -26,7 +26,7 @@ from .frame import XY
 
 __all__ = ["Deck", "Tunnel", "DeckAnchor", "DeckBridge", "Basin", "Channel", "ChannelWall",
            "profile_z", "deck_z_on_faces", "deck_reach", "DECK_GROUND_REF", "CHANNEL_FLOOR_ROLE",
-           "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM"]
+           "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM", "SKIRT_ROLE"]
 
 #: §45 (8) EMISSION: the channel's floor faces carry ``tunnel_trench``
 #: (already an ``emit/graded.FLOOR_ROLES`` member) and its banks the VOID
@@ -159,6 +159,12 @@ def profile_z(profile: "tuple[tuple[float, float], ...]", s: float) -> float:
 #: down in the cutting.  It lives on the RECORD because both layers read
 #: it and ``constraints`` may not import ``planar``.
 UNDERPASS_NOTE = "underpass under aeroway "
+
+#: RULINGS 2026-11-06c (3): the role of an ENTRANCE face's skirt faces
+#: (``planar/entrance_skirt``) -- structure-owned ground no family governs:
+#: no rim, no pad, no grade cap (``law/precedence.toml``; the census skips
+#: it too)
+SKIRT_ROLE = "object_pad"
 
 
 @_dc.dataclass(frozen=True)
@@ -329,6 +335,11 @@ class Tunnel:
     #: standing within reach of that end is seated with its bottom on the floor
     #: (``airport/entrance_seat``); ``()`` otherwise
     portal_seat: tuple = ()
+    #: RULINGS 2026-11-06c (3): an ENTRANCE face's skirt -- ``(top z, the
+    #: level piece's ref, the bank's ref)`` (``planar/entrance_skirt``): the
+    #: level piece is held at the face's top, the bank falls to the DEM
+    #: (``constraints/entrance_skirt``); ``()`` otherwise
+    entrance_skirt: tuple = ()
     #: owner RULINGS 2026-10-27l / 2026-10-28d: the BACK line of the edge
     #: bridge that pinned this trench (``planar/bridge_span``), or ``()`` —
     #: a terrain deck over it is level with the airside abeam

@@ -215,6 +215,32 @@ def _wall_opening(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, into: "XY
     return float(right.min() - left.max()) if len(left) and len(right) else 0.0
 
 
+#: a face top with more of its plate than this beyond the face reach is a lid
+_LID_SHARE = 0.05
+
+
+def _face_top(plan, xy: XY, into: "XY | None", r: float):
+    """An entrance face's OWN top (RULINGS 2026-11-06c (3)): its top plate
+    ``plan`` when it lies within ``r`` of the bore end ``xy`` ALONG the
+    bore (``into``) -- a headwall's top, the ground behind it the cover --
+    else ``None``: a plate running on along the bore is a lid or a deck the
+    road passes under (measured ENGM ``Ham2``: a 1,665 m2 top 70 m out of
+    its end), which keeps its mapped mouth and no skirt."""
+    if plan is None or into is None:
+        return None
+    from shapely.geometry import Polygon
+    ax, ay = into
+    nx, ny = -ay, ax
+    w = 1000.0
+    band = Polygon([(xy[0] - ax * r - nx * w, xy[1] - ay * r - ny * w),
+                    (xy[0] + ax * r - nx * w, xy[1] + ay * r - ny * w),
+                    (xy[0] + ax * r + nx * w, xy[1] + ay * r + ny * w),
+                    (xy[0] - ax * r + nx * w, xy[1] - ay * r + ny * w)])
+    if plan.difference(band).area > _LID_SHARE * plan.area:
+        return None
+    return plan
+
+
 def _cover_over(plan, dem_z) -> "float | None":
     """The surveyed ground over a face's top: the highest DEM sample over its
     plan (its vertices and an inner point; ``portal_objects`` reads a roof's
@@ -312,5 +338,9 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
                               opening_m=_wall_opening(
                                   o, g, xy, into.get(((float(xy[0]), float(xy[1])), int(wid))),
                                   2.0 * tol, law),
-                              bottom_y=None if cover is None else float(bottom)))
+                              bottom_y=None if cover is None else float(bottom),
+                              face_plan=None if cover is None else _face_top(
+                                  plan, xy, into.get(((float(xy[0]), float(xy[1])), int(wid))),
+                                  2.0 * tol),
+                              face_top_z=None if cover is None else float(cover)))
     return out

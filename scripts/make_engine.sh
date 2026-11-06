@@ -131,6 +131,8 @@ if [[ -d "dist/Ortho4XP.app" && ! -d "$OUT" ]]; then
   OUT="$(ls -d dist/*/ | head -1)"
 fi
 echo "${VERSION:-unknown}" > "$OUT/VERSION.txt"
+# Provenance: make_app.sh refuses an engine not frozen from its own source.
+bash "$ROOT/scripts/engine_stamp.sh" write "$OUT" "$ROOT"
 
 # THE LERC SMOKE TEST (owner RULINGS 2026-09-12as (3) / 2026-09-13a (1)):
 # ONE implementation, run against whichever binary this freeze produced —

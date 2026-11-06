@@ -230,7 +230,6 @@ import dataclasses as _dc
 import hashlib
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -4757,6 +4756,7 @@ def disk_floor_gate(root, tile: bool) -> None:
     MIN_FREE_GB_PATCH.  No override: free space by removing finished lane
     worktrees and scratch builds, then run at most 4 builds at once.
     """
+    import shutil
     free_gb = shutil.disk_usage(str(root)).free / 1e9
     need = MIN_FREE_GB_TILE if tile else MIN_FREE_GB_PATCH
     if free_gb < need:

@@ -49,16 +49,14 @@ is per definition).
 """
 from __future__ import annotations
 
-import hashlib
 import math
 import os
 import typing as _t
 
-from .pack_art import MissingDef, _lines
+from .pack_art import MissingDef, _lines, decision_key
 
-__all__ = ["RECORD_KEY", "MIN_SPAN_M", "NORTH_UP_DEG", "MIN_OPAQUE", "pol_header", "is_ortho_header",
-           "airport_areas", "draped_orthos", "decision_key", "record",
-           "recorded", "summary"]
+__all__ = ["RECORD_KEY", "MIN_SPAN_M", "NORTH_UP_DEG", "MIN_OPAQUE",
+           "airport_areas", "draped_orthos", "recorded", "summary"]
 
 #: the record key of the hiding the user accepted
 RECORD_KEY = "hidden_drapes"
@@ -156,10 +154,10 @@ def _turn_deg(pts: _t.Sequence[tuple[float, float, float]]) -> float:
     us = [p[2] for p in pts]
     sxx = sum(x * x for x in xs)
     syy = sum(y * y for y in ys)
-    sxy = sum(x * y for x, y in zip(xs, ys))
+    sxy = sum(x * y for x, y in zip(xs, ys, strict=True))
     um = sum(us) / len(us)
-    sxu = sum(x * (u - um) for x, u in zip(xs, us))
-    syu = sum(y * (u - um) for y, u in zip(ys, us))
+    sxu = sum(x * (u - um) for x, u in zip(xs, us, strict=True))
+    syu = sum(y * (u - um) for y, u in zip(ys, us, strict=True))
     det = sxx * syy - sxy * sxy
     if abs(det) < 1e-9:
         return 90.0
@@ -256,28 +254,12 @@ def draped_orthos(pack_root: str, source: str | _t.Sequence[str],
     return tuple(out)
 
 
-def decision_key(pristine_sha256: str, drapes: _t.Iterable[MissingDef]) -> str:
-    """What an accepted hiding is keyed to: the pristine DSF and the set."""
-    h = hashlib.sha256(pristine_sha256.encode("ascii", "replace"))
-    for row in sorted(f"{m.index}\t{m.path}" for m in drapes):
-        h.update(b"\n" + row.encode("utf-8", "surrogateescape"))
-    return h.hexdigest()
-
-
-def record(pristine_sha256: str, drapes: _t.Sequence[MissingDef],
-           counts: _t.Mapping[str, int], time: str) -> dict[str, _t.Any]:
-    """The :data:`RECORD_KEY` entry of ``o4_placement_provenance.json``."""
-    return {"accepted": True, "time": time,
-            "key": decision_key(pristine_sha256, drapes),
-            "pristine_sha256": pristine_sha256, "counts": dict(counts),
-            "definitions": [m.to_dict() for m in drapes]}
-
-
 def recorded(entry: _t.Mapping[str, _t.Any] | None,
              pristine_sha256: str) -> tuple[MissingDef, ...]:
-    """The hiding the user accepted for THIS pristine DSF; ``()`` when none
-    is recorded, it belongs to another pristine file, or the row no
-    longer reads as :func:`record` wrote it."""
+    """The hiding the user accepted for THIS pristine DSF, from the row
+    ``dsf_write`` records with ``pack_art.record`` (the omission's own
+    record shape); ``()`` when none is recorded, it belongs to another
+    pristine file, or the row no longer reads as written."""
     row = (entry or {}).get(RECORD_KEY)
     if not (isinstance(row, dict) and row.get("accepted") is True
             and row.get("pristine_sha256") == pristine_sha256):

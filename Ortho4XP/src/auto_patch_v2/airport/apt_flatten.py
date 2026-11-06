@@ -38,9 +38,7 @@ import shutil
 from ..model.placement import BACKUP_SUFFIX
 from . import backup_state as _bs
 
-__all__ = ["is_flatten_row", "stripped", "carries_flatten", "classify",
-           "read_path", "read_mtime", "strip_flatten", "apt_dat_of",
-           "pack_flatten"]
+__all__ = ["classify", "read_path", "read_mtime", "apt_dat_of", "pack_flatten"]
 
 #: (path, live stat, backup stat) -> Verdict
 _MEMO: dict[tuple, _bs.Verdict] = {}
@@ -67,14 +65,6 @@ def carries_flatten(data: bytes) -> bool:
     return any(is_flatten_row(ln) for ln in data.splitlines())
 
 
-def _stat(path: str) -> tuple[int, int] | None:
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None
-    return (st.st_size, st.st_mtime_ns)
-
-
 def _read(path: str) -> bytes | None:
     try:
         with open(path, "rb") as fh:
@@ -91,7 +81,7 @@ def classify(apt_path: str) -> _bs.Verdict:
     ``REPLACED`` (the user's newer file: read it, never overwrite it),
     ``LIVE_MISSING``, ``UNPROVEN`` (a file that cannot be read)."""
     backup = apt_path + BACKUP_SUFFIX
-    key = (os.path.abspath(apt_path), _stat(apt_path), _stat(backup))
+    key = (os.path.abspath(apt_path), _bs._stat(apt_path), _bs._stat(backup))
     hit = _MEMO.get(key)
     if hit is None:
         hit = _MEMO[key] = _classify(apt_path, backup)

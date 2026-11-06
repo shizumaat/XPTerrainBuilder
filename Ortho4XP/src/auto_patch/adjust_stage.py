@@ -32,7 +32,7 @@ import os
 import traceback
 import typing as _t
 
-__all__ = ["CHOICES", "ACTIONS", "adjust_stage", "adjust_choice", "rows"]
+__all__ = ["CHOICES", "ACTIONS", "adjust_stage", "adjust_choice"]
 
 #: the rows the user chooses, in the question's order
 CHOICES = ("trees", "drapes")

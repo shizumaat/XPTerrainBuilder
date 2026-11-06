@@ -19,6 +19,7 @@ import pytest
 from auto_patch_v2.airport import backup_state as B
 from auto_patch_v2.airport import dsf_write as W
 from auto_patch_v2.airport import image_opacity as IO
+from auto_patch_v2.airport import pack_art as PA
 from auto_patch_v2.airport import pack_drapes as PD
 from auto_patch_v2.model import placement as PM
 
@@ -142,7 +143,7 @@ def test_the_opacity_sampler(pack, tmp_path):
 
 def test_the_record_reads_back_only_for_its_pristine_file(pack):
     found = _found(pack)
-    row = PD.record("abc", found, {}, "t")
+    row = PA.record("abc", found, {}, "t")
     assert PD.recorded({PD.RECORD_KEY: row}, "abc") == found
     assert PD.recorded({PD.RECORD_KEY: row}, "other") == ()
     assert PD.summary(found)["count"] == 2

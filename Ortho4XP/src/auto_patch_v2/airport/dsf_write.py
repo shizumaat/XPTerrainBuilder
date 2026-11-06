@@ -1789,7 +1789,7 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         _us.RECORD_KEY: (_us.record(backup_sha, hand, seated, _bs.stamp())
                          if hand else None),
         # #1916: the pack's draped photos the user chose to hide, or None
-        _pd.RECORD_KEY: (_pd.record(backup_sha, drapes, omitted, _bs.stamp())
+        _pd.RECORD_KEY: (_pa.record(backup_sha, drapes, omitted, _bs.stamp())
                          if drapes else None),
         # #1707: the "Optimise pack" recipe the user accepted, or None
         _po.RECORD_KEY: (_po.record(backup_sha, optimise, optimised,

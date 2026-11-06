@@ -23,8 +23,7 @@ from . import pack_choice as _PC
 from . import pack_rewrite as _PR
 from .pack_choice import relative as _relative
 
-__all__ = ["ACTIONS", "STORE", "PackDrapes", "check", "drape_stage",
-           "drape_choice", "undo"]
+__all__ = ["ACTIONS", "STORE", "check", "drape_stage", "drape_choice"]
 
 #: the actions of the ``drapes`` row of the ``pack_adjust`` command
 ACTIONS = ("update", "never", "undo")

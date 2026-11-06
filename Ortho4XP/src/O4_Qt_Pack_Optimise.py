@@ -30,14 +30,14 @@ on; the box never blocks the event loop.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QDialog,
     QDialogButtonBox,
     QLabel,
     QVBoxLayout,
 )
+
+from O4_Qt_Choice_Dialog import ChoiceDialog
 
 # --- copy (verbatim; identical to the Swift alert) ----------------------
 TITLE = "Optimise “{pack}”?"
@@ -115,19 +115,15 @@ def question_key(event) -> tuple:
             int(getattr(event, "swapped", 0) or 0))
 
 
-class _PackOptimiseBox(QDialog):
+class _PackOptimiseBox(ChoiceDialog):
     """The question: its words, one checkbox per step, and Optimise /
     Never for this pack / Not now.  Answers like a ``QMessageBox``
     (``clickedButton``, ``finished``) so the window's per-pack choice
     handler drives it; :meth:`checked_steps` are what Optimise sends."""
 
     def __init__(self, event, parent=None):
-        super().__init__(parent)
-        self._title = TITLE.format(pack=getattr(event, "pack", ""))
+        super().__init__(TITLE.format(pack=getattr(event, "pack", "")), parent)
         self._text = _body_text(event)
-        self._clicked = None
-        self.setWindowTitle(self._title)
-        self.setWindowModality(Qt.NonModal)
         lay = QVBoxLayout(self)
         heading = QLabel(self._title)
         heading.setStyleSheet("font-weight: bold")
@@ -169,36 +165,12 @@ class _PackOptimiseBox(QDialog):
         self.optimise.setEnabled(not self.step_boxes or any(
             b.isChecked() for b in self.step_boxes.values()))
 
-    def _on_clicked(self, button) -> None:
-        self._clicked = button
-        if button is self.not_now:
-            self.reject()
-        else:
-            self.accept()
-
-    def reject(self) -> None:                       # Esc is Not now
-        if self._clicked is None:
-            self._clicked = self.not_now
-        super().reject()
-
     # the QMessageBox surface the window's handler and the twins read
-    def clickedButton(self):
-        return self._clicked
-
-    def buttons(self):
-        return self._buttons.buttons()
-
-    def text(self) -> str:
-        return self._title
-
     def informativeText(self) -> str:
         return self._text
 
     def defaultButton(self):
         return self.optimise
-
-    def escapeButton(self):
-        return self.not_now
 
     def checked_steps(self) -> list[str]:
         """The steps checked, in the engine's order (``None``-free)."""

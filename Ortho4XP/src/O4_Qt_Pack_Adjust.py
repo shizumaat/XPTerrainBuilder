@@ -19,14 +19,14 @@ in the middle of a build and the build goes on.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QDialog,
     QDialogButtonBox,
     QLabel,
     QVBoxLayout,
 )
+
+from O4_Qt_Choice_Dialog import ChoiceDialog
 
 # --- copy (verbatim; identical to the Swift sheet) ----------------------
 TITLE = "Adjust “{pack}”?"
@@ -74,7 +74,7 @@ def has_choice(event) -> bool:
     return any(not r.get("automatic") for r in _rows(event))
 
 
-class _PackAdjustBox(QDialog):
+class _PackAdjustBox(ChoiceDialog):
     """The question: its words, one checkbox per choice, the automatic
     rows, and Apply / Never for this pack / Not now.  Answers like a
     ``QMessageBox`` (``clickedButton``, ``finished``) so the window's
@@ -82,11 +82,7 @@ class _PackAdjustBox(QDialog):
     answer sends besides the action."""
 
     def __init__(self, event, parent=None):
-        super().__init__(parent)
-        self._title = TITLE.format(pack=getattr(event, "pack", ""))
-        self._clicked = None
-        self.setWindowTitle(self._title)
-        self.setWindowModality(Qt.NonModal)
+        super().__init__(TITLE.format(pack=getattr(event, "pack", "")), parent)
         lay = QVBoxLayout(self)
         heading = QLabel(self._title)
         heading.setStyleSheet("font-weight: bold")
@@ -123,28 +119,6 @@ class _PackAdjustBox(QDialog):
         self.apply.setDefault(True)
         self._buttons.clicked.connect(self._on_clicked)
         lay.addWidget(self._buttons)
-
-    def _on_clicked(self, button) -> None:
-        self._clicked = button
-        if button is self.not_now:
-            self.reject()
-        else:
-            self.accept()
-
-    def reject(self) -> None:                       # Esc is Not now
-        if self._clicked is None:
-            self._clicked = self.not_now
-        super().reject()
-
-    # the QMessageBox surface the window's handler and the twins read
-    def clickedButton(self):
-        return self._clicked
-
-    def buttons(self):
-        return self._buttons.buttons()
-
-    def text(self) -> str:
-        return self._title
 
     def checked_items(self) -> list[str]:
         """The rows left checked, in the engine's order."""

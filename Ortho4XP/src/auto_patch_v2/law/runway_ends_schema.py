@@ -45,6 +45,9 @@ class RunwayEnds:
     dem_noise_m: ByDemClass
     #: (b) and the resolution's agreement test, metres of end-to-end height
     grade_disagree_m: ByDemClass
+    #: #1915 the old-DEM fill witness: the pin line stands more than this
+    #: over the DEM (``inf``: the class never reads older than the airport)
+    old_dem_margin_m: ByDemClass
     #: (c) a cross-check source disagrees beyond this many feet
     crosscheck_tol_ft: float
     #: (d) a runway whose CIFP ends all read within this many feet of 0 ft
@@ -71,3 +74,8 @@ def check_runway_ends(t: RunwayEnds, error: type[Exception]) -> None:
         v = getattr(t, name)
         if min(v.lidar, v.fine, v.coarse) < 0.0 or v.lidar > v.coarse:
             raise error(f"runway_ends.{name} {v!r}: negative, or lidar > coarse")
+    m = t.old_dem_margin_m
+    for k in ("lidar", "fine", "coarse"):
+        if not getattr(m, k) >= t.grade_disagree_m.of(k):
+            raise error(f"runway_ends.old_dem_margin_m.{k} {getattr(m, k)!r} under "
+                        f"grade_disagree_m.{k}: the witness must stand beyond the class's error")

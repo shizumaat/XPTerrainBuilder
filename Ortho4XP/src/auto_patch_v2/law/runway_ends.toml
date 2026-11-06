@@ -25,3 +25,8 @@ coarse = 8.0
 lidar  = 1.5
 fine   = 4.0
 coarse = 12.0
+
+[old_dem_margin_m]             # #1915 THE OLD-DEM FILL WITNESS (airport/old_dem_fill; RULINGS 2026-11-06a (2)): a runway's stood pin line more than this over the DEM marks the DEM older than the airport. inf = never: a lidar survey is the ground as it stands (CYXY regression, 1.0.474: lidar 5.2 m under the pins read as old). fine / coarse: where the census of the class's pin-line-over-DEM depths breaks (tools/runway_end_census.py --old-dem, 7,871 DEM airports, 2026-11-06): the class's error forms a continuous tail (coarse to 38.1 m, fine to 18.9 m); a DEM older than the earthworks stands apart past the widest gap (coarse 49.4 m on, FHSH 91 m; fine 64.6 m on). At tolerance the witness fired 208 coarse / 18 fine / 196 lidar runways; at these margins 5 / 3 / 0
+lidar  = inf
+fine   = 30.0
+coarse = 45.0

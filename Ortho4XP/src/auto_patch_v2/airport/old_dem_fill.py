@@ -82,7 +82,7 @@ from ..model.airport import Airport, Runway
 from .dem import dem_z_many
 from .road_ways import ribbon_half_width_m, road_ways
 
-__all__ = ["FillDem", "attach", "fill_model_of"]
+__all__ = ["FillDem", "attach", "fill_model_of", "witness"]
 
 
 @_dc.dataclass(frozen=True)
@@ -492,6 +492,62 @@ def _envelope(airport: Airport, law: Law, lines) -> _t.Any:
     return unary_union(polys) if polys else None
 
 
+def _class_of(dem, law: Law, klass: str | None) -> str | None:
+    """``klass``, or the sampler's own class where it is ``""``."""
+    if klass != "":
+        return klass
+    try:
+        return dem_source_class(dem, law)[0]
+    except Exception:                                       # pragma: no cover
+        return None
+
+
+def witness(airport: Airport, law: Law, klass: str | None = "",
+            margin: float | None = None) -> tuple[float, list, list]:
+    """THE WITNESS (module docstring; spec §1): ``(tol, lines, per)`` — the
+    DEM class's tolerance (``grade_disagree_m``), every runway's
+    ``(runway, pin line)``, and ``(runway, pin line, runs, band half-width,
+    RSA)`` per runway holding a fill station.
+
+    A fill station is one where the pin line stands more than
+    ``runway_ends.old_dem_margin_m[class]`` over the DEM: a margin well
+    beyond the class's own error, and none for a lidar DEM (``inf``) — a
+    lidar survey is the ground as it stands, never older than the airport
+    (#1915's regression: a lidar DEM 5 m under the pins read as old).
+    ``klass`` ``""`` reads the sampler's own class; ``None`` (no stated
+    class) is no witness.  ``margin`` overrides the class's (the census
+    reads every runway's deepest station with ``0``)."""
+    dem = getattr(airport, "dem", None)
+    klass = _class_of(dem, law, klass)
+    t = runway_ends(law)
+    if dem is None or klass is None or not airport.runways:
+        return 0.0, [], []
+    tol = float(t.grade_disagree_m.of(klass))
+    margin = float(t.old_dem_margin_m.of(klass) if margin is None else margin)
+    step = float(law.tables.emit.design.edge_grid_m)
+    lines, per = [], []
+    for rw in airport.runways:
+        pl = _pin_line(rw)
+        if pl is None:
+            continue
+        lines.append((rw, pl))
+        if not math.isfinite(margin):
+            continue
+        st = runway_status(rw)
+        # the band is measured off the runway CELL's edge, which a pack may
+        # draw off the apt.dat centreline: the crest covers it with a
+        # runway half-width to spare (under-covered, the zone's ring hung
+        # over the embankment — measured FHSH: 2-10 m tears along 400 m)
+        hw = float(zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter, st)
+                   or 0.0) + 0.5 * float(rw.width_m)
+        runs = _fill_runs(pl, dem, step, margin, hw)
+        if not runs:
+            continue
+        rsa = float(runway_safety_area_length_m(law, rw.code_number, rw.code_letter, st))
+        per.append((rw, pl, runs, hw, rsa))
+    return tol, lines, per
+
+
 def attach(airport: Airport, law: Law, klass: str | None = ""
            ) -> tuple[Airport, list[dict], list[str]]:
     """THE RULE (module docstring) on ``airport``: the airport with its DEM
@@ -501,42 +557,17 @@ def attach(airport: Airport, law: Law, klass: str | None = ""
     dem = getattr(airport, "dem", None)
     if dem is None or isinstance(dem, FillDem) or not airport.runways:
         return airport, [], []
-    if klass == "":
-        try:
-            klass, _pixel, _whence = dem_source_class(dem, law)
-        except Exception:                                   # pragma: no cover
-            klass = None
-    if klass is None:
-        return airport, [], []          # a sampler of no stated class is no witness
-    tol = float(runway_ends(law).grade_disagree_m.of(klass))
-    d_ = law.tables.emit.design
-    step = float(d_.edge_grid_m)
+    klass = _class_of(dem, law, klass)
+    tol, lines, per = witness(airport, law, klass)
+    if not per:
+        return airport, [], []
+    step = float(law.tables.emit.design.edge_grid_m)
     eps = float(law.tables.emit.cockpit.visual_m)
     grade = float(law.tables.zones.adjacent_ground.old_dem_fill_slope)
     standoff = float(law.tables.zones.adjacent_ground.groundside_cutback_m) + snap_margin_m(law)
     weld = float(law.tables.emit.identity.weld_spacing_m)
     roads = [(w, line, ribbon_half_width_m(getattr(w, "tags", None), law))
              for w, line in road_ways(getattr(airport, "osm_ways", ()))]
-    lines, per = [], []
-    for rw in airport.runways:
-        pl = _pin_line(rw)
-        if pl is None:
-            continue
-        lines.append((rw, pl))
-        st = runway_status(rw)
-        # the band is measured off the runway CELL's edge, which a pack may
-        # draw off the apt.dat centreline: the crest covers it with a
-        # runway half-width to spare (under-covered, the zone's ring hung
-        # over the embankment — measured FHSH: 2-10 m tears along 400 m)
-        hw = float(zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter, st)
-                   or 0.0) + 0.5 * float(rw.width_m)
-        runs = _fill_runs(pl, dem, step, tol, hw)
-        if not runs:
-            continue
-        rsa = float(runway_safety_area_length_m(law, rw.code_number, rw.code_letter, st))
-        per.append((rw, pl, runs, hw, rsa))
-    if not per:
-        return airport, [], []
     # pass 1: the terraces under the band run out its full end areas
     crest = [(g, pl) for rw, pl, runs, hw, rsa in per for g in _crest(pl, runs, hw, (rsa, rsa))]
     terr = _terraces(roads, crest, dem, grade, step, eps, weld)

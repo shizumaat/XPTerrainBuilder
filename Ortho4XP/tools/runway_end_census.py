@@ -59,6 +59,7 @@ from auto_patch_v2.airport import apt_dat as A  # noqa: E402
 from auto_patch_v2.airport import cifp as C  # noqa: E402
 from auto_patch_v2.airport import dem as D  # noqa: E402
 from auto_patch_v2.airport import end_pins as EP  # noqa: E402
+from auto_patch_v2.airport import old_dem_fill as ODF  # noqa: E402
 from auto_patch_v2.airport import runway_refs as REFS  # noqa: E402
 from auto_patch_v2.airport.load import _vector_to_xy, join_cifp  # noqa: E402
 from auto_patch_v2.law import load_default  # noqa: E402
@@ -152,6 +153,42 @@ def _apt_only(icao, airport, klass, rows, law, by_class, out) -> None:
                     "dem_m": [e["dem_m"] for e in ends], "yields": yields})
 
 
+def _old_dem(icao, airport, klass, law, out) -> None:
+    """THE OLD-DEM FILL WITNESS of one airport (#1915): one ``out`` row per
+    runway whose stood pin line stands over the DEM anywhere, with its
+    deepest centreline station, the class (``_klass``: the census sampler
+    states none) and whether the witness fires under the law's margin."""
+    try:
+        _tol, _lines, per = ODF.witness(airport, law, klass, margin=0.0)
+        tol, _lines, fires = ODF.witness(airport, law, klass)
+    except (OSError, ValueError):
+        return
+    t = law.tables.runway_ends
+    hit = {rw.id for rw, *_r in fires}
+    for rw, _pl, runs, _hw, _rsa in per:
+        deep = max(d for *_x, d in runs)
+        out.append({"icao": icao, "runway": rw.id, "class": klass, "deepest_m": round(deep, 2),
+                    "tol_m": tol, "margin_m": float(t.old_dem_margin_m.of(klass)),
+                    "fires_tol": deep > tol, "fires": rw.id in hit})
+
+
+def _print_old_dem(rows) -> None:
+    """The witness's counts per class, and every runway beyond its class
+    tolerance (the 1.0.474 rule) or the margin (today's)."""
+    by = collections.defaultdict(collections.Counter)
+    for r in rows:
+        by[r["class"]]["over_dem"] += 1
+        by[r["class"]]["fires_at_tolerance"] += int(r["fires_tol"])
+        by[r["class"]]["fires"] += int(r["fires"])
+    print("  OLD-DEM FILL WITNESS (#1915) runways standing over their DEM, per class: "
+          f"{ {k: dict(v) for k, v in sorted(by.items())} }")
+    for r in sorted(rows, key=lambda r: -r["deepest_m"]):
+        if r["fires_tol"] or r["fires"]:
+            print(f"    {r['icao']} {r['runway']:9s} {r['class']:6s} deepest {r['deepest_m']:7.2f} m"
+                  f"  tol {r['tol_m']:g} -> {'FIRES' if r['fires_tol'] else '-'}"
+                  f"  margin {r['margin_m']:g} -> {'FIRES' if r['fires'] else '-'}")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--cifp", default=DEFAULT_CIFP)
@@ -163,6 +200,8 @@ def main(argv=None) -> int:
     ap.add_argument("--json", default="")
     ap.add_argument("--all-apt", action="store_true",
                     help="every apt.dat airport, not only the CIFP ones")
+    ap.add_argument("--old-dem", action="store_true",
+                    help="also judge THE OLD-DEM FILL WITNESS (#1915, airport/old_dem_fill.witness)")
     a = ap.parse_args(argv)
     law = load_default()
     order = law.tables.runway_ends.crosscheck_order
@@ -174,7 +213,7 @@ def main(argv=None) -> int:
     n = collections.Counter()
     by_rule = collections.Counter()
     by_class = collections.defaultdict(collections.Counter)
-    flagged, shifted_all, moved_all, judged, apt_only = [], [], [], [], []
+    flagged, shifted_all, moved_all, judged, apt_only, old_dem = [], [], [], [], [], []
     tiles: dict = {}
     last_tile = None
     for icao in icaos:
@@ -212,6 +251,8 @@ def main(argv=None) -> int:
         for r in recs:
             rows[r["runway"]].append(r)
         _apt_only(icao, airport, klass, rows, law, by_class, apt_only)
+        if a.old_dem:
+            _old_dem(icao, _ap, klass, law, old_dem)
         for rid, ends in rows.items():
             cifp_n = sum(1 for e in ends if e["cifp_m"] is not None)
             if not cifp_n:
@@ -262,12 +303,14 @@ def main(argv=None) -> int:
     yields = collections.Counter(r["class"] for r in apt_only if r["yields"])
     print(f"  apt.dat-only runways judged: {len(apt_only)}; yield to the DEM (estimate): "
           f"{dict(yields)} — lidar is 26e's, the rest 28m's")
+    if a.old_dem:
+        _print_old_dem(old_dem)
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump({"counts": dict(n), "by_rule": dict(by_rule),
                        "by_class": {k: dict(v) for k, v in by_class.items()},
                        "flagged": flagged, "moved": moved_all, "shifted": shifted_all,
-                       "judged": judged, "apt_only": apt_only},
+                       "judged": judged, "apt_only": apt_only, "old_dem": old_dem},
                       fh, indent=1)
     return 0
 

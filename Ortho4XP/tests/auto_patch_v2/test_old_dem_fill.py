@@ -160,3 +160,41 @@ def test_the_fill_crosses_to_a_worker_with_its_model(law):
     assert back.z(-HALF, 0.0) == pytest.approx(airport.dem.z(-HALF, 0.0))
     assert shared is None
     assert math.isfinite(back.z(0.0, 0.0))
+
+
+class _Lidar(_Coarse):
+    """A lidar-class sampler (a 1 m inset baked)."""
+
+    def source_pixel_m(self):
+        return (1.0, "inset")
+
+
+def test_a_lidar_dem_never_reads_older_than_the_airport(law):
+    """#1915's regression (CYXY 14R/32L 5.2 m, KLAX 07L/25R 2.5 m, CYHM,
+    CYKZ on lidar in 1.0.474): a lidar survey is the ground as it stands —
+    pins 5 m over it (beyond its 1.5 m class error) are no witness: the
+    airport comes back untouched, and the runway profile's field crest is
+    not armed (``predates_airport`` is the wrapper's alone)."""
+    a = _airport(_Lidar(lambda x, y: 695.0 + 0.001 * x))
+    got, recs, lines = F.attach(a, law)
+    assert got is a and recs == [] and lines == []
+    assert not getattr(got.dem, "predates_airport", False)
+    assert F.witness(a, law)[2] == []
+    # the same ground on a coarse DEM, 5 m under: inside its margin too
+    assert F.attach(_airport(_Coarse(lambda x, y: 695.0 + 0.001 * x)), law)[1] == []
+
+
+def test_a_coarse_dem_fires_only_beyond_its_margin(law):
+    """The coarse witness stands on ``old_dem_margin_m.coarse``, well beyond
+    the class's error: a valley that deep under the pins fires (FHSH: 91 m
+    under the 01 end on Copernicus), one just inside it does not."""
+    t = law.tables.runway_ends
+    m = float(t.old_dem_margin_m.coarse)
+    assert m > float(t.grade_disagree_m.coarse)
+
+    def under(depth):
+        return lambda x, y: 700.0 - depth * max(0.0, -x / HALF)
+
+    assert F.attach(_airport(_Coarse(under(m - 1.0))), law)[1] == []
+    got, recs, _l = F.attach(_airport(_Coarse(under(m + 1.0))), law)
+    assert isinstance(got.dem, F.FillDem) and got.dem.predates_airport and recs

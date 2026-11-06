@@ -18,7 +18,8 @@ CUT = (-0.108580, 51.296433, -0.083421, 51.314449)
 def _manifest(tmp_path, monkeypatch, resolution_m):
     path = tmp_path / "X_prov.json"
     path.write_text(json.dumps({"requested_bounding_box_wgs84": list(CUT),
-                                "resolution_m": resolution_m}))
+                                "resolution_m": resolution_m}),
+                    encoding="utf-8", newline="\n")
     monkeypatch.setattr(FNAMES, "airport_inset_provenance",
                         lambda *_a, **_k: str(path))
 

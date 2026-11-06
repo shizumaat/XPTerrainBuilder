@@ -4118,7 +4118,7 @@ def _inset_pixel_degrees(lat, lon, icao, provider_code):
         lat, lon, icao, provider_code
     )
     try:
-        with open(provenance_path, "r") as handle:
+        with open(provenance_path, "r", encoding="utf-8") as handle:
             provenance = json.load(handle)
         metres = float(provenance.get("resolution_m")
                        or provenance.get("native_resolution_m") or 0.0)

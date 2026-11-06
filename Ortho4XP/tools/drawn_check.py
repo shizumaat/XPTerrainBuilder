@@ -490,6 +490,9 @@ def resolve(args):
                              encoding="utf-8"))
         patch_dir, build = res["patch_dir"], res["build_dir"]
         tile_dsfs = glob.glob(os.path.join(build, "Earth nav data", "*", "*.dsf"))
+        # ``build_airport.py --tile --pack-copy DIR``: the lane's own pack
+        args.pack_copy = ((res.get("engine_cache_redirects") or {})
+                          .get("pack_copy") or {}).get("dir")
     else:
         lat, lon = int(args.tile[:3]), int(args.tile[3:])
         block = f"{lat // 10 * 10:+03d}{lon // 10 * 10:+04d}"
@@ -531,6 +534,12 @@ def run(args):
         sys.exit(f"no o4_v2_placement_{args.icao}.json for {tile} under "
                  f"{os.path.dirname(patch_dir)}")
     pack_root = plans[tile]["pack_root"]
+    copy = getattr(args, "pack_copy", None)
+    if copy and not os.path.realpath(pack_root).startswith(
+            os.path.realpath(copy) + os.sep):
+        sys.exit(f"the placement plan for {tile} names {pack_root}, not the "
+                 f"build's pack copy under {copy}: the object stage did not "
+                 f"write the copy (read its [v2 placement] lines)")
     if not tile_dsfs:
         scenery = os.path.dirname(pack_root)
         tile_dsfs = [f for t in plans for f in glob.glob(os.path.join(

@@ -4086,7 +4086,40 @@ def inset_recut_is_needed(lat, lon, icao, provider_code, required_box):
                                                  provider_code)
     if requested_box is None:
         return False
-    return _bounding_box_extends_beyond(required_box, requested_box)
+    # ONE INSET PIXEL OF SLACK (owner 2026-11-06T00:12Z, "We have all the
+    # DEM insets, they're not stale"): a required window that drifts a few
+    # metres with code changes is still served by the raster when it lies
+    # within one of its pixels of the cut window -- re-asking would return
+    # the same pixels.  Only a window falling further outside is stale.
+    tol_lon, tol_lat = _inset_pixel_degrees(lat, lon, icao, provider_code)
+    west, south, east, north = requested_box
+    return _bounding_box_extends_beyond(
+        required_box, (west - tol_lon, south - tol_lat,
+                       east + tol_lon, north + tol_lat))
+
+
+def _inset_pixel_degrees(lat, lon, icao, provider_code):
+    """``(lon_deg, lat_deg)``: one pixel of ``icao``'s cached inset, from
+    its manifest's ``resolution_m`` (``native_resolution_m`` as fallback)
+    at the box's latitude; ``(0.0, 0.0)`` when the manifest cannot say,
+    so an unjudgeable pixel adds no slack."""
+    provenance_path = FNAMES.airport_inset_provenance(
+        lat, lon, icao, provider_code
+    )
+    try:
+        with open(provenance_path, "r") as handle:
+            provenance = json.load(handle)
+        metres = float(provenance.get("resolution_m")
+                       or provenance.get("native_resolution_m") or 0.0)
+        box = provenance.get("requested_bounding_box_wgs84") or \
+            provenance.get("bounding_box_wgs84")
+        mid_lat = (float(box[1]) + float(box[3])) / 2.0 if box else lat + 0.5
+    except (OSError, ValueError, TypeError, IndexError):
+        return (0.0, 0.0)
+    if metres <= 0.0:
+        return (0.0, 0.0)
+    lat_deg = metres / 111320.0
+    return (lat_deg / max(math.cos(math.radians(mid_lat)), 1e-6), lat_deg)
 
 
 def _stored_rung_listing(attempt, rung_definition=None):

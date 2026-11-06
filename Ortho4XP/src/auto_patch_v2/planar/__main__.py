@@ -374,7 +374,8 @@ def structure_records(airport, cl, law) -> dict:
     tstats.plates = pstats.plates
     tstats.refused.extend(pstats.refused)
     from .object_floor_cells import not_floors, object_floor_stage
-    floors, corridors = object_floor_stage(airport, objects, cache, law, corridors, tstats, cl)
+    floors, corridors, cuts = object_floor_stage(airport, objects, cache, law, corridors,
+                                                 tstats, cl)
     roads, wells = not_floors(roads, floors), not_floors(wells, floors)
     from .structure_approach import wall_field
     walls_c, wstats = read_wall_corridors(airport, objects, cache, law, cl,
@@ -388,7 +389,7 @@ def structure_records(airport, cl, law) -> dict:
     hard_claims, synth_claims = crossing_claims(airport, law, corridors, cl)
     channels, chstats = channels_after_basins(
         airport, cl, law, objects, corridors, extra, plates, cache, orep,
-        hard_claims, frozenset(tstats.shell_claimed), synth_claims)
+        hard_claims, frozenset(tstats.shell_claimed), synth_claims, cuts=cuts)
     from .bridge_span import edge_bridges
     from .covered_ground import covered_cuts
     bridges = edge_bridges(objects, cache, *covered_cuts(airport, cl, law), law)

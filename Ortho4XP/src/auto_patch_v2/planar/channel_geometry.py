@@ -238,10 +238,14 @@ def _deck_ring(axis_fn, s0: float, s1: float, half: float) -> tuple[XY, ...]:
     return tuple(left) + tuple(reversed(right))
 
 
-def _sides(axis_fn, ss: _t.Sequence[float], half: float) -> tuple[list[XY], list[XY]]:
+def _sides(axis_fn, ss: _t.Sequence[float], half: "float | _t.Sequence[float]"
+           ) -> tuple[list[XY], list[XY]]:
+    """The two sides of the corridor at ``half`` from the axis — one value,
+    or one per station of ``ss`` (a visible cut's widths)."""
     left: list[XY] = []
     right: list[XY] = []
-    for s in ss:
+    halves = [float(half)] * len(ss) if isinstance(half, (int, float)) else list(half)
+    for s, half in zip(ss, halves, strict=True):
         p = axis_fn(s)
         a, b = axis_fn(max(0.0, s - 1.0)), axis_fn(s + 1.0)
         u = unit(a, b)

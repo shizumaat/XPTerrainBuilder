@@ -143,7 +143,7 @@ def level_counts(pad_airside: _t.Mapping[str, _t.Any]) -> dict:
 
 def channels_after_basins(airport, classification, law, objects, corridors, extra,
                          plates, cache, orep, claimed_ways, shell_claimed,
-                         synth_ways=frozenset(), reads=None):
+                         synth_ways=frozenset(), reads=None, cuts=()):
     """§45 (13) (d) AMENDED — A MEMBER OF A *BUILT* BASIN, BASINS BEFORE
     CHANNELS (owner RULINGS 2026-09-15aw).  THE ONE ORDERING SITE; the
     ``--stage structures`` replay calls this same function.
@@ -173,7 +173,7 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
     a pack witness, and pay nothing for this ordering).
     """
     ch0, st0 = identify_channels(airport, classification, law, objects, claimed_ways,
-                                 synth_ways=synth_ways)
+                                 synth_ways=synth_ways, cuts=cuts)
     if not any(c.witness_ids for c in ch0):
         st0.notes.append("§45 (13) (d): no channel took a pack wall/floor witness — "
                          "the BUILT-basin exclusion cannot change this airport's reading "
@@ -185,7 +185,7 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
                                        report=orep, claimed=shell_claimed, reads=reads)
     pit = frozenset(str(i) for b in basins0 for i in (b.member_ids or ()))
     channels, stats = identify_channels(airport, classification, law, objects,
-                                        claimed_ways, pit, synth_ways)
+                                        claimed_ways, pit, synth_ways, cuts=cuts)
     stats.notes.append(
         f"§45 (13) (d): the basin pass ran FIRST and built {len(basins0)} basin(s); their "
         f"{len(pit)} member placement(s) are the exclusion (a pit CANDIDATE that never "
@@ -264,8 +264,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     tstats.plates = pstats.plates
     # A TRENCH OBJECT'S OWN FLOOR IS THE CUT (#1903, owner 2026-11-06):
     # read ONCE, here and in the structures replay alike
-    floors, corridors = object_floor_stage(airport, objects, cache, law, corridors, tstats,
-                                           classification)
+    floors, corridors, cuts = object_floor_stage(airport, objects, cache, law, corridors,
+                                                 tstats, classification)
     roads, wells = not_floors(roads, floors), not_floors(wells, floors)
     floor_frame = {pid for f in floors for pid in (f.object_id, *f.covers)}
     tstats.refused.extend(pstats.refused)
@@ -292,7 +292,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     hard_claims, synth_claims = crossing_claims(airport, law, corridors, classification)
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
-        hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings)
+        hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings, cuts=cuts)
     # THE EDGE BRIDGES, read ONCE (owner RULINGS 2026-10-27l / 27r / 28d,
     # ``planar/bridge_span``): their backs pin the trench and their cover is
     # covered ground — the structure pass and the covered ground read one
@@ -338,6 +338,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     sstats.hard_decks.extend(frame_notes)
     tunnels, mouth_notes = floor_mouths(tunnels, floors, law)
     sstats.object_floors.extend(mouth_notes)
+    sstats.object_floors.extend(n for c in cuts for n in c.notes)
     decks = with_cuts(decks, tunnels)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)

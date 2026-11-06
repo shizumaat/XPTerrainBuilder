@@ -84,12 +84,14 @@ def test_the_shell_is_the_ground_its_liner_owns_none_and_it_is_hidden(tmp_path):
         objs, cache, LAW, {}, shells=shells, ground=lambda xs, ys: np.full(len(xs), 100.0))
     by = {f.object_id: f for f in floors}
     shell, liner = by["dsf:obj1"], by["dsf:obj2"]
-    assert shell.kind == OF.SHELL and OF.owns_ground(shell), notes
+    assert shell.kind == OF.SHELL and OF.has_footprint(shell), notes
     assert shell.footprint.area > 0.95 * 36.0 * 100.0          # lip to lip, end to end
     z = OF.floor_z_at(shell.faces, [0.0, -11.5, -15.0], [-50.0, -50.0, -50.0])
     assert abs(z[0] - 92.0) < 1e-6 and abs(z[1] - 96.0) < 1e-6 and abs(z[2] - 100.0) < 1e-6
     assert not OF.owns_ground(liner) and not liner.hidden      # A4: inside a deeper one
     assert shell.hidden                                       # A7: rim at the ground
+    assert not OF.owns_ground(shell)          # 2026-11-06d (1): hidden, it leaves the solve
+    assert OF.owns_ground(dataclasses.replace(shell, hidden=False))
     recs = {r["id"]: r for r in OF.seat_records(floors)}
     assert recs["dsf:obj1"]["seat"] == TS.HIDDEN_SEAT          # its row is dropped
     assert recs["dsf:obj3"]["seat"] == TS.OBJECT_FLOOR_SEAT    # B1: the frame at its zero
@@ -133,3 +135,48 @@ def test_a_hidden_row_is_left_out_of_the_written_dsf():
                                             HIDDEN),))
     out = W.edit_dump(text, plan)
     assert "OBJECT 0 " not in out and "OBJECT 1 23.940777352" in out
+
+
+def _cells_and_pins(floor):
+    """``(cells, pins)`` the map and the solve take from ``floor``: its
+    cut cells (``planar/object_floor_cells``) laid as faces of a map, then
+    the pins ``constraints/object_floor`` reads off them."""
+    from auto_patch_v2.constraints.object_floor import object_floor_pins
+    from auto_patch_v2.planar.object_floor_cells import add_object_floor_cells
+    cells: list = []
+    add_object_floor_cells([floor], LAW, cells, [], [], [], [], [], [])
+    faces, verts = {}, {}
+    for k, (role, ref, poly, _owner) in enumerate(cells):
+        ids = []
+        for x, y in poly.exterior.coords[:-1]:
+            verts[len(verts)] = types.SimpleNamespace(xy=(x, y))
+            ids.append(len(verts) - 1)
+        faces[k] = types.SimpleNamespace(role=role, ref=ref, ring=tuple(ids), holes=())
+    planar = types.SimpleNamespace(object_floors=(floor,), faces=faces, vertices=verts,
+                                   ring_vertices=lambda ring: list(ring))
+    return cells, object_floor_pins(planar, LAW, None)
+
+
+def test_a_hidden_shell_yields_no_cells_or_pins_a_drawn_one_does(tmp_path):
+    """RULINGS 2026-11-06d (1), #1918: "When we hide those it should be
+    removed from the terrain solve" — a hidden shell's footprint enters no
+    cut cell and pins no vertex; the same shell drawn still owns its ground."""
+    cache = O.ResourceCache(THICK)
+    objs = [_placed(_shell(tmp_path), "dsf:obj1"),
+            _placed(_write(tmp_path / "rail.obj", [_section([-1.0, 1.0], [-7.9, -7.9])]),
+                    "dsf:obj3")]
+    floors, notes = OF.read_object_floors(
+        objs, cache, LAW, {}, shells={"dsf:obj1": ("dsf:obj3", None)},
+        ground=lambda xs, ys: np.full(len(xs), 100.0))
+    hidden = next(f for f in floors if f.object_id == "dsf:obj1")
+    assert hidden.hidden, notes
+    cells, pins = _cells_and_pins(hidden)
+    assert cells == [] and pins == []
+    drawn = dataclasses.replace(hidden, hidden=False)
+    cells, pins = _cells_and_pins(drawn)
+    assert any(role == "tunnel_trench" for role, *_r in cells) and pins
+    assert min(p.z for p in pins) < 100.0 - 7.0          # pinned down to the shell's floor
+    # its row is still dropped, its frame still seated at its zero (A7, B1)
+    recs = {r["id"]: r for r in OF.seat_records([hidden])}
+    assert recs["dsf:obj1"]["seat"] == TS.HIDDEN_SEAT
+    assert recs["dsf:obj3"]["seat"] == TS.OBJECT_FLOOR_SEAT

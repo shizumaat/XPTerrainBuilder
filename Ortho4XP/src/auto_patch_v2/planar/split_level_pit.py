@@ -21,8 +21,8 @@ wall, under the building's own wall), and
   ``Basin.clearance_m`` 0).
 
 Refused, by name: a building over the runway family, over a structure, or
-over another pit; and a box a mapped ROAD RUNS THROUGH (an OSM ``highway`` line
-cuts the box in two or more pieces): the "open" sides of an underpass are a road's
+over another pit; and a box a mapped road runs UNDER (an OSM ``highway`` way tagged
+``tunnel`` or a negative ``layer`` inside it): the "open" sides of an underpass are a road's
 way under it, and pitting it sank the bridge with its deck under the
 ground (#1903 KBNA 1.0.470, the Murfreesboro Pike underpass).  Nothing
 here names a pack, a resource or an airport."""
@@ -34,7 +34,6 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..airport.split_level import SplitLevel, read_split_levels
-from ..geom.fixed_overlay import is_hairline
 from ..geom.parts import polygon_parts_with_area
 from ..model.structures import Basin
 from .basin_geometry import _region_floor, _rim
@@ -75,9 +74,9 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
             refused.append(f"{sl.id} {name}: the split-level box meets the runway family, a "
                            "structure or another pit")
             continue
-        if _road_through(rim, roads, grid):
-            refused.append(f"{sl.id} {name}: a mapped road runs through the split-level box "
-                           "(it cuts the box in two or more pieces) — a road's underpass, "
+        if _road_under(rim, roads, grid):
+            refused.append(f"{sl.id} {name}: a mapped road runs under the split-level box "
+                           "(a tunnel way inside it) — a road's underpass, "
                            "not a building cut into a slope")
             continue
         floors = _region_floor(rim, band, [], grid)
@@ -97,32 +96,44 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     return basins, new_cells, knives, notes, refused
 
 
-#: OSM ``highway`` values no vehicle runs on: a footpath may cross a
-#: building in the map (an indoor corridor), a road never does
+#: OSM ``highway`` values no vehicle runs on
 _ON_FOOT = frozenset({"footway", "path", "steps", "pedestrian", "cycleway", "corridor",
                       "bridleway", "elevator"})
 
 
-def _roads(airport) -> list[LineString]:
-    """The mapped roads: every OSM way whose ``highway`` a vehicle runs
-    on, as built, bridged or tunnelled.  The OSM line, not the classified
-    cell: a road under a pack structure is cut out of the cells there (the
-    structure's own ramp, ``planar/structure_service``) but its way still
-    runs on."""
-    return [LineString(w.points) for w in getattr(airport, "osm_ways", ()) or ()
-            if (w.tags or {}).get("highway", "") not in ("", *_ON_FOOT)
-            and len(w.points) >= 2]
-
-
-def _road_through(rim: Polygon, roads: _t.Sequence[LineString], grid: float) -> bool:
-    """A road RUNS THROUGH ``rim``: the box less the roads crossing it
-    (``grid`` wide) falls into two or more pieces wider than the grid."""
-    hit = [ln.buffer(0.5 * grid, cap_style="flat") for ln in roads if ln.intersects(rim)]
-    if not hit:
+def _under(tags: _t.Mapping[str, str]) -> bool:
+    """The way runs UNDER what stands over it: ``tunnel`` (a covered
+    passage through a building's own floor, ``building_passage``, is a
+    level of that building, not a way under it) or a negative ``layer``."""
+    if str(tags.get("tunnel", "no")) not in ("no", "building_passage"):
+        return True
+    try:
+        return float(tags.get("layer", 0) or 0) < 0.0
+    except (TypeError, ValueError):
         return False
-    rest = [q for q in polygon_parts_with_area(rim.difference(unary_union(hit)))
-            if not is_hairline(q, grid)]
-    return len(rest) >= 2
+
+
+def _roads(airport) -> list[LineString]:
+    """The mapped roads that run UNDER a structure: every OSM way a
+    vehicle runs on (``highway``) tagged as passing under (:func:`_under`).
+    The OSM line, not the classified cell: the road under a pack structure
+    is cut out of the cells there (the structure's own ramp,
+    ``planar/structure_service``) but its way runs on.  A road at grade
+    crossing a box is no witness (SBSP's split-level hangar: two service
+    ways cross its plan)."""
+    out = []
+    for w in getattr(airport, "osm_ways", ()) or ():
+        tags = w.tags or {}
+        if tags.get("highway", "") not in ("", *_ON_FOOT) and _under(tags) \
+                and len(w.points) >= 2:
+            out.append(LineString(w.points))
+    return out
+
+
+def _road_under(rim: Polygon, roads: _t.Sequence[LineString], grid: float) -> bool:
+    """A road runs UNDER ``rim``: more than ``grid`` of one of ``roads``
+    (:func:`_roads`) lies inside the box."""
+    return any(ln.intersection(rim).length > grid for ln in roads if ln.intersects(rim))
 
 
 def _record(airport, sl: SplitLevel, k: int, rim: Polygon, floors, floor_ref: str,

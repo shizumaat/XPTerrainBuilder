@@ -31,10 +31,12 @@ import dataclasses as _dc
 import typing as _t
 
 import shapely
+import shapely.affinity
 from shapely.ops import unary_union
 
 from ..airport.object_floor import SHELL, FloorDeck, ObjectFloor, owns_ground
 from ..geom.parts import polygon_parts_with_area
+from ..model.frame import xplane_metre_scale
 from ..model.planar import ROAD_ROLES
 
 __all__ = ["floor_decks"]
@@ -74,12 +76,19 @@ def floor_decks(floors: _t.Sequence[ObjectFloor], objects, cache, classification
                     or str(getattr(d, "deck_kind", "") or "") not in ("flag", "signature")
                     or getattr(d, "hard_deck", None) is None or d.hard_deck.is_empty):
                 continue
-            plate = _plate(cache, [d])
-            top = max((y for _x, _y, y in plate), default=0.0)
-            for k, piece in enumerate(_pieces(d.hard_deck)):
-                if piece.intersection(f.footprint).area < on * piece.area \
-                        or not _spans(f, piece, zero + top, law):
-                    continue
+            se, sn = xplane_metre_scale(airport.frame.origin[0])
+            plate = [(d.xy[0] + (x - d.xy[0]) * se, d.xy[1] + (y - d.xy[1]) * sn, t)
+                     for x, y, t in _plate(cache, [d])]
+            deck = shapely.affinity.scale(d.hard_deck, se, sn, origin=tuple(d.xy))
+            over = [(k, p) for k, p in enumerate(_pieces(deck))
+                    if p.intersection(f.footprint).area >= on * p.area]
+            if not over or not all(_spans(f, p, plate, zero, law) for _k, p in over):
+                # a frame object that also lays the cut's own surfaces
+                # (LGAV ``Trench_07`` / ``Trench_08``: the carriageways in the
+                # trench and the bridges over them, one file) stays whole at
+                # the frame's zero, as its author placed it (B1)
+                continue
+            for k, piece in over:
                 ring_ll = [to_ll(x, y) for x, y in piece.exterior.coords[:-1]]
                 # the airport's pavement across it, else a road (the deck
                 # carries what drives onto it: ``cut_deck_seat.end_ground``)
@@ -92,7 +101,7 @@ def floor_decks(floors: _t.Sequence[ObjectFloor], objects, cache, classification
                 if pair is None:
                     continue
                 sa, sb = (tuple(to_xy(lo, la) for la, lo in e) for e in pair)
-                reach = max(2.0 * step, 3.0)
+                reach, top = max(2.0 * step, 3.0), _top(plate, piece)
                 got.append(FloorDeck(f"{pid}#{k}", pid, d.path,
                                      tuple(piece.exterior.coords[:-1]), sa, sb,
                                      _top_at(plate, sa, reach, top),
@@ -108,25 +117,23 @@ def floor_decks(floors: _t.Sequence[ObjectFloor], objects, cache, classification
     return out, notes
 
 
-def _pieces(deck) -> list:
-    """The deck's pieces, those touching within half a metre ONE piece (B2:
-    LGAV ``Trench_00``'s ramp plate beside its road deck rides that deck)."""
-    grown = unary_union([p.buffer(0.5, join_style="mitre")
-                         for p in polygon_parts_with_area(deck, 1.0)])
-    return [q for g in polygon_parts_with_area(grown, 1.0)
-            for q in polygon_parts_with_area(g.buffer(-0.5, join_style="mitre"), 1.0)]
-
-
-def _spans(f: ObjectFloor, piece, top_z: float, law) -> bool:
-    """Does the deck piece SPAN the cut — its top ``shell_floor_min_m`` or
-    more over the floor under its plan (median)?  A hard surface lying ON
-    the floor (the carriageway in the trench, LGAV ``Trench_07`` /
-    ``Trench_08``) is the floor's, written at the frame's zero."""
+def _spans(f: ObjectFloor, piece, plate, zero: float, law) -> bool:
+    """Is the deck piece a flat plate (its vertices within ``shell_flat_m``)
+    SPANNING the cut — its plate (the median of its
+    vertices) ``shell_floor_min_m`` or more over the floor under its plan
+    (the median over the piece's plan)?  A hard surface lying ON the floor
+    (the carriageways in the trench, LGAV ``Trench_07`` / ``Trench_08``) is
+    the floor's."""
     import numpy as np
 
     from ..geom.lowest_face import floor_z_at
+    near = piece.buffer(0.5)
+    tops = [t for x, y, t in plate if near.contains(shapely.Point(x, y))]
     q = piece.intersection(f.footprint)
-    if q.is_empty:
+    flat = float(law.tables.structures.tunnel.object.shell_flat_m)
+    if not tops or q.is_empty or max(tops) - min(tops) >= flat:
+        # a DECK is a flat plate (``geom/shape_class.FLAT``); a trough or a
+        # ramp of the frame is its furniture
         return False
     x0, y0, x1, y1 = q.bounds
     step = max(1.0, ((x1 - x0) * (y1 - y0) / 400.0) ** 0.5)
@@ -137,4 +144,20 @@ def _spans(f: ObjectFloor, piece, top_z: float, law) -> bool:
         return False
     z = floor_z_at(f.faces, xs[inside], ys[inside], edge_m=0.5)
     span = float(law.tables.structures.tunnel.object.shell_floor_min_m)
-    return bool(np.isfinite(z).any()) and top_z - float(np.nanmedian(z)) >= span
+    return bool(np.isfinite(z).any()) and \
+        zero + float(np.median(tops)) - float(np.nanmedian(z)) >= span
+
+
+def _top(plate, piece) -> float:
+    """The highest plate vertex of the deck within half a metre of ``piece``."""
+    near = piece.buffer(0.5)
+    return max((t for x, y, t in plate if near.contains(shapely.Point(x, y))), default=0.0)
+
+
+def _pieces(deck) -> list:
+    """The deck's pieces, those touching within half a metre ONE piece (B2:
+    LGAV ``Trench_00``'s ramp plate beside its road deck rides that deck)."""
+    grown = unary_union([p.buffer(0.5, join_style="mitre")
+                         for p in polygon_parts_with_area(deck, 1.0)])
+    return [q for g in polygon_parts_with_area(grown, 1.0)
+            for q in polygon_parts_with_area(g.buffer(-0.5, join_style="mitre"), 1.0)]

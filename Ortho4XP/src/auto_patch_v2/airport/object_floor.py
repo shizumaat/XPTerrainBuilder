@@ -187,7 +187,14 @@ def _walled_share(foot, p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law) 
                  / ring.length)
 
 
-def _placed_floor(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float, law):
+def _xp(px: np.ndarray, py: np.ndarray, o: _obj8.PlacedObject, scale) -> tuple:
+    """Frame positions of an OBJ's metres laid out as X-Plane lays them
+    (``model.frame.xplane_metre_scale``: its sphere, the frame's WGS84)."""
+    return (o.xy[0] + (px - o.xy[0]) * scale[0], o.xy[1] + (py - o.xy[1]) * scale[1])
+
+
+def _placed_floor(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float, law,
+                  scale=(1.0, 1.0)):
     """``(faces, footprint)`` of the floor's below-grade faces in the frame,
     or ``None`` when they carry less than a plate's worth."""
     ob = law.tables.structures.tunnel.object
@@ -199,8 +206,8 @@ def _placed_floor(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float, law)
         return None
     a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
     F = v[hz]
-    px = a * F[:, :, 0] + b * F[:, :, 2] + xo
-    py = d * F[:, :, 0] + e * F[:, :, 2] + yo
+    px, py = _xp(a * F[:, :, 0] + b * F[:, :, 2] + xo, d * F[:, :, 0] + e * F[:, :, 2] + yo,
+                 o, scale)
     faces = np.stack([px, py, zero + F[:, :, 1]], axis=2)
     tris = shapely.polygons(np.stack([px, py], axis=2))
     tris = tris[shapely.area(tris) > 1e-6]
@@ -210,12 +217,14 @@ def _placed_floor(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float, law)
     return faces, foot
 
 
-def _placed_all(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float) -> np.ndarray:
+def _placed_all(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, zero: float,
+                scale=(1.0, 1.0)) -> np.ndarray:
     """Every solid face of ``o`` in the frame, absolute z (A2)."""
     a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
     F = g.vertices[g.solid]
-    return np.stack([a * F[:, :, 0] + b * F[:, :, 2] + xo, d * F[:, :, 0] + e * F[:, :, 2] + yo,
-                     zero + F[:, :, 1]], axis=2)
+    px, py = _xp(a * F[:, :, 0] + b * F[:, :, 2] + xo, d * F[:, :, 0] + e * F[:, :, 2] + yo,
+                 o, scale)
+    return np.stack([px, py, zero + F[:, :, 1]], axis=2)
 
 
 def _shell_candidate(g: "_obj8.ObjGeometry | None", law) -> bool:
@@ -321,7 +330,8 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                        law, msl: _t.Mapping[str, float],
                        taken: _t.AbstractSet[str] = frozenset(),
                        shells: _t.Mapping[str, str] | None = None,
-                       ground: "_t.Callable | None" = None
+                       ground: "_t.Callable | None" = None,
+                       scale: tuple[float, float] = (1.0, 1.0)
                        ) -> tuple[list[ObjectFloor], list[str]]:
     """Every FLOOR OBJECT (module doc) as an :class:`ObjectFloor`, and one
     note per floor read or refused.  ``taken`` are placement ids another
@@ -332,7 +342,8 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
     without being floor objects, and only that cover is theirs; a CONCAVE
     SHELL (module doc) is read whole, its frame every co-placed placement.
     ``ground(xs, ys)`` is the design ground (the DEM) A7 reads the rim
-    against.  A
+    against; ``scale`` the frame's metres per OBJ metre
+    (``model.frame.xplane_metre_scale``).  A
     shared-datum pack co-places everything (LGAV ``Trench_0x``, one
     anchor), so co-placement alone is no tunnel
     evidence: a floor object's cover must also stand its walls ON the
@@ -370,7 +381,7 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
             # SHELL (#1883 r3 A1) is the pack's own ground, its frame every
             # co-placed placement; else its cover is the one object_cut
             # paired it with
-            got = _concave(o, g, msl, law, mates, ground, notes) \
+            got = _concave(o, g, msl, law, mates, ground, notes, scale) \
                 if _shell_candidate(g, law) else None
             if got is not None:
                 out.append(got)
@@ -384,7 +395,7 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                          f"over its own walls): not a tunnel's floor")
             continue
         zero = _zero(o, msl)
-        got = _placed_floor(o, g, zero, law)
+        got = _placed_floor(o, g, zero, law, scale)
         if got is None:
             notes.append(f"{o.id} {_base(o.path)}: no below-grade floor face of a plate's worth")
             continue
@@ -406,12 +417,13 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
     return out, notes
 
 
-def _concave(o, g, msl, law, mates, ground, notes: list[str]) -> "ObjectFloor | None":
+def _concave(o, g, msl, law, mates, ground, notes: list[str],
+             scale=(1.0, 1.0)) -> "ObjectFloor | None":
     """A concave cut shell's :class:`ObjectFloor`, or ``None`` (a note
     says why) — A1-A3, A7's hiding read here."""
     ob = law.tables.structures.tunnel.object
     zero = _zero(o, msl)
-    faces = _placed_all(o, g, zero)
+    faces = _placed_all(o, g, zero, scale)
     sh, r = _shape_of(faces, law)
     if sh["class"] != _shape.CONCAVE:
         return None

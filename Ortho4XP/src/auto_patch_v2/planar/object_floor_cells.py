@@ -141,8 +141,10 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats,
     shells = {o: (cover_of[c.id], _between_walls(c, law)) for c in corridors
               if c.id.startswith("object-cut:") and c.id in cover_of for o in c.objects}
     from ..airport.dem import dem_z_many
+    from ..model.frame import xplane_metre_scale
     floors, notes = read_object_floors(objects, cache, law, msl, shells=shells,
-                                       ground=lambda xs, ys: dem_z_many(airport.dem, xs, ys))
+                                       ground=lambda xs, ys: dem_z_many(airport.dem, xs, ys),
+                                       scale=xplane_metre_scale(airport.frame.origin[0]))
     floors, deck_notes = floor_decks(floors, objects, cache, classification, airport, law)
     notes.extend(f"object floor {n}" for n in deck_notes)
     floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}

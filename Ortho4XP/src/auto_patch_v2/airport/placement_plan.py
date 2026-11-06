@@ -317,6 +317,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
     # #1883 r3 B1: a pack cut's frame at the zero its floor was read at
     _floor_zero = _tsh.frame_zeros(getattr(plan, "authored_seats", ()) or ())
+    # ...whose deck pieces stand OVER the cut: never draped onto it as a base
+    # slab (LGAV Trench_00's road decks were draped 12 m down to the floor)
+    drape = {k: v for k, v in (drape or {}).items() if k not in _floor_zero}
     # #1903: ...and the placements those cuts are (their own roofs' end lines)
     _cut_ids = frozenset(str(r.get("id")) for r in getattr(plan, "authored_seats", ()) or ()
                          if hasattr(r, "get") and r.get(_cds.CUT_RING))

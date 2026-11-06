@@ -70,6 +70,6 @@ and every item you did NOT do.
 
 Never raise the lane worktree cap (`O4_LANE_CAP`); if `lane_worktree.sh up`
 refuses, report that to the master instead of working around it. Before a
-build, check `df -h` has 30 GB free; run large tile builds one at a time.
+build, check `df -h` has 30 GB free; at most 4 builds run at once across all lanes.
 When you report, push your branch and delete your scratch builds (tile
 dirs, pack copies, pickles) so the master can remove the worktree.

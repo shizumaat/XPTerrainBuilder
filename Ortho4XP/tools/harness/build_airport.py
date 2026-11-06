@@ -4755,7 +4755,7 @@ def disk_floor_gate(root, tile: bool) -> None:
     tile builds and stalled every session, so a build checks free space
     first.  A tile build needs MIN_FREE_GB_TILE, a patch build
     MIN_FREE_GB_PATCH.  No override: free space by removing finished lane
-    worktrees and scratch builds, then run tile builds one at a time.
+    worktrees and scratch builds, then run at most 4 builds at once.
     """
     free_gb = shutil.disk_usage(str(root)).free / 1e9
     need = MIN_FREE_GB_TILE if tile else MIN_FREE_GB_PATCH
@@ -4764,8 +4764,8 @@ def disk_floor_gate(root, tile: bool) -> None:
             f"REFUSING: {free_gb:.0f} GB free on the build disk, a "
             f"{'tile' if tile else 'patch'} build needs {need} GB (owner "
             f"HARD RULE 2026-11-06).  Push and remove finished lane "
-            f"worktrees and delete scratch builds first; run tile builds "
-            f"one at a time.")
+            f"worktrees and delete scratch builds first; run at most 4 "
+            f"builds at once.")
 
 
 MIN_FREE_GB_TILE = 30

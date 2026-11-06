@@ -845,6 +845,7 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "auto_patch.forest_stage",
         "auto_patch.object_stage",
         "auto_patch.optimise_stage",
+        "auto_patch.pack_copy",
         "auto_patch.pack_rewrite",
         "auto_patch.sibling_stage",
         "auto_patch.user_seat_stage",

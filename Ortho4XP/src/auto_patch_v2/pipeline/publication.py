@@ -775,6 +775,10 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # every airport but the three the class was measured over.
             "channel_facilities": channel_facilities(planar, law, z),
             "object_cuts": object_cuts(planar, airport),
+            # #1903 (owner 2026-11-06): each trench object whose own floor is
+            # the cut over its footprint — REPORT ONLY (``tools/drawn_check``
+            # claims its objects as CUT sites)
+            "object_floors": object_floors(planar, airport),
             # THE JETWAY STRIPS (owner RULINGS 2026-09-18t Q3; jetway-strip
             # spec §2 (6)): per strip its pad, its ONE level, its riders,
             # its vertices by identity and its clamps — LAW INPUT for the
@@ -1394,6 +1398,16 @@ def object_cuts(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
             "wall_ref": tn.wall_ref,
         })
     return out
+
+
+def object_floors(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
+    """Per trench object floor (``airport/object_floor``, #1903): its id,
+    the floor object and its covers, the floor's lowest z and its
+    footprint's area — what ``tools/drawn_check`` claims as CUT sites."""
+    return [{"id": f.id, "resource": f.resource, "objects": [f.object_id, *f.covers],
+             "floor_m": round(float(f.floor_z), 3), "zero_m": round(float(f.zero_z), 3),
+             "area_m2": round(float(f.footprint.area), 1)}
+            for f in (getattr(planar, "object_floors", ()) or ())]
 
 
 def basin_facilities(planar: PlanarMap, law: Law,

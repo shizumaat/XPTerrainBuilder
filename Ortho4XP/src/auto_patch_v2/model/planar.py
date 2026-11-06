@@ -430,6 +430,11 @@ class PlanarMap:
     #: ``verify/channel.py`` judges the emitted surface against the SAME
     #: record — neither re-derives the corridor (§45 (2)).
     channels: tuple[Channel, ...] = ()
+    #: THE TRENCH OBJECTS' OWN FLOORS (#1903, owner 2026-11-06; additive):
+    #: ``airport/object_floor.ObjectFloor`` records whose footprint faces
+    #: (ref ``object_floor:<id>``) ``constraints/object_floor`` pins to the
+    #: floor surface.
+    object_floors: tuple = ()
     #: THE ROAD OVERPASSES (owner RULINGS 2026-10-30f (1) / (5), #1692,
     #: additive): every pack hard deck over a mapped road no airside
     #: pavement crosses (``planar/overpass_deck._Overpass``), read before

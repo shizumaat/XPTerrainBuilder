@@ -40,6 +40,7 @@ from .overlay import Arrangement, build_arrangement
 from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
+from .object_floor_cells import floor_mouths, not_floors, object_floor_stage
 from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
@@ -261,6 +262,10 @@ def build(airport: Airport, classification: Classification, law: Law,
                                          pr.plates, pr.plate_stats)
     wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
     tstats.plates = pstats.plates
+    # A TRENCH OBJECT'S OWN FLOOR IS THE CUT (#1903, owner 2026-11-06):
+    # read ONCE, here and in the structures replay alike
+    floors, corridors = object_floor_stage(airport, objects, cache, law, corridors, tstats)
+    roads, wells = not_floors(roads, floors), not_floors(wells, floors)
     tstats.refused.extend(pstats.refused)
     # the wall corridors are a pack read too (#362): of the classification
     # they read the FIELD's cover alone (and, in the structures replay, the
@@ -318,13 +323,16 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        edge_bridges=bridges,
                                                        trenches=tstats.trench_objects,
                                                        deck_bridges=decks,
-                                                       level_b=level_b)
+                                                       level_b=level_b,
+                                                       object_floors=floors)
     sstats.hard_decks.extend(deck_notes)
     # a pack deck over a pack object cut frames that cut (owner 2026-11-05
     # §0.5, ``planar/cut_frame``): its floor at the deck's seated zero
     tunnels, frame_notes = frame_cuts(tunnels, objects, cache, cl_read, airport, law,
                                       tstats.shell_covers)
     sstats.hard_decks.extend(frame_notes)
+    tunnels, mouth_notes = floor_mouths(tunnels, floors, law)
+    sstats.object_floors.extend(mouth_notes)
     decks = with_cuts(decks, tunnels)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
@@ -459,7 +467,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     seam = _seam_vertices(arr, vertices_xy)
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins,
-                   channels=tuple(channels), overpasses=tuple(overpasses),
+                   channels=tuple(channels), object_floors=tuple(floors),
+                   overpasses=tuple(overpasses),
                    decks=tuple(decks),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)

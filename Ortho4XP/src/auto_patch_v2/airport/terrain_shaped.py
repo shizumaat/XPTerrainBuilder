@@ -57,7 +57,7 @@ from . import dsf as _dsf
 __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
            "placement_fits", "fit", "grid_of_triangles", "dem_many_of",
            "grid_of_resource", "seat_records", "log_line", "row_seats",
-           "PORTAL_SEAT", "ENTRANCE_SEAT", "portal_seat_records"]
+           "PORTAL_SEAT", "ENTRANCE_SEAT", "OBJECT_FLOOR_SEAT", "portal_seat_records"]
 
 MIN_AREA_M2 = 20_000.0
 MIN_RELIEF_M = 5.0
@@ -74,7 +74,11 @@ PORTAL_SEAT = "portal floor"
 #: the row's only where the plan splits it into no body (``row_seats``
 #: ``unsplit``; #1903)
 ENTRANCE_SEAT = "entrance face"
-_WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face"}
+#: #1903: a trench object's floor and covers at the zero their cut was read
+#: from (``airport/object_floor.seat_records``)
+OBJECT_FLOOR_SEAT = "object floor"
+_WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
+        OBJECT_FLOOR_SEAT: "object_floor"}
 
 
 def _deck_grid(g: _t.Any) -> "DeckGrid | None":

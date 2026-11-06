@@ -383,6 +383,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch.optimise_stage",
     "auto_patch.osm_aeroway",
     "auto_patch.pack_choice",
+    "auto_patch.pack_copy",
     "auto_patch.pack_rewrite",
     "auto_patch.post_mesh",
     "auto_patch.progress",

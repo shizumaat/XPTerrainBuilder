@@ -434,8 +434,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     from auto_patch_v2.airport import placement_write as _pw
     from . import dsf_reader as _DSFR
 
+    from . import pack_copy as _copy
     pack_name = os.path.basename(os.path.normpath(plan_.pack_root))
-    dsf_path = _dsf2.dsf_path_in_pack(plan_.pack_root, tile.lat, tile.lon)
+    # ``--pack-copy``: the write targets the clone, never the install
+    target_root = _copy.ensure_copy(plan_.pack_root) or plan_.pack_root
+    dsf_path = _dsf2.dsf_path_in_pack(target_root, tile.lat, tile.lon)
     if not os.path.isfile(dsf_path):
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: no DSF at {dsf_path}; skipped")
         return {}
@@ -535,7 +538,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     with _hb:
         plan, files, ss = _pw.build_plan(
             plan_, dump, _surface, icao=plan_.icao, pack_name=pack_name,
-            pack_root=plan_.pack_root, dsf_path=dsf_path,
+            pack_root=target_root, dsf_path=dsf_path,
             split_tol_m=law.tables.structures.placement.split_tol_m,
             elevated_base_m=law.tables.structures.rebake.elevated_base_m,
             line_segment_m=law.tables.structures.placement.line_segment_m,
@@ -620,7 +623,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     from . import sibling_stage as _sib
     siblings = (_sib.plans(plan, dump, _surface, tile,
                            law.tables.structures.rebake.elevated_base_m)
-                if plan_key in ("", plan_.icao) else [])
+                if plan_key in ("", plan_.icao) and _copy.copy_dir() is None
+                else [])
     c["sibling_packs"] = len(siblings)
     c["sibling_deck_riders"] = sum(len(s.msl_seats) for s in siblings)
     if not write_enabled or measure_only:
@@ -887,7 +891,14 @@ def rebake_after_mesh(tile) -> dict:
         written_packs: set[str] = set()
         ran_packs: set[str] = set()
         t_stage = time.monotonic()
-        reuse = _stage_reuse(tile, mesh_path)
+        from . import pack_copy as _pack_copy
+        # a pack-copy build always writes its copy (never served)
+        reuse = (_stage_reuse(tile, mesh_path)
+                 if _pack_copy.copy_dir() is None else None)
+        if _pack_copy.copy_dir() is not None:
+            UI.vprint(0, f"  [v2 rebake] PACK COPY (O4_PACK_WRITES="
+                         f"{os.environ.get('O4_PACK_WRITES')}): placement writes "
+                         f"go to the clone, never the installed pack")
         for plan_path in plans:
             icao = "?"
             try:
@@ -936,7 +947,8 @@ def rebake_after_mesh(tile) -> dict:
                         continue
                 # #433: THE PACK'S MISSING ART, before its DSF is read or
                 # rewritten — and whether or not anything is placed
-                writes = bool(write_enabled and not measure_only)
+                writes = bool(write_enabled and not measure_only
+                              and _pack_copy.copy_dir() is None)
                 art = _art_stage(plan_, tile, writes=writes,
                                  place=bool(plan_.units))
                 # #1360: ... and its old flat forests (the placement write

@@ -93,6 +93,7 @@ from .basins import object_decks
 from .channel_claims import add_channel_cells, channel_yields
 from .bore_continuation import walked_m
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
+from .object_floor_cells import add_object_floor_cells
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
 from .viaduct_road import viaduct_road_groups
 from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
@@ -160,7 +161,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      overlap_refused: _t.Mapping[str, str] | None = None,
                      portals: _t.Sequence = (), edge_bridges: _t.Sequence = (),
                      trenches: _t.Sequence = (), deck_bridges: _t.Sequence = (),
-                     runs: _t.Mapping | None = None, level_b: float | None = None
+                     runs: _t.Mapping | None = None, level_b: float | None = None,
+                     object_floors: _t.Sequence = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -183,7 +185,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     the cap tie-break's (2026-10-14j, ``unframed_ramp.overlap_yield``).
     ``runs`` are the run-throughs the pass before paired (2026-11-03b,
     ``structure_overlap.run_pair``); ``level_b`` the airport's lower-level
-    depth (``planar/level_depth``) a run-through's floor takes."""
+    depth (``planar/level_depth``) a run-through's floor takes;
+    ``object_floors`` the trench objects' own floors
+    (``airport/object_floor``, #1903): each owns the ground inside its
+    footprint (``planar/object_floor_cells``)."""
     args = (airport, classification, law, objects, corridors, extra_groups, plates, channels)
     run_limits = dict(run_limits or {})
     at_cap = dict(at_cap or {})
@@ -292,7 +297,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.bores_no_mouth = len(bores) - len(covered)
     stats.bores_mouth_only = len(mouth_only)
     stats.mouth_only_bores = ["+".join(str(w.id) for w in b.ways) for b in mouth_only][:12]
-    if not covered and not corridors and not extra_groups and not channels:
+    if not covered and not corridors and not extra_groups and not channels \
+            and not object_floors:
         return classification, (), stats
     # THE PRECEDENCE PER MOUTH (05n-3, ``tunnel.object.source_precedence``):
     # an OSM bore mouth inside an object corridor's footprint is the
@@ -301,12 +307,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # replaced; one covered at one end ships an object ramp there and an
     # OSM ramp at the other.
     replaced_ways: dict[str, list[int]] = {}
-    if corridors and tn.object.source_precedence[0] == "object":
+    # #1903: a mouth inside a trench object's own floor is that object's too
+    # — the floor is the cut there, its ramps are the object's own
+    owners = [*corridors, *object_floors]
+    if owners and tn.object.source_precedence[0] == "object":
         tol = tn.object.bore_end_tolerance_m    # 2026-09-08o: a bore end within it PAIRS
         kept = []
         by_bore: dict[int, list[str | None]] = {}
         for m in mouth_list:
-            cid = mouth_covered_by(m.xy, corridors, tol)
+            cid = mouth_covered_by(m.xy, owners, tol)
             by_bore.setdefault(id(m.bore), []).append(cid)
             if cid is None:
                 kept.append(m)
@@ -1328,7 +1337,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                 _pass=_pass + 1, at_cap=caps,
                                 overlap_refused=overlap_refused, portals=portals,
                                 edge_bridges=edge_bridges, trenches=trenches,
-                                deck_bridges=deck_bridges, runs=runs, level_b=level_b)
+                                deck_bridges=deck_bridges, runs=runs, level_b=level_b,
+                                object_floors=object_floors)
     if not all(keep):
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]
@@ -1337,8 +1347,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.tunnels = len(tunnels)
     stats.survey_cuts = len(survey_cuts)
     keepouts.extend(survey_cuts)
-    if not add_channel_cells(channels, law, new_cells, footprints, keepouts, stats) \
-            and not tunnels:
+    # the channel's cells first: an object floor over a channel owns its
+    # footprint and trims the channel back to its rim (#1903, LGAV)
+    channels_in = add_channel_cells(channels, law, new_cells, footprints, keepouts, stats)
+    floors_in = add_object_floor_cells(object_floors, law, new_cells, footprints, hull_knives,
+                                       keepouts, cells, polys, stats.object_floors)
+    if not channels_in and not tunnels and not floors_in:
         if survey_cuts:          # R2: nothing built, the survey's trenches still keep out
             return _dc.replace(classification, keepouts=tuple(classification.keepouts) + tuple(
                 tuple(k.exterior.coords)[:-1] for k in survey_cuts)), (), stats

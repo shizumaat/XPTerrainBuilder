@@ -23,7 +23,10 @@ from auto_patch_v2.solve import feasibility as F
 
 APRON = "common.roles.apron ring edge"
 PAD = "structures.building_pad frontage_hold"
-TAXI = "rulesets.taxi.longitudinal centreline"
+#: a taxi-tier head that keeps its tier's price (the centreline yields
+#: first, 11-05a: :data:`CENTRELINE`)
+TAXI = "rulesets.taxi.transverse"
+CENTRELINE = "rulesets.taxi.longitudinal centreline"
 RUNWAY = "rulesets.runway.longitudinal"
 GROUND = "road_cross_section"
 STRICT = "apron body chord, strict"
@@ -94,6 +97,21 @@ def test_taxi_vs_apron_relaxes_the_apron_rows(law):
     demote, rep = F.check_hard_set(pl, law, one, np.arange(3), A, b)
     assert set(int(k) for k in demote) == {1, 2}
     assert rep.by_tier == {"apron": 2} and rep.relaxed == 2
+
+
+def test_the_taxi_centreline_yields_first(law):
+    """Owner RULINGS 2026-11-05a (#1893) with the 11-05 15:09Z yield order
+    ("runway is #1 (last to bend), apron is #2, and taxiways are #3"): the
+    hard centreline keeps its taxi tier but is priced under the last tier
+    (``[design] hard_conflict_yield_first``), so in the same conflict the
+    centreline gives and the apron rows hold."""
+    assert CENTRELINE in design_law(law).hard_conflict_yield_first
+    one, A, b, pl = _problem([(CENTRELINE, {0: 1.0, 1: -1.0}, -4.0),
+                              (APRON, {1: 1.0, 0: -1.0}, 1.5),
+                              (APRON, {1: 1.0, 0: -1.0}, 2.0)])
+    demote, rep = F.check_hard_set(pl, law, one, np.arange(3), A, b)
+    assert [int(k) for k in demote] == [0]
+    assert rep.by_head == {CENTRELINE: 1} and rep.by_tier == {"taxi": 1}
 
 
 def test_runway_row_is_never_relaxed(law):

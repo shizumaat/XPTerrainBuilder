@@ -87,6 +87,9 @@ class Design:
     hard_conflict_ranks: tuple[tuple[str, ...], ...]
     #: the elastic LP's price ratio between adjacent tiers
     hard_conflict_tier_ratio: float
+    #: 11-05a: hard heads priced under the last tier (they yield first;
+    #: ``feasibility.cap_seniority``)
+    hard_conflict_yield_first: tuple[str, ...]
     #: §5a's LP budget in seconds (RULINGS 2026-09-30bf: <= 10 s at HECA)
     hard_conflict_lp_budget_s: float
     hard_conflict_lp_budget_share: float
@@ -545,6 +548,10 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.hard_conflict_tier_ratio "
                   f"{d.hard_conflict_tier_ratio}: above 1 — a lower tier "
                   "must be the cheaper one to relax (§5a)")
+    stray = sorted(set(d.hard_conflict_yield_first) - set(ranked))
+    if stray:
+        raise err(f"emit.design.hard_conflict_yield_first {stray}: not in "
+                  "hard_conflict_ranks; it re-prices a ranked head (11-05a)")
     if not 0.0 < d.hard_conflict_lp_budget_share <= 1.0:
         raise err(f"emit.design.hard_conflict_lp_budget_share "
                   f"{d.hard_conflict_lp_budget_share}: a share of pass 1a in (0, 1]")

@@ -225,11 +225,20 @@ def cap_seniority(law: Law, heads: _t.Sequence[str], tiers: np.ndarray
     ``pavement_over_road_cap`` standing rows 4 -> 19, worst 5.90 m over
     55.8 m).  Half a tier (``sqrt(hard_conflict_tier_ratio)``) keeps it
     under every pad row and over its own tier's rows, with no tier added
-    to the ladder (the LP's cost range is the ladder's length)."""
+    to the ladder (the LP's cost range is the ladder's length).
+
+    A head of ``[design] hard_conflict_yield_first`` (owner RULINGS
+    2026-11-05a; the 11-05 15:09Z yield order "runway is #1 (last to
+    bend)") is priced HALF A TIER UNDER THE LAST TIER, whatever its own:
+    under the runway's first hold, so the taxi centreline exceeds its grade
+    before a runway is pulled off its profile to spare it."""
     d = design_law(law)
     gs = list(d.hard_conflict_tiers).index(GROUNDSIDE_TIER)
+    n_t = len(d.hard_conflict_tiers)
     side_ranked = frozenset(SIDE_RANKED_HEADS)
-    return np.array([0.5 if (h in side_ranked and int(t) == gs) else 0.0
+    first = frozenset(d.hard_conflict_yield_first)
+    return np.array([-(n_t - 1 - int(t)) - 0.5 if h in first
+                     else 0.5 if (h in side_ranked and int(t) == gs) else 0.0
                      for h, t in zip(heads, tiers)], dtype=float)
 
 

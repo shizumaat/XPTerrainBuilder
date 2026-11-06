@@ -980,6 +980,17 @@ hard_conflict_ranks = [
 # contains; the runway tier is NOT elastic (a conflict that needs it is a
 # STOP).  A ratio, not a switch.
 hard_conflict_tier_ratio = 1000.0
+# THE HARD ROWS THAT YIELD FIRST (owner RULINGS 2026-11-05a, #1893, with the
+# 11-05 15:09Z yield order "runway is #1 (last to bend), apron is #2, and
+# taxiways are #3"): a head here keeps its tier (its name in the report, the
+# pavement tiers) but is PRICED half a tier under the last one, so under the
+# runway's first hold.  11-05a made the centreline hard "everywhere that's
+# physically possible"; where another hard law makes it impossible (a pin,
+# a runway held on its profile, a route over the 2 % ceiling) the taxiway
+# exceeds its grade and §5a names it; the runway is never pulled off its
+# profile to save it (MEASURED: test_runway_first, a 1 m pull 40 m up a stub
+# bent 09/27 0.63 m through 82 relaxed hold rows).
+hard_conflict_yield_first = ["rulesets.taxi.longitudinal centreline"]
 # §5a's budget (RULINGS 2026-09-30bj, re-setting 30bf's 10 s): min(this
 # ceiling, this share of pass 1a's wall) — over it the stage report says
 # OVER BUDGET (the optimisation review's STOP), never silently paid.

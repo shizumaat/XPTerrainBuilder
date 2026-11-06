@@ -105,7 +105,12 @@ def test_a_pull_the_hard_set_cannot_meet_bends_the_runway(shared_edge, law, base
     bent = rep.stages["stage0"]["runways"]["09/27"]
     assert bent["over_slack"] > 0 and abs(bent["worst_m"]) > d.runway_first_slack_m, bent
     hf = rep.stages["stage1"]["hard_feasibility"]
-    assert hf["runway_conflict"] == 0 and set(hf["by_head"]) == {HOLD_RULING}, hf
+    # the hold gives where the 5 % ceiling forces it; the taxi centreline,
+    # hard since 11-05a (#1893) and priced under the hold (``[design]
+    # hard_conflict_yield_first``), gives first — the runway bends only by
+    # what the ceiling forces, never to spare the 1.5 %
+    assert hf["runway_conflict"] == 0 and HOLD_RULING in hf["by_head"], hf
+    assert set(hf["by_head"]) <= {HOLD_RULING, *d.hard_conflict_yield_first}, hf
     # the runway's own laws still hold where it bent: the edge keeps its
     # crown band to the ridge
     vw = view(pm, law)

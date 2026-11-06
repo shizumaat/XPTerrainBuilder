@@ -397,8 +397,76 @@ def _outside(seg, centre, out_m, n=5):
     return out
 
 
-def check_split(rec, drawn, tol):
-    """One split-level building's row (module docstring)."""
+def road_nodes(patch_path, icao):
+    """(lon, lat, z) of every node of a GROUNDSIDE road way of the patch
+    (a pavement role whose law side is groundside): the profile the ground
+    behind a split-level building meets the wall at (owner
+    2026-11-06T02:40Z)."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import pavement_roles, role_side
+    law = Law.for_airport(icao)
+    roads = {r for r in pavement_roles(law) if role_side(law, r) == "groundside"}
+    nodes, keep = {}, set()
+    for _ev, el in ET.iterparse(patch_path):
+        if el.tag == "node":
+            alt = [t.get("v") for t in el.findall("tag") if t.get("k") == "alt_abs"]
+            if alt:
+                nodes[el.get("id")] = (float(el.get("lon")), float(el.get("lat")),
+                                       float(alt[0]))
+        elif el.tag == "way":
+            if {t.get("k"): t.get("v") for t in el.findall("tag")}.get("role") in roads:
+                keep.update(n.get("ref") for n in el.findall("nd"))
+            el.clear()
+    return numpy.array([nodes[r] for r in keep if r in nodes], dtype=float).reshape(-1, 3)
+
+
+#: a road node this near a back station is the road AT the building's base
+#: (``run`` reads ``[building_pad] split_level_road_reach_m`` over it)
+ROAD_AT_BASE_M = 6.0
+
+
+def _road_at(roads, lon, lat):
+    """The z of the groundside road node nearest (lon, lat) within
+    :data:`ROAD_AT_BASE_M`, or ``None``."""
+    if roads is None or not len(roads):
+        return None
+    kx = M_PER_DEG * math.cos(math.radians(lat))
+    d = numpy.hypot((roads[:, 0] - lon) * kx, (roads[:, 1] - lat) * M_PER_DEG)
+    j = int(numpy.argmin(d))
+    return float(roads[j, 2]) if d[j] <= ROAD_AT_BASE_M else None
+
+
+def _behind(closed, opened):
+    """The ``closed`` (lat, lon) sides parallel (within 45 degrees) to an
+    ``opened`` one: the sides behind the building; all of ``closed`` when
+    it has no open side."""
+    def axis(sd):
+        (la0, lo0), (la1, lo1) = sd[0], sd[-1]
+        kx = math.cos(math.radians(la0))
+        d = ((lo1 - lo0) * kx, la1 - la0)
+        n = math.hypot(*d) or 1.0
+        return d[0] / n, d[1] / n
+    if not opened:
+        return list(closed)
+    ax = [axis(o) for o in opened]
+    return [c for c in closed
+            if any(abs(axis(c)[0] * a[0] + axis(c)[1] * a[1]) >= math.sqrt(0.5) for a in ax)]
+
+
+def body_offsets_y(plans):
+    """{written body resource: its authored y offset} over the plans' split
+    bodies: a body row's drawn zero is the AUTHORED point the cut moved to
+    its origin, so the object's own zero is the row's minus this
+    (``authored_landing.body_zero``)."""
+    return {b["new_resource"]: float((b.get("authored_offset") or [0.0, 0.0])[1])
+            for plan in plans for s in plan.get("splits", []) for b in s.get("bodies", [])
+            if b.get("new_resource")}
+
+
+def check_split(rec, drawn, tol, lifts=None, roads=None):
+    """One split-level building's row (module docstring); ``lifts`` is
+    :func:`body_offsets_y` (a split body's zero is its authored point)."""
+    lifts = lifts or {}
     stems = {stem(r) for r in rec.get("resources", [])}
     rows = [i for i, p in enumerate(drawn.rows) if stem(p.def_path) in stems]
     lon, lat = rec["anchor_longitude_latitude"]
@@ -431,7 +499,7 @@ def check_split(rec, drawn, tol):
         out["fails"].append("no written row of the building")
         out["verdict"] = "FAIL"
         return out
-    zeros = [_base(drawn, i) for i in rows]
+    zeros = [_base(drawn, i) - lifts.get(drawn.rows[i].def_path, 0.0) for i in rows]
     z0 = float(numpy.nanmedian(zeros))
     floor = mesh_z(drawn.mesh, lon, lat)
     ground = [mesh_z(drawn.mesh, x, y) for sd in rec.get("open_sides_ll", [])
@@ -458,6 +526,37 @@ def check_split(rec, drawn, tol):
             out["fails"].append(f"open wall shows a {gap:.2f} m gap to the terrain")
     else:
         out["fails"].append("no drawn ground outside the open side")
+    # THE BACK IS CUT DOWN (owner sim read 2026-11-05T23:55Z): the drawn
+    # ground 1 m outside the tall side(s) BEHIND the building -- across from
+    # its airside face (parallel to an open side) -- stands at the lower
+    # floor; a tall side running up the slope between them reads both
+    behind = _behind(rec.get("closed_sides_ll", []), rec.get("open_sides_ll", []))
+    # ... or, where a groundside road runs along the base, at the ROAD's
+    # height there (owner 2026-11-06T02:40Z: "at SBSP the road at the base
+    # of the building on the groundside is sloping up")
+    # -- the pit's own reading, per side: a side with a road at its base is
+    # judged at its road stations only (past the road's end it is the
+    # governed ground, no bar); a side with none, at the lower floor
+    back, ref, n_road = [], [], 0
+    for sd in behind:
+        st = _outside(sd, (lon, lat), 1.0)
+        at = [_road_at(roads, x, y) for x, y in st]
+        roaded = any(r is not None for r in at)
+        for (x, y), road in zip(st, at, strict=True):
+            g = mesh_z(drawn.mesh, x, y)
+            if math.isnan(g) or (roaded and road is None):
+                continue
+            back.append(g)
+            ref.append(z0 + y_lo if road is None else road)
+            n_road += road is not None
+    out["back_on_road"] = n_road
+    if back:
+        d_b = [g - r for g, r in zip(back, ref, strict=True)]
+        out["back_ground_median"] = round(float(numpy.median(back)), 2)
+        out["delta_back_max"] = round(max(d_b, key=abs), 2)
+        if abs(out["delta_back_max"]) > tol:
+            out["fails"].append(f"back ground - lower floor / road {out['delta_back_max']:+.2f}"
+                                f" > {tol}")
     out["verdict"] = "FAIL" if out["fails"] else "PASS"
     return out
 
@@ -562,8 +661,14 @@ def run(args):
     drawn = Drawn(written, pack_root, mesh)
     rows = [check_site(s, drawn, claims, args.radius, args.tol)
             for s in read_sites(patch, sidecar, args.radius)]
-    rows += [check_split(r, drawn, args.tol) for r in sidecar.get("basin_facilities", [])
-             if r.get("kind") == "split_level"]
+    lifts = body_offsets_y(plans.values())
+    roads = road_nodes(patch, args.icao)
+    global ROAD_AT_BASE_M
+    from auto_patch_v2.law import Law
+    ROAD_AT_BASE_M = float(getattr(Law.for_airport(args.icao).tables.structures.building_pad,
+                                   "split_level_road_reach_m", 0.0) or ROAD_AT_BASE_M)
+    rows += [check_split(r, drawn, args.tol, lifts, roads)
+             for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
     return {"icao": args.icao, "tile": tile, "pack_root": pack_root,
             "tile_dsfs": tile_dsfs, "tol_m": args.tol, "radius_m": args.radius,
             "claims": [dataclasses.asdict(c) for c in claims], "sites": rows}

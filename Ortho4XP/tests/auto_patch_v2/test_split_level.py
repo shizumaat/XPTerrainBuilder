@@ -104,6 +104,75 @@ def test_an_upper_floor_over_lower_ground_is_no_level_of_the_lot():
     assert ground_confirms(_band(None), lot, run, 6.0) is None
 
 
+def test_back_cut_reaches_past_the_tall_sides_only():
+    """THE BACK IS CUT DOWN (owner sim read 2026-11-05T23:55Z): the pit
+    reaches ``split_level_back_cut_m`` outside the three tall sides (the
+    corners between them taken), never past the open (airside) side, and
+    yields to what is blocked."""
+    from auto_patch_v2.airport.split_level import SplitLevel
+    from auto_patch_v2.planar.split_level_pit import _cut_region
+    from shapely.geometry import Point
+    foot = box(0.0, 0.0, 10.0, 10.0)
+    open_ = (LineString([(0.0, 10.0), (10.0, 10.0)]),)
+    tall = (LineString([(10.0, 10.0), (10.0, 0.0)]), LineString([(10.0, 0.0), (0.0, 0.0)]),
+            LineString([(0.0, 0.0), (0.0, 10.0)]))
+    sl = SplitLevel("o", ("o",), ("a.obj",), foot, 0.0, 6.0, open_, tall, 6.0, 0.0,
+                    (5.0, 5.0))
+    region = _cut_region(sl, 5.0, None)
+    assert abs(region.area - 300.0) < 1e-6
+    assert region.contains(Point(-4.0, -4.0)) and region.contains(Point(12.0, 9.0))
+    assert not region.contains(Point(5.0, 11.0))          # the airside: no reach
+    assert _cut_region(sl, 0.0, None).equals(foot)
+    clipped = _cut_region(sl, 5.0, box(-10.0, -10.0, 20.0, -2.0))
+    assert abs(clipped.area - (300.0 - 60.0)) < 1e-6
+
+
+def test_the_map_confirms_a_split_level_the_flat_dem_cannot_see():
+    """THE MAP WITNESS (owner 2026-11-05/06, SBSP's hangar row): on a DEM
+    too flat to show the step, the open side facing airside pavement, the
+    low side across not facing it and an upper floor slab read the
+    building; airside behind it, or on both sides, a low side's ground half
+    a step higher, or a door with no floor at its top (a hangar door), does
+    not."""
+    from shapely.prepared import prep
+    v, t = _building(12.0)
+    door_objs, door_cache = _placed(v, t)          # the 12 m opening, no floor at its top
+    v, t = list(map(tuple, v)), [tuple(x) for x in t]
+    i = len(v)                                     # the upper floor slab inside the open side
+    v += [(0.0, 12.0, 22.0), (40.0, 12.0, 22.0), (40.0, 12.0, 30.0), (0.0, 12.0, 30.0)]
+    for tri in ((i, i + 1, i + 2), (i, i + 2, i + 3)):
+        a, b, c = (np.array(v[k]) for k in tri)
+        t.append(tri if -np.cross(b - a, c - a)[1] > 0.0 else tri[::-1])
+    objs, cache = _placed(np.array(v, float), np.array(t, int))
+    south = prep(box(-50.0, -80.0, 90.0, -31.0))   # the open (+z) side lies south
+    north = prep(box(-50.0, 1.0, 90.0, 60.0))
+    both = prep(box(-50.0, -80.0, 90.0, 60.0))
+    flat = lambda x, y: 100.0                      # noqa: E731
+    sls, notes = read_split_levels(objs, cache, LAW, flat, south)
+    assert len(sls) == 1 and "by the map" in notes[0]
+    assert read_split_levels(objs, cache, LAW, flat, north)[0] == []
+    assert read_split_levels(objs, cache, LAW, flat, both)[0] == []
+    assert read_split_levels(objs, cache, LAW, lambda x, y: 100.0 + 0.3 * y, south)[0] == []
+    assert read_split_levels(door_objs, door_cache, LAW, flat, south)[0] == []   # a hangar door
+
+
+def test_one_tall_side_and_airside_clip_the_back_cut():
+    """One tall side unions to a LineString (linemerge refused it and
+    crashed KLAX); the back cut never enters what is passed as blocked
+    (the pit passes airside pavement there), and a box clipped by a
+    neighbour's pit is the region's core."""
+    from auto_patch_v2.airport.split_level import SplitLevel
+    from auto_patch_v2.planar.split_level_pit import _cut_region
+    foot = box(0.0, 0.0, 10.0, 10.0)
+    sl = SplitLevel("o", ("o",), ("a.obj",), foot, 0.0, 6.0,
+                    (LineString([(0.0, 10.0), (10.0, 10.0)]),),
+                    (LineString([(10.0, 0.0), (0.0, 0.0)]),), 6.0, 0.0, (5.0, 5.0))
+    assert abs(_cut_region(sl, 5.0, None).area - 150.0) < 1e-6
+    assert abs(_cut_region(sl, 5.0, box(-1.0, -9.0, 4.0, 0.0)).area - 130.0) < 1e-6
+    core = box(0.0, 0.0, 6.0, 10.0)
+    assert abs(_cut_region(sl, 5.0, None, core).area - (60.0 + 50.0)) < 1e-6
+
+
 def test_a_box_a_road_runs_under_is_an_underpass_not_a_split_level():
     # #1903 KBNA 1.0.470: an underpass read as split-level sank its bridge;
     # SBSP's hangar (service ways at grade across its plan) stays a pit

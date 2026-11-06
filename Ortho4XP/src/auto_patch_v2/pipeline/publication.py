@@ -1461,6 +1461,8 @@ def basin_facilities(planar: PlanarMap, law: Law,
             "kind": b.kind,
             "open_sides_ll": [[[round(la, 9), round(lo, 9)] for la, lo in seg]
                               for seg in b.open_sides_ll],
+            "closed_sides_ll": [[[round(la, 9), round(lo, 9)] for la, lo in seg]
+                                for seg in b.closed_sides_ll],
             "rim_law_m": round(rim_law, 3),
             "emitted_rim_min_m": rim_parts[0] if rim_parts else None,
             "emitted_rim_max_m": rim_parts[-1] if rim_parts else None,

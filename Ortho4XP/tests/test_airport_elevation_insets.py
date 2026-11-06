@@ -3415,7 +3415,7 @@ def test_tile_grid_html_index_resolution(tmp_path, monkeypatch):
         '<a href="dgm1_32_375_5535_1_rp_2021.tif">y</a></html>'
     )
 
-    def _fake_get(url, timeout=None, headers=None):
+    def _fake_get(url, timeout=None, headers=None, verify=True):
         response = types.SimpleNamespace(status_code=200, text=listing)
         response.json = lambda: (_ for _ in ()).throw(ValueError())
         return response
@@ -6221,6 +6221,8 @@ def test_every_shipped_provider_normalises_to_a_box_list():
         # Colorado tiles (the hull would reach KASE, which it does not
         # cover).
         "CWCB7V2LAS",
+        # #1923: Hamburg's city box plus its North Sea exclave Neuwerk.
+        "HAMBURG1M",
         "HRDEM",
         "HRDEMTIDAL",
         "NEWZEALAND1M",

@@ -286,9 +286,10 @@ def test_shipped_definitions_parse(shipped_registry):
     assert shipped_registry["HESSE1M"]["access_strategy"] == "wcs_kvp"
     # Saarland's open coverage has undocumented value semantics: OFF.
     assert shipped_registry["SAARLAND18M"]["enabled"] is False
-    assert (
-        shipped_registry["HAMBURG1M"]["access_strategy"] == "xyz_archive_drop"
-    )
+    # Hamburg's whole-city zip, read in place (#1923): no manual drop.
+    assert shipped_registry["HAMBURG1M"]["access_strategy"] == "tile_grid_http"
+    assert shipped_registry["HAMBURG1M"]["index_url"].startswith(
+        "/vsizip//vsicurl/https://")
     # Iceland's IslandsDEM (#1744): the download grid's WFS answered as
     # one GeoJSON catalog, Iceland's airports only, licence as published.
     islandsdem = shipped_registry["ISLANDSDEM"]

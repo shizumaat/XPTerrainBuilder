@@ -28,7 +28,7 @@ means the endpoint answered an anonymous request on 2026-07-15.
 | `BAVARIA1M` `NRW1M` `THURINGIA1M` `BRANDENBURG1M` `SAXONY1M` `BREMEN1M` `SCHLESWIGHOLSTEIN1M` `BADENWUERTTEMBERG1M` `RHINELANDPALATINATE1M` | German Länder (kilometre tile grids) | 1 m | `tile_grid_http` |
 | `MECKLENBURG1M` `SAXONYANHALT1M` | German Länder (coverage services) | 1 m | `wcs` |
 | `HESSE1M` | Hesse | 1 m | `wcs_kvp` (driver-defeating server) |
-| `HAMBURG1M` | Hamburg (whole-city file, browser download) | 1 m | `xyz_archive_drop` |
+| `HAMBURG1M` | Hamburg (whole-city GeoTIFF zip, members read in place, #1923) | 1 m | `tile_grid_http` |
 | `SAARLAND18M` | Saarland — DISABLED (open coverage has undocumented value offset; native 1 m is fee-bound) | ~18.5 m | `wcs_kvp` |
 | `AUSTRIA1M` | Austria (50 km EPSG:3035 BigTIFF tiles, ranged reads) | 1 m | `tile_grid_http` |
 | `NETHERLANDS50CM` | Netherlands (PDOK AHN, WCS — the OpenTopography login gate was never needed) | 0.5 m | `wcs` |

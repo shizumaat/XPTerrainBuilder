@@ -981,6 +981,16 @@ def _split_floor_rows(floor_vs: _t.Sequence[int], follow: _t.Sequence[int],
                 for v in floor_vs[1:])
     rows.extend(Linear(((int(v), 1.0), (d, -1.0)), depth, depth, src, follows=(int(v),))
                 for v in held)
+    # FLAT ON AIRSIDE (owner 2026-11-06T02:40Z / 03:24Z option (a): "the
+    # terrain should support it, flat on airside"): every vertex of the open
+    # rim the ground shares is held at the ONE upper floor too -- the floor
+    # is their mean less the step, so the open side's ground is one flat
+    # level the object stage seats the upper floor on (KLAX Terminal_2's
+    # 194 m open side sagged 0.38 m under its flat upper floor)
+    src_flat = Source(GEN, BASIN_FLOOR_RULING + " (owner 2026-11-06T03:24Z (a): the open "
+                      "side's ground held flat at the upper floor)", inputs)
+    rows.extend(Linear(((int(v), 1.0), (d, -1.0)), depth, depth, src_flat, follows=(int(v),))
+                for v in follow if int(v) not in {int(h) for h in held})
     return rows
 
 

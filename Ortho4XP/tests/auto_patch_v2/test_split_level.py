@@ -81,6 +81,9 @@ def test_the_floor_is_one_level_under_the_open_rim_and_grades_its_bare_rim():
     assert tie.lo == tie.hi == -12.0 and dict(tie.terms) == {10: 1.0, 1: -0.5, 2: -0.5}
     assert all(r.lo == r.hi == 0.0 for r in rows[1:3])
     assert rows[3].lo == rows[3].hi == 12.0 and dict(rows[3].terms) == {3: 1.0, 10: -1.0}
+    # flat on airside (owner 2026-11-06T03:24Z (a)): the shared open rim at the upper floor
+    assert [(dict(r.terms), r.lo) for r in rows[4:]] == [({1: 1.0, 10: -1.0}, 12.0),
+                                                         ({2: 1.0, 10: -1.0}, 12.0)]
 
 
 class _Dem:

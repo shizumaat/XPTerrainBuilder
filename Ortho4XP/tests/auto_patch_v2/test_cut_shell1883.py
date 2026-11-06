@@ -106,8 +106,12 @@ def test_a_deck_of_the_frame_is_planned_at_the_frame_zero(tmp_path):
     deck = OF.FloorDeck("dsf:obj4#0", "dsf:obj4", "objects/dsf:obj4.obj", (), (), (), 0.1, 0.1)
     f = dataclasses.replace(floors[0], decks=(deck,),
                             seats=tuple(s for s in floors[0].seats if s[0] != "dsf:obj4"))
-    recs = {r["id"]: r for r in OF.seat_records([f])}
+    # a second floor whose frame also names both rows changes nothing
+    other = dataclasses.replace(floors[0], id="object_floor:other", object_id="dsf:obj9",
+                                hidden=False, decks=())
+    recs = {r["id"]: r for r in OF.seat_records([other, f])}
     assert recs["dsf:obj4"]["seat"] == TS.FRAME_SEAT
+    assert recs["dsf:obj1"]["seat"] == TS.HIDDEN_SEAT
     assert TS.frame_zeros(recs.values()) == {"dsf:obj4": 100.0}
 
 

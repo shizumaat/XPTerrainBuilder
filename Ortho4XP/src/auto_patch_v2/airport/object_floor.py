@@ -451,27 +451,33 @@ def seat_records(floors: _t.Iterable[ObjectFloor], to_ll=None) -> list[dict[str,
     carries its footprint's ring (``cut_deck_seat.CUT_RING``): the pack cut a
     deck of its frame is seated over (B2)."""
     from .cut_deck_seat import CUT_RING
+    floors = list(floors)
+    # ONE record per placement, whichever floor's frame names it first: a
+    # hidden shell's row is dropped, a deck of any frame is planned
+    hidden = {f.object_id for f in floors if f.hidden}
+    decks = {d.object_id: (d.resource, f.zero_z) for f in floors for d in f.decks}
+    rings = {}
+    for f in floors:
+        if to_ll is not None and f.decks and owns_ground(f):
+            part = max(getattr(f.footprint, "geoms", [f.footprint]), key=lambda q: q.area)
+            rings[f.object_id] = [[round(la, 9), round(lo, 9)] for la, lo in
+                                  (to_ll(x, y) for x, y in part.exterior.coords)]
     out: list[dict[str, _t.Any]] = []
     seen: set[str] = set()
     for f in floors:
         for pid, res, z in f.seats:
-            if pid in seen:
+            if pid in seen or pid in decks:
                 continue
             seen.add(pid)
-            hide = f.hidden and pid == f.object_id
             rec = {"id": pid, "resource": res, "datum": "object_floor",
-                   "seat": HIDDEN_SEAT if hide else _ts.OBJECT_FLOOR_SEAT,
+                   "seat": HIDDEN_SEAT if pid in hidden else _ts.OBJECT_FLOOR_SEAT,
                    "elevation": round(float(z), 3)}
-            if pid == f.object_id and to_ll is not None and f.decks and owns_ground(f):
-                part = max(getattr(f.footprint, "geoms", [f.footprint]), key=lambda q: q.area)
-                rec[CUT_RING] = [[round(la, 9), round(lo, 9)] for la, lo in
-                                 (to_ll(x, y) for x, y in part.exterior.coords)]
+            if pid in rings:
+                rec[CUT_RING] = rings[pid]
             out.append(rec)
-        for d in f.decks:
-            if d.object_id not in seen:
-                seen.add(d.object_id)
-                out.append({"id": d.object_id, "resource": d.resource, "datum": "object_floor",
-                            "seat": FRAME_SEAT, "elevation": round(float(f.zero_z), 3)})
+    for pid, (res, z) in sorted(decks.items()):
+        out.append({"id": pid, "resource": res, "datum": "object_floor", "seat": FRAME_SEAT,
+                    "elevation": round(float(z), 3)})
     return out
 
 

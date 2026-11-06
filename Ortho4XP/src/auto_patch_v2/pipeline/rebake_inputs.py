@@ -335,14 +335,15 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
     # #1903: a trench object's floor and its frame are written whole at
     # their read zero — no other seat moves them (a deck of the frame the
     # pavement drives across is planned: ``ObjectFloor.decks``, B2)
-    excluded |= {pid for f in floors for pid, _r, _z in f.seats}
+    floor_seats = _of.seat_records(floors, airport.frame.transformers()[1])
+    excluded |= {str(r["id"]) for r in floor_seats if r.get("seat") != _of.FRAME_SEAT}
     return {
         "tunnel_objects": _plate_seats(pm, law, seats),
         "authored_seats": (tuple(seats[k] for k in sorted(seats))
                            + tuple(_ts.seat_records(airport))
                            + tuple(_ts.portal_seat_records(pm.structures,
                                                            airport.frame.transformers()[1]))
-                           + tuple(_of.seat_records(floors, airport.frame.transformers()[1]))),
+                           + tuple(floor_seats)),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``

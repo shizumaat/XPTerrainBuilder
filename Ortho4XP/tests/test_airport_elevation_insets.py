@@ -6217,6 +6217,8 @@ def test_every_shipped_provider_normalises_to_a_box_list():
             multi.append(code)
     # The providers the ruling split, and no others by accident.
     assert sorted(multi) == [
+        # ArcticDEM strips: north of 60 N, Alaska below it, Kamchatka.
+        "ARCTICDEM2M",
         # #154 lasidx154: one box per 0.25-degree row of the 2015 Western
         # Colorado tiles (the hull would reach KASE, which it does not
         # cover).

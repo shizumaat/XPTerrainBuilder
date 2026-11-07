@@ -48,12 +48,13 @@ SIGNATURE_EXCEPTIONS = {
 }
 
 #: A strategy module importing another strategy module (the package
-#: docstring names these four; a fifth is a design question).
+#: docstring names these five; a sixth is a design question).
 CROSS_STRATEGY_IMPORTS = {
     ("authenticated_token_search", "stac"),
     ("degree_cog_base_tile", "degree_named_cog"),
     ("las_tile_index", "cwcb_lidar_api"),
     ("os_grid_bucket", "geojson_tile_index"),
+    ("stac_dated_strips", "stac"),
 }
 
 
@@ -192,11 +193,12 @@ def test_the_package_never_imports_the_pipeline_and_strategies_stay_apart():
 # ---------------------------------------------------------------------------
 # The binary counts its own registry (``--import-selfcheck``)
 # ---------------------------------------------------------------------------
-def test_the_pinned_set_is_the_27_recorded():
+def test_the_pinned_set_is_the_28_recorded():
     """The list itself lives in production code; its size and a spread of
     its entries are pinned here so an edit to it shows up in two diffs."""
-    # 26 at main ``01662c75``; ``degree_cog_base_tile`` (#561) is the 27th.
-    assert len(EXPECTED_STRATEGIES) == 27
+    # 26 at main ``01662c75``; ``degree_cog_base_tile`` (#561) is the 27th,
+    # ``stac_dated_strips`` (ArcticDEM strips) the 28th.
+    assert len(EXPECTED_STRATEGIES) == 28
     assert EXPECTED_STRATEGIES["tnm_cog"] == "TnmCloudOptimizedGeoTiffStrategy"
     assert EXPECTED_STRATEGIES["las_tile_index"] == "LasTileIndexStrategy"
     assert EXPECTED_STRATEGIES["viewfinder_zip"] == "ViewfinderZipStrategy"
@@ -211,7 +213,7 @@ def test_the_selfcheck_counts_the_registry_from_the_engine_entry():
          "--import-selfcheck", "json"],
         capture_output=True, text=True, timeout=300, cwd=ENGINE_DIR)
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "elevation_access registry: ok 27 keys" in completed.stdout
+    assert "elevation_access registry: ok 28 keys" in completed.stdout
 
 
 def test_the_selfcheck_fails_and_names_a_strategy_that_did_not_register(
@@ -224,7 +226,7 @@ def test_the_selfcheck_fails_and_names_a_strategy_that_did_not_register(
         if key in EXPECTED_STRATEGIES and key != "wcs_kvp"})
     (ok, line) = registry.registry_selfcheck()
     assert not ok
-    assert line == ("elevation_access registry: FAIL 26 of 27 keys; "
+    assert line == ("elevation_access registry: FAIL 27 of 28 keys; "
                     "missing wcs_kvp")
     assert IMPORT_SELFCHECK.import_selfcheck_main(
         ["Ortho4XP", "--import-selfcheck", "json"]) == 1

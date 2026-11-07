@@ -44,6 +44,7 @@ WHAT A STRATEGY MAY USE (the shared modules beside this file)
 ``layered_warp``    the same mosaic, never reading a source it hides
 ``provider_fill``   masking the constant a server serves beyond its data
 ``vertical_units``  feet to metres
+``geoid_shift``     ellipsoidal heights to EGM2008
 ``capabilities``    can this run decode LERC / LAS / LAZ
 ``gdal_support``    ``gdal``, ``ogr``, ``osr``, ``has_gdal``
 ``stac_assets``     picking the terrain asset of a STAC item
@@ -54,8 +55,10 @@ WHAT A STRATEGY MAY USE (the shared modules beside this file)
 ``base_seam``       tying a substituted base cell to its neighbours
 
 A strategy module imports from those and never from the pipeline.  It
-does not import another strategy either, with four standing exceptions:
+does not import another strategy either, with five standing exceptions:
 ``os_grid_bucket`` subclasses ``geojson_tile_index``;
+``stac_dated_strips`` subclasses ``stac`` (same search, its own
+composite);
 ``authenticated_token_search`` parses its answer with ``stac``'s search
 parser; ``las_tile_index`` asks ``cwcb_lidar_api`` for the tile list of
 an ``index_format=cwcb`` provider; ``degree_cog_base_tile`` names and

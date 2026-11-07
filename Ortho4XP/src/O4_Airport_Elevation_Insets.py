@@ -167,6 +167,7 @@ from elevation_access.definitions import (
     providers_share_country,
 )
 from elevation_access.downloads import _write_refused_by_armed_guard
+from elevation_access.geoid_shift import apply_geoid_shift
 from elevation_access import fetch_scratch as FETCH_SCRATCH
 from elevation_access import inset_trim as INSET_TRIM
 from elevation_access.fetch_slots import held_inset_fetch_slot
@@ -1253,6 +1254,11 @@ def _fetch_masking_provider_fill(strategy, definition, bounding_box_wgs84,
         record = mask_fetched_provider_fill(destination_path, definition)
         if record is not None:
             provenance["provider_fill"] = record
+        # Ellipsoidal sources (geoid_shift=, elevation_access.geoid_shift)
+        # reach every reader in the engine's EGM2008 heights.
+        shifted = apply_geoid_shift(destination_path, definition)
+        if shifted is not None:
+            provenance["geoid_shift"] = shifted
     return provenance
 
 

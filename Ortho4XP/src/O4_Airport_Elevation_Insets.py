@@ -6705,28 +6705,20 @@ def assemble_inset_composite_source(tile, base_source):
     Deterministic and disk-state-driven: step 1 and step 2 both call this and
     get the identical composite string.
     """
-    if not insets_enabled_for_tile(tile):
-        return base_source
-    provider_definitions = select_provider_definitions(
-        getattr(tile, "airport_elevation_providers", "auto")
-    )
-    codes = [definition["code"] for definition in provider_definitions]
-    inset_paths = list_cached_inset_dems(
-        tile.lat, tile.lon, provider_codes=codes or None
-    )
+    inset_paths = bake_candidate_inset_paths(tile)
     if not inset_paths:
         return base_source
-    return ";".join([base_source] + _ranked_for_composite(inset_paths, codes))
+    return ";".join([base_source] + inset_paths)
 
 
 def _ranked_for_composite(inset_paths, codes):
-    """``inset_paths`` in COMPOSITE order: the lowest-priority provider
-    first, the highest LAST, because the composite's last token wins at
-    query time.  ``codes`` rank highest first
+    """``inset_paths`` in COMPOSITE and BAKE order: the lowest-priority
+    provider first, the highest LAST, because a later bake overwrites an
+    earlier one and the composite's last token wins at query time.  ``codes`` rank highest first
     (:func:`select_provider_definitions`).  The file-name order the
     listing returns put ``BGGH_arcticdem2m.tif`` (priority 50) BEFORE
     ``BGGH_copernicusglo30.tif`` (priority 1), so the gap-fill Copernicus
-    inset overwrote the 2 m strips everywhere it reached.  An inset whose
+    inset was baked over the 2 m strips everywhere it reached.  An inset whose
     code is not ranked sorts lowest; ties keep the file-name order."""
     suffixes = sorted(((("_" + code.lower() + ".tif"), rank)
                        for rank, code in enumerate(codes)),
@@ -7047,8 +7039,11 @@ def inset_empty_reason(inset_path, valid_fraction):
 def bake_candidate_inset_paths(tile):
     """The cached inset rasters the bake step considers for ``tile``, in
     bake order: every cached ``*.tif`` of a provider the tile's
-    ``airport_elevation_providers`` selects.  ONE listing for the bake
-    (:func:`bake_airport_insets_into_alt_dem`) and for every later reader
+    ``airport_elevation_providers`` selects, the highest-priority
+    provider LAST (:func:`_ranked_for_composite`: a later bake overwrites
+    an earlier one, and the composite's last token wins).  ONE listing for
+    the bake (:func:`bake_airport_insets_into_alt_dem`), the composite
+    (:func:`assemble_inset_composite_source`) and for every later reader
     of "which insets does this tile's raster carry" that runs without the
     step-1 DEM object — the mesh's curvature weight map (#233) derives
     its inset boxes from it in step 2, where ``tile.dem`` is header-only.
@@ -7059,9 +7054,9 @@ def bake_candidate_inset_paths(tile):
         getattr(tile, "airport_elevation_providers", "auto")
     )
     codes = [definition["code"] for definition in provider_definitions]
-    return list_cached_inset_dems(
+    return _ranked_for_composite(list_cached_inset_dems(
         tile.lat, tile.lon, provider_codes=codes or None
-    )
+    ), codes)
 
 
 def baked_inset_boxes(tile):

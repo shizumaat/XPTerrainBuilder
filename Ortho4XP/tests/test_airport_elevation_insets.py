@@ -611,7 +611,8 @@ def test_composite_puts_the_highest_priority_inset_last(tmp_path, monkeypatch):
     """The composite's LAST token wins at query time, so the gap-fill
     Copernicus inset (priority 1) must come BEFORE the 2 m ArcticDEM
     strips (priority 50) although its file name sorts after them — BGGH
-    1.0.476 drew its runway on Copernicus with ARCTICDEM2M on disk."""
+    1.0.476 drew its runway on Copernicus with ARCTICDEM2M on disk; the
+    bake (`bake_candidate_inset_paths`) baked them in the same order."""
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
@@ -624,6 +625,8 @@ def test_composite_puts_the_highest_priority_inset_last(tmp_path, monkeypatch):
     tokens = INSETS.assemble_inset_composite_source(tile, "").split(";")
     assert [os.path.basename(t) for t in tokens[1:]] == [
         "BGGH_copernicusglo30.tif", "BGGH_arcticdem2m.tif"]
+    # the bake reads the SAME listing: a later bake overwrites an earlier one
+    assert INSETS.bake_candidate_inset_paths(tile) == tokens[1:]
 
 
 def test_composite_assembly_is_noop_when_gate_off(tmp_path, monkeypatch):

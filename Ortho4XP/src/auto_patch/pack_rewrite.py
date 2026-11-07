@@ -43,7 +43,7 @@ def rewrite_dsf(pack_root: str, pack_name: str, dsf: str,
     backup = dsf + BACKUP_SUFFIX
     omit = (_pa.recorded(_bs.dsf_entry(_bs.read_record(dsf),
                                        os.path.basename(dsf)),
-                         sha256_file(backup))
+                         sha256_file(backup), pack_root)
             if os.path.isfile(backup) else ())
     plan = PlacementPlan("", pack_name, pack_root, dsf, backup,
                          Provenance("", _engine_version(), "", {}))

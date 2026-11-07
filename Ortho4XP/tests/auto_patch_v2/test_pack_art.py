@@ -182,6 +182,37 @@ def test_backslash_paths_read_as_slash(tmp_path):
     assert _missing(pack, dump) == ()
 
 
+def test_a_leading_slash_path_is_pack_relative(tmp_path):
+    """X-Plane appends a definition path to the pack folder, so
+    ``/obstacles/x.obj`` is the pack's file, never the volume root's
+    (Orbx TrueEarth overlays: 63 definitions read as not installed) —
+    also through a SYMLINKED pack root; a genuinely absent one is still
+    named."""
+    dump = ("OBJECT_DEF /obstacles/chimney99.obj\n"
+            "OBJECT_DEF /obstacles/gone.obj\n"
+            "OBJECT 0 1 2 3\nOBJECT 1 1 2 3\n")
+    pack, _ = _pack(tmp_path, present=("obstacles/chimney99.obj",), dump=dump)
+    link = tmp_path / "Custom Scenery" / "Linked Pack"
+    link.parent.mkdir()
+    link.symlink_to(pack, target_is_directory=True)
+    for root in (pack, link):
+        got = _missing(root, dump)
+        assert [(m.index, m.path, m.uses) for m in got] == [
+            (1, "/obstacles/gone.obj", 1)]
+
+
+def test_a_recorded_omission_never_replays_a_resolving_definition(tmp_path):
+    """A record written by an earlier, wrong check (the leading-slash
+    blocker) is re-read against the pack: what the pack folder provides
+    stays in; what is still absent stays out."""
+    pack, _ = _pack(tmp_path, present=("obstacles/chimney99.obj",))
+    rows = (PA.MissingDef("object", 0, "/obstacles/chimney99.obj", 1),
+            PA.MissingDef("object", 1, "/obstacles/gone.obj", 1))
+    entry = {"omitted_art": PA.record("aa", rows, {}, "t")}
+    assert PA.recorded(entry, "aa") == rows
+    assert PA.recorded(entry, "aa", str(pack)) == rows[1:]
+
+
 def test_no_library_index_says_nothing(tmp_path):
     pack, _ = _pack(tmp_path)
     assert PA.missing_definitions(str(pack), DUMP.splitlines(True), None) is None

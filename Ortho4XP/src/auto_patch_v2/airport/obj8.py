@@ -347,13 +347,24 @@ def read_library_index(path: str) -> dict[str, str] | None:
 
 def resolve_resource(def_path: str, pack_root: str | None,
                      index: _t.Mapping[str, str] | None) -> str | None:
-    """Pack-relative wins, then the library index (X-Plane's order)."""
+    """Pack-relative wins, then the library index (X-Plane's order).
+
+    A definition path is ALWAYS relative: X-Plane appends it to the pack
+    folder, so a LEADING ``/`` (Orbx TrueEarth overlays write
+    ``/obstacles/chimney99.obj``) names the same pack file — never the
+    file-system root, which ``os.path.join`` would make of it and then
+    report the definition as not installed (the leading-slash blocker:
+    63 Orbx definitions, 87 placements omitted)."""
+    rel = def_path.lstrip("/")
+    if not rel:
+        return None
     if pack_root:
-        cand = os.path.join(pack_root, def_path)
+        cand = os.path.join(pack_root, rel)
         if os.path.isfile(cand):
             return cand
     if index:
-        phys = index.get(def_path) or index.get(def_path.lower())
+        phys = (index.get(def_path) or index.get(rel)
+                or index.get(def_path.lower()) or index.get(rel.lower()))
         if phys and os.path.isfile(phys):
             return phys
     return None

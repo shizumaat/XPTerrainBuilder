@@ -87,3 +87,42 @@ def test_a_bore_mouth_beside_a_floor_seats_at_that_floor(tmp_path):
 def _dc_replace(obj, **kw):
     import dataclasses
     return dataclasses.replace(obj, **kw)
+
+
+def _flat_ground(z):
+    return lambda xs, ys: np.full(len(np.atleast_1d(xs)), float(z))
+
+
+def test_an_at_grade_plate_under_a_shared_datum_is_pavement_not_a_floor(tmp_path):
+    """kmcifloor (owner 2026-11-07, KMCI "this is flat ground ... No tunnel
+    here"): a shared-datum pack hangs its ground plates metres under the
+    datum, beside buildings whose walls hang there too — the ZERO is no
+    witness.  The ground around the plate stands at the plate: no floor."""
+    cache = O.ResourceCache(THICK)
+    objs = [_placed(_cover(tmp_path), "dsf:obj1"), _placed(_ramped_floor(tmp_path), "dsf:obj2")]
+    floors, notes = OF.read_object_floors(objs, cache, LAW, {}, ground=_flat_ground(96.2))
+    assert floors == [] and any("not a sunken floor" in n for n in notes), notes
+
+
+def test_a_floor_sunk_under_the_ground_around_it_is_still_the_cut(tmp_path):
+    """EGLL-like: the same floor with the ground at its covers' zero (4 m
+    over its plate) is a trench floor."""
+    cache = O.ResourceCache(THICK)
+    objs = [_placed(_cover(tmp_path), "dsf:obj1"), _placed(_ramped_floor(tmp_path), "dsf:obj2")]
+    floors, notes = OF.read_object_floors(objs, cache, LAW, {}, ground=_flat_ground(100.0))
+    assert [f.object_id for f in floors] == ["dsf:obj2"], notes
+
+
+def test_the_authors_plates_are_the_ground_a_floor_is_sunk_under(tmp_path):
+    """Owner 2026-11-07: "measuring against the ground the author was
+    using".  The design ground (2.8 m over the plate) alone would read the
+    floor as sunk; the author laid a ground plate around it at the floor's
+    own height, so it is pavement."""
+    cache = O.ResourceCache(THICK)
+    plate = _write(tmp_path / "apron.obj", [_box(-40.0, -20.0, 80.0, 120.0, 0.2, y0=-4.0)])
+    objs = [_placed(_cover(tmp_path), "dsf:obj1"), _placed(_ramped_floor(tmp_path), "dsf:obj2"),
+            _placed(plate, "dsf:obj3")]
+    floors, notes = OF.read_object_floors(objs, cache, LAW, {}, ground=_flat_ground(99.0))
+    assert floors == [], notes
+    assert any("dsf:obj2" in n and "not a sunken floor" in n and "plates" in n
+               for n in notes), notes

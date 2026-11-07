@@ -541,6 +541,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.emit.surface",
     "auto_patch_v2.emit.terrain_edge",
     "auto_patch_v2.geom",
+    "auto_patch_v2.geom.author_ground",
     "auto_patch_v2.geom.base_slab",
     "auto_patch_v2.geom.cluster_outline",
     "auto_patch_v2.geom.containment",

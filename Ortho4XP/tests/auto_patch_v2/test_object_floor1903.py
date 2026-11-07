@@ -87,3 +87,29 @@ def test_a_bore_mouth_beside_a_floor_seats_at_that_floor(tmp_path):
 def _dc_replace(obj, **kw):
     import dataclasses
     return dataclasses.replace(obj, **kw)
+
+
+def _flat_ground(z):
+    return lambda xs, ys: np.full(len(np.atleast_1d(xs)), float(z))
+
+
+def test_an_at_grade_plate_under_a_shared_datum_is_pavement_not_a_floor(tmp_path):
+    """kmcifloor (owner 2026-11-07, KMCI "this is flat ground ... No tunnel
+    here"): a shared-datum pack hangs its ground plates metres under the
+    datum, beside buildings whose walls hang there too — the ZERO is no
+    witness.  The ground around the plate stands at the plate: no floor."""
+    cache = O.ResourceCache(THICK)
+    objs = [_placed(_cover(tmp_path), "dsf:obj1"), _placed(_ramped_floor(tmp_path), "dsf:obj2")]
+    floors, notes = OF.read_object_floors(objs, cache, LAW, {}, ground=_flat_ground(96.2))
+    assert floors == [] and any("not a sunken floor" in n for n in notes), notes
+
+
+def test_a_floor_sunk_under_the_ground_around_it_is_still_the_cut(tmp_path):
+    """EGLL-like: the same floor with the ground at its covers' zero (4 m
+    over its plate) is a trench floor."""
+    cache = O.ResourceCache(THICK)
+    objs = [_placed(_cover(tmp_path), "dsf:obj1"), _placed(_ramped_floor(tmp_path), "dsf:obj2")]
+    floors, notes = OF.read_object_floors(objs, cache, LAW, {}, ground=_flat_ground(100.0))
+    assert [f.object_id for f in floors] == ["dsf:obj2"], notes
+    assert OF._sunken_depth(floors[0].faces, floors[0].footprint, _flat_ground(100.0),
+                            LAW) > LAW.tables.structures.tunnel.object.floor_sunken_min_m

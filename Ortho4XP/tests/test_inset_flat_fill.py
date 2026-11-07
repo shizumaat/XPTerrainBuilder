@@ -77,7 +77,7 @@ def test_the_bake_leaves_the_base_dem_under_a_fill(tmp_path, monkeypatch):
     the refusal is recorded beside the baked insets."""
     path = _all_zero_fill(tmp_path)
     monkeypatch.setattr(INSETS, "bake_candidate_inset_paths",
-                        lambda tile: [path])
+                        lambda tile, keep_declined=False: [path])
     monkeypatch.setattr(INSETS, "insets_enabled_for_tile",
                         lambda tile: True)
     baked = []
@@ -91,3 +91,74 @@ def test_the_bake_leaves_the_base_dem_under_a_fill(tmp_path, monkeypatch):
     assert numpy.array_equal(dem.alt_dem, hill)
     assert dem.airport_inset_provenance == []
     assert len(dem.airport_inset_nodata_refusals) == 1
+
+
+# ---------------------------------------------------------------------
+# LFKC 2026-11-06: the bake declined an all-zero TINITALY cut over
+# Corsica, but the composite (``alt_vec`` -> road altitudes) still read
+# it, putting 5,565 road nodes at 0.000 m.  One rule for both.
+# ---------------------------------------------------------------------
+
+def _relief(tmp_path, name):
+    values = 20.0 + numpy.tile(numpy.linspace(0.0, 40.0, 64), (64, 1))
+    return _write(tmp_path / name, values)
+
+
+def _tile_listing(monkeypatch, paths):
+    monkeypatch.setattr(INSETS, "insets_enabled_for_tile",
+                        lambda tile: True)
+    monkeypatch.setattr(INSETS, "select_provider_definitions",
+                        lambda *a, **k: [])
+    monkeypatch.setattr(INSETS, "list_cached_inset_dems",
+                        lambda *a, **k: list(paths))
+    return type("T", (), {"lat": 35, "lon": -6})()
+
+
+def test_an_all_zero_inset_never_reaches_the_composite(tmp_path,
+                                                       monkeypatch):
+    zero = _all_zero_fill(tmp_path)
+    good = _relief(tmp_path, "XREL_goodprov.tif")
+    tile = _tile_listing(monkeypatch, [good, zero])
+    assert INSETS.bake_candidate_inset_paths(tile) == [good]
+    assert zero in INSETS.bake_candidate_inset_paths(tile,
+                                                     keep_declined=True)
+    composite = INSETS.assemble_inset_composite_source(tile, "BASE")
+    assert composite.split(";") == ["BASE", good]
+    assert [p for (_b, _r, p) in INSETS.baked_inset_boxes(tile)] == [good]
+
+
+def test_a_tile_whose_only_inset_is_a_fill_queries_the_base(tmp_path,
+                                                            monkeypatch):
+    tile = _tile_listing(monkeypatch, [_all_zero_fill(tmp_path)])
+    assert INSETS.assemble_inset_composite_source(tile, "BASE") == "BASE"
+
+
+def test_a_constant_inset_is_declined_whatever_its_value(tmp_path):
+    """The LF7431 swissALTI3D shape: one non-zero constant (372.1 m)."""
+    values = numpy.full((64, 64), 372.1)
+    values[:50, :] = NODATA
+    path = _write(tmp_path / "XCON_fillprov.tif", values)
+    assert INSETS.inset_is_effectively_empty(path)[0] is True
+
+
+def test_a_fetched_constant_raster_is_recorded_no_coverage(tmp_path,
+                                                           monkeypatch):
+    import O4_File_Names as FNAMES
+    monkeypatch.setattr(FNAMES, "Elevation_dir",
+                        str(tmp_path / "Elevation_data"))
+    box = (-5.95, 35.68, -5.85, 35.78)
+
+    def fetch(definition, bbox, resolution, destination, **kwargs):
+        _write(destination, numpy.full((64, 64), 372.1))
+        return {"provider": definition["code"],
+                "bounding_box_wgs84": list(bbox)}
+
+    monkeypatch.setattr(INSETS, "fetch_inset", fetch)
+    INSETS.ensure_airport_insets(
+        35, -6, {"XCON": box},
+        [{"code": "FILLPROV", "access_strategy": "wcs",
+          "coverage_bbox": "-6,35,-5,36"}], 5.0)
+    status = INSETS._read_index(35, -6)["XCON"]["FILLPROV"]
+    assert status == INSETS.NO_COVERAGE
+    assert not os.path.isfile(
+        FNAMES.airport_inset_dem(35, -6, "XCON", "FILLPROV"))

@@ -681,6 +681,8 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     from auto_patch_v2.airport.wall_shade import attach_wall_shade
     from auto_patch_v2.classify import load_rules as _load_rules
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
+    from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
+    airport = attach_entrance_shade(airport, pack_objects, ocache, law)   # #1747
     from auto_patch_v2.airport import flat_pack as _flat_pack     # flat-pack spec §1
     airport = _dc.replace(airport, flat_pack=_flat_pack.detect(airport, law))
     print(f"[{icao}] " + _flat_pack.log_line(icao, airport.flat_pack))
@@ -2213,6 +2215,11 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
                           _fe.quantum(law))
         _objs, _orep = _read_objects(airport, law, _ocache)
+        # #1747: a capture written before ``Airport.entrance_shade`` derives
+        # it here, off the pack read the classify / planar stages take
+        if getattr(airport, "entrance_shade", None) is None:
+            from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
+            airport = attach_entrance_shade(airport, _objs, _ocache, law)
     if resume == "classify":
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster
@@ -2253,6 +2260,9 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                                    object_report=_orep, rim_diagnostics=rim_diagnostics)
             print(f"[{icao}] planar stage {time.perf_counter() - _pt:.1f} s "
                   f"(work-pool budget {pool_budget()})")
+            # deck redesign: every hard deck read or refused, and why
+            for _ln in getattr(getattr(_ps, "structures", None), "hard_decks", ()) or ():
+                print(f"[{icao}] hard deck: {_ln}")
             if rim_diagnostics:
                 for _ln in rim_diagnostic_lines(pm):
                     print(f"[{icao}] {_ln}")
@@ -2416,7 +2426,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                     rows=(lambda cs0: drop_rows(cs0, drop, check=False)) if drop else None)
                 return rec.derived()
             _t1 = time.perf_counter()
-            s1 = stage_one_problem(cl, _ribbon_free, pm.registries)
+            s1 = stage_one_problem(cl, _ribbon_free, pm.registries, full=pm)
             if s1 is not None:
                 s1.bind(pm)
                 print(f"[{icao}] stage 1 on the ribbon-free map (#100 (c)): {s1.report} "
@@ -2547,6 +2557,15 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     except ImportError:
         pass
     try:
+        # issue #359: the build's follower pass (the lot follows its pad)
+        from auto_patch_v2.pipeline.lot_follow import lot_follow_rewrite
+        _kw["follow_rewrite"] = lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z)
+        # issue #517: the build's ceiling between two junctions held low
+        from auto_patch_v2.constraints.taxi_trend import low_hold_retarget
+        _kw["hold_rewrite"] = (lambda pm_x, lv: low_hold_retarget(pm_x, law, lv, _tt2))
+    except ImportError:
+        pass
+    try:
         # flat-pad spec v2 §1 / §2: the build's own hold binding
         from auto_patch_v2.constraints.no_step import hold_pass
         _kw["hold"] = hold_pass(pm, law, airport)
@@ -2608,7 +2627,14 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
               f"{_tt2.get('retarget_worst_m', 0.0):.2f} m); hold "
               f"{_tt2.get('hold_passes')} passes, residual "
               f"{_tt2.get('hold_residual_m')} m"
-              + (" (stalled)" if _tt2.get("hold_stalled") else ""))
+              + (" (stalled)" if _tt2.get("hold_stalled") else "")
+              + f"; {_tt2.get('low_hold_spans', 0)} span(s) between two low holds ("
+                f"{_tt2.get('low_hold_refused', 0)} chain(s) smoothed less: past the "
+                "no-step window), "
+                f"{_tt2.get('low_hold_moved', 0)} targets ceiled "
+                f"({_tt2.get('low_hold_beyond', 0)} past a span; worst "
+                f"{_tt2.get('low_hold_worst_m', 0.0):.2f} m) over "
+                f"{_tt2.get('low_hold_calls', 0)} stage-1 solve(s)")
         for _r in (_tt2.get("short_connectors") or ())[:20]:
             print(f"    SHORT CONNECTOR at {_r['ll'][0]:.7f},{_r['ll'][1]:.7f}: run "
                   f"{_r['run_m']:.1f} m, height {_r['height_m']:.2f} m needs "
@@ -2649,6 +2675,12 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                      else ()), *rep.pin_yield], print)
     except (ImportError, AttributeError):
         pass
+    try:
+        # deck redesign §5 (b): the build's own post-solve deck levels
+        from auto_patch_v2.pipeline.emit_stage import with_deck_levels
+        pm = with_deck_levels(icao, pm, sol, print)
+    except ImportError:
+        pass
     print(f"[{icao}] {rep.jetway_strip.line()}")
     for _s in rep.jetway_strip.strips:
         print(f"    strip {_s['id']} pad {_s['pad_ref']} frontage resid "
@@ -2658,6 +2690,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
               f"{max((abs(c[2]) for c in _s['clamps']), default=0.0)} m "
               f"{sorted({c[1] for c in _s['clamps']})}")
     print(f"[{icao}] solve (ONE pass, 08k): {wall:.1f} s status {sol.status.value}")
+    # issue #359: the follower pass after stage 2 (the lot follows its pad)
+    print(f"[{icao}] follower pass (#359): "
+          f"{getattr(rep, 'follow_stage', None) or 'did not run (no lot follows)'}")
     print(f"[{icao}] resume {resume}; rows {cs.counts()}; dropped generators {drop or '-'}; "
           f"solve {wall:.1f} s status {sol.status.value}; {rep.line()}")
     print(f"[{icao}] LP size: {size}")
@@ -2873,8 +2908,12 @@ def _null_twin(_null, held: dict, trace, sol, rep, law, strips, n: int, method: 
         else:
             cs_x = _null.with_bands(cs, bands)
         kw["stage2_rewrite"] = lambda lv: reach_seed_rewrite(pm, law, cs_x, lv)
-        from auto_patch_v2.constraints.taxi_trend import stage_one_retarget
+        from auto_patch_v2.constraints.taxi_trend import (
+            low_hold_retarget,
+            stage_one_retarget,
+        )
         kw["trend_rewrite"] = lambda pm_x, lv: stage_one_retarget(pm_x, law, None, lv)
+        kw["hold_rewrite"] = lambda pm_x, lv: low_hold_retarget(pm_x, law, lv)
         return solve_design(pm, cs_x, law, Options(verbose=verbose), method=method,
                             strips=strips, **kw)
     t = time.perf_counter()

@@ -433,7 +433,9 @@ def _stamp_header(task: dict) -> dict[str, str]:
     if apt:
         hdr["o4_apt_dat"] = urllib.parse.quote(str(apt))
         try:
-            hdr["o4_apt_dat_mtime"] = f"{os.path.getmtime(apt):.6f}"
+            # #1916: the shipped file's date, not the flatten strip's
+            from auto_patch_v2.airport.apt_flatten import read_mtime
+            hdr["o4_apt_dat_mtime"] = f"{read_mtime(str(apt)):.6f}"
         except OSError:
             pass
     fresh = task.get("freshness")
@@ -768,6 +770,10 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             # building pad whose frontage the apron cannot be welded to
             # within the caps) — said by the parent, ``driver``
             "warnings": list(res.report.get("warnings") or ()),
+            # #1362: the pack supplies its own ground and no companion
+            # terrain mesh was found -- named by the parent (``driver``)
+            "pack_ground_no_mesh": (res.report.get("load") or {}).get(
+                "pack_ground_no_mesh"),
             "v2": {"status": status, "law_tables": digest,
                    "ruleset": law.ruleset_key, "wall": res.wall,
                    "report": os.path.join(scratch, icao + ".report.json"),

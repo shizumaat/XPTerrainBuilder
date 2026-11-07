@@ -207,11 +207,22 @@ def _band_law(law):
     through it the ridge — up: the arms' difference fell to 0.023 m.  This
     twin measures the reach band, so both of its arms hold that register
     empty; ``test_the_ridge_does_not_come_down`` also reads the shipped
-    law, where the ridge still never comes down."""
+    law, where the ridge still never comes down.
+
+    For the same reason the arms PRICE the taxi centreline (owner RULINGS
+    2026-11-05a, #1893, made it hard): this fixture's two runways are
+    ~3.6 m further apart than the taxi network's 1.5 % joins, and the law
+    arm gives the runway a slack no pull reaches.  Hard, the centreline
+    holds 09/27's ridge 4 m down in BOTH arms (identical to 1e-9) and the
+    band, this twin's subject, is moot.  In the shipped law the runway's
+    first hold outranks the centreline (``[design]
+    hard_conflict_yield_first``; ``test_runway_first``)."""
     import dataclasses as _dc
     d0 = law.tables.emit.design
+    hard = tuple(h for h in d0.hard_rulings if h not in d0.hard_conflict_yield_first)
     return _dc.replace(law, tables=_dc.replace(law.tables, emit=_dc.replace(
-        law.tables.emit, design=_dc.replace(d0, runway_led_rulings=()))))
+        law.tables.emit, design=_dc.replace(d0, runway_led_rulings=(),
+                                            hard_rulings=hard))))
 
 
 # ── the derivation site ──────────────────────────────────────────────────

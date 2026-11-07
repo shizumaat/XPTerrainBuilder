@@ -27,6 +27,9 @@ class StructureStats:
     #: 2026-10-30a: the hard-deck bridges read (``planar/deck_bridge``), and
     #: the deck pieces refused as none
     hard_decks: list[str] = _dc.field(default_factory=list)
+    #: #1903 (owner 2026-11-06): the trench objects' own floors cut into the
+    #: map (``planar/object_floor_cells``), one note each
+    object_floors: list[str] = _dc.field(default_factory=list)
     #: spec §29 (2): bores with NO mouth on the field — nothing is built for
     #: them (the old ``bores_uncovered``, whose test was the bore's cover).
     bores_no_mouth: int = 0
@@ -75,6 +78,9 @@ class StructureStats:
     #: spanning an object corridor, kept as decks over the ramp.
     pavement_decks: int = 0
     refused: list[str] = _dc.field(default_factory=list)
+    #: runway-family cells cut where a pack deck object carries the runway
+    #: over a corridor (owner RULINGS 2026-11-03b, accepted 2026-11-03T13:58Z)
+    runway_cut_under_deck: int = 0
     #: §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-15y): one line per
     #: MOUTH ROAD minted (``planar/structure_road.mouth_pair_roads``) plus
     #: the class's own tally, for the structures line.

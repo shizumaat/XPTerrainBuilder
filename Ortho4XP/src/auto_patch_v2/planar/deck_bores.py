@@ -48,7 +48,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..model.airport import OsmWay
-from .deck_bridge import DeckBridge, across_dir, mid_line, project_span
+from .deck_bridge import DeckBridge, across_dir, deck_polygon, deck_side, mid_line, project_span
 from .structure_approach import carriageway_width_m
 
 __all__ = ["deck_bores", "deck_lanes", "lane_band"]
@@ -73,7 +73,7 @@ def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
     parents: dict[int, LineString] = {}
     notes: list[str] = []
     for db in decks:
-        clip = db.polygon.buffer(-inset, join_style="mitre")
+        clip = deck_polygon(db).buffer(-inset, join_style="mitre")
         if clip.is_empty:
             continue
         mid = _midline(db)
@@ -135,19 +135,27 @@ def _already_bored(c: Point, half: float, clip, lines, tree, min_span: float) ->
 
 def deck_lanes(mouths: _t.Sequence, deck_of: _t.Mapping[int, "DeckBridge | None"],
                sep_m: float) -> tuple[dict[int, int], dict[int, list[float]]]:
-    """``(lane index per mouth id, every lane's centre per deck id)``: the
-    mouths under one deck, ordered across the road (``across_dir``), split
-    into lanes wherever two neighbours stand more than ``sep_m`` apart
-    (module doc).  Keyed by ``id()`` of the mouth and of the deck."""
-    by_deck: dict[int, list[tuple[float, int]]] = {}
+    """``(lane index per mouth id, every lane's centre per deck side)``: the
+    mouths on ONE SIDE of one deck (``deck_side``), ordered across the road
+    (``across_dir``), split into lanes wherever two neighbours stand more
+    than ``sep_m`` apart (module doc).  Keyed by ``id()`` of the mouth and
+    by ``(id(deck), side)``.  The mouths of one road on the deck's two
+    sides are the two halves of one cut, never two lanes: MEASURED (LFPG,
+    the A1 under 09R/27L, deck redesign PR B) a road crossing the deck
+    obliquely stood its two mouths 21 m apart across the road, the halves
+    read as two lanes, and each half's bank stopped halfway across the
+    ring — 1,788 m2 of runway left uncut inside it, sharing 11 vertices
+    with the floor (S4)."""
+    by_deck: dict[tuple[int, int], list[tuple[float, int]]] = {}
     for m in mouths:
         db = deck_of.get(id(m))
         if db is None:
             continue
         n = across_dir(db)
-        by_deck.setdefault(id(db), []).append((m.xy[0] * n[0] + m.xy[1] * n[1], id(m)))
+        by_deck.setdefault((id(db), deck_side(db, m.inward)), []).append(
+            (m.xy[0] * n[0] + m.xy[1] * n[1], id(m)))
     lane_of: dict[int, int] = {}
-    centres: dict[int, list[float]] = {}
+    centres: dict[tuple[int, int], list[float]] = {}
     for key, us in by_deck.items():
         us.sort()
         lanes: list[list[float]] = [[us[0][0]]]

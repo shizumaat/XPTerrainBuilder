@@ -28,6 +28,8 @@ import pickle
 import re
 import typing as _t
 
+from O4_Scenery_Packs import earth_nav_data
+
 from .apt_dat import LonLat, _bezier, _segments_for, _sparsify, _LAT_SCALE
 import math
 
@@ -90,9 +92,10 @@ def mod_cache_dir(mod_cache_root: str, pack_name: str) -> str:
 
 
 def dsf_path_in_pack(pack_root: str, lat: int, lon: int) -> str:
-    """``<pack>/Earth nav data/<10° block>/<tile>.dsf``."""
+    """``<pack>/Earth nav data/<10° block>/<tile>.dsf`` (the folder's case
+    as on disk, #1887)."""
     block = f"{(lat // 10) * 10:+03d}{(lon // 10) * 10:+04d}"
-    return os.path.join(pack_root, "Earth nav data", block,
+    return os.path.join(earth_nav_data(pack_root), block,
                         f"{lat:+03d}{lon:+04d}.dsf")
 
 

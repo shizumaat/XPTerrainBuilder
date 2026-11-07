@@ -317,12 +317,9 @@ struct BuildPane: View {
                         Text(O4CustomPatchText.info(files))
                             .scaledFont(.caption)
                             .fixedSize(horizontal: false, vertical: true)
-                        Button(O4CustomPatchText.useAutoPatchTitle) {
-                            buildModel.useAutoPatch(for: active)
-                        }
-                        .controlSize(.small)
-                        .disabled(buildModel.isBuilding)
-                        .help(O4CustomPatchText.useAutoPatchHelp)
+                        UseAutoPatchButton(buildModel: buildModel,
+                                           activity: buildModel.activity,
+                                           tile: active)
                     }
                 }
             }

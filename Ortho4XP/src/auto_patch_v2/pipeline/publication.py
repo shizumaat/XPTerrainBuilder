@@ -131,8 +131,7 @@ from ..constraints.shoulder_crossing import crossed_shoulder_caps
 from ..constraints.runway_profile import crown_drops, runway_half_widths
 from ..constraints.runway_yield import RunwayCap as _RunwayCap
 from ..constraints.runway_yield import TaxiYield as _TaxiYield
-from ..constraints.seams import GEN as SEAM_GEN, seam_pins
-from ..model.constraints import pinned_vertices
+from ..constraints.seams import seam_pin_z
 from ..constraints.stretches import stretches
 from ..constraints.taxi import taxi_pair_routes
 from ..constraints.transverse import axes
@@ -448,7 +447,8 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     # honour.  A pin holds exactly, so there is no "honoured" subset to
     # filter by, and the census's ``seam_residual`` family reads exactly
     # this list against the DEM value published beside it.
-    seam_all = pinned_vertices(seam_pins(planar, law, airport), SEAM_GEN)
+    seam_z = seam_pin_z(planar, law, airport)       # what the solve holds
+    seam_all = set(seam_z)
     pins = sorted(seam_all)
     # the pairs the solver priced: a pin↔pin pair was exempt in the solve
     # (constraints.seam_exempt) and is not published — the census prices
@@ -578,6 +578,10 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # held block — minted by law (``planar/pad_cut.plateau_cut``),
             # EXPECTED added airside nodes, excluded from the renode bar
             "plateau_rings": _plateau_rings(planar, law),
+            # deck-end-anchors spec §1 / §6 (RULINGS 2026-11-03c): every
+            # pack hard deck's end-line anchors — LAW INPUT for the
+            # ``deck_end_flush`` census family; ``[]`` with no hard deck
+            "deck_anchors": _deck_anchor_records(planar),
             # 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS
             # 2026-09-30ah (1), issue #135): per TIED taxi-family face the
             # cap it was priced at, its table cap and the runway that
@@ -588,6 +592,13 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                 ty.as_dict() for _f, ty in sorted(
                     (getattr(planar, "taxi_caps", None) or {}).items())
                 if isinstance(ty, _TaxiYield)],
+            # 11-05a THE TAXI ROUTE EXCEPTION (issue #1893): per yielded route
+            # its two fixed ends, length, needed grade and the cap its
+            # stretches were raised to (``over_ceiling`` where even the
+            # ceiling cannot join them).  EVIDENCE: the cap itself rides on
+            # the published ``stretches`` / ``axes``.  Empty where none.
+            "taxi_route_caps": [r.as_dict() for r in
+                                (getattr(planar, "taxi_routes", None) or ())],
             # §30 (4) THE CLUSTER PADS (owner RULINGS 2026-09-13bj item 1):
             # what the object stage's §16g seats a big terminal on, and
             # what the report reads to name the apron faces that stayed
@@ -636,9 +647,8 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # the value the solve held rather than re-sampling a DEM no
             # patch carries.  A patch predating §38 carries 2-element
             # entries and every reader still reads its first two.
-            "seam_pins": [[ll[v][0], ll[v][1],
-                           round(float(planar.vertices[v].dem_z), 4)]
-                          if planar.vertices[v].dem_z is not None else ll[v]
+            "seam_pins": [[ll[v][0], ll[v][1], round(seam_z[v], 4)]
+                          if v in seam_z else ll[v]
                           for v in pins],
             # the band's own half width, so the census can read "inside the
             # seam band" (``bank_across_seam``) from the law the build ran
@@ -765,6 +775,10 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # every airport but the three the class was measured over.
             "channel_facilities": channel_facilities(planar, law, z),
             "object_cuts": object_cuts(planar, airport),
+            # #1903 (owner 2026-11-06): each trench object whose own floor is
+            # the cut over its footprint — REPORT ONLY (``tools/drawn_check``
+            # claims its objects as CUT sites)
+            "object_floors": object_floors(planar, airport),
             # THE JETWAY STRIPS (owner RULINGS 2026-09-18t Q3; jetway-strip
             # spec §2 (6)): per strip its pad, its ONE level, its riders,
             # its vertices by identity and its clamps — LAW INPUT for the
@@ -779,6 +793,12 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     if _doc.get("pad_airside_renode") is None:
         _doc.pop("pad_airside_renode", None)
     return _doc
+
+
+def _deck_anchor_records(planar: PlanarMap) -> list[dict]:
+    """The sidecar ``deck_anchors`` (``constraints/deck_anchor.sidecar_records``)."""
+    from ..constraints.deck_anchor import sidecar_records
+    return sidecar_records(planar)
 
 
 def _plateau_rings(planar: PlanarMap, law: Law) -> dict[str, list]:
@@ -1380,6 +1400,16 @@ def object_cuts(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
     return out
 
 
+def object_floors(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
+    """Per trench object floor (``airport/object_floor``, #1903): its id,
+    the floor object and its covers, the floor's lowest z and its
+    footprint's area — what ``tools/drawn_check`` claims as CUT sites."""
+    return [{"id": f.id, "resource": f.resource, "objects": [f.object_id, *f.covers],
+             "floor_m": round(float(f.floor_z), 3), "zero_m": round(float(f.zero_z), 3),
+             "area_m2": round(float(f.footprint.area), 1)}
+            for f in (getattr(planar, "object_floors", ()) or ())]
+
+
 def basin_facilities(planar: PlanarMap, law: Law,
                      z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
     """The basin records (see the module docstring)."""
@@ -1416,7 +1446,8 @@ def basin_facilities(planar: PlanarMap, law: Law,
         # that plus the clearance — which is what ``emit/rebake`` seats to
         # (``Member.plate_clearance_m``), so the published expectation and
         # the seat read the same number.
-        seat_expect = float(b.seat_expect_m) + (floor_m + clearance - float(b.floor_z))
+        b_clear = b.clearance(clearance)
+        seat_expect = float(b.seat_expect_m) + (floor_m + b_clear - float(b.floor_z))
         out.append({
             "resources": list(b.objects),
             "anchor_longitude_latitude": [lon, lat],
@@ -1426,7 +1457,12 @@ def basin_facilities(planar: PlanarMap, law: Law,
             "floor_max_m": round(max(f_zs), 3) if f_zs else round(float(b.floor_z), 3),
             "floor_declared_m": round(b.floor_z, 3),
             "floor_below_rim_m": round(depth, 3),
-            "floor_clearance_m": round(clearance, 3),
+            "floor_clearance_m": round(b_clear, 3),
+            "kind": b.kind,
+            "open_sides_ll": [[[round(la, 9), round(lo, 9)] for la, lo in seg]
+                              for seg in b.open_sides_ll],
+            "closed_sides_ll": [[[round(la, 9), round(lo, 9)] for la, lo in seg]
+                                for seg in b.closed_sides_ll],
             "rim_law_m": round(rim_law, 3),
             "emitted_rim_min_m": rim_parts[0] if rim_parts else None,
             "emitted_rim_max_m": rim_parts[-1] if rim_parts else None,

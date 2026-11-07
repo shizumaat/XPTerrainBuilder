@@ -68,6 +68,7 @@ from ..law.tables import (
     runway_transverse_bound,
     runway_vertical_curve_bound,
 )
+from .deck_flush import deck_edge_vertices
 from .frame import Patch, Row, noise_m, row
 from .pins import seam_pin_vertices
 from .steps import _edges, _step_rows
@@ -211,7 +212,9 @@ def runway_transverse(p: Patch) -> list[Row]:
                for r in (p.publication.get("runway_axes") or []) if len(r) >= 6}
     crossed = crossed_shoulder_caps_of(p)       # RULINGS 2026-10-16a (i)
     owner = _transverse_owners(p, own, spines, half_of)
-    seam = seam_pin_vertices(p)                 # §38: the seam outranks the crown
+    # §38: the seam outranks the crown — and a runway deck's edge is a seam
+    # (owner 2026-11-04T07:09Z; ``constraints/runway_profile._deck_edge``)
+    seam = seam_pin_vertices(p) | deck_edge_vertices(p)
     for sh in p.shapes:
         if sh.role != "runway":
             continue

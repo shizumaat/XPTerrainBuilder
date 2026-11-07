@@ -48,6 +48,44 @@ class TunnelObject:
     # its trench outline; more is a building (#1726)
     shell_at_zero_max_fraction: float
     cover_placement_tol_m: float       # B: the cover stands at the SAME placement — position within this, same heading
+    # #1903: a FLOOR object — its near-horizontal faces carry at least this
+    # share of its solid surface
+    floor_object_min_share: float
+    # #1903: …whose cover stands its deep walls on this share of its ring
+    floor_walled_min_share: float
+    # …and whose floor stands at least this far under the author's ground
+    # around it (kmcifloor 2026-11-07: an at-grade plate is pavement)
+    floor_sunken_min_m: float
+    # …measured against THE AUTHOR'S GROUND (``geom/author_ground``): the
+    # pack's plates over this ring outside the footprint, the DEM where
+    # they cover less than this share of it
+    author_ground_inner_m: float
+    author_ground_outer_m: float
+    author_ground_step_m: float
+    author_ground_min_share: float
+    author_ground_band_m: float
+    # #1883 round 3 / #1914: THE CONCAVE CUT SHELL (``airport/object_floor``,
+    # ``geom/shape_class``): an open-top hollow whose top stands ``hollow_m``
+    # under its own rim (its outline band, ``shell_rim_band_m`` wide) over
+    # ``shell_hollow_min_share`` of its inner plan; two surfaces more than
+    # ``shell_stacked_m`` apart are a cover over a floor; less relief than
+    # ``shell_flat_m`` is a plate; the raster holds ``shell_raster_cells``
+    hollow_m: float
+    shell_hollow_min_share: float
+    shell_stacked_m: float
+    shell_flat_m: float
+    shell_rim_band_m: float
+    shell_raster_cells: int
+    # #1883 r3 A5: the shell's footprint splits where its faces fold more
+    # than this, so each cell is one plane of the shell
+    crease_deg: float
+    # #1914 (owner 2026-11-06T16:13Z "Yes, let's hide cut shells"): a shell
+    # that is the deepest stated surface with its rim at grade (within
+    # ``shell_rim_ground_m`` over ``shell_rim_ground_share`` of its outline)
+    # is left out of the written DSF — the ground IS its surface
+    hide_concave_shells: bool
+    shell_rim_ground_m: float
+    shell_rim_ground_share: float
     cover_station_m: float             # B: the cover's descending profile is binned this fine along the axis; each bin's LOWEST y is a ramp station
     parapet_max_height_m: float        # C: a thin surface wall is shorter than this
     parapet_max_width_m: float         # C: …and narrower than this in plan
@@ -56,3 +94,6 @@ class TunnelObject:
     pair_spacing_min_m: float          # C: a PAIR's axes stand this far apart at least
     pair_spacing_max_m: float          # C: …and this far at most
     pair_overlap_min_fraction: float   # C: …and overlap this share of the shorter band along the axis
+    # RULINGS 2026-11-06c (3): THE ENTRANCE SKIRT (``planar/entrance_skirt``)
+    entrance_skirt_m: float            # the ground this far round the face's top is at that top
+    entrance_bank_max_m: float         # …then falls to the DEM over at most this

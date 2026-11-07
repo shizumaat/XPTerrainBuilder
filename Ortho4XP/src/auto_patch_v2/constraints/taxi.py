@@ -76,6 +76,7 @@ from ..model.planar import PlanarMap
 from .precedence import View, view
 from .routes import CENTRELINE, CONTACT, CROSSING, LATERAL, route_pairs, routes
 from .stretches import AxisIndex, Stretches, edge_cap, pair_caps, stretches
+from .taxi_route_yield import route_pair_caps
 
 __all__ = ["taxi_chain", "taxi_centerlines", "triangle_planes",
            "pad_vertices", "plane_rows", "box_rows",
@@ -283,6 +284,7 @@ def triangle_planes(planar: PlanarMap, law: Law, airport: Airport
     """``|∇z| ≤ cap`` on every governed three-vertex face (the census's
     ``plane_gradient`` family reads triangles only)."""
     vw = view(planar, law)
+    lift = route_pair_caps(planar)
     rows: list[Row] = []
     for fid, ring in vw.rings.items():
         if len(ring) != 3 or vw.holes[fid]:
@@ -299,7 +301,12 @@ def triangle_planes(planar: PlanarMap, law: Law, airport: Airport
         f = planar.faces[fid]
         src = Source(GEN, "plane_gradient (user 2026-07-05)",
                      (f"face:{fid}", f.ref))
-        rows.extend(plane_rows(ring, vw.xy, cap[0], src))
+        lon = cap[0]
+        if lift:                         # 11-05a: a forced apron pair's triangle rises with it
+            lon = max(lon, *(lift.get((p, q) if p < q else (q, p), 0.0)
+                             for p, q in ((ring[0], ring[1]), (ring[1], ring[2]),
+                                          (ring[2], ring[0]))))
+        rows.extend(plane_rows(ring, vw.xy, lon, src))
     return rows
 
 

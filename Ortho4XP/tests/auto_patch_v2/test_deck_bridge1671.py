@@ -257,10 +257,21 @@ def test_the_rigid_row_never_releases_the_airside_and_the_floor_is_pulled_by_not
 def test_the_object_stage_seats_the_one_zero_at_the_end_lines():
     """§3 (3): the deck member carries a DECK plate — its top and every end
     line's stations — and class A reads the zero off it alone."""
-    tn = types.SimpleNamespace(deck_bridge="dsf:obj7", deck_top_y=6.0, edge_seats=(
-        ("dsf:obj7", ((0.0, 1.0), (0.0, 2.0)), 6.2), ("dsf:obj7", ((5.0, 1.0),), 6.2)))
-    plates = RI._edge_seat_plates(types.SimpleNamespace(structures=(tn,)), set())
-    y, st, clear, kind = plates["dsf:obj7"]
+    from auto_patch_v2.constraints.deck_lines import EndLine
+    pm = types.SimpleNamespace(deck_anchors=(), vertices={
+        1: types.SimpleNamespace(xy=(0.0, 1.0)), 2: types.SimpleNamespace(xy=(0.0, 2.0)),
+        3: types.SimpleNamespace(xy=(5.0, 1.0))})
+
+    def plate(oid, depth_b):
+        # deck_top_y 6.0 over the two ends' mean depth: the frame's bottom
+        deck = types.SimpleNamespace(top_a=6.0, top_b=6.0, bottom_y=6.0 - 0.5 * (6.2 + depth_b))
+        es = [EndLine(deck, ((0.0, 1.0), (0.0, 2.0)), ((1, 0.5), (2, 0.5)), 6.2),
+              EndLine(deck, ((5.0, 1.0),), ((3, 1.0),), depth_b)]
+        out, tops = {}, {}
+        RI._deck_plate(out, oid, es, set(), pm, tops)
+        _y, st, clear, kind = out[oid]
+        return sum(tops[oid].values()) / len(tops[oid]), st, clear, kind
+    y, st, clear, kind = plate("dsf:obj7", 6.2)
     assert (y, clear, kind) == (6.0, 0.0, RI.DECK_PLATE) and len(st) == 3
     m = types.SimpleNamespace(plate_kind="deck", plate_y=6.0,
                               plate_stations=((36.0, -86.0), (36.1, -86.0)))
@@ -269,10 +280,7 @@ def test_the_object_stage_seats_the_one_zero_at_the_end_lines():
     # a deck whose ends stand at different tops: the plate's y is the
     # stations' own mean top, each station once — the reference the
     # station rows hold every station flush from (round 6)
-    sloped = types.SimpleNamespace(deck_bridge="dsf:obj8", deck_top_y=6.0, edge_seats=(
-        ("dsf:obj8", ((0.0, 1.0), (0.0, 2.0)), 6.2), ("dsf:obj8", ((5.0, 1.0),), 6.4)))
-    y, st, _c, _k = RI._edge_seat_plates(types.SimpleNamespace(structures=(sloped,)),
-                                         set())["dsf:obj8"]
+    y, st, _c, _k = plate("dsf:obj8", 6.4)
     assert len(st) == 3 and abs(y - (5.9 + 5.9 + 6.1) / 3.0) < 1e-9
 
 
@@ -325,7 +333,7 @@ def test_a_runway_vertex_on_the_trench_outline_is_never_the_floor():
     roles = {1: ("tunnel_ramp",), 2: ("tunnel_ramp", "runway"), 3: ("runway",),
              4: ("tunnel_ramp", "runway_crossing"), 5: ("tunnel_ramp", "service_road")}
     pm = types.SimpleNamespace(
-        structures=(types.SimpleNamespace(deck_bridge="dsf:obj1", deck_ring=ring),),
+        decks=(types.SimpleNamespace(ring=ring, cut="bank"),),
         vertices={v: types.SimpleNamespace(xy=(5.0, 5.0)) for v in roles},
         roles_at=lambda v: roles[v])
     floor, trench = ED.deck_floor(pm)
@@ -439,3 +447,26 @@ def test_the_survey_is_never_read_under_a_deck(tmp_path):
     (db,), notes = _slab_read(tmp_path, airport)
     (ref,), _n = _slab_read(tmp_path, AIRPORT)
     assert abs(db.depth_m - ref.depth_m) < 1e-6 and "surveyed road" not in notes[0]
+
+
+def test_a_ladder_floor_never_lifts_its_deck(tmp_path):
+    """#1903 (owner 2026-11-05: airside never moves by the cut; KIAH_Bridge1
+    lifted 0.85 / 1.40 m with its taxiway): a deck whose frame stops short
+    of the road takes the ladder's floor (``floor_min_m``), and its floor row is
+    ONE-SIDED — at least ``[tunnel] clearance_m`` under the deck seat,
+    free to sink; a frame whose own bottom states the floor keeps the pair."""
+    (db,), _n = _slab_read(tmp_path, AIRPORT)
+    assert db.floor_min_m == LAW.tables.structures.tunnel.clearance_m
+    (tmp_path / "w").mkdir()
+    assert _bridge(tmp_path / "w").floor_min_m == 0.0
+    (lb,), _n = _slab_read(tmp_path / "w", AIRPORT, level_b=7.0)
+    assert lb.floor_min_m == 7.0          # level B keeps its depth (LFPG A1: 7 m)
+    rows = EF.seat_pair(9, (3, float(LAW.tables.structures.tunnel.clearance_m)),
+                        Source("structures", "x", ()))
+    assert rows[0].lo is None and abs(rows[0].hi + LAW.tables.structures.tunnel.clearance_m) < 1e-12
+    # the trench two ladder decks share (``edge_floor_s``): every other row
+    # of the sloped pairs is the deep-enough half
+    two = EF.sloped_floor_rows([(5.0, [9]), (8.0, [10])], ((3, 5.0), (4, 5.0)), (0.0, 10.0),
+                               Source("structures", "x", ()))[::2]
+    assert len(two) == 2 and all(r.lo is None and abs(r.hi + 5.0) < 1e-12 for r in two)
+    assert all(dict(r.terms)[v] == 1.0 for r, v in zip(two, (9, 10), strict=True))

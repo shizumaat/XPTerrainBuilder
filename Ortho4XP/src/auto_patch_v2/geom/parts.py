@@ -27,12 +27,14 @@ def line_parts(geom) -> list[LineString]:
             and g.length > 0]
 
 
-def polygon_parts_with_area(geom) -> list[Polygon]:
-    """The Polygons of ``geom`` that carry AREA (over 1e-6 m2): slivers an
-    overlay leaves behind are dropped (``None`` / empty -> ``[]``)."""
+def polygon_parts_with_area(geom, min_area_m2: float = 1e-6) -> list[Polygon]:
+    """The Polygons of ``geom`` that carry AREA (over ``min_area_m2``,
+    1e-6 m2 by default): slivers an overlay leaves behind are dropped
+    (``None`` / empty -> ``[]``)."""
     if geom is None or geom.is_empty:
         return []
-    return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]
+    return [g for g in shapely.get_parts(geom)
+            if g.geom_type == "Polygon" and g.area > min_area_m2]
 
 
 def nonempty_polygon_parts(g) -> list[Polygon]:

@@ -88,7 +88,7 @@ from ..airport.dem import dem_z_at
 from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_family, role_side
 from ..model.frame import rotated_rectangle
-from ..model.planar import ROAD_ROLES
+from ..model.planar import OSM_RIBBON_FEEDS, ROAD_ROLES
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
            "road_end_after_slide", "covered_stretch", "own_road_blade", "road_over_mouth",
@@ -405,7 +405,8 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     if pinned:
         got = _pinned(group, axis, cells, polys, pads, law, cut_roles, half, rim_off,
                       decked, grid, crossing, ring_of(0.0), taxi_yields=slide,
-                      own_lines=own_lines, own_area=own_area, own_cut=own_cut)
+                      own_lines=own_lines, own_area=own_area, own_cut=own_cut,
+                      airport=airport)
         if isinstance(got, tuple):
             return got
         # clause 1 stands over the portal: a taxiway face at its opening
@@ -563,11 +564,12 @@ PORTAL_YIELDS = "the pack portal yields to taxiway"
 
 def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, half: float,
             rim_off: float, decked, grid: float, crossing, mouth_ring, taxi_yields: bool = True,
-            own_lines=(), own_area=None, own_cut=None):
+            own_lines=(), own_area=None, own_cut=None, airport=None):
     """:func:`mouth_at_pavement` for a mouth a pack PORTAL pins: never
     slid.  The stops are read at the mapped mouth; those the mouth's own
     end (its cap and first spacing of ramp, ``mouth_ring``) stands in are
-    the portal's opening and dropped — the rest end the ramp's top.  A
+    the portal's opening and dropped, building pads alike (the portal's own
+    footprint) — the rest end the ramp's top.  A
     TAXIWAY face at the opening is never dropped (clause 1): its ref is
     returned instead (a string), and the caller slides the mouth — unless
     ``taxi_yields`` is false (an edge bridge's pin is never slid)."""
@@ -584,15 +586,46 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
         if hit and taxi_yields:
             return hit[0]
         stops = [(p, r) for p, r in stops if not p.intersects(mouth_ring)]
+        # #1747 / owner 2026-11-04 (LOWS 15): a building PAD the opening
+        # stands in is the portal object's own footprint (an entrance's
+        # walls read as a building): the ramp grades into it to the
+        # object's bottom, and only the pads beyond end its top
+        pads = [(p, r) for p, r in pads if not p.intersects(mouth_ring)]
     if own_lines:
         stops = [(p, r) for p, r in stops if not any(
             _runs_along(ln, p, _narrow_width(p), grid) for ln in own_lines)]
     if own_area is not None:
         stops = [(p, r) for p, r in stops
                  if p.difference(own_area).area > 0.5 * p.area]
+    # a road that ENDS on the ramp's own road is a junction with it, never a
+    # road through the ramp (``structure_approach.crossing_roads``' rule, read
+    # here for the classified road cells; owner 2026-11-04 ENTC: a service
+    # road joining the trunk 30 m out stopped the west ramp at 24 m)
+    joins = _junction_refs(airport, [axis] + [LineString(m.approach) for m in
+                                              getattr(group, "members", ()) or ()
+                                              if len(getattr(m, "approach", ()) or ()) >= 2],
+                           max(grid, 1.0))
+    stops = [(p, r) for p, r in stops if str(r).split("#", 1)[0] not in joins]
     stops = list(pads) + stops
     tree = STRtree([p for p, _r in stops]) if stops else None
     return axis, mouth, stops, tree, "", None
+
+
+def _junction_refs(airport, own: _t.Sequence[LineString], tol: float) -> set[str]:
+    """The cell refs (``<layer>:<way id>``) of the mapped roads that END on
+    one of ``own`` (the ramp's own road): junctions, never stops."""
+    if airport is None:
+        return set()
+    out: set[str] = set()
+    for w in getattr(airport, "osm_ways", ()) or ():
+        pts = list(getattr(w, "points", ()) or ())
+        if len(pts) < 2 or "highway" not in (getattr(w, "tags", None) or {}):
+            continue
+        if any(min(ln.distance(Point(e)) for ln in own) <= tol for e in (pts[0], pts[-1])):
+            feed = OSM_RIBBON_FEEDS.get(str(getattr(w, "kind", "")))
+            if feed:
+                out.add(f"{feed}:{w.id}")
+    return out
 
 
 def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
@@ -604,6 +637,11 @@ def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
                 f"2026-10-28d): floor {mouth_z:.2f} = its deck level {mouth_dem:.2f} − its "
                 f"walls' bottom {pin.depth_m:.2f} (20am / 20ar); the span behind the back "
                 f"is covered ground")
+    if getattr(pin, "floor_z", None) is not None and pin.roof_area_m2 > 0.0:
+        return (f"mouth pinned by the tall pack portal {pin.object_id} "
+                f"{pin.resource.rsplit('/', 1)[-1]} (owner 2026-11-04 ENTC): floor "
+                f"{mouth_z:.2f} = the surveyed ground on its roof − its roof top "
+                f"{pin.depth_m:.2f} (ground at the cap {mouth_dem:.2f})")
     if getattr(pin, "floor_z", None) is not None:
         return (f"mouth pinned by the entrance object {pin.object_id} "
                 f"{pin.resource.rsplit('/', 1)[-1]} (#1747, Q256 b): floor {mouth_z:.2f} = "

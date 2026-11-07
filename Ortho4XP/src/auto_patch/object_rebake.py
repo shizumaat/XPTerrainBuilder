@@ -2030,6 +2030,10 @@ def restore_detail(pack_root: str) -> dict:
             live_path = backup_path[:-len(BACKUP_SUFFIX)]
             if live_path.lower().endswith(".dsf"):
                 verdict = _bs.classify_dsf(live_path)
+            elif os.path.basename(live_path).lower() == "apt.dat":
+                # #1916: the apt.dat the app stripped of its flatten flag
+                from auto_patch_v2.airport import apt_flatten as _af
+                verdict = _af.classify(live_path)
             else:
                 verdict = _bs.classify_object(live_path, pack_root)
             if verdict.state is _bs.State.PRISTINE:
@@ -2047,6 +2051,7 @@ def restore_detail(pack_root: str) -> dict:
     from . import pack_choice as _PC
     _PC.Store(_PC.OPTIMISE_CHOICES).remember(pack_root, "")
     _PC.Store(_PC.OPTIMISE_STEPS, _PC.step_list).remember(pack_root, "")
+    _PC.Store(_PC.DRAPE_CHOICES).remember(pack_root, "")     # #1916
     sidecar_path = _provenance_path(pack_root)
     if os.path.isfile(sidecar_path):
         os.remove(sidecar_path)

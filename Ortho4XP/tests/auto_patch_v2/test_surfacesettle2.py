@@ -161,6 +161,7 @@ def test_the_law_names_the_join_as_the_pin_that_yields():
     # the join, and (owner RULINGS 2026-10-26b, issue #1346) the CIFP
     # threshold the tile seam outranks — ``constraints/threshold_seam``
     assert tuple(d.yielding_pin_rulings) == ("roads.coverage_edge join",
+                                             "structures.deck anchor yields to a senior pin",
                                              "runway.threshold yields to the tile seam")
     assert ruling_head(Pin(0, 0.0, Source(GEN, JOIN_RULING))) in d.yielding_pin_rulings
     # the pin that yields is not a hard row: it is a Pin, reduced away

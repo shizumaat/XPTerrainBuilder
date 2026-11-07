@@ -129,11 +129,12 @@ def _served(bores: list[Bore], airside: list[Polygon], min_m: float,
     deck, not ground, and the road there is the deck's cut."""
     if not airside:
         return []
+    from .deck_bridge import deck_polygon
     tree = STRtree(airside)
     out = []
     for b in bores:
         ln = b.line
-        if any(ln.intersects(d.polygon) for d in decks):
+        if any(ln.intersects(deck_polygon(d)) for d in decks):
             continue
         parts = [ln.intersection(airside[int(j)]) for j in tree.query(ln, predicate="intersects")]
         parts = [g for g in parts if not g.is_empty]

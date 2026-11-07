@@ -167,6 +167,7 @@ from elevation_access.definitions import (
     providers_share_country,
 )
 from elevation_access.downloads import _write_refused_by_armed_guard
+from elevation_access.geoid_shift import apply_geoid_shift
 from elevation_access import fetch_scratch as FETCH_SCRATCH
 from elevation_access import inset_trim as INSET_TRIM
 from elevation_access.fetch_slots import held_inset_fetch_slot
@@ -1253,6 +1254,11 @@ def _fetch_masking_provider_fill(strategy, definition, bounding_box_wgs84,
         record = mask_fetched_provider_fill(destination_path, definition)
         if record is not None:
             provenance["provider_fill"] = record
+        # Ellipsoidal sources (geoid_shift=, elevation_access.geoid_shift)
+        # reach every reader in the engine's EGM2008 heights.
+        shifted = apply_geoid_shift(destination_path, definition)
+        if shifted is not None:
+            provenance["geoid_shift"] = shifted
     return provenance
 
 
@@ -3396,9 +3402,8 @@ def _airport_pack_dsf_paths(xplane_root, bounding_box_wgs84):
     for pack_name in sorted(os.listdir(custom_scenery_directory)):
         if pack_name == "Global Airports" or pack_name in disabled:
             continue
-        nav_data_directory = os.path.join(
-            custom_scenery_directory, pack_name, "Earth nav data"
-        )
+        nav_data_directory = _scenery_packs.earth_nav_data(   # any case, #1887
+            os.path.join(custom_scenery_directory, pack_name))
         if not os.path.isfile(os.path.join(nav_data_directory, "apt.dat")):
             continue
         for tile_relative_path in tile_relative_paths:
@@ -3904,6 +3909,12 @@ def _write_index(lat, lon, index):
 # while float noise from recomputing the same box never does.
 INSET_BOUNDING_BOX_TOLERANCE_DEGREES = 1e-6
 
+#: THE RE-CUT SLACK (owner ruling 2026-11-06T00:33Z, "yes, up to 10m is
+#: fine"): a cached inset whose cut window misses the required window by at
+#: most this many metres on any side is CURRENT -- or by one of its own
+#: pixels, when a pixel is coarser (``inset_recut_is_needed``).
+INSET_RECUT_SLACK_M = 10.0
+
 
 def _bounding_box_extends_beyond(
     requested_box, recorded_box,
@@ -4087,7 +4098,45 @@ def inset_recut_is_needed(lat, lon, icao, provider_code, required_box):
                                                  provider_code)
     if requested_box is None:
         return False
-    return _bounding_box_extends_beyond(required_box, requested_box)
+    # THE RE-CUT SLACK (owner 2026-11-06T00:12Z, "We have all the DEM
+    # insets, they're not stale"; ruled 00:33Z "yes, up to 10m is fine"):
+    # a required window that drifts a few metres with code changes is
+    # still served when it lies within max(one inset pixel,
+    # INSET_RECUT_SLACK_M) of the cut window.  Only a window falling
+    # further outside is stale.
+    west, south, east, north = requested_box
+    pixel_lon, pixel_lat = _inset_pixel_degrees(lat, lon, icao, provider_code)
+    slack_lat = INSET_RECUT_SLACK_M / 111320.0
+    slack_lon = slack_lat / max(
+        math.cos(math.radians((south + north) / 2.0)), 1e-6)
+    tol_lon, tol_lat = max(pixel_lon, slack_lon), max(pixel_lat, slack_lat)
+    return _bounding_box_extends_beyond(
+        required_box, (west - tol_lon, south - tol_lat,
+                       east + tol_lon, north + tol_lat))
+
+
+def _inset_pixel_degrees(lat, lon, icao, provider_code):
+    """``(lon_deg, lat_deg)``: one pixel of ``icao``'s cached inset, from
+    its manifest's ``resolution_m`` (``native_resolution_m`` as fallback)
+    at the box's latitude; ``(0.0, 0.0)`` when the manifest cannot say,
+    so an unjudgeable pixel adds no slack."""
+    provenance_path = FNAMES.airport_inset_provenance(
+        lat, lon, icao, provider_code
+    )
+    try:
+        with open(provenance_path, "r", encoding="utf-8") as handle:
+            provenance = json.load(handle)
+        metres = float(provenance.get("resolution_m")
+                       or provenance.get("native_resolution_m") or 0.0)
+        box = provenance.get("requested_bounding_box_wgs84") or \
+            provenance.get("bounding_box_wgs84")
+        mid_lat = (float(box[1]) + float(box[3])) / 2.0 if box else lat + 0.5
+    except (OSError, ValueError, TypeError, IndexError):
+        return (0.0, 0.0)
+    if metres <= 0.0:
+        return (0.0, 0.0)
+    lat_deg = metres / 111320.0
+    return (lat_deg / max(math.cos(math.radians(mid_lat)), 1e-6), lat_deg)
 
 
 def _stored_rung_listing(attempt, rung_definition=None):
@@ -6656,18 +6705,32 @@ def assemble_inset_composite_source(tile, base_source):
     Deterministic and disk-state-driven: step 1 and step 2 both call this and
     get the identical composite string.
     """
-    if not insets_enabled_for_tile(tile):
-        return base_source
-    provider_definitions = select_provider_definitions(
-        getattr(tile, "airport_elevation_providers", "auto")
-    )
-    codes = [definition["code"] for definition in provider_definitions]
-    inset_paths = list_cached_inset_dems(
-        tile.lat, tile.lon, provider_codes=codes or None
-    )
+    inset_paths = bake_candidate_inset_paths(tile)
     if not inset_paths:
         return base_source
     return ";".join([base_source] + inset_paths)
+
+
+def _ranked_for_composite(inset_paths, codes):
+    """``inset_paths`` in COMPOSITE and BAKE order: the lowest-priority
+    provider first, the highest LAST, because a later bake overwrites an
+    earlier one and the composite's last token wins at query time.  ``codes`` rank highest first
+    (:func:`select_provider_definitions`).  The file-name order the
+    listing returns put ``BGGH_arcticdem2m.tif`` (priority 50) BEFORE
+    ``BGGH_copernicusglo30.tif`` (priority 1), so the gap-fill Copernicus
+    inset was baked over the 2 m strips everywhere it reached.  An inset whose
+    code is not ranked sorts lowest; ties keep the file-name order."""
+    suffixes = sorted(((("_" + code.lower() + ".tif"), rank)
+                       for rank, code in enumerate(codes)),
+                      key=lambda item: -len(item[0]))
+
+    def rank_of(path):
+        for suffix, rank in suffixes:
+            if path.lower().endswith(suffix):
+                return rank
+        return len(codes)
+
+    return sorted(inset_paths, key=lambda path: (-rank_of(path), path))
 
 
 # Feather-ring offset sanity thresholds.  A few metres of median offset
@@ -6973,24 +7036,46 @@ def inset_empty_reason(inset_path, valid_fraction):
             % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC))
 
 
-def bake_candidate_inset_paths(tile):
+def bake_candidate_inset_paths(tile, keep_declined=False):
     """The cached inset rasters the bake step considers for ``tile``, in
     bake order: every cached ``*.tif`` of a provider the tile's
-    ``airport_elevation_providers`` selects.  ONE listing for the bake
-    (:func:`bake_airport_insets_into_alt_dem`) and for every later reader
+    ``airport_elevation_providers`` selects, the highest-priority
+    provider LAST (:func:`_ranked_for_composite`: a later bake overwrites
+    an earlier one, and the composite's last token wins).  ONE listing for
+    the bake (:func:`bake_airport_insets_into_alt_dem`), the composite
+    (:func:`assemble_inset_composite_source`) and for every later reader
     of "which insets does this tile's raster carry" that runs without the
     step-1 DEM object — the mesh's curvature weight map (#233) derives
     its inset boxes from it in step 2, where ``tile.dem`` is header-only.
-    Empty when the feature is gated off."""
+    Empty when the feature is gated off.
+
+    ONE RULE for bake and composite (LFKC 2026-11-06): an inset
+    :func:`inset_is_effectively_empty` declines is left out, so the
+    composite query never reads a raster the bake refused -- the
+    all-zero TINITALY cut over Corsica put 5,565 road nodes at 0.000 m
+    through ``alt_vec`` while the ``.alt`` stayed clean.  Only the bake
+    passes ``keep_declined=True``, to record each refusal by name."""
     if not insets_enabled_for_tile(tile):
         return []
     provider_definitions = select_provider_definitions(
         getattr(tile, "airport_elevation_providers", "auto")
     )
     codes = [definition["code"] for definition in provider_definitions]
-    return list_cached_inset_dems(
+    paths = _ranked_for_composite(list_cached_inset_dems(
         tile.lat, tile.lon, provider_codes=codes or None
-    )
+    ), codes)
+    if keep_declined:
+        return paths
+    return [path for path in paths if not _declined_on_read(path)]
+
+
+def _declined_on_read(inset_path):
+    """True when the bake would decline ``inset_path``; an unreadable
+    raster is declined too (it can hold no coverage for the composite)."""
+    try:
+        return inset_is_effectively_empty(inset_path)[0]
+    except Exception:
+        return True
 
 
 def baked_inset_boxes(tile):
@@ -7033,11 +7118,16 @@ def bake_airport_insets_into_alt_dem(tile):
     ``O4_Airport_Utils.smooth_raster_over_airports``, immediately after
     this one and before the ``.alt`` write.
     """
+    # The tile's closing note names each airport's WINNING inset (the
+    # sidecar's ``airport_inset_sources``): restated empty first, so a
+    # bake that lays nothing down never leaves a previous build's name.
+    import O4_Unpatched_Airports as UNPATCHED  # stdlib-only sidecar owner
+    UNPATCHED.record_inset_sources(tile, [])
     if not insets_enabled_for_tile(tile):
         return
     if tile.dem is None or tile.dem.alt_dem is None:
         return
-    inset_paths = bake_candidate_inset_paths(tile)
+    inset_paths = bake_candidate_inset_paths(tile, keep_declined=True)
     # Record which insets actually bake into this DEM so the auto_patch
     # provenance stamp can report the true elevation source per airport (see
     # auto_patch.provenance).  An EMPTY list means the bake step ran but found
@@ -7094,6 +7184,7 @@ def bake_airport_insets_into_alt_dem(tile):
         entry = _inset_bake_provenance_entry(inset_path)
         entry["nodata_fraction"] = round(1.0 - valid_fraction, 6)
         baked_provenance.append(entry)
+    UNPATCHED.record_inset_sources(tile, baked_provenance)
     _warn_if_provider_offsets_systematic(provider_ring_offsets)
     # The raster is now the surface the mesher will render, so the QUERY
     # path must read it too: the grading law measures the surface the
@@ -7779,6 +7870,58 @@ def _isthmus_base_offset_m(tile, polygon, z0_m):
         return None
 
 
+def _with_shore_roads(tile, before, record, z0_m, icao, held):
+    """Issue #1885 — ``held`` grown by the island's SHORE ROADS: at a flat
+    site on fill, the mapped roads on the airport's sea-bounded island
+    outside the aerodrome stand at Z0 instead of on the ground the
+    fill-only pass gives back (``auto_patch_v2/airport/
+    flat_site_shore_roads.py``).  Never raises: a failure leaves ``held``
+    as it was."""
+    try:
+        from auto_patch import flat_site_mode as FLAT_SITE_MODE
+        from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
+        from auto_patch_v2.airport import flat_site_shore_roads as SHORE
+        from auto_patch_v2.airport import osm as V2OSM
+        from auto_patch_v2.classify.rules import load_rules
+        from auto_patch_v2.law import Law
+
+        lat, lon = int(math.floor(tile.lat)), int(math.floor(tile.lon))
+        gate = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
+            record, lat, lon, key="gate_ll")
+
+        def ways_of(lat0, lon0, lat1, lon1):
+            radius = 0.5 * max(lat1 - lat0, lon1 - lon0)
+            return [w for feed in V2OSM.ROAD_FEEDS
+                    for w in V2OSM.load_feed(
+                        FNAMES.OSM_dir, feed, 0.5 * (lat0 + lat1),
+                        0.5 * (lon0 + lon1), radius).ways]
+
+        dem = tile.dem
+        roads_rule = load_rules().osm_roads
+        law = Law.for_airport(icao)
+        roads, why = SHORE.site_hold(
+            record, law, gate, before,
+            (dem.x0, dem.x1, dem.y0, dem.y1, dem.nxdem, dem.nydem),
+            lambda core: FLAT_SITE_MODE.airport_island(tile, core),
+            ways_of, roads_rule.ribbon_highways, lat, lon,
+            (GEO.lon_to_m(tile.lat + 0.5), GEO.lat_to_m),
+            FLAT_SITE_RELIEF.REAL_FROM_M,
+            # the ground the PATCH reads outside the aerodrome: its own
+            # roads (``boundary_reach_m``) and the pad fill that runs to them
+            roads_rule.boundary_reach_m
+            + law.tables.structures.building_pad.fill_road_reach_m)
+    except Exception as error:
+        UI.vprint(0, "   ERROR: FLAT-SITE mode could not read", icao,
+                  "'s shore roads (", type(error).__name__, ":", str(error),
+                  ") - they keep the real surface.")
+        return held
+    UI.vprint(1 if roads is None else 0,
+              "   [flat-site] %s: shore roads (#1885) — %s." % (icao, why))
+    if roads is None:
+        return held
+    return roads if held is None else held.union(roads)
+
+
 def _keep_ground_above_flat_level(tile, before, record, z0_m, icao,
                                   what="plateau"):
     """RULINGS 2026-10-26r (#1208) — the plateau is a fill, not a cut: hand
@@ -7790,6 +7933,7 @@ def _keep_ground_above_flat_level(tile, before, record, z0_m, icao,
 
     held = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
         record, int(math.floor(tile.lat)), int(math.floor(tile.lon)))
+    held = _with_shore_roads(tile, before, record, z0_m, icao, held)
     if held is None:
         UI.vprint(1, "   [flat-site] %s: the decision carries no held ground — "
                      "no post of the %s keeps a cut." % (icao, what))

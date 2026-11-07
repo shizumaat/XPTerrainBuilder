@@ -77,6 +77,17 @@ The window is longer than any DEM artefact the owner has read as
 ridge, so the runway bends with the ground's TREND and cannot undulate
 with the ground.
 
+THE CREST STANDS AT FIELD ON OLD DATA (owner RULINGS 2026-11-06c (1),
+#1915): "field elevation is the highest point of the runways".  Where the
+DEM is flagged older than the airport (``airport/old_dem_fill``'s witness,
+read off the sampler: :func:`_dem_predates_airport`) the trend's BOW off
+the straight chord is scaled down (:func:`_crest_at_field`) until no
+profile point stands above the apt.dat field elevation: the ends stay at
+their pins, the crest stays where the DEM places it, lowered to field, and
+scaling the bow only lowers its curvature (the K law is never spent).
+Elsewhere the crest over field is a REPORT line only (``by_runway``
+``crest_over_field_m``), no geometry change.
+
 The K rows, the max-grade rows, the transverse maximum and the pins stay
 HARD; the profile smoothness stays senior to this term: the runway runs
 between its holds and FILLS or CUTS toward the target wherever nothing
@@ -88,9 +99,10 @@ import dataclasses as _dc
 import typing as _t
 
 from ..geom import exact
+from .deck_anchor import blind, deck_holes
 from .geometry import project_to_chain
 from .precedence import view
-from .trend import Trend as _Trend, trend_of as _trend_of
+from ..geom.trend import Trend as _Trend, trend_of as _trend_of
 from .runway_profile import (RUNWAY_FAMILY, dem_degraded,  # noqa: F401 (re-export)
                              ridge_chains, threshold_pins)
 from ..law import Law
@@ -162,6 +174,20 @@ class _Chord:
     #: degraded DEM frame or a ridge with no samples to fit — and every
     #: method below then reproduces the straight chord byte for byte.
     trend: _Trend | None = None
+    #: THE BOW SCALE (RULINGS 2026-11-06c (1)): the fraction of the trend's
+    #: departure from the line through the control points the target keeps
+    #: — ``1.0`` everywhere but a runway on a DEM older than the airport
+    #: whose crest would stand above field (:func:`_crest_at_field`)
+    bow_scale: float = 1.0
+    #: the stations the runway itself spans (its two ends, ``(0, L)``;
+    #: a displaced threshold's pin lies inside) — the crest is read over
+    #: the whole runway, not only between the pins
+    span: tuple[float, float] | None = None
+    #: THE FIELD CEILING (RULINGS 2026-11-06c (1)): with the bow scaled,
+    #: the runway past its pins (a displaced threshold's overhang, where
+    #: the trend runs on unscaled ground) is held at or under it too —
+    #: never under the line through the pins.  ``None``: no ceiling
+    ceiling: float | None = None
 
     def station(self, x: float, y: float) -> float:
         return (x - self.a_xy[0]) * self.ux + (y - self.a_xy[1]) * self.uy
@@ -182,7 +208,12 @@ class _Chord:
         the value a GOVERNING runway hands the crossing (v1's ``agreed``,
         §17.1).  Under §21 that is the trend through the pins, not the
         straight chord; with no trend it IS the straight chord."""
-        return self._through(((self.s0, self.z0), (self.s1, self.z1)), s)
+        return self._capped(self._through(((self.s0, self.z0), (self.s1, self.z1)), s), s)
+
+    def _capped(self, z: float, s: float) -> float:
+        if self.ceiling is None:
+            return z
+        return min(z, max(self.ceiling, self.straight_z(s)))
 
     def z(self, s: float) -> float:
         """The target profile at station ``s``: the trend carried through
@@ -190,8 +221,8 @@ class _Chord:
         (§17.2) — by a PIECEWISE LINEAR correction (module docstring)."""
         if not self.knots:
             return self.own_z(s)
-        return self._through(((self.s0, self.z0), *self.knots,
-                              (self.s1, self.z1)), s)
+        return self._capped(self._through(((self.s0, self.z0), *self.knots,
+                                           (self.s1, self.z1)), s), s)
 
     def _through(self, pts: tuple[tuple[float, float], ...], s: float) -> float:
         """``pts`` are the control points, ascending in station.  With no
@@ -211,9 +242,25 @@ class _Chord:
                              self.trend.at(sb))
                 if t is None or ta is None or tb is None:
                     return za + (zb - za) * f     # the window is empty: the chord
-                ca, cb = za - ta, zb - tb
-                return t + ca + (cb - ca) * f
+                if self.bow_scale == 1.0:     # the unscaled trend, byte for byte
+                    ca, cb = za - ta, zb - tb
+                    return t + ca + (cb - ca) * f
+                bow = (t - ta) - (tb - ta) * f
+                return za + (zb - za) * f + self.bow_scale * bow
         return pts[-1][1]
+
+    def stations(self, step: float) -> list[float]:
+        """Every ``step`` metres over the runway's own span and its pins
+        (both ends included)."""
+        lo, hi = self.span or (self.s0, self.s1)
+        lo, hi = min(lo, self.s0), max(hi, self.s1)
+        n = max(1, int((hi - lo) / max(step, 1e-3)))
+        return [lo + (hi - lo) * i / n for i in range(n + 1)]
+
+    def crest(self, step: float) -> tuple[float, float]:
+        """``(station, z)`` of this runway's OWN target's highest point,
+        read every ``step`` metres over the runway (:meth:`stations`)."""
+        return max(((s, self.own_z(s)) for s in self.stations(step)), key=lambda q: q[1])
 
     def threshold_distance(self, s: float) -> float:
         """How far the station ``s`` is from this runway's NEAREST CIFP
@@ -237,14 +284,46 @@ class Crossing:
 
 
 def _trend(vw, chains: dict[str, list[list[int]]], rw_id: str, c: _Chord,
-           pm: PlanarMap, window_m: float) -> _Trend | None:
+           pm: PlanarMap, window_m: float, inside=None) -> _Trend | None:
     """The production DEM under this runway's own ridge, in ``c``'s station
-    frame (module docstring), fitted by ``constraints/trend.py`` — the ONE
+    frame (module docstring), fitted by ``geom/trend.py`` — the ONE
     construction §21 and §8.6 share.  ``None`` where fewer than three
-    stations carry a sample, so the chord stands."""
+    stations carry a sample, so the chord stands.  ``inside(xy)``: the
+    BRIDGE WINDOWS, whose DEM reads a deck or the road under it, never the
+    ground (``deck_anchor.deck_holes``; deck-end-anchors spec §2 (b))."""
     return _trend_of(((c.station(*vw.xy[v]), float(pm.vertices[v].dem_z))
                       for ch in chains.get(rw_id, []) for v in ch
-                      if pm.vertices[v].dem_z is not None), window_m)
+                      if pm.vertices[v].dem_z is not None
+                      and (inside is None or not inside(vw.xy[v]))), window_m)
+
+
+def _dem_predates_airport(airport: Airport) -> bool:
+    """Whether the airport's DEM is flagged OLDER THAN THE AIRPORT — the
+    old-DEM fill witness (RULINGS 2026-11-06a (2)), read off the sampler
+    ``airport/old_dem_fill`` wraps (one key, as :func:`dem_degraded` reads
+    the degraded frame; ``constraints`` never imports ``airport``)."""
+    return bool(getattr(getattr(airport, "dem", None), "predates_airport", False))
+
+
+def _crest_at_field(c: _Chord, field: float, step: float) -> _Chord:
+    """``c`` with its own target never above ``field`` (RULINGS
+    2026-11-06c (1)): between the pins the bow is scaled by the largest
+    ``k`` in ``[0, 1]`` with ``line(s) + k x bow(s) <= field`` — the pins
+    stay, the crest keeps its place and drops to field, and the curvature
+    only falls; past a pin (a displaced threshold's overhang) the target
+    is held at the ceiling.  A runway whose pins themselves stand over
+    field keeps only the line (``k = 0``)."""
+    if c.trend is None or c.crest(step)[1] <= field:
+        return c
+    k = 1.0
+    n = max(1, int((c.s1 - c.s0) / max(step, 1e-3)))
+    for i in range(n + 1):
+        s = c.s0 + (c.s1 - c.s0) * i / n
+        line = c.straight_z(s)
+        bow = c.own_z(s) - line
+        if bow > 0.0:
+            k = min(k, max(0.0, (field - line) / bow))
+    return _dc.replace(c, bow_scale=k, ceiling=field)
 
 
 def _chords(pm: PlanarMap, law: Law, airport: Airport
@@ -258,6 +337,11 @@ def _chords(pm: PlanarMap, law: Law, airport: Airport
     pins = threshold_pins(pm, law, airport)
     window = float(law.tables.emit.design.runway_profile_window_m)
     degraded = dem_degraded(airport)
+    holes = deck_holes(pm)
+    inside = blind(holes) if holes else None
+    field = getattr(airport, "elevation_m", None)
+    at_field = field is not None and _dem_predates_airport(airport)
+    step = float(law.tables.emit.design.edge_grid_m)
     chords: dict[str, _Chord] = {}
     n_without = 0
     for rw in airport.runways:
@@ -276,9 +360,11 @@ def _chords(pm: PlanarMap, law: Law, airport: Airport
         if st[p1] - st[p0] <= 0.0:
             n_without += 1
             continue
-        c = _Chord(a_xy, ux, uy, st[p0], st[p1], pins[p0], pins[p1])
+        c = _Chord(a_xy, ux, uy, st[p0], st[p1], pins[p0], pins[p1], span=(0.0, L))
         if not degraded:
-            c = _dc.replace(c, trend=_trend(vw, chains, rw.id, c, pm, window))
+            c = _dc.replace(c, trend=_trend(vw, chains, rw.id, c, pm, window, inside))
+        if at_field:
+            c = _crest_at_field(c, float(field), step)
         chords[rw.id] = c
     return chords, n_without
 
@@ -521,6 +607,27 @@ def _with_seam_knots(chords: dict[str, "_Chord"], pm: PlanarMap, law: Law
     return out
 
 
+def _with_anchor_knots(chords: dict[str, "_Chord"], pm: PlanarMap, law: Law
+                       ) -> dict[str, "_Chord"]:
+    """THE DECK END LINES ARE KNOTS (deck-end-anchors spec §4): a runway
+    anchor (``PlanarMap.deck_anchors``) is a ``Pin`` the target must pass
+    through, as a crossing node and a seam pin are; strictly inside
+    ``(s0, s1)``.  No anchor: the chords unchanged."""
+    anchors = [a for a in getattr(pm, "deck_anchors", ()) or ()
+               if a.pinned and a.family == "runway" and a.ref in chords]
+    if not anchors:
+        return chords
+    vw = view(pm, law)
+    out = dict(chords)
+    for a in anchors:
+        c = out[a.ref]
+        s = c.station(*vw.xy[a.v])
+        if c.s0 < s < c.s1:
+            out[a.ref] = _dc.replace(c, knots=tuple(sorted({k for k in c.knots if k[0] != s}
+                                                          | {(s, float(a.z_m))})))
+    return out
+
+
 def runway_crossing_pins(pm: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """THE CROSSING NODE IS AN ANCHOR (owner RULINGS 2026-09-09z (1)): one
     hard ``Pin`` per (crossing, non-governing runway), on that runway's
@@ -535,8 +642,8 @@ def runway_crossing_pins(pm: PlanarMap, law: Law, airport: Airport) -> list[Row]
     chords, _ = _chords(pm, law, airport)
     crossings = runway_crossings(pm, law, airport, chords)
     pins = _crossing_pin_map(pm, law, airport, vw, chains,
-                             _with_seam_knots(_with_knots(chords, crossings),
-                                              pm, law), crossings)
+                             _with_anchor_knots(_with_seam_knots(_with_knots(chords, crossings),
+                                                                 pm, law), pm, law), crossings)
     return [Pin(v, float(z), Source(
         PIN_GEN, "RULINGS 2026-09-09z (1) nearest-threshold crossing anchor",
         (f"xing:{x.pair}", f"governs:{x.governing}", f"grades:{x.other}")))
@@ -552,6 +659,7 @@ def _crossing_pin_map(pm: PlanarMap, law: Law, airport: Airport, vw,
     if not crossings:
         return {}
     thresholds = threshold_pins(pm, law, airport)
+    anchored = {a.v for a in getattr(pm, "deck_anchors", ()) or () if a.pinned}
     best: dict[int, tuple[float, float, Crossing]] = {}
     for x in crossings:
         c = fitted.get(x.other)
@@ -560,8 +668,8 @@ def _crossing_pin_map(pm: PlanarMap, law: Law, airport: Airport, vw,
             continue
         v = min(ridge, key=lambda q: exact.sq(vw.xy[q][0] - x.xy[0])
                 + exact.sq(vw.xy[q][1] - x.xy[1]))
-        if v in thresholds:
-            continue      # the node IS a CIFP threshold: it is already pinned
+        if v in thresholds or v in anchored:
+            continue      # the node IS a CIFP threshold or a deck anchor: already pinned
         d = exact.hypot(vw.xy[v][0] - x.xy[0], vw.xy[v][1] - x.xy[1])
         if v in best and best[v][0] <= d:
             continue
@@ -594,7 +702,8 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
     # runway's is RE-FIT piecewise through the node.
     crossings = runway_crossings(pm, law, airport, straight)
     # §38 (2): the crossing nodes AND the tile-seam pins are control points
-    chords = _with_seam_knots(_with_knots(straight, crossings), pm, law)
+    chords = _with_anchor_knots(_with_seam_knots(_with_knots(straight, crossings), pm, law),
+                                pm, law)
     if report is not None:
         kinds = [c.kind for c in chords.values()]
         report["window_m"] = round(float(
@@ -611,12 +720,20 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
         # HOW FAR THE TARGET LEAVES THE STRAIGHT CHORD, per runway: the
         # curvature §21 buys, read at the target itself rather than at the
         # built surface (the report block does the built read)
+        # THE CREST AGAINST FIELD (RULINGS 2026-11-06c (1)): capped on a
+        # DEM older than the airport, a report line everywhere else
+        field = getattr(airport, "elevation_m", None)
+        step = float(law.tables.emit.design.edge_grid_m)
         report["by_runway"] = [
             {"runway": r, "kind": c.kind,
              "trend_max_off_chord_m": round(max(
                  (abs(c.z(c.s0 + (c.s1 - c.s0) * i / 40.0)
                       - c.straight_z(c.s0 + (c.s1 - c.s0) * i / 40.0))
-                  for i in range(41)), default=0.0), 3)}
+                  for i in range(41)), default=0.0), 3),
+             "crest_s_m": round(c.crest(step)[0], 1), "crest_m": round(c.crest(step)[1], 3),
+             "crest_over_field_m": (round(c.crest(step)[1] - float(field), 3)
+                                    if field is not None else None),
+             "bow_scale": round(c.bow_scale, 4), "field_capped": c.ceiling is not None}
             for r, c in sorted(chords.items())]
         report["crossings"] = [
             {"pair": x.pair, "governing": x.governing, "other": x.other,
@@ -693,6 +810,21 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
     return out
 
 
+def with_deck_anchors(pm: PlanarMap, law: Law, airport: Airport) -> PlanarMap:
+    """``pm`` with ``deck_anchors`` derived (``constraints/deck_anchor``)
+    from the window-blind re-fit chords — HERE, beside the runway caps,
+    because this is the one site that already holds the pins, the chords
+    and the crossings.  A map with no pack deck (``PlanarMap.decks``) is
+    returned as is."""
+    if not getattr(pm, "decks", ()):
+        return pm
+    from .deck_anchor import derive
+    chords, _ = _chords(pm, law, airport)
+    fitted = _with_seam_knots(_with_knots(chords, runway_crossings(pm, law, airport, chords)),
+                              pm, law)
+    return _dc.replace(pm, deck_anchors=derive(pm, law, airport, fitted))
+
+
 def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
                       report: ChordReport | None = None, *,
                       fill_roles: tuple[str, ...] = ()) -> PlanarMap:
@@ -715,9 +847,16 @@ def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
     taxi = _derive_taxi(pm, law, airport, caps)
     if taxi:
         extra["taxi_caps"] = taxi
+    pm = with_deck_anchors(pm, law, airport)
     targets = runway_chord_targets(pm, law, airport, report, fill_roles=fill_roles)
     if not targets:
         return _dc.replace(pm, runway_caps=caps, **extra) if caps else pm
     merged = dict(pm.preferred_z)
     merged.update(targets)
-    return _dc.replace(pm, preferred_z=merged, runway_caps=caps, **extra)
+    out = _dc.replace(pm, preferred_z=merged, runway_caps=caps, **extra)
+    # 11-05a (issue #1893): a taxi route its letter cap cannot run between
+    # the runways' levels — the levels set just above — yields, derived
+    # HERE beside the taxi yield (empty, and nothing built, where none)
+    from .taxi_route_yield import derive as _derive_routes
+    routes_ = _derive_routes(out, law, airport)
+    return _dc.replace(out, taxi_routes=routes_) if routes_ else out

@@ -57,7 +57,7 @@ from . import obj8 as _obj8
 from .obj8_clip import _bulk_polys
 
 __all__ = ["ObjectCut", "SHELL", "CRESTED", "THIN", "shell_reading", "read_shells",
-           "thin_bands", "band_pairs", "cut_placement_ids", "ObjectCutStats",
+           "thin_bands", "band_pairs", "cut_placement_ids", "ObjectCutStats", "floor_line",
            "valid_polygon", "largest_polygon", "placement_key",
            "placement_order"]
 
@@ -111,6 +111,11 @@ class ObjectCut:
     covered: object | None
     stations: tuple[tuple[float, float], ...]
     notes: tuple[str, ...] = ()
+    #: THE FLOOR PER STATION (#1903, :func:`floor_line`): ``(x, y, z)``
+    #: along the trench axis in the airport frame, ``z`` absolute in the
+    #: seated frame; empty where the object states no floor (signature C,
+    #: a hanging cover — its floor is ``floor_z``).
+    floor_line: tuple[tuple[float, float, float], ...] = ()
 
 
 @_dc.dataclass
@@ -232,6 +237,11 @@ class ShellReading:
     ends: tuple[XY, XY]
     length_m: float
     width_m: float
+    #: The trench FLOOR's own faces (#1903), ``(n, 3, 3)`` authored-frame
+    #: ``(x, y, z)`` corners of the near-horizontal faces the floor reading
+    #: took the trench from; ``None`` for a shell that states no floor (a
+    #: hanging cover: its floor is its walls' bottom, ``floor_y``).
+    floor_faces: "np.ndarray | None" = None
 
 
 def _open_edges(ring: _t.Sequence[XY], wall, probe_m: float) -> list[int]:
@@ -420,9 +430,11 @@ def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component]
         for s in segs]))
     if band is None:
         return "the shell's wall band has no valid plan area"
+    plates = tris[horiz if interior_from is None else (horiz & interior_from)]
     return ShellReading(floor_y, floor_area, extra, interior, band,
                         tuple(chain_a), tuple(chain_b), ends, float(length),
-                        float(interior.area / max(length, 1e-9)))
+                        float(interior.area / max(length, 1e-9)),
+                        v[plates] if deep is not None and len(plates) else None)
 
 
 def _cover_plate(geom: _obj8.ObjGeometry, law) -> tuple[object | None, float]:
@@ -628,6 +640,7 @@ def shell_cut(o: _obj8.PlacedObject, r: ShellReading, cov_obj: _obj8.PlacedObjec
     zero = float(msl[o.id]) if o.kind == "OBJECT_MSL" else float(o.anchor_z + o.agl_m)
     axis = LineString([((p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0)
                        for p, q in zip(_resample(chain_a, 32), _resample(chain_b, 32))])
+    line = floor_line(r.floor_faces, axis, mat, zero, ob.wall_sample_m)
     gcov = cache.geometry(cov_obj.resolved)
     sts = _cover_stations(gcov, axis, _obj8.placement_affine(cov_obj.xy, cov_obj.heading_deg),
                           law) if gcov is not None else ()
@@ -641,6 +654,11 @@ def shell_cut(o: _obj8.PlacedObject, r: ShellReading, cov_obj: _obj8.PlacedObjec
     if sts:
         notes.append("ramp stations from the cover's profile: "
                      + " -> ".join(f"{y:+.2f}" for _s, y in sts))
+    if line:
+        zs = [z for _x, _y, z in line]
+        notes.append(f"the floor per station is the object's own floor under its axis "
+                     f"(#1903): {zs[0]:.2f} .. {min(zs):.2f} .. {zs[-1]:.2f} over "
+                     f"{len(line)} stations")
     return ObjectCut(f"object-cut:{_base(o.path)}@{k}", o.path, o.id,
                          cov_obj.id, cov_obj.path, SHELL,
                          outline,
@@ -651,7 +669,51 @@ def shell_cut(o: _obj8.PlacedObject, r: ShellReading, cov_obj: _obj8.PlacedObjec
                          chain_a, chain_b, ends,
                          (True, True), zero + r.floor_y, r.floor_y, zero,
                          _fe.enter([cover], mat, _fe.quantum(law))[0],   # ENTRY
-                         sts, tuple(notes))
+                         sts, tuple(notes), line)
+
+
+def floor_line(faces: "np.ndarray | None", axis: LineString, mat, zero: float,
+               step: float) -> tuple[tuple[float, float, float], ...]:
+    """THE TRENCH FLOOR PER STATION (#1903; owner 2026-11-05 "All the cuts
+    are open trenches, the objects provide hard bridge roofs where needed"):
+    every ``step`` along ``axis`` (airport frame), the LOWEST of the shell's
+    floor faces under that point — their plane there, read barycentrically
+    — as ``(x, y, zero + authored y)``.  A station no floor face stands
+    under is left out (the profile interpolates over it); ``()`` where the
+    shell states no floor.  The floor is the object's own: its plate where
+    it is level, its ramp where it climbs to a portal (EGLL ``3a.obj``:
+    −5.00 under its zero, rising to +0.02 at both portals), never one
+    level read at the object's zero and held to its ends."""
+    if faces is None or not len(faces) or axis.length <= 0.0:
+        return ()
+    a, b, d, e, xo, yo = mat
+    px = a * faces[:, :, 0] + b * faces[:, :, 2] + xo
+    py = d * faces[:, :, 0] + e * faces[:, :, 2] + yo
+    fy = faces[:, :, 1]
+    lo_x, hi_x = px.min(axis=1), px.max(axis=1)
+    lo_y, hi_y = py.min(axis=1), py.max(axis=1)
+    n = max(1, int(axis.length // step))
+    out: list[tuple[float, float, float]] = []
+    for k in range(n + 1):
+        q = axis.interpolate(min(k * step, axis.length))
+        x, y = q.x, q.y
+        cand = np.flatnonzero((lo_x <= x) & (x <= hi_x) & (lo_y <= y) & (y <= hi_y))
+        best = None
+        for i in cand.tolist():
+            (x0, x1, x2), (y0, y1, y2) = px[i], py[i]
+            den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+            if abs(den) < 1e-12:
+                continue
+            w0 = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / den
+            w1 = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / den
+            w2 = 1.0 - w0 - w1
+            if min(w0, w1, w2) < -1e-9:
+                continue
+            z = float(w0 * fy[i, 0] + w1 * fy[i, 1] + w2 * fy[i, 2])
+            best = z if best is None else min(best, z)
+        if best is not None:
+            out.append((float(x), float(y), float(zero + best)))
+    return tuple(out)
 
 
 def _base(path: str) -> str:

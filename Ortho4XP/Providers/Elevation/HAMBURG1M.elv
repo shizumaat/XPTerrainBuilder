@@ -1,13 +1,17 @@
 # Landesbetrieb Geoinformation und Vermessung Hamburg (Germany)
-# digital terrain model DGM1, 1 metre.
+# digital terrain model DGM1, 1 metre (2022-04-30 epoch).
 #
-# Bare-earth 1 m model, Datenlizenz Deutschland Namensnennung 2.0 --
-# but Hamburg publishes it ONLY as one whole-city ~2.3 gigabyte ASCII
-# file (no per-tile downloads, no usable Web Coverage Service), so
-# this uses the xyz_archive_drop strategy: download the file from the
-# page below in a browser, drop it into
-# Elevation_data/Hamburg_DGM1/, and the first build converts it once
-# (several minutes) into an indexed GeoTIFF used by every later build.
+# Bare-earth 1 km GeoTIFF tiles, Datenlizenz Deutschland Namensnennung
+# 2.0, published as ONE whole-city zip (~1.36 GB) on the Hamburg
+# Transparency Portal (dataset "gelaendemodelle-hamburg-dgm2",
+# https://suche.transparenz.hamburg.de/dataset/gelaendemodelle-hamburg-dgm2).
+# The portal's archive host answers ranged requests, so nothing is
+# downloaded whole (issue #1923): the zip's central directory is listed
+# once through /vsizip//vsicurl/ (cached as the tile index) and each
+# airport's few 1 km members are read in place by the warp.  Verified
+# live 2026-11-06 at EDDH (tile 566/5942: 1000x1000 Float32, ETRS89 /
+# UTM 32N).  The archive keeps every snapshot URL (the 2025 snapshot
+# _243830_snap_2 still answers); a newer epoch is a new URL here.
 
 role=airport_inset
 
@@ -15,19 +19,19 @@ role=airport_inset
 # the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
 country=DEU
 
-access_strategy=xyz_archive_drop
+access_strategy=tile_grid_http
 
-download_page=https://suche.transparenz.hamburg.de/dataset/digitales-hohenmodell-hamburg-dgm-1
-
-drop_directory_name=Hamburg_DGM1
-
+tile_url_template={file_name}
+index_url=/vsizip//vsicurl/https://archiv.transparenz.hamburg.de/hmbtgarchive/HMDK/dgm1_hh_2022-04-30_258334_snap_1.zip
+tile_size_km=1
 source_epsg=25832
 
 # Native ground resolution of the source grid, in metres.
 native_resolution_m=1
 
-# Hamburg.
+# Hamburg, and its North Sea exclave Neuwerk (tiles 466-468 / 5973-5976).
 coverage_bbox=9.6,53.3,10.4,53.8
+coverage_bbox=8.35,53.88,8.55,53.98
 
 vertical_datum=DHHN2016
 license=Datenlizenz Deutschland Namensnennung 2.0 (attribution required)

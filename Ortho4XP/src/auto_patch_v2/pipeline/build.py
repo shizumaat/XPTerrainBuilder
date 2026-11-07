@@ -37,14 +37,15 @@ from .emit_stage import (  # noqa: F401
     borrowed_apt_dat_stamp,
     displacement_by_role,
     post_solve,
+    with_deck_levels,
     with_join_yield,
     with_threshold_yield,
 )
+from .late_records import prefix_identity
 from .planar_report import shore_decision_lines  # noqa: F401  (read here)
 from .prefix import Deriver, PackRead, run_prefix
 from .prefix import classified_land as _classified_land  # noqa: F401  (read here)
 from .rebake_inputs import _plate_seats, _rebake_inputs, plate_stations  # noqa: F401
-from .late_records import prefix_identity
 from .shapes import joint_steps
 from .solve_record import identity, solve_stage
 
@@ -364,12 +365,26 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _say(f"  [terrain-mesh] {icao}: unread ({type(exc).__name__}: {exc})", out)
     airport = _dc.replace(airport, terrain_mesh=_mesh)
     _say("  " + _tmw.log_line(icao, _mesh), out)
+    # issue #1362: the pack's own ground -- kept as authored on a companion
+    # mesh, else seated rigid with our ground under it and the user told
+    from ..airport import pack_ground as _pack_ground
+    _ground = [f for f in airport.terrain_decks if getattr(f, "ground", False)]
+    _say("  " + _pack_ground.log_line(icao, _ground, _mesh is not None), out)
+    if _ground and _mesh is not None:
+        airport = _dc.replace(airport, terrain_decks=tuple(
+            f for f in airport.terrain_decks if not getattr(f, "ground", False)))
+    elif _ground:
+        lrep.pack_ground_no_mesh = _pack_ground.notice(
+            icao, _ground, getattr(airport.pack, "name", "") or "")
     # issue #516: the sunken ramps' ground, beside the clusters it trims
     from ..airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law, ocache)
     # issue #1633: the retaining walls' footprints, which no pad takes
     from ..airport.wall_shade import attach_wall_shade
     airport = attach_wall_shade(airport, load_rules().service, ocache)
+    # #1747 (RULINGS 2026-11-06b (6)): the tunnel mouths' walls, which no pad takes
+    from ..airport.entrance_shade import attach_entrance_shade
+    airport = attach_entrance_shade(airport, pack_objects, ocache, law)
     # THE FLAT-PACK WITNESS (owner direction 2026-10-20, answers 59-66; spec
     # ``flat-pack-terracing-spec.md`` §1): read once the partition is, a
     # REPORT in phase 1 (``law/flat_pack.toml`` ``terrace = false``).
@@ -477,6 +492,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # THE RUNWAY-END PIN RULE (#1342 / #1358, RULINGS 2026-10-25a): every
     # flagged runway and every moved pin, named
     for _line in lrep.end_pin_lines:
+        _say(f"  [load] {_line}", out)
+    for _line in getattr(lrep, "old_dem_fill_lines", ()):     # #1915, 11-06a (2)
         _say(f"  [load] {_line}", out)
     # #1697: the user's hand-set classifications, applied and refused
     if airport.role_overrides:
@@ -611,7 +628,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # classification (stage-cache spec §4b.3)
     derive = Deriver(airport, law, inputs, pack, cache=fc, common=_fc_in,
                      heartbeat="stage 1 on the ribbon-free map: shapes and constraints")
-    _s1 = stage_one_problem(cl, derive, pm.registries)
+    _s1 = stage_one_problem(cl, derive, pm.registries, full=pm)
     _pulse.tick("solving the surface")
     if _s1 is not None:
         _s1.bind(pm)
@@ -619,7 +636,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # OWNER RULINGS 2026-10-15i (3), option (b): the taxi trend's SECOND
     # PASS — the apron levels stage 1 solved become trend contacts, bound
     # here because ``solve`` may not import ``constraints``
-    from ..constraints.taxi_trend import stage_one_retarget
+    from ..constraints.taxi_trend import low_hold_retarget, stage_one_retarget
+
+    # issue #359: the lot over a declared wall follows its pad after stage 2
+    from .lot_follow import lot_follow_rewrite
 
     def _solve() -> tuple:
         size: dict[str, int] = {}
@@ -629,7 +649,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             stage2_rewrite=lambda lv: _stage2_rewrite(lv),
             hold=pre.hold, stage1=_s1,
             trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
-                                                              lv, tt2))
+                                                              lv, tt2),
+            follow_rewrite=lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z),
+            # issue #517: no bulge between two junctions pass 1b holds low
+            hold_rewrite=lambda pm_x, lv: low_hold_retarget(pm_x, law, lv, tt2))
         return sol, rep, size, tt2, None if _s1 is None else dict(_s1.report)
     # THE SOLVE'S RECORD (stage-cache spec §4b.4; ``pipeline/solve_record``):
     # keyed on the prefix's records and the ribbon-free prefix's, never
@@ -647,13 +670,21 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             k: tt2_rep.get(k) for k in ("retarget_moved", "retarget_worst_m",
                                         "extra_contacts", "short_connectors",
                                         "hold_passes", "hold_residual_m",
-                                        "hold_stalled")}
+                                        "hold_stalled", "low_hold_spans", "low_hold_beyond",
+                                        "low_hold_moved", "low_hold_worst_m",
+                                        "low_hold_calls", "low_hold_refused")}
         _say(f"[{icao}] taxi trend second pass (15i (3)): "
              f"{tt2_rep.get('extra_contacts', 0)} apron levels as contacts, "
              f"{tt2_rep.get('retarget_moved', 0)} targets moved (worst "
              f"{tt2_rep.get('retarget_worst_m', 0.0):.2f} m)"
              + ("" if tt2_rep.get("retarget_moved") else " — first pass stands")
-             + f"; {len(tt2_rep.get('short_connectors') or ())} short connector(s)", out)
+             + f"; {len(tt2_rep.get('short_connectors') or ())} short connector(s)"
+             + f"; {tt2_rep.get('low_hold_spans', 0)} span(s) between two low "
+               f"holds ({tt2_rep.get('low_hold_refused', 0)} chain(s) smoothed less: "
+               f"past the no-step window), {tt2_rep.get('low_hold_moved', 0)} targets ceiled "
+               f"({tt2_rep.get('low_hold_beyond', 0)} past a span; worst "
+               f"{tt2_rep.get('low_hold_worst_m', 0.0):.2f} m) over "
+               f"{tt2_rep.get('low_hold_calls', 0)} stage-1 solve(s)", out)
         for r in (tt2_rep.get("short_connectors") or ())[:20]:
             _say(f"[{icao}] SHORT CONNECTOR at {r['ll'][0]:.7f},{r['ll'][1]:.7f}: "
                  f"run {r['run_m']:.1f} m, height {r['height_m']:.2f} m needs "
@@ -712,6 +743,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pm = with_join_yield(icao, pm, law, airport, sol, _pin_yield, out)
     # OWNER RULINGS 2026-10-26b: THE TILE SEAM OUTRANKS A CIFP THRESHOLD
     pm = with_threshold_yield(icao, pm, law, airport, sol, _pin_yield, out)
+    # deck redesign §5 (b): a taxi deck's level is the one the airside solved
+    pm = with_deck_levels(icao, pm, sol, out)
     # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
     # nothing is re-solved on a built step
     # THE SEAM PASSES ARE DELETED (§38 (1); owner RULINGS 2026-09-13ah,

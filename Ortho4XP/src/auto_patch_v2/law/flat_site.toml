@@ -29,6 +29,11 @@ source     = "cifp"                 # "cifp" (mean threshold elevation) | "pack_
 preference = "flat_datum"           # the Weights.preference group; ranked below law, above seam
 runway_pins_hard = true             # thresholds stay CIFP-absolute (08-25); the datum NEVER pins pavement
 
+[shore_roads]                       # issue #1885 (owner 2026-11-04T18:57Z): "for 'flat' airports like VHHH on fill, when the road is close to the airport and the other side nearby is water, we should include that in the airport 'island' area" — auto_patch_v2/airport/flat_site_shore_roads.py
+enabled      = true
+fill_min_m   = 0.5                  # "ON FILL": Z0 stands at least this far above the detector's honest S2 median (the plateau RAISES the airport; VHHH 5.32, VMMC 0.95, ZGSZ 0.60). 0.5 = the fill-only pass's own KEEP_ABOVE_M: ground within it of Z0 is the flat level
+side_probe_m = 30.0                 # THE HILL GUARD: a road station is held only when the honest surface somewhere on the rings at half and at (carriageway half-width + this) round it stands within REAL_FROM_M of Z0 — beside the flat level. Measured at VHHH: 20 and 30 hold the same east-shore roads (Scenic Hill's roads and the expressway's tunnel approaches keep their ground); 50 starts flattening the tunnel approaches
+
 [declared]                          # (c): per-airport overrides — the ONLY airport-specific facts in law/
 # OTHH = { z0 = 3.96, source = "cifp" }        # example; absent = measured verdict
 # VHHH = { z0 = 5.5,  source = "metres" }      # "metres" = the number IS the datum

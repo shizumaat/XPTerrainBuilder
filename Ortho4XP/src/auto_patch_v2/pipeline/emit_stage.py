@@ -53,7 +53,7 @@ from .rebake_inputs import _rebake_inputs
 from .seam_report import seam_yield_block
 
 __all__ = ["MOVED_M", "borrowed_apt_dat_stamp", "displacement_by_role", "with_join_yield",
-           "with_threshold_yield",
+           "with_threshold_yield", "with_deck_levels",
            "post_solve", "patch_header", "Rebaked", "Emitted", "emit", "say_joint_steps",
            "render", "install"]
 
@@ -157,6 +157,23 @@ def with_threshold_yield(icao: str, pm, law: Law, airport, sol, pin_yield,
     return _dc.replace(pm, threshold_seam_yield=recs)
 
 
+def with_deck_levels(icao: str, pm, sol, out: _t.Callable[[str], None]):
+    """``pm`` with each taxi or road deck's anchors at the level the solve
+    built (deck redesign §5 (b), ``constraints/deck_anchor.settle``), each
+    deck said in one line."""
+    from ..constraints.deck_anchor import settle
+    pm2 = settle(pm, sol.z or None)
+    if pm2 is pm:
+        return pm
+    before = {(a.object_id, a.end): a.z_m for a in pm.deck_anchors}
+    for a in pm2.deck_anchors:
+        if a.family != "runway":
+            out(f"[{icao}] {a.family.upper()} DECK LEVEL (deck redesign §5 b): {a.object_id} "
+                f"end {a.end} {a.z_m:.3f} m (pre-solve estimate "
+                f"{before.get((a.object_id, a.end), 0.0):.3f})")
+    return pm2
+
+
 def post_solve(icao: str, pm, law: Law, airport, sol, cs, design_rep, tt_rep, fv, lrep,
                seam_yielded: list, out: _t.Callable[[str], None]) -> dict[str, _t.Any]:
     """THE READS OF THE SOLVED SURFACE before emit: the runway / taxi /
@@ -216,8 +233,9 @@ def post_solve(icao: str, pm, law: Law, airport, sol, cs, design_rep, tt_rep, fv
              f"fails this airport (issue #623)")
     if sol.status.value in ("optimal", "feasible") and pm.seam_vertices:
         tol = law.tables.emit.materiality.elevation_m
-        res_seam = sorted(((abs(sol.z[v] - pm.vertices[v].dem_z), v)
-                           for v in pm.seam_vertices if pm.vertices[v].dem_z is not None),
+        from ..constraints.seams import seam_pin_z  # the value each pin holds
+        res_seam = sorted(((abs(sol.z[v] - z), v)
+                           for v, z in seam_pin_z(pm, law, airport).items()),
                           reverse=True)
         off = [(d, v) for d, v in res_seam if d > tol]
         report_seam = {"seam_vertices": len(pm.seam_vertices), "honoured": len(res_seam) - len(off),

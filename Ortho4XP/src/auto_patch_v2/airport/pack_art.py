@@ -177,7 +177,7 @@ def missing_definitions(pack_root: str, source: str | _t.Sequence[str],
     if absent and also_exported is not None:
         names = also_exported()
         absent = [a for a in absent
-                  if a[2].replace("\\", "/").lower() not in names]
+                  if a[2].replace("\\", "/").lstrip("/").lower() not in names]
     if not absent:
         return ()
     uses = count_uses(source, {(k, i) for k, i, _p in absent})
@@ -329,14 +329,19 @@ def record(pristine_sha256: str, missing: _t.Sequence[MissingDef],
             "definitions": [m.to_dict() for m in missing]}
 
 
-def recorded(entry: _t.Mapping[str, _t.Any] | None, pristine_sha256: str
-             ) -> tuple[MissingDef, ...]:
+def recorded(entry: _t.Mapping[str, _t.Any] | None, pristine_sha256: str,
+             pack_root: str | None = None) -> tuple[MissingDef, ...]:
     """The omission the user accepted for THIS pristine DSF, read back
     from :func:`record`'s row — for a write that has no art check of its
     own and must end with the same definitions left out (RULINGS
     2026-10-12d: the restore of an unpatched airport's pack).  Empty when
     none is recorded, when it was recorded against another pristine file,
-    or when the row no longer reads as what :func:`record` wrote."""
+    or when the row no longer reads as what :func:`record` wrote.
+
+    With ``pack_root``, a recorded definition whose file the pack folder
+    now provides is NOT returned: a resolving definition is never
+    omitted, whatever an earlier check recorded (the leading-slash
+    blocker recorded 63 present Orbx obstacles as missing)."""
     row = (entry or {}).get("omitted_art")
     if not (isinstance(row, dict) and row.get("accepted") is True
             and row.get("pristine_sha256") == pristine_sha256):
@@ -347,7 +352,13 @@ def recorded(entry: _t.Mapping[str, _t.Any] | None, pristine_sha256: str
                         for d in row.get("definitions") or ())
     except (KeyError, TypeError, ValueError):
         return ()
-    return missing if accepted(entry, pristine_sha256, missing) else ()
+    if not accepted(entry, pristine_sha256, missing):
+        return ()
+    if pack_root:
+        missing = tuple(m for m in missing
+                        if resolve_resource(m.path.replace("\\", "/"),
+                                            pack_root, {}) is None)
+    return missing
 
 
 def accepted(entry: _t.Mapping[str, _t.Any] | None, pristine_sha256: str,

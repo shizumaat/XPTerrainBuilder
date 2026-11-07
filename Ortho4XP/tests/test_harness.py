@@ -2683,7 +2683,8 @@ def test_refresh_only_is_not_blocked_by_the_PRE_FLIGHT_either(build_mod):
     i = src.index("if args.refresh_only:\n            # A WARM RUN IS NOT")
     assert "elif args.dem is None:" in src[i:i + 1400], (
         "the cold-frame pre-flight must sit behind the refresh-only branch")
-    assert "if not args.refresh_only:\n            require_no_implicit_refresh(" \
+    assert ("if not args.refresh_only:\n            checks.append(lambda: "
+            "require_no_implicit_refresh(") \
         in src, ("the missing-artifact refusal must stand down for a "
                  "refresh-only run too — that is what blocked KDFW +33-098")
     # ...and the post-derivation judge is the one that decides

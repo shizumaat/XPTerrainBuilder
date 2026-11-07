@@ -166,6 +166,9 @@ _LAYOUT: list = [
         ("check_tms_response", "Retry on imagery server errors", "app", True, ""),
     ]),
     ("imagery", "Imagery", [
+        ("texture_mode", "What should the ground be textured with?", "tile", False,
+         "Default X-Plane uses no orthophotos, only X-Plane's own terrain "
+         "textures."),
         ("cover_airports_with_highres", "Use sharper imagery at airports?", "tile", False,
          "The same photos at a finer detail; more download and disk."),
         ("cover_zl", "Which ZL should the airport imagery use?", "tile", False,
@@ -176,7 +179,6 @@ _LAYOUT: list = [
          "Fills the white or black rectangles some providers leave over coastal water."),
         ("color_harmonization", "Even out imagery colors across the tile?", "tile", False,
          "Removes the patchwork of different photo dates and providers."),
-        ("texture_mode", "Texture mode", "tile", True, ""),
         ("airport_ortho_fade_width", "Airport ortho fade width (m)", "tile", True, ""),
         ("sea_texture_blur", "Sea texture blur (m)", "tile", True, ""),
         ("skip_downloads", "Skip imagery downloads", "app", True, ""),

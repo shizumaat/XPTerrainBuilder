@@ -108,7 +108,7 @@ from .blast_pad import blast_pad_end
 from .storey_edge import STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import cover_arms, necks_of, split_at_necks
-from .open_default import (apron_evidence, open_pavement_role,
+from .open_default import (apron_evidence, narrow_road, open_pavement_role,
                            unclassified_groundside_role)
 from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m, gridded,
                         is_held_step, is_touching, part_evidence,
@@ -553,6 +553,17 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             role = "junction"
         else:
             role = "apron"
+        # owner ruling 2026-11-04 (#1877): a §43 ARM no taxi centreline
+        # touches, holding no stand, at most `apron.arm_road_max_width_m`
+        # wide is the service road it carries.  A NECK (between two aprons)
+        # is not an arm: §27 flips a road there straight back to apron
+        # (measured HECA pav131, 9.3 m x 896 m2)
+        if is_neck and neck_ev.get("neck_kind") == "arm" and not taxi \
+                and not _holds_startup(face, start_tree) and \
+                neck_ev.get("neck_width_m", float("inf")) <= rules.apron.arm_road_max_width_m:
+            role = "service_road"
+            evid = dict(evid, arm_road=1.0)
+            stats["arm_roads"] = stats.get("arm_roads", 0) + 1
         letter = None
         if role in TAXI_FAMILY:
             ls = [c.letter for c in taxi if c.letter]
@@ -570,6 +581,25 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                         taxi_name_designator=named_src.taxi_designator or "-",
                         letter_chains=float(n_serving))
             stats["taxi_named"] = stats.get("taxi_named", 0) + 1
+        # A FACE ROAD-WIDE THROUGHOUT IS A SERVICE ROAD (owner sim read
+        # 2026-11-04, HECA dsf:objpav1, 30.1072,31.4204: "a service road
+        # (which should be obvious from width alone)"): the ladder read it
+        # apron only because a taxi centreline crosses it, and no width
+        # rung looked at it — it has no wide lobe for §43 to cut and no
+        # stand.  Where taxi routes cross it the proximity cut below
+        # still mints their junctions; the rest is the road.  Only where
+        # it would STAY apron on evidence: pavement with none goes on to
+        # §110's lot-or-ribbon verdict as before (a one-aisle car park is
+        # 16 m wide and is a lot, not a road).
+        rest = "apron"
+        road_w = (narrow_road(face, rules) if role == "apron" and not apron_refused
+                  and not is_neck and not _holds_startup(face, start_tree)
+                  and apron_evidence(face, src_of.get(ref), evid, start_tree,
+                                     rules) is not None else None)
+        if road_w is not None:
+            rest = "service_road"
+            evid = dict(evid, narrow_road=1.0, narrow_road_width_m=road_w)
+            stats["narrow_roads"] = stats.get("narrow_roads", 0) + 1
         if role == "apron" and prox is not None and not apron_refused:
             # THE ROUTE-PROXIMITY CUT (user 2026-07-06), after scoring as
             # v1 applies it, BOUNDED BY THE ROUTE TERRITORY (owner ruling
@@ -603,10 +633,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                                         letter_chains=float(n_serving)), net))
             for part in polygon_parts(shapely.set_precision(face.difference(territory), grid)):
                 if part.area >= rules.cells.min_area_m2:
-                    scored.append((part, "apron", ref, None,
+                    scored.append((part, rest, ref, None,
                                    dict(tev, near_route=0.0), net))
             continue
-        scored.append((face, role, ref, letter, evid, net))
+        scored.append((face, rest if role == "apron" else role, ref, letter, evid, net))
 
     # ── groundside: the runway touch-chain ─────────────────────────
     demoted = _groundside(scored, ev, rules)

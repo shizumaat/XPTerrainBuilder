@@ -75,9 +75,11 @@ def stage(monkeypatch, choices):
     return seen
 
 
-def _pf(old=(MAPPED, UNMAPPED), upgraded=None):
+def _pf(old=(MAPPED, UNMAPPED), upgraded=None, version=None):
+    from auto_patch_v2.airport import pack_forests as _PF
     return FS.PackForests("Some Pack", "/p/+25+051.dsf", tuple(old),
-                          dict(upgraded or {}))
+                          dict(upgraded or {}),
+                          _PF.UPGRADE_VERSION if version is None else version)
 
 
 # ── the stage's decision ────────────────────────────────────────────────
@@ -118,6 +120,36 @@ def test_an_upgrade_already_on_disk_is_quiet(stage):
     stage["pf"] = _pf(upgraded=RENAMES)
     assert FS.forest_stage(PLAN, TILE, writes=True) == "current"
     assert stage["events"] == [] and stage["writes"] == []
+
+
+def test_an_upgrade_under_older_rules_is_redone_without_asking(stage, choices):
+    # #1920 (owner: "Including fixing old mappings"): a DSF carrying an
+    # accepted upgrade written under an older map is re-mapped from its
+    # pristine file, whether or not the answer is remembered
+    stage["pf"] = _pf(upgraded=RENAMES, version=1)
+    assert FS.forest_stage(PLAN, TILE, writes=True) == "upgraded"
+    assert stage["writes"] == [RENAMES]
+    # ... and one whose old map named a forest today's leaves alone
+    stage["writes"].clear()
+    stage["pf"] = _pf(old=(UNMAPPED,), upgraded={"forests/local.for": "x.for"})
+    assert FS.forest_stage(PLAN, TILE, writes=True) == "upgraded"
+    assert stage["writes"] == [{}]
+
+
+def test_a_v4_upgrade_with_grass_planters_is_redone(stage, choices):
+    # owner 2026-11-07: packs upgraded by 1.0.475/1.0.476 (grass ->
+    # grass_green_1) are re-mapped from the pristine DSF: grass is kept
+    stage["pf"] = _pf(upgraded=RENAMES, version=4)
+    assert FS.forest_stage(PLAN, TILE, writes=True) == "upgraded"
+    assert stage["writes"] == [RENAMES]
+
+
+def test_a_redo_waits_for_a_writing_build_and_respects_never(stage, choices):
+    stage["pf"] = _pf(upgraded=RENAMES, version=1)
+    assert FS.forest_stage(PLAN, TILE, writes=False) == "found"
+    FS.set_pack_choice(PLAN.pack_root, "never")
+    assert FS.forest_stage(PLAN, TILE, writes=True) == "never"
+    assert stage["writes"] == []
 
 
 def test_never_for_this_pack_stops_the_question(stage):
@@ -358,3 +390,34 @@ def test_the_session_hook_drops_unknown_fields():
     session.pack_old_forests(pack="P", state="found", someday_field=1)
     [ev] = [e for e in got if isinstance(e, EV.PackOldForests)]
     assert ev.pack == "P"
+
+
+def _forest_row(rp):
+    doc = json.loads((rp.dsf.parent / PM.PROVENANCE_FILENAME)
+                     .read_text(encoding="utf-8"))
+    return doc, doc["dsfs"][rp.dsf.name][PF.RECORD_KEY]
+
+
+def test_a_reapplying_write_keeps_the_records_version(real_pack):
+    """#1920: a placement write that only re-applies a recorded upgrade
+    (``forests=None``) keeps the rules it was written under, so the stale
+    record is still redone; only a recompute stamps the current rules."""
+    rp = real_pack
+    _upgrade(rp)
+    doc, row = _forest_row(rp)
+    row["version"] = 1                      # a record from an older engine
+    (rp.dsf.parent / PM.PROVENANCE_FILENAME).write_text(
+        json.dumps(doc), encoding="utf-8", newline="\n")
+    B.invalidate_memo()
+    plan = PM.PlacementPlan("OTST", rp.pack.name, str(rp.pack), str(rp.dsf),
+                            str(rp.dsf) + PM.BACKUP_SUFFIX,
+                            PM.Provenance("", "1.0.test", "", {}))
+    W.write_pack(str(rp.pack), plan, rp.tool, allow_live_install=True)
+    B.invalidate_memo()
+    _doc, row = _forest_row(rp)
+    assert row["version"] == 1 and b"broad_vhot_wet" in rp.dsf.read_bytes()
+    W.write_pack(str(rp.pack), plan, rp.tool, allow_live_install=True,
+                 forests=RENAMES)              # forest_stage's recompute
+    B.invalidate_memo()
+    _doc, row = _forest_row(rp)
+    assert row["version"] == PF.UPGRADE_VERSION

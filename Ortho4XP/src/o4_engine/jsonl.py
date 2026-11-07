@@ -256,6 +256,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # Optimise pack (protocol 1.31, #1707): the same shape, completing
         # through PackOptimise.
         "pack_optimise": session.pack_optimise,
+        # #1916 (capability pack_adjust): completes through PackAdjust.
+        "pack_adjust": session.pack_adjust,
         # Failure report (#565, RULINGS 2026-10-12b): the REDACTED report
         # for one tile, its prefilled new-issue URL and, with
         # ``save_path``, the report file.  Synchronous — it reads the end

@@ -68,14 +68,29 @@ def test_carriageways_farther_apart_than_one_road_are_two_lanes_of_one_deck():
     db = _deck()
 
     def mouth(x):
-        return types.SimpleNamespace(xy=(x, 0.0))
+        return types.SimpleNamespace(xy=(x, 0.0), inward=(0.0, 1.0))
     ms = [mouth(-60.0), mouth(-45.0), mouth(60.0)]
     lane_of, centres = DBO.deck_lanes(ms, {id(m): db for m in ms}, SEP)
+    key = (id(db), DB.deck_side(db, (0.0, 1.0)))
     assert [lane_of[id(m)] for m in ms] == [0, 0, 1]
-    assert centres[id(db)] == [-52.5, 60.0]
-    assert DBO.lane_band(db, centres[id(db)], 0) == (float("-inf"), 3.75)
-    assert DBO.lane_band(db, centres[id(db)], 1) == (3.75, float("inf"))
+    assert centres[key] == [-52.5, 60.0]
+    assert DBO.lane_band(db, centres[key], 0) == (float("-inf"), 3.75)
+    assert DBO.lane_band(db, centres[key], 1) == (3.75, float("inf"))
     assert DBO.lane_band(db, [0.0], 0) is None
+
+
+def test_the_two_mouths_of_one_oblique_road_are_two_halves_never_two_lanes():
+    """Deck redesign PR B (LFPG S4): one road crossing the deck obliquely
+    stands its mouths on the deck's two sides far apart across the road;
+    each side is ONE lane, so neither half's bank stops halfway across."""
+    db = _deck()
+    south = types.SimpleNamespace(xy=(-3.0 * SEP, -15.0), inward=(0.0, 1.0))
+    north = types.SimpleNamespace(xy=(3.0 * SEP, 15.0), inward=(0.0, -1.0))
+    lane_of, centres = DBO.deck_lanes([south, north], {id(south): db, id(north): db}, SEP)
+    assert lane_of[id(south)] == lane_of[id(north)] == 0
+    for m in (south, north):
+        cs = centres[(id(db), DB.deck_side(db, m.inward))]
+        assert len(cs) == 1 and DBO.lane_band(db, cs, 0) is None
 
 
 def test_a_lanes_bank_stops_halfway_to_the_next_carriageway():

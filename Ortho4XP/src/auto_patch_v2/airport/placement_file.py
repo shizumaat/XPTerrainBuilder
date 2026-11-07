@@ -450,11 +450,15 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
         # its authored row would float it ``zero_y`` above its feet
         always_write = True
     index = record.index
-    if landed and not drape_comps and not m.zero_y:
+    if landed and not drape_comps and not m.zero_y \
+            and getattr(m, "plate_kind", "") != "split_level":
         # owner RULINGS 2026-10-14g (3): every body would land within
         # ``authored_keep_tol_m`` of its authored seat — the split moves
         # nothing, so the placement stays one placement of the original
-        # object on its authored row.  A placement carrying a DRAPED slab
+        # object on its authored row.  (Never a SPLIT-LEVEL member: its zero
+        # is its lower floor's datum, and the authored row drapes on the
+        # pit's floor at its anchor -- KLAX Terminal_2 sank a storey on a
+        # "landed" reading.)  A placement carrying a DRAPED slab
         # (14d (1)) is never kept whole: the drape is a rewrite of its
         # geometry, decided before this keep
         counts["kept"] += 1

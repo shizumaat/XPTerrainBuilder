@@ -157,6 +157,168 @@ def _bank_ring(x0: float, y0: float, dx: float, dy: float, w: float, run: float,
     return None if q.is_empty else q
 
 
+def _side_ring(held, box: Polygon, z_of: _t.Callable[[float, float], float], dem, k: float,
+               dmax: float, band: float) -> "Polygon | None":
+    """THE DAYLIGHT POLYGON OFF THE FOOT'S HELD GROUND (#1093 round 3;
+    RULINGS 2026-10-14c (5): "the 1:3 bank of 10-03e stays for the ramp's
+    sides"): along every exterior edge of ``held`` (the union of the faces
+    the patch holds under the foot, and the pad roads beside them) inside
+    ``box``, the region a 1:3 bank off that edge covers before it meets the
+    ground (:func:`_daylight` every ``STATION_M`` and at each vertex, the
+    edge's level ``z_of(x, y)``), with a fan at each convex corner — its
+    holes' edges too (open ground the held faces ring).  What
+    another face already holds is the caller's to subtract: an edge with a
+    face across it is no open edge, and its bank is clipped away there."""
+    from shapely.geometry.polygon import orient
+    quads: list[Polygon] = []
+    rings = [r for part in getattr(held, "geoms", [held])
+             if not part.is_empty and part.geom_type == "Polygon"
+             for o in [orient(part, 1.0)] for r in [o.exterior, *o.interiors]]
+    for lr in rings:
+        # a HOLE of the held ground is open ground ringed by it (a slot
+        # between the pad and the pavement under the foot): it banks too;
+        # oriented, the ground outside the faces is right of every ring
+        ring = list(lr.coords)[:-1]
+        n = len(ring)
+        toes: list[tuple] = []
+        for i in range(n):
+            (ax, ay), (bx, by) = ring[i], ring[(i + 1) % n]
+            L = _math.hypot(bx - ax, by - ay)
+            if L <= 0.0 or not box.intersects(LineString([(ax, ay), (bx, by)])):
+                toes.append(None)
+                continue
+            ux, uy = (by - ay) / L, -(bx - ax) / L       # outward: right of a CCW ring
+            pts = []
+            for S in _stations(0.0, L, STATION_M):
+                px, py = ax + (bx - ax) * S / L, ay + (by - ay) * S / L
+                d = _daylight(z_of(px, py), px, py, ux, uy, dem, k, dmax, band)
+                pts.append(((px, py), (px + ux * d, py + uy * d)))
+            for (p0, t0), (p1, t1) in zip(pts, pts[1:], strict=False):
+                if t0 != p0 or t1 != p1:
+                    quads.append(Polygon([p0, p1, t1, t0]))
+            toes.append((pts[0][1], pts[-1][1]))
+        for i in range(n):
+            a, b = toes[i - 1], toes[i]
+            if a is not None and b is not None and a[1] != b[0]:
+                quads.append(Polygon([ring[i], a[1], b[0]]))
+    q = unary_union([x if x.is_valid else x.buffer(0) for x in quads if x.area > 0.0])
+    q = q.intersection(box)
+    return None if q.is_empty else q
+
+
+def _held_banks(pm_base, xy: np.ndarray, zz: np.ndarray, cells: list, back: Polygon,
+                box: Polygon, occupied, air: _t.AbstractSet[str], dem, k: float,
+                dmax: float, band: float, snap: float, touch: float, slot_m: float
+                ) -> tuple[list[Polygon], list[Polygon]]:
+    """``(banks, slots)`` off a foot's HELD GROUND: the base map's
+    non-airside faces under the foot's last metres (``back``) and the
+    pad-road cells touching them inside ``box``.  Each edge's level is the
+    nearest base-map vertex's (a pad road beside its pad stands at the
+    pad's rim).  An airside face is never banked (airside is king).
+
+    THE SLOTS FIRST (owner 2026-11-04, #1093 rule 2): an unmapped slot
+    narrower than ``2 slot_m`` (twice the touch grid) between held faces standing within ``band``
+    of one level is part of the held ground and is FILLED to it
+    (:func:`_slots`), never banked into.  THE BANKS: the daylight polygon
+    (:func:`_side_ring`) less the slots and what the patch holds; a part
+    narrower than ``touch`` (the touch grid, wider than the late stage's
+    stand-off) against another face is not minted — it re-nodes that face
+    instead (MEASURED, KCLT west foot: a 1 m wedge between the pad road
+    and a standing road gave the road two pad-level vertices, 22
+    within-shape rows to 4.5 m)."""
+    from scipy.spatial import cKDTree
+
+    from .evidence import polygon_parts
+    faces = getattr(pm_base, "faces", None) or {}
+    refs: set[str] = set()
+    held = []
+    for f in faces.values():
+        if f.role in air:
+            continue
+        q = Polygon([pm_base.vertices[v].xy for v in pm_base.ring_vertices(f.ring)])
+        q = q if q.is_valid else q.buffer(0)
+        if not q.is_empty and q.intersection(back).area > touch * touch:
+            refs.add(str(f.ref))
+            held.append(q)
+    if not held:
+        return [], []
+    # the held ground in the base map's faces (snapped to the identity
+    # lattice: the slots the emitted patch leaves) AND in the cells' own
+    # geometry (what ``occupied`` is made of)
+    held.extend(q for c in cells if str(c.ref) in refs
+                for q in [Polygon(c.ring, c.holes)] if q.is_valid and not q.is_empty)
+    core = unary_union(held)
+    for c in cells:
+        ev = getattr(c, "evidence", None) or {}
+        if ev.get("ramp_runout") or ev.get(BANK_EVIDENCE) or not ev.get("pad_road"):
+            continue
+        q = Polygon(c.ring, c.holes)
+        if q.is_valid and q.intersects(box) and q.distance(core) <= touch:
+            held.append(q)
+    tree = cKDTree(xy)
+
+    def z_of(x: float, y: float) -> float:
+        return float(zz[tree.query((x, y))[1]])
+    ground = unary_union(held).buffer(0)
+    slots, steps = _slots(ground, box, occupied, z_of, slot_m, band, snap, touch)
+    ring = _side_ring(ground, box, z_of, dem, k, dmax, band)
+    if ring is None:
+        return [], slots
+    taken = unary_union([occupied, *slots, *steps])
+    own = [Polygon(c.ring, c.holes) for c in cells
+           for ev in [getattr(c, "evidence", None) or {}]
+           if ev.get("ramp_runout") or ev.get(BANK_EVIDENCE)]
+    mine = unary_union([ground, *slots, *own])
+    others = occupied.difference(mine.buffer(snap))
+    banks = [b for b in polygon_parts(shapely.set_precision(ring.difference(taken), snap))
+             if b.area >= touch * touch and (not b.buffer(-0.5 * touch).is_empty
+                                             or b.distance(others) >= 0.5 * touch)]
+    return banks, slots
+
+
+def _slots(ground, box: Polygon, occupied, z_of: _t.Callable[[float, float], float],
+           r: float, band: float, snap: float, touch: float
+           ) -> tuple[list[Polygon], list[Polygon]]:
+    """THE SLOTS OF THE HELD GROUND (owner 2026-11-04, #1093 rule 2: "an
+    unmapped slot between held faces is filled to the level of the faces
+    around it"): inside ``box``, the open ground the morphological CLOSING
+    of ``ground`` by ``r`` adds (a gap narrower than ``2 r`` between two
+    held faces, or an inlet of one), that nothing holds, and whose rim
+    stands within ``band`` of one level.  MEASURED (KCLT departures ramp,
+    35.22238, -80.94241): a 1.5-3 m slot between ``gap:0``,
+    ``building75`` and ``small_roads:-11471#1``, all three at ~+5.6 m over
+    the DEM, left 33 m of open edge in the run-out's box.
+
+    ``(level, steps)``: a slot whose rim stands at TWO levels is no slot of
+    one held ground but the step between two faces; it is neither filled
+    nor banked into (the banks' own wedge rule: MEASURED, KCLT west foot,
+    a 2-3 m wedge between ``gap:1`` and the pad road ``-6064#1`` re-noded
+    the strip and ``gap:1``, 8 within-shape rows at 10.3-20 %)."""
+    from .evidence import polygon_parts
+    if r <= 0.0:
+        return [], []
+    shut = ground.buffer(r, join_style="mitre").buffer(-r, join_style="mitre")
+    gap = shut.difference(ground).difference(occupied).intersection(box)
+    level, steps = [], []
+    for q in polygon_parts(shapely.set_precision(gap, snap)):
+        zs = [z_of(x, y) for x, y in q.exterior.coords]
+        if max(zs) - min(zs) > band:
+            steps.append(q)
+        elif q.area >= touch * touch:
+            level.append(q)
+    return level, steps
+
+
+def _run_box(lip, direction, s1: float, h: float, m: float) -> Polygon:
+    """The run-out's box: ``m`` behind the lip to ``m`` past the strip's end
+    ``s1``, the strip's half width ``h`` and ``m`` to each side (the bank's
+    widest reach)."""
+    (lx, ly), (dx, dy) = lip, direction
+    nx, ny = -dy, dx
+    return Polygon([(lx + dx * s + nx * t, ly + dy * s + ny * t) for s, t in
+                    ((-m, -h - m), (s1 + m, -h - m), (s1 + m, h + m), (-m, h + m))])
+
+
 def _landing_faces(pm):
     """The 10-03e landings and their collars on the solved map: planar pad
     regions (``planar/landing``), never classification cells."""
@@ -180,6 +342,7 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     from .roles import Cell
     rep: dict[str, _t.Any] = {"feet": 0, "ungraded": 0, "landing": 0, "at_grade": 0, "blocked": 0,
                               "runouts": 0, "run_m": 0.0, "banks": 0, "bank_m2": 0.0,
+                              "side_banks": 0, "side_banks_m2": 0.0, "slots": 0, "slots_m2": 0.0,
                               "list": []}
     dem = getattr(airport, "dem", None)
     frame = getattr(airport, "frame", None)
@@ -209,6 +372,8 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     occupied = unary_union([Polygon(c.ring, c.holes) for c in cl.cells] + [landings])
     cells = list(cl.cells)
     to_ll = frame.transformers()[1]
+    from ..law.tables import airside_stage_roles
+    air = frozenset(airside_stage_roles(law))
     for f in feet:
         (lx, ly), (dx, dy), w = f.lip, f.direction, f.width_m
         nx, ny = -dy, dx
@@ -311,6 +476,25 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
                 occupied = unary_union([occupied, b])
                 rep["banks"] += 1
                 rep["bank_m2"] = round(rep["bank_m2"] + b.area, 1)
+            # THE FOOT'S HELD GROUND ENDS ON THE GROUND TOO (#1093 round 3;
+            # 14c (5) "the 1:3 bank stays for the ramp's sides"; bar 11-03e):
+            # the faces the patch holds under the deck's last metres and the
+            # pad roads beside them bank down to the daylight line inside the
+            # run-out's box, as the strip's own bank does
+            banks, slots = _held_banks(pm_base, xy, zz, cells, back,
+                                       _run_box(f.lip, f.direction, s0 + run, h, bank_max),
+                                       occupied, air, dem, k_bank, bank_max, band, snap, touch,
+                                       touch)
+            for b, key in [*((q, "slots") for q in slots), *((q, "side_banks") for q in banks)]:
+                k, _q = min(own, key=lambda kq: kq[1].distance(b))
+                cells.append(Cell(len(cells), "building", f"{RUNOUT_PREFIX}:{k}{COLLAR_SUFFIX}",
+                                  tuple(b.exterior.coords)[:-1],
+                                  tuple(tuple(r.coords)[:-1] for r in b.interiors),
+                                  None, None, role_side(law, "building"), "building",
+                                  {BANK_EVIDENCE: 1.0}))
+                occupied = unary_union([occupied, b])
+                rep[key] += 1
+                rep[key + "_m2"] = round(rep[key + "_m2"] + b.area, 1)
         rep["run_m"] = round(rep["run_m"] + run, 1)
         rep["list"].append(f"{f.member} foot {lat:.7f},{lon:.7f} z0 {z0:.2f} dem "
                            f"{dem0:.2f} run {run:.0f} m x {w:.0f} m")

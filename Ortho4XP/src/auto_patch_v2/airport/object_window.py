@@ -108,7 +108,10 @@ def rivals(apt_dat_path: str | None, icao: str, ref: tuple[float, float],
     for other, apt in _parsed(apt_dat_path, st.st_mtime_ns, st.st_size):
         if other == icao.upper():
             continue
-        la, lo = apt.reference_point()
+        try:
+            la, lo = apt.reference_point()
+        except ValueError:          # a block the reader cannot place (a
+            continue                # seaplane base: water runways, no datum)
         if abs(la - lat0) > _RIVAL_PREFILTER_DEG or abs(lo - lon0) > _RIVAL_PREFILTER_DEG:
             continue
         region = region_in(apt, to_xy)

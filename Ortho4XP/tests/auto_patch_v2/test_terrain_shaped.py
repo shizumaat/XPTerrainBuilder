@@ -153,3 +153,19 @@ def test_the_groundside_patch_under_the_deck_takes_its_surface(tmp_path):
     surface = f.z0 + _hill(150.0, 150.0) - TD.UNDER_M
     assert abs(rows[0].lo - surface) < 0.3 and rows[0].lo == rows[0].hi
     assert TS.seat_records(airport)[0]["elevation"] == round(f.z0, 3)
+
+
+def test_a_roofed_portal_is_seated_at_its_pinned_floor():
+    """ENTC (owner 2026-11-04: "the tunnel mouth objects are still not
+    seated at the bottom of the ramp"): a roofed portal with a pinned floor
+    (``Tunnel.portal_seat``) has its row written at that floor; a tunnel
+    with no such seat writes nothing."""
+    rows = [types.SimpleNamespace(def_path="objects/portal.obj", lat=69.67, lon=18.91,
+                                  heading_deg=185.0, kind="OBJECT_MSL", elevation=7.0)]
+    dump = types.SimpleNamespace(placements=rows)
+    tns = [types.SimpleNamespace(portal="dsf:obj0", portal_seat=("objects/portal.obj", -4.48)),
+           types.SimpleNamespace(portal="dsf:obj0", portal_seat=())]
+    rec = TS.portal_seat_records(tns)
+    assert len(rec) == 1 and rec[0]["seat"] == TS.PORTAL_SEAT
+    seats = TS.row_seats(dump, rec)
+    assert [(m.index, m.elevation, m.why) for m in seats] == [(0, -4.48, "portal_floor")]

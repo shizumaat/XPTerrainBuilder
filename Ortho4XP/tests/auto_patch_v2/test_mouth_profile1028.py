@@ -169,6 +169,24 @@ def test_a_road_through_the_corridor_is_a_stop_its_own_road_a_junction_or_a_deck
     assert [ref for _p, ref in got] == ["osm:-2"]
 
 
+def test_a_crossover_between_the_ramps_carriageways_is_no_stop(law):
+    """#1747 (LOWS): a link whose two ends stand on the ramp's own two
+    carriageways (a dual's crossover) crosses the corridor's centre axis,
+    and is still the ramp's own road — never a road through it.  A road
+    with one end beyond the carriageways stays a stop."""
+    from auto_patch_v2.planar.structure_approach import crossing_roads
+    road = {"highway": "primary"}
+    north = OsmWay(-1, "big_roads", ((0.0, 4.0), (200.0, 4.0)), False, road)
+    south = OsmWay(-2, "big_roads", ((200.0, -4.0), (0.0, -4.0)), False, road)
+    link = OsmWay(-3, "small_roads", ((40.0, 4.0), (48.0, -4.0)), False, {"highway": "service"})
+    through = OsmWay(-4, "small_roads", ((100.0, 30.0), (104.0, -4.0)), False,
+                     {"highway": "service"})
+    axis = LineString([(0.0, 0.0), (200.0, 0.0)])
+    got = crossing_roads(axis, road_index((north, south, link, through)), law,
+                         routes=(north.points, south.points))
+    assert [ref for _p, ref in got] == ["osm:-4"]
+
+
 def test_a_bore_end_where_the_road_goes_on_underground_is_no_portal(law):
     """A bore end whose road runs into another tunnel 20 m on (under the
     shortest lawful ramp) is no portal; one whose road runs on is."""

@@ -186,6 +186,67 @@ cover_flush_m        = 1.0
 # (KBWI BWI_New_Interior 100 %, KATL Techos_Terminales 82 %).
 shell_at_zero_max_fraction = 0.5
 cover_placement_tol_m = 1.0
+# A TRENCH OBJECT'S OWN FLOOR IS THE CUT (owner 2026-11-06T00:07Z, #1903;
+# ``airport/object_floor``): a FLOOR object is a placement whose near-horizontal
+# faces carry at least this share of its solid surface (3D area), co-placed with
+# the cover whose walls it floors.  Measured EGLL: 2a / 3a / 8a / 11b / 12b 100 %,
+# 9a 99 %; their covers 2 / 3 / 8 / 9 / 11 carry walls to the floor (< 60 %).
+floor_object_min_share = 0.9
+# ...and its cover's deep walls stand on at least this share of the floor's
+# footprint ring (within wall_face_max_thickness_m): "walls end on it".
+# Measured: EGLL covers 82-99 % (5.obj 82 %); a shared-datum stack (LGAV
+# Trench_0x) and KBNA Metropolitan-part7 0-2 %.
+floor_walled_min_share = 0.5
+# ...and the floor stands SUNKEN: its plan-area median height is at least
+# floor_sunken_min_m under the AUTHOR'S GROUND around it (lane kmcifloor,
+# owner 2026-11-07: "measuring against the ground the author was using ...
+# our graded terrain can be quite different"; ``geom/author_ground``): the
+# median of the LOWEST near-horizontal face of the pack's own plate objects
+# (near-horizontal faces carrying floor_object_min_share of the solid) over
+# the ring author_ground_inner_m..author_ground_outer_m outside the
+# footprint, sampled every author_ground_step_m, the candidate's own faces
+# left out; the DEM's median there only where plates cover less than
+# author_ground_min_share of the ring.  Never the placement zero: a
+# shared-datum pack hangs every object off one datum (KMCI 310.70, its
+# at-grade tiles 8 m "under" it).  A concave shell's rim (A7) is read
+# against the same ground.  MEASURED (b11f6d2b6 + this read): KMCI's
+# fifteen shared-datum candidates (zero 310.70) -7.16..+0.67 m (concretebeam
+# +0.67 off plates, concretetile +0.26 off the DEM: its neighbours cover 9 %
+# of the ring); EGLL's seven floors +3.41..+5.98 m (no plates: the DEM).
+floor_sunken_min_m = 2.0
+author_ground_inner_m = 2.0
+author_ground_outer_m = 50.0
+author_ground_step_m = 2.0
+author_ground_min_share = 0.1
+# a plate face is GROUND-LEVEL within this of the design ground under it: a
+# roof, a deck or a departures level stands over it, a sunken floor under it
+author_ground_band_m = 3.0
+# THE PACK'S CUT SHELL IS THE GROUND (#1883 round 3, #1914; spec
+# lgav-corridor-cut-and-deck-ends-20261106 A1-A7; ``airport/object_floor``,
+# ``geom/shape_class``): a CONCAVE SHELL is an open-top hollow whose top
+# stands hollow_m or more under its own rim (the p90 of the highest geometry
+# on its outline band, shell_rim_band_m wide) over shell_hollow_min_share of
+# its inner plan, one surface per plan point (two more than shell_stacked_m
+# apart are a cover over a floor).  Measured LGAV Trench_06: 98.8 % hollow,
+# rim 78.89, inner top p50 69.9; the liners Trench_01 / Trench_02 85-87 %.
+hollow_m              = 1.0
+shell_hollow_min_share = 0.5
+shell_stacked_m       = 1.5
+shell_flat_m          = 1.0
+shell_rim_band_m      = 1.0
+shell_raster_cells    = 40000
+# A5: the footprint splits along the shell's creases (faces folding more than
+# this): each cell is one plane, so the mesh's harmonic interior IS the
+# shell (O4_Mesh_Utils.interpolate_free_interior_altitudes reproduces a
+# planar ring exactly).  LGAV Trench_06: 855 planes at 0.5 deg.
+crease_deg            = 0.5
+# A7 (#1914, owner 2026-11-06T16:13Z "Yes, let's hide cut shells"): a shell
+# that is the deepest stated surface, its rim within shell_rim_ground_m of the
+# design ground over shell_rim_ground_share of its outline, is left out of the
+# written DSF; convex bodies are never hidden.
+hide_concave_shells   = true
+shell_rim_ground_m     = 0.5
+shell_rim_ground_share = 0.5
 cover_station_m      = 25.0
 # C — THIN SURFACE WALLS AND PARAPETS (LEMD).  Solids under
 # parapet_max_height_m tall (LEMD's walls are 0.91-2.01 m and SIT on the
@@ -211,6 +272,23 @@ parapet_y_min        = -0.10
 pair_spacing_min_m   = 5.0
 pair_spacing_max_m   = 40.0
 pair_overlap_min_fraction = 0.5
+# THE ENTRANCE SKIRT (owner RULINGS 2026-11-06c (3), "option 1", and its
+# 17:37Z clarification: "the terrain on the other/back side of the mouth
+# object should grade flush to the back of the object at the top of the
+# object"; ``planar/entrance_skirt``).  An ENTRANCE face (a trench object's
+# face at a mapped tunnel end, ``trench_objects.mouth_portals``) is seated
+# with its top on the ground over it; the ground UNDER its top plate and
+# within entrance_skirt_m of it is held at that top, so every edge of the
+# top is flush, and beyond it the ground falls (or rises) to the DEM at
+# emit.design.bank_slope over at most entrance_bank_max_m.  3 m: twice the
+# 1.5 m at which tools/drawn_site.py reads "the ground outside an edge" —
+# the level shoulder a pilot reads as the face's own ground, under a
+# patch-scale triangle; the bank cap is 15 m (platform_collar_max_m's
+# landing-bank width), 5 m of relief at 1:3.  MEASURED LOWS (lowspad
+# tile builds): the west face top stood +0.85 / +1.05 / +1.69 m over the
+# drawn ground at its open edges (DEM 2 m of slope under a 197 m2 top).
+entrance_skirt_m     = 3.0
+entrance_bank_max_m  = 15.0
 
 [cutout]                            # RULINGS 2026-09-06b (1) + 2026-09-08a: every below-grade OBJECT's trench = floor + at-grade rim INSIDE the wall, NO wall band
 # The owner's law: the trench floor slightly OVERLAPS the object's inner
@@ -532,6 +610,11 @@ fill_road_reach_m         = 100.0  # THE FILL RUNS TO THE ROAD (owner RULINGS 20
 frontage_hold             = true   # flat-pad spec §1 (owner RULINGS 2026-09-30f; 30k Q5 hold ON; 30r Q-111b option (1); #111): every minted platform is TESTED at the mint (planar/pad_blocks.py) and a unit that fails is CUT into flat blocks at its necks (<ref>/b<k>); each block's welded frontage is held at its flat datum in stage 1 (constraints/platform.frontage_hold_rows) and the object stage seats each block on its own floor; false = 29s contact-led tilt
 frontage_hold_margin_m    = 0.3    # flat-pad spec §2 (1): the DEM proxy's allowance in the mint-time feasibility test (= the §17 body float bar)
 low_level_min_step_m      = 3.0    # owner RULINGS 2026-10-19ai (#809; amends 30r): a held block whose pack unit has parts authored at least this far (one storey) below its frontage level gets a second, LOWER level over their footprint, tied to the block's datum by the ground's step within the object's storey (planar/low_level.py, <block>/p1, its riser <block>/p1#strip); landside roads meet it.  KATL terminal_F: frontage parts at y 0, landside parts at -13.  The same storey ABOVE the airside floor is a unit's UPPER storey (airport/unit_storey.py; owner answer 47 2026-10-20, #1101): a lot meeting the apron across it stays groundside (classify/storey_edge.py) and meets the pad's upper level <pad>/p1 (planar/low_level.plan_up).  LPHR terminal: floor y 0, forecourt parapet +6; the low region's DEM median must also lie this far under the high block's (#1115: EDDF T1's piers over level ground mint none; KATL 11.6 m down)
+split_level_wall_cover    = 0.5    # A SPLIT-LEVEL BUILDING (owner 2026-11-05: "closed at the upper level, at least one open or untextured wall on the lower level(s) that would be inside terrain; it gets a pad at the lower level so the upper level sits at the graded upper height"; airport/split_level.py, planar/split_level_pit.py): a wall side is CLOSED at a height where its wall faces cover at least this share of its length; a side open for low_level_min_step_m or more above the building's lowest closed floor, facing ground that stands at least half that step above the closed side's, is the OPEN side; the building is a pit cut to its lower floor, its floor following the open side's rim.  MEASURED SBSP Hangar1 (-23.6209, -46.6560): the side facing the apron is open from y 0 to 15.7, the other sides closed from y 0.  0 disarms
+split_level_probe_m       = 3.0    # ... read on the wall faces within this of the side's line (the footprint's rotated rectangle)
+split_level_back_cut_m    = 5.0    # ... THE BACK IS CUT DOWN (owner sim read 2026-11-05T23:55Z, SBSP/KLAX #1909: "the apron should extend up to the building face on the airside, while the outside retaining wall and building floors should be exposed by cutting the terrain down around the back"): the pit reaches this far outside every TALL side (walls down to the lower floor), its floor at the lower floor there; the open (airside) side stays the rim, held flush at the upper floor.  0 = the old pit (the footprint alone)
+split_level_road_reach_m  = 20.0   # ... BUT A ROAD AT THE BASE KEEPS ITS PROFILE (owner 2026-11-06T02:40Z, SBSP: "the road at the base of the building on the groundside is sloping up"; the grouped row keeps one seat): a tall side with a groundside road (a groundside pavement role) within this of it is not cut -- the ground meets the wall at the road's own height there, the lower floors exposed down to it (planar/split_level_pit; tools/drawn_check.py reads the road within this of the wall).  0 = always cut
+split_level_rim_step_m    = 5.0    # ... AND ITS RIM IS STATIONED (owner 2026-11-06T03:24Z (a), flat on airside): the pit's rim carries a vertex at least this often, so the open side's ground the apron shares is held flat at the upper floor along its whole length, not only at the box's corners (KLAX Terminal_2's 194 m open side sagged 0.38 m between its corners).  0 = the corners only
 support_max_extent_m      = 2.5    # A SUPPORT FOUNDS NO STOREY (#1726; owner 2026-11-03T05:25:51Z KBWI sim read: "some of those columns should end up under ground, and don't appear to need a trench"): a SUPPORT is a walled part whose plan box spans at most this on both axes (KBWI BWI_Terminal_new: poles 0.3 m, piers 1.9 m; walls and façades run tens of metres); a unit's lower storey is witnessed by its other walls (planar/low_level.feet_levels), and poles and piers under a building may stand below the ground
 frontage_blocks_max       = 5      # flat-pad spec §2 (4) (e) / §6 Q4 (30k): a unit needing more blocks is a STOP for the owner
 frontage_soft_roles       = ["apron", "junction"]   # the soft-pavement roles the frontage law binds across the sliver (NEAR_MISS_FRONTAGE_SOFT_ROLES)

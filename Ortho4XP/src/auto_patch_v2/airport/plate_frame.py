@@ -110,12 +110,16 @@ def _side_walls(faces: _t.Sequence[LineString], tree, p0: XY, u: XY, half: float
 
 
 def walls_frame(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
-                dem_z, law: Law, a: XY, b: XY, width: float, deep_end: int
-                ) -> PlateFrame | None:
+                dem_z, law: Law, a: XY, b: XY, width: float, deep_end: int,
+                memo: dict | None = None) -> PlateFrame | None:
     """The bay the family's walls frame round the plate whose minimum
     rotated rectangle runs ``a`` -> ``b`` (``width`` across), deep at
     ``b`` when ``deep_end`` is 1 — or ``None`` when any witness of the
-    module doc is missing (the plate is read as Law B reads it)."""
+    module doc is missing (the plate is read as Law B reads it).
+    ``memo`` keeps each member's bands across the family's plates (a
+    member's bands never depend on the plate: re-reading them per plate
+    cost KMCI minutes, slowstep 2026-11-06)."""
+    memo = {} if memo is None else memo
     wc = law.tables.structures.cutout.wall_corridor
     ob = law.tables.structures.tunnel.object
     grade, deep = (a, b) if deep_end == 1 else (b, a)
@@ -127,7 +131,9 @@ def walls_frame(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceC
     verticals = []
     bands = []
     for o in members:
-        bs, verts = _bands_of(o, cache, dem_z, law)
+        if o.id not in memo:
+            memo[o.id] = _bands_of(o, cache, dem_z, law)
+        bs, verts = memo[o.id]
         bands.extend(bs)
         if verts:
             verticals.append((o, verts))

@@ -40,6 +40,7 @@ EXPECTED_STRATEGIES: Dict[str, str] = {
     "manual_download": "ManualDownloadStrategy",
     "os_grid_bucket": "OsGridBucketStrategy",
     "stac": "StacCloudOptimizedGeoTiffStrategy",
+    "stac_dated_strips": "StacDatedStripsStrategy",
     "static_stac": "StaticStacCatalogStrategy",
     "tile_grid_http": "TileGridHttpStrategy",
     "tnm_cog": "TnmCloudOptimizedGeoTiffStrategy",

@@ -58,6 +58,8 @@ __all__ = [
     "filter_enabled",
     "names_above_global_airports",
     "load_order",
+    "EARTH_NAV_DATA",
+    "earth_nav_data",
     "INI_HEADER",
     "BACKUP_SUFFIX",
     "KIND_RANKS",
@@ -209,6 +211,34 @@ def load_order(custom_scenery_dir: str,
     if stop_at_global_airports and global_at is not None:
         ordered = ordered[:global_at]
     return unlisted + [name for name in ordered if name in enabled]
+
+
+#: The folder of a pack that holds its ``apt.dat`` and DSFs, as X-Plane
+#: and most authors spell it.
+EARTH_NAV_DATA = "Earth nav data"
+
+
+def earth_nav_data(pack_root: str) -> str:
+    """The pack's ``Earth nav data`` folder, its name matched WITHOUT
+    REGARD TO CASE (#1887): X-Plane reads ``earth nav data`` and ``Earth
+    Nav Data`` too, and packs in the wild ship them (SBSP GloballArt).
+    macOS and Windows volumes answer any spelling; a case-sensitive one
+    (Linux) answers only the one on disk, so the directory is LISTED.
+    The canonical spelling is returned when nothing matches (the caller's
+    ``isfile`` then answers False)."""
+    exact = os.path.join(pack_root, EARTH_NAV_DATA)
+    if os.path.isdir(exact):
+        return exact
+    try:
+        names = sorted(os.listdir(pack_root))
+    except OSError:
+        return exact
+    want = EARTH_NAV_DATA.casefold()
+    for name in names:
+        path = os.path.join(pack_root, name)
+        if name.casefold() == want and os.path.isdir(path):
+            return path
+    return exact
 
 
 def disabled_pack_names(custom_scenery_dir: str) -> set[str]:

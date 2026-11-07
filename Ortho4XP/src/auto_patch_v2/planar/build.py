@@ -40,13 +40,16 @@ from .overlay import Arrangement, build_arrangement
 from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
+from .object_floor_cells import floor_mouths, not_floors, object_floor_stage
 from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
 from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
-from .deck_bridge import deck_bridges, deck_ground
+from .cut_frame import frame_cuts
+from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .level_depth import airport_level_b
+from .level_regions import level_seeds
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
@@ -140,7 +143,7 @@ def level_counts(pad_airside: _t.Mapping[str, _t.Any]) -> dict:
 
 def channels_after_basins(airport, classification, law, objects, corridors, extra,
                          plates, cache, orep, claimed_ways, shell_claimed,
-                         synth_ways=frozenset(), reads=None):
+                         synth_ways=frozenset(), reads=None, cuts=()):
     """§45 (13) (d) AMENDED — A MEMBER OF A *BUILT* BASIN, BASINS BEFORE
     CHANNELS (owner RULINGS 2026-09-15aw).  THE ONE ORDERING SITE; the
     ``--stage structures`` replay calls this same function.
@@ -170,7 +173,7 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
     a pack witness, and pay nothing for this ordering).
     """
     ch0, st0 = identify_channels(airport, classification, law, objects, claimed_ways,
-                                 synth_ways=synth_ways)
+                                 synth_ways=synth_ways, cuts=cuts)
     if not any(c.witness_ids for c in ch0):
         st0.notes.append("§45 (13) (d): no channel took a pack wall/floor witness — "
                          "the BUILT-basin exclusion cannot change this airport's reading "
@@ -182,7 +185,7 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
                                        report=orep, claimed=shell_claimed, reads=reads)
     pit = frozenset(str(i) for b in basins0 for i in (b.member_ids or ()))
     channels, stats = identify_channels(airport, classification, law, objects,
-                                        claimed_ways, pit, synth_ways)
+                                        claimed_ways, pit, synth_ways, cuts=cuts)
     stats.notes.append(
         f"§45 (13) (d): the basin pass ran FIRST and built {len(basins0)} basin(s); their "
         f"{len(pit)} member placement(s) are the exclusion (a pit CANDIDATE that never "
@@ -259,6 +262,12 @@ def build(airport: Airport, classification: Classification, law: Law,
                                          pr.plates, pr.plate_stats)
     wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
     tstats.plates = pstats.plates
+    # A TRENCH OBJECT'S OWN FLOOR IS THE CUT (#1903, owner 2026-11-06):
+    # read ONCE, here and in the structures replay alike
+    floors, corridors, cuts = object_floor_stage(airport, objects, cache, law, corridors,
+                                                 tstats, classification)
+    roads, wells = not_floors(roads, floors), not_floors(wells, floors)
+    floor_frame = {pid for f in floors for pid in (f.object_id, *f.covers)}
     tstats.refused.extend(pstats.refused)
     # the wall corridors are a pack read too (#362): of the classification
     # they read the FIELD's cover alone (and, in the structures replay, the
@@ -283,7 +292,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     hard_claims, synth_claims = crossing_claims(airport, law, corridors, classification)
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
-        hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings)
+        hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings, cuts=cuts)
     # THE EDGE BRIDGES, read ONCE (owner RULINGS 2026-10-27l / 27r / 28d,
     # ``planar/bridge_span``): their backs pin the trench and their cover is
     # covered ground — the structure pass and the covered ground read one
@@ -295,17 +304,42 @@ def build(airport: Airport, classification: Classification, law: Law,
     # THE AIRPORT'S LEVEL B, read ONCE before the decks (RULINGS 2026-11-03b,
     # ``planar/level_depth``): a deck whose frame states no floor takes it
     level_b, level_b_note = airport_level_b(airport, classification, law)
-    decks, deck_notes = deck_bridges(objects, cache, classification, airport, law,
-                                     tstats.trench_objects, level_b=level_b)
-    deck_notes = [f"level B: {level_b_note}", *deck_notes]
+    # THE LEVEL SEEDS, read ONCE beside it (round 4, ``planar/level_regions``):
+    # the units whose walls stand a storey under their zero
+    seeds, seed_notes = level_seeds(airport, classification, law, cache)
+    # ONE DERIVATION FOR BOTH MAPS (deck redesign §1): stage 1's map reads
+    # the full map's decks (``deck_bridge.from_full``)
+    full = full_map()
+    if full is not None:
+        decks = tuple(getattr(full, "decks", ()) or ())
+        deck_notes = [f"{len(decks)} deck(s) read from the full map (deck redesign §1)"]
+    else:
+        # a pack cut's own frame is read by its floor (``planar/floor_decks``):
+        # its decks are no hard-deck bridges here (#1883 r3 B2)
+        decks, deck_notes = deck_bridges([o for o in objects if o.id not in floor_frame],
+                                         cache, classification, airport, law,
+                                         tstats.trench_objects, level_b=level_b)
+    deck_notes = [f"level B: {level_b_note}",
+                  *(f"level seed: {n}" for n in seed_notes), *deck_notes]
+    cl_read = classification   # the roles before the cuts (``planar/cut_frame``)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,
                                                        portals=tstats.portals,
                                                        edge_bridges=bridges,
                                                        trenches=tstats.trench_objects,
                                                        deck_bridges=decks,
-                                                       level_b=level_b)
+                                                       level_b=level_b,
+                                                       object_floors=floors)
     sstats.hard_decks.extend(deck_notes)
+    # a pack deck over a pack object cut frames that cut (owner 2026-11-05
+    # §0.5, ``planar/cut_frame``): its floor at the deck's seated zero
+    tunnels, frame_notes = frame_cuts(tunnels, objects, cache, cl_read, airport, law,
+                                      tstats.shell_covers)
+    sstats.hard_decks.extend(frame_notes)
+    tunnels, mouth_notes = floor_mouths(tunnels, floors, law)
+    sstats.object_floors.extend(mouth_notes)
+    sstats.object_floors.extend(n for c in cuts for n in c.notes)
+    decks = with_cuts(decks, tunnels)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
     classification, ground_notes = deck_ground(classification, tunnels, law)
@@ -314,7 +348,9 @@ def build(airport: Airport, classification: Classification, law: Law,
     # 2026-10-30f (1) / (5), ``planar/overpass_deck``): the object stage
     # seats each deck's zero on the road beneath
     overpasses, over_notes = road_overpasses(objects, cache, classification, airport,
-                                             law, decks)
+                                             law, decks,
+                                             [o for tn in tunnels if tn.source == "object"
+                                              for o in tn.objects] + sorted(floor_frame))
     sstats.hard_decks.extend(over_notes)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
     # 2026-09-15; RULINGS 2026-09-15y): the ONE road-family face the
@@ -337,7 +373,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     # structures step ends here and the arrangement's begins)
     _pulse.mark("structures")
     _pulse.tick("building the planar arrangement")
-    arr = build_arrangement(airport, classification, law, grid_m, level_b=level_b)
+    arr = build_arrangement(airport, classification, law, grid_m, level_b=level_b,
+                            level_seeds=seeds)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,
@@ -436,7 +473,9 @@ def build(airport: Airport, classification: Classification, law: Law,
     seam = _seam_vertices(arr, vertices_xy)
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins,
-                   channels=tuple(channels), overpasses=tuple(overpasses),
+                   channels=tuple(channels), object_floors=tuple(floors),
+                   overpasses=tuple(overpasses),
+                   decks=tuple(decks),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)
                                          for b in arr.seam_bands),

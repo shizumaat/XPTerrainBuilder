@@ -28,6 +28,7 @@ import typing as _t
 
 from ..model.airport import SceneryPack
 from . import borrow as _borrow
+from . import dsf as _dsf
 from . import object_pack as _object_pack
 from .apt_dat import block_sha256, find_apt_dat
 from .file_hash import sha256_file
@@ -154,9 +155,7 @@ def select_pack(xplane_root: str, icao: str, law=None) -> PackSelection | None:
 
 def tile_dsf_path(pack_root: str, lat: int, lon: int) -> str | None:
     """``<pack>/Earth nav data/+60-140/+60-136.dsf`` when present."""
-    p = os.path.join(pack_root, "Earth nav data",
-                     f"{(lat // 10) * 10:+03d}{(lon // 10) * 10:+04d}",
-                     f"{lat:+03d}{lon:+04d}.dsf")
+    p = _dsf.dsf_path_in_pack(pack_root, lat, lon)
     return p if os.path.isfile(p) else None
 
 

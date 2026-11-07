@@ -226,6 +226,9 @@ class BasinStats:
     #: is where a missing floor plate is looked for.
     buried_named: list[str] = _dc.field(default_factory=list)
     cells_cut: int = 0
+    #: the split-level buildings read (``planar/split_level_pit``): one
+    #: note per building with an open side, and the pits refused
+    split_levels: list[str] = _dc.field(default_factory=list)
 
 
 #: THE PACK READ ONCE, AND THE BASIN ADMISSION READ FIRST (owner
@@ -441,7 +444,10 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     # built cannot be a channel's wall, which is the round-5 defect the
     # amendment names.
     if not witnessed:
-        return classification, (), stats
+        cells = list(classification.cells)
+        return _apply_pits(classification, cells, [Polygon(c.ring, c.holes) for c in cells],
+                           *_split_pits(airport, classification, law, objects, cache, [], [],
+                                        [], [], stats), law, bl, stats)
     u = uu("regions", [_outer(w) for o in witnessed for w in o.witnesses])
     u = u.buffer(bl.footprint_close_m, **_MITRE).buffer(-bl.footprint_close_m, **_MITRE)
     parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and not g.is_empty]
@@ -867,8 +873,34 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                             tuple(tuple(_lonlat(airport, q[0], q[1]) + (q[2],) for q in t)
                                   for t in ramp_faces),
                             rim_cut_m=None if rim_cut is None else float(rim_cut)))
-    stats.basins = len(basins)
     _record_grade(stats, cache, bl)
+    return _apply_pits(classification, cells, polys,
+                       *_split_pits(airport, classification, law, objects, cache, polys,
+                                    basins, new_cells, knives, stats), law, bl, stats)
+
+
+def _split_pits(airport, classification, law, objects, cache, polys, basins, new_cells,
+                knives, stats):
+    """``(basins, new cells, knives)`` with the split-level buildings'
+    pits added (``planar/split_level_pit``), their notes in ``stats``."""
+    from .split_level_pit import split_level_pits
+    cells = list(classification.cells)
+    polys = polys or [Polygon(c.ring, c.holes) for c in cells]
+    sb, sc, sk, notes, refused = split_level_pits(
+        airport, cells, polys, law, objects, cache or obj8.ResourceCache(
+            law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law)),
+        len(basins), knives, FLOOR_ROLE, WALL_ROLE, RUNWAY_FAMILY)
+    stats.split_levels.extend(notes)
+    stats.refused.extend(refused)
+    return list(basins) + sb, list(new_cells) + sc, list(knives) + sk
+
+
+def _apply_pits(classification, cells, polys, basins, new_cells, knives, law, bl, stats):
+    """The classification with every pit applied: each cell cut flush at
+    the rims (``knives``), the floor and wall cells added, the rims kept
+    out -- and the records."""
+    uu = _UnionClock(stats.union_s, stats.union_n)
+    stats.basins = len(basins)
     if not basins:
         return classification, (), stats
     knife = uu("knife", knives)

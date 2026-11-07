@@ -66,6 +66,7 @@ class PackForests(_t.NamedTuple):
     dsf_path: str
     old: tuple                 # ``pack_forests.OldForest`` rows
     upgraded: dict             # the recorded renames, {} = none
+    version: int = 0           # the rules the recorded one was written under
 
     @property
     def renames(self) -> dict:
@@ -74,8 +75,11 @@ class PackForests(_t.NamedTuple):
 
     @property
     def current(self) -> bool:
-        """The live DSF already carries exactly this upgrade."""
-        return bool(self.upgraded) and self.upgraded == self.renames
+        """The live DSF already carries exactly this upgrade, written
+        under today's rules (``pack_forests.UPGRADE_VERSION``, #1920)."""
+        from auto_patch_v2.airport import pack_forests as _pf
+        return (bool(self.upgraded) and self.upgraded == self.renames
+                and self.version == _pf.UPGRADE_VERSION)
 
 
 def check(pack_root: str, lat: int, lon: int, *,
@@ -98,12 +102,14 @@ def check(pack_root: str, lat: int, lon: int, *,
         lambda: _agp.other_export_names(pd.xroot))
     if old is None:
         return None
-    upgraded = {}
+    upgraded, version = {}, 0
     if old and os.path.isfile(pd.pristine) and pd.pristine != pd.dsf_path:
         entry = _bs.dsf_entry(_bs.read_record(pd.dsf_path),
                               os.path.basename(pd.dsf_path))
         upgraded = _pf.recorded(entry, sha256_file(pd.pristine))
-    return PackForests(pd.pack_name, pd.dsf_path, tuple(old), upgraded)
+        version = _pf.recorded_version(entry) if upgraded else 0
+    return PackForests(pd.pack_name, pd.dsf_path, tuple(old), upgraded,
+                       version)
 
 
 def _announce(pf: PackForests, pack_root: str, lat: int, lon: int,
@@ -148,12 +154,15 @@ def _upgrade(pf: PackForests, pack_root: str, lat: int, lon: int) -> str:
     return "upgraded"
 
 
-def forest_stage(plan_, tile, *, writes: bool) -> str:
+def forest_stage(plan_, tile, *, writes: bool,
+                 found: _t.Callable[[PackForests], _t.Any] | None = None) -> str:
     """The 3D trees step of ONE airport's pack, ahead of its placement
     write (which re-applies whatever this step recorded).  Returns what
     happened — ``""`` (nothing to say), ``"found"`` (the user is asked),
     ``"upgraded"``, ``"failed"``, ``"never"``, ``"current"`` — for the
-    log and the twins.  Never raises."""
+    log and the twins.  ``found`` takes the check instead of the
+    ``PackOldForests`` question (#1916: the trees are one row of the
+    pack's adjustments, ``adjust_stage``).  Never raises."""
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import pack_forests as _pf
     pack_root = getattr(plan_, "pack_root", "") or ""
@@ -166,14 +175,23 @@ def forest_stage(plan_, tile, *, writes: bool) -> str:
     if pf is None or not pf.old:
         return ""
     UI.vprint(1, "  " + _pf.log_line(pf.pack_name, pf.old))
-    if not pf.renames or pf.current:
-        return "current" if pf.renames else ""
+    if pf.current:
+        return "current"
+    if not pf.renames and not pf.upgraded:
+        return ""
     choice = pack_choice(pack_root)
     if choice == "never":
         return "never"
-    if writes and choice == "update":
+    # an upgrade the DSF carries was accepted: one written under older
+    # rules is redone from the pristine file without asking (#1920)
+    if writes and (choice == "update" or pf.upgraded):
         return _upgrade(pf, pack_root, tile.lat, tile.lon)
-    _announce(pf, pack_root, tile.lat, tile.lon, "found")
+    if not pf.renames:
+        return ""
+    if found is not None:
+        found(pf)
+    else:
+        _announce(pf, pack_root, tile.lat, tile.lon, "found")
     return "found"
 
 

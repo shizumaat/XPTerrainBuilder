@@ -123,8 +123,13 @@ def channels(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         for f in floors.get(c.id, ()):
             for v in _ring_and_holes(planar, vw, f):
                 on_floor.add(v)
+        # the axis is stated from the record's FIRST station (the field-side
+        # end), the profile in the corridor's own stations: one reading, the
+        # verifier's ``_declared_at`` (a flat floor never showed the offset;
+        # a profile does, #1918)
+        s0 = float(c.profile[0][0])
         for v in sorted(on_floor):
-            s = axis.project(Point(planar.vertices[v].xy))
+            s = s0 + axis.project(Point(planar.vertices[v].xy))
             rows.append(Pin(v, float(c.floor_z(s)), src_floor))
         # ── the crest ──────────────────────────────────────────────────
         for f in walls.get(c.id, ()):

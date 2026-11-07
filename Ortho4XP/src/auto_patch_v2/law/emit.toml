@@ -96,6 +96,13 @@ pad_slope_max            = 0.01  # RULINGS 2026-09-05f (moved here from the dele
 # arm: owner 2026-07-24, seam contacts enter the profile as hard anchors), and
 # each tile's patch carries only the faces on its side.
 half_width_m = 5.0
+# The tile EDGE the mesh builds (``O4_Vector_Map.GLUE_SEGMENTS``, twin
+# ``test_seam_edge_line``): each 1-degree edge cut into this many equal
+# segments, every point at the tile DEM.  A seam pin takes that edge's
+# straight line between its two points at the pin's station (owner
+# 2026-11-04, LOWS: the dense DEM at the pin against the edge's 54 m
+# segments put a ±0.24 m, 7.5 % kink across the 3.2 m strip).
+edge_segments = 2048
 
 # THE BOUNDARY DIALOG'S REACH (spec insets-follow-patch-set-spec.md §C.1,
 # RULINGS 2026-09-18h/18i): an airport whose AIRSIDE CLAIM — apt.dat row
@@ -690,6 +697,7 @@ pad_flat_rulings = [
   "structures.building_pad flat airside-led",            # §16g (10) (11) (a): the SAME plate at the SAME price over a pair with one airside end, priced ONE-WAY toward the pad
   "structures.building_pad frontage_level",              # 09-10l/10y: the SENIOR fronting pavement's edge mean IS the pad's level where one plane cannot meet every frontage
   "structures.building_pad platform_collar rim",          # unit-platform spec §1 (3) (lane unitplatform2): the pad's OWN (non-airside) rim stays on its platform at the plate's price — the plate held it before the collar existed (a courtyard hole ring: measured 0.26 m off the platform at the law's weight)
+  "structures.wall_terrace lot level, follower pass",   # issue #359: the lot over a declared wall flat out from its pad, after stage 2 (pipeline/lot_follow) - at the pad's price: MEASURED HECA dsf:objpav394, at ``law`` the lot's bending to the roads beside it held the median follower 0.67 m off its pad
   "structures.building_pad groundside_frontage",         # 09-12r / spec §28: the SENIOR pad's edge level IS the level of the parking / service-road face fronting it ("grade frontages only"); the junior head below stays at ``law`` so the senior wins and the junior step is reported
 ]
 # THE PAD IS ONE PLANE FITTED TO ITS FRONTAGE (owner RULINGS 2026-09-10l,
@@ -709,6 +717,7 @@ pad_flat_rulings = [
 pad_level_rulings = [
   "structures.building_pad frontage_level",
   "structures.building_pad frontage_level junior",
+  "structures.wall_terrace lot level, follower pass",   # issue #359 (RULINGS 2026-10-03c, 04p (B) b2): the lot over a declared wall takes its pad's level in the follower pass after stage 2 (pipeline/lot_follow) - it follows the pad, so its own terrain plane does not hold it (MEASURED HECA dsf:objpav394: the datum held the median follower 0.67 m off its pad)
 ]
 # THE PAD'S HARD LAW CONFORMS (issue #67, §20b (1b); airside is king,
 # 14ah / 23a: the pad takes the apron's level, never the reverse).  A HARD
@@ -882,6 +891,7 @@ hard_rulings = [
   "rulesets.runway.vertical_curve_k_m / max_grade_change",  # 06b law 1: the vertical curve K
   "rulesets.runway.longitudinal",                        # the runway's max grade along the profile
   "rulesets.runway.end_zone",                            # the same, at its ceiling in the end zones
+  "rulesets.taxi.longitudinal centreline",               # owner RULINGS 2026-11-05a (#1893): "It should be 1.5% everywhere that's physically possible" - the taxiway's longitudinal law along every centreline edge is HARD EVERYWHERE, not on the fronting set alone (30bb F2), at its stretch cap; a route between fixed levels its letter cannot join carries the yielded cap of constraints/taxi_route_yield (at most taxi.longitudinal_exception_max).  MEASURED priced at `law` 300: HECA 1.0.465 carried 173 centreline edges >= 10 m over 1.5 %
   "rulesets.runway.mean_slope_max",                      # Annex 14 §3.1.13 (audit §4 M1, RULINGS 2026-10-15l (1)): the runway's max - min over its length, yielded to its own pins (constraints/runway_mean_slope.py)
   "rulesets.common.pavement_max_grade ceiling",          # 09-09b (4): the 5 % pavement ceiling / 8 % free road
   "rulesets.common.road_max_grade pavement fallback",    # 09-29ac (#105): the ROAD cap is the fallback ceiling of EVERY pavement pair — ring edges and welded neighbours <= 1 m no family caps lower (constraints/pavement_cap.py)
@@ -970,6 +980,17 @@ hard_conflict_ranks = [
 # contains; the runway tier is NOT elastic (a conflict that needs it is a
 # STOP).  A ratio, not a switch.
 hard_conflict_tier_ratio = 1000.0
+# THE HARD ROWS THAT YIELD FIRST (owner RULINGS 2026-11-05a, #1893, with the
+# 11-05 15:09Z yield order "runway is #1 (last to bend), apron is #2, and
+# taxiways are #3"): a head here keeps its tier (its name in the report, the
+# pavement tiers) but is PRICED half a tier under the last one, so under the
+# runway's first hold.  11-05a made the centreline hard "everywhere that's
+# physically possible"; where another hard law makes it impossible (a pin,
+# a runway held on its profile, a route over the 2 % ceiling) the taxiway
+# exceeds its grade and §5a names it; the runway is never pulled off its
+# profile to save it (MEASURED: test_runway_first, a 1 m pull 40 m up a stub
+# bent 09/27 0.63 m through 82 relaxed hold rows).
+hard_conflict_yield_first = ["rulesets.taxi.longitudinal centreline"]
 # §5a's budget (RULINGS 2026-09-30bj, re-setting 30bf's 10 s): min(this
 # ceiling, this share of pass 1a's wall) — over it the stage report says
 # OVER BUDGET (the optimisation review's STOP), never silently paid.
@@ -982,6 +1003,7 @@ hard_conflict_lp_budget_share = 0.15
 apron_promote_on_miss_rulings = ["apron body chord, strict"]
 yielding_pin_rulings = [
   "roads.coverage_edge join",                            # 27a (10) (Q-21, GEML): the §37 (9) join pin is the core RIBBON's level; where the 5 % pavement ceiling from stage 1's apron cannot reach it, the RIBBON yields (its 1.0 m budget is exceeded) — the pin is released to a design target and the core takes the patch's level there (sidecar `road_join_yield`)
+  "structures.deck anchor yields to a senior pin",       # owner RULINGS 2026-11-03c Q2 (as answered 16:20Z: seam > CIFP threshold > deck anchor): a deck end-line anchor (`constraints/deck_anchor.py`) within a seam or crossing pin's vertical-curve reach, or over its family's grade cap, is released to a design target where its own rows will not hold it
   "runway.threshold yields to the tile seam",            # owner RULINGS 2026-10-26b (#1346): "the tile boundary has to trump everything" — a CIFP threshold within its vertical-curve reach of a §38 seam pin (`constraints/threshold_seam.py`) is released to a design target where its own rows will not hold it; the yield is published (sidecar `threshold_seam_yield`)
 ]
 # THE PINS THAT NEVER HOLD AIRSIDE (owner RULINGS 2026-10-02v (1), issue #143;
@@ -1115,6 +1137,7 @@ one_way_rulings = [
   "zones.adjacent_ground.runway.band_max_down strip tie",   # the strip tie (06b law 2 / 06p / 06q)
   "structures.building_pad flat airside-led",               # §16g (10) (11) (a) / RULINGS 2026-09-15z: the pad's own FLATNESS row over a pair with ONE end on airside - the AIRSIDE vertex leads and never moves for a pad.  ATTRIBUTED at HECA's worst airside mover (+3.61 m, roles apron+building): `--why-at` named this plate, two-sided at cap 0 with dual 3.61, as the ONE row binding it; a shared vertex is one unknown (09-01g) and the plate outweighs the apron's own target there
   "structures.wall_terrace step",                           # RULINGS 2026-10-15a (2) (#715, #507): the ground below a retaining wall stands at most the wall's height under the level above - the lower vertex follows (constraints/road_ramp._wall_step_rows)
+  "structures.wall_terrace lot level, follower pass",       # issue #359: the same lot level after stage 2, the pad a constant (pipeline/lot_follow)
   "structures.wall_terrace lot level",                      # RULINGS 2026-10-03c (#291): the LOT at a placed wall's foot follows its building's pad - the lot vertex follows, the pad leads (constraints/road_ramp.wall_terrace_rows)
   "structures.building_pad frontage_level",                 # 09-10l: the pad FOLLOWS the pavement edge it fronts and never pulls it (the apron must not tier down into the terminal)
   "structures.building_pad frontage_level junior",

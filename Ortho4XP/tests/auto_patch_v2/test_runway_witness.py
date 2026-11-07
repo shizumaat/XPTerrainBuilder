@@ -126,8 +126,10 @@ def test_the_loader_stamps_each_end_through_the_threshold_join(tmp_path):
                    "32R": ("visual", False), "02": ("visual", False),
                    "20": ("visual", False)}
     assert [r.instrument for r in a.runways] == [True, True, False]
-    # the stamp: 45.72 m E, 100 ft C (the letter fix), 75 ft B
-    assert [(r.code_number, r.code_letter) for r in a.runways] == [(4, "E"), (4, "C"), (1, "B")]
+    # the stamp (owner RULINGS 2026-11-07a, ``approach.design_letter``): no
+    # precision-marked end caps all three at B, the fixture's largest 1301
+    # ramp class C lifts them to C (45.72 m E, 100 ft C, 75 ft B by width)
+    assert [(r.code_number, r.code_letter) for r in a.runways] == [(4, "C"), (4, "C"), (1, "C")]
 
 
 # ── §2.B the RAOA end filter, and the published read ─────────────────────

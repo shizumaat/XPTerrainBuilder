@@ -14,10 +14,10 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import PlanarMap
-from . import (apron, cluster_pad, eat, edge_deck, flat_site, foot_rows,
+from . import (apron, cluster_pad, deck_anchor, eat, edge_deck, fill_bank, flat_site, foot_rows,
                groundside, hard_plane, door_pad,
                junction_mesh,
-               no_step, pad_frontage_gs, pad_fronting, pads,
+               no_step, object_floor, pad_frontage_gs, pad_fronting, pads,
                platform,
                proximity, ramp_runout, road_ramp, roads, routes, runway_chord, runway_mean_slope,
                runway_profile, runway_step,
@@ -49,6 +49,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # spec §17): the crossing node is a hard Pin on the runway that GRADES
     # to it, at the value the governing runway's chord takes there.
     ("runway_crossing_pin", runway_chord.runway_crossing_pins),
+    # THE DECK END LINE IS AN ANCHOR (RULINGS 2026-11-03c; deck-end-anchors
+    # spec): every pack hard deck's end lines, pinned before the solve
+    ("deck_anchor", deck_anchor.deck_anchor_pins),
     ("taxi_chain", taxi.taxi_chain),
     ("taxi_centerlines", taxi.taxi_centerlines),
     ("triangle_planes", taxi.triangle_planes),
@@ -151,6 +154,8 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # (:func:`eat.withdraw_against_senior`, the post-pass below).
     ("eat_anchor_rect", eat.eat_pins),
     ("water_pins", water.water_pins),
+    # #1915 (RULINGS 2026-11-06a (2)): the old-DEM fill's toe is on the ground
+    ("fill_toe_pins", fill_bank.fill_toe_pins),
     ("seam_pins", seams.seam_pins),
     ("flat_datum", flat_site.flat_datum),
     # THE FOOT ROWS (owner RULINGS 2026-09-11q; spec §11b): a rigid body
@@ -159,6 +164,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("structures", structures.structures),
     ("rim_level", structures.rim_level),
     ("basins", structures.basins),
+    # THE TRENCH OBJECT'S OWN FLOOR (#1903, owner 2026-11-06): every vertex
+    # of its footprint face at the object's floor under it
+    ("object_floor", object_floor.object_floor_pins),
     # THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i): the floor
     # at the record's own profile and the crest at the governed cell's
     # SOLVED surface — after the pavement families whose value the crest

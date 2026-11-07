@@ -104,14 +104,28 @@ def _for(rows, spacing="5 5") -> str:
     ([(577, 618, 20, 7, 15), (499, 514, 20, 7, 15)], "4.5 5", ("broad", False)),
     ([(200, 618, 50, 7, 15)], "4.5 5", ("coni", False)),
     ([(200, 618, 50, 7, 15), (600, 600, 50, 7, 15)], "14 14", ("mixed", True)),
-    ([(600, 600, 100, 1, 3)], "4 4", ("shrb", False)),
 ])
 def test_a_local_forest_maps_by_its_trees(tmp_path, rows, spacing, want):
     p = _write(tmp_path / "forest.for", _for(rows, spacing))
     assert PT.local_forest_target(str(p)) == LOCAL_FOREST[want]
 
 
-def test_ground_cover_maps_to_nothing(tmp_path):
+@pytest.mark.parametrize("rows,want", [
+    ([(600, 600, 100, 1, 3)], "shrubs_red_1"),          # shrubs, 1-3 m
+    ([(450, 128, 70, 0.6, 1.5)], "shrubs_red_1"),       # unnamed, to 1.5 m
+    ([(316, 231, 5, 1.0, 1.5), (400, 231, 25, 1.9, 2.5)], "shrubs_red_1"),
+])
+def test_low_vegetation_is_never_mapped_to_trees(tmp_path, rows, want):
+    # #1920: X-Plane 12's shrb_* forests are 2-13 m trees; a pack's own
+    # low vegetation takes a ground planter (test_pack_trees_planters)
+    p = _write(tmp_path / "low.for", _for(rows, "3 3"))
+    got = PT.local_forest_target(str(p))
+    assert got == f"lib/vegetation/planters/ground/{want}.for"
+    assert "lib/g8/" not in got
+
+
+def test_ground_cover_keeps_its_own_file(tmp_path):
+    # owner 2026-11-07: no 3D grass planter until Beta 8 (KDAL frame rate)
     grass = _write(tmp_path / "grass.for",
                    _for([(300, 60, 100, 0.1, 0.4)], "0.4 0.4"))
     assert PT.local_forest_target(str(grass)) == ""

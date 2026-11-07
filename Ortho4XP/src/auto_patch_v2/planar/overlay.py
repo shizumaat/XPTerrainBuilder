@@ -51,7 +51,9 @@ from .wall_slope import wall_slopes
 from .weld import WeldStats, weld_cells
 from .ridge_reach import reach_pavement_edge
 from .shore import pack_shore_walls
-from .zones import shore_declarations, shore_wedge_m, zone_regions
+from .zones import shore_declarations, shore_region, shore_wedge_m, zone_regions
+from .fill_bank import fill_bank_pieces
+from ..airport.old_dem_fill import fill_model_of
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
            "airside_union",
@@ -225,6 +227,31 @@ def _runway_ridges(airport: Airport, spacing: float
     return out
 
 
+def _ridges_off_cuts(ridges, classification, spacing: float
+                     ) -> list[tuple[str, LineString]]:
+    """The ridges with the stretch a STRUCTURE CUT took out of the runway
+    removed (owner RULINGS 2026-11-03b, accepted 2026-11-03T13:58Z: under a
+    pack deck the trench is cut through the runway, whose surface the deck
+    shows): a ridge vertex in the trench would carry the runway profile down
+    into it.  Only a runway whose own pavement was cut changes."""
+    cut_refs = {c.ref for c in classification.cells
+                if c.role in ("runway", "runway_crossing")
+                and (c.evidence or {}).get("structure_cut")}
+    if not cut_refs or not classification.keepouts:
+        return ridges
+    holes = unary_union([Polygon(k) for k in classification.keepouts if len(k) >= 3])
+    out: list[tuple[str, LineString]] = []
+    for ref, line in ridges:
+        if ref not in cut_refs or not line.intersects(holes):
+            out.append((ref, line))
+            continue
+        rest = line.difference(holes)
+        for part in getattr(rest, "geoms", [rest]):
+            if part.geom_type == "LineString" and part.length >= spacing:
+                out.append((ref, LineString(stations(list(part.coords), spacing))))
+    return out
+
+
 def _storey_lots(cells) -> dict[str, float]:
     """``{lot ref: storey rise}`` of the lots met across a unit's storey
     (``classify.storey_edge``; their pad's upper level, #1101)."""
@@ -235,12 +262,15 @@ def _storey_lots(cells) -> dict[str, float]:
 
 def build_arrangement(airport: Airport, classification: Classification,
                       law: Law, grid_m: float | None = None, *,
-                      level_b: float | None = None) -> Arrangement:
+                      level_b: float | None = None,
+                      level_seeds: _t.Sequence = ()) -> Arrangement:
     """Regions + breakline sources -> ONE noded arrangement, with the
     registries its passes mint (:attr:`Arrangement.registries`).
     ``level_b``: the airport's object-stated level-B depth
     (``planar/level_depth.airport_level_b``), which arms the covered reach
-    read (``planar/reach_under_covers``)."""
+    read (``planar/reach_under_covers``); ``level_seeds`` the units whose
+    walls stand a storey under their zero (``planar/level_regions``), whose
+    lower levels take the unreachable pieces they touch."""
     reg = Registries()
     grid = grid_m if grid_m is not None else \
         law.tables.emit.identity.min_distinct_spacing_m
@@ -262,7 +292,8 @@ def build_arrangement(airport: Airport, classification: Classification,
         # the runway ridges, stationed — built BEFORE the weld because a ridge's
         # END is a vertex the noding will put on the runway's end edge, and the
         # weld must see it as one (``weld_cells`` ``nodes``, #556)
-        ridges = _runway_ridges(airport, law.tables.emit.chords.station_spacing_m)
+        ridges = _ridges_off_cuts(_runway_ridges(airport, law.tables.emit.chords.station_spacing_m),
+                                  classification, law.tables.emit.chords.station_spacing_m)
         ridge_ends = tuple(xy for _ref, line in ridges
                            for xy in (line.coords[0], line.coords[-1]))
         cells, weld = weld_cells(tuple(c for c in classification.cells
@@ -319,6 +350,20 @@ def build_arrangement(airport: Airport, classification: Classification,
                                   weld=air_cells):
             regions.append(Region("graded_strip", ref, g, None, None,
                                   role_side(law, "graded_strip"), "zone"))
+        # #1915 (RULINGS 2026-11-06a (2)): the old-DEM fill's bank, crest to
+        # toe, is graded ground of its own (``planar/fill_bank``)
+        _bank = fill_bank_pieces(
+            airport, [r.polygon for r in regions if r.source == "zone"],
+            [r.polygon for r in regions if r.source != "zone"]
+            + [Polygon(c.ring, c.holes) for c in ribbon_cells]
+            + [Polygon(k) for k in classification.keepouts if len(k) >= 3],
+            law.tables.zones.adjacent_ground.groundside_cutback_m + snap_margin_m(law),
+            2.0 * input_quantum_m(law), float(law.tables.emit.design.edge_grid_m),
+            water=shore_region(cells, getattr(airport, "dem", None), sea_only=False)
+            if fill_model_of(airport) is not None else None)
+        for ref, g in _bank:
+            regions.append(Region("graded_strip", ref, g, None, None,
+                                  role_side(law, "graded_strip"), "zone"))
 
         # §16g (10) (12) (1) THE AIRSIDE CELLS ARE NODED BEFORE ANY PAD EXISTS
         # (Fable 2026-09-16; RULINGS 2026-09-16b), and this SPLIT of the line
@@ -369,7 +414,8 @@ def build_arrangement(airport: Airport, classification: Classification,
                                                 float(grid),
                                                 getattr(airport, "dem", None),
                                                 airport=airport, reg=reg,
-                                                storey=_storey_lots(cells))
+                                                storey=_storey_lots(cells),
+                                                seeds=level_seeds)
             _pad_clip.update(_plat)
         # #1333: a covered cutting no lower level took leaves every pad
         # (``planar/covered_cut``; #1179: a pad never fills a cut)

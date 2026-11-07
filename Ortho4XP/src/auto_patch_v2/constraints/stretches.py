@@ -171,6 +171,18 @@ def build_stretches(pm: PlanarMap, law: Law) -> Stretches:
         for sid, c in lift.items():
             items[sid] = _dc.replace(items[sid],
                                      cap_l=taxi_cap_for(items[sid].cap_l, c))
+    # 11-05a THE TAXI ROUTE EXCEPTION (issue #1893): a stretch a yielded
+    # route runs over carries that route's cap (``PlanarMap.taxi_routes``,
+    # the one record, derived by ``taxi_route_yield``); empty where every
+    # route fits its letter
+    routes_ = getattr(pm, "taxi_routes", None) or ()
+    if routes_:
+        from .taxi_route_yield import edge_key
+        sid_of = {edge_key(pm, e): sid for e, sid in by_edge.items()}
+        for r in routes_:
+            for sid in {sid_of[k] for k in r.edges if k in sid_of}:
+                if r.cap > items[sid].cap_l:
+                    items[sid] = _dc.replace(items[sid], cap_l=float(r.cap))
     return Stretches(tuple(items), {v: tuple(s) for v, s in on.items()}, by_edge,
                      {f: tuple(s) for f, s in faces.items()}, inter)
 

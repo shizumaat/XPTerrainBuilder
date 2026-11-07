@@ -137,6 +137,18 @@ def _channels(icao: str, pm, law, law_c, airport, road_profiles, road_rep, road_
          + ("; off the straight chord " + ", ".join(
              f"{r['runway']} {r['trend_max_off_chord_m']:+.2f}" for r in chord_rep.get("by_runway", [])[:6])
             if chord_rep.get("by_runway") else ""))
+    # RULINGS 2026-11-06c (1): field elevation is the runways' highest
+    # point — capped on a DEM older than the airport, a line elsewhere
+    for r in chord_rep.get("by_runway", []):
+        over = r.get("crest_over_field_m")
+        if r.get("field_capped"):
+            out(f"[{icao}] RUNWAY CREST AT FIELD (RULINGS 2026-11-06c (1)) {r['runway']}: DEM "
+                f"older than the airport; the trend's bow scaled x{r['bow_scale']:.3f}, crest "
+                f"{r['crest_m']:.2f} m at s {r['crest_s_m']:.0f} m (field {over:+.2f} m)")
+        elif over is not None and over > 0.0:
+            out(f"[{icao}] runway crest over field (report only, RULINGS 2026-11-06c (1)) "
+                f"{r['runway']}: target crest {r['crest_m']:.2f} m at s {r['crest_s_m']:.0f} m "
+                f"stands {over:.2f} m over the field elevation")
     # §50.4 THE ONE LOUD LINE (owner RULINGS 2026-09-18d (3)): one line per
     # OVER-GRADE runway, naming the grade its own pins demand, the two pins
     # and the cap they exceeded.  A LINE, never a gate — no verify family
@@ -148,6 +160,10 @@ def _channels(icao: str, pm, law, law_c, airport, road_profiles, road_rep, road_
     _yield_records = [rc.as_dict(law.ruleset_key)
                       for _r, rc in sorted(_caps.items()) if rc.yielded]
     for _line in yielded_lines(icao, _caps, law.ruleset.authority):
+        out(_line)
+    # 11-05a (issue #1893): one loud line per yielded taxi route
+    from ..constraints.taxi_route_yield import route_lines
+    for _line in route_lines(icao, getattr(pm, "taxi_routes", None) or ()):
         out(_line)
     # THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1); spec
     # §8.6): every taxi centreline chain takes the ground's LONG-WAVE TREND

@@ -111,11 +111,17 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # 30ah (1) (issue #135): per tied taxi-family face its yielded cap and
     # the runway that yielded it — LAW INPUT for v2 verify
     "taxi_yield_caps",
+    # 11-05a (issue #1893): per yielded taxi ROUTE its ends, needed grade and
+    # raised cap — EVIDENCE (the cap rides on ``stretches`` / ``axes``)
+    "taxi_route_caps",
     # flat-pad spec v2 §6 A11 (RULINGS 2026-09-30as): per PULLED runway its
     # flex budget, lift, used share and pulling pad — EVIDENCE, not law
     "runway_flex",
     # flat-pad spec v2 §3: the plateau ring vertices per held block
     "plateau_rings",
+    # deck-end-anchors spec §6: every pack hard deck's end-line anchors —
+    # LAW INPUT for the ``deck_end_flush`` census family
+    "deck_anchors",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
     # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNEL records —
     # the floor datum each channel declares per station and the crest
@@ -193,6 +199,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # ``object_cut_depth`` families price the emitted patch against, so
     # the law and its instrument read ONE reading of the object.
     "object_cuts",
+    # #1903: the trench objects' own floors (REPORT ONLY; tools/drawn_check)
+    "object_floors",
     # §16g (10) (12) (2) (Fable 2026-09-16; RULINGS 2026-09-16b):
     # ``[lat, lon, "minted"|"deleted"]`` per airside node the PAD STAGE
     # added to or removed from the arrangement's airside cells.  The

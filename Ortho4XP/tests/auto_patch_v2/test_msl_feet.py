@@ -249,3 +249,52 @@ def test_the_partition_guard_keeps_a_set_built_around_its_origin(tmp_path):
     got = {o.id: (o.origin_built, o.zero_y) for o in objs}
     assert got == {"a": (True, 0.0), "b": (True, 0.0), "c": (False, 6.0),
                    "d": (False, 0.0), "e": (True, 0.0)}
+
+
+def test_an_upper_storey_file_is_not_a_foot_of_its_set(tmp_path):
+    """#1639: a rigid set's feet are its LOWEST members' — a roof split
+    into its own file stands on the walls; reading its underside as a foot
+    sank the whole set by half the storey height."""
+    walls = _obj(tmp_path, "walls.obj", 6.0, 12.0)
+    roof = _obj(tmp_path, "roof.obj", 11.0, 14.0)
+    dump = types.SimpleNamespace(placements=[_row(walls), _row(roof)])
+    _c, msl, _r, _n = _rows(dump, tmp_path)
+    assert {round(m.elevation, 9) for m in msl} == {Z - 6.0}
+
+
+def _agl(path, lift, lat=38.5, lon=-28.7):
+    return _row(path, kind="OBJECT_AGL", elevation=lift, lat=lat, lon=lon)
+
+
+def test_a_lift_that_buries_its_feet_is_reseated_on_them(tmp_path):
+    """#1639 (LFPG T1 satellites): an AGL lift over a pit at the origin,
+    the geometry 40 m away on the apron.  The pit is 2.5 m deeper than the
+    author's, so lift + drape buries the feet; the set (floor files and an
+    upper storey at one origin) stands with its feet on the apron."""
+    floor = _obj(tmp_path, "floor.obj", -5.0, 2.0, dx=40.0)
+    upper = _obj(tmp_path, "upper.obj", 2.0, 8.0, dx=40.0)
+    origin = (38.5, -28.7)
+    surf = lambda la, lo: 96.0 if (la, lo) == origin else 107.0  # noqa: E731
+    dump = types.SimpleNamespace(placements=[_agl(floor, 13.5), _agl(upper, 13.5)])
+    conv, msl, _r, n = _rows(dump, tmp_path, surface=surf)
+    assert not conv and sorted(m.index for m in msl) == [0, 1]
+    assert {m.why for m in msl} == {MF.LIFTED_FEET}
+    assert {round(m.elevation, 9) for m in msl} == {107.0 + 5.0}
+    assert n["lifted_feet_sets"] == 1 and n["lifted_feet_seated"] == 2
+
+
+def test_a_lift_standing_its_feet_above_the_surface_is_kept(tmp_path):
+    """Feet lifted ABOVE the surface may stand on a floor or hang on a wall
+    (KMCI's seats): the lift stands.  So does a lift whose feet stand on
+    the surface, and geometry built down past its origin's ground."""
+    seat = _obj(tmp_path, "seat.obj", 0.0, 1.0)
+    shed = _obj(tmp_path, "shed.obj", 0.0, 3.0, dx=40.0)
+    pole = _obj(tmp_path, "pole.obj", -9.0, 6.0, dx=40.0)
+    origin = (38.5, -28.7)
+    surf = lambda la, lo: 96.0 if (la, lo) == origin else 99.0  # noqa: E731
+    dump = types.SimpleNamespace(placements=[
+        _agl(seat, 4.7, lat=38.6), _agl(shed, 3.0, lat=38.7),
+        _agl(pole, 3.0, lat=38.8)])
+    _c, msl, _r, n = _rows(dump, tmp_path, surface=surf)
+    assert not msl and n["lifted_feet_seated"] == 0
+    assert n["lifted_feet_below_origin"] == 1

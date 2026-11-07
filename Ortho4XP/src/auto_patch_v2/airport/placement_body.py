@@ -197,7 +197,13 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             floor_mark = ring0.ref
             is_basin = False
             rim0 = None
-        elif is_basin and _br.is_basin_ring(rim0.ref) and rim0.z:
+        elif (is_basin and _br.is_basin_ring(rim0.ref) and rim0.z
+              and getattr(m, "plate_kind", "") != "split_level"):
+            # a SPLIT-LEVEL building is one frame on its lower floor's
+            # datum (``anchor_rule.datum_of``): its pit's rim hugs its own
+            # walls, and cut per rim arc each wall took the rim's zero --
+            # KLAX Terminal_2 then stood its upper floor on the low side's
+            # ground, a storey down
             arcs = _br.arcs_of(rim0.z, rim0.ring, split_tol_m,
                                line_stations_max)
         body_rims = rims if is_basin else ()

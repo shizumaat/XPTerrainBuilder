@@ -49,6 +49,7 @@ emitted object pad; else ``other``.
 from __future__ import annotations
 
 import dataclasses as _dc
+import functools as _functools
 import json
 import math
 import os as _os
@@ -117,13 +118,16 @@ from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
 # #1214: the airside hard deck (class A) and the one-zero groups live next
 # door; the round-2 private names stay importable from here
 from . import cut_deck_seat as _cds  # noqa: E402
+from . import entrance_seat as _ens  # noqa: E402
+from . import split_guard as _sg  # noqa: E402
+from . import terrain_shaped as _tsh  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
     airside_deck as _airside_deck, airside_frame as _airside_frame,
     deck_owns_its_datum as _deck_owns_its_datum, refused_bridge as _refused_bridge)
 from .open_frame_seat import (  # noqa: E402
     OPEN_KINDS as _OPEN_KINDS, body_root as _body_root,
     frame_root_boxes as _frame_root_boxes, frame_zero as _frame_zero,
-    group_zero as _group_zero, open_zero as _open_zero,
+    group_zero as _group_zero, open_zero as _open_zero, at_zero as _at_zero,
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
     rigid_open as _rigid_open, root_zeros as _root_zeros)
 from .pad_level_group import pad_level_links as _pad_level_links  # noqa: E402
@@ -134,6 +138,25 @@ from .placement_file import (  # noqa: E402,F401
     _note_tilted_kept_whole, _own_ground_file, _split_by_unit,
     _unit_carried_file)
 
+
+
+def _rides_frame(ring: _t.Any, on_fraction: float, body: _t.Any) -> bool:
+    """A body of a framed cut standing in its ring, not already seated as a
+    deck (owner 2026-11-05 §0.5; ``cut_deck_seat.stands_in``)."""
+    return not _cds.seated(body) and _cds.stands_in(body, ring, on_fraction)
+
+
+def _unseated(body: _t.Any) -> bool:
+    """A body no deck seat placed (``cut_deck_seat.seated``)."""
+    return not _cds.seated(body)
+
+
+def _keeps_seat(ring: _t.Any, on_fraction: float, seats: _t.Sequence, body: _t.Any) -> bool:
+    """A body a refused bridge frame's zero leaves at its own seat: a deck
+    seated over the pack's cut, a body riding one (#1883), or a framed
+    cut's body in its ring (:func:`_rides_frame`)."""
+    return ((ring is not None and _rides_frame(ring, on_fraction, body)) or _cds.seated(body)
+            or _cds.seat_under(body, seats, on_fraction) is not None)
 
 
 def build_splits(plan: RebakePlan, surface: _ar.Surface,
@@ -198,7 +221,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # (``slab_drape.drape_plan``: member id -> components) and
                  # the draped writer's law (``obj8_drape.DrapeLaw``)
                  drape: "_t.Mapping[str, frozenset[int]] | None" = None,
-                 drape_law: _t.Any = None) -> SplitSet:
+                 drape_law: _t.Any = None,
+                 # #1903: the DSF's tile ``(west, south, east, north)``; a body
+                 # anchored off it keeps its seat by its row
+                 # (``split_guard.on_tile``).  ``None`` disarms
+                 tile_box: "tuple[float, float, float, float] | None" = None
+                 ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
     (1)) and each anchored by the generic rule of 11e (2).
@@ -287,6 +315,20 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     reseated = _aseat.reseated_rows(getattr(plan, "authored_seats", ()) or ())
     # 26d (#1331): the pack object cuts' rings, published on the seat records
     _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
+    # #1883 r3 B1: a pack cut's frame at the zero its floor was read at
+    _floor_zero = _tsh.frame_zeros(getattr(plan, "authored_seats", ()) or ())
+    # ...whose deck pieces stand OVER the cut: never draped onto it as a base
+    # slab (LGAV Trench_00's road decks were draped 12 m down to the floor)
+    drape = {k: v for k, v in (drape or {}).items() if k not in _floor_zero}
+    # #1903: ...and the placements those cuts are (their own roofs' end lines)
+    _cut_ids = frozenset(str(r.get("id")) for r in getattr(plan, "authored_seats", ()) or ()
+                         if hasattr(r, "get") and r.get(_cds.CUT_RING))
+    # #1747: each entrance face's zero at its portal (``entrance_seat``)
+    _entr = _ens.entrance_zeros(getattr(plan, "authored_seats", ()) or ())
+
+    def _on_tile(r, mm):
+        # #1903: a body off the DSF's tile keeps its seat (``split_guard``)
+        return _sg.on_tile(r, tile_box, lambda b: _ens.face_zero(b, mm, _entr))
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,
@@ -938,31 +980,62 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # (every member a deck or a deck candidate: a bridge, a canopy)
         # moves as ONE rigid group
         airside = _airside_frame(staged, decks, surface, counts,
-                                 abutment_step_m, tuple(u.anchor))
+                                 abutment_step_m, tuple(u.anchor), _cut_ids)
         # owner RULINGS 2026-10-27c with 10-22c/d (#1471): a BRIDGE frame
         # class A refuses (no taxiway or apron pavement across its deck)
         # still moves as one, at its deck's own zero, the deck cut first
         bridge = None if airside is not None else _refused_bridge(staged, decks, surface)
         _bz: list[float] = []
+        # #1883: what stands on a deck seated over the pack's cut rides that
+        # seat (``cut_deck_seat.cut_seats``, read before the deck is cut)
+        _seats = (_cds.cut_seats(bridge.m, getattr(bridge.m, "origin", None) or tuple(u.anchor),
+                                 surface, _cuts, abutment_step_m, deck_on_fraction)
+                  if bridge is not None and _cuts else [])
 
-        def _one_bridge(r, mm, _b=bridge, _z=_bz):
-            if _b is None:
+        def _one_bridge(r, mm, _b=bridge, _z=_bz, _s=_seats):
+            if _b is None or getattr(mm, "id", "") in _floor_zero:
                 return r
+            # owner 2026-11-05 §0.5: the cut a seated deck frames rides it
+            fz = _cds.framed_zero(getattr(mm, "id", ""), _s,
+                                  getattr(plan, "authored_seats", ()) or ())
+            if fz is not None:
+                r = _at_zero(r, mm, fz[0], _functools.partial(_rides_frame, fz[2],
+                                                               deck_on_fraction),
+                             f"the cut the deck seated over it frames, at {fz[0]:.2f} "
+                             f"(owner 2026-11-05 §0.5; residual to its floor's frame "
+                             f"{fz[1]:+.2f} m)")
+            for zero in sorted({z for b in r.bodies
+                                if (z := _cds.seat_under(b, _s, deck_on_fraction)) is not None}):
+                r = _at_zero(r, mm, zero,
+                             lambda b, _q=zero: _cds.seat_under(b, _s, deck_on_fraction) == _q,
+                             f"on the deck seated over the pack's cut at {zero:.2f} (#1883)")
             if not _z:
-                z = _open_zero(r.bodies) if mm is _b.m else None
+                # a deck body seated over the pack's own cut (26d) keeps its
+                # seat and states no frame zero (``cut_deck_seat.seated``)
+                z = (_open_zero([b for b in r.bodies if not _cds.seated(b)])
+                     if mm is _b.m else None)
                 if z is None:
                     return r
                 _z.append(z)
                 counts["refused_bridge_frames"] = counts.get("refused_bridge_frames", 0) + 1
             return _frame_zero(r, mm, _z[0],
                                f"one bridge frame at its deck's zero {_z[0]:.2f} "
-                               "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)")
+                               "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)",
+                               keep=_functools.partial(_keeps_seat, None if fz is None
+                                                       else fz[2], deck_on_fraction, _s))
 
         # owner RULINGS 2026-10-26d (#1331): outside a class-A frame, a
         # pack deck body over the pack's own cut sits flush with what it
-        # carries (``cut_deck_seat``)
+        # carries (``cut_deck_seat``); #1883 r3 B1/B2: a deck placement of a
+        # pack cut's frame — its bodies at the frame's zero, its deck pieces
+        # flush with what they carry, whatever the frame reads as
         def _cut_decks(r, mm, _u=u, _air=airside):
-            if _air is not None or not _cuts:
+            r = _ens.seat_faces(r, mm, _entr, _at_zero)
+            fz = _floor_zero.get(getattr(mm, "id", ""))
+            if fz is not None:
+                r = _at_zero(r, mm, fz, _unseated,
+                             f"the pack cut's frame zero {fz:.2f} (#1883 r3 B1)")
+            if (_air is not None and fz is None) or not _cuts:
                 return r
             return _cds.seat_cut_decks(r, mm, getattr(mm, "origin", None) or tuple(_u.anchor),
                                        surface, _cuts, abutment_step_m,
@@ -1054,6 +1127,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
+                record = _on_tile(record, m)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=landed,
                               always_write=True, tilted_whole=tilted_whole,
@@ -1149,6 +1223,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
+                record = _on_tile(record, m)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=landed,
                               always_write=True, tilted_whole=tilted_whole,
@@ -1194,6 +1269,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     off_row = True
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
+                record = _on_tile(record, m)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=landed,
                               always_write=off_row, tilted_whole=tilted_whole,
@@ -1334,7 +1410,7 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
                      if str(b.anchor.reason).startswith(_fu.UNIT_REASON)
                      else ""),
             connector_of=b.anchor.connector_of,
-            lift_m=b.lift_m) for b in s.bodies))
+            lift_m=b.lift_m, msl_z=b.msl_z) for b in s.bodies))
         for s in ss.splits)
     kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)
     return splits, kept

@@ -139,6 +139,11 @@ REMEDIES = {
                         "below it from the tile's info.",
     "elevation_link": "{connect}, or replace the link with an empty "
                       "folder, then build the tile again.",
+    # a pack whose ground objects were made for a terrain mesh of its own
+    # (#1362): only the user can install it
+    "companion_mesh": "If that scenery pack comes with a terrain pack, "
+                      "install it as its manual says, then build the tile "
+                      "again.",
 }
 
 UNMAPPED = "unexpected_error"          # an exception nobody catalogued
@@ -237,7 +242,7 @@ CATALOGUE = {
         "with stand-in elevation for {cells}.",
         "{source} did not answer, so {fallback} was used. It includes "
         "trees and buildings, so the ground there may read a few metres "
-        "high.", "rebuild_later", severity="info"),
+        "high.{kept}", "rebuild_later", severity="info"),
     "pack_write_failed": Entry(
         "objects for {airports} could not be updated.",
         "The app could not safely rewrite the file of {pack}.", "pack"),
@@ -250,6 +255,14 @@ CATALOGUE = {
         "some of its aerial images are missing.",
         "{textures} could not be downloaded from {imagery_source}, so they "
         "show as white squares.", "network", severity="degraded"),
+    # the pack supplies its own ground and no terrain mesh of its own is
+    # installed (#1362, owner RULINGS 2026-11-04 option A): built, with our
+    # ground shaped under the pack's
+    "pack_ground_no_mesh": Entry(
+        "{airports} has no terrain mesh of its own installed.",
+        "{pack} models the airport's ground as objects, and no terrain "
+        "pack for them was found, so the app shaped the ground under them "
+        "itself.", "companion_mesh", severity="degraded"),
     "inset_fetch_failed": Entry(
         "the detailed elevation for {airports} could not be downloaded.",
         "{inset_source} did not answer, so the ground there was shaped from "
@@ -675,6 +688,8 @@ def _describe(code: str, tile: str, airports: list, params: dict,
         "areas": params.get("areas") or "some areas",
         "category": _CATEGORY_WORDS.get(params.get("category", ""),
                                         "reefs or tidal flats"),
+        "kept": (" The airports keep their own detailed elevation: %s."
+                 % params["kept"]) if params.get("kept") else "",
     }
     words.update(_link_words(params))
     words["was"] = "were" if len(airports) > 1 else "was"
@@ -830,17 +845,41 @@ def from_unmounted(rows: Iterable[dict]) -> list:
             for row in rows or () if isinstance(row, dict)]
 
 
-def from_substitutions(rows: Iterable[dict]) -> list:
+def _inset_sources_phrase(inset_sources: Iterable[dict]) -> str:
+    """"BGGH from ARCTICDEM2M (2 m)" per airport of
+    ``O4_Unpatched_Airports.read_inset_sources``: the inset each airport's
+    ground was baked from, so a base-cell note is never read as the
+    airport's own source."""
+    pieces = []
+    for row in inset_sources or ():
+        if not isinstance(row, dict) or not row.get("icao"):
+            continue
+        resolution = row.get("resolution_m")
+        try:
+            metres = " (%g m)" % float(resolution)
+        except (TypeError, ValueError):
+            metres = ""
+        pieces.append("%s from %s%s" % (row["icao"],
+                                       row.get("provider") or "?", metres))
+    return ", ".join(pieces)
+
+
+def from_substitutions(rows: Iterable[dict],
+                       inset_sources: Iterable[dict] = ()) -> list:
     """Raw NOTE records from the tile's base-elevation substitutions
     (``{"cell", "code", "path"}`` plus ``source`` / ``fallback`` labels):
-    one per cell, folded per (source, fallback) pair."""
+    one per cell, folded per (source, fallback) pair.  ``inset_sources``
+    (the winning inset per airport) adds, to every record alike, the
+    sentence that the airports keep their own elevation."""
+    kept = _inset_sources_phrase(inset_sources)
     return [record("elevation_substituted",
                    "%s: source %s read from %s (%s)" % (
                        row.get("cell"), row.get("keyword") or "?",
                        row.get("code"), row.get("path")),
                    cell=str(row.get("cell") or "?"),
                    source=row.get("source") or "",
-                   fallback=row.get("fallback") or row.get("code") or "")
+                   fallback=row.get("fallback") or row.get("code") or "",
+                   kept=kept)
             for row in rows or () if isinstance(row, dict)]
 
 

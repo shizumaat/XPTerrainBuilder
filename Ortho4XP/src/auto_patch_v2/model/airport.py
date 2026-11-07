@@ -475,6 +475,12 @@ class Airport:
     #: deck shade.  Same reader rule as ``sunken_ramps``; ``None`` = none,
     #: or not derived (a capture written before it).
     wall_shade: _t.Any = None
+    #: #1747 (owner RULINGS 2026-11-06b (6)) THE TUNNEL MOUTHS' WALLS
+    #: (``airport/entrance_shade``): an entrance object's mouth components
+    #: are no building, so their plan leaves every pad outline like a deck
+    #: shade.  Same reader rule as ``wall_shade``; ``None`` = none, or not
+    #: derived (a capture written before it).
+    entrance_shade: _t.Any = None
     #: issue #1633 round 3 THE RETAINING WALLS READ AS TWO LEVELS
     #: (``airport/wall_sides.WallSides``: footprint, upper and lower side
     #: bands, smear, the object's top): a road is never on both sides of

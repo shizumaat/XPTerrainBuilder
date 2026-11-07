@@ -1,6 +1,7 @@
 """THE USER'S ANSWER FOR AN AIRPORT PACK, remembered per pack: the
-X-Plane 12 3D trees (#1360, ``forest_stage``) and "Optimise pack" (#1707,
-``optimise_stage``) share this store.  One JSON file per choice
+X-Plane 12 3D trees (#1360, ``forest_stage``), "Optimise pack" (#1707,
+``optimise_stage``) and the hidden draped photos (#1916, ``drape_stage``)
+share this store.  One JSON file per choice
 (:func:`store_path`) in the engine's own preferences folder, never in the
 pack.  Light on purpose: ``object_rebake``'s Revert to default forgets an
 answer through it without importing the object stage.  The rewrite and
@@ -12,13 +13,15 @@ import json
 import os
 import typing as _t
 
-__all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "Store", "store_path", "read",
+__all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES", "Store", "store_path", "read",
            "write", "relative", "step_list"]
 
 #: the "Optimise pack" answers file (#1707; ``optimise_stage``)
 OPTIMISE_CHOICES = "pack_optimise_choices.json"
 #: the steps the user last chose for a pack's "Optimise pack" (#1707)
 OPTIMISE_STEPS = "pack_optimise_steps.json"
+#: the "Hide draped photos" answers file (#1916; ``drape_stage``)
+DRAPE_CHOICES = "pack_drape_choices.json"
 
 #: the answers a store remembers ("" forgets)
 REMEMBERED = ("update", "never")

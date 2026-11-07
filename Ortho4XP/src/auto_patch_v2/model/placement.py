@@ -102,6 +102,12 @@ class Provenance:
                    {str(k): int(v) for k, v in dict(d.get("counts", {})).items()})
 
 
+#: ``MslSeat.why`` of a row LEFT OUT of the written DSF (#1914 A7, owner
+#: 2026-11-06T16:13Z "hide cut shells": a concave cut shell whose surface the
+#: terrain now is); ``dsf_write.edit_dump`` deletes it
+HIDDEN = "hidden"
+
+
 @_dc.dataclass(frozen=True)
 class MslSeat:
     """§16g (5) (owner RULINGS 2026-09-13bw; owner 2026-09-11a/b "you can
@@ -121,7 +127,8 @@ class MslSeat:
     heading_deg: float
     #: the absolute MSL elevation written into the row
     elevation: float
-    #: what chose it — ``unit`` (a footprint unit's plane) or ``surface``
+    #: what chose it — ``unit`` (a footprint unit's plane) or ``surface``;
+    #: :data:`HIDDEN` drops the row from the written DSF (#1914 A7)
     why: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:
@@ -349,11 +356,18 @@ class Body:
     #: owner RULINGS 2026-10-14g (1): the authored ``OBJECT_AGL`` lift this
     #: body's row KEEPS (written ``OBJECT_AGL``), 0 for an on-ground row
     lift_m: float = 0.0
+    #: #1903: the ``OBJECT_MSL`` elevation this body's row is WRITTEN at, or
+    #: ``None`` for an on-ground row.  A body whose own anchor falls off the
+    #: DSF's tile is anchored on it and keeps its seat by its row
+    #: (``split_guard.on_tile``): no mesh under the new anchor is its ground.
+    msl_z: float | None = None
 
     def to_dict(self) -> dict[str, _t.Any]:
         d = self._dict()
         if self.lift_m:
             d["lift_m"] = self.lift_m
+        if self.msl_z is not None:
+            d["msl_z"] = self.msl_z
         return d
 
     def _dict(self) -> dict[str, _t.Any]:
@@ -406,7 +420,8 @@ class Body:
                    str(d.get("family_of") or ""),
                    str(d.get("unit_of") or ""),
                    str(d.get("connector_of") or ""),
-                   _f(d.get("lift_m", 0.0)))
+                   _f(d.get("lift_m", 0.0)),
+                   None if d.get("msl_z") is None else _f(d["msl_z"]))
 
 
 @_dc.dataclass(frozen=True)
@@ -523,7 +538,10 @@ class PlacementPlan:
                                         "anchor": b.anchor.to_dict(),
                                         # 14g (1): the row's kept lift
                                         **({"lift_m": b.lift_m}
-                                           if b.lift_m else {})}
+                                           if b.lift_m else {}),
+                                        # #1903: the row's MSL seat
+                                        **({"msl_z": b.msl_z}
+                                           if b.msl_z is not None else {})}
                                        for b in s.bodies]}
                            for s in self.splits]}
 

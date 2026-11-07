@@ -9,6 +9,7 @@
 # None names an airport (RULINGS 2026-10-05e).
 
 field_equal_ft        = 3.0    # (a), (e) a CIFP end "equals the field elevation" within this (CIFP is whole feet; an apt.dat field from another cycle moves by a foot or two)
+field_agree_m         = 10.0   # owner RULINGS 2026-11-06a (1) (#1915): a CIFP pair whose ends both lie within this of the apt.dat field elevation STANDS though (b) fires — the DEM may predate the airport ("within about 10 m"); never waives (a), (d), (e), nor a pair that is one number (placeholder_spread_ft)
 placeholder_spread_ft = 1.0    # (a) the runway's CIFP ends are the SAME number within this
 crosscheck_tol_ft     = 3.0    # (c) a cached cross-check source disagrees with a CIFP end beyond this (26a: "more than a few feet")
 zero_placeholder_ft   = 0.5    # (d) RULINGS 2026-10-26j: every CIFP end within this of 0 ft is a placeholder ("CIFP runway-end heights of 0 ft at both ends are untrusted"); flagged with no DEM needed
@@ -24,3 +25,8 @@ coarse = 8.0
 lidar  = 1.5
 fine   = 4.0
 coarse = 12.0
+
+[old_dem_margin_m]             # #1915 THE OLD-DEM FILL WITNESS (airport/old_dem_fill; RULINGS 2026-11-06a (2)): a runway's stood pin line more than this over the DEM marks the DEM older than the airport. inf = never: a lidar survey is the ground as it stands (CYXY regression, 1.0.474: lidar 5.2 m under the pins read as old). fine / coarse: where the census of the class's pin-line-over-DEM depths breaks (tools/runway_end_census.py --old-dem, 7,871 DEM airports, 2026-11-06): the class's error forms a continuous tail (coarse to 38.1 m, fine to 18.9 m); a DEM older than the earthworks stands apart past the widest gap (coarse 49.4 m on, FHSH 91 m; fine 64.6 m on). At tolerance the witness fired 208 coarse / 18 fine / 196 lidar runways; at these margins 5 / 3 / 0
+lidar  = inf
+fine   = 30.0
+coarse = 45.0

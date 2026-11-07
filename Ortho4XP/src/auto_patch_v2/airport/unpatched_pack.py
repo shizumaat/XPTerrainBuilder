@@ -124,7 +124,8 @@ def restore_airport(pack_root: str, dsf_path: str, icao: str, tool: str, *,
     # a DSF that declares them.
     entry = _bs.dsf_entry(_bs.read_record(dsf_path), name)
     pristine_sha = sha256_file(verdict.backup) if verdict.backup else ""
-    omit = _pa.recorded(entry, pristine_sha) if verdict.backup else ()
+    omit = (_pa.recorded(entry, pristine_sha, pack_root)
+            if verdict.backup else ())
     # ... and so does the 3D forest upgrade the user accepted (#1360): the
     # write below re-applies it from the record
     forests = _pf.recorded(entry, pristine_sha) if verdict.backup else {}

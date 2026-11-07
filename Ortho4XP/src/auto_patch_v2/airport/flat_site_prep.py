@@ -24,7 +24,7 @@ import typing as _t
 from shapely.ops import unary_union
 
 from ..law import Law
-from ..law.reference_code import is_instrument, runway_code_letter, runway_code_number
+from ..law.reference_code import is_instrument, runway_code_number
 from .runway_strip import strip_band
 from ..model.frame import XY
 from . import approach as _approach
@@ -80,7 +80,7 @@ class FlatSiteInputs:
 
 
 def _runway(law: Law, rw: _t.Any, i: int, recs: _t.Mapping, approaches: _t.Mapping,
-            to_xy: _t.Callable[[float, float], XY]) -> _Runway:
+            to_xy: _t.Callable[[float, float], XY], ramp_class: str | None = None) -> _Runway:
     """One apt.dat runway as the detector and the strip band read it: the
     ends' CIFP threshold elevations and approach classes (the loader's own
     ``approach.end_approach`` reading) and the reference code."""
@@ -96,7 +96,7 @@ def _runway(law: Law, rw: _t.Any, i: int, recs: _t.Mapping, approaches: _t.Mappi
     return _Runway(tuple(ends), rw.width_m,
                    any(is_instrument(e.approach) for e in ends),
                    runway_code_number(law, math.hypot(bx - ax, by - ay)),
-                   runway_code_letter(law, rw.width_m))
+                   _approach.design_letter(law, rw, ramp_class))
 
 
 def site_inputs(icao: str, xplane_root: str, cifp_path: str | None, law: Law,
@@ -111,7 +111,8 @@ def site_inputs(icao: str, xplane_root: str, cifp_path: str | None, law: Law,
     tol = float(law.tables.emit.identity.cifp_threshold_join_m)
     recs, _missing, _joins = join_cifp(icao, apt.runways, cifp, to_xy, tol)
     approaches = (_cifp.read_cifp_approach_runways(cifp_path) if cifp else {})
-    runways = tuple(_runway(law, rw, i, recs, approaches, to_xy)
+    ramp_class = _approach.airport_ramp_class(apt)
+    runways = tuple(_runway(law, rw, i, recs, approaches, to_xy, ramp_class)
                     for i, rw in enumerate(apt.runways))
     pavements = tuple(_Poly(_ring(p.rings[0], to_xy),
                             tuple(_ring(h, to_xy) for h in p.rings[1:]))
@@ -131,9 +132,9 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
     """The decision record for ``site`` on DEM prep's raster ``tile_dem``:
     :func:`flat_site.record` plus ``origin`` (the frame), ``region`` (the
     dilated, water-cut rings the datum covers), ``gate`` (the margin-0 gate
-    extent, water-cut), ``region_ll`` (the region's rings in ``(lon,
-    lat)``), ``footprint_ll`` (the region before its water cut — the
-    plateau's footprint, #1144) and ``held`` / ``held_ll``
+    extent, water-cut) and ``gate_ll`` (its rings in ``(lon, lat)``, #1885),
+    ``region_ll`` (the region's rings in ``(lon, lat)``), ``footprint_ll``
+    (the region before its water cut — the plateau's footprint, #1144) and ``held`` / ``held_ll``
     (apt.dat pavements ∪ runways ∪, at a substituting site, the pack's
     draped pavement pages read from ``mod_cache_root`` and each runway's
     graded strip, ``airport.runway_strip.strip_band``; margin 0:
@@ -206,6 +207,10 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
                        for o, hs in fv.region],
                gate=[[list(map(list, o)), [list(map(list, h)) for h in hs]]
                      for o, hs in gate_rings],
+               # #1885: the aerodrome itself in (lon, lat) — inside it the
+               # patch grades the groundside roads; the shore-road hold
+               # acts only outside it
+               gate_ll=_ll(gate_rings),
                region_ll=_ll(fv.region),
                footprint_ll=_ll(footprint_rings),
                # RULINGS 2026-10-27d / 27v: pavement and the runway strips

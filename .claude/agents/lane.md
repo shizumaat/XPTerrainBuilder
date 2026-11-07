@@ -65,3 +65,11 @@ yours at the end (`frames.py register …`) so the next lane does not hunt.
 Report back: what was measured (with the ledger key or build tag), what
 changed, the branch/sha, net lines added/removed and new public symbols,
 and every item you did NOT do.
+
+## Cap, cleanup and disk (owner HARD RULE 2026-11-06)
+
+Never raise the lane worktree cap (`O4_LANE_CAP`); if `lane_worktree.sh up`
+refuses, report that to the master instead of working around it. Before a
+build, check `df -h` has 30 GB free; at most 4 builds run at once across all lanes.
+When you report, push your branch and delete your scratch builds (tile
+dirs, pack copies, pickles) so the master can remove the worktree.

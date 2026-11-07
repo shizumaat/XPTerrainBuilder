@@ -108,6 +108,8 @@ def water_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             for h in vw.holes[fid]:
                 keep_out.update(h)
     cand = sorted(v for v in ground if v not in keep_out)
+    if cand:
+        cand = _off_pack_ground(airport, cand, vw.xy)
     STATS["water_pins"]["candidates"] = len(cand)
     if not cand:
         return []
@@ -131,6 +133,24 @@ def water_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     STATS["water_pins"]["wet"] = len(rows)
     rows.extend(_natural_shore_pins(vw, planar, law, airport, pinned))
     return rows
+
+
+def _off_pack_ground(airport: Airport, cand: list[int], xy) -> list[int]:
+    """Issue #1362: ``cand`` less every vertex under the PACK'S OWN GROUND
+    (a ``TerrainFit`` with ``ground``, ``airport/pack_ground``) -- water
+    there is land, as a pavement over water is a deck (the rows of
+    ``constraints/terrain_shaped`` hold it under the pack's surface)."""
+    fits = [f for f in getattr(airport, "terrain_decks", ()) or ()
+            if getattr(f, "ground", False)]
+    if not fits:
+        return cand
+    from ..geom.terrain_deck import target_at
+    xs = np.array([xy[v][0] for v in cand], float)
+    ys = np.array([xy[v][1] for v in cand], float)
+    under = np.zeros(len(cand), bool)
+    for f in fits:
+        under |= target_at(f, xs, ys, np.zeros(len(cand)))[1]
+    return [v for v, u in zip(cand, under, strict=True) if not u]
 
 
 def _shore_levels(planar: PlanarMap, law: Law, airport: Airport, cand, xs, ys,

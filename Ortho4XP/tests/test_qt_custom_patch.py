@@ -64,3 +64,23 @@ def test_band_row_and_use_auto_patch(window, tiles_dir, monkeypatch):  # noqa: F
 def test_no_custom_patch_no_row(window, tiles_dir):  # noqa: F811
     window._refresh_custom_patch((45, 5))
     assert not window._info_layout.isRowVisible(window.custom_patch_row)
+
+
+def test_use_auto_patch_waits_only_for_its_own_tile(window, tiles_dir):  # noqa: F811
+    """#1922: another tile building leaves the button enabled; the
+    tile queued or building in the run disables it."""
+    tile, other = (45, 5), (46, 6)
+    os.makedirs(FNAMES.patch_dir(*tile))
+    with open(os.path.join(FNAMES.patch_dir(*tile), "LFLS.patch.osm"), "w",
+              encoding="utf-8", newline="") as handle:
+        handle.write("<osm/>")
+    window._building = True
+    window._run_tiles = {other}
+    window._progress_states[other] = ("active", "building", 10)
+    window._refresh_custom_patch(tile)
+    assert window.use_auto_patch_btn.isEnabled()
+    window._run_tiles.add(tile)
+    window._progress_states[tile] = ("queued", "queued", 0)
+    window._refresh_custom_patch(tile)
+    assert not window.use_auto_patch_btn.isEnabled()
+    window._building = False

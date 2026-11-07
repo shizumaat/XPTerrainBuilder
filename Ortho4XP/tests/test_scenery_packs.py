@@ -299,3 +299,30 @@ def test_the_memo_key_is_the_content_not_the_stat(tmp_path):
         handle.write("SCENERY_PACK Custom Scenery/b/\n")
     SP.parse_ini(ini)
     assert list(SP._INI_CACHE) != [key], "an edit is an edit"
+
+
+# ── #1887: the Earth nav data folder matches without regard to case ──────
+def _case_sensitive_isdir(path):
+    """``os.path.isdir`` as a case-sensitive volume (Linux) answers it:
+    the last component must be spelled as the parent LISTS it."""
+    parent, name = os.path.split(path)
+    try:
+        return name in os.listdir(parent) and os.stat(path) is not None
+    except OSError:
+        return False
+
+
+@pytest.mark.parametrize("spelling", ["Earth nav data", "earth nav data",
+                                      "Earth Nav Data", "EARTH NAV DATA"])
+def test_earth_nav_data_any_case(tmp_path, monkeypatch, spelling):
+    (tmp_path / "Pack" / spelling).mkdir(parents=True)
+    monkeypatch.setattr(SP.os.path, "isdir", _case_sensitive_isdir)
+    got = SP.earth_nav_data(str(tmp_path / "Pack"))
+    assert os.path.basename(got) == spelling
+
+
+def test_earth_nav_data_absent_is_the_canonical_spelling(tmp_path):
+    (tmp_path / "Pack" / "objects").mkdir(parents=True)
+    got = SP.earth_nav_data(str(tmp_path / "Pack"))
+    assert got == os.path.join(str(tmp_path / "Pack"), SP.EARTH_NAV_DATA)
+    assert SP.earth_nav_data(str(tmp_path / "missing")).endswith(SP.EARTH_NAV_DATA)

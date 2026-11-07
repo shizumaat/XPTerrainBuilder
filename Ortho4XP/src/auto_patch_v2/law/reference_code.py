@@ -4,8 +4,10 @@ the approach class of each of its ends (spec
 2026-10-15k/l/m/n).
 
 ONE classifier for the code NUMBER (Annex 14 Table 1-1, runway length as
-the reference-field-length proxy) and ONE for the code LETTER (runway width
-as the wingspan / AAC-ADG proxy), both read from ``rulesets.toml``
+the reference-field-length proxy) and ONE for the code LETTER (the DESIGN
+letter, owner RULINGS 2026-11-07a: the apt.dat markings cap it, the largest
+1301 ramp-start size class lifts it, runway width — the wingspan / AAC-ADG
+proxy — breaks the tie), both read from ``rulesets.toml``
 ``[common.reference_code]``.  The loader stamps them on ``Runway`` once;
 everything else — the generators, verify, the census (from the sidecar) —
 reads the stamped value.
@@ -26,7 +28,8 @@ if _t.TYPE_CHECKING:  # pragma: no cover
     from .model import Law
 
 __all__ = ["ReferenceCode", "APPROACH_CLASSES", "VISUAL", "NPA", "APV", "PA",
-           "runway_code_number", "runway_code_letter", "taxi_code_letter", "is_instrument",
+           "runway_code_number", "runway_code_letter", "largest_ramp_class",
+           "taxi_code_letter", "is_instrument",
            "is_precision", "stronger_class", "raoa_class", "raoa_applies",
            "NON_INSTRUMENT", "INSTRUMENT", "PRECISION", "status_of_classes",
            "runway_status", "status_by_ref", "ref_status"]
@@ -59,6 +62,19 @@ class ReferenceCode:
     #: authority's ``taxi.width_m`` table (:func:`taxi_code_letter`) — the
     #: same 0.5 m the runway bounds above carry
     taxi_width_tolerance_m: float = 0.5
+    #: THE DESIGN-LETTER WITNESSES (owner RULINGS 2026-11-07a): the letter a
+    #: runway with no precision-marked end is capped at, and the letter the
+    #: airport's largest 1301 ramp-start ICAO size class lifts every runway
+    #: to (a class not listed lifts nothing)
+    non_precision_cap_letter: str = "B"
+    ramp_lift_letter: _t.Mapping[str, str] = _dc.field(default_factory=dict)
+    #: THE WIDE-RUNWAY FLOOR (master 2026-11-07, proposed to the owner for
+    #: 11-07a (b)): a runway at least ``wide_runway_floor_width_m`` wide
+    #: never reads below ``wide_runway_floor_letter`` whatever its markings
+    #: and ramp classes (FAA builds 150 ft runways for ADG III and above)
+    wide_runway_floor: bool = False
+    wide_runway_floor_width_m: float = 45.0
+    wide_runway_floor_letter: str = "C"
 
 
 def runway_code_number(law: "Law", length_m: float) -> int:
@@ -83,12 +99,40 @@ def _first_covering(bounds: _t.Mapping[str, float], width_m: float,
     return str(widest)
 
 
-def runway_code_letter(law: "Law", width_m: float) -> str:
-    """The code LETTER of a runway ``width_m`` wide: the first letter whose
-    bound covers it, the widest letter above every bound."""
+def _width_letter(law: "Law", width_m: float) -> str:
+    """The letter a runway ``width_m`` wide reads by its pavement alone:
+    the first letter whose bound covers it, the widest above every bound
+    (the tie-breaker of :func:`runway_code_letter`)."""
     rc = law.tables.common.reference_code
     return _first_covering(rc.letter_max_width_m.by_letter or {}, width_m, 0.0,
                            rc.widest_letter)
+
+
+def runway_code_letter(law: "Law", width_m: float, precision: bool | None = None,
+                       ramp_class: str | None = None) -> str:
+    """THE RUNWAY DESIGN LETTER (owner RULINGS 2026-11-07a): the width
+    letter (:func:`_width_letter`), capped at
+    ``non_precision_cap_letter`` where no end carries precision markings
+    (``precision`` False — visual / non-precision), then lifted to the
+    ``ramp_lift_letter`` of ``ramp_class``, the airport's largest 1301
+    ramp-start size class.  A runway ``wide_runway_floor_width_m`` wide or
+    wider never reads below ``wide_runway_floor_letter`` where
+    ``wide_runway_floor`` is on.  ``precision=None`` states no marking
+    witness and reads the width letter uncapped."""
+    rc = law.tables.common.reference_code
+    width_letter = letter = _width_letter(law, width_m)
+    if precision is False:
+        letter = min(letter, str(rc.non_precision_cap_letter))
+    if rc.wide_runway_floor and float(width_m or 0.0) >= float(rc.wide_runway_floor_width_m):
+        letter = max(letter, min(width_letter, str(rc.wide_runway_floor_letter)))
+    lift = (rc.ramp_lift_letter or {}).get(str(ramp_class or "").upper())
+    return max(letter, str(lift)) if lift else letter
+
+
+def largest_ramp_class(classes: _t.Iterable[str | None]) -> str | None:
+    """The largest ICAO size class (``A``-``F``) among an airport's ramp
+    starts; ``None`` where none states one."""
+    return max((str(c).upper() for c in classes if c), default=None)
 
 
 def taxi_code_letter(law: "Law", width_m: float) -> str | None:

@@ -63,6 +63,7 @@ from . import footprint_unit as _fu
 from . import pack_journal as _pj
 from . import placement_plan as _pp
 from . import split_guard as _sg
+from . import torn_pack as _tp
 
 __all__ = ["PlacementWriteResult", "RestoreResult", "build_plan", "write_files",
            "restore_pack_objects", "apply_plan"]
@@ -202,7 +203,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           frame_tilt_max_deg=frame_tilt_max_deg,
                           rows=getattr(dump, "placements", None),
                           authored_keep_tol_m=authored_keep_tol_m,
-                          drape=drape, drape_law=drape_law)
+                          drape=drape, drape_law=drape_law,
+                          tile_box=_sg.box_of_tile(tile, dsf_path))
     splits, kept = _pp.to_placement_records(ss)
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,
@@ -270,8 +272,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     landed = landed_keeps(ss)
     # issue #1730: a terrain-shaped hard deck's row is seated at its DEM fit
     from . import terrain_shaped as _ts
-    terrain = _ts.row_seats(dump, _records)
     _split_ix = frozenset(s.placement.index for s in splits)
+    terrain = _ts.row_seats(dump, _records, _split_ix)
     _terrain_ix = frozenset(m.index for m in terrain)
     settled = (_split_ix | kept_idx | features | landed | _terrain_ix)
     _rows = list(getattr(dump, "placements", ()) or ())
@@ -312,6 +314,13 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     msl, conversions = deck_riders_of_pack(dump, pack_root, splits, msl,
                                            conversions, surface, elevated_m,
                                            msl_counts)
+    # #1639: a lifted row whose lift now buries its feet stands on them
+    msl = msl + _mf.lifted_feet_seats(
+        dump, (_taken | frozenset(m.index for m in msl)
+               | frozenset(r.index for r in riders)
+               | frozenset(k.index for k in (getattr(ss, "kept", ()) or ()))),
+        surface, pack_root,
+        ss.unit_seats, tol_m=feet_tol_m, counts=msl_counts)
     from . import riders as _riders
     counts: dict[str, int] = {"conversions": len(conversions),
                               "authored_rows_kept": authored_rows,
@@ -587,6 +596,9 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
     stands down (rows D2 / D8) nothing at all happens — no restore, no
     cut file, no record — and ``BackupUnproven`` reaches the caller: a
     pack half-written against a DSF we may not touch is torn geometry."""
+    # a TORN pack (its DSF names bodies that are gone) is put back on its
+    # original first, so neither the write nor its rollback keeps it torn
+    mended = _tp.repair(plan.pack_root, plan.dsf_path)
     v = _bs.classify_dsf(plan.dsf_path)
     if not v.may_write:
         raise _dw.BackupUnproven(_dw._stand_down_line(v))
@@ -599,19 +611,27 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
         keep = {r.replace("\\", "/") for r in plan.new_resources()}
         files = [f for f in files if f.resource.replace("\\", "/") in keep]
     # #598: the pack as it is NOW, kept until this build completes
-    _pj.snapshot(plan.pack_root, plan.dsf_path, new_bodies=[
-        os.path.join(plan.pack_root, *f.resource.replace("\\", "/").split("/"))
-        for f in files])
-    restore = restore_pack_objects(plan.pack_root,
-                                   allow_live_install=allow_live_install,
-                                   dsf_path=plan.dsf_path, icao=plan.icao)
-    written = write_files(plan.pack_root, files,
-                          allow_live_install=allow_live_install)
-    dsf = _dw.write_pack(plan.pack_root, plan, tool,
-                         allow_live_install=allow_live_install,
-                         work_dir=work_dir, engine_version=engine_version,
-                         law_digest=law_digest, body_files=written,
-                         omit=omit, seats=seats)
+    minted = [os.path.join(plan.pack_root,
+                           *f.resource.replace("\\", "/").split("/"))
+              for f in files]
+    _pj.snapshot(plan.pack_root, plan.dsf_path, new_bodies=minted)
+    # ALL OR NOTHING: the restore removes the previous write's bodies and
+    # the new ones land before the DSF that names them is encoded; a raise
+    # anywhere in the three puts the pack back as it was (PAKT 1.0.465,
+    # KLAX 1.0.464: a failed encode left a DSF naming removed bodies)
+    with _pj.transaction(plan.pack_root, plan.dsf_path, new_bodies=minted):
+        restore = restore_pack_objects(plan.pack_root,
+                                       allow_live_install=allow_live_install,
+                                       dsf_path=plan.dsf_path, icao=plan.icao)
+        written = write_files(plan.pack_root, files,
+                              allow_live_install=allow_live_install)
+        dsf = _dw.write_pack(plan.pack_root, plan, tool,
+                             allow_live_install=allow_live_install,
+                             work_dir=work_dir, engine_version=engine_version,
+                             law_digest=law_digest, body_files=written,
+                             omit=omit, seats=seats, mend=False)
+    if mended is not None:
+        dsf = _dc.replace(dsf, notes=(mended.line(),) + tuple(dsf.notes))
     if getattr(dsf, "plan", None) is not None:
         plan = dsf.plan          # #1246: a split the DSF refused is undone
     refreshed = None

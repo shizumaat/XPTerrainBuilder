@@ -17,7 +17,7 @@ import typing as _t
 import zlib
 
 from ..law import Law
-from ..law.reference_code import is_instrument, runway_code_letter, runway_code_number
+from ..law.reference_code import is_instrument, runway_code_number
 from ..law.tables import identity_dp, input_quantum_m
 from ..model.airport import (GAP_SHEET_PREFIX, Airport, Boundary, Building,
                              DsfObject, FacadeRead, GroundRoute, LinearFeature, OsmWay, Pavement,
@@ -31,6 +31,7 @@ from . import cifp as _cifp
 from . import end_pins as _end_pins
 from . import imagery_read as _imagery
 from . import junction_witness as _junction_witness
+from . import old_dem_fill as _old_dem_fill
 from . import runway_end_witness as _end_witness
 from . import runway_refs as _refs
 from . import dem as _dem
@@ -161,6 +162,10 @@ class LoadReport:
     #: sources whose cache held this airport
     end_pins: list = _dc.field(default_factory=list)
     end_pin_lines: tuple[str, ...] = ()
+    #: THE OLD-DEM FILL (``old_dem_fill.attach``; RULINGS 2026-11-06a (2)):
+    #: one record per fill run and terrace, and its loud lines
+    old_dem_fill: list = _dc.field(default_factory=list)
+    old_dem_fill_lines: tuple[str, ...] = ()
     #: #1697: one line per hand-set role NOT applied (its pavement changed)
     role_override_lines: tuple[str, ...] = ()
     end_pin_crosscheck: tuple[str, ...] = ()
@@ -236,6 +241,9 @@ class LoadReport:
     #: The flat-pack witness record (``airport/flat_pack.record``; set by
     #: the pipeline once the pack partition is read — ``report.load.flat_pack``).
     flat_pack: dict | None = None
+    #: issue #1362: the ``PackGroundNoMesh`` fields when the pack supplies
+    #: its own ground and no companion terrain mesh is installed
+    pack_ground_no_mesh: dict | None = None
     #: the runway chord fit's coverage (RULINGS 2026-09-08d (1); ``constraints/runway_chord.py``)
     runway_chord: dict | None = None
     #: the taxi chains' trend fit coverage (owner RULINGS 2026-09-10v (1);
@@ -308,6 +316,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     joins = [*joins, *shift_lines]
     for _log_line in joins:
         _log.info(_log_line)
+    ramp_class = _approach.airport_ramp_class(apt)
     for i, rw in enumerate(apt.runways):
         ends = []
         for k, (desig, lat, lon, disp, over) in enumerate(rw.ends):
@@ -342,7 +351,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         instrument = any(is_instrument(e.approach) for e in ends)
         r = Runway(f"{ends[0].name}/{ends[1].name}", rw.width_m,
                    normalise_surface(rw.surface), (ends[0], ends[1]), None,
-                   runway_code_letter(law, rw.width_m), instrument,
+                   _approach.design_letter(law, rw, ramp_class), instrument,
                    _apt.shoulder_width_m(rw.shoulder))
         # THE ONE CODE-NUMBER / LETTER STAMP (regulation-conformance spec
         # §3.1/§3.2): every reader takes these, the census from the sidecar
@@ -751,6 +760,14 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.end_pin_lines = tuple(end_lines)
     rep.end_pin_crosscheck = tuple(src for src, _e in refs)
     for _line in end_lines:
+        _log.warning(_line)
+    # THE DEM OLDER THAN THE AIRPORT IS FILL (owner RULINGS 2026-11-06a (2),
+    # 2026-11-06b (4)/(5); #1915): read off the pins that now stand, ONE site
+    # (``old_dem_fill``) — the sampler every later reader takes reads the
+    # ground as built
+    airport, rep.old_dem_fill, fill_lines = _old_dem_fill.attach(airport, law)
+    rep.old_dem_fill_lines = tuple(fill_lines)
+    for _line in fill_lines:
         _log.warning(_line)
     # THE JUNCTION WITNESS (owner RULINGS 2026-10-27n / 28b): which pavements
     # the imagery shows PAVED where they meet a STEEP runway — it flattens

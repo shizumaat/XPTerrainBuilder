@@ -141,6 +141,11 @@
    "within"
   ],
   [
+   "deck_end_flush",
+   "HARD-DECK END LINE off the deck's one zero (or its anchor)",
+   "within"
+  ],
+  [
    "sea_wall",
    "SEA WALL (a pavement or quay edge standing ON the shore)",
    "within"
@@ -872,6 +877,10 @@
    "db885b52d3c67597f87517af54dc043d8bc3076ecf857b72c2a235b7b1080416"
   ],
   "eat_ceiling": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "deck_end_flush": [
    0,
    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   ],

@@ -168,3 +168,20 @@ def test_a_mouth_slid_clear_of_a_taxiway_keeps_its_ramp(law):
     assert not [x for x in st.refused if "stands against pavement twy" in x], st.refused
     assert any(abs(tt.axis[0][0]) < 5.0 and abs(tt.axis[0][1]) < 5.0 for tt in tunnels), \
         ([tt.axis[0] for tt in tunnels], st.refused)
+
+
+def test_a_road_joining_the_ramps_road_is_a_junction_never_a_stop():
+    """ENTC (owner 2026-11-04): a service road leaving the trunk 30 m from a
+    pinned portal stopped the west ramp at 24 m.  A mapped road that ENDS on
+    the ramp's own road is a junction (``crossing_roads``' rule); one that
+    runs through it is not."""
+    from types import SimpleNamespace
+
+    from auto_patch_v2.planar.structure_mouth import _junction_refs
+    own = [LineString([(0.0, 0.0), (200.0, 0.0)])]
+    ways = [OsmWay(-809, "airport_small_roads", ((30.0, 0.0), (40.0, -60.0)), False,
+                   {"highway": "service"}),
+            OsmWay(-810, "airport_small_roads", ((50.0, 40.0), (50.0, -40.0)), False,
+                   {"highway": "service"})]
+    got = _junction_refs(SimpleNamespace(osm_ways=ways), own, 1.0)
+    assert got == {"small_roads:-809"}

@@ -550,7 +550,7 @@ def _loop_map(*, d0=470.0, d1=500.0, chain_half=700.0, dem_z=None):
 def _with_trend(pm, chain, value=100.0):
     """Every chain vertex carries a ground-trend target — the row §36 (5)
     withdraws.  Set directly rather than fitted: the fit is
-    ``constraints/trend.py``'s and has its own twins; what these pin is
+    ``geom/trend.py``'s and has its own twins; what these pin is
     WHICH rows the reach withdraws."""
     import dataclasses as _dc
     return _dc.replace(pm, taxi_trend_z={v: value for v in chain})

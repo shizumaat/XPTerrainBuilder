@@ -45,6 +45,8 @@ NOT_VARIABLES = {
     # raster metadata keys (``elevation_access.vertical_units``)
     "O4_VERTICAL_UNIT_SOURCE", "O4_VERTICAL_UNIT_DECLARED",
     "O4_VERTICAL_UNIT_APPLIED",
+    # raster metadata key (``elevation_access.geoid_shift``)
+    "O4_GEOID_SHIFT_APPLIED",
 }
 
 

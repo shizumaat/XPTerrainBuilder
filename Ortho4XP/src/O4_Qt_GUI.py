@@ -106,6 +106,7 @@ import O4_Qt_Build_Airports as QTAIRPORTS
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Pack_Forests as QTFOREST
 import O4_Qt_Slow_Step as QTSLOW
+import O4_Qt_Pack_Adjust as QTADJ
 import O4_Qt_Pack_Optimise as QTOPT
 import O4_Qt_Latest_Probe as QTPROBE
 import O4_Qt_Tile_Failures as QTFAIL
@@ -915,6 +916,7 @@ class MainWindow(QMainWindow):
             EV.PackOldForests: self._on_pack_old_forests,
             EV.SlowStep: self._on_slow_step,
             EV.PackOptimise: self._on_pack_optimise,
+            EV.PackAdjust: self._on_pack_adjust,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
@@ -930,6 +932,8 @@ class MainWindow(QMainWindow):
         self._slow_step_boxes = {}
         # #1707: the same for the "Optimise pack" questions
         self._pack_optimise_seen = set()
+        # #1916: the same for the package adjustments questions
+        self._pack_adjust_seen = set()
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
         # #695: fixable failures, asked one at a time as each tile fails;
@@ -3555,19 +3559,32 @@ class MainWindow(QMainWindow):
                 files = []
         self.custom_patch_label.setText(
             CUSTOM_PATCHES.info_text(files) if files else "")
-        self.use_auto_patch_btn.setEnabled(not self._building)
+        self._sync_use_auto_patch_btn()
         self._info_layout.setRowVisible(self.custom_patch_row, bool(files))
         if tile is not None:
             bands = self.map.custom_patched()
             self.map.set_custom_patched(
                 bands | {tile} if files else bands - {tile})
 
+    def _tile_in_run(self, tile):
+        """#1922: *tile* is queued or building in the current run (a
+        live Activity row) — the per-tile actions wait for it alone."""
+        state = self._progress_states.get(tile)
+        return (self._building and tile in self._run_tiles
+                and not (state and ACTORDER.is_finished(state[0], state[1])))
+
+    def _sync_use_auto_patch_btn(self):
+        """Use auto patch waits only while ITS tile is in the run."""
+        tile = getattr(self, "_custom_patch_tile", None)
+        self.use_auto_patch_btn.setEnabled(
+            tile is not None and not self._tile_in_run(tile))
+
     def _use_auto_patch(self):
         """Use auto patch: set the active tile's custom patches aside."""
         import O4_Custom_Patches as CUSTOM_PATCHES
 
         tile = self._custom_patch_tile
-        if tile is None or self._building:
+        if tile is None or self._tile_in_run(tile):
             return
         try:
             moved = CUSTOM_PATCHES.use_auto_patch(tile[0], tile[1])
@@ -4614,6 +4631,8 @@ class MainWindow(QMainWindow):
         under the live ones, #1341)."""
         self._paint_row_state(tile)
         self._sync_row_order()
+        if tile == self._custom_patch_tile:
+            self._sync_use_auto_patch_btn()
 
     def _paint_row_state(self, tile):
         """Repaint one Activity row: status text and colour, the title
@@ -4938,6 +4957,25 @@ class MainWindow(QMainWindow):
             getattr(event, "can_optimise", False), QTOPT.question_key,
             QTOPT.pack_optimise_box, self._pack_optimise_seen, "pack_optimise")
 
+    def _on_pack_adjust(self, event):
+        """#1916: an airport pack's adjustments as one question.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .packAdjust``): ``state == "found"`` (or ``"ask"``, the report)
+        with a row to choose asks once per pack, tile and row set, every
+        row checked; Apply (the rows kept checked) / Never for this pack
+        send ``pack_adjust`` with every row shown, Not now sends nothing.
+        An applied answer or an undo re-reads the Modified airports rows.
+        """
+        if getattr(event, "state", "") == "ask":
+            import dataclasses
+            event = dataclasses.replace(event, state="found")
+            self._pack_adjust_seen.discard(QTADJ.question_key(event))
+        self._pack_choice_event(
+            event, ("applied", "undone"), QTADJ.has_choice(event),
+            QTADJ.question_key, QTADJ.pack_adjust_box, self._pack_adjust_seen,
+            "pack_adjust")
+
     def _pack_choice_event(self, event, done_states, can_answer, question_key,
                            make_box, seen, command):
         """A per-pack choice's event (#1360, #1707): ``done_states``
@@ -4960,10 +4998,14 @@ class MainWindow(QMainWindow):
         def finished(_result, box=box, buttons=buttons):
             for action, button in buttons.items():
                 if box.clickedButton() is button:
-                    # a box with steps (#1707) sends the ones kept checked
-                    extra = ({"steps": box.checked_steps()}
-                             if action == "update" and getattr(box, "step_boxes", None)
-                             else {})
+                    # a box with steps (#1707) sends the ones kept checked;
+                    # the adjustments box (#1916) says what it sends
+                    if hasattr(box, "answer_extra"):
+                        extra = box.answer_extra(action)
+                    elif action == "update" and getattr(box, "step_boxes", None):
+                        extra = {"steps": box.checked_steps()}
+                    else:
+                        extra = {}
                     getattr(self._session, command)(
                         pack_root=root, action=action, lat=lat, lon=lon, **extra)
             if box in self._pack_art_boxes:
@@ -5108,6 +5150,7 @@ class MainWindow(QMainWindow):
 
     def _on_run_done(self, event):
         self._building = False
+        self._sync_use_auto_patch_btn()
         self._storage_auto_clean()
         for box in list(self._slow_step_boxes.values()):
             box.close()

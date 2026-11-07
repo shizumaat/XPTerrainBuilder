@@ -43,6 +43,7 @@ __all__ = ["NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Face", "Brea
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
            "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "plane_origin_ref", "BLOCK_SEP",
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
+           "FILL_BANK_PREFIX", "is_fill_bank_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
@@ -112,6 +113,16 @@ def is_bank_ref(ref: object) -> bool:
     """Is this face a 1:3 BANK of a pad — a collar or an inter-block strip?
     The readers that skip one (over every cap by law) skip the other."""
     return is_collar_ref(ref) or is_strip_ref(ref)
+
+
+#: #1915 (owner RULINGS 2026-11-06a (2)): the face ref of an old-DEM fill's
+#: bank piece (``planar/fill_bank``) — graded ground, no zone class
+FILL_BANK_PREFIX = "fill_bank:"
+
+
+def is_fill_bank_ref(ref: object) -> bool:
+    """Is this face a piece of an old-DEM fill's bank?"""
+    return str(ref or "").startswith(FILL_BANK_PREFIX)
 
 
 def platform_ref_of(ref: object) -> str:
@@ -430,11 +441,32 @@ class PlanarMap:
     #: ``verify/channel.py`` judges the emitted surface against the SAME
     #: record — neither re-derives the corridor (§45 (2)).
     channels: tuple[Channel, ...] = ()
+    #: THE TRENCH OBJECTS' OWN FLOORS (#1903, owner 2026-11-06; additive):
+    #: ``airport/object_floor.ObjectFloor`` records whose footprint faces
+    #: (ref ``object_floor:<id>``) ``constraints/object_floor`` pins to the
+    #: floor surface.
+    object_floors: tuple = ()
     #: THE ROAD OVERPASSES (owner RULINGS 2026-10-30f (1) / (5), #1692,
     #: additive): every pack hard deck over a mapped road no airside
     #: pavement crosses (``planar/overpass_deck._Overpass``), read before
     #: the solve; the object stage seats each on the road beneath.
     overpasses: tuple = ()
+    #: THE DECK END-LINE ANCHORS (spec ``deck-end-anchors-20261103``;
+    #: owner RULINGS 2026-11-03c, additive): one ``structures.DeckAnchor``
+    #: per end line of every pack hard deck the airport's pavement drives
+    #: across, derived ONCE beside the runway caps
+    #: (``constraints/runway_chord.with_runway_chord`` →
+    #: ``constraints/deck_anchor.derive``) and read back by the pins, the
+    #: chord knots, the crown stand-down and the sidecar.  Empty: no pack
+    #: hard deck, every row as before.
+    deck_anchors: tuple = ()
+    #: THE PACK DECKS (deck redesign §1, additive): one
+    #: structures.DeckBridge per deck piece the airport's pavement
+    #: drives across, derived ONCE on the full map (planar/deck_bridge.
+    #: deck_bridges; stage 1's map reads the full map's, from_full) and
+    #: read by the anchors, the deck rows and the object stage's plate —
+    #: whether or not a corridor runs under it.
+    decks: tuple = ()
     #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,
     #: additive): vertex id -> the elevation the objective pulls it to.
     #: A road-family vertex prefers the CORE's clamped, laterally-levelled
@@ -462,6 +494,15 @@ class PlanarMap:
     #: through ``constraints.precedence.taxi_cap_for`` (``face_cap``,
     #: ``stretches``).  Empty where no runway yielded: reads as before.
     taxi_caps: _t.Mapping[int, _t.Any] = _dc.field(default_factory=dict)
+    #: THE TAXI ROUTE EXCEPTION (owner RULINGS 2026-11-05a, issue #1893,
+    #: additive): the ``constraints.taxi_route_yield.TaxiRoute`` records —
+    #: each a route between two fixed levels its letter cap cannot join,
+    #: the stretch edges it runs over and the smallest uniform cap that
+    #: fits (at most ``taxi.longitudinal_exception_max``).  Derived ONCE
+    #: beside ``taxi_caps`` (``with_runway_chord``) and read back through
+    #: ``constraints.stretches`` (the stretch's ``cap_l``).  Empty where
+    #: every route fits its letter: reads as before.
+    taxi_routes: tuple = ()
     #: THE FRONTING SET (flat-pad spec v2 §5, RULINGS 2026-09-30y (3) /
     #: 30as): the vertices of every face that carries a held block's relief
     #: — the apron bodies welded to it, the junction / taxi faces touching

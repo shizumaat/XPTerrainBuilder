@@ -22,7 +22,7 @@ placement is terrain-shaped when all of these hold:
   ``MIN_RELIEF_M`` (a deck is a plane on a road's grade, however long:
   every hard deck of KBNA, KIAH and LFPG departs from its plane by under
   2 m; a terrain skin is the hill -- 15.8 m);
-* it FOLLOWS the ground -- at the rigid best fit (:func:`_fit`), more than
+* it FOLLOWS the ground -- at the rigid best fit (:func:`fit`), more than
   ``MIN_FOLLOW`` of its covered cells hold the DEM inside the deck's own
   span there or within ``FOLLOW_BAND_M`` of it (a deck over a gap has the
   ground far under its span);
@@ -55,8 +55,10 @@ from ..geom.terrain_deck import CELL_M, DeckGrid, TerrainFit
 from . import dsf as _dsf
 
 __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
-           "placement_fits", "dem_many_of",
-           "grid_of_resource", "seat_records", "log_line", "row_seats"]
+           "placement_fits", "fit", "grid_of_triangles", "dem_many_of",
+           "grid_of_resource", "seat_records", "log_line", "row_seats",
+           "PORTAL_SEAT", "ENTRANCE_SEAT", "OBJECT_FLOOR_SEAT", "HIDDEN_SEAT",
+           "FRAME_SEAT", "frame_zeros", "portal_seat_records"]
 
 MIN_AREA_M2 = 20_000.0
 MIN_RELIEF_M = 5.0
@@ -64,6 +66,28 @@ MIN_FOLLOW = 0.5
 FOLLOW_BAND_M = 1.5
 #: the seat record's ``seat`` value (``RebakePlan.authored_seats``)
 SEAT = "terrain fit"
+#: a roofed portal's row seated at its pinned mouth floor (owner
+#: 2026-11-04 ENTC: "the tunnel mouth objects are still not seated at the
+#: bottom of the ramp"; ``Tunnel.portal_seat``)
+PORTAL_SEAT = "portal floor"
+#: #1747: an ENTRANCE object's face seated with its bottom on its portal's
+#: floor -- a BODY's seat (the object stands at both ends, and carries more),
+#: the row's only where the plan splits it into no body (``row_seats``
+#: ``unsplit``; #1903)
+ENTRANCE_SEAT = "entrance face"
+#: #1903: a trench object's floor and covers at the zero their cut was read
+#: from (``airport/object_floor.seat_records``)
+OBJECT_FLOOR_SEAT = "object floor"
+#: #1914 A7: a hidden concave cut shell's row, LEFT OUT of the written DSF
+#: (``airport/object_floor.seat_records``; ``model.placement.HIDDEN``)
+HIDDEN_SEAT = "hidden shell"
+#: #1883 r3 B1/B2: a DECK placement of a pack cut's frame
+#: (``airport/object_floor.seat_records``): the plan seats its bodies at the
+#: record's ``elevation`` (the frame's zero) and its deck pieces flush with
+#: what they carry (``placement_plan``, :func:`frame_zeros`)
+FRAME_SEAT = "object floor frame"
+_WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
+        OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden"}
 
 
 def _deck_grid(g: _t.Any) -> "DeckGrid | None":
@@ -74,21 +98,34 @@ def _deck_grid(g: _t.Any) -> "DeckGrid | None":
     if tri is None or not len(tri):
         return None
     p = g.vertices[np.asarray(tri)]
+    if _extent_m2(p) < MIN_AREA_M2:
+        return None
+    grid = grid_of_triangles(p)
+    if grid.area_m2 < MIN_AREA_M2 or grid.relief_m < MIN_RELIEF_M:
+        return None
+    return grid
+
+
+def _extent_m2(p: np.ndarray) -> float:
+    """The plan bounding-box area of the triangles ``p`` on the grid."""
+    ni = int(math.ceil((float(p[:, :, 0].max()) - float(p[:, :, 0].min())) / CELL_M)) + 1
+    nj = int(math.ceil((float(p[:, :, 2].max()) - float(p[:, :, 2].min())) / CELL_M)) + 1
+    return ni * nj * CELL_M * CELL_M
+
+
+def grid_of_triangles(p: np.ndarray) -> DeckGrid:
+    """The :class:`DeckGrid` of the authored triangles ``p`` (``(n, 3, 3)``,
+    ungated): each covered cell's lowest and highest surface."""
     x0, z0 = float(p[:, :, 0].min()), float(p[:, :, 2].min())
     ni = int(math.ceil((float(p[:, :, 0].max()) - x0) / CELL_M)) + 1
     nj = int(math.ceil((float(p[:, :, 2].max()) - z0) / CELL_M)) + 1
-    if ni * nj * CELL_M * CELL_M < MIN_AREA_M2:
-        return None
     bot = np.full((ni, nj), np.inf)
     top = np.full((ni, nj), -np.inf)
     for t in p:
         _bin(t, x0, z0, bot, top)
     bot[~np.isfinite(bot)] = np.nan
     top[~np.isfinite(top)] = np.nan
-    grid = DeckGrid(x0, z0, bot, top)
-    if grid.area_m2 < MIN_AREA_M2 or grid.relief_m < MIN_RELIEF_M:
-        return None
-    return grid
+    return DeckGrid(x0, z0, bot, top)
 
 
 def _bin(t: np.ndarray, x0: float, z0: float, bot: np.ndarray, top: np.ndarray) -> None:
@@ -138,7 +175,7 @@ def _path_grid(path: str) -> "DeckGrid | None":
     return _file_grid(path, st.st_mtime_ns, st.st_size)
 
 
-def _fit(grid: DeckGrid, xy: tuple[float, float], heading_deg: float,
+def fit(grid: DeckGrid, xy: tuple[float, float], heading_deg: float,
         dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray]
         ) -> "tuple[float, float] | None":
     """``(z0, follow)`` -- THE RIGID FIT of one placement of ``grid`` (module
@@ -184,7 +221,7 @@ def placement_fits(placements: _t.Iterable[tuple],
         if is_stock_library_resource(dpath) or frames[origin_key(xy, hdg)] > 1:
             continue
         grid = grid_of(dpath)
-        got = None if grid is None else _fit(grid, xy, hdg, dem_many)
+        got = None if grid is None else fit(grid, xy, hdg, dem_many)
         if got is None or got[1] <= MIN_FOLLOW:
             continue
         out[oid] = TerrainFit(oid, dpath, xy, hdg, got[0], got[1], grid.area_m2,
@@ -232,22 +269,76 @@ def log_line(icao: str, decks: _t.Sequence[TerrainFit]) -> str:
         f"{f.area_m2:,.0f} m2, relief {f.relief_m:.1f} m" for f in decks)
 
 
-def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> tuple:
-    """The ``model.placement.MslSeat`` of every :func:`seat_records` record
+def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None) -> list[dict[str, _t.Any]]:
+    """One record per roofed portal seated at its mouth's pinned floor
+    (``Tunnel.portal_seat``) -- the row :func:`row_seats` writes there --
+    and per ENTRANCE face (#1747; ``to_ll`` the frame's xy -> (lat, lon)):
+    seat :data:`ENTRANCE_SEAT`, its ``end`` ``[lat, lon]``, the elevation its
+    zero, which ``airport/entrance_seat`` lays on the face's own body."""
+    out = []
+    for tn in structures:
+        ps = getattr(tn, "portal_seat", ())
+        if not ps or not tn.portal:
+            continue
+        rec = {"id": tn.portal, "resource": ps[0], "datum": "portal",
+               "seat": PORTAL_SEAT, "elevation": round(float(ps[1]), 3)}
+        if len(ps) > 2:
+            if to_ll is None:
+                continue
+            lat, lon = to_ll(*ps[2])
+            rec.update(seat=ENTRANCE_SEAT, end=[round(float(lat), 9), round(float(lon), 9)],
+                       reach_m=float(ps[3]) if len(ps) > 3 else 0.0)
+        out.append(rec)
+    return out
+
+
+def frame_zeros(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> dict[str, float]:
+    """Placement id -> the frame zero of every :data:`FRAME_SEAT` record."""
+    return {str(r.get("id")): float(r["elevation"]) for r in records or ()
+            if hasattr(r, "get") and r.get("seat") == FRAME_SEAT}
+
+
+def row_seats(dump: _t.Any, records: _t.Iterable[_t.Mapping[str, _t.Any]],
+              split: "_t.AbstractSet[int] | None" = None) -> tuple:
+    """The ``model.placement.MslSeat`` of every :func:`seat_records` and
+    :func:`portal_seat_records` record
     naming a row of ``dump`` (``dsf:obj<i>`` is row ``i``): the placement
-    written as ``OBJECT_MSL`` at its fitted ``z0``, whole."""
+    written as ``OBJECT_MSL`` at its fitted ``z0``, whole.
+
+    ONE AUTHORITY PER PLACEMENT, decided HERE: a row the plan SPLITS
+    (``split``) is seated by its bodies, and no record seats it whole --
+    the split replaces the row, so a second seat on it is two authorities
+    and the writer refuses the pack (``dsf_write.edit_dump``; KLAX 1.0.472
+    placement 7230 ``Misc/Underpass_1.obj``, EGKK 1508: split at a basin
+    rim AND seated at a portal floor, and no seat of either airport was
+    written).  The bodies win because their seat reads the object's own
+    geometry: Underpass_1's zero is its rim (it reaches 6.6 m under it),
+    and seated whole at the portal floor its bottom stood 6.6 m under the
+    ramp.  An :data:`ENTRANCE_SEAT` further needs the row to carry that one
+    entrance (#1903 KLAX: ``Underpass_2`` stands at three anchors, the plan
+    skips it, and its face stood 0.8 m over the floor its reader set) and
+    ``split`` to be given at all (a body's seat, never the row's blind)."""
     from ..model.placement import MslSeat
     rows = list(getattr(dump, "placements", ()) or ())
+    records = list(records or ())
+    faces: dict[str, int] = {}
+    for r in records:
+        if r.get("seat") == ENTRANCE_SEAT:
+            faces[str(r.get("id", ""))] = faces.get(str(r.get("id", "")), 0) + 1
     out = []
-    for r in records or ():
+    for r in records:
         oid = str(r.get("id", ""))
         tile, i = _dsf.row_of(oid)
-        if r.get("seat") != SEAT or tile is not None or i is None:
+        if r.get("seat") not in _WHY or tile is not None or i is None:
+            continue
+        if split is not None and i in split:
+            continue
+        if r.get("seat") == ENTRANCE_SEAT and (split is None or faces.get(oid, 0) != 1):
             continue
         if not 0 <= i < len(rows) or str(rows[i].def_path) != str(r.get("resource")):
             continue
         row = rows[i]
         out.append(MslSeat(i, str(row.def_path), float(row.lon), float(row.lat),
                            float(getattr(row, "heading_deg", 0.0)),
-                           float(r["elevation"]), "terrain_fit"))
+                           float(r["elevation"]), _WHY[str(r.get("seat"))]))
     return tuple(out)

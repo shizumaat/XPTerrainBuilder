@@ -193,7 +193,9 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
                                   "ramp_faces": [[tuple(q) for q in t]
                                                  for t in (rec.get("ramp_faces_ll") or ())],
                                   "ramp_rings": [[tuple(q) for q in r]
-                                                 for r in (rec.get("ramp_rings_ll") or ())]}
+                                                 for r in (rec.get("ramp_rings_ll") or ())],
+                                  "open_sides": [[tuple(q) for q in sd]
+                                                 for sd in (rec.get("open_sides_ll") or ())]}
         except (KeyError, TypeError, ValueError):
             continue
     rims: dict[str, list[tuple[tuple[float, float], float]]] = {}
@@ -201,11 +203,13 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
     # the rim is a ``structure_rim`` FEATURE way (09-06b (1)), with the
     # retired ``retaining_wall`` shape read beside it exactly as
     # :func:`wall_in_runway_strip` reads both
+    rims_ll: dict[str, list[tuple[tuple[float, float], float]]] = {}
     for sh in _rims(p) + [x for x in p.shapes if x.role == "retaining_wall"]:
         key = sh.ref.split("#")[0]
         for k, i in enumerate(sh.ids):
             if i not in floor_ids:
                 rims.setdefault(key, []).append((sh.xy[k], float(sh.z[k])))
+                rims_ll.setdefault(key, []).append((p.ll[i], float(sh.z[k])))
     out: list[Row] = []
     for f in _basin_floors(p):
         rec = declared.get(f.ref.split("#")[0])
@@ -215,6 +219,9 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
                            out_of_scope=f"{f.ref}: no published facility"))
             continue
         rim = rims.get(rec["wall_ref"]) or []
+        # a split-level building's floor stands under its OPEN side's rim,
+        # one level (``planar/split_level_pit``)
+        open_z = _open_rim_mean(p, rims_ll.get(rec["wall_ref"]) or [], rec["open_sides"])
         for k, z in enumerate(f.z):
             # the corridor is published in LON / LAT: the patch's metres are
             # not the planar frame's, and the join has to be in the one
@@ -225,6 +232,8 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
             if deck is not None:
                 want = deck - rec["clearance"]
                 what = f"ramp deck {deck:.2f} - {rec['clearance']:.2f}"
+            elif rec["depth"] is not None and open_z is not None:
+                want, what = open_z - rec["depth"], f"open rim {open_z:.2f} - {rec['depth']:.2f}"
             elif rec["depth"] is not None and rim:
                 x, y = f.xy[k]
                 rz = min(rim, key=lambda q: (q[0][0] - x) ** 2 + (q[0][1] - y) ** 2)[1]
@@ -237,6 +246,25 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
                                lat=p.ll[f.ids[k]][0], lon=p.ll[f.ids[k]][1],
                                out_of_scope=f"{f.ref}: {z:.2f} vs {what}"))
     return out
+
+
+def _open_rim_mean(p: Patch, rim_ll, sides) -> "float | None":
+    """The mean z of the rim vertices within half a metre of the published
+    open ``sides`` (``(lat, lon)`` segments), ``None`` where none."""
+    if not sides or not rim_ll:
+        return None
+    import math
+
+    from shapely.geometry import LineString, Point
+    lat0 = rim_ll[0][0][0]
+    kx = 111320.0 * math.cos(math.radians(lat0))
+
+    def m(la, lo):
+        return ((lo - rim_ll[0][0][1]) * kx, (la - lat0) * 111320.0)
+    segs = [LineString([m(la, lo) for la, lo in sd]) for sd in sides if len(sd) >= 2]
+    zs = [z for (la, lo), z in rim_ll
+          if min(sg.distance(Point(m(la, lo))) for sg in segs) <= 0.5]
+    return sum(zs) / len(zs) if zs else None
 
 
 def structure_rim_gap(p: Patch) -> list[Row]:

@@ -52,7 +52,7 @@ def _write(path, top):
     return str(path)
 
 
-def _read(tmp_path, top=7.5, road=True, taxi=False):
+def _read(tmp_path, top=7.5, road=True, taxi=False, cut_objects=()):
     deck = _sbox(-8.0, -25.0, 8.0, 25.0)
     o = types.SimpleNamespace(
         id="dsf:obj9", path="objects/crossing.obj", resolved=_write(tmp_path / "c.obj", top),
@@ -69,7 +69,7 @@ def _read(tmp_path, top=7.5, road=True, taxi=False):
     cl = types.SimpleNamespace(cells=cells)
     cache = O.ResourceCache(THICK)
     decks = deck_bridges([o], cache, cl, airport, LAW)[0] if cells else ()
-    return OD.road_overpasses([o], cache, cl, airport, LAW, decks)
+    return OD.road_overpasses([o], cache, cl, airport, LAW, decks, cut_objects)
 
 
 def test_a_hard_deck_over_a_mapped_road_is_an_overpass_read_before_the_solve(tmp_path):
@@ -86,6 +86,15 @@ def test_no_road_no_clearance_or_a_taxiway_across_is_no_overpass(tmp_path):
     assert _read(tmp_path, road=False) == ((), [])
     assert _read(tmp_path, top=2.0)[0] == ()
     assert _read(tmp_path, taxi=True)[0] == ()      # a hard-deck BRIDGE (deck_bridge)
+
+
+def test_a_frame_holding_a_pack_object_cut_is_no_overpass(tmp_path):
+    """LGAV 1.0.464 (FlyTampa trench stack, one anchor): a frame whose
+    placement is a pack OBJECT cut seats its deck over that cut (RULINGS
+    2026-10-26d, ``cut_deck_seat``), never its zero on the road beneath —
+    read as an overpass the stack sat 4-7 m under both taxiways."""
+    ovs, notes = _read(tmp_path, cut_objects=("dsf:obj9",))
+    assert ovs == () and "pack object cut" in notes[0]
 
 
 def test_the_overpass_plate_seats_the_frame_on_the_road_beneath_off_the_map_too():

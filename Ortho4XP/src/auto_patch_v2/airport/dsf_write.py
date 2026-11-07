@@ -135,7 +135,7 @@ import O4_DSFTool as _dsftool
 from O4_DSFTool import DsfToolError
 
 from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
-                               KIND_AGL, KIND_MSL, KIND_ON_GROUND, POOL_QUANTA,
+                               HIDDEN, KIND_AGL, KIND_MSL, KIND_ON_GROUND, POOL_QUANTA,
                                PROVENANCE_FILENAME, TOL_DEG, PlacementPlan)
 from . import authored_landing as _al
 from . import backup_state as _bs
@@ -143,6 +143,7 @@ from . import dsf_commands as _cmds
 from . import dsf_dump_key as _dk
 from . import dsf_heights as _dh
 from . import pack_art as _pa
+from . import pack_drapes as _pd
 from . import pack_forests as _pf
 from . import pack_optimise as _po
 from . import split_guard as _sg
@@ -447,10 +448,14 @@ def _body_row(toks: _t.Sequence[str], b: _t.Any, def_index: int) -> str:
     """One body's row.  On-ground, unless the plan says the body KEEPS the
     author's lift (owner RULINGS 2026-10-14g (1), ``Body.lift_m``): then
     ``OBJECT_AGL`` with the authored row's elevation token copied verbatim
-    — which must be the lift the plan decided on."""
+    — which must be the lift the plan decided on.  A body the plan seats
+    by its ROW (#1903, ``Body.msl_z``) is ``OBJECT_MSL`` at that height."""
     head = (KIND_ON_GROUND, str(def_index), _num(b.anchor.lon, 9),
             _num(b.anchor.lat, 9))
     hdg = _num(b.anchor.heading_deg, 6)
+    msl = getattr(b, "msl_z", None)
+    if msl is not None:
+        return " ".join((KIND_MSL,) + head[1:] + (_num(float(msl), 4), hdg))
     lift = float(getattr(b, "lift_m", 0.0) or 0.0)
     if not lift:
         return " ".join(head + (hdg,))
@@ -561,6 +566,8 @@ def edit_dump(text: str, plan: PlacementPlan,
             # (tokens copied verbatim: no coordinate is re-formatted)
             hdg = toks[5] if len(toks) > 5 else "0.000000"
             edits[i] = [" ".join((KIND_ON_GROUND, toks[1], toks[2], toks[3], hdg)) + eol]
+        elif o in msl and msl[o].why == HIDDEN:
+            edits[i] = []                       # #1914 A7: a hidden cut shell
         elif o in msl:
             # §16g (5): OBJECT_MSL idx lon lat z hdg — the elevation the
             # unit's plane (or the surface) has at this placement, on the
@@ -757,66 +764,119 @@ def text_properties(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def replace_properties(dsf_path: str, props: _t.Sequence[tuple[str, str]]
-                       ) -> None:
-    """Rewrite the ``HEAD/PROP`` atom of an UNCOMPRESSED DSF so it holds
-    exactly ``props`` (null-terminated name, value pairs), fix the
-    ``HEAD`` length and the trailing MD5.  No other byte moves: DSF atoms
-    reference each other by INDEX, never by file offset."""
+def _rewrite_strings(dsf_path: str, parent: bytes, child: bytes,
+                     strings: _t.Sequence[str]) -> None:
+    """Rewrite the ``parent``/``child`` string-table atom of an
+    UNCOMPRESSED DSF (ids as stored, byte-reversed) so it holds exactly
+    ``strings``, each null-terminated, and fix the parent's length and the
+    trailing MD5.  No other byte moves: DSF atoms reference each other by
+    INDEX, never by file offset."""
     with open(dsf_path, "rb") as fh:
         buf = fh.read()
     if buf[:8] != b"XPLNEDSF" or len(buf) < 28:
         raise ValueError(f"{dsf_path}: not an uncompressed DSF")
     body_end = len(buf) - 16
-    top = _cmds.atoms(buf, 12, body_end)
-    head = [a for a in top if a[0] == b"DAEH"]
-    if len(head) != 1:
-        raise ValueError(f"{dsf_path}: {len(head)} HEAD atoms")
-    _hid, hoff, hlen = head[0]
-    kids = _cmds.atoms(buf, hoff + 8, hoff + hlen)
-    prop = [a for a in kids if a[0] == b"PORP"]
-    if len(prop) != 1:
-        raise ValueError(f"{dsf_path}: {len(prop)} PROP atoms")
-    _pid, poff, plen = prop[0]
-    payload = b"".join(n.encode("utf-8", "surrogateescape") + b"\0"
-                       + v.encode("utf-8", "surrogateescape") + b"\0"
-                       for n, v in props)
-    new_prop = struct.pack("<4sI", b"PORP", 8 + len(payload)) + payload
-    new_head_body = buf[hoff + 8:poff] + new_prop + buf[poff + plen:hoff + hlen]
-    new_head = struct.pack("<4sI", b"DAEH", 8 + len(new_head_body)) + new_head_body
-    out = buf[:hoff] + new_head + buf[hoff + hlen:body_end]
+    top = [a for a in _cmds.atoms(buf, 12, body_end) if a[0] == parent]
+    if len(top) != 1:
+        raise ValueError(f"{dsf_path}: {len(top)} {parent[::-1].decode()} atoms")
+    _hid, hoff, hlen = top[0]
+    kids = [a for a in _cmds.atoms(buf, hoff + 8, hoff + hlen) if a[0] == child]
+    if len(kids) != 1:
+        raise ValueError(f"{dsf_path}: {len(kids)} {child[::-1].decode()} atoms")
+    _pid, poff, plen = kids[0]
+    payload = b"".join(x.encode("utf-8", "surrogateescape") + b"\0" for x in strings)
+    new_kid = struct.pack("<4sI", child, 8 + len(payload)) + payload
+    body = buf[hoff + 8:poff] + new_kid + buf[poff + plen:hoff + hlen]
+    out = (buf[:hoff] + struct.pack("<4sI", parent, 8 + len(body)) + body
+           + buf[hoff + hlen:body_end])
     out += hashlib.md5(out).digest()
     with open(dsf_path, "wb") as fh:
         fh.write(out)
 
 
+def replace_properties(dsf_path: str, props: _t.Sequence[tuple[str, str]]
+                       ) -> None:
+    """Rewrite the ``HEAD/PROP`` atom of an UNCOMPRESSED DSF so it holds
+    exactly ``props`` (null-terminated name, value pairs)."""
+    _rewrite_strings(dsf_path, b"DAEH", b"PORP",
+                     [x for n, v in props for x in (n, v)])
+
+
+#: The ``DEFN`` child atom (as stored) of each definition row keyword.
+DEF_ATOMS = {"TERRAIN_DEF": b"TRET", "OBJECT_DEF": b"TJBO",
+             "POLYGON_DEF": b"YLOP", "NETWORK_DEF": b"WTEN",
+             "RASTER_DEF": b"NMED"}
+
+
+def _text_defs(text: str) -> dict[str, list[str]]:
+    """The definition paths of a dump by keyword, in order, each taken
+    VERBATIM (everything after the keyword's single separating space)."""
+    out: dict[str, list[str]] = {}
+    for raw in text.splitlines():
+        kw, _sep, rest = raw.rstrip("\r\n").partition(" ")
+        if kw in DEF_ATOMS:
+            out.setdefault(kw, []).append(rest)
+    return out
+
+
+def _replace_defs(dsf_path: str, defs: _t.Mapping[str, _t.Sequence[str]]) -> None:
+    """Rewrite the ``DEFN`` string tables of ``defs``' keywords so each
+    holds exactly those paths, in order (:func:`_text_defs`)."""
+    for kw, paths in defs.items():
+        _rewrite_strings(dsf_path, b"NFED", DEF_ATOMS[kw], paths)
+
+
+def _reader_cuts(raw: str) -> bool:
+    """Does DSFTool 2.4's TEXT READER cut this row?  A row over
+    :data:`DSFTOOL_LINE_MAX` (#23), or a row with a ``#`` anywhere: the
+    reader takes ``#`` as the start of a comment wherever it stands
+    (measured, DSFTool 2.4.0-b1, 2026-11-06: ``POLYGON_DEF Ground
+    Textures/RWY#/Arrow.pol`` came back ``Ground Textures/RWY`` -- CYHM's
+    round-trip refusal; a pack path may carry a ``#``)."""
+    return len(raw) > DSFTOOL_LINE_MAX or "#" in raw
+
+
 def encode(text_path: str, dsf_out: str, tool: str) -> str:
     """``DSFTool --text2dsf`` into ``dsf_out``; returns it.
 
-    #23: a ``PROPERTY`` row longer than :data:`DSFTOOL_LINE_MAX` is cut
-    by DSFTool's reader, so the encoded file's property atom is then
-    rewritten from the text's rows verbatim (:func:`replace_properties`).
-    Any OTHER row that long has no such repair and is refused before the
-    encode — a silently shortened def path or command is not a write."""
+    A row DSFTool's reader cuts (:func:`_reader_cuts`: too long, or a
+    ``#`` in it) is repaired after the encode when it is a ``PROPERTY``
+    row (the ``HEAD/PROP`` atom, :func:`replace_properties`, #23) or a
+    definition row (its ``DEFN`` string table, :func:`_replace_defs`):
+    both atoms are string tables written from the text's rows verbatim.
+    Any OTHER row that long has no repair and is refused before the
+    encode -- a silently shortened def path or command is not a write; a
+    ``#`` on any other row is a trailing comment (``HEIGHTS ... # max
+    encodeable``), DSFTool's own."""
     if not tool or not os.path.isfile(tool):
         raise RuntimeError(f"DSFTool binary required, got {tool!r}")
     with open(text_path, "r", encoding="utf-8", errors="surrogateescape") as fh:
         text = fh.read()
     long_props = False
+    cut_defs: set[str] = set()
     for n, raw in enumerate(text.splitlines(), 1):
-        if len(raw) > DSFTOOL_LINE_MAX:
-            if raw.startswith("PROPERTY "):
-                long_props = True
-            elif not raw.lstrip().startswith("#"):
-                raise RuntimeError(
-                    f"{text_path}:{n}: {len(raw)}-character row, DSFTool's "
-                    f"text reader keeps {DSFTOOL_LINE_MAX}: {raw[:60]!r}")
+        if raw.lstrip().startswith("#") or not _reader_cuts(raw):
+            continue
+        kw = raw.partition(" ")[0]
+        if kw == "PROPERTY":
+            long_props = True
+        elif kw in DEF_ATOMS:
+            cut_defs.add(kw)
+        elif len(raw) <= DSFTOOL_LINE_MAX:
+            continue        # a trailing comment, as DSFTool writes one
+        else:
+            raise RuntimeError(
+                f"{text_path}:{n}: {len(raw)}-character row, DSFTool's "
+                f"text reader keeps {DSFTOOL_LINE_MAX}: {raw[:60]!r}")
     os.makedirs(os.path.dirname(os.path.abspath(dsf_out)) or ".", exist_ok=True)
     _run([tool, "--text2dsf", text_path, dsf_out], writes=dsf_out)
     if not os.path.isfile(dsf_out):
         raise RuntimeError(f"DSFTool wrote no DSF at {dsf_out}")
     if long_props:
         replace_properties(dsf_out, text_properties(text))
+    if cut_defs:
+        defs = _text_defs(text)
+        _replace_defs(dsf_out, {kw: defs[kw] for kw in cut_defs})
     return dsf_out
 
 
@@ -1064,6 +1124,33 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
     used = [False] * len(b)
     pairs: list = []
     unmatched = 0
+    if tiebreak:
+        # KLGB +33-119 (9,012 rows of one grass object a few cm apart):
+        # nearest-first let an early row take a later row's only fitting
+        # counterpart and the chain ended in a 5 m, 107 deg "drift" on an
+        # untouched round trip.  Every row that CAN have a counterpart
+        # inside every tolerance gets one (a maximum matching); only the
+        # rest fall through to nearest-first below.
+        cells: dict[tuple[int, int], list[int]] = {}
+        for k, o in enumerate(b):
+            cells.setdefault((math.floor(o[0] / tol), math.floor(o[1] / tol)),
+                             []).append(k)
+        fits = []
+        for row in a:
+            cx, cy = math.floor(row[0] / tol), math.floor(row[1] / tol)
+            near = [k for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                    for k in cells.get((cx + dx, cy + dy), ())
+                    if _fits(row, b[k], tol, dims, tol_heading)]
+            near.sort(key=lambda k, r=row: sum(abs(b[k][i] - r[i])
+                                               for i in range(dims)))
+            fits.append(near)
+        owner = _max_matching(fits, len(b))
+        for cand, i in enumerate(owner):
+            if i >= 0:
+                used[cand] = True
+                pairs.append((a[i], b[cand]))
+        done = set(owner)
+        a = [row for i, row in enumerate(a) if i not in done]
     for row in a:
         j = bisect_left(lons, row[0] - tol)
         best, bd = None, (2, 1e18)
@@ -1074,13 +1161,8 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
                 d = sum(abs(o[i] - row[i]) for i in range(dims))
                 miss = 0
                 if tiebreak:
-                    ha = _ang(o[-1], row[-1])
-                    d += 1e-9 * ha
-                    fits = (all(abs(o[i] - row[i]) <= tol for i in range(dims))
-                            and ha <= tol_heading
-                            and (len(row) < 4
-                                 or abs(o[2] - row[2]) <= TOL_ELEV_M))
-                    miss = 0 if fits else 1
+                    d += 1e-9 * _ang(o[-1], row[-1])
+                    miss = 0 if _fits(row, o, tol, dims, tol_heading) else 1
                 if (miss, d) < bd:
                     bd, best = (miss, d), cand
             j += 1
@@ -1090,6 +1172,49 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
         used[best] = True
         pairs.append((row, b[best]))
     return unmatched, pairs
+
+
+def _fits(row: _t.Sequence[float], o: _t.Sequence[float], tol: float,
+          dims: int, tol_heading: float) -> bool:
+    """Whether ``o`` is ``row``'s counterpart inside every tolerance."""
+    return (all(abs(o[i] - row[i]) <= tol for i in range(dims))
+            and _ang(o[-1], row[-1]) <= tol_heading
+            and (len(row) < 4 or abs(o[2] - row[2]) <= TOL_ELEV_M))
+
+
+def _max_matching(fits: _t.Sequence[_t.Sequence[int]], n_b: int) -> list[int]:
+    """``owner[j]``: the row of ``fits`` matched to candidate ``j`` (``-1``
+    for none) — a MAXIMUM matching (augmenting paths, iterative; the
+    greedy first pass leaves almost every row done)."""
+    owner = [-1] * n_b
+    held: dict[int, int] = {}               # row -> its candidate
+    for i, cands in enumerate(fits):
+        for j in cands:
+            if owner[j] < 0:
+                owner[j], held[i] = i, j
+                break
+    for root, cands in enumerate(fits):
+        if root in held or not cands:
+            continue
+        via: dict[int, int] = {}            # candidate -> the row reaching it
+        stack, free = [root], -1
+        while stack and free < 0:
+            i = stack.pop()
+            for j in fits[i]:
+                if j in via:
+                    continue
+                via[j] = i
+                if owner[j] < 0:
+                    free = j
+                    break
+                stack.append(owner[j])
+        j = free
+        while j >= 0:                       # flip the path back to root
+            i = via[j]
+            nxt = held.get(i, -1)
+            owner[j], held[i] = i, j
+            j = nxt if i != root else -1
+    return owner
 
 
 def _ang(a: float, b: float) -> float:
@@ -1351,6 +1476,22 @@ def _refuse_missing_bodies(pack_root: str, plan: _t.Any) -> None:
 
 
 def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
+               work_dir: str | None = None, **kw: _t.Any) -> WriteResult:
+    """Apply ``plan`` to the pack's DSF — :func:`_write_pack` (every
+    keyword is its).  Without ``work_dir`` the dumps and the encode go in
+    a temp folder that is REMOVED afterwards, written or not: it held two
+    full dumps of the pack per write and was never removed (3,321 of
+    them, 10 GB, on the owner's drive on 2026-11-04)."""
+    if work_dir:
+        return _write_pack(pack_root, plan, tool, work_dir=work_dir, **kw)
+    work = tempfile.mkdtemp(prefix="o4_dsf_write_")
+    try:
+        return _write_pack(pack_root, plan, tool, work_dir=work, **kw)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                allow_live_install: bool = False,
                work_dir: str | None = None,
                engine_version: str = "",
@@ -1360,7 +1501,9 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                drop: _t.Collection[str] = (),
                forests: _t.Mapping[str, str] | None = None,
                seats: _us.ByAirport | None = None,
-               optimise: _t.Mapping[str, _t.Any] | None = None) -> WriteResult:
+               optimise: _t.Mapping[str, _t.Any] | None = None,
+               drapes: _t.Sequence[_pa.MissingDef] | None = None,
+               mend: bool = True) -> WriteResult:
     """Apply ``plan`` to the pack's DSF (§3.3-§3.5).
 
     The pristine DSF is kept ONCE as ``<name>.dsf.anchor_bak`` and is
@@ -1407,7 +1550,13 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     accepted (``pack_optimise``): its duplicate placements leave the dump
     with the plan's own §15 (4) drops, before the omission.  ``None``
     re-applies the recipe the record holds for this pristine DSF, ``{}``
-    writes without it (Undo).  The record gains ``pack_optimise``."""
+    writes without it (Undo).  The record gains ``pack_optimise``.
+
+    ``drapes`` (issue #1916) is the pack's draped orthophotos the user
+    chose to hide (``pack_drapes.draped_orthos``): their definitions and
+    every polygon drawing one leave the dump with the omission.  ``None``
+    keeps the hiding the record holds for this pristine DSF, ``()``
+    writes without it (Undo).  The record gains ``hidden_drapes``."""
     dsf_path = plan.dsf_path or ""
     if not os.path.isfile(dsf_path):
         raise FileNotFoundError(f"DSF not found: {dsf_path!r}")
@@ -1419,11 +1568,23 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             f"(spec §3.5 — a lane writes a COPY of the pack; the app's driver "
             f"passes allow_live_install=True)")
 
+    # a TORN pack (its DSF names bodies that are gone) goes back on its
+    # original first: no write may compose a row whose art is missing.
+    # ``mend=False`` is ``placement_write.apply_plan``, which mended
+    # BEFORE its restore: mid-write the record still names the previous
+    # bodies the restore removed, and reading that as torn removed the
+    # new bodies of the same names (1.0.468, nearly every airport)
+    mended = None
+    if mend:
+        # lazy: torn_pack reads this module
+        from . import torn_pack as _tp
+        mended = _tp.repair(pack_root, dsf_path)
+
     # ── §12a: IS THE BACKUP STILL THE PACK'S? ───────────────────────────
     verdict = _bs.classify_dsf(dsf_path)
     if not verdict.may_write:
         raise BackupUnproven(_stand_down_line(verdict))
-    notes: list[str] = []
+    notes: list[str] = [mended.line()] if mended else []
     superseded = preserved = ""
     if verdict.state is State.REPLACED:
         # D5: THE USER'S NEW FILE.  Retire the old backup under a stamped
@@ -1491,12 +1652,22 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     pinned = _dh.pin_heights(text)
     prior_entry = _bs.dsf_entry(_bs.read_record(dsf_path), base)
     backup_sha = sha256_file(backup)
+    # a re-applied record keeps the rules it was written under; only a
+    # recompute (``forests=`` given) is stamped current (#1920)
+    forests_version = None
     if forests is None:
         forests = _pf.recorded(prior_entry, backup_sha)
+        forests_version = _pf.recorded_version(prior_entry)
     hand = _us.merged(_us.recorded(prior_entry, backup_sha), seats, drop)
     rows = _us.placements(pristine_text) if hand else ()
     if optimise is None:
         optimise = _po.recorded(prior_entry, backup_sha)
+    if drapes is None:
+        drapes = _pd.recorded(prior_entry, backup_sha)
+    # one omission: the missing art the user accepted and the photos hidden
+    gone = {(m.kind, m.index) for m in omit}
+    omit_all = tuple(omit) + tuple(m for m in drapes
+                                   if (m.kind, m.index) not in gone)
     generated = _po.write_generated(pack_root, optimise) if optimise else []
     siblings, sibling_rows = _sibling_plans(prior_entry, plan, text,
                                             backup_sha, drop, notes)
@@ -1512,9 +1683,11 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         placed, seated, refused = _us.apply(composed, _us.union(hand), rows)
         _refuse_missing_bodies(pack_root, placed)            # #1214 R1
         edited, omitted, unused, optimised, swapped = _edited_text(
-            pinned, placed, omit,
+            pinned, placed, omit_all,
             engine_version or plan.provenance.engine_version, optimise)
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
+        # a seat under the pinned HEIGHTS base cannot be encoded
+        edited = _dh.cover_row_elevations(edited)
         with open(edited_text, "w", encoding="utf-8",
                   errors="surrogateescape", newline="\n") as fh:
             fh.write(edited)
@@ -1616,11 +1789,15 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         "omitted_art": (_pa.record(sha256_file(backup), omit, omitted,
                                    _bs.stamp()) if omit else None),
         # #1360: the 3D forest upgrade the user accepted, or None
-        _pf.RECORD_KEY: (_pf.record(backup_sha, forests, renamed, _bs.stamp())
+        _pf.RECORD_KEY: (_pf.record(backup_sha, forests, renamed, _bs.stamp(),
+                                    version=forests_version)
                          if forests else None),
         # #1703: the objects the user seated by hand, or None
         _us.RECORD_KEY: (_us.record(backup_sha, hand, seated, _bs.stamp())
                          if hand else None),
+        # #1916: the pack's draped photos the user chose to hide, or None
+        _pd.RECORD_KEY: (_pa.record(backup_sha, drapes, omitted, _bs.stamp())
+                         if drapes else None),
         # #1707: the "Optimise pack" recipe the user accepted, or None
         _po.RECORD_KEY: (_po.record(backup_sha, optimise, optimised,
                                     _bs.stamp(), {"swaps": swapped,

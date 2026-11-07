@@ -41,7 +41,7 @@ from ..model.frame import rectangle_axes
 from .rules import Rules
 from .sources import SourceRecord
 
-__all__ = ["apron_evidence", "open_pavement_role", "road_ribbon",
+__all__ = ["apron_evidence", "narrow_road", "open_pavement_role", "road_ribbon",
            "unclassified_groundside_role"]
 
 
@@ -85,6 +85,33 @@ def road_ribbon(face: Polygon, rules: Rules) -> tuple[bool, float, float]:
     is_ribbon = (width_m <= rules.service.free_max_width_m
                  and aspect >= rules.groundside.road_ribbon_min_aspect)
     return is_ribbon, aspect, width_m
+
+
+def narrow_road(face: Polygon, rules: Rules) -> float | None:
+    """The mean width of ``face`` when it is ROAD-WIDE THROUGHOUT, else
+    ``None`` (owner sim read 2026-11-04, HECA ``dsf:objpav1``: "a service
+    road (which should be obvious from width alone)").
+
+    :func:`road_ribbon` reads ONE ribbon off the minimum rotated
+    rectangle, which says nothing about a NETWORK: HECA's object pavement
+    body is 20.9 km of 5.6 m service road spread over 7.0 x 4.7 km, whose
+    rectangle is a square.  The two width readings §43 already owns say it
+    instead, with no new number: no point of the face reaches
+    ``corridor.max_width_m`` of local width (its erosion by half that
+    width is empty — ``neck.necks_of``' "no wide lobe at all": nothing an
+    aircraft parks on), and its MEAN width, area over half its whole
+    boundary, is at most ``service.free_max_width_m`` (the free-road
+    ruling's road width).
+    """
+    per = face.length
+    if per <= 0.0:
+        return None
+    width = 2.0 * face.area / per
+    if width > rules.service.free_max_width_m:
+        return None
+    if not face.buffer(-rules.corridor.max_width_m / 2.0).is_empty:
+        return None
+    return width
 
 
 def unclassified_groundside_role(face: Polygon, rules: Rules, *,

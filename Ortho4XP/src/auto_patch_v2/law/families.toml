@@ -349,6 +349,19 @@ cockpit   = "step"
 # a height discontinuity across a join the driver crosses, VISUAL off the
 # rolled-on roles by the one cockpit rule.
 
+[deck_end_flush]
+measures  = "a hard-deck end-line station standing off the deck's one zero plus its end line's authored top, or a held deck anchor off the level it was pinned at (published per end line in the sidecar `deck_anchors`)"
+parameter = "structures.bridge.deck_flush_m"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "2026-10-30a; 2026-11-03c"
+solver    = "pin"
+cockpit   = "step"
+# deck-end-anchors spec §6 (#1715): the census could not see a deck end
+# line — LFPG obj13030 stood 3.2 m off its deck with no row.  THE COCKPIT
+# CLASS is "step": the edge of the deck object against the pavement the
+# aircraft rolls onto it from.
+
 [seam_residual]
 measures  = "a tile-seam band-edge vertex standing off its own tile's baked DEM sample (the value the solve PINNED, published per pin in the sidecar `seam_pins`)"
 parameter = "emit.seam.half_width_m"

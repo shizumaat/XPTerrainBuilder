@@ -72,6 +72,23 @@ spawner owns the merge. Current plan of record:
 here: do not spend time that can be avoided, and the earlier a correct
 result is obtained, the better.
 
+## Lane cap, cleanup and disk (owner HARD RULE 2026-11-06)
+
+The disk filled (ENOSPC) on 2026-11-06: the master told lanes to raise
+the worktree cap (41 trees against 16) and ran many tile builds at once,
+and every session stalled until the owner cleaned up by hand. Never again:
+
+- At most 16 lane worktrees and about 8 running lanes. Never raise the cap
+  (`lane_worktree.sh` now ignores an `O4_LANE_CAP` above 16). When it
+  refuses, the master cleans up first.
+- The moment a lane reports, the master pushes its branch, then removes
+  its worktree and deletes its scratch builds (tile dirs, pack copies).
+- Before launching a lane that builds, check `df -h` (30 GB free or more).
+  At most 4 builds run at once (owner 2026-11-06T05:06Z). `build_airport.py` refuses a tile
+  build under 30 GB free and a patch build under 5 GB, with no override.
+- Every lane brief says: "never raise the lane cap; delete your scratch
+  builds when you report".
+
 ## Single master (owner standing 2026-10-02)
 
 ONE session is the project master: it alone talks to the owner, dispatches,

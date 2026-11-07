@@ -373,6 +373,10 @@ def structure_records(airport, cl, law) -> dict:
     wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
     tstats.plates = pstats.plates
     tstats.refused.extend(pstats.refused)
+    from .object_floor_cells import not_floors, object_floor_stage
+    floors, corridors, cuts = object_floor_stage(airport, objects, cache, law, corridors,
+                                                 tstats, cl)
+    roads, wells = not_floors(roads, floors), not_floors(wells, floors)
     from .structure_approach import wall_field
     walls_c, wstats = read_wall_corridors(airport, objects, cache, law, cl,
                                           measure=True, field=wall_field(cl, law))
@@ -385,14 +389,20 @@ def structure_records(airport, cl, law) -> dict:
     hard_claims, synth_claims = crossing_claims(airport, law, corridors, cl)
     channels, chstats = channels_after_basins(
         airport, cl, law, objects, corridors, extra, plates, cache, orep,
-        hard_claims, frozenset(tstats.shell_claimed), synth_claims)
+        hard_claims, frozenset(tstats.shell_claimed), synth_claims, cuts=cuts)
     from .bridge_span import edge_bridges
     from .covered_ground import covered_cuts
     bridges = edge_bridges(objects, cache, *covered_cuts(airport, cl, law), law)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
                                             plates, channels, portals=tstats.portals,
                                             edge_bridges=bridges,
-                                            trenches=tstats.trench_objects)
+                                            trenches=tstats.trench_objects,
+                                            object_floors=floors)
+    from .cut_frame import frame_cuts
+    tunnels, _frame_notes = frame_cuts(tunnels, objects, cache, cl, airport, law,
+                                       tstats.shell_covers)
+    from .object_floor_cells import floor_mouths
+    tunnels, _mouth_notes = floor_mouths(tunnels, floors, law)
     # the rim diagnostics are read HERE, on demand (owner RULINGS
     # 2026-10-04x (2)): a build's basin notes carry neither
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,
@@ -473,6 +483,7 @@ def structure_records(airport, cl, law) -> dict:
         # 2026-10-28s (5): covered bores and the trench objects they read
         "covered_bores": list(sstats.covered_bores),
         "hard_decks": list(sstats.hard_decks),
+        "object_floors": list(sstats.object_floors),
         "trench_objects": list(tstats.trench_notes),
         "portals_in_strip": list(sstats.portals_in_strip),
         "crest_from_approach": list(sstats.crest_from_approach),

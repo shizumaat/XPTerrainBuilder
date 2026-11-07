@@ -25,7 +25,12 @@ object] bore_end_tolerance_m``):
 4. a CREDIBLE lidar inset reading a cut along the end's approach
    (``structure_fence._LidarCut``, 27z witness 5);
 5. a COMPANION TERRAIN MESH's cut (``airport/terrain_mesh_witness``, answer
-   4).
+   4);
+6. a pack PORTAL pinning that end (``on_field.portal_ends``: a roofed,
+   hanging or entrance object, ``airport/portal_objects``) -- the author
+   stated the opening (owner 2026-11-04 KBUF: the service bores under the
+   runway and the parking lot carry ``Road_Tunnel.obj`` /
+   ``KBUF_Terminal_Parking_Underpass.obj`` and were refused here).
 
 With none the end is not opened -- no ramp, no trench -- and the refusal is
 named beside #1028's.  MEASURED ENGM: the six switch ends R1 already
@@ -74,7 +79,7 @@ def needs_witness(bore, end, law: Law, fence, surfaces: bool = True) -> str | No
 
 
 class EndWitness:
-    """The five per-end witnesses over one structures pass (module doc)."""
+    """The six per-end witnesses over one structures pass (module doc)."""
 
     def __init__(self, on_field, law: Law) -> None:
         from .structure_fence import _LidarCut, _Portals
@@ -83,6 +88,7 @@ class EndWitness:
         self._decks = list(getattr(on_field, "deck_polys", ()) or ())
         self._prints = [p for p in (getattr(on_field, "corridor_prints", ()) or ())
                         if p is not None and not p.is_empty]
+        self._pins = list(getattr(on_field, "portal_ends", ()) or ())
         self._portals = _Portals(airport, law, ()) if airport is not None else None
         self._lidar = _LidarCut(airport, law) if airport is not None else None
         # read at load (``pipeline/build.pack_stage``), never here
@@ -100,6 +106,9 @@ class EndWitness:
         for p in self._prints:
             if p.distance(pt) <= self._tol:
                 return "a pack tunnel corridor"
+        for xy, oid, res in self._pins:
+            if pt.distance(Point(xy)) <= self._tol:
+                return f"the pack portal {oid} {res.rsplit('/', 1)[-1]}"
         if self._portals is not None:
             got = self._portals.at_end(end)
             if got:

@@ -130,6 +130,11 @@ class TaxiLaw:
     #: metres of vertical curve per ``common.vertical_curve_k_grade_unit``
     #: of grade change, by letter (Annex 14 §3.9.9 / AC §4.14.1 (3)(b))
     curve_k_m: CodeTable | None = None
+    #: THE TAXI ROUTE EXCEPTION'S CEILING (owner RULINGS 2026-11-05a, #1893):
+    #: the most a route between two fixed levels may be raised to when its
+    #: letter cap cannot join them (``constraints/taxi_route_yield``);
+    #: ``None`` = no route ever yields
+    longitudinal_exception_max: float | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -319,6 +324,10 @@ class AdjacentGround:
     #: over the probe, is a drop too (``model/end_area``)
     end_drop_deep_m: float
     end_drop_deep_grade: float
+    #: THE OLD-DEM FILL (owner RULINGS 2026-11-06a (2), 2026-11-06b (4);
+    #: ``airport/old_dem_fill``): the grade the fill falls at from the
+    #: runway band's crest and from each road terrace to the DEM
+    old_dem_fill_slope: float
     #: 19ad THE BAND HOLDS ITS GRADE BESIDE A ROAD THROUGH ZONE 2 (owner
     #: RULINGS 2026-10-20c, 39; ``planar/road_shadow``): a band vertex within
     #: the probe of a road's axis reads the DEM at the probe — the road's
@@ -564,6 +573,23 @@ class BuildingPad:
     #: stand at least this far under its frontage level carries a LOWER
     #: level (``planar/low_level``); ``0`` disarms it
     low_level_min_step_m: float = 0.0
+    #: A SPLIT-LEVEL BUILDING (owner 2026-11-05, ``airport/split_level``):
+    #: a wall side counts as CLOSED at a height where its wall faces cover
+    #: at least this share of the side's length; ``0`` disarms the reader
+    split_level_wall_cover: float = 0.0
+    #: ... read on the wall faces within this of the side's line (metres)
+    split_level_probe_m: float = 0.0
+    #: ... and its pit reaches this far outside every TALL side, cut down
+    #: to the lower floor (owner sim read 2026-11-05T23:55Z); ``0`` = the
+    #: footprint alone
+    split_level_back_cut_m: float = 0.0
+    #: ... except a tall side with a groundside road within this of it: the
+    #: road keeps its profile and the ground meets the wall at it (owner
+    #: 2026-11-06T02:40Z); ``0`` = always cut
+    split_level_road_reach_m: float = 0.0
+    #: ... and the pit's rim carries a vertex at least this often (the open
+    #: side held flat along its length); ``0`` = the corners only
+    split_level_rim_step_m: float = 0.0
     #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
     #: ``airport/jetways.py``): ``None`` = no expansion
     jetway_root_reach_m: float | None = None
@@ -796,6 +822,8 @@ class Seam:
 
     half_width_m: float
     ask_reach_m: float
+    #: the mesh's tile-edge segments per degree (``constraints/seams``)
+    edge_segments: int
 
 
 @_dc.dataclass(frozen=True)

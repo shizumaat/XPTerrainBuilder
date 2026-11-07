@@ -132,10 +132,13 @@ def test_long_exclusion_survives_the_round_trip(tmp_path):
 
 
 @pytest.mark.skipif(_dsftool_path() is None, reason="no DSFTool on this machine")
-def test_a_long_non_property_row_is_refused(tmp_path):
+def test_a_long_row_with_no_repair_is_refused(tmp_path):
+    """A long PROPERTY or definition row is repaired after the encode
+    (their atoms are string tables); a long placement row has no repair."""
     src = tmp_path / "in.text"
-    src.write_text(DUMP.replace("objects/hangar.obj",
-                                "objects/" + "h" * 600 + ".obj"), encoding="utf-8", newline="")
+    src.write_text(DUMP.replace("OBJECT 0 -156.955000000 20.790000000 12.000000",
+                                "OBJECT 0 -156.955000000 20.790000000 12." + "0" * 600),
+                   encoding="utf-8", newline="")
     with pytest.raises(RuntimeError, match="text reader keeps 511"):
         W.encode(str(src), str(tmp_path / "out.dsf"), _dsftool_path())
 

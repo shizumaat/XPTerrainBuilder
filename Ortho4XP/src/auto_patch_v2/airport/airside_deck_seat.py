@@ -202,7 +202,8 @@ LL = tuple[float, float]
 
 
 def facing_contacts(ring: _t.Sequence[tuple[float, float]],
-                    surface: _ar.Surface, step_m: float, every: bool = False
+                    surface: _ar.Surface, step_m: float, every: bool = False,
+                    carried: "_t.Callable[[str | None], bool] | None" = None
                     ) -> "tuple[list[LL], list[LL]] | list | None":
     """Owner RULINGS 2026-10-27c (Q183, #1471; narrows 10-22n class A): A
     STRUCTURE IS A TAXIWAY BRIDGE ONLY IF THE AIRPORT'S OWN TAXIWAY OR
@@ -227,7 +228,9 @@ def facing_contacts(ring: _t.Sequence[tuple[float, float]],
     stations ``(lat, lon)`` — the deck's END LINES where the taxiway
     drives onto it (``planar/deck_bridge`` seats the deck there) — or
     ``None``; with ``every``, the list of every facing pair in that order
-    (``planar/deck_bridge`` picks the one the road under it runs along)."""
+    (``planar/deck_bridge`` picks the one the road under it runs along).
+    ``carried`` replaces the pavement predicate (a ROAD deck over a pack
+    cut, ``planar/floor_decks``)."""
     roles = getattr(surface, "roles", None)
     if roles is None or step_m <= 0.0 or len(ring) < 3:
         return [] if every else None
@@ -238,7 +241,7 @@ def facing_contacts(ring: _t.Sequence[tuple[float, float]],
 
     from .airside_group_seat import airside_pavement
     from .rebake_plan import _mpd
-    pave = airside_pavement(surface)
+    pave = carried or airside_pavement(surface)
     got = roles.roles_many([q[2] for q in per], [q[3] for q in per])
     runs = _contacts([pave(r) for r in got])
     if len(runs) < 2:
@@ -356,7 +359,7 @@ def _airside_witness(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface
 
 def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
                  step_m: float = 0.0, origin: "tuple[float, float] | None" = None,
-                 counts: "dict | None" = None) -> "tuple | None":
+                 counts: "dict | None" = None, outside: bool = False) -> "tuple | None":
     """``(zero, where[, seat])`` of an AIRSIDE hard-deck member — the world height
     of its authored ``y = 0`` that puts its deck top on the solved airside
     surface at its end lines — or ``None`` (not class A).  A deck over
@@ -371,7 +374,10 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
     solved surface at the plate's stations less the deck top.  A ROAD
     OVERPASS's plate (``"overpass"``, RULINGS 2026-10-30f (5)) is read the
     same way: its stations are the road beneath, its y the zero's own.  A
-    plate's reading carries its ``seat`` (:func:`_plate_zero`)."""
+    plate's reading carries its ``seat`` (:func:`_plate_zero`).  ``outside``
+    (#1903): the deck is a pack cut's OWN roof, the trench under its edge,
+    so its end lines are read one step outside it — as the planar frame
+    reads them (``cut_deck_seat.end_ground``, ``planar/cut_frame``)."""
     plated = _plate_zero(m, surface)
     if plated is not None:
         return plated
@@ -383,7 +389,7 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
         if counts is not None:
             counts["airside_deck_touch_only"] = counts.get("airside_deck_touch_only", 0) + 1
         return None
-    ends = airside_end_ground(ring, surface, step_m)
+    ends = airside_end_ground(ring, surface, step_m, outside=outside)
     if ends is not None:
         (z1, z2), lines = ends
         t1, t2 = end_tops(m, lines, origin, step_m)
@@ -489,7 +495,8 @@ def refused_bridge(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
 
 def airside_frame(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
                   surface: _ar.Surface, counts: dict,
-                  step_m: float = 0.0, origin: "tuple[float, float] | None" = None
+                  step_m: float = 0.0, origin: "tuple[float, float] | None" = None,
+                  cut_ids: _t.AbstractSet[str] = frozenset()
                   ) -> "tuple[float, str] | None":
     """Owner RULINGS 2026-10-22n (#1214): CLASS A — this frame is an
     AIRSIDE hard-deck BRIDGE: ``(zero, where)`` for every body of it, or
@@ -498,10 +505,13 @@ def airside_frame(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
     (3)'s ``Staged.bridge``: the rails, the piers, the abutments) — the
     frame IS the bridge, and it moves as one (10-22c).  A frame holding a
     deck and a building beside it (KBNA's terminal satellite floor plate)
-    is not a bridge: nothing moves, and the census names it."""
+    is not a bridge: nothing moves, and the census names it.  A frame that
+    holds a pack cut's own object (``cut_ids``, the seat records' cut
+    rings) reads its end lines outside the deck (#1903)."""
     deck = None
+    own_cut = any(str(getattr(st.m, "id", "")) in cut_ids for st in staged)
     for st in staged:
-        a = airside_zero(st.m, decks, surface, step_m, origin, counts)
+        a = airside_zero(st.m, decks, surface, step_m, origin, counts, outside=own_cut)
         if a is not None:
             deck = (st, a)
             break

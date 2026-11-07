@@ -422,6 +422,7 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
     if region_u is not None:
         region_u = region_u.buffer(bl.footprint_close_m, **_MITRE).buffer(
             -bl.footprint_close_m, **_MITRE)
+    band_memo: dict = {}             # walls_frame: each member's bands, read once
     for part in sorted(parts, key=lambda g: -g.area):
         stats.plates += 1
         plate = Polygon(part.exterior.coords)
@@ -520,7 +521,7 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
             continue
         # 2026-10-28h (1): the WALLS win where they frame the lane the
         # other way (the plate at grade against the face that closes it)
-        framed = walls_frame(members, cache, dem_z, law, a, b, width, deep_end)
+        framed = walls_frame(members, cache, dem_z, law, a, b, width, deep_end, band_memo)
         mean_w = 2.0 * sum((st.half_l + st.half_r) / 2.0 for st in sts) / len(sts)
         notes = (f"plate {plate.area:.0f} m2 ({length:.0f} x {width:.0f} m) from {len(own)} face(s) "
                  f"of {len({o.id for o in own})} placement(s); the family's cover over it {cover:.0%}",

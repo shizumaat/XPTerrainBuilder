@@ -175,13 +175,13 @@ def _floor_share(g: "_obj8.ObjGeometry | None", law) -> float:
     return float(area[_face_normals_y(v, t) >= ob.plate_normal_y_min].sum()) / tot
 
 
-def _wall_band(p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law):
+def _deep_walls(p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law):
     """``p``'s deep wall faces (reaching ``shell_floor_min_m`` under its
-    zero) in the frame, widened by ``wall_face_max_thickness_m`` — or
-    ``None`` when it stands none.  It reads ``p`` alone: a floor asks it
-    of every co-placed mate, so :class:`_WallBands` keeps one per
-    placement (a shared-datum pack co-places every object: KMCI/LFLL
-    rebuilt it per floor x mate, an hour in step 21, #1903 slowstep)."""
+    zero) as plan lines in the frame, or ``None`` when it stands none.
+    It reads ``p`` alone: a floor asks it of every co-placed mate, so
+    :class:`_WallBands` keeps one per placement (a shared-datum pack
+    co-places every object — KMCI/LFLL rebuilt it per floor x mate and
+    sat an hour in step 21, lane slowstep 2026-11-06)."""
     ob = law.tables.structures.tunnel.object
     g = cache.geometry(p.resolved)
     if g is None or not len(g.solid):
@@ -194,19 +194,18 @@ def _wall_band(p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law):
     if not segs:
         return None
     a, b, d, e, xo, yo = _obj8.placement_affine(p.xy, p.heading_deg)
-    walls = _frame_entry.transform(unary_union(segs), [a, b, d, e, xo, yo])
-    return walls.buffer(ob.wall_face_max_thickness_m)
+    return _frame_entry.transform(unary_union(segs), [a, b, d, e, xo, yo])
 
 
 class _WallBands:
-    """One :func:`_wall_band` per placement for one read."""
+    """One :func:`_deep_walls` per placement for one read."""
 
     def __init__(self, cache: _obj8.ResourceCache, law):
         self.cache, self.law, self._by_id = cache, law, {}
 
     def __call__(self, p: _obj8.PlacedObject):
         if p.id not in self._by_id:
-            self._by_id[p.id] = _wall_band(p, self.cache, self.law)
+            self._by_id[p.id] = _deep_walls(p, self.cache, self.law)
         return self._by_id[p.id]
 
 
@@ -215,16 +214,25 @@ def _walled_share(foot, p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law,
     """The share of the floor footprint's ring (frame) within
     ``wall_face_max_thickness_m`` of ``p``'s wall faces reaching
     ``shell_floor_min_m`` under its zero — the cover's walls standing on
-    the floor's edges ("walls end on it")."""
-    band = (bands or _WallBands(cache, law))(p)
-    if band is None:
+    the floor's edges ("walls end on it").  Only the walls near the ring
+    are widened: a ring point within the thickness of a wall has that
+    wall point inside the ring's 1.5x-thickness neighbourhood, so the
+    share is the whole cover's, at the cost of the walls near the floor
+    (a whole terminal's walls buffered per floor was the step-21 stall)."""
+    walls = (bands or _WallBands(cache, law))(p)
+    if walls is None:
         return 0.0
     ring = foot.boundary
     if ring.length <= 0.0:
         return 0.0
-    if not shapely.intersects(shapely.box(*ring.bounds), shapely.box(*band.bounds)):
+    tk = law.tables.structures.tunnel.object.wall_face_max_thickness_m
+    near = ring.buffer(1.5 * tk)
+    if not shapely.intersects(shapely.box(*near.bounds), shapely.box(*walls.bounds)):
         return 0.0
-    return float(ring.intersection(band).length / ring.length)
+    close = shapely.clip_by_rect(walls, *near.bounds).intersection(near)
+    if close.is_empty:
+        return 0.0
+    return float(ring.intersection(close.buffer(tk)).length / ring.length)
 
 
 def _mate_share(p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law,

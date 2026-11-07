@@ -1803,7 +1803,8 @@ CODE_MODULES["solve"] = _mods("""
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
-    airport.object_floor constraints.object_floor geom.author_ground geom.lowest_face planar.object_floor_cells
+    airport.object_floor constraints.object_floor planar.object_floor_cells
+    geom.author_ground geom.lowest_face
     airport.visible_cut planar.channel_depth
     solve.follow_stage
     geom.exact

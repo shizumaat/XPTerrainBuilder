@@ -1,7 +1,8 @@
 """Twins of the #1920 follow-up (owner 2026-11-06: "use xp12 resources
 where possible if they meet the height requirements"): a pack's own low
-grass, reeds and shrubs map to X-Plane 12 GROUND planters no taller than
-their class (``pack_trees.local_forest_target``,
+shrubs map to X-Plane 12 GROUND planters no taller than their class, its
+grass and reeds keep its own file (owner 2026-11-07: grass -> planter is
+deferred to Beta 8) (``pack_trees.local_forest_target``,
 ``pack_trees_map.PLANTERS`` / ``LOW_CLASS``), keep the pack's plant count
 (``pack_trees_density``), and only grass stands on the strips
 (``pack_forests.clear_strips``).
@@ -37,9 +38,11 @@ def _for(path: Path, rows, spacing="3 3") -> str:
 # ── THE MAP ──────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("name,rows,want", [
-    ("grass.for", [(450, 128, 70, 0.6, 1.6)], GRASS),            # named grass
-    ("reed_tall.for", [(316, 231, 5, 1.9, 3.2)], GRASS),         # named reeds
-    ("cover.for", [(300, 60, 100, 0.1, 0.9)], GRASS),            # under 1.5 m
+    # owner 2026-11-07: grass keeps the pack's own file (planter: Beta 8)
+    ("grass.for", [(450, 128, 70, 0.6, 1.6)], ""),               # named grass
+    ("reed_tall.for", [(316, 231, 5, 1.9, 3.2)], ""),            # named reeds
+    ("cover.for", [(300, 60, 100, 0.1, 0.9)], ""),               # under 1.5 m
+    ("Grass_fresh10_medium.for", [(450, 128, 70, 0.3, 0.8)], ""),  # KDAL
     ("shrubs.for", [(600, 600, 100, 3, 3.8)], SHRUB),              # named shrubs
     ("oleander.for", [(600, 600, 100, 1.8, 2.0)], SHRUB),        # unnamed, low
     ("palmtree_short.for", [(600, 600, 100, 3.5, 3.5)], ""),     # a low TREE
@@ -53,8 +56,10 @@ def test_low_vegetation_takes_ground_cover_of_its_class(tmp_path, name, rows,
 
 
 def test_a_target_never_stands_taller_than_its_class():
+    # grass takes no planter (owner 2026-11-07, deferred to Beta 8)
+    assert LOW_CLASS["grass"][1] == ()
+    assert LOW_CLASS["shrub"][1] == (SHRUB,)
     for cls, (cap, order) in LOW_CLASS.items():
-        assert order, cls
         for p in order:
             assert p.startswith("lib/vegetation/planters/ground/"), \
                 "raised planters (planters/high) never stand on open ground"

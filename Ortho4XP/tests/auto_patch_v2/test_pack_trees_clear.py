@@ -164,4 +164,4 @@ def test_the_packs_own_tall_forest_is_cleared_in_the_strip_only(tmp_path):
 
 
 def test_a_recorded_upgrade_before_the_ruling_is_redone():
-    assert PF.UPGRADE_VERSION >= 4
+    assert PF.UPGRADE_VERSION >= 5     # 5: grass keeps its own (11-07)

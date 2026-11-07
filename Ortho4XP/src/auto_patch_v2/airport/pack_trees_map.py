@@ -170,14 +170,16 @@ PLANTERS: dict[str, tuple[float, tuple[float, float], tuple[str, ...]]] = {
 GRASS_M = 1.0
 
 #: class -> (height cap m, planters in order of preference).  ``grass``
-#: (grass, reed, flowers: the pack's own ground cover) takes grass, never
-#: taller than the strip's :data:`GRASS_M`; ``shrub`` takes shrubs lower
-#: than the lowest source a shrub can be (``pack_trees.GROUND_COVER_M``).
-#: Grass is green, not dry: the file says nothing of climate (as
-#: :data:`LOCAL_FOREST`); shrubs are barberry with tall grass (owner
+#: (grass, reed, flowers: the pack's own ground cover) takes NO planter:
+#: the pack keeps its own flat file (owner 2026-11-07: "move grass
+#: swapping to a more thoroughly tested model in beta 8" — X-Plane 12's
+#: 3D grass planter at 0.5 m spacing cost KDAL's frame rate badly; grass
+#: -> planter is deferred to the Beta 8 optimiser item).  ``shrub`` takes
+#: shrubs lower than the lowest source a shrub can be
+#: (``pack_trees.GROUND_COVER_M``): barberry with tall grass (owner
 #: RULINGS 2026-11-06d (7): "Shrubs, yes switch to barberry").
 LOW_CLASS: dict[str, tuple[float, tuple[str, ...]]] = {
-    "grass": (GRASS_M, (_P + "grass_green_1.for",)),
+    "grass": (GRASS_M, ()),
     "shrub": (1.5, (_P + "shrubs_red_1.for",)),
 }
 

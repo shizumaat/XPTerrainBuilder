@@ -29,10 +29,12 @@ forest_mix_full.for``.  Neither had an X-Plane 12 3D equivalent in the
   is ``mixed``), sparse from ``SPACING``.  LOW VEGETATION (a mean
   height under ``SHRUB_M + 1``, or every tree under
   :data:`GROUND_COVER_M`) never maps to X-Plane 12's 3D shrub forests,
-  which are small trees (issue #1920); it maps to X-Plane 12's 3D ground
-  cover of its own class (:data:`.pack_trees_map.LOW_CLASS`): GRASS when
-  the name says grass, reed or flowers (:data:`.pack_trees_map.GRASS_WORDS`)
-  or every tree is under :data:`GROUND_COVER_M`, otherwise SHRUBS — but a
+  which are small trees (issue #1920); it maps by its own class
+  (:data:`.pack_trees_map.LOW_CLASS`): GRASS when the name says grass,
+  reed or flowers (:data:`.pack_trees_map.GRASS_WORDS`) or every tree is
+  under :data:`GROUND_COVER_M` — it keeps its own flat file (the grass
+  planter is deferred to Beta 8, owner 2026-11-07) — otherwise X-Plane
+  12's 3D SHRUBS — but a
   low tree the name calls a species (a short palm, a young fir) or whose
   billboards are a conifer's keeps its own flat file, as does a class
   whose planters all stand taller than its cap.  A taller ``.for`` the
@@ -279,7 +281,7 @@ def local_forest_target(path: str) -> str:
         # LOW VEGETATION STAYS LOW (#1920): X-Plane 12's ``shrb_*`` forests
         # draw 2-13 m trees (``1200 forests/sum/shrub_tmp.for``: ash,
         # aspen, locust) — the owner's LGAV read: grass by the runways
-        # came out as small trees.  It takes ground cover of its class.
+        # came out as small trees.  Shrubs take barberry; grass keeps its own.
         return _planter(low_class(path, top, coni))
     if name_words(path) & GRASS_WORDS:
         return ""           # tall reeds or grass are never trees

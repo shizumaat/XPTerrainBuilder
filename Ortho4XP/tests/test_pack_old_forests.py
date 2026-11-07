@@ -136,6 +136,14 @@ def test_an_upgrade_under_older_rules_is_redone_without_asking(stage, choices):
     assert stage["writes"] == [{}]
 
 
+def test_a_v4_upgrade_with_grass_planters_is_redone(stage, choices):
+    # owner 2026-11-07: packs upgraded by 1.0.475/1.0.476 (grass ->
+    # grass_green_1) are re-mapped from the pristine DSF: grass is kept
+    stage["pf"] = _pf(upgraded=RENAMES, version=4)
+    assert FS.forest_stage(PLAN, TILE, writes=True) == "upgraded"
+    assert stage["writes"] == [RENAMES]
+
+
 def test_a_redo_waits_for_a_writing_build_and_respects_never(stage, choices):
     stage["pf"] = _pf(upgraded=RENAMES, version=1)
     assert FS.forest_stage(PLAN, TILE, writes=False) == "found"

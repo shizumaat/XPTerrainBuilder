@@ -124,10 +124,11 @@ def test_low_vegetation_is_never_mapped_to_trees(tmp_path, rows, want):
     assert "lib/g8/" not in got
 
 
-def test_ground_cover_maps_to_grass(tmp_path):
+def test_ground_cover_keeps_its_own_file(tmp_path):
+    # owner 2026-11-07: no 3D grass planter until Beta 8 (KDAL frame rate)
     grass = _write(tmp_path / "grass.for",
                    _for([(300, 60, 100, 0.1, 0.4)], "0.4 0.4"))
-    assert PT.local_forest_target(str(grass)).endswith("grass_green_1.for")
+    assert PT.local_forest_target(str(grass)) == ""
 
 
 # ── THE CHECK IN A PACK, AND THE REWRITE ────────────────────────────────

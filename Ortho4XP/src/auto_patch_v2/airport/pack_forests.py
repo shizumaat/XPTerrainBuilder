@@ -71,8 +71,10 @@ RECORD_KEY = "forest_upgrade"
 #: 1: the first map; 2: low vegetation stays low, trees off the strips;
 #: 3: low vegetation takes X-Plane 12 ground cover, only grass on strips;
 #: 4: shrubs are barberry, and the pack's own kept tall vegetation is
-#: cleared off the strips too — RULINGS 2026-11-06d (7)(8))
-UPGRADE_VERSION = 4
+#: cleared off the strips too — RULINGS 2026-11-06d (7)(8);
+#: 5: grass-class files keep the pack's own flat file, no 3D grass
+#: planter — owner 2026-11-07, deferred to Beta 8)
+UPGRADE_VERSION = 5
 #: a ``.for`` line keyword that only X-Plane 12's 3D trees use
 KEYWORDS_3D = frozenset({"SHADER_3D", "MESH"})
 

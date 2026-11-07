@@ -11,6 +11,10 @@ planter keeps the pack's plant count: its parameter is scaled by
 ``planter cell / pack cell`` (never above what it was, never below 1).
 Line and point forests (parameter 256 and up) are untouched: their plants
 are their edges' and vertices'.  Any pack, any tile.
+
+Since owner 2026-11-07 only SHRUBS are renamed to a planter; grass keeps
+the pack's own file (``pack_trees_map.LOW_CLASS``) and grass -> planter is
+deferred to the Beta 8 optimiser item, which reuses this count.
 """
 from __future__ import annotations
 

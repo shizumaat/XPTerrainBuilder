@@ -102,7 +102,7 @@ from ..geom import exact
 from .deck_anchor import blind, deck_holes
 from .geometry import project_to_chain
 from .precedence import view
-from .trend import Trend as _Trend, trend_of as _trend_of
+from ..geom.trend import Trend as _Trend, trend_of as _trend_of
 from .runway_profile import (RUNWAY_FAMILY, dem_degraded,  # noqa: F401 (re-export)
                              ridge_chains, threshold_pins)
 from ..law import Law
@@ -286,7 +286,7 @@ class Crossing:
 def _trend(vw, chains: dict[str, list[list[int]]], rw_id: str, c: _Chord,
            pm: PlanarMap, window_m: float, inside=None) -> _Trend | None:
     """The production DEM under this runway's own ridge, in ``c``'s station
-    frame (module docstring), fitted by ``constraints/trend.py`` — the ONE
+    frame (module docstring), fitted by ``geom/trend.py`` — the ONE
     construction §21 and §8.6 share.  ``None`` where fewer than three
     stations carry a sample, so the chord stands.  ``inside(xy)``: the
     BRIDGE WINDOWS, whose DEM reads a deck or the road under it, never the

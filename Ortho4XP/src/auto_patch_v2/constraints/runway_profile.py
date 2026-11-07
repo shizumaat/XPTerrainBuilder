@@ -65,6 +65,7 @@ import math
 import typing as _t
 
 from ..geom import exact
+from ..geom.trend import trend_of as _trend_of
 from ..law import Law, inset_class
 from ..law.tables import (
     FLAT_CLASS_FINE,
@@ -83,7 +84,6 @@ from ..model.constraints import Band, Diff, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 from .precedence import View, cap_of, view
-from .trend import trend_of as _trend_of
 
 __all__ = ["threshold_pins", "datum_pins", "end_pin_cases", "EndPin", "dem_degraded",
            "runway_profile", "runway_crown", "runway_transverse",

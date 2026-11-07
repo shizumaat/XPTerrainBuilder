@@ -70,7 +70,7 @@ from .precedence import view
 from .runway_chord import dem_degraded
 from .taxi_trend_cap import (capped_chain, ceiled, held_by_contacts, low_hold_spans,
                              lowered_within_budget)
-from .trend import shift_through, trend_of
+from ..geom.trend import shift_through, trend_of
 from ..law import Law
 from ..law.tables import is_value_role
 from ..model.airport import Airport

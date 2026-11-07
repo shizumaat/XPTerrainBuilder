@@ -24,6 +24,20 @@ over the DEM — further than the DEM's own class can be wrong.  A FILL RUN
 is the stretch round a fill station where the pin line stands over the DEM
 at all, so the fill begins and ends on the DEM.
 
+THE SECOND WITNESS, THE FIELD (RULINGS 2026-11-06d (9)).  On a coarse or
+fine DEM, a runway whose drawn profile between its stood pins — the trend
+``constraints/runway_chord`` builds, the DEM's long-wave fit along the
+centreline carried linearly through the two pins (``geom/trend``, the ONE
+construction; :func:`field_crest`) — would crest more than the class
+tolerance above the apt.dat field elevation marks the DEM older than the
+airport too: the runway was cut through a hill the DEM still shows.  Its
+fill runs are then the stretches where the pin line stands more than the
+class TOLERANCE over the DEM (the class's own error; the margin is the
+first witness's bar for calling the DEM old, already met).  A lidar DEM
+never fires.  BGGH (Nuuk; coarse) is where it was found: pins 33.9 /
+13.3 m over the DEM (under the 45 m margin), the drawn crest 18 m over
+field.
+
 THE CREST.  The runway's band (``zone2_half_width_m`` from the centreline)
 over each fill run, and over the end area beyond an end the run reaches
 (``runway_safety_area_length_m``).  Its level is the pin line at the
@@ -74,6 +88,7 @@ import shapely
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import substring, unary_union
 
+from ..geom.trend import shift_through, trend_of
 from ..law import Law
 from ..law.inset_class import dem_source_class
 from ..law.reference_code import runway_status
@@ -82,7 +97,7 @@ from ..model.airport import Airport, Runway
 from .dem import dem_z_many
 from .road_ways import ribbon_half_width_m, road_ways
 
-__all__ = ["FillDem", "attach", "fill_model_of", "witness"]
+__all__ = ["FillDem", "attach", "field_crest", "fill_model_of", "witness"]
 
 
 @_dc.dataclass(frozen=True)
@@ -297,6 +312,27 @@ def _fill_runs(pl: _PinLine, dem, step: float, tol: float, hw: float
     return runs
 
 
+def field_crest(pl: _PinLine, dem, law: Law) -> tuple[float, float] | None:
+    """``(station, z)`` of the highest point of the profile the runway's
+    target would draw without the field cap (THE SECOND WITNESS, module
+    docstring): the DEM's trend along the centreline every
+    ``edge_grid_m`` (``runway_profile_window_m``) shifted through the two
+    pins, read over the runway; ``None`` where the DEM gives no trend."""
+    step = float(law.tables.emit.design.edge_grid_m)
+    n = max(1, int(math.ceil(pl.length / step)))
+    ss = np.linspace(0.0, pl.length, n + 1)
+    zs = dem_z_many(dem, pl.a[0] + pl.u[0] * ss, pl.a[1] + pl.u[1] * ss)
+    ok = np.isfinite(zs)
+    tr = trend_of(zip(ss[ok].tolist(), zs[ok].tolist(), strict=True),
+                  float(law.tables.emit.design.runway_profile_window_m))
+    if tr is None:
+        return None
+    prof = shift_through(tr, ((pl.s0, pl.z0), (pl.s1, pl.z1)))
+    reads = [(float(s), prof(float(s))) for s in (*ss, pl.s0, pl.s1)]
+    reads = [(s, z) for s, z in reads if z is not None]
+    return max(reads, key=lambda q: q[1]) if reads else None
+
+
 def _crest(pl: _PinLine, runs, hw: float, ends: tuple[float, float]) -> list[Polygon]:
     """Each run's half of the band, run out by ``ends[k]`` past an end it
     reaches."""
@@ -440,7 +476,11 @@ def _set_back(pl: _PinLine, runs, terraces, rsa: float, hw: float, grade: float,
 
 def _footprint(model: _FillModel, dem, step: float):
     """The ground the fill stands over the DEM on, connected to the crest,
-    read on a ``step`` grid and grown one step (its toe on the DEM)."""
+    read on a ``step`` grid and grown one step (its toe on the DEM); empty
+    with no crest (a field-witnessed runway with no fill run: only the
+    ceiling and the crest cap)."""
+    if not model.crest:
+        return Polygon()
     crest = unary_union([p for p, _pl in model.crest])
     zmax = max(float(np.max(pl.z(np.array([0.0, pl.length])))) for _p, pl in model.crest)
     region = unary_union([crest] + [t.line.buffer(t.half_m) for t in model.terraces])
@@ -514,6 +554,9 @@ def witness(airport: Airport, law: Law, klass: str | None = "",
     beyond the class's own error, and none for a lidar DEM (``inf``) — a
     lidar survey is the ground as it stands, never older than the airport
     (#1915's regression: a lidar DEM 5 m under the pins read as old).
+    A runway under the margin that THE SECOND WITNESS fires on (its drawn
+    crest over field + tolerance, :func:`field_crest`) is listed too, with
+    its fill runs read at the tolerance (possibly none).
     ``klass`` ``""`` reads the sampler's own class; ``None`` (no stated
     class) is no witness.  ``margin`` overrides the class's (the census
     reads every runway's deepest station with ``0``)."""
@@ -541,11 +584,26 @@ def witness(airport: Airport, law: Law, klass: str | None = "",
         hw = float(zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter, st)
                    or 0.0) + 0.5 * float(rw.width_m)
         runs = _fill_runs(pl, dem, step, margin, hw)
+        if not runs and _over_field(pl, dem, law, airport, tol):
+            runs = _fill_runs(pl, dem, step, tol, hw)
+            per.append((rw, pl, runs, hw, float(runway_safety_area_length_m(
+                law, rw.code_number, rw.code_letter, st))))
+            continue
         if not runs:
             continue
         rsa = float(runway_safety_area_length_m(law, rw.code_number, rw.code_letter, st))
         per.append((rw, pl, runs, hw, rsa))
     return tol, lines, per
+
+
+def _over_field(pl: _PinLine, dem, law: Law, airport: Airport, tol: float) -> bool:
+    """THE SECOND WITNESS (module docstring): the drawn crest more than
+    ``tol`` over the field elevation."""
+    field = getattr(airport, "elevation_m", None)
+    if field is None or not math.isfinite(float(field)):
+        return False
+    top = field_crest(pl, dem, law)
+    return top is not None and top[1] > float(field) + tol
 
 
 def attach(airport: Airport, law: Law, klass: str | None = ""

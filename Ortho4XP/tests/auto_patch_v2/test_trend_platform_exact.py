@@ -3,7 +3,7 @@ platform (release dry run 41005579641, 2026-10-29).
 
 ``x ** n`` on a float is the C library's ``pow``, which macOS, glibc and
 the Windows CRT round differently in the last bit.  The tricube kernel of
-``constraints/trend.py`` used it, every runway crossing pin and DEM end
+``geom/trend.py`` used it, every runway crossing pin and DEM end
 pin is read off that kernel, and at CYXY the noise reached a yielded
 runway cap and 23,000 constraint rows.  These twins hold the kernels to
 IEEE-exact operations and the station mean to the samples' order.
@@ -14,7 +14,7 @@ import ast
 import pathlib
 import random
 
-from auto_patch_v2.constraints import trend as T
+from auto_patch_v2.geom import trend as T
 
 _PKG = pathlib.Path(T.__file__).resolve().parent
 

@@ -157,7 +157,9 @@ def _old_dem(icao, airport, klass, law, out) -> None:
     """THE OLD-DEM FILL WITNESS of one airport (#1915): one ``out`` row per
     runway whose stood pin line stands over the DEM anywhere, with its
     deepest centreline station, the class (``_klass``: the census sampler
-    states none) and whether the witness fires under the law's margin."""
+    states none), whether the witness fires under the law's margin, and
+    the drawn crest over field (``ODF.field_crest``) — ``fires_field``: the
+    runway the SECOND witness (RULINGS 2026-11-06d (9)) alone fires on."""
     try:
         _tol, _lines, per = ODF.witness(airport, law, klass, margin=0.0)
         tol, _lines, fires = ODF.witness(airport, law, klass)
@@ -165,21 +167,26 @@ def _old_dem(icao, airport, klass, law, out) -> None:
         return
     t = law.tables.runway_ends
     hit = {rw.id for rw, *_r in fires}
-    for rw, _pl, runs, _hw, _rsa in per:
-        deep = max(d for *_x, d in runs)
+    margin = float(t.old_dem_margin_m.of(klass))
+    for rw, pl, runs, _hw, _rsa in per:
+        deep = max((d for *_x, d in runs), default=0.0)
+        top = ODF.field_crest(pl, airport.dem, law)
+        over = None if top is None else round(top[1] - float(airport.elevation_m), 2)
         out.append({"icao": icao, "runway": rw.id, "class": klass, "deepest_m": round(deep, 2),
-                    "tol_m": tol, "margin_m": float(t.old_dem_margin_m.of(klass)),
-                    "fires_tol": deep > tol, "fires": rw.id in hit})
+                    "tol_m": tol, "margin_m": margin, "crest_over_field_m": over,
+                    "fires_tol": deep > tol, "fires": rw.id in hit,
+                    "fires_field": rw.id in hit and not deep > margin})
 
 
 def _print_old_dem(rows) -> None:
     """The witness's counts per class, and every runway beyond its class
-    tolerance (the 1.0.474 rule) or the margin (today's)."""
+    tolerance (the 1.0.474 rule), the margin, or the field (06d (9))."""
     by = collections.defaultdict(collections.Counter)
     for r in rows:
         by[r["class"]]["over_dem"] += 1
         by[r["class"]]["fires_at_tolerance"] += int(r["fires_tol"])
         by[r["class"]]["fires"] += int(r["fires"])
+        by[r["class"]]["fires_field"] += int(r["fires_field"])
     print("  OLD-DEM FILL WITNESS (#1915) runways standing over their DEM, per class: "
           f"{ {k: dict(v) for k, v in sorted(by.items())} }")
     for r in sorted(rows, key=lambda r: -r["deepest_m"]):
@@ -187,7 +194,9 @@ def _print_old_dem(rows) -> None:
             print(f"    {r['icao']} {r['runway']:9s} {r['class']:6s} "
                   f"deepest {r['deepest_m']:7.2f} m"
                   f"  tol {r['tol_m']:g} -> {'FIRES' if r['fires_tol'] else '-'}"
-                  f"  margin {r['margin_m']:g} -> {'FIRES' if r['fires'] else '-'}")
+                  f"  margin {r['margin_m']:g} -> {'FIRES' if r['fires'] else '-'}"
+                  f"  crest-field {r['crest_over_field_m']}"
+                  f"{' FIELD WITNESS' if r['fires_field'] else ''}")
 
 
 def main(argv=None) -> int:

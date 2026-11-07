@@ -195,6 +195,65 @@ def test_a_coarse_dem_fires_only_beyond_its_margin(law):
     def under(depth):
         return lambda x, y: 700.0 - depth * max(0.0, -x / HALF)
 
-    assert F.attach(_airport(_Coarse(under(m - 1.0))), law)[1] == []
-    got, recs, _l = F.attach(_airport(_Coarse(under(m + 1.0))), law)
+    # the field stands over any crest the pins draw: the SECOND witness
+    # (06d (9)) is out of this test
+    high = 760.0
+    assert F.attach(_airport(_Coarse(under(m - 1.0)), elev=high), law)[1] == []
+    got, recs, _l = F.attach(_airport(_Coarse(under(m + 1.0)), elev=high), law)
     assert isinstance(got.dem, F.FillDem) and got.dem.predates_airport and recs
+
+
+# ── THE SECOND WITNESS, THE FIELD (RULINGS 2026-11-06d (9)) ─────────────
+
+#: BGGH (Nuuk, coarse): CIFP 04/22 74.68 / 78.94 m, field 73.76 m; the
+#: DEM 34 m under the 04 end and 13 m under the 22 end (both inside the
+#: 45 m margin) over an old hill the runway was cut through
+_BGGH_PINS, _BGGH_FIELD = (74.68, 78.94), 73.76
+
+
+def _bggh_ground(x, y):
+    """40.7 m at the west end, a hill to 100 m past mid-runway, 65.7 m at
+    the east end (the old DEM under a runway cut and filled)."""
+    s = (x + HALF) / (2.0 * HALF)
+    return 40.7 + 25.0 * s + 50.0 * math.sin(math.pi * s) ** 2
+
+
+def test_a_drawn_crest_over_field_reads_the_dem_as_older_than_the_airport(law):
+    """BGGH: no station is past the coarse margin, but the profile the
+    runway's trend would draw through its pins crests far over field:
+    the DEM is older than the airport — the fill at the tolerance under the
+    04 end, the airside ceiling, and the crest cap (``predates_airport``)."""
+    a = _airport(_Coarse(_bggh_ground), elev=_BGGH_FIELD, pins=_BGGH_PINS)
+    t = law.tables.runway_ends
+    _tol, lines, _per = F.witness(a, law)
+    pl = lines[0][1]
+    deficit = pl.z(np.array([0.0, pl.length])) - np.array([_bggh_ground(-HALF, 0.0),
+                                                           _bggh_ground(HALF, 0.0)])
+    assert deficit.max() < float(t.old_dem_margin_m.coarse)       # the first witness is quiet
+    top = F.field_crest(pl, a.dem, law)
+    assert top[1] > _BGGH_FIELD + float(t.grade_disagree_m.coarse)
+    got, recs, lines = F.attach(a, law)
+    assert isinstance(got.dem, F.FillDem) and got.dem.predates_airport
+    runs = [r for r in recs if r["kind"] == "run"]
+    assert runs and min(r["s_a"] for r in runs) == 0.0           # the 04 end is fill
+    assert F.fill_model_of(got).cap_m == pytest.approx(_BGGH_FIELD + 12.0)
+    assert got.dem.z(0.0, 0.0) <= _BGGH_FIELD + 12.0 + 1e-6      # the hill is cut
+
+
+def test_a_sloping_runway_cresting_at_field_is_no_witness(law):
+    """A real sloping runway: the DEM is its profile (with a coarse DEM's
+    metre of noise) and its high end is the field elevation — the drawn
+    crest is the field: no witness, the airport comes back untouched."""
+    def slope(x, y):
+        return 690.0 + 12.0 * (x + HALF) / (2.0 * HALF) + math.sin(x / 37.0)
+    a = _airport(_Coarse(slope), elev=702.0, pins=(690.0, 702.0))
+    got, recs, lines = F.attach(a, law)
+    assert got is a and recs == [] and lines == []
+    assert F.field_crest(F.witness(a, law)[1][0][1], a.dem, law)[1] < 702.0 + 2.0
+
+
+def test_a_lidar_dem_never_fires_the_field_witness(law):
+    """The BGGH ground on a lidar DEM: a survey is the ground as it stands."""
+    a = _airport(_Lidar(_bggh_ground), elev=_BGGH_FIELD, pins=_BGGH_PINS)
+    got, recs, _l = F.attach(a, law)
+    assert got is a and recs == [] and F.witness(a, law)[2] == []

@@ -20,7 +20,7 @@ import pytest
 
 from auto_patch_v2.constraints import taxi_trend as tt
 from auto_patch_v2.constraints.routes import reach, routes
-from auto_patch_v2.constraints.trend import shift_through, trend_of
+from auto_patch_v2.geom.trend import shift_through, trend_of
 from auto_patch_v2.law import Law
 from tests.auto_patch_v2 import test_v2taxidatum as T
 

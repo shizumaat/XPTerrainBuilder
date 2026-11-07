@@ -46,7 +46,7 @@ from auto_patch_v2.constraints.taxi_trend import (taxi_trend_block,
                                                   taxi_xsec_feet,
                                                   taxi_trend_targets,
                                                   with_taxi_trend)
-from auto_patch_v2.constraints.trend import shift_through, trend_of
+from auto_patch_v2.geom.trend import shift_through, trend_of
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import runway_vertical_curve_bound
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack

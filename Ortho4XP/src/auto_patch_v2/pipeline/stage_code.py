@@ -748,7 +748,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.taxi_trend",
         "auto_patch_v2.constraints.taxi_trend_cap",
         "auto_patch_v2.constraints.threshold_seam",
-        "auto_patch_v2.constraints.trend",
         "auto_patch_v2.emit",
         "auto_patch_v2.emit.road_join",
         "auto_patch_v2.geom",
@@ -762,6 +761,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.geom.slope_pad",
+        "auto_patch_v2.geom.trend",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.law",
@@ -981,7 +981,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.terrain_shaped",
         "auto_patch_v2.constraints.threshold_seam",
         "auto_patch_v2.constraints.transverse",
-        "auto_patch_v2.constraints.trend",
         "auto_patch_v2.constraints.viaduct_floor",
         "auto_patch_v2.constraints.wall_zone",
         "auto_patch_v2.constraints.walled_plate",
@@ -1007,6 +1006,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.terrain_deck",
+        "auto_patch_v2.geom.trend",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.geom.valid_area",
@@ -1186,7 +1186,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.threshold_seam
         constraints.shoulder_crossing constraints.stretches constraints.taxi
         constraints.taxi_route_yield constraints.taxi_trend constraints.taxi_trend_cap
-        constraints.trend
+        geom.trend
         geom.base_slab geom.cluster_outline geom.containment geom.core_clamp
         geom.pad_evidence geom.triangulate geom.union_find law.inset_class model.airport
         model.islands model.map_memo model.platform
@@ -1269,7 +1269,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.platform constraints.precedence constraints.roads constraints.routes
         constraints.runway_profile constraints.shoulder_crossing constraints.stretches
         constraints.threshold_seam
-        constraints.strips constraints.transverse constraints.trend
+        constraints.strips constraints.transverse geom.trend
         constraints.weld_floor geom.base_slab geom.cluster_outline geom.containment
         geom.pad_evidence geom.triangulate geom.union_find model.airport model.end_area
         model.islands model.map_memo model.platform model.threshold_datum
@@ -1381,7 +1381,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.runway_chord constraints.runway_profile constraints.runway_yield
         constraints.runway_junctions
         constraints.threshold_seam
-        constraints.shoulder_crossing constraints.stretches constraints.trend
+        constraints.shoulder_crossing constraints.stretches geom.trend
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
@@ -1401,7 +1401,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.runway_chord constraints.runway_profile constraints.runway_yield
         constraints.runway_junctions
         constraints.threshold_seam
-        constraints.shoulder_crossing constraints.stretches constraints.trend
+        constraints.shoulder_crossing constraints.stretches geom.trend
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
@@ -1421,7 +1421,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.runway_chord constraints.runway_mean_slope
         constraints.runway_profile constraints.threshold_seam constraints.runway_yield
         constraints.runway_junctions
-        constraints.shoulder_crossing constraints.stretches constraints.trend
+        constraints.shoulder_crossing constraints.stretches geom.trend
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
@@ -1437,14 +1437,14 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         law.inset_class
         constraints.geometry constraints.precedence constraints.runway_profile
         constraints.threshold_seam
-        constraints.shoulder_crossing constraints.trend model.airport
+        constraints.shoulder_crossing geom.trend model.airport
     """),
     "runway_step": _mods(_GENERATOR_CORE + """
         geom.exact
         law.inset_class
         constraints.geometry constraints.precedence constraints.runway_profile
         constraints.threshold_seam
-        constraints.runway_step constraints.shoulder_crossing constraints.trend
+        constraints.runway_step constraints.shoulder_crossing geom.trend
         model.airport
     """),
     "seams": _mods(_GENERATOR_CORE + """
@@ -1574,7 +1574,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.viaduct_floor constraints.taxi
     constraints.deck_lines
     constraints.taxi_trend
-    constraints.taxi_trend_cap constraints.transverse constraints.trend
+    constraints.taxi_trend_cap constraints.transverse geom.trend
     constraints.water constraints.weld_floor constraints.zones geom geom.base_slab
     geom.fixed_overlay
     geom.valid_area
@@ -1642,7 +1642,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     constraints.precedence constraints.roads constraints.routes
     constraints.runway_profile constraints.shoulder_crossing constraints.stretches
     constraints.threshold_seam
-    constraints.strips constraints.transverse constraints.trend constraints.weld_floor
+    constraints.strips constraints.transverse geom.trend constraints.weld_floor
     geom geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence geom.parts
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
@@ -1738,7 +1738,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.shoulder_crossing
     constraints.threshold_seam
     constraints.stretches constraints.strips constraints.taxi constraints.taxi_trend
-    constraints.taxi_trend_cap constraints.transverse constraints.trend
+    constraints.taxi_trend_cap constraints.transverse geom.trend
     constraints.weld_floor geom geom.base_slab geom.cluster_outline geom.containment
     geom.core_clamp geom.coverage geom.grid_pickle geom.pad_evidence geom.parts geom.proportions
     geom.ramp_grade geom.ramp_profile geom.rotated_rect geom.triangulate geom.union_find
@@ -1881,7 +1881,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.edge_floor constraints.structures constraints.entrance_skirt
     constraints.viaduct_floor constraints.taxi constraints.taxi_trend
     constraints.deck_lines
-    constraints.taxi_trend_cap constraints.transverse constraints.trend
+    constraints.taxi_trend_cap constraints.transverse geom.trend
     constraints.water constraints.weld_floor constraints.zones emit.graded emit.surface
     geom geom.base_slab geom.cluster_outline geom.containment geom.core_clamp
     geom.coverage geom.grid_pickle geom.feet_graph geom.feet_mst geom.pad_evidence geom.parts
@@ -2001,7 +2001,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.surface_trend constraints.taxi constraints.taxi_trend
-    constraints.taxi_trend_cap constraints.transverse constraints.trend
+    constraints.taxi_trend_cap constraints.transverse geom.trend
     constraints.weld_floor emit.graded emit.osm_adapter emit.rebake emit.ring_fold emit.road_join
     emit.surface emit.terrain_edge geom geom.base_slab geom.cluster_outline
     geom.fixed_overlay
@@ -2086,7 +2086,7 @@ CODE_MODULES["verify"] = _mods("""
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.taxi constraints.taxi_trend
-    constraints.taxi_trend_cap constraints.transverse constraints.trend
+    constraints.taxi_trend_cap constraints.transverse geom.trend
     constraints.weld_floor emit.ring_fold emit.surface geom geom.base_slab geom.cluster_outline
     geom.fixed_overlay
     geom.valid_area

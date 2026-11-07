@@ -70,6 +70,7 @@ import math
 import typing as _t
 
 from ..geom import exact
+from ..geom.trend import trend_of
 from ..law import Law
 from ..law.tables import role_cap, runway_vertical_curve_bound
 from ..model.airport import Airport
@@ -80,7 +81,6 @@ from ..model.structures import DeckAnchor
 from .deck_lines import cut_faces
 from .geometry import project_to_chain
 from .precedence import view
-from .trend import trend_of
 
 __all__ = ["GEN", "RULING", "YIELD_HEAD", "SOLVED_NOTE", "derive", "deck_anchor_pins",
            "deck_holes", "blind", "settle", "sidecar_records"]

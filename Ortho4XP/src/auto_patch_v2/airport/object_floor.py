@@ -175,29 +175,64 @@ def _floor_share(g: "_obj8.ObjGeometry | None", law) -> float:
     return float(area[_face_normals_y(v, t) >= ob.plate_normal_y_min].sum()) / tot
 
 
-def _walled_share(foot, p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law) -> float:
-    """The share of the floor footprint's ring (frame) within
-    ``wall_face_max_thickness_m`` of ``p``'s wall faces reaching
-    ``shell_floor_min_m`` under its zero — the cover's walls standing on
-    the floor's edges ("walls end on it")."""
+def _wall_band(p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law):
+    """``p``'s deep wall faces (reaching ``shell_floor_min_m`` under its
+    zero) in the frame, widened by ``wall_face_max_thickness_m`` — or
+    ``None`` when it stands none.  It reads ``p`` alone: a floor asks it
+    of every co-placed mate, so :class:`_WallBands` keeps one per
+    placement (a shared-datum pack co-places every object: KMCI/LFLL
+    rebuilt it per floor x mate, an hour in step 21, #1903 slowstep)."""
     ob = law.tables.structures.tunnel.object
     g = cache.geometry(p.resolved)
     if g is None or not len(g.solid):
-        return 0.0
+        return None
     v, t = g.vertices, g.solid
     w = t[_face_normals_y(v, t) < ob.plate_normal_y_min]
     if len(w):
         w = w[v[w][:, :, 1].min(axis=1) <= -ob.shell_floor_min_m]
     segs = _plan_segments(v, w) if len(w) else []
     if not segs:
-        return 0.0
+        return None
     a, b, d, e, xo, yo = _obj8.placement_affine(p.xy, p.heading_deg)
     walls = _frame_entry.transform(unary_union(segs), [a, b, d, e, xo, yo])
+    return walls.buffer(ob.wall_face_max_thickness_m)
+
+
+class _WallBands:
+    """One :func:`_wall_band` per placement for one read."""
+
+    def __init__(self, cache: _obj8.ResourceCache, law):
+        self.cache, self.law, self._by_id = cache, law, {}
+
+    def __call__(self, p: _obj8.PlacedObject):
+        if p.id not in self._by_id:
+            self._by_id[p.id] = _wall_band(p, self.cache, self.law)
+        return self._by_id[p.id]
+
+
+def _walled_share(foot, p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law,
+                  bands: "_WallBands | None" = None) -> float:
+    """The share of the floor footprint's ring (frame) within
+    ``wall_face_max_thickness_m`` of ``p``'s wall faces reaching
+    ``shell_floor_min_m`` under its zero — the cover's walls standing on
+    the floor's edges ("walls end on it")."""
+    band = (bands or _WallBands(cache, law))(p)
+    if band is None:
+        return 0.0
     ring = foot.boundary
     if ring.length <= 0.0:
         return 0.0
-    return float(ring.intersection(walls.buffer(ob.wall_face_max_thickness_m)).length
-                 / ring.length)
+    if not shapely.intersects(shapely.box(*ring.bounds), shapely.box(*band.bounds)):
+        return 0.0
+    return float(ring.intersection(band).length / ring.length)
+
+
+def _mate_share(p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law,
+                shares: dict[str, float]) -> float:
+    """:func:`_floor_share` of ``p``'s resource, read once per resource."""
+    if p.resolved not in shares:
+        shares[p.resolved] = _floor_share(cache.geometry(p.resolved), law)
+    return shares[p.resolved]
 
 
 def _xp(px: np.ndarray, py: np.ndarray, o: _obj8.PlacedObject, scale) -> tuple:
@@ -370,6 +405,8 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
     out: list[ObjectFloor] = []
     notes: list[str] = []
     k_by_res: dict[str, int] = {}
+    bands = _WallBands(cache, law)
+    shares: dict[str, float] = {}
     for o in placed:
         if o.id in taken or not _has_floor(cache, o, law):
             continue
@@ -383,11 +420,11 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
             # under its zero whose walls stand on the floor's edges
             covers = [p for p in mates
                       if cache.y_range(p.resolved)[0] <= -ob.shell_floor_min_m
-                      and _floor_share(cache.geometry(p.resolved), law)
+                      and _mate_share(p, cache, law, shares)
                       < ob.floor_object_min_share]
             placed_floor = _placed_floor(o, g, 0.0, law)
             covers = [p for p in covers if placed_floor is not None
-                      and _walled_share(placed_floor[1], p, cache, law)
+                      and _walled_share(placed_floor[1], p, cache, law, bands)
                       >= ob.floor_walled_min_share]
         elif o.id in shells:
             # a SHELL (its own walls and floor, §33 (6) B): a CONCAVE CUT

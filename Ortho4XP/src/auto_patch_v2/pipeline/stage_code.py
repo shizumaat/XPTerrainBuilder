@@ -463,6 +463,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.geom",
+        "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.cluster_outline",
         "auto_patch_v2.geom.containment",
@@ -1672,7 +1673,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 CODE_MODULES["solve"] = _mods("""
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
-    airport.object_floor geom.lowest_face planar.object_floor_cells
+    airport.object_floor geom.author_ground geom.lowest_face planar.object_floor_cells
     airport.visible_cut planar.channel_depth
     pipeline.lot_follow solve.follow_stage
     geom.exact
@@ -1802,7 +1803,7 @@ CODE_MODULES["solve"] = _mods("""
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
-    airport.object_floor constraints.object_floor geom.lowest_face planar.object_floor_cells
+    airport.object_floor constraints.object_floor geom.author_ground geom.lowest_face planar.object_floor_cells
     airport.visible_cut planar.channel_depth
     solve.follow_stage
     geom.exact
@@ -1946,7 +1947,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
 CODE_MODULES["emit"] = _mods("""
     geom.shape_class
     airport.hanging_objects airport.object_cut airport.object_floor airport.wall_geometry
-    geom.lowest_face geom.vector
+    geom.author_ground geom.lowest_face geom.vector
     airport.lot_level solve.follow_stage
     geom.exact
         constraints.runway_end_report law.runway_ends_schema law.terrain_witness_schema

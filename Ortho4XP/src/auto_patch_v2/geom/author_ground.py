@@ -22,10 +22,10 @@ import numpy as np
 import shapely
 from shapely import STRtree
 
-__all__ = ["AuthorGround", "AroundReading"]
+__all__ = ["AuthorGround"]
 
 
-class AroundReading(_t.NamedTuple):
+class _Reading(_t.NamedTuple):
     """The author's ground around a footprint: ``z`` the median ground
     height over the ring, ``source`` ``"plates"``, ``"dem"`` (no plates
     there) or ``"none"``, ``share`` the share of ring samples a plate
@@ -75,7 +75,7 @@ class AuthorGround:
 
     def around(self, foot, ring: tuple[float, float], step_m: float, min_share: float,
                exclude: _t.AbstractSet[str] = frozenset(),
-               dem: "_t.Callable | None" = None, max_samples: int = 20000) -> AroundReading:
+               dem: "_t.Callable | None" = None, max_samples: int = 20000) -> "_Reading":
         """The author's ground over the ring ``ring = (inner, outer)`` metres
         outside ``foot``: the median plate height where plates cover at
         least ``min_share`` of the ring's samples (a grid ``step_m`` apart,
@@ -83,7 +83,7 @@ class AuthorGround:
         there."""
         band = foot.buffer(ring[1]).difference(foot.buffer(ring[0]))
         if band.is_empty:
-            return AroundReading(float("nan"), "none", 0.0)
+            return _Reading(float("nan"), "none", 0.0)
         x0, y0, x1, y1 = band.bounds
         step = max(step_m, float(np.sqrt(band.area / max_samples)))
         gx, gy = np.meshgrid(np.arange(x0 + step / 2, x1, step),
@@ -92,15 +92,15 @@ class AuthorGround:
         inside = shapely.contains_xy(band, gx, gy)
         gx, gy = gx[inside], gy[inside]
         if not len(gx):
-            return AroundReading(float("nan"), "none", 0.0)
+            return _Reading(float("nan"), "none", 0.0)
         z = self.at(gx, gy, exclude)
         hit = np.isfinite(z)
         share = float(hit.mean())
         if hit.any() and share >= min_share:
-            return AroundReading(float(np.median(z[hit])), "plates", share)
+            return _Reading(float(np.median(z[hit])), "plates", share)
         if dem is not None:
             d = np.asarray(dem(gx, gy), float)
             d = d[np.isfinite(d)]
             if len(d):
-                return AroundReading(float(np.median(d)), "dem", share)
-        return AroundReading(float("nan"), "none", share)
+                return _Reading(float(np.median(d)), "dem", share)
+        return _Reading(float("nan"), "none", share)

@@ -276,7 +276,7 @@ def _author_ground(placed, cache, law, msl, scale, shares, ground=None
     return _ag.AuthorGround(np.concatenate(faces) if faces else np.zeros((0, 3, 3)), owners)
 
 
-def _around(foot, oid: str, ag: "_ag.AuthorGround", ground, law) -> "_ag.AroundReading":
+def _around(foot, oid: str, ag: "_ag.AuthorGround", ground, law) -> tuple:
     """The author's ground around ``foot`` (``author_ground_inner_m`` ..
     ``author_ground_outer_m`` outside it, ``oid``'s own faces left out),
     else the design ground there."""
@@ -297,28 +297,30 @@ def _ground_at(ag: "_ag.AuthorGround", oid: str, ground):
     return at
 
 
-def _sunken(o, g, msl, ag, ground, law, scale, notes: list[str]) -> bool:
-    """Does floor object ``o`` stand SUNKEN — its floor's median height
-    ``floor_sunken_min_m`` or more under the AUTHOR'S ground around it
-    (:func:`_around`; the DEM only where the author laid no plates)?  Never
-    its zero: a shared-datum pack hangs every object off one datum (KMCI
-    310.70, its at-grade tiles 8 m "under" it).  A refusal is noted."""
+def _sunken(o, g, msl, ag, ground, law, scale, notes: list[str]) -> tuple[bool, str]:
+    """``(sunken, why)``: does floor object ``o`` stand SUNKEN — its floor's
+    median height ``floor_sunken_min_m`` or more under the AUTHOR'S ground
+    around it (:func:`_around`; the DEM only where the author laid no
+    plates, and ``why`` says so)?  Never its zero: a shared-datum pack hangs
+    every object off one datum (KMCI 310.70, its at-grade tiles 8 m "under"
+    it).  A refusal is noted."""
     ob = law.tables.structures.tunnel.object
     got = _placed_floor(o, g, _zero(o, msl), law, scale)
     if got is None:
-        return True
+        return True, ""
     faces, foot = got
     r = _around(foot, o.id, ag, ground, law)
     if r.source == "none":
-        return True
+        return True, "no ground reads around it"
     depth = r.z - _median_z(faces)
+    why = (f"{depth:.2f} m under the author's ground around it ("
+           + ("its plates" if r.source == "plates" else "NO PLATES: the DEM")
+           + f" {r.z:.2f}, plates over {100 * r.share:.0f} % of the ring)")
     if depth >= ob.floor_sunken_min_m:
-        return True
-    notes.append(f"{o.id} {_base(o.path)}: its floor stands {depth:.2f} m under the "
-                 f"author's ground around it ({r.source} {r.z:.2f}, plates over "
-                 f"{100 * r.share:.0f} % of the ring; < {ob.floor_sunken_min_m:g}): an "
-                 f"at-grade plate, pavement — not a sunken floor")
-    return False
+        return True, why
+    notes.append(f"{o.id} {_base(o.path)}: its floor stands {why} < "
+                 f"{ob.floor_sunken_min_m:g}: an at-grade plate, pavement — not a sunken floor")
+    return False, why
 
 
 def _median_z(faces: np.ndarray) -> float:
@@ -523,8 +525,10 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
         mates = [p for p in placed
                  if p.id != o.id and _co_placed(o, p, ob.cover_placement_tol_m)]
         shells = shells or {}
+        sunk = ""
         if share >= ob.floor_object_min_share:
-            if not _sunken(o, g, msl, ag, ground, law, scale, notes):
+            ok, sunk = _sunken(o, g, msl, ag, ground, law, scale, notes)
+            if not ok:
                 continue
             # a FLOOR object: its cover is a co-placed structure hanging
             # under its zero whose walls stand on the floor's edges
@@ -567,7 +571,8 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
         fz = float(faces[:, :, 2].min())
         note = (f"object floor {_base(o.path)}@{k}: {len(faces)} faces over {foot.area:.0f} m2, "
                 f"floor {fz:.2f} (zero {zero:.2f}), the floor of "
-                + ", ".join(_base(p.path) for p in covers))
+                + ", ".join(_base(p.path) for p in covers)
+                + (f"; sunk {sunk}" if sunk else ""))
         notes.append(note)
         # B1: the frame's every placement at the zero the floor was read at
         seats = tuple((p.id, p.path, _zero(p, msl)) for p in (o, *covers, *(

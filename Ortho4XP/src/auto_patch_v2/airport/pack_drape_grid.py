@@ -184,8 +184,8 @@ def _grid_members(family: _t.Sequence[Layer]) -> set[int]:
             continue
         w, h = cls[0][1][2] - cls[0][1][0], cls[0][1][3] - cls[0][1][1]
         tx, ty = w * EDGE_TOL, h * EDGE_TOL
-        for comp in _components(len(cls), lambda a, b: _adjacent(
-                cls[a][1], cls[b][1], tx, ty)):
+        for comp in _components(len(cls), lambda a, b, cls=cls, tx=tx, ty=ty:
+                                _adjacent(cls[a][1], cls[b][1], tx, ty)):
             if len(comp) < MIN_TILES:
                 continue
             grid = [cls[k][1] for k in comp]

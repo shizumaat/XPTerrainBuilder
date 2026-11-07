@@ -17,9 +17,8 @@ import sys
 from pathlib import Path
 
 import pytest
-
-from auto_patch_v2.airport import apt_dat as A
 from auto_patch_v2.airport import approach as AP
+from auto_patch_v2.airport import apt_dat as A
 from auto_patch_v2.law import Law
 from auto_patch_v2.law import reference_code as RC
 from auto_patch_v2.law.tables import zone2_half_width_m

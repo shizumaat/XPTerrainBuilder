@@ -28,7 +28,8 @@ if _t.TYPE_CHECKING:  # pragma: no cover
     from .model import Law
 
 __all__ = ["ReferenceCode", "APPROACH_CLASSES", "VISUAL", "NPA", "APV", "PA",
-           "runway_code_number", "runway_code_letter", "largest_ramp_class", "taxi_code_letter", "is_instrument",
+           "runway_code_number", "runway_code_letter", "largest_ramp_class",
+           "taxi_code_letter", "is_instrument",
            "is_precision", "stronger_class", "raoa_class", "raoa_applies",
            "NON_INSTRUMENT", "INSTRUMENT", "PRECISION", "status_of_classes",
            "runway_status", "status_by_ref", "ref_status"]

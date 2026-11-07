@@ -23,8 +23,7 @@ from __future__ import annotations
 
 import typing as _t
 
-from ..law.reference_code import (PA, VISUAL, largest_ramp_class, runway_code_letter,
-                                  stronger_class)
+from ..law.reference_code import PA, VISUAL, largest_ramp_class, runway_code_letter, stronger_class
 
 if _t.TYPE_CHECKING:  # pragma: no cover
     from ..law import Law

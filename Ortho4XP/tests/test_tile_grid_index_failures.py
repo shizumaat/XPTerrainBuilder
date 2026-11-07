@@ -30,8 +30,7 @@ sys.path.insert(0, "src")
 
 import O4_File_Names as FNAMES
 from elevation_access import base as ea_base
-from elevation_access import gdal_support
-from elevation_access import tls_trust
+from elevation_access import gdal_support, tls_trust
 from elevation_access.strategies import tile_grid_http as ea_tile_grid_http
 
 #: ``discover`` projects the request box to the grid's CRS through GDAL's

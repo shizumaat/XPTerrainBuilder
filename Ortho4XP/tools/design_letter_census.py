@@ -26,10 +26,13 @@ from __future__ import annotations
 
 # The console is UTF-8 before anything prints (#171, #125): ONE derivation
 # site, ``src/O4_Console_Encoding.py`` (twin: ``tests/test_console_encoding.py``).
-import os as _o4os, sys as _o4sys                                    # noqa: E402
+import os as _o4os  # noqa: E402
+import sys as _o4sys  # noqa: E402
+
 _o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
     _o4os.path.abspath(__file__))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
+import O4_Console_Encoding as _o4console  # noqa: E402
+
 _o4console.configure_console_streams()
 
 import argparse  # noqa: E402
@@ -42,11 +45,19 @@ import typing as _t  # noqa: E402
 
 from auto_patch_v2.airport import apt_dat as A  # noqa: E402
 from auto_patch_v2.airport.approach import (  # noqa: E402
-    airport_ramp_class, design_letter, precision_markings)
+    airport_ramp_class,
+    design_letter,
+    precision_markings,
+)
 from auto_patch_v2.law.airports_schema import resolve_ruleset  # noqa: E402
 from auto_patch_v2.law.model import Law, load_tables  # noqa: E402
 from auto_patch_v2.law.reference_code import (  # noqa: E402
-    INSTRUMENT, NON_INSTRUMENT, PRECISION, runway_code_letter, runway_code_number)
+    INSTRUMENT,
+    NON_INSTRUMENT,
+    PRECISION,
+    runway_code_letter,
+    runway_code_number,
+)
 from auto_patch_v2.law.tables import zone2_half_width_m  # noqa: E402
 
 DEFAULT_XP = "/Users/noah/X-Plane 12"

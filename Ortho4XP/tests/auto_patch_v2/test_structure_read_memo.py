@@ -9,7 +9,6 @@ from __future__ import annotations
 import types
 
 import shapely
-
 from auto_patch_v2.airport import obj8 as O
 from auto_patch_v2.airport import object_floor as OF
 from auto_patch_v2.airport import plate_frame as PF

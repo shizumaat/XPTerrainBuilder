@@ -18,8 +18,8 @@ except Exception:                                        # pragma: no cover
     HAS_GDAL = False
 
 import O4_Airport_Elevation_Insets as INSETS
-from elevation_access.base import ProviderUnavailable
 from elevation_access import geoid_shift as GEOID
+from elevation_access.base import ProviderUnavailable
 from elevation_access.strategies import stac_dated_strips as STRIPS
 
 pytestmark = pytest.mark.skipif(not HAS_GDAL, reason="needs GDAL")

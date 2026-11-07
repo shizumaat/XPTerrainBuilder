@@ -31,7 +31,6 @@ __all__ = [
     "GEOID_SHIFT_KEY",
     "GEOID_SHIFT_STAMP",
     "apply_geoid_shift",
-    "geoid_undulation_m",
 ]
 
 

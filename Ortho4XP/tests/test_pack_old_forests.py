@@ -399,7 +399,7 @@ def test_a_reapplying_write_keeps_the_records_version(real_pack):
     doc, row = _forest_row(rp)
     row["version"] = 1                      # a record from an older engine
     (rp.dsf.parent / PM.PROVENANCE_FILENAME).write_text(
-        json.dumps(doc), encoding="utf-8")
+        json.dumps(doc), encoding="utf-8", newline="\n")
     B.invalidate_memo()
     plan = PM.PlacementPlan("OTST", rp.pack.name, str(rp.pack), str(rp.dsf),
                             str(rp.dsf) + PM.BACKUP_SUFFIX,

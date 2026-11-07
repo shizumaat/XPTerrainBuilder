@@ -42,10 +42,6 @@ from elevation_access.warp import warp_vsicurl_sources_to_geotiff
 __all__ = [
     "NO_STRIP",
     "StacDatedStripsStrategy",
-    "decode_strip_index",
-    "encode_strip_index",
-    "fill_from_strip",
-    "strips_newest_first",
 ]
 
 

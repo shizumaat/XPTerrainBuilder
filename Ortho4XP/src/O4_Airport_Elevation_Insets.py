@@ -7036,7 +7036,7 @@ def inset_empty_reason(inset_path, valid_fraction):
             % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC))
 
 
-def bake_candidate_inset_paths(tile):
+def bake_candidate_inset_paths(tile, keep_declined=False):
     """The cached inset rasters the bake step considers for ``tile``, in
     bake order: every cached ``*.tif`` of a provider the tile's
     ``airport_elevation_providers`` selects, the highest-priority
@@ -7047,16 +7047,35 @@ def bake_candidate_inset_paths(tile):
     of "which insets does this tile's raster carry" that runs without the
     step-1 DEM object — the mesh's curvature weight map (#233) derives
     its inset boxes from it in step 2, where ``tile.dem`` is header-only.
-    Empty when the feature is gated off."""
+    Empty when the feature is gated off.
+
+    ONE RULE for bake and composite (LFKC 2026-11-06): an inset
+    :func:`inset_is_effectively_empty` declines is left out, so the
+    composite query never reads a raster the bake refused -- the
+    all-zero TINITALY cut over Corsica put 5,565 road nodes at 0.000 m
+    through ``alt_vec`` while the ``.alt`` stayed clean.  Only the bake
+    passes ``keep_declined=True``, to record each refusal by name."""
     if not insets_enabled_for_tile(tile):
         return []
     provider_definitions = select_provider_definitions(
         getattr(tile, "airport_elevation_providers", "auto")
     )
     codes = [definition["code"] for definition in provider_definitions]
-    return _ranked_for_composite(list_cached_inset_dems(
+    paths = _ranked_for_composite(list_cached_inset_dems(
         tile.lat, tile.lon, provider_codes=codes or None
     ), codes)
+    if keep_declined:
+        return paths
+    return [path for path in paths if not _declined_on_read(path)]
+
+
+def _declined_on_read(inset_path):
+    """True when the bake would decline ``inset_path``; an unreadable
+    raster is declined too (it can hold no coverage for the composite)."""
+    try:
+        return inset_is_effectively_empty(inset_path)[0]
+    except Exception:
+        return True
 
 
 def baked_inset_boxes(tile):
@@ -7108,7 +7127,7 @@ def bake_airport_insets_into_alt_dem(tile):
         return
     if tile.dem is None or tile.dem.alt_dem is None:
         return
-    inset_paths = bake_candidate_inset_paths(tile)
+    inset_paths = bake_candidate_inset_paths(tile, keep_declined=True)
     # Record which insets actually bake into this DEM so the auto_patch
     # provenance stamp can report the true elevation source per airport (see
     # auto_patch.provenance).  An EMPTY list means the bake step ran but found

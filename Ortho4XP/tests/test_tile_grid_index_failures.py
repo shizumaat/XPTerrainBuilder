@@ -30,8 +30,16 @@ sys.path.insert(0, "src")
 
 import O4_File_Names as FNAMES
 from elevation_access import base as ea_base
+from elevation_access import gdal_support
 from elevation_access import tls_trust
 from elevation_access.strategies import tile_grid_http as ea_tile_grid_http
+
+#: ``discover`` projects the request box to the grid's CRS through GDAL's
+#: ``osr`` (and reads ``/vsizip/`` archives through GDAL); CI installs the
+#: engine without GDAL (``.github/workflows/ci.yml``), so those tests skip
+#: there and run wherever the bindings are present.
+needs_gdal = pytest.mark.skipif(
+    not gdal_support.has_gdal, reason="discover needs the GDAL bindings (osr)")
 
 #: A box inside the Schleswig-Holstein coverage (Kiel).
 KIEL_BOX = (10.15, 54.37, 10.17, 54.38)
@@ -107,6 +115,7 @@ def _no_template_probes(monkeypatch):
         monkeypatch.setattr(requests.Session, name, _guard)
 
 
+@needs_gdal
 def test_an_unreachable_index_is_one_transient_failure(monkeypatch):
     _no_template_probes(monkeypatch)
     strategy = ea_tile_grid_http.TileGridHttpStrategy()
@@ -117,6 +126,7 @@ def test_an_unreachable_index_is_one_transient_failure(monkeypatch):
     assert "unavailable" in message and "{file_name}" not in message
 
 
+@needs_gdal
 @pytest.mark.parametrize("status", [429, 500, 503])
 def test_a_server_side_index_failure_is_transient(host, status, monkeypatch):
     _no_template_probes(monkeypatch)
@@ -128,6 +138,7 @@ def test_a_server_side_index_failure_is_transient(host, status, monkeypatch):
     assert host.paths == ["/index.geojson"]
 
 
+@needs_gdal
 @pytest.mark.parametrize("status", [401, 403, 404, 410])
 def test_a_refused_or_vanished_index_is_unavailable(host, status):
     host.status = status
@@ -138,6 +149,7 @@ def test_a_refused_or_vanished_index_is_unavailable(host, status):
     assert host.paths == ["/index.geojson"]
 
 
+@needs_gdal
 def test_a_file_name_template_without_an_index_is_refused():
     definition = _definition("")
     with pytest.raises(ea_base.ProviderUnavailable):
@@ -203,6 +215,7 @@ def _archive_definition(zip_path):
     return definition
 
 
+@needs_gdal
 def test_an_archive_index_lists_members_and_discover_reads_them_in_place(
         tmp_path):
     import zipfile
@@ -223,6 +236,7 @@ def test_an_archive_index_lists_members_and_discover_reads_them_in_place(
     assert urls == ["/vsizip/%s/%s" % (zip_path, member)]
 
 
+@needs_gdal
 def test_an_unreadable_archive_index_is_transient(tmp_path):
     definition = _archive_definition(tmp_path / "missing.zip")
     with pytest.raises(ea_base.TransientFetchError) as raised:

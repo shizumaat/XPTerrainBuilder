@@ -2908,8 +2908,10 @@ def _null_twin(_null, held: dict, trace, sol, rep, law, strips, n: int, method: 
         else:
             cs_x = _null.with_bands(cs, bands)
         kw["stage2_rewrite"] = lambda lv: reach_seed_rewrite(pm, law, cs_x, lv)
-        from auto_patch_v2.constraints.taxi_trend import (low_hold_retarget,
-                                                          stage_one_retarget)
+        from auto_patch_v2.constraints.taxi_trend import (
+            low_hold_retarget,
+            stage_one_retarget,
+        )
         kw["trend_rewrite"] = lambda pm_x, lv: stage_one_retarget(pm_x, law, None, lv)
         kw["hold_rewrite"] = lambda pm_x, lv: low_hold_retarget(pm_x, law, lv)
         return solve_design(pm, cs_x, law, Options(verbose=verbose), method=method,

@@ -41,11 +41,11 @@ from .emit_stage import (  # noqa: F401
     with_join_yield,
     with_threshold_yield,
 )
+from .late_records import prefix_identity
 from .planar_report import shore_decision_lines  # noqa: F401  (read here)
 from .prefix import Deriver, PackRead, run_prefix
 from .prefix import classified_land as _classified_land  # noqa: F401  (read here)
 from .rebake_inputs import _plate_seats, _rebake_inputs, plate_stations  # noqa: F401
-from .late_records import prefix_identity
 from .shapes import joint_steps
 from .solve_record import identity, solve_stage
 
@@ -637,6 +637,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # PASS — the apron levels stage 1 solved become trend contacts, bound
     # here because ``solve`` may not import ``constraints``
     from ..constraints.taxi_trend import low_hold_retarget, stage_one_retarget
+
     # issue #359: the lot over a declared wall follows its pad after stage 2
     from .lot_follow import lot_follow_rewrite
 

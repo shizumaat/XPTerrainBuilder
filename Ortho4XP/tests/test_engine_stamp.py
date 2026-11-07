@@ -4,7 +4,15 @@ frozen from its own source (app 1.0.471 embedded the 1.0.470 engine).
 Fake repo + fake bundle dir; no real freeze."""
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
+
+# engine_stamp.sh guards the macOS release scripts (make_app.sh /
+# make_engine.sh); Windows' runner has no POSIX shell to run it under.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX release-script twin (macOS make_app.sh)")
 
 REPO = Path(__file__).resolve().parents[2]
 _ID = ["-c", "user.email=t@t", "-c", "user.name=t"]

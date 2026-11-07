@@ -19,7 +19,7 @@ from auto_patch_v2.geom import trend as T
 _PKG = pathlib.Path(T.__file__).resolve().parent
 
 #: The smoothing kernels every runway / taxi / surface pin is read off.
-_KERNELS = ("trend.py", "surface_trend.py")
+_KERNELS = ("trend.py", "../constraints/surface_trend.py")
 
 
 def test_trend_kernels_never_call_pow():

@@ -306,10 +306,13 @@ def decision_key(pristine_sha256: str, renames: _t.Mapping[str, str]) -> str:
 
 
 def record(pristine_sha256: str, renames: _t.Mapping[str, str], renamed: int,
-           time: str) -> dict[str, _t.Any]:
+           time: str, version: int | None = None) -> dict[str, _t.Any]:
     """The :data:`RECORD_KEY` entry of ``o4_placement_provenance.json``:
-    every definition changed, from what, to what."""
-    return {"accepted": True, "time": time, "version": UPGRADE_VERSION,
+    every definition changed, from what, to what.  ``version`` is the
+    rules the renames were computed under: :data:`UPGRADE_VERSION` for a
+    fresh recompute, the record's own when a write only re-applies it."""
+    return {"accepted": True, "time": time,
+            "version": UPGRADE_VERSION if version is None else int(version),
             "key": decision_key(pristine_sha256, renames),
             "pristine_sha256": pristine_sha256,
             "renamed": int(renamed),

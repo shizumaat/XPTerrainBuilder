@@ -1652,8 +1652,12 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     pinned = _dh.pin_heights(text)
     prior_entry = _bs.dsf_entry(_bs.read_record(dsf_path), base)
     backup_sha = sha256_file(backup)
+    # a re-applied record keeps the rules it was written under; only a
+    # recompute (``forests=`` given) is stamped current (#1920)
+    forests_version = None
     if forests is None:
         forests = _pf.recorded(prior_entry, backup_sha)
+        forests_version = _pf.recorded_version(prior_entry)
     hand = _us.merged(_us.recorded(prior_entry, backup_sha), seats, drop)
     rows = _us.placements(pristine_text) if hand else ()
     if optimise is None:
@@ -1785,7 +1789,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         "omitted_art": (_pa.record(sha256_file(backup), omit, omitted,
                                    _bs.stamp()) if omit else None),
         # #1360: the 3D forest upgrade the user accepted, or None
-        _pf.RECORD_KEY: (_pf.record(backup_sha, forests, renamed, _bs.stamp())
+        _pf.RECORD_KEY: (_pf.record(backup_sha, forests, renamed, _bs.stamp(),
+                                    version=forests_version)
                          if forests else None),
         # #1703: the objects the user seated by hand, or None
         _us.RECORD_KEY: (_us.record(backup_sha, hand, seated, _bs.stamp())

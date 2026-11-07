@@ -30,7 +30,12 @@ fine DEM, a runway whose drawn profile between its stood pins — the trend
 centreline carried linearly through the two pins (``geom/trend``, the ONE
 construction; :func:`field_crest`) — would crest more than the class
 tolerance above the apt.dat field elevation marks the DEM older than the
-airport too: the runway was cut through a hill the DEM still shows.  Its
+airport too: the runway was cut through a hill the DEM still shows.  The
+crest must come from the DEM between the pins: a runway whose PIN stands
+over field + tolerance says the field elevation is stale, not that the DEM
+is old (the census, 2026-11-06: LOXN pins 285 m on a 253 m field, U03 /
+KFBG field 0, HECA 05R/23L pins 137-142 m on a 114 m field — the ceiling
+would have cut their airside 20-30 m under the pins).  Its
 fill runs are then the stretches where the pin line stands more than the
 class TOLERANCE over the DEM (the class's own error; the margin is the
 first witness's bar for calling the DEM old, already met).  A lidar DEM
@@ -598,9 +603,12 @@ def witness(airport: Airport, law: Law, klass: str | None = "",
 
 def _over_field(pl: _PinLine, dem, law: Law, airport: Airport, tol: float) -> bool:
     """THE SECOND WITNESS (module docstring): the drawn crest more than
-    ``tol`` over the field elevation."""
+    ``tol`` over the field elevation, with both pins within it (a pin
+    itself over field + tol is a stale field elevation, not an old DEM)."""
     field = getattr(airport, "elevation_m", None)
     if field is None or not math.isfinite(float(field)):
+        return False
+    if max(pl.z0, pl.z1) > float(field) + tol:
         return False
     top = field_crest(pl, dem, law)
     return top is not None and top[1] > float(field) + tol

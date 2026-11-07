@@ -1640,7 +1640,8 @@ class EngineSession:
                             UNPATCHED.read_unmounted_packs(tile)),
                         self.app_driven,
                         notes=FAIL.from_substitutions(
-                            UNPATCHED.read_substitutions(tile)),
+                            UNPATCHED.read_substitutions(tile),
+                            UNPATCHED.read_inset_sources(tile)),
                         degraded=FAIL.from_degraded(
                             UNPATCHED.read_degraded(tile)
                             + _mesh_order_rows(lat, lon, tile)))

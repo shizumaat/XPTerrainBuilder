@@ -33,6 +33,7 @@ __all__ = [
     "set_aside_unbuilt", "strict", "may_continue", "record", "read",
     "PACK_RESTORE_KEY", "note_pack",
     "record_substitutions", "read_substitutions",
+    "INSET_SOURCES_KEY", "record_inset_sources", "read_inset_sources",
     "UNMOUNTED_KEY", "record_unmounted_packs", "read_unmounted_packs",
     "DEGRADED_KEY", "record_degraded", "read_degraded",
     "warn",
@@ -233,6 +234,45 @@ def record_substitutions(tile, rows) -> list:
 def read_substitutions(tile) -> list:
     """The substituted cells of the tile on disk (see :func:`read`)."""
     return _read_rows(tile, "elevation_substitutions", SUBSTITUTIONS_KEY)
+
+
+#: Sidecar key of the elevation each airport of the tile was built on: the
+#: WINNING inset per airport, the one the bake laid down last (#srcshow,
+#: owner 2026-11-07: a tile note said "Copernicus GLO-30 was used" and
+#: read as the airport's source when it was the base cells around it).
+INSET_SOURCES_KEY = "airport_inset_sources"
+
+
+def record_inset_sources(tile, baked) -> list:
+    """Publish ``{"icao", "provider", "resolution_m"}`` per airport from
+    the bake's provenance entries (``tile.dem.airport_inset_provenance``,
+    in BAKE order: the highest-priority inset LAST, so the last entry of
+    an airport is the one its ground reads).  Called with ``[]`` when the
+    bake starts, so a tile that bakes nothing names no source.  Never
+    fatal."""
+    winners: dict = {}
+    for entry in baked or ():
+        if not isinstance(entry, dict) or not entry.get("icao"):
+            continue
+        path = os.path.basename(str(entry.get("path") or ""))
+        code = entry.get("provider") or (
+            path[:-4].rsplit("_", 1)[-1].upper() if "_" in path else "")
+        resolution = entry.get("native_resolution_m")
+        winners[str(entry["icao"])] = {
+            "icao": str(entry["icao"]), "provider": str(code or "?"),
+            "resolution_m": resolution}
+    rows = [winners[icao] for icao in sorted(winners)]
+    try:
+        return _publish_rows(tile, "airport_inset_sources",
+                             INSET_SOURCES_KEY, rows)
+    except (AttributeError, TypeError):        # a slotted stand-in tile
+        return rows
+
+
+def read_inset_sources(tile) -> list:
+    """The winning inset per airport of the tile on disk (see
+    :func:`record_inset_sources`)."""
+    return _read_rows(tile, "airport_inset_sources", INSET_SOURCES_KEY)
 
 
 #: Sidecar key of the airports graded WITHOUT their pack because the pack

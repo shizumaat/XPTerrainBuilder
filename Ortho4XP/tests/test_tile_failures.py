@@ -649,6 +649,57 @@ def test_stand_in_elevation_is_a_note_from_the_sidecar(monkeypatch,
     assert again.notes == []
 
 
+def test_stand_in_note_names_each_airports_winning_inset(monkeypatch,
+                                                        tmp_path):
+    """Owner 2026-11-07 (app 1.0.476, BGGH / BIKF): the stand-in note said
+    "Copernicus GLO-30 was used" about the BASE cells around the airport,
+    and read as the airport's own source — while the airport was baked from
+    its 2 m inset.  The bake publishes the WINNING inset per airport (its
+    provenance is in bake order, the highest-priority inset LAST), and the
+    note names it — one engine sentence both apps show verbatim."""
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_Unpatched_Airports as UNPATCHED
+
+    class _DemProcessTile:
+        build_dir = str(tmp_path)
+
+    # bake order: the gap-fill Copernicus inset first, the 2 m one last
+    baked = [{"icao": "BGGH", "path": "/i/BGGH_copernicusglo30.tif",
+              "provider": "COPERNICUSGLO30", "native_resolution_m": 30},
+             {"icao": "BGGH", "path": "/i/BGGH_arcticdem2m.tif",
+              "provider": "ARCTICDEM2M", "native_resolution_m": 2},
+             {"icao": "AAAA", "path": "/i/AAAA_islandsdem.tif",
+              "native_resolution_m": 2}]           # code from the name
+    UNPATCHED.record_inset_sources(_DemProcessTile(), baked)
+    assert UNPATCHED.read_inset_sources(_DemProcessTile()) == [
+        {"icao": "AAAA", "provider": "ISLANDSDEM", "resolution_m": 2},
+        {"icao": "BGGH", "provider": "ARCTICDEM2M", "resolution_m": 2}]
+    UNPATCHED.record_substitutions(_DemProcessTile(), [
+        {"cell": c, "code": "GLO30", "path": "/x/%s.tif" % c,
+         "source": "Viewfinderpanoramas", "fallback": "Copernicus GLO-30"}
+        for c in ("+63-052", "+63-051")])
+
+    install_stub_pipeline(monkeypatch)
+    done = _done(run_build(EngineSession(), [(10, 20)], tmp_path,
+                           do_vector=False), 10, 20)
+    (note,) = done.notes
+    assert note["why"] == (
+        "Viewfinderpanoramas did not answer, so Copernicus GLO-30 was "
+        "used. It includes trees and buildings, so the ground there may "
+        "read a few metres high. The airports keep their own detailed "
+        "elevation: AAAA from ISLANDSDEM (2 m), BGGH from ARCTICDEM2M "
+        "(2 m).")
+
+    # a bake that lays nothing down restates the list empty first: a
+    # previous build's source never lingers on the note
+    monkeypatch.setattr(INSETS, "insets_enabled_for_tile", lambda t: False)
+    INSETS.bake_airport_insets_into_alt_dem(_DemProcessTile())
+    assert UNPATCHED.read_inset_sources(_DemProcessTile()) == []
+    again = _done(run_build(EngineSession(), [(10, 20)], tmp_path,
+                            do_vector=False), 10, 20)
+    assert "keep their own" not in again.notes[0]["why"]
+
+
 def test_a_later_tile_failure_is_the_message_not_the_airport(monkeypatch,
                                                             tmp_path):
     def one_airport_fails(tile):

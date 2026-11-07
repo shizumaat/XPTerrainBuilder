@@ -7099,6 +7099,11 @@ def bake_airport_insets_into_alt_dem(tile):
     ``O4_Airport_Utils.smooth_raster_over_airports``, immediately after
     this one and before the ``.alt`` write.
     """
+    # The tile's closing note names each airport's WINNING inset (the
+    # sidecar's ``airport_inset_sources``): restated empty first, so a
+    # bake that lays nothing down never leaves a previous build's name.
+    import O4_Unpatched_Airports as UNPATCHED  # stdlib-only sidecar owner
+    UNPATCHED.record_inset_sources(tile, [])
     if not insets_enabled_for_tile(tile):
         return
     if tile.dem is None or tile.dem.alt_dem is None:
@@ -7160,6 +7165,7 @@ def bake_airport_insets_into_alt_dem(tile):
         entry = _inset_bake_provenance_entry(inset_path)
         entry["nodata_fraction"] = round(1.0 - valid_fraction, 6)
         baked_provenance.append(entry)
+    UNPATCHED.record_inset_sources(tile, baked_provenance)
     _warn_if_provider_offsets_systematic(provider_ring_offsets)
     # The raster is now the surface the mesher will render, so the QUERY
     # path must read it too: the grading law measures the surface the

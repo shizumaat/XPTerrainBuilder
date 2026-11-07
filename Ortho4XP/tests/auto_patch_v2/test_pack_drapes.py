@@ -6,7 +6,11 @@ non-wrapping image, no surface, not weather-transparent), its placement
 (image-mapped north-up, over an airport, photo-sized) and its image (not
 all see-through).  A draped pavement or marking polygon, a decal turned
 to its runway, a see-through overlay and a library polygon are never
-one.  Synthetic packs, a byte-copy DSFTool; no network, no corpus.
+one.  The grid rule (RULINGS 2026-11-07a (3), ``pack_drape_grid``) then
+hides only a machine-named photo grid that extends outside the airport,
+as whole one-layer stacks: a single photo, scattered tiles and a photo
+laid over a photo are kept.  Synthetic packs, a byte-copy DSFTool; no
+network, no corpus.
 """
 from __future__ import annotations
 
@@ -43,22 +47,44 @@ POLS = {
                        "SCALE 25 25\n",
     "ground/haze.pol": "A\n850\nDRAPED_POLYGON\nTEXTURE_NOWRAP haze.dds\n"
                        "SCALE 25 25\n",
+    **{f"grid/Tile{n}.pol": f"A\n850\nDRAPED_POLYGON\nTEXTURE_NOWRAP\tTile{n}.dds\n"
+                            "SCALE 25 25\nLOAD_CENTER 25.0 51.0 300 2048\n"
+                            "LAYER_GROUP terrain 1\n" for n in range(1, 7)},
+    **{f"grid/Veil{n}.pol": f"A\n850\nDRAPED_POLYGON\nTEXTURE_NOWRAP Veil{n}.dds\n"
+                            "SCALE 25 25\nLAYER_GROUP markings 0\n"
+                            for n in range(1, 7)},
 }
 #: the image each .pol names: True = opaque (DXT1), False = see-through
 IMAGES = {"ortho/photo.dds": True, "ortho/plain.dds": True,
           "ground/asphalt.dds": True, "ground/stripe.dds": True,
           "ground/grime.dds": False, "ground/skid.dds": True,
-          "ground/haze.dds": False}
-#: def index -> (path, turn of the image, over the airport)
-DEFS = [("ortho/photo.pol", 0.0, True),          # 0 a photo: hidden
-        ("ortho/plain.pol", 1.0, True),          # 1 a photo, no LOAD_CENTER
-        ("ground/asphalt.pol", 0.0, True),       # 2 pavement
-        ("ground/stripe.pol", 0.0, True),        # 3 a tiled marking
-        ("ground/grime.pol", 0.0, True),         # 4 weather-transparent
-        ("ground/skid.pol", 30.0, True),         # 5 turned to its runway
-        ("ground/haze.pol", 0.0, True),          # 6 see-through image
-        ("lib/airport/markings/DrapedDirSigns.pol", 0.0, True),  # 7 library
-        ("ortho/photo.pol", 0.0, False)]         # 8 a photo off the airport
+          "ground/haze.dds": False,
+          **{f"grid/Tile{n}.dds": True for n in range(1, 7)},
+          **{f"grid/Veil{n}.dds": False for n in range(1, 7)}}
+AT = (51.000, 25.000, 0.003)        # over the airport (lon, lat, size)
+OFF = (51.500, 25.500, 0.003)       # far from it
+
+
+def _tile(col: int, row: int) -> tuple[float, float, float]:
+    """One cell of a 3 x 2 grid of 0.004-degree tiles east of AT: its
+    first row crosses the runway, its second leaves the airport."""
+    return (51.004 + 0.004 * col, 25.000 + 0.004 * row, 0.004)
+
+
+#: def index -> (path, turn of the image, where)
+DEFS = [("ortho/photo.pol", 0.0, AT),            # 0 a single photo: kept
+        ("ortho/plain.pol", 1.0, AT),            # 1 a single photo, no LOAD_CENTER
+        ("ground/asphalt.pol", 0.0, AT),         # 2 pavement
+        ("ground/stripe.pol", 0.0, AT),          # 3 a tiled marking
+        ("ground/grime.pol", 0.0, AT),           # 4 weather-transparent
+        ("ground/skid.pol", 30.0, AT),           # 5 turned to its runway
+        ("ground/haze.pol", 0.0, AT),            # 6 see-through image
+        ("lib/airport/markings/DrapedDirSigns.pol", 0.0, AT),  # 7 library
+        ("ortho/photo.pol", 0.0, OFF)]           # 8 a photo off the airport
+#: 9-14 the machine-named grid Tile1..Tile6; 9 and 10 cross the runway
+GRID = [(f"grid/Tile{c + 3 * r + 1}.pol", 0.0, _tile(c, r))
+        for r in range(2) for c in range(3)]
+DEFS += GRID
 
 
 def _dds(opaque: bool, size: int = 64) -> bytes:
@@ -71,9 +97,8 @@ def _dds(opaque: bool, size: int = 64) -> bytes:
     return bytes(head) + block * ((size // 4) ** 2)
 
 
-def _polygon(i: int, turn: float, over: bool) -> str:
-    lon0, lat0 = (51.000, 25.000) if over else (51.500, 25.500)
-    d = 0.003
+def _polygon(i: int, turn: float, where: tuple[float, float, float]) -> str:
+    lon0, lat0, d = where
     t = math.radians(turn)
     rows = []
     for dx, dy in ((0, 0), (d, 0), (d, d), (0, d)):
@@ -107,15 +132,52 @@ def pack(tmp_path):
 
 
 def _found(pack, dump=None):
-    areas = PD.airport_areas(str(pack / "Earth nav data" / "apt.dat"))
+    areas = PD.airport_bounds(str(pack / "Earth nav data" / "apt.dat"))[0]
     return PD.draped_orthos(str(pack), (dump or _dump()).splitlines(True), areas)
 
 
-def test_the_photos_are_found_and_nothing_else(pack):
+def test_only_the_grid_tiles_over_the_airport_are_hidden(pack):
     found = _found(pack)
     assert [(m.index, m.path) for m in found] == [
-        (0, "ortho/photo.pol"), (1, "ortho/plain.pol")]
+        (9, "grid/Tile1.pol"), (10, "grid/Tile2.pol")]
     assert all(m.kind == "polygon" and m.uses == 1 for m in found)
+
+
+def test_single_photos_and_scattered_tiles_are_kept(pack):
+    found = {m.index for m in _found(pack)}
+    assert not found & {0, 1}, "a single photo over the airport stays"
+    scattered = DEFS[:9] + [(p, t, (lon + 0.004 * k, lat + 0.004 * k, d))
+                            for k, (p, t, (lon, lat, d)) in enumerate(GRID)]
+    assert _found(pack, _dump(scattered)) == (), "tiles that touch no other"
+
+
+def test_a_grid_inside_the_airport_is_kept(pack):
+    apt = (pack / "Earth nav data" / "apt.dat")
+    apt.write_text(APT.replace("99\n", "130 boundary\n"
+                               "111 25.10 50.90\n111 25.10 51.10\n"
+                               "111 24.90 51.10\n113 24.90 50.90\n99\n"),
+                   encoding="utf-8", newline="")
+    areas, bounded = PD.airport_bounds(str(apt))
+    assert bounded
+    assert PD.draped_orthos(str(pack), _dump().splitlines(True), areas,
+                            bounded=bounded) == ()
+
+
+def test_a_photo_laid_over_a_photo_is_kept_whole(pack):
+    veils = [(f"grid/Veil{k + 1}.pol", 0.0, w) for k, (_p, _t, w) in enumerate(GRID)]
+    assert _found(pack, _dump(DEFS + veils)) == (), \
+        "a see-through detail grid over the base grid: the pack's blend"
+
+
+def test_masks_over_the_hidden_photos_go_with_them(pack, tmp_path):
+    for n in range(1, 7):        # the veils drawn at the photos' own order
+        (pack / f"grid/Veil{n}.pol").write_text(
+            POLS[f"grid/Veil{n}.pol"].replace("markings 0", "terrain 1"),
+            encoding="utf-8", newline="")
+    veils = [(f"grid/Veil{k + 1}.pol", 0.0, w) for k, (_p, _t, w) in enumerate(GRID)]
+    found = {m.path for m in _found(pack, _dump(DEFS + veils))}
+    assert found == {"grid/Tile1.pol", "grid/Tile2.pol",
+                     "grid/Veil1.pol", "grid/Veil2.pol"}
 
 
 def test_draped_pavement_and_markings_are_never_photos(pack):
@@ -123,6 +185,21 @@ def test_draped_pavement_and_markings_are_never_photos(pack):
         assert not PD.is_ortho_header(PD.pol_header(str(pack / rel)))
     found = {m.index for m in _found(pack)}
     assert not found & {2, 3, 4, 5, 6, 7, 8}
+
+
+def test_a_tab_separated_header_is_read(pack):
+    head = PD.pol_header(str(pack / "grid/Tile1.pol"))
+    assert head["TEXTURE_NOWRAP"] == "Tile1.dds" and PD.is_ortho_header(head)
+
+
+def test_the_family_keys():
+    from auto_patch_v2.airport import pack_drape_grid as G
+    assert (G._family_keys("o/KDAL_Photoreal23+2k+4k.pol", "")
+            & G._family_keys("o/KDAL_Photoreal28.pol", ""))
+    assert (G._family_keys("Orthophoto\\7JF26B82.pol", "")
+            & G._family_keys("Orthophoto/IA255JC3.pol", ""))
+    assert not (G._family_keys("o/Asphalt.pol", "")
+                & G._family_keys("o/Concrete.pol", ""))
 
 
 def test_without_an_airport_nothing_is_found(pack):
@@ -184,9 +261,9 @@ def test_the_write_hides_them_and_undo_puts_them_back(written):
     W.write_pack(str(rp.pack), plan, rp.tool, allow_live_install=True,
                  drapes=found)
     live = rp.dsf.read_text(encoding="utf-8")
-    assert "ortho/plain.pol" not in live
+    assert "grid/Tile1.pol" not in live and "grid/Tile2.pol" not in live
     assert live.count("POLYGON_DEF ") == len(DEFS) - 2
-    assert "POLYGON_DEF ortho/photo.pol" in live, "the copy off the airport stays"
+    assert "POLYGON_DEF grid/Tile3.pol" in live, "the tiles off the airport stay"
     assert "ground/skid.pol" in live and "BEGIN_POLYGON 0 65535 4" in live
     assert DS.undo(str(rp.pack)) == ["Earth nav data/+20+050/+25+051.dsf"]
     assert rp.dsf.read_bytes() == original

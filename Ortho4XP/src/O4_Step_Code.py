@@ -326,6 +326,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.osm",
     "auto_patch_v2.airport.pack",
     "auto_patch_v2.airport.pack_art",
+    "auto_patch_v2.airport.pack_drape_grid",
     "auto_patch_v2.airport.pack_drapes",
     "auto_patch_v2.airport.pack_forests",
     "auto_patch_v2.airport.pack_forests_map",

@@ -61,10 +61,12 @@ Every number is a law-table value; nothing here names a pack or an airport.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 import typing as _t
 
 import numpy as np
 import shapely
+from shapely import STRtree
 from shapely.ops import unary_union
 
 from ..geom import shape_class as _shape
@@ -175,13 +177,20 @@ def _floor_share(g: "_obj8.ObjGeometry | None", law) -> float:
     return float(area[_face_normals_y(v, t) >= ob.plate_normal_y_min].sum()) / tot
 
 
+#: the ring's sampling step for :func:`_walled_share` (metres): the share
+#: is the fraction of ring samples within the wall thickness of a deep
+#: wall, so it reads to ~one step per wall end against a 0.5 threshold
+_RING_STEP_M = 0.25
+
+
 def _deep_walls(p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law):
     """``p``'s deep wall faces (reaching ``shell_floor_min_m`` under its
-    zero) as plan lines in the frame, or ``None`` when it stands none.
-    It reads ``p`` alone: a floor asks it of every co-placed mate, so
-    :class:`_WallBands` keeps one per placement (a shared-datum pack
-    co-places every object — KMCI/LFLL rebuilt it per floor x mate and
-    sat an hour in step 21, lane slowstep 2026-11-06)."""
+    zero) as an STRtree of plan segments in the frame, or ``None`` when
+    it stands none.  It reads ``p`` alone: a floor asks it of every
+    co-placed mate, so :class:`_WallBands` keeps one per placement (a
+    shared-datum pack co-places every object — KMCI/LFLL buffered a whole
+    terminal's walls per floor x mate and sat an hour in step 21, lane
+    slowstep 2026-11-06)."""
     ob = law.tables.structures.tunnel.object
     g = cache.geometry(p.resolved)
     if g is None or not len(g.solid):
@@ -193,8 +202,8 @@ def _deep_walls(p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law):
     segs = _plan_segments(v, w) if len(w) else []
     if not segs:
         return None
-    a, b, d, e, xo, yo = _obj8.placement_affine(p.xy, p.heading_deg)
-    return _frame_entry.transform(unary_union(segs), [a, b, d, e, xo, yo])
+    mat = _obj8.placement_affine(p.xy, p.heading_deg)
+    return STRtree([_frame_entry.transform(sg, mat) for sg in segs])
 
 
 class _WallBands:
@@ -214,25 +223,22 @@ def _walled_share(foot, p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law,
     """The share of the floor footprint's ring (frame) within
     ``wall_face_max_thickness_m`` of ``p``'s wall faces reaching
     ``shell_floor_min_m`` under its zero — the cover's walls standing on
-    the floor's edges ("walls end on it").  Only the walls near the ring
-    are widened: a ring point within the thickness of a wall has that
-    wall point inside the ring's 1.5x-thickness neighbourhood, so the
-    share is the whole cover's, at the cost of the walls near the floor
-    (a whole terminal's walls buffered per floor was the step-21 stall)."""
-    walls = (bands or _WallBands(cache, law))(p)
-    if walls is None:
+    the floor's edges ("walls end on it") — read as the fraction of ring
+    samples every :data:`_RING_STEP_M` within that distance of a wall
+    segment (an indexed distance query: no buffer of the cover's walls,
+    which per floor x mate was the step-21 stall)."""
+    tree = (bands or _WallBands(cache, law))(p)
+    if tree is None:
         return 0.0
     ring = foot.boundary
-    if ring.length <= 0.0:
+    L = ring.length
+    if L <= 0.0:
         return 0.0
+    n = max(1, int(math.ceil(L / _RING_STEP_M)))
+    pts = shapely.line_interpolate_point(ring, (np.arange(n) + 0.5) * (L / n))
     tk = law.tables.structures.tunnel.object.wall_face_max_thickness_m
-    near = ring.buffer(1.5 * tk)
-    if not shapely.intersects(shapely.box(*near.bounds), shapely.box(*walls.bounds)):
-        return 0.0
-    close = shapely.clip_by_rect(walls, *near.bounds).intersection(near)
-    if close.is_empty:
-        return 0.0
-    return float(ring.intersection(close.buffer(tk)).length / ring.length)
+    hit = tree.query(pts, predicate="dwithin", distance=tk)[0]
+    return float(len(np.unique(hit))) / n
 
 
 def _mate_share(p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law,

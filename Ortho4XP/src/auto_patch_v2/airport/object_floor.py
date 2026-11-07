@@ -20,11 +20,13 @@ same heading, whose solids reach ``shell_floor_min_m`` under its zero and
 which is not itself a floor: the walls and roof the floor belongs to; EGLL
 ``Na.obj`` beside ``N.obj``).  The cover is the evidence that the floor is
 a tunnel's, not a sea barrier's or a basement's.  And the floor stands SUNKEN:
-``floor_sunken_min_m`` or more under the design ground just outside its
-footprint (:func:`_sunken_depth`) — the zero is no witness, a shared-datum
-pack hangs every object off one datum and an at-grade tile reads metres
-"under its zero" (KMCI, owner 2026-11-07 "No tunnel here"); an at-grade
-plate is pavement.
+``floor_sunken_min_m`` or more under the AUTHOR'S ground around it
+(``geom/author_ground``: the pack's own plates, the DEM only where it laid
+none; :func:`_sunken`) — the zero is no witness, a shared-datum pack hangs
+every object off one datum and an at-grade tile reads metres "under its
+zero" (KMCI, owner 2026-11-07 "No tunnel here"); an at-grade plate is
+pavement, never a floor under itself.  A concave shell's rim is read
+against the same ground (A7).
 
 THE SURFACE.  The floor's near-horizontal faces that reach under
 ``cover_flush_m`` below the object's zero, placed in the airport frame with
@@ -74,6 +76,7 @@ import shapely
 from shapely import STRtree
 from shapely.ops import unary_union
 
+from ..geom import author_ground as _ag
 from ..geom import shape_class as _shape
 from ..geom.lowest_face import floor_z_at  # noqa: F401  (re-exported)
 from . import frame_entry as _frame_entry
@@ -246,45 +249,89 @@ def _walled_share(foot, p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law,
     return float(len(np.unique(hit))) / n
 
 
-def _sunken_depth(faces: np.ndarray, foot, ground, law) -> float:
-    """How far the floor stands UNDER the ground around it: the median, over
-    the ring ``wall_face_max_thickness_m`` outside its footprint (beyond the
-    cover's walls), of the design ground there less the floor's own height
-    at the nearest footprint point — NaN where no ground reads.  The zero is
-    no witness: a shared-datum pack hangs every object off one datum, so an
-    at-grade tile reads metres "under its zero" (KMCI ``concretetile.obj``,
-    #1903 / owner 2026-11-07 "this is flat ground ... No tunnel here")."""
-    tk = law.tables.structures.tunnel.object.wall_face_max_thickness_m
-    out = foot.buffer(tk).boundary
-    L = out.length
-    if L <= 0.0:
-        return float("nan")
-    n = max(8, min(4000, int(math.ceil(L / tk))))
-    pts = shapely.line_interpolate_point(out, (np.arange(n) + 0.5) * (L / n))
-    near = shapely.get_coordinates(shapely.shortest_line(pts, foot))[1::2]
-    zf = floor_z_at(faces, near[:, 0], near[:, 1], edge_m=0.5)
-    xy = shapely.get_coordinates(pts)
-    d = np.asarray(ground(xy[:, 0], xy[:, 1]), float) - zf
-    d = d[np.isfinite(d)]
-    return float(np.median(d)) if len(d) else float("nan")
-
-
-def _sunken(o, g, msl, ground, law, scale, notes: list[str]) -> bool:
-    """Does floor object ``o`` stand SUNKEN — ``floor_sunken_min_m`` or more
-    under the design ground around it (:func:`_sunken_depth`)?  With no
-    ground there is no witness and it is not refused here; a refusal is
-    noted."""
+def _author_ground(placed, cache, law, msl, scale, shares, ground=None
+                   ) -> "_ag.AuthorGround":
+    """The pack's own ground (``geom/author_ground``): the near-horizontal
+    faces of every placement whose solid is a plate (near-horizontal faces
+    carry ``floor_object_min_share`` of its surface), seated at its zero —
+    those standing at GROUND LEVEL, within ``author_ground_band_m`` of the
+    design ground under them (a roof, a deck, a departures level stands
+    over it; a sunken floor under it)."""
     ob = law.tables.structures.tunnel.object
-    got = _placed_floor(o, g, _zero(o, msl), law, scale) if ground is not None else None
+    faces, owners = [], []
+    for p in placed:
+        g = cache.geometry(p.resolved)
+        if g is None or not len(g.solid) or \
+                _mate_share(p, cache, law, shares) < ob.floor_object_min_share:
+            continue
+        hz = _face_normals_y(g.vertices, g.solid) >= ob.plate_normal_y_min
+        if hz.any():
+            f = _placed_all(p, g, _zero(p, msl), scale)[hz]
+            if ground is not None:
+                c = f.mean(axis=1)
+                gz = np.asarray(ground(c[:, 0], c[:, 1]), float).ravel()
+                f = f[np.abs(c[:, 2] - gz) <= ob.author_ground_band_m]
+            faces.append(f)
+            owners.extend([p.id] * len(f))
+    return _ag.AuthorGround(np.concatenate(faces) if faces else np.zeros((0, 3, 3)), owners)
+
+
+def _around(foot, oid: str, ag: "_ag.AuthorGround", ground, law) -> "_ag.AroundReading":
+    """The author's ground around ``foot`` (``author_ground_inner_m`` ..
+    ``author_ground_outer_m`` outside it, ``oid``'s own faces left out),
+    else the design ground there."""
+    ob = law.tables.structures.tunnel.object
+    return ag.around(foot, (ob.author_ground_inner_m, ob.author_ground_outer_m),
+                     ob.author_ground_step_m, ob.author_ground_min_share,
+                     exclude={oid}, dem=ground)
+
+
+def _ground_at(ag: "_ag.AuthorGround", oid: str, ground):
+    """``(xs, ys) -> z``: the author's ground under each point, the design
+    ground where no plate stands (``oid``'s own faces left out)."""
+    def at(xs, ys):
+        z = ag.at(xs, ys, exclude={oid})
+        if ground is None:
+            return z
+        return np.where(np.isfinite(z), z, np.asarray(ground(xs, ys), float).ravel())
+    return at
+
+
+def _sunken(o, g, msl, ag, ground, law, scale, notes: list[str]) -> bool:
+    """Does floor object ``o`` stand SUNKEN — its floor's median height
+    ``floor_sunken_min_m`` or more under the AUTHOR'S ground around it
+    (:func:`_around`; the DEM only where the author laid no plates)?  Never
+    its zero: a shared-datum pack hangs every object off one datum (KMCI
+    310.70, its at-grade tiles 8 m "under" it).  A refusal is noted."""
+    ob = law.tables.structures.tunnel.object
+    got = _placed_floor(o, g, _zero(o, msl), law, scale)
     if got is None:
         return True
-    depth = _sunken_depth(*got, ground, law)
+    faces, foot = got
+    r = _around(foot, o.id, ag, ground, law)
+    if r.source == "none":
+        return True
+    depth = r.z - _median_z(faces)
     if depth >= ob.floor_sunken_min_m:
         return True
-    notes.append(f"{o.id} {_base(o.path)}: its floor stands {depth:.2f} m under the ground "
-                 f"around it (< {ob.floor_sunken_min_m:g}): an at-grade plate, pavement — "
-                 f"not a sunken floor")
+    notes.append(f"{o.id} {_base(o.path)}: its floor stands {depth:.2f} m under the "
+                 f"author's ground around it ({r.source} {r.z:.2f}, plates over "
+                 f"{100 * r.share:.0f} % of the ring; < {ob.floor_sunken_min_m:g}): an "
+                 f"at-grade plate, pavement — not a sunken floor")
     return False
+
+
+def _median_z(faces: np.ndarray) -> float:
+    """The plan-area-weighted median height of placed faces."""
+    P = faces
+    a = 0.5 * np.abs((P[:, 1, 0] - P[:, 0, 0]) * (P[:, 2, 1] - P[:, 0, 1])
+                     - (P[:, 2, 0] - P[:, 0, 0]) * (P[:, 1, 1] - P[:, 0, 1]))
+    z = P[:, :, 2].mean(axis=1)
+    k = np.argsort(z)
+    c = np.cumsum(a[k])
+    if c[-1] <= 0.0:
+        return float(np.median(z))
+    return float(z[k][min(len(k) - 1, int(np.searchsorted(c, 0.5 * c[-1])))])
 
 
 def _mate_share(p: _obj8.PlacedObject, cache: _obj8.ResourceCache, law,
@@ -467,6 +514,7 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
     k_by_res: dict[str, int] = {}
     bands = _WallBands(cache, law)
     shares: dict[str, float] = {}
+    ag = _author_ground(placed, cache, law, msl, scale, shares, ground)
     for o in placed:
         if o.id in taken or not _has_floor(cache, o, law):
             continue
@@ -476,7 +524,7 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                  if p.id != o.id and _co_placed(o, p, ob.cover_placement_tol_m)]
         shells = shells or {}
         if share >= ob.floor_object_min_share:
-            if not _sunken(o, g, msl, ground, law, scale, notes):
+            if not _sunken(o, g, msl, ag, ground, law, scale, notes):
                 continue
             # a FLOOR object: its cover is a co-placed structure hanging
             # under its zero whose walls stand on the floor's edges
@@ -493,7 +541,9 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
             # SHELL (#1883 r3 A1) is the pack's own ground, its frame every
             # co-placed placement; else its cover is the one object_cut
             # paired it with
-            got = _concave(o, g, msl, law, mates, ground, notes, scale) \
+            got = _concave(o, g, msl, law, mates,
+                           _ground_at(ag, o.id, ground) if ground is not None else None,
+                           notes, scale) \
                 if _shell_candidate(g, law) else None
             if got is not None:
                 out.append(got)

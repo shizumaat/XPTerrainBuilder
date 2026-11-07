@@ -53,9 +53,17 @@ class TunnelObject:
     floor_object_min_share: float
     # #1903: …whose cover stands its deep walls on this share of its ring
     floor_walled_min_share: float
-    # …and whose floor stands at least this far under the design ground
+    # …and whose floor stands at least this far under the author's ground
     # around it (kmcifloor 2026-11-07: an at-grade plate is pavement)
     floor_sunken_min_m: float
+    # …measured against THE AUTHOR'S GROUND (``geom/author_ground``): the
+    # pack's plates over this ring outside the footprint, the DEM where
+    # they cover less than this share of it
+    author_ground_inner_m: float
+    author_ground_outer_m: float
+    author_ground_step_m: float
+    author_ground_min_share: float
+    author_ground_band_m: float
     # #1883 round 3 / #1914: THE CONCAVE CUT SHELL (``airport/object_floor``,
     # ``geom/shape_class``): an open-top hollow whose top stands ``hollow_m``
     # under its own rim (its outline band, ``shell_rim_band_m`` wide) over

@@ -197,16 +197,30 @@ floor_object_min_share = 0.9
 # Measured: EGLL covers 82-99 % (5.obj 82 %); a shared-datum stack (LGAV
 # Trench_0x) and KBNA Metropolitan-part7 0-2 %.
 floor_walled_min_share = 0.5
-# ...and the floor stands SUNKEN: the median, over the ring
-# wall_face_max_thickness_m outside its footprint, of the design ground less
-# the floor's height at the nearest footprint point is at least this
-# (lane kmcifloor 2026-11-07, owner at KMCI "this is flat ground ... No tunnel
-# here").  The zero is no witness: a shared-datum pack hangs every object off
-# one datum, so an at-grade tile reads metres "under its zero".
-# MEASURED (b11f6d2b6): EGLL's seven floors 1.66-3.59 m (8a 1.66; their
-# ramps rise to grade inside the ring); KMCI's thirteen shared-datum ground
-# plates (zero 310.70, plates 297.98-307.86) -5.13..+0.07 m.
-floor_sunken_min_m = 1.0
+# ...and the floor stands SUNKEN: its plan-area median height is at least
+# floor_sunken_min_m under the AUTHOR'S GROUND around it (lane kmcifloor,
+# owner 2026-11-07: "measuring against the ground the author was using ...
+# our graded terrain can be quite different"; ``geom/author_ground``): the
+# median of the LOWEST near-horizontal face of the pack's own plate objects
+# (near-horizontal faces carrying floor_object_min_share of the solid) over
+# the ring author_ground_inner_m..author_ground_outer_m outside the
+# footprint, sampled every author_ground_step_m, the candidate's own faces
+# left out; the DEM's median there only where plates cover less than
+# author_ground_min_share of the ring.  Never the placement zero: a
+# shared-datum pack hangs every object off one datum (KMCI 310.70, its
+# at-grade tiles 8 m "under" it).  A concave shell's rim (A7) is read
+# against the same ground.  MEASURED (b11f6d2b6 + this read): KMCI's
+# fifteen shared-datum candidates (zero 310.70) -7.16..+0.67 m (concretebeam
+# +0.67 off plates, concretetile +0.26 off the DEM: its neighbours cover 9 %
+# of the ring); EGLL's seven floors +3.41..+5.98 m (no plates: the DEM).
+floor_sunken_min_m = 2.0
+author_ground_inner_m = 2.0
+author_ground_outer_m = 50.0
+author_ground_step_m = 2.0
+author_ground_min_share = 0.1
+# a plate face is GROUND-LEVEL within this of the design ground under it: a
+# roof, a deck or a departures level stands over it, a sunken floor under it
+author_ground_band_m = 3.0
 # THE PACK'S CUT SHELL IS THE GROUND (#1883 round 3, #1914; spec
 # lgav-corridor-cut-and-deck-ends-20261106 A1-A7; ``airport/object_floor``,
 # ``geom/shape_class``): a CONCAVE SHELL is an open-top hollow whose top

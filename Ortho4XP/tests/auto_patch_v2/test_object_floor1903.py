@@ -111,5 +111,18 @@ def test_a_floor_sunk_under_the_ground_around_it_is_still_the_cut(tmp_path):
     objs = [_placed(_cover(tmp_path), "dsf:obj1"), _placed(_ramped_floor(tmp_path), "dsf:obj2")]
     floors, notes = OF.read_object_floors(objs, cache, LAW, {}, ground=_flat_ground(100.0))
     assert [f.object_id for f in floors] == ["dsf:obj2"], notes
-    assert OF._sunken_depth(floors[0].faces, floors[0].footprint, _flat_ground(100.0),
-                            LAW) > LAW.tables.structures.tunnel.object.floor_sunken_min_m
+
+
+def test_the_authors_plates_are_the_ground_a_floor_is_sunk_under(tmp_path):
+    """Owner 2026-11-07: "measuring against the ground the author was
+    using".  The design ground (2.8 m over the plate) alone would read the
+    floor as sunk; the author laid a ground plate around it at the floor's
+    own height, so it is pavement."""
+    cache = O.ResourceCache(THICK)
+    plate = _write(tmp_path / "apron.obj", [_box(-40.0, -20.0, 80.0, 120.0, 0.2, y0=-4.0)])
+    objs = [_placed(_cover(tmp_path), "dsf:obj1"), _placed(_ramped_floor(tmp_path), "dsf:obj2"),
+            _placed(plate, "dsf:obj3")]
+    floors, notes = OF.read_object_floors(objs, cache, LAW, {}, ground=_flat_ground(99.0))
+    assert floors == [], notes
+    assert any("dsf:obj2" in n and "not a sunken floor" in n and "plates" in n
+               for n in notes), notes

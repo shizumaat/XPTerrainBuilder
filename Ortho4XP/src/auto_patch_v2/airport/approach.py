@@ -13,12 +13,24 @@ Cat II/III status, from the CIFP and the apt.dat row 100 (owner RULINGS
 The CIFP half is ``cifp.read_cifp_approach_runways`` (``{designator:
 class}``), joined to the apt.dat end by ``load.join_cifp`` (designator, or
 the #119 threshold fallback).  The vocabulary is ``law.reference_code``.
+
+THE DESIGN-LETTER WITNESSES of a whole runway (owner RULINGS 2026-11-07a;
+:func:`design_letter`) are read here too: its ends' row-100 markings (no
+precision-marked end caps the letter) and the airport's largest row-1301
+ramp-start size class (:func:`airport_ramp_class`, which lifts it).
 """
 from __future__ import annotations
 
-from ..law.reference_code import PA, VISUAL, stronger_class
+import typing as _t
 
-__all__ = ["precision_markings", "cat_ii_iii_lighting", "end_approach"]
+from ..law.reference_code import (PA, VISUAL, largest_ramp_class, runway_code_letter,
+                                  stronger_class)
+
+if _t.TYPE_CHECKING:  # pragma: no cover
+    from ..law import Law
+
+__all__ = ["precision_markings", "cat_ii_iii_lighting", "end_approach",
+           "airport_ramp_class", "design_letter"]
 
 #: apt.dat row-100 runway MARKINGS that witness a precision approach.
 _PRECISION_MARKINGS = frozenset((3, 5))
@@ -47,3 +59,24 @@ def end_approach(cifp_class: str | None, markings: int, lights: int = 0,
     cls = stronger_class(cifp_class or VISUAL,
                          PA if precision_markings(markings) else VISUAL)
     return cls, cls == PA and cat_ii_iii_lighting(lights, tdz)
+
+
+def airport_ramp_class(apt: _t.Any) -> str | None:
+    """The largest 1301 ramp-start ICAO size class of an apt.dat airport
+    (``AptAirport.startups``); ``None`` where no start states one."""
+    return largest_ramp_class(getattr(s, "width_class", "")
+                              for s in getattr(apt, "startups", ()) or ())
+
+
+def design_letter(law: "Law", rw: _t.Any, ramp_class: str | None) -> str:
+    """THE DESIGN LETTER of an apt.dat runway ``rw`` (owner RULINGS
+    2026-11-07a; ``reference_code.runway_code_letter``): its width letter,
+    capped where no end carries precision markings, lifted by the
+    airport's ``ramp_class``.  A runway whose markings are all 0 (none
+    authored) at an airport with no 1301 class carries NO witness and reads
+    its width letter uncapped."""
+    marks = tuple(int(m) for m in getattr(rw, "markings", (0, 0)) or (0, 0))
+    if not any(marks) and not ramp_class:
+        return runway_code_letter(law, rw.width_m)
+    return runway_code_letter(law, rw.width_m,
+                              any(precision_markings(m) for m in marks), ramp_class)

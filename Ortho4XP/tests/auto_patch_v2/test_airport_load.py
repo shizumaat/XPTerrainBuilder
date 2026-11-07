@@ -62,7 +62,9 @@ def test_block_grammar(cyxy):
     assert [r.id for r in a.runways] == ["14R/32L", "14L/32R", "02/20"]
     r = a.runways[0]
     assert r.width_m == pytest.approx(45.72) and r.surface == Surface.ASPHALT
-    assert 2890 < r.length_m < 2905 and r.code_number == 4 and r.code_letter == "E"
+    # 45.72 m reads E by width; no precision-marked end caps it at B, the
+    # wide-runway floor and the fixture's 1301 class C lift it to C (11-07a)
+    assert 2890 < r.length_m < 2905 and r.code_number == 4 and r.code_letter == "C"
     assert a.runways[2].code_number == 1               # 428 m: code 1
     assert a.runways[2].ends[1].overrun_m == pytest.approx(120.0)
     assert rep.helipads == ("H1", "H2", "H3", "H4", "H5", "H6")   # reported, not graded

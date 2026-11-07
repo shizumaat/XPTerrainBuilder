@@ -82,11 +82,13 @@ def _airport_rects(ap, law, to_m) -> list[list[tuple[float, float]]]:
     from ..law import reference_code as _rc
     from ..law import tables as _T
     out = []
+    from . import approach as _approach
     rw_role, tx_role = _family_role(law, "runway"), _family_role(law, "taxi")
+    ramp_class = _approach.airport_ramp_class(ap)
     for rw in ap.runways:
         a, b = (to_m(e[2], e[1]) for e in rw.ends)
         cn = _rc.runway_code_number(law, math.hypot(b[0] - a[0], b[1] - a[1]))
-        letter = _rc.runway_code_letter(law, rw.width_m)
+        letter = _approach.design_letter(law, rw, ramp_class)
         status = max(_MARKING_STATUS.get(int(m), 0) for m in rw.markings)
         half = max(_T.zone2_half_width_m(law, rw_role, cn, letter, status) or 0.0,
                    rw.width_m / 2.0)

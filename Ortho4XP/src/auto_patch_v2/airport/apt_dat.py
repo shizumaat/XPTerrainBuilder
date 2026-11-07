@@ -14,7 +14,8 @@ Records read (Appendix A §4):
             terminate an OPEN polyline, ``113``/``114`` close a ring;
 * ``130``   boundary + node rows;
 * ``1201``  taxi node; ``1202`` taxi edge; ``1206`` ground-vehicle edge;
-* ``1300``  startup location.
+* ``1300``  startup location; ``1301`` its ramp-start attributes (the ICAO
+            size class A-F, :func:`_startup_width_class`).
 
 Coordinates leave this module as ``(lon, lat)`` degrees; ``load.py``
 projects them into the frame.  Bezier flattening follows the apt.dat
@@ -67,6 +68,7 @@ ROW_TAXI_NODE = 1201
 ROW_TAXI_EDGE = 1202
 ROW_TRUCK_EDGE = 1206
 ROW_STARTUP = 1300
+ROW_STARTUP_ATTRS = 1301
 ROW_METADATA = 1302
 _HEADER_ROWS = (1, 16, 17)
 _NODE_ROWS = (ROW_NODE, ROW_NODE_BEZIER, ROW_CLOSE, ROW_CLOSE_BEZIER)
@@ -179,7 +181,7 @@ class AptTaxiEdge:
 
 @_dc.dataclass(frozen=True)
 class AptStartup:
-    """Row 1300."""
+    """Row 1300 (+ its 1301 attributes)."""
 
     name: str
     lat: float
@@ -187,6 +189,10 @@ class AptStartup:
     heading_deg: float
     kind: str
     traffic: str
+    #: the 1301 ramp-start ICAO SIZE CLASS (``A``-``F``) of the largest
+    #: aircraft the start takes; ``""`` where no 1301 row follows — a
+    #: design-letter witness (owner RULINGS 2026-11-07a)
+    width_class: str = ""
 
 
 @_dc.dataclass(frozen=True)
@@ -675,6 +681,10 @@ def parse_airport_block(block: list[str]) -> AptAirport:
                     float(toks[3]), toks[4], toks[5]))
             except ValueError:
                 pass
+        elif rt == ROW_STARTUP_ATTRS and startups:
+            cls = _startup_width_class(toks)
+            if cls:
+                startups[-1] = _dc.replace(startups[-1], width_class=cls)
         elif rt == ROW_METADATA and len(toks) >= 2:
             metadata[toks[1]] = " ".join(toks[2:])
     flush()
@@ -682,6 +692,13 @@ def parse_airport_block(block: list[str]) -> AptAirport:
                       tuple(helipads), tuple(pavements), tuple(lines),
                       tuple(boundaries), taxi_nodes, tuple(taxi_edges),
                       tuple(truck_edges), tuple(startups))
+
+
+def _startup_width_class(toks: list[str]) -> str:
+    """``1301 <size class A-F> <operation type> <airlines>``: the ramp
+    start's ICAO size class, upper case; ``""`` for a row without one."""
+    cls = toks[1].strip().upper() if len(toks) >= 2 and int(toks[0]) == ROW_STARTUP_ATTRS else ""
+    return cls if len(cls) == 1 and "A" <= cls <= "F" else ""
 
 
 def _runway(toks: list[str]) -> AptRunway | None:

@@ -17,7 +17,7 @@ import typing as _t
 import zlib
 
 from ..law import Law
-from ..law.reference_code import is_instrument, runway_code_letter, runway_code_number
+from ..law.reference_code import is_instrument, runway_code_number
 from ..law.tables import identity_dp, input_quantum_m
 from ..model.airport import (GAP_SHEET_PREFIX, Airport, Boundary, Building,
                              DsfObject, FacadeRead, GroundRoute, LinearFeature, OsmWay, Pavement,
@@ -316,6 +316,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     joins = [*joins, *shift_lines]
     for _log_line in joins:
         _log.info(_log_line)
+    ramp_class = _approach.airport_ramp_class(apt)
     for i, rw in enumerate(apt.runways):
         ends = []
         for k, (desig, lat, lon, disp, over) in enumerate(rw.ends):
@@ -350,7 +351,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         instrument = any(is_instrument(e.approach) for e in ends)
         r = Runway(f"{ends[0].name}/{ends[1].name}", rw.width_m,
                    normalise_surface(rw.surface), (ends[0], ends[1]), None,
-                   runway_code_letter(law, rw.width_m), instrument,
+                   _approach.design_letter(law, rw, ramp_class), instrument,
                    _apt.shoulder_width_m(rw.shoulder))
         # THE ONE CODE-NUMBER / LETTER STAMP (regulation-conformance spec
         # §3.1/§3.2): every reader takes these, the census from the sidecar

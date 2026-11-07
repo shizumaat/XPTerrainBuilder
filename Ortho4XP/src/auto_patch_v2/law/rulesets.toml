@@ -111,6 +111,27 @@ widest_letter = "F"
 # width against its authority's `taxi.width_m` with this unit tolerance
 # (`reference_code.taxi_code_letter`; master 2026-10-16, regL3 round 2)
 taxi_width_tolerance_m = 0.5
+# THE DESIGN LETTER FROM apt.dat WITNESSES (owner RULINGS 2026-11-07a;
+# #1947; `reference_code.runway_code_letter`): the width letter above is
+# only the tie-breaker.  A runway with no precision-marked end (row-100
+# markings 3 / 5) is capped at this letter (visual / non-precision -> at
+# most B) ...
+non_precision_cap_letter = "B"
+# ... and the airport's largest row-1301 ramp-start ICAO size class lifts
+# every runway to the SAME letter (master 2026-11-07, refining 11-07a's
+# "D or E -> D": the 1301 class is the ICAO wingspan class and the
+# letter-keyed tables — EAT tail height — are wingspan-driven; the FAA RSA
+# table maps C-F to one width).  A or B lifts nothing.
+ramp_lift_letter = { C = "C", D = "D", E = "E", F = "F" }
+# THE WIDE-RUNWAY FLOOR (master 2026-11-07, proposed to the owner for
+# 11-07a (b); census `tools/design_letter_census.py`: 228 Global 150 ft
+# non-precision runways at A/B-ramp airports read B without it): a runway
+# this wide never reads below this letter, whatever its markings and ramp
+# classes — FAA builds 150 ft runways for ADG III and above.  `false`
+# restores the literal 11-07a reading.
+wide_runway_floor = true
+wide_runway_floor_width_m = 45.0
+wide_runway_floor_letter = "C"
 
 # ── ICAO Annex 14 Vol I / EASA CS-ADR-DSN ──────────────────────────────
 [icao]

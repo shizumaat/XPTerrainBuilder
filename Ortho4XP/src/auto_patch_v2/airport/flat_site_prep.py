@@ -24,7 +24,7 @@ import typing as _t
 from shapely.ops import unary_union
 
 from ..law import Law
-from ..law.reference_code import is_instrument, runway_code_letter, runway_code_number
+from ..law.reference_code import is_instrument, runway_code_number
 from .runway_strip import strip_band
 from ..model.frame import XY
 from . import approach as _approach
@@ -80,7 +80,7 @@ class FlatSiteInputs:
 
 
 def _runway(law: Law, rw: _t.Any, i: int, recs: _t.Mapping, approaches: _t.Mapping,
-            to_xy: _t.Callable[[float, float], XY]) -> _Runway:
+            to_xy: _t.Callable[[float, float], XY], ramp_class: str | None = None) -> _Runway:
     """One apt.dat runway as the detector and the strip band read it: the
     ends' CIFP threshold elevations and approach classes (the loader's own
     ``approach.end_approach`` reading) and the reference code."""
@@ -96,7 +96,7 @@ def _runway(law: Law, rw: _t.Any, i: int, recs: _t.Mapping, approaches: _t.Mappi
     return _Runway(tuple(ends), rw.width_m,
                    any(is_instrument(e.approach) for e in ends),
                    runway_code_number(law, math.hypot(bx - ax, by - ay)),
-                   runway_code_letter(law, rw.width_m))
+                   _approach.design_letter(law, rw, ramp_class))
 
 
 def site_inputs(icao: str, xplane_root: str, cifp_path: str | None, law: Law,
@@ -111,7 +111,8 @@ def site_inputs(icao: str, xplane_root: str, cifp_path: str | None, law: Law,
     tol = float(law.tables.emit.identity.cifp_threshold_join_m)
     recs, _missing, _joins = join_cifp(icao, apt.runways, cifp, to_xy, tol)
     approaches = (_cifp.read_cifp_approach_runways(cifp_path) if cifp else {})
-    runways = tuple(_runway(law, rw, i, recs, approaches, to_xy)
+    ramp_class = _approach.airport_ramp_class(apt)
+    runways = tuple(_runway(law, rw, i, recs, approaches, to_xy, ramp_class)
                     for i, rw in enumerate(apt.runways))
     pavements = tuple(_Poly(_ring(p.rings[0], to_xy),
                             tuple(_ring(h, to_xy) for h in p.rings[1:]))

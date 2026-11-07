@@ -60,8 +60,9 @@ def check(pack_root: str, lat: int, lon: int, *,
     pd = pack_dump(pack_root, lat, lon, read_only=read_only)
     if pd is None:
         return None
-    drapes = _pd.draped_orthos(pack_root, pd.dump_path,
-                               _pd.airport_areas(_af.apt_dat_of(pack_root)))
+    areas, bounded = _pd.airport_bounds(_af.apt_dat_of(pack_root))
+    drapes = _pd.draped_orthos(pack_root, pd.dump_path, areas,
+                               bounded=bounded)
     hidden: tuple = ()
     if os.path.isfile(pd.pristine) and pd.pristine != pd.dsf_path:
         entry = _bs.dsf_entry(_bs.read_record(pd.dsf_path),

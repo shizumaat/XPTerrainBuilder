@@ -30,7 +30,7 @@ name:
    parallels — a georeferenced photo — within :data:`NORTH_UP_DEG` for
    the median polygon (a dirt or skid decal is turned to its runway);
 5. at least one of them lies over one of the pack's airports
-   (:func:`airport_areas`) and is PHOTO-SIZED: the ``.pol`` carries WED's
+   (:func:`airport_bounds`) and is PHOTO-SIZED: the ``.pol`` carries WED's
    orthophoto ``LOAD_CENTER``, or the polygon spans at least
    :data:`MIN_SPAN_M`;
 6. its image is not (nearly) all transparent
@@ -44,6 +44,12 @@ of 247 dirt/skid/tyre/shadow decals do; 529 photo tiles fail — 344 the
 see-through "detail" layer one pack lays over its own photo, 178 the
 photos of packs that did not lay them north-up, 7 see-through.
 
+THE GRID RULE (owner RULINGS 2026-11-07a (3)) is a further REQUIRED
+condition: a definition passing (1)-(6) is hidden only with the whole
+machine-named photo grid and stack it belongs to, when that grid extends
+outside the airport and the pack's own ground art is not painted on it
+(``pack_drape_grid``).
+
 A definition that passes is hidden with ALL its polygons (the omission
 is per definition).
 """
@@ -56,7 +62,7 @@ import typing as _t
 from .pack_art import MissingDef, _lines, decision_key
 
 __all__ = ["RECORD_KEY", "MIN_SPAN_M", "NORTH_UP_DEG", "MIN_OPAQUE",
-           "airport_areas", "draped_orthos", "recorded", "summary"]
+           "airport_bounds", "draped_orthos", "recorded", "summary"]
 
 #: the record key of the hiding the user accepted
 RECORD_KEY = "hidden_drapes"
@@ -83,9 +89,9 @@ def pol_header(path: str) -> dict[str, str]:
         return {}
     out: dict[str, str] = {}
     for line in head.replace("\r", "\n").split("\n"):
-        kw, _sep, rest = line.strip().partition(" ")
-        if kw and kw not in out:
-            out[kw] = rest.strip()
+        toks = line.split(None, 1)          # a tab separates as a space
+        if toks and toks[0] not in out:
+            out[toks[0]] = toks[1].strip() if len(toks) > 1 else ""
     return out
 
 
@@ -97,13 +103,15 @@ def is_ortho_header(header: _t.Mapping[str, str]) -> bool:
             and "WEATHER_TRANSPARENT" not in header)
 
 
-def airport_areas(apt_path: str) -> list[Box]:
-    """One lon/lat box per airport of the pack's apt.dat: its boundary
-    (row 130) when authored, else its runways, pavement and helipads."""
+def airport_bounds(apt_path: str) -> tuple[list[Box], bool]:
+    """One lon/lat box per airport of the pack's apt.dat — its boundary
+    (row 130) when authored, else its runways, pavement and helipads —
+    and whether every box is an authored boundary."""
     from . import apt_dat as _ad
     boxes: list[Box] = []
+    bounded = True
     if not apt_path:
-        return boxes
+        return boxes, False
     for icao in _ad.airports_in(apt_path):
         block = _ad.read_airport_block(apt_path, icao)
         if not block:
@@ -113,6 +121,7 @@ def airport_areas(apt_path: str) -> list[Box]:
         except (ValueError, IndexError):
             continue
         pts = [p for b in apt.boundaries for ring in b.rings[:1] for p in ring]
+        bounded = bounded and bool(pts)
         if not pts:
             pts = ([(e[2], e[1]) for r in apt.runways for e in r.ends]
                    + [p for pv in apt.pavements for ring in pv.rings[:1]
@@ -121,7 +130,7 @@ def airport_areas(apt_path: str) -> list[Box]:
         if pts:
             boxes.append((min(p[0] for p in pts), min(p[1] for p in pts),
                           max(p[0] for p in pts), max(p[1] for p in pts)))
-    return boxes
+    return boxes, bounded and bool(boxes)
 
 
 def _overlaps(a: Box, b: Box) -> bool:
@@ -218,20 +227,41 @@ def _image_opaque(pol_path: str, header: _t.Mapping[str, str]) -> bool:
     return frac is None or frac >= MIN_OPAQUE
 
 
+#: the draw order of X-Plane's layer groups (``LAYER_GROUP name offset``)
+_GROUPS = ("terrain", "beaches", "shoulders", "taxiways", "runways",
+           "markings", "airports", "roads", "objects", "light_objects", "cars")
+
+
+def _layer(header: _t.Mapping[str, str]) -> float:
+    """The draw order of a ``.pol`` (group rank, then offset)."""
+    toks = header.get("LAYER_GROUP", "").split()
+    if not toks or toks[0].lower() not in _GROUPS:
+        return float(_GROUPS.index("markings") * 100)
+    try:
+        off = float(toks[1]) if len(toks) > 1 else 0.0
+    except ValueError:
+        off = 0.0
+    return _GROUPS.index(toks[0].lower()) * 100 + off
+
+
 def draped_orthos(pack_root: str, source: str | _t.Sequence[str],
-                  areas: _t.Sequence[Box]) -> tuple[MissingDef, ...]:
+                  areas: _t.Sequence[Box], *,
+                  bounded: bool = False) -> tuple[MissingDef, ...]:
     """THE WITNESS over one pristine DSF dump (a path or its rows): every
-    polygon definition that is a draped orthophoto over one of ``areas``,
-    as the ``MissingDef`` rows the omission takes (``uses``: its
-    polygons)."""
+    polygon definition that is a draped orthophoto over one of ``areas``
+    AND passes the grid rule (``pack_drape_grid``), as the ``MissingDef``
+    rows the omission takes (``uses``: its polygons).  ``bounded``: the
+    areas are the airports' authored boundaries."""
     from .obj8 import resolve_resource
+    from .pack_drape_grid import Layer, hidden_stacks
     lines = list(_lines(source))
     defs = [ln.partition(" ")[2].strip() for ln in lines
             if ln.startswith("POLYGON_DEF ")]
     if not defs or not areas:
         return ()
     uses = _polygon_uses(lines)
-    out: list[MissingDef] = []
+    layers: list[Layer] = []
+    ground: list[Box] = []
     for i, path in enumerate(defs):
         if i not in uses or not path.lower().endswith(".pol"):
             continue
@@ -240,18 +270,25 @@ def draped_orthos(pack_root: str, source: str | _t.Sequence[str],
             continue                                    # witness (1)
         header = pol_header(local)
         if not is_ortho_header(header):
+            if "DRAPED_POLYGON" in header:              # the pack's ground art
+                ground += [u.box for u in uses[i]]
             continue                                    # (2), (3)
         turns = sorted(u.turn_deg for u in uses[i] if u.mapped)
         if not turns or turns[len(turns) // 2] > NORTH_UP_DEG:
+            ground += [u.box for u in uses[i]]
             continue                                    # (4)
         photo = "LOAD_CENTER" in header
-        if not any(u.mapped and any(_overlaps(u.box, a) for a in areas)
+        over = any(u.mapped and any(_overlaps(u.box, a) for a in areas)
                    and (photo or _span_m(u.box) >= MIN_SPAN_M)
-                   for u in uses[i]):
-            continue                                    # (5)
-        if _image_opaque(local, header):                # (6)
-            out.append(MissingDef("polygon", i, path, len(uses[i])))
-    return tuple(out)
+                   for u in uses[i])                    # (5)
+        texture = (header.get("TEXTURE_NOWRAP", "").split() or [""])[0]
+        layers.append(Layer(i, path, texture,
+                            tuple(u.box for u in uses[i] if u.mapped),
+                            over and _image_opaque(local, header),  # (6)
+                            _layer(header)))
+    hidden = hidden_stacks(layers, areas, bounded, ground)
+    return tuple(MissingDef("polygon", ly.index, ly.path, len(uses[ly.index]))
+                 for ly in layers if ly.index in hidden)
 
 
 def recorded(entry: _t.Mapping[str, _t.Any] | None,

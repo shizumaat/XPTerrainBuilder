@@ -607,6 +607,25 @@ def test_composite_assembly_is_deterministic_across_steps(
     assert all(token.endswith("_usgs3dep.tif") for token in tokens[1:])
 
 
+def test_composite_puts_the_highest_priority_inset_last(tmp_path, monkeypatch):
+    """The composite's LAST token wins at query time, so the gap-fill
+    Copernicus inset (priority 1) must come BEFORE the 2 m ArcticDEM
+    strips (priority 50) although its file name sorts after them — BGGH
+    1.0.476 drew its runway on Copernicus with ARCTICDEM2M on disk."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    patch_inset_code(monkeypatch, "has_gdal", True)
+    INSETS.initialize_elevation_providers_dict()
+    inset_directory = FNAMES.airport_inset_directory(64, -52)
+    os.makedirs(inset_directory, exist_ok=True)
+    for code in ("ARCTICDEM2M", "COPERNICUSGLO30"):
+        with open(FNAMES.airport_inset_dem(64, -52, "BGGH", code), "wb") as handle:
+            handle.write(b"synthetic-raster")
+    tile = _FakeTile(64, -52, custom_dem="")
+    tokens = INSETS.assemble_inset_composite_source(tile, "").split(";")
+    assert [os.path.basename(t) for t in tokens[1:]] == [
+        "BGGH_copernicusglo30.tif", "BGGH_arcticdem2m.tif"]
+
+
 def test_composite_assembly_is_noop_when_gate_off(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     patch_inset_code(monkeypatch, "has_gdal", True)

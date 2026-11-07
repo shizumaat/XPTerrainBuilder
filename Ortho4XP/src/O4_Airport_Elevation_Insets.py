@@ -6716,7 +6716,29 @@ def assemble_inset_composite_source(tile, base_source):
     )
     if not inset_paths:
         return base_source
-    return ";".join([base_source] + inset_paths)
+    return ";".join([base_source] + _ranked_for_composite(inset_paths, codes))
+
+
+def _ranked_for_composite(inset_paths, codes):
+    """``inset_paths`` in COMPOSITE order: the lowest-priority provider
+    first, the highest LAST, because the composite's last token wins at
+    query time.  ``codes`` rank highest first
+    (:func:`select_provider_definitions`).  The file-name order the
+    listing returns put ``BGGH_arcticdem2m.tif`` (priority 50) BEFORE
+    ``BGGH_copernicusglo30.tif`` (priority 1), so the gap-fill Copernicus
+    inset overwrote the 2 m strips everywhere it reached.  An inset whose
+    code is not ranked sorts lowest; ties keep the file-name order."""
+    suffixes = sorted(((("_" + code.lower() + ".tif"), rank)
+                       for rank, code in enumerate(codes)),
+                      key=lambda item: -len(item[0]))
+
+    def rank_of(path):
+        for suffix, rank in suffixes:
+            if path.lower().endswith(suffix):
+                return rank
+        return len(codes)
+
+    return sorted(inset_paths, key=lambda path: (-rank_of(path), path))
 
 
 # Feather-ring offset sanity thresholds.  A few metres of median offset

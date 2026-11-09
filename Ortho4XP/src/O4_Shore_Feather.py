@@ -49,7 +49,7 @@ def shore_ramp(land_full, crop_margin, feather_pixels,
             (rows - 2 * crop_margin, cols - 2 * crop_margin), numpy.uint16)
     depth = ndimage.distance_transform_edt(~region).astype(numpy.float32)
     limit = 2 * int(feather_pixels) + 1
-    half_width = local_half_width(depth, limit)[inner]
+    half_width = _local_half_width(depth, limit)[inner]
     depth = depth[inner]
     extent = numpy.minimum(
         numpy.float32(feather_pixels),
@@ -60,7 +60,7 @@ def shore_ramp(land_full, crop_margin, feather_pixels,
     return (254 * ramp * ramp).astype(numpy.uint16)
 
 
-def local_half_width(depth, limit):
+def _local_half_width(depth, limit):
     """Per pixel, the largest ``t <= limit`` such that a pixel with
     ``depth >= t`` lies within chessboard distance ``t`` — the half-width
     of the water around it (``depth``: distance to land in pixels).

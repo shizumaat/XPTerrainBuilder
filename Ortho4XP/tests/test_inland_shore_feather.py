@@ -333,5 +333,5 @@ class TestFeatherWidthCap:
         water = numpy.zeros((64, 64), dtype=bool)
         water[:, 20:30] = True
         depth = ndimage.distance_transform_edt(water)
-        half = SHORE.local_half_width(depth, limit=40)
+        half = SHORE._local_half_width(depth, limit=40)
         assert (half[water] == 5).all()

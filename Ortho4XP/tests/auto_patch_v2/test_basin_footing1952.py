@@ -81,6 +81,6 @@ def test_floor_share_reads_width_not_area(law):
 
 
 def test_plate_length_reads_the_long_side():
-    from auto_patch_v2.planar.basin_floor_width import plate_length
-    assert plate_length(box(0, 0, 400, 1)) == pytest.approx(400.0)
-    assert plate_length(box(0, 0, 0, 0)) == 0.0
+    from auto_patch_v2.planar.basin_floor_width import _plate_length
+    assert _plate_length(box(0, 0, 400, 1)) == pytest.approx(400.0)
+    assert _plate_length(box(0, 0, 0, 0)) == 0.0

@@ -33,10 +33,10 @@ from ..law import Law
 from ..model.airport import Airport
 from .channel_geometry import _lidar_reach, _witness_along
 
-__all__ = ["Stretch", "witnessed_stretch"]
+__all__ = ["witnessed_stretch"]
 
 
-class Stretch(_t.NamedTuple):
+class _Stretch(_t.NamedTuple):
     """The ends a pack witness supports: ``ends`` (the new, never wider
     ``(s0, s1)``), ``witness`` (the stations the witnesses' below-grade
     footprints run along), ``survey`` (those stations widened by the
@@ -51,7 +51,7 @@ class Stretch(_t.NamedTuple):
 
 def witnessed_stretch(airport: Airport, law: Law, axis_ln: LineString, axis_fn,
                       ends: tuple[float, float], half_at: float,
-                      objects: _t.Sequence, packs: _t.Sequence[str]) -> Stretch | None:
+                      objects: _t.Sequence, packs: _t.Sequence[str]) -> _Stretch | None:
     """RULINGS 2026-11-09a (6): the channel's ends cut back to the stretch
     its pack witnesses run along, widened only where the credible survey
     itself still reads a cut (``channel_geometry._lidar_reach``, the walk
@@ -70,4 +70,4 @@ def witnessed_stretch(airport: Airport, law: Law, axis_ln: LineString, axis_fn,
     if new[1] < new[0]:
         new = (new[0], new[0])
     cut = (new[0] - float(ends[0])) + (float(ends[1]) - new[1])
-    return Stretch(new, (float(span[0]), float(span[1])), (lo, hi), max(0.0, cut))
+    return _Stretch(new, (float(span[0]), float(span[1])), (lo, hi), max(0.0, cut))

@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["floor_share", "plate_length", "footing_refusal"]
+__all__ = ["floor_share", "footing_refusal"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -53,7 +53,7 @@ def floor_share(plate, width_m: float) -> float:
     return float(plate.buffer(-r, **_MITRE).buffer(r, **_MITRE).area) / area
 
 
-def plate_length(plate) -> float:
+def _plate_length(plate) -> float:
     """The long side of ``plate``'s minimum rotated rectangle; 0 when empty."""
     if plate is None or plate.is_empty:
         return 0.0
@@ -75,7 +75,7 @@ def footing_refusal(bid: str, ring_area_m2: float, wits: _t.Sequence, width_m: f
     shares = [floor_share(w.plate, width_m) for w in wits]
     if not shares or max(shares) >= share_min:
         return None
-    lengths = [plate_length(w.plate) for w in wits]
+    lengths = [_plate_length(w.plate) for w in wits]
     i = max(range(len(lengths)), key=lengths.__getitem__)
     if lengths[i] < wall_min_length_m:
         return None

@@ -47,7 +47,7 @@ from .hanging_objects import edge_wall_reading, flush_hanging
 from .obj8_clip import _bulk_polys
 from .object_cut import _face_normals_y, _plan_area
 
-__all__ = ["Portal", "GradeEnd", "across_bore", "read_portals", "portal_of", "roof_reading"]
+__all__ = ["Portal", "across_bore", "read_portals", "portal_of", "roof_reading"]
 
 
 @_dc.dataclass(frozen=True)
@@ -232,7 +232,7 @@ def _ground_covers_roof(roof, end_xy: XY, dem_z, law) -> "float | None":
         else None
 
 
-class GradeEnd(_t.NamedTuple):
+class _GradeEnd(_t.NamedTuple):
     """A mapped bore END a roofed pack object stands over AT GRADE — a
     building on the road (a toll booth, a canopy), refused as a portal by
     :func:`_at_grade`: the bore enters that building, it is no terrain
@@ -269,7 +269,7 @@ def _at_grade(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, roof, law,
 
 def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                  law, tunnel_ways, taken: _t.AbstractSet[str] = frozenset(), dem_z=None,
-                 ground=None, at_grade: "list[GradeEnd] | None" = None
+                 ground=None, at_grade: "list[_GradeEnd] | None" = None
                  ) -> tuple[list[Portal], list[str]]:
     """Every pack portal standing over a mapped bore end, and one refusal
     line per roofed-looking candidate that is not one.  ``dem_z`` (the
@@ -350,7 +350,7 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
         if grade:
             refused.append(f"{o.id} {name}: {grade}")
             if at_grade is not None:
-                at_grade.extend(GradeEnd(ends[j][0], ends[j][1], o.id, o.path, grade)
+                at_grade.extend(_GradeEnd(ends[j][0], ends[j][1], o.id, o.path, grade)
                                 for j in near)
             continue
         if depth > tn.mouth_depth_m:

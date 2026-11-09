@@ -304,7 +304,7 @@ def test_the_stage_writes_once_then_finds_it_current(rp, monkeypatch):
     from auto_patch import object_stage as OS
     from auto_patch_v2.airport.dsf_write import pristine_dsf_path
     dump = rp.pack.parent / "dump.txt"
-    dump.write_text(HEALTH_DUMP, encoding="utf-8")
+    dump.write_text(HEALTH_DUMP, encoding="utf-8", newline="\n")
 
     def pack_dump(pack_root, lat, lon, *, read_only):
         return OS._PackDump(rp.pack.name, str(rp.dsf),

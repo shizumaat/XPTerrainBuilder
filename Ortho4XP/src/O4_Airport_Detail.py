@@ -34,12 +34,9 @@ from __future__ import annotations
 
 import os
 
-__all__ = [
-    "CHOICES", "DEFAULT", "TITLE", "SUMMARY", "CUSTOM_TITLE", "OUTSIDE_ZL",
+__all__ = ["CHOICES", "DEFAULT", "TITLE", "SUMMARY", "CUSTOM_TITLE", "OUTSIDE_ZL",
     "AIRPORT_ZL", "SCOPE_KEYS", "FEATURES", "scope_values", "values",
-    "zoom", "feature_states", "from_states", "matching",
-    "migrate", "migrate_cfg",
-]
+    "zoom", "feature_states", "from_states", "migrate_cfg"]
 
 #: The control's words (the Mac app uses the same ones).
 TITLE = "Detail"
@@ -154,7 +151,7 @@ def from_states(states):
     return on.pop() if len(on) == 1 else None
 
 
-def matching(current, same=None):
+def _matching(current, same=None):
     """The choice ``current`` (name -> cfg literal) shows, else ``None``
     (Custom).  ``same(name, a, b)`` compares two literals (default: equal
     text, booleans by meaning)."""
@@ -188,7 +185,7 @@ _FROM_HIGHRES = {"ICAO": "icao", "True": "all"}
 _FROM_GRADING = {"ICAO": "icao", "All": "all"}
 
 
-def migrate(raw, inherited=None):
+def _migrate(raw, inherited=None):
     """The changes that carry the config ``raw`` (name -> literal) over
     to Detail: ``{name: new literal}``, possibly empty.
 
@@ -248,7 +245,7 @@ def migrate_cfg(cfg_path, inherited_cfg=None):
         inherited = (SETTINGS._parse_cfg(inherited_cfg, strip_quotes=False)
                      if inherited_cfg and os.path.isfile(inherited_cfg)
                      else None)
-        changes = migrate(data, inherited)
+        changes = _migrate(data, inherited)
         if changes:
             data.update(changes)
             SETTINGS._write_atomic_with_backup(cfg_path, data)

@@ -9,7 +9,7 @@ in the object removed it entirely.
 
 THE CHECK is the OBJ8 specification's arity per keyword
 (https://developer.x-plane.com/article/obj8-file-format-specification/;
-the same table ``auto_patch.obj8_reader`` reads positions with)::
+the same table the patch build's ``obj8_reader`` reads positions with)::
 
     LIGHT_NAMED        <name> <x> <y> <z>
     LIGHT_PARAM        <name> <x> <y> <z> [<additional params>]
@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["DEFAULT_SPILL_SIZE_M", "DOWN_CONE", "MIN_TOKENS", "Finding",
+__all__ = ["DEFAULT_SPILL_SIZE_M", "DOWN_CONE", "MIN_TOKENS",
            "check_lines", "repair_lines"]
 
 #: the size a completed spill light gets when no same-colour sibling
@@ -76,7 +76,7 @@ MIN_TOKENS: dict[str, int] = {
 _NUMBERED = frozenset({"LIGHT_CUSTOM", "LIGHT_SPILL_CUSTOM"})
 
 
-class Finding(_t.NamedTuple):
+class _Finding(_t.NamedTuple):
     """One malformed record: its 0-based line, keyword, token count and
     what the repair does (``"completed"`` | ``"dropped"``)."""
 
@@ -152,9 +152,9 @@ def _completed(toks: _t.Sequence[str], sizes: _t.Mapping) -> list[str] | None:
     return [toks[0], *nums, ref]
 
 
-def check_lines(lines: _t.Sequence[str]) -> list[Finding]:
+def check_lines(lines: _t.Sequence[str]) -> list[_Finding]:
     """Every malformed ``LIGHT_*`` record of an object's ``lines``."""
-    out: list[Finding] = []
+    out: list[_Finding] = []
     sizes: dict | None = None
     for i, ln in enumerate(lines):
         if "LIGHT" not in ln:
@@ -165,12 +165,12 @@ def check_lines(lines: _t.Sequence[str]) -> list[Finding]:
         if sizes is None:
             sizes = _sibling_sizes(lines)
         fixed = _completed(toks, sizes)
-        out.append(Finding(i, toks[0], len(toks),
+        out.append(_Finding(i, toks[0], len(toks),
                            "completed" if fixed else "dropped"))
     return out
 
 
-def repair_lines(lines: _t.Sequence[str]) -> tuple[list[str], list[Finding]]:
+def repair_lines(lines: _t.Sequence[str]) -> tuple[list[str], list[_Finding]]:
     """``lines`` with every malformed record completed or dropped (a
     line ending — ``\\r`` — is kept), and the findings.  A well-formed
     object comes back unchanged, line for line."""

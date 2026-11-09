@@ -59,10 +59,11 @@ _BEFORE_LOD = frozenset({"ATTR_layer_group", "ATTR_layer_group_draped",
                          "ATTR_LOD_draped"})
 
 
-def copy_path(path: str) -> str:
-    """The copy of the declared ``path``."""
+def copy_path(path: str, suffix: str = COPY_SUFFIX) -> str:
+    """The copy of the declared ``path`` (``suffix``: the pack health
+    check passes its own)."""
     stem, _ext = os.path.splitext(path)
-    return stem + COPY_SUFFIX
+    return stem + suffix
 
 
 def _lod_distance(size_m: float) -> int:

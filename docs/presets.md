@@ -61,7 +61,7 @@ coverage beyond it.
   as both apps' zoom default), ZL18 inside each ICAO airport's boundary,
   the best airport elevation but no approach rings. It equals the registry
   defaults except `cover_airports_with_highres` (default False),
-  `cover_extent` (default 1.0), `approach_rings` (default auto) and `bathymetry_near_other_airports`
+  `cover_extent` (default 1.0), `approach_rings` (default auto), `cover_approach_ft` (default 1000) and `bathymetry_near_other_airports`
   (default True), which the engine keeps so builds outside the apps do not
   change: an untouched config shows Custom.
 - **Sharper airports** turns on the existing airport high-detail zones for

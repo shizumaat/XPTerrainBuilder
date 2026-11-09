@@ -23,9 +23,8 @@ from ..pack_optimise import objcopy as _oc
 from ..pack_optimise import remove_generated, write_if_changed
 from . import light_records as _lr
 
-__all__ = ["COPY_SUFFIX", "GENERATED_MARK", "copy_path", "findings",
-           "broken_objects",
-           "copy_text", "write_copies", "rename_rows", "remove"]
+__all__ = ["COPY_SUFFIX", "GENERATED_MARK", "copy_path",
+           "broken_objects", "write_copies", "rename_rows", "remove"]
 
 #: the copy of ``<stem>.obj``
 COPY_SUFFIX = ".o4fix.obj"
@@ -40,12 +39,7 @@ _MEMO: dict[str, tuple[tuple[int, int], tuple]] = {}
 
 def copy_path(path: str) -> str:
     """The copy of the declared ``path``."""
-    stem, _ext = os.path.splitext(path)
-    return stem + COPY_SUFFIX
-
-
-def _phys(pack_root: str, path: str) -> str:
-    return os.path.join(pack_root, *path.replace("\\", "/").split("/"))
+    return _oc.copy_path(path, COPY_SUFFIX)
 
 
 def _lines(phys: str) -> tuple[str, list[str]]:
@@ -78,7 +72,7 @@ def _light_rows(raw: bytes) -> list[str]:
     return rows
 
 
-def findings(phys: str) -> tuple:
+def _findings(phys: str) -> tuple:
     """The malformed light records of the object file ``phys`` (their
     ``line`` counts its light rows, not its lines)."""
     try:
@@ -115,15 +109,15 @@ def broken_objects(pack_root: str, text: str) -> dict[str, tuple]:
         path = raw[len("OBJECT_DEF "):].strip()
         if not path.lower().endswith(".obj") or _ours(path):
             continue
-        phys = _phys(pack_root, path)
+        phys = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
         if os.path.isfile(phys):
-            found = findings(phys)
+            found = _findings(phys)
             if found:
                 out[path] = found
     return out
 
 
-def copy_text(phys: str) -> str:
+def _copy_text(phys: str) -> str:
     """The repaired copy of the vendor file ``phys``: its bytes, the
     malformed light records completed or dropped, and the stamp."""
     eol, lines = _lines(phys)
@@ -147,11 +141,11 @@ def write_copies(pack_root: str, paths: _t.Iterable[str]) -> list[str]:
     DSF must never name a missing file."""
     out: list[str] = []
     for path in sorted(set(paths)):
-        phys = _phys(pack_root, path)
+        phys = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
         rel = copy_path(path).replace("\\", "/")
-        dst = _phys(pack_root, rel)
+        dst = os.path.join(pack_root, *rel.replace("\\", "/").split("/"))
         if not _current(dst, phys):
-            write_if_changed(dst, copy_text(phys), "latin-1")
+            write_if_changed(dst, _copy_text(phys), "latin-1")
         out.append(rel)
     return out
 

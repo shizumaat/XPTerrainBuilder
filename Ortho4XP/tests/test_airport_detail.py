@@ -88,14 +88,14 @@ def test_the_owner_choices():
 def test_each_choice_is_recognised():
     for key, _title in DETAIL.CHOICES:
         values = dict(DETAIL.values(key), road_level="4", cover_zl="19")
-        assert DETAIL.matching(values, same=SM.values_equivalent) == key
+        assert DETAIL._matching(values, same=SM.values_equivalent) == key
     icao = DETAIL.scope_values("icao")
-    assert DETAIL.matching(dict(icao, auto_patch="All")) is None
-    assert DETAIL.matching({"auto_patch": "ICAO"}) is None
-    assert DETAIL.matching(dict(icao, bathymetry_near_icao_airports="true")) \
+    assert DETAIL._matching(dict(icao, auto_patch="All")) is None
+    assert DETAIL._matching({"auto_patch": "ICAO"}) is None
+    assert DETAIL._matching(dict(icao, bathymetry_near_icao_airports="true")) \
         == "icao"
     # Depth on for small fields but not ICAO ones is neither choice.
-    assert DETAIL.matching(dict(icao, bathymetry_near_icao_airports="False",
+    assert DETAIL._matching(dict(icao, bathymetry_near_icao_airports="False",
                                 bathymetry_near_other_airports="True")) is None
 
 
@@ -104,8 +104,8 @@ def test_a_feature_that_is_off_keeps_the_choice():
     # airport imagery off.
     balanced = dict(DETAIL.scope_values("icao"),
                     cover_airports_with_highres="False")
-    assert DETAIL.matching(balanced) == "icao"
-    assert DETAIL.matching(dict(DETAIL.scope_values("all"),
+    assert DETAIL._matching(balanced) == "icao"
+    assert DETAIL._matching(dict(DETAIL.scope_values("all"),
                                 airport_elevation_insets="None")) == "all"
 
 
@@ -132,24 +132,24 @@ def test_migration_carries_old_configs_over():
            "airport_elevation_insets": "ICAO",
            "bathymetry_near_icao_airports": "True",
            "bathymetry_near_other_airports": "True"}
-    assert DETAIL.migrate(old) == {"bathymetry_near_other_airports": "False"}
-    assert DETAIL.migrate(dict(old, cover_airports_with_highres="True")) \
+    assert DETAIL._migrate(old) == {"bathymetry_near_other_airports": "False"}
+    assert DETAIL._migrate(dict(old, cover_airports_with_highres="True")) \
         == {"auto_patch": "All", "airport_elevation_insets": "All"}
     # Sharper imagery off: the grading's scope decides (old Balanced).
-    assert DETAIL.migrate(dict(old, cover_airports_with_highres="False")) \
+    assert DETAIL._migrate(dict(old, cover_airports_with_highres="False")) \
         == {"bathymetry_near_other_airports": "False"}
 
 
 def test_migration_never_changes_a_chosen_value_or_turns_one_on():
     chosen = {"cover_airports_with_highres": "ICAO", "auto_patch": "None",
               "bathymetry_near_other_airports": "False"}
-    assert DETAIL.migrate(chosen) == {}
-    assert DETAIL.migrate({"cover_airports_with_highres": "False",
+    assert DETAIL._migrate(chosen) == {}
+    assert DETAIL._migrate({"cover_airports_with_highres": "False",
                            "auto_patch": "None"}) == {}
-    assert DETAIL.migrate({"road_level": "4"}) == {}
+    assert DETAIL._migrate({"road_level": "4"}) == {}
     # A sparse tile cfg inherits the global's values.
     tile = {"cover_airports_with_highres": "True"}
-    assert DETAIL.migrate(tile, {"auto_patch": "None",
+    assert DETAIL._migrate(tile, {"auto_patch": "None",
                                  "airport_elevation_insets": "ICAO"}) == {
         "airport_elevation_insets": "All"}
 

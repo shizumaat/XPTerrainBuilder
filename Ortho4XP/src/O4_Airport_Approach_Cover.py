@@ -23,20 +23,14 @@ from __future__ import annotations
 import math
 from typing import Iterable, Optional, Sequence
 
+import O4_Airport_Elevation_Insets as INSETS
+import O4_Geo_Utils as GEO
+from auto_patch_v2.airport import apt_dat as APT_DAT
 from shapely import affinity, ops
 from shapely.geometry import Polygon, box
 from shapely.prepared import prep
 
-from auto_patch_v2.airport import apt_dat as APT_DAT
-
-import O4_Airport_Elevation_Insets as INSETS
-import O4_Geo_Utils as GEO
-
-__all__ = [
-    "GLIDE_PATH_DEG", "CORRIDOR_FAR_WIDTH_M", "corridor_length_m",
-    "threshold_corridors", "cover_region", "cover_squares", "square_bounds",
-    "airport_runways", "tile_cover_squares",
-]
+__all__ = ["GLIDE_PATH_DEG", "CORRIDOR_FAR_WIDTH_M", "square_bounds", "tile_cover_squares"]
 
 #: The glide path the corridor length is read on (owner: "3° glide path").
 GLIDE_PATH_DEG = 3.0
@@ -45,7 +39,7 @@ CORRIDOR_FAR_WIDTH_M = 1000.0
 _FT_TO_M = 0.3048
 
 
-def corridor_length_m(height_ft: float) -> float:
+def _corridor_length_m(height_ft: float) -> float:
     """How far from the threshold a 3 degree glide path is ``height_ft``
     above it: 1,000 ft is about 5.8 km, 500 ft about 2.9 km."""
     height_m = max(float(height_ft), 0.0) * _FT_TO_M
@@ -73,7 +67,7 @@ def _end_corridor(near, far, displaced_m, width_m, length_m):
     return [(x / kx, y / ky) for (x, y) in ring]
 
 
-def threshold_corridors(runways: Iterable, length_m: float) -> list:
+def _threshold_corridors(runways: Iterable, length_m: float) -> list:
     """One corridor polygon (absolute ``(lon, lat)`` degrees) per runway
     end of ``runways`` (``auto_patch_v2.airport.apt_dat.AptRunway``);
     ``[]`` when ``length_m`` is 0."""
@@ -90,7 +84,7 @@ def threshold_corridors(runways: Iterable, length_m: float) -> list:
     return out
 
 
-def cover_region(boundary, runways: Sequence, tile_lat: int, tile_lon: int,
+def _cover_region(boundary, runways: Sequence, tile_lat: int, tile_lon: int,
                  extent_km: float, approach_ft: float):
     """The airport's cover region, tile-local degrees: ``boundary``
     widened by ``extent_km`` (in metres, around the polygon, not its
@@ -104,7 +98,7 @@ def cover_region(boundary, runways: Sequence, tile_lat: int, tile_lon: int,
             boundary = affinity.scale(metric.buffer(1000.0 * extent_km),
                                       1 / kx, 1 / ky, origin=(0, 0))
         parts.append(boundary)
-    for poly in threshold_corridors(runways, corridor_length_m(approach_ft)):
+    for poly in _threshold_corridors(runways, _corridor_length_m(approach_ft)):
         parts.append(affinity.translate(poly, -tile_lon, -tile_lat))
     return ops.unary_union(parts) if parts else Polygon()
 
@@ -119,7 +113,7 @@ def square_bounds(til_x: int, til_y: int, zl: int, tile_lat: int,
             lon_right - tile_lon, lat_top - tile_lat)
 
 
-def cover_squares(region, tile_lat: int, tile_lon: int, zl: int) -> set:
+def _cover_squares(region, tile_lat: int, tile_lon: int, zl: int) -> set:
     """The ``zl`` texture squares (top-left gtile ``(til_x, til_y)``) of
     the tile that meet ``region`` (tile-local degrees)."""
     if region is None or region.is_empty:
@@ -142,7 +136,7 @@ def cover_squares(region, tile_lat: int, tile_lon: int, zl: int) -> set:
     return out
 
 
-def airport_runways(code, xplane_root: Optional[str]) -> tuple:
+def _airport_runways(code, xplane_root: Optional[str]) -> tuple:
     """apt.dat row-100 runways of airport ``code``, from the apt.dat
     auto_patch's own selector picks for it (the pack X-Plane draws, else
     Global Airports); ``()`` for a code apt.dat does not know or an
@@ -168,10 +162,10 @@ def tile_cover_squares(tile, dico_airports: dict, airports: Iterable,
         xplane_root = INSETS._xplane_root_for_package_footprints()
     squares = set()
     for airport in airports:
-        runways = (airport_runways(airport, xplane_root)
+        runways = (_airport_runways(airport, xplane_root)
                    if approach_ft > 0 else ())
-        region = cover_region(dico_airports[airport].get("boundary"),
+        region = _cover_region(dico_airports[airport].get("boundary"),
                               runways, tile.lat, tile.lon, extent_km,
                               approach_ft)
-        squares |= cover_squares(region, tile.lat, tile.lon, tile.cover_zl)
+        squares |= _cover_squares(region, tile.lat, tile.lon, tile.cover_zl)
     return squares

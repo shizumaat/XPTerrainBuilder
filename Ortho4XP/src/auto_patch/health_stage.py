@@ -25,10 +25,10 @@ import traceback
 
 from . import pack_rewrite as _PR
 
-__all__ = ["check", "health_stage"]
+__all__ = ["health_stage"]
 
 
-def check(pack_root: str, lat: int, lon: int, *, read_only: bool):
+def _check(pack_root: str, lat: int, lon: int, *, read_only: bool):
     """``(pack dump, found, current)`` for the pack's tile DSF — ``found``
     is the number of defects in its pristine dump, ``current`` whether the
     live file already carries their repair — or ``None`` when there is
@@ -76,7 +76,7 @@ def health_stage(plan_, tile, *, writes: bool) -> str:
     import O4_UI_Utils as UI
     pack_root = getattr(plan_, "pack_root", "") or ""
     try:
-        got = check(pack_root, tile.lat, tile.lon, read_only=not writes)
+        got = _check(pack_root, tile.lat, tile.lon, read_only=not writes)
     except Exception as exc:
         UI.vprint(1, f"  [pack health] check skipped ({exc})")
         UI.vprint(2, traceback.format_exc())

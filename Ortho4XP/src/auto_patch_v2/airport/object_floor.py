@@ -82,9 +82,12 @@ from ..geom.lowest_face import floor_z_at  # noqa: F401  (re-exported)
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
 from . import terrain_shaped as _ts
-from .below_grade_witness import author_ground as _author_ground_of, around as _around_ids
-from .below_grade_witness import floor_share as _floor_share, placed_all as _placed_all
-from .below_grade_witness import xp as _xp, zero_of as _zero
+from .below_grade_witness import around as _around_ids
+from .below_grade_witness import author_ground as _author_ground_of
+from .below_grade_witness import floor_share as _floor_share
+from .below_grade_witness import placed_all as _placed_all
+from .below_grade_witness import xp as _xp
+from .below_grade_witness import zero_of as _zero
 from .hanging_objects import _co_placed, _has_floor
 from .object_cut import _base, _face_normals_y, _plan_segments, placement_order, valid_polygon
 

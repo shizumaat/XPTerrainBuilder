@@ -21,12 +21,11 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication  # noqa: E402
-
 import O4_Airport_Detail as DETAIL  # noqa: E402
 import O4_Qt_Airport_Detail as QTDETAIL  # noqa: E402
 import O4_Settings_Model as SM  # noqa: E402
 from O4_Qt_Settings import SettingsWindow  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 @pytest.fixture(scope="module")

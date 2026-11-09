@@ -5,12 +5,11 @@ from __future__ import annotations
 
 import types
 
-import pytest
-from shapely.geometry import Point, box
-
 import O4_Airport_Approach_Cover as COVER
 import O4_Geo_Utils as GEO
+import pytest
 from auto_patch_v2.airport.apt_dat import AptRunway
+from shapely.geometry import Point, box
 
 LAT, LON = 30, 31                      # the synthetic tile
 CLAT, CLON = 30.5, 31.5                # the synthetic airport's centre
@@ -43,18 +42,18 @@ def _local(east_m, north_m):
 
 
 def test_corridor_length_follows_a_3_degree_glide_path():
-    assert COVER.corridor_length_m(1000) == pytest.approx(5816, abs=2)
-    assert COVER.corridor_length_m(500) == pytest.approx(2908, abs=1)
-    assert COVER.corridor_length_m(0) == 0.0
+    assert COVER._corridor_length_m(1000) == pytest.approx(5816, abs=2)
+    assert COVER._corridor_length_m(500) == pytest.approx(2908, abs=1)
+    assert COVER._corridor_length_m(0) == 0.0
 
 
 def test_one_corridor_per_runway_end_none_at_zero():
-    assert len(COVER.threshold_corridors([EW, NS], 2908.0)) == 4
-    assert COVER.threshold_corridors([EW, NS], 0.0) == []
+    assert len(COVER._threshold_corridors([EW, NS], 2908.0)) == 4
+    assert COVER._threshold_corridors([EW, NS], 0.0) == []
 
 
 def test_corridor_starts_at_the_displaced_threshold_and_widens():
-    region = COVER.cover_region(None, [EW], LAT, LON, 0.0, 500)
+    region = COVER._cover_region(None, [EW], LAT, LON, 0.0, 500)
     # west end: displaced 300 m, so the corridor starts at -1200 m
     assert region.contains(_local(-1250, 0))
     assert not region.contains(_local(-1100, 0))
@@ -71,12 +70,12 @@ def test_corridor_starts_at_the_displaced_threshold_and_widens():
 
 
 def test_light_is_the_boundary_only():
-    region = COVER.cover_region(BOUNDARY, [EW, NS], LAT, LON, 0.0, 0)
+    region = COVER._cover_region(BOUNDARY, [EW, NS], LAT, LON, 0.0, 0)
     assert region.equals(BOUNDARY)
 
 
 def test_extent_widens_the_polygon_not_its_bounding_box():
-    region = COVER.cover_region(BOUNDARY, [], LAT, LON, 1.0, 0)
+    region = COVER._cover_region(BOUNDARY, [], LAT, LON, 1.0, 0)
     assert region.contains(_local(1700 + 950, 0))
     # a buffered box has round corners: 0.9 km diagonal off a corner is out
     assert not region.contains(_local(1700 + 900, 1200 + 900))
@@ -89,7 +88,7 @@ def _tile(cover_extent=1.0, approach_ft=1000, zl=18):
 
 
 def _squares(monkeypatch, **kw):
-    monkeypatch.setattr(COVER, "airport_runways",
+    monkeypatch.setattr(COVER, "_airport_runways",
                         lambda code, root: (EW, NS) if code == "ZZZZ" else ())
     dico = {"ZZZZ": {"boundary": BOUNDARY}}
     return COVER.tile_cover_squares(_tile(**kw), dico, ["ZZZZ"],
@@ -101,7 +100,7 @@ def test_squares_meet_the_region_and_grow_with_the_preset(monkeypatch):
     balanced = _squares(monkeypatch, cover_extent=0.0, approach_ft=500)
     sharper = _squares(monkeypatch, cover_extent=0.0, approach_ft=1000)
     assert light and light < balanced < sharper
-    region = COVER.cover_region(BOUNDARY, [EW, NS], LAT, LON, 0.0, 1000)
+    region = COVER._cover_region(BOUNDARY, [EW, NS], LAT, LON, 0.0, 1000)
     for sq in sharper:
         assert region.intersects(box(*COVER.square_bounds(*sq, 18, LAT, LON)))
 
@@ -120,16 +119,16 @@ def test_squares_are_not_the_bounding_box(monkeypatch):
 
 
 def test_unknown_code_is_the_boundary_alone(monkeypatch):
-    monkeypatch.setattr(COVER, "airport_runways", lambda code, root: ())
+    monkeypatch.setattr(COVER, "_airport_runways", lambda code, root: ())
     dico = {("repr", 1): {"boundary": BOUNDARY}}
     got = COVER.tile_cover_squares(_tile(0.0, 1000), dico, [("repr", 1)],
                                    xplane_root="/nowhere")
-    assert got == COVER.cover_squares(BOUNDARY, LAT, LON, 18)
+    assert got == COVER._cover_squares(BOUNDARY, LAT, LON, 18)
 
 
 def test_runways_reader_abstains_without_an_install():
-    assert COVER.airport_runways("ZZZZ", None) == ()
-    assert COVER.airport_runways(("repr", 1), "/nowhere") == ()
+    assert COVER._airport_runways("ZZZZ", None) == ()
+    assert COVER._airport_runways(("repr", 1), "/nowhere") == ()
 
 
 def test_presets_carry_the_corridor():

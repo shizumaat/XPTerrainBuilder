@@ -125,6 +125,8 @@ def _totals(row: dict) -> tuple[int, int, int]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import O4_Console_Encoding as CE  # UTF-8 before anything prints (#171)
+    CE.configure_console_streams()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("scenery_dir")
     ap.add_argument("--pack", action="append", default=[],

@@ -1,6 +1,5 @@
-"""THE PACK HEALTH CHECK (issue #1978): known vendor defects that hurt the
-sim, repaired automatically in our output of an airport pack and always
-reported.
+"""THE PACK HEALTH CHECK (issue #1978): vendor defects that hurt the sim,
+repaired in our copy of a pack and always reported.
 
 Owner (2026-11-09): "file that with the bad light issue from LFKC as
 something to check for and fix when we process a package."  Health, not
@@ -23,12 +22,13 @@ that ``dsf_write`` calls):
 The record row (:data:`RECORD_KEY`, beside the DSF) says what the last
 write repaired, for the pristine file it was written from
 (:func:`recorded`), so the object stage knows when a pack still needs
-the write (``auto_patch.health_stage``).
+the write (the patch build's ``health_stage``).
 """
 from __future__ import annotations
 
 import typing as _t
 
+from ..pack_optimise import generated_of as _po_generated_of
 from . import objects as _ob
 from . import stacked_polygons as _sp
 
@@ -106,9 +106,7 @@ def recorded(entry: _t.Mapping[str, _t.Any] | None,
 
 def generated_of(entry: _t.Mapping[str, _t.Any] | None) -> list[str]:
     """The copies a DSF's record says the last write named."""
-    row = (entry or {}).get(RECORD_KEY)
-    files = row.get("generated") if isinstance(row, dict) else None
-    return [f for f in (files or ()) if isinstance(f, str)]
+    return _po_generated_of(entry, RECORD_KEY)
 
 
 def count(row: _t.Mapping[str, _t.Any] | None) -> int:

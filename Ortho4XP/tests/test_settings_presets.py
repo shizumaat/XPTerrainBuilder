@@ -95,7 +95,8 @@ def test_balanced_is_the_registry_defaults_but_two():
                if not SM.values_equivalent(
                    name, value, str(O4_Cfg_Vars.cfg_vars[name]["default"]))}
     assert differs == {"cover_airports_with_highres", "cover_extent",
-                       "approach_rings", "bathymetry_near_other_airports"}
+                       "approach_rings", "bathymetry_near_other_airports",
+                       "cover_approach_ft"}
     assert PRESETS.zoom_value(balanced) == PRESETS.default_zoom() == 16
     fresh = PRESETS.current_values({}, PRESETS.default_zoom())
     assert PRESETS.matching_preset(fresh) is None
@@ -105,7 +106,7 @@ def test_every_preset_is_detail_icao():
     import O4_Airport_Detail as DETAIL
 
     for entry in PRESETS.PRESETS:
-        assert DETAIL.matching(entry.as_dict(), same=SM.values_equivalent) \
+        assert DETAIL._matching(entry.as_dict(), same=SM.values_equivalent) \
             == "icao", entry.key
 
 

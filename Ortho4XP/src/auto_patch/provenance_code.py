@@ -264,6 +264,7 @@ PATCH_DATA_FILES: tuple[str, ...] = (
 #: packages=True)``), sorted.  Held by ``tests/test_patch_code_closure.py``;
 #: when it fails, the message names the modules to add or drop.
 PATCH_CODE_MODULES: tuple[str, ...] = (
+    "O4_Airport_Approach_Cover",
     "O4_Airport_Apt_Identity",
     "O4_Airport_Batch",
     "O4_Airport_Detail",
@@ -376,6 +377,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch.gateway_api",
     "auto_patch.gateway_stage",
     "auto_patch.geom_safe",
+    "auto_patch.health_stage",
     "auto_patch.mesh_sampler",
     "auto_patch.obj8_partition",
     "auto_patch.obj8_reader",
@@ -416,6 +418,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.backup_state",
     "auto_patch_v2.airport.basin_ring",
     "auto_patch_v2.airport.basin_witness",
+    "auto_patch_v2.airport.below_grade_witness",
     "auto_patch_v2.airport.below_zero",
     "auto_patch_v2.airport.borrow",
     "auto_patch_v2.airport.bridge_approach",
@@ -476,6 +479,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.obj8_clip",
     "auto_patch_v2.airport.obj8_drape",
     "auto_patch_v2.airport.obj8_grade",
+    "auto_patch_v2.airport.obj8_rest",
     "auto_patch_v2.airport.obj8_roof",
     "auto_patch_v2.airport.obj8_split",
     "auto_patch_v2.airport.object_cut",
@@ -496,6 +500,10 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.pack_forests",
     "auto_patch_v2.airport.pack_forests_map",
     "auto_patch_v2.airport.pack_ground",
+    "auto_patch_v2.airport.pack_health",
+    "auto_patch_v2.airport.pack_health.light_records",
+    "auto_patch_v2.airport.pack_health.objects",
+    "auto_patch_v2.airport.pack_health.stacked_polygons",
     "auto_patch_v2.airport.pack_identity",
     "auto_patch_v2.airport.pack_journal",
     "auto_patch_v2.airport.pack_local",

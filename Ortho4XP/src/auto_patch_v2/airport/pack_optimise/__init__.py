@@ -259,9 +259,11 @@ def write_if_changed(path: str, text: str, encoding: str = "utf-8") -> None:
     os.replace(tmp, path)
 
 
-def generated_of(entry: _t.Mapping[str, _t.Any] | None) -> list[str]:
-    """The pack-relative files a DSF's record says the recipe wrote."""
-    row = (entry or {}).get(RECORD_KEY)
+def generated_of(entry: _t.Mapping[str, _t.Any] | None,
+                 key: str = RECORD_KEY) -> list[str]:
+    """The pack-relative files a DSF's record (under ``key``; the pack
+    health check passes its own) says the recipe wrote."""
+    row = (entry or {}).get(key)
     files = row.get("generated") if isinstance(row, dict) else None
     return [f for f in (files or ()) if isinstance(f, str)]
 

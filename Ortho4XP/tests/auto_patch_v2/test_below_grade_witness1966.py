@@ -15,9 +15,9 @@ from auto_patch_v2.airport import below_grade_witness as BG
 from auto_patch_v2.airport import obj8 as O
 from auto_patch_v2.airport import portal_objects as P
 from auto_patch_v2.planar import deck_bridge as DB
-from test_deck_bridge1671 import (FRAME, LAW, THICK, _box, _cell, _classification, _placed,
-                                  _write)
-from test_portal_objects1343 import BORE, _placed as _portal_placed, _portal
+from test_deck_bridge1671 import FRAME, LAW, THICK, _box, _cell, _classification, _placed, _write
+from test_portal_objects1343 import BORE, _portal
+from test_portal_objects1343 import _placed as _portal_placed
 
 
 class _Dem:

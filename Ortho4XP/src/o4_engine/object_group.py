@@ -111,7 +111,7 @@ def group_seat(entries: Entries, row: int, offset_m: float | None = None,
     part's zero; it has no single top."""
     if entries.get(int(row), ("",))[0] != "split":
         return None
-    from .object_seat import _m                 # the inspector's metres
+    from .object_seat import _m  # the inspector's metres
     rows = group_rows(entries, row)
     bodies = _group_bodies(entries, rows)
     off = float(offset_m or 0.0)

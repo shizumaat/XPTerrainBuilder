@@ -181,7 +181,7 @@ def test_preset_use_applies_to_every_selected_tile(env):
     for tile in (A, B):
         raw = env.raw(tile)
         assert raw["cover_airports_with_highres"] == "ICAO"
-        assert "cover_extent" not in raw
+        assert raw["cover_extent"] == "0.0"   # the preset's, not the global
     assert "cover_airports_with_highres" not in SM.read_global_raw()
     assert (win.zoom_target, win.selection_zl) == ("tiles", 16)
     assert win.preset_cards.current_key == "sharper_airports"

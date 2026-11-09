@@ -142,6 +142,7 @@ enum SettingsLayout {
             SettingItem("modify_custom_airports", "Fit custom airport buildings to the new ground", .tile, summary: "Moves the 3-D objects of installed custom airports onto the reshaped ground."),
             SettingItem("airport_elevation_insets", "High-resolution airport elevation", .tile, summary: "Downloads meter-class elevation for the airports where it exists."),
             SettingItem("airport_elevation_level", "How detailed should airport elevation be?", .tile, summary: "Auto takes the finest available, down to 0.5 m."),
+            SettingItem("approach_rings", "Add finer elevation on the approaches?", .tile, summary: "10 m out to 10 km around each airport with high-resolution elevation, then 30 m to 20 km."),
             SettingItem("elevation_coastline_band_km", "Coastline lidar band width (km)", .tile, expert: true),
             SettingItem("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", .tile, expert: true),
             SettingItem("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", .tile, expert: true),

@@ -7,7 +7,8 @@ import SceneryKit
 /// when the two differ. Every preset writes the SAME keys: the build zoom
 /// (`zl`, kept here as `@AppStorage("OrthoZoomLevel")`) and engine config
 /// keys, written to the global config (the defaults for new tiles) — among
-/// them its airport Detail choice's keys (#1985, `AirportDetail`).
+/// them its airport Detail choice's keys (#1985, `AirportDetail`): every
+/// preset is Detail "ICAO airports" (owner 2026-11-09T17:01Z).
 /// The figures in `cost` are derived, never measured: see docs/presets.md.
 struct SettingsPreset: Identifiable, Equatable {
     let key: String
@@ -38,17 +39,17 @@ enum SettingsPresets {
 
     static let presets: [SettingsPreset] = [
         SettingsPreset("light_on_disk", "Light on disk",
-                       summary: "ZL15 everywhere and no extra airport detail: smaller downloads.",
-                       cost: "About 0.4–0.8 GB of imagery per tile, a quarter of Balanced.",
-                       values: ["zl": "15", "cover_zl": "18", "cover_extent": "1.0", "cover_airports_with_highres": "False", "auto_patch": "None", "airport_elevation_insets": "None", "bathymetry_near_icao_airports": "False", "bathymetry_near_other_airports": "False"]),
+                       summary: "ZL15, and ZL18 only inside airports with ICAO codes; elevation 30 m there and 90 m elsewhere.",
+                       cost: "About 0.4–0.8 GB of imagery per tile, a quarter of Balanced, plus the airports.",
+                       values: ["zl": "15", "cover_zl": "18", "cover_extent": "0.0", "elevation_level": "90", "airport_elevation_level": "30", "approach_rings": "off", "cover_airports_with_highres": "ICAO", "auto_patch": "ICAO", "airport_elevation_insets": "ICAO", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "False"]),
         SettingsPreset("balanced", "Balanced",
-                       summary: "ZL16 everywhere, with no extra airport detail.",
-                       cost: "About 1.6–3.1 GB of imagery per tile.",
-                       values: ["zl": "16", "cover_zl": "18", "cover_extent": "1.0", "cover_airports_with_highres": "False", "auto_patch": "None", "airport_elevation_insets": "None", "bathymetry_near_icao_airports": "False", "bathymetry_near_other_airports": "False"]),
+                       summary: "ZL16, and ZL18 imagery and the best elevation at airports with ICAO codes.",
+                       cost: "About 1.6–3.1 GB of imagery per tile, plus the sharper airports.",
+                       values: ["zl": "16", "cover_zl": "18", "cover_extent": "0.0", "elevation_level": "auto", "airport_elevation_level": "auto", "approach_rings": "off", "cover_airports_with_highres": "ICAO", "auto_patch": "ICAO", "airport_elevation_insets": "ICAO", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "False"]),
         SettingsPreset("sharper_airports", "Sharper airports",
-                       summary: "ZL16, and at airports with ICAO codes ZL18 imagery, graded runways and the best elevation.",
+                       summary: "ZL16, and at airports with ICAO codes ZL18 imagery and the best elevation, their approaches included.",
                        cost: "About 1.6–3.1 GB per tile, plus the sharper airports.",
-                       values: ["zl": "16", "cover_zl": "18", "cover_extent": "1.0", "cover_airports_with_highres": "ICAO", "auto_patch": "ICAO", "airport_elevation_insets": "ICAO", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "False"]),
+                       values: ["zl": "16", "cover_zl": "18", "cover_extent": "0.0", "elevation_level": "auto", "airport_elevation_level": "auto", "approach_rings": "auto", "cover_airports_with_highres": "ICAO", "auto_patch": "ICAO", "airport_elevation_insets": "ICAO", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "False"]),
     ]
 
     /// The preset a new user starts from (#937; Qt DEFAULT_PRESET).

@@ -21,9 +21,12 @@ preset, the window shows :data:`CUSTOM_TITLE`.  A new user starts from
 :data:`DEFAULT_PRESET` (Sharper airports, #937): the first-run screens apply
 it; the engine's own defaults stay Balanced, so builds outside the apps
 (the harness, the CLI) are unchanged.  Each preset also sets the airport
-Detail choice (#1985, ``O4_Airport_Detail``): its scope keys are part of
-the preset, so the engine defaults (grading and elevation at ICAO
-airports, sharper imagery off) match no preset.
+Detail choice (#1985, ``O4_Airport_Detail``): every preset is Detail
+"ICAO airports" with ZL18 imagery at those airports.  The engine
+defaults are Balanced except ``cover_airports_with_highres`` (False),
+``cover_extent`` (1.0), ``approach_rings`` (auto) and
+``bathymetry_near_other_airports`` (True),
+so an untouched config shows Custom.
 """
 
 from __future__ import annotations
@@ -48,12 +51,17 @@ ZOOM_PREF = "zl"
 
 #: The keys every preset writes, in display order.
 #: The airport scope keys come from the preset's Detail choice
-#: (``O4_Airport_Detail``, #1985): Sharper airports is Detail "ICAO
-#: airports", the other two Detail "None".
+#: (``O4_Airport_Detail``, #1985): every preset is Detail "ICAO airports"
+#: (owner 2026-11-09T17:01Z); they differ in the airport imagery's reach
+#: and the elevation detail (``elevation_level``, ``airport_elevation_level``,
+#: ``approach_rings``).
 PRESET_KEYS = (
     ZOOM_PREF,
     "cover_zl",
     "cover_extent",
+    "elevation_level",
+    "airport_elevation_level",
+    "approach_rings",
 ) + AIRPORT_DETAIL.SCOPE_KEYS
 
 #: The words around the cards (SettingsPresets.swift uses the same ones).
@@ -80,33 +88,47 @@ class Preset:
 # The cost lines are DERIVED, never measured here: the imagery texture bytes
 # of one 1°x1° tile at the preset's detail level, for tiles between 60°S and
 # 60°N (docs/presets.md gives the formula; the twin recomputes the figures).
-def _values(zoom, detail):
+def _values(zoom, extent, elevation, airport_elevation, rings):
     """A preset's ``(name, literal)`` pairs in :data:`PRESET_KEYS` order:
-    its zoom, the airport zoom and reach, and its Detail choice."""
-    values = dict(AIRPORT_DETAIL.scope_values(detail), cover_zl="18",
-                  cover_extent="1.0", **{ZOOM_PREF: str(zoom)})
+    its zoom, how far past the airport the ZL18 imagery reaches, its
+    elevation detail, and Detail "ICAO airports" for the rest."""
+    values = dict(AIRPORT_DETAIL.scope_values("icao"), cover_zl="18",
+                  cover_extent=extent, elevation_level=elevation,
+                  airport_elevation_level=airport_elevation,
+                  approach_rings=rings, **{ZOOM_PREF: str(zoom)})
     return tuple((name, values[name]) for name in PRESET_KEYS)
 
 
+# Owner, 2026-11-09T17:01Z: "keep ICAO for all presets, ZL16 imagery
+# everywhere but lidar elevation data just at the airport without the
+# approach rings, and the light option drops elevation data to 30m at
+# icao airports and 90m elsewhere"; 17:05Z: "For all presets let's keep
+# ZL18 at airports, but adjust the amount of coverage, for light it's
+# only within the airport boundary."  Coordinator 2026-11-09: cover_extent
+# 0 in all three; the approach corridors (#1990, cover_approach_ft) add
+# the coverage beyond the boundary.
 PRESETS = (
     Preset(
         "light_on_disk", "Light on disk",
-        "ZL15 everywhere and no extra airport detail: smaller downloads.",
-        "About 0.4–0.8 GB of imagery per tile, a quarter of Balanced.",
-        _values(15, "none"),
+        "ZL15, and ZL18 only inside airports with ICAO codes; elevation "
+        "30 m there and 90 m elsewhere.",
+        "About 0.4–0.8 GB of imagery per tile, a quarter of Balanced, "
+        "plus the airports.",
+        _values(15, "0.0", "90", "30", "off"),
     ),
     Preset(
         "balanced", "Balanced",
-        "ZL16 everywhere, with no extra airport detail.",
-        "About 1.6–3.1 GB of imagery per tile.",
-        _values(16, "none"),
+        "ZL16, and ZL18 imagery and the best elevation at airports with "
+        "ICAO codes.",
+        "About 1.6–3.1 GB of imagery per tile, plus the sharper airports.",
+        _values(16, "0.0", "auto", "auto", "off"),
     ),
     Preset(
         "sharper_airports", "Sharper airports",
-        "ZL16, and at airports with ICAO codes ZL18 imagery, graded "
-        "runways and the best elevation.",
+        "ZL16, and at airports with ICAO codes ZL18 imagery and the best "
+        "elevation, their approaches included.",
         "About 1.6–3.1 GB per tile, plus the sharper airports.",
-        _values(16, "icao"),
+        _values(16, "0.0", "auto", "auto", "auto"),
     ),
 )
 

@@ -26,33 +26,55 @@ off), and a config at those defaults shows Custom.
 ## The keys
 
 Every preset writes the same existing keys. None is new, and none changes
-its stored format. The last five are the airport **Detail** choice (#1985,
-`O4_Airport_Detail` / `AirportDetail.swift`): Light on disk and Balanced
-are Detail None, Sharper airports is Detail ICAO airports.
+its stored format. Every preset is airport **Detail** "ICAO airports"
+(#1985, `O4_Airport_Detail` / `AirportDetail.swift`; owner 2026-11-09T17:01Z:
+"keep ICAO for all presets, ZL16 imagery everywhere but lidar elevation
+data just at the airport without the approach rings, and the light option
+drops elevation data to 30m at icao airports and 90m elsewhere"; 17:05Z:
+"For all presets let's keep ZL18 at airports, but adjust the amount of
+coverage, for light it's only within the airport boundary"): they differ
+in the approach rings and how fine the elevation is. The ZL18 airport
+imagery covers each ICAO airport inside its boundary (`cover_extent` 0 in
+all three); the approach corridors (#1990, `cover_approach_ft`) add the
+coverage beyond it.
 
 | Key | Where it is stored | Light on disk | Balanced | Sharper airports |
 |---|---|---|---|---|
 | `zl` | Build zoom: Qt `prefs["zl"]`, Mac `@AppStorage("OrthoZoomLevel")` | 15 | 16 | 16 |
-| `cover_airports_with_highres` | Global `Ortho4XP.cfg` | False | False | ICAO |
 | `cover_zl` | Global `Ortho4XP.cfg` | 18 | 18 | 18 |
-| `cover_extent` | Global `Ortho4XP.cfg` | 1.0 | 1.0 | 1.0 |
-| `auto_patch` | Global `Ortho4XP.cfg` | None | None | ICAO |
-| `airport_elevation_insets` | Global `Ortho4XP.cfg` | None | None | ICAO |
-| `bathymetry_near_icao_airports` | Global `Ortho4XP.cfg` | False | False | True |
+| `cover_extent` | Global `Ortho4XP.cfg` | 0.0 | 0.0 | 0.0 |
+| `elevation_level` | Global `Ortho4XP.cfg` | 90 | auto | auto |
+| `airport_elevation_level` | Global `Ortho4XP.cfg` | 30 | auto | auto |
+| `approach_rings` | Global `Ortho4XP.cfg` | off | off | auto |
+| `cover_airports_with_highres` | Global `Ortho4XP.cfg` | ICAO | ICAO | ICAO |
+| `auto_patch` | Global `Ortho4XP.cfg` | ICAO | ICAO | ICAO |
+| `airport_elevation_insets` | Global `Ortho4XP.cfg` | ICAO | ICAO | ICAO |
+| `bathymetry_near_icao_airports` | Global `Ortho4XP.cfg` | True | True | True |
 | `bathymetry_near_other_airports` | Global `Ortho4XP.cfg` | False | False | False |
 
-- **Light on disk** builds at ZL15 (`zl` 15, about 5 m per pixel).
+- **Light on disk** builds at ZL15 (`zl` 15, about 5 m per pixel), with
+  ZL18 inside each ICAO airport's boundary, 90 m
+  elevation away from airports and the airport elevation warped to
+  30 m (`airport_elevation_level` 30), no approach rings.
 - **Balanced** builds at the registry's zoom (`default_zl`'s default, 16,
-  as both apps' zoom default) and adds no airport detail (Detail None).
+  as both apps' zoom default), ZL18 inside each ICAO airport's boundary,
+  the best airport elevation but no approach rings. It equals the registry
+  defaults except `cover_airports_with_highres` (default False),
+  `cover_extent` (default 1.0), `approach_rings` (default auto) and `bathymetry_near_other_airports`
+  (default True), which the engine keeps so builds outside the apps do not
+  change: an untouched config shows Custom.
 - **Sharper airports** turns on the existing airport high-detail zones for
   airports with ICAO codes (`cover_airports_with_highres` ICAO, owner
   2026-10-19 on #937): ZL18 imagery (`cover_zl` 18, about 0.6 m per pixel)
-  over each such airport and 1 km around it (`cover_extent`).
+  inside each such airport's boundary (`cover_extent` 0), and the
+  approach rings.
 
 Owner rulings, 2026-10-18: detail levels are named by their ZL number,
 never by an invented name; **Light on disk** does NOT set `cleaning_level`
 (no preset touches it: the build-file cleanup stays whatever the user set);
-**Sharper airports** keeps `cover_zl` 18 and `cover_extent` 1.0.
+**Sharper airports** keeps `cover_zl` 18 and `cover_extent` 1.0 (the
+extent superseded on 2026-11-09: 0 in every preset, the coverage beyond
+the boundary coming from the approach corridors, #1990).
 
 Presets set the GLOBAL values, the defaults for new tiles. A tile's own
 overrides are kept; its Settings rows go on showing them. A key outside the
@@ -61,28 +83,34 @@ table never makes the cards show Custom.
 ## Detail (#1985)
 
 Under the cards, Settings ▸ General's **Detail** chooses where airport
-detail goes: **None**, **ICAO airports** or **All airports**. A choice
-writes the five airport keys above (ICAO airports: sharper imagery,
-grading, elevation insets and measured depth at airports with ICAO codes;
-All airports: at every airport, small fields included; None: nowhere) and,
-for ICAO or All, the build zoom 16 and `cover_zl` 18. Detail is not a
-stored key: it shows the choice whose five keys all hold, else Custom, so
-the per-feature rows in their own categories still work and changing one
-shows Custom. The build zoom is in Settings ▸ Imagery ("Imagery detail").
+detail goes: **None**, **ICAO airports** or **All airports**. It reads the
+four airport features — sharper imagery (`cover_airports_with_highres`),
+grading (`auto_patch`), high-resolution elevation
+(`airport_elevation_insets`) and measured depth (the two
+`bathymetry_near_*` keys) — each off or on for one choice, and shows the
+choice every feature that is on agrees on (None when all are off), else
+Custom. Choosing ICAO or All from None or Custom turns every feature on,
+with the build zoom 16 and `cover_zl` 18; switching between ICAO and All
+re-scopes the features that are on and leaves the off ones off (Balanced
+switched to All airports keeps its approach rings off); None turns them all
+off. Detail is not a stored key, so the per-feature rows in their own
+categories still work. The build zoom is in Settings ▸ Imagery ("Imagery
+detail").
 
 An existing config is carried over once (`O4_Airport_Detail.migrate_cfg`,
-recorded in `<cfg>.defaults`): a config whose sharper imagery is at ICAO
-airports (or all airports) gets the matching Detail keys wherever they
-still hold their old defaults. A config with sharper imagery off is left
-as it is (it shows Custom): Detail None would also stop its grading.
+recorded in `<cfg>.defaults`): its sharper-imagery scope, else its grading
+scope, picks the choice, and the features that are on are re-scoped to it
+wherever their keys still hold their old defaults (typically
+`bathymetry_near_other_airports` True becomes False under ICAO). Nothing is
+turned on or off, and a value the user chose is never changed.
 
 ## Card text
 
 | Preset | Summary | Cost line |
 |---|---|---|
-| Light on disk | ZL15 everywhere and no extra airport detail: smaller downloads. | About 0.4–0.8 GB of imagery per tile, a quarter of Balanced. |
-| Balanced | ZL16 everywhere, with no extra airport detail. | About 1.6–3.1 GB of imagery per tile. |
-| Sharper airports | ZL16, and at airports with ICAO codes ZL18 imagery, graded runways and the best elevation. | About 1.6–3.1 GB per tile, plus the sharper airports. |
+| Light on disk | ZL15, and ZL18 only inside airports with ICAO codes; elevation 30 m there and 90 m elsewhere. | About 0.4–0.8 GB of imagery per tile, a quarter of Balanced, plus the airports. |
+| Balanced | ZL16, and ZL18 imagery and the best elevation at airports with ICAO codes. | About 1.6–3.1 GB of imagery per tile, plus the sharper airports. |
+| Sharper airports | ZL16, and at airports with ICAO codes ZL18 imagery and the best elevation, their approaches included. | About 1.6–3.1 GB per tile, plus the sharper airports. |
 
 ## Where the figures come from
 

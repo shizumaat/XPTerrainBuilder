@@ -1278,8 +1278,11 @@ class SettingsWindow(SelectionEdits, QDialog):
         self._apply_values(PRESETS.cfg_values(entry), PRESETS.zoom_value(entry))
 
     def _airport_detail_current(self):
-        """The Detail choice that holds for the selection (or the
-        defaults), else None: Custom.  A conflicting key holds none."""
+        """The Detail shown for the selection (or the defaults), else
+        None: Custom.  A conflicting key holds no state."""
+        return AIRPORT_DETAIL.from_states(self._airport_feature_states())
+
+    def _airport_feature_states(self):
         if self.blended:
             current = {}
             for name in AIRPORT_DETAIL.SCOPE_KEYS:
@@ -1289,11 +1292,15 @@ class SettingsWindow(SelectionEdits, QDialog):
         else:
             current = {name: self._global_vals[name]
                        for name in AIRPORT_DETAIL.SCOPE_KEYS}
-        return AIRPORT_DETAIL.matching(current, same=SM.values_equivalent)
+        return AIRPORT_DETAIL.feature_states(current, same=SM.values_equivalent)
 
     def _apply_airport_detail(self, key):
-        """A Detail choice (#1985): its keys, like a preset's."""
-        self._apply_values(AIRPORT_DETAIL.values(key), AIRPORT_DETAIL.zoom(key))
+        """A Detail choice (#1985): its keys, like a preset's — from ICAO
+        or All only the features that are on change scope."""
+        states = self._airport_feature_states()
+        current = AIRPORT_DETAIL.from_states(states)
+        self._apply_values(AIRPORT_DETAIL.values(key, current, states),
+                           AIRPORT_DETAIL.zoom(key, current))
         self._refresh_presets()
 
     def _apply_values(self, values, zoom):

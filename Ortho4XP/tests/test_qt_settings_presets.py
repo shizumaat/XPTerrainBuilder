@@ -103,9 +103,9 @@ def test_a_preset_with_a_tile_selected_applies_to_the_tile(
         assert "cover_airports_with_highres" not in SM.read_global_raw()
         raw = SM.read_tile_raw(48, -6, build_dir)
         assert raw["cover_airports_with_highres"] == "ICAO"
-        assert "cover_extent" not in raw   # 1.0 is the global: no override
+        assert raw["cover_extent"] == "0.0"   # the preset's over the global 1.0
         assert SM.values_equivalent(
-            "cover_extent", win.rows["cover_extent"].value(), "1.0")
+            "cover_extent", win.rows["cover_extent"].value(), "0.0")
         assert (win.zoom_target, win.selection_zl) == ("tiles", 16)
         assert win.preset_cards.current_key == "sharper_airports"
         assert not win.preset_cards.buttons["sharper_airports"].isEnabled()

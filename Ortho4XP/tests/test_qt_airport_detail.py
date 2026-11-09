@@ -70,7 +70,21 @@ def test_sharper_airports_is_detail_icao_and_a_row_edit_is_custom(window):
     window._row_committed(row)
     assert window.airport_detail_row.current_key() == QTDETAIL.CUSTOM_KEY
     window.preset_cards.buttons["balanced"].click()
-    assert window.airport_detail_row.current_key() == "none"
+    assert window.airport_detail_row.current_key() == "icao"
+
+
+def test_all_from_balanced_widens_what_is_on(window):
+    # Owner 2026-11-09T17:01Z/17:05Z: Balanced is Detail ICAO without the
+    # approach rings; "All airports" widens what is on, nothing more.
+    window.preset_cards.buttons["balanced"].click()
+    window.prefs["zl"] = 17
+    _choose(window, "all")
+    raw = SM.read_global_raw()
+    assert raw["cover_airports_with_highres"] == "True"
+    assert (raw["auto_patch"], raw["airport_elevation_insets"]) == ("All", "All")
+    assert raw["approach_rings"] == "off"
+    assert window.result_prefs()["zl"] == 17
+    assert window.airport_detail_row.current_key() == "all"
 
 
 def test_none_keeps_the_zoom(window):

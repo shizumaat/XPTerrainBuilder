@@ -85,33 +85,46 @@ def test_every_value_is_the_stored_cfg_form():
         assert PRESETS.zoom_value(entry) in GLOSSARY.DETAIL_PIXEL_SIZES
 
 
-def test_balanced_is_the_registry_imagery_with_no_airport_detail():
-    # #1985: the presets carry their Detail choice, so the engine defaults
-    # (grading at ICAO airports, sharper imagery off) match no preset.
+def test_balanced_is_the_registry_defaults_but_two():
+    # Owner 2026-11-09T17:01Z: every preset is Detail ICAO; Balanced has
+    # no approach rings, and Detail ICAO has no depth at small fields.
+    # The engine defaults keep both (builds outside the apps unchanged),
+    # so an untouched config shows Custom.
     balanced = PRESETS.preset("balanced")
-    for name in ("cover_airports_with_highres", "cover_zl", "cover_extent"):
-        assert SM.values_equivalent(
-            name, balanced.as_dict()[name],
-            str(O4_Cfg_Vars.cfg_vars[name]["default"])), name
+    differs = {name for name, value in PRESETS.cfg_values(balanced).items()
+               if not SM.values_equivalent(
+                   name, value, str(O4_Cfg_Vars.cfg_vars[name]["default"]))}
+    assert differs == {"cover_airports_with_highres", "cover_extent",
+                       "approach_rings", "bathymetry_near_other_airports"}
     assert PRESETS.zoom_value(balanced) == PRESETS.default_zoom() == 16
     fresh = PRESETS.current_values({}, PRESETS.default_zoom())
     assert PRESETS.matching_preset(fresh) is None
 
 
-def test_each_preset_is_its_detail_choice():
+def test_every_preset_is_detail_icao():
     import O4_Airport_Detail as DETAIL
 
-    expected = {"light_on_disk": "none", "balanced": "none",
-                "sharper_airports": "icao"}
     for entry in PRESETS.PRESETS:
-        values = entry.as_dict()
-        assert DETAIL.matching(values, same=SM.values_equivalent) == \
-            expected[entry.key], entry.key
-        choice = expected[entry.key]
-        for name, value in DETAIL.values(choice).items():
-            assert values[name] == value, (entry.key, name)
-        if DETAIL.zoom(choice) is not None:
-            assert PRESETS.zoom_value(entry) == DETAIL.zoom(choice)
+        assert DETAIL.matching(entry.as_dict(), same=SM.values_equivalent) \
+            == "icao", entry.key
+
+
+def test_the_owner_elevation_and_imagery():
+    # Owner 2026-11-09T17:01Z, verbatim in O4_Settings_Presets.
+    light, balanced, sharper = (PRESETS.preset(k).as_dict() for k in (
+        "light_on_disk", "balanced", "sharper_airports"))
+    assert (light["elevation_level"], light["airport_elevation_level"],
+            light["approach_rings"]) == ("90", "30", "off")
+    assert (balanced["airport_elevation_level"], balanced["approach_rings"],
+            balanced["cover_extent"]) == ("auto", "off", "0.0")
+    assert (sharper["approach_rings"], sharper["cover_extent"]) == (
+        "auto", "0.0")
+    # 17:05Z: ZL18 at the airports in every preset, inside the airport
+    # boundary (cover_extent 0; the #1990 approach corridors add more).
+    for entry in (light, balanced, sharper):
+        assert (entry["cover_airports_with_highres"], entry["cover_zl"]) == (
+            "ICAO", "18")
+
 
 
 def test_the_order_and_the_default():
@@ -152,7 +165,7 @@ def test_custom_once_any_key_differs():
         assert PRESETS.status_text(
             PRESETS.current_values(base, zoom)) == "Current: " + entry.title
         # Equivalent spellings are the same value, not Custom.
-        loose = dict(base, cover_extent="1")
+        loose = dict(base, cover_extent=str(int(float(base["cover_extent"]))))
         assert PRESETS.matching_preset(
             PRESETS.current_values(loose, zoom)) is entry
         assert PRESETS.matching_preset(
@@ -227,9 +240,7 @@ def test_summaries_name_the_zl_number():
     # Owner ruling 2026-10-18: detail levels are named by their ZL number.
     for entry in PRESETS.PRESETS:
         assert "ZL%d" % PRESETS.zoom_value(entry) in entry.summary
-    sharper = PRESETS.preset("sharper_airports")
-    cover = int(sharper.as_dict()["cover_zl"])
-    assert "ZL%d" % cover in sharper.summary
+        assert "ZL%d" % int(entry.as_dict()["cover_zl"]) in entry.summary
 
 
 def test_no_preset_writes_cleaning_level():

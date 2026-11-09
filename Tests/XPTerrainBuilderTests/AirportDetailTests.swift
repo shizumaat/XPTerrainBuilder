@@ -6,22 +6,33 @@ import Testing
 /// engine by Ortho4XP/tests/test_airport_detail.py; these check the Mac
 /// side's use of it.
 struct AirportDetailTests {
-    @Test func icaoAndAllSetTheZooms() {
+    @Test func fromNoneOrCustomEverythingTurnsOnWithTheZooms() {
         for choice in AirportDetail.choices {
-            let writes = AirportDetail.writes(choice).values
-            for name in AirportDetail.scopeKeys {
-                #expect(writes[name] == choice.scope[name])
+            for current in [nil, "none"] as [String?] {
+                let writes = AirportDetail.writes(choice, from: current, states: []).values
+                for name in AirportDetail.scopeKeys {
+                    #expect(writes[name] == choice.scope[name])
+                }
+                let zooms = choice.key == "none" ? nil : "16"
+                #expect(writes[SettingsPresets.zoomKey] == zooms)
+                #expect(writes["cover_zl"] == (choice.key == "none" ? nil : "18"))
             }
-            if choice.key == "none" {
-                #expect(writes[SettingsPresets.zoomKey] == nil)
-                #expect(writes["cover_zl"] == nil)
-            } else {
-                #expect(writes[SettingsPresets.zoomKey] == "16")
-                #expect(writes["cover_zl"] == "18")
-            }
-            // Recognised by its scope keys only: the zooms stay free.
-            #expect(AirportDetail.recognisedBy(choice).values == choice.scope)
         }
+    }
+
+    @Test func switchingScopeKeepsOffFeaturesOff() {
+        // Balanced (owner 2026-11-09T17:01Z): ICAO with the imagery off.
+        let states: [String?] = ["none", "icao", "icao", "icao"]
+        #expect(AirportDetail.fromStates(states) == "icao")
+        let all = AirportDetail.choices[2]
+        let writes = AirportDetail.writes(all, from: "icao", states: states).values
+        #expect(writes["cover_airports_with_highres"] == nil)
+        #expect(writes["auto_patch"] == "All")
+        #expect(writes["bathymetry_near_other_airports"] == "True")
+        #expect(writes[SettingsPresets.zoomKey] == nil)
+        #expect(AirportDetail.fromStates(["icao", "all", "icao", "icao"]) == nil)
+        #expect(AirportDetail.fromStates(["none", "none", "none", "none"]) == "none")
+        #expect(AirportDetail.fromStates(["icao", nil, "icao", "icao"]) == nil)
     }
 
     @Test func everyScopeKeyFollowsTheSelection() {
@@ -30,15 +41,15 @@ struct AirportDetailTests {
         }
     }
 
-    @Test func eachPresetCarriesItsDetail() {
-        let expected = ["light_on_disk": "none", "balanced": "none",
-                        "sharper_airports": "icao"]
+    @Test func everyPresetIsDetailICAO() {
+        let icao = AirportDetail.choices[1]
         for preset in SettingsPresets.presets {
-            let choice = AirportDetail.choices.first { $0.key == expected[preset.key] }
-            #expect(choice != nil)
-            for (name, value) in choice?.scope ?? [:] {
-                #expect(preset.values[name] == value)
+            let states: [String?] = AirportDetail.features.map { keys in
+                AirportDetail.choices.first { choice in
+                    keys.allSatisfy { preset.values[$0] == choice.scope[$0] }
+                }?.key
             }
+            #expect(AirportDetail.fromStates(states) == icao.key)
         }
     }
 }

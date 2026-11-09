@@ -5,8 +5,11 @@ import SceneryKit
 /// None, airports with ICAO codes (the default) or all airports. A choice
 /// writes every per-airport key at once (sharper imagery, grading, the
 /// best elevation, measured sea depth) and, for ICAO or All, ZL16 outside
-/// the airports and ZL18 at them. Detail is not stored: Settings shows the
-/// choice whose keys all hold, else Custom.
+/// the airports and ZL18 at them. Detail is not stored: Settings reads the
+/// four airport features, each off or on for one choice, and shows the one
+/// choice every feature that is on agrees on (None when all are off), else
+/// Custom. Switching between ICAO and All re-scopes the features that are
+/// on; choosing ICAO or All from None or Custom turns them all on.
 ///
 /// Mirror of the engine's `Ortho4XP/src/O4_Airport_Detail.py`, row for
 /// row; `Ortho4XP/tests/test_airport_detail.py` parses this file and fails
@@ -35,6 +38,10 @@ enum AirportDetail {
 
     static let scopeKeys = ["cover_airports_with_highres", "auto_patch", "airport_elevation_insets", "bathymetry_near_icao_airports", "bathymetry_near_other_airports"]
 
+    /// The airport features, each by its keys: sharper imagery, grading,
+    /// high-resolution elevation, measured depth.
+    static let features = [["cover_airports_with_highres"], ["auto_patch"], ["airport_elevation_insets"], ["bathymetry_near_icao_airports", "bathymetry_near_other_airports"]]
+
     static let choices: [AirportDetailChoice] = [
         AirportDetailChoice("none", "None",
                             scope: ["cover_airports_with_highres": "False", "auto_patch": "None", "airport_elevation_insets": "None", "bathymetry_near_icao_airports": "False", "bathymetry_near_other_airports": "False"]),
@@ -44,38 +51,67 @@ enum AirportDetail {
                             scope: ["cover_airports_with_highres": "True", "auto_patch": "All", "airport_elevation_insets": "All", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "True"]),
     ]
 
-    /// Everything a choice writes, as a preset (so it goes through the
-    /// preset's write paths): its scope keys, and for ICAO or All the
-    /// build zoom and the airport zoom.
-    static func writes(_ choice: AirportDetailChoice) -> SettingsPreset {
+    /// The Detail that feature `states` show (each a choice key, "none"
+    /// for off, nil for neither), or nil: Custom (Qt: `from_states`).
+    static func fromStates(_ states: [String?]) -> String? {
+        if states.contains(where: { $0 == nil }) { return nil }
+        let on = Set(states.compactMap { $0 }.filter { $0 != "none" })
+        if on.isEmpty { return "none" }
+        return on.count == 1 ? on.first : nil
+    }
+
+    /// Everything choosing `choice` writes, as a preset (so it goes
+    /// through the preset's write paths), coming from the shown choice
+    /// `current` (nil: Custom) with feature `states`. From None or Custom
+    /// to ICAO or All: every scope key, the build zoom and the airport
+    /// zoom. From ICAO or All: the keys of the features that are on,
+    /// re-scoped (to None: every key off). Qt: `values` and `zoom`.
+    static func writes(_ choice: AirportDetailChoice, from current: String?,
+                       states: [String?]) -> SettingsPreset {
         var values = choice.scope
-        if choice.key != "none" {
+        if choice.key != "none", current != "icao", current != "all" {
             values[SettingsPresets.zoomKey] = String(outsideZL)
             values["cover_zl"] = String(airportZL)
+        } else if choice.key != "none" {
+            values = [:]
+            for (keys, state) in zip(features, states) where state != nil && state != "none" {
+                for name in keys { values[name] = choice.scope[name] }
+            }
         }
         return SettingsPreset("detail_" + choice.key, choice.title,
                               summary: "", cost: "", values: values)
     }
 
-    /// What a choice is recognised by: its scope keys only (the zooms
-    /// stay free to change in Imagery).
-    static func recognisedBy(_ choice: AirportDetailChoice) -> SettingsPreset {
-        SettingsPreset("detail_" + choice.key, choice.title,
-                       summary: "", cost: "", values: choice.scope)
+    /// One feature in one choice's state, as a preset to match.
+    static func feature(_ keys: [String], of choice: AirportDetailChoice) -> SettingsPreset {
+        SettingsPreset("detail_" + choice.key, choice.title, summary: "", cost: "",
+                       values: choice.scope.filter { keys.contains($0.key) })
     }
 }
 
 extension BuildModel {
-    /// The Detail choice that holds now (selection-aware like the preset
-    /// cards, #1549), or nil: Custom.
-    func currentAirportDetail(followsSelection: Bool = true) -> AirportDetailChoice? {
-        AirportDetail.choices.first {
-            presetMatches(AirportDetail.recognisedBy($0), followsSelection: followsSelection)
+    /// Each airport feature's state now (selection-aware like the preset
+    /// cards, #1549): the choice its keys equal, "none" for off, or nil.
+    func airportFeatureStates(followsSelection: Bool = true) -> [String?] {
+        AirportDetail.features.map { keys in
+            AirportDetail.choices.first {
+                presetMatches(AirportDetail.feature(keys, of: $0),
+                              followsSelection: followsSelection)
+            }?.key
         }
+    }
+
+    /// The Detail choice shown now, or nil: Custom.
+    func currentAirportDetail(followsSelection: Bool = true) -> AirportDetailChoice? {
+        let key = AirportDetail.fromStates(airportFeatureStates(followsSelection: followsSelection))
+        return AirportDetail.choices.first { $0.key == key }
     }
 
     /// Apply a Detail choice to the selected tiles, else to the defaults.
     func applyAirportDetail(_ choice: AirportDetailChoice, followsSelection: Bool = true) {
-        applyPreset(AirportDetail.writes(choice), followsSelection: followsSelection)
+        let states = airportFeatureStates(followsSelection: followsSelection)
+        let preset = AirportDetail.writes(choice, from: AirportDetail.fromStates(states),
+                                          states: states)
+        applyPreset(preset, followsSelection: followsSelection)
     }
 }

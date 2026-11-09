@@ -12,8 +12,18 @@ the Mac app (``Sources/XPTerrainBuilder/AirportDetail.swift``;
 ``tests/test_airport_detail.py`` fails when the two differ).  Detail is
 NOT a stored key: a choice WRITES the per-feature keys (:func:`values`,
 through the same paths a preset uses), and the control SHOWS the choice
-whose keys all hold (:func:`matching`), else Custom.  The per-feature
-settings stay in Settings for experts; changing one makes Detail Custom.
+of the features that are on (:func:`matching`), else Custom.
+
+Owner, 2026-11-09T17:01Z and 17:05Z: every preset is Detail ICAO; the
+presets differ in how much each airport feature does (the ZL18 imagery's
+reach, the approach rings, the elevation detail), not in where it
+applies — and a user may still turn a feature off by hand.  So Detail
+reads the four airport FEATURES (:data:`FEATURES`): each is off (its
+None value) or on for one choice; Detail is the one choice every
+feature that is on agrees on (None when all are off), else Custom.
+Switching between ICAO and All re-scopes the features that are on and
+leaves the off ones off; choosing ICAO or All from None or Custom turns
+them all on, with ZL16 outside the airports and ZL18 at them.
 The engine itself never reads this module — its readers read the
 per-feature keys as before, so a build outside the apps is unchanged.
 
@@ -26,8 +36,9 @@ import os
 
 __all__ = [
     "CHOICES", "DEFAULT", "TITLE", "SUMMARY", "CUSTOM_TITLE", "OUTSIDE_ZL",
-    "AIRPORT_ZL", "SCOPE_KEYS", "scope_values", "values", "zoom",
-    "matching", "title", "migrate", "migrate_cfg",
+    "AIRPORT_ZL", "SCOPE_KEYS", "FEATURES", "scope_values", "values",
+    "zoom", "feature_states", "from_states", "matching",
+    "migrate", "migrate_cfg",
 ]
 
 #: The control's words (the Mac app uses the same ones).
@@ -57,6 +68,15 @@ SCOPE_KEYS = (
     "bathymetry_near_other_airports",
 )
 
+#: The airport features, each by its keys, in :data:`SCOPE_KEYS` order:
+#: sharper imagery, grading, high-resolution elevation, measured depth.
+FEATURES = (
+    ("cover_airports_with_highres",),
+    ("auto_patch",),
+    ("airport_elevation_insets",),
+    ("bathymetry_near_icao_airports", "bathymetry_near_other_airports"),
+)
+
 _SCOPE = {
     "none": ("False", "None", "None", "False", "False"),
     "icao": ("ICAO", "ICAO", "ICAO", "True", "False"),
@@ -69,43 +89,76 @@ def _check(choice):
         raise KeyError(choice)
 
 
-def title(choice):
-    _check(choice)
-    return dict(CHOICES)[choice]
-
-
 def scope_values(choice):
     """The per-feature keys ``choice`` decides, as cfg literals."""
     _check(choice)
     return dict(zip(SCOPE_KEYS, _SCOPE[choice], strict=True))
 
 
-def zoom(choice):
-    """The build zoom ``choice`` sets, or ``None`` (None leaves it)."""
+def _full(choice, current):
+    """Whether choosing ``choice`` turns every feature on: from None or
+    Custom (``current`` the shown choice), never to None."""
+    return choice != "none" and current not in ("icao", "all")
+
+
+def zoom(choice, current=None):
+    """The build zoom ``choice`` sets coming from ``current`` (the shown
+    choice, None: Custom), or ``None`` (leave it)."""
     _check(choice)
-    return None if choice == "none" else OUTSIDE_ZL
+    return OUTSIDE_ZL if _full(choice, current) else None
 
 
-def values(choice):
-    """Every cfg key ``choice`` writes: its scope keys, plus the airport
-    zoom (``cover_zl``) when it adds detail.  The build zoom is
-    :func:`zoom` (a preference, not a cfg key)."""
-    out = scope_values(choice)
-    if zoom(choice) is not None:
-        out["cover_zl"] = str(AIRPORT_ZL)
-    return out
+def values(choice, current=None, states=None):
+    """Every cfg key choosing ``choice`` writes, coming from the shown
+    choice ``current`` with feature ``states`` (:func:`feature_states`).
+    From None or Custom: every scope key, plus the airport zoom
+    (``cover_zl``) for ICAO or All.  From ICAO or All: the keys of the
+    features that are on, re-scoped (to None: every key off).  The build
+    zoom is :func:`zoom` (a preference, not a cfg key)."""
+    full = scope_values(choice)
+    if _full(choice, current):
+        full["cover_zl"] = str(AIRPORT_ZL)
+        return full
+    if choice == "none" or states is None:
+        return full
+    return {name: full[name]
+            for keys, state in zip(FEATURES, states, strict=True)
+            if state not in (None, "none") for name in keys}
+
+
+def feature_states(current, same=None):
+    """Each feature's state in ``current`` (name -> cfg literal): the
+    choice its keys equal (``"none"``: off), or ``None`` (neither)."""
+    same = same or _same
+    states = []
+    for keys in FEATURES:
+        state = None
+        for choice, _title in CHOICES:
+            wanted = scope_values(choice)
+            if all(name in current
+                   and same(name, str(current[name]), wanted[name])
+                   for name in keys):
+                state = choice
+                break
+        states.append(state)
+    return states
+
+
+def from_states(states):
+    """The Detail the feature ``states`` show, or ``None`` (Custom)."""
+    if None in states:
+        return None
+    on = {state for state in states if state != "none"}
+    if not on:
+        return "none"
+    return on.pop() if len(on) == 1 else None
 
 
 def matching(current, same=None):
-    """The choice whose scope keys all hold in ``current`` (name -> cfg
-    literal), else ``None`` (Custom).  ``same(name, a, b)`` compares two
-    literals (default: equal text, booleans by meaning)."""
-    same = same or _same
-    for choice, _title in CHOICES:
-        if all(name in current and same(name, str(current[name]), value)
-               for name, value in scope_values(choice).items()):
-            return choice
-    return None
+    """The choice ``current`` (name -> cfg literal) shows, else ``None``
+    (Custom).  ``same(name, a, b)`` compares two literals (default: equal
+    text, booleans by meaning)."""
+    return from_states(feature_states(current, same))
 
 
 def _same(_name, first, second):
@@ -117,9 +170,10 @@ def _same(_name, first, second):
 
 # ── migrating an existing config (once) ─────────────────────────────────
 
-#: Before #1985 the sharper airport imagery was the only airport-scope
-#: choice the app offered; the other keys sat at the engine defaults
-#: below.  Only those keys, at exactly those values, are ever rewritten.
+#: Before #1985 the sharper airport imagery and the grading were the
+#: airport-scope choices the app offered; the other keys sat at the engine
+#: defaults below.  Only those keys, at exactly those values, are ever
+#: rewritten.
 _OLD_DEFAULTS = {
     "auto_patch": "ICAO",
     "airport_elevation_insets": "ICAO",
@@ -127,27 +181,34 @@ _OLD_DEFAULTS = {
     "bathymetry_near_other_airports": "True",
 }
 
-#: The old imagery choice -> the Detail it now stands for.  ``False``
-#: (Balanced, Light on disk) is NOT migrated: Detail None also stops
-#: grading and the elevation insets, which a config never loses
-#: silently — it shows Custom until the user picks.
+#: The old choice -> the Detail it now stands for: the sharper imagery's
+#: scope when it is on, else the grading's.  Grading off with imagery
+#: off is not migrated (it already reads as None or Custom).
 _FROM_HIGHRES = {"ICAO": "icao", "True": "all"}
+_FROM_GRADING = {"ICAO": "icao", "All": "all"}
 
 
 def migrate(raw, inherited=None):
     """The changes that carry the config ``raw`` (name -> literal) over
     to Detail: ``{name: new literal}``, possibly empty.
 
-    The config's ``cover_airports_with_highres`` picks the choice; a
-    scope key is rewritten only where it still holds its old engine
-    default (in ``raw``, or inherited from ``inherited`` when ``raw``
-    lacks it, as a sparse tile cfg does) — a value the user chose is
-    never changed.
+    The config's sharper-imagery scope picks the choice, else its grading
+    scope; a feature that is ON is re-scoped to it, and only where a key
+    still holds its old engine default (in ``raw``, or inherited from
+    ``inherited`` when ``raw`` lacks it, as a sparse tile cfg does) — a
+    value the user chose is never changed, and nothing is turned on or
+    off.  A sparse tile cfg that sets neither scope is left to its global.
     """
     inherited = inherited or {}
-    if "cover_airports_with_highres" not in raw:
+
+    def value(name, default=""):
+        return str(raw.get(name, inherited.get(name, default))).strip()
+
+    if ("cover_airports_with_highres" not in raw
+            and "auto_patch" not in raw):
         return {}
-    choice = _FROM_HIGHRES.get(str(raw["cover_airports_with_highres"]).strip())
+    choice = _FROM_HIGHRES.get(value("cover_airports_with_highres")) \
+        or _FROM_GRADING.get(value("auto_patch", "ICAO"))
     if choice is None:
         return {}
     changes = {}
@@ -155,8 +216,8 @@ def migrate(raw, inherited=None):
         old = _OLD_DEFAULTS.get(name)
         if old is None:
             continue
-        current = raw.get(name, inherited.get(name, old))
-        if _same(name, str(current), old) and not _same(name, old, new):
+        current = value(name, old)
+        if _same(name, current, old) and not _same(name, old, new):
             changes[name] = new
     return changes
 

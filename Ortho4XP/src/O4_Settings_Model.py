@@ -218,6 +218,9 @@ _LAYOUT: list = [
          "Downloads meter-class elevation for the airports where it exists."),
         ("airport_elevation_level", "How detailed should airport elevation be?", "tile", False,
          "Auto takes the finest available, down to 0.5 m."),
+        ("approach_rings", "Add finer elevation on the approaches?", "tile", False,
+         "10 m out to 10 km around each airport with high-resolution "
+         "elevation, then 30 m to 20 km."),
         ("elevation_coastline_band_km", "Coastline lidar band width (km)", "tile", True, ""),
         ("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", "tile", True, ""),
         ("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", "tile", True, ""),

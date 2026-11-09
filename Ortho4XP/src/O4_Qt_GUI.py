@@ -1230,7 +1230,7 @@ class MainWindow(QMainWindow):
         self.mesh_order_row = QTMESHORDER.MeshOrderRow()
         ig.addRow(self.mesh_order_row)
         self.info_zl = ElidedRowLabel("—")
-        ig.addRow("%s:" % GLOSSARY.TERMS["detail"], self.info_zl)
+        ig.addRow("%s:" % GLOSSARY.TERMS["imagery_detail"], self.info_zl)
         self.info_mesh = ElidedRowLabel("—")
         ig.addRow("Ground shaped:", self.info_mesh)
         self.info_imagery = ElidedRowLabel("—")

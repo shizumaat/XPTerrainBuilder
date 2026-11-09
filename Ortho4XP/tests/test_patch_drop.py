@@ -9,11 +9,12 @@ import zipfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-
 import O4_File_Names as FNAMES  # noqa: E402
-from o4_engine import events  # noqa: E402
-from o4_engine import jsonl  # noqa: E402
+import pytest  # noqa: E402
+from o4_engine import (
+    events,  # noqa: E402
+    jsonl,  # noqa: E402
+)
 from o4_engine import patch_drop as PD  # noqa: E402
 
 

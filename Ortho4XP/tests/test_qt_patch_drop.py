@@ -9,11 +9,10 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl  # noqa: E402
-from PySide6.QtGui import QDropEvent  # noqa: E402
-
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Qt_Patch_Drop as QTDROP  # noqa: E402
+from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl  # noqa: E402
+from PySide6.QtGui import QDropEvent  # noqa: E402
 from test_qt_tile_customizations import window  # noqa: E402,F401
 from test_tile_customizations import make_data  # noqa: E402
 

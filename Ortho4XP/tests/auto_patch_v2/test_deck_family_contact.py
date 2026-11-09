@@ -10,13 +10,11 @@ the deck stays governed by it.
 """
 from __future__ import annotations
 
-from shapely.geometry import box
-
 from auto_patch_v2.airport import obj8 as O
 from auto_patch_v2.airport import rebake_plan as RP
 from auto_patch_v2.airport.deck_family_contact import ungoverned_members
 from auto_patch_v2.law import Law
-
+from shapely.geometry import box
 from test_v2fence import _obj, _sheet, _slab
 
 LAW = Law.for_airport("")

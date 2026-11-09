@@ -14,10 +14,9 @@ from __future__ import annotations
 
 import os
 
+from o4_engine import patch_drop as PD
 from PySide6.QtCore import QEvent, QObject
 from PySide6.QtWidgets import QMessageBox
-
-from o4_engine import patch_drop as PD
 
 __all__ = ["TITLE", "INSTALL", "local_paths", "launch_paths", "DropFilter",
            "offer"]

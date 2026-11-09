@@ -13,9 +13,8 @@ import json
 import os
 import types
 
-import pytest
-
 import O4_Airport_Elevation_Insets as INSETS
+import pytest
 from elevation_access import registry as ea_registry
 
 _HERE = os.path.dirname(os.path.abspath(__file__))

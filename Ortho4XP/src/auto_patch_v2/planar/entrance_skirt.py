@@ -39,39 +39,67 @@ from shapely.geometry import LineString
 from shapely.ops import substring, unary_union
 
 from ..model.frame import XY
+from .mouth_opening import axis_left_normal
 
 __all__ = ["face_front_mouth", "is_entrance_face", "entrance_skirt", "skirt_refs"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 #: plan samples along the skirt's ring for the bank width (metres)
 _RING_STEP_M = 1.0
+#: line spacing across the ramp for the face's front, and the inset from
+#: the ramp's edges (a face's side wall standing on an edge is no front)
+_FRONT_STEP_M = 0.5
+_EDGE_INSET_M = 0.25
 
 
-def face_front_mouth(axis: LineString, inward: XY, plan, half: float
+def face_front_mouth(axis: LineString, inward: XY, plan, half
                      ) -> "tuple[LineString, float]":
     """``(axis, metres moved into the bore)``: the mouth moved to the FRONT
-    of an entrance face's top ``plan`` -- the least station, along
-    ``inward`` from the mouth, of the plan inside the corridor (``half``
-    either side of the axis).  Negative: the face stands out of the mapped
-    end and the axis is cut back to it; positive: the mapped end stops
-    short of the face and the axis runs on to it."""
+    of an entrance face's top ``plan`` where it stands DEEPEST across the
+    ramp -- per line along ``inward`` at each offset across the corridor
+    (``half``: one half width either side of the axis, or its ``(left,
+    right)`` pair, ``mouth_opening.opening_halves``), the least station of
+    the plan on it; the mouth is the greatest of those, so the ramp's floor
+    meets the face's bottom across its whole width (#1917: a face skewed
+    across the bore -- LOWS west, 1.8 m over its 20.5 m opening -- reached
+    at its nearest corner left the cut ground standing in front of the rest
+    of it; where the face stands nearer, the floor runs on behind its
+    front).  Negative: the face stands out of the mapped end and the axis is
+    cut back to it; positive: the mapped end stops short of the face and the
+    axis runs on to it."""
     m = axis.coords[0]
-    span = 4.0 * (axis.length + 1000.0)
-    strip = LineString([(m[0] - inward[0] * span, m[1] - inward[1] * span),
-                        (m[0] + inward[0] * span, m[1] + inward[1] * span)]
-                       ).buffer(half, cap_style="flat")
-    got = plan.intersection(strip)
-    pts = [q for g in getattr(got, "geoms", [got]) if hasattr(g, "exterior")
-           for q in g.exterior.coords] if not got.is_empty else []
-    if not pts:
+    d = _deepest_front(m, inward, plan, half, axis_left_normal(axis),
+                       4.0 * (axis.length + 1000.0))
+    if d is None:
         return axis, 0.0
-    d = min((q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1] for q in pts)
     if d > 0.0:
         new = (m[0] + inward[0] * d, m[1] + inward[1] * d)
         return LineString([new] + list(axis.coords)), float(d)
     if -d <= 1e-6 or -d >= axis.length - 1e-6:
         return axis, 0.0
     return substring(axis, -d, axis.length), float(d)
+
+
+def _deepest_front(m: XY, inward: XY, plan, half, nv: XY, reach: float) -> "float | None":
+    """The greatest, over lines along ``inward`` across the corridor
+    (``half`` either side of ``m``, or ``(left, right)`` along ``nv``), of
+    the least station from ``m`` of ``plan`` on each line; ``None`` where
+    no line meets it."""
+    left, right = (half, half) if isinstance(half, (int, float)) else half
+    lo, hi = -float(right) + _EDGE_INSET_M, float(left) - _EDGE_INSET_M
+    n = max(1, int(math.ceil((hi - lo) / _FRONT_STEP_M))) if hi > lo else 0
+    best = None
+    for k in range(n + 1):
+        o = lo + (hi - lo) * k / n if n else 0.0
+        c = (m[0] + nv[0] * o, m[1] + nv[1] * o)
+        got = plan.intersection(LineString([(c[0] - inward[0] * reach, c[1] - inward[1] * reach),
+                                            (c[0] + inward[0] * reach, c[1] + inward[1] * reach)]))
+        if got.is_empty:
+            continue
+        front = min((q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1]
+                    for g in getattr(got, "geoms", [got]) for q in g.coords)
+        best = front if best is None else max(best, front)
+    return best
 
 
 def _bank_width(core, top_z: float, dem_z: _t.Callable[[float, float], float],

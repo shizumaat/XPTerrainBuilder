@@ -184,22 +184,24 @@ def _face_at(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, r: float, law
 
 
 def _wall_opening(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, into: "XY | None",
-                  r: float, law) -> float:
+                  r: float, law) -> tuple[float, tuple]:
     """An ENTRANCE face's OPENING at the bore end ``xy``: the span across the
     bore (``into``) between the nearest breaks of the face's foot either side
     of the mapped road's line — the across-bore offsets of its solids'
     vertices standing on its bottom (within ``cover_flush_m`` of the lowest
     solid within ``r`` of the end, along the bore no further than those
-    solids reach), where its walls and the trench walls meet it.  ``0.0``
+    solids reach), where its walls and the trench walls meet it, as
+    ``(width, (edge, edge))`` (``portal_objects.opening_span``; #1917: the
+    ramp stands on the edges, not on the mapped road's line).  ``(0.0, ())``
     where no break bounds it on both sides (owner 2026-11-05 LOWS: "the
     tunnel ramp is not wide enough. Shouldn't its size be set by the tunnel
     mouth object?").  MEASURED LOWS ``domiki_lows_48``: the face's opening
     panel spans 21.2 m between its walls at both ends (each end's two
     carriageways inside it); the mapped road's ramp was 14-15 m."""
-    from .portal_objects import across_bore
+    from .portal_objects import across_bore, opening_span
     got = None if into is None else _near_solids(o, g, xy, r)
     if got is None:
-        return 0.0
+        return 0.0, ()
     px, py, near = got
     v, t = g.vertices, g.solid
     along = (px - xy[0]) * into[0] + (py - xy[1]) * into[1]
@@ -212,7 +214,9 @@ def _wall_opening(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, into: "XY
     foot = foot[(v[foot, 1] <= float(v[ks, 1].min()) + flush)
                 & (along[foot] >= lo) & (along[foot] <= hi)]
     left, right = across[foot][across[foot] < 0.0], across[foot][across[foot] > 0.0]
-    return float(right.min() - left.max()) if len(left) and len(right) else 0.0
+    if not (len(left) and len(right)):
+        return 0.0, ()
+    return opening_span(float(left.max()), float(right.min()), xy, into)
 
 
 #: a face top with more of its plate than this beyond the face reach is a lid
@@ -315,6 +319,7 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             if int(wid) not in bores:
                 continue
             face = _face_at(o, g, xy, 2.0 * tol, law)
+            end_into = into.get(((float(xy[0]), float(xy[1])), int(wid)))
             ground = float(dem_z(xy[0], xy[1]))
             if face is None or np.isnan(ground):
                 continue
@@ -332,15 +337,12 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             cover = _cover_over(plan, dem_z) if (
                 abs(top) <= flush and top - bottom >= floor_min) else None
             floor = (zero + bottom) if cover is None else cover - (top - bottom)
+            width, edges = _wall_opening(o, g, xy, end_into, 2.0 * tol, law)
             out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
                               ground - floor, 0.0, (float(xy[0]), float(xy[1])),
-                              floor_z=float(floor),
-                              opening_m=_wall_opening(
-                                  o, g, xy, into.get(((float(xy[0]), float(xy[1])), int(wid))),
-                                  2.0 * tol, law),
+                              floor_z=float(floor), opening_m=width, opening_xy=edges,
                               bottom_y=None if cover is None else float(bottom),
                               face_plan=None if cover is None else _face_top(
-                                  plan, xy, into.get(((float(xy[0]), float(xy[1])), int(wid))),
-                                  2.0 * tol),
+                                  plan, xy, end_into, 2.0 * tol),
                               face_top_z=None if cover is None else float(cover)))
     return out

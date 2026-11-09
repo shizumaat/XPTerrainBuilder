@@ -12,6 +12,7 @@ from scipy.ndimage import uniform_filter1d
 import skfmm
 import O4_Bathymetry_Band as BATHYBAND
 import O4_Coastal_Foam_Edge as FOAM
+import O4_Shore_Feather as SHORE
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
@@ -1087,8 +1088,10 @@ def compose_water_mask(pre_mask, blured_full, sea_level, feather_pixels,
       The feather profile mirrors sand mode (triangular blur of the
       land indicator, doubled and clipped), so an inland shore reads
       like a narrow beach fade that settles at the ``ratio_water``
-      blend instead of at open water.  ``feather_pixels <= 0`` keeps
-      the historic hard clamp.
+      blend instead of at open water.  The feather reaches at most
+      25 % of the LOCAL shore-to-shore width (RULINGS 2026-11-09a (12),
+      :mod:`O4_Shore_Feather`).  ``feather_pixels <= 0`` keeps the
+      historic hard clamp.
 
     ``pre_mask`` and ``blured_full`` are full pre-mask geometry
     (``crop_margin`` on each side); the returned array is cropped.
@@ -1106,13 +1109,7 @@ def compose_water_mask(pre_mask, blured_full, sea_level, feather_pixels,
     if feather_pixels <= 0 or grey >= 255:
         composed[inland] = 255
         return composed
-    shore_ramp = triangular_blur_along_axis(
-        land_full.astype(numpy.uint8) * 255, feather_pixels, axis=1)
-    shore_ramp = triangular_blur_along_axis(
-        shore_ramp, feather_pixels, axis=0)
-    shore_ramp = (
-        2 * numpy.minimum(shore_ramp[crop, crop], 127)
-    ).astype(numpy.uint16)
+    shore_ramp = SHORE.shore_ramp(land_full, crop_margin, feather_pixels)
     feathered = (
         grey + ((255 - grey) * shore_ramp[inland]) // 255
     ).astype(numpy.uint8)

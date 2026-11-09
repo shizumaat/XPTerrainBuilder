@@ -47,6 +47,7 @@ from .events import (
     PackOldForests,
     PackOptimise,
     PackAdjust,
+    GatewayAirports,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     SlowStep,
     StepProgress,
@@ -166,6 +167,25 @@ def build_done(lat, lon, ok, records, app_driven=False, notes=(),
         tile, log_path=log_path, report_button=app_driven)
     return BuildDone(lat=lat, lon=lon, ok=False,
                      error=FAIL.headline(failures), failures=failures)
+def _offer_gateway_airports(lat: int, lon: int) -> None:
+    """#1989: once a tile is built, its graded airports X-Plane flattens
+    and its Gateway packs with a newer version, offered through a
+    ``GatewayAirports`` event — on a thread of its own, so the Gateway's
+    answer never holds up the next tile."""
+    def work():
+        from auto_patch import gateway_stage as _GW
+
+        from .xplane_root import xplane_root_for
+        try:
+            root = xplane_root_for(lat, lon)
+        except Exception:
+            return
+        _GW.gateway_stage(lat, lon, root)
+
+    threading.Thread(target=work, daemon=True,
+                     name="o4-gateway-check").start()
+
+
 SCAN_FLUSH_SECONDS = 0.1     # scan streaming cadence (~10 Hz)
 ETA_EMIT_SECONDS = 1.0       # RunEta cadence
 RATE_MIN_SPAN_SECONDS = 3.0  # need this much window before trusting a rate
@@ -1656,6 +1676,8 @@ class EngineSession:
                                                        built.notes):
                             UI.lvprint(0, line)
                     self._emit(built)
+                    if not self._stepwise_run:
+                        _offer_gateway_airports(lat, lon)
                     _record_tile_build(
                         lat, lon,
                         {"zoomlevel": zoomlevel, "provider": provider,
@@ -2024,6 +2046,40 @@ class EngineSession:
             lambda r, a, la, lo: _AS.adjust_choice(r, a, la, lo, items=picked,
                                                    shown=seen),
             pack_root, action, lat, lon)
+
+    def gateway_airports_event(self, **fields):
+        """Gateway airports to offer, or an answer's outcome (#1989): the
+        ``GatewayAirports`` event (``UI.gateway_airports`` hook)."""
+        self._emit_known(GatewayAirports, fields)
+
+    def gateway_airports(self, action="", lat=None, lon=None, items=None,
+                         shown=None):
+        """THE USER'S ANSWER (capability ``gateway_airports``, #1989):
+        ``action`` is ``"install"`` (the ICAOs of ``items`` installed from
+        the Gateway without their flatten flag, the ones of ``shown`` left
+        out remembered as never), ``"never"``, ``"undo"`` or ``"ask"`` (the
+        tile's report).  Replies ``{"status": "started"}`` at once — the
+        download runs on a worker thread — and completes with a
+        ``GatewayAirports`` event (``gateway_stage.gateway_choice``)."""
+        from auto_patch import gateway_stage as _GW
+
+        from .xplane_root import xplane_root_for
+        picked = [str(x) for x in (items or ())]
+        seen = None if shown is None else [str(x) for x in shown]
+        act = str(action or "")
+        la = None if lat is None else int(lat)
+        lo = None if lon is None else int(lon)
+
+        def work():
+            try:
+                root = xplane_root_for(la, lo) if la is not None else None
+            except Exception:
+                root = None
+            _GW.gateway_choice(root, act, la, lo, items=picked, shown=seen)
+
+        threading.Thread(target=work, daemon=True,
+                         name="o4-gateway-airports").start()
+        return {"status": "started"}
 
     def _emit_known(self, cls, fields):
         """``cls(**fields)`` emitted, its unknown fields dropped so an

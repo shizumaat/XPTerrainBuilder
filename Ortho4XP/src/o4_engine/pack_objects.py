@@ -41,6 +41,7 @@ import numpy as np
 import O4_File_Names as FNAMES
 
 from . import pack_massing as _mass
+from .xplane_root import xplane_root_for  # noqa: F401 (re-exported)
 
 __all__ = ["pack_objects", "start_pack_objects", "b64_array"]
 
@@ -71,18 +72,6 @@ def _tile(tile: _t.Any) -> tuple[int, int]:
 def b64_array(a: np.ndarray, dtype: str) -> str:
     """A packed little-endian array as the wire's base64 (spec §2)."""
     return base64.b64encode(np.ascontiguousarray(a, dtype=dtype).tobytes()).decode("ascii")
-
-
-def xplane_root_for(lat: int, lon: int) -> str | None:
-    """The X-Plane install the tile's build reads (its CIFP folder's
-    install — ``patch_commands`` and the tile driver resolve it so)."""
-    import O4_Config_Utils as CFG
-    import O4_Vector_Map as VMAP
-    from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
-    tile = CFG.Tile(lat, lon, "")
-    tile.read_from_config()
-    cifp_dir = VMAP.resolve_cifp_dir_for_tile(tile)
-    return xplane_root_from_cifp_path(cifp_dir) if cifp_dir else None
 
 
 def facade_height(def_path: str, param: int, root: str, index) -> float | None:

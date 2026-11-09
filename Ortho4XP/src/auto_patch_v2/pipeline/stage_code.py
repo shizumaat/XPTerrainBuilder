@@ -547,6 +547,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.apron_shelf",
         "auto_patch_v2.planar.arrangement_memo",
         "auto_patch_v2.planar.basin_datum",
+        "auto_patch_v2.planar.basin_floor_width",
         "auto_patch_v2.planar.basin_geometry",
         "auto_patch_v2.planar.basin_rim",
         "auto_patch_v2.planar.basins",
@@ -558,6 +559,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.channel_depth",
         "auto_patch_v2.planar.channel_floor",
         "auto_patch_v2.planar.channel_geometry",
+        "auto_patch_v2.planar.channel_stretch",
         "auto_patch_v2.planar.channel_witness",
         "auto_patch_v2.planar.chords",
         "auto_patch_v2.planar.covered_bores",
@@ -1782,10 +1784,10 @@ CODE_MODULES["solve"] = _mods("""
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.back_cache pipeline.capture_state
     pipeline.solve_record pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
-    planar.basin_datum
+    planar.basin_datum planar.basin_floor_width
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
-    planar.channel_claims planar.channel_floor planar.channel_geometry
+    planar.channel_claims planar.channel_floor planar.channel_geometry planar.channel_stretch
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     planar.cut_frame planar.deck_bridge planar.deck_walls
@@ -1933,10 +1935,10 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     pipeline.back_cache pipeline.capture_state pipeline.constraint_records
     pipeline.late_records pipeline.late_stage pipeline.shapes pipeline.solve_record
     pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
-    planar.basin_datum
+    planar.basin_datum planar.basin_floor_width
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
-    planar.channel_claims planar.channel_floor planar.channel_geometry
+    planar.channel_claims planar.channel_floor planar.channel_geometry planar.channel_stretch
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     planar.cut_frame planar.deck_bridge planar.deck_walls

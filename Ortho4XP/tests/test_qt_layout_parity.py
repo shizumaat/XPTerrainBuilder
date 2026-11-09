@@ -107,6 +107,10 @@ CONSOLE_HEADER = (
     ("clear", 'Image(systemName: "xmark.circle")', "console_clear_btn"),
 )
 HISTORY_DATE_FILTER = ('Picker("Built"', "range_combo")
+
+#: The tile pane's "Path" row (#1987), just under "Built by": (Swift
+#: marker in BuildPane.swift, Qt window attribute).
+TILE_PATH_ROW = ("TilePathRow(info:", "tile_path_row")
 APPLICATION_ROWS = ("Version", "X-Plane Folder", "Data Folder")
 
 #: The Build pane's run sections, top to bottom (#1556), each a section
@@ -477,3 +481,16 @@ def test_the_patch_library_has_one_home_in_each_app(window):
     card = window.airports_card.layout()
     assert card.indexOf(window.airports_card.library_match_list) == \
         card.indexOf(window.airports_card.airports_text) + 1
+
+
+def test_both_tile_panes_show_the_path_under_built_by(window):
+    """#1987: the tile folder (links resolved) and its reveal button sit
+    under "Built by" in both apps, titled alike."""
+    import O4_Qt_Tile_Path_Row as QTPATHROW
+
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    marker, attr = TILE_PATH_ROW
+    assert pane.index(marker) > pane.index('detailRow("Built by"')
+    row = (SWIFT / "TilePathRow.swift").read_text(encoding="utf-8")
+    assert 'static let title = "%s"' % QTPATHROW.ROW_TITLE in row
+    assert isinstance(getattr(window, attr, None), QTPATHROW.TilePathRow)

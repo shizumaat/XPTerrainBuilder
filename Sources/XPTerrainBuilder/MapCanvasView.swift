@@ -51,6 +51,9 @@ struct MapCanvasView: View {
     // outline.
     static let buildSelection = Color(red: 1.0, green: 0.84, blue: 0.04) // #FFD60A
     static let builtTile = Color(red: 0.30, green: 0.69, blue: 0.43)
+    /// A built tile whose folder lives on another drive (#1987): brown,
+    /// with "Requires <drive>" top-right (Qt: BUILT_EXTERNAL_COLOR).
+    static let builtExternalTile = Color(red: 0.63, green: 0.44, blue: 0.24) // #A0703C
     static let badgeDone = Color(red: 0.18, green: 0.62, blue: 0.36)     // #2E9E5B
     static let badgeError = Color(red: 0.90, green: 0.22, blue: 0.17)    // #E5372B
     static let badgeStopped = Color(red: 0.95, green: 0.58, blue: 0.10)  // #F29419
@@ -433,16 +436,18 @@ struct MapCanvasView: View {
         }
 
         // Built tiles: green border (no fill — it obscures the imagery
-        // preview); installed adds the double (inset) border. The imagery
+        // preview), brown on another drive; installed adds the double
+        // (inset) border. The imagery
         // label is drawn with the tile labels (MapCanvasLabels, #817).
         // A tile being built draws as building only (#1736): its progress
         // badge, never the border of the DSF an earlier build left.
-        for coord in buildModel.built.keys where visible(coord) && !buildActivity.isBuilding(coord) {
+        for (coord, info) in buildModel.built where visible(coord) && !buildActivity.isBuilding(coord) {
             let r = rect(coord)
-            // The Build History date filter dims built tiles outside its
+            // Brown when the folder lives on another drive (#1987). The
+            // Build History date filter dims built tiles outside its
             // period (#1226).
-            let color = buildModel.builtInHistoryRange(coord)
-                ? Self.builtTile : Self.builtTile.opacity(0.3)
+            let base = info.volume == nil ? Self.builtTile : Self.builtExternalTile
+            let color = buildModel.builtInHistoryRange(coord) ? base : base.opacity(0.3)
             context.stroke(Path(r), with: .color(color.opacity(0.85)), lineWidth: 2)
             if buildModel.installed.contains(coord) {
                 context.stroke(Path(r.insetBy(dx: r.width * 0.03, dy: r.height * 0.03)),

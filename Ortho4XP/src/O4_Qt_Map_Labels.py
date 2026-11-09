@@ -19,6 +19,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tupl
 import O4_Airport_Rank as RANK
 import O4_Map_Labels as LABELS
 import O4_Text_Scale as TS
+import O4_Tile_Volume as TVOL
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QPen
 
@@ -31,6 +32,9 @@ PILL_COLOR = QColor(0, 0, 0, 140)
 TILE_TEXT_COLOR = QColor(255, 255, 255, 235)
 DEFAULT_LABEL_COLOR = QColor(224, 224, 224)
 CUSTOM_LABEL_COLOR = QColor(242, 140, 184)
+#: How far the "Requires <drive>" pill drops below the tile's top edge
+#: when the mixed-imagery badge (at most 20 pt) holds that corner.
+CONFLICT_BADGE_CLEARANCE = 24.0
 
 
 def label_font(pixel_size: float, bold: bool = False) -> QFont:
@@ -44,13 +48,14 @@ def label_font(pixel_size: float, bold: bool = False) -> QFont:
 
 
 def _pill(painter, text: str, x: float, y: float, top: bool,
-          font: QFont) -> None:
+          font: QFont, right: bool = False) -> None:
     """``text`` on a translucent pill whose top-left (``top``) or
-    bottom-left corner is (x, y)."""
+    bottom-left corner is (x, y) — its top-RIGHT corner with ``right``."""
     metrics = QFontMetricsF(font)
     width = metrics.horizontalAdvance(text) + 8.0
     height = metrics.height() + 4.0
-    rect = QRectF(x, y if top else y - height, width, height)
+    rect = QRectF(x - width if right else x, y if top else y - height,
+                  width, height)
     painter.setPen(Qt.NoPen)
     painter.setBrush(PILL_COLOR)
     painter.drawRoundedRect(rect, height / 2.0, height / 2.0)
@@ -66,6 +71,7 @@ def paint_tile_labels(painter, point_of: PointOf, scale: float,
                       ortho_tiles: Optional[Set[Tile]],
                       text_scale: float = TS.DEFAULT,
                       ortho_imagery: Optional[Dict[Tile, tuple]] = None,
+                      conflicts: Optional[Set[Tile]] = None,
                       ) -> None:
     """Coordinate top-left on every visible tile; imagery bottom-left on
     a ``built`` tile (its ``provider``/``zl``/``has_zones``) or on one an
@@ -74,7 +80,10 @@ def paint_tile_labels(painter, point_of: PointOf, scale: float,
     ``(provider, zl)`` read from the pack's files fills in (#1257, the
     Mac's MapCanvasLabels); with neither the label says ``imagery ?``.
     ``None`` for ``built`` or ``ortho_tiles`` hides that layer (the
-    scenery filter).  ``text_scale`` is the apps' text size (#827)."""
+    scenery filter).  ``text_scale`` is the apps' text size (#827).
+    A built tile on another drive (its ``volume``, #1987) says
+    "Requires <drive>" top-right, below the mixed-imagery badge when the
+    tile is in ``conflicts``."""
     ortho_imagery = ortho_imagery or {}
     if scale < LABELS.TILE_LABEL_MIN_SCALE:
         return
@@ -89,6 +98,14 @@ def paint_tile_labels(painter, point_of: PointOf, scale: float,
             _pill(painter, tile_key(lat, lon), top_left.x() + 4,
                   top_left.y() + 4, True, font)
             info = built.get((lat, lon)) if built is not None else None
+            volume = getattr(info, "volume", "") if info is not None else ""
+            if volume:
+                top_right = point_of(lat + 1, lon + 1)
+                drop = CONFLICT_BADGE_CLEARANCE if (lat, lon) in (
+                    conflicts or ()) else 0.0
+                _pill(painter, TVOL.requires_label(volume),
+                      top_right.x() - 4, top_right.y() + 4 + drop, True,
+                      font, right=True)
             pack = ortho_imagery.get((lat, lon))
             if info is not None:
                 provider = getattr(info, "provider", "")

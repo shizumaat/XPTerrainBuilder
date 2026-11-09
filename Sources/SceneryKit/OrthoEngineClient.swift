@@ -605,6 +605,14 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     /// picks the cfg's or this.
     public let detectedProvider: String?
     public let detectedZL: Int?
+    /// Where the folder really is (#1987, O4_Tile_Volume): `buildDir`
+    /// with its links resolved; the drive it needs when that is not the
+    /// one holding its parent folder; whether that folder is reachable
+    /// now. nil from an engine that predates the fields; `volume` nil
+    /// also when the tile sits on its parent folder's drive.
+    public let resolvedDir: String?
+    public let volume: String?
+    public let volumeMounted: Bool?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -636,7 +644,23 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         builtBy = object["built_by"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         detectedProvider = object["detected_provider"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         detectedZL = object["detected_zl"]?.intValue
+        resolvedDir = object["resolved_dir"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        volume = object["volume"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        volumeMounted = object["volume_mounted"]?.boolValue
     }
+
+    /// The folder to show and reveal: resolved, else as scanned.
+    public var folderPath: String { resolvedDir ?? buildDir }
+    /// The folder can be reached now (false while its drive is away).
+    public var folderReachable: Bool { volumeMounted ?? true }
+}
+
+/// The words of #1987, shared with the engine's `O4_Tile_Volume`.
+public enum O4TileVolumeText {
+    /// The map's top-right label on a tile that lives on `volume`.
+    public static func requiresLabel(_ volume: String) -> String { "Requires \(volume)" }
+    /// Why the tile pane's reveal button is disabled.
+    public static func offlineNote(_ volume: String) -> String { "\(volume) is not connected." }
 }
 
 /// The install-link state vocabulary (O4_Scenery_Links.LinkStatus values).

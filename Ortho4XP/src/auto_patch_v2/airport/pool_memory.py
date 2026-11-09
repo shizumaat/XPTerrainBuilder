@@ -32,7 +32,7 @@ they never enter a digest, and they change no geometry — a build under
 every ceiling is byte-identical with or without this module.
 
 :func:`describe` is the build's memory as one short phrase, which the
-progress heartbeat (``auto_patch.engine_v2.V2Progress``) appends to its
+progress heartbeat (``engine_v2.V2Progress`` in the v1 driver package) appends to its
 "still working" line, so the app shows what a step holds while it runs.
 """
 from __future__ import annotations

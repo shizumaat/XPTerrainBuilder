@@ -342,7 +342,7 @@ struct BuildPane: View {
                                     .scaledFont(.caption)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
-                                    .help("\(row.packName) — \(row.objectCount) object file\(row.objectCount == 1 ? "" : "s") reseated to this tile's rebuilt ground")
+                                    .help(row.help)
                                 Spacer(minLength: 8)
                                 // #1360: the pack's 3D trees, undone on
                                 // their own (the Qt row's twin button)
@@ -885,6 +885,17 @@ struct BuildPane: View {
         var forestCount: Int = 0
         /// Duplicate placements "Optimise pack" drops (#1707).
         var optimisedCount: Int = 0
+        /// Vendor defects the pack health check repaired (#1978).
+        var repairedCount: Int = 0
+
+        /// The row's tooltip (the Qt row's twin text).
+        var help: String {
+            var text = "\(packName) — \(objectCount) object file\(objectCount == 1 ? "" : "s") reseated to this tile's rebuilt ground"
+            if repairedCount > 0 {
+                text += "; \(repairedCount) vendor defect\(repairedCount == 1 ? "" : "s") repaired (originals kept)"
+            }
+            return text
+        }
     }
 
     /// Asks the ENGINE which packs the reseater modified for the active
@@ -919,7 +930,8 @@ struct BuildPane: View {
                     packName: pack.packName, packPath: pack.packPath,
                     objectCount: pack.objectCount,
                     forestCount: pack.forestCount,
-                    optimisedCount: pack.optimisedCount)]
+                    optimisedCount: pack.optimisedCount,
+                    repairedCount: pack.repairedCount)]
             }
             return names.map { name in
                 ModifiedAirportRow(
@@ -927,7 +939,8 @@ struct BuildPane: View {
                     packName: pack.packName, packPath: pack.packPath,
                     objectCount: pack.objectCount,
                     forestCount: pack.forestCount,
-                    optimisedCount: pack.optimisedCount)
+                    optimisedCount: pack.optimisedCount,
+                    repairedCount: pack.repairedCount)
             }
         }
         .sorted { $0.label < $1.label }

@@ -145,6 +145,7 @@ from . import dsf_heights as _dh
 from . import pack_art as _pa
 from . import pack_drapes as _pd
 from . import pack_forests as _pf
+from . import pack_health as _ph
 from . import pack_optimise as _po
 from . import split_guard as _sg
 from . import user_seats as _us
@@ -1556,7 +1557,13 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     chose to hide (``pack_drapes.draped_orthos``): their definitions and
     every polygon drawing one leave the dump with the omission.  ``None``
     keeps the hiding the record holds for this pristine DSF, ``()``
-    writes without it (Undo).  The record gains ``hidden_drapes``."""
+    writes without it (Undo).  The record gains ``hidden_drapes``.
+
+    THE PACK HEALTH CHECK (issue #1978, ``pack_health``) runs on every
+    write, with no keyword: the vendor defects it knows (duplicate and
+    stacked line placements, malformed light records in the pack's
+    objects) are repaired in the written DSF and its copies of those
+    objects.  The record gains ``pack_health``."""
     dsf_path = plan.dsf_path or ""
     if not os.path.isfile(dsf_path):
         raise FileNotFoundError(f"DSF not found: {dsf_path!r}")
@@ -1682,9 +1689,10 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         composed = plan.compose(siblings)
         placed, seated, refused = _us.apply(composed, _us.union(hand), rows)
         _refuse_missing_bodies(pack_root, placed)            # #1214 R1
-        edited, omitted, unused, optimised, swapped = _edited_text(
-            pinned, placed, omit_all,
-            engine_version or plan.provenance.engine_version, optimise)
+        edited, omitted, unused, optimised, swapped, health, fixed = \
+            _edited_text(pinned, placed, omit_all,
+                         engine_version or plan.provenance.engine_version,
+                         optimise, pack_root)
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
         # a seat under the pinned HEIGHTS base cannot be encoded
         edited = _dh.cover_row_elevations(edited)
@@ -1798,6 +1806,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         # #1916: the pack's draped photos the user chose to hide, or None
         _pd.RECORD_KEY: (_pa.record(backup_sha, drapes, omitted, _bs.stamp())
                          if drapes else None),
+        # #1978: the vendor defects the pack health check repaired, or None
+        _ph.RECORD_KEY: _ph.record(backup_sha, health, fixed, _bs.stamp()),
         # #1707: the "Optimise pack" recipe the user accepted, or None
         _po.RECORD_KEY: (_po.record(backup_sha, optimise, optimised,
                                     _bs.stamp(), {"swaps": swapped,
@@ -1835,6 +1845,9 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     # AFTER the move (the live DSF never names a missing file), under
     # 11m's own CUT_MARK guard.
     removed = remove_cut_files(_body_paths(pack_root, orphaned))
+    # #1978: a repaired copy the new write no longer names (the vendor
+    # fixed the object) goes the same way
+    _ph.objects.remove(pack_root, set(_ph.generated_of(prior_entry)) - set(fixed))
 
     return WriteResult(dsf_path, backup, created, edited_text, prov_path,
                        report, counts, verdict.state.value,
@@ -1844,29 +1857,36 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
 
 
 def _edited_text(text: str, composed: PlacementPlan, omit: _t.Sequence,
-                 engine_version: str, optimise: _t.Mapping[str, _t.Any]
-                 ) -> tuple[str, dict, dict, dict, dict]:
+                 engine_version: str, optimise: _t.Mapping[str, _t.Any],
+                 pack_root: str
+                 ) -> tuple[str, dict, dict, dict, dict, "_ph.Health", list]:
     """The pristine dump edited by ``composed`` and the optimise recipe's
     duplicate drops (#1707; a duplicate the plan edits keeps its edit),
-    the accepted omission (#433) and the dropped unused definitions
-    (#678): a definition the edit left with no row (a split's original)
-    is not declared; one the AUTHOR declared unused is the pack's own and
-    stays.  Last, the recipe's library swaps (#1707 D2) move the rows
-    still drawing a swapped object — a split body of one stays the
-    pack's."""
+    the pack health check's duplicate and stacked line placements
+    (#1978), the accepted omission (#433) and the dropped unused
+    definitions (#678): a definition the edit left with no row (a split's
+    original) is not declared; one the AUTHOR declared unused is the
+    pack's own and stays.  Then the recipe's library swaps (#1707 D2)
+    move the rows still drawing a swapped object — a split body of one
+    stays the pack's — and last the rows still naming a vendor object
+    with a malformed light name our repaired copy (#1978; the copies
+    written are returned)."""
     edited_rows = ({c.index for c in composed.conversions}
                    | {s.placement.index for s in composed.splits}
                    | {m.index for m in getattr(composed, "msl_seats", ())})
     also_drop, optimised = _po.drop_ordinals(
         text.splitlines(keepends=True), optimise, edited_rows)
     edited = edit_dump(text, composed, engine_version, also_drop)
+    edited, polys = _ph.repair_polygons(edited)
     omitted: dict[str, int] = {}
     if omit:
         edited, omitted = _pa.omit_definitions(edited, omit)
     edited, unused = _pa.omit_definitions(edited, _pa.unused_definitions(
         edited, keep={m.path for m in _pa.unused_definitions(text)}))
     edited, swapped = _po.apply_rows(edited, optimise)
-    return edited, omitted, unused, optimised, swapped
+    edited, lights, fixed = _ph.repair_objects(edited, pack_root)
+    return (edited, omitted, unused, optimised, swapped,
+            _ph.Health(polys, lights), fixed)
 
 
 def _undone_notes(plan: PlacementPlan, undone: _t.Mapping[int, str],

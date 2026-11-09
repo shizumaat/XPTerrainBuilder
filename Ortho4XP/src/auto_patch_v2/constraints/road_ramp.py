@@ -815,17 +815,31 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         design=float(law.tables.emit.road_contact.ramp_grade),
         lane=float(law.tables.emit.road_profile.lane_width_m), ceil=ceil)
     # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
-    # row and NO terrace target: a road inside a band beats the band at or
-    # below the band's grade (owner 2026-10-19, #951 — "as long as they are
-    # at or below the safety area grade they are not interfering with air
-    # traffic, and typically they are cut below").  The terrace level (the
-    # bordering pavement's) as its target pulled KLAX's road 3.85 m up
-    # toward the runway end; the band's ceiling is ``zones.zone_bands``'
-    # kerb row, so above the band's grade the band still leads.
+    # row.  Inside a RUNWAY's band it gets NO terrace target: a road there
+    # beats the band at or below the band's grade (owner 2026-10-19, #951 —
+    # "as long as they are at or below the safety area grade they are not
+    # interfering with air traffic, and typically they are cut below"); the
+    # runway's level as its target pulled KLAX's road 3.85 m up toward the
+    # runway end.  A kerb the terrace finds bordered by a TAXIWAY or an
+    # APRON gets its terrace level as the same law-weight design target
+    # (10-03b: the road takes the pavement it runs beside), never a ceiling
+    # — the band's ceiling (``zones.zone_bands``' kerb row) stays the hard
+    # one, so the road still stands at or below the band's grade.  Only an
+    # AT-GRADE road's kerb is listed (``airport/road_ramp``: 28p (1)'s
+    # classes); a public road follows its own ground (20c (39)).  Left
+    # without one, the kerb had no level of its own while the run linked
+    # beyond it took the taxiway's: MEASURED KEGE ``small_roads:-895``
+    # (#1982 / #1983) stood 2.8 m under taxiway pol93 at its weld and 6 m
+    # under the band beside it (a trench), its linked run at the taxi level.
+    kerb = terr.get("kerb") or {}
+    runway = terr.get("runway") or {}
+    add = {v: z for v, z in prof.items()
+           if v in kerb and v not in floor and v not in runway}
     prof = {v: z for v, z in prof.items() if v in floor}
     rep["runway_not_lifted"] = rep.pop("ceiled")
-    rep["governed"] = len(prof)
-    if not prof:
+    rep["governed"] = len(prof) + len(add)
+    rep["kerb"] = len(add)
+    if not prof and not add:
         return cs, rep
     linears = []
     for r in cs.linears:
@@ -834,6 +848,11 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
             if v in prof:
                 r = _dc.replace(r, lo=prof[v], hi=prof[v])
         linears.append(r)
+    for v in sorted(add):
+        ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
+                    if planar.faces[f].role in roles), "")
+        linears.append(Linear(((v, 1.0),), add[v], add[v],
+                              Source(GEN, RULING, (f"vertex:{v}", ref))))
     bands = []
     for r in cs.bands:
         if r.source.generator == GEN and r.source.ruling == RULING_CEILING:

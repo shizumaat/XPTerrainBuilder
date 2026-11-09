@@ -18,7 +18,6 @@ import sys
 import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(_HERE, "..", "src"))
 
 import O4_Airport_Elevation_Insets as INSETS
 from elevation_access import base_tiles as ea_base_tiles

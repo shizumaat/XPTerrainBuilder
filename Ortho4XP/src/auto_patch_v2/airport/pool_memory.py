@@ -110,8 +110,11 @@ def resident_kib(pids: _t.Iterable[int]) -> dict[int, int]:
     if sys.platform == "win32":
         return _resident_kib_windows(pids)
     try:
+        import O4_UI_Utils as _ui
         out = subprocess.run(["ps", "-o", "pid=,rss=", "-p", ",".join(map(str, pids))],
-                             capture_output=True, text=True, timeout=10).stdout
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=10,
+                             **_ui.external_tool_keyword_arguments()).stdout
     except (OSError, subprocess.SubprocessError):
         return {}
     got: dict[int, int] = {}

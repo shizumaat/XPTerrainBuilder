@@ -129,8 +129,11 @@ def _fetch(url, timeout=60):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, os.path.join(here, os.pardir, "src"))
+    import O4_Console_Encoding
+    O4_Console_Encoding.configure_console_streams()
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument(
         "--out-dir",
         default=os.path.join(here, os.pardir, "Providers", "Elevation"))

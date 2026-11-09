@@ -87,7 +87,7 @@ def test_a_taxi_bordered_kerb_takes_the_taxiway_level(law):
     # the run beyond the kerb leaves the taxiway's level, never under it
     # first: the profile is monotone from the weld
     zs = [got[v] for v in range(6)]
-    assert all(a >= b - 1e-9 for a, b in zip(zs, zs[1:]))
+    assert all(a >= b - 1e-9 for a, b in zip(zs[:-1], zs[1:], strict=True))
 
     # the same kerb bordered by a RUNWAY gets no target (#951)
     planar.road_terrace["runway"] = {0: True, 1: True}

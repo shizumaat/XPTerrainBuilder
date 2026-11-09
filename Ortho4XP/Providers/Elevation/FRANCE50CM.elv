@@ -20,8 +20,13 @@ country=FRA
 access_strategy=wfs_tile_index
 
 wfs_service_url=https://data.geopf.fr/wfs/ows
-wfs_type_name=IGNF_MNT-LIDAR-HD:dalle
-url_property=url
+# The tile index is the LiDAR HD metadata layer (one feature per 1 km
+# tile; ``url_mnt`` is the terrain GeoTIFF GetMap URL, next to url_mns /
+# url_mnh / url_npl).  The old ``IGNF_MNT-LIDAR-HD:dalle`` layer was
+# withdrawn from the Geoplateforme WFS: by 2026-11-07 it answered HTTP 400
+# "Unknown namespace [IGNF_MNT-LIDAR-HD]" (#1944).
+wfs_type_name=IGNF_LIDAR-HD_METADONNEE:metadata
+url_property=url_mnt
 
 # Native ground resolution of the source tiles, in metres.
 native_resolution_m=0.5

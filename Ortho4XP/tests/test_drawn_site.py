@@ -143,3 +143,126 @@ def test_placed_vertices_turn_by_heading():
     v = DC.placed_vertices(G, 0.0, 0.0, 90.0, 5.0)[0]
     assert v[0] == pytest.approx(10.0) and v[1] == pytest.approx(0.0, abs=1e-9) and v[2] == 5.0
     assert math.isclose(DC.Frame(LAT, LON).leave(*DC.Frame(LAT, LON).enter(LAT, LON))[0], LAT)
+
+
+# ── #1903 lane l1903: the drawn shape at rest, clearance, mouths, bars ──
+
+import drawn_site_bars as BARS  # noqa: E402
+from auto_patch_v2.airport import obj8 as OBJ8  # noqa: E402
+
+
+def _box_obj(tmp_path, name: str, lift: float) -> str:
+    """A 4 x 4 x 3 m box authored on y = 0 inside a constant ANIM offset of
+    ``lift`` (the block ``obj8_split`` wraps a split body in)."""
+    vs = [(x, y, z) for x in (-2, 2) for y in (0, 3) for z in (-2, 2)]
+    faces = [(0, 1, 3), (0, 3, 2), (4, 6, 7), (4, 7, 5), (0, 4, 5), (0, 5, 1),
+             (2, 3, 7), (2, 7, 6), (0, 2, 6), (0, 6, 4), (1, 5, 7), (1, 7, 3)]
+    idx = [i for f in faces for i in f]
+    lines = ["I", "800", "OBJ", "", f"POINT_COUNTS 8 0 0 {len(idx)}"]
+    lines += [f"VT {x} {y} {z} 0 1 0 0 0" for x, y, z in vs] + [f"IDX {i}" for i in idx]
+    lines += ["ANIM_begin", f"ANIM_trans 0 {lift} 0 0 {lift} 0 0 0 none",
+              f"TRIS 0 {len(idx)}", "ANIM_end"]
+    p = tmp_path / name
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return str(p)
+
+
+class _P:
+    def __init__(self, path, lat=LAT, lon=LON, kind="OBJECT", elevation=None):
+        self.def_path, self.lat, self.lon = path, lat, lon
+        self.kind, self.elevation, self.heading_deg = kind, elevation, 0.0
+
+
+def _item(path, row, **kw):
+    g = OBJ8.parse_obj8(path, at_rest=True)
+    return {"key": ("pack", "+40+010", row), "row": row, "p": _P(path, **kw), "root": "pack",
+            "tile": "+40+010", "g": g, "comps": OBJ8.solid_components(g), "named": True}
+
+
+def test_a_lifted_split_body_reads_its_clearance(tmp_path):
+    """KEGE's jetways (#1984): the split's offset block draws the body
+    1.2 m over the mesh under its anchor -- the CLEARANCE reads it."""
+    fr = DC.Frame(LAT, LON)
+    site = DC.measure_site(DC.Site("j", LAT, LON, 0.0),
+                           [_item(_box_obj(tmp_path, "jet__b0_ab12.obj", 1.2), 7)],
+                           _Mesh(fr, lambda e, n: 100.0))
+    gap = site["placements"][0]
+    assert gap["clearance_m"] == pytest.approx(1.2, abs=0.01)
+    objs = BARS.object_bars(site["components"], 0.3, DC.GROUND_BAR_M, DC.PRINT_RUN_M,
+                            site["placements"])
+    assert objs[0]["clearance"]["verdict"] == "FLOAT" and objs[0]["verdict"] == "FAIL"
+    seated = DC.measure_site(DC.Site("j", LAT, LON, 0.0),
+                             [_item(_box_obj(tmp_path, "s.obj", 0.0), 8)],
+                             _Mesh(fr, lambda e, n: 100.0))
+    assert seated["placements"][0]["clearance_m"] == pytest.approx(0.0, abs=0.01)
+
+
+def test_an_object_resting_on_another_reads_no_float(tmp_path):
+    """An interior on its terminal's floor stands on that floor, not over
+    the mesh: the clearance reads the other placement's surface."""
+    fr = DC.Frame(LAT, LON)
+    low = _item(_box_obj(tmp_path, "slab.obj", 0.0), 1)
+    up = _item(_box_obj(tmp_path, "interior.obj", 3.0), 2)
+    site = DC.measure_site(DC.Site("t", LAT, LON, 0.0), [low, up], _Mesh(fr, lambda e, n: 100.0))
+    by_row = {p["row"]: p for p in site["placements"]}
+    assert by_row[2]["clearance_m"] == pytest.approx(0.0, abs=0.01) and by_row[2]["on_object"]
+
+
+def test_split_bodies_fold_to_one_object():
+    rec = {"pack": "p", "tile": "+40+010", "row": 3, "def": "objects/T__b40_90d352ac.obj"}
+    assert BARS.object_key(rec) == ("p", "+40+010", "objects/T.obj")
+    assert BARS.object_key({**rec, "def": "objects/T.obj"})[2] == 3
+
+
+def test_trench_floor_ends_are_mouths_and_walls_are_not():
+    fr = DC.Frame(LAT, LON)
+    V, comp = _trench(100.0)
+    cut = lambda e, n: 96.0 if abs(n) <= 5.5 else 100.0                # noqa: E731
+    rec = DC.measure(V, comp, fr, _Mesh(fr, cut), _no_others)
+    ends = sorted(rec["mouths"], key=lambda m: m["at"][1])
+    assert len(ends) == 2
+    assert all(abs(m["floor_step"]["p50"]) <= DC.PAVEMENT_BAR_M for m in ends)
+    assert all(m["opening_m"] == pytest.approx(10.0, abs=1.0) for m in ends)
+    assert all(m["ramp_width_m"] >= 10.0 for m in ends)
+
+
+def _bars_at(rec, site=None):
+    rec = {**rec, "row": 1, "tile": "+40+010", "pack": "p", "def": "objects/trench.obj",
+           "deck": False, "moving": False, "component": 0, "anchor": [LAT, LON]}
+    return BARS.object_bars([rec], 0.3, DC.GROUND_BAR_M, DC.PRINT_RUN_M, [], site)[0]
+
+
+def test_bars_judge_the_trench_base_and_the_named_mouth():
+    fr = DC.Frame(LAT, LON)
+    V, comp = _trench(100.0)
+    uncut = DC.measure(V, comp, fr, _Mesh(fr, lambda e, n: 100.0), _no_others)
+    o = _bars_at(uncut)
+    assert o["base"]["verdict"] == "BURY" and o["verdict"] == "FAIL"
+    narrow = lambda e, n: 96.0 if abs(n) <= 3.0 else 100.0            # noqa: E731
+    o = _bars_at(DC.measure(V, comp, fr, _Mesh(fr, narrow), _no_others),
+                 site=(LAT, LON + 21.0 / DC.Frame(LAT, LON).kx, 10.0))
+    assert len(o["mouths"]) == 1 and o["mouths"][0]["width_verdict"] == "FAIL"
+    assert len(o["mouth_candidates"]) == 1          # the far end: listed, not judged
+
+
+def test_a_box_has_no_mouth():
+    fr = DC.Frame(LAT, LON)
+    b = 100.0
+    V = np.array([[-10, -10, b], [10, -10, b], [10, 10, b], [-10, 10, b],
+                  [-10, -10, b + 8], [10, -10, b + 8], [10, 10, b + 8], [-10, 10, b + 8]], float)
+    tris = np.array([[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+                     [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]])
+    rec = DC.measure(V, Component(tris, 0, 8, 0, 0, False, np.arange(len(tris))), fr,
+                     _Mesh(fr, lambda e, n: b), _no_others)
+    assert rec["mouths"] == []
+
+
+def test_tile_dirs_and_rows_are_read(tmp_path):
+    d = tmp_path / "zOrtho4XP_+47+012" / "Earth nav data" / "+40+010"
+    d.mkdir(parents=True)
+    (d / "+47+012.dsf").write_bytes(b"")
+    got = DC.tile_dsf(None, "+47+012", [str(tmp_path / "zOrtho4XP_+47+012")])
+    assert got == str(d / "+47+012.dsf")
+    assert DC.tile_dsf(None, "+47+013", [str(tmp_path / "zOrtho4XP_+47+012")]) is None
+    assert DC.parse_row("+47+012:obj247") == ("+47+012", 247)
+    assert DC.parse_datarefs(["sam/jetway/wheels=0.5"]) == {"sam/jetway/wheels": 0.5}

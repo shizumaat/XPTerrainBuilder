@@ -4,6 +4,8 @@ The build and measure law itself lives in the root `CLAUDE.md`
 ("The standard test harness"). This file is the list of traps the
 harness refuses on its own.
 
+Tunnel, deck, level and object-seat bars are measured on what X-Plane DRAWS, never on the engine's own records: `tools/drawn_site.py --pack DIR --tile-dir DIR --site NAME=LAT,LON,R [--mouth] --summary` (written pack DSF + OBJ8 at rest vs the tile DSF's mesh; any install or lane product; #1903). A lane bar read off a patch, a sidecar, a plan or a replay is not a drawn bar.
+
 ## Traps the harness now makes impossible (stop hand-checking these)
 
 - Wrong build cwd — silently smaller layout, fake speedup: the build entry

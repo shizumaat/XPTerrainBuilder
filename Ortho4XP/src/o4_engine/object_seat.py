@@ -200,7 +200,7 @@ def _seat_record(entry: tuple[str, dict] | None, *, agl_m: float, ground_m: floa
 
 def _group_record(tile: str, icao: str, row: int, entries: dict, user,
                   dsf_path: str) -> dict:
-    """#1970: the record of split row ``row``'s object group."""
+    """#1970: the record of row ``row``'s object group."""
     from .object_group import group_seat
     from .object_seat_edit import placed_seat
     off = None if user is None else user.offset_m
@@ -235,7 +235,8 @@ def object_seat(tile: str, icao: str, index: int, lat: float, lon: float,
     entry = None if entries is None else entries.get(row)
     from .object_seat_edit import placed_zero, user_seat_for
     user = user_seat_for(tile, icao, row)
-    if entry is not None and entry[0] == "split" and (user is None or user.offset_m is not None):
+    from .object_group import in_group
+    if entry is not None and in_group(entries, row) and (user is None or user.offset_m is not None):
         rec = _group_record(tile, icao, row, entries, user, plan[2])
         rec["plan"] = os.path.basename(path)
         return rec

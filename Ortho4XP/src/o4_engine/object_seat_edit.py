@@ -13,7 +13,8 @@ engine turns a bottom into the zero the DSF row carries with the model's
 authored ``y_min`` (bottom = zero + ``y_min``).
 
 AN OBJECT THE PLAN CUT INTO PARTS MOVES WITH ITS GROUP (issue #1970,
-``object_group``): a bottom given for a split row becomes ONE offset over
+``object_group``; a kept-whole row seated in a group's structure unit
+with it, RULINGS 2026-11-09a (15)): a bottom given for a group row becomes ONE offset over
 the build's seat for every row of its group (the group's bottom is its
 lowest part's zero), written in one go; ``offset_m`` is the undo's.  No
 part of a group is ever seated alone.
@@ -99,7 +100,7 @@ def _number(name: str, v: _t.Any) -> float | None:
 
 def _group_set(patch_dir: str, icao: str, entries, row: int, zero: float | None,
                bottom: float | None, offset: float | None) -> dict:
-    """#1970: ``object_seat_set`` on a row the plan cut: every row of its
+    """#1970: ``object_seat_set`` on a row of a group: every row of its
     group takes one offset (from ``offset``, or ``bottom`` over the group's
     lowest part), or none (cleared); ``zero`` (an Undo back to a whole-row
     seat) clears the group and seats ``row`` alone, as it was."""
@@ -115,7 +116,7 @@ def _group_set(patch_dir: str, icao: str, entries, row: int, zero: float | None,
         offset = bottom - min(zeros)
 
     def seat(r: int, z: float | None, off: float | None):
-        ref = entries[r][1].get("placement") or {}
+        ref = entries[r][1].get("placement") or entries[r][1]  # a kept row: its own
         return _us.UserSeat(r, str(ref.get("resource") or ""), float(ref["lat"]),
                             float(ref["lon"]), z, off)
     given = {r: (None if offset is None or zero is not None
@@ -163,7 +164,8 @@ def object_seat_set(tile: str, icao: str, index: int, model: str, lat: float,
     offset = _number("offset_m", offset_m)
     patch_dir = _patch_dir(tile)
     entries = _plan_entries(tile, icao)
-    if entries is not None and entries.get(row, ("",))[0] == "split":
+    from .object_group import in_group
+    if entries is not None and in_group(entries, row):
         return _group_set(patch_dir, icao, entries, row, zero, bottom, offset)
     if zero is None and bottom is not None:
         zero = bottom - (_number("y_min", y_min) or 0.0)

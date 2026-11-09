@@ -58,6 +58,7 @@ from .channel_geometry import (_across, _bank_toe_half, _bank_width, _deck_ring,
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
 from .channel_floor import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
                             channel_floor as _floor)
+from .channel_stretch import witnessed_stretch
 from .channel_depth import (cut_feet, cut_halves, cut_points, cut_profile, cut_span,
                             extend_axis)
 from .structure_underpass import aeroway_decks
@@ -647,6 +648,15 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     span = cut_span(cut_pts)
     if span is not None:
         ends = (max(0.0, min(ends[0], span[0])), min(axis_ln.length, max(ends[1], span[1])))
+    elif packs and _lidar_credible(airport, law):
+        # RULINGS 2026-11-09a (6): a pack witness counts only along its own
+        # stretch; beyond it a credible survey reading no cut stops the
+        # channel (``planar/channel_stretch``)
+        cut = _cut_to_stretch(airport, law, cid, axis_ln, axis_fn, ends, half_at,
+                              objects, packs, decks, stats)
+        if cut is None:
+            return None
+        decks, ends = cut
     # Everything from here (the profile, the region, the banks) is stated
     # over the stations INSIDE the ends, and the ends are themselves
     # stations: the corridor's faces run exactly to them.
@@ -825,6 +835,34 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         notes=tuple(notes))
 
 
+
+
+def _cut_to_stretch(airport: Airport, law: Law, cid: str, axis_ln, axis_fn,
+                    ends: tuple[float, float], half_at: float, objects: _t.Sequence,
+                    packs: _t.Sequence[str], decks: list[Deck], stats: ChannelStats
+                    ) -> tuple[list[Deck], tuple[float, float]] | None:
+    """RULINGS 2026-11-09a (6) at the ends: ``(decks, ends)`` cut back to
+    the stretch the pack witnesses run along (the decks outside it leave
+    the record, named), or ``None`` — refused by name — when what is left
+    is shorter than ``corridor_min_length_m``."""
+    ch = law.tables.structures.channel
+    st = witnessed_stretch(airport, law, axis_ln, axis_fn, ends, half_at, objects, packs)
+    if st is None or st.cut <= 1e-6:
+        return decks, ends
+    left = st.ends[1] - st.ends[0]
+    head = (f"{cid}: RULINGS 2026-11-09a (6) the pack witness(es) "
+            f"{', '.join(sorted(set(packs))[:4])} run along stations "
+            f"{st.witness[0]:.0f}..{st.witness[1]:.0f} m only and the CREDIBLE survey reads "
+            f"no cut beyond {st.survey[0]:.0f}..{st.survey[1]:.0f} m")
+    if left < ch.corridor_min_length_m:
+        stats.refused.append(f"{head}: {left:.0f} m left of {ends[1] - ends[0]:.0f} m, under "
+                             f"[channel] corridor_min_length_m {ch.corridor_min_length_m:.0f}")
+        return None
+    kept = [d for d in decks if d.s1 > st.ends[0] and d.s0 < st.ends[1]]
+    stats.notes.append(f"{head}: the ends {ends[0]:.0f}..{ends[1]:.0f} -> "
+                       f"{st.ends[0]:.0f}..{st.ends[1]:.0f} m ({st.cut:.0f} m cut back), "
+                       f"{len(decks) - len(kept)} of {len(decks)} deck(s) left outside")
+    return kept, st.ends
 
 
 def _wits(grp: list[_Cand]) -> set[str]:

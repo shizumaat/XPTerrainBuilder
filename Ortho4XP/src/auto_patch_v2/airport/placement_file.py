@@ -463,7 +463,9 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
         # geometry, decided before this keep
         counts["kept"] += 1
         counts["authored_seat_lands"] = counts.get("authored_seat_lands", 0) + 1
-        kept.append(Kept(index, m.id, m.resource, "authored_seat_lands"))
+        # RULINGS 2026-11-09a (15): it still belongs to the structure unit
+        # its bodies were seated in (the editor moves it with that group)
+        kept.append(Kept.of(record, m.id, m.resource, "authored_seat_lands"))
         _note_tilted_kept_whole(m, counts, tilted_whole, index)
         whole.append(record)
         return

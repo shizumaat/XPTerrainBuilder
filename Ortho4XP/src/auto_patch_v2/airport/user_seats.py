@@ -25,7 +25,10 @@ the write lifts by that many metres over the seat its placement plan
 gave it (``OBJECT_MSL`` at the body's planned zero + ``offset_m``).  The
 editor writes one such seat, with one offset, for every row of a group
 (``o4_engine/object_group``: the rows cut into bodies of the same §16g
-units), so the group moves rigidly and no part moves alone.
+units), so the group moves rigidly and no part moves alone.  A KEPT-whole
+row of the group (owner RULINGS 2026-11-09a (15), "stay and move
+together") is written ``OBJECT_MSL`` at the zero its authored row lands
+at (the plan's ``kept`` ``zero_m``) plus the same offset.
 
 THE SEATS ARE A LAYER OF THE PACK DSF'S WRITE (owner on #1703,
 2026-11-03: "yes, apply only the objects you set by hand"), like the 3D
@@ -201,9 +204,28 @@ def _lifted(split: _t.Any, offset_m: float) -> _t.Any:
     return _dc.replace(split, bodies=tuple(out))
 
 
-def _apply_offsets(plan: _t.Any, offsets: _t.Mapping[int, UserSeat]
+def _kept_lifted(plan: _t.Any, offsets: _t.Mapping[int, UserSeat], rows: _t.Sequence
+                 ) -> tuple[tuple, tuple[MslSeat, ...]]:
+    """The group's KEPT-whole rows (owner RULINGS 2026-11-09a (15)): each
+    moved as one whole, ``OBJECT_MSL`` at the zero its authored row lands
+    at plus the offset — ``(kept left, the rows' seats)``."""
+    kept, msl = [], []
+    for k in plan.kept:
+        seat = offsets.get(k.index)
+        if seat is None or k.zero_m is None:
+            kept.append(k)
+            continue
+        r = rows[k.index]
+        msl.append(MslSeat(k.index, str(r.def_path), float(r.lon), float(r.lat),
+                           float(r.heading_deg),
+                           round(float(k.zero_m) + float(seat.offset_m), 4), WHY))
+    return tuple(kept), tuple(msl)
+
+
+def _apply_offsets(plan: _t.Any, offsets: _t.Mapping[int, UserSeat], rows: _t.Sequence
                    ) -> tuple[_t.Any, tuple[int, ...], tuple[str, ...]]:
-    """The group seats (#1970): each split row's bodies lifted rigidly."""
+    """The group seats (#1970): each split row's bodies lifted rigidly, each
+    kept-whole row of the group moved whole by the same offset."""
     splits, seated = [], []
     for s in plan.splits:
         seat = offsets.get(s.placement.index)
@@ -211,10 +233,14 @@ def _apply_offsets(plan: _t.Any, offsets: _t.Mapping[int, UserSeat]
             s = _lifted(s, float(seat.offset_m))
             seated.append(s.placement.index)
         splits.append(s)
-    refused = tuple(f"row {i} ({offsets[i].model}) is no longer cut into parts; "
+    kept, msl = _kept_lifted(plan, offsets, rows)
+    seated += [m.index for m in msl]
+    refused = tuple(f"row {i} ({offsets[i].model}) is no longer in its group; "
                     f"its group's elevation is not applied"
                     for i in sorted(set(offsets) - set(seated)))
-    return _dc.replace(plan, splits=tuple(splits)), tuple(seated), refused
+    plan = _dc.replace(plan, splits=tuple(splits), kept=kept,
+                       msl_seats=tuple(plan.msl_seats) + msl)
+    return plan, tuple(sorted(seated)), refused
 
 
 def apply(plan: _t.Any, seats: _t.Mapping[int, UserSeat], rows: _t.Sequence
@@ -236,7 +262,7 @@ def apply(plan: _t.Any, seats: _t.Mapping[int, UserSeat], rows: _t.Sequence
             take[idx] = seats[idx]
     lifted: tuple[int, ...] = ()
     if offsets:
-        plan, lifted, more = _apply_offsets(plan, offsets)
+        plan, lifted, more = _apply_offsets(plan, offsets, rows)
         refused.extend(more)
     if not take:
         return plan, lifted, tuple(refused)

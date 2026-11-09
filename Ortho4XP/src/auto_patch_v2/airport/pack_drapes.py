@@ -48,9 +48,10 @@ photos of packs that did not lay them north-up, 7 see-through.
 
 THE GRID RULE (owner RULINGS 2026-11-07a (3)) is a further REQUIRED
 condition: a definition passing (1)-(6) is hidden only with the whole
-machine-named photo grid and stack it belongs to, when that grid extends
-outside the airport and the pack's own ground art is not painted on it
-(``pack_drape_grid``).
+machine-named photo grid it belongs to, when that grid extends outside
+the airport (a detail-texture grid drawn over it stays); the pack's
+other photos on the tile then go with it — "hide them all" (RULINGS
+2026-11-09a (10) (11), ``pack_drape_grid``).
 
 A definition that passes is hidden with ALL its polygons (the omission
 is per definition).
@@ -258,6 +259,7 @@ class _PhotoLayers(_t.NamedTuple):
     uses: dict[int, list[_Use]]           # their polygons
     layers: list                          # ``pack_drape_grid.Layer`` rows
     ground: list[Box]                     # the pack's other draped art
+    kin: list                             # (1)-(3) photos turned off north
 
 
 def photo_layers(pack_root: str, source: str | _t.Sequence[str],
@@ -274,6 +276,7 @@ def photo_layers(pack_root: str, source: str | _t.Sequence[str],
     uses = _polygon_uses(lines) if defs else {}
     layers: list[Layer] = []
     ground: list[Box] = []
+    kin: list[Layer] = []
     for i, path in enumerate(defs):
         if i not in uses or not path.lower().endswith(".pol"):
             continue
@@ -286,38 +289,41 @@ def photo_layers(pack_root: str, source: str | _t.Sequence[str],
                 ground += [u.box for u in uses[i]]
             continue                                    # (2), (3)
         turns = sorted(u.turn_deg for u in uses[i] if u.mapped)
+        texture = (header.get("TEXTURE_NOWRAP", "").split() or [""])[0]
         if not turns or turns[len(turns) // 2] > NORTH_UP_DEG:
             ground += [u.box for u in uses[i]]
+            kin.append(Layer(i, path, texture, (), False, _layer(header)))
             continue                                    # (4)
         photo = "LOAD_CENTER" in header
         over = any(u.mapped and any(_overlaps(u.box, a) for a in areas)
                    and (photo or _span_m(u.box) >= MIN_SPAN_M)
                    for u in uses[i])                    # (5)
-        texture = (header.get("TEXTURE_NOWRAP", "").split() or [""])[0]
         layers.append(Layer(i, path, texture,
                             tuple(u.box for u in uses[i] if u.mapped),
                             over and _image_opaque(local, header),  # (6)
                             _layer(header)))
-    return _PhotoLayers(defs, uses, layers, ground)
+    return _PhotoLayers(defs, uses, layers, ground, kin)
 
 
 def draped_orthos(pack_root: str, source: str | _t.Sequence[str],
                   areas: _t.Sequence[Box], *,
                   bounded: bool | _t.Sequence[bool] = False
                   ) -> tuple[MissingDef, ...]:
-    """THE WITNESS over one pristine DSF dump (a path or its rows): every
-    polygon definition that is a draped orthophoto over one of ``areas``
-    AND passes the grid rule (``pack_drape_grid``), as the ``MissingDef``
-    rows the omission takes (``uses``: its polygons).  ``bounded``: the
+    """THE WITNESS over one pristine DSF dump (a path or its rows): when a
+    draped orthophoto grid over one of ``areas`` passes the grid rule
+    (``pack_drape_grid.hidden_stacks``), every photo of the pack on the
+    tile (``pack_drape_grid.pack_photos``, RULINGS 2026-11-09a (10)), as
+    the ``MissingDef`` rows the omission takes (``uses``: its polygons).  ``bounded``: the
     areas are the airports' authored boundaries (one flag, or one per
     area)."""
-    from .pack_drape_grid import hidden_stacks
+    from .pack_drape_grid import hidden_stacks, pack_photos
     if not areas:
         return ()
     pl = photo_layers(pack_root, source, areas)
-    hidden = hidden_stacks(pl.layers, areas, bounded, pl.ground)
-    return tuple(MissingDef("polygon", ly.index, ly.path, len(pl.uses[ly.index]))
-                 for ly in pl.layers if ly.index in hidden)
+    hidden = pack_photos(pl.layers, pl.kin, hidden_stacks(
+        pl.layers, areas, bounded, pl.ground))
+    return tuple(MissingDef("polygon", i, pl.defs[i], len(pl.uses[i]))
+                 for i in sorted(hidden))
 
 
 def recorded(entry: _t.Mapping[str, _t.Any] | None,

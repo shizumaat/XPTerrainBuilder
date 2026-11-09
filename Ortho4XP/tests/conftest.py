@@ -311,6 +311,20 @@ def _restore_ambient_data_root():
         os.environ.pop(_AMBIENT_DATA_ROOT_VARIABLE, None)
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _the_tile_pack_scan_never_reads_the_install():
+    """No test's object stage scans the owner's Custom Scenery folder for
+    the tile's other packs (``auto_patch.adjust_stage.tile_stage``,
+    RULINGS 2026-11-09a (9)): with the install's packs on a test tile and
+    the owner's remembered answers, the scan would dump and rewrite real
+    packs.  A test names its folders (``scenery_dirs=``)."""
+    from auto_patch import adjust_stage
+    previous = adjust_stage.configured_dirs
+    adjust_stage.configured_dirs = lambda: []
+    yield
+    adjust_stage.configured_dirs = previous
+
+
 #: The Qt window's user files: its preferences and the tile-scan cache.
 _QT_USER_FILES = ("PREFS_FILE", "TILE_SCAN_CACHE_FILE")
 

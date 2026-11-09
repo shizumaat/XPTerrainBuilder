@@ -21,12 +21,13 @@ hide; a kind's write or undo changes only its own part (what the other
 kind detects stays).  The question is a row of the pack's adjustments
 (``adjust_stage``), never a box of its own.
 
-A pack with no runway of its own — a companion overlay that lays the
-airport's photo grid (#1968; its apt.dat may hold a heliport) — is judged
-against its own airports and those of the packs with a runway it shares
-the tile with (:func:`_airports`); the build finds such packs with
-:func:`companions`.  A pack with a runway is an airport pack: its own
-build asks its own question.
+THE TILE'S SCAN (owner RULINGS 2026-11-09a (9), #1960: "we definitely
+need to scan every airport pack in every tile"): :func:`scanned` names
+every pack on the tile the build asks about, built or not — each airport
+pack (a runway of its own) and each companion overlay that lays an
+airport's photo grid (#1968: no runway, its apt.dat may hold a heliport).
+A companion is judged against its own airports and those of the packs
+with a runway it shares the tile with (:func:`_airports`).
 
 The answer is the user's, per pack and kind (``pack_choice``):
 "update" (hide them) and "never" are remembered outside the pack.  Undo
@@ -45,7 +46,7 @@ from . import pack_rewrite as _PR
 from .pack_choice import relative as _relative
 
 __all__ = ["ACTIONS", "STORE", "PHOTOS", "GROUND", "KINDS", "check_all",
-           "companions", "drape_stage", "drape_choice"]
+           "scanned", "drape_stage", "drape_choice"]
 
 #: the actions of a drape row of the ``pack_adjust`` command
 ACTIONS = ("update", "never", "undo")
@@ -125,20 +126,26 @@ def _airports(pack_root: str, lat: int, lon: int
     return [b for b, _ok in rows], [ok for _b, ok in rows], apts
 
 
+def _folder_packs(scenery_dir: str, lat: int, lon: int) -> list[str]:
+    """The enabled packs of a Custom Scenery folder with a DSF on the
+    tile."""
+    import O4_Scenery_Packs as _SP
+    from auto_patch_v2.airport import dsf as _dsf2
+    try:
+        names = sorted(_SP.enabled_pack_names(scenery_dir))
+    except OSError:
+        return []
+    return [os.path.join(scenery_dir, n) for n in names
+            if os.path.isfile(_dsf2.dsf_path_in_pack(
+                os.path.join(scenery_dir, n), lat, lon))]
+
+
 def _tile_packs(pack_root: str, lat: int, lon: int) -> list[str]:
     """The other enabled packs of the pack's Custom Scenery folder with a
     DSF on the tile."""
-    import O4_Scenery_Packs as _SP
-    from auto_patch_v2.airport import dsf as _dsf2
-    parent = os.path.dirname(os.path.normpath(pack_root))
-    try:
-        names = sorted(_SP.enabled_pack_names(parent))
-    except OSError:
-        return []
-    me = os.path.basename(os.path.normpath(pack_root))
-    return [os.path.join(parent, n) for n in names if n != me
-            and os.path.isfile(_dsf2.dsf_path_in_pack(os.path.join(parent, n),
-                                                      lat, lon))]
+    me = os.path.normpath(pack_root)
+    return [p for p in _folder_packs(os.path.dirname(me), lat, lon)
+            if os.path.normpath(p) != me]
 
 
 #: the most directory entries :func:`_ships_photo_grid` reads in one pack
@@ -166,14 +173,16 @@ def _ships_photo_grid(pack_root: str) -> bool:
     return False
 
 
-def companions(pack_root: str, lat: int, lon: int) -> list[str]:
-    """The packs that may lay the airport's photos for it (#1968): the
-    enabled packs with a DSF on the tile and no runway of their own,
-    outside the simulator's folders, that ship a photo grid's files."""
+def scanned(scenery_dir: str, lat: int, lon: int) -> list[str]:
+    """THE TILE'S SCAN (RULINGS 2026-11-09a (9)): the enabled packs of
+    ``scenery_dir`` with a DSF on the tile, outside the simulator's
+    folders, that are an airport pack (a runway of their own) or a
+    companion that may lay an airport's photos (#1968: no runway, ships a
+    photo grid's files)."""
     from .post_mesh import _is_protected_scenery_root
-    return [p for p in _tile_packs(pack_root, lat, lon)
-            if not _runway_apt(p) and not _is_protected_scenery_root(p)
-            and _ships_photo_grid(p)]
+    return [p for p in _folder_packs(scenery_dir, lat, lon)
+            if not _is_protected_scenery_root(p)
+            and (_runway_apt(p) or _ships_photo_grid(p))]
 
 
 def check_all(pack_root: str, lat: int, lon: int, *,

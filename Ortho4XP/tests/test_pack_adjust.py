@@ -4,9 +4,10 @@ stage's report, the user's answer and the wire surface.
 One ``PackAdjust`` per pack and tile lists every row that applies: the
 3D trees, the draped photos and the large draped ground textures (each a
 choice; the ground textures unticked when asked, #1962), and the
-apt.dat's flatten flag (automatic: removed with no question).  A
-companion pack that lays the airport's photos is asked on its own
-(#1968).  The trees no longer
+apt.dat's flatten flag (automatic: removed with no question).  Every
+other pack on the tile — an airport pack not built, a companion that
+lays the airport's photos — is asked on its own, once per tile build
+(#1968, RULINGS 2026-11-09a (9)).  The trees no longer
 ask on their own.  The answer goes through each row's own stage: a row
 ticked is "update", a row shown and unticked "never".  The checks are
 stubbed (their own twins: ``test_pack_old_forests``, ``auto_patch_v2/
@@ -49,7 +50,7 @@ def stage(tmp_path, monkeypatch):
             "pf": FS.PackForests("Some Pack", "/p/d.dsf", (OLD,), {}),
             "pd": DS.PackDrapes("Some Pack", "/p/d.dsf", (PHOTO,), (), (SHEET,)),
             "gd": DS.PackDrapes("Some Pack", "/p/d.dsf", (SHEET,), (), (PHOTO,)),
-            "companions": [], "answers": []}
+            "scanned": [], "answers": []}
     monkeypatch.setattr(FS, "choices_path",
                         lambda: str(tmp_path / "prefs" / "forests.json"))
     from auto_patch import pack_choice as PC
@@ -59,7 +60,8 @@ def stage(tmp_path, monkeypatch):
     monkeypatch.setattr(DS, "check_all", lambda *a, **k: {
         k_: v for k_, v in (("drapes", seen["pd"]), ("ground", seen["gd"]))
         if v is not None})
-    monkeypatch.setattr(DS, "companions", lambda *a: seen["companions"])
+    monkeypatch.setattr(DS, "scanned", lambda d, lat, lon: [
+        r for r in seen["scanned"] if os.path.dirname(r) == d])
     monkeypatch.setattr(AS, "_flatten", lambda root, *, writes: seen["flatten"])
     monkeypatch.setattr(UI, "pack_adjust", lambda **f: seen["adjust"].append(f))
     monkeypatch.setattr(UI, "pack_old_forests",
@@ -96,16 +98,33 @@ def test_the_ground_textures_are_never_hidden_unasked(stage, monkeypatch):
     assert AS.adjust_stage(stage["plan"], TILE, writes=True)["ground"] == "hidden"
 
 
-def test_a_companion_pack_is_asked_on_its_own(stage, tmp_path):
+def test_every_pack_on_the_tile_is_asked_once(stage, tmp_path):
     other = tmp_path / "Custom Scenery" / "Overlay Pack"
     other.mkdir()
-    stage["companions"] = [str(other)]
+    stage["scanned"] = [stage["plan"].pack_root, str(other)]
     stage["pf"] = None
-    AS.adjust_stage(stage["plan"], TILE, writes=True)
+    asked: set = set()
+    AS.adjust_stage(stage["plan"], TILE, writes=True, asked=asked)
+    assert AS.adjust_stage(stage["plan"], TILE, writes=True,
+                           asked=asked) == {}, "a second airport of the pack"
+    AS.tile_stage(TILE, writes=True, asked=asked)
     own, comp = stage["adjust"]
-    assert own["pack_root"] == stage["plan"].pack_root
+    assert own["pack_root"] == stage["plan"].pack_root, \
+        "the built pack is not asked again by the tile's scan"
     assert comp["pack"] == "Overlay Pack" and comp["pack_root"] == str(other)
     assert [r["key"] for r in comp["items"]] == ["drapes", "ground"]
+
+
+def test_the_tile_scan_asks_with_no_airport_built(stage, tmp_path):
+    other = tmp_path / "Custom Scenery" / "Unbuilt Airport"
+    other.mkdir()
+    stage["scanned"] = [str(other)]
+    AS.tile_stage(TILE, writes=False,
+                  scenery_dirs=[str(tmp_path / "Custom Scenery")])
+    [ev] = stage["adjust"]
+    assert ev["pack"] == "Unbuilt Airport", "built or not (RULINGS 2026-11-09a (9))"
+    assert [r["key"] for r in ev["items"]] == ["drapes", "ground"], \
+        "the scan asks the drape rows only"
 
 
 def test_the_flatten_flag_alone_asks_nothing(stage):
@@ -221,3 +240,26 @@ def test_the_command_is_registered_and_never_blocks(monkeypatch):
         time.sleep(0.01)
     [ev] = [e for e in got if isinstance(e, EV.PackAdjust)]
     assert ev.state == "never" and ev.items == [{"key": "drapes"}]
+
+
+def test_the_object_stage_scans_the_tile_with_no_airport_placed(tmp_path,
+                                                                monkeypatch):
+    """RULINGS 2026-11-09a (9): the tile's scan runs whatever return the
+    object stage takes — here the tile has no placement plan at all."""
+    from auto_patch import object_stage as OS
+    from auto_patch import post_mesh as PM
+    scans = []
+    monkeypatch.setattr(OS, "restore_unpatched_packs", lambda tile: {
+        "restored": 0, "recomposed": 0})
+    monkeypatch.setattr(OS, "restore_stopped_build", lambda *a: None,
+                        raising=False)
+    monkeypatch.setattr(PM, "object_anchor_worklist_path",
+                        lambda tile: str(tmp_path / "patches" / "w.json"))
+    monkeypatch.setattr(AS, "tile_stage", lambda tile, **k: scans.append(k))
+    tile = types.SimpleNamespace(lat=25, lon=51, build_dir=str(tmp_path),
+                                 modify_custom_airports=True)
+    OS.rebake_after_mesh(tile)
+    assert len(scans) == 1 and scans[0]["asked"] == set()
+    tile.modify_custom_airports = False
+    OS.rebake_after_mesh(tile)
+    assert len(scans) == 1, "the user's switch stands the scan down too"

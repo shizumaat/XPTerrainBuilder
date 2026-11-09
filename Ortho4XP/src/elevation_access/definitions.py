@@ -7,6 +7,7 @@ export format rule two strategies and the definition loader share.
 """
 
 import json
+import re
 
 from elevation_access.gdal_support import osr
 
@@ -26,6 +27,7 @@ __all__ = [
     "_parse_float",
     "coverage_boxes",
     "export_image_definition_refusal",
+    "parse_archive_zones",
     "provider_countries",
     "provider_serves_country",
     "providers_share_country",
@@ -102,6 +104,20 @@ def _parse_bounding_boxes(value):
         if box is not None:
             boxes.append(box)
     return tuple(boxes)
+
+
+def parse_archive_zones(text):
+    """The archive zone codes of a ``dem1_zones=`` value or zones table.
+
+    A zone table (``archive_zones_file=``, issues #1974/#1933) is lines
+    of ``,``- or space-separated codes; a ``#`` starts a comment.  The
+    inline ``dem1_zones=`` value is the same grammar on one line.
+    """
+    codes = set()
+    for line in str(text).splitlines():
+        line = line.split("#", 1)[0]
+        codes.update(token for token in re.split(r"[,\s]+", line) if token)
+    return frozenset(codes)
 
 
 def coverage_boxes(definition):

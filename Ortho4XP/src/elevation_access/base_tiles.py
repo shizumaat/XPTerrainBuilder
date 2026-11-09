@@ -103,7 +103,7 @@ def base_definition_covers_tile(definition, lat, lon):
         return False
     if (lat, lon) in definition.get("exclude_tiles", ()):
         return False
-    zones = definition.get("dem1_zones")
+    zones = definition.get("archive_zones")
     if zones is not None and deferranti_archive_code(lat, lon) not in zones:
         return False
     return True

@@ -225,9 +225,19 @@ def test_mac_console_header_is_the_manifest():
 
 
 def test_mac_settings_holds_the_detail_level():
+    # #1985: General holds the airport Detail choice under the cards; the
+    # build zoom leads Imagery.
     general = _block(SWIFT / "SettingsView.swift",
                      "private struct GeneralPane", "private func pathText")
-    assert 'Picker(O4Glossary.term("detail")' in general
+    assert general.index("PresetCardsView()") < general.index(
+        "AirportDetailPicker()")
+    assert "ImageryZoomPicker()" not in general
+    pane = _block(SWIFT / "SettingsView.swift",
+                  "private struct CategoryPane", "private struct ExpertSection")
+    assert 'category.key == "imagery"' in pane and "ImageryZoomPicker()" in pane
+    pickers = (SWIFT / "SettingsDetailPickers.swift").read_text(encoding="utf-8")
+    assert 'Picker(O4Glossary.term("imagery_detail")' in pickers
+    assert "Picker(AirportDetail.title" in pickers
 
 
 # ─── the Qt window, read live ──────────────────────────────────────────────
@@ -376,9 +386,15 @@ def test_qt_settings_holds_the_detail_level(window):
     window.prefs["zl"] = 17
     dialog = QTSET.SettingsWindow(window.prefs, [], window.output_dir(), window)
     try:
+        # #1985: the zoom is Imagery's row; Detail sits under the cards.
+        assert dialog.detail_combo is dialog.imagery_zoom_row.combo
         assert dialog.detail_combo.currentText() == "17"
         dialog.detail_combo.setCurrentText("18")
         assert dialog.result_prefs()["zl"] == 18
+        layout = dialog.layout()
+        items = [layout.itemAt(i).widget() for i in range(layout.count())]
+        assert items.index(dialog.airport_detail_row) == \
+            items.index(dialog.preset_cards) + 1
     finally:
         dialog.deleteLater()
 

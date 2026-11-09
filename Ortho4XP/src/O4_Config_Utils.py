@@ -6,6 +6,7 @@ import ast
 import logging
 import os
 
+import O4_Airport_Detail as AIRPORT_DETAIL
 import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Cfg_Vars as CFG
 import O4_Config_Names as CONFIG_NAMES
@@ -118,7 +119,10 @@ for var in cfg_vars:
 RETIRED_CFG_KEYS = tuple(retired_cfg_keys)
 
 ################################################################################
-# Update from the global XPTerrainBuilder.cfg
+# Update from the global XPTerrainBuilder.cfg.  The airport Detail
+# hand-over (#1985) runs once, before the read, so this run reads it.
+for _info in AIRPORT_DETAIL.migrate_cfg(global_cfg_file):
+    UI.lvprint(0, "   INFO:", _info)
 try:
     f = TEXT.open_supplied(global_cfg_file, legacy_ansi=True)
     for line in f.readlines():
@@ -170,6 +174,7 @@ except FileNotFoundError:
     # A fresh file holds the NEW defaults: register them as migrated so a
     # value later set by hand to an old default is never rewritten.
     migrate_changed_defaults(global_cfg_file)
+    AIRPORT_DETAIL.migrate_cfg(global_cfg_file)
 except Exception as e:
     _LOGGER.error("Error accessing global config file: %s", e)
 
@@ -329,6 +334,9 @@ class Tile:
                         self.build_dir, self.lat, self.lon):
                     UI.lvprint(0, "   INFO:", _info)
             tile_cfg = config_file or self._tile_cfg_path()
+            for _info in AIRPORT_DETAIL.migrate_cfg(
+                    tile_cfg, inherited_cfg=global_cfg_file):
+                UI.lvprint(0, "   INFO:", _info)
             layers = [global_cfg_file, tile_cfg]
         layers = [path for path in layers if os.path.isfile(path)]
         if not layers:

@@ -323,9 +323,9 @@ def _preset_shown(window, cover="ICAO"):
     with the global config holding Sharper airports' cover keys."""
     import O4_Settings_Presets as PRESETS
 
-    current = PRESETS.current_values(
-        {"cover_airports_with_highres": cover, "cover_zl": "18",
-         "cover_extent": "1.0"}, window.build_zl)
+    values = dict(PRESETS.cfg_values(PRESETS.preset("sharper_airports")),
+                  cover_airports_with_highres=cover)
+    current = PRESETS.current_values(values, window.build_zl)
     entry = PRESETS.matching_preset(current)
     return entry.key if entry else None
 

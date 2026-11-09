@@ -2,8 +2,9 @@
 
 ``src/O4_Settings_Presets.PRESETS`` is the table; the Mac app mirrors it in
 ``Sources/XPTerrainBuilder/SettingsPresets.swift``.  This twin requires the
-two to be equal, every preset to write the same existing keys, Balanced
-to be the registry defaults, Sharper airports to be the default preset,
+two to be equal, every preset to write the same existing keys, each preset's
+airport keys to be its Detail choice (#1985), Sharper airports to be the
+default preset,
 Custom to show once a key differs, and every
 GB figure on a card to equal its derivation in ``docs/presets.md``.
 
@@ -84,14 +85,33 @@ def test_every_value_is_the_stored_cfg_form():
         assert PRESETS.zoom_value(entry) in GLOSSARY.DETAIL_PIXEL_SIZES
 
 
-def test_balanced_is_the_registry_defaults():
+def test_balanced_is_the_registry_imagery_with_no_airport_detail():
+    # #1985: the presets carry their Detail choice, so the engine defaults
+    # (grading at ICAO airports, sharper imagery off) match no preset.
     balanced = PRESETS.preset("balanced")
-    for name, value in PRESETS.cfg_values(balanced).items():
+    for name in ("cover_airports_with_highres", "cover_zl", "cover_extent"):
         assert SM.values_equivalent(
-            name, value, str(O4_Cfg_Vars.cfg_vars[name]["default"])), name
+            name, balanced.as_dict()[name],
+            str(O4_Cfg_Vars.cfg_vars[name]["default"])), name
     assert PRESETS.zoom_value(balanced) == PRESETS.default_zoom() == 16
     fresh = PRESETS.current_values({}, PRESETS.default_zoom())
-    assert PRESETS.matching_preset(fresh) is balanced
+    assert PRESETS.matching_preset(fresh) is None
+
+
+def test_each_preset_is_its_detail_choice():
+    import O4_Airport_Detail as DETAIL
+
+    expected = {"light_on_disk": "none", "balanced": "none",
+                "sharper_airports": "icao"}
+    for entry in PRESETS.PRESETS:
+        values = entry.as_dict()
+        assert DETAIL.matching(values, same=SM.values_equivalent) == \
+            expected[entry.key], entry.key
+        choice = expected[entry.key]
+        for name, value in DETAIL.values(choice).items():
+            assert values[name] == value, (entry.key, name)
+        if DETAIL.zoom(choice) is not None:
+            assert PRESETS.zoom_value(entry) == DETAIL.zoom(choice)
 
 
 def test_the_order_and_the_default():

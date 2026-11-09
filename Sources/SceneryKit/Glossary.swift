@@ -31,6 +31,7 @@ public enum O4Glossary {
         "surface_check": "Airport surface check: {n} spots outside the rules",
         "grading_airports": "Grading airports",
         "terrain_steps": "Map data, ground shape and water",
+        "imagery_detail": "Imagery detail",
     ]
 
     /// Engine step key (wire `step_key`, legacy driver step) -> plain name.

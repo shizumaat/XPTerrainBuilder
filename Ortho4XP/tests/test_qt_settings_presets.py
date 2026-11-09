@@ -47,14 +47,16 @@ def _titles(cards):
     return [PRESETS.preset(key).title for key in cards.cards]
 
 
-def test_settings_shows_the_three_cards_and_balanced(window):
-    # An untouched global config is the registry defaults: Balanced.
+def test_settings_shows_the_three_cards_and_custom(window):
+    # An untouched global config is the registry defaults, which since
+    # #1985 match no preset (grading at ICAO airports, sharper imagery
+    # off): Custom, every card usable.
     cards = window.preset_cards
     assert _titles(cards) == ["Light on disk", "Balanced",
                               "Sharper airports"]
-    assert cards.current_key == "balanced"
-    assert cards.status_label.text() == "Current: Balanced"
-    assert not cards.buttons["balanced"].isEnabled()
+    assert cards.current_key is None
+    assert cards.status_label.text() == "Current: Custom"
+    assert all(button.isEnabled() for button in cards.buttons.values())
 
 
 def test_applying_a_preset_sets_exactly_its_keys(window):

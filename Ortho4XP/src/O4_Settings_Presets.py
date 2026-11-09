@@ -8,7 +8,7 @@ mirrors :data:`PRESETS` row for row in
 Balanced stops equalling the registry defaults, or when a cost line's
 figures stop matching their derivation (``docs/presets.md``).
 
-Every key is an existing one: three engine config keys from
+Every key is an existing one: engine config keys from
 ``O4_Cfg_Vars`` (written to the GLOBAL config, the defaults for new tiles)
 and :data:`ZOOM_PREF`, the build-zoom preference the Build pane already
 stores (Qt ``prefs["zl"]``, Mac ``@AppStorage("OrthoZoomLevel")``).  A
@@ -20,13 +20,17 @@ so a preset compares with the stored config through
 preset, the window shows :data:`CUSTOM_TITLE`.  A new user starts from
 :data:`DEFAULT_PRESET` (Sharper airports, #937): the first-run screens apply
 it; the engine's own defaults stay Balanced, so builds outside the apps
-(the harness, the CLI) are unchanged.
+(the harness, the CLI) are unchanged.  Each preset also sets the airport
+Detail choice (#1985, ``O4_Airport_Detail``): its scope keys are part of
+the preset, so the engine defaults (grading and elevation at ICAO
+airports, sharper imagery off) match no preset.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+import O4_Airport_Detail as AIRPORT_DETAIL
 import O4_Cfg_Vars
 import O4_Settings_Model as SM
 
@@ -43,12 +47,14 @@ __all__ = [
 ZOOM_PREF = "zl"
 
 #: The keys every preset writes, in display order.
+#: The airport scope keys come from the preset's Detail choice
+#: (``O4_Airport_Detail``, #1985): Sharper airports is Detail "ICAO
+#: airports", the other two Detail "None".
 PRESET_KEYS = (
     ZOOM_PREF,
-    "cover_airports_with_highres",
     "cover_zl",
     "cover_extent",
-)
+) + AIRPORT_DETAIL.SCOPE_KEYS
 
 #: The words around the cards (SettingsPresets.swift uses the same ones).
 SECTION_TITLE = "Start from"
@@ -74,27 +80,33 @@ class Preset:
 # The cost lines are DERIVED, never measured here: the imagery texture bytes
 # of one 1°x1° tile at the preset's detail level, for tiles between 60°S and
 # 60°N (docs/presets.md gives the formula; the twin recomputes the figures).
+def _values(zoom, detail):
+    """A preset's ``(name, literal)`` pairs in :data:`PRESET_KEYS` order:
+    its zoom, the airport zoom and reach, and its Detail choice."""
+    values = dict(AIRPORT_DETAIL.scope_values(detail), cover_zl="18",
+                  cover_extent="1.0", **{ZOOM_PREF: str(zoom)})
+    return tuple((name, values[name]) for name in PRESET_KEYS)
+
+
 PRESETS = (
     Preset(
         "light_on_disk", "Light on disk",
-        "ZL15 everywhere: coarser imagery, smaller downloads.",
+        "ZL15 everywhere and no extra airport detail: smaller downloads.",
         "About 0.4–0.8 GB of imagery per tile, a quarter of Balanced.",
-        (("zl", "15"), ("cover_airports_with_highres", "False"),
-         ("cover_zl", "18"), ("cover_extent", "1.0")),
+        _values(15, "none"),
     ),
     Preset(
         "balanced", "Balanced",
-        "The standard settings: ZL16 everywhere.",
+        "ZL16 everywhere, with no extra airport detail.",
         "About 1.6–3.1 GB of imagery per tile.",
-        (("zl", "16"), ("cover_airports_with_highres", "False"),
-         ("cover_zl", "18"), ("cover_extent", "1.0")),
+        _values(16, "none"),
     ),
     Preset(
         "sharper_airports", "Sharper airports",
-        "ZL16, and ZL18 imagery on and around airports with ICAO codes.",
+        "ZL16, and at airports with ICAO codes ZL18 imagery, graded "
+        "runways and the best elevation.",
         "About 1.6–3.1 GB per tile, plus the sharper airports.",
-        (("zl", "16"), ("cover_airports_with_highres", "ICAO"),
-         ("cover_zl", "18"), ("cover_extent", "1.0")),
+        _values(16, "icao"),
     ),
 )
 

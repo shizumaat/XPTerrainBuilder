@@ -28,12 +28,13 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 import O4_Settings_Model as SM  # noqa: E402
+import O4_Settings_Presets as PRESETS  # noqa: E402
 import O4_Settings_Selection as SEL  # noqa: E402
 from O4_Qt_Settings import SettingsWindow  # noqa: E402
 
 A, B = (48, -6), (49, -6)
-SHARPER = {"cover_airports_with_highres": "ICAO", "cover_zl": "18",
-           "cover_extent": "1.0"}
+#: Sharper airports' config keys (its Detail ICAO keys included, #1985).
+SHARPER = PRESETS.cfg_values(PRESETS.preset("sharper_airports"))
 
 
 @pytest.fixture(scope="module")

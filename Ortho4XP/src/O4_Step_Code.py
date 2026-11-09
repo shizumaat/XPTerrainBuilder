@@ -155,6 +155,7 @@ def step_digest(step: str) -> str | None:
 _SHARED: tuple[str, ...] = (
     "O4_Airport_Apt_Identity",
     "O4_Airport_Batch",
+    "O4_Airport_Detail",
     "O4_Airport_Dico",
     "O4_Airport_Elevation_Insets",
     "O4_Airport_Index",

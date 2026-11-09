@@ -9,8 +9,8 @@ every preset, the cards show **Custom**.
 The table lives in `Ortho4XP/src/O4_Settings_Presets.py` (Qt app) and
 `Sources/XPTerrainBuilder/SettingsPresets.swift` (Mac app).
 `Ortho4XP/tests/test_settings_presets.py` fails when the two differ, when a
-preset writes another key set, when Balanced stops being the registry
-defaults, or when a GB figure below stops matching its derivation.
+preset writes another key set, when a preset's airport keys stop being its
+Detail choice's, or when a GB figure below stops matching its derivation.
 
 The cards read Light on disk, Balanced, Sharper airports, left to right
 (owner, #937). **Sharper airports is the default preset:** a new user's
@@ -18,13 +18,17 @@ first-run screen (Mac: the X-Plane folder screen; Qt: the setup assistant)
 applies it when the global config sets none of the preset keys yet
 (`O4_Settings_Presets.unset_in`, `DEFAULT_PRESET`; Swift
 `applyDefaultPresetIfUnset`, `defaultKey`). An existing config keeps its
-values. The engine's registry defaults stay Balanced, so builds outside
-the apps (the harness, the CLI) do not change.
+values. The engine's registry defaults do not change, so builds outside
+the apps (the harness, the CLI) do not change either; since #1985 they
+match no preset (grading and elevation at ICAO airports, sharper imagery
+off), and a config at those defaults shows Custom.
 
 ## The keys
 
-Every preset writes the same four existing keys. None is new, and none changes
-its stored format.
+Every preset writes the same existing keys. None is new, and none changes
+its stored format. The last five are the airport **Detail** choice (#1985,
+`O4_Airport_Detail` / `AirportDetail.swift`): Light on disk and Balanced
+are Detail None, Sharper airports is Detail ICAO airports.
 
 | Key | Where it is stored | Light on disk | Balanced | Sharper airports |
 |---|---|---|---|---|
@@ -32,10 +36,14 @@ its stored format.
 | `cover_airports_with_highres` | Global `Ortho4XP.cfg` | False | False | ICAO |
 | `cover_zl` | Global `Ortho4XP.cfg` | 18 | 18 | 18 |
 | `cover_extent` | Global `Ortho4XP.cfg` | 1.0 | 1.0 | 1.0 |
+| `auto_patch` | Global `Ortho4XP.cfg` | None | None | ICAO |
+| `airport_elevation_insets` | Global `Ortho4XP.cfg` | None | None | ICAO |
+| `bathymetry_near_icao_airports` | Global `Ortho4XP.cfg` | False | False | True |
+| `bathymetry_near_other_airports` | Global `Ortho4XP.cfg` | False | False | False |
 
 - **Light on disk** builds at ZL15 (`zl` 15, about 5 m per pixel).
-- **Balanced** equals the registry defaults (`O4_Cfg_Vars`; the build zoom
-  is `default_zl`'s default, 16, as both apps' zoom default).
+- **Balanced** builds at the registry's zoom (`default_zl`'s default, 16,
+  as both apps' zoom default) and adds no airport detail (Detail None).
 - **Sharper airports** turns on the existing airport high-detail zones for
   airports with ICAO codes (`cover_airports_with_highres` ICAO, owner
   2026-10-19 on #937): ZL18 imagery (`cover_zl` 18, about 0.6 m per pixel)
@@ -50,13 +58,31 @@ Presets set the GLOBAL values, the defaults for new tiles. A tile's own
 overrides are kept; its Settings rows go on showing them. A key outside the
 table never makes the cards show Custom.
 
+## Detail (#1985)
+
+Under the cards, Settings ▸ General's **Detail** chooses where airport
+detail goes: **None**, **ICAO airports** or **All airports**. A choice
+writes the five airport keys above (ICAO airports: sharper imagery,
+grading, elevation insets and measured depth at airports with ICAO codes;
+All airports: at every airport, small fields included; None: nowhere) and,
+for ICAO or All, the build zoom 16 and `cover_zl` 18. Detail is not a
+stored key: it shows the choice whose five keys all hold, else Custom, so
+the per-feature rows in their own categories still work and changing one
+shows Custom. The build zoom is in Settings ▸ Imagery ("Imagery detail").
+
+An existing config is carried over once (`O4_Airport_Detail.migrate_cfg`,
+recorded in `<cfg>.defaults`): a config whose sharper imagery is at ICAO
+airports (or all airports) gets the matching Detail keys wherever they
+still hold their old defaults. A config with sharper imagery off is left
+as it is (it shows Custom): Detail None would also stop its grading.
+
 ## Card text
 
 | Preset | Summary | Cost line |
 |---|---|---|
-| Light on disk | ZL15 everywhere: coarser imagery, smaller downloads. | About 0.4–0.8 GB of imagery per tile, a quarter of Balanced. |
-| Balanced | The standard settings: ZL16 everywhere. | About 1.6–3.1 GB of imagery per tile. |
-| Sharper airports | ZL16, and ZL18 imagery on and around airports with ICAO codes. | About 1.6–3.1 GB per tile, plus the sharper airports. |
+| Light on disk | ZL15 everywhere and no extra airport detail: smaller downloads. | About 0.4–0.8 GB of imagery per tile, a quarter of Balanced. |
+| Balanced | ZL16 everywhere, with no extra airport detail. | About 1.6–3.1 GB of imagery per tile. |
+| Sharper airports | ZL16, and at airports with ICAO codes ZL18 imagery, graded runways and the best elevation. | About 1.6–3.1 GB per tile, plus the sharper airports. |
 
 ## Where the figures come from
 

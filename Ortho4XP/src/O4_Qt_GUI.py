@@ -107,6 +107,7 @@ import O4_Qt_Pack_Art as QTART
 import O4_Qt_Pack_Forests as QTFOREST
 import O4_Qt_Slow_Step as QTSLOW
 import O4_Qt_Pack_Adjust as QTADJ
+import O4_Qt_Gateway_Airports as QTGATE
 import O4_Qt_Pack_Optimise as QTOPT
 import O4_Qt_Latest_Probe as QTPROBE
 import O4_Qt_Tile_Failures as QTFAIL
@@ -919,6 +920,7 @@ class MainWindow(QMainWindow):
             EV.SlowStep: self._on_slow_step,
             EV.PackOptimise: self._on_pack_optimise,
             EV.PackAdjust: self._on_pack_adjust,
+            EV.GatewayAirports: self._on_gateway_airports,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
@@ -936,6 +938,8 @@ class MainWindow(QMainWindow):
         self._pack_optimise_seen = set()
         # #1916: the same for the package adjustments questions
         self._pack_adjust_seen = set()
+        # #1989: the same for the Gateway airports questions
+        self._gateway_seen = set()
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
         # #695: fixable failures, asked one at a time as each tile fails;
@@ -4983,6 +4987,40 @@ class MainWindow(QMainWindow):
             event, ("applied", "undone"), QTADJ.has_choice(event),
             QTADJ.question_key, QTADJ.pack_adjust_box, self._pack_adjust_seen,
             "pack_adjust")
+
+    def _on_gateway_airports(self, event):
+        """#1989: graded airports X-Plane flattens, as one question.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .gatewayAirports``): ``state == "found"`` (or ``"ask"``, the
+        report) with an airport to offer asks once per tile and airport
+        set, every airport checked; Install (the airports kept checked) /
+        Never for these airports send ``gateway_airports`` with every
+        airport shown, Not now sends nothing.  An outcome asks nothing
+        (the engine's log line says what was installed or why not)."""
+        state = getattr(event, "state", "found")
+        key = QTGATE.question_key(event)
+        if state == "ask":
+            self._gateway_seen.discard(key)
+        if state not in ("found", "ask") or not QTGATE.offers(event) \
+                or key in self._gateway_seen:
+            return
+        self._gateway_seen.add(key)
+        box, buttons = QTGATE.gateway_airports_box(event, parent=self)
+        lat, lon = int(event.lat), int(event.lon)
+
+        def finished(_result, box=box, buttons=buttons):
+            for action, button in buttons.items():
+                if box.clickedButton() is button:
+                    self._session.gateway_airports(
+                        action=action, lat=lat, lon=lon,
+                        **box.answer_extra(action))
+            if box in self._pack_art_boxes:
+                self._pack_art_boxes.remove(box)
+
+        box.finished.connect(finished)
+        self._pack_art_boxes.append(box)
+        box.show()
 
     def _pack_choice_event(self, event, done_states, can_answer, question_key,
                            make_box, seen, command):

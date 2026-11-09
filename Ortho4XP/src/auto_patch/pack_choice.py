@@ -13,7 +13,8 @@ import json
 import os
 import typing as _t
 
-__all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES", "Store", "store_path", "read",
+__all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES",
+           "GATEWAY_CHOICES", "Store", "store_path", "read",
            "write", "relative", "step_list"]
 
 #: the "Optimise pack" answers file (#1707; ``optimise_stage``)
@@ -22,6 +23,9 @@ OPTIMISE_CHOICES = "pack_optimise_choices.json"
 OPTIMISE_STEPS = "pack_optimise_steps.json"
 #: the "Hide draped photos" answers file (#1916; ``drape_stage``)
 DRAPE_CHOICES = "pack_drape_choices.json"
+#: the Gateway airport answers file (#1989; ``gateway_stage``): keyed by
+#: ``gateway_stage.choice_key(ICAO)``, not by a pack
+GATEWAY_CHOICES = "gateway_airport_choices.json"
 
 #: the answers a store remembers ("" forgets)
 REMEMBERED = ("update", "never")

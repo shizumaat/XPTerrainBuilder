@@ -76,8 +76,8 @@ from . import tile_time_model
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
-    _predict_step_seconds, build_done, last_outcome_counts, plan_steps, prediction_features,
-    reweight_plan_by_seconds, stopped_tile_state,
+    _offer_gateway_airports, _predict_step_seconds, build_done, last_outcome_counts,
+    plan_steps, prediction_features, reweight_plan_by_seconds, stopped_tile_state,
 )
 
 
@@ -607,6 +607,8 @@ _FORWARDED_EVENT_TYPES = (
     "PackOptimise",
     # #1916: ... and a pack's adjustments (trees, draped photos, flatten).
     "PackAdjust",
+    # #1989: ... and the tile's Gateway airports to offer.
+    "GatewayAirports",
     "Log",
 )
 
@@ -2083,6 +2085,10 @@ class ParallelBuildRun:
                     self._next_step_index.pop(child.tile, None)
                     self._percent_high_water.pop(child.tile, None)
                     (finished, child.tile) = (child.tile, None)
+                    if self._last_ok.get(finished):
+                        # #1989: the built tile's Gateway airports (the
+                        # per-step children each see one step)
+                        _offer_gateway_airports(*finished)
                     if rerun and self._last_ok.get(finished):
                         self._readmit_locked(finished)
             self._dispatch_locked()

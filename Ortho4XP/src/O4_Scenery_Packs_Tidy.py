@@ -71,12 +71,14 @@ def _classify(custom_scenery_dir: str, name: str):
 
 
 def tidy_scenery_packs(custom_scenery_dir: str = "", kinds=None,
-                       **_ignored) -> dict:
+                       names=None, **_ignored) -> dict:
     """The ``tidy_scenery_packs`` command (protocol 1.32).
 
     ``kinds`` maps pack names to the kinds the caller's own scan found
     (``O4_Custom_Scenery.PACK_KINDS``); a pack it does not name is read
     from disk (:func:`_classify`), and only when its group is needed.
+    ``names``, when given, files only those packs (a pack the app just
+    installed, #1989); the other unlisted packs are left as they are.
 
     :returns: ``{"added": [names filed], "backup": path or ""}`` —
         ``added`` empty when the ini already lists every pack (then it
@@ -93,6 +95,8 @@ def tidy_scenery_packs(custom_scenery_dir: str = "", kinds=None,
     except OSError:
         return reply
     new = _unlisted_packs(custom_scenery_dir, lines)
+    if names is not None:
+        new = [name for name in new if name in set(names)]
     if not new:
         return reply
     known = {str(key): str(value) for key, value in dict(kinds or {}).items()}

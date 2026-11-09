@@ -1234,6 +1234,8 @@ final class BuildModel: ObservableObject {
             packOptimise(optimise)
         case .packAdjust(let adjust):
             packAdjust(adjust)
+        case .gatewayAirports(let offer):
+            gatewayAirports(offer)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -2189,6 +2191,41 @@ final class BuildModel: ObservableObject {
                                shown: adjust.choices.map(\.key))
         }
         packAdjustPrompt = packAdjustQueue.isEmpty ? nil : packAdjustQueue.removeFirst()
+    }
+
+    /// The Gateway airports question to present, or nil (#1989).
+    @Published var gatewayAirportsPrompt: O4GatewayAirports?
+    /// Questions waiting behind the one on screen, in arrival order.
+    private var gatewayAirportsQueue: [O4GatewayAirports] = []
+    /// Every question already asked this session (one per tile and
+    /// airport set).
+    private var gatewayAirportsSeen: Set<String> = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_gateway_airports`): a
+    /// question with an airport in it asks once; an outcome asks nothing
+    /// (the engine's log line says what was installed or why not).
+    private func gatewayAirports(_ offer: O4GatewayAirports) {
+        if offer.state == "ask" { gatewayAirportsSeen.remove(offer.id) }
+        guard offer.asks, !gatewayAirportsSeen.contains(offer.id) else { return }
+        gatewayAirportsSeen.insert(offer.id)
+        if gatewayAirportsPrompt == nil {
+            gatewayAirportsPrompt = offer
+        } else {
+            gatewayAirportsQueue.append(offer)
+        }
+    }
+
+    /// The user's answer to the question on screen: "install" (the checked
+    /// airports) or "never" sends `gateway_airports` with every airport
+    /// shown; nil (Not now) sends nothing.
+    func answerGatewayAirportsPrompt(action: String?, icaos: [String] = []) {
+        if let offer = gatewayAirportsPrompt, let action {
+            client?.gatewayAirports(action: action, lat: offer.lat, lon: offer.lon,
+                                    icaos: action == "install" ? icaos : nil,
+                                    shown: offer.offers.map(\.icao))
+        }
+        gatewayAirportsPrompt = gatewayAirportsQueue.isEmpty
+            ? nil : gatewayAirportsQueue.removeFirst()
     }
 
     /// The "Optimise pack" question to present, or nil (#1707).

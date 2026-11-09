@@ -144,6 +144,8 @@ struct MapMainView: View {
         .modifier(PackOptimisePrompt(buildModel: buildModel))
         // An airport pack's adjustments (capability pack_adjust, #1916).
         .modifier(PackAdjustPrompt(buildModel: buildModel))
+        // Graded airports X-Plane flattens (capability gateway_airports, #1989).
+        .modifier(GatewayAirportsPrompt(buildModel: buildModel))
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
             set: { if !$0 { controller.errorMessage = nil } }

@@ -228,6 +228,20 @@ def pack_adjust(**fields):
             pass
 
 
+def gateway_airports(**fields):
+    """Global Airports entries X-Plane flattens / Gateway packs with a
+    newer version, or the outcome of the user's answer (issue #1989).
+
+    ``fields`` are the ``GatewayAirports`` event's.  No-op without an
+    engine session and never raises.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.gateway_airports_event(**fields)
+        except Exception:
+            pass
+
+
 def pack_optimise(**fields):
     """An airport pack "Optimise pack" can lighten, or the outcome of the
     user's answer (issue #1707).

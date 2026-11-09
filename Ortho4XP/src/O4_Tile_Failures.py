@@ -438,6 +438,10 @@ EXCEPTION_CODES = {
     # a patch library command (#1699 phase 2) that cannot be done: said in
     # its own words by the command; the reuse gate never raises it
     "LibraryRefused": "unexpected_error",
+    # the X-Plane Gateway could not be read (#1989): said in its own words
+    # by the gateway_airports command and the build's log; never raised
+    # inside a build step
+    "GatewayError": "unexpected_error",
     # geometry (shapely's GEOSException covers TopologyException, #559)
     "GEOSException": "airport_geometry",
     "TopologicalError": "airport_geometry",

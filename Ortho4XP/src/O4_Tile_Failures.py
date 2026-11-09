@@ -180,6 +180,12 @@ CATALOGUE = {
     "airport_worker_died": Entry(
         "work on {airports} stopped unexpectedly.",
         "A background process ended early.", "retry"),
+    # issue #1980: ``auto_patch_v2.airport.pool_memory`` stopped the step
+    # before the machine ran out of memory (a runaway in one reading)
+    "airport_memory_ceiling": Entry(
+        "work on {airports} was stopped before the computer ran out of memory.",
+        "One step of this airport's build kept growing; the app stopped it "
+        "while the computer still had memory to spare.", "report"),
     "airport_no_result": Entry(
         "{airports} produced no result.",
         "A background process ended without reporting why.", "retry"),
@@ -494,6 +500,7 @@ EXCEPTION_CODES = {
     # editor, never a build failure
     "SliceRefused": UNMAPPED,
     # the standard library and the HTTP stack
+    "MemoryCeilingError": "airport_memory_ceiling",
     "MemoryError": "out_of_memory",
     "FileNotFoundError": "file_missing",
     "PermissionError": "no_permission",

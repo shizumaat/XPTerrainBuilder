@@ -54,7 +54,8 @@ def test_a_proud_wall_is_capped_at_what_it_retains(monkeypatch):
     # 21 m solid, top at +6, retaining only the 15 m under its zero: the
     # upper ground is AT the zero and the 6 m above it is a parapet
     comp = types.SimpleNamespace(seat_z=280.0, member=object(), origin=(0.0, 0.0),
-                                 height_m=21.0, retained_m=15.0, top_y=6.0)
+                                 height_m=21.0, retained_m=15.0, top_y=6.0,
+                                 retained_top_y=0.0)
     a = np.asarray(WT.top_profile(comp, WALL, _upper_face(), None), float)
     assert float(a[:, 1].max()) == 280.0
     full = types.SimpleNamespace(seat_z=280.0, member=object(), origin=(0.0, 0.0),

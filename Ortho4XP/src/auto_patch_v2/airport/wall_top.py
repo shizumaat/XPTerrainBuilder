@@ -116,12 +116,14 @@ def _stations(comp, piece, face, to_xy, cache, where, high: bool):
 
 
 def _retaining_cap(comp) -> float:
-    """The highest authored ``y`` the wall retains to: its zero plus the
-    part of its solid height it retains (``top_y - height + retained``) for
-    a wall that retains less than its height; unbounded otherwise."""
-    h = float(getattr(comp, "height_m", 0.0) or 0.0)
-    kept = float(getattr(comp, "retained_m", 0.0) or 0.0)
+    """The highest authored ``y`` the wall retains to
+    (``WallComponent.retained_top_y``: its zero, for a wall that retains
+    only its depth under it); unbounded where the face it retains runs to
+    its top — its solid height, or its height over the ground on its low
+    side (RULINGS 2026-11-09a (14): the part under that ground is its
+    footing, and the top is still the top)."""
+    cap = getattr(comp, "retained_top_y", None)
     top_y = getattr(comp, "top_y", None)
-    if top_y is None or kept <= 0.0 or kept >= h - 1e-6:
+    if cap is None or top_y is None or float(cap) >= float(top_y) - 1e-6:
         return math.inf
-    return float(top_y) - h + kept
+    return float(cap)

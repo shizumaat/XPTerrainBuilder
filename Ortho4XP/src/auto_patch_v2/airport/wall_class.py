@@ -53,8 +53,9 @@ class WallComponent:
     comp: int
     retains: bool = False
     #: the height it RETAINS (#1158): its solid height, or its depth under
-    #: its own zero where it stands proud (:func:`_depth_under_zero`); 0.0
-    #: where it retains none
+    #: its own zero where it stands proud (:func:`_depth_under_zero`), or its
+    #: top over the ground on its low side where its footing is authored
+    #: below that ground (RULINGS 2026-11-09a (14)); 0.0 where it retains none
     retained_m: float = 0.0
     #: the part's extent ABOVE its object's zero (``base_y + height``,
     #: #1633: the wall's top as seated), ``None`` where the reading has none
@@ -68,6 +69,10 @@ class WallComponent:
     #: (``airport/wall_top`` reads the member's triangles), ``None`` unread
     origin: tuple | None = _dc.field(default=None, compare=False)
     member: _t.Any = _dc.field(default=None, compare=False, repr=False)
+    #: the authored ``y`` the RETAINED face reaches up to (#1139: its zero,
+    #: the parapet above retaining nothing); ``None`` where the face it
+    #: retains runs to its top (:func:`_retains_its_height`)
+    retained_top_y: float | None = None
 
 
 #: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
@@ -134,24 +139,29 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 if sum(g.length for g in polys) / 2.0 < \
                         float(cfg.retaining_wall_min_length_m):
                     continue
-                # #1139: an object that IS one wall (its only part) may
-                # retain only what stands under its zero
-                depth = _depth_under_zero(p) if len(m.parts) == 1 else None
-                retained = _retains_its_height(
-                    airport, whole, wide, float(p.height_m), cfg, depth
-                ) if _stands_on_ground(p) else 0.0
-                retains = retained > 0.0
-                if wide > float(cfg.retaining_wall_max_width_m) and not retains:
-                    continue
                 by = getattr(p, "base_y", None)
+                top_y = None if by is None else float(by) + float(p.height_m)
                 if seat is None:
                     seat = _seat_z(airport, u, m, to_xy)
+                # #1139 / RULINGS 2026-11-09a (14): an object that IS one wall
+                # (its only part) may retain only what stands under its zero,
+                # or only what stands over the ground on its low side
+                one = len(m.parts) == 1
+                depth = _depth_under_zero(p) if one else None
+                retained = _retains_its_height(
+                    airport, whole, wide, float(p.height_m), cfg, depth,
+                    seat + top_y if one and _hangs_from_zero(top_y, seat, cfg) else None,
+                ) if _stands_on_ground(p) else 0.0
+                retains = retained > 0.0
+                # the face a depth retains reaches its zero, not its top
+                kept_top = 0.0 if retains and depth is not None and \
+                    retained == depth and retained != float(p.height_m) else None
+                if wide > float(cfg.retaining_wall_max_width_m) and not retains:
+                    continue
                 out.append(WallComponent(tuple(polys), float(p.height_m),
                                          m.resource, int(p.comp), retains,
-                                         float(retained),
-                                         None if by is None else
-                                         float(by) + float(p.height_m),
-                                         seat, _origin(u, m), m))
+                                         float(retained), top_y, seat,
+                                         _origin(u, m), m, kept_top))
     return out
 
 
@@ -212,7 +222,7 @@ def _depth_under_zero(part) -> float | None:
 
 
 def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg,
-                        depth: float | None = None) -> float:
+                        depth: float | None = None, top_abs: float | None = None) -> float:
     """A WALL THAT RETAINS ITS OWN HEIGHT (owner RULINGS 2026-10-15a (2),
     issue #715): slender for its height (``wide <= height x
     retaining_wall_thick_width_per_height``: KATL's 10.65 m concrete
@@ -241,8 +251,17 @@ def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg
     admits KATL ``muro_ladrillo`` alone over the 33 registered captures.
     Slenderness is judged on the solid height, as before.
 
-    Returns the height it retains (the solid height, else the depth — the
-    first the step matches), 0.0 where it retains none."""
+    THE HEIGHT OVER ITS LOW SIDE (owner RULINGS 2026-11-09a (14), #1952):
+    "a retaining wall's height is what it retains above the ground on its
+    low side, not its full modelled solid height (which includes the part
+    authored below ground)" — ``top_abs`` (its top as it sits, absolute)
+    less the ground on its low side (:func:`_kept_above_low_side`), read
+    for the same one-wall objects as the depth, and only where part of the
+    solid stands under that ground (a footing).
+
+    Returns the height it retains (the solid height, else the depth, else
+    the height over its low side — the first the step matches), 0.0 where
+    it retains none."""
     per = getattr(cfg, "retaining_wall_thick_width_per_height", None)
     lo = getattr(cfg, "retaining_wall_step_min_fraction", None)
     hi = getattr(cfg, "retaining_wall_step_max_fraction", None)
@@ -252,11 +271,50 @@ def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg
         return 0.0
     if wide > height * float(per):
         return 0.0
-    step = _step_across(dem, whole, wide, max(float(ring_m), height))
+    ring = max(float(ring_m), height)
+    step = _step_across(dem, whole, wide, ring)
     if step is None:
         return 0.0
-    return next((h for h in (height, depth) if h is not None and h > 0.0
+    kept = None if top_abs is None else \
+        _kept_above_low_side(dem, whole, wide, ring, float(top_abs), height)
+    return next((h for h in (height, depth, kept) if h is not None and h > 0.0
                  and float(lo) * h <= step <= float(hi) * h), 0.0)
+
+
+def _hangs_from_zero(top_y: float | None, seat: float | None, cfg) -> bool:
+    """A wall whose top stands within ``retaining_wall_clear_step_m`` of its
+    object's zero, seated: the zero of a retaining wall is the upper ground
+    it holds (:func:`_depth_under_zero`), so its face hangs from there down
+    past the low side's ground to its footing (KMCI's border wall, y -14.0
+    .. -0.9; KATL ``muro_concreto5``, -9.70 .. +0.95).  A part standing far
+    over its zero is a building's (LEMD ``OldTerminal_FSX-T2SL4``: a 16 m
+    facade, its top 15.4 m over its zero) and its height over the low side
+    is never read (RULINGS 2026-11-09a (14))."""
+    return top_y is not None and seat is not None and \
+        float(top_y) <= float(cfg.retaining_wall_clear_step_m)
+
+
+def _kept_above_low_side(dem, whole, wide: float, ring_m: float, top_abs: float,
+                         height: float) -> float | None:
+    """THE HEIGHT A WALL RETAINS OVER THE GROUND ON ITS LOW SIDE (RULINGS
+    2026-11-09a (14)): ``top_abs`` less the median of the LOWER reading of
+    each across pair (:func:`_across_pairs`, the witness's own samples),
+    or ``None`` where that is not under its solid ``height`` (nothing of it
+    is authored below ground) or not above zero (its top stands under the
+    ground)."""
+    import numpy as np
+
+    from .dem import dem_z_many
+    near, _wall, far = _across_pairs(whole, wide, ring_m)
+    if len(near) < 4:
+        return None
+    low = np.fmin(dem_z_many(dem, near[:, 0], near[:, 1]),
+                  dem_z_many(dem, far[:, 0], far[:, 1]))
+    low = low[np.isfinite(low)]
+    if low.size < 4:
+        return None
+    kept = float(top_abs) - float(np.median(low))
+    return kept if 0.0 < kept < float(height) else None
 
 
 def _across_pairs(whole, wide: float, ring_m: float):

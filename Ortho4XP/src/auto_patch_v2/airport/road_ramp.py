@@ -1568,11 +1568,13 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
     sides = tuple(getattr(airport, "retaining_walls", ()) or ())
     out = []
     for c in wall_class_components(airport, cfg):
+        # 2026-11-09a (14): a retaining wall's height is the height it
+        # retains, never its solid height (its footing is below ground)
+        h = float(c.retained_m if c.retains and c.retained_m > 0.0 else c.height_m)
         for g in c.pieces:
-            if _piece_length(g) >= float(c.height_m):
+            if _piece_length(g) >= h:
                 side = next((w for w in sides if w.poly.equals(g)), None)
-                out.append(WallPiece(g, float(c.height_m),
-                                     f"{c.resource}#comp{c.comp}",
+                out.append(WallPiece(g, h, f"{c.resource}#comp{c.comp}",
                                      bool(c.retains), False,
                                      getattr(side, "upper_face", None),
                                      getattr(side, "top_profile", None),

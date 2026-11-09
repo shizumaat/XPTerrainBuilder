@@ -21,6 +21,13 @@ its zero) is the ``pack_objects`` model's, sent back by the client:
 bottom = zero + ``y_min``, top = zero + ``y_max``.  A split whose bodies
 stand at different zeros reports the lowest bottom and the highest top.
 
+A placement the plan CUT into parts answers for its OBJECT GROUP (#1970,
+``object_group.group_seat``): the rows cut into bodies of the same
+structure units, which the editor moves as one — the record's ``group``
+names them (``rows``, ``parts``, ``sources``) with the ``ring`` the editor
+outlines, its ``bottom_m`` is the lowest part's zero, and a lift the
+user gave the group is ``user_offset_m``.
+
 A seat the user SET BY HAND (#1703, ``object_seat_set``) is the seat:
 the hand-set zero, with a sentence saying it is still to be built until
 the pack DSF's record says a write placed it there (a build from the auto
@@ -191,6 +198,21 @@ def _seat_record(entry: tuple[str, dict] | None, *, agl_m: float, ground_m: floa
     return out
 
 
+def _group_record(tile: str, icao: str, row: int, entries: dict, user,
+                  dsf_path: str) -> dict:
+    """#1970: the record of split row ``row``'s object group."""
+    from .object_group import group_seat
+    from .object_seat_edit import placed_seat
+    off = None if user is None else user.offset_m
+    placed = None if off is None else placed_seat(tile, icao, row, dsf_path)
+    built = (placed is not None and placed.offset_m is not None
+             and abs(placed.offset_m - off) < 0.005)
+    rec = group_seat(entries, row, off, built)
+    rec["index"] = row
+    rec["user_zero_m"] = None
+    return rec
+
+
 def object_seat(tile: str, icao: str, index: int, lat: float, lon: float,
                 agl_m: float = 0.0, y_min: float | None = None,
                 y_max: float | None = None, build_dir: str | None = None) -> dict:
@@ -213,6 +235,10 @@ def object_seat(tile: str, icao: str, index: int, lat: float, lon: float,
     entry = None if entries is None else entries.get(row)
     from .object_seat_edit import placed_zero, user_seat_for
     user = user_seat_for(tile, icao, row)
+    if entry is not None and entry[0] == "split" and (user is None or user.offset_m is not None):
+        rec = _group_record(tile, icao, row, entries, user, plan[2])
+        rec["plan"] = os.path.basename(path)
+        return rec
     if user is not None:
         entry = _hand_set(entry, user.zero_m, placed_zero(
             tile, icao, row, plan[2] if plan is not None else ""))

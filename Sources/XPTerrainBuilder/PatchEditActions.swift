@@ -92,6 +92,27 @@ extension PatchEditModel {
         }
     }
 
+    /// How far "Duplicate shape" puts the copy (#1963): this many metres
+    /// east and south of the original, so it shows and can be dragged
+    /// (Qt `DUPLICATE_OFFSET_M`).
+    static let duplicateOffsetM = 10.0
+
+    /// "Duplicate shape" (#1963): copy the selected shapes (same tags and
+    /// elevations, new ids, no node shared with the original) a little to
+    /// the south-east as ONE step; the copies end selected.
+    func duplicateShapes() {
+        guard let doc = document, !shapeSelection.isEmpty else { return }
+        let dlat = -Self.duplicateOffsetM / PatchLocalFrame.metresPerDegreeLat
+        let dlon = Self.duplicateOffsetM / doc.frame.metresPerDegreeLon
+        let ids = shapeSelection.sorted()
+        var added: [Int64] = []
+        if perform(ids.count == 1 ? "Duplicate Shape" : "Duplicate Shapes", {
+            added = try $0.duplicateWays(ids, dlat: dlat, dlon: dlon)
+        }) {
+            selectShapes(Set(added))
+        }
+    }
+
     func setSelectionAlt(_ alt: Double) {
         let ids = selection.sorted()
         perform("Set Elevation") { try $0.setAlt(ids, alt: alt) }

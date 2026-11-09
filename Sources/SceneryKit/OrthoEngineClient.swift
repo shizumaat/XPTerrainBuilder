@@ -1238,14 +1238,16 @@ extension OrthoEngineClient {
     }
 
     /// Set an object's elevation by hand (protocol 1.30, #1703): its bottom
-    /// in metres MSL, or its zero (an undo); neither clears it.
+    /// in metres MSL, or its zero or its group's offset (an undo, #1970);
+    /// none clears it.
     public func objectSeatSet(tile: String, icao: String, object: PackObjectRef, bottomM: Double? = nil,
-                              zeroM: Double? = nil) async throws -> O4ObjectSeatSet {
+                              zeroM: Double? = nil, offsetM: Double? = nil) async throws -> O4ObjectSeatSet {
         var arguments: [String: Any] = [
             "tile": tile, "icao": icao, "index": object.index, "model": object.model,
             "lat": object.lat, "lon": object.lon,
         ]
         if let zeroM { arguments["zero_m"] = zeroM }
+        if let offsetM { arguments["offset_m"] = offsetM }
         if let bottomM { arguments["bottom_m"] = bottomM; arguments["y_min"] = object.yMin ?? 0 }
         return try await request("object_seat_set", arguments)
     }

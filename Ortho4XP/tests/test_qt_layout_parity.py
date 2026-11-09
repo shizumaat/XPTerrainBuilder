@@ -74,6 +74,14 @@ AIRPORTS_CARD_TEXT = (
     ("backupNote", "BACKUP_NOTE"),
 )
 
+#: The patch editor's Edit-mode right-click items, in menu order (#1318
+#: Slice, #1963 Duplicate shape): (Swift ``TileContextMenu`` static let,
+#: Qt module, Qt constant).
+PATCH_EDIT_MENU = (
+    ("sliceTitle", "O4_Qt_Patch_Editor", "SLICE_TITLE"),
+    ("duplicateShapeTitle", "O4_Qt_Patch_Editor", "DUPLICATE_SHAPE_TITLE"),
+)
+
 #: The patch library's homes (#1699 phase 2), each in both apps:
 #: (key, Swift file, Swift marker, Qt owner, Qt attribute).  The match
 #: list sits in the Airports card under the airport list; the Library
@@ -174,6 +182,34 @@ def test_the_airports_cards_say_the_same_words():
         said = re.search(r'static let %s = "([^"]+)"' % name, swift)
         assert said, name
         assert said.group(1) == getattr(QTAIRPORTS, constant), name
+
+
+def test_the_patch_edit_menus_are_the_manifest(qapp):
+    """Both apps' Edit-mode right-click menus start with the same items, in
+    the same order, with the same words."""
+    import importlib
+    from types import SimpleNamespace as NS
+
+    from O4_Qt_Patch_Editor import PatchEditor
+    from PySide6.QtWidgets import QMenu
+
+    swift = (SWIFT / "TileContextMenu.swift").read_text(encoding="utf-8")
+    init = swift[swift.index("    init(coord:"):]
+    titles, marks = [], []
+    for name, module, constant in PATCH_EDIT_MENU:
+        said = re.search(r'static let %s = "([^"]+)"' % name, swift)
+        assert said, name
+        assert said.group(1) == getattr(importlib.import_module(module), constant), name
+        titles.append(said.group(1))
+        marks.append(init.find("Self.%s" % name))
+    assert -1 not in marks and marks == sorted(marks), "Mac patch menu order differs"
+    model = NS(doc=object(), mode="Edit", shape_selection=set(),
+               slice_args=lambda: {}, slice_selection=lambda: None,
+               duplicate_shapes=lambda: None)
+    menu = QMenu()
+    menu.addAction("Show in Finder")
+    PatchEditor.add_to_menu(NS(model=model), menu)
+    assert [a.text() for a in menu.actions()][:len(titles)] == titles
 
 
 def test_mac_plan_panel_closes_the_build_box():

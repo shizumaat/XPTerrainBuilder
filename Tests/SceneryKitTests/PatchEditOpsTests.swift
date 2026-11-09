@@ -57,6 +57,8 @@ struct PatchEditOpsTests {
         case "merge_nodes": try doc.mergeNodes(source: int("source"), target: int("target"))
         case "slice_shape": try doc.sliceShape(int("a"), int("b"), way: (args["way"] as? NSNumber)?.int64Value)
         case "rotate_ways": try doc.rotateWays(ids(args["way_ids"]), degrees: number(args["angle_deg"])!)
+        case "duplicate_ways":
+            try doc.duplicateWays(ids(args["way_ids"]), dlat: number(args["dlat"])!, dlon: number(args["dlon"])!)
         case "add_shape":
             let corners = ((args["corners"] as? [[Any]]) ?? []).map {
                 (lat: number($0[0])!, lon: number($0[1])!, alt: number($0[2]))

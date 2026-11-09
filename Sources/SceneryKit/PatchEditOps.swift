@@ -145,6 +145,40 @@ extension PatchDocument {
         return wayID
     }
 
+    /// Copy the ways (whole shapes, #1963 "Duplicate shape") `(dlat, dlon)`
+    /// degrees away: every node they use becomes ONE new node (the copies
+    /// stay welded to each other and to nothing of the original), from
+    /// `nextNewNodeID` downwards in the order the copied ways (file order)
+    /// first use them, keeping its elevation; each way becomes a new way
+    /// (`nextNewWayID` downwards, file order) after the others, with the
+    /// same tags. Never merges. Returns the new ways' ids.
+    @discardableResult
+    public mutating func duplicateWays(_ wayIDs: [Int64], dlat: Double, dlon: Double) throws -> [Int64] {
+        let wanted = Set(wayIDs)
+        let picked = ways.filter { wanted.contains($0.id) }
+        if let missing = wanted.subtracting(picked.map(\.id)).min() { throw PatchEditError.unknownWay(missing) }
+        var copy: [Int64: Int64] = [:]
+        var id = nextNewNodeID
+        for w in picked {
+            for r in w.refs where copy[r] == nil {
+                guard let n = nodes[r] else { throw PatchEditError.unknownNode(r) }
+                copy[r] = id
+                nodes[id] = PatchNode(id: id, lat: n.lat + dlat, lon: n.lon + dlon, alt: n.alt)
+                nodeOrder.append(id)
+                id -= 1
+            }
+        }
+        var wayID = nextNewWayID
+        var added: [Int64] = []
+        for w in picked {
+            ways.append(PatchWay(id: wayID, refs: w.refs.map { copy[$0]! }, tags: w.tags))
+            added.append(wayID)
+            wayID -= 1
+        }
+        reindex()
+        return added
+    }
+
     /// Merge `source` INTO `target` (§3.3): the target keeps its position
     /// and elevation, every ref to the source becomes the target, the source
     /// leaves the document, and the topology rules apply. No distance check.

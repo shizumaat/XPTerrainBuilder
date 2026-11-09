@@ -13,6 +13,11 @@ or shape selection, Esc, a click on open map or a new document clears it.
 The selection (:attr:`ObjectInspector.selected` and its ``object`` dict)
 is what "Set object elevation…" acts on, and a node dropped on an object's
 snap point is asked Top / Bottom here (#1703, :mod:`O4_Qt_Object_Seat`).
+
+An object the build cut into parts is selected with its whole GROUP
+(#1970, ``o4_engine.object_group``): the seat's ``group`` names it and
+its ``ring`` is what is outlined; "Set object elevation…" moves every part
+of it by one offset (the engine decides), one undo step.
 """
 from __future__ import annotations
 
@@ -105,14 +110,16 @@ class ObjectInspector(QObject):
                 self._ask += 1
                 self._query(obj, self._ask, 0)
 
-        def send(zero_m) -> None:
-            self._seat_set(tile, icao, obj, lambda _r, e: stored(e), zero_m=zero_m)
+        def send(seat) -> None:                 # (zero_m, offset_m) — #1970
+            self._seat_set(tile, icao, obj, lambda _r, e: stored(e), zero_m=seat[0],
+                           offset_m=seat[1])
 
         def first(reply, error) -> None:
             stored(error)
             if error is None:
-                self.model.undo_stack.push(SeatStep(name, send, reply.get("previous_zero_m"),
-                                                    reply.get("zero_m")))
+                self.model.undo_stack.push(SeatStep(
+                    name, send, (reply.get("previous_zero_m"), reply.get("previous_offset_m")),
+                    (reply.get("zero_m"), reply.get("offset_m"))))
         self._seat_set(tile, icao, obj, first, bottom_m=bottom_m, y_min=obj.get("y_min") or 0.0)
 
     def _seat_set(self, tile: str, icao: str, obj: dict, callback, **values) -> None:
@@ -182,24 +189,34 @@ class ObjectInspector(QObject):
                          build_dir=getattr(info, "build_dir", None) or None, **kwargs)
 
     # ─── drawing (viewport space) ──────────────────────────────────────
+    def outline_path(self):
+        """What is outlined: the selected object's group (#1970) when the
+        build cut it into parts, else the object's own outline path."""
+        from O4_Qt_Pack_Outlines import _path
+        ring = ((self.seat or {}).get("group") or {}).get("ring") or ()
+        if len(ring) >= 3:
+            return _path([[(p[0], p[1]) for p in ring]], self.outlines.zoomlevel)
+        return self.selected.path
+
     def paint(self, painter, view_transform, colour: QColor) -> None:
-        """The selected outline in ``colour`` over a light tint, then its
-        grown name box at the outline's label anchor."""
+        """The selected outline (its group's, #1970) in ``colour`` over a
+        light tint, then its grown name box at the outline's label anchor."""
         o = self.selected
         if o is None:
             return
         from O4_Qt_Pack_Outlines import LABEL_POINT_SIZE, LINE_WIDTH
+        path = self.outline_path()
         painter.save()
         painter.setTransform(view_transform)
         tint = QColor(colour)
         tint.setAlphaF(0.18)
-        painter.fillPath(o.path, tint)
+        painter.fillPath(path, tint)
         pen = QPen(colour)
         pen.setCosmetic(True)
         pen.setWidthF(2 * LINE_WIDTH)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        painter.drawPath(o.path)
+        painter.drawPath(path)
         painter.resetTransform()
         font = QFont(painter.font())
         font.setPointSizeF(LABEL_POINT_SIZE + 1)

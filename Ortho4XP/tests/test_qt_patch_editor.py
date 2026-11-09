@@ -555,7 +555,7 @@ def test_slice_is_offered_for_two_non_neighbours_and_is_one_undo_step(editor):
     ed.model.set_selection({-1, -2})               # neighbours
     item, menu = menu_item()
     assert item is not None and not item.isEnabled() and "neighbours" in item.toolTip()
-    assert menu.actions()[0] is item and menu.actions()[1].isSeparator()
+    assert menu.actions()[0] is item and menu.actions()[2].isSeparator()
     before = ed.model.doc
     ed.model.set_selection({-1, -3})
     item, _menu = menu_item()
@@ -569,6 +569,47 @@ def test_slice_is_offered_for_two_non_neighbours_and_is_one_undo_step(editor):
     assert ed.model.doc == before
     ed.model.undo_stack.redo()
     assert len(ed.model.doc.ways) == 3
+
+
+def test_duplicate_shape_copies_the_selection_as_one_undo_step(editor):
+    """#1963: "Duplicate shape" follows Slice, enabled with a shape
+    selected; the copy keeps the tags and elevations, shares no node with
+    the original, stands DUPLICATE_OFFSET_M to the south-east and ends
+    selected; one step, undone whole."""
+    from O4_Qt_Patch_Editor import DUPLICATE_SHAPE_TITLE
+    from O4_Qt_Patch_Model import DUPLICATE_OFFSET_M, METRES_PER_DEGREE_LAT
+    from PySide6.QtWidgets import QMenu
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+
+    def menu_item():
+        menu = QMenu()
+        menu.addAction("Show in Finder")
+        ed.add_to_menu(menu)
+        found = [a for a in menu.actions() if a.text() == DUPLICATE_SHAPE_TITLE]
+        return found[0] if found else None, menu
+
+    assert menu_item()[0] is None                  # View mode: no item
+    ed.model.set_mode("Edit")
+    item, menu = menu_item()
+    assert menu.actions()[1] is item and not item.isEnabled() and item.toolTip()
+    before = ed.model.doc
+    (src,) = [w for w in before.ways if w.id == -10]
+    ed.model.select_shapes({-10})
+    item, _menu = menu_item()
+    assert item.isEnabled()
+    item.trigger()
+    (copy,) = [w for w in ed.model.doc.ways if w.id not in {x.id for x in before.ways}]
+    assert ed.model.shape_selection == {copy.id} and dict(copy.tags) == dict(src.tags)
+    assert not set(copy.refs) & set(before.nodes) and len(copy.refs) == len(src.refs)
+    a, b = before.nodes[src.refs[0]], ed.model.doc.nodes[copy.refs[0]]
+    assert b[3] == a[3]
+    assert abs((a[1] - b[1]) * METRES_PER_DEGREE_LAT - DUPLICATE_OFFSET_M) < 1e-6 and b[2] > a[2]
+    assert ed.model.undo_stack.count() == 1
+    assert ed.model.undo_stack.undoText() == "Duplicate Shape"
+    ed.model.undo_stack.undo()
+    assert ed.model.doc == before
 
 
 def test_the_mac_app_names_slice_the_same():

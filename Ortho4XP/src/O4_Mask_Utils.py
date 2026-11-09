@@ -359,6 +359,11 @@ def build_masks(tile, for_imagery=False):
             )
             return 0
 
+    feather_pixels = int(
+        _inland_shore_feather_m(tile)
+        / GEO.webmercator_pixel_size(tile.lat + 0.5, tile.mask_zl)
+    )
+
     #################################
     def build_mask(til_x, til_y):
 
@@ -372,6 +377,17 @@ def build_masks(tile, for_imagery=False):
 
         pre_mask = build_water_pre_mask(til_x, til_y, mesh_list, dico_sea,
                                          dico_inland, sea_level, tile)
+        if (til_x, til_y) not in dico_sea:
+            # Inland water only, no sea in reach (#1981): the shore
+            # feather alone — no sea fade, foam, depth or extent.
+            inland_mask = _build_inland_shore_mask(
+                pre_mask, sea_level, feather_pixels)
+            if inland_mask is not None:
+                Image.fromarray(inland_mask).save(os.path.join(
+                    dest_dir, FNAMES.legacy_mask(til_x, til_y)))
+                UI.vprint(1, "   Created", FNAMES.legacy_mask(til_x, til_y),
+                          "(inland shore)")
+            return 1
         if legacy_dem_refinement:
             dem_array = build_dem_pre_mask(til_x, til_y, tile)
             pre_mask = numpy.maximum(pre_mask, dem_array)
@@ -419,10 +435,6 @@ def build_masks(tile, for_imagery=False):
         # Land back to full 255, inland water feathered from the shore
         # down to its constant grey, sea keeping the blur fade; cropped
         # to final size (custom extent mask maxed in below).
-        feather_pixels = int(
-            float(getattr(tile, "inland_shore_feather_m", 120.0))
-            / GEO.webmercator_pixel_size(tile.lat + 0.5, tile.mask_zl)
-        )
         blured_mask = compose_water_mask(
             pre_mask, blured_mask, sea_level, feather_pixels)
         
@@ -495,6 +507,11 @@ def build_masks(tile, for_imagery=False):
     masks_queue = queue.Queue()
     for key in dico_sea:
         masks_queue.put(key)
+    # Squares holding inland water but no sea (#1981): record_water_tris
+    # only lists them when the shore feather is on.
+    for key in dico_inland:
+        if key not in dico_sea:
+            masks_queue.put(key)
     dico_progress = {"done": 0, "bar": 1}
 
     parallel_execute(build_mask, masks_queue, masks_build_slots,
@@ -626,7 +643,8 @@ def build_water_pre_mask(til_x, til_y, mesh_list, dico_sea, dico_inland,
             )  # int(255*(1-tile.ratio_water)))
     # 3b) We overwrite the white + grey part of the mask with black where 
     # sea water was detected in the first part above
-    for (lat1, lon1, lat2, lon2, lat3, lon3) in dico_sea[(til_x, til_y)]:
+    for (lat1, lon1, lat2, lon2, lat3, lon3) in dico_sea.get(
+            (til_x, til_y), ()):
         (px1, py1) = GEO.wgs84_to_pix(lat1, lon1, tile.mask_zl)
         (px2, py2) = GEO.wgs84_to_pix(lat2, lon2, tile.mask_zl)
         (px3, py3) = GEO.wgs84_to_pix(lat3, lon3, tile.mask_zl)
@@ -1102,6 +1120,31 @@ def compose_water_mask(pre_mask, blured_full, sea_level, feather_pixels,
     return composed
 
 
+def _build_inland_shore_mask(pre_mask, sea_level, feather_pixels,
+                            crop_margin=1024):
+    """The mask of a square holding inland water and no sea, or ``None``
+    when it would add nothing to the constant ``ratio_water`` blend.
+
+    Same compositor as near the coast (:func:`compose_water_mask`): land
+    opaque, inland water feathered from the shore down to the grey and
+    floored there.  There is no sea, so no blur fade: the pre-mask itself
+    stands in for it (pixels off every mesh stay 0, as before).  A square
+    with no inland water, or with no shore in reach (all lake, every
+    pixel at the grey), keeps the constant blend: no mask is written.
+    """
+    if feather_pixels <= 0:
+        return None
+    crop = slice(crop_margin, pre_mask.shape[0] - crop_margin)
+    inland = (pre_mask > 0) & (pre_mask < 255)
+    if not inland[crop, crop].any():
+        return None
+    composed = compose_water_mask(
+        pre_mask, pre_mask, sea_level, feather_pixels, crop_margin)
+    if not (composed[inland[crop, crop]] > int(sea_level)).any():
+        return None
+    return composed
+
+
 ################################################################################
 def water_type_is_inland(water_bits):
     """Mapped inland water WINS over coastline sea.
@@ -1115,6 +1158,37 @@ def water_type_is_inland(water_bits):
     explicit sea-mask routing (the large-lake rule).
     """
     return bool(water_bits & 1) and not (water_bits & 4)
+
+
+################################################################################
+def _inland_shore_feather_m(tile):
+    """The inland shore feather width in metres (0 = hard shoreline)."""
+    return float(getattr(tile, "inland_shore_feather_m", 120.0))
+
+
+def _mask_squares_for_tri(til_x, til_y, a, b):
+    """The mask squares a water triangle paints into: its own square
+    (``til_x, til_y`` at ``mask_zl``) plus the neighbours whose 1024 px
+    pre-mask margin it reaches.  ``a``/``b`` are the quarter (0..3) of
+    the square holding the barycentre, along x and y."""
+    keys = [(til_x, til_y)]
+    if a == 0:
+        keys.append((til_x - 16, til_y))
+        if b == 0:
+            keys.append((til_x - 16, til_y - 16))
+        elif b == 3:
+            keys.append((til_x - 16, til_y + 16))
+    elif a == 3:
+        keys.append((til_x + 16, til_y))
+        if b == 0:
+            keys.append((til_x + 16, til_y - 16))
+        elif b == 3:
+            keys.append((til_x + 16, til_y + 16))
+    if b == 0:
+        keys.append((til_x, til_y - 16))
+    elif b == 3:
+        keys.append((til_x, til_y + 16))
+    return keys
 
 
 ################################################################################
@@ -1138,6 +1212,7 @@ def record_water_tris(tile):
     ####################
     dico_sea = {}
     dico_inland = {}
+    feather_everywhere = _inland_shore_feather_m(tile) > 0
     # Whether any recorded triangle carries the coastline-flood SEA bit
     # (bit 2) as its ruling class.  Sea-EQUIVALENT lakes (bit 4, the
     # large-lake mask routing) fill dico_sea without setting this: they
@@ -1211,86 +1286,9 @@ def record_water_tris(tile):
             )
             a = (til_x2 // 16) % 4
             b = (til_y2 // 16) % 4
-            if (til_x, til_y) in dico_sea:
-                dico_sea[(til_x, til_y)].append(
-                    (lat1, lon1, lat2, lon2, lat3, lon3)
-                )
-            else:
-                dico_sea[(til_x, til_y)] = [
-                    (lat1, lon1, lat2, lon2, lat3, lon3)
-                ]
-            if a == 0:
-                if (til_x - 16, til_y) in dico_sea:
-                    dico_sea[(til_x - 16, til_y)].append(
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    )
-                else:
-                    dico_sea[(til_x - 16, til_y)] = [
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    ]
-                if b == 0:
-                    if (til_x - 16, til_y - 16) in dico_sea:
-                        dico_sea[(til_x - 16, til_y - 16)].append(
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        )
-                    else:
-                        dico_sea[(til_x - 16, til_y - 16)] = [
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        ]
-                elif b == 3:
-                    if (til_x - 16, til_y + 16) in dico_sea:
-                        dico_sea[(til_x - 16, til_y + 16)].append(
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        )
-                    else:
-                        dico_sea[(til_x - 16, til_y + 16)] = [
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        ]
-            elif a == 3:
-                if (til_x + 16, til_y) in dico_sea:
-                    dico_sea[(til_x + 16, til_y)].append(
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    )
-                else:
-                    dico_sea[(til_x + 16, til_y)] = [
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    ]
-                if b == 0:
-                    if (til_x + 16, til_y - 16) in dico_sea:
-                        dico_sea[(til_x + 16, til_y - 16)].append(
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        )
-                    else:
-                        dico_sea[(til_x + 16, til_y - 16)] = [
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        ]
-                elif b == 3:
-                    if (til_x + 16, til_y + 16) in dico_sea:
-                        dico_sea[(til_x + 16, til_y + 16)].append(
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        )
-                    else:
-                        dico_sea[(til_x + 16, til_y + 16)] = [
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        ]
-            if b == 0:
-                if (til_x, til_y - 16) in dico_sea:
-                    dico_sea[(til_x, til_y - 16)].append(
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    )
-                else:
-                    dico_sea[(til_x, til_y - 16)] = [
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    ]
-            elif b == 3:
-                if (til_x, til_y + 16) in dico_sea:
-                    dico_sea[(til_x, til_y + 16)].append(
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    )
-                else:
-                    dico_sea[(til_x, til_y + 16)] = [
-                        (lat1, lon1, lat2, lon2, lat3, lon3)
-                    ]
+            tri = (lat1, lon1, lat2, lon2, lat3, lon3)
+            for key in _mask_squares_for_tri(til_x, til_y, a, b):
+                dico_sea.setdefault(key, []).append(tri)
         if not tile.use_masks_for_inland:
             UI.vprint(2, "   Taking care of inland water near shoreline")
             step_stones = max(1, nbr_tri_in // 100)
@@ -1326,18 +1324,14 @@ def record_water_tris(tile):
                 )
                 a = (til_x2 // 16) % 4
                 b = (til_y2 // 16) % 4
-                # Here an inland water tri is added ONLY if sea water tri were 
-                # already added for this mask extent
-                if (til_x, til_y) in dico_sea:
-                    if (til_x, til_y) in dico_inland:
-                        dico_inland[(til_x, til_y)].append(
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        )
-                    else:
-                        dico_inland[(til_x, til_y)] = [
-                            (lat1, lon1, lat2, lon2, lat3, lon3)
-                        ]
-    
+                # With the shore feather on (#1981) every square holding
+                # inland water gets it, sea or no sea; with it off an
+                # inland tri only greys a square the sea already masks.
+                tri = (lat1, lon1, lat2, lon2, lat3, lon3)
+                for key in _mask_squares_for_tri(til_x, til_y, a, b):
+                    if feather_everywhere or key in dico_sea:
+                        dico_inland.setdefault(key, []).append(tri)
+
     return (dico_sea, dico_inland, coastline_sea_present)
 ################################################################################
         

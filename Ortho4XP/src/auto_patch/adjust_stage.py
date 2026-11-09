@@ -24,9 +24,12 @@ the question opens; ``flatten`` listed as automatic):
 
 :func:`adjust_stage` runs in the object stage ahead of the placement
 write (which re-applies every accepted choice) and announces a
-``PackAdjust`` event when a row still needs the user's answer — and one
-more per companion pack that lays the airport's photo grid for it
-(#1968, ``drape_stage.companions``: its own question, its own pack);
+``PackAdjust`` event when a row still needs the user's answer;
+:func:`tile_stage` runs once per tile after it and asks the drape rows of
+every other pack on the tile — each airport pack the build did not place
+and each companion overlay (RULINGS 2026-11-09a (9), #1968,
+``drape_stage.scanned``).  A pack is asked ONCE per tile build (the
+``asked`` set they share), however many of its airports were built;
 :func:`adjust_choice` is the ``pack_adjust`` command: the answer (a row
 ticked is "update", a row shown and left unticked is "never"), Never for
 this pack, Undo, and ``"ask"`` — the report of the rows that apply now.
@@ -38,7 +41,8 @@ import os
 import traceback
 import typing as _t
 
-__all__ = ["CHOICES", "ACTIONS", "adjust_stage", "adjust_choice"]
+__all__ = ["CHOICES", "ACTIONS", "adjust_stage", "tile_stage",
+           "adjust_choice"]
 
 #: the rows the user chooses, in the question's order
 CHOICES = ("trees", "drapes", "ground")
@@ -113,14 +117,29 @@ def _announce(pack: str, pack_root: str, lat: int, lon: int, state: str,
                    files=list(files))
 
 
-def adjust_stage(plan_, tile, *, writes: bool) -> dict[str, str]:
+def _first_ask(pack_root: str, asked: set[str] | None) -> bool:
+    """The pack is not yet in ``asked`` (now it is)."""
+    if asked is None:
+        return True
+    key = os.path.normcase(os.path.normpath(pack_root))
+    if key in asked:
+        return False
+    asked.add(key)
+    return True
+
+
+def adjust_stage(plan_, tile, *, writes: bool,
+                 asked: set[str] | None = None) -> dict[str, str]:
     """The adjustments of ONE airport's pack, ahead of its placement
     write.  Returns each row's state (``{"flatten": …, "trees": …,
     "drapes": …, "ground": …}``, the stages' own words) for the log and
     the twins, and announces ``PackAdjust(state="found")`` when a row
-    asks — the pack's, and each companion pack's.  Never raises."""
+    asks.  ``asked``: the packs this tile build already adjusted (a pack
+    in it returns ``{}``; this one is added).  Never raises."""
     from . import forest_stage as _FS
     pack_root = getattr(plan_, "pack_root", "") or ""
+    if not _first_ask(pack_root, asked):
+        return {}
     out = {"flatten": _flatten(pack_root, writes=writes)}
     asked: list = []
     out["trees"] = _FS.forest_stage(plan_, tile, writes=writes,
@@ -136,7 +155,6 @@ def adjust_stage(plan_, tile, *, writes: bool) -> dict[str, str]:
         if out["flatten"]:
             items.append(_flatten_row())
         _announce(name, pack_root, tile.lat, tile.lon, "found", items)
-    _companion_stages(pack_root, tile, writes)
     return out
 
 
@@ -157,20 +175,45 @@ def _drape_stages(plan_, tile, writes: bool) -> dict[str, tuple]:
                                    found=found) for k in _DS.KINDS}
 
 
-def _companion_stages(pack_root: str, tile, writes: bool) -> None:
-    """The drape rows of each companion pack on the tile (#1968), asked
-    as that pack's own question."""
+def _configured_dirs() -> list[str]:
+    """The user's Custom Scenery folder (the suite points this at none:
+    a test never scans the owner's install, ``tests/conftest.py``)."""
+    import O4_Config_Utils as CFG
+    return [getattr(CFG, "custom_scenery_dir", "") or ""]
+
+
+#: where :func:`tile_stage` finds the configured folder (replaceable)
+configured_dirs = _configured_dirs
+
+
+def tile_stage(tile, *, writes: bool, asked: set[str] | None = None,
+               scenery_dirs: _t.Iterable[str] | None = None) -> None:
+    """THE TILE'S SCAN, once per tile build after the placements
+    (RULINGS 2026-11-09a (9)): the drape rows of every pack on the tile
+    not in ``asked`` (``drape_stage.scanned`` — an airport pack this build
+    did not place, a companion overlay), each asked as that pack's own
+    question.  ``scenery_dirs``: the Custom Scenery folders to scan
+    (default: the configured one and those of the packs in ``asked``).
+    Never raises."""
     import types
 
     import O4_UI_Utils as UI
 
     from . import drape_stage as _DS
+    asked = set() if asked is None else asked
     try:
-        others = _DS.companions(pack_root, tile.lat, tile.lon) if pack_root else []
+        if scenery_dirs is None:
+            scenery_dirs = (configured_dirs()
+                            + [os.path.dirname(p) for p in sorted(asked)])
+        roots = [r for d in dict.fromkeys(scenery_dirs) if d and os.path.isdir(d)
+                 for r in _DS.scanned(d, tile.lat, tile.lon)]
     except Exception as exc:
-        UI.vprint(1, f"  [pack] companion-pack check skipped ({exc})")
+        UI.vprint(1, f"  [pack] tile pack scan skipped ({exc})")
+        UI.vprint(2, traceback.format_exc())
         return
-    for root in others:
+    for root in roots:
+        if not _first_ask(root, asked):
+            continue
         plan_ = types.SimpleNamespace(pack_root=root)
         items = [_drapes_row(pd, key) for key, (state, pd)
                  in _drape_stages(plan_, tile, writes).items()

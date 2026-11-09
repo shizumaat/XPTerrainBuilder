@@ -202,9 +202,9 @@ def test_undo_of_one_kind_rewrites_with_the_other(stage, monkeypatch):
     assert stage.writes[-1] == (PHOTO,), "the rewrite reads the kept part itself"
 
 
-# ── the companion pack (#1968) ──────────────────────────────────────────
+# ── the tile's scan (#1968, RULINGS 2026-11-09a (9)) ────────────────────
 
-def test_a_companion_is_a_runwayless_pack_with_a_photo_grid(pack, tmp_path):
+def test_the_scan_is_every_airport_pack_and_companion(pack, tmp_path):
     from auto_patch import drape_stage as DS
     scenery = pack.parent
     for name, apt, pols in (("Overlay", "", 4), ("Hospital", "17 0 0 0 H1 Pad\n", 4),
@@ -213,14 +213,14 @@ def test_a_companion_is_a_runwayless_pack_with_a_photo_grid(pack, tmp_path):
         (root / "Earth nav data" / "+20+050").mkdir(parents=True)
         (root / "Earth nav data" / "+20+050" / "+25+051.dsf").write_bytes(b"")
         if apt:
-            (root / "Earth nav data" / "apt.dat").write_text(apt, encoding="utf-8")
+            (root / "Earth nav data" / "apt.dat").write_text(apt, encoding="utf-8", newline="")
         for n in range(pols):
-            (root / f"o{n}.pol").write_text(POLS["grid/Tile1.pol"], encoding="utf-8")
+            (root / f"o{n}.pol").write_text(POLS["grid/Tile1.pol"], encoding="utf-8", newline="")
     (pack / "Earth nav data" / "+20+050").mkdir()
     (pack / "Earth nav data" / "+20+050" / "+25+051.dsf").write_bytes(b"")
-    got = sorted(p.rsplit("/", 1)[-1] for p in DS.companions(str(pack), 25, 51))
-    assert got == ["Hospital", "Overlay"], \
-        "a runway makes an airport pack; one .pol is no grid"
+    got = sorted(p.rsplit("/", 1)[-1] for p in DS.scanned(str(scenery), 25, 51))
+    assert got == sorted(["Hospital", "Other Airport", "Overlay", pack.name]), \
+        "every airport pack, built or not; a runway-less pack with one .pol is no grid"
     boxes, bounded, apts = DS._airports(str(scenery / "Overlay"), 25, 51)
     assert len(apts) == 2 and len(boxes) == 2 and bounded == [False, False], \
         "judged against the tile's airport packs"

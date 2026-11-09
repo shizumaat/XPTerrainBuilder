@@ -8,9 +8,10 @@ all see-through).  A draped pavement or marking polygon, a decal turned
 to its runway, a see-through overlay and a library polygon are never
 one.  The grid rule (RULINGS 2026-11-07a (3), ``pack_drape_grid``) then
 hides only a machine-named photo grid that extends outside the airport,
-WHOLE (#1960), when none of it is stacked under another photo grid: a
-single photo, scattered tiles and a photo grid laid over a photo grid are
-kept; a decal on a tile holds nothing.  Synthetic packs, a byte-copy DSFTool; no
+WHOLE (#1960); a detail-texture grid drawn over it stays (RULINGS
+2026-11-09a (11), #1946); every other photo of the pack on the tile goes
+with it (RULINGS 2026-11-09a (10), #1968).  A single photo and scattered
+tiles alone are kept; a decal on a tile holds nothing.  Synthetic packs, a byte-copy DSFTool; no
 network, no corpus.
 """
 from __future__ import annotations
@@ -187,14 +188,28 @@ def test_a_grid_inside_the_airport_is_kept(pack):
                             bounded=bounded) == ()
 
 
-def test_a_photo_laid_over_a_photo_is_kept_whole(pack):
+def test_a_photo_grid_under_a_detail_grid_is_hidden(pack):
+    tiles = {f"grid/Tile{k}.pol" for k in range(1, 7)}
     veils = [(f"grid/Veil{k + 1}.pol", 0.0, w) for k, (_p, _t, w) in enumerate(GRID)]
-    assert _found(pack, _dump(DEFS + veils)) == (), \
-        "a see-through detail grid over the base grid: the pack's blend"
+    assert {m.path for m in _found(pack, _dump(DEFS + veils))} == tiles, \
+        "hide the grid, keep the detail textures (RULINGS 2026-11-09a (11))"
     part = [(f"grid/Veil{k + 1}.pol", 0.0, (lon + 0.008, lat, d))
             for k, (_p, _t, (lon, lat, d)) in enumerate(GRID)]
-    assert _found(pack, _dump(DEFS + part)) == (), \
-        "a column under the other grid keeps the whole base grid (#1946)"
+    assert {m.path for m in _found(pack, _dump(DEFS + part))} == tiles, \
+        "a detail grid over one column: the whole photo grid, no veil (#1946)"
+
+
+def test_every_photo_of_the_pack_goes_with_the_grid(pack):
+    far = [(p, t, (lon + 0.4, lat + 0.4, d)) for p, t, (lon, lat, d) in GRID]
+    stray = [("grid/Tile1.pol", 0.0, (51.3, 25.3, 0.004)),     # tiles nothing
+             ("grid/Tile2.pol", 30.0, (51.2, 25.2, 0.004))]    # reads turned
+    defs = DEFS + far + stray
+    found = {m.index for m in _found(pack, _dump(defs))}
+    assert found == set(range(9, len(defs))), \
+        "hide them all so our ortho imagery shows (RULINGS 2026-11-09a (10))"
+    alone = DEFS[:9] + far + stray
+    assert _found(pack, _dump(alone)) == (), \
+        "with no grid over the airport nothing is hidden"
 
 
 def test_masks_over_the_hidden_photos_go_with_them(pack, tmp_path):

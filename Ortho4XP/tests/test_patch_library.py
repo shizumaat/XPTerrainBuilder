@@ -177,7 +177,8 @@ def test_publish_find_apply_skips_the_solve(world):
     plan = json.loads((b.patches / "o4_v2_rebake_KXXX.json").read_text(encoding="utf-8"))
     assert plan["pack_root"] == str(b.scenery / b.pack)               # renamed pack
     assert DRIVER._auto_patch_is_current(str(patch), str(b.xp), ICAO, tile=b.tile)
-    assert SCAN.check(force=True)["rows"] == []                       # current
+    # current: listed as installed (#1958), never offered again
+    assert [r["state"] for r in SCAN.check(force=True)["rows"]] == ["installed"]
 
 
 def test_version_two_reads_newer(world):

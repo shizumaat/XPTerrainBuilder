@@ -23,8 +23,10 @@ extension BuildModel {
                 let check = try await client.libraryCheck(workingDir: base.path, force: force)
                 patchLibraryCheck = check
                 patchLibraryStatus = check.configured ? "" : "The patch library is not set up in this app yet."
-                if announce, check.configured, !check.rows.isEmpty {
-                    console.append(Self.patchLibraryNotice(check.rows))
+                // Installed and current (#1958) asks nothing of the user.
+                let actionable = check.rows.filter { $0.state != "installed" }
+                if announce, check.configured, !actionable.isEmpty {
+                    console.append(Self.patchLibraryNotice(actionable))
                 }
             } catch {
                 patchLibraryStatus = "\(error)"

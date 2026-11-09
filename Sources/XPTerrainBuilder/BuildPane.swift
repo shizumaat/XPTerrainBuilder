@@ -268,6 +268,10 @@ struct BuildPane: View {
                 detailRow("Built by", info.builtBy ?? "—")
                 // Where the folder really is, and "Show in Finder" (#1987).
                 TilePathRow(info: info)
+                // Its airport pack changed since the build (#1958).
+                if let stale = buildModel.staleTiles[active] {
+                    TileStaleRow(stale: stale) { buildModel.rebuildWithItsImagery(active) }
+                }
             }
             if let dem = info?.customDEM, !dem.isEmpty {
                 detailRow("Elevation", (dem as NSString).lastPathComponent)

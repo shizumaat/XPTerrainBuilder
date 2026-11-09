@@ -216,6 +216,7 @@ CAPABILITIES: tuple = (
     "patch_roles",                  # 2026-11-03, #1697 patch_roles / patch_role_set
     "pack_ground_notice",           # 2026-11-04, #1362 BuildDone warning pack_ground_no_mesh
     "pack_adjust",                  # 2026-11-06, #1916 PackAdjust + pack_adjust
+    "tile_staleness",               # 2026-11-09, #1958 tile_staleness (LibraryReady)
 )
 
 
@@ -859,7 +860,8 @@ class LibraryReady(EngineEvent):
     ``library_scan``, ``cache_sizes``, ``free_cache``, ``library_delete``,
     #1699's ``library_export_bundle`` / ``library_import_bundle``, and the
     patch library's ``library_check`` … ``library_signout``,
-    ``o4_engine.library.PATCH_LIBRARY_COMMANDS``): each replies
+    ``o4_engine.library.PATCH_LIBRARY_COMMANDS``, and the map's
+    ``tile_staleness``, #1958): each replies
     ``{"status": "started"}`` and does its work on a worker thread.
 
     ``request`` is the ``id`` of the command it answers, ``command`` its

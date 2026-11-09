@@ -494,3 +494,42 @@ def test_both_tile_panes_show_the_path_under_built_by(window):
     row = (SWIFT / "TilePathRow.swift").read_text(encoding="utf-8")
     assert 'static let title = "%s"' % QTPATHROW.ROW_TITLE in row
     assert isinstance(getattr(window, attr, None), QTPATHROW.TilePathRow)
+
+
+def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
+    """#1958: one legend (same words, same order) and one "Airport packs"
+    row under the Path row, with the same rebuild words, in both apps."""
+    import O4_Qt_Map_Legend as QTLEGEND
+    import O4_Qt_Tile_Stale_Row as QTSTALEROW
+
+    legend = (SWIFT / "MapTileLegend.swift").read_text(encoding="utf-8")
+    swift_labels = re.findall(r'case \.\w+: return "([^"]+)"', legend)
+    assert swift_labels == list(QTLEGEND.LEGEND_LABELS.values())
+    wire = (SWIFT.parent / "SceneryKit" / "TileStalenessWire.swift").read_text(
+        encoding="utf-8")
+    for name, value in (("rowTitle", QTSTALEROW.ROW_TITLE),
+                        ("rebuildNote", QTSTALEROW.REBUILD_NOTE),
+                        ("rebuildButton", QTSTALEROW.REBUILD_BUTTON)):
+        assert 'static let %s = "%s"' % (name, value) in wire
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    assert pane.index("TileStaleRow(stale:") > pane.index("TilePathRow(info:")
+    assert isinstance(getattr(window, "tile_stale_row", None),
+                      QTSTALEROW.TileStaleRow)
+    view = (SWIFT / "MapCanvasView.swift").read_text(encoding="utf-8")
+    assert "#BF5AF2" in view and QTLEGEND.STALE_COLOR == "#BF5AF2"
+
+
+def test_both_libraries_filter_patches_alike():
+    """#1958: the patch library's filter — same keys, words and states —
+    in the Mac section and the Qt box, both from ``scan.FILTERS``."""
+    import O4_Qt_Patch_Library as QTLIB
+    from patch_library import scan as SCAN
+
+    view = (SWIFT / "PatchLibraryView.swift").read_text(encoding="utf-8")
+    swift = re.findall(r'\("(\w+)", "([^"]+)", \[([^\]]*)\]\)', view)
+    assert [(k, label, set(re.findall(r'"(\w+)"', st))) for k, label, st in swift] == \
+        [(k, label, set(st)) for k, label, st in SCAN.FILTERS]
+    assert 'Picker("Show"' in view
+    box = QTLIB.PatchLibraryBox("")
+    assert [box.filter_combo.itemData(i) for i in range(box.filter_combo.count())] == \
+        [k for k, _l, _s in SCAN.FILTERS]

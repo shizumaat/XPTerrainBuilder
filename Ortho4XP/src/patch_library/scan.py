@@ -30,13 +30,27 @@ from . import config as _config
 from . import key as _key
 from . import layout as L
 
-__all__ = ["STATES", "TIERS", "IGNORED_NAME", "check", "ignore",
-           "matches"]
+__all__ = ["STATES", "FILTERS", "ACTIONABLE", "TIERS", "IGNORED_NAME",
+           "check", "ignore", "matches"]
 
 #: A check row's state: an entry the user has not used; a newer version
 #: of the one used; the pack changed under a used patch; an entry only
-#: for another version of the pack or another pack.
-STATES = ("available", "newer", "pack_changed", "other")
+#: for another version of the pack or another pack; the entry laid down
+#: is the newest (#1958: listed so the Library can show what is installed).
+STATES = ("available", "newer", "pack_changed", "other", "installed")
+
+#: The Library's filter over the rows (#1958), in the order both apps show
+#: it: (key, label, the states it lists).  The Mac app's
+#: ``PatchLibraryText.filters`` carries the same words.
+FILTERS = (
+    ("all", "All", STATES),
+    ("available", "Available", ("available", "other")),
+    ("installed", "Installed", ("installed", "pack_changed")),
+    ("newer", "Newer version", ("newer",)),
+)
+
+#: The states that ask the user to do something (the launch notice).
+ACTIONABLE = ("available", "newer", "pack_changed", "other")
 
 #: The build box's match tiers, best first.
 TIERS = ("exact", "same_pack", "other_pack")
@@ -120,9 +134,8 @@ def _row(icao, lat, lon, rows, xp_root, law, ignored) -> dict | None:
         out["state"] = "other"
         out["reason"] = "the library has patches for another version of this pack, or another pack"
     elif record and record.get("signature") == best["signature"]:
-        if best["latest"] <= int(record.get("version", 0)):
-            return None                            # current
-        out["state"] = "newer"
+        out["state"] = ("installed" if best["latest"] <= int(record.get("version", 0))
+                        else "newer")
     else:
         out["state"] = "available"
     if best is not None:
@@ -134,7 +147,7 @@ def _row(icao, lat, lon, rows, xp_root, law, ignored) -> dict | None:
         if _key.engine_older(best.get("min_engine", "")):
             out["warning"] = ("This patch names engine %s or newer; update the "
                               "app to use it as solved." % best["min_engine"])
-    skip = ignored.get(icao)
+    skip = ignored.get(icao) if out["state"] != "installed" else None
     if skip and skip.get("signature") == out["signature"] and \
             int(skip.get("version", 0)) >= out["version"]:
         return None

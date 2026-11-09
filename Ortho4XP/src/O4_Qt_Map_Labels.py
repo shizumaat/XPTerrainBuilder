@@ -18,6 +18,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tupl
 
 import O4_Airport_Rank as RANK
 import O4_Map_Labels as LABELS
+import O4_Qt_Map_Legend as QTLEGEND
 import O4_Text_Scale as TS
 import O4_Tile_Volume as TVOL
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -72,6 +73,7 @@ def paint_tile_labels(painter, point_of: PointOf, scale: float,
                       text_scale: float = TS.DEFAULT,
                       ortho_imagery: Optional[Dict[Tile, tuple]] = None,
                       conflicts: Optional[Set[Tile]] = None,
+                      stale: Optional[Dict[Tile, dict]] = None,
                       ) -> None:
     """Coordinate top-left on every visible tile; imagery bottom-left on
     a ``built`` tile (its ``provider``/``zl``/``has_zones``) or on one an
@@ -83,7 +85,8 @@ def paint_tile_labels(painter, point_of: PointOf, scale: float,
     scenery filter).  ``text_scale`` is the apps' text size (#827).
     A built tile on another drive (its ``volume``, #1987) says
     "Requires <drive>" top-right, below the mixed-imagery badge when the
-    tile is in ``conflicts``."""
+    tile is in ``conflicts``.  A built tile whose airport pack changed
+    (``stale``, #1958) says "Stale: ICAO" bottom-right."""
     ortho_imagery = ortho_imagery or {}
     if scale < LABELS.TILE_LABEL_MIN_SCALE:
         return
@@ -98,6 +101,12 @@ def paint_tile_labels(painter, point_of: PointOf, scale: float,
             _pill(painter, tile_key(lat, lon), top_left.x() + 4,
                   top_left.y() + 4, True, font)
             info = built.get((lat, lon)) if built is not None else None
+            verdict = (stale or {}).get((lat, lon)) if info is not None else None
+            if verdict:
+                bottom_right = point_of(lat, lon + 1)
+                _pill(painter, QTLEGEND.stale_label(verdict),
+                      bottom_right.x() - 4, bottom_right.y() - 4, False,
+                      font, right=True)
             volume = getattr(info, "volume", "") if info is not None else ""
             if volume:
                 top_right = point_of(lat + 1, lon + 1)

@@ -33,13 +33,11 @@ import shutil
 import threading
 import typing as _t
 
-import O4_Config_Names as CN
 import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
 import O4_Scenery_Links as LINKS
-import O4_Settings_Model as SM
-import O4_Text_Files as TEXT
 import O4_Tile_Info as TINFO
+import O4_Tile_Staleness as _STALE
 
 from . import storage as _storage
 
@@ -76,20 +74,8 @@ def _cache_dir(kind: str) -> str:
 # One tile
 # ---------------------------------------------------------------------------
 def _built_by(build_dir: str, lat: int, lon: int) -> str:
-    """This app stamps every tile cfg it writes and records its build
-    steps beside it; a folder with neither was built by another tool."""
-    short = FNAMES.short_latlon(lat, lon)
-    if os.path.isfile(os.path.join(build_dir, "Ortho4XP_" + short + "_steps.json")):
-        return BUILT_HERE
-    cfg = CN.tile_cfg_path(build_dir, lat, lon)
-    try:
-        with TEXT.open_supplied(cfg) as handle:
-            for line in handle:
-                if line.split("=", 1)[0].strip() == SM.CFG_STAMP_KEY:
-                    return BUILT_HERE
-    except OSError:
-        pass
-    return BUILT_ELSEWHERE
+    """``BUILT_HERE`` or ``BUILT_ELSEWHERE`` (``O4_Tile_Info.built_here``)."""
+    return BUILT_HERE if TINFO.built_here(build_dir, lat, lon) else BUILT_ELSEWHERE
 
 
 def _graded_airports(lat: int, lon: int) -> list:
@@ -398,6 +384,8 @@ _COMMANDS: dict = {
 }
 # Settings > Storage (#1724) runs through the same worker and refusals.
 _COMMANDS.update(_storage.COMMANDS)
+# The map's stale-tile check (#1958) runs through the same worker.
+_COMMANDS.update(_STALE.COMMANDS)
 _REFUSED_WHILE_BUILDING.update(_storage.REFUSED_WHILE_BUILDING)
 
 #: Every command :func:`start` runs (the transport registers these).

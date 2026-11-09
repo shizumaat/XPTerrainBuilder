@@ -109,12 +109,14 @@ import O4_Qt_Slow_Step as QTSLOW
 import O4_Qt_Pack_Adjust as QTADJ
 import O4_Qt_Pack_Optimise as QTOPT
 import O4_Qt_Latest_Probe as QTPROBE
+import O4_Qt_Map_Legend as QTLEGEND
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Qt_Tile_Menu as QTTILEMENU
 import O4_Qt_Tile_Path_Row as QTPATHROW
+import O4_Qt_Tile_Stale_Row as QTSTALEROW
 import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
@@ -188,7 +190,8 @@ TILE_SCAN_CACHE_FILE = FNAMES.data_path(".tile_scan_cache.json")
 # cfg quotes; here providers are normalised on the way IN, and the
 # version is what guarantees no pre-normalisation snapshot survives).
 # 2: TileInfo gained resolved_dir / volume / volume_mounted (#1987).
-TILE_SCAN_CACHE_VERSION = 2
+# 3: TileInfo gained origin (#1958).
+TILE_SCAN_CACHE_VERSION = 3
 
 # Point size of the per-tile stop / resume glyphs on the Activity rows.
 # Shared, so the button never changes size when a row flips between
@@ -701,6 +704,8 @@ class _EngineBridge(QObject):
     # (generation, {(lat, lon), ...}) from a worker sweep of built tiles'
     # textures folders for mixed imagery sources.
     conflicts_ready = Signal(object)
+    # {(lat, lon): stale verdict} from O4_Tile_Staleness (#1958).
+    stale_ready = Signal(object)
     # (tile, [modified_packs entry, ...]) from a worker probe of the
     # reanchor provenance sidecars in Custom Scenery.
     reanchor_ready = Signal(object)
@@ -895,6 +900,11 @@ class MainWindow(QMainWindow):
         self._bridge.event.connect(self._on_engine_event)
         self._bridge.reanchor_ready.connect(self._on_reanchor_ready)
         self._bridge.conflicts_ready.connect(self._on_conflicts_ready)
+        # #1958: one stale-tile check in flight per window, newest wins.
+        self._stale_probe = QTPROBE.LatestProbe(
+            QTSTALEROW.check_stale, self._bridge.stale_ready.emit,
+            name="o4-stale-probe")
+        self._bridge.stale_ready.connect(self._on_stale_ready)
         self._bridge.airports_ready.connect(self._on_airports_ready)
         self._bridge.packs_ready.connect(self._on_packs_ready)
         self._session.subscribe(self._bridge.event.emit)
@@ -1250,6 +1260,12 @@ class MainWindow(QMainWindow):
         # mac-app parity: TilePathRow).
         self.tile_path_row = QTPATHROW.TilePathRow()
         ig.addRow("%s:" % QTPATHROW.ROW_TITLE, self.tile_path_row)
+        # Its airport pack changed since the build (#1958; mac-app parity:
+        # TileStaleRow), with one-click rebuild.
+        self.tile_stale_row = QTSTALEROW.TileStaleRow()
+        self.tile_stale_row.rebuild_requested.connect(
+            self._rebuild_tile_missing_textures)
+        ig.addRow(self.tile_stale_row)
         self.info_elevation = TwoLineElidedLabel("—")
         ig.addRow("Elevation:", self.info_elevation)
         self.info_airport_lidar = TwoLineElidedLabel("—")
@@ -2682,6 +2698,27 @@ class MainWindow(QMainWindow):
         self.map.set_conflicts(self._conflict_tiles)
         self._refresh_conflict_indicator()
 
+    def _refresh_stale_tiles(self):
+        """Which built tiles no longer fit the airport packs X-Plane draws
+        (#1958): after every scan — at launch and whenever Custom Scenery
+        changes — off the GUI thread."""
+        tiles = [(lat, lon, info.build_dir)
+                 for (lat, lon), info in self._built.items()
+                 if not QTLEGEND.built_elsewhere(info)
+                 and getattr(info, "last_build", None)]
+        import O4_Config_Utils as CFG
+
+        scenery = getattr(CFG, "custom_scenery_dir", "") or ""
+        if not tiles or not scenery:
+            self._on_stale_ready({})
+            return
+        self._stale_probe.submit(tiles, scenery)
+
+    def _on_stale_ready(self, stale):
+        self.map.set_stale(stale)
+        tile = self.map.active_tile()
+        self.tile_stale_row.show_verdict(tile, stale.get(tile) if tile else None)
+
     def _refresh_conflict_indicator(self, tile=None):
         """The info panel's half of the badge: the active tile's Imagery
         row says so when its textures folder mixes sources."""
@@ -2790,6 +2827,7 @@ class MainWindow(QMainWindow):
         self._refresh_conflict_tiles()
         self._refresh_customized_tiles()
         self._refresh_custom_patch_tiles()
+        self._refresh_stale_tiles()
         # Same rule for the other-scenery survey: its exclusion list IS
         # the built set, so a partial one would draw our own tiles as
         # somebody else's coverage.
@@ -3212,6 +3250,7 @@ class MainWindow(QMainWindow):
             ):
                 w.setText("…" if pending else "—")
             self.tile_path_row.show_info(None)
+            self.tile_stale_row.show_verdict(None, None)
             self.info_title.setText(
                 self.info_title.text()
                 + ("  (scanning…)" if pending else "  (not built)")
@@ -3237,6 +3276,7 @@ class MainWindow(QMainWindow):
         self.info_imagery.setText(_fmt_date(info.imagery_date))
         self.info_built_by.setText(TINFO.with_built_by(info).built_by or "—")
         self.tile_path_row.show_info(info)
+        self.tile_stale_row.show_verdict(tile, self.map.stale().get(tile))
         if info.size_bytes is None:
             self.info_size.setText("computing…")
             threading.Thread(
@@ -5459,6 +5499,7 @@ class MainWindow(QMainWindow):
         self._cancel_deferred()
         # The reanchor probe: no result after close, its worker joined.
         self._reanchor_probe.close()
+        self._stale_probe.close()
         self.imagery_freshness_row.close_probe()
         # The 3D preview's building reader runs in a worker process (#753).
         self.patch_editor.engine.close()

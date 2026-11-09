@@ -54,6 +54,12 @@ struct MapCanvasView: View {
     /// A built tile whose folder lives on another drive (#1987): brown,
     /// with "Requires <drive>" top-right (Qt: BUILT_EXTERNAL_COLOR).
     static let builtExternalTile = Color(red: 0.63, green: 0.44, blue: 0.24) // #A0703C
+    /// A tile another tool built (#1958, "Other ortho"): the gray of the
+    /// other packs' outlines (Qt: OTHER_ORTHO_COLOR).
+    static let otherOrthoTile = regionOutline
+    /// A tile whose airport pack changed since the build (#1958): purple,
+    /// dashed, with "Stale: ICAO" bottom-right (Qt: STALE_COLOR).
+    static let staleTile = Color(red: 0.75, green: 0.35, blue: 0.95) // #BF5AF2
     static let badgeDone = Color(red: 0.18, green: 0.62, blue: 0.36)     // #2E9E5B
     static let badgeError = Color(red: 0.90, green: 0.22, blue: 0.17)    // #E5372B
     static let badgeStopped = Color(red: 0.95, green: 0.58, blue: 0.10)  // #F29419
@@ -119,6 +125,7 @@ struct MapCanvasView: View {
             .overlay(alignment: .bottomLeading) { cursorReadout }
             .overlay(alignment: .bottomTrailing) {
                 VStack(alignment: .trailing, spacing: 6) {
+                    if sceneryFilter != .othersOnly { MapTileLegend(buildModel: buildModel) }
                     ScanProgressChip()
                     zoomChip
                 }
@@ -443,12 +450,18 @@ struct MapCanvasView: View {
         // badge, never the border of the DSF an earlier build left.
         for (coord, info) in buildModel.built where visible(coord) && !buildActivity.isBuilding(coord) {
             let r = rect(coord)
-            // Brown when the folder lives on another drive (#1987). The
+            // Brown when the folder lives on another drive (#1987), gray
+            // when another tool built it, purple and dashed when its airport
+            // pack changed since the build (#1958, MapTileLegend). The
             // Build History date filter dims built tiles outside its
             // period (#1226).
-            let base = info.volume == nil ? Self.builtTile : Self.builtExternalTile
+            let stale = !info.builtElsewhere && buildModel.staleTiles[coord] != nil
+            let base = info.builtElsewhere ? Self.otherOrthoTile
+                : stale ? Self.staleTile
+                : info.volume == nil ? Self.builtTile : Self.builtExternalTile
             let color = buildModel.builtInHistoryRange(coord) ? base : base.opacity(0.3)
-            context.stroke(Path(r), with: .color(color.opacity(0.85)), lineWidth: 2)
+            context.stroke(Path(r), with: .color(color.opacity(0.85)),
+                           style: StrokeStyle(lineWidth: 2, dash: stale ? [6, 4] : []))
             if buildModel.installed.contains(coord) {
                 context.stroke(Path(r.insetBy(dx: r.width * 0.03, dy: r.height * 0.03)),
                                with: .color(color.opacity(0.9)), lineWidth: 1.5)

@@ -87,7 +87,7 @@ def test_check_raises_with_the_reading_and_passes_under_every_ceiling():
 @pytest.mark.skipif(sys.platform == "win32", reason="ps reads POSIX; Windows reads ctypes")
 def test_the_heartbeat_phrase_reads_this_process():
     from auto_patch import engine_v2
-    r = M.read()
+    r = M._read()
     assert r.parent_gb > 0.0 and r.workers_gb == ()
     assert M.describe().startswith("memory ")
     assert "memory " in engine_v2._activity()

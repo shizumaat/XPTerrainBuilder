@@ -45,8 +45,8 @@ import typing as _t
 import weakref
 
 __all__ = ["MemoryCeilingError", "Reading", "WORKER_CEILING_GB", "BUILD_RAM_SHARE",
-           "SYSTEM_FREE_FLOOR", "CHECK_S", "resident_kib", "system_free_fraction",
-           "read", "breach", "check", "register", "describe"]
+           "SYSTEM_FREE_FLOOR", "CHECK_S",
+           "breach", "check", "register", "describe"]
 
 #: one worker's resident ceiling, GiB (4 x ``pool.WORKER_ALLOWANCE_GB``)
 WORKER_CEILING_GB = 8.0
@@ -100,7 +100,7 @@ class Reading:
 
 # ── the readers (one per platform, each never raises) ────────────────────
 
-def resident_kib(pids: _t.Iterable[int]) -> dict[int, int]:
+def _resident_kib(pids: _t.Iterable[int]) -> dict[int, int]:
     """``{pid: resident KiB}`` of the processes of ``pids`` that could be
     read — ``ps`` on POSIX, ``K32GetProcessMemoryInfo`` on Windows; a pid
     that is gone is simply absent."""
@@ -159,7 +159,7 @@ def _resident_kib_windows(pids: list[int]) -> dict[int, int]:
         return {}
 
 
-def system_free_fraction() -> float | None:
+def _system_free_fraction() -> float | None:
     """The fraction of the machine's memory free for use, or ``None``."""
     try:
         if sys.platform == "darwin":
@@ -194,13 +194,13 @@ def system_free_fraction() -> float | None:
 
 # ── the reading and the verdict ───────────────────────────────────────────
 
-def read(worker_pids: _t.Iterable[int] = ()) -> Reading:
+def _read(worker_pids: _t.Iterable[int] = ()) -> Reading:
     """This process and ``worker_pids``, and the machine's free fraction."""
     me = os.getpid()
-    kib = resident_kib([me, *worker_pids])
+    kib = _resident_kib([me, *worker_pids])
     return Reading(kib.get(me, 0) / _KIB_PER_GIB,
                    tuple(kib[p] / _KIB_PER_GIB for p in sorted(kib) if p != me),
-                   system_free_fraction())
+                   _system_free_fraction())
 
 
 def breach(r: Reading, ram_gb: float | None, share: int = 1) -> str:
@@ -221,7 +221,7 @@ def breach(r: Reading, ram_gb: float | None, share: int = 1) -> str:
 
 
 def check(what: str, worker_pids: _t.Iterable[int], ram_gb: float | None,
-          share: int = 1, reader: _t.Callable[..., Reading] = read) -> Reading:
+          share: int = 1, reader: _t.Callable[..., Reading] = _read) -> Reading:
     """Read the build's memory; raise :class:`MemoryCeilingError` naming
     ``what`` (the stage's activity) when a ceiling is passed."""
     r = reader(worker_pids)
@@ -244,7 +244,7 @@ def describe() -> str:
     where it cannot be read.  Never raises."""
     try:
         pids = [p for pool in list(_POOLS) for p in pool.pids()]
-        r = read(pids)
+        r = _read(pids)
         return r.text() if r.parent_gb > 0 else ""
     except Exception:
         return ""

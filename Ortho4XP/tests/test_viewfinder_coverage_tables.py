@@ -15,13 +15,13 @@ import os
 import re
 import sys
 
+import O4_Airport_Elevation_Insets as INSETS
 import pytest
+from elevation_access import base_tiles as ea_base_tiles
+from elevation_access.definitions import parse_archive_zones
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
-import O4_Airport_Elevation_Insets as INSETS
-from elevation_access import base_tiles as ea_base_tiles
-from elevation_access.definitions import parse_archive_zones
 
 PROVIDERS = os.path.normpath(os.path.join(_HERE, "..", "Providers", "Elevation"))
 TOOL = os.path.normpath(

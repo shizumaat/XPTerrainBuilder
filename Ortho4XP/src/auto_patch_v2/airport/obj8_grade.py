@@ -492,6 +492,11 @@ def base_profile(geom: "ObjGeometry", comps: list["Component"], *,
     """
     v = geom.vertices
     tris = geom.solid
+    # #1984: a MOVING part is never the base (``pack_partition._still_parts``):
+    # its vertices are authored in its ANIM block's frame, not where drawn
+    anim = geom.animated
+    if anim.shape[0] == tris.shape[0] and anim.any() and not anim.all():
+        tris = tris[~anim]
     if horizontal_ny <= 0.0 or tris.shape[0] == 0 or v.shape[0] == 0:
         return BaseProfile(FEET, why="no solid geometry" if tris.shape[0] == 0
                            else "base read disarmed (horizontal_ny 0)")

@@ -385,6 +385,29 @@ def _names_its_object(build):
     return named
 
 
+def _still_parts(comps: list, counts: dict[str, int]) -> list:
+    """#1984: A MOVING PART IS NEVER A PART OF THE GROUND READING.  The
+    vertices of an ``ANIM`` block are authored in the block's own frame:
+    the file puts them where the sim never draws them.  A SAM jetway's
+    tunnel, cab and wheel bogie are authored down to y = -5.47 and drawn
+    from y = 0 up once the block's translations apply; read as parts they
+    gave the jetway feet 1.2-5.5 m under its real ones, and the unit's
+    median ground put the static rotunda (authored at y = 0) 1.15-1.23 m
+    over the apron at KEGE.  So a member with STILL genuine geometry
+    reads its ground from that alone — the same rule ``ResourceCache.
+    genuine`` applies to the witnesses (#612).  The moving components are
+    not lost: the split hands a component no body owns to the nearest
+    body by its plan centroid, and an ANIM block moves whole with the
+    body owning most of it.  A member whose every genuine part moves keeps
+    them all (nothing still to read)."""
+    still = [(i, c) for i, c in comps if not c.animated]
+    if not still or len(still) == len(comps):
+        return comps
+    counts["moving_parts_dropped"] = (counts.get("moving_parts_dropped", 0)
+                                      + len(comps) - len(still))
+    return still
+
+
 @_names_its_object
 def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                   sc: Screen, deck_family_ids: _t.Collection[str], pack_root: str,
@@ -407,6 +430,7 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
     comps = [(i, c) for i, c in all_comps
              if c.max_y - c.min_y >= cache.thickness_m and i not in deep]
     counts["below_grade_parts"] += len(deep)
+    comps = _still_parts(comps, counts)
     in_deck_family = o.id in sc.deck_family or o.id in deck_family_ids
     if not comps and not (in_deck_family and rb.deck_family_seats_rigid) \
             and o.id not in sc.plate_paths and o.path not in sc.plate_paths \

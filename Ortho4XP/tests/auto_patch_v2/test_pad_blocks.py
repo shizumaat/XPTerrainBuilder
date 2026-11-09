@@ -465,31 +465,29 @@ def test_a_flat_based_unit_takes_the_level_both_aprons_can_meet():
     assert 100.0 <= b.datum <= 101.0
 
 
-def test_a_stepped_based_unit_keeps_its_blocks_at_the_step():
+def test_a_stepped_based_unit_is_one_pad_under_ruling_13():
+    """Owner RULINGS 2026-11-09a (13) (#1935 EFHK): a connected group is ONE
+    flat pad whatever its base; the 30r neck cut no longer runs (the law's
+    ``frontage_blocks_max`` is 1) and the miss is the hold's residual, never
+    a STOP."""
     from auto_patch_v2.planar.pad_blocks import plan_blocks
     P, regs, law, dem, airport = _two_level_site(6.0, "stepped")
+    assert int(law.tables.structures.building_pad.frontage_blocks_max) == 1
     plan = plan_blocks("t3", P, regs, law, dem, airport, 2.0)
-    assert plan.base == "stepped" and plan.verdict == "split"
-    assert len(plan.blocks) == 2 and len(plan.cuts) == 1
-    # the cut is at the neck, between the two levels
-    assert 200.0 - 1e-6 <= plan.cuts[0].centroid.x <= 260.0 + 1e-6
-    assert abs(abs(plan.steps[0][2]) - 6.0) < 3.0
+    assert plan.base == "stepped" and plan.verdict == "residual"
+    assert len(plan.blocks) == 1 and not plan.cuts and not plan.steps
 
 
-def test_a_one_level_base_is_one_block_but_unknown_keeps_the_cut():
-    """Master decision (2): FLAT / SLOPED / FEET force one block; a unit
-    with no base read (no base plane, no covering cluster) keeps the cut —
-    unknown is not flat."""
+def test_no_base_read_is_one_pad_too():
+    """FLAT / SLOPED / FEET and a unit with no base read (no base plane, no
+    covering cluster) are all one block under (13)."""
     import dataclasses
 
     from auto_patch_v2.planar.pad_blocks import plan_blocks
-    for v in ("sloped", "feet"):
+    for v in ("sloped", "feet", ""):
         P, regs, law, dem, airport = _two_level_site(6.0, v)
         plan = plan_blocks("t3", P, regs, law, dem, airport, 2.0)
         assert len(plan.blocks) == 1, v
-    P, regs, law, dem, airport = _two_level_site(6.0, "")
-    plan = plan_blocks("t3", P, regs, law, dem, airport, 2.0)
-    assert plan.base == "" and len(plan.blocks) == 2
     plan = plan_blocks("t3", P, regs, law, dem,
                        dataclasses.replace(airport, clusters=()), 2.0)
-    assert plan.base == "" and len(plan.blocks) == 2
+    assert plan.base == "" and len(plan.blocks) == 1

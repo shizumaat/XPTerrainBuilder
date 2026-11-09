@@ -29,6 +29,14 @@ every block reader (the mint, the collars, the hold, the object stage's
 ``pad_block_seat``, the census) reads the ``<ref>/b<k>`` refs this plan
 yields, so a one-block plan reaches none of them.
 
+NO UNIT IS CUT ANY MORE (owner RULINGS 2026-11-09a (13), #1935): "a
+connected building group stands on ONE flat pad at the mid level of the
+ground under it".  ``[building_pad] frontage_blocks_max`` is 1, so every
+plan below is one block whatever its base; the partition machinery stays
+the law's to re-arm, and a stepped base's storey is ``planar/low_level``'s
+tied lower level.  EFHK's terminal unit (``building123``, base stepped)
+was cut into three blocks the solve seated at 47.09 / 47.55 / 47.80 m.
+
 THE TEST, PER FRONTAGE CONTACT.  A welded contact ``c`` (a pad ring sample
 within ``near`` of a fronted apron body) can carry a level ``D`` iff the
 apron in front of it grades from ``D`` to the taxiway it faces within the
@@ -702,7 +710,9 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
     else:
         # a unit held to ONE level by its base (aj (2)) never reached a
         # block cap: its miss is the hold's residual
-        plan.verdict = ("stop_cap" if len(pieces) >= cap_blocks
+        # (a cap of ONE, owner RULINGS 2026-11-09a (13), is no cap reached:
+        # the unit is one flat pad by law and its miss is the residual)
+        plan.verdict = ("stop_cap" if len(pieces) >= cap_blocks > 1
                         and base not in (FLAT, SLOPED, FEET) else "residual")
         plan.note = (f"{'STOP' if plan.verdict == 'stop_cap' else 'RESIDUAL'}: "
                      f"{len(pieces)} block(s) still miss by "

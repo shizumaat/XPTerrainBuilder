@@ -45,8 +45,22 @@ def test_only_the_member_no_deck_touches_is_ungoverned(tmp_path):
     objs = _row(tmp_path)
     fam = {o.id: "row" for o in objs}
     cache = O.ResourceCache(0.05)
-    got = ungoverned_members(objs, fam, {o.id for o in objs}, cache, 0.5)
+    got = ungoverned_members(objs, fam, {o.id for o in objs}, cache, 0.5, 0.5,
+                             LAW.tables.structures.rebake)
     assert got == {"dsf:obj2"}
+
+
+def test_one_post_on_the_deck_does_not_govern_a_fence(tmp_path):
+    """KBZN: the perimeter fence meets the terminal (and a carpet in it) at
+    one post, 0.29 m away — 0.4 % of its vertices.  Contact is not standing
+    on the deck."""
+    objs = _row(tmp_path)
+    fence = _obj(tmp_path / "fence2.obj", _sheet(-400.0, -9.8, -4.0, 0.0, 2.5))
+    objs.append(_placed("dsf:obj3", fence))
+    fam = {o.id: "row" for o in objs}
+    got = ungoverned_members(objs, fam, {o.id for o in objs}, O.ResourceCache(0.05), 0.5, 0.5,
+                             LAW.tables.structures.rebake)
+    assert "dsf:obj3" in got
 
 
 def test_the_far_fence_keeps_the_line_class(tmp_path):

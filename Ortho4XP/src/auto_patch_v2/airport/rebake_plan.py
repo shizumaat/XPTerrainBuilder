@@ -214,11 +214,12 @@ def screen_of(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCac
             facility.add(o.id)
     #: 14.1 rule 4: a member whose elevation a STRUCTURE seat governs is
     #: never a line object (10bb rule 2)
-    #: #1969: a deck family is a ROW; only the members a deck of it
-    #: touches are governed by it (``deck_family_contact``)
+    #: #1969: a deck family is a ROW; only the members standing on a
+    #: deck of it are governed by it (``deck_family_contact``)
     from .deck_family_contact import ungoverned_members
     free = (ungoverned_members(objs, fam_of, deck_family, cache,
-                               law.tables.structures.placement.footprint_touch_m)
+                               law.tables.structures.placement.footprint_touch_m,
+                               law.tables.structures.deck.on_fraction, rb)
             if deck_family else frozenset())
     structure_seated = {o.id for o in objs
                         if (o.id in deck_family and o.id not in free)

@@ -776,7 +776,7 @@ class OtherSurfaces:
     rather than the mesh."""
 
     def __init__(self, placed, hard_only: bool = True):
-        self.parts = []
+        parts, keys = [], []
         for pl in placed:
             g = pl["g"]
             for ci, comp in enumerate(pl["comps"]):
@@ -786,18 +786,32 @@ class OtherSurfaces:
                 if hard.any():
                     t = plan_triangles(pl["V"], comp.tris[hard])
                     if t.shape[0]:
-                        self.parts.append(((pl["key"], ci), t))
+                        parts.append(t)
+                        keys.append((pl["key"], ci))
+        # ONE index over every triangle, each tagged with its owner (#1969:
+        # a fresh concatenation per placement was quadratic -- a whole
+        # airport of 4,000 split bodies read for hours)
+        self._all = _Surfaces(parts)
+        self._keys = keys
+        self._of = (np.repeat(np.arange(len(parts)), [len(t) for t in parts])
+                    if parts else np.zeros(0, dtype=int))
+
+    def _skip(self, hit) -> np.ndarray:
+        bad = np.array([k for k, key in enumerate(self._keys) if hit(key)], dtype=int)
+        return np.isin(self._of, bad)
 
     def excluding(self, key, ci):
         """Per point ``(e, n)``, the highest surface of the components
         other than ``(key, ci)``; ``nan`` where none covers the point."""
-        return _Surfaces([t for k, t in self.parts if k != (key, ci)]).highest
+        skip = self._skip(lambda k: k == (key, ci))
+        return lambda e, n, below=None: self._all.highest(e, n, below, skip)
 
     def support(self, key):
         """Per point ``(e, n, z)``, the highest surface of the OTHER
         placements standing no higher than ``z`` (what that point rests
         on); ``nan`` where none."""
-        return _Surfaces([t for k, t in self.parts if k[0] != key]).highest
+        skip = self._skip(lambda k: k[0] == key)
+        return lambda e, n, below=None: self._all.highest(e, n, below, skip)
 
 
 class _Surfaces:
@@ -808,13 +822,16 @@ class _Surfaces:
         self.mn = self.tris[:, :, :2].min(1)
         self.mx = self.tris[:, :, :2].max(1)
 
-    def highest(self, e, n, below=None):
+    def highest(self, e, n, below=None, skip=None):
         """Per point, the highest surface (no higher than ``below`` +
-        :data:`PAVEMENT_BAR_M` where given); ``nan`` where none."""
+        :data:`PAVEMENT_BAR_M` where given; never a triangle ``skip``
+        marks); ``nan`` where none."""
         out = np.full(len(e), np.nan)
         for k in range(len(e) if self.tris.shape[0] else 0):
             m = ((self.mn[:, 0] <= e[k]) & (self.mx[:, 0] >= e[k])
                  & (self.mn[:, 1] <= n[k]) & (self.mx[:, 1] >= n[k]))
+            if skip is not None:
+                m &= ~skip
             if not m.any():
                 continue
             t = self.tris[m]

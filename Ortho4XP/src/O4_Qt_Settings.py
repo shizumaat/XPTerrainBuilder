@@ -37,7 +37,7 @@ from O4_Qt_Widgets import (
     never_widen,
     wrap_and_never_widen,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -875,6 +875,12 @@ class SettingsWindow(SelectionEdits, QDialog):
     #: Windows display at 125 % scaling) must be able to hold the sheet.
     MAX_MINIMUM_WIDTH = 720
 
+    #: Ceiling on the window's PREFERRED size, so it opens inside a
+    #: 1280 x 720 laptop with room for the chrome and the menu bar
+    #: whatever the platform font (the Windows runner's is ~1.5x the
+    #: Mac's).  The rows scroll, so a smaller default loses nothing.
+    MAX_DEFAULT_SIZE = (1200, 640)
+
     def __init__(self, prefs, tiles, custom_build_dir, parent=None,
                  tile_zooms=None, selection_zl=None):
         super().__init__(parent)
@@ -923,6 +929,11 @@ class SettingsWindow(SelectionEdits, QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         self._clamp_width_to_content()
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        width, height = self.MAX_DEFAULT_SIZE
+        return hint.boundedTo(QSize(width, height))
 
     def _clamp_width_to_content(self):
         """Keep every description wrapped inside the window width.

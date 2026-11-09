@@ -329,8 +329,10 @@ def plate_pack(tmp_path_factory, law):
     placed = []
     for k, n in enumerate(("plate", "stub", "thick")):
         placed.append(obj8.PlacedObject(f"dsf:obj{k}", str(d / f"{n}.obj"), str(d / f"{n}.obj"),
-                                        (0.0, 0.0), 0.0, "OBJECT", 700.0, 0.0, 0.0, (), None,
-                                        None, None, ()))
+                                        (0.0, 0.0), 0.0, agl_m=0.0, kind="OBJECT",
+                                        anchor_z=700.0, below_grade=None, plan_bbox=None,
+                                        solid_min_z=None, solid_min_depth_m=None,
+                                        hard_deck=None, deck_top_z=None))
     return ap, placed, cache
 
 

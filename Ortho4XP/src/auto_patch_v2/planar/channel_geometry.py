@@ -32,7 +32,7 @@ from ..airport.dem import dem_z_at
 if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
     from .channel import _Cand
 
-__all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_along', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts', '_ends', '_witness_along', '_lidar_cut', '_confirmed']
+__all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_along', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts', '_ends', '_witness_along', '_lidar_cut', '_confirmed', '_lidar_reach']
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -519,7 +519,6 @@ def _ends(airport: Airport, law: Law, decks, axis_ln: LineString, axis_fn,
     that witness: the pack walls' below-grade footprints (1) (c), or the
     stations a credible lidar still reads as cut (3) (ii).  Beyond them
     §37 governs as before."""
-    ch = law.tables.structures.channel
     first = min(decks, key=lambda d: d.s0)
     last = max(decks, key=lambda d: d.s1)
     lo = first.s0 - (first.s1 - first.s0)
@@ -528,31 +527,41 @@ def _ends(airport: Airport, law: Law, decks, axis_ln: LineString, axis_fn,
     if span is not None:
         lo, hi = min(lo, span[0]), max(hi, span[1])
     elif lidar:
-        # the lidar's own reach: walk outward while the DTM still reads a
-        # cut of ``object_min_depth_m`` under the ground at the corridor
-        # edge (the same "is this a real wall" depth (1) (c) uses)
-        step = float(ch.station_m)
-        depth = float(ch.object_min_depth_m)
-        window = float(ch.lidar_floor_window_m)
-        for sgn, start in ((-1.0, lo), (1.0, hi)):
-            s = start
-            while 0.0 <= s + sgn * step <= axis_ln.length:
-                t = s + sgn * step
-                p = axis_fn(t)
-                a, b = axis_fn(max(0.0, t - 1.0)), axis_fn(t + 1.0)
-                u = unit(a, b)
-                nv = (-u[1], u[0])
-                rim = max(dem_z_at(airport, (p[0] + nv[0] * half_at, p[1] + nv[1] * half_at)),
-                          dem_z_at(airport, (p[0] - nv[0] * half_at, p[1] - nv[1] * half_at)))
-                flr = _lidar_floor(airport, axis_fn, t, window)
-                if math.isnan(rim) or math.isnan(flr) or (rim - flr) < depth:
-                    break
-                s = t
-            if sgn < 0.0:
-                lo = min(lo, s)
-            else:
-                hi = max(hi, s)
+        lo, hi = _lidar_reach(airport, law, axis_fn, axis_ln.length, half_at, lo, hi)
     return (max(0.0, float(lo)), min(axis_ln.length, float(hi)))
+
+
+def _lidar_reach(airport: Airport, law: Law, axis_fn, length: float, half_at: float,
+                 lo: float, hi: float) -> tuple[float, float]:
+    """THE SURVEY'S OWN REACH along the axis from the stretch ``lo..hi``:
+    walk outward one ``station_m`` at a time while the DTM still reads a
+    cut of ``object_min_depth_m`` under the ground at the corridor edge
+    (the same "is this a real wall" depth (1) (c) uses); the first station
+    that reads no cut stops the walk.  ``(lo', hi')`` with ``lo' <= lo``
+    and ``hi' >= hi``."""
+    ch = law.tables.structures.channel
+    step = float(ch.station_m)
+    depth = float(ch.object_min_depth_m)
+    window = float(ch.lidar_floor_window_m)
+    for sgn, start in ((-1.0, lo), (1.0, hi)):
+        s = start
+        while 0.0 <= s + sgn * step <= length:
+            t = s + sgn * step
+            p = axis_fn(t)
+            a, b = axis_fn(max(0.0, t - 1.0)), axis_fn(t + 1.0)
+            u = unit(a, b)
+            nv = (-u[1], u[0])
+            rim = max(dem_z_at(airport, (p[0] + nv[0] * half_at, p[1] + nv[1] * half_at)),
+                      dem_z_at(airport, (p[0] - nv[0] * half_at, p[1] - nv[1] * half_at)))
+            flr = _lidar_floor(airport, axis_fn, t, window)
+            if math.isnan(rim) or math.isnan(flr) or (rim - flr) < depth:
+                break
+            s = t
+        if sgn < 0.0:
+            lo = min(lo, s)
+        else:
+            hi = max(hi, s)
+    return lo, hi
 
 
 def _poly(ring) -> Polygon | None:

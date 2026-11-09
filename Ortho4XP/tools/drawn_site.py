@@ -888,9 +888,12 @@ def mesh_box(sites, picked) -> tuple[float, float, float, float]:
     return min(lons) - pad, min(lats) - pad, max(lons) + pad, max(lats) + pad
 
 
-def measure_site(s: Site, items: list[dict], mesh: DrawnMesh) -> dict:
+def measure_site(s: Site, items: list[dict], mesh: DrawnMesh,
+                 clearance_only: bool = False) -> dict:
     """Every component of ``items`` reaching ``s`` (all, for an object
-    group), measured in the site's frame."""
+    group), measured in the site's frame.  ``clearance_only`` (#1969)
+    reads each placement's CLEARANCE alone and no component (a whole
+    airport of split bodies is thousands of components, hours of reads)."""
     fr = Frame(s.lat, s.lon)
     placed = []
     for q in items:
@@ -903,7 +906,7 @@ def measure_site(s: Site, items: list[dict], mesh: DrawnMesh) -> dict:
     others = OtherSurfaces(placed)
     solids = OtherSurfaces(placed, hard_only=False)
     comps_out = []
-    for pl in placed:
+    for pl in ([] if clearance_only else placed):
         V, p = pl["V"], pl["p"]
         for ci, comp in enumerate(pl["comps"]):
             tv = np.unique(comp.tris.reshape(-1))
@@ -947,7 +950,8 @@ def lowest_gap(pl: dict, frame: Frame, mesh, support, clip_m: float | None) -> d
     if clip_m is not None and len(used):
         used = used[np.hypot(V[used, 0], V[used, 1]) <= clip_m]
     rec = {"pack": os.path.basename(pl["root"].rstrip("/")), "tile": pl["tile"],
-           "row": pl["row"], "clearance_m": None, "at": None, "lowest_z": None,
+           "row": pl["row"], "def": pl["p"].def_path,
+           "clearance_m": None, "at": None, "lowest_z": None,
            "of": "still parts" if still else "every part (all move)"}
     if not len(used):
         return rec
@@ -999,7 +1003,8 @@ def _run(args, sites, tool: str, work: str) -> dict:
     report = {"mesh": mesh.sources, "packs": args.pack, "tol_m": args.tol,
               "datarefs_at_rest": res.datarefs, "sites": []}
     for s in sites:
-        rec = measure_site(s, [q for q in picked if s in q["sites"]], mesh)
+        rec = measure_site(s, [q for q in picked if s in q["sites"]], mesh,
+                           args.clearance_only)
         rec["unresolved"] = unresolved_near(rows, s, frames[s], res)
         report["sites"].append(rec)
     named = [dict(q, named=True) for q in picked if q["named"]]
@@ -1007,7 +1012,7 @@ def _run(args, sites, tool: str, work: str) -> dict:
         p0 = named[0]["p"]
         label = ", ".join(list(args.object) + list(args.row))
         report["sites"].append(measure_site(Site("objects: " + label, p0.lat, p0.lon, 0.0),
-                                            named, mesh))
+                                            named, mesh, args.clearance_only))
     for s in report["sites"]:
         s["objects"] = object_bars(s["components"], args.tol, GROUND_BAR_M, PRINT_RUN_M,
                                    s.get("placements", []),
@@ -1102,6 +1107,21 @@ def print_report(rep: dict, top_n: int) -> None:
                 print(line)
 
 
+def print_clearances(rep: dict, bar: float, top_n: int) -> None:
+    """``--clearance-only``: every placement row whose CLEARANCE is over
+    ``bar`` (FLOAT), highest first, and the count per site."""
+    for s in rep["sites"]:
+        rows = [p for p in s.get("placements", []) if p.get("clearance_m") is not None]
+        fl = sorted((p for p in rows if p["clearance_m"] > bar),
+                    key=lambda p: -p["clearance_m"])
+        top = f" (max {fl[0]['clearance_m']:+.2f} m)" if fl else ""
+        print(f"\nSITE {s['name']}: {len(rows)} rows read, FLOAT > {bar:g} m: {len(fl)}{top}")
+        for p in fl[:top_n]:
+            at = p["at"] or [0.0, 0.0]
+            print(f"  FLOAT {p['clearance_m']:+6.2f} m  {p['tile']} obj{p['row']} {p['def']}"
+                  f" @{at[0]:.6f},{at[1]:.6f}{' (on an object)' if p.get('on_object') else ''}")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1133,6 +1153,9 @@ def main(argv=None) -> int:
                     help="each --site names a MOUTH: judge the floor opening nearest it")
     ap.add_argument("--summary", action="store_true",
                     help="print only the one-screen class bars")
+    ap.add_argument("--clearance-only", action="store_true",
+                    help="read only each placement row's CLEARANCE (no component reads) and"
+                         " list the FLOAT rows -- a whole airport in minutes (#1969)")
     ap.add_argument("--cache", default=None, help="keep the box's tile triangles here (.npy)")
     ap.add_argument("--top", type=int, default=40, help="components printed per site")
     ap.add_argument("--json", default=None, help="write the full report here")
@@ -1145,9 +1168,12 @@ def main(argv=None) -> int:
             or os.path.expanduser("~/X-Plane 12/Custom Scenery")
         args.mod_cache = args.mod_cache or FNAMES.airport_mod_cache_root()
     rep = run(args)
-    if not args.summary:
+    if args.clearance_only:
+        print_clearances(rep, GROUND_BAR_M, args.top)
+    elif not args.summary:
         print_report(rep, args.top)
-    print_bars(rep, GROUND_BAR_M)
+    if not args.clearance_only:
+        print_bars(rep, GROUND_BAR_M)
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:
             json.dump(rep, fh, indent=1)

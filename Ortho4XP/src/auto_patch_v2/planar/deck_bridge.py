@@ -238,15 +238,52 @@ def _beside_a_building(frame, ring: Polygon, roles: CellRoles) -> bool:
     return False
 
 
+def _elevated(d, frame, piece, top_y: float, bottom_y: float, ground, law) -> str:
+    """Why deck placement ``d``'s piece ``piece`` is an ELEVATED deck — its
+    frame STATES the road under it (reaching ``[tunnel] clearance_m`` or more
+    under its deck top, :func:`_road_floor`'s test) and that road, its
+    lowest solid ``bottom_y`` under its zero, stands less than
+    ``floor_sunken_min_m`` under the author's ground around the deck
+    (``airport/below_grade_witness``, owner RULINGS 2026-11-07b (1)) — or
+    ``""``.  A hard-deck bridge's cut rests on the road under it running
+    BELOW the author's ground; a frame standing on that ground (a garage, a
+    raised road on its own walls) carries its deck over a road at grade,
+    and nothing is cut (#1966: KEYW's two-level garage, roof 12.3 m over its
+    zero on flat ground, read as a bridge and cut 11.5 m).  Asked of a deck
+    carrying a ROAD only: a runway or taxiway across a deck is itself the
+    witness (an aircraft never climbs onto an elevated deck — the deck IS
+    the airside ground; LFPG's ``H*`` and EDDF's ``Bridge_2`` frames stand
+    their road 1.7-2.5 m under a DEM that blurs the cut).  A frame stopping
+    short of the road states no road level and is not asked (the ladder,
+    :func:`_road_floor`)."""
+    if ground is None or top_y - bottom_y < law.tables.structures.tunnel.clearance_m:
+        return ""
+    from ..airport.below_grade_witness import depth_under, zero_of
+    b = depth_under(zero_of(d, ground.msl) + bottom_y, piece, {str(q.id) for q in frame},
+                    ground, law, what="the road its frame stands on")
+    floor = law.tables.structures.tunnel.object.floor_sunken_min_m
+    if not b.depth < floor:
+        return ""
+    return (f"an ELEVATED deck — {b.why} < floor_sunken_min_m {floor:g}: its frame stands "
+            f"on the ground and clears the road at grade, nothing below grade (RULINGS "
+            f"2026-11-07b (1), #1966)")
+
+
 def deck_bridges(objects, cache, classification, airport, law, trenches=(),
-                 level_b: "float | None" = None
+                 level_b: "float | None" = None, ground=None
                  ) -> tuple[tuple[DeckBridge, ...], list[str]]:
     """``(every hard-deck bridge, one note per deck piece refused)``
     (module doc).  ``level_b``: the airport's level-B depth
     (``planar/level_depth.airport_level_b``), the floor under a deck whose
-    frame states none (RULINGS 2026-11-03b)."""
+    frame states none (RULINGS 2026-11-03b).  ``ground``: the author's
+    ground (``airport/below_grade_witness.ground_of``) the road a deck's
+    frame states must stand under (:func:`_elevated`); ``None`` reads it
+    off ``objects``."""
     if not objects or cache is None or classification is None or not classification.cells:
         return (), []
+    if ground is None and getattr(airport, "dem", None) is not None:
+        from ..airport.below_grade_witness import ground_of
+        ground = ground_of(airport, objects, cache, law)
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
     roles = CellRoles(classification, airport)
@@ -295,6 +332,11 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                 # (KIAH's taxiway bridges, #1719: no row-1202 edge reaches
                 # them, the classified taxiway crosses both end lines)
                 fam = "taxi"
+            high = "" if fam != "road" else \
+                _elevated(d, frame, piece, 0.5 * (ta + tb), bottom, ground, law)
+            if high:
+                notes.append(f"{where}: {high}")
+                continue
             mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
                                    tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
                                    float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb),

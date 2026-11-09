@@ -172,8 +172,9 @@ def _system_free_fraction() -> float | None:
                 return None
             return max(0.0, min(1.0, v.value / 100.0))
         if sys.platform == "win32":
-            from .pool import _MemoryStatusEx
             import ctypes
+
+            from .pool import _MemoryStatusEx
             st = _MemoryStatusEx()
             st.dwLength = ctypes.sizeof(st)
             if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):

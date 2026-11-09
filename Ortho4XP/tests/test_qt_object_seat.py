@@ -105,3 +105,55 @@ def test_a_snapped_node_takes_the_object_top(qapp, monkeypatch):
                           SEAT.KEEP_CURRENT]
     menu.actions()[1].trigger()
     assert model.doc.nodes[1][3] == 612.0 and model.unsaved_edits == 1
+
+
+class _GroupEngine(_Engine):
+    """An engine whose object is cut into parts: its seat is a group, its
+    hand-set seat an offset (#1970)."""
+
+    def __init__(self):
+        super().__init__()
+        self.offset = None
+
+    def call(self, name, callback, **kw):
+        self.calls.append((name, kw))
+        if name == "object_seat_set":
+            prev = self.offset
+            self.offset = kw.get("offset_m", kw["bottom_m"] - 599.0 if "bottom_m" in kw else None)
+            callback({"index": kw["index"], "zero_m": None, "previous_zero_m": None,
+                      "offset_m": self.offset, "previous_offset_m": prev, "rows": [40, 41]}, None)
+        else:
+            callback({"pending": False, "lines": ["Group of 2 objects, 3 parts: a.obj, t1.obj"],
+                      "bottom_m": 599.0, "top_m": None, "height_m": None, "user_zero_m": None,
+                      "user_offset_m": self.offset,
+                      "group": {"rows": [40, 41], "parts": 3, "sources": ["a.obj", "t1.obj"],
+                                "ring": [[30.0005, 31.0005], [30.0005, 31.003],
+                                         [30.003, 31.003], [30.003, 31.0005]]}}, None)
+
+
+def test_a_group_moves_by_one_offset_and_undoes_whole(qapp):
+    ins, model, _engine, outlines = _setup()
+    engine = _GroupEngine()
+    ins.engine = engine
+    assert ins.select_at(30.0015, 31.0015)
+    assert ins.lines[1].startswith("Group of 2 objects")
+    assert ins.outline_path().boundingRect() != ins.selected.path.boundingRect()
+    dialog = SEAT.ObjectSeatDialog(ins)
+    assert dialog.findChildren(SEAT.QLabel)[1].text() == SEAT.GROUP_NOTE
+    ins.set_elevation(601.5)
+    assert engine.offset == 2.5 and model.undo_stack.count() == 1
+    model.undo_stack.undo()
+    undo_kw = [kw for name, kw in engine.calls if name == "object_seat_set"][-1]
+    assert "offset_m" not in undo_kw and "zero_m" not in undo_kw and engine.offset is None
+    model.undo_stack.redo()
+    assert engine.offset == 2.5
+
+
+def test_the_mac_app_says_the_same_notes():
+    import re
+    from pathlib import Path
+
+    swift = (Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
+             / "PatchObjectElevation.swift").read_text(encoding="utf-8")
+    for name, said in (("objectNote", SEAT.OBJECT_NOTE), ("groupNote", SEAT.GROUP_NOTE)):
+        assert re.search(r'static let %s =\s*"([^"]+)"' % name, swift).group(1) == said, name

@@ -23,8 +23,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["group_rows", "group_bodies", "group_ring", "group_zeros", "group_seat",
-           "source_names"]
+__all__ = ["group_rows", "group_zeros", "group_seat"]
 
 Entries = _t.Mapping[int, tuple[str, _t.Mapping]]
 
@@ -64,13 +63,13 @@ def group_rows(entries: Entries, row: int) -> tuple[int, ...]:
     return tuple(sorted(seen))
 
 
-def group_bodies(entries: Entries, rows: _t.Iterable[int]) -> list[_t.Mapping]:
+def _group_bodies(entries: Entries, rows: _t.Iterable[int]) -> list[_t.Mapping]:
     """Every body of the group's rows (each row's ``bodies``, in row order)."""
     splits = _split_rows(entries)
     return [b for r in sorted(rows) for b in (splits.get(r, {}).get("bodies") or ())]
 
 
-def source_names(entries: Entries, rows: _t.Iterable[int]) -> list[str]:
+def _source_names(entries: Entries, rows: _t.Iterable[int]) -> list[str]:
     """The group's source objects' file names, sorted, once each."""
     names = set()
     for r in rows:
@@ -81,7 +80,7 @@ def source_names(entries: Entries, rows: _t.Iterable[int]) -> list[str]:
     return sorted(names)
 
 
-def group_ring(bodies: _t.Iterable[_t.Mapping]) -> list[list[float]]:
+def _group_ring(bodies: _t.Iterable[_t.Mapping]) -> list[list[float]]:
     """The convex hull (``[lat, lon]`` corners, counter-clockwise, not
     closed) of the bodies' geometry boxes — the outline the editor draws
     around a selected group; ``[]`` with fewer than three corners."""
@@ -100,11 +99,7 @@ def group_zeros(entries: Entries, rows: _t.Iterable[int]) -> list[float]:
     """Where the plan puts each body's authored zero (m MSL), the bodies
     off every graded face left out."""
     from auto_patch_v2.airport.placement_coherence import plan_body_zero
-    return [z for z in map(plan_body_zero, group_bodies(entries, rows)) if z is not None]
-
-
-def _m(z: float) -> str:
-    return f"{z:,.1f} m"
+    return [z for z in map(plan_body_zero, _group_bodies(entries, rows)) if z is not None]
 
 
 def group_seat(entries: Entries, row: int, offset_m: float | None = None,
@@ -116,11 +111,12 @@ def group_seat(entries: Entries, row: int, offset_m: float | None = None,
     part's zero; it has no single top."""
     if entries.get(int(row), ("",))[0] != "split":
         return None
+    from .object_seat import _m                 # the inspector's metres
     rows = group_rows(entries, row)
-    bodies = group_bodies(entries, rows)
+    bodies = _group_bodies(entries, rows)
     off = float(offset_m or 0.0)
     zeros = [z + off for z in group_zeros(entries, rows)]
-    names = source_names(entries, rows)
+    names = _source_names(entries, rows)
     shown = ", ".join(names[:3]) + (", …" if len(names) > 3 else "")
     lines = [f"Group of {len(rows)} object{'s' if len(rows) != 1 else ''}, "
              f"{len(bodies)} part{'s' if len(bodies) != 1 else ''}: {shown}"]
@@ -142,4 +138,4 @@ def group_seat(entries: Entries, row: int, offset_m: float | None = None,
             "bottom_m": round(min(zeros), 3) if zeros else None, "top_m": None,
             "why": why, "lines": lines + [why + "."], "user_offset_m": offset_m,
             "group": {"rows": list(rows), "parts": len(bodies), "sources": names,
-                      "ring": group_ring(bodies)}}
+                      "ring": _group_ring(bodies)}}

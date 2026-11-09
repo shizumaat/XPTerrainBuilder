@@ -47,8 +47,8 @@ from o4_engine import patch_slice as _slice
 
 __all__ = ["Node", "Way", "PatchDoc", "move", "set_position", "set_alt",
            "offset_alt", "delete_nodes", "delete_ways", "insert_on_edge", "merge_nodes",
-           "slice_shape", "add_shape", "rotate_ways", "duplicate_ways", "slice_way", "next_node_id", "next_way_id",
-           "apply_op"]
+           "slice_shape", "add_shape", "rotate_ways", "duplicate_ways", "slice_way", "next_node_id",
+           "next_way_id", "apply_op"]
 
 
 #: One node: ``(id, lat, lon, alt or None)`` — the §2 wire shape.

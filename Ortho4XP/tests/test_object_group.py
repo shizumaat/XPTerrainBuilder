@@ -22,6 +22,8 @@ TILE = "+45-123"
 
 
 def _body(bid, unit, z, box, res):
+    """One plan body; ``box`` is ``(s, w)``, a 20 m square from there."""
+    box = [box[0], box[1], box[0] + 0.0002, box[1] + 0.0002]
     return {"body_id": bid, "class": "other", "new_resource": res,
             "anchor": {"lat": box[0], "lon": box[1], "heading": 0.0},
             "unit_of": unit, "surface_z": z, "y_zero": 0.5, "geom_box": box}
@@ -39,15 +41,15 @@ PLAN = {
     "version": 2, "icao": "ZZZZ", "dsf_path": "",
     "splits": [
         _split(1, "objects/walls.obj", 45.1, -122.9,
-               [_body("b0", "u1", 100.5, [45.1, -122.9, 45.1002, -122.8998], "objects/walls__b0.obj"),
-                _body("b1", "u2", 50.5, [45.1004, -122.9, 45.1006, -122.8998], "objects/walls__b1.obj")]),
+               [_body("b0", "u1", 100.5, (45.1, -122.9), "objects/walls__b0.obj"),
+                _body("b1", "u2", 50.5, (45.1004, -122.9), "objects/walls__b1.obj")]),
         _split(2, "objects/roof.obj", 45.1, -122.9,
-               [_body("b0", "u1", 101.0, [45.1, -122.9, 45.1002, -122.8998], "objects/roof__b0.obj")]),
+               [_body("b0", "u1", 101.0, (45.1, -122.9), "objects/roof__b0.obj")]),
         _split(3, "objects/far.obj", 45.2, -122.8,
-               [_body("b0", "u3", 70.5, [45.2, -122.8, 45.2001, -122.7999], "objects/far__b0.obj")]),
+               [_body("b0", "u3", 70.5, (45.2, -122.8), "objects/far__b0.obj")]),
         _split(4, "objects/fence.obj", 45.1, -122.9,
-               [_body("b0", None, 60.5, [45.1008, -122.9, 45.1009, -122.8999], "objects/fence__b0.obj"),
-                _body("b1", "u2", 50.5, [45.1004, -122.9, 45.1006, -122.8998], "objects/fence__b1.obj")]),
+               [_body("b0", None, 60.5, (45.1008, -122.9), "objects/fence__b0.obj"),
+                _body("b1", "u2", 50.5, (45.1004, -122.9), "objects/fence__b1.obj")]),
     ],
     "kept": [{"index": 0, "resource": "objects/a.obj", "reason": "stock"}],
 }
@@ -67,8 +69,8 @@ def test_the_group_is_the_component_of_rows_and_units(plan):
     assert OG.group_rows(plan, 2) == OG.group_rows(plan, 4) == (1, 2, 4)
     assert OG.group_rows(plan, 3) == (3,)
     assert OG.group_rows(plan, 0) == (0,)               # not cut: alone
-    assert OG.source_names(plan, (1, 2, 4)) == ["fence.obj", "roof.obj", "walls.obj"]
-    assert len(OG.group_ring(OG.group_bodies(plan, (1, 2, 4)))) >= 3
+    assert OG._source_names(plan, (1, 2, 4)) == ["fence.obj", "roof.obj", "walls.obj"]
+    assert len(OG._group_ring(OG._group_bodies(plan, (1, 2, 4)))) >= 3
 
 
 def test_clicking_any_part_answers_for_its_whole_group(plan):

@@ -33,8 +33,8 @@ from O4_Qt_Terrain_Relief import TerrainRelief
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 
-__all__ = ["PatchEditor", "PACK_OUTLINES_PREF", "SLICE_TITLE", "DUPLICATE_SHAPE_TITLE", "TERRAIN_PREF",
-           "TERRAIN_OPACITY_PREF"]
+__all__ = ["PatchEditor", "PACK_OUTLINES_PREF", "SLICE_TITLE", "DUPLICATE_SHAPE_TITLE",
+           "TERRAIN_PREF", "TERRAIN_OPACITY_PREF"]
 
 #: The prefs key that remembers the "Pack outlines" toggle (on by default).
 PACK_OUTLINES_PREF = "patch_editor_pack_outlines"

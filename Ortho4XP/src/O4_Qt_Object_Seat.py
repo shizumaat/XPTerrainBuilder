@@ -35,10 +35,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-__all__ = ["SET_ELEVATION_TITLE", "KEEP_CURRENT", "vertex_at",
+__all__ = ["SET_ELEVATION_TITLE", "OBJECT_NOTE", "GROUP_NOTE", "KEEP_CURRENT", "vertex_at",
            "has_height", "SeatStep", "ObjectSeatDialog", "ObjectBox", "top_or_bottom_menu"]
 
 SET_ELEVATION_TITLE = "Set object elevation…"
+#: The dialog's note (the Mac's ``PatchObjectElevationSheet.objectNote`` /
+#: ``groupNote``): one object, or a group the build cut into parts (#1970).
+OBJECT_NOTE = ("Only the object moves; the ground stays as built. It is placed there on "
+               "the next rebuild.")
+GROUP_NOTE = ("The whole group moves as one, every part by the same height; the ground "
+              "stays as built. It is placed there on the next rebuild.")
 KEEP_CURRENT = "Keep current"
 #: An object whose top and bottom differ by less has no height to snap to.
 MIN_HEIGHT_M = 0.05
@@ -95,13 +101,13 @@ def top_or_bottom_menu(parent, top: float, bottom: float,
 
 class SeatStep(QUndoCommand):
     """One value the engine stored at once, as an undo step: ``redo``
-    stores ``after``, ``undo`` ``before`` — an object's zero (m MSL; None =
-    the stage's own seat), or a pavement's hand-set role (#1697; None = the
-    classifier's own).  The first ``redo`` (the push) is the write that
-    already happened."""
+    stores ``after``, ``undo`` ``before`` — an object's ``(zero_m,
+    offset_m)`` (#1703, #1970; both None = the stage's own seat), or a
+    pavement's hand-set role (#1697; None = the classifier's own).  The
+    first ``redo`` (the push) is the write that already happened."""
 
-    def __init__(self, name: str, send: _t.Callable[[float | None], None],
-                 before: float | None, after: float | None):
+    def __init__(self, name: str, send: _t.Callable[[_t.Any], None],
+                 before: _t.Any, after: _t.Any):
         super().__init__(name)
         self._send, self._before, self._after = send, before, after
         self._pushed = False
@@ -127,8 +133,7 @@ class ObjectSeatDialog(UnitValue, QDialog):
         v = QVBoxLayout(self)
         name = inspector.selected.label if inspector.selected is not None else "Object"
         v.addWidget(QLabel("<b>%s</b>" % name))
-        note = QLabel("Only the object moves; the ground stays as built. It is placed "
-                      "there on the next rebuild.")
+        note = QLabel(GROUP_NOTE if seat.get("group") else OBJECT_NOTE)
         note.setWordWrap(True)
         v.addWidget(note)
         row = QHBoxLayout()
@@ -147,7 +152,7 @@ class ObjectSeatDialog(UnitValue, QDialog):
         self.apply_button.setDefault(True)
         self.apply_button.clicked.connect(self.apply)
         self.automatic = None
-        if seat.get("user_zero_m") is not None:
+        if seat.get("user_zero_m") is not None or seat.get("user_offset_m") is not None:
             self.automatic = self.buttons.addButton("Automatic", QDialogButtonBox.ResetRole)
             self.automatic.setToolTip("Let the build seat the object again")
             self.automatic.clicked.connect(self.clear)

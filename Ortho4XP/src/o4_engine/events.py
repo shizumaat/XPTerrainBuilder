@@ -216,6 +216,7 @@ CAPABILITIES: tuple = (
     "patch_roles",                  # 2026-11-03, #1697 patch_roles / patch_role_set
     "pack_ground_notice",           # 2026-11-04, #1362 BuildDone warning pack_ground_no_mesh
     "pack_adjust",                  # 2026-11-06, #1916 PackAdjust + pack_adjust
+    "object_seat_groups",           # 2026-11-09, #1970 object_seat group + offset_m
 )
 
 

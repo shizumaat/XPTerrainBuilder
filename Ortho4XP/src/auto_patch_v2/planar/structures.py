@@ -137,6 +137,7 @@ from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
                              object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
 from .entrance_skirt import entrance_skirt, face_front_mouth, is_entrance_face, skirt_refs
+from .mouth_opening import opening_halves
 from .structure_underpass import (underpass_bores as _underpass_bores,
                                   approach_along, bore_roads, mouth_parent, UNDERPASS_TAG,
                                   UNDERPASS_NOTE)
@@ -494,8 +495,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # owner 2026-11-04 (ENTC): a ROOFED portal's ramp is as wide as its
         # opening, edge to edge along the axis (no pavement trace)
         opening = 0.0 if pin is None else float(getattr(pin, "opening_m", 0.0) or 0.0)
+        # #1917: and it stands on the opening's EDGES, wherever the road runs in it
+        span = opening_halves(axis_ln, getattr(pin, "opening_xy", ()) or ()) \
+            if opening > 0.0 and deck is None else None
         if opening > 0.0:
-            half = 0.5 * opening
+            half = max(span) if span else 0.5 * opening
         if deck is not None:
             axis_ln, moved = deck_mouth(axis_ln, inward, deck)
             mouth = tuple(axis_ln.coords[0])
@@ -509,7 +513,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # RULINGS 2026-11-06c (3): an ENTRANCE face's ramp ends at its front
             axis_ln, moved = (edge_wall_mouth(axis_ln, inward, pin.edge_walls, half)
                               if edge is not None else
-                              face_front_mouth(axis_ln, inward, pin.face_plan, half)
+                              face_front_mouth(axis_ln, inward, pin.face_plan, span or half)
                               if is_entrance_face(pin) else
                               portal_mouth(axis_ln, inward, pin.anchor_xy,
                                            pin.plan_xy if pin.hanging else ()))
@@ -939,7 +943,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 # stops the ramp, the walls still cut it (08-26)
                 host = {ref for ref in host
                         if ref not in pad_refs or _pad_relief_m(airport, pad_poly[ref]) <= band_m}
-        half_fn = None if opening > 0.0 else g.half_fn
+        half_fn = (lambda _s, _span=span: _span) if span else \
+            None if opening > 0.0 else g.half_fn
         traced: list[str] = []
         # §34 (12) (3) / #971: a MAPPED bore's ramp stops short of airside and
         # of the pavement over it (``structure_mouth``); a pack-stated corridor

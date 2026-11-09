@@ -90,6 +90,12 @@ class Portal:
     #: its size be set by the tunnel mouth object?") — the ramp's width at
     #: the mouth; ``0.0`` for any other pin
     opening_m: float = 0.0
+    #: #1917: the opening's two EDGE points across the bore at the end
+    #: (frame metres, :attr:`opening_m` apart) -- WHERE the ramp stands, not
+    #: only how wide: the mapped road need not run down the opening's middle
+    #: (MEASURED LOWS west mouth: the carriageways' midline 1.5 m off it, the
+    #: cut wall over 1.5 m of the opening).  Empty with no opening.
+    opening_xy: tuple = ()
     #: #1747 (Q-A 2026-11-05): an ENTRANCE object's face bottom under its
     #: zero at this end (``trench_objects.mouth_portals``) — the object stage
     #: seats that face with its bottom on :attr:`floor_z`
@@ -134,14 +140,24 @@ def across_bore(pts, end_xy: XY, into: XY) -> list[float]:
     return [(float(x) - end_xy[0]) * nx + (float(y) - end_xy[1]) * ny for x, y in pts]
 
 
-def _opening_width(roof, end_xy: XY, into: "XY | None") -> float:
+def opening_span(lo: float, hi: float, end_xy: XY, into: "XY | None") -> tuple[float, tuple]:
+    """``(width, (edge, edge))`` of an opening spanning ``lo``..``hi``
+    across the bore (:func:`across_bore`) from its end, the edges in frame
+    metres; ``(0.0, ())`` for no span."""
+    if into is None or not hi > lo:
+        return 0.0, ()
+    nx, ny = -into[1], into[0]
+    return float(hi - lo), tuple((end_xy[0] + q * nx, end_xy[1] + q * ny) for q in (lo, hi))
+
+
+def _roof_opening(roof, end_xy: XY, into: "XY | None") -> tuple[float, tuple]:
     """A roofed portal's OPENING: the extent of its placed roof plan across
-    the bore's direction ``into`` (``0.0`` without one)."""
+    the bore's direction ``into`` (:func:`opening_span`)."""
     if roof is None or roof.is_empty or into is None:
-        return 0.0
+        return 0.0, ()
     s = across_bore([c for g in getattr(roof, "geoms", [roof]) for c in g.exterior.coords],
                     end_xy, into)
-    return float(max(s) - min(s)) if s else 0.0
+    return opening_span(min(s), max(s), end_xy, into) if s else (0.0, ())
 
 
 def roof_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
@@ -365,12 +381,13 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                 continue
         for j in near:
             xy, wid = ends[j]
+            width, edges = _roof_opening(roof, xy, into.get((xy, wid)))
             # a tall portal's floor is the ground ON ITS ROOF less its roof
             # top: the ground at the cap stands inside the surveyed cut
             out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,
                               (float(o.xy[0]), float(o.xy[1])),
                               floor_z=(cover[j] - depth) if j in cover else None,
-                              opening_m=_opening_width(roof, xy, into.get((xy, wid)))))
+                              opening_m=width, opening_xy=edges))
     out.sort(key=lambda p: (p.end_xy, p.object_id))
     return out, refused
 

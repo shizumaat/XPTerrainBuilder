@@ -32,6 +32,21 @@ owner's terms (visibility bars: pavement 0.05 m, ground 0.5 m):
   nothing over it), COVERED (a deck or roof over a floor) or a CONVEX BODY,
   read from the OBJ geometry alone (#1914).
 
+The OBJ is read AS DRAWN: every ``ANIM`` block is evaluated at rest
+(``airport/obj8_rest``: each dataref 0.0 unless ``--dataref NAME=V``), so
+a moving part (a SAM jetway's tunnel, cab and wheels, authored in its
+block's frame, #1984) is measured where the sim shows it.
+
+Per OBJECT (a row, or one stem's split bodies) the CLASS BARS close the
+report, one line each (``drawn_site_bars``; ``--tol`` 0.3 m for a seam,
+the ground bar 0.5 m for a base): CLEARANCE -- the least height of any
+still vertex over what is drawn under it (FLOAT); BASE -- a cut
+structure's footed seat vs the mesh under it (FLOAT / BURY); DECK END --
+a deck's open edges, top vs the drawn pavement beyond; MOUTH (with
+``--mouth``: the floor opening nearest each site) -- its floor vs the
+drawn ramp just outside, and the ramp's width vs the opening; EDGE --
+every other open edge's step, listed.  ``--summary`` prints only those.
+
 It writes nothing outside a temp directory (and ``--cache``): the pack DSF
 is dumped to temp text, the tile DSF streamed through a FIFO.  It derives
 no law; a point off every tile triangle reads missing, never zero.
@@ -41,7 +56,13 @@ Usage::
     venv/bin/python tools/drawn_site.py \\
         --pack "<Custom Scenery>/<airport pack>" [--pack ...] \\
         --site NAME=LAT,LON[,RADIUS_M] [--site ...] [--object SUBSTR] \\
-        [--custom-scenery DIR] [--tile-dsf PATH] [--cache DIR] [--json OUT]
+        [--row TILE:N] [--tile-dir DIR] [--custom-scenery DIR] \\
+        [--tile-dsf PATH] [--dataref NAME=V] [--mouth] [--summary] \\
+        [--cache DIR] [--json OUT]
+
+``--pack`` and ``--tile-dir`` take ANY folder (the owner's install, a
+lane's ``Tiles/zOrtho4XP_*`` product); ``--row TILE:N`` is the ``objN``
+the report prints for a written row.
 """
 from __future__ import annotations
 
@@ -94,6 +115,24 @@ PRINT_RUN_M = 3.0
 RIM_BAND_M = 1.0
 #: a long component's bottom is also read in stretches this long
 STRETCH_M = 50.0
+#: the plan over a cut this deep (under the drawn ground just outside),
+#: standing this high over it, spans the cut (a roof, a deck): no seat
+SPAN_CUT_M = 2.0
+#: a MOUTH is read on the outline of the component's FLOOR: the plan whose
+#: lowest surface stands in this lower share of its lowest-surface-to-rim span
+MOUTH_FLOOR_SHARE = 0.5
+#: ... where a vehicle drives out: no geometry of the component crosses
+#: these heights over the floor within OUTSIDE_M beyond the floor's edge
+MOUTH_RAY_HEIGHTS_M = (0.5, 1.8)
+#: ... and the plan beyond is open or only overhead (this far over the floor)
+MOUTH_CLEAR_M = 2.0
+#: open floor edge this close along the outline is one opening (columns)
+MOUTH_BRIDGE_M = 1.5
+#: a component lower than this has no headroom: it has no mouth
+MOUTH_MIN_RELIEF_M = 2.5
+#: the lowest vertices over the mesh that are also read against the other
+#: placements' surfaces under them (the clearance)
+CLEARANCE_PROBES = 400
 
 
 # ── inputs ───────────────────────────────────────────────────────────────
@@ -119,9 +158,17 @@ def tile_of(lat: float, lon: float) -> str:
     return f"{int(math.floor(lat)):+03d}{int(math.floor(lon)):+04d}"
 
 
-def tile_dsf(custom_scenery: str, tile: str) -> str | None:
-    """The base-mesh DSF X-Plane draws for ``tile`` (``O4_Mesh_Order``:
-    the first non-overlay DSF in the load order)."""
+def tile_dsf(custom_scenery: str, tile: str, tile_dirs=()) -> str | None:
+    """The base-mesh DSF X-Plane draws for ``tile``: the first
+    ``<dir>/Earth nav data/*/<tile>.dsf`` of ``tile_dirs`` (any folder: a
+    lane's tile product), else the load order's (``O4_Mesh_Order``: the
+    first non-overlay DSF)."""
+    for d in tile_dirs:
+        got = sorted(glob.glob(os.path.join(d, "Earth nav data", "*", f"{tile}.dsf")))
+        if got:
+            return got[0]
+    if tile_dirs and not custom_scenery:
+        return None
     import O4_Mesh_Order
     return O4_Mesh_Order.drawn_mesh_dsf(custom_scenery, int(tile[:3]), int(tile[3:]))
 
@@ -156,13 +203,13 @@ class DrawnMesh:
     south, east, north)``, one sampler per tile."""
 
     def __init__(self, box, custom_scenery: str, tool: str,
-                 override: str | None = None, cache: str | None = None):
+                 override: str | None = None, cache: str | None = None, tile_dirs=()):
         from auto_patch.mesh_sampler import MeshElevationSampler
         self.samplers: dict = {}
         self.sources: dict[str, str] = {}
         w, s, e, n = box
         for tile in sorted({tile_of(la, lo) for la in (s, n) for lo in (w, e)}):
-            path = override or tile_dsf(custom_scenery, tile)
+            path = override or tile_dsf(custom_scenery, tile, tile_dirs)
             if not path or not os.path.isfile(path):
                 self.sources[tile] = "NO tile DSF installed: points there read missing"
                 continue
@@ -222,12 +269,15 @@ class Frame:
 
 
 class Resources:
-    """Parsed OBJ8 per resolved file (``airport/obj8``): ``(path, geometry,
+    """Parsed OBJ8 per resolved file (``airport/obj8``), AT REST (its
+    ``ANIM`` blocks evaluated, ``airport/obj8_rest``): ``(path, geometry,
     solid components, horizontal reach)`` or ``None``."""
 
-    def __init__(self, xplane_root: str, mod_cache_root: str):
+    def __init__(self, xplane_root: str, mod_cache_root: str,
+                 datarefs: dict[str, float] | None = None):
         from auto_patch_v2.airport import obj8
         self._obj8 = obj8
+        self.datarefs = dict(datarefs or {})
         self.index = obj8.read_library_index(obj8.library_index_path(mod_cache_root, xplane_root))
         self._memo: dict = {}
 
@@ -242,7 +292,7 @@ class Resources:
             return None
         if phys not in self._memo:
             try:
-                g = self._obj8.parse_obj8(phys)
+                g = self._obj8.parse_obj8(phys, at_rest=self.datarefs)
             except (OSError, ValueError):
                 g = None
             if g is None or not g.solid.shape[0]:
@@ -289,6 +339,9 @@ def plan_triangles(V: np.ndarray, tris: np.ndarray) -> np.ndarray:
 from auto_patch_v2.geom import shape_class as _shape  # noqa: E402
 from auto_patch_v2.geom.shape_class import Raster  # noqa: E402,F401
 
+# the class bars judge the readings (``drawn_site_bars``)
+from drawn_site_bars import SEAM_TOL_M, object_bars, print_bars  # noqa: E402
+
 
 def in_square(p: np.ndarray, clip_m: float) -> np.ndarray:
     """Which triangles ``(m, 3, 3)`` reach the site's square (the clip
@@ -303,13 +356,13 @@ def rasterise(p: np.ndarray, max_cells: int = 160000) -> Raster | None:
     return _shape.rasterise(p, max_cells)
 
 
-def boundary_cells(r: Raster) -> tuple[np.ndarray, np.ndarray]:
-    """Covered cells with an uncovered 4-neighbour, and per cell the unit
-    outward direction ``(east, north)``: away from the covered cells within
-    :data:`NORMAL_M` (a staircase outline of a slanted edge still faces one
-    way)."""
+def boundary_cells(r: Raster, cov: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Covered cells (``cov``, default every cell with a surface) with an
+    uncovered 4-neighbour, and per cell the unit outward direction
+    ``(east, north)``: away from the covered cells within :data:`NORMAL_M`
+    (a staircase outline of a slanted edge still faces one way)."""
     from scipy.ndimage import correlate
-    cov = ~np.isnan(r.top)
+    cov = ~np.isnan(r.top) if cov is None else cov
     pad = np.pad(cov, 1, constant_values=False)
     edge = cov & (~pad[1:-1, 2:] | ~pad[1:-1, :-2] | ~pad[2:, 1:-1] | ~pad[:-2, 1:-1])
     k = max(2, int(round(NORMAL_M / r.step)))
@@ -332,9 +385,10 @@ def sides_of(d: np.ndarray, axis: np.ndarray) -> np.ndarray:
     return np.argmax(d @ dirs.T, axis=1)
 
 
-def runs_of(ij: np.ndarray, side: np.ndarray) -> list[np.ndarray]:
-    """8-connected groups of outline cells facing the same side (indices
-    into ``ij``): a rectangle's outline is four runs, not one ring."""
+def runs_of(ij: np.ndarray, side: np.ndarray, reach: int = 1) -> list[np.ndarray]:
+    """8-connected groups (``reach`` cells apart at most) of outline cells
+    facing the same side (indices into ``ij``): a rectangle's outline is
+    four runs, not one ring."""
     if not len(ij):
         return []
     from scipy.sparse import coo_matrix
@@ -342,8 +396,8 @@ def runs_of(ij: np.ndarray, side: np.ndarray) -> list[np.ndarray]:
     key = {(int(a), int(b)): k for k, (a, b) in enumerate(ij)}
     rows, cols = [], []
     for k, (a, b) in enumerate(ij):
-        for da in (-1, 0, 1):
-            for db in (-1, 0, 1):
+        for da in range(-reach, reach + 1):
+            for db in range(-reach, reach + 1):
                 j = key.get((int(a) + da, int(b) + db))
                 if j is not None and j != k and side[j] == side[k]:
                     rows.append(k)
@@ -425,14 +479,17 @@ def measure(V: np.ndarray, comp, frame: Frame, mesh: DrawnMesh, others,
         sel = open_idx[g]
         if len(sel) * r.step < 2.0:            # a corner cell, not a run
             continue
-        runs.append(edge_run(sel, be, bn, bdir, btop, blow, outside, from_obj, r.step,
-                             frame, mesh))
+        runs.append(edge_run(sel, be, bn, btop, blow, outside, from_obj, r.step, frame))
     rec["open_runs"] = sorted(runs, key=lambda q: -q["length_m"])
+    rec["mouths"] = floor_mouths(V, tris, r, frame, mesh, clip_m)
     rec["stretches"] = stretches(ce[near][~stacked], cn[near][~stacked],
                                  (low - mz)[~stacked], frame)
     rec["walled_outline_pct"] = round(100.0 * float(walled.mean()), 1) if len(walled) else 0.0
     rec["outline_sides"] = outline_sides(foot - in_mesh, sides_of(bdir, axis), bdir, be, bn, frame)
     rec["mesh_under_minus_rim"] = stats(mz - rim_ground)
+    # a part standing over a CUT is a roof or a deck over the road in it
+    span = (mz < rim_ground - SPAN_CUT_M) & (low - mz > SPAN_CUT_M)
+    rec["seat_minus_mesh"] = stats((low - mz)[~stacked & ~span])
     rec["shape"] = shape_witness(whole, edge_points(V, comp.tris, max(0.5, whole.step / 2)),
                                  rim_ground, float(np.ptp(V[tv, 2])))
     return rec
@@ -505,9 +562,10 @@ def drawn_outside(out_mesh, out_obj):
     return np.where(from_obj, out_obj, out_mesh), from_obj
 
 
-def edge_run(sel, be, bn, bdir, btop, blow, outside, from_obj, step, frame, mesh) -> dict:
-    """One open run of the outline: where it is, its levels, the steps to
-    the drawn surface outside, and -- for a mouth -- the ramp in front."""
+def edge_run(sel, be, bn, btop, blow, outside, from_obj, step, frame) -> dict:
+    """One open run of the outline: where it is, its levels and the steps
+    to the drawn surface outside (mouths are read on the FLOOR's outline,
+    :func:`floor_mouths`)."""
     length = run_length(be[sel], bn[sel], step)
     roofed = float(np.nanmedian(btop[sel] - blow[sel])) > STACKED_M
     run = {"cells": int(len(sel)), "length_m": round(length, 1),
@@ -518,10 +576,109 @@ def edge_run(sel, be, bn, bdir, btop, blow, outside, from_obj, step, frame, mesh
            "top_step": stats(btop[sel] - outside[sel]),
            "floor_step": stats(blow[sel] - outside[sel]), "roofed": roofed}
     run["joins"], run["step_m"] = joins(run)
-    if roofed or run["joins"] == "floor":
-        run["mouth"] = mouth(be[sel], bn[sel], bdir[sel], float(np.nanmedian(blow[sel])),
-                             length, frame, mesh)
     return run
+
+
+def floor_mouths(V: np.ndarray, tris: np.ndarray, r: Raster, frame: Frame, mesh,
+                 clip_m: float | None = None) -> list[dict]:
+    """The MOUTHS of one component: runs of its FLOOR's outline
+    (:func:`drivable_floor`) where a vehicle drives out -- a horizontal
+    ray :data:`OUTSIDE_M` outward at each of :data:`MOUTH_RAY_HEIGHTS_M`
+    over the floor crosses none of the component's triangles (a wall
+    blocks it) and the plan beyond holds no floor under
+    :data:`MOUTH_CLEAR_M` (a rising floor inside the object is not a
+    mouth).  A lintel or a portal roof over the opening is no wall.  Per
+    run: the floor, the drawn mesh :data:`OUTSIDE_M` beyond it (the seam a
+    driver crosses) and the ramp in front (:func:`mouth`)."""
+    tv = np.unique(tris.reshape(-1))
+    if not len(tv) or np.ptp(V[tv, 2]) < MOUTH_MIN_RELIEF_M:
+        return []                   # no headroom: a plate, a car, a kerb
+    floor = drivable_floor(r)
+    if not floor.any():
+        return []
+    ij, d = boundary_cells(r, floor)
+    if not len(ij):
+        return []
+    e, n = r.centres(ij)
+    fz = r.low[ij[:, 0], ij[:, 1]]
+    ok = np.ones(len(ij), dtype=bool) if clip_m is None else np.hypot(e, n) <= clip_m
+    beyond = np.floor((np.column_stack([e, n]) + d * OUTSIDE_M - [r.e0, r.n0]) / r.step).astype(int)
+    inside = ((beyond[:, 0] >= 0) & (beyond[:, 0] < r.low.shape[1])
+              & (beyond[:, 1] >= 0) & (beyond[:, 1] < r.low.shape[0]))
+    low_beyond = np.full(len(ij), np.nan)
+    low_beyond[inside] = r.low[beyond[inside, 1], beyond[inside, 0]]
+    ok &= ~(low_beyond <= fz + MOUTH_CLEAR_M)
+    ok &= ~rays_blocked(V[tris], e, n, d, fz, r.step / 2)
+    out = []
+    idx = np.flatnonzero(ok)
+    if not len(idx):
+        return out
+    # one opening is one run of open floor edge, however it faces (a
+    # diagonal mouth's staircase outline alternates sides) and across the
+    # columns of an arcade (gaps up to MOUTH_BRIDGE_M)
+    bridge = max(1, int(math.ceil(MOUTH_BRIDGE_M / r.step)))
+    for g in runs_of(ij[idx], np.zeros(len(idx), dtype=int), bridge):
+        sel = idx[g]
+        if len(sel) * r.step < 2.0:
+            continue
+        length = run_length(e[sel], n[sel], r.step)
+        if length < 2.0:
+            continue
+        floor_z = float(np.median(fz[sel]))
+        oe, on = e[sel] + d[sel, 0] * OUTSIDE_M, n[sel] + d[sel, 1] * OUTSIDE_M
+        step = fz[sel] - mesh.z(*frame.leave(oe, on))
+        rec = mouth(e[sel], n[sel], d[sel], floor_z, length, frame, mesh)
+        rec.update({"at": [round(float(x), 6) for x in frame.leave(e[sel].mean(), n[sel].mean())],
+                    "floor_step": stats(step)})
+        out.append(rec)
+    return sorted(out, key=lambda q: -q["opening_m"])
+
+
+def drivable_floor(r: Raster) -> np.ndarray:
+    """The component's FLOOR: the covered cells whose lowest surface
+    stands in the lower :data:`MOUTH_FLOOR_SHARE` of the span from its
+    lowest plan surface to its rim (the 90th percentile of its top).  A
+    floor sloping inside the object stays floor; a wall cap, a parapet or
+    a grade-level plate over a deep opening does not."""
+    cov = ~np.isnan(r.low)
+    if not cov.any():
+        return cov
+    lo, rim = float(np.nanmin(r.low)), float(np.nanpercentile(r.top, 90))
+    return cov & (r.low <= lo + MOUTH_FLOOR_SHARE * max(rim - lo, 0.0))
+
+
+def rays_blocked(P: np.ndarray, e, n, d, fz, start: float) -> np.ndarray:
+    """Per floor-edge cell, whether a horizontal ray from ``start`` to
+    :data:`OUTSIDE_M` outward along ``d``, at any of
+    :data:`MOUTH_RAY_HEIGHTS_M` over the floor ``fz``, crosses one of the
+    triangles ``P`` ``(m, 3, 3)`` (Moller-Trumbore)."""
+    out = np.zeros(len(e), dtype=bool)
+    lo, hi = P.min(1), P.max(1)
+    a, e1, e2 = P[:, 0], P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]
+    for k in range(len(e)):
+        dirn = np.array([d[k, 0], d[k, 1], 0.0])
+        o0 = np.array([e[k], n[k], 0.0]) + dirn * start
+        o1 = o0 + dirn * (OUTSIDE_M - start)
+        m = ((lo[:, 0] <= max(o0[0], o1[0])) & (hi[:, 0] >= min(o0[0], o1[0]))
+             & (lo[:, 1] <= max(o0[1], o1[1])) & (hi[:, 1] >= min(o0[1], o1[1])))
+        if not m.any():
+            continue
+        h = np.cross(dirn, e2[m])
+        det = np.einsum("ij,ij->i", e1[m], h)
+        good = np.abs(det) > 1e-12
+        inv = np.where(good, 1.0 / np.where(good, det, 1.0), 0.0)
+        for zh in MOUTH_RAY_HEIGHTS_M:
+            o = o0 + [0.0, 0.0, fz[k] + zh]
+            s_ = o - a[m]
+            u = np.einsum("ij,ij->i", s_, h) * inv
+            q = np.cross(s_, e1[m])
+            v = (q @ dirn) * inv
+            t = np.einsum("ij,ij->i", e2[m], q) * inv
+            hit = good & (u >= 0) & (v >= 0) & (u + v <= 1) & (t >= 0) & (t <= OUTSIDE_M - start)
+            if hit.any():
+                out[k] = True
+                break
+    return out
 
 
 def principal_axis(e: np.ndarray, n: np.ndarray) -> np.ndarray:
@@ -612,53 +769,69 @@ def shape_witness(r: Raster, P: np.ndarray, rim_ground: float, relief: float) ->
 
 
 class OtherSurfaces:
-    """The HARD plan surfaces (``ATTR_hard`` / ``ATTR_hard_deck``: what a
-    wheel stands on) of every component placed at a site, so the surface
-    drawn outside an edge can be another object's rather than the mesh."""
+    """The plan surfaces of every component placed at a site -- the HARD
+    ones (``ATTR_hard`` / ``ATTR_hard_deck``: what a wheel stands on) by
+    default, every solid one with ``hard_only=False`` -- so the surface
+    drawn outside an edge, or under an object, can be another object's
+    rather than the mesh."""
 
-    def __init__(self, placed):
+    def __init__(self, placed, hard_only: bool = True):
         self.parts = []
         for pl in placed:
             g = pl["g"]
             for ci, comp in enumerate(pl["comps"]):
                 if comp.animated or comp.idx is None:
                     continue
-                hard = g.hardness[comp.idx] > 0
+                hard = g.hardness[comp.idx] > 0 if hard_only else np.ones(len(comp.tris), bool)
                 if hard.any():
                     t = plan_triangles(pl["V"], comp.tris[hard])
                     if t.shape[0]:
                         self.parts.append(((pl["key"], ci), t))
 
     def excluding(self, key, ci):
-        parts = [t for k, t in self.parts if k != (key, ci)]
-        tris = np.concatenate(parts) if parts else np.zeros((0, 3, 3))
-        mn = tris[:, :, :2].min(1) if tris.shape[0] else None
-        mx = tris[:, :, :2].max(1) if tris.shape[0] else None
+        """Per point ``(e, n)``, the highest surface of the components
+        other than ``(key, ci)``; ``nan`` where none covers the point."""
+        return _Surfaces([t for k, t in self.parts if k != (key, ci)]).highest
 
-        def at(e, n):
-            """Per point, the highest other-object hard surface; ``nan``
-            where none covers the point."""
-            out = np.full(len(e), np.nan)
-            if mn is None:
-                return out
-            for k in range(len(e)):
-                m = ((mn[:, 0] <= e[k]) & (mx[:, 0] >= e[k])
-                     & (mn[:, 1] <= n[k]) & (mx[:, 1] >= n[k]))
-                if not m.any():
-                    continue
-                t = tris[m]
-                x1, y1, z1 = t[:, 0].T
-                x2, y2, z2 = t[:, 1].T
-                x3, y3, z3 = t[:, 2].T
-                d = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
-                w1 = ((y2 - y3) * (e[k] - x3) + (x3 - x2) * (n[k] - y3)) / d
-                w2 = ((y3 - y1) * (e[k] - x3) + (x1 - x3) * (n[k] - y3)) / d
-                w3 = 1 - w1 - w2
-                ins = (w1 >= -1e-6) & (w2 >= -1e-6) & (w3 >= -1e-6)
-                if ins.any():
-                    out[k] = float((w1 * z1 + w2 * z2 + w3 * z3)[ins].max())
-            return out
-        return at
+    def support(self, key):
+        """Per point ``(e, n, z)``, the highest surface of the OTHER
+        placements standing no higher than ``z`` (what that point rests
+        on); ``nan`` where none."""
+        return _Surfaces([t for k, t in self.parts if k[0] != key]).highest
+
+
+class _Surfaces:
+    """Plan triangles ``(m, 3, 3)`` read as surfaces at points."""
+
+    def __init__(self, parts):
+        self.tris = np.concatenate(parts) if parts else np.zeros((0, 3, 3))
+        self.mn = self.tris[:, :, :2].min(1)
+        self.mx = self.tris[:, :, :2].max(1)
+
+    def highest(self, e, n, below=None):
+        """Per point, the highest surface (no higher than ``below`` +
+        :data:`PAVEMENT_BAR_M` where given); ``nan`` where none."""
+        out = np.full(len(e), np.nan)
+        for k in range(len(e) if self.tris.shape[0] else 0):
+            m = ((self.mn[:, 0] <= e[k]) & (self.mx[:, 0] >= e[k])
+                 & (self.mn[:, 1] <= n[k]) & (self.mx[:, 1] >= n[k]))
+            if not m.any():
+                continue
+            t = self.tris[m]
+            x1, y1, z1 = t[:, 0].T
+            x2, y2, z2 = t[:, 1].T
+            x3, y3, z3 = t[:, 2].T
+            d = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
+            w1 = ((y2 - y3) * (e[k] - x3) + (x3 - x2) * (n[k] - y3)) / d
+            w2 = ((y3 - y1) * (e[k] - x3) + (x1 - x3) * (n[k] - y3)) / d
+            w3 = 1 - w1 - w2
+            z = w1 * z1 + w2 * z2 + w3 * z3
+            ins = (w1 >= -1e-6) & (w2 >= -1e-6) & (w3 >= -1e-6)
+            if below is not None:
+                ins &= z <= below[k] + PAVEMENT_BAR_M
+            if ins.any():
+                out[k] = float(z[ins].max())
+        return out
 
 
 # ── the run ──────────────────────────────────────────────────────────────
@@ -674,14 +847,26 @@ def unresolved_near(rows, s: Site, frame: Frame, res: Resources) -> list[str]:
     return out
 
 
-def select(rows, sites, objects, frames, res: Resources, search_m: float) -> list[dict]:
-    """Placements whose solids reach a site (its radius), or whose
-    resource path contains one of ``objects``."""
+def parse_row(text: str) -> tuple[str, int]:
+    """``TILE:N`` (``N`` as in the report's ``objN``) -> ``(tile, N)``."""
+    tile, _, n = text.rpartition(":")
+    try:
+        return tile, int(n.lstrip("obj"))
+    except ValueError:
+        raise SystemExit(f"--row {text!r}: want TILE:N, e.g. +47+012:123") from None
+
+
+def select(rows, sites, objects, frames, res: Resources, search_m: float,
+           row_ids=frozenset()) -> list[dict]:
+    """Placements whose solids reach a site (its radius), whose resource
+    path contains one of ``objects``, or whose ``(tile, row)`` is one of
+    ``row_ids``."""
     picked = []
     for row, p, root, tile in rows:
         hit = [s for s in sites if abs(p.lat - s.lat) * K_LAT < search_m
                and abs(p.lon - s.lon) * frames[s].kx < search_m]
-        named = any(o.lower() in p.def_path.lower() for o in objects)
+        named = (any(o.lower() in p.def_path.lower() for o in objects)
+                 or (tile, row) in row_ids)
         if not hit and not named:
             continue
         got = res.get(p.def_path, root)
@@ -716,12 +901,11 @@ def measure_site(s: Site, items: list[dict], mesh: DrawnMesh) -> dict:
         placed.append(dict(q, V=placed_vertices(q["g"], float(e0), float(n0), p.heading_deg, base),
                            base=base, g0=g0))
     others = OtherSurfaces(placed)
+    solids = OtherSurfaces(placed, hard_only=False)
     comps_out = []
     for pl in placed:
         V, p = pl["V"], pl["p"]
         for ci, comp in enumerate(pl["comps"]):
-            if comp.animated:
-                continue
             tv = np.unique(comp.tris.reshape(-1))
             lo, hi = V[tv, :2].min(0), V[tv, :2].max(0)
             if not pl["named"] and (lo.max() > s.radius_m or hi.min() < -s.radius_m):
@@ -737,16 +921,54 @@ def measure_site(s: Site, items: list[dict], mesh: DrawnMesh) -> dict:
                         "anchor_dist_m": round(float(math.hypot(*fr.enter(p.lat, p.lon))), 1),
                         "heading": p.heading_deg, "base_z": rnd(pl["base"]),
                         "mesh_at_anchor": rnd(pl["g0"]), "deck": bool(comp.deck),
+                        "moving": bool(comp.animated),
                         "dist_m": round(float(np.hypot(*np.clip(0.0, lo, hi))), 1)})
             comps_out.append(rec)
     return {"name": s.name, "lat": s.lat, "lon": s.lon, "radius_m": s.radius_m,
-            "mesh_z": rnd(mesh.z([s.lat], [s.lon])[0]), "components": comps_out}
+            "mesh_z": rnd(mesh.z([s.lat], [s.lon])[0]), "components": comps_out,
+            "placements": [lowest_gap(pl, fr, mesh, solids.support(pl["key"]),
+                                      None if pl["named"] else s.radius_m) for pl in placed]}
+
+
+def lowest_gap(pl: dict, frame: Frame, mesh, support, clip_m: float | None) -> dict:
+    """The placement's CLEARANCE: the least height of any of its STILL
+    solid vertices (every part, however small: a column, a foot; a moving
+    part only when every part moves -- #1984) over the drawn mesh under
+    it -- ``+`` nothing of it reaches the ground (it floats), ``-`` its
+    lowest part is under the ground -- or over another placement's surface
+    under it (``support``: an interior on its terminal's floor stands on
+    that floor).  With ``clip_m`` only the vertices within that of the
+    site."""
+    V = pl["V"]
+    still = [c for c in pl["comps"] if not c.animated]
+    parts = still or pl["comps"]
+    used = np.unique(np.concatenate([c.tris.reshape(-1) for c in parts])) \
+        if parts else np.zeros(0, dtype=int)
+    if clip_m is not None and len(used):
+        used = used[np.hypot(V[used, 0], V[used, 1]) <= clip_m]
+    rec = {"pack": os.path.basename(pl["root"].rstrip("/")), "tile": pl["tile"],
+           "row": pl["row"], "clearance_m": None, "at": None, "lowest_z": None,
+           "of": "still parts" if still else "every part (all move)"}
+    if not len(used):
+        return rec
+    gap = V[used, 2] - mesh.z(*frame.leave(V[used, 0], V[used, 1]))
+    if not np.isfinite(gap).any():
+        return rec
+    low = used[np.argsort(np.where(np.isfinite(gap), gap, np.inf))[:CLEARANCE_PROBES]]
+    z = V[low, 2]
+    under = np.fmax(z - gap[np.searchsorted(used, low)], support(V[low, 0], V[low, 1], below=z))
+    k = int(np.nanargmin(z - under))
+    rec["clearance_m"] = rnd(z[k] - under[k])
+    rec["on_object"] = bool(under[k] > z[k] - gap[np.searchsorted(used, low)][k] + 1e-6)
+    rec["lowest_z"] = rnd(V[used, 2].min())
+    rec["at"] = [round(float(x), 7) for x in frame.leave(V[low[k], 0], V[low[k], 1])]
+    return rec
 
 
 def run(args) -> dict:
     sites = [parse_site(s, args.radius) for s in args.site]
-    if not sites and not args.object:
-        raise SystemExit("drawn_site: give at least one --site or --object")
+    if not sites and not args.object and not args.row:
+        raise SystemExit("drawn_site: give at least one --site, --object or --row")
     tool = dsftool()
     work = tempfile.mkdtemp(prefix="drawn_site_")
     try:
@@ -757,8 +979,10 @@ def run(args) -> dict:
 
 def _run(args, sites, tool: str, work: str) -> dict:
     """:func:`run` with its temp folder for the pack dumps."""
-    res = Resources(os.path.dirname(args.custom_scenery.rstrip("/")), args.mod_cache)
-    tiles = set(args.tiles)
+    res = Resources(os.path.dirname(args.custom_scenery.rstrip("/")), args.mod_cache,
+                    parse_datarefs(args.dataref))
+    row_ids = {parse_row(r) for r in args.row}
+    tiles = set(args.tiles) | {t for t, _n in row_ids}
     for s in sites:
         for dla in (-0.03, 0.0, 0.03):
             for dlo in (-0.04, 0.0, 0.04):
@@ -767,11 +991,13 @@ def _run(args, sites, tool: str, work: str) -> dict:
     for pack in args.pack:
         rows += pack_rows(pack, tiles, work, tool)
     frames = {s: Frame(s.lat, s.lon) for s in sites}
-    picked = select(rows, sites, args.object, frames, res, args.search_m)
+    picked = select(rows, sites, args.object, frames, res, args.search_m, row_ids)
     if not picked:
         raise SystemExit("drawn_site: no placed solid reaches any site")
-    mesh = DrawnMesh(mesh_box(sites, picked), args.custom_scenery, tool, args.tile_dsf, args.cache)
-    report = {"mesh": mesh.sources, "packs": args.pack, "sites": []}
+    mesh = DrawnMesh(mesh_box(sites, picked), args.custom_scenery, tool, args.tile_dsf,
+                     args.cache, args.tile_dir)
+    report = {"mesh": mesh.sources, "packs": args.pack, "tol_m": args.tol,
+              "datarefs_at_rest": res.datarefs, "sites": []}
     for s in sites:
         rec = measure_site(s, [q for q in picked if s in q["sites"]], mesh)
         rec["unresolved"] = unresolved_near(rows, s, frames[s], res)
@@ -779,9 +1005,27 @@ def _run(args, sites, tool: str, work: str) -> dict:
     named = [dict(q, named=True) for q in picked if q["named"]]
     if named:
         p0 = named[0]["p"]
-        report["sites"].append(measure_site(Site("objects: " + ", ".join(args.object),
-                                                 p0.lat, p0.lon, 0.0), named, mesh))
+        label = ", ".join(list(args.object) + list(args.row))
+        report["sites"].append(measure_site(Site("objects: " + label, p0.lat, p0.lon, 0.0),
+                                            named, mesh))
+    for s in report["sites"]:
+        s["objects"] = object_bars(s["components"], args.tol, GROUND_BAR_M, PRINT_RUN_M,
+                                   s.get("placements", []),
+                                   (s["lat"], s["lon"], s["radius_m"])
+                                   if args.mouth and s["radius_m"] else None)
     return report
+
+
+def parse_datarefs(items) -> dict[str, float]:
+    """``NAME=VALUE`` overrides of the rest value 0.0."""
+    out = {}
+    for it in items:
+        name, _, v = it.partition("=")
+        try:
+            out[name] = float(v)
+        except ValueError:
+            raise SystemExit(f"--dataref {it!r}: want NAME=VALUE") from None
+    return out
 
 
 # ── the report ───────────────────────────────────────────────────────────
@@ -814,12 +1058,13 @@ def verdict_lines(rec: dict) -> list[str]:
                 f"top {run['top_z']} floor {run['floor_z']} outside {run['outside_z']}"
                 f"{' (object)' if run['outside_is_object_pct'] > 50 else ''}"
                 f" -> {run['joins']} step {st:+.2f} {tag}")
-        m = run.get("mouth")
-        if m and m["floor_minus_ramp_3m"] is not None:
-            line += (f" | mouth floor {m['mouth_floor_z']} - ramp(3 m) {m['ramp_z_3m']} = "
-                     f"{m['floor_minus_ramp_3m']:+.2f}; opening {m['opening_m']} m, "
-                     f"ramp width {m['ramp_width_m']} m")
         out.append(line)
+    for m in rec.get("mouths", [])[:4]:
+        fs = m["floor_step"]
+        out.append(f"    mouth {m['opening_m']} m @{m['at'][0]:.6f},{m['at'][1]:.6f}: floor "
+                   f"{m['mouth_floor_z']} - drawn {OUTSIDE_M:g} m out p50 {fs.get('p50')}"
+                   f" (- ramp 3 m out {m['floor_minus_ramp_3m']}); opening {m['opening_m']} m,"
+                   f" ramp width {m['ramp_width_m']} m")
     for sd in rec.get("outline_sides", []):
         f = sd["foot_minus_mesh"]
         out.append(f"    outline facing {sd['faces_deg']:3.0f} deg"
@@ -875,6 +1120,19 @@ def main(argv=None) -> int:
     ap.add_argument("--mod-cache", default=None,
                     help="Airport_mod_cache holding the library index (default: the cfg's)")
     ap.add_argument("--tile-dsf", default=None, help="read the drawn mesh from this DSF instead")
+    ap.add_argument("--tile-dir", action="append", default=[],
+                    help="a tile folder (zOrtho4XP_*, any location) to read the drawn mesh from"
+                         " before the load order; repeatable")
+    ap.add_argument("--row", action="append", default=[],
+                    help="TILE:N -- the written row the report prints as objN")
+    ap.add_argument("--dataref", action="append", default=[],
+                    help="NAME=VALUE: an ANIM dataref's rest value (default 0.0)")
+    ap.add_argument("--tol", type=float, default=SEAM_TOL_M,
+                    help="seam bar of the class bars, m (deck end, mouth floor, edge)")
+    ap.add_argument("--mouth", action="store_true",
+                    help="each --site names a MOUTH: judge the floor opening nearest it")
+    ap.add_argument("--summary", action="store_true",
+                    help="print only the one-screen class bars")
     ap.add_argument("--cache", default=None, help="keep the box's tile triangles here (.npy)")
     ap.add_argument("--top", type=int, default=40, help="components printed per site")
     ap.add_argument("--json", default=None, help="write the full report here")
@@ -887,7 +1145,9 @@ def main(argv=None) -> int:
             or os.path.expanduser("~/X-Plane 12/Custom Scenery")
         args.mod_cache = args.mod_cache or FNAMES.airport_mod_cache_root()
     rep = run(args)
-    print_report(rep, args.top)
+    if not args.summary:
+        print_report(rep, args.top)
+    print_bars(rep, GROUND_BAR_M)
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:
             json.dump(rep, fh, indent=1)

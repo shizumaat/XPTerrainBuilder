@@ -144,13 +144,21 @@ def _plan_bearing(vertices: np.ndarray, tri: np.ndarray) -> np.ndarray:
     return 0.5 * np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]) > PLAN_EDGE_ON_M2
 
 
-def parse_obj8(path: str) -> ObjGeometry:
+def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeometry:
     """Parse ``VT`` / ``IDX`` / ``IDX10`` / ``TRIS`` and the draped and
     hardness attributes.  The vertex and index tables are parsed by
     numpy in C; only the ORDER-dependent lines (``TRIS`` and the
     attributes that set the state a ``TRIS`` inherits) are walked in
     Python.  Malformed lines are skipped; a triangle range past the index
-    table is truncated."""
+    table is truncated.
+
+    ``at_rest`` (``True``, or a ``{dataref: value}`` map) returns the
+    DRAWN shape instead of the authored one: every ``ANIM`` block is
+    evaluated at rest (``obj8_rest``) -- its ranges moved into place, a
+    range hidden at rest dropped -- and moved ranges get their own vertex
+    copies; ``animated`` then marks the triangles under a DATAREF-DRIVEN
+    command only (a constant offset block, such as the one ``obj8_split``
+    wraps a split body in, is no motion)."""
     with open(path, "rb") as fh:
         data = fh.read()
     # keyword lines may be INDENTED (XPlane2Blender writes ``\tTRIS\t0 30``
@@ -166,6 +174,11 @@ def parse_obj8(path: str) -> ObjGeometry:
     draped = False
     hard = 0
     anim = 0                       # ANIM_begin nesting depth
+    stack = None
+    if at_rest is not False:
+        from .obj8_rest import AnimStack
+        stack = AnimStack(at_rest if isinstance(at_rest, dict) else None)
+    poses: list = []
     for ln in lines:
         c = ln[:1]
         if c != b"T" and c != b"A":
@@ -176,13 +189,22 @@ def parse_obj8(path: str) -> ObjGeometry:
         kw = toks[0]
         if kw == b"TRIS" and len(toks) >= 3:
             try:
-                ranges.append((int(toks[1]), int(toks[2]), draped, hard, anim > 0))
+                ranges.append((int(toks[1]), int(toks[2]), draped, hard,
+                               anim > 0 if stack is None else stack.moving))
             except ValueError:
                 continue
+            if stack is not None:
+                poses.append(stack.pose())
         elif kw == b"ANIM_begin":
             anim += 1
+            if stack is not None:
+                stack.feed(toks)
         elif kw == b"ANIM_end":
             anim = max(0, anim - 1)
+            if stack is not None:
+                stack.feed(toks)
+        elif stack is not None and kw.startswith(b"ANIM_"):
+            stack.feed(toks)
         elif kw == b"ATTR_draped":
             draped = True
         elif kw == b"ATTR_no_draped":
@@ -199,13 +221,18 @@ def parse_obj8(path: str) -> ObjGeometry:
     hard_parts: list[np.ndarray] = []
     anim_parts: list[np.ndarray] = []
     draped_parts: list[np.ndarray] = []
-    for off, cnt, is_draped, h, is_anim in ranges:
+    moved: list[np.ndarray] = []
+    for k, (off, cnt, is_draped, h, is_anim) in enumerate(ranges):
         lo, hi = max(0, off), min(off + cnt, n)
         hi -= (hi - lo) % 3
         if hi <= lo:
             continue
         tri = idx[lo:hi].reshape(-1, 3)
         tri = tri[(tri >= 0).all(axis=1) & (tri < nv).all(axis=1)]
+        if poses:
+            tri = _posed(verts, tri, poses[k], moved, nv)
+            if tri is None:
+                continue
         if is_draped:
             draped_parts.append(tri)
         else:
@@ -216,7 +243,25 @@ def parse_obj8(path: str) -> ObjGeometry:
     hardness = np.concatenate(hard_parts) if hard_parts else np.zeros(0, dtype=np.int8)
     animated = np.concatenate(anim_parts) if anim_parts else np.zeros(0, dtype=bool)
     drp = np.concatenate(draped_parts) if draped_parts else np.zeros((0, 3), dtype=np.int64)
+    if moved:
+        verts = np.concatenate([verts] + moved)
     return ObjGeometry(path, verts, solid, hardness, drp, animated)
+
+
+def _posed(verts: np.ndarray, tri: np.ndarray, pose, moved: list, nv: int):
+    """``tri`` at rest (:func:`parse_obj8` ``at_rest``): ``None`` when its
+    range is hidden, as it stands under the identity, else indices into
+    fresh vertex copies appended to ``moved`` (numbered after the ``nv``
+    authored vertices and the copies already made)."""
+    from .obj8_rest import HIDDEN, apply_pose
+    if isinstance(pose, str) and pose == HIDDEN:
+        return None
+    if pose is None or not tri.shape[0]:
+        return tri
+    used, inv = np.unique(tri.reshape(-1), return_inverse=True)
+    base = nv + sum(m.shape[0] for m in moved)
+    moved.append(apply_pose(pose, verts[used]))
+    return (base + inv).reshape(-1, 3)
 
 
 def _floats(rows: list[bytes], width: int) -> np.ndarray:

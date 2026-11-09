@@ -564,11 +564,28 @@ class PolDeclaration(_t.NamedTuple):
     invisible: bool = False
 
 
+def texture_file(pol_path: str, name: str) -> str | None:
+    """The image file X-Plane draws for the texture a ``.pol`` names, or
+    ``None`` when there is none.  Resolved as the sim resolves it (#1957):
+    relative to the ``.pol``, with either separator (LGAV FlyTampa names
+    ``..\\..\\Texture\\transparent.dds``), and a ``.dds`` beside the named
+    file wins over it and stands in for it when the named file is absent
+    (LIME Aerosoft's ``Hard_Surface.pol`` names ``Hard_Surface.png`` and
+    ships only ``Hard_Surface.dds``)."""
+    rel = name.strip().replace("\\", "/")
+    path = os.path.normpath(os.path.join(os.path.dirname(pol_path), rel))
+    stem = os.path.splitext(path)[0]
+    for cand in (stem + ".dds", path):
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
 def texture_invisible(pol_path: str, name: str) -> bool:
-    """Whether the texture a ``.pol`` names (beside the file) is FULLY
+    """Whether the texture a ``.pol`` names (:func:`texture_file`) is FULLY
     TRANSPARENT; ``False`` when it is absent, unreadable or has no alpha."""
-    path = os.path.join(os.path.dirname(pol_path), name)
-    if not os.path.isfile(path):
+    path = texture_file(pol_path, name)
+    if path is None:
         return False
     try:
         from PIL import Image

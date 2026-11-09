@@ -516,6 +516,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _say(f"  [load] {lrep.dsf_gap_sheets} draped .pol page(s) admitted by "
              f"SURFACE as gap sheets ({lrep.dsf_gap_sheet_m2:,.0f} m², "
              f"{_defs} defs) — never a pavement source (§60)", out)
+    if getattr(lrep, "network_pages_line", ""):
+        _say(f"  [load] {lrep.network_pages_line}", out)
     _ps = pack_stage(icao, airport, law, inputs, lrep, out)
     airport, ocache = _ps["airport"], _ps["ocache"]
     pack_objects, pack_report = _ps["objects"], _ps["report"]

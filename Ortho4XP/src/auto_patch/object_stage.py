@@ -959,6 +959,10 @@ def rebake_after_mesh(tile) -> dict:
                 # #1707: ... and whether the user's "Optimise pack" applies
                 from . import optimise_stage as _optimise
                 _optimise.optimise_stage(plan_, tile, writes=writes)
+                # #1978: ... and the vendor defects the health check
+                # repairs (every later write re-applies the repair)
+                from . import health_stage as _health
+                _health.health_stage(plan_, tile, writes=writes)
                 if not plan_.units:
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "
                                  f"({len(plan_.skipped)} resource(s) skipped at plan time)")

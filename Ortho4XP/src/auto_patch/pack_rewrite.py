@@ -58,16 +58,19 @@ def rewrite_dsf(pack_root: str, pack_name: str, dsf: str,
 
 def _others_recorded(entry: _t.Mapping[str, _t.Any], record_key: str) -> bool:
     """Whether a DSF's record holds anything of ours besides its
-    ``record_key`` choice: an airport's seating, an accepted omission, or
-    the other recorded choice."""
+    ``record_key`` choice: an airport's seating, an accepted omission,
+    the other recorded choice, or a health repair."""
     from auto_patch_v2.airport import pack_art as _pa
     from auto_patch_v2.airport import pack_drapes as _pd
     from auto_patch_v2.airport import pack_forests as _pf
+    from auto_patch_v2.airport import pack_health as _ph
     from auto_patch_v2.airport import pack_optimise as _po
     sha = entry.get("backup_sha256") or ""
     if entry.get("airports") or _pa.recorded(entry, sha):
         return True
-    return any(m.recorded(entry, sha) for m in (_pf, _po, _pd)
+    # #1978: a DSF the health check repaired is written again, never put
+    # back to the vendor's defects
+    return any(m.recorded(entry, sha) for m in (_pf, _po, _pd, _ph)
                if m.RECORD_KEY != record_key)
 
 

@@ -119,6 +119,7 @@ import numpy as np
 
 from . import obj8 as _obj8
 from . import obj8_drape as _drape
+from .pack_health import light_records as _lr
 
 __all__ = ["BodyCut", "SplitFile", "SplitResult", "split_obj8",
            "body_resource_name", "offset_tag", "tilt_matrix", "NO_TILT",
@@ -432,7 +433,9 @@ def _read(path: str) -> _Source | None:
     encoding survives untouched."""
     with open(path, "rb") as fh:
         raw = fh.read()
-    lines = raw.decode("latin-1").split("\n")
+    # a malformed light record is never written into a body: completed
+    # or dropped as the pack health check repairs it (#1978)
+    lines = _lr.repair_lines(raw.decode("latin-1").split("\n"))[0]
     header: list[str] = []
     vt: list[str] = []
     vline: list[str] = []

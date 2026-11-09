@@ -1970,6 +1970,7 @@ def _restore_v2_writes(pack_root: str, record_paths: list[str]) -> int:
     remover, so an authored object on a ``__b`` name is never touched."""
     from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import dsf_write as _dw
+    from auto_patch_v2.airport import pack_health as _ph
     from auto_patch_v2.airport import pack_optimise as _po
 
     removed = 0
@@ -1988,6 +1989,9 @@ def _restore_v2_writes(pack_root: str, record_paths: list[str]) -> int:
                 _dw.written_body_files(pack_root, dsf_path)))
             removed += len(_po.remove_generated(
                 pack_root, _po.generated_of(entries[basename])))
+            # #1978: the health check's repaired object copies
+            removed += len(_ph.objects.remove(
+                pack_root, _ph.generated_of(entries[basename])))
             _bs.drop_dsf_entry(dsf_path)
     return removed
 
@@ -2125,6 +2129,7 @@ def modified_packs(scenery_dir: str, tile: str | None = None,
             objects = (sum(len(r) for r in by_tile.values())
                        + sum(v2_by_tile.values()))
         from auto_patch_v2.airport import pack_forests as _pf
+        from auto_patch_v2.airport import pack_health as _ph
         from auto_patch_v2.airport import pack_optimise as _po
         forests = _recorded_by_tile(pack_root, _pf.RECORD_KEY,
                                     lambda r: len(r.get("renames") or ()))
@@ -2133,6 +2138,8 @@ def modified_packs(scenery_dir: str, tile: str | None = None,
         optimised = _recorded_by_tile(
             pack_root, _po.RECORD_KEY,
             lambda r: max(1, int((r.get("dedupe") or {}).get("dropped", 0))))
+        # #1978: the vendor defects the health check repaired
+        repaired = _recorded_by_tile(pack_root, _ph.RECORD_KEY, _ph.count)
         results.append({
             "pack_name": name,
             "pack_path": pack_root,
@@ -2147,5 +2154,9 @@ def modified_packs(scenery_dir: str, tile: str | None = None,
             # (the pack row's Undo optimise), this tile's or the pack's
             "optimised": (optimised.get(tile, 0) if tile is not None
                           else sum(optimised.values())),
+            # #1978: vendor defects the pack health check repaired (the
+            # pack row's tooltip), this tile's or the pack's
+            "repaired": (repaired.get(tile, 0) if tile is not None
+                         else sum(repaired.values())),
         })
     return results

@@ -1400,6 +1400,9 @@ final class BuildModel: ObservableObject {
         /// Duplicate placements "Optimise pack" drops (#1707); 0 when the
         /// pack is not optimised or the engine predates protocol 1.31.
         var optimisedCount: Int = 0
+        /// Vendor defects the pack health check repaired (#1978); 0 from
+        /// an engine without the check.
+        var repairedCount: Int = 0
     }
 
     /// Packs whose objects the auto-patch reseater modified for `coord`,
@@ -1428,7 +1431,8 @@ final class BuildModel: ObservableObject {
                         packName: name, packPath: path,
                         objectCount: entry["objects"]?.intValue ?? 0,
                         forestCount: entry["forests"]?.intValue ?? 0,
-                        optimisedCount: entry["optimised"]?.intValue ?? 0)
+                        optimisedCount: entry["optimised"]?.intValue ?? 0,
+                        repairedCount: entry["repaired"]?.intValue ?? 0)
                 })
             }
         }

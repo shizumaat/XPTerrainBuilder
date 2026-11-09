@@ -52,6 +52,7 @@ import typing as _t
 
 import numpy as np
 
+from ..pack_health import light_records as _lr
 from ..pack_trees import name_words
 from . import shape as _sh
 from .swap_map import CLASSES
@@ -256,7 +257,8 @@ def lights_text(phys: str) -> str | None:
     if s is None or not s.lights:
         return None
     rows = ["I", "800", "OBJ", "", *s.header,
-            "POINT_COUNTS 0 0 0 0", "", *s.lights, ""]
+            "POINT_COUNTS 0 0 0 0", "",
+            *_lr.repair_lines(list(s.lights))[0], ""]   # #1978
     return "\n".join(rows)
 
 

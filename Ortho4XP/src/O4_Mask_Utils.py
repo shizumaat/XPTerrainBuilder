@@ -1128,9 +1128,11 @@ def _build_inland_shore_mask(pre_mask, sea_level, feather_pixels,
     Same compositor as near the coast (:func:`compose_water_mask`): land
     opaque, inland water feathered from the shore down to the grey and
     floored there.  There is no sea, so no blur fade: the pre-mask itself
-    stands in for it (pixels off every mesh stay 0, as before).  A square
-    with no inland water, or with no shore in reach (all lake, every
-    pixel at the grey), keeps the constant blend: no mask is written.
+    stands in for it.  Pixels off every mesh (beyond the tile when no
+    neighbour mesh exists) are LAND, as with no mask at all — never the
+    0 that would read as open water.  A square with no inland water, or
+    with no shore in reach (all lake, every pixel at the grey), keeps the
+    constant blend: no mask is written.
     """
     if feather_pixels <= 0:
         return None
@@ -1142,6 +1144,7 @@ def _build_inland_shore_mask(pre_mask, sea_level, feather_pixels,
         pre_mask, pre_mask, sea_level, feather_pixels, crop_margin)
     if not (composed[inland[crop, crop]] > int(sea_level)).any():
         return None
+    composed[pre_mask[crop, crop] == 0] = 255
     return composed
 
 

@@ -143,6 +143,13 @@ class TestInlandShoreMask:
         centre = mask.shape[0] // 2
         assert mask[centre, centre] == GREY
 
+    def test_off_mesh_pixels_read_as_land(self):
+        (pre_mask, lake, margin) = _lake()
+        pre_mask[:, -30:] = 0                     # beyond the tile
+        mask = MASK._build_inland_shore_mask(
+            pre_mask, GREY, feather_pixels=6, crop_margin=margin)
+        assert mask.min() == GREY                 # no open-water 0
+
     def test_square_with_no_water_builds_nothing(self):
         pre_mask = numpy.full((96, 96), 255, dtype=numpy.uint8)
         assert MASK._build_inland_shore_mask(

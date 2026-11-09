@@ -1547,6 +1547,11 @@ class WallPiece(_t.NamedTuple):
     #: (``WallSides.lower_face`` / ``foot_profile``, #1662)
     lower_face: _t.Any = None
     foot_profile: tuple | None = None
+    #: the band beside the LOWER face (``WallSides.lower``) and what
+    #: witnessed the low side's ground (``WallComponent.low_side_source``,
+    #: #1952): a lot touching that band of a ``"sheets"`` wall takes its foot
+    lower_band: _t.Any = None
+    low_side: str = ""
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1579,7 +1584,9 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
                                      getattr(side, "upper_face", None),
                                      getattr(side, "top_profile", None),
                                      getattr(side, "lower_face", None),
-                                     getattr(side, "foot_profile", None)))
+                                     getattr(side, "foot_profile", None),
+                                     getattr(side, "lower", None),
+                                     str(getattr(c, "low_side_source", "") or "")))
     return tuple(out)
 
 
@@ -1780,8 +1787,16 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         # (sw1018 capture) — lot ``dsf:objpav394`` is one 264-vertex page
         # over 8 m of relief (95.6-104.0 m), and coupling all of it to
         # ``building15`` (99.04 m) left it at 96.3-103.6 m, flat nowhere
+        # #1952 (R5): a lot at the foot of a wall whose low side the pack's
+        # sheets name is flat at that foot, never at a building's level
+        # (its vertices stay LOWER: the rows across the wall are released)
+        foot_lots = lots_at_foot(pm, w, {i: lot_f[i] for i in lots})
+        lots = [i for i in lots if i not in foot_lots]
+        at_foot = {v for i in foot_lots for v in _face_vertices(pm, i)}
         pairs: list[tuple[int, int]] = []
         for lv in lower:
+            if lv in at_foot:
+                continue
             p = Point(pm.vertices[lv].xy)
             cand = ([pad_ids[int(j)] for j in ptree.query(p, predicate="dwithin",
                                                           distance=2.0 * reach)]
@@ -1803,7 +1818,43 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   "foot_profile": (None if getattr(w, "foot_profile", None) is None
                                    else [tuple(t) for t in w.foot_profile]),
                   "upper": upper, "lower": lower,
-                  "lots": lots, "pairs": pairs}
+                  "lots": lots, "pairs": pairs,
+                  "foot_lots": {v: z for i, z in sorted(foot_lots.items())
+                                for v in _face_vertices(pm, i)}}
+    return out
+
+
+def _face_vertices(pm: PlanarMap, fid: int) -> list[int]:
+    """A face's ring and hole vertices."""
+    f = pm.faces[fid]
+    return list(dict.fromkeys([*pm.ring_vertices(f.ring),
+                               *(v for h in getattr(f, "holes", ()) or ()
+                                 for v in pm.ring_vertices(h))]))
+
+
+def lots_at_foot(pm: PlanarMap, wall: WallPiece, lots: _t.Mapping[int, _t.Any]
+                 ) -> dict[int, float]:
+    """#1952 (R5; owner RULINGS 2026-11-09a (5)/(14)): THE LOT AT THE FOOT
+    IS FLAT AT THE FOOT — ``{lot face: level}`` for every lot page of
+    ``lots`` (``{face id: polygon}``) overlapping the LOWER band of a wall
+    whose low side the pack's sheets name (``WallPiece.low_side ==
+    "sheets"``): the wall's foot (``foot_profile``) at the station of the
+    lot's nearest point on the lower face, one level across the page.
+    Empty for any other wall (a DEM-witnessed wall's lot keeps its
+    building's level, 10-03c)."""
+    band, face = getattr(wall, "lower_band", None), getattr(wall, "lower_face", None)
+    st = [t for t in (getattr(wall, "foot_profile", None) or ()) if t[1] is not None]
+    if wall.low_side != "sheets" or band is None or band.is_empty or face is None or not st:
+        return {}
+    import numpy as np
+    from shapely.ops import nearest_points
+    a = np.asarray(st, float)
+    out = {}
+    for fid, g in lots.items():
+        if g.intersection(band).area <= 0.0:
+            continue
+        q = nearest_points(g, face)[1]
+        out[int(fid)] = float(np.interp(face.project(q), a[:, 0], a[:, 1]))
     return out
 
 

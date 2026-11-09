@@ -181,3 +181,37 @@ def test_a_chord_from_the_wall_line_crosses_it():
     assert d.allowance(0.02, 50.0, 5.0, 50.0) == pytest.approx(10.66)   # on the line
     assert d.allowance(-2.0, 50.0, 3.0, 50.0) == pytest.approx(10.66)   # across
     assert d.allowance(0.8, 50.0, 5.0, 50.0) == 0.0                      # beside it
+
+
+def _sheet_comp(paved_east: bool):
+    """#1952 R3: a wall whose low side the pack's sheets name, on a DEM
+    with NO step (the lidar predates it): its side witness found the apron
+    beside one face."""
+    faces = WS._wall_faces(WALL)
+    east = 0 if min(x for x, _y in faces[0].coords) > 62.5 else 1
+    return types.SimpleNamespace(retains=True, retained_m=3.81, height_m=11.24,
+                                 pieces=(WALL,), top_y=-0.93, resource="sheets.obj",
+                                 low_side_source="sheets",
+                                 paved_face=(east if paved_east else 1 - east,))
+
+
+class _FlatDem:
+    def z_many(self, xs, ys):
+        return np.full(len(np.asarray(xs)), 300.0)
+
+
+@pytest.mark.parametrize("paved_east", [True, False])
+def test_a_sheet_walls_upper_face_is_its_paved_face_not_the_dem(paved_east):
+    from auto_patch_v2.airport.wall_class import retaining_sides
+    ap = types.SimpleNamespace(dem=_FlatDem(), partition=object())
+    cfg = types.SimpleNamespace(retaining_wall_clear_step_m=2.0)
+    comp = _sheet_comp(paved_east)
+    (w,) = WS.wall_sides(ap, cfg, [comp])
+    assert w.smear == pytest.approx(3.81) and w.height_m == pytest.approx(3.81)
+    assert (w.upper.centroid.x > 65.0) is paved_east
+    assert (w.lower.centroid.x < 60.0) is paved_east
+    # classify's reading of the same wall (``wall_clip``) is the same bands
+    up, lo, ring = retaining_sides(ap, comp, cfg, 2.0)
+    assert ring == pytest.approx(3.81)
+    assert up.symmetric_difference(w.upper).area < 1e-6
+    assert lo.symmetric_difference(w.lower).area < 1e-6

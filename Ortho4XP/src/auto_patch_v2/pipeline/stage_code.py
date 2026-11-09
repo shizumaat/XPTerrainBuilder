@@ -238,7 +238,9 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.user_roles",
+        "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_sheets",
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_plate",
         "auto_patch_v2.classify",
@@ -431,6 +433,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.user_roles",
         "auto_patch_v2.airport.visible_cut",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_sheets",
         "auto_patch_v2.airport.wall_corridor_probe",
         "auto_patch_v2.airport.wall_corridors",
         "auto_patch_v2.airport.wall_family",
@@ -669,7 +672,9 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_stations",
+        "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_sheets",
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.core_clamp",
@@ -719,7 +724,9 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_ramp",
         "auto_patch_v2.airport.road_stations",
+        "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_sheets",
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.constraints",
         "auto_patch_v2.constraints.apron",
@@ -895,7 +902,9 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.user_roles",
+        "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_sheets",
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_plate",
         "auto_patch_v2.classify",
@@ -1547,7 +1556,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.pool airport.rebake_plan airport.riders airport.ring_contact_batch
     airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
-    airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
+    airport.topology_cache airport.sunken_ramp airport.wall_class airport.wall_sheets classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
@@ -1718,7 +1727,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.trench_objects
-    airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
+    airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class airport.wall_sheets
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
@@ -1849,7 +1858,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.trench_objects
-    airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
+    airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class airport.wall_sheets
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
@@ -1983,7 +1992,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.road_stations
     airport.road_ways airport.scatter airport.sheet_chain airport.skirt airport.slab_faces
     airport.ring_contact_batch
-    airport.slab_plates airport.topology_cache airport.wall_class classify
+    airport.slab_plates airport.topology_cache airport.sunken_ramp airport.wall_class airport.wall_sheets classify
     classify.airside_edge classify.evidence classify.facade_mint classify.gap_apron
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
@@ -2070,7 +2079,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.pool airport.rebake_plan airport.riders
     airport.ring_contact_batch airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
-    airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
+    airport.topology_cache airport.sunken_ramp airport.wall_class airport.wall_sheets classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads

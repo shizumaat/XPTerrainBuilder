@@ -240,3 +240,22 @@ def test_a_station_that_retains_nothing_holds_no_foot():
                              (face.length, None)))
     assert WZ.face_foot([line], (65.0, -60.0)) == 289.5
     assert WZ.face_foot([line], (65.0, 60.0)) is None
+
+
+def test_a_footed_walls_foot_is_its_retained_faces_bottom(monkeypatch):
+    """#1952 R4: a wall retaining 3.81 m of its 15 m solid (its top y 0,
+    its footing to y -15 under the low side's ground) has its foot 3.81 m
+    under its top, never at the footing."""
+    from auto_patch_v2.airport import sunken_ramp
+    monkeypatch.setattr(sunken_ramp, "_member_tris", lambda *a, **k: _east_tris())
+    comp = types.SimpleNamespace(seat_z=300.0, member=object(), origin=(0.0, 0.0),
+                                 height_m=15.0, retained_m=3.81, top_y=0.0,
+                                 retained_top_y=None)
+    a = np.asarray(WT.foot_profile(comp, WALL, _lower_face(), None), float)
+    assert np.allclose(a[:, 1], 296.19)
+    # a depth wall (#1139: retains the 15 m under its zero) keeps its bottom
+    deep = types.SimpleNamespace(seat_z=300.0, member=object(), origin=(0.0, 0.0),
+                                 height_m=21.0, retained_m=15.0, top_y=6.0,
+                                 retained_top_y=0.0)
+    a = np.asarray(WT.foot_profile(deep, WALL, _lower_face(), None), float)
+    assert np.allclose(a[:, 1], 285.0)

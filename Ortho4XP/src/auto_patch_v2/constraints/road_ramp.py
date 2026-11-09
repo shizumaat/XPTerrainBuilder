@@ -207,6 +207,27 @@ def wall_terrace_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                                       (f"vertex:{lv}", str(rec.get("label", "")))),
                                follows=(int(lv),)))
     rows.extend(_wall_step_rows(planar, walls))
+    rows.extend(_foot_lot_rows(walls))
+    return rows
+
+
+def _foot_lot_rows(walls: _t.Mapping[int, _t.Mapping]) -> list[Row]:
+    """#1952 (R5): a lot at the foot of a wall whose low side the pack's
+    sheets name is flat AT THAT FOOT — one ``Band`` per lot vertex at the
+    level ``airport/road_ramp.lots_at_foot`` read (``foot_lots``), the
+    foot row's own ruling (10-03c: the ground is flattened out to the
+    bottom of the wall)."""
+    rows: list[Row] = []
+    seen: set[int] = set()
+    for k in sorted(walls):
+        rec = walls[k]
+        for v, z in sorted((rec.get("foot_lots") or {}).items()):
+            if int(v) in seen:
+                continue
+            seen.add(int(v))
+            rows.append(Band(int(v), float(z), float(z),
+                             Source("wall_terrace", WALL_FOOT_RULING,
+                                    (f"vertex:{v}", str(rec.get("label", ""))))))
     return rows
 
 

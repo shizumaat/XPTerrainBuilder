@@ -77,3 +77,93 @@ def test_the_top_is_capped_only_where_the_retained_face_stops_under_it():
     # a footing under the low side's ground leaves the top the top
     footed = types.SimpleNamespace(top_y=-0.2, retained_top_y=None)
     assert wall_top._retaining_cap(footed) == math.inf
+
+
+# --- round 3: the wall the pack built from sheets (#1952 R1/R2) -------------
+
+class _FlatDem:
+    """The lidar predates the wall: 300 m on both sides, no step."""
+
+    def z_many(self, xs, ys):
+        return np.full(len(np.asarray(xs)), 300.0)
+
+
+def _ring(g):
+    """A frame-xy box as the partition's ``(lat, lon)`` ring (the frame
+    below maps ``(lon, lat)`` straight to ``(x, y)``)."""
+    return [(y, x) for x, y in list(g.exterior.coords)[:-1]]
+
+
+def _part(g, base_y, height, comp=0, line=False):
+    return types.SimpleNamespace(rings=[_ring(g)], line=line, height_m=height,
+                                 base_y=base_y, comp=comp, feet=(1,))
+
+
+def _member(mid, resource, *parts):
+    return types.SimpleNamespace(id=mid, resource=resource, parts=list(parts),
+                                 origin=(0.0, 0.0), zero_y=0.0)
+
+
+#: KMCI's border wall in miniature: a deep skirt (one part, y -13.98 ..
+#: -2.74), a second skirt beside it (``stoneblock``), and the face sheet
+#: whose bottom edge (y -4.74) is the low side's ground as authored
+SKIRT = box(0.0, 0.0, 200.0, 1.15)
+
+
+def _sheet_airport(skirt_parts=1, paved=True, stone=True):
+    from auto_patch_v2.model.airport import Pavement, Surface
+    skirt = [_part(SKIRT, -13.98, 11.24)]
+    # a building's facade: its second part a storey standing on its zero
+    skirt += [_part(box(0.0, 0.2, 200.0, 0.4), 0.0, 3.0, comp=1)][:skirt_parts - 1]
+    stoneblock = _member("dsf:obj2", "Border/stoneblock.obj",
+                         _part(box(0.0, 0.9, 200.0, 1.1), -14.06, 11.07))
+    unit = types.SimpleNamespace(id="unit:1", agl_m=0.0, anchor=(0.0, 0.0), members=[
+        _member("dsf:obj1", "Border/Trimsheet-16.obj", *skirt),
+        *([stoneblock] if stone else []),
+        _member("dsf:obj3", "Border/Trimsheet-17.obj",
+                _part(box(0.0, 1.0, 200.0, 1.2), -4.74, 3.37, line=True))])
+    apron = Pavement("pav3", Surface.CONCRETE,
+                     tuple(box(0.0, -60.0, 200.0, 0.0).exterior.coords)[:-1], ())
+    return types.SimpleNamespace(
+        partition=types.SimpleNamespace(units=[unit]),
+        frame=types.SimpleNamespace(entry=lambda: (lambda lon, lat: (lon, lat))),
+        dem=_FlatDem(), pavements=(apron,) if paved else ())
+
+
+def _sheet_walls(monkeypatch, **kw):
+    from auto_patch_v2.classify.rules import load_rules
+    monkeypatch.setattr(wall_class, "obj_top_y", lambda *_a, **_k: -0.93)
+    return wall_class.wall_class_components(_sheet_airport(**kw), load_rules().service)
+
+
+def test_a_composite_wall_retains_its_top_over_its_face_sheets_bottom(monkeypatch):
+    got = [c for c in _sheet_walls(monkeypatch) if c.retains]
+    assert len(got) == 1, got                       # ONE wall: the skirt carries it
+    (w,) = got
+    assert w.resource == "Border/Trimsheet-16.obj" and w.low_side_source == "sheets"
+    assert math.isclose(w.retained_m, 3.81, abs_tol=1e-6)
+    assert w.top_y == -0.93 and len(w.sheets) == 3
+    # the side witness: the apron (y < 0) is beside the upper face
+    from auto_patch_v2.airport.wall_sides import _wall_faces
+    up = _wall_faces(SKIRT)[w.paved_face[0]]
+    assert max(y for _x, y in up.coords) < 0.5
+    # the second skirt is a sheet of the composite, never a wall of its own
+    assert not [c for c in _sheet_walls(monkeypatch) if "stoneblock" in c.resource]
+
+
+def test_a_multi_part_facade_is_not_a_sheet_wall(monkeypatch):
+    assert not [c for c in _sheet_walls(monkeypatch, skirt_parts=2, stone=False)
+                if c.retains]
+
+
+def test_a_wall_with_no_airside_beside_it_is_not_a_sheet_wall(monkeypatch):
+    assert not [c for c in _sheet_walls(monkeypatch, paved=False) if c.retains]
+
+
+def test_the_low_side_is_the_median_face_bottom_never_the_footing():
+    from auto_patch_v2.airport.wall_sheets import SheetPart, low_side_y
+    s = [SheetPart(("a", 0), None, -13.98, 825.0), SheetPart(("b", 0), None, -14.06, 828.0),
+         SheetPart(("c", 0), None, -4.74, 777.0), SheetPart(("d", 0), None, -6.88, 120.0),
+         SheetPart(("e", 1), None, -13.2, 50.0)]   # within the footing's metre
+    assert low_side_y(s) == -4.74
+    assert low_side_y(s[:2]) is None                # only footing: no low side read

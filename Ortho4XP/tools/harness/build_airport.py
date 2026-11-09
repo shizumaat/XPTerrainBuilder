@@ -352,6 +352,11 @@ OWNER_APP_CFG = _owner_app_cfg(DATA_REPO)
 MAIN_ENGINE_TREE = Path(os.environ.get(
     "O4_MAIN_REPO", "/Users/noah/XPTerrainBuilder")) / "Ortho4XP"
 
+#: The LANE's engine cfg (cloned from the main tree by the ritual).  An
+#: X-Plane path it names differently from :data:`OWNER_APP_CFG` is the
+#: lane's redirect and wins (#1906, :func:`apply_xplane_install_paths`).
+LANE_CFG = ROOT / "XPTerrainBuilder.cfg"
+
 #: The X-Plane INSTALL paths a whole-tile build needs.
 XPLANE_PATH_KEYS = ("cifp_data_path", "custom_scenery_dir",
                     "custom_overlay_src")
@@ -1517,14 +1522,23 @@ def xplane_install_roots() -> tuple:
     return (root,) if root else ()
 
 
+def owner_install_roots() -> tuple:
+    """The OWNER'S X-Plane install — from the owner's app config, never the
+    lane cfg (#1906).  The write guard refuses it under every scope and
+    ``--refresh-data pack_rebake`` is refused when a pack it would write
+    lies there; ``xplane_install_roots`` is the install the BUILD uses."""
+    return PCA.owner_install_roots(read_cfg(OWNER_APP_CFG))
+
+
 def _owner_xplane_root() -> str:
-    """The install the harness builds against — the cfg's own answer,
-    through the same read ``planar.__main__.default_inputs`` uses."""
-    import O4_Config_Utils                                    # noqa: F401
-    from auto_patch_v2.planar.__main__ import _cfg_value
-    custom = _cfg_value("custom_scenery_dir")
-    return (os.path.dirname(custom.rstrip("/")) if custom
-            else os.path.expanduser("~/X-Plane 12"))
+    """The install the harness builds against: the path
+    :func:`apply_xplane_install_paths` applies (the lane cfg's redirect,
+    else the owner's), so the guard defends the install the object stage
+    actually writes (#1906)."""
+    applied, _ = PCA.effective_install_paths(
+        read_cfg(OWNER_APP_CFG), read_cfg(LANE_CFG), ("custom_scenery_dir",))
+    return (PCA.install_root(applied.get("custom_scenery_dir"))
+            or os.path.expanduser("~/X-Plane 12"))
 
 
 def _stamped_cache_schema(path) -> str:
@@ -3244,9 +3258,16 @@ def require_dem_prep_succeeded(provenance, *, allow_degraded: bool = False,
     print("  [harness] DEGRADED BUILD (accepted by flag): " + msg)
 
 
-def apply_xplane_install_paths(owner_cfg=OWNER_APP_CFG) -> dict:
+def apply_xplane_install_paths(owner_cfg=None, lane_cfg=None) -> dict:
     """Copy the X-Plane install paths out of the owner's app config into the
     live ``O4_Config_Utils`` globals — the ONLY thing taken from it.
+
+    A path the LANE cfg names differently is the lane's redirect and WINS
+    (#1906): overwriting a redirected ``custom_scenery_dir`` with the
+    owner's is how a lane's object stage rewrote three real packs on
+    2026-11-05.  The default call reads :data:`OWNER_APP_CFG` and the lane
+    cfg :data:`LANE_CFG`; an explicit ``owner_cfg`` is read alone unless a
+    ``lane_cfg`` is named too.
 
     Why mandatory for a tile build: ``run_auto_patch_generation`` calls the
     generator only when it can resolve a CIFP directory (from
@@ -3257,11 +3278,16 @@ def apply_xplane_install_paths(owner_cfg=OWNER_APP_CFG) -> dict:
     """
     import O4_Config_Utils as CFG
     import O4_Settings_Model as SETTINGS
-    applied = {}
-    for key, value in read_cfg(owner_cfg).items():
-        if key in XPLANE_PATH_KEYS and value:
-            CFG.set_global_variables(key, CFG.config_compatibility(value))
-            applied[key] = value
+    if owner_cfg is None:
+        owner_cfg, lane_cfg = OWNER_APP_CFG, lane_cfg or LANE_CFG
+    applied, redirects = PCA.effective_install_paths(
+        read_cfg(owner_cfg), read_cfg(lane_cfg) if lane_cfg else {},
+        XPLANE_PATH_KEYS)
+    for key, value in applied.items():
+        CFG.set_global_variables(key, CFG.config_compatibility(value))
+    for key, value in redirects.items():
+        print(f"  [harness] lane cfg REDIRECTS {key}={value} (kept; the "
+              f"owner's install path is not applied over it, #1906)")
     # THE SAME PREDICATE the engine itself refuses on
     # (``O4_Vector_Map.run_auto_patch_generation``) — imported, never a
     # second spelling: the harness refusing on a condition the engine
@@ -3274,7 +3300,7 @@ def apply_xplane_install_paths(owner_cfg=OWNER_APP_CFG) -> dict:
     return applied
 
 
-def apply_xplane_install_paths_for_preflight(owner_cfg=OWNER_APP_CFG) -> dict:
+def apply_xplane_install_paths_for_preflight(owner_cfg=None) -> dict:
     """The pre-flight's NON-FATAL form of :func:`apply_xplane_install_paths`.
 
     An airport build needs the owner's install paths only so the inset
@@ -3283,7 +3309,7 @@ def apply_xplane_install_paths_for_preflight(owner_cfg=OWNER_APP_CFG) -> dict:
     (``build_tile`` still raises through the fatal form), not an airport
     pre-flight's.  Returns the applied keys, ``{}`` when nothing applied.
     """
-    if not Path(owner_cfg).is_file():
+    if not Path(owner_cfg or OWNER_APP_CFG).is_file():
         return {}
     try:
         return apply_xplane_install_paths(owner_cfg)
@@ -4153,7 +4179,8 @@ def arm_shared_repo_protection(root, out_dir, tag, prog=None,
         tiles=tiles, lane_root=root)
     guard = (write_guard if write_guard is not None
              else SharedRepoWriteGuard(set(), root,
-                                       install_roots=xplane_install_roots()))
+                                       install_roots=xplane_install_roots(),
+                                       owner_roots=owner_install_roots()))
     return guard, redirects
 
 
@@ -5087,8 +5114,8 @@ def main(argv=None) -> int:
         raise SystemExit("REFUSING: --pack-copy with --refresh-data "
                          "pack_rebake — the copy IS the write target.")
     if args.pack_copy:
-        args.pack_copy = PCA.require_pack_copy_dir(args.pack_copy,
-                                                   xplane_install_roots())
+        args.pack_copy = PCA.require_pack_copy_dir(
+            args.pack_copy, xplane_install_roots() + owner_install_roots())
     # ── THE ARTIFACT LEDGER'S REFUSALS (BS2) ─────────────────────────
     # Each combination below would turn a served artifact into a claim it
     # cannot support.  They are refused rather than silently ignored: a
@@ -5430,7 +5457,9 @@ def main(argv=None) -> int:
 
     # #1906: pack_rebake writes the owner's REAL packs -- refused whenever
     # a pack this build would write (a plan's pack_root, or any pack
-    # carrying the tile) lies under the install.  Before any lock is held.
+    # carrying the tile in the install the build uses) lies under the
+    # OWNER'S install, read from the owner's app cfg and never the lane
+    # cfg.  Before any lock is held.
     if "pack_rebake" in requested and lat is not None:
         _inst = xplane_install_roots()
         _roots = list(pack_roots_for_tile(lat, lon, _inst[0]) if _inst else ())
@@ -5439,7 +5468,8 @@ def main(argv=None) -> int:
             _roots += PCA.plan_pack_roots(_FN.patch_dir(lat, lon))
         except Exception:
             pass
-        _why = PCA.pack_rebake_refusal(requested, _roots, _inst)
+        _why = PCA.pack_rebake_refusal(requested, _roots,
+                                       owner_install_roots())
         if _why:
             raise SystemExit(_why)
     # LOCK FIRST, then snapshot: a concurrent lane's authorised refresh
@@ -5460,8 +5490,10 @@ def main(argv=None) -> int:
     # corpus write.  Belt to the guard's braces: the guard refuses the
     # Python writes at the call, this catches whatever a subprocess does
     # without passing through one.
-    pack_roots = (pack_roots_for_tile(lat, lon, xplane_install_roots()[0])
-                  if lat is not None and xplane_install_roots() else ())
+    pack_roots = (tuple(sorted({
+        pk for inst in xplane_install_roots() + owner_install_roots()
+        for pk in pack_roots_for_tile(lat, lon, inst)}))
+        if lat is not None else ())
     before = shared_repo_snapshot()
     before.update(install_snapshot(pack_roots))
     prog.note(f"shared-repo snapshot: {len(before)} file(s) across "
@@ -5483,7 +5515,8 @@ def main(argv=None) -> int:
 
     guard = SharedRepoWriteGuard(requested, root,
                                  enabled=not args.allow_shared_repo_writes,
-                                 install_roots=xplane_install_roots())
+                                 install_roots=xplane_install_roots(),
+                                 owner_roots=owner_install_roots())
     if guard.enabled:
         prog.note(f"shared-repo write GUARD armed: writes outside "
                   f"{sorted(requested) or 'any authorised scope'} are "

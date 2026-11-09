@@ -77,6 +77,9 @@ KEEP = frozenset({
     # ... and its 3D trees offer beside the missing-art check (#1360)
     "auto_patch.adjust_stage",
     "auto_patch.drape_stage",
+    # #1989: the Gateway airports offer (the build's check, the install)
+    "auto_patch.gateway_api",
+    "auto_patch.gateway_stage",
     "auto_patch.forest_stage",
     # ... "Optimise pack" (#1707), and the per-pack answer store and
     # rewrite the two choices share

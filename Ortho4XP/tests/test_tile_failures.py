@@ -345,11 +345,12 @@ def test_report_it_reads_by_who_is_driving(monkeypatch, tmp_path):
 
 
 def test_no_unmeasured_cause_and_the_ruled_remedies():
-    """Master copy rulings: only a real MemoryError names memory; a
+    """Master copy rulings: only a real (or measured) MemoryError names memory; a
     permission cause says to check permissions; the stale pack copy is a
     retry (a stock pack cannot be updated by the user)."""
+    # ...and the memory guard's stop (#1980), which MEASURED the memory
     for code, entry in FAIL.CATALOGUE.items():
-        if code != "out_of_memory":
+        if code not in ("out_of_memory", "airport_memory_ceiling"):
             assert "memory" not in entry.why.lower(), code
     for code in ("airport_worker_died", "worker_died"):
         assert FAIL.CATALOGUE[code].why == "A background process ended early."

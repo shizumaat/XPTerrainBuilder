@@ -353,17 +353,17 @@ def test_viewfinder_url_for_dem1_whitelist_tile(shipped_registry):
 
 
 def test_viewfinder_url_for_dem3_tile(shipped_registry):
-    # (36, -87) -- the KBNA tile -- is NOT on the dem1 whitelist.
-    assert ea_base_tiles.deferranti_archive_code(36, -87) == "J16"
+    # (10, 10) -- zone C32 -- has no 1 arc-second archive (#1974 table).
+    assert ea_base_tiles.deferranti_archive_code(10, 10) == "C32"
     assert not _strategy_for(shipped_registry["VIEWFINDER1"]).covers(
-        shipped_registry["VIEWFINDER1"], 36, -87
+        shipped_registry["VIEWFINDER1"], 10, 10
     )
     definition = shipped_registry["VIEWFINDER3"]
     strategy = _strategy_for(definition)
-    assert strategy.covers(definition, 36, -87)
+    assert strategy.covers(definition, 10, 10)
     assert (
-        strategy.download_url(definition, 36, -87)
-        == "https://viewfinderpanoramas.org/dem3/J16.zip"
+        strategy.download_url(definition, 10, 10)
+        == "https://viewfinderpanoramas.org/dem3/C32.zip"
     )
 
 
@@ -389,8 +389,8 @@ def test_view_alias_resolves_per_tile():
     assert INSETS.resolve_base_definition(46, 7, "View")["code"] == (
         "VIEWFINDER1"
     )
-    # Non-whitelist tile -> the 3 arc-second fallback.
-    assert INSETS.resolve_base_definition(36, -87, "View")["code"] == (
+    # A tile with no 1 arc-second archive -> the 3 arc-second fallback.
+    assert INSETS.resolve_base_definition(10, 10, "View")["code"] == (
         "VIEWFINDER3"
     )
     # Wellington: SK60 IS on the whitelist but the tile is excluded
@@ -701,9 +701,10 @@ def test_sonny_auto_selection_requires_dropped_data(
     tmp_path, monkeypatch, shipped_registry
 ):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    # Nothing dropped: the European tile ranks exactly as before Sonny.
+    # Nothing dropped: the European tile ranks exactly as before Sonny
+    # (zone M32 has a 1 arc-second Viewfinder archive, #1974).
     candidates = INSETS.select_base_definitions_auto(50, 8)
-    assert [c["code"] for c in candidates] == ["VIEWFINDER3"]
+    assert [c["code"] for c in candidates] == ["VIEWFINDER1", "VIEWFINDER3"]
     # Tile dropped: SONNY1 (priority 80) leads the ranking.
     definition = shipped_registry["SONNY1"]
     drop_directory = _strategy_for(definition).drop_directory(definition)
@@ -912,9 +913,10 @@ def test_zero_byte_cache_file_is_not_recycled(tmp_path, monkeypatch):
 # =====================================================================
 def test_manual_setup_entries_per_region(tmp_path, monkeypatch, shipped_registry):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    # Greek tile (in Sonny's coverage, no automatic inset provider):
-    # the drop-folder source applies (base role).
-    entries = INSETS.manual_elevation_setup_for_tile(38, 23)
+    # Central Anatolian tile (in Sonny's coverage, no automatic inset
+    # provider, no 1 arc-second Viewfinder zone): the drop-folder source
+    # applies (base role).
+    entries = INSETS.manual_elevation_setup_for_tile(38, 32)
     codes = [entry["code"] for entry in entries]
     assert codes == ["SONNY1"]
     entry = entries[0]
@@ -945,15 +947,18 @@ def test_manual_setup_suppressed_by_finer_automatic_source(
     # The Alps 1 arc-second Viewfinderpanoramas zone equals Sonny's
     # resolution -- equivalent is not better, so still suppressed.
     assert INSETS.manual_elevation_setup_for_tile(46, 7) == []
-    # Greece: best automatic is the 90 m worldwide base -- Sonny's
-    # 1 arc-second lidar genuinely improves it, so it IS offered.
+    # Greece now has a 1 arc-second Viewfinder zone (J35, #1974), so it
+    # is suppressed like the Alps.  Central Anatolia (K36) has none: the
+    # best automatic is the 90 m worldwide base -- Sonny's 1 arc-second
+    # lidar genuinely improves it, so it IS offered.
     # Iceland lost the suggestion to the 2 m IslandsDEM (#1744).
     # Germany, France and Italy are now automatically covered (the
     # Laender, LiDAR HD and TINITALY providers), so the suggestion is
     # gone there.
+    assert INSETS.manual_elevation_setup_for_tile(38, 23) == []
     assert [
         entry["code"]
-        for entry in INSETS.manual_elevation_setup_for_tile(38, 23)
+        for entry in INSETS.manual_elevation_setup_for_tile(38, 32)
     ] == ["SONNY1"]
     assert INSETS.manual_elevation_setup_for_tile(64, -20) == []
     assert INSETS.manual_elevation_setup_for_tile(43, 12) == []
@@ -967,13 +972,13 @@ def test_manual_setup_reports_dropped_state(tmp_path, monkeypatch, shipped_regis
     os.makedirs(drop_directory)
     # Empty folder still counts as not set up.
     assert (
-        INSETS.manual_elevation_setup_for_tile(38, 23)[0]["already_dropped"]
+        INSETS.manual_elevation_setup_for_tile(38, 32)[0]["already_dropped"]
         is False
     )
     with open(os.path.join(drop_directory, "Germany_1s.zip"), "wb") as f:
         f.write(b"x")
     assert (
-        INSETS.manual_elevation_setup_for_tile(38, 23)[0]["already_dropped"]
+        INSETS.manual_elevation_setup_for_tile(38, 32)[0]["already_dropped"]
         is True
     )
 

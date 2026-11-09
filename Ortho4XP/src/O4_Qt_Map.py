@@ -82,6 +82,9 @@ LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
 # Built tiles are plain green — the ZL stays readable in the center
 # label ("PROV 16*"); no per-ZL color coding, no legend.
 BUILT_COLOR = "#4CAF6E"
+# A built tile whose folder lives on another drive (#1987): brown, with
+# "Requires <drive>" top-right (MapCanvasView.swift builtExternalTile).
+BUILT_EXTERNAL_COLOR = "#A0703C"
 #: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
 SETTINGS_BADGE_COLOR = "#0A84FF"
 #: The custom-patch band (#1229); MapCanvasView.customPatchBand.
@@ -1302,8 +1305,10 @@ class MapView(QGraphicsView):
         # user is judging (#1256; MapCanvasView.swift draws the same).
         painter.setBrush(Qt.NoBrush)
         if built is not None:
-            # Built: a green border; installed adds the inset double border.
-            base = QColor(BUILT_COLOR)
+            # Built: a green border (brown on another drive, #1987);
+            # installed adds the inset double border.
+            base = QColor(BUILT_EXTERNAL_COLOR
+                          if getattr(built, "volume", "") else BUILT_COLOR)
             dim = 0.3 if tile in self._dimmed else 1.0
             border = QColor(base)
             border.setAlphaF(0.85 * dim)
@@ -1407,7 +1412,7 @@ class MapView(QGraphicsView):
             else None,
             self._ortho_tiles if self._scenery_filter != SCENERY_FILTER_BUILT
             else None,
-            QTTEXT.current_scale(), self._ortho_imagery)
+            QTTEXT.current_scale(), self._ortho_imagery, self._conflicts)
 
     def _draw_airports(self, painter):
         """Sectional-style airport marks by size (#817, mac-app parity).

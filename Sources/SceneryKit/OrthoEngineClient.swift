@@ -340,6 +340,11 @@ public enum O4Event: Sendable, Equatable {
     /// `pack_adjust`, #1916): found by the object stage, the report, or a
     /// `pack_adjust` command's outcome. See `O4PackAdjust`.
     case packAdjust(O4PackAdjust)
+    /// Graded airports X-Plane flattens and Gateway packs with a newer
+    /// version (capability `gateway_airports`, #1989): found by the build,
+    /// the report, or a `gateway_airports` command's outcome. See
+    /// `O4GatewayAirports`.
+    case gatewayAirports(O4GatewayAirports)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -559,6 +564,23 @@ public enum O4Event: Sendable, Equatable {
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
+        // Another STRING LITERAL match: `class GatewayAirports` in
+        // Ortho4XP/src/o4_engine/events.py.
+        case "GatewayAirports":
+            return .gatewayAirports(O4GatewayAirports(
+                lat: int("lat"), lon: int("lon"),
+                items: ((object["items"] as? [[String: Any]]) ?? []).map { row in
+                    O4GatewayAirport(
+                        icao: row["icao"] as? String ?? "",
+                        name: row["name"] as? String ?? "",
+                        reason: row["reason"] as? String ?? "",
+                        installedId: (row["installed_id"] as? NSNumber)?.intValue ?? 0,
+                        latestId: (row["latest_id"] as? NSNumber)?.intValue ?? 0,
+                        pack: row["pack"] as? String ?? "")
+                },
+                files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                state: object["state"] as? String ?? "found",
+                error: string("error")))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -605,6 +627,14 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     /// picks the cfg's or this.
     public let detectedProvider: String?
     public let detectedZL: Int?
+    /// Where the folder really is (#1987, O4_Tile_Volume): `buildDir`
+    /// with its links resolved; the drive it needs when that is not the
+    /// one holding its parent folder; whether that folder is reachable
+    /// now. nil from an engine that predates the fields; `volume` nil
+    /// also when the tile sits on its parent folder's drive.
+    public let resolvedDir: String?
+    public let volume: String?
+    public let volumeMounted: Bool?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -636,7 +666,23 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         builtBy = object["built_by"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         detectedProvider = object["detected_provider"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         detectedZL = object["detected_zl"]?.intValue
+        resolvedDir = object["resolved_dir"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        volume = object["volume"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        volumeMounted = object["volume_mounted"]?.boolValue
     }
+
+    /// The folder to show and reveal: resolved, else as scanned.
+    public var folderPath: String { resolvedDir ?? buildDir }
+    /// The folder can be reached now (false while its drive is away).
+    public var folderReachable: Bool { volumeMounted ?? true }
+}
+
+/// The words of #1987, shared with the engine's `O4_Tile_Volume`.
+public enum O4TileVolumeText {
+    /// The map's top-right label on a tile that lives on `volume`.
+    public static func requiresLabel(_ volume: String) -> String { "Requires \(volume)" }
+    /// Why the tile pane's reveal button is disabled.
+    public static func offlineNote(_ volume: String) -> String { "\(volume) is not connected." }
 }
 
 /// The install-link state vocabulary (O4_Scenery_Links.LinkStatus values).
@@ -1019,6 +1065,22 @@ public final class OrthoEngineClient: @unchecked Sendable {
         if let shown { extra["shown"] = shown }
         sendPackChoice("pack_adjust", packRoot: packRoot, action: action,
                        lat: lat, lon: lon, extra: extra)
+    }
+
+    // MARK: - Gateway airports (capability gateway_airports)
+
+    /// The user's answer about the tile's Gateway airports (#1989): action
+    /// "install" with `icaos` the airports left checked and `shown` every
+    /// airport the question showed (one shown and left out is remembered as
+    /// never), "never" with `shown`, "undo" (the flatten flag put back in
+    /// the installed pack), or "ask" (the report). The engine replies
+    /// `{"status": "started"}` and completes with a `gatewayAirports` event.
+    public func gatewayAirports(action: String, lat: Int, lon: Int,
+                                icaos: [String]? = nil, shown: [String]? = nil) {
+        var arguments: [String: Any] = ["action": action, "lat": lat, "lon": lon]
+        if let icaos { arguments["items"] = icaos }
+        if let shown { arguments["shown"] = shown }
+        send(command: "gateway_airports", arguments: arguments)
     }
 
     /// A per-pack choice command (`pack_forests`, `pack_optimise`, `pack_adjust`): the

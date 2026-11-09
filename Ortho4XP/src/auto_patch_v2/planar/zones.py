@@ -304,10 +304,11 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     every road running BESIDE them (owner 2026-10-19, #944), and zone 2
     yields the carriageway of every road running THROUGH it (owner RULINGS
     2026-10-20c, 39); each zone-2 yield is appended to ``yields`` as a
-    :class:`~.road_yield.BandYield`.  A RUNWAY band's zone 2 yields only
-    the ``rsa_carriageways`` (``road_yield.rsa_carriageways``; ``None``
-    reads ``carriageways``): an airport service road through the safety
-    area sits at grade on it (owner RULINGS 2026-10-28p (1), #1201).
+    :class:`~.road_yield.BandYield`.  Zone 2 — a runway's or a taxiway's —
+    yields only the ``rsa_carriageways`` (``road_yield.rsa_carriageways``;
+    ``None`` reads ``carriageways``): an airport service road through the
+    band sits at grade on it (owner RULINGS 2026-10-28p (1), #1201; taxi
+    bands #1982 / #1983).
 
     ``plates`` (``Airport.walled_plates``, #1201): a runway-end walled
     plate's footprint is cut from every band (owner RULINGS 2026-10-27t:
@@ -493,7 +494,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # half-width plus the stand-off — the road follows its own ground and
     # the band stops at the road's edge.  Zone 1 keeps the outer cut (13ar:
     # the road there is welded to the lip).
-    beside = through = through_rsa = None
+    beside = through = None
     if carriageways and bands:
         airside = [Polygon(c.ring, c.holes) for c in cells
                    if c.side != "groundside" and len(c.ring) >= 3]
@@ -502,11 +503,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         beside = unary_union([g for _a, _h, g in pieces]) if pieces else None
         if yields is not None:
             yields.extend(BandYield(g, a, float(h)) for a, h, g in pieces)
-        through = road_cut_pieces(carriageways,
-                                  unary_union([b[1] for b in bands.values()] + airside),
-                                  cut, extent=envelope, cap_style="square")
-        through_rsa = through if rsa_carriageways is None else road_cut_pieces(
-            rsa_carriageways,
+        through = road_cut_pieces(
+            carriageways if rsa_carriageways is None else rsa_carriageways,
             unary_union([b[1] for b in bands.values()] + airside),
             cut, extent=envelope, cap_style="square")
     plate_u = _plate_union(plates)
@@ -535,9 +533,14 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             z2 = fixed_difference(z2, trench)
             if edge_report is not None:
                 edge_report.trench_cut_m2 += before - z1.area - z2.area
-        mine_through = through_rsa if fam == "runway" else through
-        if mine_through:
-            z2 = _yield_zone2(z2, outer, key, mine_through, yields)
+        # an airport SERVICE road sits at grade on every band's zone 2 —
+        # the runway's safety area (owner RULINGS 2026-10-28p (1), #1201)
+        # and a taxiway's alike (#1982 / #1983: KEGE ``small_roads:-895``,
+        # cut out of taxi E's zone 2, sank 6 m under the band beside it and
+        # stepped 2.8 m under the taxiway it serves); a public road through
+        # either keeps 20c (39) and follows its own ground
+        if through:
+            z2 = _yield_zone2(z2, outer, key, through, yields)
         if plate_u is not None:
             # 27t (#1201): the band ends at the plate — no stand-off
             z1 = fixed_difference(z1, plate_u)

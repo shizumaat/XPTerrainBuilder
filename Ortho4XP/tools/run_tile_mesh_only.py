@@ -221,7 +221,8 @@ if __name__ == "__main__":
     # already set ``O4_PACK_WRITES=measure_only`` for it; the guard and
     # the snapshot are the other two halves, and both come from the
     # build entry's own implementation, never a second arrangement.
-    from build_airport import xplane_install_roots        # noqa: E402
+    from build_airport import (owner_install_roots,        # noqa: E402
+                               xplane_install_roots)
     from shared_repo_guard import (install_snapshot,       # noqa: E402
                                    pack_roots_for_tile)
     _install = xplane_install_roots()
@@ -232,7 +233,8 @@ if __name__ == "__main__":
     before = shared_repo_snapshot()
     before.update(install_snapshot(pack_roots))
     guard = SharedRepoWriteGuard(set(), os.getcwd(),
-                                 install_roots=_install)
+                                 install_roots=_install,
+                                 owner_roots=owner_install_roots())
     try:
         with guard:
             for step_name, step in (

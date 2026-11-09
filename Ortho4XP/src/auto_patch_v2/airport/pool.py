@@ -111,6 +111,7 @@ from multiprocessing import shared_memory as _shm
 import O4_Machine_Slots as _slots
 
 from . import frame_entry as _fe
+from . import pool_memory as _mem
 from ..model import pulse as _pulse
 
 __all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "budget_bound",
@@ -492,6 +493,7 @@ class WorkPool:
         except Exception as e:            # no semaphores, no fork budget, …
             self._give_up(f"could not start ({type(e).__name__}: {e})")
             return False
+        _mem.register(self)
         return True
 
     def _give_up(self, why: str) -> None:
@@ -623,8 +625,12 @@ class WorkPool:
         tick = (lambda *_a: None) if self._isolate else _pulse.tick
         try:
             pending, done_n, last = set(futs), 0, time.monotonic()
+            looked = last
             while pending:
                 tick(what or "pool", done_n, p.n, unit)
+                if not self._isolate and time.monotonic() - looked >= _mem.CHECK_S:
+                    looked = time.monotonic()
+                    self._memory_check(what)
                 done, pending = _cf.wait(pending, timeout=TICK_S,
                                          return_when=_cf.FIRST_COMPLETED)
                 if not done:
@@ -651,6 +657,20 @@ class WorkPool:
             self.wall_s += time.perf_counter() - t0
         self.tasks_done += p.n
         return out
+
+    def _memory_check(self, what: str) -> None:
+        """THE MEMORY GUARD (``pool_memory``, issue #1980): past a ceiling
+        the workers are stopped and the stage raises ``MemoryCeilingError``
+        — never the serial fall-back, which would re-read the same resource
+        in the build's own process."""
+        try:
+            _mem.check(what or "pool", self.pids(), physical_ram_gb(), share())
+        except _mem.MemoryCeilingError as e:
+            self._dead = True
+            self.reason = "memory ceiling"
+            self._out(f"[pool] MEMORY CEILING: {e}")
+            self.close()
+            raise
 
     def map(self, fn: _t.Callable, tasks: _t.Sequence, local: _t.Any, **kw) -> list:
         """:meth:`try_map`, with the serial answer computed HERE over

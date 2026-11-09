@@ -8,7 +8,12 @@ check (``tools/drawn_check.py --tag``) reads the lane's OWN written pack.
 
 ``--refresh-data pack_rebake`` writes the owner's real packs (#1906): it is
 refused whenever a pack this build would write lies under the owner's
-X-Plane install.
+X-Plane install.  The owner's install is read from the OWNER'S app config
+(:func:`owner_install_roots`), never the lane cfg: on 2026-11-05 a lane cfg
+redirected ``custom_scenery_dir`` to a scratch tree, the harness then
+overwrote that redirect with the owner's path, and the guard defended the
+scratch tree while the object stage rewrote three real packs.  A lane
+cfg's explicit redirect now wins (:func:`effective_install_paths`).
 """
 from __future__ import annotations
 
@@ -16,13 +21,43 @@ import glob
 import json
 import os
 
-__all__ = ["arm_pack_copy", "pack_rebake_refusal", "plan_pack_roots",
+__all__ = ["arm_pack_copy", "effective_install_paths", "install_root",
+           "owner_install_roots", "pack_rebake_refusal", "plan_pack_roots",
            "require_pack_copy_dir"]
 
 
 def _under(path, root) -> bool:
     path, root = os.path.realpath(path), os.path.realpath(root)
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def install_root(custom_scenery_dir) -> str:
+    """The X-Plane install a ``custom_scenery_dir`` value lives in."""
+    custom = (custom_scenery_dir or "").rstrip("/\\")
+    return os.path.dirname(custom) if custom else ""
+
+
+def owner_install_roots(owner_cfg_values) -> tuple:
+    """The OWNER'S install(s): the owner app config's ``custom_scenery_dir``
+    and the default ``~/X-Plane 12``.  A root that does not exist refuses
+    nothing, so the default is harmless off the owner's machine."""
+    roots = {install_root(owner_cfg_values.get("custom_scenery_dir", "")),
+             os.path.expanduser("~/X-Plane 12")}
+    return tuple(sorted(r for r in roots if r))
+
+
+def effective_install_paths(owner_values, lane_values, keys):
+    """``(applied, redirects)`` for the X-Plane path ``keys``: the owner's
+    value, except where the lane cfg names a DIFFERENT non-empty one — a
+    lane's redirect, which wins and is reported in ``redirects``."""
+    applied, redirects = {}, {}
+    for key in keys:
+        owner, lane = owner_values.get(key, ""), lane_values.get(key, "")
+        if lane and lane != owner:
+            applied[key] = redirects[key] = lane
+        elif owner:
+            applied[key] = owner
+    return applied, redirects
 
 
 def require_pack_copy_dir(pack_copy, install_roots) -> str:

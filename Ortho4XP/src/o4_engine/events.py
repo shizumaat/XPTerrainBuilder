@@ -216,6 +216,7 @@ CAPABILITIES: tuple = (
     "patch_roles",                  # 2026-11-03, #1697 patch_roles / patch_role_set
     "pack_ground_notice",           # 2026-11-04, #1362 BuildDone warning pack_ground_no_mesh
     "pack_adjust",                  # 2026-11-06, #1916 PackAdjust + pack_adjust
+    "gateway_airports",             # 2026-11-09, #1989 GatewayAirports + gateway_airports
 )
 
 
@@ -825,6 +826,43 @@ class PackAdjust(EngineEvent):
 
     pack: str = ""
     pack_root: str = ""
+    lat: int = 0
+    lon: int = 0
+    items: list = field(default_factory=list)
+    files: list = field(default_factory=list)
+    state: str = "found"
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class GatewayAirports(EngineEvent):
+    """Global Airports entries X-Plane flattens, and Gateway packs with a
+    newer version (issue #1989; capability ``gateway_airports``).
+
+    Emitted by the build (``auto_patch.gateway_stage``) for the tile's
+    graded airports, and as the completion of a ``gateway_airports``
+    command (it replies ``{"status": "started"}`` at once).  ``items`` is
+    one ``{"icao", "name", "reason", "installed_id", "latest_id",
+    "pack"}`` per airport: ``reason`` ``"flatten"`` (its Global Airports
+    entry carries ``1302 flatten 1``), ``"update"`` (the Gateway pack the
+    app installed has a newer Gateway version) or, in an outcome,
+    ``"installed"``.  ``state``:
+
+    * ``"found"`` — (build) ask once per tile and row set, every row
+      checked: **Install** sends ``gateway_airports`` with
+      ``action="install"``, ``items`` the ICAOs left checked and
+      ``shown`` every ICAO shown; **Never for these airports**
+      ``action="never"`` with ``shown``; **Not now** sends nothing.
+    * ``"ask"`` — (command ``action="ask"``) the report: the same rows.
+    * ``"installed"`` / ``"never"`` / ``"undone"`` / ``"none"`` /
+      ``"failed"`` (``error`` says why) — a command's outcome; ``files``
+      lists the packs installed or the files restored.
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
     lat: int = 0
     lon: int = 0
     items: list = field(default_factory=list)

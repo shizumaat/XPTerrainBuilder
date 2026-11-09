@@ -2042,6 +2042,13 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     from .plate_ground import under_plate_vertices
     under = under_plate_vertices(pm, getattr(airport, "walled_plates", ()))
     from .road_profile import at_grade_rsa_vertices
+    # the terrace's band KERB is an AT-GRADE road's only (28p (1), #1982):
+    # a service road's kerb takes its bordering taxiway's / apron's level
+    # (``constraints/road_ramp.terrace_rewrite``); a public road's follows
+    # its own ground (20c (39))
+    at_grade = at_grade_rsa_vertices(airport, pm, law, families=("runway", "taxi"))
+    terr = {**terr, "kerb": {v: x for v, x in (terr.get("kerb") or {}).items()
+                             if v in at_grade}}
     # §46 (7): the targets are DEM levels, published on the read grid so
     # the last bits PROJ's inverse leaves in a sample never reach a row
     targets = {v: exact.on_read_grid(z) for v, z in targets.items()}

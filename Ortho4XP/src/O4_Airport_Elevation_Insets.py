@@ -163,6 +163,7 @@ from elevation_access.definitions import (
     _parse_float,
     coverage_boxes,
     export_image_definition_refusal,
+    parse_archive_zones,
     provider_serves_country,
     providers_share_country,
 )
@@ -654,12 +655,25 @@ def initialize_elevation_providers_dict(providers_directory=None):
             definition["resolution_arc_seconds"] = _parse_float(
                 definition.get("resolution_arc_seconds"), default=None
             )
-        if "dem1_zones" in definition:
-            definition["dem1_zones"] = frozenset(
-                token.strip()
-                for token in str(definition["dem1_zones"]).split(",")
-                if token.strip()
-            )
+        # The archive zones a zone-archive source publishes (issues
+        # #1974/#1933): a generated table beside the .elv, or the legacy
+        # inline ``dem1_zones=`` list.  An unreadable table disables the
+        # source -- without it the source would claim EVERY tile.
+        if "archive_zones_file" in definition:
+            try:
+                with open(os.path.join(directory,
+                                       definition["archive_zones_file"]),
+                          "r", encoding=ELV_ENCODING) as handle:
+                    definition["archive_zones"] = parse_archive_zones(
+                        handle.read())
+            except OSError as error:
+                UI.vprint(0, "   WARNING: elevation provider",
+                          provider_code, "cannot read its archive zones",
+                          "(%s) - disabled." % type(error).__name__)
+                definition["enabled"] = False
+        elif "dem1_zones" in definition:
+            definition["archive_zones"] = parse_archive_zones(
+                definition["dem1_zones"])
         if "exclude_tiles" in definition:
             definition["exclude_tiles"] = _parse_tile_list(
                 definition["exclude_tiles"]

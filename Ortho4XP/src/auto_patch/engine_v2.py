@@ -102,6 +102,15 @@ _STAGE_DONE_TO_PHASE = {"load": 2, "pack": 3, "structures": 4, "planar": 5,
                         "constraints": 6, "solve": 7}
 
 
+def _activity() -> str:
+    """The heartbeat's activity: the pulse, then the build's memory
+    (``auto_patch_v2.airport.pool_memory.describe``, issue #1980) — so a
+    step that grows shows it on the "still working" line the app prints."""
+    from auto_patch_v2.airport import pool_memory as _mem
+    from auto_patch_v2.model import pulse as _pulse
+    return " — ".join(t for t in (_pulse.describe(), _mem.describe()) if t)
+
+
 class V2Progress:
     """The v2 build's progress wiring (issue #136) — ONE implementation for
     the app's driver (:func:`build_write_verify_one_v2`) and the harness
@@ -116,7 +125,7 @@ class V2Progress:
         self.bp = _progress.BuildProgress(icao, V2_PHASE_LABELS, V2_PHASE_WEIGHTS)
         _progress._current = self.bp
         self.hb = _progress.Heartbeat(
-            self.bp.heartbeat, self.bp.running_step, _pulse.describe,
+            self.bp.heartbeat, self.bp.running_step, _activity,
             period_s=_progress.HEARTBEAT_S if period_s is None else period_s)
         self._unlisten = None
 

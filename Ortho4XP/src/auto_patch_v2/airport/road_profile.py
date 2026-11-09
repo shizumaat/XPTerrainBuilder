@@ -705,7 +705,8 @@ def preferred_road_z(airport: Airport, pm: PlanarMap, law: Law,
 
 
 def at_grade_rsa_vertices(airport: Airport, pm: PlanarMap, law: Law,
-                          within: _t.Sequence[Polygon] | None = None) -> frozenset:
+                          within: _t.Sequence[Polygon] | None = None,
+                          families: tuple[str, ...] = ("runway",)) -> frozenset:
     """Owner RULINGS 2026-10-28p (1) (#1201): the vertices of every mapped
     road ribbon of an AT-GRADE class (``zones.adjacent_ground.
     rsa_at_grade_highways``: airport service roads) that meets a RUNWAY
@@ -714,7 +715,9 @@ def at_grade_rsa_vertices(airport: Airport, pm: PlanarMap, law: Law,
     the band's own vertices take).  MEASURED KSEA: the profile of the road
     along 16C's plate edge held the safety area 3.7 m under the plate.
     ``within``: only the ribbons that reach one of these areas (the road
-    profile's withdrawal, :func:`preferred_road_z`: a plated end area)."""
+    profile's withdrawal, :func:`preferred_road_z`: a plated end area).
+    ``families``: the bands read (``("runway", "taxi")``: the road terrace's
+    at-grade kerb, ``airport/road_ramp``, #1982)."""
     from ..model.planar import is_osm_ribbon_ref
     classes = set(law.tables.zones.adjacent_ground.rsa_at_grade_highways)
     if not classes:
@@ -727,8 +730,9 @@ def at_grade_rsa_vertices(airport: Airport, pm: PlanarMap, law: Law,
         except (IndexError, ValueError):
             return ""
         return str(tags.get(wid, {}).get("highway", ""))
+    heads = tuple(f"adjacent_ground:{fam}:" for fam in families)
     rsa = {f.id for f in pm.faces.values()
-           if f.role == "graded_strip" and str(f.ref).startswith("adjacent_ground:runway:")}
+           if f.role == "graded_strip" and str(f.ref).startswith(heads)}
     if not rsa:
         return frozenset()
     if within is not None:

@@ -222,6 +222,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_seat_tilt",
         "auto_patch_v2.airport.placement_targets",
         "auto_patch_v2.airport.pool",
+        "auto_patch_v2.airport.pool_memory",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
@@ -401,6 +402,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.plate_frame",
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
+        "auto_patch_v2.airport.pool_memory",
         "auto_patch_v2.airport.portal_objects",
         "auto_patch_v2.airport.ramp_feet",
         "auto_patch_v2.airport.reader_work",
@@ -879,6 +881,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_seat_tilt",
         "auto_patch_v2.airport.placement_targets",
         "auto_patch_v2.airport.pool",
+        "auto_patch_v2.airport.pool_memory",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
@@ -1544,7 +1547,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
-    airport.pool airport.rebake_plan airport.riders airport.ring_contact_batch
+    airport.pool airport.pool_memory airport.rebake_plan airport.riders airport.ring_contact_batch
     airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
@@ -1633,7 +1636,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
      airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
-    airport.placement_seat_tilt airport.placement_targets airport.pool
+    airport.placement_seat_tilt airport.placement_targets airport.pool airport.pool_memory
     airport.rebake_plan airport.riders
     airport.ring_contact_batch airport.scatter airport.sheet_chain airport.skirt
     airport.slab_faces airport.slab_plates airport.topology_cache constraints.apron
@@ -1708,7 +1711,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
-    airport.plate_ground airport.pool
+    airport.plate_ground airport.pool airport.pool_memory
     airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
     airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
@@ -1839,7 +1842,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
-    airport.plate_ground airport.pool
+    airport.plate_ground airport.pool airport.pool_memory
     airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
     airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
@@ -1977,7 +1980,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
-    airport.pool airport.rebake_plan airport.rebake_screen airport.riders
+    airport.pool airport.pool_memory airport.rebake_plan airport.rebake_screen airport.riders
     airport.plate_ground airport.public_road
     airport.road_descent airport.road_joint airport.road_profile airport.road_ramp
     airport.road_stations
@@ -2067,7 +2070,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.bridge_approach airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
-    airport.pool airport.rebake_plan airport.riders
+    airport.pool airport.pool_memory airport.rebake_plan airport.riders
     airport.ring_contact_batch airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence

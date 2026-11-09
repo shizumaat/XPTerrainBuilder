@@ -320,3 +320,103 @@ def test_the_qt_survey_runs_it(monkeypatch, tmp_path):
     assert calls == [(str(tmp_path), {"M": "mesh", "O": "ortho"})]
     source = inspect.getsource(GUI.MainWindow._refresh_scenery_packs)
     assert "_tidy_scenery_packs(scenery_dir, packs)" in source
+
+
+# #1988: a new zOrtho4XP tile joins the user's own block of tile rows at
+# its alphabetical place; with no tile row yet it goes to the bottom.
+_HEAD = "I\n1000 Version\nSCENERY\n\n"
+
+
+def _row(name, disabled=False):
+    return "SCENERY_PACK%s Custom Scenery/%s/\n" % (
+        "_DISABLED" if disabled else "", name)
+
+
+def _tidy(tmp_path, body, kinds, tail="\n"):
+    ini = _HEAD + body
+    if not tail:
+        ini = ini[:-1]
+    csd = _install(tmp_path, ini, kinds)
+    reply = TIDY.tidy_scenery_packs(str(csd), dict(kinds))
+    return _read(csd), reply["added"]
+
+
+_OTHER = [("Apt", "airport"), ("Lib", "library"), ("Mesh", "mesh")]
+_T = "zOrtho4XP_%s"
+
+
+@pytest.mark.parametrize("tail", ["\n", ""])
+def test_new_tiles_join_the_block_mid_file(tmp_path, tail):
+    body = (_row("Apt") + _row("Lib") + _row(_T % "+40-075")
+            + _row(_T % "+42-071") + _row("Mesh"))
+    tiles = [(_T % n, "ortho") for n in ("+40-075", "+42-071", "+41-073",
+                                         "+43-070", "+39-077")]
+    text, added = _tidy(tmp_path, body, _OTHER + tiles, tail)
+    want = _HEAD + (
+        _row("Apt") + _row("Lib") + _row(_T % "+39-077")
+        + _row(_T % "+40-075") + _row(_T % "+41-073") + _row(_T % "+42-071")
+        + _row(_T % "+43-070") + _row("Mesh"))
+    assert text == (want if tail else want[:-1])
+    assert sorted(added) == sorted(_T % n for n in ("+41-073", "+43-070",
+                                                     "+39-077"))
+
+
+def test_new_tiles_join_a_block_at_the_top(tmp_path):
+    # The user keeps tiles above everything, airports included.
+    body = _row(_T % "+40-075") + _row("Apt") + _row("Lib") + _row("Mesh")
+    kinds = _OTHER + [(_T % "+40-075", "ortho"), (_T % "+41-073", "ortho")]
+    text, _added = _tidy(tmp_path, body, kinds)
+    assert text == _HEAD + (_row(_T % "+40-075") + _row(_T % "+41-073")
+                            + _row("Apt") + _row("Lib") + _row("Mesh"))
+
+
+def test_disabled_rows_are_part_of_the_block(tmp_path):
+    body = (_row("Apt") + _row(_T % "+40-075", True) + _row(_T % "+44-070")
+            + _row(_T % "+46-068", True) + _row("Lib") + _row("Mesh"))
+    kinds = _OTHER + [(_T % n, "ortho") for n in
+                      ("+40-075", "+44-070", "+46-068", "+45-069")]
+    text, _added = _tidy(tmp_path, body, kinds)
+    assert text == _HEAD + (
+        _row("Apt") + _row(_T % "+40-075", True) + _row(_T % "+44-070")
+        + _row(_T % "+45-069") + _row(_T % "+46-068", True) + _row("Lib")
+        + _row("Mesh"))
+
+
+def test_two_blocks_take_tiles_by_alphabetical_neighbour(tmp_path):
+    # Each new tile goes after the last tile sorting before it — whichever
+    # block that row is in — or before the very first tile row.
+    body = (_row(_T % "+40-075") + _row(_T % "+41-073") + _row("Apt")
+            + _row(_T % "+50-001") + _row("Mesh"))
+    kinds = [("Apt", "airport"), ("Mesh", "mesh")] + [
+        (_T % n, "ortho") for n in ("+40-075", "+41-073", "+50-001",
+                                     "+30-090", "+45-070", "+51-000")]
+    text, _added = _tidy(tmp_path, body, kinds)
+    assert text == _HEAD + (
+        _row(_T % "+30-090") + _row(_T % "+40-075") + _row(_T % "+41-073")
+        + _row(_T % "+45-070") + _row("Apt") + _row(_T % "+50-001")
+        + _row(_T % "+51-000") + _row("Mesh"))
+
+
+@pytest.mark.parametrize("tail", ["\n", ""])
+def test_no_block_puts_tiles_at_the_bottom(tmp_path, tail):
+    body = _row("Apt") + _row("Lib") + _row("Mesh")
+    kinds = _OTHER + [(_T % "+41-073", "ortho"), (_T % "+40-075", "ortho"),
+                      ("Other Ortho", "ortho")]
+    text, added = _tidy(tmp_path, body, kinds, tail)
+    # Another ortho kind keeps its group rule (above the mesh); the
+    # tiles go below every row, sorted, and the line break stays as found.
+    want = _HEAD + (_row("Apt") + _row("Lib") + _row("Other Ortho")
+                    + _row("Mesh") + _row(_T % "+40-075")
+                    + _row(_T % "+41-073"))
+    assert text == (want if tail else want[:-1])
+    assert added[-2:] == [_T % "+40-075", _T % "+41-073"]
+
+
+def test_insert_new_packs_on_lines_directly():
+    lines = (_HEAD + _row("Apt") + _row(_T % "+40-075")).split("\n")
+    added = SP.insert_new_packs(lines, [_T % "+39-077"],
+                                lambda name: "ortho" if "zOrtho" in name
+                                else "airport")
+    assert added == [_T % "+39-077"]
+    assert "\n".join(lines) == _HEAD + (_row("Apt") + _row(_T % "+39-077")
+                                        + _row(_T % "+40-075"))

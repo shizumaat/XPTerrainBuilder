@@ -107,7 +107,7 @@ def test_record_water_tris_routes_water_sea_to_inland(tmp_path):
         MASK.record_water_tris(tile)
     )
     sea_count = sum(len(tris) for tris in dico_sea.values())
-    inland_count = sum(len(tris) for tris in dico_inland.values())
+    inland_count = len({tri for tris in dico_inland.values() for tri in tris})
     assert sea_count >= 1          # the pure-sea triangle
     assert inland_count == 2       # WATER|SEA and pure WATER
     assert coastline_sea_present   # bit 2 rules that pure-sea triangle

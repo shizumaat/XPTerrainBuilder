@@ -501,6 +501,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.pack_forests",
     "auto_patch_v2.airport.pack_forests_map",
     "auto_patch_v2.airport.pack_ground",
+    "auto_patch_v2.airport.pack_ground_sheets",
     "auto_patch_v2.airport.pack_health",
     "auto_patch_v2.airport.pack_health.light_records",
     "auto_patch_v2.airport.pack_health.objects",

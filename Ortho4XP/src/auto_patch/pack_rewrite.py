@@ -1,7 +1,7 @@
 """THE REWRITE AND THE UNDO of a user's choice for an airport pack that
 every write re-applies: the X-Plane 12 3D trees (#1360, ``forest_stage``),
 "Optimise pack" (#1707, ``optimise_stage``) and the hidden draped photos
-(#1916, ``drape_stage``).
+and ground textures (#1916, #1962, ``drape_stage``).
 
 * :func:`rewrite_dsf` — the pack DSF written again from its pristine
   backup with everything of ours as recorded (every airport's placement
@@ -76,12 +76,15 @@ def _others_recorded(entry: _t.Mapping[str, _t.Any], record_key: str) -> bool:
 
 def undo_recorded(pack_root: str, lat: int | None, lon: int | None,
                   record_key: str,
-                  rewrite: _t.Callable[[str], _t.Any]) -> list[str]:
+                  rewrite: _t.Callable[[str], _t.Any],
+                  keeps: _t.Callable[[str], bool] | None = None) -> list[str]:
     """Take the ``record_key`` choice out of the pack's DSFs that carry it
     (only the tile's with ``lat``/``lon``); returns the files rewritten
     (pack-relative).  A DSF holding nothing else of ours gets its pristine
-    file back byte for byte and its record entry dropped; one that does
-    is handed to ``rewrite(dsf)`` (a write without the choice)."""
+    file back byte for byte and its record entry dropped; one that does —
+    or for which ``keeps(dsf)``: part of the record stays, another choice
+    sharing the key — is handed to ``rewrite(dsf)`` (a write without the
+    choice)."""
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import backup_state as _bs
 
@@ -96,7 +99,7 @@ def undo_recorded(pack_root: str, lat: int | None, lon: int | None,
         verdict = _bs.classify_dsf(dsf)
         if verdict.state is not _bs.State.OURS or not verdict.backup:
             continue                    # never a file we cannot prove ours
-        if not _others_recorded(entry, record_key):
+        if not _others_recorded(entry, record_key) and not (keeps and keeps(dsf)):
             shutil.copy2(verdict.backup, dsf)
             _bs.invalidate_memo()
             _bs.drop_dsf_entry(dsf)

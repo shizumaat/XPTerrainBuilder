@@ -11,7 +11,7 @@ This module is the extra REQUIRED condition; a definition is hidden only
 when ALL of these hold:
 
 1. it is a PHOTO LAYER (witness (1)-(4): the pack's own draped,
-   non-wrapping, image-mapped north-up ``.pol``, no surface, not
+   non-wrapping, image-mapped north-up ``.pol``, no paved surface, not
    weather-transparent) of a MACHINE-NAMED FAMILY: its ``.pol`` or image
    shares, with at least :data:`MIN_TILES` - 1 other layers of its
    folder, the stem left when the numbers are taken out (``Ortho1`` …
@@ -25,20 +25,30 @@ when ALL of these hold:
    boundary (row 130), or — with no boundary — the box of its runways,
    pavement and the pack's own other draped art grown by
    :data:`MARGIN_M`;
-4. its WHOLE STACK qualifies: every photo layer whose footprint overlaps
-   it (a see-through blend or detail layer over it, a base photo under
-   it) is itself a member of a grid that passes (1)-(3) — a stack is
-   hidden whole or kept whole, never the images without the blend layers
-   laid over them — and at least one member passes the whole witness
-   (over the airport, photo-sized, opaque);
-5. the stack is ONE LAYER DEEP: its photo layers draw at one draw order.
-   A photo laid over another photo (a see-through detail grid over an
-   opaque base grid, both under the pack's own pavement) is the pack's
-   own blended ground art and is kept whole.
+4. the grid — with every grid stacked on it (a tile of one overlapping
+   a tile of the other: a see-through mask grid over its photos, a base
+   grid under them), each of which passes (1)-(3) too — LIES OVER THE
+   AIRPORT: at least one of their tiles passes the whole witness (over
+   the airport, photo-sized, opaque).  They are then hidden WHOLE — every
+   tile, over the airport or not (issue #1960: a 21-tile grid lost only
+   the 9 tiles that touched the airport);
+5. every stack among them is ONE LAYER DEEP (its tiles draw at one draw
+   order).  A photo grid laid over another (a see-through detail grid
+   over an opaque base grid, both under the pack's own pavement) is the
+   pack's own blended ground art: both are kept whole, and so is every
+   grid stacked with them.  A layer of no grid (a tyre-mark, oil or dirt
+   decal on the runway — WED gives those a ``LOAD_CENTER`` too — or a
+   single photo of the airport) is in no stack: hiding the grid under it
+   leaves it over our imagery, as the pack's own art (#1960: one oil
+   decal held 12 tiles of a grid).
 
 MEASURED 2026-11-07 over the installed packs' cached dumps: of 3,514
 definitions passing (1)-(6) in 99 DSFs, 3,122 in 72 DSFs pass; (5)
 differs from (1)-(4) at one pack only, the one whose hiding turned white.
+Re-measured 2026-11-09 on the five Beta 8 packs (issues #1943 #1960 #1968):
+the grid-whole reading hides 21 of 21 tiles at one pack (was 9), 8 of 8
+at its neighbour (was 2), 18 of 18 at another (was 2); the blended pack
+keeps all 66.
 """
 from __future__ import annotations
 
@@ -48,7 +58,7 @@ import re
 import typing as _t
 
 __all__ = ["MIN_TILES", "SIZE_TOL", "EDGE_TOL", "MARGIN_M", "STACK_SHARE",
-           "Layer", "hidden_stacks"]
+           "Layer", "hidden_stacks", "grid_indices"]
 
 #: the fewest tiles that make a grid
 MIN_TILES = 4
@@ -172,13 +182,13 @@ def _components(n: int, linked: _t.Callable[[int, int], bool]) -> list[list[int]
     return out
 
 
-def _grid_members(family: _t.Sequence[Layer]) -> set[int]:
-    """Witness (2): the definition indices of the family whose tiles join
-    a regular grid — at least :data:`MIN_TILES` edge-adjacent tiles of one
-    size — with the smaller tiles that close it at its edges (a grid
-    clipped to its extent)."""
+def _grids(family: _t.Sequence[Layer]) -> list[set[int]]:
+    """Witness (2): the grids of the family, as definition-index sets —
+    each at least :data:`MIN_TILES` edge-adjacent tiles of one size, with
+    the smaller tiles that close it at its edges (a grid clipped to its
+    extent); grids sharing a definition are one."""
     tiles = [(ly.index, b) for ly in family for b in ly.boxes]
-    out: set[int] = set()
+    out: list[set[int]] = []
     for cls in _size_classes(tiles):
         if len(cls) < MIN_TILES:
             continue
@@ -189,12 +199,32 @@ def _grid_members(family: _t.Sequence[Layer]) -> set[int]:
             if len(comp) < MIN_TILES:
                 continue
             grid = [cls[k][1] for k in comp]
-            out.update(cls[k][0] for k in comp)
-            out.update(i for i, b in tiles
-                       if b[2] - b[0] <= w * (1 + SIZE_TOL)
-                       and b[3] - b[1] <= h * (1 + SIZE_TOL)
-                       and any(_adjacent(b, g, tx, ty) for g in grid))
+            members = {cls[k][0] for k in comp}
+            members.update(i for i, b in tiles
+                           if b[2] - b[0] <= w * (1 + SIZE_TOL)
+                           and b[3] - b[1] <= h * (1 + SIZE_TOL)
+                           and any(_adjacent(b, g, tx, ty) for g in grid))
+            out.append(members)
+    return _merged(out)
+
+
+def _merged(sets: list[set[int]]) -> list[set[int]]:
+    """The sets with every two that share a member joined."""
+    out: list[set[int]] = []
+    for s in sets:
+        s = set(s)
+        for o in [o for o in out if o & s]:
+            s |= o
+            out.remove(o)
+        out.append(s)
     return out
+
+
+def grid_indices(layers: _t.Sequence[Layer]) -> set[int]:
+    """The definition indices of every machine-named photo grid (witness
+    (1)-(2)), whether it is hidden or kept: the photo rule's own, which
+    no other detector may take (``pack_ground_sheets``)."""
+    return {i for fam in _families(layers) for g in _grids(fam) for i in g}
 
 
 def _grow(box: Box, metres: float) -> Box:
@@ -229,36 +259,47 @@ def _stacks(layers: _t.Sequence[Layer]) -> list[list[Layer]]:
                                       for y in layers[b].boxes))]
 
 
+def _area(box: Box, ground_art: _t.Sequence[Box]) -> Box:
+    """An unbounded airport's area: its box and the pack's other draped
+    art that touches it, grown by :data:`MARGIN_M`."""
+    boxes = [box] + [g for g in ground_art if g[0] <= box[2] and box[0] <= g[2]
+                     and g[1] <= box[3] and box[1] <= g[3]]
+    return _grow((min(b[0] for b in boxes), min(b[1] for b in boxes),
+                  max(b[2] for b in boxes), max(b[3] for b in boxes)), MARGIN_M)
+
+
 def hidden_stacks(layers: _t.Sequence[Layer], airport: _t.Sequence[Box],
-                  bounded: bool,
+                  bounded: bool | _t.Sequence[bool],
                   ground_art: _t.Sequence[Box]) -> set[int]:
-    """THE RULE: the definition indices of every whole stack that passes
-    (1)-(5).  ``airport``: the airport's boxes (its boundary when
-    ``bounded``, else its runways and pavement); ``ground_art``: the
-    pack's own non-photo draped polygons' boxes, which widen
-    an unbounded airport."""
+    """THE RULE: the definition indices of every whole grid that passes
+    (1)-(5).  ``airport``: the airports' boxes (a boundary where
+    ``bounded`` — one flag, or one per box — else its runways and
+    pavement); ``ground_art``: the pack's own non-photo draped polygons'
+    boxes, which widen an unbounded airport they touch."""
     if not airport:
         return set()
-    if bounded:
-        areas = list(airport)
-    else:
-        boxes = list(airport) + list(ground_art)
-        areas = [_grow((min(b[0] for b in boxes), min(b[1] for b in boxes),
-                        max(b[2] for b in boxes), max(b[3] for b in boxes)),
-                       MARGIN_M)]
+    flags = ([bounded] * len(airport) if isinstance(bounded, bool)
+             else list(bounded))
+    areas = [a if ok else _area(a, ground_art)
+             for a, ok in zip(airport, flags, strict=True)]
     by_index = {ly.index: ly for ly in layers}
-    passing: set[int] = set()
-    for fam in _families(layers):
-        members = _grid_members(fam)
-        boxes = [b for i in members for b in by_index[i].boxes]
-        if members and any(not any(_inside(b, a) for a in areas) for b in boxes):
-            passing |= members                               # (1)-(3)
+    grids = [g for fam in _families(layers) for g in _grids(fam)]
+    grid_of = {i: k for k, g in enumerate(grids) for i in g}
+    stacks = [[ly.index for ly in st] for st in _stacks(
+        [ly for ly in layers if ly.index in grid_of])]
     out: set[int] = set()
-    for stack in _stacks(layers):
-        idx = {ly.index for ly in stack}
-        if not idx <= passing or not any(ly.witness for ly in stack):
+    for cluster in _components(len(grids), lambda a, b: any(
+            grid_of[i] == a for st in stacks for i in st
+            if any(grid_of[j] == b for j in st))):
+        members = set().union(*(grids[k] for k in cluster))
+        if not all(any(not any(_inside(b, a) for a in areas)
+                       for i in grids[k] for b in by_index[i].boxes)
+                   for k in cluster):
+            continue                                         # (3)
+        if not any(by_index[i].witness for i in members):
             continue                                         # (4)
-        if len({ly.layer for ly in stack}) > 1:
+        if any(len({by_index[i].layer for i in st}) > 1
+               for st in stacks if grid_of[st[0]] in cluster):
             continue                                         # (5)
-        out |= idx
+        out |= members
     return out

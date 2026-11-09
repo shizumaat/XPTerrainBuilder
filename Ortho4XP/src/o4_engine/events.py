@@ -805,11 +805,13 @@ class PackAdjust(EngineEvent):
     the build modifies when a row still needs the user's answer, and as
     the completion of a ``pack_adjust`` command (capability
     ``pack_adjust``; it replies ``{"status": "started"}`` at once).
-    ``items`` is one ``{"key", "count", "uses", "automatic",
+    ``items`` is one ``{"key", "count", "uses", "automatic", "checked",
     "first_paths"}`` per adjustment that applies: ``"trees"`` (``count``
     old flat forest definitions with an X-Plane 12 3D equivalent),
     ``"drapes"`` (``count`` draped photo definitions over the airport,
-    ``uses`` their polygons) — each a checkbox, checked by default — and
+    ``uses`` their polygons), ``"ground"`` (#1962: large draped ground
+    textures over the airport) — each a checkbox, ticked when the
+    question opens as ``checked`` says (``ground`` is not) — and
     ``"flatten"`` (``automatic``: the apt.dat's ``1302 flatten 1`` is
     removed on every write; listed, never a choice).  ``state``:
 

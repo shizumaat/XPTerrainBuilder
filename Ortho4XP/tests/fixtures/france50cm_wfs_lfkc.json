@@ -1,0 +1,138 @@
+{
+ "_about": "#1944: IGN Geoplateforme WFS tile index for FRANCE50CM, recorded live 2026-11-09 at the LFKC inset bbox. The response is trimmed to 2 of the 11 features (numberMatched/numberReturned set to match).",
+ "bounding_box_wgs84": [
+  8.783434035449359,
+  42.51375863392884,
+  8.801006964550641,
+  42.54602326607116
+ ],
+ "refused": {
+  "url": "https://data.geopf.fr/wfs/ows?SERVICE=WFS&REQUEST=GetFeature&VERSION=2.0.0&TYPENAMES=IGNF_MNT-LIDAR-HD:dalle&outputFormat=application/json&count=120&bbox=42.51,8.77,42.54,8.81,urn:ogc:def:crs:EPSG::4326",
+  "status": 400,
+  "exception_text": "Unknown namespace [IGNF_MNT-LIDAR-HD]"
+ },
+ "request_url": "https://data.geopf.fr/wfs/ows?SERVICE=WFS&REQUEST=GetFeature&VERSION=2.0.0&TYPENAMES=IGNF_LIDAR-HD_METADONNEE:metadata&outputFormat=application/json&count=120&bbox=42.51375863392884,8.783434035449359,42.54602326607116,8.801006964550641,urn:ogc:def:crs:EPSG::4326",
+ "response": {
+  "type": "FeatureCollection",
+  "totalFeatures": 2,
+  "numberMatched": 2,
+  "numberReturned": 2,
+  "timeStamp": "2026-11-09T18:42:06.719Z",
+  "crs": {
+   "type": "name",
+   "properties": {
+    "name": "urn:ogc:def:crs:EPSG::4326"
+   }
+  },
+  "features": [
+   {
+    "type": "Feature",
+    "id": "metadata.412566",
+    "geometry": {
+     "type": "MultiPolygon",
+     "coordinates": [
+      [
+       [
+        [
+         8.80150441,
+         42.51702623
+        ],
+        [
+         8.81362304,
+         42.51636567
+        ],
+        [
+         8.81272933,
+         42.50740065
+        ],
+        [
+         8.80061256,
+         42.5080611
+        ],
+        [
+         8.80150441,
+         42.51702623
+        ]
+       ]
+      ]
+     ]
+    },
+    "geometry_name": "geom",
+    "properties": {
+     "capteur": "[\"RIEGL VQ-780 II-S:H2227189\"]",
+     "url_mnh": "https://data.geopf.fr/wms-r?SERVICE=WMS&VERSION=1.3.0&EXCEPTIONS=text/xml&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNH_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&FORMAT=image/geotiff&STYLES=&CRS=EPSG:2154&BBOX=1176999.75,6174000.25,1177999.75,6175000.25&WIDTH=2000&HEIGHT=2000&FILENAME=LHD_FXX_1177_6175_MNH_O_0M50_LAMB93_IGN78.tif",
+     "url_mns": "https://data.geopf.fr/wms-r?SERVICE=WMS&VERSION=1.3.0&EXCEPTIONS=text/xml&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNS_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&FORMAT=image/geotiff&STYLES=&CRS=EPSG:2154&BBOX=1176999.75,6174000.25,1177999.75,6175000.25&WIDTH=2000&HEIGHT=2000&FILENAME=LHD_FXX_1177_6175_MNS_O_0M50_LAMB93_IGN78.tif",
+     "url_mnt": "https://data.geopf.fr/wms-r?SERVICE=WMS&VERSION=1.3.0&EXCEPTIONS=text/xml&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&FORMAT=image/geotiff&STYLES=&CRS=EPSG:2154&BBOX=1176999.75,6174000.25,1177999.75,6175000.25&WIDTH=2000&HEIGHT=2000&FILENAME=LHD_FXX_1177_6175_MNT_O_0M50_LAMB93_IGN78.tif",
+     "url_npl": "https://data.geopf.fr/telechargement/download/LiDARHD-NUALID/NUALHD_1-0__LAZ_LAMB93_US_2025-04-02/LHD_FXX_1177_6175_PTS_LAMB93_IGN78.copc.laz",
+     "code_mission": "21LHDCorseUS",
+     "date_edition": "2025-04-02Z",
+     "nombre_points": 36434464,
+     "coordonnees_nw": "1177-6175",
+     "moa_acquisition": "IGN",
+     "moe_acquisition": "Sintegra",
+     "procede_classement": "ST_AUTO_MANUEL",
+     "date_fin_acquisition": "2021-05-19Z",
+     "systeme_altimetrique": "IGN78",
+     "moe_classement_manuel": "Sintegra",
+     "systeme_planimetrique": "LAMB93",
+     "date_debut_acquisition": "2021-05-18Z",
+     "moe_classement_automatique": "Sintegra"
+    }
+   },
+   {
+    "type": "Feature",
+    "id": "metadata.412570",
+    "geometry": {
+     "type": "MultiPolygon",
+     "coordinates": [
+      [
+       [
+        [
+         8.77815477,
+         42.52730863
+        ],
+        [
+         8.79027579,
+         42.52665072
+        ],
+        [
+         8.78938552,
+         42.51768541
+        ],
+        [
+         8.77726635,
+         42.51834322
+        ],
+        [
+         8.77815477,
+         42.52730863
+        ]
+       ]
+      ]
+     ]
+    },
+    "geometry_name": "geom",
+    "properties": {
+     "capteur": "[\"RIEGL VQ-780 II-S:H2227189\"]",
+     "url_mnh": "https://data.geopf.fr/wms-r?SERVICE=WMS&VERSION=1.3.0&EXCEPTIONS=text/xml&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNH_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&FORMAT=image/geotiff&STYLES=&CRS=EPSG:2154&BBOX=1174999.75,6175000.25,1175999.75,6176000.25&WIDTH=2000&HEIGHT=2000&FILENAME=LHD_FXX_1175_6176_MNH_O_0M50_LAMB93_IGN78.tif",
+     "url_mns": "https://data.geopf.fr/wms-r?SERVICE=WMS&VERSION=1.3.0&EXCEPTIONS=text/xml&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNS_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&FORMAT=image/geotiff&STYLES=&CRS=EPSG:2154&BBOX=1174999.75,6175000.25,1175999.75,6176000.25&WIDTH=2000&HEIGHT=2000&FILENAME=LHD_FXX_1175_6176_MNS_O_0M50_LAMB93_IGN78.tif",
+     "url_mnt": "https://data.geopf.fr/wms-r?SERVICE=WMS&VERSION=1.3.0&EXCEPTIONS=text/xml&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&FORMAT=image/geotiff&STYLES=&CRS=EPSG:2154&BBOX=1174999.75,6175000.25,1175999.75,6176000.25&WIDTH=2000&HEIGHT=2000&FILENAME=LHD_FXX_1175_6176_MNT_O_0M50_LAMB93_IGN78.tif",
+     "url_npl": "https://data.geopf.fr/telechargement/download/LiDARHD-NUALID/NUALHD_1-0__LAZ_LAMB93_US_2025-04-02/LHD_FXX_1175_6176_PTS_LAMB93_IGN78.copc.laz",
+     "code_mission": "21LHDCorseUS",
+     "date_edition": "2025-04-02Z",
+     "nombre_points": 33912737,
+     "coordonnees_nw": "1175-6176",
+     "moa_acquisition": "IGN",
+     "moe_acquisition": "Sintegra",
+     "procede_classement": "ST_AUTO_MANUEL",
+     "date_fin_acquisition": "2021-05-19Z",
+     "systeme_altimetrique": "IGN78",
+     "moe_classement_manuel": "Sintegra",
+     "systeme_planimetrique": "LAMB93",
+     "date_debut_acquisition": "2021-05-18Z",
+     "moe_classement_automatique": "Sintegra"
+    }
+   }
+  ]
+ }
+}

@@ -859,7 +859,8 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
             if piece.area < min_area:
                 dropped += 1
                 continue
-            if not _inside_gate(piece, gate, gate_near_m):
+            if not _inside_gate(piece, gate, gate_near_m,
+                                pavement_union if boundary is not None else None):
                 dropped += 1
                 continue
             out.append((ref if k == 0 else f"{ref}#{k}", piece))
@@ -897,9 +898,21 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
 PAD_GATE_MIN_FRACTION = 0.25
 
 
-def _inside_gate(piece, gate, near_m: float = 0.0) -> bool:
+def _inside_gate(piece, gate, near_m: float = 0.0, pavement=None) -> bool:
     """A pad piece is admitted by the AREA it has inside ``gate``, never by
     one representative point (#68).
+
+    A BUILDING ON THE AIRPORT'S OWN PAVEMENT IS THE AIRPORT'S (#1961):
+    ``pavement`` (the apt.dat pavement union the mint already holds) is a
+    second reading of "inside the airport" — a piece standing on it by the
+    same ``PAD_GATE_MIN_FRACTION`` of its area is admitted wherever the
+    author drew the ``130`` boundary.  The site: LFMN's boundary stops at
+    the airside, so the Terminal 1 cluster pad (32,708 m2, 43.66492,
+    7.21257) — 100 % on the pack's own apt.dat apron, 254 m outside the
+    boundary — was dropped with 17 more terminal pieces (85,423 m2 in all),
+    and the terminal stood on the apron with no pad.  A piece on no
+    pavement of the airport (the city blocks of the same pack, 0.4–6 km
+    out) is still dropped.
 
     A PACK BUILDING JUST OUTSIDE THE BOUNDARY GETS A PAD (owner RULINGS
     2026-10-04e (2), issue #336: "yes give the third cargo terminal a
@@ -913,6 +926,10 @@ def _inside_gate(piece, gate, near_m: float = 0.0) -> bool:
     inside = piece.intersection(gate).area if gate.intersects(piece) else 0.0
     if inside >= PAD_GATE_MIN_FRACTION * piece.area and inside > 0.0:
         return True
+    if pavement is not None and not pavement.is_empty and pavement.intersects(piece):
+        paved = piece.intersection(pavement).area
+        if paved > 0.0 and paved >= PAD_GATE_MIN_FRACTION * piece.area:
+            return True
     return near_m > 0.0 and inside == 0.0 and piece.distance(gate) <= near_m
 
 

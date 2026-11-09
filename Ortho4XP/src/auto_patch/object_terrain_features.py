@@ -1256,14 +1256,30 @@ class ClassificationResult:
         must never chain into a building pad).  Deliberately independent
         of ``exclusions``: the R4 y-bake feed is gated on which terrain
         adapters are ON, while a recognized structure stays out of the
-        building pool whichever adapter owns it."""
-        resources = {resource for _root, resource in self.exclusions}
+        building pool whichever adapter owns it.
+
+        An INTERIOR_CUTOUT is NOT terrain material here (owner RULINGS
+        2026-11-09a (15), #1961: "Try disabling that interior cutout
+        filter, object groups should stay and move together."): the
+        cutout has no emitter, so dropping it left LFMN's terminals
+        (40 resources) with no footprint ring.  Its resources stay in
+        the building pool — unless another recognition (tunnel, bridge,
+        another interface class, portal face) also claims them — even
+        while the split-level gate puts them on the R4 y-bake feed."""
+        cutout_only = {
+            resource
+            for interface in self.ground_interfaces
+            if interface.interface_class == INTERFACE_INTERIOR_CUTOUT
+            for resource in interface.object_resources}
+        resources = {resource for _root, resource in self.exclusions
+                     if resource not in cutout_only}
         for tunnel in self.tunnels:
             resources.update(tunnel.object_resources)
         for bridge in self.bridges:
             resources.update(bridge.object_resources)
         for interface in self.ground_interfaces:
-            if interface.interface_class != INTERFACE_FLAT_CONFIRMED:
+            if interface.interface_class not in (
+                    INTERFACE_FLAT_CONFIRMED, INTERFACE_INTERIOR_CUTOUT):
                 resources.update(interface.object_resources)
         for face in self.portal_faces:
             resources.update(face.object_resources)

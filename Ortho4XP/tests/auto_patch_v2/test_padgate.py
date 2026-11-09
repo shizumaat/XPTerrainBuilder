@@ -43,7 +43,7 @@ def test_wholly_inside_is_kept():
 def test_mint_loop_uses_the_area_gate():
     import inspect
     src = inspect.getsource(ev._pads)
-    assert "_inside_gate(piece, gate, gate_near_m)" in src
+    assert "_inside_gate(piece, gate, gate_near_m," in src
     assert "gate.contains(piece.representative_point())" not in src
 
 
@@ -58,3 +58,21 @@ def test_a_piece_just_outside_the_gate_is_admitted_within_near_m():
     assert not ev._inside_gate(box(95, 0, 195, 50), GATE, 1.0)
     from auto_patch_v2.classify.rules import load_rules
     assert load_rules().buildings.pad_gate_near_m == 1.0
+
+
+def test_a_piece_on_the_airports_own_pavement_is_inside_wherever_the_boundary_runs():
+    """#1961: LFMN's 130 boundary stops at the airside, and the Terminal 1
+    cluster pad — wholly on the pack's apt.dat apron, 254 m outside the
+    boundary — was dropped.  A piece standing on the airport's pavement by
+    ``PAD_GATE_MIN_FRACTION`` of its area is admitted; one on no pavement
+    (a city block of the same pack) is still dropped."""
+    pave = box(300, 0, 600, 300)                       # apron beyond the boundary
+    terminal = box(320, 20, 420, 120)                  # 100 % on it, 220 m out
+    assert not ev._inside_gate(terminal, GATE)         # the boundary alone
+    assert ev._inside_gate(terminal, GATE, 1.0, pave)
+    # a quarter on the pavement is the same floor the boundary uses
+    edge = box(250, 0, 330, 100)
+    share = edge.intersection(pave).area / edge.area
+    assert ev._inside_gate(edge, GATE, 1.0, pave) == (share >= ev.PAD_GATE_MIN_FRACTION)
+    assert not ev._inside_gate(box(700, 700, 800, 800), GATE, 1.0, pave)
+    assert not ev._inside_gate(box(280, 0, 300.5, 50), GATE, 1.0, pave)  # touches only

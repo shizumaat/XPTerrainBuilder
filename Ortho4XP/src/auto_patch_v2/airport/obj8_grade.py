@@ -658,13 +658,35 @@ def _roof_test(v: np.ndarray, used: np.ndarray, p: BasePlane,
         return None                            # a ROOF, never a base
     if frontage_m <= 0.0:
         return _dc.replace(p, support_fraction=frac)
-    trim = inside.buffer(frontage_m, join_style=2, mitre_limit=2.0)
+    trim = _near_points(inside, frontage_m)
     left = poly.difference(trim)
     if left.is_empty or float(left.area) <= 0.0:
         return _dc.replace(p, support_fraction=frac)
     return _dc.replace(p, polygon=left, support_fraction=frac,
                        trimmed_m2=round(area - float(left.area), 3),
                        area_m2=p.area_m2 * float(left.area) / area)
+
+
+def _near_points(pts: _t.Any, reach_m: float) -> _t.Any:
+    """The plan within ``reach_m`` of the points ``pts`` — the trim the
+    roof test cuts round a base plane's few lower vertices: one buffer
+    per DISTINCT point, unioned by cascade.
+
+    The same region as ``pts.buffer(reach_m)``, which GEOS builds by
+    noding every point's ring against every other ring at once — memory
+    that grows with the square of the points standing within ``reach_m``
+    of each other.  Issue #1980: a terminal-interior resource with 12,824
+    lower vertices inside a 343 m² mezzanine (128,805 distinct below the
+    plane, hull 6 % of it — a base, so trimmed) grew one pack worker past
+    20 GB and took a 128 GB machine into swap.  The cascade unions
+    neighbours pairwise, so each step nodes two small shapes."""
+    import shapely
+    xy = np.unique(shapely.get_coordinates(pts), axis=0)
+    # ``quad_segs=16``: ``Geometry.buffer``'s own default (the array
+    # ``shapely.buffer`` defaults to 8), so each disc is the one the
+    # multipoint buffer draws
+    return shapely.union_all(shapely.buffer(shapely.points(xy), reach_m, quad_segs=16,
+                                            join_style=2, mitre_limit=2.0))
 
 
 def _eroded(poly: _t.Any, erode_m: float) -> _t.Any:

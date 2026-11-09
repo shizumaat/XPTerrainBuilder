@@ -14,6 +14,7 @@ no line at all.  These twins pin the three halves of the fix:
 """
 from __future__ import annotations
 
+import sys
 import time
 
 import pytest
@@ -180,7 +181,11 @@ def test_v2_progress_reports_seven_steps_and_beats_through_the_same_channel(ui_c
     beats = [p for p in printed if "still working" in p]
     assert len(beats) == 1
     assert beats[0].startswith("   Auto-patch: ZZZZ [3/7] Classifying & reading structures")
-    assert beats[0].endswith("door wells: sill witnesses 3/10 objects")
+    # the pulse, then the build's memory (issue #1980: the app shows what
+    # a growing step holds)
+    head, sep, _mem = beats[0].partition(" — memory ")
+    assert head.endswith("door wells: sill witnesses 3/10 objects")
+    assert sep or sys.platform == "win32"
     # the GUI event: the same call a banner makes, status "run", the beat's
     # text as the label, the percent unchanged from the step's
     beat_ev = [e for e in events if "still working" in e[3]]

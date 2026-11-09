@@ -13,9 +13,11 @@ get them — now writes, inside the tile's build folder:
 * ``build_logs/build_record.json``: one row per kept build — ``tile``,
   ``start`` / ``end`` (epoch seconds), ``duration``, ``outcome``
   (``ok`` / ``warnings`` / ``failed`` / ``stopped``), ``warnings`` (a
-  count), ``log`` (the file name) and ``builder``
+  count), ``log`` (the file name), ``builder``
   ``{tool, app_version, engine_version}`` (owner Q95: an older Ortho4XP
-  tile is told apart from an XPTerrainBuilder one, and versions apart).
+  tile is told apart from an XPTerrainBuilder one, and versions apart)
+  and, when the build selected airport packs, ``airports`` ``{icao:
+  {pack, custom, signature, apt_dat}}`` (#1958, ``O4_Tile_Staleness``).
 
 A grouped build folder holds several tiles, so every row and every log
 name carries its tile and retention counts per tile.
@@ -238,6 +240,16 @@ def _write_rows(build_dir, rows):
     os.replace(temporary, path)
 
 
+def _airport_packs(build_dir, log_name, tile):
+    """The airport packs the build fitted (#1958,
+    ``O4_Tile_Staleness.record_airports``); ``{}`` when none or unknown."""
+    try:
+        import O4_Tile_Staleness as STALE
+        return STALE.record_airports(build_dir, log_name, *tile)
+    except Exception:
+        return {}
+
+
 def _stamp(ts):
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(ts))
 
@@ -344,6 +356,9 @@ class TileBuildLogs:
                     "log": entry.name,
                     "builder": self._who or builder(),
                 }
+                airports = _airport_packs(entry.build_dir, entry.name, tile)
+                if airports:
+                    row["airports"] = airports
                 self._record(entry.build_dir, row)
         except Exception:
             pass

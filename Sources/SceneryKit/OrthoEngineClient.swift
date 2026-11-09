@@ -635,6 +635,9 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     public let resolvedDir: String?
     public let volume: String?
     public let volumeMounted: Bool?
+    /// Who built it (#1958, `O4_Tile_Info.built_here`): "xptb" for this
+    /// app, "other" for another tool's tile; nil from an older engine.
+    public let origin: String?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -669,7 +672,12 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         resolvedDir = object["resolved_dir"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         volume = object["volume"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         volumeMounted = object["volume_mounted"]?.boolValue
+        origin = object["origin"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
     }
+
+    /// Another tool built it (#1958): the map draws it as "other ortho".
+    /// An engine that predates `origin` says nothing, so it stays ours.
+    public var builtElsewhere: Bool { origin == "other" }
 
     /// The folder to show and reveal: resolved, else as scanned.
     public var folderPath: String { resolvedDir ?? buildDir }

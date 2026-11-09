@@ -219,6 +219,7 @@ CAPABILITIES: tuple = (
     "gateway_airports",             # 2026-11-09, #1989 GatewayAirports + gateway_airports
     "object_seat_groups",           # 2026-11-09, #1970 object_seat group + offset_m
     "patch_drop",                   # 2026-11-09, #1979 patch_drop_plan / patch_drop_install
+    "tile_staleness",               # 2026-11-09, #1958 tile_staleness (LibraryReady)
 )
 
 
@@ -899,7 +900,8 @@ class LibraryReady(EngineEvent):
     ``library_scan``, ``cache_sizes``, ``free_cache``, ``library_delete``,
     #1699's ``library_export_bundle`` / ``library_import_bundle``, and the
     patch library's ``library_check`` … ``library_signout``,
-    ``o4_engine.library.PATCH_LIBRARY_COMMANDS``): each replies
+    ``o4_engine.library.PATCH_LIBRARY_COMMANDS``, and the map's
+    ``tile_staleness``, #1958): each replies
     ``{"status": "started"}`` and does its work on a worker thread.
 
     ``request`` is the ``id`` of the command it answers, ``command`` its

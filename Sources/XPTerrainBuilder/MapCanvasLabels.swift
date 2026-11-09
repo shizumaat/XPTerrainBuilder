@@ -102,6 +102,12 @@ extension MapCanvasView {
                 let coord = BuildModel.TileCoord(lat: lat, lon: lon)
                 // On another drive (#1987): "Requires <drive>" top-right,
                 // below the mixed-imagery badge when that holds the corner.
+                // Its airport pack changed (#1958): "Stale: ICAO" bottom-right.
+                if built?[coord] != nil, let stale = buildModel.staleTiles[coord] {
+                    drawPill(stale.label, context: context,
+                             at: CGPoint(x: rect.maxX - 4, y: rect.maxY - 4),
+                             anchorTop: false, anchorRight: true)
+                }
                 if let volume = built?[coord]?.volume {
                     let drop: CGFloat = buildModel.conflictTiles.contains(coord)
                         ? Self.conflictBadgeClearance : 0

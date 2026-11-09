@@ -203,6 +203,7 @@ _SHARED: tuple[str, ...] = (
     "O4_Tile_Build_Log",
     "O4_Tile_Failures",
     "O4_Tile_Info",
+    "O4_Tile_Staleness",
     "O4_Tile_Volume",
     "O4_UI_Utils",
     "O4_Unmounted_Links",

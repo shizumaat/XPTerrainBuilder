@@ -18,6 +18,8 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     public static let patchRoles = "patch_roles"
     /// `patch_drop_plan` / `patch_drop_install` (#1979): flag only.
     public static let patchDrop = "patch_drop"
+    /// `tile_staleness` (#1958), after the freeze: flag only.
+    public static let tileStaleness = "tile_staleness"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

@@ -12,6 +12,7 @@ a revert starts it afresh.  No engine I/O happens here — the controller
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 import os
 import typing as _t
 
@@ -25,6 +26,10 @@ from o4_engine import patch_edit as PE
 
 __all__ = ["LoadedPatch", "PatchEditModel", "MODE_VIEW", "MODE_EDIT"]
 
+#: "Duplicate shape" (#1963) puts the copy this many metres east and south
+#: of the original (the Mac's ``PatchEditModel.duplicateOffsetM``).
+DUPLICATE_OFFSET_M = 10.0
+METRES_PER_DEGREE_LAT = 111_320.0
 MODE_VIEW = "View"
 MODE_EDIT = "Edit"
 
@@ -364,6 +369,26 @@ class PatchEditModel(QObject):
         done = self.perform("Slice", lambda doc: PE.slice_shape(doc, **args))
         if done:
             self.select_shapes({way, *({w.id for w in self.doc.ways} - before)})
+        return done
+
+    def duplicate_shapes(self) -> bool:
+        """"Duplicate shape" (#1963): copy the selected shapes (same tags and
+        elevations, new ids, no node shared with the original)
+        :data:`DUPLICATE_OFFSET_M` to the south-east as ONE step; the copies
+        end selected."""
+        ids = sorted(self.shape_selection)
+        if self.doc is None or not ids:
+            return False
+        # the longitude scale at the document's middle (the Mac's ``doc.frame``)
+        lats = [n[1] for n in self.doc.nodes.values()]
+        mid = (min(lats) + max(lats)) / 2 if lats else 0.0
+        dlat = -DUPLICATE_OFFSET_M / METRES_PER_DEGREE_LAT
+        dlon = DUPLICATE_OFFSET_M / (METRES_PER_DEGREE_LAT * max(math.cos(math.radians(mid)), 1e-6))
+        before = {w.id for w in self.doc.ways}
+        done = self.perform("Duplicate Shape" if len(ids) == 1 else "Duplicate Shapes",
+                            lambda doc: PE.duplicate_ways(doc, ids, dlat, dlon))
+        if done:
+            self.select_shapes({w.id for w in self.doc.ways} - before)
         return done
 
     def set_selection_alt(self, alt: float) -> bool:

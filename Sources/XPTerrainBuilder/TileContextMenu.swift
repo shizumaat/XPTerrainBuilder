@@ -9,12 +9,16 @@ import SceneryKit
 /// shape" and "Insert tunnel ramp" at the click, #1314 / #1745,
 /// `PatchInsertShape.swift`). In patch Edit mode the menu
 /// starts with Slice (#1318; Qt `PatchEditor.add_to_menu`), enabled only
-/// for two nodes of one shape that are not neighbours. The menu's items
+/// for two nodes of one shape that are not neighbours, then "Duplicate
+/// shape" (#1963), enabled with a shape selected. The menu's items
 /// target this object, so the caller keeps it alive while the menu is open.
 @MainActor
 final class TileContextMenu: NSObject {
     static let revealTitle = "Show in Finder"
     static let sliceTitle = "Slice"
+    /// "Duplicate shape" (#1963; Qt `DUPLICATE_SHAPE_TITLE`), after Slice.
+    static let duplicateShapeTitle = "Duplicate shape"
+    static let duplicateShapeRefusal = "Select a shape to duplicate."
     /// The patch editor's "Insert shape" (#1314; Qt `INSERT_SHAPE_TITLE`).
     static let insertShapeTitle = "Insert shape"
     /// "Insert tunnel ramp" (#1745; Qt `INSERT_RAMP_TITLE`).
@@ -44,6 +48,14 @@ final class TileContextMenu: NSObject {
                 slice.toolTip = "\(error)"
             }
             menu.addItem(slice)
+            let duplicate = NSMenuItem(title: Self.duplicateShapeTitle, action: #selector(duplicateShape),
+                                       keyEquivalent: "")
+            duplicate.target = self
+            if patch.shapeSelection.isEmpty {
+                duplicate.isEnabled = false
+                duplicate.toolTip = Self.duplicateShapeRefusal
+            }
+            menu.addItem(duplicate)
             menu.addItem(.separator())
         }
         for (k, copy) in copies.enumerated() {
@@ -71,6 +83,10 @@ final class TileContextMenu: NSObject {
 
     @objc private func sliceShape() {
         patch?.sliceSelection()
+    }
+
+    @objc private func duplicateShape() {
+        patch?.duplicateShapes()
     }
 
     @objc private func copyItem(_ sender: NSMenuItem) {

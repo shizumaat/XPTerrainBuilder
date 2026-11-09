@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import signal
 import subprocess
+import time
+import typing as _t
 
 import O4_Console_Encoding as _console
 import O4_External_Writes as _external_writes
 import O4_UI_Utils as _ui
 
-__all__ = ["DsfToolError", "exit_in_words", "run"]
+__all__ = ["DsfToolError", "exit_in_words", "run", "head"]
 
 #: How the DSFTool child is NAMED when its output path is declared to an
 #: armed shared-repo write guard (#159).
@@ -87,3 +89,41 @@ def run(args: list[str], *, writes: str | None = None,
         error.crashed = proc.returncode < 0
         raise error
     return proc.stdout or ""
+
+
+def head(args: list[str], stop: _t.Callable[[str], bool], *,
+         timeout: float = 60.0) -> list[str]:
+    """The lines DSFTool prints to stdout (``args`` naming ``-`` as the
+    output) before the first one ``stop`` accepts; the child is then
+    stopped — a header read (the definitions of a 300 MB dump) never
+    holds the whole text.  Writes nothing.  Raises :class:`DsfToolError`
+    when the tool cannot start, or ends non-zero before ``stop`` fired,
+    or runs past ``timeout``."""
+    try:
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL,
+                                **_console.native_tool_pipe(),
+                                **_ui.external_tool_keyword_arguments())
+    except OSError as exc:
+        raise DsfToolError(f"{' '.join(args[:2])} could not start: {exc}") from None
+    out: list[str] = []
+    started, stopped = time.monotonic(), False
+    try:
+        for line in proc.stdout:
+            if stop(line):
+                stopped = True
+                break
+            out.append(line.rstrip("\r\n"))
+            if time.monotonic() - started > timeout:
+                error = DsfToolError(f"{' '.join(args[:2])} did not finish "
+                                     f"within {timeout:g} s and was stopped")
+                error.timed_out = True
+                raise error
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.stdout.close()
+        proc.wait()
+    if not stopped and proc.returncode != 0:
+        raise DsfToolError(f"{' '.join(args[:2])} {exit_in_words(proc.returncode)}")
+    return out

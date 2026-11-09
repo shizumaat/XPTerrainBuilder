@@ -15,11 +15,12 @@ mode WED's "point" forests write, read in the corpus' Aerosoft dumps).
 ``(virtual path, height m)``, low to high.  The key is the target string
 the offer and the record carry.
 
-:data:`LOCAL_FOREST` — the 3D ``lib/g8`` forest a pack's OWN flat
-``.for`` maps to, by tree type and density read from the file
-(:func:`.pack_trees.local_forest_target`).  The file says nothing about
-climate or moisture, so the temperate, wet member of each type is used
-(the X-Plane 12 forests of the same names as the issue #1360 map).
+:data:`NAME_CLASS` / :data:`REGION_FAMILY` / :data:`PALM_FAMILY` — the
+REGION (issue #1965, :mod:`.pack_climate`): a generic tree (a name that
+says only conifer, broadleaf or palm, or a shape read) takes the species
+X-Plane 12 grows in the tile's climate.  A pack's OWN flat ``.for``
+takes the ``lib/g8`` forest of its type, density and climate
+(``pack_climate.g8_forest``).
 
 :data:`PLANTERS` — the X-Plane 12 3D GROUND cover a pack's own LOW
 vegetation maps to (owner 2026-11-06, issue #1920 follow-up: "use xp12
@@ -40,7 +41,8 @@ No row names an airport or a pack.
 """
 from __future__ import annotations
 
-__all__ = ["FAMILIES", "LOCAL_FOREST", "NAME_FAMILY", "TREE_WORDS",
+__all__ = ["FAMILIES", "NAME_FAMILY", "TREE_WORDS", "NAME_CLASS",
+           "REGION_FAMILY", "PALM_FAMILY",
            "PLANTERS", "LOW_CLASS", "GRASS_WORDS", "GRASS_M"]
 
 _T = "lib/vegetation/trees/"
@@ -100,6 +102,15 @@ FAMILIES: dict[str, tuple[tuple[str, float], ...]] = {
         (_T + "palm/coconut_palm_small.for", 5.6),
         (_T + "palm/coconut_palm_medium.for", 11.0),
         (_T + "palm/coconut_palm_big.for", 22.8)),
+    _T + "palm/date_palm_*.for": (
+        (_T + "palm/date_palm_small.for", 4.5),
+        (_T + "palm/date_palm_medium.for", 10.0),
+        (_T + "palm/date_palm_big.for", 18.0)),
+    # a tropical broadleaf: X-Plane 12's kapok (``thin`` is the middle size)
+    _T + "evergreen/kapok_*.for": (
+        (_T + "evergreen/kapok_tree_medium.for", 8.0),
+        (_T + "evergreen/kapok_tree_thin.for", 15.3),
+        (_T + "evergreen/kapok_tree_big.for", 26.0)),
 }
 
 #: a word of an object's file or texture name -> its family
@@ -133,18 +144,37 @@ NAME_FAMILY: dict[str, str] = {
 TREE_WORDS = frozenset({"tree", "trees", "veg", "vegetation", "forest",
                         "forests", "wood", "woods"}) | frozenset(NAME_FAMILY)
 
-#: (tree type, sparse) -> the X-Plane 12 3D forest for a pack's own flat
-#: ``.for``; type is ``broad`` | ``coni`` | ``mixed`` (a pack's own shrubs
-#: and grass map to :data:`PLANTERS`, never to X-Plane 12's ``shrb_*``
-#: forests, which are small trees, issue #1920)
-LOCAL_FOREST: dict[tuple[str, bool], str] = {
-    ("broad", False): "lib/g8/broad_tmp_wet.for",
-    ("broad", True): "lib/g8/broad_sp_tmp_wet.for",
-    ("coni", False): "lib/g8/coni_tmp_wet.for",
-    ("coni", True): "lib/g8/coni_sp_tmp_wet.for",
-    ("mixed", False): "lib/g8/mixed_tmp_wet.for",
-    ("mixed", True): "lib/g8/mixed_sp_tmp_wet.for",
+#: a GENERIC word of a name -> the tree class the region picks the
+#: species of (issue #1965; a species word keeps :data:`NAME_FAMILY`'s)
+NAME_CLASS: dict[str, str] = {
+    "conifer": "conifer", "coniferous": "conifer", "coni": "conifer",
+    "dec": "broadleaf", "decid": "broadleaf", "deciduous": "broadleaf",
+    "broadleaf": "broadleaf", "palm": "palm", "palms": "palm",
 }
+
+#: tree class -> X-Plane 12 temperature tier -> the species it grows
+#: there (``pack_climate.TEMPS``): in the tropics a conifer-shaped
+#: billboard is a palm and a broadleaf the kapok; Mediterranean narrow
+#: trees are cypresses and broadleaves oaks; the temperate defaults of
+#: issue #1710; birch in the cold
+REGION_FAMILY: dict[str, dict[str, str]] = {
+    "conifer": {"vhot": _T + "palm/palm_*.for",
+                "hot": _T + "palm/palm_*.for",
+                "wrm": _T + "evergreen/cypress_*.for",
+                "tmp": _T + "coniferous/spruce_*.for",
+                "cld": _T + "coniferous/spruce_*.for",
+                "vcld": _T + "coniferous/spruce_*.for"},
+    "broadleaf": {"vhot": _T + "evergreen/kapok_*.for",
+                  "hot": _T + "evergreen/kapok_*.for",
+                  "wrm": _T + "deciduous/oak_*.for",
+                  "tmp": _T + "deciduous/broadleaf_*.for",
+                  "cld": _T + "deciduous/birch_*.for",
+                  "vcld": _T + "deciduous/birch_*.for"},
+}
+
+#: a palm, by "a hot and wet climate": the coconut palm, else the date palm
+PALM_FAMILY: dict[bool, str] = {True: _T + "palm/palm_*.for",
+                                False: _T + "palm/date_palm_*.for"}
 
 _P = "lib/vegetation/planters/ground/"
 

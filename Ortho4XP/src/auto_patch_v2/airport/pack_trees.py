@@ -17,8 +17,10 @@ forest_mix_full.for``.  Neither had an X-Plane 12 3D equivalent in the
   the quads' vertical extent.  The species is the name's
   (:data:`.pack_trees_map.NAME_FAMILY`); a name with none is a conifer
   when its billboards are narrow (:data:`CONIFER_ASPECT`), broadleaf
-  otherwise, and shrubs under :data:`SHRUB_M`.  A real 3D tree (a mesh,
-  not quads) is never one.
+  otherwise, and shrubs under :data:`SHRUB_M`.  A generic class (no
+  species word) takes the species of the tile's climate
+  (:func:`object_family`, issue #1965: a narrow billboard in the tropics
+  is a palm).  A real 3D tree (a mesh, not quads) is never one.
 * THE UPGRADE OF ONE — :func:`convert_objects`: X-Plane 12 exports no 3D
   tree object, only per-species 3D FORESTS, so each placement of the
   object becomes POINT forests (one point per tree, parameter
@@ -26,7 +28,9 @@ forest_mix_full.for``.  Neither had an X-Plane 12 3D equivalent in the
   height; the object's definition and its rows leave the DSF.
 * A PACK'S OWN FLAT ``.for`` — :func:`local_forest_target`: tree type
   from its ``TREE`` rows (narrow billboards are conifers; a mix of both
-  is ``mixed``), sparse from ``SPACING``.  LOW VEGETATION (a mean
+  is ``mixed``), sparse from ``SPACING``, the ``lib/g8`` forest of that
+  type in the tile's climate (:mod:`.pack_climate`); one the name calls
+  a palm takes the region's palm species.  LOW VEGETATION (a mean
   height under ``SHRUB_M + 1``, or every tree under
   :data:`GROUND_COVER_M`) never maps to X-Plane 12's 3D shrub forests,
   which are small trees (issue #1920); it maps by its own class
@@ -52,18 +56,19 @@ import numpy as np
 
 from .obj8 import _to_frame, parse_obj8, resolve_resource
 from .pack_art import MissingDef, declared_definitions, omit_definitions
+from .pack_climate import Climate, g8_forest, regional_family
 from .pack_trees_map import (
     FAMILIES,
     GRASS_WORDS,
-    LOCAL_FOREST,
     LOW_CLASS,
+    NAME_CLASS,
     NAME_FAMILY,
     PLANTERS,
     TREE_WORDS,
 )
 
 __all__ = ["FlatTrees", "flat_trees", "local_forest_target", "for_top_m",
-           "name_words",
+           "name_words", "object_family",
            "convert_objects", "body_base", "POINT_FOREST"]
 
 #: quads whose plan centres are this close are one tree
@@ -93,10 +98,21 @@ _BODY = re.compile(r"__b\d+(?:_[0-9a-f]+)?\.obj$", re.IGNORECASE)
 @_dc.dataclass(frozen=True)
 class FlatTrees:
     """The trees of one flat tree object: ``family`` (a
-    :data:`.pack_trees_map.FAMILIES` key) and ``(x, z, height)`` each."""
+    :data:`.pack_trees_map.FAMILIES` key, the temperate choice) and
+    ``(x, z, height)`` each; ``cls`` is the generic class
+    (:data:`.pack_trees_map.NAME_CLASS`) when no species word named it,
+    so the region picks the species (:func:`object_family`)."""
 
     family: str
     trees: tuple[tuple[float, float, float], ...]
+    cls: str = ""
+
+
+def object_family(ft: FlatTrees, climate: Climate | None) -> str:
+    """The X-Plane 12 family a flat tree object takes in ``climate``
+    (issue #1965): its species when its name gives one, else its class's
+    species in the region."""
+    return (regional_family(ft.cls, climate) or ft.family) if ft.cls else ft.family
 
 
 def name_words(path: str) -> set[str]:
@@ -175,16 +191,23 @@ def _cluster(q: np.ndarray) -> list[list[float]]:
     return trees
 
 
-def _family(words: _t.Iterable[str], q: np.ndarray, heights: list[float]) -> str:
-    for w in sorted(words):
-        if w in NAME_FAMILY:
-            return NAME_FAMILY[w]
+def _family(words: _t.Iterable[str], q: np.ndarray, heights: list[float]
+            ) -> tuple[str, str]:
+    """``(family, generic class)``: a species word wins, then a generic
+    word, then the billboards' shape (the class ``""`` for a species)."""
+    words = sorted(words)
+    for w in words:
+        if w in NAME_FAMILY and w not in NAME_CLASS:
+            return NAME_FAMILY[w], ""
+    for w in words:
+        if w in NAME_CLASS:
+            return NAME_FAMILY[w], NAME_CLASS[w]
     aspect = float(np.median(q[:, 4] / np.maximum(q[:, 3] - q[:, 2], 1e-6)))
     if aspect < CONIFER_ASPECT:
-        return NAME_FAMILY["conifer"]
+        return NAME_FAMILY["conifer"], "conifer"
     if heights and float(np.median(heights)) < SHRUB_M:
-        return NAME_FAMILY["shrub"]
-    return NAME_FAMILY["broadleaf"]
+        return NAME_FAMILY["shrub"], ""
+    return NAME_FAMILY["broadleaf"], "broadleaf"
 
 
 def flat_trees(path: str) -> FlatTrees | None:
@@ -220,8 +243,8 @@ def _read_trees(path: str) -> FlatTrees | None:
     if not trees:
         return None
     heights = [t[3] - t[2] for t in trees]
-    fam = _family(sorted(words) + sorted(name_words(tex)), q, heights)
-    return FlatTrees(fam, tuple((t[0], t[1], t[3] - t[2]) for t in trees))
+    fam, cls = _family(sorted(words) + sorted(name_words(tex)), q, heights)
+    return FlatTrees(fam, tuple((t[0], t[1], t[3] - t[2]) for t in trees), cls)
 
 
 def _size_for(family: str, height: float) -> str:
@@ -265,9 +288,10 @@ def for_top_m(path: str) -> float | None:
     return None if read is None else max(r[2] for r in read[1])
 
 
-def local_forest_target(path: str) -> str:
-    """The X-Plane 12 3D forest for a pack's own flat ``.for``; ``""``
-    for ground cover or an unreadable file (module doc)."""
+def local_forest_target(path: str, climate: Climate | None = None) -> str:
+    """The X-Plane 12 3D forest for a pack's own flat ``.for`` in
+    ``climate`` (``None``: the temperate default); ``""`` for ground
+    cover or an unreadable file (module doc)."""
     read = _read_for(path)
     if read is None:
         return ""
@@ -283,11 +307,15 @@ def local_forest_target(path: str) -> str:
         # aspen, locust) — the owner's LGAV read: grass by the runways
         # came out as small trees.  Shrubs take barberry; grass keeps its own.
         return _planter(low_class(path, top, coni))
-    if name_words(path) & GRASS_WORDS:
+    words = name_words(path)
+    if words & GRASS_WORDS:
         return ""           # tall reeds or grass are never trees
+    if any(w.startswith("palm") for w in words):
+        # a palm stays a palm, the region's (issue #1965)
+        return _size_for(regional_family("palm", climate), tall)
     kind = ("coni" if coni >= 0.75 else "broad" if coni <= 0.25 else "mixed")
     sparse = bool(spacing) and sum(spacing) / 2 > SPARSE_SPACING_M
-    return LOCAL_FOREST[(kind, sparse)]
+    return g8_forest(kind, sparse, climate)
 
 
 def low_class(path: str, top: float, coni: float) -> str:

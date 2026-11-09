@@ -38,6 +38,8 @@ from __future__ import annotations
 
 import typing as _t
 
+from ..geom.rotated_rect import rotated_rectangle
+
 __all__ = ["floor_share", "footing_refusal"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
@@ -57,7 +59,7 @@ def _plate_length(plate) -> float:
     """The long side of ``plate``'s minimum rotated rectangle; 0 when empty."""
     if plate is None or plate.is_empty:
         return 0.0
-    r = plate.minimum_rotated_rectangle
+    r = rotated_rectangle(plate)
     xy = list(getattr(r, "exterior", r).coords)
     if len(xy) < 3:
         return 0.0

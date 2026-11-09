@@ -627,7 +627,7 @@ cfg_tile_vars = {
     "inland_shore_feather_m": {
         "type": float,
         "default": 120.0,
-        "hint": "How far, in meters, inland water eases from opaque orthophoto at its shoreline down to the constant ratio_water blend. The feather never continues toward open-water transparency - mapped inland water (lagoons, lakes near the coast) keeps orthos visible under water everywhere. 0 restores the historic hard shoreline. Only squares the masks step covers are feathered (inland water near the sea); far-inland lakes keep the constant blend either way.",
+        "hint": "How far, in meters, inland water eases from opaque orthophoto at its shoreline down to the constant ratio_water blend. The feather never continues toward open-water transparency - mapped inland water (lakes, rivers, reservoirs, lagoons) keeps orthos visible under water everywhere. Every inland shoreline is feathered, near the sea or far inland: the masks step builds a mask for each square that holds an inland shore. 0 restores the historic hard shoreline (and builds no inland-only masks).",
     },
     "masking_mode": {
         "type": str,

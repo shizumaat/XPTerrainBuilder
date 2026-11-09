@@ -1711,10 +1711,10 @@ def _build_dsf_body(tile, download_queue):
             if is_overlay:
                 overlay_terrains.add(terrain_idx)
             # Inland shore feather: when the masks step built a mask for
-            # this texture (inland water near the sea), the inland
-            # overlay blends through it — soft shorelines, floored at
-            # the ratio_water grey by the mask itself.  Far-inland
-            # squares have no mask and keep the constant blend.
+            # this texture (any square holding an inland shore, #1981),
+            # the inland overlay blends through it — soft shorelines,
+            # floored at the ratio_water grey by the mask itself.
+            # Squares without one keep the constant blend.
             inland_mask_border = False
             if (
                 tri_type == 1

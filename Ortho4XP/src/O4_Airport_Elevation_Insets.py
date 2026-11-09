@@ -186,6 +186,7 @@ from elevation_access.warp import (
     INSET_MIN_RELIEF_M, inset_carries_no_relief, inset_valid_fraction)
 from elevation_access.provider_fill import (
     declared_provider_fills, mask_provider_fill)
+from elevation_access.sentinel_smear import mask_sentinel_smear
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
@@ -1265,11 +1266,17 @@ def _fetch_masking_provider_fill(strategy, definition, bounding_box_wgs84,
 def mask_fetched_provider_fill(raster_path, definition, label=None):
     """Mask ``definition``'s fill in ``raster_path`` (fresh or CACHED)
     and say so in one line; the masked record, or ``None`` when there was
-    no fill.  Bathymetry is not judged: its 0 m is the waterline."""
+    no fill.  Bathymetry is not judged: its 0 m is the waterline.
+
+    The same pass masks the SENTINEL SMEAR (#1956,
+    :mod:`elevation_access.sentinel_smear`): the rim an undeclared fill
+    value leaves in the first pixels of ground after the warp blended it
+    in -- the coastal pits LICJ and LICC were baked with."""
     if (definition or {}).get("role") == ROLE_BATHYMETRY:
         return None
     if not os.path.isfile(raster_path):
         return None
+    _mask_fetched_sentinel_smear(raster_path, definition, label)
     record = mask_provider_fill(
         raster_path, declared_provider_fills(definition),
         before_write=lambda path: EXTWRITE.declare_external_write(
@@ -1284,6 +1291,25 @@ def mask_fetched_provider_fill(raster_path, definition, label=None):
                (definition or {}).get("code"),
                100.0 * record["masked_fraction"], record["fill_value"],
                100.0 * record["valid_fraction"]),
+        )
+    return record
+
+
+def _mask_fetched_sentinel_smear(raster_path, definition, label):
+    """Mask the sentinel smear in ``raster_path`` and say so in one line."""
+    record = mask_sentinel_smear(
+        raster_path,
+        before_write=lambda path: EXTWRITE.declare_external_write(
+            path, writer="the sentinel-smear mask"))
+    if record is not None:
+        UI.vprint(
+            1,
+            "    [insets] %s from %s: %d rim pixel(s) carried a leaked fill "
+            "value blended in by the warp (down to %.1f m) - masked as "
+            "nodata (#1956)."
+            % (label or os.path.basename(raster_path),
+               (definition or {}).get("code"), record["masked_pixels"],
+               record["deepest_m"]),
         )
     return record
 

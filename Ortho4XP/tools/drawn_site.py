@@ -800,17 +800,26 @@ class OtherSurfaces:
         bad = np.array([k for k, key in enumerate(self._keys) if hit(key)], dtype=int)
         return np.isin(self._of, bad)
 
+    def _near(self, box) -> np.ndarray:
+        """The triangles whose plan box meets ``box`` ``(e0, n0, e1, n1)``."""
+        a = self._all
+        return ((a.mn[:, 0] <= box[2]) & (a.mx[:, 0] >= box[0])
+                & (a.mn[:, 1] <= box[3]) & (a.mx[:, 1] >= box[1]))
+
     def excluding(self, key, ci):
         """Per point ``(e, n)``, the highest surface of the components
         other than ``(key, ci)``; ``nan`` where none covers the point."""
         skip = self._skip(lambda k: k == (key, ci))
         return lambda e, n, below=None: self._all.highest(e, n, below, skip)
 
-    def support(self, key):
+    def support(self, key, box=None):
         """Per point ``(e, n, z)``, the highest surface of the OTHER
         placements standing no higher than ``z`` (what that point rests
-        on); ``nan`` where none."""
+        on); ``nan`` where none.  ``box`` (the asking placement's plan box)
+        bounds the triangles read."""
         skip = self._skip(lambda k: k[0] == key)
+        if box is not None:
+            skip |= ~self._near(box)
         return lambda e, n, below=None: self._all.highest(e, n, below, skip)
 
 
@@ -946,8 +955,14 @@ def measure_site(s: Site, items: list[dict], mesh: DrawnMesh,
             comps_out.append(rec)
     return {"name": s.name, "lat": s.lat, "lon": s.lon, "radius_m": s.radius_m,
             "mesh_z": rnd(mesh.z([s.lat], [s.lon])[0]), "components": comps_out,
-            "placements": [lowest_gap(pl, fr, mesh, solids.support(pl["key"]),
+            "placements": [lowest_gap(pl, fr, mesh,
+                                      solids.support(pl["key"], _plan_box(pl["V"])),
                                       None if pl["named"] else s.radius_m) for pl in placed]}
+
+
+def _plan_box(V: np.ndarray) -> tuple[float, float, float, float]:
+    return (float(V[:, 0].min()), float(V[:, 1].min()),
+            float(V[:, 0].max()), float(V[:, 1].max()))
 
 
 def lowest_gap(pl: dict, frame: Frame, mesh, support, clip_m: float | None) -> dict:

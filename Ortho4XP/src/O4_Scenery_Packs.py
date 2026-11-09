@@ -411,15 +411,46 @@ def _row_pack(line: str):
     return True, pack_name_from_ini_path(tokens[1])
 
 
+#: The folder prefix of an ortho tile this app builds (one per tile).
+_TILE_PREFIX = "zOrtho4XP_"
+
+
+def _tile_row_index(lines: list, name: str, end: int):
+    """Where a new ``zOrtho4XP_`` tile row goes, or ``None`` for any
+    other pack (#1988).  The user chose where their tile block sits, so
+    a new tile joins it at its alphabetical place: just after the last
+    tile row (enabled or disabled) whose name sorts before it, else just
+    before the first tile row.  With several blocks that is the block of
+    its alphabetical neighbours.  An ini with no tile row yet takes it
+    at ``end``, the bottom of the file."""
+    if not name.startswith(_TILE_PREFIX):
+        return None
+    key = name.lower()
+    first = after = None
+    for index in range(end):
+        _is_row, other = _row_pack(lines[index])
+        if not other or not other.startswith(_TILE_PREFIX):
+            continue
+        if first is None:
+            first = index
+        if other.lower() < key:
+            after = index + 1
+    if after is not None:
+        return after
+    return end if first is None else first
+
+
 def insert_new_packs(lines: list, new_names, kind_of) -> list:
     """File each pack in ``new_names`` into ``lines`` (edited in place)
     as an enabled row, in its kind's group (:data:`KIND_RANKS`).
 
     A new pack goes just before the first row of a LATER group — for an
     airport that is the Global Airports row — or at the end of the file.
-    Additions go in (rank, lower-case name) order.  Existing rows are
-    never moved or dropped.  ``kind_of(name)`` is a pack's kind, or
-    ``None`` for a row that takes no group (not on disk, unknown).
+    A ``zOrtho4XP_`` tile goes among the ini's tile rows instead
+    (:func:`_tile_row_index`, #1988).  Additions go in (rank, lower-case
+    name) order.  Existing rows are never moved or dropped.
+    ``kind_of(name)`` is a pack's kind, or ``None`` for a row that takes
+    no group (not on disk, unknown).
 
     :returns: the names added, in the order they were filed.
     """
@@ -446,13 +477,15 @@ def insert_new_packs(lines: list, new_names, kind_of) -> list:
     added = []
     for rank, name in additions:
         end = len(lines) - 1 if lines and lines[-1] == "" else len(lines)
-        at = end
-        if rank < max(KIND_RANKS.values()):
-            for index in range(end):
-                other = line_rank(lines[index])
-                if other is not None and other > rank:
-                    at = index
-                    break
+        at = _tile_row_index(lines, name, end)
+        if at is None:
+            at = end
+            if rank < max(KIND_RANKS.values()):
+                for index in range(end):
+                    other = line_rank(lines[index])
+                    if other is not None and other > rank:
+                        at = index
+                        break
         lines.insert(at, "SCENERY_PACK Custom Scenery/%s/" % name)
         added.append(name)
     return added

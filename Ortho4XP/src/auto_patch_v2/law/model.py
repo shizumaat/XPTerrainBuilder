@@ -664,6 +664,10 @@ class LoadLaw:
     #: boundary when it has none) — ``airport/borrow.py``.  0 = off,
     #: 1 = always where a Global block exists.
     pavement_borrow_coverage_max: float
+    #: #1957 (``airport/network_pages.py``): below this share of the taxi
+    #: network's length on the pavement sources, the §60 SURFACE pages are
+    #: taken as pavement sources.  0 = off.
+    network_pages_share_max: float
 
 
 @_dc.dataclass(frozen=True)
@@ -1218,6 +1222,10 @@ def _check_cross_refs(t: LawTables) -> None:
     if not (0.0 <= cbm <= 1.0):
         raise LawError(f"load.pavement_borrow_coverage_max {cbm} is not a "
                        "coverage fraction in [0, 1] (§44 (2))")
+    nps = t.structures.load.network_pages_share_max
+    if not (0.0 <= nps <= 1.0):
+        raise LawError(f"load.network_pages_share_max {nps} is not a "
+                       "share in [0, 1] (#1957)")
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
     so = t.precedence.structures.datum_order

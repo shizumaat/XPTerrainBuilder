@@ -1464,6 +1464,15 @@ gap_sheet_offplane_max_share = 0.01
 # OFF; at 1 it always fires where a Global block exists.
 pavement_borrow_coverage_max = 0.25
 
+# THE PAGES THAT CARRY THE TAXI NETWORK ARE THE PAVEMENT (#1957,
+# `airport/network_pages.py`).  When the pavement sources (painting row-110
+# polygons, name-admitted pages, §42 bodies, the §44 borrow) carry LESS than
+# this share of the non-runway 1202 network's length, the §60 SURFACE pages
+# are the pack's pavement and are taken as sources.  Measured on the
+# captures: LIME 0.069 (Aerosoft: every apron and taxiway a SURFACE page),
+# KBOI 0.281; HECA 0.999, OTHH 0.996, KATL 0.996, CYXY 0.971.  0 = off.
+network_pages_share_max = 0.5
+
 # ── THE BUILDING BASE PROFILE ────────────────────────────────────────────
 # base-profile spec §1 (owner RULINGS 2026-10-01f, answers 10-01k).  The
 # owner's order: "detect building's base shape and orientation (e.g. a

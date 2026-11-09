@@ -59,6 +59,7 @@ from ..airport.tunnel_objects import TunnelObjectStats
 from ..airport.door_wells import DoorStats
 from ..airport.sunken_roads import SunkenRoadStats
 from .pack_reads import pack_reads, ring_reads, wall_corridor_reads
+from ..airport.below_grade_witness import ground_of
 from ..airport.wall_corridors import WallCorridorStats
 from .door_ramps import door_groups, sunken_groups
 from .wall_corridor_ramps import wall_corridor_groups
@@ -318,7 +319,8 @@ def build(airport: Airport, classification: Classification, law: Law,
         # its decks are no hard-deck bridges here (#1883 r3 B2)
         decks, deck_notes = deck_bridges([o for o in objects if o.id not in floor_frame],
                                          cache, classification, airport, law,
-                                         tstats.trench_objects, level_b=level_b)
+                                         tstats.trench_objects, level_b=level_b,
+                                         ground=ground_of(airport, objects, cache, law))
     deck_notes = [f"level B: {level_b_note}",
                   *(f"level seed: {n}" for n in seed_notes), *deck_notes]
     cl_read = classification   # the roles before the cuts (``planar/cut_frame``)
@@ -329,7 +331,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        trenches=tstats.trench_objects,
                                                        deck_bridges=decks,
                                                        level_b=level_b,
-                                                       object_floors=floors)
+                                                       object_floors=floors,
+                                                       grade_ends=tstats.grade_ends)
     sstats.hard_decks.extend(deck_notes)
     # a pack deck over a pack object cut frames that cut (owner 2026-11-05
     # §0.5, ``planar/cut_frame``): its floor at the deck's seated zero

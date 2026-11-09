@@ -164,7 +164,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      portals: _t.Sequence = (), edge_bridges: _t.Sequence = (),
                      trenches: _t.Sequence = (), deck_bridges: _t.Sequence = (),
                      runs: _t.Mapping | None = None, level_b: float | None = None,
-                     object_floors: _t.Sequence = ()
+                     object_floors: _t.Sequence = (), grade_ends: _t.Sequence = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -190,7 +190,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     depth (``planar/level_depth``) a run-through's floor takes;
     ``object_floors`` the trench objects' own floors
     (``airport/object_floor``, #1903): each owns the ground inside its
-    footprint (``planar/object_floor_cells``)."""
+    footprint (``planar/object_floor_cells``); ``grade_ends`` the bore ends
+    a roofed pack object stands over at grade (``portal_objects.GradeEnd``,
+    RULINGS 2026-11-07b (1)): the bore enters that building."""
     args = (airport, classification, law, objects, corridors, extra_groups, plates, channels)
     run_limits = dict(run_limits or {})
     at_cap = dict(at_cap or {})
@@ -272,7 +274,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     on_field = field_region_for(airport, law, cover_polygons(classification)
                                 + [c.footprint for c in corridors],
                                 corridors, deck_bridges,  # 27a (3): never a pack building
-                                portals=portals)
+                                portals=portals, grade_ends=grade_ends)
     stats.approach_corridors = len(on_field.corridor or ())
     stats.runway_bands = len(on_field.band or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
@@ -1363,7 +1365,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                 overlap_refused=overlap_refused, portals=portals,
                                 edge_bridges=edge_bridges, trenches=trenches,
                                 deck_bridges=deck_bridges, runs=runs, level_b=level_b,
-                                object_floors=object_floors)
+                                object_floors=object_floors, grade_ends=grade_ends)
     if not all(keep):
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]

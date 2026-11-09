@@ -152,6 +152,11 @@ REFRESH_SCOPES = (
 )
 
 
+#: The scope a write into the OWNER'S install carries (#1906): named by no
+#: ``--refresh-data`` scope, so nothing authorises it.
+OWNER_INSTALL = "owner_install"
+
+
 def install_relpath(path) -> str:
     """How an install write is NAMED in a refusal: ``Custom Scenery/...``
     when it is under one (so :func:`scope_of` maps it to ``pack_rebake``
@@ -1135,7 +1140,7 @@ class SharedRepoWriteGuard:
     def __init__(self, requested, root, repo=None, enabled: bool = True,
                  record_only: bool = False,
                  allow_library_index: bool = True,
-                 install_roots=()):
+                 install_roots=(), owner_roots=()):
         self.requested = set(requested or ())
         self.repo = Path(repo or DATA_REPO)
         self.enabled = bool(enabled)
@@ -1154,6 +1159,16 @@ class SharedRepoWriteGuard:
         #: install it builds against.
         self._install_roots = tuple(sorted({
             p for r in (install_roots or ())
+            for p in (os.path.abspath(os.fspath(r)),
+                      os.path.realpath(os.fspath(r)))}))
+        #: ABSOLUTE roots of the OWNER'S install (#1906): a write there
+        #: refuses under EVERY scope, ``pack_rebake`` included.  A lane
+        #: whose cfg redirects ``custom_scenery_dir`` names its scratch
+        #: tree in ``install_roots`` (writable under ``pack_rebake``);
+        #: the real install stays shut.  The only pack-write path into it
+        #: is ``tools/v2_rebake_replay.py plan --write-pack``.
+        self._owner_roots = tuple(sorted({
+            p for r in (owner_roots or ())
             for p in (os.path.abspath(os.fspath(r)),
                       os.path.realpath(os.fspath(r)))}))
         self.blocked: list = []
@@ -1186,6 +1201,8 @@ class SharedRepoWriteGuard:
         #: ``__enter__``; kept apart from ``_saved`` because that dict is
         #: restored onto the ``os`` module.
         self._saved_bz2 = None
+        #: ``io.open`` as it was before arming (``pathlib`` writes).
+        self._saved_io = None
 
     # ── the predicate ────────────────────────────────────────────────
     def _install_violation(self, abspath):
@@ -1208,6 +1225,9 @@ class SharedRepoWriteGuard:
         — which is correct, since no ``--refresh-data`` flag should ever
         let a build write the user's CIFP or Global Scenery.
         """
+        for root in self._owner_roots:
+            if abspath == root or abspath.startswith(root + os.sep):
+                return install_relpath(abspath), OWNER_INSTALL
         for root in self._install_roots:
             if abspath == root or abspath.startswith(root + os.sep):
                 rel = install_relpath(abspath)
@@ -1316,6 +1336,13 @@ class SharedRepoWriteGuard:
         self.blocked.append({"path": rel, "scope": scope, "via": how})
         if self.record_only:
             return                             # observe, let the call run
+        if scope == OWNER_INSTALL:
+            raise SharedRepoWriteBlocked(
+                f"BLOCKED: this build tried to {how} '{rel}' in the OWNER'S "
+                f"X-PLANE INSTALL, which no --refresh-data scope authorises "
+                f"(#1906, pack_rebake included).  A lane writes a pack COPY "
+                f"(build_airport.py --pack-copy DIR); the only write into "
+                f"the install is tools/v2_rebake_replay.py plan --write-pack.")
         where = ("the OWNER'S X-PLANE INSTALL"
                  if scope == "pack_rebake" or not str(rel).startswith(SHARED_DATA_DIRS)
                  else f"the SHARED data repo ({self.repo})")
@@ -1378,6 +1405,14 @@ class SharedRepoWriteGuard:
         if getattr(bz2, "_builtin_open", None) is not None:
             self._saved_bz2 = bz2._builtin_open
             bz2._builtin_open = _open
+        # THE pathlib HOLE (#1906, measured 2026-11-09 on Python 3.14):
+        # ``Path.open`` / ``write_bytes`` / ``write_text`` call ``io.open``,
+        # a module attribute this guard never patched, so every Path-based
+        # write passed unseen.  Looked up at call time, so patching the
+        # attribute covers every caller.
+        import io
+        self._saved_io = io.open
+        io.open = _open
 
         # The mutating path operations.  ``src``-side arguments are checked
         # too for the two-path calls: a rename OUT of the repo destroys the
@@ -1427,6 +1462,10 @@ class SharedRepoWriteGuard:
             import bz2
             bz2._builtin_open = self._saved_bz2
             self._saved_bz2 = None
+        if self._saved_io is not None:
+            import io
+            io.open = self._saved_io
+            self._saved_io = None
         if "open" in self._saved:
             builtins.open = self._saved.pop("open")
         if "os_open" in self._saved:

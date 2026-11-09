@@ -28,6 +28,16 @@ harness refuses on its own.
   Note `--allow-degraded-dem` does NOT authorise a write — accepting a
   worse measurement and authorising a change to everyone's data are
   different acts.
+- A write into the OWNER'S X-Plane install (#1906: on 2026-11-05 a lane
+  cfg redirected `custom_scenery_dir` to a scratch tree, the harness
+  overwrote the redirect with the owner's path, and `--refresh-data
+  pack_rebake` let the object stage rewrite KLAX HD, KAVX and KLGB):
+  a lane cfg's redirect now wins; the owner's install is read from the
+  owner's app cfg; `pack_rebake` is refused when any pack it would write
+  lies there; and the write guard refuses the owner's install under
+  EVERY scope, `pathlib` writes included. A lane writes a pack COPY
+  (`build_airport.py --tile --pack-copy DIR`); the only write into the
+  install is `tools/v2_rebake_replay.py plan --write-pack`.
 - Two lanes racing a cache regeneration: per-scope lock in the shared repo,
   refuse-and-report, never a silent block.
 - A guard-blocked write inside DEM prep silently DEGRADING the frame

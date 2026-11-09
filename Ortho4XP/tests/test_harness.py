@@ -5631,7 +5631,8 @@ def test_the_per_test_guard_and_the_mod_cache_overlay_are_LIVE(build_mod):
     if conftest._per_test_guard_mode() != "refuse":     # pragma: no cover
         pytest.skip("the permanent guard is off in this run "
                     "(O4_SUITE_WRITE_AUDIT / O4_ALLOW_SHARED_REPO_WRITES)")
-    assert builtins.open is not io.open, (
+    assert getattr(builtins.open, "__qualname__", "").startswith(
+            "SharedRepoWriteGuard"), (
         "the per-test shared-repo write guard is not installed — every "
         "test is free to write the corpus every lane mounts")
     overlay = os.environ.get("O4_AIRPORT_MOD_CACHE_DIR")

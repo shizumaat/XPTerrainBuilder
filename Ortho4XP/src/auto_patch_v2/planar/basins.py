@@ -30,6 +30,11 @@ THE ADMISSION RULE (law ``structures.toml [basin]``; RULINGS 2026-09-04i
    ground is a BUILDING standing on the pack's plane over real relief
    — REFUSED by resource with its height above the ground (LEMD's cargo
    terminal: slab 5.8 m under the local ground, walls 15 m above it).
+1b. A FLOOR, NOT A FOOTING (#1950/#1952, ``planar/basin_floor_width``):
+   a region is admitted only when a member's plate keeps
+   ``bank_band_plate_min`` of itself at ``footprint_close_m`` wide — a
+   retaining wall's footing strip (KMCI's border wall, ~1 m wide) is no
+   floor, whatever its depth.
 2. REGION — the union of the witnessing components' OUTER PLAN
    FOOTPRINTS (spec §24 (4), owner RULINGS 2026-09-13g: the wall face at
    the TOP of the walls, ``FloorWitness.outer``), closed at
@@ -171,6 +176,7 @@ from ..model.planar import is_gap_ref
 from ..model.structures import Basin, Tunnel
 from ..model import pulse as _pulse
 from . import basin_datum as _basin_datum
+from . import basin_floor_width as _floor_width
 from . import basin_rim as _basin_rim
 from .basin_geometry import (_floors, _floors_inside, _outer, _ramp_axis, _region_floor,
                              _renode, _rim, _snap_ring, shell_thickness_m)
@@ -529,6 +535,15 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         wits = [w for o in members for w in o.witnesses if _outer(w).intersects(ring)]
         member_ids = {o.id for o in members}
         rk, mk = ring.wkb, tuple(o.id for o in members)
+        # A PIT NEEDS A FLOOR (#1950/#1952): read on the MEMBER witnesses,
+        # before §24 (7) (a)'s buried plates join them
+        footing = _floor_width.footing_refusal(
+            bid, ring.area, wits, bl.footprint_close_m, bl.bank_band_plate_min, site,
+            [f"{o.id} {os.path.basename(o.path)}#{w.comp_index}" for o in members
+             for w in o.witnesses if _outer(w).intersects(ring)])
+        if footing is not None:
+            stats.refused.append(footing)
+            continue
         # §24 (7) (a): a sibling's buried plate inside this admitted region
         # is a floor witness OF THIS PIT — it witnesses depth, it does not
         # delimit the floor (that is the region, below)

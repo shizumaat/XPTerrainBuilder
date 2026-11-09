@@ -47,14 +47,16 @@ def _titles(cards):
     return [PRESETS.preset(key).title for key in cards.cards]
 
 
-def test_settings_shows_the_three_cards_and_balanced(window):
-    # An untouched global config is the registry defaults: Balanced.
+def test_settings_shows_the_three_cards_and_custom(window):
+    # An untouched global config is the registry defaults, which since
+    # #1985 match no preset (grading at ICAO airports, sharper imagery
+    # off): Custom, every card usable.
     cards = window.preset_cards
     assert _titles(cards) == ["Light on disk", "Balanced",
                               "Sharper airports"]
-    assert cards.current_key == "balanced"
-    assert cards.status_label.text() == "Current: Balanced"
-    assert not cards.buttons["balanced"].isEnabled()
+    assert cards.current_key is None
+    assert cards.status_label.text() == "Current: Custom"
+    assert all(button.isEnabled() for button in cards.buttons.values())
 
 
 def test_applying_a_preset_sets_exactly_its_keys(window):
@@ -101,9 +103,9 @@ def test_a_preset_with_a_tile_selected_applies_to_the_tile(
         assert "cover_airports_with_highres" not in SM.read_global_raw()
         raw = SM.read_tile_raw(48, -6, build_dir)
         assert raw["cover_airports_with_highres"] == "ICAO"
-        assert "cover_extent" not in raw   # 1.0 is the global: no override
+        assert raw["cover_extent"] == "0.0"   # the preset's over the global 1.0
         assert SM.values_equivalent(
-            "cover_extent", win.rows["cover_extent"].value(), "1.0")
+            "cover_extent", win.rows["cover_extent"].value(), "0.0")
         assert (win.zoom_target, win.selection_zl) == ("tiles", 16)
         assert win.preset_cards.current_key == "sharper_airports"
         assert not win.preset_cards.buttons["sharper_airports"].isEnabled()

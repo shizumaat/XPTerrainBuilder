@@ -266,6 +266,7 @@ PATCH_DATA_FILES: tuple[str, ...] = (
 PATCH_CODE_MODULES: tuple[str, ...] = (
     "O4_Airport_Apt_Identity",
     "O4_Airport_Batch",
+    "O4_Airport_Detail",
     "O4_Airport_Dico",
     "O4_Airport_Elevation_Insets",
     "O4_Airport_Fade_Masks",

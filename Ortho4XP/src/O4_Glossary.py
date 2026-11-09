@@ -43,6 +43,9 @@ TERMS = {
     # three steps together.
     "grading_airports": "Grading airports",
     "terrain_steps": "Map data, ground shape and water",
+    # The build zoom's row in Settings ▸ Imagery (#1985): "Detail" alone
+    # now names the airport Detail choice in General.
+    "imagery_detail": "Imagery detail",
 }
 
 # key -> the words it retires as a PRIMARY label (titles, buttons, toggles,

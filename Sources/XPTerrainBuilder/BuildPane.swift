@@ -252,7 +252,7 @@ struct BuildPane: View {
                     await buildModel.applyMeshOrder(for: active, action: action, pack: pack)
                 }
             }
-            detailRow(O4Glossary.term("detail"), zlText(info))
+            detailRow(O4Glossary.term("imagery_detail"), zlText(info))
             detailRow("Ground shaped", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))
             if info != nil {

@@ -201,34 +201,17 @@ private struct GeneralPane: View {
     /// The SAME predicate the first-run page and the engine use (beta plan
     /// §1 B2): Settings calling a folder valid that Build then rejects is
     /// the confusion this closes.
-    /// The Detail picker's entry while the selected tiles disagree.
-    private static let conflictTag = -1
-
     private var xplaneProblem: String? { XPlaneInstall.problem(at: xplanePath) }
     private var xplaneValid: Bool { xplaneProblem == nil }
 
     var body: some View {
         Form {
-            // The preset cards (#822): one click sets a fixed set of keys.
+            // The preset cards (#822): one click sets a fixed set of keys;
+            // under them the airport Detail choice (#1985). The build zoom
+            // is in Imagery.
             Section {
                 PresetCardsView()
-                // The build detail level (#1242): here, not in the build pane;
-                // the selection's (#1549), -1 while the tiles disagree.
-                let zoom = buildModel.selectionZoom
-                Picker(O4Glossary.term("detail"), selection: Binding(
-                    get: { zoom.value ?? Self.conflictTag },
-                    set: { zl in
-                        guard zl != Self.conflictTag else { return }
-                        buildModel.editSelection { buildModel.chooseZoom(zl) }
-                    })) {
-                    if zoom.isConflicting {
-                        Text(SettingsSelection.conflictText).tag(Self.conflictTag)
-                    }
-                    ForEach(12...21, id: \.self) { zl in
-                        Text(O4Glossary.detailChoice(zl)).tag(zl)
-                    }
-                }
-                .help("More detail means sharper imagery and much larger downloads: one step (one ZL) ≈ 4× the data. Most sources top out below ZL21 — the map's zoom badge shows each source's ceiling.")
+                AirportDetailPicker()
             }
             Section("Application") {
                 LabeledContent("Version") {
@@ -685,6 +668,10 @@ private struct CategoryPane: View {
             // above the cleanup settings (Qt: O4_Qt_Settings_Storage).
             if category.key == "storage" {
                 StorageSection()
+            }
+            // Imagery (#1985): the build zoom leads, moved from General.
+            if category.key == "imagery" {
+                Section { ImageryZoomPicker() }
             }
             // The selection's customizations for this category, pinned on
             // top with one-click revert (Qt's "This tile" section).

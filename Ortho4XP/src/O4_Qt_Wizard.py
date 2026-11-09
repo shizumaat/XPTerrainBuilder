@@ -260,7 +260,7 @@ class OnboardingWizard(QDialog):
         self.imagery_combo.setCurrentText(self.prefs.get("imagery", "BI"))
         row.addWidget(self.imagery_combo)
         row.addSpacing(16)
-        row.addWidget(ElidedRowLabel("%s:" % GLOSSARY.TERMS["detail"]))
+        row.addWidget(ElidedRowLabel("%s:" % GLOSSARY.TERMS["imagery_detail"]))
         self.zl_combo = DetailCombo(range(12, 19))
         may_be_squeezed(self.zl_combo, chars=2)
         self.zl_combo.setCurrentText(str(self.prefs.get("zl", 16)))

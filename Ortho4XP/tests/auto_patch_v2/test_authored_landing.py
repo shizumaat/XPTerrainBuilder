@@ -202,3 +202,30 @@ def test_a_placement_carrying_a_draped_slab_is_never_kept_by_rule_3():
     assert not splits and [k.reason for k in kept] == ["authored_seat_lands"]
     splits, kept = run(drape_comps=frozenset({0}), drape_law=object())
     assert len(splits) == 1 and not kept
+
+
+def test_a_kept_whole_placement_names_its_structure_unit():
+    """Owner RULINGS 2026-11-09a (15) ("stay and move together"): a
+    placement kept whole on its authored seat publishes the structure units
+    its bodies were seated in, its anchor and the zero it lands at — the
+    editor's object group joins it by them (#1970); one in no unit stays
+    a row of its own, as the plan wrote it before."""
+    from auto_patch_v2.airport import anchor_rule as AR
+    from auto_patch_v2.airport.placement_record import Kept, Split
+    from auto_patch_v2.model import placement as PM
+
+    def body(family, z):
+        a = AR.Anchor("other", 40.0, -3.0, 0.5, "r", surface_z=z, family=family)
+        return types.SimpleNamespace(anchor=a, lift_m=0.0)
+    rec = Split(7, "dsf:obj7", "objects/t2.obj", "", 40.0, -3.0, 0.0,
+                (body("fu:1:2/p1@pad", 10.5), body("fu:1:2/p0@pad", 10.52)))
+    k = Kept.of(rec, "dsf:obj7", "objects/t2.obj", "authored_seat_lands")
+    assert (k.units, k.lat, k.lon, k.zero_m) == (("fu:1:2/p0@pad", "fu:1:2/p1@pad"),
+                                                 40.0, -3.0, 10.0)
+    pk = PM.Kept(k.index, k.resource, k.reason, k.units, k.lat, k.lon, k.zero_m)
+    assert PM.Kept.from_dict(pk.to_dict()) == pk
+    lone = Kept.of(Split(8, "dsf:obj8", "objects/m.obj", "", 40.0, -3.0, 0.0,
+                         (body("", 10.5),)), "dsf:obj8", "objects/m.obj", "one_body")
+    assert PM.Kept(lone.index, lone.resource, lone.reason, lone.units, lone.lat,
+                   lone.lon, lone.zero_m).to_dict() == {
+        "index": 8, "resource": "objects/m.obj", "reason": "one_body"}

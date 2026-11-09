@@ -448,13 +448,30 @@ class Kept:
     index: int
     resource: str
     reason: str
+    #: owner RULINGS 2026-11-09a (15): the structure units its bodies were
+    #: seated in (the patch editor's object group joins it by them, #1970),
+    #: its anchor and the zero its authored row lands at (m MSL) — where a
+    #: group offset moves it from, as one whole
+    units: tuple[str, ...] = ()
+    lat: float | None = None
+    lon: float | None = None
+    zero_m: float | None = None
 
     def to_dict(self) -> dict[str, _t.Any]:
-        return {"index": self.index, "resource": self.resource, "reason": self.reason}
+        d: dict[str, _t.Any] = {"index": self.index, "resource": self.resource,
+                                "reason": self.reason}
+        if self.units:
+            d.update(units=list(self.units), lat=self.lat, lon=self.lon,
+                     zero_m=self.zero_m)
+        return d
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "Kept":
-        return cls(int(d["index"]), str(d["resource"]), str(d.get("reason", "")))
+        def opt(k: str) -> float | None:
+            return None if d.get(k) is None else _f(d[k])
+        return cls(int(d["index"]), str(d["resource"]), str(d.get("reason", "")),
+                   tuple(str(u) for u in d.get("units") or ()),
+                   opt("lat"), opt("lon"), opt("zero_m"))
 
 
 @_dc.dataclass(frozen=True)

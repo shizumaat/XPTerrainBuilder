@@ -188,6 +188,31 @@ class Kept:
     placement_id: str
     resource: str
     reason: str
+    #: owner RULINGS 2026-11-09a (15) ("stay and move together"): the
+    #: structure units (``family_of``) the kept placement's bodies were
+    #: seated in — the key the editor's object group joins it by — its
+    #: anchor, and the zero its seat was read at (the authored row lands
+    #: there, within ``authored_keep_tol_m``)
+    units: tuple[str, ...] = ()
+    lat: float | None = None
+    lon: float | None = None
+    zero_m: float | None = None
+
+    @classmethod
+    def of(cls, record: "Split", placement_id: str, resource: str,
+           reason: str) -> "Kept":
+        """``record`` (the placement's bodies as the plan read them) kept
+        whole for ``reason``."""
+        anchors = [(a, b) for b in record.bodies
+                   if (a := getattr(b, "anchor", None)) is not None]
+        zeros = [a.surface_z - (getattr(a, "y_zero", 0.0) or 0.0)
+                 + (getattr(b, "lift_m", 0.0) or 0.0)
+                 for a, b in anchors if getattr(a, "surface_z", None) is not None]
+        units = tuple(sorted({f for a, _b in anchors if (f := getattr(a, "family", ""))}))
+        if not units:
+            return cls(record.index, placement_id, resource, reason)
+        return cls(record.index, placement_id, resource, reason, units,
+                   record.lat, record.lon, round(min(zeros), 4) if zeros else None)
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"index": self.index, "id": self.placement_id,

@@ -397,7 +397,8 @@ def structure_records(airport, cl, law) -> dict:
                                             plates, channels, portals=tstats.portals,
                                             edge_bridges=bridges,
                                             trenches=tstats.trench_objects,
-                                            object_floors=floors)
+                                            object_floors=floors,
+                                            grade_ends=tstats.grade_ends)
     from .cut_frame import frame_cuts
     tunnels, _frame_notes = frame_cuts(tunnels, objects, cache, cl, airport, law,
                                        tstats.shell_covers)

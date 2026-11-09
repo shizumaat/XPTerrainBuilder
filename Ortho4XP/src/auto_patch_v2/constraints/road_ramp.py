@@ -19,7 +19,7 @@ import math
 import typing as _t
 
 from ..geom import exact
-from ..geom.ramp_grade import built_grade, least_grade
+from ..geom.ramp_grade import built_grade, grade_envelope, least_grade
 from ..law import Law
 from ..law.tables import family, role_cap
 from ..model.airport import Airport
@@ -81,11 +81,40 @@ def _link_level(straight: float, fl: float | None, depth: float,
     is cutting through relief no structure states, so the road climbs toward
     ``fl - depth`` at the built grade ``g`` from each end, as a bare exit
     climbs (RULINGS 2026-10-03b: a run bordering no airside pavement climbs
-    from the last bordered level).  A dip keeps the straight line."""
+    from the last bordered level).  A DIP is :func:`_link_dips`'."""
     if fl is None or straight >= float(fl) - depth:
         return straight
     reach = min(z + g * d for d, z in ends)
     return max(straight, min(float(fl) - depth, reach))
+
+
+def _link_dips(items: _t.Sequence[tuple[float, int]], known: _t.Sequence[tuple[float, float]],
+               floor: _t.Mapping[int, float], g: float) -> dict[int, float]:
+    """#1964: THE DIP UNDER A LINKED RUN.  Per run between two bordered
+    stations ``known[i - 1]`` / ``known[i]`` of one route, the ``g``-Lipschitz
+    upper envelope (:func:`~..geom.ramp_grade.grade_envelope`) of the two
+    end levels and the linked vertices' own targets ``floor`` — the road
+    leaving each end at the built grade and following its own ground
+    between, never falling faster than ``g``.  Where that stands UNDER the
+    straight line between the two levels the ground falls away under the
+    line, and the run borders no pavement there: it is BARE terrain
+    (RULINGS 2026-10-03b), so the road descends to it rather than ride the
+    line over it on a fill.  MEASURED KBTV (#1964, ``dsf:pol227`` /
+    ``small_roads:-428``): linked 375 m between two touches of apron
+    ``pav52`` at 91.47 / 91.52 m, the road stood straight at 91.45 m over
+    lidar falling to 84.1 m — 5.2 m over its ground at the owner's point and
+    1.4 m over the taxiway beside it, a ridge.  ``{v: envelope}`` for every
+    linked vertex with a target."""
+    out: dict[int, float] = {}
+    for i in range(1, len(known)):
+        (s0, z0), (s1, z1) = known[i - 1], known[i]
+        run = [(s_, v) for s_, v in items if s0 < s_ < s1 and v in floor]
+        if not run:
+            continue
+        ss = [s0, *(s_ for s_, _v in run), s1]
+        env = grade_envelope(ss, [z0, *(float(floor[v]) for _s, v in run), z1], g)
+        out.update((v, env[s_]) for s_, v in run)
+    return out
 
 
 def _far_end(run: _t.Sequence[tuple[float, float]], lane: float
@@ -592,7 +621,9 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       one end to the other); deeper, the road climbs from each
       end at the built grade (:func:`_link_level`, #1678 — KGCN
       ``small_roads:-67#2``, drawn 1.27 km straight between two aprons, stood
-      10 m under its lidar ground);
+      10 m under its lidar ground); over a DIP — its own ground falling
+      away under the line — it descends from each end at the built grade
+      and follows that ground (:func:`_link_dips`, #1964);
     * a run beyond the LAST bordered station of its route, past any pad
       frontage that continues it (held flat), is BARE: it climbs from that
       level toward its own §37 (6) target ``floor`` (the road exit, 29y /
@@ -647,6 +678,7 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     capped: set[int] = set()
     rep["ceiled"] = 0
     rep["link_lifted"] = 0
+    rep["link_dropped"] = 0
     g0 = cap if design is None else design
     for v, (a, b, u, _ref) in foot.items():
         if a in levels and b in levels:
@@ -683,6 +715,7 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
             else:
                 break
         import bisect
+        dips = _link_dips([it for it in items if it[1] not in lev], known, floor, g0)
         for s_, v in items:
             if v in lev:
                 out[v] = lev[v]
@@ -702,6 +735,11 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                 c0, c1 = (max(0.0, float(floor[e]) - lev[e]) if e in floor
                           else 0.0 for e in (v0, v1))
                 depth = c0 + t * (c1 - c0)
+                if dips.get(v, math.inf) < z0 + t * (z1 - z0):
+                    out[v] = dips[v]            # #1964: down into the dip
+                    rep["linked"] += 1
+                    rep["link_dropped"] += 1
+                    continue
                 out[v] = _link_level(z0 + t * (z1 - z0), floor.get(v), depth,
                                      ((s_ - s0, z0), (s1 - s_, z1)), g0)
                 rep["linked"] += 1

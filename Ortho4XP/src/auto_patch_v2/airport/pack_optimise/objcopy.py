@@ -34,6 +34,7 @@ import json
 import os
 import typing as _t
 
+from ..pack_health import light_records as _lr
 from . import shape as _sh
 
 __all__ = ["COPY_SUFFIX", "SMALL_M", "LOD_PER_M", "LOD_MIN_M", "LOD_MAX_M",
@@ -58,10 +59,11 @@ _BEFORE_LOD = frozenset({"ATTR_layer_group", "ATTR_layer_group_draped",
                          "ATTR_LOD_draped"})
 
 
-def copy_path(path: str) -> str:
-    """The copy of the declared ``path``."""
+def copy_path(path: str, suffix: str = COPY_SUFFIX) -> str:
+    """The copy of the declared ``path`` (``suffix``: the pack health
+    check passes its own)."""
     stem, _ext = os.path.splitext(path)
-    return stem + COPY_SUFFIX
+    return stem + suffix
 
 
 def _lod_distance(size_m: float) -> int:
@@ -151,7 +153,8 @@ def copy_text(phys: str, params: _t.Mapping[str, _t.Any]) -> str:
     with open(phys, encoding="latin-1", newline="") as fh:
         raw = fh.read()
     eol = "\r\n" if "\r\n" in raw else "\n"
-    lines = raw.split(eol)
+    # a malformed light is never copied (the pack health check, #1978)
+    lines = _lr.repair_lines(raw.split(eol))[0]
     spec = params.get("specular")
     if spec is not None:
         lines = [ln for ln in lines if ln.split()[:1] != ["ATTR_shiny_rat"]
@@ -222,9 +225,12 @@ def _header(line: str) -> bool:
                            "NO_BLEND", "ONE_SIDED", "NO_SHADOW", "COCKPIT_REGION"))
 
 
-def rename_rows(text: str, copies: _t.Mapping[str, _t.Any]) -> tuple[str, int]:
+def rename_rows(text: str, copies: _t.Mapping[str, _t.Any],
+                path_of: _t.Callable[[str], str] = copy_path
+                ) -> tuple[str, int]:
     """D3 (pure): ``text`` with each ``OBJECT_DEF`` that has a copy naming
-    it instead; every row keeps its index.  Returns the text and the
+    it (``path_of``: :func:`copy_path`; the pack health check passes its
+    own) instead; every row keeps its index.  Returns the text and the
     definitions renamed."""
     if not copies:
         return text, 0
@@ -235,7 +241,7 @@ def rename_rows(text: str, copies: _t.Mapping[str, _t.Any]) -> tuple[str, int]:
             path = raw[len("OBJECT_DEF "):].strip()
             if path in copies:
                 end = raw[len(raw.rstrip("\r\n")):]
-                out.append(f"OBJECT_DEF {copy_path(path)}{end}")
+                out.append(f"OBJECT_DEF {path_of(path)}{end}")
                 n += 1
                 continue
         out.append(raw)

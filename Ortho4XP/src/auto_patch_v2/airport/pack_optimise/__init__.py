@@ -53,7 +53,7 @@ __all__ = ["RECORD_KEY", "RECIPE_VERSION", "STEPS", "chosen_steps",
            "default_recipe", "build_recipe",
            "record", "recorded", "drop_ordinals", "apply_rows",
            "write_generated", "generated_of", "remove_generated",
-           "GENERATED_MARK"]
+           "write_if_changed", "GENERATED_MARK"]
 
 #: the key of the record row (``o4_placement_provenance.json``)
 RECORD_KEY = "pack_optimise"
@@ -216,7 +216,7 @@ def write_generated(pack_root: str, recipe: _t.Mapping[str, _t.Any]
         text = _sw.lights_text(src)
         if text is None:
             raise ValueError(f"{path}: its lights can no longer be read")
-        _write_if_changed(os.path.join(pack_root, *rel.replace("\\", "/").split("/")),
+        write_if_changed(os.path.join(pack_root, *rel.replace("\\", "/").split("/")),
                           text)
         out.append(rel.replace("\\", "/"))
     for rel, plan in sorted(((recipe or {}).get("textures") or {}).items()):
@@ -227,7 +227,7 @@ def write_generated(pack_root: str, recipe: _t.Mapping[str, _t.Any]
         rel = _oc.copy_path(path).replace("\\", "/")
         dst = os.path.join(pack_root, *rel.split("/"))
         if not _current_copy(dst, _oc.stamp(src, params)):
-            _write_if_changed(dst, _oc.copy_text(src, params), "latin-1")
+            write_if_changed(dst, _oc.copy_text(src, params), "latin-1")
         out.append(rel)
     return out
 
@@ -243,7 +243,9 @@ def _current_copy(path: str, stamp: str) -> bool:
     return head[3].strip() == f"# o4opt {stamp}"
 
 
-def _write_if_changed(path: str, text: str, encoding: str = "utf-8") -> None:
+def write_if_changed(path: str, text: str, encoding: str = "utf-8") -> None:
+    """Write ``text`` to ``path`` through a temp file, unless the file
+    already holds exactly those bytes."""
     data = text.encode(encoding)
     try:
         with open(path, "rb") as fh:
@@ -257,22 +259,26 @@ def _write_if_changed(path: str, text: str, encoding: str = "utf-8") -> None:
     os.replace(tmp, path)
 
 
-def generated_of(entry: _t.Mapping[str, _t.Any] | None) -> list[str]:
-    """The pack-relative files a DSF's record says the recipe wrote."""
-    row = (entry or {}).get(RECORD_KEY)
+def generated_of(entry: _t.Mapping[str, _t.Any] | None,
+                 key: str = RECORD_KEY) -> list[str]:
+    """The pack-relative files a DSF's record (under ``key``; the pack
+    health check passes its own) says the recipe wrote."""
+    row = (entry or {}).get(key)
     files = row.get("generated") if isinstance(row, dict) else None
     return [f for f in (files or ()) if isinstance(f, str)]
 
 
-def remove_generated(pack_root: str, rels: _t.Iterable[str]) -> list[str]:
+def remove_generated(pack_root: str, rels: _t.Iterable[str],
+                     mark: str = GENERATED_MARK) -> list[str]:
     """Remove the recipe's files ``rels`` (pack-relative); only a name
-    carrying :data:`GENERATED_MARK` inside the pack is ever touched, so a
-    vendor file never is.  Returns those removed."""
+    carrying ``mark`` (:data:`GENERATED_MARK`; the pack health check's
+    copies pass theirs) inside the pack is ever touched, so a vendor file
+    never is.  Returns those removed."""
     root = os.path.abspath(pack_root) + os.sep
     gone: list[str] = []
     for rel in sorted(set(rels)):
         path = os.path.abspath(os.path.join(pack_root, *rel.split("/")))
-        if (GENERATED_MARK in os.path.basename(path) and path.startswith(root)
+        if (mark in os.path.basename(path) and path.startswith(root)
                 and os.path.isfile(path)):
             os.remove(path)
             gone.append(rel)

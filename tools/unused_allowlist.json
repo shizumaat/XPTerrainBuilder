@@ -143,5 +143,10 @@
   "path": "Ortho4XP/src/auto_patch/engine_v2.py",
   "name": "fresh_pack_dump",
   "reason": "one tile's pack dump: the build reaches it through fresh_pack_dumps (#1645, every tile the airport touches) via _pack_dump_naming_its_pack; kept public for the single-tile dump twins (test_dsf_dump_atomic, test_tile_failures)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_health/objects.py",
+  "name": "remove",
+  "reason": "reached as a package attribute (`_ph.objects.remove(...)` in airport/dsf_write.py and auto_patch/object_rebake.py), which the name scan does not follow"
  }
 ]

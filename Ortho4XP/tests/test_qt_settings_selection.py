@@ -28,12 +28,13 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 import O4_Settings_Model as SM  # noqa: E402
+import O4_Settings_Presets as PRESETS  # noqa: E402
 import O4_Settings_Selection as SEL  # noqa: E402
 from O4_Qt_Settings import SettingsWindow  # noqa: E402
 
 A, B = (48, -6), (49, -6)
-SHARPER = {"cover_airports_with_highres": "ICAO", "cover_zl": "18",
-           "cover_extent": "1.0"}
+#: Sharper airports' config keys (its Detail ICAO keys included, #1985).
+SHARPER = PRESETS.cfg_values(PRESETS.preset("sharper_airports"))
 
 
 @pytest.fixture(scope="module")
@@ -180,7 +181,7 @@ def test_preset_use_applies_to_every_selected_tile(env):
     for tile in (A, B):
         raw = env.raw(tile)
         assert raw["cover_airports_with_highres"] == "ICAO"
-        assert "cover_extent" not in raw
+        assert raw["cover_extent"] == "0.0"   # the preset's, not the global
     assert "cover_airports_with_highres" not in SM.read_global_raw()
     assert (win.zoom_target, win.selection_zl) == ("tiles", 16)
     assert win.preset_cards.current_key == "sharper_airports"

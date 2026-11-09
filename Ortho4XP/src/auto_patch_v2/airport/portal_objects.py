@@ -232,8 +232,44 @@ def _ground_covers_roof(roof, end_xy: XY, dem_z, law) -> "float | None":
         else None
 
 
+class _GradeEnd(_t.NamedTuple):
+    """A mapped bore END a roofed pack object stands over AT GRADE — a
+    building on the road (a toll booth, a canopy), refused as a portal by
+    :func:`_at_grade`: the bore enters that building, it is no terrain
+    tunnel (``planar/structure_service``'s (a), #1972)."""
+
+    end_xy: XY
+    way_id: int
+    object_id: str
+    resource: str
+    why: str
+
+
+def _at_grade(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, roof, law,
+              ground) -> str:
+    """Why a roofed portal candidate ``o`` stands ON the author's ground —
+    its lowest genuine solid under the author's ground around its roof by
+    less than ``floor_sunken_min_m`` (``airport/below_grade_witness``, owner RULINGS
+    2026-11-07b (1)) — or ``""``.  A portal says the road at its zero runs
+    under the ground that stands on its roof; where the ground around it
+    stands at its zero it is a building over the road at grade (KDEN's toll
+    booths, #1972), and its roof top states no depth."""
+    if ground is None or roof is None or roof.is_empty:
+        return ""
+    from .below_grade_witness import depth_under, zero_of
+    low = min((c.min_y for c in cache.genuine(o.resolved)), default=0.0)
+    b = depth_under(zero_of(o, ground.msl) + low, roof, {o.id}, ground, law)
+    floor = law.tables.structures.tunnel.object.floor_sunken_min_m
+    if not b.depth < floor:
+        return ""
+    return (f"roofed over a bore end, but it stands on the author's ground — {b.why} < "
+            f"floor_sunken_min_m {floor:g}: a building over the road at grade, not a "
+            f"portal (RULINGS 2026-11-07b (1), #1972)")
+
+
 def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
-                 law, tunnel_ways, taken: _t.AbstractSet[str] = frozenset(), dem_z=None
+                 law, tunnel_ways, taken: _t.AbstractSet[str] = frozenset(), dem_z=None,
+                 ground=None, at_grade: "list[_GradeEnd] | None" = None
                  ) -> tuple[list[Portal], list[str]]:
     """Every pack portal standing over a mapped bore end, and one refusal
     line per roofed-looking candidate that is not one.  ``dem_z`` (the
@@ -241,7 +277,10 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
     portal only where the surveyed ground stands on it
     (:func:`_ground_covers_roof`; owner 2026-11-04 ENTC "seating at the
     bottom of a ramp sized to the object"), a building on the bore where
-    it does not."""
+    it does not.  ``ground`` (``airport/below_grade_witness.ground_of``) reads every
+    other roofed one: a portal only where it stands under the author's
+    ground (:func:`_at_grade`); the bore ends one stands over at grade are
+    appended to ``at_grade``."""
     tn = law.tables.structures.tunnel
     tol = float(tn.object.bore_end_tolerance_m)
     ends = _ends(tunnel_ways)
@@ -307,6 +346,13 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                            f"not a portal")
             continue
         cover: dict[int, float] = {}
+        grade = "" if depth > tn.mouth_depth_m else _at_grade(o, cache, roof, law, ground)
+        if grade:
+            refused.append(f"{o.id} {name}: {grade}")
+            if at_grade is not None:
+                at_grade.extend(_GradeEnd(ends[j][0], ends[j][1], o.id, o.path, grade)
+                                for j in near)
+            continue
         if depth > tn.mouth_depth_m:
             cover = {j: z for j in near
                      if (z := _ground_covers_roof(roof, ends[j][0], dem_z, law)) is not None}

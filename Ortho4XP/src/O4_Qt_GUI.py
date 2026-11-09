@@ -1236,7 +1236,7 @@ class MainWindow(QMainWindow):
         self.mesh_order_row = QTMESHORDER.MeshOrderRow()
         ig.addRow(self.mesh_order_row)
         self.info_zl = ElidedRowLabel("—")
-        ig.addRow("%s:" % GLOSSARY.TERMS["detail"], self.info_zl)
+        ig.addRow("%s:" % GLOSSARY.TERMS["imagery_detail"], self.info_zl)
         self.info_mesh = ElidedRowLabel("—")
         ig.addRow("Ground shaped:", self.info_mesh)
         self.info_imagery = ElidedRowLabel("—")
@@ -3325,11 +3325,15 @@ class MainWindow(QMainWindow):
             # in the fixed-width panel (a plain QLabel here would make
             # the longest installed pack name the panel's minimum).
             label = ElidedRowLabel(pack["pack_name"])
-            label.setToolTip(
-                "%d object file%s reseated to this tile's rebuilt "
-                "ground (originals kept as .anchor_bak backups)."
-                % (objects, "s" if objects != 1 else "")
-            )
+            tip = ("%d object file%s reseated to this tile's rebuilt "
+                   "ground (originals kept as .anchor_bak backups)."
+                   % (objects, "s" if objects != 1 else ""))
+            repaired = pack.get("repaired", 0)
+            if repaired:
+                # #1978: the pack health check (the mac row's twin text)
+                tip += (" %d vendor defect%s repaired (originals kept)."
+                        % (repaired, "s" if repaired != 1 else ""))
+            label.setToolTip(tip)
             rl.addWidget(label, 1)
             if pack.get("forests", 0):
                 # #1360: the pack's 3D trees, undone on their own (the mac

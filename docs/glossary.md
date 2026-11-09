@@ -36,6 +36,7 @@ primary label in either app.
 |---|---|
 | A progress row while airports are graded | "Grading airports" |
 | The Build-pane toggle that runs the first three steps | "Map data, ground shape and water" |
+| Settings ▸ Imagery's build zoom (moved from General by #1985, where "Detail" now names the airport Detail choice) | "Imagery detail" |
 | Detail levels (ZL12–ZL21) | The ZL number, with its pixel size at the equator as secondary text: "ZL16 · ~2 m per pixel" (~40 m at ZL12 … ~0.07 m at ZL21) |
 
 ## Owner ruling 2026-10-18: detail levels keep their ZL numbers

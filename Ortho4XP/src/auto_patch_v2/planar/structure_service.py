@@ -48,6 +48,10 @@ __all__ = ["airside_cut_roles", "deck_witness_for",
            "parts", "SURFACE_LINE_KINDS", "terrain_tunnel_witness", "knee_nodes"]
 
 
+#: a bore end IS a mapped way's end: the same frame point, to round-off
+_SAME_END_M = 0.01
+
+
 def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     """§34 (12) (5) A BORE THAT ENTERS A BUILDING IS THE BUILDING'S RAMP,
     NOT A TERRAIN TUNNEL (owner RULINGS 2026-09-16d) — the reading ONE
@@ -62,7 +66,11 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     underground parking or a ``covered=yes`` structure is that building's
     own ramp — the object or the sim carries it — and is NOT built; a PACK
     building's footprint counts like an OSM one (owner RULINGS 2026-09-27a
-    (3), :class:`_PackBuildings`).
+    (3), :class:`_PackBuildings`), and so does a roofed pack object standing
+    over the end ON the author's ground — the portal reader's refusal
+    (``portal_objects.GradeEnd``, RULINGS 2026-11-07b (1)): KDEN's toll
+    booths over the six-lane ``tunnel=yes layer=-1`` stub under the plaza
+    canopy (#1972).
     (b) A mapped bridge / overpass / ramp over ordinary ground is the
     SIM'S ELEVATED ROAD: it is not a crossing at grade, so it is no
     witness at all here (and §34 (12) (4) already withholds its deck).
@@ -150,6 +158,10 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                                getattr(on_field, "corridor_objects", ()) or (),
                                getattr(on_field, "deck_objects", ()) or ())
     deck_polys = list(getattr(on_field, "deck_polys", ()) or ())
+    # (a) AT GRADE (owner RULINGS 2026-11-07b (1), #1972): a roofed pack
+    # object over a bore END standing on the author's ground
+    # (``portal_objects.GradeEnd``) is a building over the road there
+    at_grade_ends = list(getattr(on_field, "grade_ends", ()) or ())
 
     # (b)/(c) the roads and railways AT GRADE.  A `bridge` way, or one at
     # `layer >= 1`, is the sim's elevated road and is not a crossing.
@@ -190,6 +202,11 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                                f"{end[0]:.0f},{end[1]:.0f} — way {wid} {why}: it is "
                                f"that structure's own ramp, not a terrain tunnel "
                                f"(§34 (12) (5) (a))")
+            for (gx, gy), _wid, oid, res, why in at_grade_ends:
+                if abs(gx - end[0]) <= _SAME_END_M and abs(gy - end[1]) <= _SAME_END_M:
+                    return False, (f"bore {ids} ENTERS A PACK BUILDING AT GRADE at "
+                                   f"{end[0]:.0f},{end[1]:.0f} — {res} ({oid}) stands "
+                                   f"over its end: {why} (§34 (12) (5) (a) extended)")
             hit = pack_bldg.at(end)
             if hit is not None:
                 res, uid, top = hit

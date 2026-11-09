@@ -35,6 +35,14 @@ class PresetCards(QWidget):
 
     chosen = Signal(str)
 
+    #: The width the row's preferred HEIGHT is measured at.  Every card
+    #: label wraps with Ignored horizontal policy, so the plain hint
+    #: wraps them at the row's narrowest width — three columns a few
+    #: words wide, ~670 px tall with a 1.5x (Windows) font — and that
+    #: height alone took the Settings window's default size past a
+    #: 720 px screen.  The row is never laid out that narrow.
+    PREFERRED_WIDTH = 600
+
     def __init__(self, parent=None):
         super().__init__(parent)
         root = QVBoxLayout(self)
@@ -78,6 +86,13 @@ class PresetCards(QWidget):
         self.note_label.setStyleSheet("color: gray; font-size: 11px;")
         root.addWidget(self.note_label)
         self.current_key = None
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        if self.hasHeightForWidth():
+            hint.setHeight(self.heightForWidth(
+                max(hint.width(), self.PREFERRED_WIDTH)))
+        return hint
 
     def set_note(self, text: str) -> None:
         """The line under the cards: what a Use applies to (the defaults

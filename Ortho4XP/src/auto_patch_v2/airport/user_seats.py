@@ -18,6 +18,15 @@ by), ``model`` / ``lat`` / ``lon`` the row as the user saw it: a seat whose
 row no longer says that (the pack was updated) is NOT applied, and is
 reported.  ``zero_m`` is where the object's authored zero stands, m MSL.
 
+AN OBJECT GROUP MOVES AS ONE (issue #1970, owner 2026-11-08: "it should
+select, and only allow movement of entire object groups"): a seat may
+carry ``offset_m`` instead of ``zero_m`` — a SPLIT row whose every body
+the write lifts by that many metres over the seat its placement plan
+gave it (``OBJECT_MSL`` at the body's planned zero + ``offset_m``).  The
+editor writes one such seat, with one offset, for every row of a group
+(``o4_engine/object_group``: the rows cut into bodies of the same §16g
+units), so the group moves rigidly and no part moves alone.
+
 THE SEATS ARE A LAYER OF THE PACK DSF'S WRITE (owner on #1703,
 2026-11-03: "yes, apply only the objects you set by hand"), like the 3D
 forest upgrade (#1360) and the accepted missing-art omission (#433):
@@ -48,7 +57,7 @@ import typing as _t
 from ..model.placement import MslSeat
 
 __all__ = ["RECORD_KEY", "SEATS_FILENAME", "WHY", "UserSeat", "seats_path", "read",
-           "set_seat", "digest", "apply", "placements", "record", "recorded",
+           "set_seat", "set_seats", "digest", "apply", "placements", "record", "recorded",
            "merged", "union"]
 
 #: ``<patch dir>/o4_user_object_seats_<ICAO>.json``.
@@ -72,16 +81,26 @@ class UserSeat:
     model: str
     lat: float
     lon: float
-    zero_m: float
+    zero_m: float | None
+    #: #1970: a group's rigid lift of this split row's bodies (instead of
+    #: ``zero_m``, which is then ``None``)
+    offset_m: float | None = None
 
     def to_dict(self) -> dict:
-        return {"index": self.index, "model": self.model, "lat": self.lat,
-                "lon": self.lon, "zero_m": self.zero_m}
+        d = {"index": self.index, "model": self.model, "lat": self.lat,
+             "lon": self.lon, "zero_m": self.zero_m}
+        if self.offset_m is not None:
+            d["offset_m"] = self.offset_m
+        return d
 
     @classmethod
     def from_dict(cls, d: _t.Mapping) -> "UserSeat":
+        zero, off = d.get("zero_m"), d.get("offset_m")
+        if (zero is None) == (off is None):
+            raise ValueError(f"seat on row {d.get('index')}: give zero_m or offset_m")
         return cls(int(d["index"]), str(d.get("model", "")), float(d["lat"]),
-                   float(d["lon"]), float(d["zero_m"]))
+                   float(d["lon"]), None if zero is None else float(zero),
+                   None if off is None else float(off))
 
 
 def seats_path(patch_dir: str, icao: str) -> str:
@@ -129,10 +148,16 @@ def set_seat(patch_dir: str, icao: str, seat: UserSeat | None, *,
              index: int) -> UserSeat | None:
     """Set (``seat``) or clear (``None``) row ``index``'s hand-set seat;
     returns the one it replaced."""
+    return set_seats(patch_dir, icao, {int(index): seat})[int(index)]
+
+
+def set_seats(patch_dir: str, icao: str, given: _t.Mapping[int, UserSeat | None]
+              ) -> dict[int, UserSeat | None]:
+    """Set or clear (``None``) several rows' seats in ONE write (a group,
+    #1970); returns ``{row: the seat it replaced}``."""
     seats = read(patch_dir, icao)
-    previous = seats.pop(int(index), None)
-    if seat is not None:
-        seats[int(index)] = seat
+    previous = {int(i): seats.pop(int(i), None) for i in given}
+    seats.update({int(i): s for i, s in given.items() if s is not None})
     _write(patch_dir, icao, seats)
     return previous
 
@@ -159,22 +184,62 @@ def _refusal(seat: UserSeat, rows: _t.Sequence) -> str | None:
     return None
 
 
+def _lifted(split: _t.Any, offset_m: float) -> _t.Any:
+    """``split`` with every body that has a planned zero written
+    ``OBJECT_MSL`` at it plus ``offset_m`` (#1970); a body off every graded
+    face (no ``surface_z``) and without a row seat stays as planned."""
+    out = []
+    for b in split.bodies:
+        if b.msl_z is not None:
+            zero = float(b.msl_z)
+        elif b.surface_z is not None:
+            zero = float(b.surface_z) - float(b.y_zero) + float(b.lift_m or 0.0)
+        else:
+            out.append(b)
+            continue
+        out.append(_dc.replace(b, msl_z=round(zero + offset_m, 4)))
+    return _dc.replace(split, bodies=tuple(out))
+
+
+def _apply_offsets(plan: _t.Any, offsets: _t.Mapping[int, UserSeat]
+                   ) -> tuple[_t.Any, tuple[int, ...], tuple[str, ...]]:
+    """The group seats (#1970): each split row's bodies lifted rigidly."""
+    splits, seated = [], []
+    for s in plan.splits:
+        seat = offsets.get(s.placement.index)
+        if seat is not None:
+            s = _lifted(s, float(seat.offset_m))
+            seated.append(s.placement.index)
+        splits.append(s)
+    refused = tuple(f"row {i} ({offsets[i].model}) is no longer cut into parts; "
+                    f"its group's elevation is not applied"
+                    for i in sorted(set(offsets) - set(seated)))
+    return _dc.replace(plan, splits=tuple(splits)), tuple(seated), refused
+
+
 def apply(plan: _t.Any, seats: _t.Mapping[int, UserSeat], rows: _t.Sequence
           ) -> tuple[_t.Any, tuple[int, ...], tuple[str, ...]]:
     """``(plan, rows seated, refusals)``: ``plan`` (a ``PlacementPlan``)
     with every seat whose row (``rows``, the pristine dump's placements)
-    still matches written at its hand-set zero, and no other row
-    touched."""
+    still matches written at its hand-set zero — or, a group seat, its
+    bodies lifted by its offset — and no other row touched."""
     take: dict[int, UserSeat] = {}
+    offsets: dict[int, UserSeat] = {}
     refused: list[str] = []
     for idx in sorted(seats):
         why = _refusal(seats[idx], rows)
-        if why is None:
-            take[idx] = seats[idx]
-        else:
+        if why is not None:
             refused.append(why)
+        elif seats[idx].offset_m is not None:
+            offsets[idx] = seats[idx]
+        else:
+            take[idx] = seats[idx]
+    lifted: tuple[int, ...] = ()
+    if offsets:
+        plan, lifted, more = _apply_offsets(plan, offsets)
+        refused.extend(more)
     if not take:
-        return plan, (), tuple(refused)
+        return plan, lifted, tuple(refused)
     msl = tuple(m for m in plan.msl_seats if m.index not in take) + tuple(
         MslSeat(i, str(rows[i].def_path), float(rows[i].lon), float(rows[i].lat),
                 float(rows[i].heading_deg), float(s.zero_m), WHY)
@@ -185,7 +250,7 @@ def apply(plan: _t.Any, seats: _t.Mapping[int, UserSeat], rows: _t.Sequence
         conversions=tuple(c for c in plan.conversions if c.index not in take),
         riders=tuple(r for r in plan.riders if r.index not in take),
         kept=tuple(k for k in plan.kept if k.index not in take))
-    return plan, tuple(sorted(take)), tuple(refused)
+    return plan, tuple(sorted((*take, *lifted))), tuple(refused)
 
 
 def placements(dump_text_path: str) -> list:

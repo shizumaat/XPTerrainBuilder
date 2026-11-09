@@ -81,6 +81,8 @@ KEEP = frozenset({
     "auto_patch.gateway_api",
     "auto_patch.gateway_stage",
     "auto_patch.forest_stage",
+    # ... the pack health check's repairs (#1978)
+    "auto_patch.health_stage",
     # ... "Optimise pack" (#1707), and the per-pack answer store and
     # rewrite the two choices share
     "auto_patch.optimise_stage",

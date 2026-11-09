@@ -50,12 +50,20 @@ public struct O4ObjectSeat: Decodable, Equatable, Sendable {
     public let plan: String?
     /// The zero the user set by hand (protocol 1.30, #1703); nil when none.
     public let userZeroM: Double?
+    /// The object GROUP a placement the plan cut into parts moves with
+    /// (capability `object_seat_groups`, #1970); nil for an uncut one.
+    public let group: O4ObjectGroup?
+    /// The lift the user gave that group over the build's seat (#1970).
+    public let userOffsetM: Double?
 
     private enum CodingKeys: String, CodingKey {
         case seat, bodies, pending, zeroM = "zero_m", zeroMaxM = "zero_max_m", groundM = "ground_m"
         case heightM = "height_m", bottomM = "bottom_m", topM = "top_m", why, lines, plan
-        case userZeroM = "user_zero_m"
+        case userZeroM = "user_zero_m", group, userOffsetM = "user_offset_m"
     }
+
+    /// Whether the user set this object's (or its group's) elevation by hand.
+    public var isHandSet: Bool { userZeroM != nil || userOffsetM != nil }
 
     /// Whether the object has a height its top and bottom differ by (the
     /// snap's Top / Bottom question, #1703).
@@ -65,14 +73,44 @@ public struct O4ObjectSeat: Decodable, Equatable, Sendable {
     }
 }
 
+/// An object group (#1970, `o4_engine/object_group.py`): the placements
+/// the plan cut into bodies of the same structure units, selected and
+/// moved as one. `ring` is its outline, `[lat, lon]` corners.
+public struct O4ObjectGroup: Decodable, Equatable, Sendable {
+    public let rows: [Int]
+    public let parts: Int
+    public let sources: [String]
+    public let ring: [[Double]]
+}
+
 /// `object_seat_set` (protocol 1.30, #1703): the hand-set seat stored, and
-/// the one it replaced (what Undo sends back). Zeros are metres MSL.
+/// the one it replaced (what Undo sends back). Zeros are metres MSL; an
+/// object group's seat is an offset (#1970).
 public struct O4ObjectSeatSet: Decodable, Equatable, Sendable {
     public let index: Int
     public let zeroM: Double?
     public let previousZeroM: Double?
+    public let offsetM: Double?
+    public let previousOffsetM: Double?
 
     private enum CodingKeys: String, CodingKey {
         case index, zeroM = "zero_m", previousZeroM = "previous_zero_m"
+        case offsetM = "offset_m", previousOffsetM = "previous_offset_m"
+    }
+
+    /// The seat now stored, and the one it replaced: an Undo sends `previous`.
+    public var now: O4HandSeat { O4HandSeat(zeroM: zeroM, offsetM: offsetM) }
+    public var previous: O4HandSeat { O4HandSeat(zeroM: previousZeroM, offsetM: previousOffsetM) }
+}
+
+/// A hand-set seat as `object_seat_set` takes it back: a zero, a group
+/// offset (#1970), or neither (the build's own seat).
+public struct O4HandSeat: Equatable, Sendable {
+    public let zeroM: Double?
+    public let offsetM: Double?
+
+    public init(zeroM: Double?, offsetM: Double?) {
+        self.zeroM = zeroM
+        self.offsetM = offsetM
     }
 }

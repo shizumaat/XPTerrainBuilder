@@ -10,6 +10,8 @@ import SceneryKit
 //   by the engine (`object_seat_set`) as a user edit the object stage
 //   honours on every rebuild that places the airport's objects. Only the
 //   object moves; the ground stays as solved (owner (1)(b)). One ⌘Z step.
+//   An object the build cut into parts moves with its whole GROUP, by one
+//   offset for every part (#1970; the engine decides, `object_seat_set`).
 // * A node dropped on an object's footprint corner or edge middle (the
 //   drag snap, `PatchEditGestures.swift`) is asked, when the object has a
 //   height, whether it takes the object's top or bottom elevation (owner
@@ -38,8 +40,8 @@ extension PatchObjectInspector {
                                                            bottomM: bottomM)
                 guard let self else { return }
                 self.stored(object, tile: doc.tile)
-                self.registerUndo(object, tile: doc.tile, icao: doc.icao, to: reply.previousZeroM,
-                                  back: reply.zeroM, name: name)
+                self.registerUndo(object, tile: doc.tile, icao: doc.icao, to: reply.previous,
+                                  back: reply.now, name: name)
             } catch {
                 self?.patch?.editError = "The object's elevation could not be set: \(error)"
             }
@@ -48,24 +50,25 @@ extension PatchObjectInspector {
 
     /// Undo / redo: send `to`, and register the way back (synchronously, so
     /// the undo manager files it as the redo).
-    private func registerUndo(_ object: PackObjectRef, tile: String, icao: String, to: Double?, back: Double?,
-                              name: String) {
+    private func registerUndo(_ object: PackObjectRef, tile: String, icao: String, to: O4HandSeat,
+                              back: O4HandSeat, name: String) {
         guard let patch, let undo = patch.undoManager else { return }
         undo.registerUndo(withTarget: patch) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.registerUndo(object, tile: tile, icao: icao, to: back, back: to, name: name)
-                self.send(object, tile: tile, icao: icao, zeroM: to)
+                self.send(object, tile: tile, icao: icao, seat: to)
             }
         }
         undo.setActionName(name)
     }
 
-    private func send(_ object: PackObjectRef, tile: String, icao: String, zeroM: Double?) {
+    private func send(_ object: PackObjectRef, tile: String, icao: String, seat: O4HandSeat) {
         guard let client = patch?.build?.patchEditorClient() else { return }
         Task { @MainActor [weak self] in
             do {
-                _ = try await client.objectSeatSet(tile: tile, icao: icao, object: object, zeroM: zeroM)
+                _ = try await client.objectSeatSet(tile: tile, icao: icao, object: object, zeroM: seat.zeroM,
+                                                   offsetM: seat.offsetM)
                 self?.stored(object, tile: tile)
             } catch {
                 self?.patch?.editError = "The object's elevation could not be set: \(error)"
@@ -155,7 +158,7 @@ struct PatchObjectElevationSheet: View {
         let seat = inspector.seat
         VStack(alignment: .leading, spacing: 10) {
             Text(inspector.selected?.label ?? "Object").scaledFont(.callout, weight: .semibold)
-            Text("Only the object moves; the ground stays as built. It is placed there on the next rebuild.")
+            Text(seat?.group == nil ? Self.objectNote : Self.groupNote)
                 .scaledFont(.callout).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
                 Text("Bottom").foregroundStyle(.secondary)
@@ -176,7 +179,7 @@ struct PatchObjectElevationSheet: View {
                 Text(String(format: "Its top is %.2f m above its bottom.", h)).foregroundStyle(.secondary)
             }
             HStack {
-                if seat?.userZeroM != nil {
+                if seat?.isHandSet == true {
                     Button("Automatic") {
                         inspector.setElevation(bottomM: nil)
                         inspector.showsSetElevation = false
@@ -204,6 +207,11 @@ struct PatchObjectElevationSheet: View {
         inspector.setElevation(bottomM: PatchShapeElevation.metres(v, from: unit))
         inspector.showsSetElevation = false
     }
+
+    /// The sheet's note (Qt `OBJECT_NOTE` / `GROUP_NOTE`).
+    static let objectNote = "Only the object moves; the ground stays as built. It is placed there on the next rebuild."
+    static let groupNote =
+        "The whole group moves as one, every part by the same height; the ground stays as built. It is placed there on the next rebuild."
 
     private static func format(_ metres: Double?, in unit: PatchShapeElevation.Unit) -> String {
         metres.map { String(format: "%.2f", PatchShapeElevation.value($0, in: unit)) } ?? ""

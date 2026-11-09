@@ -104,22 +104,31 @@ struct PatchObjectInspectorLayer: View {
     var body: some View {
         if let item = inspector.selected {
             let lines = inspector.lines
+            let rings = Self.outline(item, group: inspector.seat?.group)
             Canvas(rendersAsynchronously: false) { context, size in
-                Self.draw(item, lines: lines, camera: camera.value, in: context, size: size)
+                Self.draw(item, rings: rings, lines: lines, camera: camera.value, in: context, size: size)
             }
             .allowsHitTesting(false)
         }
     }
 
-    private static func draw(_ item: PackOutlineGeometry.Item, lines: [String], camera: MapCamera,
-                             in context: GraphicsContext, size: CGSize) {
+    /// What is outlined: the object's group (#1970) when the build cut it
+    /// into parts — every part moves with it — else the object's own rings.
+    /// Map points (x = lon, y = Mercator y), as `item.rings`.
+    static func outline(_ item: PackOutlineGeometry.Item, group: O4ObjectGroup?) -> [[CGPoint]] {
+        guard let ring = group?.ring, ring.count >= 3 else { return item.rings }
+        return [ring.compactMap { $0.count >= 2 ? CGPoint(x: $0[1], y: MapCamera.mercatorY(lat: $0[0])) : nil }]
+    }
+
+    private static func draw(_ item: PackOutlineGeometry.Item, rings: [[CGPoint]], lines: [String],
+                             camera: MapCamera, in context: GraphicsContext, size: CGSize) {
         let scale = camera.scale
         let cx = camera.centerLon, cy = MapCamera.mercatorY(lat: camera.centerLat)
         func screen(_ p: CGPoint) -> CGPoint {
             CGPoint(x: size.width / 2 + (p.x - cx) * scale, y: size.height / 2 - (p.y - cy) * scale)
         }
         var outline = Path()
-        for ring in item.rings {
+        for ring in rings {
             outline.addLines(ring.map(screen))
             outline.closeSubpath()
         }

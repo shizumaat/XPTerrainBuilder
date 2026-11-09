@@ -20,14 +20,14 @@ module is presentation and interaction only.
 import re
 import weakref
 
+import O4_Airport_Detail as AIRPORT_DETAIL
 import O4_File_Names as FNAMES
-import O4_Glossary as GLOSSARY
+import O4_Qt_Airport_Detail as QTDETAIL
 import O4_Qt_Settings_General as GENERAL
 import O4_Qt_Settings_Storage as QTSTORAGE
 import O4_Settings_Model as SM
 import O4_Settings_Presets as PRESETS
 import O4_Settings_Selection as SEL
-from O4_Qt_Detail_Combo import DetailCombo
 from O4_Qt_Preset_Cards import PresetCards
 from O4_Qt_Settings_Selection import SelectionEdits
 from O4_Qt_Widgets import (
@@ -37,7 +37,7 @@ from O4_Qt_Widgets import (
     never_widen,
     wrap_and_never_widen,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -875,6 +875,12 @@ class SettingsWindow(SelectionEdits, QDialog):
     #: Windows display at 125 % scaling) must be able to hold the sheet.
     MAX_MINIMUM_WIDTH = 720
 
+    #: Ceiling on the window's PREFERRED size, so it opens inside a
+    #: 1280 x 720 laptop with room for the chrome and the menu bar
+    #: whatever the platform font (the Windows runner's is ~1.5x the
+    #: Mac's).  The rows scroll, so a smaller default loses nothing.
+    MAX_DEFAULT_SIZE = (1200, 640)
+
     def __init__(self, prefs, tiles, custom_build_dir, parent=None,
                  tile_zooms=None, selection_zl=None):
         super().__init__(parent)
@@ -923,6 +929,11 @@ class SettingsWindow(SelectionEdits, QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         self._clamp_width_to_content()
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        width, height = self.MAX_DEFAULT_SIZE
+        return hint.boundedTo(QSize(width, height))
 
     def _clamp_width_to_content(self):
         """Keep every description wrapped inside the window width.
@@ -1023,16 +1034,12 @@ class SettingsWindow(SelectionEdits, QDialog):
             self.preset_cards.set_note(SEL.TILES_NOTE)
         root.addWidget(self.preset_cards)
 
-        # The build detail level (#1242): here, and no longer in the main
-        # window, as in the Mac app's Settings (General, under the cards).
-        detail_row = QHBoxLayout()
-        detail_row.addWidget(QLabel("%s:" % GLOSSARY.TERMS["detail"]))
-        self.detail_combo = DetailCombo(range(12, 22))
-        self.detail_combo.setToolTip(DETAIL_HELP)
-        self.detail_combo.currentIndexChanged.connect(self._detail_changed)
-        detail_row.addWidget(self.detail_combo)
-        detail_row.addStretch(1)
-        root.addLayout(detail_row)
+        # The airport Detail choice (#1985), under the cards as on the
+        # Mac; the build zoom it used to share this place with is in
+        # Imagery.
+        self.airport_detail_row = QTDETAIL.AirportDetailRow()
+        self.airport_detail_row.chosen.connect(self._apply_airport_detail)
+        root.addWidget(self.airport_detail_row)
 
         # Sidebar + content
         middle = QHBoxLayout()
@@ -1092,6 +1099,13 @@ class SettingsWindow(SelectionEdits, QDialog):
             self._lines[key] = line
             if key == "general":
                 self._add_app_sections()
+            elif key == "imagery":
+                # The build zoom (#1242), moved here from General (#1985).
+                self.imagery_zoom_row = QTDETAIL.ImageryZoomRow(DETAIL_HELP)
+                self.detail_combo = self.imagery_zoom_row.combo
+                self.detail_combo.currentIndexChanged.connect(
+                    self._detail_changed)
+                self.content_layout.addWidget(self.imagery_zoom_row)
             elif key == "storage":
                 # The data folder's sizes and Clear buttons (#1724), above
                 # the cleanup settings, as on the Mac.
@@ -1253,6 +1267,7 @@ class SettingsWindow(SelectionEdits, QDialog):
 
     def _refresh_presets(self):
         self.preset_cards.set_current(self._preset_current())
+        self.airport_detail_row.set_current(self._airport_detail_current())
         self.context_label.setText(self._scope_text())
 
     def _detail_changed(self, _index):
@@ -1271,28 +1286,58 @@ class SettingsWindow(SelectionEdits, QDialog):
         else its config keys in one global write and its zoom to the
         preferences.  The rows show the new values at once."""
         entry = PRESETS.preset(key)
-        values = PRESETS.cfg_values(entry)
+        self._apply_values(PRESETS.cfg_values(entry), PRESETS.zoom_value(entry))
+
+    def _airport_detail_current(self):
+        """The Detail shown for the selection (or the defaults), else
+        None: Custom.  A conflicting key holds no state."""
+        return AIRPORT_DETAIL.from_states(self._airport_feature_states())
+
+    def _airport_feature_states(self):
+        if self.blended:
+            current = {}
+            for name in AIRPORT_DETAIL.SCOPE_KEYS:
+                merged = self._tile_merged(name)
+                if merged is not SEL.CONFLICT:
+                    current[name] = merged
+        else:
+            current = {name: self._global_vals[name]
+                       for name in AIRPORT_DETAIL.SCOPE_KEYS}
+        return AIRPORT_DETAIL.feature_states(current, same=SM.values_equivalent)
+
+    def _apply_airport_detail(self, key):
+        """A Detail choice (#1985): its keys, like a preset's — from ICAO
+        or All only the features that are on change scope."""
+        states = self._airport_feature_states()
+        current = AIRPORT_DETAIL.from_states(states)
+        self._apply_values(AIRPORT_DETAIL.values(key, current, states),
+                           AIRPORT_DETAIL.zoom(key, current))
+        self._refresh_presets()
+
+    def _apply_values(self, values, zoom):
+        """Write ``values`` (cfg literals) and choose ``zoom`` (None: keep
+        it): to every selected tile, else to the global config and the
+        preferences."""
         if self.blended:
             if not self._confirm_selection_change():
+                self._refresh_presets()
                 return
             for name, value in values.items():
                 self._write_tile_value(name, value)
-            self._choose_zoom(PRESETS.zoom_value(entry))
+        else:
+            try:
+                SM.write_global(values)
+            except OSError as exc:
+                QMessageBox.critical(
+                    self, "Settings", "Could not save: %s" % exc
+                )
+                return
+            SM.apply_runtime(values)
+            for name, value in values.items():
+                self._show_global_value(SM.get_setting(name), value)
+        if zoom is not None:
+            self._choose_zoom(zoom)
             self._show_selection_zoom()
-            self._refresh_presets()
-            return
-        try:
-            SM.write_global(values)
-        except OSError as exc:
-            QMessageBox.critical(
-                self, "Settings", "Could not save: %s" % exc
-            )
-            return
-        SM.apply_runtime(values)
-        for name, value in values.items():
-            self._show_global_value(SM.get_setting(name), value)
-        self._choose_zoom(PRESETS.zoom_value(entry))
-        self._show_selection_zoom()
         self._refresh_presets()
 
     def show_customized_only(self):
@@ -1456,6 +1501,10 @@ class SettingsWindow(SelectionEdits, QDialog):
             )
         self.engine_defaults_header.setVisible(
             not tile_view and not query and selected in (None, "general"))
+        self.imagery_zoom_row.setVisible(
+            not tile_view and not customized_only
+            and (self.imagery_zoom_row.matches(query) if query
+                 else selected in (None, "imagery")))
         if self.storage_section is not None:
             shown = not tile_view and not customized_only and (
                 self.storage_section.matches(query) if query

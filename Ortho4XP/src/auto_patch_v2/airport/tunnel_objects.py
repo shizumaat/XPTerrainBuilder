@@ -226,6 +226,10 @@ class TunnelObjectStats:
     #: the pack PORTALS over mapped bore ends (``airport/portal_objects``;
     #: #971 "or object if one is provided", #1343): each pins its mouth
     portals: tuple = ()
+    #: the mapped bore ends a roofed pack object stands over AT GRADE
+    #: (``portal_objects.GradeEnd``, RULINGS 2026-11-07b (1), #1972): the
+    #: bore enters that building (``planar/structure_service`` (a))
+    grade_ends: tuple = ()
     #: the pack TRENCH objects at mapped road ends (``airport/trench_objects``,
     #: RULINGS 2026-10-28s (5)/(6)) and one note per object read
     trench_objects: tuple = ()
@@ -1053,12 +1057,19 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     out.extend(shell_corridors)
     out.sort(key=lambda c: c.id)
     # #1343: the roofed PORTALS over the bore ends no corridor took
+    from .below_grade_witness import ground_of
     from .portal_objects import read_portals
+    grade: list = []
     portals, p_refused = read_portals(_object_cut.placement_order(objects), cache, law,
                                       tunnel_ways, claimed_ids | {i for c in out
                                                                   for i in c.objects},
-                                      dem_z=getattr(getattr(airport, "dem", None), "z", None))
+                                      dem_z=getattr(getattr(airport, "dem", None), "z", None),
+                                      ground=(ground_of(airport, objects, cache, law)
+                                              if getattr(airport, "dem", None) is not None
+                                              else None),
+                                      at_grade=grade)
     stats.portals = tuple(portals)
+    stats.grade_ends = tuple(grade)
     stats.refused.extend(p_refused)
     # 2026-10-28s (5)/(6): the open walled trench objects at a road's end
     from .trench_objects import covered_candidates, read_trench_objects

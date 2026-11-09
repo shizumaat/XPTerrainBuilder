@@ -217,6 +217,7 @@ CAPABILITIES: tuple = (
     "pack_ground_notice",           # 2026-11-04, #1362 BuildDone warning pack_ground_no_mesh
     "pack_adjust",                  # 2026-11-06, #1916 PackAdjust + pack_adjust
     "gateway_airports",             # 2026-11-09, #1989 GatewayAirports + gateway_airports
+    "object_seat_groups",           # 2026-11-09, #1970 object_seat group + offset_m
 )
 
 

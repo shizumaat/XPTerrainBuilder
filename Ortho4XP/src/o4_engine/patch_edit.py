@@ -47,8 +47,8 @@ from o4_engine import patch_slice as _slice
 
 __all__ = ["Node", "Way", "PatchDoc", "move", "set_position", "set_alt",
            "offset_alt", "delete_nodes", "delete_ways", "insert_on_edge", "merge_nodes",
-           "slice_shape", "add_shape", "rotate_ways", "slice_way", "next_node_id", "next_way_id",
-           "apply_op"]
+           "slice_shape", "add_shape", "rotate_ways", "duplicate_ways", "slice_way", "next_node_id",
+           "next_way_id", "apply_op"]
 
 
 #: One node: ``(id, lat, lon, alt or None)`` — the §2 wire shape.
@@ -393,6 +393,39 @@ def add_shape(doc: PatchDoc, corners: _t.Sequence[_t.Sequence],
     return _dc.replace(doc, nodes=nodes, ways=doc.ways + (way,))
 
 
+def duplicate_ways(doc: PatchDoc, way_ids: _t.Iterable[int], dlat: float,
+                   dlon: float) -> PatchDoc:
+    """Copy the ways (whole shapes, #1963 "Duplicate shape") ``(dlat,
+    dlon)`` degrees away: every node they use becomes a new node (one copy
+    per node, so the copies stay welded to EACH OTHER and to nothing of the
+    original), from :func:`next_node_id` downwards in the order the copied
+    ways (file order) first use them, keeping its elevation; each way
+    becomes a new way (:func:`next_way_id` downwards, file order) after the
+    others, with the same tags.  Never merges."""
+    wanted = {int(w) for w in way_ids}
+    ways = [w for w in doc.ways if w.id in wanted]
+    missing = wanted - {w.id for w in ways}
+    if missing:
+        raise KeyError(f"way {min(missing)} is not in the patch")
+    nodes = dict(doc.nodes)
+    copy: dict[int, int] = {}
+    new_id = next_node_id(doc)
+    for w in ways:
+        for r in w.refs:
+            if r in copy:
+                continue
+            _id, lat, lon, alt = doc.nodes[r]
+            copy[r] = new_id
+            nodes[new_id] = (new_id, lat + float(dlat), lon + float(dlon), alt)
+            new_id -= 1
+    way_id = next_way_id(doc)
+    added = []
+    for w in ways:
+        added.append(Way(way_id, tuple(copy[r] for r in w.refs), dict(w.tags)))
+        way_id -= 1
+    return _dc.replace(doc, nodes=nodes, ways=doc.ways + tuple(added))
+
+
 def rotate_ways(doc: PatchDoc, way_ids: _t.Iterable[int], angle_deg: float) -> PatchDoc:
     """Turn every node of the ways by ``angle_deg`` (counter-clockwise,
     north up) about their :func:`patch_rotate.centre`.  Elevations are
@@ -416,6 +449,7 @@ _OPS: dict[str, _t.Callable[..., PatchDoc]] = {
     "offset_alt": offset_alt, "delete_nodes": delete_nodes, "delete_ways": delete_ways,
     "insert_on_edge": insert_on_edge, "merge_nodes": merge_nodes,
     "slice_shape": slice_shape, "add_shape": add_shape, "rotate_ways": rotate_ways,
+    "duplicate_ways": duplicate_ways,
 }
 
 

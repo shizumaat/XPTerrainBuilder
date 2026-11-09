@@ -33,8 +33,8 @@ from O4_Qt_Terrain_Relief import TerrainRelief
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 
-__all__ = ["PatchEditor", "PACK_OUTLINES_PREF", "SLICE_TITLE", "TERRAIN_PREF",
-           "TERRAIN_OPACITY_PREF"]
+__all__ = ["PatchEditor", "PACK_OUTLINES_PREF", "SLICE_TITLE", "DUPLICATE_SHAPE_TITLE",
+           "TERRAIN_PREF", "TERRAIN_OPACITY_PREF"]
 
 #: The prefs key that remembers the "Pack outlines" toggle (on by default).
 PACK_OUTLINES_PREF = "patch_editor_pack_outlines"
@@ -45,6 +45,10 @@ TERRAIN_OPACITY_PREF = "patch_editor_terrain_opacity"
 #: The right-click item that cuts a shape between two selected nodes
 #: (#1318; the Mac app's ``TileContextMenu.sliceTitle``).
 SLICE_TITLE = "Slice"
+#: "Duplicate shape" (#1963; the Mac app's
+#: ``TileContextMenu.duplicateShapeTitle``), after Slice.
+DUPLICATE_SHAPE_TITLE = "Duplicate shape"
+DUPLICATE_SHAPE_REFUSAL = "Select a shape to duplicate."
 
 
 class PatchEditor:
@@ -126,7 +130,8 @@ class PatchEditor:
     def add_to_menu(self, menu) -> None:
         """The map's right-click menu in Edit mode (#1318; the Mac app's
         ``TileContextMenu``): "Slice" first, enabled only when two nodes of
-        one shape that are not neighbours are selected."""
+        one shape that are not neighbours are selected, then "Duplicate
+        shape" (#1963), enabled with a shape selected."""
         model = self.model
         if model.doc is None or model.mode != MODE_EDIT:
             return
@@ -139,6 +144,12 @@ class PatchEditor:
             action.setToolTip(str(why).strip("'\""))
         action.triggered.connect(model.slice_selection)
         menu.insertAction(first, action)
+        duplicate = QAction(DUPLICATE_SHAPE_TITLE, menu)            # #1963
+        if not model.shape_selection:
+            duplicate.setEnabled(False)
+            duplicate.setToolTip(DUPLICATE_SHAPE_REFUSAL)
+        duplicate.triggered.connect(model.duplicate_shapes)
+        menu.insertAction(first, duplicate)
         if first is not None:
             menu.insertSeparator(first)
         menu.setToolTipsVisible(True)

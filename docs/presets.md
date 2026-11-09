@@ -36,6 +36,7 @@ are Detail None, Sharper airports is Detail ICAO airports.
 | `cover_airports_with_highres` | Global `Ortho4XP.cfg` | False | False | ICAO |
 | `cover_zl` | Global `Ortho4XP.cfg` | 18 | 18 | 18 |
 | `cover_extent` | Global `Ortho4XP.cfg` | 1.0 | 1.0 | 1.0 |
+| `cover_approach_ft` | Global `Ortho4XP.cfg` | 0 | 500 | 1000 |
 | `auto_patch` | Global `Ortho4XP.cfg` | None | None | ICAO |
 | `airport_elevation_insets` | Global `Ortho4XP.cfg` | None | None | ICAO |
 | `bathymetry_near_icao_airports` | Global `Ortho4XP.cfg` | False | False | True |
@@ -48,6 +49,14 @@ are Detail None, Sharper airports is Detail ICAO airports.
   airports with ICAO codes (`cover_airports_with_highres` ICAO, owner
   2026-10-19 on #937): ZL18 imagery (`cover_zl` 18, about 0.6 m per pixel)
   over each such airport and 1 km around it (`cover_extent`).
+- `cover_approach_ft` (#1990): the ZL18 squares also follow each runway's
+  approach, from each landing threshold (apt.dat row 100, displaced
+  thresholds respected) out along the extended centreline until a 3° glide
+  path is this many feet above the threshold (1,000 ft ≈ 5.8 km, 500 ft ≈
+  2.9 km, 0 = the airport only), widening from the runway width to 1 km.
+  `cover_extent` now widens the boundary polygon itself, not its bounding
+  box; the squares are those meeting boundary ∪ corridors
+  (`O4_Airport_Approach_Cover`).
 
 Owner rulings, 2026-10-18: detail levels are named by their ZL number,
 never by an invented name; **Light on disk** does NOT set `cleaning_level`

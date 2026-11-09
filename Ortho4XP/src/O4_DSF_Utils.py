@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 from math import ceil, floor
 
 import numpy
+import O4_Airport_Approach_Cover as COVER
 import O4_Airport_Fade_Masks as FADE
 import O4_Bathymetry as BATHY
 import O4_DDS_File as DDS
@@ -203,30 +204,14 @@ def zone_list_to_ortho_dico(tile):
             ]
         else:
             airports_list = dico_airports.keys()
-        for airport in airports_list:
-            (xmin, ymin, xmax, ymax) = dico_airports[airport]["boundary"].bounds
-            # extension
-            xmin -= 1000 * tile.cover_extent * GEO.m_to_lon(tile.lat)
-            xmax += 1000 * tile.cover_extent * GEO.m_to_lon(tile.lat)
-            ymax += 1000 * tile.cover_extent * GEO.m_to_lat
-            ymin -= 1000 * tile.cover_extent * GEO.m_to_lat
-            # round off to texture boundaries at tile.cover_zl zoomlevel
-            (til_x_left, til_y_top) = GEO.wgs84_to_orthogrid(
-                ymax + tile.lat, xmin + tile.lon, tile.cover_zl
+        # #1990: the cover_zl squares meeting each airport's boundary
+        # (+ cover_extent) and its runway-end approach corridors
+        for (til_x, til_y) in COVER.tile_cover_squares(
+            tile, dico_airports, airports_list
+        ):
+            (xmin, ymin, xmax, ymax) = COVER.square_bounds(
+                til_x, til_y, tile.cover_zl, tile.lat, tile.lon
             )
-            (ymax, xmin) = GEO.gtile_to_wgs84(
-                til_x_left, til_y_top, tile.cover_zl
-            )
-            ymax -= tile.lat
-            xmin -= tile.lon
-            (til_x_left2, til_y_top2) = GEO.wgs84_to_orthogrid(
-                ymin + tile.lat, xmax + tile.lon, tile.cover_zl
-            )
-            (ymin, xmax) = GEO.gtile_to_wgs84(
-                til_x_left2 + 16, til_y_top2 + 16, tile.cover_zl
-            )
-            ymin -= tile.lat
-            xmax -= tile.lon
             xmin = max(0, xmin)
             xmax = min(1, xmax)
             ymin = max(0, ymin)

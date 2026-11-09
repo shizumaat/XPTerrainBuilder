@@ -759,6 +759,18 @@ cfg_tile_vars = {
         "default": 1.0,
         "hint": "The extent (in km) past the airport boundary taken into account for higher ZL. Note that for VRAM efficiency higher ZL textures are fully used on their whole extent as soon as part of them are needed.",
     },
+    "cover_approach_ft": {
+        "type": int,
+        "default": 1000,
+        "hint": (
+            "The sharper airport imagery also follows each runway's "
+            "approach (#1990): from each landing threshold out along the "
+            "extended centreline until a 3 degree glide path is this many "
+            "feet above the threshold (1000 ft is about 5.8 km, 500 ft "
+            "about 2.9 km; 0 = the airport only), widening from the "
+            "runway width to 1 km."
+        ),
+    },
     "cover_zl": {
         "type": int,
         "default": 18,
@@ -971,6 +983,7 @@ list_dsf_vars = [
     "airport_ortho_fade_width",
     "cover_airports_with_highres",
     "cover_extent",
+    "cover_approach_ft",
     "cover_zl",
     "water_tech",
     "dsf_bathymetry",

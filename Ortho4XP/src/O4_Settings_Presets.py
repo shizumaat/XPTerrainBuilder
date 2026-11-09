@@ -54,6 +54,7 @@ PRESET_KEYS = (
     ZOOM_PREF,
     "cover_zl",
     "cover_extent",
+    "cover_approach_ft",
 ) + AIRPORT_DETAIL.SCOPE_KEYS
 
 #: The words around the cards (SettingsPresets.swift uses the same ones).
@@ -80,11 +81,13 @@ class Preset:
 # The cost lines are DERIVED, never measured here: the imagery texture bytes
 # of one 1°x1° tile at the preset's detail level, for tiles between 60°S and
 # 60°N (docs/presets.md gives the formula; the twin recomputes the figures).
-def _values(zoom, detail):
+def _values(zoom, detail, approach_ft):
     """A preset's ``(name, literal)`` pairs in :data:`PRESET_KEYS` order:
-    its zoom, the airport zoom and reach, and its Detail choice."""
+    its zoom, the airport zoom and reach (the approach corridor's height
+    on a 3° glide path, #1990), and its Detail choice."""
     values = dict(AIRPORT_DETAIL.scope_values(detail), cover_zl="18",
-                  cover_extent="1.0", **{ZOOM_PREF: str(zoom)})
+                  cover_extent="1.0", cover_approach_ft=str(approach_ft),
+                  **{ZOOM_PREF: str(zoom)})
     return tuple((name, values[name]) for name in PRESET_KEYS)
 
 
@@ -93,20 +96,20 @@ PRESETS = (
         "light_on_disk", "Light on disk",
         "ZL15 everywhere and no extra airport detail: smaller downloads.",
         "About 0.4–0.8 GB of imagery per tile, a quarter of Balanced.",
-        _values(15, "none"),
+        _values(15, "none", 0),
     ),
     Preset(
         "balanced", "Balanced",
         "ZL16 everywhere, with no extra airport detail.",
         "About 1.6–3.1 GB of imagery per tile.",
-        _values(16, "none"),
+        _values(16, "none", 500),
     ),
     Preset(
         "sharper_airports", "Sharper airports",
         "ZL16, and at airports with ICAO codes ZL18 imagery, graded "
         "runways and the best elevation.",
         "About 1.6–3.1 GB per tile, plus the sharper airports.",
-        _values(16, "icao"),
+        _values(16, "icao", 1000),
     ),
 )
 

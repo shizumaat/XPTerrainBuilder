@@ -12,7 +12,8 @@ terrains and forests with a climate tag, ``_<temp>_<moisture>``
 temperature ``vcld`` < ``cld`` < ``tmp`` < ``wrm`` < ``hot`` < ``vhot``,
 moisture ``dry`` < ``sdry`` < ``wet`` < ``rain``).  :func:`climate_of_names`
 takes the most-named temperature and the most-named moisture of the
-tile's definitions (``auto_patch.global_climate`` reads them): what
+tile's definitions (the forest step of the object stage reads
+them): what
 X-Plane itself grows there.  Without a Global Scenery tile the latitude
 band stands in (:func:`latitude_climate`); with no climate at all the
 temperate, wet default of issue #1710 stands (:data:`DEFAULT`).

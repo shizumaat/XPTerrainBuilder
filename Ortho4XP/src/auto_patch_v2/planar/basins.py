@@ -31,10 +31,9 @@ THE ADMISSION RULE (law ``structures.toml [basin]``; RULINGS 2026-09-04i
    — REFUSED by resource with its height above the ground (LEMD's cargo
    terminal: slab 5.8 m under the local ground, walls 15 m above it).
 1b. A FLOOR, NOT A FOOTING (#1950/#1952, ``planar/basin_floor_width``):
-   a region is admitted only when a member's plate keeps
-   ``bank_band_plate_min`` of itself at ``footprint_close_m`` wide — a
-   retaining wall's footing strip (KMCI's border wall, ~1 m wide) is no
-   floor, whatever its depth.
+   a region whose member plates all keep under ``bank_band_plate_min`` of
+   themselves at ``footprint_close_m`` wide and run a wall's length is a
+   retaining wall's footing strip (KMCI's border wall), never a pit.
 2. REGION — the union of the witnessing components' OUTER PLAN
    FOOTPRINTS (spec §24 (4), owner RULINGS 2026-09-13g: the wall face at
    the TOP of the walls, ``FloorWitness.outer``), closed at
@@ -167,6 +166,7 @@ from ..airport import authored_seat as _seat
 from ..airport import basin_witness as _basin_witness
 from ..airport import frame_entry as _fe
 from ..airport import obj8
+from ..classify import load_rules
 from ..classify.roles import Cell, Classification
 from ..law import Law
 from ..law.tables import role_side
@@ -528,6 +528,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     basins: list[Basin] = []
     new_cells: list[tuple[str, str, Polygon, tuple[tuple[XY, ...], ...]]] = []
     knives: list[Polygon] = []
+    wall_len = float(load_rules().service.retaining_wall_min_length_m)   # #1952: a wall's length
     for k, ring in enumerate(_pulse.each(rings, "basin rings (at-grade read)", "rings")):
         bid = f"basin:{k}"
         site = _ll(airport, ring)
@@ -538,7 +539,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         # A PIT NEEDS A FLOOR (#1950/#1952): read on the MEMBER witnesses,
         # before §24 (7) (a)'s buried plates join them
         footing = _floor_width.footing_refusal(
-            bid, ring.area, wits, bl.footprint_close_m, bl.bank_band_plate_min, site,
+            bid, ring.area, wits, bl.footprint_close_m, bl.bank_band_plate_min,
+            wall_len, site,
             [f"{o.id} {os.path.basename(o.path)}#{w.comp_index}" for o in members
              for w in o.witnesses if _outer(w).intersects(ring)])
         if footing is not None:

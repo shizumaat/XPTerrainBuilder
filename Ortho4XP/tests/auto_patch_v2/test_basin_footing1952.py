@@ -78,3 +78,9 @@ def test_floor_share_reads_width_not_area(law):
     assert floor_share(box(0, 0, 400, 0.5 * w), w) == 0.0     # a long strip: no floor
     assert floor_share(box(0, 0, 20, 20), w) == pytest.approx(1.0)
     assert floor_share(box(0, 0, 0, 0), w) == 0.0
+
+
+def test_plate_length_reads_the_long_side():
+    from auto_patch_v2.planar.basin_floor_width import plate_length
+    assert plate_length(box(0, 0, 400, 1)) == pytest.approx(400.0)
+    assert plate_length(box(0, 0, 0, 0)) == 0.0

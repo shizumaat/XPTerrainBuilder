@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 __all__ = ["TITLE", "LICENCE_TEXT", "NONCOMMERCIAL_TEXT", "terms_lines",
-           "check_at_launch", "applied_text", "filtered_rows",
+           "check_at_launch", "applied_text",
            "PatchLibraryBox", "LibraryMatchList", "PublishPatchDialog"]
 
 TITLE = "Patch library"
@@ -73,7 +73,7 @@ def _state_text(row) -> str:
     return "patches for another version of this pack"
 
 
-def filtered_rows(rows, key: str) -> list:
+def _filtered_rows(rows, key: str) -> list:
     """The rows the Library's filter ``key`` lists (``scan.FILTERS``)."""
     states = dict((k, st) for k, _label, st in SCAN.FILTERS).get(key, SCAN.STATES)
     return [row for row in rows if row["state"] in states]
@@ -207,7 +207,7 @@ class PatchLibraryBox(QGroupBox):
         if not result.get("configured"):
             self.status_label.setText("The patch library is not set up in this app yet.")
             return
-        rows = filtered_rows(result.get("rows") or [],
+        rows = _filtered_rows(result.get("rows") or [],
                              self.filter_combo.currentData() or "all")
         self.status_label.setText(
             "" if rows else "No patch in the library for your installed airports "

@@ -36,8 +36,7 @@ import re
 import O4_Scenery_Packs as SCENERY_PACKS
 import O4_Tile_Build_Log as TILELOG
 
-__all__ = ["REASONS", "COMMANDS", "log_airports", "record_airports",
-           "recorded_airports", "airport_staleness", "tile_staleness",
+__all__ = ["REASONS", "COMMANDS", "record_airports",
            "check_tiles"]
 
 #: Why a tile is stale for one airport, in the order they are judged.
@@ -71,7 +70,7 @@ def _xplane_root_of(apt_dat: str) -> str:
     return path
 
 
-def log_airports(build_dir: str, log_name: str) -> dict:
+def _log_airports(build_dir: str, log_name: str) -> dict:
     """``{icao: apt.dat path}`` a build log names, the last choice of each
     airport winning (a build may select twice)."""
     out: dict = {}
@@ -92,7 +91,7 @@ def record_airports(build_dir: str, log_name: str, lat: int, lon: int) -> dict:
     airports a finished build's log names — what its record row keeps.
     A signature that cannot be taken is ``""`` (checked by pack only)."""
     out: dict = {}
-    for icao, apt_dat in log_airports(build_dir, log_name).items():
+    for icao, apt_dat in _log_airports(build_dir, log_name).items():
         entry = {"pack": _pack_of(apt_dat), "custom": _custom_of(apt_dat),
                  "signature": "", "apt_dat": apt_dat}
         try:
@@ -106,7 +105,7 @@ def record_airports(build_dir: str, log_name: str, lat: int, lon: int) -> dict:
     return out
 
 
-def recorded_airports(build_dir: str, lat: int, lon: int):
+def _recorded_airports(build_dir: str, lat: int, lon: int):
     """``(row, {icao: entry})`` of the tile's newest finished build: its
     row's ``airports``, else its log's choices (no signatures).  ``(None,
     {})`` when the tile has no finished build on record."""
@@ -118,7 +117,7 @@ def recorded_airports(build_dir: str, lat: int, lon: int):
             return row, recorded
         return row, {icao: {"pack": _pack_of(path), "custom": _custom_of(path),
                             "signature": "", "apt_dat": path}
-                     for icao, path in log_airports(
+                     for icao, path in _log_airports(
                          build_dir, row.get("log", "")).items()}
     return None, {}
 
@@ -135,7 +134,7 @@ def _text(icao: str, reason: str, pack: str, now: str) -> str:
     return "%s: its pack %s has changed since the build" % (icao, pack)
 
 
-def airport_staleness(icao: str, entry: dict, xp_root: str, lat: int,
+def _airport_staleness(icao: str, entry: dict, xp_root: str, lat: int,
                       lon: int, disabled: set | None = None) -> dict | None:
     """``{"icao", "reason", "pack", "now_pack", "text"}`` when the tile is
     stale for ``icao`` (:data:`REASONS`), else ``None``."""
@@ -167,11 +166,11 @@ def airport_staleness(icao: str, entry: dict, xp_root: str, lat: int,
             "text": _text(icao, reason, pack, now_pack)}
 
 
-def tile_staleness(build_dir: str, lat: int, lon: int, custom_scenery_dir: str,
+def _tile_staleness(build_dir: str, lat: int, lon: int, custom_scenery_dir: str,
                    disabled: set | None = None) -> dict:
     """One tile's verdict: ``{"lat", "lon", "checked", "stale",
     "airports": [stale airport, ...], "packs": {icao: pack}}``."""
-    _row, recorded = recorded_airports(build_dir, lat, lon)
+    _row, recorded = _recorded_airports(build_dir, lat, lon)
     out = {"lat": lat, "lon": lon, "checked": bool(recorded), "stale": False,
            "airports": [], "packs": {icao: e.get("pack", "")
                                      for icao, e in sorted(recorded.items())}}
@@ -181,7 +180,7 @@ def tile_staleness(build_dir: str, lat: int, lon: int, custom_scenery_dir: str,
         return out
     for icao, entry in sorted(recorded.items()):
         try:
-            verdict = airport_staleness(icao, entry, xp_root, lat, lon, disabled)
+            verdict = _airport_staleness(icao, entry, xp_root, lat, lon, disabled)
         except Exception:
             verdict = None
         if verdict is not None:
@@ -208,7 +207,7 @@ def check_tiles(custom_scenery_dir: str, tiles=None, working_dir: str = "") -> d
         for lat, lon, build_dir in tiles:
             if not build_dir or not os.path.isdir(build_dir):
                 continue
-            verdict = tile_staleness(build_dir, int(lat), int(lon),
+            verdict = _tile_staleness(build_dir, int(lat), int(lon),
                                      custom_scenery_dir, disabled)
             if verdict["checked"]:
                 rows.append(verdict)

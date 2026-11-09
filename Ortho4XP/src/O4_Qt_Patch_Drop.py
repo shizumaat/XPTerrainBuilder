@@ -18,7 +18,7 @@ from o4_engine import patch_drop as PD
 from PySide6.QtCore import QEvent, QObject
 from PySide6.QtWidgets import QMessageBox
 
-__all__ = ["TITLE", "INSTALL", "local_paths", "launch_paths", "DropFilter",
+__all__ = ["TITLE", "INSTALL", "launch_paths", "DropFilter",
            "offer"]
 
 #: The confirmation's title and button (the Mac app: PatchDropCopy).
@@ -26,7 +26,7 @@ TITLE = "Install dropped patches?"
 INSTALL = "Install"
 
 
-def local_paths(mime) -> list[str]:
+def _local_paths(mime) -> list[str]:
     """The local files and folders a drag carries."""
     if mime is None or not mime.hasUrls():
         return []
@@ -100,7 +100,7 @@ class DropFilter(QObject):
             return True
         if obj not in self._targets:
             return False
-        paths = (local_paths(event.mimeData())
+        paths = (_local_paths(event.mimeData())
                  if kind in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop)
                  else [])
         if not paths:

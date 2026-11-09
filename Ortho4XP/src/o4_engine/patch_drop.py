@@ -84,10 +84,6 @@ def _unpack(archive: str, into: str) -> None:
         zf.extractall(into)
 
 
-def _tile_of(lat: float, lon: float) -> tuple[int, int]:
-    return math.floor(lat), math.floor(lon)
-
-
 def _header_tile(doc: PF.PatchFile, bbox) -> tuple[int, int] | None:
     """The header's one DSF tile (``o4_dsf_tiles='39,-107'``), when the
     patch's nodes touch it (or it has none)."""
@@ -112,7 +108,8 @@ def _where(doc: PF.PatchFile) -> tuple[tuple[int, int] | None, str]:
         return tile, "header"
     if bbox is None:
         return None, ""
-    return _tile_of((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2), "geometry"
+    return (math.floor((bbox[0] + bbox[2]) / 2),
+            math.floor((bbox[1] + bbox[3]) / 2)), "geometry"
 
 
 def _icao(doc: PF.PatchFile, name: str) -> str:

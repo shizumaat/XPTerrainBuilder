@@ -36,8 +36,7 @@ from . import pack_choice as _PC
 from . import pack_rewrite as _PR
 from .pack_choice import relative as _relative
 
-__all__ = ["ACTIONS", "CHOICES_NAME", "forest_choice", "forest_stage",
-           "tile_climate"]
+__all__ = ["ACTIONS", "CHOICES_NAME", "forest_choice", "forest_stage"]
 
 #: the per-pack answers, beside the remembered data-root choice
 CHOICES_NAME = "pack_forest_choices.json"
@@ -101,7 +100,7 @@ def check(pack_root: str, lat: int, lon: int, *,
     asked: list = []
 
     def climate():
-        asked.append(tile_climate(pd.xroot, lat, lon))
+        asked.append(_tile_climate(pd.xroot, lat, lon))
         return asked[-1]
     old = _pf.old_forests(
         pack_root, pd.dump_path, _agp.get_library_index(pd.xroot),
@@ -307,7 +306,7 @@ def _definitions(dsf: str) -> list[str]:
             if ln.endswith((".ter", ".for")) and " " in ln]
 
 
-def tile_climate(xroot: str, lat: int, lon: int):
+def _tile_climate(xroot: str, lat: int, lon: int):
     """``pack_climate.Climate`` of the tile: X-Plane 12's own, else the
     latitude band's (module doc).  Never raises."""
     from auto_patch_v2.airport import pack_climate as _pc

@@ -210,7 +210,7 @@ def test_the_header_read_stops_the_tool_at_the_first_other_row():
 
 def test_a_tile_without_global_scenery_takes_the_latitude_band(tmp_path):
     from auto_patch import forest_stage as GC
-    assert GC.tile_climate(str(tmp_path), 24, -82) == Climate("hot", "wet",
+    assert GC._tile_climate(str(tmp_path), 24, -82) == Climate("hot", "wet",
                                                               "latitude")
 
 
@@ -227,5 +227,5 @@ def test_a_global_scenery_tile_gives_x_planes_own_climate(tmp_path, monkeypatch)
     monkeypatch.setattr(GC, "_definitions", defs)
     monkeypatch.setattr(GC, "_MEMO", {})
     for _ in range(2):
-        assert GC.tile_climate(str(tmp_path), 37, 23) == MED
+        assert GC._tile_climate(str(tmp_path), 37, 23) == MED
     assert calls == [str(dsf)], "read once per tile"

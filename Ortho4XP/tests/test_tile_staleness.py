@@ -66,7 +66,7 @@ def xp(tmp_path, monkeypatch):
 
 
 def _verdict(xp, build_dir):
-    return STALE.tile_staleness(build_dir, LAT, LON,
+    return STALE._tile_staleness(build_dir, LAT, LON,
                                 os.path.join(xp, "Custom Scenery"))
 
 
@@ -78,7 +78,7 @@ def test_log_airports_takes_the_last_choice(tmp_path):
         "noise\n"
         "  [pav-builder] KTST: apt.dat /x/Custom Scenery/B/Earth nav data/apt.dat\n",
         encoding="utf-8", newline="\n")
-    assert STALE.log_airports(str(tmp_path), "a.log") == {
+    assert STALE._log_airports(str(tmp_path), "a.log") == {
         "KTST": "/x/Custom Scenery/B/Earth nav data/apt.dat"}
 
 
@@ -166,7 +166,7 @@ def test_failed_newest_build_reads_the_build_before_it(xp):
                           "log": "missing.log"})
     with open(path, "w", encoding="utf-8", newline="\n") as h:
         json.dump(doc, h)
-    row, recorded = STALE.recorded_airports(build_dir, LAT, LON)
+    row, recorded = STALE._recorded_airports(build_dir, LAT, LON)
     assert row["log"] == "b.log" and set(recorded) == {"KTST"}
 
 

@@ -24,9 +24,9 @@ def test_share_counts_painting_pavement_and_skips_runway_edges():
     nodes, edges = _network()
     pav = (_rect("pav0", 0, -10, 300, 10),
            _rect("pav1", 300, -10, 600, 10, Surface.TRANSPARENT))
-    assert abs(NP.network_share(pav, nodes, edges) - 0.3) < 1e-9
-    assert NP.network_share((), nodes, edges) == 0.0
-    assert NP.network_share(pav, {}, ()) is None
+    assert abs(NP._network_share(pav, nodes, edges) - 0.3) < 1e-9
+    assert NP._network_share((), nodes, edges) == 0.0
+    assert NP._network_share(pav, {}, ()) is None
 
 
 def test_pages_become_sources_when_the_network_is_off_the_sources():

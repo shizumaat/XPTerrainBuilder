@@ -38,7 +38,7 @@ from shapely.ops import unary_union
 from ..model.airport import Pavement, TaxiEdge, TaxiNode
 from .borrow import counts_as_pavement
 
-__all__ = ["PAGE_PREFIX", "Decision", "network_share", "decide"]
+__all__ = ["PAGE_PREFIX", "decide"]
 
 #: the id of a §60 page taken as a pavement source (``dsf:`` routes it
 #: through classify's draped-page gates, ``evidence._dsf_pavements``)
@@ -46,7 +46,7 @@ PAGE_PREFIX = "dsf:netpage"
 
 
 @_dc.dataclass(frozen=True)
-class Decision:
+class _Decision:
     """What :func:`decide` found: the network ``share`` on the sources
     (``None`` with no network), the key, and the pages it took."""
 
@@ -79,7 +79,7 @@ def _poly(p: Pavement) -> Polygon | None:
     return None if g.is_empty else g
 
 
-def network_share(pavements: _t.Sequence[Pavement],
+def _network_share(pavements: _t.Sequence[Pavement],
                   taxi_nodes: _t.Mapping[int, TaxiNode],
                   taxi_edges: _t.Sequence[TaxiEdge]) -> float | None:
     """The share of the non-runway taxi network's length lying on the
@@ -103,14 +103,14 @@ def network_share(pavements: _t.Sequence[Pavement],
 def decide(pavements: _t.Sequence[Pavement], pages: _t.Sequence[Pavement],
            taxi_nodes: _t.Mapping[int, TaxiNode],
            taxi_edges: _t.Sequence[TaxiEdge], share_max: float
-           ) -> tuple[Decision, tuple[Pavement, ...]]:
+           ) -> tuple[_Decision, tuple[Pavement, ...]]:
     """The rule (module docstring).  ``pages`` are the §60 ``.pol`` sheets;
     returns the decision and the pages as sources (``()`` when they stay
     sheets), re-numbered ``dsf:netpage<k>`` in order."""
-    share = network_share(pavements, taxi_nodes, taxi_edges)
+    share = _network_share(pavements, taxi_nodes, taxi_edges)
     if share is None or not pages or share >= share_max:
-        return Decision(share, share_max), ()
+        return _Decision(share, share_max), ()
     taken = tuple(_dc.replace(p, id=f"{PAGE_PREFIX}{k}")
                   for k, p in enumerate(pages))
     m2 = sum(g.area for g in (_poly(p) for p in taken) if g is not None)
-    return Decision(share, share_max, len(taken), float(m2)), taken
+    return _Decision(share, share_max, len(taken), float(m2)), taken

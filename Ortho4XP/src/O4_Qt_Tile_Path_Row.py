@@ -13,8 +13,8 @@ from __future__ import annotations
 import O4_Reveal as REVEAL
 import O4_Tile_Volume as TVOL
 from O4_Qt_Widgets import ElidedRowLabel
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QHBoxLayout, QMessageBox, QSizePolicy,
+                               QToolButton, QVBoxLayout, QWidget)
 
 __all__ = ["TilePathRow", "ROW_TITLE"]
 
@@ -22,10 +22,18 @@ ROW_TITLE = "Path"
 
 
 class TilePathRow(QWidget):
-    """The resolved folder, the reveal button, and the offline note."""
+    """The resolved folder, the reveal button, and the offline note.
+
+    The row sits in the fixed-width side panel, so it must not put a
+    font-sized floor under it (``TestPanelFitsItsViewport``): the path
+    and the note elide (``ElidedRowLabel``), and the row as a whole takes
+    an Ignored horizontal policy so the reveal button's width — a glyph,
+    measured in the platform font — never becomes the panel's minimum.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(2)
@@ -41,7 +49,7 @@ class TilePathRow(QWidget):
         self.reveal_button.clicked.connect(self._reveal)
         line.addWidget(self.reveal_button, 0)
         outer.addLayout(line)
-        self.note_label = QLabel("")
+        self.note_label = ElidedRowLabel("")
         self.note_label.setStyleSheet("color: palette(placeholder-text);")
         self.note_label.setVisible(False)
         outer.addWidget(self.note_label)
@@ -62,7 +70,9 @@ class TilePathRow(QWidget):
         self.path_label.setToolTip(path)
         offline = bool(volume) and not mounted
         self.reveal_button.setEnabled(bool(path) and mounted)
-        self.note_label.setText(TVOL.offline_note(volume) if offline else "")
+        note = TVOL.offline_note(volume) if offline else ""
+        self.note_label.setText(note)
+        self.note_label.setToolTip(note)
         self.note_label.setVisible(offline)
 
     def _reveal(self) -> None:

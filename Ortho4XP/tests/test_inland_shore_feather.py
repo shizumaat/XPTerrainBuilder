@@ -269,3 +269,69 @@ class TestFarInlandSquares:
         mask_dir = FNAMES.mask_dir(tile.lat, tile.lon)
         assert not [name for name in os.listdir(mask_dir)
                     if name.endswith(".png")]
+
+
+# ---------------------------------------------------------------------------
+# Width cap (RULINGS 2026-11-09a (12)): the feather reaches at most 25 %
+# of the LOCAL shore-to-shore width from each shore, so about half of
+# every lake and river keeps the plain water look; the configured
+# feather (120 m) stays the upper bound for wide water.
+# ---------------------------------------------------------------------------
+METRES_PER_PIXEL = 4.0
+FEATHER_PX = int(120 / METRES_PER_PIXEL)
+
+
+def _feathered_columns(row):
+    return numpy.flatnonzero((row > GREY) & (row < 255))
+
+
+class TestFeatherWidthCap:
+    def _mask(self, water_columns, size=480, margin=120):
+        pre_mask = numpy.full((size, size), 255, dtype=numpy.uint8)
+        for (start, stop) in water_columns:
+            pre_mask[:, start:stop] = GREY
+        mask = MASK._build_inland_shore_mask(
+            pre_mask, GREY, feather_pixels=FEATHER_PX, crop_margin=margin)
+        return (mask, margin)
+
+    def test_forty_metre_river_feathers_ten_metres_a_side(self):
+        river = int(40 / METRES_PER_PIXEL)            # 10 px
+        (mask, margin) = self._mask([(230, 230 + river)])
+        row = mask[mask.shape[0] // 2, 230 - margin: 230 - margin + river]
+        assert (row < 255).all()
+        feathered = _feathered_columns(row)
+        left = feathered[feathered < river // 2]
+        right = feathered[feathered >= river // 2]
+        assert len(left) * METRES_PER_PIXEL <= 10
+        assert len(right) * METRES_PER_PIXEL <= 10
+        assert (row[river // 4 + 1: river - river // 4 - 1] == GREY).all()
+        assert row[0] > GREY and row[-1] > GREY       # still soft banks
+
+    def test_wide_lake_keeps_the_full_feather(self):
+        (mask, margin) = self._mask([(150, 450)])     # 1.2 km wide
+        row = mask[mask.shape[0] // 2, 150 - margin:]
+        feathered = _feathered_columns(row[: 150])
+        # The ramp runs ~the whole 120 m (its square tail rounds to the
+        # grey a few pixels early) and the middle settles at the grey.
+        assert len(feathered) * METRES_PER_PIXEL >= 100
+        assert row[FEATHER_PX + 2] == GREY
+
+    def test_river_flowing_into_a_lake_is_capped_away_from_the_mouth(self):
+        pre_mask = numpy.full((480, 480), 255, dtype=numpy.uint8)
+        pre_mask[:, 300:470] = GREY                   # lake
+        pre_mask[235:245, :300] = GREY                # 10 px river
+        mask = MASK._build_inland_shore_mask(
+            pre_mask, GREY, feather_pixels=FEATHER_PX, crop_margin=120)
+        column = mask[235 - 120: 245 - 120, 140 - 120]
+        assert len(_feathered_columns(column)) * METRES_PER_PIXEL <= 20
+        assert (column[3:7] == GREY).all()
+
+    def test_half_width_of_a_band(self):
+        import O4_Shore_Feather as SHORE
+        from scipy import ndimage
+
+        water = numpy.zeros((64, 64), dtype=bool)
+        water[:, 20:30] = True
+        depth = ndimage.distance_transform_edt(water)
+        half = SHORE.local_half_width(depth, limit=40)
+        assert (half[water] == 5).all()

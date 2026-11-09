@@ -266,6 +266,8 @@ struct BuildPane: View {
                 // Who built it (#1226, owner Q95): from the build record,
                 // else the tile's DSF.
                 detailRow("Built by", info.builtBy ?? "—")
+                // Where the folder really is, and "Show in Finder" (#1987).
+                TilePathRow(info: info)
             }
             if let dem = info?.customDEM, !dem.isEmpty {
                 detailRow("Elevation", (dem as NSString).lastPathComponent)

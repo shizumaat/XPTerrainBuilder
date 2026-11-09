@@ -33,6 +33,7 @@ import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
 import O4_Tile_Build_Log as TILELOG
+import O4_Tile_Volume as TVOL
 
 
 @dataclass
@@ -66,6 +67,13 @@ class TileInfo:
     # tile is asked for alone (:func:`with_built_by`), never by a scan.
     last_build: Optional[dict] = None
     built_by: str = ""
+    # Where the folder really is (#1987): ``build_dir`` with its links
+    # resolved; the drive it needs when that is not the one holding
+    # its parent folder ("" = none), and whether that folder is
+    # reachable now.  ``O4_Tile_Volume``.
+    resolved_dir: str = ""
+    volume: str = ""
+    volume_mounted: bool = True
 
 
 ##############################################################################
@@ -271,6 +279,7 @@ def _build_tile_info(
     last_build = TILELOG.last_build(build_dir, lat, lon)
 
     detected_provider, detected_zl = _detected_imagery(build_dir)
+    resolved_dir, volume, mounted = TVOL.tile_volume(build_dir)
     return TileInfo(
         lat=lat,
         lon=lon,
@@ -290,6 +299,29 @@ def _build_tile_info(
         size_bytes=None,
         last_build=last_build,
         built_by=TILELOG.built_by_text(last_build),
+        resolved_dir=resolved_dir,
+        volume=volume,
+        volume_mounted=mounted,
+    )
+
+
+def _offline_tile_info(
+    build_dir: str, lat: int, lon: int, dir_name: str
+) -> Optional[TileInfo]:
+    """A tile whose folder is a link onto a drive that is not connected
+    (#1987), or ``None`` when ``build_dir`` is not such a link.  Nothing
+    in it can be read, so it is reported as the built tile it was
+    linked as, with only its location filled in — the maps still draw it
+    (brown, "Requires <drive>") instead of forgetting it."""
+    if not os.path.islink(build_dir):
+        return None
+    resolved_dir, volume, mounted = TVOL.tile_volume(build_dir)
+    if not volume or mounted:
+        return None
+    return TileInfo(
+        lat=lat, lon=lon, build_dir=os.path.abspath(build_dir),
+        dir_name=dir_name, dsf_present=True,
+        resolved_dir=resolved_dir, volume=volume, volume_mounted=False,
     )
 
 
@@ -343,9 +375,11 @@ def iter_scan_tiles(
                 build_dir = os.path.join(working_dir, dir_name)
                 if os.path.isdir(build_dir):
                     built = _build_tile_info(build_dir, lat, lon, dir_name)
-                    if built is not None:
-                        seen.add((lat, lon))
-                        key, info = (lat, lon), built
+                else:
+                    built = _offline_tile_info(build_dir, lat, lon, dir_name)
+                if built is not None:
+                    seen.add((lat, lon))
+                    key, info = (lat, lon), built
         yield done, total, key, info
 
 

@@ -1,0 +1,73 @@
+"""The tile pane's "Path" row (Qt half; the Mac app's ``TilePathRow``,
+same words — :mod:`O4_Tile_Volume` writes the note).
+
+The active tile's folder with its links resolved (#1987: a
+``zOrtho4XP_*`` link in Custom Scenery shows the folder on the drive it
+points to) and a small button that shows it in the file manager (Finder,
+Explorer, or the default one — :mod:`O4_Reveal`).  The button is disabled
+while the folder cannot be reached, with the note "<drive> is not
+connected." when the folder is on a drive that is away.
+"""
+from __future__ import annotations
+
+import O4_Reveal as REVEAL
+import O4_Tile_Volume as TVOL
+from O4_Qt_Widgets import ElidedRowLabel
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QToolButton,
+                               QVBoxLayout, QWidget)
+
+__all__ = ["TilePathRow", "ROW_TITLE"]
+
+ROW_TITLE = "Path"
+
+
+class TilePathRow(QWidget):
+    """The resolved folder, the reveal button, and the offline note."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
+        line = QHBoxLayout()
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(4)
+        self.path_label = ElidedRowLabel("—")
+        line.addWidget(self.path_label, 1)
+        self.reveal_button = QToolButton()
+        self.reveal_button.setText("↗")
+        self.reveal_button.setAutoRaise(True)
+        self.reveal_button.setToolTip(REVEAL.menu_label())
+        self.reveal_button.clicked.connect(self._reveal)
+        line.addWidget(self.reveal_button, 0)
+        outer.addLayout(line)
+        self.note_label = QLabel("")
+        self.note_label.setStyleSheet("color: palette(placeholder-text);")
+        self.note_label.setVisible(False)
+        outer.addWidget(self.note_label)
+        self._path = ""
+
+    def show_info(self, info) -> None:
+        """The row for a tile's ``TileInfo`` (``None``: no tile folder)."""
+        path = ""
+        volume = ""
+        mounted = False
+        if info is not None:
+            path = (getattr(info, "resolved_dir", "")
+                    or getattr(info, "build_dir", "") or "")
+            volume = getattr(info, "volume", "") or ""
+            mounted = bool(getattr(info, "volume_mounted", True))
+        self._path = path
+        self.path_label.setText(path or "—")
+        self.path_label.setToolTip(path)
+        offline = bool(volume) and not mounted
+        self.reveal_button.setEnabled(bool(path) and mounted)
+        self.note_label.setText(TVOL.offline_note(volume) if offline else "")
+        self.note_label.setVisible(offline)
+
+    def _reveal(self) -> None:
+        try:
+            REVEAL.reveal(self._path)
+        except OSError as exc:
+            QMessageBox.warning(self, REVEAL.menu_label(),
+                                "Could not show %s: %s" % (self._path, exc))

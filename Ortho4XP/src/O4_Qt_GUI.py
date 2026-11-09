@@ -114,6 +114,7 @@ import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Qt_Tile_Menu as QTTILEMENU
+import O4_Qt_Tile_Path_Row as QTPATHROW
 import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
@@ -186,7 +187,8 @@ TILE_SCAN_CACHE_FILE = FNAMES.data_path(".tile_scan_cache.json")
 # provider normalisation poisoned the imagery-source audit with legacy
 # cfg quotes; here providers are normalised on the way IN, and the
 # version is what guarantees no pre-normalisation snapshot survives).
-TILE_SCAN_CACHE_VERSION = 1
+# 2: TileInfo gained resolved_dir / volume / volume_mounted (#1987).
+TILE_SCAN_CACHE_VERSION = 2
 
 # Point size of the per-tile stop / resume glyphs on the Activity rows.
 # Shared, so the button never changes size when a row flips between
@@ -1244,6 +1246,10 @@ class MainWindow(QMainWindow):
         # Who built it (#1226, owner Q95): the build record, else the DSF.
         self.info_built_by = ElidedRowLabel("—")
         ig.addRow("Built by:", self.info_built_by)
+        # Where the folder really is, and "Show in Finder" (#1987;
+        # mac-app parity: TilePathRow).
+        self.tile_path_row = QTPATHROW.TilePathRow()
+        ig.addRow("%s:" % QTPATHROW.ROW_TITLE, self.tile_path_row)
         self.info_elevation = TwoLineElidedLabel("—")
         ig.addRow("Elevation:", self.info_elevation)
         self.info_airport_lidar = TwoLineElidedLabel("—")
@@ -3205,6 +3211,7 @@ class MainWindow(QMainWindow):
                 self.info_size,
             ):
                 w.setText("…" if pending else "—")
+            self.tile_path_row.show_info(None)
             self.info_title.setText(
                 self.info_title.text()
                 + ("  (scanning…)" if pending else "  (not built)")
@@ -3229,6 +3236,7 @@ class MainWindow(QMainWindow):
         self.info_mesh.setText(_fmt_date(info.mesh_date))
         self.info_imagery.setText(_fmt_date(info.imagery_date))
         self.info_built_by.setText(TINFO.with_built_by(info).built_by or "—")
+        self.tile_path_row.show_info(info)
         if info.size_bytes is None:
             self.info_size.setText("computing…")
             threading.Thread(

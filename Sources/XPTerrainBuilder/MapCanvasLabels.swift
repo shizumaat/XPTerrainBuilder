@@ -100,6 +100,15 @@ extension MapCanvasView {
                 drawPill(TileMath.key(lat: lat, lon: lon), context: context,
                          at: CGPoint(x: rect.minX + 4, y: rect.minY + 4), anchorTop: true)
                 let coord = BuildModel.TileCoord(lat: lat, lon: lon)
+                // On another drive (#1987): "Requires <drive>" top-right,
+                // below the mixed-imagery badge when that holds the corner.
+                if let volume = built?[coord]?.volume {
+                    let drop: CGFloat = buildModel.conflictTiles.contains(coord)
+                        ? Self.conflictBadgeClearance : 0
+                    drawPill(O4TileVolumeText.requiresLabel(volume), context: context,
+                             at: CGPoint(x: rect.maxX - 4, y: rect.minY + 4 + drop),
+                             anchorTop: true, anchorRight: true)
+                }
                 let key = Int32((lat + 90) * 360 + lon + 180)
                 let imagery: String?
                 if let info = built?[coord] {
@@ -126,17 +135,23 @@ extension MapCanvasView {
         }
     }
 
+    /// How far the "Requires <drive>" pill drops below the tile's top
+    /// edge when the mixed-imagery badge (at most 20 pt) holds that corner.
+    static let conflictBadgeClearance: CGFloat = 24
+
     /// `text` on a translucent pill whose top-left (or bottom-left) corner
-    /// is `point` — readable over any imagery and over the base map.
+    /// is `point` — its top-right with `anchorRight` — readable over any
+    /// imagery and over the base map.
     private func drawPill(_ text: String, context: GraphicsContext, at point: CGPoint,
-                          anchorTop: Bool) {
+                          anchorTop: Bool, anchorRight: Bool = false) {
         let resolved = context.resolve(
             Text(text)
                 .font(.system(size: TextScale.scaled(MapLabelLayout.tileLabelFont, textScale),
                               weight: .medium, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.92)))
         let textSize = resolved.measure(in: CGSize(width: 400, height: 40))
-        let pill = CGRect(x: point.x, y: anchorTop ? point.y : point.y - textSize.height - 4,
+        let pill = CGRect(x: anchorRight ? point.x - textSize.width - 8 : point.x,
+                          y: anchorTop ? point.y : point.y - textSize.height - 4,
                           width: textSize.width + 8, height: textSize.height + 4)
         context.fill(Path(roundedRect: pill, cornerRadius: pill.height / 2),
                      with: .color(.black.opacity(0.55)))

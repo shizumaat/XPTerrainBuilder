@@ -1173,6 +1173,11 @@ class MainWindow(QMainWindow):
         self.map.tile_menu_requested.connect(self._tile_menu)
         self.map.hover_ll.connect(self._hover)
         self.map.status_message.connect(self._status)
+        # Patches dropped on the map or the window (#1979).
+        import O4_Qt_Patch_Drop as QTDROP
+        self.patch_drop = QTDROP.DropFilter(self)
+        self.patch_drop.watch(self.map.viewport())
+        self.patch_drop.watch(self)
         # First-visit hint over the map (#828): until the first selection
         # or its close button; Help > Show Tips brings it back.
         self.map_hint = MapHint(

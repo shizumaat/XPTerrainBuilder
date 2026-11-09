@@ -16,6 +16,8 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     public static let objectSeatSet = "object_seat_set"
     /// `patch_roles` / `patch_role_set` (#1697), after the freeze: flag only.
     public static let patchRoles = "patch_roles"
+    /// `patch_drop_plan` / `patch_drop_install` (#1979): flag only.
+    public static let patchDrop = "patch_drop"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

@@ -130,6 +130,27 @@ def test_a_long_run_between_two_pavements_is_cut_no_deeper_than_their_terraces(e
     assert rep["linked"] == n - 2 and rep["link_lifted"] > 100
 
 
+def test_a_long_run_between_two_pavements_follows_its_ground_down_into_a_dip():
+    """#1964 (found at KBTV, ``dsf:pol227``): a road bordered only at its two
+    ends (levels 100 / 101, 400 m apart) over ground falling to 93 between
+    them.  It is not held straight over the dip on a fill: it leaves each
+    end at the built grade, follows its own ground, and never stands over
+    the line between the two levels."""
+    n = 41
+    st = _route(n)
+    foot, lv = _feet({0: 100.0, n - 1: 101.0})
+    floor = {v: 93.0 + 0.35 * abs(v - 20) for v in st}
+    out, rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                               design=DESIGN, lane=LANE)
+    for v in range(1, n - 1):
+        line = 100.0 + v / (n - 1)
+        ramp = max(100.0 - DESIGN * 10.0 * v, 101.0 - DESIGN * 10.0 * (n - 1 - v))
+        assert out[v] == pytest.approx(min(line, max(floor[v], ramp)))
+        assert abs(out[v] - out[v - 1]) <= DESIGN * 10.0 + 1e-9
+    assert out[20] == pytest.approx(93.0)
+    assert rep["link_dropped"] > 20 and rep["link_lifted"] == 0
+
+
 def test_a_coverage_join_is_reached_at_the_cap():
     """A §37 (9) join pinned at 110 two stations past a bordered run at 100:
     the join is never governed, and the road leaves the terrace at the cap

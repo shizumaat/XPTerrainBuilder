@@ -79,6 +79,7 @@ import math
 import typing as _t
 
 from ..geom import exact
+from ..geom.ramp_grade import grade_envelope
 from ..law import Law
 from ..law.reference_code import ref_status
 from ..law.tables import (
@@ -420,21 +421,6 @@ def _connected(adj: _t.Mapping[int, list[tuple[int, float]]],
                 seen.add(w)
                 todo.append(w)
     return seen
-
-
-def _lift(ss: _t.Sequence[float], vals: _t.Sequence[float], cap: float,
-          lower: bool = False) -> dict[float, float]:
-    """§37 (8) ONTO THE ROUTE: the cap-Lipschitz UPPER envelope of the
-    per-vertex descent labels at the stations of ONE route, so the ramp is
-    ONE VALUE PER STATION and can never tilt a section.  ``lower``: the
-    LOWER envelope, for the cut ramps' ceilings (#1531, the mirror)."""
-    pick, k = (min, cap) if lower else (max, -cap)
-    out = list(vals)
-    for i in range(1, len(out)):                            # forward
-        out[i] = pick(out[i], out[i - 1] + k * (ss[i] - ss[i - 1]))
-    for i in range(len(out) - 2, -1, -1):                   # backward
-        out[i] = pick(out[i], out[i + 1] + k * (ss[i + 1] - ss[i]))
-    return {s_: z_ for s_, z_ in zip(ss, out)}
 
 
 def _floor_along_route(pm: PlanarMap, law: Law, airport: Airport,
@@ -953,8 +939,10 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     env_c: dict[int, dict[float, float]] = {}
     for r, items in by_route.items():
         ss = [s_ for s_, _v in items]
-        env[r] = _lift(ss, [g.get(v, -math.inf) for _s, v in items], cap)
-        env_c[r] = _lift(ss, [cut_lab.get(v, math.inf) if v not in mouths else math.inf
+        # the cap-Lipschitz envelope; the LOWER one for the cut ramps'
+        # ceilings (#1531, the mirror)
+        env[r] = grade_envelope(ss, [g.get(v, -math.inf) for _s, v in items], cap)
+        env_c[r] = grade_envelope(ss, [cut_lab.get(v, math.inf) if v not in mouths else math.inf
                               for _s, v in items], cap, lower=True)
     targets: dict[int, float] = {}
     for v in sorted(owned):

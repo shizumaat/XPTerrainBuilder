@@ -46,6 +46,7 @@ coverage beyond it.
 | `elevation_level` | Global `Ortho4XP.cfg` | 90 | auto | auto |
 | `airport_elevation_level` | Global `Ortho4XP.cfg` | 30 | auto | auto |
 | `approach_rings` | Global `Ortho4XP.cfg` | off | off | auto |
+| `cover_approach_ft` | Global `Ortho4XP.cfg` | 0 | 500 | 1000 |
 | `cover_airports_with_highres` | Global `Ortho4XP.cfg` | ICAO | ICAO | ICAO |
 | `auto_patch` | Global `Ortho4XP.cfg` | ICAO | ICAO | ICAO |
 | `airport_elevation_insets` | Global `Ortho4XP.cfg` | ICAO | ICAO | ICAO |
@@ -68,6 +69,14 @@ coverage beyond it.
   2026-10-19 on #937): ZL18 imagery (`cover_zl` 18, about 0.6 m per pixel)
   inside each such airport's boundary (`cover_extent` 0), and the
   approach rings.
+- `cover_approach_ft` (#1990): the ZL18 squares also follow each runway's
+  approach, from each landing threshold (apt.dat row 100, displaced
+  thresholds respected) out along the extended centreline until a 3° glide
+  path is this many feet above the threshold (1,000 ft ≈ 5.8 km, 500 ft ≈
+  2.9 km, 0 = the airport only), widening from the runway width to 1 km.
+  `cover_extent` widens the boundary polygon itself, not its bounding
+  box; the squares are those meeting boundary ∪ corridors
+  (`O4_Airport_Approach_Cover`).
 
 Owner rulings, 2026-10-18: detail levels are named by their ZL number,
 never by an invented name; **Light on disk** does NOT set `cleaning_level`

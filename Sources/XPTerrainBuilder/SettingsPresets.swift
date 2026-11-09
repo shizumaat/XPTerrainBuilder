@@ -41,15 +41,15 @@ enum SettingsPresets {
         SettingsPreset("light_on_disk", "Light on disk",
                        summary: "ZL15, and ZL18 only inside airports with ICAO codes; elevation 30 m there and 90 m elsewhere.",
                        cost: "About 0.4–0.8 GB of imagery per tile, a quarter of Balanced, plus the airports.",
-                       values: ["zl": "15", "cover_zl": "18", "cover_extent": "0.0", "elevation_level": "90", "airport_elevation_level": "30", "approach_rings": "off", "cover_airports_with_highres": "ICAO", "auto_patch": "ICAO", "airport_elevation_insets": "ICAO", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "False"]),
+                       values: ["zl": "15", "cover_zl": "18", "cover_extent": "0.0", "elevation_level": "90", "airport_elevation_level": "30", "approach_rings": "off", "cover_approach_ft": "0", "cover_airports_with_highres": "ICAO", "auto_patch": "ICAO", "airport_elevation_insets": "ICAO", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "False"]),
         SettingsPreset("balanced", "Balanced",
                        summary: "ZL16, and ZL18 imagery and the best elevation at airports with ICAO codes.",
                        cost: "About 1.6–3.1 GB of imagery per tile, plus the sharper airports.",
-                       values: ["zl": "16", "cover_zl": "18", "cover_extent": "0.0", "elevation_level": "auto", "airport_elevation_level": "auto", "approach_rings": "off", "cover_airports_with_highres": "ICAO", "auto_patch": "ICAO", "airport_elevation_insets": "ICAO", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "False"]),
+                       values: ["zl": "16", "cover_zl": "18", "cover_extent": "0.0", "elevation_level": "auto", "airport_elevation_level": "auto", "approach_rings": "off", "cover_approach_ft": "500", "cover_airports_with_highres": "ICAO", "auto_patch": "ICAO", "airport_elevation_insets": "ICAO", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "False"]),
         SettingsPreset("sharper_airports", "Sharper airports",
                        summary: "ZL16, and at airports with ICAO codes ZL18 imagery and the best elevation, their approaches included.",
                        cost: "About 1.6–3.1 GB per tile, plus the sharper airports.",
-                       values: ["zl": "16", "cover_zl": "18", "cover_extent": "0.0", "elevation_level": "auto", "airport_elevation_level": "auto", "approach_rings": "auto", "cover_airports_with_highres": "ICAO", "auto_patch": "ICAO", "airport_elevation_insets": "ICAO", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "False"]),
+                       values: ["zl": "16", "cover_zl": "18", "cover_extent": "0.0", "elevation_level": "auto", "airport_elevation_level": "auto", "approach_rings": "auto", "cover_approach_ft": "1000", "cover_airports_with_highres": "ICAO", "auto_patch": "ICAO", "airport_elevation_insets": "ICAO", "bathymetry_near_icao_airports": "True", "bathymetry_near_other_airports": "False"]),
     ]
 
     /// The preset a new user starts from (#937; Qt DEFAULT_PRESET).

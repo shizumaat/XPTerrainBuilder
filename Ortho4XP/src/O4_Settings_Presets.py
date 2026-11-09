@@ -62,6 +62,7 @@ PRESET_KEYS = (
     "elevation_level",
     "airport_elevation_level",
     "approach_rings",
+    "cover_approach_ft",
 ) + AIRPORT_DETAIL.SCOPE_KEYS
 
 #: The words around the cards (SettingsPresets.swift uses the same ones).
@@ -88,14 +89,16 @@ class Preset:
 # The cost lines are DERIVED, never measured here: the imagery texture bytes
 # of one 1°x1° tile at the preset's detail level, for tiles between 60°S and
 # 60°N (docs/presets.md gives the formula; the twin recomputes the figures).
-def _values(zoom, extent, elevation, airport_elevation, rings):
+def _values(zoom, extent, elevation, airport_elevation, rings, approach_ft):
     """A preset's ``(name, literal)`` pairs in :data:`PRESET_KEYS` order:
     its zoom, how far past the airport the ZL18 imagery reaches, its
-    elevation detail, and Detail "ICAO airports" for the rest."""
+    elevation detail, the approach corridor's height on a 3° glide path
+    (#1990), and Detail "ICAO airports" for the rest."""
     values = dict(AIRPORT_DETAIL.scope_values("icao"), cover_zl="18",
                   cover_extent=extent, elevation_level=elevation,
                   airport_elevation_level=airport_elevation,
-                  approach_rings=rings, **{ZOOM_PREF: str(zoom)})
+                  approach_rings=rings,
+                  cover_approach_ft=str(approach_ft), **{ZOOM_PREF: str(zoom)})
     return tuple((name, values[name]) for name in PRESET_KEYS)
 
 
@@ -114,21 +117,21 @@ PRESETS = (
         "30 m there and 90 m elsewhere.",
         "About 0.4–0.8 GB of imagery per tile, a quarter of Balanced, "
         "plus the airports.",
-        _values(15, "0.0", "90", "30", "off"),
+        _values(15, "0.0", "90", "30", "off", 0),
     ),
     Preset(
         "balanced", "Balanced",
         "ZL16, and ZL18 imagery and the best elevation at airports with "
         "ICAO codes.",
         "About 1.6–3.1 GB of imagery per tile, plus the sharper airports.",
-        _values(16, "0.0", "auto", "auto", "off"),
+        _values(16, "0.0", "auto", "auto", "off", 500),
     ),
     Preset(
         "sharper_airports", "Sharper airports",
         "ZL16, and at airports with ICAO codes ZL18 imagery and the best "
         "elevation, their approaches included.",
         "About 1.6–3.1 GB per tile, plus the sharper airports.",
-        _values(16, "0.0", "auto", "auto", "auto"),
+        _values(16, "0.0", "auto", "auto", "auto", 1000),
     ),
 )
 

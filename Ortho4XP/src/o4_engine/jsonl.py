@@ -175,7 +175,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from O4_Scenery_Packs_Tidy import tidy_scenery_packs
     from O4_Tile_Texture_Check import tile_texture_check
 
-    from . import patch_commands, patch_insert
+    from . import patch_commands, patch_drop, patch_insert
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
     from .imagery_commands import (
@@ -286,6 +286,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # the auto patch runs again.  Synchronous file work.
         "custom_patches": patch_commands.custom_patches,
         "use_auto_patch": patch_commands.use_auto_patch,
+        # Patches dropped on the map or the app icon (#1979, capability
+        # patch_drop): the plan (airport, tile, destination; writes
+        # nothing) and the install.  Synchronous file work.
+        "patch_drop_plan": patch_drop.patch_drop_plan,
+        "patch_drop_install": patch_drop.patch_drop_install,
         # Patch editor 3D preview (protocol 1.12, #46): the DEM grid under
         # the patch, from the data repo's caches only.  Synchronous.
         "terrain_sample": terrain_sample,

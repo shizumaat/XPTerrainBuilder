@@ -168,6 +168,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Patch files or folders opened on the Dock icon or with "Open With"
+    /// (#1979): the map offers to install them (PatchDropInstall.swift).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated { PatchDropInbox.shared.receive(urls) }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }

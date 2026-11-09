@@ -540,7 +540,7 @@ def airport_mod_cache_dir(pack_root: str) -> str | None:
 # part welded only by a member thinner than
 # ``object_footprints.FOOTPRINT_CONNECTOR_NECK_M`` is now split at that
 # isthmus, so a v7 sidecar holds the under-split parts.
-_OBJECT_FOOTPRINT_CACHE_VERSION = 8
+_OBJECT_FOOTPRINT_CACHE_VERSION = 9  # 9: INTERIOR_CUTOUT stays in the pool (RULINGS 2026-11-09a (15))
 
 # Ring roles for the OBJ8 structure footprint reader (R18-2).  The role
 # carries the VERTICAL half of the building-evidence verdict; the
@@ -1123,8 +1123,9 @@ def _compute_dsf_object_buildings(
     # 9/9a: 88,414 m² over 654 m; 2/2a: 87,148 m² over 1,076 m) falls
     # under the area backstop, so it emitted AS a building pad — a
     # phantom flat pad burying the below-grade deck.  Tunnels, bridges
-    # and interior deck cutouts are Feature-B object-TERRAIN material,
-    # not building pads; the shared Feature-B classifier
+    # and split-level decks are Feature-B object-TERRAIN material,
+    # not building pads (an INTERIOR_CUTOUT is not: it keeps its
+    # footprint, RULINGS 2026-11-09a (15)); the shared Feature-B classifier
     # (``object_terrain_features.classify_object_terrain_features``) is a
     # geometric recognizer — below-grade drivable enclosure for tunnels,
     # deck/abutment signature for bridges, with a building-likeness gate

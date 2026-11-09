@@ -1249,6 +1249,31 @@ class TestStructureGroundInterfaces:
         assert interface.floor_y_m == pytest.approx(-5.0, abs=0.2)
         assert interface.below_grade_footprint is not None
 
+    def test_interior_cutout_keeps_its_building_footprint(self):
+        """RULINGS 2026-11-09a (15), #1961: an INTERIOR_CUTOUT is not
+        building-pool terrain material — the terminal keeps its
+        footprint ring (LFMN lost 40 terminal resources to this drop),
+        with the split-level gate on (R4 y-bake feed) or off."""
+        builder = _GeometryBuilder()
+        builder.add_horizontal_rectangle(-40, 40, -30, 30, 0.0, segments=4)
+        for x in range(-40, 41, 8):
+            builder.add_vertical_wall(float(x), -30, 30, 0.0, 12.0)
+        builder.add_horizontal_rectangle(
+            -15, 15, -5, 5, -5.0, hardness="hard_deck", segments=4
+        )
+        geometry = {"objects/concourse.obj": builder.build()}
+        for split_level in (False, True):
+            result = otf.classify_object_terrain_features(
+                [_placement("objects/concourse.obj")],
+                geometry,
+                pack_root="PACK",
+                split_level_terrain_enabled=split_level,
+            )
+            assert [i.interface_class for i in result.ground_interfaces] == [
+                otf.INTERFACE_INTERIOR_CUTOUT]
+            assert ("objects/concourse.obj"
+                    not in result.terrain_material_resources())
+
     def test_tunnel_versus_cutout_precedence_pair(self):
         """The A8 discriminator: the SAME below-grade hard deck is a
         TUNNEL when its at-grade cover leaves open mouths, and an

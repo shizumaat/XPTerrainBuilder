@@ -67,6 +67,7 @@ class PackForests(_t.NamedTuple):
     old: tuple                 # ``pack_forests.OldForest`` rows
     upgraded: dict             # the recorded renames, {} = none
     version: int = 0           # the rules the recorded one was written under
+    climate: _t.Any = None     # ``pack_climate.Climate`` of the tile (#1965)
 
     @property
     def renames(self) -> dict:
@@ -91,15 +92,21 @@ def check(pack_root: str, lat: int, lon: int, *,
     from auto_patch_v2.airport.file_hash import sha256_file
 
     from . import agp_reader as _agp
+    from .global_climate import tile_climate
     from .object_stage import pack_dump
 
     pd = pack_dump(pack_root, lat, lon, read_only=read_only)
     if pd is None:
         return None
+    asked: list = []
+
+    def climate():
+        asked.append(tile_climate(pd.xroot, lat, lon))
+        return asked[-1]
     old = _pf.old_forests(
         pack_root, pd.dump_path, _agp.get_library_index(pd.xroot),
         os.path.join(pd.xroot, "Resources", "default scenery"),
-        lambda: _agp.other_export_names(pd.xroot))
+        lambda: _agp.other_export_names(pd.xroot), climate)
     if old is None:
         return None
     upgraded, version = {}, 0
@@ -109,7 +116,7 @@ def check(pack_root: str, lat: int, lon: int, *,
         upgraded = _pf.recorded(entry, sha256_file(pd.pristine))
         version = _pf.recorded_version(entry) if upgraded else 0
     return PackForests(pd.pack_name, pd.dsf_path, tuple(old), upgraded,
-                       version)
+                       version, asked[0] if asked else None)
 
 
 def _announce(pf: PackForests, pack_root: str, lat: int, lon: int,
@@ -175,6 +182,8 @@ def forest_stage(plan_, tile, *, writes: bool,
     if pf is None or not pf.old:
         return ""
     UI.vprint(1, "  " + _pf.log_line(pf.pack_name, pf.old))
+    for line in _pf.target_lines(pf.old, pf.climate):
+        UI.vprint(1, "    " + line)
     if pf.current:
         return "current"
     if not pf.renames and not pf.upgraded:

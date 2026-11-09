@@ -27,7 +27,7 @@ _LITERAL = r'"((?:[^"\\]|\\.)*)"'
 
 
 def _swift():
-    return SWIFT.read_text(encoding="utf-8", newline="\n")
+    return SWIFT.read_text(encoding="utf-8")
 
 
 def _swift_constant(name):

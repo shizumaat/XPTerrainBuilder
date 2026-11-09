@@ -208,6 +208,23 @@ def test_an_object_resting_on_another_reads_no_float(tmp_path):
     assert by_row[2]["clearance_m"] == pytest.approx(0.0, abs=0.01) and by_row[2]["on_object"]
 
 
+def test_clearance_only_lists_each_floating_row(tmp_path, capsys):
+    """#1969: ``--clearance-only`` reads no component and lists each FLOAT
+    ROW -- KBZN places one object per MATERIAL, so a stem's folded bar is
+    the least of every building's and hides the floating ones."""
+    fr = DC.Frame(LAT, LON)
+    items = [_item(_box_obj(tmp_path, "BROWN__b0_ab12.obj", 0.0), 1),
+             _item(_box_obj(tmp_path, "BROWN__b1_cd34.obj", 15.0), 2, lat=LAT + 0.001)]
+    site = DC.measure_site(DC.Site("a", LAT, LON, 0.0), items,
+                           _Mesh(fr, lambda e, n: 100.0), clearance_only=True)
+    assert site["components"] == []
+    by_row = {p["row"]: p["clearance_m"] for p in site["placements"]}
+    assert by_row == pytest.approx({1: 0.0, 2: 15.0}, abs=0.01)
+    DC.print_clearances({"sites": [site]}, DC.GROUND_BAR_M, 10)
+    out = capsys.readouterr().out
+    assert "FLOAT > 0.5 m: 1" in out and "obj2" in out and "obj1 " not in out
+
+
 def test_split_bodies_fold_to_one_object():
     rec = {"pack": "p", "tile": "+40+010", "row": 3, "def": "objects/T__b40_90d352ac.obj"}
     assert BARS.object_key(rec) == ("p", "+40+010", "objects/T.obj")

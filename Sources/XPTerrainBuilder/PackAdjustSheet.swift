@@ -3,8 +3,9 @@ import SwiftUI
 
 /// The package adjustments question (#1916; the Qt window's
 /// `O4_Qt_Pack_Adjust.PackAdjustBox`, same copy): one checkbox per
-/// adjustment the engine offers, every one checked when it opens, each
-/// with its explanation; the automatic rows (the flatten flag) listed
+/// adjustment the engine offers, ticked when it opens as the row's
+/// `checked` says (the large ground textures are not, #1962), each with
+/// its explanation; the automatic rows (the flatten flag) listed
 /// without a checkbox. Apply sends the checked rows and every row shown.
 struct PackAdjustSheet: View {
     let adjust: O4PackAdjust
@@ -48,7 +49,7 @@ struct PackAdjustSheet: View {
         }
         .padding(20)
         .frame(width: 460)
-        .onAppear { checked = Set(adjust.choices.map(\.key)) }
+        .onAppear { checked = Set(adjust.choices.filter(\.checked).map(\.key)) }
     }
 
     private func row<Title: View>(_ item: O4PackAdjustItem,

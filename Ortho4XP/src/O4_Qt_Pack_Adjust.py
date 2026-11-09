@@ -4,7 +4,9 @@
 The engine's object stage names every adjustment that applies to such a
 pack in one :class:`o4_engine.events.PackAdjust` event; this module is the
 question the Qt window asks for it: one checkbox per row the user chooses
-(``trees``, ``drapes``), every one checked when it opens, each with its
+(``trees``, ``drapes``, ``ground``), each ticked when it opens as the row's
+``checked`` says (every row but ``ground``, the large ground textures of
+#1962, which the user must tick: RULINGS 2026-11-09a (3)), each with its
 explanation, and the automatic rows (``flatten``: the apt.dat's flatten
 flag, removed with no question) listed without a checkbox.  **Apply**
 sends ``pack_adjust`` with ``action="update"``, the checked rows as
@@ -34,6 +36,7 @@ BODY = ("The app is modifying this airport package. These changes help it "
 ITEM_TITLES = {
     "trees": "Update trees",
     "drapes": "Hide draped orthophotos included with the package",
+    "ground": "Hide large ground textures included with the package",
     "flatten": "Remove the airport’s flatten flag (always)",
 }
 ITEM_DETAILS = {
@@ -41,6 +44,9 @@ ITEM_DETAILS = {
               "3D trees."),
     "drapes": ("{n} photo images ({uses} polygons) laid over the airport "
                "cover the tile’s imagery."),
+    "ground": ("{n} painted ground or grass images ({uses} polygons) laid "
+               "mostly over unpaved ground at the airport cover the tile’s "
+               "imagery."),
     "flatten": ("The apt.dat asks X-Plane to flatten the airport, which "
                 "does not work with this app’s terrain mesh."),
 }
@@ -98,7 +104,7 @@ class _PackAdjustBox(ChoiceDialog):
                 self.automatic.append(row["key"])
             else:
                 head = QCheckBox(ITEM_TITLES[row["key"]])
-                head.setChecked(True)
+                head.setChecked(bool(row.get("checked", True)))
                 self.item_boxes[row["key"]] = head
             detail = QLabel(_detail(row))
             detail.setWordWrap(True)

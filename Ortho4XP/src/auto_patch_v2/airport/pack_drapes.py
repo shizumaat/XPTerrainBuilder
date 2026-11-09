@@ -19,8 +19,10 @@ name:
 2. its header is ``DRAPED_POLYGON`` with ONE NON-WRAPPING IMAGE
    (``TEXTURE_NOWRAP``): a picture laid over its own shape, where
    painted markings and pavement tile a wrapping ``TEXTURE``;
-3. it carries NO ``SURFACE`` (pavement the aircraft rolls on, drawn on
-   purpose) and is NOT ``WEATHER_TRANSPARENT`` (a translucent overlay —
+3. it carries NO PAVED ``SURFACE`` (:data:`PAVED_SURFACES`: pavement the
+   aircraft rolls on, drawn on purpose — a photo may carry ``SURFACE
+   grass``, the bumps of the ground it shows: issue #1943, 151 such tiles
+   at one pack) and is NOT ``WEATHER_TRANSPARENT`` (a translucent overlay —
    dirt, skid marks, cracks — laid over pavement; measured 2026-11-06 on
    the installed packs: every weathering decal carries it, no WED
    orthophoto does);
@@ -30,7 +32,7 @@ name:
    parallels — a georeferenced photo — within :data:`NORTH_UP_DEG` for
    the median polygon (a dirt or skid decal is turned to its runway);
 5. at least one of them lies over one of the pack's airports
-   (:func:`airport_bounds`) and is PHOTO-SIZED: the ``.pol`` carries WED's
+   (:func:`airport_boxes`) and is PHOTO-SIZED: the ``.pol`` carries WED's
    orthophoto ``LOAD_CENTER``, or the polygon spans at least
    :data:`MIN_SPAN_M`;
 6. its image is not (nearly) all transparent
@@ -62,7 +64,8 @@ import typing as _t
 from .pack_art import MissingDef, _lines, decision_key
 
 __all__ = ["RECORD_KEY", "MIN_SPAN_M", "NORTH_UP_DEG", "MIN_OPAQUE",
-           "airport_bounds", "draped_orthos", "recorded", "summary"]
+           "PAVED_SURFACES", "airport_boxes", "photo_layers",
+           "draped_orthos", "recorded", "summary"]
 
 #: the record key of the hiding the user accepted
 RECORD_KEY = "hidden_drapes"
@@ -73,6 +76,8 @@ MIN_SPAN_M = 100.0
 NORTH_UP_DEG = 3.0
 #: the share of opaque pixels below which an image is a see-through decal
 MIN_OPAQUE = 0.005
+#: the ``.pol`` ``SURFACE`` values that make a polygon pavement
+PAVED_SURFACES = ("asphalt", "concrete", "shoulder")
 #: how much of a ``.pol`` file is read for its header
 _HEAD_BYTES = 4096
 
@@ -95,24 +100,26 @@ def pol_header(path: str) -> dict[str, str]:
     return out
 
 
+def paved_header(header: _t.Mapping[str, str]) -> bool:
+    """The ``.pol`` draws pavement: its ``SURFACE`` is a paved one."""
+    return (header.get("SURFACE", "").split() or [""])[0].lower() in PAVED_SURFACES
+
+
 def is_ortho_header(header: _t.Mapping[str, str]) -> bool:
     """Witness (2) and (3): a draped polygon with one non-wrapping image,
-    no hard surface, and not a weather-transparent overlay."""
+    no paved surface, and not a weather-transparent overlay."""
     return ("DRAPED_POLYGON" in header and "TEXTURE_NOWRAP" in header
-            and "SURFACE" not in header
+            and not paved_header(header)
             and "WEATHER_TRANSPARENT" not in header)
 
 
-def airport_bounds(apt_path: str) -> tuple[list[Box], bool]:
-    """One lon/lat box per airport of the pack's apt.dat — its boundary
-    (row 130) when authored, else its runways, pavement and helipads —
-    and whether every box is an authored boundary."""
+def airport_boxes(apt_path: str) -> list[tuple[Box, bool]]:
+    """One ``(lon/lat box, bounded)`` per airport of an apt.dat: its
+    boundary (row 130) when authored (``bounded``), else its runways,
+    pavement and helipads."""
     from . import apt_dat as _ad
-    boxes: list[Box] = []
-    bounded = True
-    if not apt_path:
-        return boxes, False
-    for icao in _ad.airports_in(apt_path):
+    out: list[tuple[Box, bool]] = []
+    for icao in _ad.airports_in(apt_path) if apt_path else ():
         block = _ad.read_airport_block(apt_path, icao)
         if not block:
             continue
@@ -121,16 +128,17 @@ def airport_bounds(apt_path: str) -> tuple[list[Box], bool]:
         except (ValueError, IndexError):
             continue
         pts = [p for b in apt.boundaries for ring in b.rings[:1] for p in ring]
-        bounded = bounded and bool(pts)
+        bounded = bool(pts)
         if not pts:
             pts = ([(e[2], e[1]) for r in apt.runways for e in r.ends]
                    + [p for pv in apt.pavements for ring in pv.rings[:1]
                       for p in ring]
                    + [(h.lon, h.lat) for h in apt.helipads])
         if pts:
-            boxes.append((min(p[0] for p in pts), min(p[1] for p in pts),
-                          max(p[0] for p in pts), max(p[1] for p in pts)))
-    return boxes, bounded and bool(boxes)
+            out.append(((min(p[0] for p in pts), min(p[1] for p in pts),
+                         max(p[0] for p in pts), max(p[1] for p in pts)),
+                        bounded))
+    return out
 
 
 def _overlaps(a: Box, b: Box) -> bool:
@@ -244,22 +252,26 @@ def _layer(header: _t.Mapping[str, str]) -> float:
     return _GROUPS.index(toks[0].lower()) * 100 + off
 
 
-def draped_orthos(pack_root: str, source: str | _t.Sequence[str],
-                  areas: _t.Sequence[Box], *,
-                  bounded: bool = False) -> tuple[MissingDef, ...]:
-    """THE WITNESS over one pristine DSF dump (a path or its rows): every
-    polygon definition that is a draped orthophoto over one of ``areas``
-    AND passes the grid rule (``pack_drape_grid``), as the ``MissingDef``
-    rows the omission takes (``uses``: its polygons).  ``bounded``: the
-    areas are the airports' authored boundaries."""
+class _PhotoLayers(_t.NamedTuple):
+    """One dump's draped polygons as the photo rule reads them."""
+    defs: list[str]                       # every POLYGON_DEF path
+    uses: dict[int, list[_Use]]           # their polygons
+    layers: list                          # ``pack_drape_grid.Layer`` rows
+    ground: list[Box]                     # the pack's other draped art
+
+
+def photo_layers(pack_root: str, source: str | _t.Sequence[str],
+                 areas: _t.Sequence[Box]) -> _PhotoLayers:
+    """Witness (1)-(6) over one pristine DSF dump (a path or its rows):
+    every definition passing (1)-(4) as a photo ``Layer`` (its ``witness``
+    (5)-(6) over ``areas``), and the boxes of the pack's other draped
+    polygons."""
     from .obj8 import resolve_resource
-    from .pack_drape_grid import Layer, hidden_stacks
+    from .pack_drape_grid import Layer
     lines = list(_lines(source))
     defs = [ln.partition(" ")[2].strip() for ln in lines
             if ln.startswith("POLYGON_DEF ")]
-    if not defs or not areas:
-        return ()
-    uses = _polygon_uses(lines)
+    uses = _polygon_uses(lines) if defs else {}
     layers: list[Layer] = []
     ground: list[Box] = []
     for i, path in enumerate(defs):
@@ -286,9 +298,26 @@ def draped_orthos(pack_root: str, source: str | _t.Sequence[str],
                             tuple(u.box for u in uses[i] if u.mapped),
                             over and _image_opaque(local, header),  # (6)
                             _layer(header)))
-    hidden = hidden_stacks(layers, areas, bounded, ground)
-    return tuple(MissingDef("polygon", ly.index, ly.path, len(uses[ly.index]))
-                 for ly in layers if ly.index in hidden)
+    return _PhotoLayers(defs, uses, layers, ground)
+
+
+def draped_orthos(pack_root: str, source: str | _t.Sequence[str],
+                  areas: _t.Sequence[Box], *,
+                  bounded: bool | _t.Sequence[bool] = False
+                  ) -> tuple[MissingDef, ...]:
+    """THE WITNESS over one pristine DSF dump (a path or its rows): every
+    polygon definition that is a draped orthophoto over one of ``areas``
+    AND passes the grid rule (``pack_drape_grid``), as the ``MissingDef``
+    rows the omission takes (``uses``: its polygons).  ``bounded``: the
+    areas are the airports' authored boundaries (one flag, or one per
+    area)."""
+    from .pack_drape_grid import hidden_stacks
+    if not areas:
+        return ()
+    pl = photo_layers(pack_root, source, areas)
+    hidden = hidden_stacks(pl.layers, areas, bounded, pl.ground)
+    return tuple(MissingDef("polygon", ly.index, ly.path, len(pl.uses[ly.index]))
+                 for ly in pl.layers if ly.index in hidden)
 
 
 def recorded(entry: _t.Mapping[str, _t.Any] | None,

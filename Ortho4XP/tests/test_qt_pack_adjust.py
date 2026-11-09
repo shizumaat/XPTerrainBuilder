@@ -1,5 +1,6 @@
 """#1916: the Qt package adjustments question — one checkbox per row the
-user chooses (all checked), the automatic flatten row listed, the answer
+user chooses (ticked as the row's ``checked`` says: all but the large
+ground textures of #1962), the automatic flatten row listed, the answer
 sent as ``pack_adjust`` — and its parity with the mac app's sheet.
 
 Offscreen, no engine: the event is handed to the window through
@@ -80,6 +81,18 @@ def test_every_choice_is_checked_and_flatten_is_listed(qapp):
     assert QTADJ._detail(ITEMS[1]) == (
         "12 photo images (40 polygons) laid over the airport cover the "
         "tile’s imagery.")
+
+
+def test_the_ground_textures_open_unticked(qapp):
+    rows = ITEMS[:2] + [{"key": "ground", "count": 17, "uses": 55,
+                         "automatic": False, "checked": False}] + ITEMS[2:]
+    box, _buttons = QTADJ.pack_adjust_box(_event(items=rows))
+    assert list(box.item_boxes) == ["trees", "drapes", "ground"]
+    assert box.checked_items() == ["trees", "drapes"], \
+        "never hidden without the user's tick (RULINGS 2026-11-09a (3))"
+    assert QTADJ._detail(rows[2]) == (
+        "17 painted ground or grass images (55 polygons) laid mostly over "
+        "unpaved ground at the airport cover the tile’s imagery.")
 
 
 def test_the_copy_matches_the_mac_app():

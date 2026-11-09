@@ -8,19 +8,25 @@ don't ask the user, just include it as an undoable part of the airport
 modifications."
 
 ONE QUESTION PER PACK, one row per adjustment that applies
-(:data:`CHOICES` the user ticks, every one checked by default; ``flatten``
-listed as automatic):
+(:data:`CHOICES` the user ticks, each row's ``checked`` its state when
+the question opens; ``flatten`` listed as automatic):
 
 * ``trees`` — the X-Plane 12 3D trees (#1360, ``forest_stage``);
 * ``drapes`` — hide the pack's draped photos over its airport
-  (``drape_stage``);
+  (``drape_stage.PHOTOS``);
+* ``ground`` — hide the pack's large draped ground textures over its
+  airport (``drape_stage.GROUND``, #1962): the one row that is UNCHECKED
+  when the question opens (``checked``), never hidden without the user's
+  tick (RULINGS 2026-11-09a (3));
 * ``flatten`` — the apt.dat's ``1302 flatten 1`` rows, removed on every
   write with no question (RULINGS 2026-10-20ac;
   ``auto_patch_v2.airport.apt_flatten``), undone by Restore originals.
 
 :func:`adjust_stage` runs in the object stage ahead of the placement
 write (which re-applies every accepted choice) and announces a
-``PackAdjust`` event when a row still needs the user's answer;
+``PackAdjust`` event when a row still needs the user's answer — and one
+more per companion pack that lays the airport's photo grid for it
+(#1968, ``drape_stage.companions``: its own question, its own pack);
 :func:`adjust_choice` is the ``pack_adjust`` command: the answer (a row
 ticked is "update", a row shown and left unticked is "never"), Never for
 this pack, Undo, and ``"ask"`` — the report of the rows that apply now.
@@ -35,7 +41,9 @@ import typing as _t
 __all__ = ["CHOICES", "ACTIONS", "adjust_stage", "adjust_choice"]
 
 #: the rows the user chooses, in the question's order
-CHOICES = ("trees", "drapes")
+CHOICES = ("trees", "drapes", "ground")
+#: the rows left unticked when the question opens
+UNCHECKED = ("ground",)
 #: the actions of the ``pack_adjust`` command
 ACTIONS = ("update", "never", "undo", "ask")
 
@@ -44,20 +52,22 @@ def _trees_row(pf) -> dict:
     from auto_patch_v2.airport import pack_forests as _pf
     s = _pf.summary(pf.old)
     return {"key": "trees", "count": int(s["mapped"]), "uses": int(s["uses"]),
-            "automatic": False, "first_paths": list(s["first_paths"])}
+            "automatic": False, "checked": True,
+            "first_paths": list(s["first_paths"])}
 
 
-def _drapes_row(pd) -> dict:
+def _drapes_row(pd, key: str = "drapes") -> dict:
     from auto_patch_v2.airport import pack_drapes as _pdr
     s = _pdr.summary(pd.drapes)
-    return {"key": "drapes", "count": int(s["definitions"]),
+    return {"key": key, "count": int(s["definitions"]),
             "uses": int(s["count"]), "automatic": False,
+            "checked": key not in UNCHECKED,
             "first_paths": list(s["first_paths"])}
 
 
 def _flatten_row() -> dict:
     return {"key": "flatten", "count": 1, "uses": 0, "automatic": True,
-            "first_paths": []}
+            "checked": True, "first_paths": []}
 
 
 def _writable(pack_root: str) -> bool:
@@ -106,26 +116,68 @@ def _announce(pack: str, pack_root: str, lat: int, lon: int, state: str,
 def adjust_stage(plan_, tile, *, writes: bool) -> dict[str, str]:
     """The adjustments of ONE airport's pack, ahead of its placement
     write.  Returns each row's state (``{"flatten": …, "trees": …,
-    "drapes": …}``, the stages' own words) for the log and the twins, and
-    announces ``PackAdjust(state="found")`` when a row asks.  Never
-    raises."""
-    from . import drape_stage as _DS
+    "drapes": …, "ground": …}``, the stages' own words) for the log and
+    the twins, and announces ``PackAdjust(state="found")`` when a row
+    asks — the pack's, and each companion pack's.  Never raises."""
     from . import forest_stage as _FS
     pack_root = getattr(plan_, "pack_root", "") or ""
     out = {"flatten": _flatten(pack_root, writes=writes)}
     asked: list = []
     out["trees"] = _FS.forest_stage(plan_, tile, writes=writes,
                                     found=asked.append)
-    out["drapes"], pd = _DS.drape_stage(plan_, tile, writes=writes)
     items = [_trees_row(pf) for pf in asked[:1]]
-    if out["drapes"] == "found" and pd is not None:
-        items.append(_drapes_row(pd))
+    name = asked[0].pack_name if asked else ""
+    for key, (state, pd) in _drape_stages(plan_, tile, writes).items():
+        out[key] = state
+        if state == "found" and pd is not None:
+            items.append(_drapes_row(pd, key))
+            name = name or pd.pack_name
     if items:
         if out["flatten"]:
             items.append(_flatten_row())
-        name = (asked[0].pack_name if asked else pd.pack_name)
         _announce(name, pack_root, tile.lat, tile.lon, "found", items)
+    _companion_stages(pack_root, tile, writes)
     return out
+
+
+def _drape_stages(plan_, tile, writes: bool) -> dict[str, tuple]:
+    """Every drape kind's step for one pack, its DSF read once."""
+    import O4_UI_Utils as UI
+
+    from . import drape_stage as _DS
+    pack_root = getattr(plan_, "pack_root", "") or ""
+    try:
+        found = _DS.check_all(pack_root, tile.lat, tile.lon,
+                              read_only=not writes)
+    except Exception as exc:
+        UI.vprint(1, f"  [pack] draped-polygon check skipped ({exc})")
+        UI.vprint(2, traceback.format_exc())
+        return {k.key: ("", None) for k in _DS.KINDS}
+    return {k.key: _DS.drape_stage(plan_, tile, writes=writes, kind=k,
+                                   found=found) for k in _DS.KINDS}
+
+
+def _companion_stages(pack_root: str, tile, writes: bool) -> None:
+    """The drape rows of each companion pack on the tile (#1968), asked
+    as that pack's own question."""
+    import types
+
+    import O4_UI_Utils as UI
+
+    from . import drape_stage as _DS
+    try:
+        others = _DS.companions(pack_root, tile.lat, tile.lon) if pack_root else []
+    except Exception as exc:
+        UI.vprint(1, f"  [pack] companion-pack check skipped ({exc})")
+        return
+    for root in others:
+        plan_ = types.SimpleNamespace(pack_root=root)
+        items = [_drapes_row(pd, key) for key, (state, pd)
+                 in _drape_stages(plan_, tile, writes).items()
+                 if state == "found" and pd is not None]
+        if items:
+            _announce(os.path.basename(os.path.normpath(root)), root,
+                      tile.lat, tile.lon, "found", items)
 
 
 def rows(pack_root: str, lat: int, lon: int) -> list[dict]:
@@ -139,10 +191,12 @@ def rows(pack_root: str, lat: int, lon: int) -> list[dict]:
     if (pf is not None and pf.renames and not pf.current
             and _FS.pack_choice(pack_root) != "never"):
         out.append(_trees_row(pf))
-    pd = _DS.check(pack_root, lat, lon, read_only=False)
-    if (pd is not None and pd.drapes and not pd.current
-            and _DS.STORE.choice(pack_root) != "never"):
-        out.append(_drapes_row(pd))
+    found = _DS.check_all(pack_root, lat, lon, read_only=False)
+    for kind in _DS.KINDS:
+        pd = found.get(kind.key)
+        if (pd is not None and pd.drapes and not pd.current
+                and kind.store.choice(pack_root) != "never"):
+            out.append(_drapes_row(pd, kind.key))
     if _flatten(pack_root, writes=False):
         out.append(_flatten_row())
     return out
@@ -155,7 +209,8 @@ def _answer(key: str, pack_root: str, action: str, lat, lon) -> list[str]:
     if key == "trees":
         return list(_FS.forest_choice(pack_root, action, lat, lon)
                     .get("files") or [])
-    return _DS.drape_choice(pack_root, action, lat, lon)[1]
+    kind = next(k for k in _DS.KINDS if k.key == key)
+    return _DS.drape_choice(pack_root, action, lat, lon, kind)[1]
 
 
 def adjust_choice(pack_root: str, action: str, lat: int | None = None,

@@ -554,7 +554,8 @@ public enum O4Event: Sendable, Equatable {
                         key: row["key"] as? String ?? "",
                         count: (row["count"] as? NSNumber)?.intValue ?? 0,
                         uses: (row["uses"] as? NSNumber)?.intValue ?? 0,
-                        automatic: (row["automatic"] as? NSNumber)?.boolValue ?? false)
+                        automatic: (row["automatic"] as? NSNumber)?.boolValue ?? false,
+                        checked: (row["checked"] as? NSNumber)?.boolValue ?? true)
                 },
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",

@@ -13,7 +13,8 @@ import json
 import os
 import typing as _t
 
-__all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES", "Store", "store_path", "read",
+__all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES",
+           "GROUND_CHOICES", "Store", "store_path", "read",
            "write", "relative", "step_list"]
 
 #: the "Optimise pack" answers file (#1707; ``optimise_stage``)
@@ -22,6 +23,8 @@ OPTIMISE_CHOICES = "pack_optimise_choices.json"
 OPTIMISE_STEPS = "pack_optimise_steps.json"
 #: the "Hide draped photos" answers file (#1916; ``drape_stage``)
 DRAPE_CHOICES = "pack_drape_choices.json"
+#: the "Hide large ground textures" answers file (#1962; ``drape_stage``)
+GROUND_CHOICES = "pack_ground_choices.json"
 
 #: the answers a store remembers ("" forgets)
 REMEMBERED = ("update", "never")

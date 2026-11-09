@@ -2,23 +2,29 @@ import Foundation
 
 /// One adjustment of an airport pack (engine `PackAdjust.items`, issue
 /// #1916): `trees` (point old flat forests at the X-Plane 12 3D trees),
-/// `drapes` (hide the package's draped photos over the airport) — each a
-/// checkbox — or `flatten` (the apt.dat's `1302 flatten 1`, removed with
-/// no question: `automatic`).
+/// `drapes` (hide the package's draped photos over the airport), `ground`
+/// (hide its large ground textures, #1962) — each a checkbox, ticked when
+/// the sheet opens as `checked` says (`ground` is not: RULINGS 2026-11-09a
+/// (3)) — or `flatten` (the apt.dat's `1302 flatten 1`, removed with no
+/// question: `automatic`).
 public struct O4PackAdjustItem: Sendable, Equatable, Identifiable {
     public let key: String
-    /// Definitions (`trees`, `drapes`).
+    /// Definitions (`trees`, `drapes`, `ground`).
     public let count: Int
     /// Polygons drawing them.
     public let uses: Int
     public let automatic: Bool
+    /// Ticked when the question opens.
+    public let checked: Bool
     public var id: String { key }
 
-    public init(key: String, count: Int, uses: Int, automatic: Bool) {
+    public init(key: String, count: Int, uses: Int, automatic: Bool,
+                checked: Bool = true) {
         self.key = key
         self.count = count
         self.uses = uses
         self.automatic = automatic
+        self.checked = checked
     }
 
     /// The row's title.
@@ -88,6 +94,7 @@ public enum O4PackAdjustCopy {
     public static let itemTitles: [String: String] = [
         "trees": "Update trees",
         "drapes": "Hide draped orthophotos included with the package",
+        "ground": "Hide large ground textures included with the package",
         "flatten": "Remove the airport’s flatten flag (always)",
     ]
 
@@ -97,6 +104,9 @@ public enum O4PackAdjustCopy {
             + "3D trees.",
         "drapes": "{n} photo images ({uses} polygons) laid over the airport "
             + "cover the tile’s imagery.",
+        "ground": "{n} painted ground or grass images ({uses} polygons) laid "
+            + "mostly over unpaved ground at the airport cover the tile’s "
+            + "imagery.",
         "flatten": "The apt.dat asks X-Plane to flatten the airport, which "
             + "does not work with this app’s terrain mesh.",
     ]

@@ -2675,9 +2675,9 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     — the same pass ``--warm-insets ICAO`` runs.  Still stale afterwards
     refuses, like the whole-tile case.
     """
+    import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
     import O4_Config_Utils as CFG                          # noqa: E402
     import O4_File_Names as FNAMES                         # noqa: E402
-    import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
 
     lat, lon = int(lat), int(lon)
     state = dem_cache_state(root, lat, lon)
@@ -2764,8 +2764,8 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
 def _tile_airports_dico(tile, lat, lon) -> dict:
     """The tile's airport dictionary from its CACHED airports layer, built
     as ``prepare_tile_airports_and_dem`` builds it (no query)."""
-    import O4_OSM_Utils as OSM                             # noqa: E402
-    import O4_Vector_Map as VMAP                           # noqa: E402
+    import O4_OSM_Utils as OSM
+    import O4_Vector_Map as VMAP
 
     layer = OSM.OSM_layer()
     OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
@@ -2785,9 +2785,9 @@ def _resettle_inset_stamp(lat, lon, prog) -> list:
     (``ensure_insets_for_tile``, ``refresh=False`` -- as a build runs it)
     re-settles and writes the stamp.  A tile it already settles costs one
     JSON read."""
-    import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
-    import O4_Config_Utils as CFG                          # noqa: E402
-    import O4_File_Names as FNAMES                         # noqa: E402
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_Config_Utils as CFG
+    import O4_File_Names as FNAMES              
 
     tile = CFG.Tile(int(lat), int(lon), "")
     try:

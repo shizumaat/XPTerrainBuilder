@@ -23,8 +23,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-import O4_Airport_Elevation_Insets as INSETS              # noqa: E402
-import O4_File_Names as FNAMES                            # noqa: E402
+import O4_Airport_Elevation_Insets as INSETS  # noqa: E402
+import O4_File_Names as FNAMES  # noqa: E402
 
 LAT, LON, ICAO = 40, -4, "LEMD"
 BOX = (-3.62, 40.43, -3.50, 40.56)

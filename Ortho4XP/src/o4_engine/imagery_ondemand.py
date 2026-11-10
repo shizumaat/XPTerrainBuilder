@@ -38,10 +38,10 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 from . import imagery_downgrade as DOWNGRADE
 
 __all__ = ["imagery_ondemand_scan", "imagery_pin",
-           "imagery_ondemand_downgrade_all", "manifest_path", "set_manifest_pin"]
+           "imagery_ondemand_downgrade_all"]
 
 
-def manifest_path(build_dir: str, lat: int, lon: int) -> str:
+def _manifest_path(build_dir: str, lat: int, lon: int) -> str:
     """The tile's imagery manifest (``O4_Tile_Utils.imagery_manifest_path``
     for a tile object)."""
     return os.path.join(build_dir, "Ortho4XP_%s_imagery.json"
@@ -57,9 +57,9 @@ def _read_manifest(path: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def set_manifest_pin(build_dir: str, lat: int, lon: int, pinned: bool) -> None:
+def _set_manifest_pin(build_dir: str, lat: int, lon: int, pinned: bool) -> None:
     """Write ``pinned`` into the tile record (atomic replace)."""
-    path = manifest_path(build_dir, lat, lon)
+    path = _manifest_path(build_dir, lat, lon)
     data = _read_manifest(path)
     data["pinned"] = bool(pinned)
     temporary = path + ".tmp"
@@ -86,7 +86,7 @@ def _on_demand_tiles(working_dir: str):
     imagery manifest says on demand or pinned."""
     import O4_Tile_Info as TINFO
     for (lat, lon), info in sorted(TINFO.scan_tiles(working_dir).items()):
-        record = _read_manifest(manifest_path(info.build_dir, lat, lon))
+        record = _read_manifest(_manifest_path(info.build_dir, lat, lon))
         if record.get("on_demand") or record.get("pinned"):
             yield info.build_dir, lat, lon
 
@@ -147,7 +147,7 @@ def _serve_full(conn, row: dict, keys) -> bool:
         return False
     INDEX.set_state(conn, row["tile"], row["name"], "upgraded",
                     tier_px=TIERS.FULL_WIDTH,
-                    full_bytes=DISK.freeable_bytes(path),
+                    full_bytes=DISK.counted_once_bytes(path),
                     dds_cache_key=found[0], fetched_at=time.time())
     return True
 
@@ -166,7 +166,7 @@ def imagery_pin(lat: int, lon: int, working_dir: str = "",
     info = TINFO.tile_info(int(lat), int(lon), working_dir or FNAMES.Tile_dir)
     if info is None:
         raise ValueError("imagery_pin: this tile is not built.")
-    set_manifest_pin(info.build_dir, int(lat), int(lon), pinned)
+    _set_manifest_pin(info.build_dir, int(lat), int(lon), pinned)
     tile = FNAMES.short_latlon(int(lat), int(lon))
     conn = INDEX.open_index(index)
     try:

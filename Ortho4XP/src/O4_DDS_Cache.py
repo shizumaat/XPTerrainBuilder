@@ -422,19 +422,27 @@ def store(key: "str | None", dds_final: str) -> bool:
 
 def _kept_by_ondemand() -> "set[str]":
     """Keys the on-demand index marks upgraded or pinned (#1992 spec
-    §6.3): the cap must not delete a sharp texture's entry.  Empty when
-    there is no index; never raises."""
+    §6.3): the cap must not delete a sharp texture's entry.  Read with
+    ``sqlite3`` here, not through ``O4_Imagery_OnDemand_Index``: this
+    module is in the patch build's import closure and the index is not
+    (``tests/test_patch_code_closure.py``); the query is that module's
+    ``protected_cache_keys``, held equal by ``tests/test_imagery_ondemand
+    .py``.  Empty when there is no index; never raises."""
+    import sqlite3
+
+    import O4_File_Names as FNAMES
+    path = os.path.join(FNAMES.data_path("Imagery_on_demand"), "index.sqlite")
+    if not os.path.isfile(path):
+        return set()
     try:
-        import O4_Imagery_OnDemand_Index as ONDEMAND
-        path = ONDEMAND.index_path()
-        if not os.path.isfile(path):
-            return set()
-        conn = ONDEMAND.open_index(path)
+        conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=5.0)
         try:
-            return ONDEMAND.protected_cache_keys(conn)
+            return {row[0] for row in conn.execute(
+                "SELECT dds_cache_key FROM textures WHERE dds_cache_key IS "
+                "NOT NULL AND (state = 'upgraded' OR pinned = 1)")}
         finally:
             conn.close()
-    except Exception:
+    except sqlite3.Error:
         return set()
 
 

@@ -12,12 +12,12 @@ it) and its tier JPEG are removed, and one line goes to
 
 * :func:`cap_bytes` -- the ``imagery_on_demand_cap_gb`` setting (default
   100 GB) in bytes.
-* :func:`should_sweep` -- the hysteresis: at launch or after a follow
+* :func:`_should_sweep` -- the hysteresis: at launch or after a follow
   session a sweep runs over the cap; during one only over 110 % of it;
   either way it downgrades to 90 % (:data:`LOW_WATER`, :data:`HIGH_WATER`).
-* :func:`near_camera` -- inside 2 x its tier distance of the camera
+* :func:`_near_camera` -- inside 2 x its tier distance of the camera
   (never downgraded while the sim runs).
-* :func:`downgrade` -- one row: land its placeholder, free what it held.
+* :func:`_downgrade` -- one row: land its placeholder, free what it held.
 * :func:`sweep` -- the cap: rows in ``lru_order`` (cores last; pins
   never) until the total is at most 90 % of the cap, skipping squares
   near the camera and textures landed in the last hour.
@@ -38,8 +38,7 @@ import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Placeholder as PLACEHOLDER
 
 __all__ = ["CAP_SETTING", "DEFAULT_CAP_GB", "HIGH_WATER", "LOW_WATER",
-           "NEAR_FACTOR", "cap_bytes", "downgrade", "downgrade_all",
-           "near_camera", "should_sweep", "sweep"]
+           "NEAR_FACTOR", "cap_bytes", "downgrade_all", "sweep"]
 
 #: The global setting (Settings > Storage; its rows land in P4).
 CAP_SETTING = "imagery_on_demand_cap_gb"
@@ -67,12 +66,12 @@ def cap_bytes(raw: "dict | None" = None) -> int:
     return int(gigabytes * 1e9)
 
 
-def should_sweep(total: int, cap: int, *, in_session: bool) -> bool:
+def _should_sweep(total: int, cap: int, *, in_session: bool) -> bool:
     """Is ``total`` far enough over ``cap`` to start a sweep?"""
     return total > cap * (HIGH_WATER if in_session else 1.0)
 
 
-def near_camera(row: dict, camera) -> bool:
+def _near_camera(row: dict, camera) -> bool:
     """Inside :data:`NEAR_FACTOR` x the row's tier distance of ``camera``
     (anything with ``lat`` and ``lon``; ``None``: the sim is not
     running)."""
@@ -113,7 +112,7 @@ def _free_cache_entry(row: dict, users: "dict | None") -> int:
     return _remove(DDSC.entry_path(key))
 
 
-def downgrade(conn, row: dict, *, users: "dict | None" = None,
+def _downgrade(conn, row: dict, *, users: "dict | None" = None,
               reason: str = "on-demand cap") -> "int | None":
     """Land ``row``'s placeholder over its upgraded texture and free its
     cache entry and tier JPEG; the bytes freed, or ``None`` (nothing
@@ -143,9 +142,9 @@ def _recent(row: dict, now: float) -> bool:
 def sweep(conn, cap: int, *, camera=None, in_session: bool = False,
           now: "float | None" = None,
           abort: "_t.Callable[[], bool] | None" = None) -> dict:
-    """Hold the cap: when :func:`should_sweep`, downgrade rows in
+    """Hold the cap: when :func:`_should_sweep`, downgrade rows in
     ``INDEX.lru_order`` until the counted total is at most
-    :data:`LOW_WATER` x ``cap``, skipping squares :func:`near_camera`
+    :data:`LOW_WATER` x ``cap``, skipping squares :func:`_near_camera`
     and textures landed in the last hour.
 
     :returns: ``{"ran", "downgraded", "freed_bytes", "total_before",
@@ -157,20 +156,20 @@ def sweep(conn, cap: int, *, camera=None, in_session: bool = False,
     out = {"ran": False, "downgraded": 0, "freed_bytes": 0,
            "total_before": before, "cap_bytes": int(cap),
            "skipped_near": 0, "skipped_recent": 0}
-    if should_sweep(total, cap, in_session=in_session):
+    if _should_sweep(total, cap, in_session=in_session):
         out["ran"] = True
         users = DDSC.key_users()
         target = cap * LOW_WATER
         for row in INDEX.lru_order(conn):
             if total <= target or abort():
                 break
-            if near_camera(row, camera):
+            if _near_camera(row, camera):
                 out["skipped_near"] += 1
                 continue
             if _recent(row, now):
                 out["skipped_recent"] += 1
                 continue
-            freed = downgrade(conn, row, users=users)
+            freed = _downgrade(conn, row, users=users)
             if freed is not None:
                 total -= int(row.get("full_bytes") or 0)
                 out["downgraded"] += 1
@@ -185,7 +184,7 @@ def downgrade_all(conn, *, tile: "str | None" = None, camera=None,
                   abort: "_t.Callable[[], bool] | None" = None) -> dict:
     """Every unpinned upgraded row (of ``tile`` when given; not flown near
     since ``not_near_since`` when given) back to its placeholder, except
-    the squares :func:`near_camera`.  ``dry_run`` changes nothing and
+    the squares :func:`_near_camera`.  ``dry_run`` changes nothing and
     answers what would be freed.
 
     :returns: ``{"downgraded", "freed_bytes", "skipped_near", "dry_run",
@@ -204,7 +203,7 @@ def downgrade_all(conn, *, tile: "str | None" = None, camera=None,
         if (not_near_since is not None
                 and float(row.get("last_near_at") or 0.0) >= not_near_since):
             continue
-        if near_camera(row, camera):
+        if _near_camera(row, camera):
             out["skipped_near"] += 1
             continue
         if dry_run:
@@ -212,7 +211,7 @@ def downgrade_all(conn, *, tile: "str | None" = None, camera=None,
             out["freed_bytes"] += int(row.get("full_bytes") or 0)
             continue
         with contextlib.suppress(OSError):
-            freed = downgrade(conn, row, users=users, reason=reason)
+            freed = _downgrade(conn, row, users=users, reason=reason)
             if freed is not None:
                 out["downgraded"] += 1
                 out["freed_bytes"] += freed

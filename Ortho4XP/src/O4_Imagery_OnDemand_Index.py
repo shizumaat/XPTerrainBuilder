@@ -24,8 +24,9 @@ COLUMNS (:data:`COLUMNS`, spec §5.1):
   tile (never downgraded, outside the cap);
 * ``placeholder_path`` -- the kept placeholder DDS (the store of
   ``O4_Imagery_Placeholder``);
-* ``full_bytes`` -- freeable bytes of the upgraded file
-  (``O4_Disk_Usage.freeable_bytes``; 0 while ``low``);
+* ``full_bytes`` -- bytes a downgrade of the upgraded file frees
+  (``O4_Disk_Usage.counted_once_bytes``: a hard-linked
+  ``DDS_cache`` entry counts once; 0 while ``low``);
 * ``dds_cache_key``, ``jpeg_path`` -- what a downgrade frees;
 * ``fetched_at``, ``last_near_at``, ``near_count``, ``late_count`` -- the
   LRU and spec §11 U5 (epoch seconds).
@@ -52,8 +53,7 @@ API (stable: the follow job, P3b, reads and writes through it):
   ``upgraded`` when the landing finished before the index was told), and
   the partials a killed landing left swept.
 * :func:`texture_path` -- ``<build_dir>/textures/<name>`` of a row;
-  :func:`placeholder_width`, :func:`disk_state` -- its placeholder's
-  width and what its file on disk is.
+  :func:`placeholder_width` -- its placeholder's width.
 * :func:`distance_m` / :func:`tier_distance_m` -- how far a row's square
   is from a point, and its current tier's distance ``c_k * S`` (spec
   §4.3, ``O4_Imagery_Tier_Plan.CROSSING_S``).
@@ -63,10 +63,9 @@ API (stable: the follow job, P3b, reads and writes through it):
   oldest ``last_near_at``).
 * :func:`protected_cache_keys` / :func:`protected_jpegs` -- what the
   ``imagery`` / ``dds`` cache caps must skip (upgraded or pinned rows).
-* :func:`scan_tile` -- the rows one tile's build dir implies (headers,
-  ``.ter`` S, manifest pin); pure reading, no index.
-* :func:`rebuild` -- replace a tile's rows (or every tile's) from
-  :func:`scan_tile`, keeping nothing but the rows' facts on disk.
+* :func:`rebuild` -- replace the rows of the tiles given by what their
+  build dirs hold (texture headers, ``.ter`` S, the manifest's pin),
+  keeping what only the index knows for rows still on disk.
 
 Standard library only (plus the engine's own header readers).
 """
@@ -87,11 +86,11 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 
 __all__ = [
     "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
-    "STATES", "capped_bytes", "disk_state", "get", "index_path", "lru_order",
+    "STATES", "capped_bytes", "distance_m", "get", "index_path", "lru_order",
     "mark_late", "mark_near", "open_index", "pinned_bytes",
     "placeholder_width", "protected_cache_keys", "protected_jpegs",
-    "rebuild", "reset_upgrading", "rows", "scan_tile", "set_core",
-    "set_pinned", "set_state", "texture_path", "upsert",
+    "rebuild", "reset_upgrading", "rows", "set_core",
+    "set_pinned", "set_state", "texture_path", "tier_distance_m", "upsert",
 ]
 
 SCHEMA_VERSION = 1
@@ -310,7 +309,7 @@ def tier_distance_m(row: dict) -> float:
     return PLAN.CROSSING_S[tiers[-1] if tiers else 0] * float(size)
 
 
-def disk_state(row: dict) -> "tuple[str, int, int] | None":
+def _disk_state(row: dict) -> "tuple[str, int, int] | None":
     """``(state, tier_px, full_bytes)`` the row's file on disk shows:
     ``upgraded`` when wider than its placeholder; ``None`` when the file
     is not a whole DDS or the row has no build dir."""
@@ -319,7 +318,7 @@ def disk_state(row: dict) -> "tuple[str, int, int] | None":
     if header is None or not DDS.is_whole(path):
         return None
     if header[0] > placeholder_width(row):
-        return "upgraded", header[0], DISK.freeable_bytes(path)
+        return "upgraded", header[0], DISK.counted_once_bytes(path)
     return "low", header[0], 0
 
 
@@ -336,7 +335,7 @@ def reset_upgrading(conn: sqlite3.Connection) -> int:
             path = texture_path(row)
             if path:
                 DDS.sweep_partials(path)
-            facts = disk_state(row) or ("low", row["tier_px"], 0)
+            facts = _disk_state(row) or ("low", row["tier_px"], 0)
             conn.execute("UPDATE textures SET state = ?, tier_px = ?, "
                          "full_bytes = ? WHERE tile = ? AND name = ?",
                          (*facts, row["tile"], row["name"]))
@@ -429,17 +428,27 @@ def _manifest(build_dir: str, tile: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def scan_tile(build_dir: str, lat: int, lon: int, *,
+def _mtime(path: str) -> "float | None":
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return None
+
+
+def _scan_tile(build_dir: str, lat: int, lon: int, *,
               placeholder_dir: "str | None" = None,
               cache_keys: "dict | None" = None, now: "float | None" = None
               ) -> "list[dict]":
     """The rows tile ``(lat, lon)``'s build dir implies: one per texture a
     ``.ter`` names and ``textures/`` holds whole; ``tier_px`` from its
     header, ``low`` when that equals the placeholder width, else
-    ``upgraded`` with its freeable bytes; ``pinned`` from the imagery
+    ``upgraded`` with the bytes its downgrade frees; ``pinned`` from the imagery
     manifest; ``placeholder_path`` when ``placeholder_dir`` holds it;
-    ``dds_cache_key`` from ``cache_keys`` (name -> key); ``last_near_at``
-    and ``fetched_at`` = ``now``.  Never raises on a missing folder."""
+    ``dds_cache_key`` from ``cache_keys`` (name -> key); ``fetched_at``
+    the upgraded file's mtime; ``last_near_at`` = ``now``.  Not on disk,
+    so not restored: ``core`` (:func:`set_core`), ``near_count``,
+    ``late_count`` and ``jpeg_path`` (the tier JPEG's name is the follow
+    job's).  Never raises on a missing folder."""
     tile = FNAMES.short_latlon(lat, lon)
     now = time.time() if now is None else now
     manifest = _manifest(build_dir, tile)
@@ -473,9 +482,11 @@ def scan_tile(build_dir: str, lat: int, lon: int, *,
             "tier_px": header[0], "core": 0, "pinned": pinned,
             "placeholder_path": kept if kept and os.path.isfile(kept)
             else None,
-            "full_bytes": DISK.freeable_bytes(path) if upgraded else 0,
+            "full_bytes": DISK.counted_once_bytes(path) if upgraded else 0,
             "dds_cache_key": (cache_keys or {}).get(name),
-            "jpeg_path": None, "fetched_at": now, "last_near_at": now,
+            "jpeg_path": None,
+            "fetched_at": _mtime(path) if upgraded else None,
+            "last_near_at": now,
             "near_count": 0, "late_count": 0,
         })
     return result
@@ -499,7 +510,7 @@ def _carry(old: "dict | None", row: dict) -> None:
 def rebuild(conn: sqlite3.Connection, tiles, *, now: "float | None" = None,
             placeholder_root: "str | None" = None, cache_keys=None) -> int:
     """Replace the rows of each ``(build_dir, lat, lon)`` in ``tiles`` by
-    :func:`scan_tile`'s.  What only the index knows survives for a row
+    :func:`_scan_tile`'s.  What only the index knows survives for a row
     still on disk: its ``core`` flag (from its airports:
     :func:`set_core`), ``last_near_at``, the counts, ``fetched_at``,
     ``jpeg_path``, and ``dds_cache_key`` while the tier is unchanged; a
@@ -515,7 +526,7 @@ def rebuild(conn: sqlite3.Connection, tiles, *, now: "float | None" = None,
         keep_dir = (os.path.join(placeholder_root, tile)
                     if placeholder_root else None)
         keys = cache_keys(build_dir) if cache_keys else None
-        found = scan_tile(build_dir, lat, lon, placeholder_dir=keep_dir,
+        found = _scan_tile(build_dir, lat, lon, placeholder_dir=keep_dir,
                           cache_keys=keys, now=now)
         with conn:
             conn.execute("DELETE FROM textures WHERE tile = ?", (tile,))

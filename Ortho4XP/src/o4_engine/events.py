@@ -220,7 +220,7 @@ CAPABILITIES: tuple = (
     "object_seat_groups",           # 2026-11-09, #1970 object_seat group + offset_m
     "patch_drop",                   # 2026-11-09, #1979 patch_drop_plan / patch_drop_install
     "tile_staleness",               # 2026-11-09, #1958 tile_staleness (LibraryReady)
-    "imagery_ondemand",             # 2026-11-10, #1992 P2 imagery_ondemand_scan / imagery_pin / imagery_ondemand_downgrade_all
+    "imagery_ondemand",             # 2026-11-10, #1992 P2 scan / pin / downgrade_all
 )
 
 

@@ -87,6 +87,9 @@ class WallSides:
     #: low-side ground meets there, ``z`` None at a station that retains
     #: nothing (:func:`_foot_retaining`); ``None`` where unread
     foot_profile: tuple | None = None
+    #: who witnessed the low side's ground (``WallComponent.low_side_source``):
+    #: ``"sheets"`` when the pack's own sheets name the wall's foot (#1952)
+    low_side: str = ""
 
     def side_of(self, xy) -> str | None:
         """``"upper"`` / ``"lower"`` for a point in one of the bands, else
@@ -212,7 +215,8 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
                                        lf, uf, raw, clear)
             out.append(WallSides(g, h, smear, up, lo, w.top_y, w.resource,
                                  None if core.is_empty else core,
-                                 uf, top, lf, foot))
+                                 uf, top, lf, foot,
+                                 str(getattr(w, "low_side_source", "") or "")))
     return tuple(out)
 
 

@@ -94,3 +94,18 @@ def test_a_pads_kerb_is_read_as_a_declared_wall(law):
     (rec,) = riser_walls(pm, law)
     assert rec["upper"] == [1, 2] and rec["lower"] == [3, 4]
     assert rec["height_m"] == 5.2 and rec["retains"] and rec["label"].endswith("blk#kerb#0")
+
+
+def test_the_foot_walls_are_the_retaining_walls_whose_low_side_is_the_sheets():
+    """``airport/foot_lot.sheet_walls`` reads ``WallSides.low_side`` off
+    ``airport.retaining_walls`` (one reading of the sides, no second
+    wall-class pass): a DEM-witnessed wall is no foot wall."""
+    from auto_patch_v2.airport.foot_lot import sheet_walls
+    w = _wall()
+    side = types.SimpleNamespace(lower=w.lower_band, lower_face=w.lower_face,
+                                 foot_profile=FOOT, low_side="sheets")
+    dem = types.SimpleNamespace(lower=w.lower_band, lower_face=w.lower_face,
+                                foot_profile=FOOT, low_side="")
+    (got,) = sheet_walls(types.SimpleNamespace(retaining_walls=(side, dem)))
+    assert got.lower_band is w.lower_band and got.low_side == "sheets"
+    assert sheet_walls(types.SimpleNamespace()) == []

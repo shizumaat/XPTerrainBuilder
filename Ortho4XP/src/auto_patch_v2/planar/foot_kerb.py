@@ -46,8 +46,7 @@ __all__ = ["foot_kerbs"]
 def _foot_walls(airport) -> list:
     """The walls a lot can stand at the foot of (``airport/foot_lot``)."""
     from ..airport.foot_lot import sheet_walls
-    from ..classify.rules import load_rules
-    return sheet_walls(airport, load_rules().service)
+    return sheet_walls(airport)
 
 
 def foot_kerbs(base_regions: list, pad_regions: list, airport, law, grid: float,

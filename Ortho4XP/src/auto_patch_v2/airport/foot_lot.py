@@ -46,22 +46,11 @@ def lots_at_foot(wall, lots: _t.Mapping[int, _t.Any]) -> dict[int, float]:
     return out
 
 
-def sheet_walls(airport, cfg) -> list[_FootWall]:
+def sheet_walls(airport) -> list[_FootWall]:
     """The pieces of every wall whose low side the pack's sheets name, with
-    their sides as read (``airport.retaining_walls``); ``cfg`` is
-    ``classify/rules.toml``'s ``[service]`` record, supplied by the caller."""
-    if airport is None or getattr(airport, "partition", None) is None or cfg is None:
-        return []
-    from .wall_class import wall_class_components
-    sides = tuple(getattr(airport, "retaining_walls", ()) or ())
-    out = []
-    for c in wall_class_components(airport, cfg):
-        if str(getattr(c, "low_side_source", "") or "") != "sheets":
-            continue
-        for g in c.pieces:
-            side = next((w for w in sides if w.poly.equals(g)), None)
-            if side is not None:
-                out.append(_FootWall(getattr(side, "lower", None),
-                                    getattr(side, "lower_face", None),
-                                    getattr(side, "foot_profile", None), "sheets"))
-    return out
+    their sides as read (``airport.retaining_walls``, each carrying its
+    ``low_side``, ``airport/wall_sides``)."""
+    return [_FootWall(getattr(w, "lower", None), getattr(w, "lower_face", None),
+                      getattr(w, "foot_profile", None), "sheets")
+            for w in (getattr(airport, "retaining_walls", ()) or ())
+            if getattr(w, "low_side", "") == "sheets"]

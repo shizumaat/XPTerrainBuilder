@@ -208,6 +208,7 @@ def test_a_sheet_walls_upper_face_is_its_paved_face_not_the_dem(paved_east):
     comp = _sheet_comp(paved_east)
     (w,) = WS.wall_sides(ap, cfg, [comp])
     assert w.smear == pytest.approx(3.81) and w.height_m == pytest.approx(3.81)
+    assert w.low_side == "sheets"      # 2026-11-10a (1): its foot is the pack's
     assert (w.upper.centroid.x > 65.0) is paved_east
     assert (w.lower.centroid.x < 60.0) is paved_east
     # classify's reading of the same wall (``wall_clip``) is the same bands

@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
 
 import pack_optimise_fixture as FX  # noqa: E402
+from auto_patch_v2.airport import dsf_rows as R  # noqa: E402
 from auto_patch_v2.airport import dsf_write as W  # noqa: E402
 from auto_patch_v2.airport import pack_forests as PF  # noqa: E402
 from auto_patch_v2.airport import pack_optimise as PO  # noqa: E402
@@ -37,7 +38,7 @@ LINES = FX.DUMP.splitlines(keepends=True)
 def _two(dx_m=0.0, dhdg=0.0, dz=None, kind="OBJECT", d1=0):
     """A two-row dump: the second row ``dx_m`` east of the first."""
     lat = 25.5
-    dlon = math.degrees(dx_m / (W._EARTH_R_M * math.cos(math.radians(lat))))
+    dlon = math.degrees(dx_m / (R._EARTH_R_M * math.cos(math.radians(lat))))
     def row(d, lon, hdg, z):
         mid = "" if z is None else f" {z:.6f}"
         return f"{kind} {d} {lon:.9f} {lat:.9f}{mid} {hdg % 360:.6f}\n"

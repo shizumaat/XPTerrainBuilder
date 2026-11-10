@@ -66,6 +66,16 @@ that safe:
   (``O4_Stopped_Build``), which changes their content, so the next build
   reruns the mesh step and reuses the vector step (whose input is the
   pristine pack, ``provenance.pack_dsf_input_identity``);
+- the mesh step HANDS OFF its object stage (#1901, ``O4_Step_Code.
+  HANDED_OFF``): the mesh step's code key leaves the object stage out,
+  its record holds the object stage's own code digest
+  (``O4_Object_Stage_Code``) instead, and a mesh step reused under a
+  changed one has the object stage run over it — a change to the pack
+  writer re-seats the objects in seconds and rebuilds no mesh
+  (:func:`object_stage_stale`; the session re-cuts the record after).
+  What the mesh step hands on leaves its pack DSFs out
+  (:func:`_handed_on`): no later step reads them, so that re-run leaves
+  the masks reusable;
 - the record file is replaced whole (temporary file + ``os.replace``): a
   process killed while writing it leaves the record as it was, and one
   that cannot be read reads as no record.
@@ -102,7 +112,8 @@ import O4_File_Names as FNAMES
 __all__ = ["REUSABLE_STEPS", "BUNDLE_TRUSTED_KEYS", "stale_reason",
            "predicted_reuse", "record", "forget_from", "reused_label",
            "edit_only_changes", "committed_entry", "adopt_bundle_record",
-           "bundle_absent_outputs", "live_settings", "code_identity"]
+           "bundle_absent_outputs", "live_settings", "code_identity",
+           "object_stage_stale"]
 
 # 2026-10-14: pack DSFs keyed as the build's input and scenery_packs.ini
 # by content (#615 self-invalidation); a 2026-10-13 record reads as none.
@@ -442,11 +453,47 @@ def _outputs_digest(rows) -> str:
 def _handed_on(entry: dict) -> str:
     """What a step hands the next one: its output content and its inputs
     without its code digest (a change of code reaches the next step only
-    through the files it writes)."""
+    through the files it writes).  The pack DSFs the mesh step's object
+    stage rewrote are left out (#1901): no later step reads them."""
     inputs = {k: v for k, v in (entry.get("inputs") or {}).items()
               if k != "code"}
-    return _digest({"outputs": entry.get("outputs_digest"),
+    return _digest({"outputs": _handed_outputs_digest(entry),
                     "inputs": inputs})
+
+
+def _handed_outputs_digest(entry: dict) -> str:
+    """The digest of ``entry``'s output rows less its ``pack_dsfs`` — the
+    recorded ``outputs_digest`` itself when it has none, so a record
+    without pack writes hands on what it always did."""
+    packs = set(entry.get("pack_dsfs") or ())
+    if not packs:
+        return entry.get("outputs_digest")
+    return _outputs_digest([row for row in entry.get("outputs") or ()
+                            if row and row[0] not in packs])
+
+
+def _object_stage_code() -> "str | None":
+    """The object stage's own code digest (``O4_Object_Stage_Code``)."""
+    import O4_Object_Stage_Code as OBJCODE
+    return OBJCODE.runtime_digest()
+
+
+def object_stage_stale(tile) -> str | None:
+    """Over a REUSED mesh step (#1901): None when the object stage's code
+    is the one the mesh step's record was cut under, else why it must run
+    again — its own per-airport reuse (``object_stage_reuse``) then
+    decides airport by airport.  Never raises (an unreadable record means
+    "run it")."""
+    try:
+        entry = committed_entry(tile, "mesh")
+        live = _object_stage_code()
+        if live is None:
+            return "the object stage has no code identity"
+        if entry.get("object_code") != live:
+            return "the object stage's code changed"
+        return None
+    except Exception as error:
+        return "its record could not be checked (%s)" % (error,)
 
 
 def _previous_digest(doc: dict, step: str) -> str:
@@ -615,6 +662,8 @@ def record(tile, step: str, osm_files=None) -> None:
                            "osm_files": osm_files if step == "vector"
                            else None,
                            "pack_dsfs": pack_dsfs,
+                           "object_code": (_object_stage_code()
+                                           if step == "mesh" else None),
                            "outputs": rows,
                            "outputs_digest": _outputs_digest(rows)}
         _write(tile, {"committed": committed})

@@ -341,6 +341,50 @@ def test_mesh_records_the_pack_dsfs_its_object_stage_rewrote(tile, tmp_path,
         "its output files changed or are missing")
 
 
+def test_a_changed_object_stage_runs_over_the_reused_mesh_alone(
+        tile, tmp_path, monkeypatch):
+    """#1901: the mesh step hands its object stage off (its code key
+    leaves the stage out).  Under a changed object stage code every step
+    is still reused; the session runs the object stage over the reused
+    mesh and re-cuts the mesh record — and the pack DSFs it rewrote do
+    not make the masks stale (no later step reads them)."""
+    import O4_Object_Stage as OBJECT_STAGE
+    from o4_engine.session import EngineSession
+    dsf = tmp_path / "pack.dsf"
+    dsf.write_bytes(b"seated by the old writer")
+    monkeypatch.setattr(REUSE, "_journalled_dsfs", lambda t: [str(dsf)])
+    monkeypatch.setattr(REUSE, "_object_stage_code", lambda: "old")
+    _write_outputs(tile)
+    _complete_build(tile)
+    assert REUSE.object_stage_stale(tile) is None
+    monkeypatch.setattr(REUSE, "_object_stage_code", lambda: "new")
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+    assert REUSE.object_stage_stale(tile) == "the object stage's code changed"
+    ran = []
+
+    def stage(t):
+        ran.append(t)
+        _rewrite(str(dsf), b"seated by the new writer")
+        return {}
+    monkeypatch.setattr(OBJECT_STAGE, "run", stage)
+    EngineSession._object_stage_over_reused_mesh(tile)
+    assert ran == [tile]
+    assert REUSE.object_stage_stale(tile) is None
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+    EngineSession._object_stage_over_reused_mesh(tile)     # current: no run
+    assert ran == [tile]
+
+
+def test_a_reused_mesh_record_without_object_code_runs_the_stage(tile):
+    """A record cut before #1901 names no object stage code: run it."""
+    _write_outputs(tile)
+    _complete_build(tile)
+    doc = REUSE._read(tile)
+    doc["committed"]["mesh"].pop("object_code")
+    REUSE._write(tile, doc)
+    assert REUSE.object_stage_stale(tile) == "the object stage's code changed"
+
+
 def test_no_texture_setting_is_an_input_of_the_earlier_steps():
     """The mechanism of #615, as a registry fact: the texture settings
     belong to the scenery-file step only (``ratio_water`` excepted, read

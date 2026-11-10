@@ -27,7 +27,11 @@ imagery / DDS modules and the mask module.  What still joins them:
 ``O4_Vector_Map`` (and the patch driver), a cut left for a traced build.
 What no step keys on: the app session (``o4_engine``), the Qt GUI, the
 MSFS converters, ``Unused`` and the ``auto_patch_v2`` modules the tile
-core does not import.
+core does not import — and, since #1901, the object stage the mesh step
+hands off (:data:`HANDED_OFF`), which keys itself, and the pack writer
+the patch build no longer imports (it reads pack DSFs through
+``airport/dsf_dump``, ``dsf_rows``, ``body_files`` and
+``backup_state.pristine_dsf_path``).
 
 DATA: the whole-tree digest covered the ``.toml`` law tables; every step
 keeps them (:data:`DATA_FILES`, all of them — the law and classifier
@@ -42,7 +46,7 @@ from __future__ import annotations
 
 import os
 
-__all__ = ["STEPS", "ENTRY_MODULES", "CODE_MODULES", "DATA_FILES",
+__all__ = ["STEPS", "ENTRY_MODULES", "HANDED_OFF", "CODE_MODULES", "DATA_FILES",
            "DIGEST_FILENAME", "freeze_digests", "write_freeze_digest",
            "frozen_digests", "step_digest"]
 
@@ -61,6 +65,19 @@ ENTRY_MODULES: dict[str, tuple[str, ...]] = {
              "auto_patch.post_mesh"),
     "masks": ("O4_Mask_Utils", "O4_Bathymetry_Band"),
 }
+
+#: What a step HANDS OFF at its end (#1901): the entry of a unit with a
+#: code key of its own, which the build runs after the step whether the
+#: step ran or was reused — the mesh step's OBJECT STAGE
+#: (``O4_Object_Stage``, keyed by ``O4_Object_Stage_Code``; over a reused
+#: mesh the session re-runs it when that key moved,
+#: ``O4_Step_Reuse.object_stage_stale``).  The step's key leaves out the
+#: modules it reaches ONLY through the hand-off that the unit's own key
+#: covers, so a change to the pack writer re-runs the object stage and not
+#: the mesh; what the unit does not key (the top-level ``O4_*`` modules
+#: outside its closure prefixes, and the entry itself) stays in the
+#: step's key.  ``tests/test_step_code_closure.py`` holds both halves.
+HANDED_OFF: dict[str, tuple[str, ...]] = {"mesh": ("O4_Object_Stage",)}
 
 #: The reusable steps, in build order (``O4_Step_Reuse.REUSABLE_STEPS``).
 STEPS: tuple[str, ...] = tuple(ENTRY_MODULES)
@@ -151,7 +168,8 @@ def step_digest(step: str) -> str | None:
 #: its own ``_BEYOND_SHARED[step]`` — the code half of its key.  Held by
 #: ``tests/test_step_code_closure.py``; when it fails, the message names
 #: the modules to add or drop.  A package is listed as its ``__init__``.
-#: Measured 459 shared; vector 459, mesh 469, masks 477 of 585 modules.
+#: Measured 2026-11-10 (#1901): 719 shared; vector 719, mesh 727 (the
+#: object stage handed off, :data:`HANDED_OFF`), masks 737 of 991 modules.
 _SHARED: tuple[str, ...] = (
     "O4_Airport_Apt_Identity",
     "O4_Airport_Batch",
@@ -259,9 +277,11 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.basin_witness",
     "auto_patch_v2.airport.below_grade_witness",
     "auto_patch_v2.airport.below_zero",
+    "auto_patch_v2.airport.body_files",
     "auto_patch_v2.airport.borrow",
     "auto_patch_v2.airport.bridge_approach",
     "auto_patch_v2.airport.bridge_family",
+    "auto_patch_v2.airport.bridge_ground",
     "auto_patch_v2.airport.bulk_geos",
     "auto_patch_v2.airport.cifp",
     "auto_patch_v2.airport.cluster_profile",
@@ -280,10 +300,9 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.door_wells",
     "auto_patch_v2.airport.dsf",
     "auto_patch_v2.airport.dsf_commands",
-    "auto_patch_v2.airport.dsf_dump_key",
-    "auto_patch_v2.airport.dsf_heights",
+    "auto_patch_v2.airport.dsf_dump",
     "auto_patch_v2.airport.dsf_mesh",
-    "auto_patch_v2.airport.dsf_write",
+    "auto_patch_v2.airport.dsf_rows",
     "auto_patch_v2.airport.end_pins",
     "auto_patch_v2.airport.entrance_seat",
     "auto_patch_v2.airport.entrance_shade",
@@ -305,7 +324,6 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.grade_ledger",
     "auto_patch_v2.airport.hanging_objects",
     "auto_patch_v2.airport.image_edges_classic",
-    "auto_patch_v2.airport.image_opacity",
     "auto_patch_v2.airport.image_provider",
     "auto_patch_v2.airport.imagery_read",
     "auto_patch_v2.airport.jetways",
@@ -335,8 +353,6 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.pack",
     "auto_patch_v2.airport.pack_art",
     "auto_patch_v2.airport.pack_climate",
-    "auto_patch_v2.airport.pack_drape_grid",
-    "auto_patch_v2.airport.pack_drapes",
     "auto_patch_v2.airport.pack_forests",
     "auto_patch_v2.airport.pack_forests_map",
     "auto_patch_v2.airport.pack_ground",
@@ -401,7 +417,6 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.road_descent",
     "auto_patch_v2.airport.road_joint",
     "auto_patch_v2.airport.road_profile",
-    "auto_patch_v2.airport.bridge_ground",
     "auto_patch_v2.airport.road_ramp",
     "auto_patch_v2.airport.road_stations",
     "auto_patch_v2.airport.road_ways",
@@ -426,13 +441,11 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.terrain_shaped",
     "auto_patch_v2.airport.thin_plates",
     "auto_patch_v2.airport.topology_cache",
-    "auto_patch_v2.airport.torn_pack",
     "auto_patch_v2.airport.trench_objects",
     "auto_patch_v2.airport.tunnel_objects",
     "auto_patch_v2.airport.tunnel_walls",
     "auto_patch_v2.airport.unit_storey",
     "auto_patch_v2.airport.user_roles",
-    "auto_patch_v2.airport.user_seats",
     "auto_patch_v2.airport.visible_cut",
     "auto_patch_v2.airport.wall_class",
     "auto_patch_v2.airport.wall_corridor_probe",
@@ -581,6 +594,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.geom.runway_contact",
     "auto_patch_v2.geom.shape_class",
     "auto_patch_v2.geom.slope_pad",
+    "auto_patch_v2.geom.station_runs",
     "auto_patch_v2.geom.terrain_deck",
     "auto_patch_v2.geom.trend",
     "auto_patch_v2.geom.triangulate",
@@ -688,7 +702,6 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.planar.covered_bores",
     "auto_patch_v2.planar.covered_cut",
     "auto_patch_v2.planar.covered_ground",
-    "auto_patch_v2.geom.station_runs",
     "auto_patch_v2.planar.cut_frame",
     "auto_patch_v2.planar.cut_runout",
     "auto_patch_v2.planar.deck_bores",
@@ -884,36 +897,14 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
     "vector": (
     ),
     "mesh": (
+        "O4_DSF_Header",
         "O4_Mesh_IO",
         "O4_Mesh_Utils",
         "O4_Num_Text",
         "O4_Object_Stage",
-        "O4_DSF_Header",
         "O4_Object_Stage_Code",
         "O4_Triangle_Binary",
         "O4_Triangle_IO",
-        "auto_patch.adjust_stage",
-        "auto_patch.drape_stage",
-        "auto_patch.forest_stage",
-        "auto_patch.health_stage",
-        "auto_patch.object_stage",
-        "auto_patch.optimise_stage",
-        "auto_patch.pack_copy",
-        "auto_patch.pack_rewrite",
-        "auto_patch.sibling_stage",
-        "auto_patch.user_seat_stage",
-        "auto_patch_v2.airport.frame_riders",
-        "auto_patch_v2.airport.hung_rows",
-        "auto_patch_v2.airport.object_stage_reuse",
-        "auto_patch_v2.airport.pack_ground_sheets",
-        "auto_patch_v2.airport.pack_journal",
-        "auto_patch_v2.airport.pack_optimise.impact",
-        "auto_patch_v2.airport.pack_optimise.weight",
-        "auto_patch_v2.airport.placement_write",
-        "auto_patch_v2.airport.sibling_riders",
-        "auto_patch_v2.airport.slab_drape",
-        "auto_patch_v2.airport.tile_rows",
-        "auto_patch_v2.airport.unpatched_pack",
     ),
     "masks": (
         "O4_Coastal_Foam_Edge",

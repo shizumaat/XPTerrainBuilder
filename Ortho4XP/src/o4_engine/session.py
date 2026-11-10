@@ -1809,12 +1809,34 @@ class EngineSession:
                       % (STEP_FAILURE_NOUNS.get(key, key).capitalize(),
                          FNAMES.short_latlon(*tile_key)))
             label = REUSE.reused_label(STEP_LABELS.get(key, key))
+            if key == "mesh":
+                self._object_stage_over_reused_mesh(tile)
         self._step_percent = (base + width) * 100.0
         self._emit(StepProgress(
             lat=tile_key[0], lon=tile_key[1], step_key=key, label=label,
             percent=self._step_percent))
         self._finish_step(tile_key, key)
         return True
+
+    @staticmethod
+    def _object_stage_over_reused_mesh(tile):
+        """The mesh step HANDS OFF its object stage (#1901,
+        ``O4_Step_Code.HANDED_OFF``): its key leaves the stage out, so a
+        reused mesh under a changed object stage code has the stage run
+        over it here — its own per-airport reuse decides — and the mesh
+        step's record re-cut with the pack DSFs it wrote (not after a
+        Stop: the record keeps the old code, so the next build runs it
+        again).  Never raises (``O4_Object_Stage.run`` and
+        ``O4_Step_Reuse.record`` do not)."""
+        why = REUSE.object_stage_stale(tile)
+        if why is None:
+            return
+        import O4_Object_Stage as OBJECT_STAGE
+        UI.vprint(1, "   Object stage over the reused mesh: running (%s)."
+                  % why)
+        OBJECT_STAGE.run(tile)
+        if not UI.red_flag:          # a Stop puts the packs back (#598)
+            REUSE.record(tile, "mesh")
 
     def _finish_step(self, tile, key):
         self._slow_step.end()

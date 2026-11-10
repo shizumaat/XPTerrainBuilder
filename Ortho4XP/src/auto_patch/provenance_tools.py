@@ -43,7 +43,6 @@ NATIVE_TOOLS: tuple[str, ...] = ("DSFTool", "Triangle4XP")
 PATCH_LIBRARIES: tuple[str, ...] = (
     "PIL",
     "certifi",
-    "curl_cffi",
     "highspy",
     "ispc_texcomp",
     "keyring",
@@ -56,7 +55,6 @@ PATCH_LIBRARIES: tuple[str, ...] = (
     "rtree",
     "scipy",
     "shapely",
-    "skfmm",
     "tifffile",
     "truststore",
 )

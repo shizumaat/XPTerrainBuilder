@@ -214,7 +214,7 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         from auto_patch_v2.airport import dsf as _dsf2
         from auto_patch_v2.airport.pack import select_pack
         from . import dsf_reader as _DSFR
-        from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+        from auto_patch_v2.airport.backup_state import pristine_dsf_path
         _fresh_object_pack_dumps(xplane_root, icao, lat, lon)
         sel = select_pack(xplane_root, icao)
         if sel is None:
@@ -226,7 +226,7 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         dsf_path = pristine_dsf_path(_dsf2.dsf_path_in_pack(sel.root, lat, lon))
         if not os.path.isfile(dsf_path):
             return None
-        from auto_patch_v2.airport.dsf_write import DsfToolError
+        from O4_DSFTool import DsfToolError
     except Exception as exc:                # the load stage will refuse loudly
         import logging
         logging.getLogger(__name__).warning(
@@ -315,7 +315,7 @@ def _fresh_dumps(roots, lat: int, lon: int) -> None:
     try:
         import O4_File_Names as FNAMES
         from auto_patch_v2.airport import dsf as _dsf2
-        from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+        from auto_patch_v2.airport.backup_state import pristine_dsf_path
         from . import dsf_reader as _DSFR
     except Exception as exc:                # noqa: BLE001 — never fails a build
         logging.getLogger(__name__).warning("pack dumps skipped: %s", exc)

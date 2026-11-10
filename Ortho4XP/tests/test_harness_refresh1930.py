@@ -62,7 +62,7 @@ def test_an_unasked_provider_above_the_cached_raster_is_named(
                         str(tmp_path / "Elevation_data"))
     directory = FNAMES.airport_inset_directory(LAT, LON)
     os.makedirs(directory, exist_ok=True)
-    with open(os.path.join(directory, "index.json"), "w") as handle:
+    with open(os.path.join(directory, "index.json"), "w", encoding="utf-8", newline="\n") as handle:
         json.dump({ICAO: record}, handle)
     monkeypatch.setattr(
         INSETS, "cached_inset_paths_for_icao",
@@ -77,7 +77,7 @@ def test_an_unasked_provider_above_the_cached_raster_is_named(
 def _stamp_world(build_mod, tmp_path, monkeypatch, answers):
     import O4_Config_Utils as CFG
     layer = tmp_path / "airports.osm"
-    layer.write_text("")
+    layer.write_text("", encoding="utf-8", newline="\n")
     monkeypatch.setattr(FNAMES, "osm_cached", lambda *a: str(layer))
     monkeypatch.setattr(CFG.Tile, "read_from_config", lambda self: None)
     monkeypatch.setattr(INSETS, "is_cached", lambda tile: answers.pop(0))
@@ -116,20 +116,20 @@ def test_a_refused_run_frees_its_explicit_tag(build_mod, tmp_path):
     def refused(argv):
         tag = build_mod.claim_tag(tmp_path, "XXXX", "T1930")
         build_mod._CLAIMED_TAGS.append((tmp_path, tag))
-        (tmp_path / f"{tag}.progress").write_text("REFUSING: test\n")
+        (tmp_path / f"{tag}.progress").write_text("REFUSING: test\n", encoding="utf-8", newline="\n")
         raise SystemExit("REFUSING: test")
 
     for _ in range(2):                    # the re-run no longer collides
         with pytest.raises(SystemExit, match="REFUSING: test"):
             build_mod.main_releasing_refused_tags([], run=refused)
     assert not (tmp_path / "T1930.progress").exists()
-    assert (tmp_path / "T1930.refused.progress").read_text().startswith(
+    assert (tmp_path / "T1930.refused.progress").read_text(encoding="utf-8").startswith(
         "REFUSING")
     assert (tmp_path / "T1930.refused_2.progress").exists()
 
 
 def test_a_run_that_built_keeps_its_artifacts(build_mod, tmp_path):
-    (tmp_path / "T2.progress").write_text("x")
-    (tmp_path / "T2.osm").write_text("x")
+    (tmp_path / "T2.progress").write_text("x", encoding="utf-8", newline="\n")
+    (tmp_path / "T2.osm").write_text("x", encoding="utf-8", newline="\n")
     assert build_mod.release_refused_tag(tmp_path, "T2") is None
     assert (tmp_path / "T2.progress").exists()

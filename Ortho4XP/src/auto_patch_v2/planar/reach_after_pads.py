@@ -53,8 +53,7 @@ from ..law.tables import role_side
 
 __all__ = ["BEYOND", "unreachable_after_pads"]
 
-#: the ref spelling of an apron piece made groundside here
-BEYOND = "#beyond"
+from ..model.planar import BEYOND  # noqa: E402  (re-exported)
 
 
 def unreachable_after_pads(base_regions: list, pad_regions: _t.Sequence, law, airport,

@@ -39,7 +39,7 @@ from .frame import XY, Key
 from .registries import Registries
 from .structures import Basin, Channel, Tunnel
 
-__all__ = ["NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
+__all__ = ["BEYOND", "NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
            "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "plane_origin_ref", "BLOCK_SEP",
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
@@ -119,6 +119,12 @@ def is_shelf_ref(ref: object) -> bool:
     """Is this face ref an apron-edge shelf (its flat face or its collar)?"""
     r = str(ref).split("#", 1)[0]
     return r.startswith(SHELF_PREFIX) and r[len(SHELF_PREFIX):].isdigit()
+
+
+#: the ref spelling of an apron piece the reach-after-pads pass made
+#: groundside (``planar.reach_after_pads``); here so a constraint can
+#: read it without importing the planar stage.
+BEYOND = "#beyond"
 
 
 def is_bank_ref(ref: object) -> bool:

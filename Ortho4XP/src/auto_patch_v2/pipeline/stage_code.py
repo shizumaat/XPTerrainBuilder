@@ -338,6 +338,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_family",
+        "auto_patch_v2.airport.bridge_ground",
         "auto_patch_v2.airport.bulk_geos",
         "auto_patch_v2.airport.cluster_profile",
         "auto_patch_v2.airport.contact",
@@ -422,7 +423,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
         "auto_patch_v2.airport.road_profile",
-        "auto_patch_v2.airport.bridge_ground",
         "auto_patch_v2.airport.road_stations",
         "auto_patch_v2.airport.road_ways",
         "auto_patch_v2.airport.runway_strip",
@@ -499,6 +499,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.geom.shape_class",
         "auto_patch_v2.geom.slope_pad",
+        "auto_patch_v2.geom.station_runs",
         "auto_patch_v2.geom.terrain_deck",
         "auto_patch_v2.geom.trend",
         "auto_patch_v2.geom.triangulate",
@@ -570,7 +571,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.covered_bores",
         "auto_patch_v2.planar.covered_cut",
         "auto_patch_v2.planar.covered_ground",
-        "auto_patch_v2.geom.station_runs",
         "auto_patch_v2.planar.cut_frame",
         "auto_patch_v2.planar.cut_runout",
         "auto_patch_v2.planar.deck_bores",
@@ -2208,6 +2208,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["emit"] = _mods("""
+    geom.station_runs airport.bridge_ground
     geom.shape_class
     airport.hanging_objects airport.object_cut airport.object_floor airport.wall_geometry
     geom.author_ground geom.lowest_face geom.vector

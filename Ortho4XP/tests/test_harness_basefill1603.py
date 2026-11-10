@@ -135,6 +135,9 @@ def test_a_tile_that_fills_voids_to_zero_asks_no_fallback(
                         SimpleNamespace(lat=lat, lon=lon, custom_dem="",
                                         fill_nodata=False,
                                         read_from_config=lambda: None))
+    # the inset-stamp resettle (#1930) is its own pass, tested apart
+    monkeypatch.setattr(build_mod, "_resettle_inset_stamp",
+                        lambda *_a, **_k: [])
     out = build_mod.refresh_tile_dem(tmp_path, 45, 5, _Notes())
     assert out["derived"] == [] and warm_tile == [] and _Donor.calls == []
 

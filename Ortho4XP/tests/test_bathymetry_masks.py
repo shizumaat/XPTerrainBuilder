@@ -327,7 +327,7 @@ def test_shallow_water_fallback_query_uses_margin(monkeypatch):
     for keyword_arguments in captured.values():
         assert (
             keyword_arguments["bbox_margin_degrees"]
-            == MASK.shallow_water_query_margins(0, 0)
+            == MASK._shallow_water_query_margins(0, 0)
         )
         assert (
             keyword_arguments["cache_schema"]

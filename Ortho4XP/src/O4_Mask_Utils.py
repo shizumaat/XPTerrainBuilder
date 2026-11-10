@@ -53,7 +53,7 @@ SHALLOW_WATER_EDGE_FADE_M = 150.0
 # still rasterize into the shared straddling squares, and the two
 # tiles' copies of such a square agree.  The reach is exactly the union
 # of the squares the tile's masks draw plus the alpha's edge-fade pad
-# (:func:`shallow_water_query_margins`), taken on the grid of the
+# (:func:`_shallow_water_query_margins`), taken on the grid of the
 # COARSEST offered ``mask_zl`` (O4_Cfg_Vars: 14, 15, 16) so the one
 # per-tile cache serves every mask_zl setting.  It is per side and at
 # most ~0.36 degrees; the former flat 0.5 degrees reached a further
@@ -766,7 +766,7 @@ def _shallow_water_square_box(til_x, til_y, zoomlevel):
             lat_max + pad_degrees, lon_max + pad_degrees)
 
 
-def shallow_water_query_margins(lat, lon,
+def _shallow_water_query_margins(lat, lon,
                                 zoomlevel=SHALLOW_WATER_REACH_ZL):
     """(south, west, north, east) degrees by which the shallow-water
     query box must exceed tile (lat, lon): the padded union of the mask
@@ -808,7 +808,7 @@ def load_shallow_water_polygons(tile):
                 [],
                 cached_suffix=cached_suffix,
                 cache_schema=SHALLOW_WATER_CACHE_SCHEMA,
-                bbox_margin_degrees=shallow_water_query_margins(
+                bbox_margin_degrees=_shallow_water_query_margins(
                     tile.lat, tile.lon),
             ):
                 UI.lvprint(

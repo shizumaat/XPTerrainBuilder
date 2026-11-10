@@ -87,7 +87,7 @@ def test_flat_half_degree_margin_reached_the_southern_region(
 
 def test_square_reach_stays_with_the_tiles_own_region(
         index_store, monkeypatch):
-    margins = MASK.shallow_water_query_margins(53, 9)
+    margins = MASK._shallow_water_query_margins(53, 9)
     box = _query_box(monkeypatch, 53, 9, margins)
     assert box[0] > 52.6          # never below the north region's edge
     assert [r for (r, _u) in EXTRACTS.covering_regions(box)] == ["north"]
@@ -100,7 +100,7 @@ def test_reach_covers_every_square_the_masks_draw(lat, lon):
     mask_zl, lies inside the query box (one cache serves them all), and
     the reach never exceeds the former 0.5-degree box (old caches stay
     supersets under the unchanged schema)."""
-    (south, west, north, east) = MASK.shallow_water_query_margins(lat, lon)
+    (south, west, north, east) = MASK._shallow_water_query_margins(lat, lon)
     assert max(south, west, north, east) < 0.5
     offered = CFG_VARS.cfg_vars["mask_zl"]["values"]
     assert MASK.SHALLOW_WATER_REACH_ZL == min(offered)

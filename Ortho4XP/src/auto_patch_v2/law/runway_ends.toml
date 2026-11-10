@@ -14,6 +14,9 @@ placeholder_spread_ft = 1.0    # (a) the runway's CIFP ends are the SAME number 
 crosscheck_tol_ft     = 3.0    # (c) a cached cross-check source disagrees with a CIFP end beyond this (26a: "more than a few feet")
 zero_placeholder_ft   = 0.5    # (d) RULINGS 2026-10-26j: every CIFP end within this of 0 ft is a placeholder ("CIFP runway-end heights of 0 ft at both ends are untrusted"); flagged with no DEM needed
 dem_window_m          = 60.0   # the DEM at a pin: the median of centreline samples within half this of the pin's station
+peer_touch_m          = 1.0    # owner RULINGS 2026-11-10b (2) / (3): two runways' slabs (``Runway.slab_corners``) within this of each other TOUCH — their pavement connects (LSZI 07/25 and 07L/25R lie 0.31 m apart in the frame)
+peer_parallel_deg     = 5.0    # owner RULINGS 2026-11-10b (4): a runway is PARALLEL to another when their axes differ by no more than this
+peer_close_end_m      = 10.0   # owner RULINGS 2026-11-10b (3) (#1945, "less than 10m apart"): two CIFP-pinned ends of touching runways closer than this split their difference where the connecting pavement cannot hold both
 crosscheck_order      = ["nasr", "openaip", "ourairports"]   # 26a's order; a source with no provider module or no cache is skipped. RULINGS 2026-10-26m: a source flagged by (c) ALONE overrides CIFP only where its grade fits the DEM better than CIFP's
 
 [dem_noise_m]                  # (a) and cases E / E' (28m): the DEM tier's noise (fine / coarse = flat_site.detector.relief_floor_m)

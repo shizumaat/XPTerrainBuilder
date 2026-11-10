@@ -137,3 +137,32 @@ def test_the_rest_of_the_anchor_family_is_written_at_the_record():
     assert [(m.index, m.elevation) for m in got] == [(0, 310.696)]
     # where the drape already stands there, the row stays AGL (14g (2))
     assert family_seats(dump, auth, set(), lambda la, lo: 302.197) == ()
+
+
+def test_a_carried_lifted_piece_stands_its_lift_over_the_carrier_frames():
+    """KMCI 1.0.480: ``Fountain-KCI`` (+5.90, footless) carried by the
+    terminal unit (frame +8.50, its lift dropped) stood 5.90 m over the
+    unit's 310.70 zero; its author put it 2.60 m under the terminal's."""
+    from auto_patch_v2.airport import anchor_rule as AR
+    from auto_patch_v2.airport import open_frame_seat as OFS
+    from auto_patch_v2.airport.footprint_carry import UNIT_CARRY
+    from auto_patch_v2.airport.placement_record import Body, Split
+    plan = types.SimpleNamespace(units=(
+        types.SimpleNamespace(id="unit:20", agl_m=8.499,
+                              members=(types.SimpleNamespace(parts=(_part(1), _part(2))),)),
+        types.SimpleNamespace(id="unit:22", agl_m=5.899,
+                              members=(types.SimpleNamespace(parts=(_part(3),)),))))
+    pw = {1: ("fu:16:6938/p2", 310.7), 2: ("fu:16:6938/p0", 310.7), 3: ("fu:16:6938/p2", 310.7)}
+    lifts = OFS.frame_lifts(plan, pw)
+    assert lifts == {"fu:16:6938": 8.499}
+    a = AR.Anchor(AR.OTHER, ORIGIN[0], ORIGIN[1], -5.836, f"{UNIT_CARRY}: within its own unit",
+                  304.86, offset=(0.0, -5.836, 0.0))
+    b = Body(0, AR.OTHER, (0,), a, "Airport/T/fountain__b0.obj", lift_m=5.899,
+             merged_into="fu:16:6938/p2")
+    m = types.SimpleNamespace(id="fountain", resource="Airport/T/fountain.obj", zero_y=0.0)
+    rec = Split(0, m.id, m.resource, "/x/" + m.resource, ORIGIN[0], ORIGIN[1], 0.0, (b,))
+    got = OFS.carried_lift(rec, m, lifts).bodies[0]
+    assert got.lift_m == 0.0
+    assert abs(got.anchor.surface_z - got.anchor.y_zero - (310.696 + 5.899 - 8.499)) < 1e-9
+    # a carrier frame with no lift: as before
+    assert OFS.carried_lift(rec, m, {}).bodies[0] is b

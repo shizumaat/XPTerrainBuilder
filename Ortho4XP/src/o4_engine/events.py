@@ -225,6 +225,7 @@ CAPABILITIES: tuple = (
     "imagery_spawn_reload",         # 2026-11-10, #1992 P5 scenery reload after a spawn or jump
     "imagery_ondemand_convert",     # 2026-11-10, #1992 P1c built tiles -> on-demand copies
     "world_pack",                   # 2026-11-10, World spec W1 world_* + WorldStatus/Ready
+    "world_job",                    # 2026-11-10, World spec W2 world_job_start/stop (track mode)
 )
 
 

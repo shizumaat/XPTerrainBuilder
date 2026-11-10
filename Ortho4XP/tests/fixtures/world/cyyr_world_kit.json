@@ -1,0 +1,45 @@
+{
+ "source": "world_log.jsonl of /Users/noah/XPTerrainBuilderData/.harness/frames/lworld/cyyr-worldkit (2026-11-10); times in seconds after the recorder's start (meta t, 14:51:14.175Z), the replay fixture's clock",
+ "pack": "zXPTerrainBuilder World",
+ "placeholders": [
+  "+51-063",
+  "+51-062",
+  "+51-061",
+  "+51-060",
+  "+51-059",
+  "+52-063",
+  "+52-062",
+  "+52-061",
+  "+52-060",
+  "+52-059",
+  "+53-063",
+  "+53-062",
+  "+53-060",
+  "+53-059",
+  "+54-063",
+  "+54-062",
+  "+54-061",
+  "+54-060",
+  "+54-059",
+  "+55-063",
+  "+55-062",
+  "+55-061",
+  "+55-060",
+  "+55-059",
+  "+52-064",
+  "+53-064",
+  "+54-064",
+  "+52-065",
+  "+53-065",
+  "+54-065"
+ ],
+ "external": [
+  "+53-061"
+ ],
+ "as_flown": {
+  "tile": "+53-064",
+  "build_start_s": 272.8,
+  "swapped_s": 669.8,
+  "build_s": 397
+ }
+}

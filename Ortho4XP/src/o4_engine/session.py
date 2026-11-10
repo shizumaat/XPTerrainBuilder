@@ -36,6 +36,7 @@ import O4_Unmounted_Links as UNMOUNTED
 import O4_Unpatched_Airports as UNPATCHED
 import O4_UI_Utils as UI
 
+from . import build_order as _ORDER
 from .events import (
     AirportIndexReady,
     BoundaryAirportsReady,
@@ -55,6 +56,9 @@ from .events import (
     TileState,
 )
 from .slow_step import SlowStepWatch
+
+#: The queue rank of a tile whose batch named no class or deadline.
+_DEFAULT_RANK = _ORDER.rank()
 
 # ---------------------------------------------------------------------------
 # Whole-tile step plan (moved from O4_Qt_GUI 2026-07-15: percent math is
@@ -801,6 +805,8 @@ class EngineSession:
         self._work_queue_lock = threading.Lock()
         # tile -> its batch's per-build switches (#818, build(overrides=)).
         self._tile_overrides: dict = {}
+        # tile -> its batch's queue rank (World spec §8.4, build_order).
+        self._tile_priority: dict = {}
         # tile -> its build folder (:meth:`tile_build_dir`).
         self._tile_build_dirs: dict = {}
         # Serializes enqueue_build decisions (one view command at a time).
@@ -960,7 +966,7 @@ class EngineSession:
               do_vector=True, do_imagery=True, do_overlays=False,
               slots=None, steps=None, boundary_policy=None,
               boundary_batch=None, missing_art=None, prefetch=None,
-              overrides=None):
+              overrides=None, deadline=None, klass=None):
         """Build the given (lat, lon) tiles.  Returns immediately; progress
         arrives as events.  Only one run at a time.
 
@@ -989,9 +995,17 @@ class EngineSession:
         switches, ``{"auto_patch": bool, "modify_custom_airports": bool}``
         (either key optional), landed on each tile after its cfg is read
         and never written back to it (``Tile.apply_build_overrides``).
+        ``{"profile": "light"}`` (World spec §8.4) names a set of them
+        (``O4_Build_Profile``).
+
+        ``deadline`` (wall-clock seconds) and ``klass`` (``P0``..``P4``)
+        rank this batch's tiles in the run's queue (World spec §8.4,
+        ``build_order``); a batch with neither keeps first-in-first-out.
         """
         if self._building:
             return False
+        priority = (_ORDER.rank(klass, deadline)
+                    if klass is not None or deadline is not None else None)
         try:
             from auto_patch import object_stage as _EV2
 
@@ -1017,7 +1031,9 @@ class EngineSession:
             pass
         self._building = True
         self._tile_overrides = {}
+        self._tile_priority = {}
         self._note_overrides(tiles, overrides)
+        self._note_priority(tiles, priority)
         self._note_build_dirs(tiles, custom_build_dir)
         self._stepwise_run = steps is not None
         self._prefetch_imagery = (bool(prefetch) if prefetch is not None
@@ -1045,7 +1061,8 @@ class EngineSession:
                 self, list(tiles), provider, zoomlevel, custom_build_dir,
                 (do_vector, do_imagery, do_overlays),
                 slots, boundary_policy=boundary_policy,
-                missing_art=missing_art, overrides=overrides)
+                missing_art=missing_art, overrides=overrides,
+                priority=priority)
             # Registered BEFORE start so a cancel arriving during the
             # worker handshake window already routes to the run; start
             # runs off-thread because the handshake blocks for seconds.
@@ -1137,7 +1154,7 @@ class EngineSession:
             _clear_boundary_skips()
             for tile in tiles:
                 self.new_tile_attempt(tile)
-                self._work_queue.append(
+                self._queue_item_locked(
                     (tuple(tile), provider, zoomlevel, custom_build_dir,
                      plan))
 
@@ -1146,6 +1163,31 @@ class EngineSession:
         if overrides:
             for tile in tiles:
                 self._tile_overrides[tuple(tile)] = dict(overrides)
+
+    def tile_overrides(self, lat, lon):
+        """The per-build switches the live run builds tile ``(lat, lon)``
+        with (``{}`` for none); a World-pack publish reads its
+        ``profile`` from them."""
+        return dict(self._tile_overrides.get((int(lat), int(lon))) or {})
+
+    def _note_priority(self, tiles, priority):
+        """Remember a batch's queue rank for each of its tiles (World spec
+        §8.4); ``None`` forgets it."""
+        ranks = self.__dict__.setdefault("_tile_priority", {})
+        for tile in tiles:
+            if priority is None:
+                ranks.pop(tuple(tile), None)
+            else:
+                ranks[tuple(tile)] = tuple(priority)
+
+    def _queue_item_locked(self, item):
+        """Queue one in-process work item by its tile's rank (caller holds
+        ``_work_queue_lock``)."""
+        ranks = self.__dict__.setdefault("_tile_priority", {})
+
+        def rank(other):
+            return ranks.get(other[0], _DEFAULT_RANK)
+        _ORDER.place(self._work_queue, item, rank(item), rank)
 
     def _note_build_dirs(self, tiles, custom_build_dir):
         """Remember each tile's build folder (:meth:`tile_build_dir`)."""
@@ -1163,7 +1205,7 @@ class EngineSession:
     def enqueue_build(self, tiles, provider, zoomlevel, custom_build_dir,
                       do_vector=True, do_imagery=True, do_overlays=False,
                       slots=None, boundary_policy=None, missing_art=None,
-                      overrides=None):
+                      overrides=None, deadline=None, klass=None):
         """Build the given tiles, joining a run already in progress.
 
         The single build entry point for interactive views: with no run
@@ -1171,12 +1213,15 @@ class EngineSession:
         is appended to it (both run modes) and starts as soon as
         capacity frees.  Each batch keeps its own imagery source, zoom
         level, output folder, step selection and per-build switches
-        (``overrides``, see :meth:`build`).  Returns True when the
+        (``overrides``) and queue rank (``deadline``, ``klass``; see
+        :meth:`build`).  Returns True when the
         batch was started or queued, False when nothing was accepted
         (empty batch, no steps selected, or every tile already part of
         the active run).
         """
         tiles = [tuple(tile) for tile in tiles]
+        priority = (_ORDER.rank(klass, deadline)
+                    if klass is not None or deadline is not None else None)
         with self._command_lock:
             if self._building:
                 parallel_run = self._parallel
@@ -1185,7 +1230,9 @@ class EngineSession:
                             tiles, provider, zoomlevel, custom_build_dir,
                             (do_vector, do_imagery, do_overlays),
                             boundary_policy=boundary_policy,
-                            missing_art=missing_art, overrides=overrides):
+                            missing_art=missing_art, overrides=overrides,
+                            priority=priority):
+                        self._note_overrides(tiles, overrides)
                         return True
                     if not (parallel_run._finished
                             or parallel_run._cancel_all):
@@ -1195,7 +1242,8 @@ class EngineSession:
                 else:
                     appended = self._enqueue_in_process(
                         tiles, provider, zoomlevel, custom_build_dir,
-                        do_vector, do_imagery, do_overlays, overrides)
+                        do_vector, do_imagery, do_overlays, overrides,
+                        priority)
                     if appended:
                         return True
                     if appended == 0:
@@ -1215,11 +1263,11 @@ class EngineSession:
                 do_vector=do_vector, do_imagery=do_imagery,
                 do_overlays=do_overlays, slots=slots,
                 boundary_policy=boundary_policy, missing_art=missing_art,
-                overrides=overrides)
+                overrides=overrides, deadline=deadline, klass=klass)
 
     def _enqueue_in_process(self, tiles, provider, zoomlevel,
                             custom_build_dir, do_vector, do_imagery,
-                            do_overlays, overrides=None):
+                            do_overlays, overrides=None, priority=None):
         """Append a batch to the live in-process run.
 
         Returns the number of tiles appended; 0 when every tile is
@@ -1238,13 +1286,14 @@ class EngineSession:
                      if tile not in already_queued
                      and tile != self._active_tile]
             self._note_overrides(fresh, overrides)
+            self._note_priority(fresh, priority)
             self._note_build_dirs(fresh, custom_build_dir)
             for tile in fresh:
                 # A tile stopped earlier in this run is wanted again: its
                 # old cancel must not stop the new attempt (#1326).
                 self._cancelled_tiles.discard(tile)
                 self.new_tile_attempt(tile)
-                self._work_queue.append(
+                self._queue_item_locked(
                     (tile, provider, zoomlevel, custom_build_dir, plan))
             if fresh:
                 # THE RUN'S tile set (issue #51, #1641): this press joins
@@ -1338,6 +1387,20 @@ class EngineSession:
             if not self._building:
                 return set()
             return self._live_run_cells_locked()
+
+    def building_tiles(self):
+        """The names (``+53-064``) of the tiles the live run has queued or
+        is building, not those it finished: the follow job holds only
+        these (World spec §8.7; their textures may be written by the
+        build).  Empty when no run is live."""
+        if not self._building:
+            return set()
+        parallel_run = getattr(self, "_parallel", None)
+        if parallel_run is not None:
+            cells = parallel_run.live_tiles()
+        else:
+            cells = self._live_run_cells()
+        return {FNAMES.short_latlon(*cell) for cell in cells}
 
     def _prepare_in_process_eta(self, tiles, plan, provider, zoomlevel,
                                 custom_build_dir):

@@ -2843,9 +2843,14 @@ class MainWindow(QMainWindow):
     def _start_imagery_follow(self):
         from o4_engine import imagery_commands as CMDS
         session = self._session            # never the window (see below)
+        # The follow job holds only the tiles a build has queued or is
+        # building; build-ahead starts beside it when it may (World spec
+        # §8.7, W2) -- as the JSONL imagery_follow_start does.
         CMDS.start_imagery_follow(session._emit,
-                                  busy=lambda: bool(session._building),
+                                  busy=session.building_tiles,
                                   working_dir=self.working_dir())
+        from o4_engine import world_job_run as WORLD_JOB
+        WORLD_JOB.autostart(session)
 
     def _stop_imagery_follow(self):
         from o4_engine import imagery_commands as CMDS

@@ -105,6 +105,8 @@ enum SettingsLayout {
             SettingItem("max_baddata_retries", "Bad-data retries", .app, expert: true),
             SettingItem("check_tms_response", "Retry on imagery server errors", .app, expert: true),
             SettingItem("xplane_web_api_port", "X-Plane Web API port", .app, expert: true),
+            // World spec §5.5 / §10: build-ahead's share while flying.
+            SettingItem("fly_build_slots", "Tiles built at once while flying", .app, expert: true),
         ]),
         SettingCategory(key: "imagery", title: "Imagery", icon: "photo", items: [
             SettingItem("texture_mode", "What should the ground be textured with?", .tile, summary: "Default X-Plane uses no orthophotos, only X-Plane's own terrain textures."),
@@ -130,6 +132,8 @@ enum SettingsLayout {
             SettingItem("placeholder_zl_drop", "Low-res imagery detail (zoom levels below the build's)", .app, expert: true),
             SettingItem("ondemand_lead_s", "Start fetching this many seconds ahead", .app, expert: true),
             SettingItem("ondemand_lands_per_s", "Imagery swaps per second, at most", .app, expert: true),
+            // World spec §5.5 / §17: the intermediate kind, until D1 decides.
+            SettingItem("world_intermediate", "Tiles built ahead of the aircraft", .app, expert: true),
         ]),
         SettingCategory(key: "mesh", title: "Ground Shape", icon: "triangle", items: [
             SettingItem("curvature_tol", "Curvature tolerance", .tile, expert: true),

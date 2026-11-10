@@ -45,7 +45,8 @@ __all__ = ["LOG_NAME", "S3_MARGIN_KM", "pack_dir", "staging_root", "scenery_dir_
 
 LOG_NAME = "world_pack.log"
 #: Rule S3's margin outside the window: 0.05° (the 60 s of flight it also
-#: names needs a speed, which the build-ahead job has; W2).
+#: names needs a speed: ``tile_loaded(speed_ms=)``, and the build-ahead
+#: job's own rule, ``world_job.WorldJob.held``).
 S3_MARGIN_KM = 0.05 * 111.32
 _GLOBAL_PACK = os.path.join("Global Scenery", "X-Plane 12 Global Scenery")
 _GUARD = threading.Lock()
@@ -116,21 +117,24 @@ def _witness(scenery_dir: str):
 
 
 def tile_loaded(scenery_dir: str,
-                position: Optional[Callable[[], Optional[tuple]]] = None
-                ) -> Callable[[int, int], bool]:
+                position: Optional[Callable[[], Optional[tuple]]] = None,
+                speed_ms: float = 0.0) -> Callable[[int, int], bool]:
     """The predicate of rule S3 for one moment: may X-Plane hold tile
     ``(lat, lon)``?  Never, while X-Plane does not run.  While it runs:
     yes when the witness shows a load of it this session, or the aircraft
     (``position()`` -> ``(lat, lon)``; default the shared position feed's
     latest, ``position_feed.latest_position``) has it in
-    the union of the plausible DSF windows or within :data:`S3_MARGIN_KM`
-    of entering it, or no position is known (the disagreeing or unknown
-    case counts as loaded)."""
+    the union of the plausible DSF windows or within the S3 margin of
+    entering it (:data:`S3_MARGIN_KM`, or 60 s of flight at ``speed_ms``
+    when more, ``O4_World_Ahead.margin_km``), or no position is known (the
+    disagreeing or unknown case counts as loaded)."""
     if not _xplane_running():
         return lambda lat, lon: False
+    import O4_World_Ahead as AHEAD
     import O4_World_Window as WINDOW
 
     from .position_feed import latest_position
+    margin = max(S3_MARGIN_KM, AHEAD.margin_km(speed_ms))
     loads = _witness(scenery_dir)[0]
     here = (position or latest_position)()
 
@@ -138,7 +142,7 @@ def tile_loaded(scenery_dir: str,
         if (lat, lon) in loads or here is None:
             return True
         where = WINDOW.reach(here[0], here[1], lat, lon)
-        return where["in_window"] or where["km_to_load"] < S3_MARGIN_KM
+        return where["in_window"] or where["km_to_load"] < margin
     return held
 
 
@@ -223,7 +227,10 @@ def status_event(scenery_dir: str, **extra):
     from .events import WorldStatus
     fields = _status_fields(scenery_dir_or_default(scenery_dir))
     fields.pop("kinds")
-    return WorldStatus(**fields, **extra)
+    if fields["state"] == "off" or fields["reason"]:
+        # the pack's own state (not installed, not read) outranks the job's
+        extra = {k: v for k, v in extra.items() if k not in ("state", "reason")}
+    return WorldStatus(**{**fields, **extra})
 
 
 def world_install(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:

@@ -71,8 +71,10 @@ import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 
 from . import boundary_reselect as BOUNDARY
+from . import build_order as ORDER
 from . import events as EVENTS
 from . import tile_time_model
+from .plan_estimate import TIME_SPREAD_KNOWN
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
@@ -300,6 +302,8 @@ CACHED_STEP_CLASS = "compute"
 # idle child and the OpenStreetMap warmer downloads ahead (#1225: the
 # queue may hold every tile of the planet).
 QUEUE_SCAN_WINDOW = 64
+#: The rank of a tile whose batch named no class or deadline.
+_DEFAULT_RANK = ORDER.rank()
 # How often a warmer that has warmed the whole head looks again.
 WARM_AHEAD_POLL_SECONDS = 1.0
 
@@ -888,12 +892,16 @@ class ParallelBuildRun:
 
     def __init__(self, session, tiles, provider, zoomlevel,
                  custom_build_dir, step_flags, slots,
-                 boundary_policy=None, missing_art=None, overrides=None):
+                 boundary_policy=None, missing_art=None, overrides=None,
+                 priority=None):
         self._session = session
         # The session's per-tile build logs (#1226); a stand-in session
         # without them logs nothing.
         self._tile_logs = getattr(session, "tile_logs", None)
         self._queue = deque()
+        # tile -> its batch's ORDER.rank (World spec §8.4); the queue is
+        # kept sorted by it, a tile with none ranks ORDER.rank().
+        self._priority: dict = {}
         self._total = 0
         # THE MACHINE BUDGET (issue #1225): one slot pool for the engine
         # session, published in os.environ so every tile child — and every
@@ -1001,12 +1009,12 @@ class ParallelBuildRun:
                                      custom_build_dir, step_flags,
                                      boundary_policy=boundary_policy,
                                      missing_art=missing_art,
-                                     overrides=overrides)
+                                     overrides=overrides, priority=priority)
 
     def _admit_batch_locked(self, tiles, provider, zoomlevel,
                             custom_build_dir, step_flags,
                             boundary_policy=None, missing_art=None,
-                            overrides=None):
+                            overrides=None, priority=None):
         """Register a batch of tiles with the run (caller holds the lock).
 
         Tiles already part of the run (queued or on a child) are skipped
@@ -1022,13 +1030,14 @@ class ParallelBuildRun:
         with tile_time_model.batch_reads():
             admitted = self._admit_tiles_locked(
                 tiles, full_plan, program, provider, zoomlevel,
-                custom_build_dir, boundary_policy, missing_art, overrides)
+                custom_build_dir, boundary_policy, missing_art, overrides,
+                priority)
         self._total += len(admitted)
         return admitted
 
     def _admit_tiles_locked(self, tiles, full_plan, program, provider,
                             zoomlevel, custom_build_dir, boundary_policy,
-                            missing_art, overrides=None):
+                            missing_art, overrides=None, priority=None):
         admitted = []
         queued = set(self._queue)              # a planet queue: O(1) checks
         carried = {child.tile for child in self._children}
@@ -1089,8 +1098,39 @@ class ParallelBuildRun:
                 else self._estimate_mesh_memory(tile, custom_build_dir))
             self._percent_high_water.pop(tile, None)
             self._forget_cache_state_locked(tile)
-            self._queue.append(tile)
+            self._queue_tile_locked(tile, priority)
         return admitted
+
+    def _rank_of(self, tile):
+        return self.__dict__.setdefault("_priority", {}).get(
+            tile, _DEFAULT_RANK)
+
+    def _queue_tile_locked(self, tile, priority=None):
+        """Queue ``tile`` by its batch's rank (World spec §8.4): behind
+        every tile ranked the same or higher, so plain presses stay
+        first-in-first-out."""
+        ranks = self.__dict__.setdefault("_priority", {})
+        if priority is None:
+            ranks.pop(tile, None)
+        else:
+            ranks[tile] = tuple(priority)
+        ORDER.place(self._queue, tile, self._rank_of(tile), self._rank_of)
+
+    def _laxity_first_locked(self):
+        """The laxity guard (``ORDER.urgent``): a queued tile with a
+        deadline whose slack is under one build's length moves to the
+        head of the queue."""
+        now = time.time()
+        entries = []
+        for tile, (_klass, deadline) in self._priority.items():
+            if deadline == float("inf") or tile not in self._queue:
+                continue
+            estimate = sum((self._estimates.get(tile) or {}).values())
+            entries.append((tile, deadline, estimate * TIME_SPREAD_KNOWN[1]))
+        tile = ORDER.urgent(entries, now)
+        if tile is not None and self._queue[0] != tile:
+            self._queue.remove(tile)
+            self._queue.appendleft(tile)
 
     # -- lifecycle -----------------------------------------------------
     def start(self):
@@ -1162,7 +1202,7 @@ class ParallelBuildRun:
 
     def enqueue(self, tiles, provider, zoomlevel, custom_build_dir,
                 step_flags, boundary_policy=None, missing_art=None,
-                overrides=None):
+                overrides=None, priority=None):
         """Append a batch of tiles to the LIVE run.
 
         The batch keeps its own build arguments and step selection —
@@ -1180,7 +1220,7 @@ class ParallelBuildRun:
             admitted = self._admit_batch_locked(
                 tiles, provider, zoomlevel, custom_build_dir, step_flags,
                 boundary_policy=boundary_policy, missing_art=missing_art,
-                overrides=overrides)
+                overrides=overrides, priority=priority)
             if not admitted:
                 return 0
             self._dispatch_locked()
@@ -1501,6 +1541,15 @@ class ParallelBuildRun:
         with self._lock:
             return frozenset(self._run_cells)
 
+    def live_tiles(self):
+        """The tiles queued or on a child now (not those finished), as
+        ``(lat, lon)``."""
+        with self._lock:
+            return frozenset(
+                {(int(t[0]), int(t[1])) for t in self._queue}
+                | {(int(c.tile[0]), int(c.tile[1])) for c in self._children
+                   if c.tile is not None})
+
     def _boundary_batch_locked(self, tile):
         """``[[lat, lon], ...]`` the child's boundary check counts as built
         (issue #51, #1641): the tile and every tile of THIS RUN in the 3×3
@@ -1654,6 +1703,8 @@ class ParallelBuildRun:
         than queueing behind them (spec §A.2).
         """
         tile = None
+        if self.__dict__.get("_priority"):
+            self._laxity_first_locked()
         # Only the head of the queue is considered: a planet-sized queue
         # must cost nothing per queued tile (#1225), and the cache
         # predicates build a tile's configuration on first ask.

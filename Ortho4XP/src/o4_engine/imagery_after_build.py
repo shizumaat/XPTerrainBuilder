@@ -198,6 +198,9 @@ def watch(session) -> None:
             with guard:
                 tiles, built[:] = list(built), []
             if tiles and not getattr(session, "_stepwise_run", False):
+                # The follow job holds only the tiles a build has queued
+                # or is building (World spec §8.7).
                 start([(session.tile_build_dir(*t), *t) for t in tiles],
-                      busy=lambda: bool(session._building))
+                      busy=getattr(session, "building_tiles",
+                                   lambda: bool(session._building)))
     session.subscribe(on_event)

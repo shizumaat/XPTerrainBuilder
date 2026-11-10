@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import time
+from unittest import mock
 
 import O4_Custom_Scenery as CS
 import O4_DSF_Binary as DSFB
@@ -209,6 +210,10 @@ def test_regions_set_command_completes_with_world_ready(world):
         time.sleep(0.01)
     assert isinstance(got[0], WorldReady) and got[0].request == 7
     assert "unknown regions" in got[0].error
+    # The transport hands the command's id to it as ``request``.
+    assert "world_regions_set" in jsonl._TAKES_REQUEST_ID
+    assert {"world_status", "world_install", "world_regions_set",
+            "world_tile_set"} <= set(jsonl.command_table(mock.MagicMock()))
 
 
 def test_world_status_wire_fixture_is_what_python_emits():

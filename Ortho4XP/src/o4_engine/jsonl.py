@@ -157,7 +157,7 @@ def _ortho4xp_version() -> str:
 #: is given the command's ``id`` as ``request``.
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "plan_estimate",
                                "build_airports", "imagery_freshness",
-                               *_LIBRARY.COMMANDS})
+                               "world_regions_set", *_LIBRARY.COMMANDS})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:

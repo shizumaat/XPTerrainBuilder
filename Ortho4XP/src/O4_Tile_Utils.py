@@ -10,6 +10,7 @@ import O4_DDS_Encode as ENC
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
 import O4_Imagery_Utils as IMG
+import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Vector_Map as VMAP
 import O4_Mesh_Utils as MESH
 import O4_Mask_Utils as MASK
@@ -247,6 +248,15 @@ def _write_imagery_manifest(tile, download_stats, convert_progress):
             "provider": getattr(tile, "default_website", ""),
             "zoomlevel": int(getattr(tile, "default_zl", 0) or 0),
             "texture_mode": getattr(tile, "texture_mode", "full_ortho"),
+            # #1992: a placeholder build's textures are low-res stand-ins
+            # (O4_Imagery_Placeholder); "pinned" is the per-tile "always
+            # full resolution" choice the on-demand phases read.
+            "on_demand": bool(PLACEHOLDER.drop(tile)),
+            "placeholder_zl": (
+                int(getattr(tile, "default_zl", 0) or 0)
+                - PLACEHOLDER.drop(tile)
+                if PLACEHOLDER.drop(tile) else None),
+            "pinned": False,
             "cleaning_level": int(UI.cleaning_level),
             "mesh": _mesh_identity(tile),
             "textures_total": int(
@@ -325,6 +335,8 @@ def is_cached(tile) -> bool:
         return False
     if manifest.get("texture_mode") != getattr(
             tile, "texture_mode", "full_ortho"):
+        return False
+    if bool(manifest.get("on_demand")) != bool(PLACEHOLDER.drop(tile)):
         return False
     recorded_mesh = manifest.get("mesh")
     current_mesh = _mesh_identity(tile)

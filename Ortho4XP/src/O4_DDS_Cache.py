@@ -64,8 +64,8 @@ import O4_DDS_File as DDS
 
 __all__ = ["CACHE_ENV", "DIR_ENV", "MAX_GB_ENV", "DEFAULT_MAX_GB",
            "cache_root", "converter_identity", "enabled", "evict",
-           "held_by_built_tiles", "forget_missing", "max_bytes", "serve",
-           "store", "texture_key"]
+           "held_by_built_tiles", "forget_missing", "link_or_copy", "max_bytes",
+           "serve", "store", "texture_key"]
 
 #: ``0`` turns the cache off; anything else, unset included, is on.
 CACHE_ENV = "O4_DDS_CACHE"
@@ -244,7 +244,9 @@ def _entry(key: str, root: "str | None" = None) -> str:
     return os.path.join(root or cache_root(), key[:2], key + ".dds")
 
 
-def _link_or_copy(source: str, target: str) -> bool:
+def link_or_copy(source: str, target: str) -> bool:
+    """Hard link ``source`` at ``target``, else copy it; ``False`` (and no
+    ``target``) when neither works."""
     try:
         os.link(source, target)
         return True
@@ -369,7 +371,7 @@ def serve(key: "str | None", dds_final: str) -> bool:
             os.remove(entry)
         return False
     partial = DDS.partial_name(dds_final)
-    if not _link_or_copy(entry, partial) or not DDS.land(partial, dds_final):
+    if not link_or_copy(entry, partial) or not DDS.land(partial, dds_final):
         return False
     with contextlib.suppress(OSError):
         os.utime(entry)                     # least recently USED
@@ -388,7 +390,7 @@ def store(key: "str | None", dds_final: str) -> bool:
     temp = f"{entry}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
     try:
         os.makedirs(os.path.dirname(entry), exist_ok=True)
-        if not _link_or_copy(dds_final, temp):
+        if not link_or_copy(dds_final, temp):
             return False
         os.replace(temp, entry)
     except OSError:

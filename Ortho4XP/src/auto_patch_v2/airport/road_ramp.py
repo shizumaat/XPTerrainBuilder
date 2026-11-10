@@ -79,8 +79,8 @@ import math
 import typing as _t
 
 from ..geom import exact
-from ..geom.ramp_grade import grade_envelope
 from ..geom.parts import nonempty_polygon_parts
+from ..geom.ramp_grade import grade_envelope
 from ..law import Law
 from ..law.reference_code import ref_status
 from ..law.tables import (

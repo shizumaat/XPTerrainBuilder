@@ -8,13 +8,12 @@ from __future__ import annotations
 import types
 
 import pytest
-from shapely.geometry import LineString, box
-
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.planar import kerb_ref
 from auto_patch_v2.model.registries import Registries
 from auto_patch_v2.planar import foot_kerb as FK
 from auto_patch_v2.planar.overlay import Region
+from shapely.geometry import LineString, box
 
 FOOT = ((0.0, 299.8), (100.0, 299.8), (200.0, 299.8))
 

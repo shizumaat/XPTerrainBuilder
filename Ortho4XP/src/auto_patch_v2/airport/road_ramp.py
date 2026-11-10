@@ -1883,8 +1883,8 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                                    else [tuple(t) for t in w.foot_profile]),
                   "upper": upper, "lower": lower,
                   "low_side": str(getattr(w, "low_side", "") or ""),
-                  "lower_band": [[tuple(c) for c in q.exterior.coords]
-                                 for q in nonempty_polygon_parts(w.lower_band)]
+                  "lower_band": [[tuple(c) for c in part.exterior.coords]
+                                 for part in nonempty_polygon_parts(w.lower_band)]
                   if getattr(w, "lower_band", None) is not None else None,
                   "lots": lots, "pairs": pairs,
                   "foot_lots": {v: z for i, z in sorted(foot_lots.items())

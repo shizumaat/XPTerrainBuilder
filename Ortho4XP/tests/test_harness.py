@@ -2861,8 +2861,10 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
         p.relative_to(src).as_posix() for p in src.rglob("*.py")
         if "OBJECT_STAGE.run(" in p.read_text(errors="replace",
                                               encoding="utf-8")}
-    assert stage_callers == {"O4_Mesh_Utils.py", "tile_bundle/importer.py"}, (
-        stage_callers)
+    # #1901: and the tile build's step loop, over a REUSED mesh step whose
+    # object stage code changed (the mesh step hands the stage off)
+    assert stage_callers == {"O4_Mesh_Utils.py", "tile_bundle/importer.py",
+                             "o4_engine/session.py"}, stage_callers
     for p in (src / "auto_patch_v2" / "pipeline").rglob("*.py"):
         body = p.read_text(errors="replace", encoding="utf-8")
         assert "placement_write" not in body and "apply_plan" not in body, (

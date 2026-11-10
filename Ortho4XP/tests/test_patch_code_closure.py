@@ -92,7 +92,13 @@ def test_what_cannot_shape_a_patch_is_outside_the_key():
     listed = set(CODE.PATCH_CODE_MODULES)
     for outside in ("O4_Qt_GUI", "O4_Qt_Settings", "O4_Qt_Patch_Editor",
                     "o4_engine.patch_commands", "o4_engine.jsonl",
-                    "O4_MSFS_Package", "auto_patch_v2.pipeline.__main__"):
+                    "O4_MSFS_Package", "auto_patch_v2.pipeline.__main__",
+                    # #1901: the object stage and the pack writer, keyed by
+                    # the object stage alone (``O4_Object_Stage_Code``), and
+                    # the app session the core's meters no longer load
+                    "auto_patch.object_stage", "auto_patch_v2.airport.dsf_write",
+                    "auto_patch_v2.airport.placement_write",
+                    "auto_patch_v2.airport.pack_journal", "o4_engine.session"):
         assert outside not in listed, outside
 
 
@@ -153,7 +159,9 @@ def _append(path: Path) -> None:
 
 @pytest.mark.parametrize("path", [
     ("O4_Qt_GUI.py",), ("O4_Qt_Settings.py",), ("O4_Qt_Patch_Editor.py",),
-    ("o4_engine", "patch_commands.py"), ("O4_MSFS_Package.py",)])
+    ("o4_engine", "patch_commands.py"), ("O4_MSFS_Package.py",),
+    ("auto_patch_v2", "airport", "dsf_write.py"),            # #1901
+    ("auto_patch_v2", "airport", "pack_journal.py")])
 def test_an_edit_outside_the_closure_keeps_the_patch_code_key(tmp_path, path):
     """A UI / app-command edit moved the whole-tree digest — and so staled
     every patch; it no longer moves the patch's key."""

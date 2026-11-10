@@ -906,7 +906,7 @@ def pack_dsf_input_identity(dsf_path: str | None) -> str:
     if not dsf_path:
         return "none"
     try:
-        from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+        from auto_patch_v2.airport.backup_state import pristine_dsf_path
     except Exception:                       # pragma: no cover - v2 absent
         return _identity(dsf_path)
     pristine = pristine_dsf_path(dsf_path)

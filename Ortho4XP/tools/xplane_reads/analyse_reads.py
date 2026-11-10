@@ -39,8 +39,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from reads_page_cache import snapshot  # noqa: E402
-from reads_textures import (coverage_finest, mip_ranges,  # noqa: E402
-                            parse_name, resident_finest)
+from reads_textures import coverage_finest, mip_ranges, parse_name, resident_finest  # noqa: E402
 from reads_thresholds import print_frames, print_thresholds  # noqa: E402
 
 BANDS = [(0, 2), (2, 5), (5, 10), (10, 20), (20, 40), (40, 80),
@@ -117,7 +116,7 @@ class Track:
         if 0 < i < len(self.t) and self.t[i] - self.t[i - 1] <= max_gap:
             a, b, ta, tb = self.p[i - 1], self.p[i], self.t[i - 1], self.t[i]
             f = (t - ta) / (tb - ta) if tb > ta else 0
-            return tuple(x + f * (y - x) for x, y in zip(a, b))
+            return tuple(x + f * (y - x) for x, y in zip(a, b))  # noqa: B905 (python 3.9)
         for j in (i - 1, i):
             if 0 <= j < len(self.t) and abs(self.t[j] - t) <= max_gap:
                 return self.p[j]
@@ -450,7 +449,7 @@ def reload_steps(by_file: dict) -> collections.Counter:
     steps: collections.Counter = collections.Counter()
     for ls in by_file.values():
         seq = [L["finest"] for L in ls]
-        for x, y in zip(seq, seq[1:]):
+        for x, y in zip(seq, seq[1:]):  # noqa: B905 (python 3.9)
             if x is None or y is None:
                 steps["unknown"] += 1
             else:
@@ -461,7 +460,7 @@ def reload_steps(by_file: dict) -> collections.Counter:
 
 def print_reloads(by_file: dict) -> None:
     gaps = [b["t"] - a["t"] for ls in by_file.values()
-            for a, b in zip(ls, ls[1:])]
+            for a, b in zip(ls, ls[1:])]  # noqa: B905 (python 3.9)
     print(f"\n4. re-loads of the same texture: {len(gaps)}")
     if not gaps:
         return
@@ -494,7 +493,7 @@ def print_ter_dsf(ev: list[dict], A: dict, by: str) -> None:
         by_ter.setdefault(e["path"], []).append(e["t"])
     for ts in by_ter.values():
         ts.sort()
-        tg[1 + sum(1 for x, y in zip(ts, ts[1:]) if y - x > 5)] += 1
+        tg[1 + sum(1 for x, y in zip(ts, ts[1:]) if y - x > 5)] += 1  # noqa: B905 (python 3.9)
     print("   open bursts (>5 s apart) per .ter file: " + ", ".join(
         f"{k}x: {v}" for k, v in sorted(tg.items())))
     print("   .dsf opens (grouped by second):")

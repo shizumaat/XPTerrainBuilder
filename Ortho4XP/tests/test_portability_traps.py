@@ -85,6 +85,10 @@ ALLOWED = {
         "readlink_f": "lane ritual runs on macOS 26 / Linux, both have readlink -f; "
                       "failure is tolerated (2>/dev/null, empty result)",
     },
+    "tools/xplane_reads/record_reads.py": {
+        "posix_module": "the #1992 read recorder: macOS only (fs_usage under "
+                        "sudo, a pty), owner-run; never run on Windows",
+    },
     "../scripts/make_appimage.sh": {
         "readlink_f": "AppImage launcher: Linux only",
     },

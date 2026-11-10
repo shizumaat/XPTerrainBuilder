@@ -278,8 +278,11 @@ def test_tools_stay_standard_library_only():
     stdlib = set(getattr(sys, "stdlib_module_names", ()))
     if not stdlib:
         pytest.skip("sys.stdlib_module_names needs python 3.10")
-    local = {p.stem for p in TOOL.glob("*.py")}
-    for path in TOOL.glob("*.py"):
+    # the recorder reads the Web API through the engine's own reader
+    # (#1992 P3b, one implementation), which is standard library too
+    webapi = ENGINE / "src" / "O4_XPlane_WebAPI.py"
+    local = {p.stem for p in TOOL.glob("*.py")} | {webapi.stem}
+    for path in [*TOOL.glob("*.py"), webapi]:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for n in ast.walk(tree):
             if isinstance(n, ast.Import):

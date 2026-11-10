@@ -61,16 +61,24 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.parse
-import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from reads_fs_usage import Scope, TodClock, Tracker, feed_text  # noqa: E402
-from reads_page_cache import (F_NOCACHE, PAGE, cache_probe,  # noqa: E402
-                              snapshot)
+from reads_page_cache import F_NOCACHE, PAGE, cache_probe, snapshot  # noqa: E402
 from reads_textures import mip_ranges  # noqa: E402
 
-WEB_API = "http://localhost:8086/api/v2"
+# The Web API reader is the engine's own (one implementation): beside this
+# file in a kit copy, else the engine's src folder.
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             os.pardir, os.pardir, "src"))
+from O4_XPlane_WebAPI import (  # noqa: E402,F401
+    POS_REFS,
+    now_stamp,
+    poll_positions,
+    read_position,
+    resolve_refs,
+)
+
 MAX_MINUTES = 240
 VERSION = 3
 
@@ -95,102 +103,6 @@ def cache_reset(emit, scope: Scope, evict: bool) -> int:
                   "resident_pages": sum(e - s for s, e in got[0]),
                   "npages": got[1], "evicted": evict})
     return n
-
-
-# position poller (X-Plane Web API, GET only)
-
-# (key, dataref, required).  Optional ones are logged once as missing.
-POS_REFS = (
-    ("lat", "sim/flightmodel/position/latitude", True),
-    ("lon", "sim/flightmodel/position/longitude", True),
-    ("elev_m", "sim/flightmodel/position/elevation", True),
-    ("agl_m", "sim/flightmodel/position/y_agl", False),
-    ("hdg", "sim/flightmodel/position/true_psi", False),
-    ("pitch", "sim/flightmodel/position/true_theta", False),
-    ("gs_ms", "sim/flightmodel/position/groundspeed", False),
-    ("ias_kt", "sim/flightmodel/position/indicated_airspeed", False),
-    ("local_x", "sim/flightmodel/position/local_x", False),
-    ("local_y", "sim/flightmodel/position/local_y", False),
-    ("local_z", "sim/flightmodel/position/local_z", False),
-    ("view_x", "sim/graphics/view/view_x", False),
-    ("view_y", "sim/graphics/view/view_y", False),
-    ("view_z", "sim/graphics/view/view_z", False),
-    ("view_hdg", "sim/graphics/view/view_heading", False),
-    ("view_pitch", "sim/graphics/view/view_pitch", False),
-    ("view_type", "sim/graphics/view/view_type", False),
-    ("fov_deg", "sim/graphics/view/field_of_view_deg", False),
-    ("vis_sm", "sim/weather/aircraft/visibility_reported_sm", False),
-    ("vis_m", "sim/weather/visibility_reported_m", False),
-    ("paused", "sim/time/paused", False),
-    ("sim_time_s", "sim/time/total_running_time_sec", False),
-    ("frame_s", "sim/time/framerate_period", False),   # U10 stutter
-)
-
-
-def _get(url: str, timeout: float = 2.0):
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        return json.load(r)
-
-
-def resolve_refs() -> tuple[dict[str, int], list[str]]:
-    """Dataref name -> id (ids change when X-Plane reloads; re-resolve)."""
-    ids, missing = {}, []
-    for key, ref, req in POS_REFS:
-        q = urllib.parse.quote(ref, safe="")
-        data = _get(f"{WEB_API}/datarefs?filter%5Bname%5D={q}")["data"]
-        if data:
-            ids[key] = data[0]["id"]
-        elif req:
-            raise KeyError(f"required dataref missing: {ref}")
-        else:
-            missing.append(ref)
-    return ids, missing
-
-
-def read_position(ids: dict[str, int]) -> dict:
-    rec = {"kind": "pos", **now_stamp()}
-    for key, ident in ids.items():
-        v = _get(f"{WEB_API}/datarefs/{ident}/value")["data"]
-        rec[key] = round(float(v), 6) if isinstance(v, (int, float)) else v
-    return rec
-
-
-def poll_positions(emit, stop: threading.Event, period: float) -> None:
-    """Never gives up: any failure (menu, flight load, Web API restart,
-    stale ids -> 404) forgets the ids and retries every `period` s for the
-    whole recording; at most one pos_error per 30 s; pos_resumed on the
-    first good read after a failure."""
-    ids: dict[str, int] = {}
-    last_err, down_since, n_err = 0.0, None, 0
-    while not stop.is_set():
-        t0 = time.time()
-        try:
-            if not ids:
-                ids, missing = resolve_refs()
-                emit({"kind": "pos_refs", **now_stamp(), "found": sorted(ids),
-                      "missing": missing})
-            emit(read_position(ids))
-            if down_since is not None:
-                emit({"kind": "pos_resumed", **now_stamp(),
-                      "down_s": round(t0 - down_since, 1), "errors": n_err})
-                down_since, n_err = None, 0
-        except Exception as e:          # menu, load, restart, stale ids...
-            ids = {}
-            n_err += 1
-            if down_since is None:
-                down_since = t0
-            if t0 - last_err > 30:
-                emit({"kind": "pos_error", **now_stamp(),
-                      "error": repr(e)[:300], "errors_since_ok": n_err})
-                last_err = t0
-        stop.wait(max(0.05, period - (time.time() - t0)))
-
-
-def now_stamp() -> dict:
-    t = time.time()
-    return {"utc": _dt.datetime.fromtimestamp(t, _dt.timezone.utc)
-            .isoformat(timespec="milliseconds"), "t": round(t, 6)}
-
 
 
 def xplane_dir(arg: str | None) -> str | None:

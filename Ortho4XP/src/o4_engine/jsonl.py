@@ -181,8 +181,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .imagery_commands import (
         imagery_freshness_discard,
         ondemand_handlers,
+        start_imagery_follow,
         start_imagery_freshness,
         start_imagery_source_status,
+        stop_imagery_follow,
     )
     from .mesh_commands import mesh_crop
     from .object_seat import object_seat
@@ -369,6 +371,14 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "imagery_freshness": lambda **kw: start_imagery_freshness(
             session._emit, **kw),
         "imagery_freshness_discard": imagery_freshness_discard,
+        # Imagery on demand (#1992 P3b, capability imagery_follow): the
+        # follow job fetches finer tiers ahead of X-Plane's camera.  Start
+        # replies {"status": "started"}; ImageryFollowStatus events follow
+        # until imagery_follow_stop, which replies the job's counts.  No
+        # fetch starts while a build runs.
+        "imagery_follow_start": lambda **kw: start_imagery_follow(
+            session._emit, busy=lambda: bool(session._building), **kw),
+        "imagery_follow_stop": stop_imagery_follow,
         # On-demand imagery (#1992 P2, capability imagery_ondemand): the
         # index scan, a tile's pin and "Make all low-res again"; pin and
         # downgrade are refused while a build runs.

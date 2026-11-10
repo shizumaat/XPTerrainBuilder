@@ -12,6 +12,12 @@ discard`` ("Update Imagery") removes the tile's cached orthophotos and
 base textures so the rebuild the app starts next downloads them again;
 synchronous file work.
 
+``imagery_follow_start`` (#1992 P3b) starts the follow job
+(``o4_engine.imagery_follow``) and replies ``{"status": "started"}`` (or
+``"running"``); ``ImageryFollowStatus`` events report it until
+``imagery_follow_stop`` ends it and replies its counts.  One job per
+engine.
+
 On-demand imagery (#1992, capability ``imagery_ondemand``):
 ``imagery_ondemand_scan`` (the index rebuilt from the on-demand tiles),
 ``imagery_pin`` (a tile's "always full resolution"),
@@ -26,12 +32,56 @@ the session's import closure (the patch and step code keys,
 """
 from __future__ import annotations
 
+import os
 import threading
 from typing import Any, Callable, Dict, Optional, Sequence
 
 import O4_Imagery_Sources as SOURCES
 
 from .events import ImageryFreshnessReady, ImagerySourceStatus
+
+_FOLLOW: Dict[str, Any] = {"job": None}
+_FOLLOW_GUARD = threading.Lock()
+
+
+def start_imagery_follow(emit: Callable[[Any], None],
+                         busy: Callable[[], bool] = lambda: False,
+                         port: Optional[int] = None,
+                         lead_s: Optional[float] = None,
+                         tiles: Optional[Sequence[Sequence[Any]]] = None,
+                         index_path: Optional[str] = None) -> Dict[str, Any]:
+    """The command: start following X-Plane's camera on ``port`` (default
+    8086); ``tiles`` (``[build_dir, lat, lon]`` each) are rescanned into
+    the index first; ``busy()`` is true while a build runs."""
+    import O4_File_Names as FNAMES
+    import O4_Imagery_Tier_Plan as PLAN
+    import O4_XPlane_WebAPI as WEBAPI
+
+    from .imagery_follow import FollowJob
+    from .imagery_follow_land import TierLander
+    with _FOLLOW_GUARD:
+        job = _FOLLOW["job"]
+        if job is not None and job.running:
+            return {"status": "running"}
+        reader = WEBAPI.PositionReader(
+            WEBAPI.base_url(int(port or WEBAPI.DEFAULT_PORT)))
+        log = os.path.join(FNAMES.data_path("logs"), "imagery_on_demand.log")
+        job = FollowJob(emit, reader=reader, lander=TierLander(),
+                        index_path=index_path, busy=busy,
+                        lead_s=float(lead_s or PLAN.DEFAULT_LEAD_S),
+                        log_path=log, rebuild_tiles=tiles or ())
+        _FOLLOW["job"] = job.start()
+    return {"status": "started"}
+
+
+def stop_imagery_follow() -> Dict[str, Any]:
+    """The command: stop the job (fetches in flight finish first); its
+    counts, or ``{"status": "idle"}`` when none runs."""
+    with _FOLLOW_GUARD:
+        job, _FOLLOW["job"] = _FOLLOW["job"], None
+    if job is None:
+        return {"status": "idle"}
+    return {"status": "stopped", **job.stop()}
 
 
 def start_imagery_source_status(emit: Callable[[Any], None],

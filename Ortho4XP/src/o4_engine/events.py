@@ -220,6 +220,7 @@ CAPABILITIES: tuple = (
     "object_seat_groups",           # 2026-11-09, #1970 object_seat group + offset_m
     "patch_drop",                   # 2026-11-09, #1979 patch_drop_plan / patch_drop_install
     "tile_staleness",               # 2026-11-09, #1958 tile_staleness (LibraryReady)
+    "imagery_follow",               # 2026-11-10, #1992 P3b follow job + ImageryFollowStatus
     "imagery_ondemand",             # 2026-11-10, #1992 P2 scan / pin / downgrade_all
 )
 
@@ -1008,6 +1009,49 @@ class ImagerySourceStatus(EngineEvent):
     code: str = ""
     status: str = "unknown"
     reason: str = ""
+
+
+@dataclass(frozen=True)
+class ImageryFollowStatus(EngineEvent):
+    """The follow job's state (#1992 P3b, ``o4_engine.imagery_follow``):
+    emitted every ~2 s while it runs, at once on a change, and once with
+    ``state="stopped"`` when it ends.
+
+    ``state``: ``starting``, ``waiting`` (X-Plane or its Web API not
+    answering), ``following``, ``paused`` (a build runs, or offline;
+    ``reason`` says which, ready to show), ``stopped``, ``error``.
+    ``lat``/``lon``/``speed_ms``/``track_deg``: the camera and its motion
+    measured from position deltas.  ``queued`` fetches due or upcoming,
+    ``in_flight`` running, ``slots`` allowed now (1 unless the buffer is
+    depleting), ``buffer_s`` the queue's tightest slack (-1: nothing
+    queued).  ``sharp`` textures at full resolution of ``textures``;
+    ``landed``, ``late``, ``failed``, ``bytes_landed`` this session;
+    ``flight_loads`` Web API id resets (a flight load), ``jumps`` camera
+    jumps.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    state: str = "starting"
+    reason: str = ""
+    xplane: bool = False
+    lat: float = 0.0
+    lon: float = 0.0
+    speed_ms: float = 0.0
+    track_deg: float = 0.0
+    queued: int = 0
+    in_flight: int = 0
+    slots: int = 1
+    buffer_s: float = -1.0
+    sharp: int = 0
+    textures: int = 0
+    landed: int = 0
+    late: int = 0
+    failed: int = 0
+    bytes_landed: int = 0
+    flight_loads: int = 0
+    jumps: int = 0
 
 
 @dataclass(frozen=True)

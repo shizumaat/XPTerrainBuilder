@@ -35,6 +35,8 @@
   ],
   "dsf": [
    "texture_mode",
+   "imagery_on_demand",
+   "placeholder_zl_drop",
    "airport_ortho_fade_width",
    "cover_airports_with_highres",
    "cover_extent",
@@ -799,6 +801,12 @@
    "name": "global_fill_nodata",
    "type": "bool"
   },
+  "global_imagery_on_demand": {
+   "default": false,
+   "hint": "Fetch imagery on demand (#1992): new builds get low-resolution placeholder imagery under every texture's own name (the scenery file, terrain files and masks are those of a full build); full detail is fetched later around the aircraft. Off: every texture is built at full resolution.",
+   "name": "global_imagery_on_demand",
+   "type": "bool"
+  },
   "global_imprint_masks_to_dds": {
    "default": false,
    "hint": "Will apply masking directly to dds textures (at the Build Imagery/DSF step) rather than using external png files. This doubles the file size of masked textures (dxt5 vs dxt1) but reduce the overall VRAM footprint (a matter of choice!)",
@@ -963,6 +971,16 @@
    "name": "global_overlay_lod",
    "type": "float"
   },
+  "global_placeholder_zl_drop": {
+   "default": 3,
+   "hint": "With imagery on demand: how many zoom levels below the build's the low-resolution imagery is fetched at. 3 gives 512 px textures (4 map requests each instead of 256), 2 gives 1024 px.",
+   "name": "global_placeholder_zl_drop",
+   "type": "int",
+   "values": [
+    "2",
+    "3"
+   ]
+  },
   "global_ratio_bathy": {
    "default": 1.0,
    "hint": "Bathymetry multiplier for near shore vertices. In the range [0,1].",
@@ -1114,6 +1132,12 @@
    "module": "IMG",
    "name": "http_timeout",
    "type": "float"
+  },
+  "imagery_on_demand": {
+   "default": false,
+   "hint": "Fetch imagery on demand (#1992): new builds get low-resolution placeholder imagery under every texture's own name (the scenery file, terrain files and masks are those of a full build); full detail is fetched later around the aircraft. Off: every texture is built at full resolution.",
+   "name": "imagery_on_demand",
+   "type": "bool"
   },
   "imprint_masks_to_dds": {
    "default": false,
@@ -1407,6 +1431,16 @@
    "module": "OVL",
    "name": "ovl_exclude_pol",
    "type": "list"
+  },
+  "placeholder_zl_drop": {
+   "default": 3,
+   "hint": "With imagery on demand: how many zoom levels below the build's the low-resolution imagery is fetched at. 3 gives 512 px textures (4 map requests each instead of 256), 2 gives 1024 px.",
+   "name": "placeholder_zl_drop",
+   "type": "int",
+   "values": [
+    "2",
+    "3"
+   ]
   },
   "ratio_bathy": {
    "default": 1.0,

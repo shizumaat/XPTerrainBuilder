@@ -28,6 +28,7 @@ calls the same functions on its own thread.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import threading
@@ -408,9 +409,16 @@ def start(emit: _t.Callable[[_t.Any], None], command: str,
         check(kwargs)
 
     def work() -> None:
+        # A command that changes tiles holds the imagery follow job's
+        # fetches off them (#1992 P3b), as a build does.
+        from .imagery_follow import paused
+        hold = (paused(command) if command in _REFUSED_WHILE_BUILDING
+                else contextlib.nullcontext())
         try:
+            with hold:
+                result = function(**kwargs)
             event = LibraryReady(request=request, command=command,
-                                 result=function(**kwargs))
+                                 result=result)
         except Exception as error:      # the event carries it; the session lives on
             event = LibraryReady(request=request, command=command,
                                  error=str(error))

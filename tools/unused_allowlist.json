@@ -165,16 +165,6 @@
   "reason": "on-demand index API of the follow job (#1992 P3b): one row by (tile, name)"
  },
  {
-  "path": "Ortho4XP/src/O4_Imagery_OnDemand_Index.py",
-  "name": "mark_near",
-  "reason": "on-demand index API of the follow job (#1992 P3b, spec §5.3): last_near_at / near_count"
- },
- {
-  "path": "Ortho4XP/src/O4_Imagery_OnDemand_Index.py",
-  "name": "mark_late",
-  "reason": "on-demand index API of the follow job (#1992 P3b, spec §4.7 R5): late_count"
- },
- {
   "path": "Ortho4XP/src/O4_Imagery_OnDemand_Cores.py",
   "name": "core_tier",
   "reason": "the tier an airport core square wants: the follow job (#1992 P3b) fetches cores after the build with it"

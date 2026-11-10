@@ -163,5 +163,85 @@
   "path": "Ortho4XP/src/O4_Imagery_OnDemand_Index.py",
   "name": "get",
   "reason": "on-demand index API of the follow job (#1992 P3b): one row by (tile, name)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "dsftool_path",
+  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "ini_install",
+  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "ini_remove",
+  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "placeholder_text",
+  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "relayout_tile",
+  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "rewrite_dsf_text",
+  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "rewrite_ter",
+  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "swap_in",
+  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "swap_out",
+  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Rebuild_Cache.py",
+  "name": "legacy_entries",
+  "reason": "migration step of rebuild_migrate (reached by tools/rebuild_migrate.py and the storage command), twinned directly in tests/test_rebuild_cache.py"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Rebuild_Cache.py",
+  "name": "migrate_folder",
+  "reason": "migration step of rebuild_migrate (reached by tools/rebuild_migrate.py and the storage command), twinned directly in tests/test_rebuild_cache.py"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Rebuild_Cache.py",
+  "name": "migrate_tile",
+  "reason": "migration step of rebuild_migrate (reached by tools/rebuild_migrate.py and the storage command), twinned directly in tests/test_rebuild_cache.py"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
+  "name": "core_wants",
+  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
+  "name": "fetch_cores",
+  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
+  "name": "register_built",
+  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
+  "name": "start",
+  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
  }
 ]

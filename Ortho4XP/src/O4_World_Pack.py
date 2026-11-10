@@ -272,7 +272,7 @@ def dsf_header(path: str) -> dict:
         if name == "HEAD" and data[at + 8:at + 12][::-1] == b"PROP":
             psize = int.from_bytes(data[at + 12:at + 16], "little")
             words = data[at + 16:at + 8 + psize].split(b"\0")
-            for k, v in zip(words[0::2], words[1::2]):
+            for k, v in zip(words[0::2], words[1::2], strict=False):
                 out["properties"][k.decode()] = v.decode("utf-8", "replace")
         at += size
     return out

@@ -219,7 +219,7 @@ def cmd_install(a) -> int:
     shutil.copy2(ini, backup)
     lines, newline = kit.PACKS.read_ini_lines(ini)
     added = kit.WP.ini_install(lines, name)
-    row = next(i for i, l in enumerate(lines) if name in l)
+    row = next(i for i, line in enumerate(lines) if name in line)
     kit.PACKS.write_ini_lines(ini, lines, newline)
     if not os.path.lexists(link):
         os.symlink(kit.pack, link)
@@ -317,14 +317,14 @@ def run_build(kit: Kit, tile: str, minutes: float, nice: int,
         os.killpg(proc.pid, signal.SIGTERM)
         proc.wait(30)
         kit.log({"event": "onthefly_aborted", "tile": tile})
-        raise SystemExit("aborted: the pack was not touched")
+        raise SystemExit("aborted: the pack was not touched") from None
     return proc.returncode, log
 
 
 def _last_step(log: str) -> str:
     try:
         with open(log, encoding="utf-8", errors="replace") as h:
-            steps = [l.strip() for l in h if l.startswith("=== step")]
+            steps = [ln.strip() for ln in h if ln.startswith("=== step")]
         return steps[-1] if steps else "starting"
     except OSError:
         return "?"

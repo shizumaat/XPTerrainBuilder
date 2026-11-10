@@ -26,6 +26,11 @@ tiers over it near the aircraft.
   placeholder under ``<data>/Imagery_on_demand/placeholders/<tile>/``, a
   hard link to the tile's texture, so a later downgrade needs no network.
   A placeholder never goes into the content-keyed ``DDS_cache``.
+* :func:`land_kept` -- land a kept placeholder over a texture (a
+  downgrade, spec §6.2: a new inode under the old name, never a delete);
+  :func:`kept_path` / :func:`forget` -- the store's copy of one texture,
+  and dropping it so the next build makes the placeholder again ("Update
+  Imagery" on an on-demand tile).
 """
 from __future__ import annotations
 
@@ -38,8 +43,9 @@ import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
 import O4_File_Names as FNAMES
 
-__all__ = ["ALLOWED_DROPS", "DEFAULT_DROP", "STORE_DIR", "drop",
-           "jpeg_dir", "jpeg_name", "keep", "needs_build", "tilbox"]
+__all__ = ["ALLOWED_DROPS", "DEFAULT_DROP", "STORE_DIR", "drop", "forget",
+           "jpeg_dir", "jpeg_name", "keep", "kept_path", "land_kept",
+           "needs_build", "tilbox"]
 
 #: ``placeholder_zl_drop`` default: ZL13 imagery for a ZL16 texture, 512 px
 #: (owner 2026-11-10: "512 as default makes sense").
@@ -107,13 +113,17 @@ def needs_build(tile, path) -> bool:
     if header is None:
         return False
     wanted = TIERS.tier_width(drop(tile))
+    if (drop(tile) and header[0] == wanted
+            and not os.path.isfile(kept_path(tile, os.path.basename(path)))):
+        return True         # its kept copy was dropped (forget): make it anew
     lower_tiers = {TIERS.tier_width(d) for d in TIERS.TIER_DROPS
                    if TIERS.tier_width(d) < wanted}
     return header[0] in lower_tiers
 
 
-def _store_path(tile, dds_name) -> str:
-    """Where the placeholder store keeps ``tile``'s texture ``dds_name``."""
+def kept_path(tile, dds_name) -> str:
+    """Where the placeholder store keeps ``tile``'s texture ``dds_name``
+    (``tile``: anything with ``lat`` and ``lon``)."""
     return os.path.join(FNAMES.data_path(STORE_DIR), "placeholders",
                         FNAMES.short_latlon(tile.lat, tile.lon), dds_name)
 
@@ -125,7 +135,7 @@ def keep(tile, dds_final) -> bool:
     only means a later downgrade fetches the placeholder again."""
     if not DDS.is_whole(dds_final):
         return False
-    entry = _store_path(tile, os.path.basename(dds_final))
+    entry = kept_path(tile, os.path.basename(dds_final))
     temp = f"{entry}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
     try:
         os.makedirs(os.path.dirname(entry), exist_ok=True)
@@ -135,5 +145,29 @@ def keep(tile, dds_final) -> bool:
     except OSError:
         with contextlib.suppress(OSError):
             os.remove(temp)
+        return False
+    return True
+
+
+def land_kept(kept: str, dds_final: str) -> bool:
+    """Land the kept placeholder ``kept`` over ``dds_final``: hard-linked
+    (or copied) beside it under a partial name, then renamed onto it
+    (``O4_DDS_File.land``).  ``False`` -- ``dds_final`` untouched -- when
+    the kept file is not whole or the landing was refused."""
+    if not DDS.is_whole(kept):
+        return False
+    partial = DDS.partial_name(dds_final)
+    if not DDSCACHE.link_or_copy(kept, partial):
+        return False
+    return DDS.land(partial, dds_final)
+
+
+def forget(tile, dds_name) -> bool:
+    """Drop the store's copy of ``tile``'s texture ``dds_name``; the next
+    on-demand build makes that placeholder again (:func:`needs_build`).
+    ``True`` when a copy was removed."""
+    try:
+        os.remove(kept_path(tile, dds_name))
+    except OSError:
         return False
     return True

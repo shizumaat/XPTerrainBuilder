@@ -11,6 +11,9 @@ APFS).  :func:`freeable_bytes` is what the Storage settings and the harness
 report: 0 for a name whose inode another name still holds (a DDS cache entry
 hard-linked into a built tile's ``textures/``), else the private size, else
 the allocated size, else the apparent size (Windows has no ``st_blocks``).
+:func:`counted_once_bytes` is the same file's cost when every name of it
+goes together (#1992: an on-demand texture and its hard-linked DDS cache
+entry are freed by one downgrade, so the cap counts the inode once).
 
 Standard library only; never raises.
 """
@@ -22,7 +25,7 @@ import stat
 import struct
 import sys
 
-__all__ = ["private_bytes", "freeable_bytes"]
+__all__ = ["private_bytes", "freeable_bytes", "counted_once_bytes"]
 
 _FSOPT_NOFOLLOW = 0x1
 _FSOPT_ATTR_CMN_EXTENDED = 0x20
@@ -86,4 +89,21 @@ def freeable_bytes(path, st: os.stat_result | None = None) -> int:
     if size is not None:
         return size
     blocks = getattr(st, "st_blocks", None)         # none on Windows
+    return blocks * 512 if blocks is not None else st.st_size
+
+
+def counted_once_bytes(path, st: os.stat_result | None = None) -> int:
+    """What removing EVERY name of ``path``'s inode frees: its
+    :func:`freeable_bytes` for a single name, else its allocated size
+    (apparent size where there is none); 0 for a symlink or an unreadable
+    path."""
+    try:
+        st = st if st is not None else os.lstat(path)
+    except OSError:
+        return 0
+    if stat.S_ISLNK(st.st_mode):
+        return 0
+    if getattr(st, "st_nlink", 1) <= 1:
+        return freeable_bytes(path, st)
+    blocks = getattr(st, "st_blocks", None)
     return blocks * 512 if blocks is not None else st.st_size

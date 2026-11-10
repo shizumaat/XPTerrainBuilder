@@ -130,12 +130,18 @@ def test_tilbox_and_names():
     assert name != FNAMES.jpeg_file_name_from_attributes(16, 16, 13, "Arc")
 
 
-def test_needs_build_by_mode(tmp_path):
+def test_needs_build_by_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(FNAMES, "data_path",
+                        lambda relative: str(tmp_path / "data" / relative))
     on, off = _tile(tmp_path), _tile(tmp_path, imagery_on_demand=False)
     missing = str(tmp_path / "none.dds")
     assert PLACEHOLDER.needs_build(on, missing)
     assert PLACEHOLDER.needs_build(off, missing)
     small = str(_dds(tmp_path / "small.dds", 512))
+    # #1992 P2: a placeholder with no kept copy is made again (a downgrade
+    # needs the copy; "Update Imagery" drops it to refresh the placeholder)
+    assert PLACEHOLDER.needs_build(on, small)
+    assert PLACEHOLDER.keep(on, small)
     assert not PLACEHOLDER.needs_build(on, small)
     assert PLACEHOLDER.needs_build(off, small)      # back to full: rebuilt
     finer = str(_dds(tmp_path / "finer.dds", 1024))
@@ -199,7 +205,7 @@ def test_a_placeholder_is_a_whole_512_px_texture_kept_in_the_store(
                          FNAMES.dds_file_name_from_attributes(*attrs))
     assert DDS.is_whole(final)
     assert TIERS.texture_header(final) == (512, "bc1")
-    kept = PLACEHOLDER._store_path(tile, os.path.basename(final))
+    kept = PLACEHOLDER.kept_path(tile, os.path.basename(final))
     assert os.path.samefile(kept, final)
     assert not PLACEHOLDER.needs_build(tile, final)
 

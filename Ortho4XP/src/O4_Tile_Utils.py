@@ -256,7 +256,8 @@ def _write_imagery_manifest(tile, download_stats, convert_progress):
                 int(getattr(tile, "default_zl", 0) or 0)
                 - PLACEHOLDER.drop(tile)
                 if PLACEHOLDER.drop(tile) else None),
-            "pinned": False,
+            # The pin is the user's (imagery_pin): a rebuild keeps it.
+            "pinned": bool(read_imagery_manifest(tile).get("pinned")),
             "cleaning_level": int(UI.cleaning_level),
             "mesh": _mesh_identity(tile),
             "textures_total": int(

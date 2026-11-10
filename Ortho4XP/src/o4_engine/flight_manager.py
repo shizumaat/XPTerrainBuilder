@@ -39,12 +39,13 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 import O4_Flight_Plan as FP
 import O4_Flight_Schedule as SCHEDULE
 import O4_World_Ahead as AHEAD
+import O4_World_Pack as WP
 import O4_World_Window as WINDOW
 
 from .flight_record import FlightRecord, TileRow
 
 __all__ = ["BUILT_KINDS", "FULL_ROLES", "MAX_ATTEMPTS", "flight_jobs",
-           "FlightManager", "tile_text"]
+           "FlightManager"]
 
 Tile = Tuple[int, int]
 
@@ -68,11 +69,6 @@ ARRIVED_KM = 10.0
 ARRIVED_PARKED_S = 600.0
 #: Swaps are spaced this far apart (§10 Landings).
 SWAP_SPACING_S = SCHEDULE.SWAP_S
-
-
-def tile_text(tile: Tile) -> str:
-    """``+53-064``."""
-    return "%+03d%+04d" % (int(tile[0]), int(tile[1]))
 
 
 def _neighbours(tile: Tile) -> List[Tile]:
@@ -512,9 +508,9 @@ class FlightManager:
             "route_km": round(self._km[-1], 1),
             "done_km": round(self._done_km(), 1),
             "eta_s": self._eta_s(now),
-            "late": tuple(tile_text(j.tile) for j in self.jobs
+            "late": tuple(WP.tile_name(*j.tile) for j in self.jobs
                           if j.state == "late"),
-            "shed": tuple(tile_text(j.tile) for j in shed),
+            "shed": tuple(WP.tile_name(*j.tile) for j in shed),
             "reload": self.reload,
             "diverted_to": "",
         }

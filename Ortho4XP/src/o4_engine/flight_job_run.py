@@ -43,6 +43,7 @@ from . import flight_budget as BUDGET
 from . import flight_record as RECORD
 from . import world_commands as WORLD
 from .flight_manager import FlightManager
+from .world_job_run import _settings, _utc
 
 __all__ = ["STATUS_EVERY_S", "FULL_FALLBACK_S", "start", "stop", "current",
            "status_event", "pack_state", "estimate", "prefetch_tile"]
@@ -55,18 +56,6 @@ REREAD_S = 10.0
 FULL_FALLBACK_S = (600.0, 3600.0)
 _GUARD = threading.Lock()
 _RUNNER: "Optional[_Runner]" = None
-
-
-def _settings() -> dict:
-    try:
-        import O4_Settings_Model as SM
-        return SM.read_global_raw()
-    except Exception:                       # no readable settings
-        return {}
-
-
-def _utc() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def pack_state(scenery_dir: str) -> Callable[[Tuple[int, int]], Optional[str]]:

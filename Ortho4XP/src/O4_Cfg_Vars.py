@@ -795,6 +795,63 @@ cfg_tile_vars = {
             "aircraft. Off: every texture is built at full resolution."
         ),
     },
+    # On demand region by region (RULINGS 2026-11-10e (3)): simHeaven's
+    # X-World regions (O4_Imagery_Regions).  On by default; a first run
+    # keeps on only the regions holding built tiles (O4_Cfg_Migrations).
+    "imagery_on_demand_europe": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "Europe region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
+    "imagery_on_demand_america": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "America region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
+    "imagery_on_demand_asia": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "Asia region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
+    "imagery_on_demand_africa": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "Africa region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
+    "imagery_on_demand_australia_oceania": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "Australia-Oceania region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
+    "imagery_on_demand_antarctica": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "Antarctica region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
     "placeholder_zl_drop": {
         "type": int,
         "default": 3,
@@ -1064,6 +1121,12 @@ list_mask_vars = [
 list_dsf_vars = [
     "texture_mode",
     "imagery_on_demand",
+    "imagery_on_demand_europe",
+    "imagery_on_demand_america",
+    "imagery_on_demand_asia",
+    "imagery_on_demand_africa",
+    "imagery_on_demand_australia_oceania",
+    "imagery_on_demand_antarctica",
     "placeholder_zl_drop",
     "airport_ortho_fade_width",
     "cover_airports_with_highres",

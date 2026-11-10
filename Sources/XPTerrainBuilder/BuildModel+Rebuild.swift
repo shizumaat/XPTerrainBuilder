@@ -19,7 +19,7 @@ extension BuildModel {
             return "This tile is already in this run."
         }
         click(lat: coord.lat, lon: coord.lon, command: false, shift: false)
-        guard canBuild else {
+        guard asRebuild({ canBuild }) else {
             return xplaneBlockReason
                 ?? "This tile can't be rebuilt now. Turn off “Skip tiles already built” and try again."
         }
@@ -29,7 +29,9 @@ extension BuildModel {
     /// Build the (selected) tile with the source and zoom it was built with.
     func startRebuild(_ coord: TileCoord) {
         let choice = built[coord].flatMap(TileImageryChoice.resolve)
-        startBuild(batches: [([coord], choice?.provider ?? buildProvider,
-                              choice?.zl ?? buildZL)])
+        asRebuild {
+            startBuild(batches: [([coord], choice?.provider ?? buildProvider,
+                                  choice?.zl ?? buildZL)])
+        }
     }
 }

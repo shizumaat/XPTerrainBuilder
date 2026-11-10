@@ -119,6 +119,17 @@ IMAGERY_ON_DEMAND = (
      "storage", "installed_label"),
 )
 
+#: What imagery on demand hides in the Build box (RULINGS 2026-11-10e
+#: (1)): (key, Swift label, Qt attribute).  The Mac app wraps them in
+#: :data:`ON_DEMAND_GUARD`; the Qt window lists them in
+#: ``O4_Qt_Build_OnDemand.HIDDEN``.
+ON_DEMAND_HIDDEN = (
+    ("when_done", "Text(\"When it's done\")", "build_done_label"),
+    ("auto_install", 'Toggle("Install in X-Plane automatically"', "chk_auto_install"),
+    ("skip_built", 'Toggle("Skip tiles already built"', "chk_skip_built"),
+)
+ON_DEMAND_GUARD = "if !buildModel.onDemandBuilds {"
+
 #: The build-cost panel (#820): last in the Build box, just above Build —
 #: (Swift marker, Qt window attribute).
 PLAN_PANEL = ("PlanEstimatePanel(", "plan_panel")
@@ -630,3 +641,36 @@ def test_both_libraries_filter_patches_alike():
     box = QTLIB.PatchLibraryBox("")
     assert [box.filter_combo.itemData(i) for i in range(box.filter_combo.count())] == \
         [k for k, _l, _s in SCAN.FILTERS]
+
+
+def test_on_demand_hides_the_same_rows_in_both_apps(window):
+    """RULINGS 2026-11-10e (1): under imagery on demand both Build boxes
+    hide "When it's done" and its two switches, and both behave as on."""
+    import O4_Qt_Build_OnDemand as QTONDEMAND_BUILD
+
+    block = _block(SWIFT / "BuildPane.swift", ON_DEMAND_GUARD, "DisclosureGroup(")
+    for key, marker, _attr in ON_DEMAND_HIDDEN:
+        assert marker in block, key
+    assert QTONDEMAND_BUILD.HIDDEN == tuple(a for _k, _m, a in ON_DEMAND_HIDDEN)
+    window.show()
+    window.chk_auto_install.setChecked(False)
+    window.chk_skip_built.setChecked(False)
+    QTONDEMAND_BUILD.apply(window, True)
+    assert not any(getattr(window, a).isVisible() for a in QTONDEMAND_BUILD.HIDDEN)
+    assert QTONDEMAND_BUILD.installs(window)
+    assert QTONDEMAND_BUILD.skips_built(window)
+    assert not QTONDEMAND_BUILD.skips_built(window, rebuild=True)
+    QTONDEMAND_BUILD.apply(window, False)
+    assert all(getattr(window, a).isVisible() for a in QTONDEMAND_BUILD.HIDDEN)
+    assert not QTONDEMAND_BUILD.installs(window)
+    assert not QTONDEMAND_BUILD.skips_built(window)
+    window.chk_skip_built.setChecked(True)
+    assert QTONDEMAND_BUILD.skips_built(window, rebuild=True)
+
+
+def test_on_demand_rebuild_hint_is_the_macs():
+    import O4_Qt_Build_OnDemand as QTONDEMAND_BUILD
+
+    swift = (SWIFT / "BuildModel+OnDemandBuild.swift").read_text(encoding="utf-8")
+    said = re.search(r'static let onDemandRebuildHint = "([^"]+)"', swift)
+    assert said and said.group(1) == QTONDEMAND_BUILD.REBUILD_HINT

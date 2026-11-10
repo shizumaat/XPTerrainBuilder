@@ -252,6 +252,8 @@ final class BuildModel: ObservableObject {
     @AppStorage("OrthoSkipBuilt") var skipBuilt: Bool = true
     /// Install finished tiles into Custom Scenery automatically.
     @AppStorage("OrthoLinkTiles") var linkTiles: Bool = true
+    /// An explicit rebuild is choosing its tiles (BuildModel+OnDemandBuild).
+    var rebuildRequested = false
 
     // MARK: Engine state
 
@@ -1137,7 +1139,7 @@ final class BuildModel: ObservableObject {
                 }
                 selected.remove(coord)
                 refreshTileInfo(coord)
-                if linkTiles { installLink(coord, quiet: true) }
+                if installsBuiltTiles { installLink(coord, quiet: true) }
             } else {
                 if failures.isEmpty, !error.isEmpty {
                     console.append("*** Tile \(coord.key) failed: \(error)", tile: coord.key)
@@ -1399,7 +1401,7 @@ final class BuildModel: ObservableObject {
         guard !coords.isEmpty else { return }
         selected = Set(coords)
         activeTile = coords.sorted().first
-        startBuild()
+        asRebuild { startBuild() }
     }
 
     // MARK: - Reanchor status (auto-patch object reseating)
@@ -1573,7 +1575,7 @@ final class BuildModel: ObservableObject {
         let inRun = selectedInRun
         return selected.sorted().filter { coord in
             guard !inRun.contains(coord) else { return false }
-            return !skipBuilt || built[coord]?.dsfPresent != true
+            return !skipsBuiltTiles || built[coord]?.dsfPresent != true
         }
     }
 
@@ -3255,7 +3257,7 @@ final class BuildModel: ObservableObject {
             activity.tiles[tile] = TileProgress(state: .done, label: "done", percent: 100)
             activity.doneTiles = legacyDone
             selected.remove(tile)
-            if linkTiles { legacySetInstalled(tile, true) }
+            if installsBuiltTiles { legacySetInstalled(tile, true) }
         case .fail:
             legacyFailed += 1
             activity.tiles[tile] = TileProgress(state: .error, label: "failed", percent: 0)

@@ -100,6 +100,7 @@ import O4_Qt_Missing_Textures as QTMISSING
 from o4_engine.session import EngineSession
 from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
+import O4_Qt_Build_OnDemand as QTONDEMAND_BUILD
 import O4_Qt_Wizard as QTWIZ
 import O4_Qt_Boundary_Dialog as QTBOUND
 import O4_Qt_Build_History as QTHIST
@@ -1467,9 +1468,9 @@ class MainWindow(QMainWindow):
         # "When it's done", then the plumbing collapsed under Advanced
         # (#818) — the Mac app's BuildPane order
         # (tests/test_qt_layout_parity.py).
-        done_label = QLabel("When it's done")
-        done_label.setStyleSheet("color: gray; font-weight: bold;")
-        bg.addWidget(done_label)
+        self.build_done_label = QLabel("When it's done")
+        self.build_done_label.setStyleSheet("color: gray; font-weight: bold;")
+        bg.addWidget(self.build_done_label)
         # Auto-install (mac-app parity: BuildModel.linkTiles): every tile
         # that finishes OK is linked into Custom Scenery as it lands, so a
         # batch is flyable the moment it ends.  Default ON, as there.
@@ -1982,9 +1983,10 @@ class MainWindow(QMainWindow):
         return self.library_dialog
 
     def _rebuild_from_library(self, tiles):
-        """Library ▸ Rebuild: select those tiles and press Build."""
+        """Library ▸ Rebuild: select those tiles and press Build (built
+        tiles stay in under imagery on demand)."""
         self.map.set_selection(tiles)
-        self.start_build()
+        self.start_build(rebuild=True)
 
     def open_coral_atlas_dialog(self):
         """Tools menu: the Allen Coral Atlas reef bathymetry setup."""
@@ -2825,6 +2827,7 @@ class MainWindow(QMainWindow):
         constructor (tests build windows and may not reach the network)."""
         from o4_engine import imagery_commands as CMDS
         enabled = CMDS.follow_settings()["enabled"]
+        QTONDEMAND_BUILD.apply(self, enabled)       # RULINGS 2026-11-10e (1)
         running = CMDS.follow_running()
         if enabled and not running and not self._follow_stopped_by_user:
             self._start_imagery_follow()
@@ -3142,7 +3145,7 @@ class MainWindow(QMainWindow):
     def _plan_tiles(self):
         """The tiles the next Build press would hand the engine."""
         selection = sorted(self.map.selection())
-        if self.chk_skip_built.isChecked():
+        if QTONDEMAND_BUILD.skips_built(self):
             selection = [t for t in selection if t not in self._built]
         return [t for t in selection if not self._tile_in_active_run(t)]
 
@@ -4006,9 +4009,11 @@ class MainWindow(QMainWindow):
         return "%s Set it in Settings, or run Help ▸ Run setup assistant." % (
             problem or "Your X-Plane folder has no runway data (CIFP).")
 
-    def start_build(self):
+    def start_build(self, *, rebuild=False):
         """Build the selected tiles — or queue them into the run in
-        progress (the map and the Build box stay live during builds)."""
+        progress (the map and the Build box stay live during builds).
+        ``rebuild``: the explicit "Rebuild tile" (built tiles stay in
+        under imagery on demand, :mod:`O4_Qt_Build_OnDemand`)."""
         blocked = self.xplane_block_reason()
         if not self._building:
             blocked = blocked or self.plan_panel.blocking_reason()
@@ -4041,14 +4046,16 @@ class MainWindow(QMainWindow):
         # just picked for this build.
         provider = self.imagery_combo.currentText()
         zoomlevel = self.build_zl
-        if self.chk_skip_built.isChecked():
+        if QTONDEMAND_BUILD.skips_built(self, rebuild=rebuild):
             todo = [t for t in selection if t not in self._built]
             skipped = len(selection) - len(todo)
             if skipped:
                 print(
-                    "Skipping %d already-built tile%s "
-                    "(uncheck 'Skip already-built tiles' to rebuild)."
-                    % (skipped, "s" if skipped > 1 else "")
+                    "Skipping %d already-built tile%s (%s)."
+                    % (skipped, "s" if skipped > 1 else "",
+                       QTONDEMAND_BUILD.REBUILD_HINT
+                       if getattr(self, "on_demand_builds", False)
+                       else "uncheck 'Skip already-built tiles' to rebuild")
                 )
         else:
             todo = selection
@@ -5291,7 +5298,7 @@ class MainWindow(QMainWindow):
         # #695: a cause the user can fix is asked NOW, not at the run's end.
         if not event.ok and self._link_fixes.offer(event):
             self._show_link_fix()
-        if event.ok and self.chk_auto_install.isChecked():
+        if event.ok and QTONDEMAND_BUILD.installs(self):
             self._auto_install_tile(tile)
 
     def _auto_install_tile(self, tile):
@@ -5570,13 +5577,14 @@ class MainWindow(QMainWindow):
         blocked = self.xplane_block_reason()
         if blocked:
             return blocked
-        if self.chk_skip_built.isChecked() and tuple(tile) in self._built:
+        if QTONDEMAND_BUILD.skips_built(self, rebuild=True) \
+                and tuple(tile) in self._built:
             return ("This tile can't be rebuilt now. Turn off “Skip already-built "
                     "tiles” and try again.")
         if not self._building:
             if before_start is not None:
                 before_start()
-            self.start_build()
+            self.start_build(rebuild=True)
             return None
         if before_start is not None:
             return "Wait for the current run to finish."

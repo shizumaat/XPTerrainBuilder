@@ -118,13 +118,17 @@ def _announce(pack: str, pack_root: str, lat: int, lon: int, state: str,
 
 
 def _first_ask(pack_root: str, asked: set[str] | None) -> bool:
-    """The pack is not yet in ``asked`` (now it is)."""
+    """The pack is not yet in ``asked`` (now it is).  ``asked`` keeps the
+    path as written (its folder names the pack and is scanned again by
+    :func:`tile_stage`); the comparison folds case where the file system
+    does (Windows)."""
     if asked is None:
         return True
-    key = os.path.normcase(os.path.normpath(pack_root))
-    if key in asked:
+    root = os.path.normpath(pack_root)
+    key = os.path.normcase(root)
+    if any(os.path.normcase(a) == key for a in asked):
         return False
-    asked.add(key)
+    asked.add(root)
     return True
 
 
@@ -205,7 +209,11 @@ def tile_stage(tile, *, writes: bool, asked: set[str] | None = None,
         if scenery_dirs is None:
             scenery_dirs = (configured_dirs()
                             + [os.path.dirname(p) for p in sorted(asked)])
-        roots = [r for d in dict.fromkeys(scenery_dirs) if d and os.path.isdir(d)
+        dirs: dict[str, str] = {}
+        for d in scenery_dirs:
+            if d:
+                dirs.setdefault(os.path.normcase(os.path.normpath(d)), d)
+        roots = [r for d in dirs.values() if os.path.isdir(d)
                  for r in _DS.scanned(d, tile.lat, tile.lon)]
     except Exception as exc:
         UI.vprint(1, f"  [pack] tile pack scan skipped ({exc})")

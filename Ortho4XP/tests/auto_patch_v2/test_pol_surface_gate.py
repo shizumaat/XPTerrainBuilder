@@ -307,7 +307,7 @@ def test_a_dds_stands_in_for_the_named_png(tmp_path):
     _texture(os.path.join(os.path.dirname(path), "Hard_Surface.dds"), 0, "DDS")
     assert S.texture_file(path, "Hard_Surface.png").endswith("Hard_Surface.dds")
     assert S.pol_declaration(path).invisible
-    assert _gate(tmp_path)(rel.lower()) == (None, "concrete")
+    assert _gate(tmp_path)(rel) == (None, "concrete")
     # an opaque DDS paints: the sheet stands
     _texture(os.path.join(os.path.dirname(path), "Hard_Surface.dds"), 255, "DDS")
     assert not S.pol_declaration(path).invisible

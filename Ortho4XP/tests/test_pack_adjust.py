@@ -115,6 +115,20 @@ def test_every_pack_on_the_tile_is_asked_once(stage, tmp_path):
     assert [r["key"] for r in comp["items"]] == ["drapes", "ground"]
 
 
+def test_a_case_folding_file_system_keeps_the_pack_name(stage, tmp_path,
+                                                        monkeypatch):
+    """Windows CI (#1994): ``asked`` held the case-folded key, so the tile
+    scan re-read a lower-cased Custom Scenery folder and named its packs
+    in lower case.  The ask still matches across case where the file
+    system folds it (``normcase`` as on Windows)."""
+    monkeypatch.setattr(os.path, "normcase", str.lower)
+    asked: set = set()
+    assert AS._first_ask(stage["plan"].pack_root, asked)
+    assert not AS._first_ask(stage["plan"].pack_root.upper(), asked)
+    assert asked == {os.path.normpath(stage["plan"].pack_root)}
+    test_every_pack_on_the_tile_is_asked_once(stage, tmp_path)
+
+
 def test_the_tile_scan_asks_with_no_airport_built(stage, tmp_path):
     other = tmp_path / "Custom Scenery" / "Unbuilt Airport"
     other.mkdir()

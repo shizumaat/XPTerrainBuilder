@@ -11,6 +11,7 @@ photo-grid tile are never one.  Synthetic packs; no network, no corpus.
 """
 from __future__ import annotations
 
+import os
 import types
 
 import pytest
@@ -218,7 +219,7 @@ def test_the_scan_is_every_airport_pack_and_companion(pack, tmp_path):
             (root / f"o{n}.pol").write_text(POLS["grid/Tile1.pol"], encoding="utf-8", newline="")
     (pack / "Earth nav data" / "+20+050").mkdir()
     (pack / "Earth nav data" / "+20+050" / "+25+051.dsf").write_bytes(b"")
-    got = sorted(p.rsplit("/", 1)[-1] for p in DS.scanned(str(scenery), 25, 51))
+    got = sorted(os.path.basename(p) for p in DS.scanned(str(scenery), 25, 51))
     assert got == sorted(["Hospital", "Other Airport", "Overlay", pack.name]), \
         "every airport pack, built or not; a runway-less pack with one .pol is no grid"
     boxes, bounded, apts = DS._airports(str(scenery / "Overlay"), 25, 51)

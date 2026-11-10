@@ -56,6 +56,7 @@ from dataclasses import dataclass, field
 
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b);
 # stdlib-only, imported at TOP LEVEL so the frozen bundle sees it.
+import O4_File_Names as FNAMES
 import O4_Scenery_Packs as _scenery_packs
 
 from .obj8_reader import (
@@ -1849,17 +1850,6 @@ def check(pack_root: str, mesh_path: str) -> str:
     return "STALE"
 
 
-def _read_json_dict(path: str) -> dict:
-    """A JSON object from ``path``, or ``{}`` — NEVER raises: a garbled
-    record means "nothing recorded", not a failed restore."""
-    try:
-        with open(path, encoding="utf-8") as handle:
-            doc = json.load(handle)
-    except (OSError, ValueError):
-        return {}
-    return doc if isinstance(doc, dict) else {}
-
-
 def _v2_record_paths(pack_root: str) -> list[str]:
     """Every v2 per-DSF placement record in a pack (#26).
 
@@ -1889,7 +1879,7 @@ def _v2_record_paths(pack_root: str) -> list[str]:
 def _v2_record_entries(record_path: str) -> dict[str, dict]:
     """``{dsf basename: entry}`` for one record, version 2 and version 1
     alike (version 1 describes its one DSF at the top level)."""
-    doc = _read_json_dict(record_path)
+    doc = FNAMES.read_json_dict(record_path)
     entries = doc.get("dsfs")
     if isinstance(entries, dict):
         return {name: entry for name, entry in entries.items()

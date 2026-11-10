@@ -9,7 +9,6 @@ from __future__ import annotations
 import types
 
 import numpy as np
-
 from auto_patch_v2.airport import bridge_ground as BG
 from auto_patch_v2.law import load_default
 from auto_patch_v2.model.airport import OsmWay

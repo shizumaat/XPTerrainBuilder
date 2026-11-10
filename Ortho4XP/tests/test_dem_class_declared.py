@@ -17,11 +17,9 @@ import types
 import O4_Airport_Elevation_Insets as INSETS
 import pytest
 from auto_patch_v2.airport import dem_production as DP
-from auto_patch_v2.law import Law
-from auto_patch_v2.law import inset_class
+from auto_patch_v2.law import Law, inset_class
 from auto_patch_v2.law import tables as T
-from elevation_access.definitions import (DEM_CLASS_KEY, DEM_CLASSES,
-                                          declared_dem_class)
+from elevation_access.definitions import DEM_CLASS_KEY, DEM_CLASSES, declared_dem_class
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PROVIDERS = os.path.normpath(

@@ -147,7 +147,7 @@ def split_beyond(regions: list, lost: dict, law, key: str,
     beside it as groundside ``<ref>#beyond<k>``, numbered after the beyond
     pieces already minted; the counts under ``key``.  ``keep_off``: ground
     a minted piece stands back from (the pads' set-back knife,
-    ``reach_after_pads.beyond_passages``) -- the part inside it is cut out
+    ``reach_after_pads._beyond_passages``) -- the part inside it is cut out
     of the page and minted as nothing: bare ground between the two."""
     from ..classify.open_default import unclassified_groundside_role
     from ..classify.rules import load_rules

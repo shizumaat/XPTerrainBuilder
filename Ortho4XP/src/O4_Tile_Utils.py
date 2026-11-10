@@ -200,11 +200,8 @@ def imagery_manifest_path(tile):
     name, because a "grouped" build directory is shared by every tile
     that writes into it (O4_File_Names.build_dir).
     """
-    return os.path.join(
-        tile.build_dir,
-        "Ortho4XP_" + FNAMES.short_latlon(tile.lat, tile.lon)
-        + "_imagery.json",
-    )
+    return FNAMES.tile_record_path(tile.build_dir, tile.lat, tile.lon,
+                                   "imagery")
 
 
 def _mesh_identity(tile):

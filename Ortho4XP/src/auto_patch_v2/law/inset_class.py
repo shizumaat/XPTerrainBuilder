@@ -17,8 +17,7 @@ from __future__ import annotations
 import typing as _t
 
 from .model import Law
-from .tables import (FLAT_CLASS_COARSE, FLAT_CLASS_FINE, FLAT_CLASS_LIDAR,
-                     flat_source_class)
+from .tables import FLAT_CLASS_COARSE, FLAT_CLASS_FINE, FLAT_CLASS_LIDAR, flat_source_class
 
 __all__ = ["dem_source_class", "ground_class", "lidar_credible"]
 

@@ -32,7 +32,7 @@ and the kerb road (room aircraft never reach) was one piece with the stands
 and stayed apron -- 395 of the terminal pad's 3,307 frontage contacts
 stood on its land side, their ground down to 41.98 m against a pad at
 47.63 m.
-:func:`beyond_passages` reads each piece the pads leave against the sweep of
+:func:`_beyond_passages` reads each piece the pads leave against the sweep of
 the REACHABLE room (dilated back to the pavement edge, the weld included):
 a part of it outside that sweep that holds unreachable room, carries no
 startup and is a lot by the 19ag test is groundside, with the passages too
@@ -51,7 +51,7 @@ from shapely.strtree import STRtree
 from ..geom.parts import nonempty_polygon_parts
 from ..law.tables import role_side
 
-__all__ = ["BEYOND", "beyond_passages", "unreachable_after_pads"]
+__all__ = ["BEYOND", "unreachable_after_pads"]
 
 #: the ref spelling of an apron piece made groundside here
 BEYOND = "#beyond"
@@ -66,7 +66,7 @@ def unreachable_after_pads(base_regions: list, pad_regions: _t.Sequence, law, ai
     part once the road bridges stand too (``planar/reach_under_covers``,
     #1717)."""
     out, counts = _after_pads(base_regions, pad_regions, law, airport)
-    out, passed = beyond_passages(out, law, airport, pad_regions)
+    out, passed = _beyond_passages(out, law, airport, pad_regions)
     counts = {**counts, **passed}
     if level_b is None:
         return out, counts
@@ -127,7 +127,7 @@ def _after_pads(base_regions: list, pad_regions: _t.Sequence, law, airport
     return out, {"reach_after_pads": n, "reach_after_pads_m2": round(m2, 1)}
 
 
-def beyond_passages(regions: list, law, airport, pad_regions: _t.Sequence = ()
+def _beyond_passages(regions: list, law, airport, pad_regions: _t.Sequence = ()
                     ) -> "tuple[list, dict]":
     """``(regions, counts)``: every apron part the REACHABLE sweep leaves that
     aircraft cannot use made groundside ``<ref>#beyond<k>`` (module

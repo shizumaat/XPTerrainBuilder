@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import sys
@@ -309,6 +310,25 @@ def short_latlon(lat, lon):
     strlat = "{:+.0f}".format(lat).zfill(3)
     strlon = "{:+.0f}".format(lon).zfill(4)
     return strlat + strlon
+
+
+def tile_record_path(build_dir, lat, lon, kind):
+    """A tile-scoped JSON record beside the tile config:
+    ``<build_dir>/Ortho4XP_<+LL+LLL>_<kind>.json``.  Tile-scoped by name
+    because a grouped build directory is shared by several tiles."""
+    return os.path.join(
+        build_dir, "Ortho4XP_" + short_latlon(lat, lon) + "_" + kind + ".json")
+
+
+def read_json_dict(path):
+    """A JSON object from ``path``, or ``{}`` — NEVER raises: a missing or
+    garbled record means "nothing recorded"."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            doc = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
 
 
 # The reader half of :func:`short_latlon` ("+48-006").  One spelling, one

@@ -48,23 +48,13 @@ __all__ = ["imagery_ondemand_scan", "imagery_pin", "imagery_ondemand_sweep",
 def _manifest_path(build_dir: str, lat: int, lon: int) -> str:
     """The tile's imagery manifest (``O4_Tile_Utils.imagery_manifest_path``
     for a tile object)."""
-    return os.path.join(build_dir, "Ortho4XP_%s_imagery.json"
-                        % FNAMES.short_latlon(lat, lon))
-
-
-def _read_manifest(path: str) -> dict:
-    try:
-        with open(path, encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return FNAMES.tile_record_path(build_dir, lat, lon, "imagery")
 
 
 def _set_manifest_pin(build_dir: str, lat: int, lon: int, pinned: bool) -> None:
     """Write ``pinned`` into the tile record (atomic replace)."""
     path = _manifest_path(build_dir, lat, lon)
-    data = _read_manifest(path)
+    data = FNAMES.read_json_dict(path)
     data["pinned"] = bool(pinned)
     temporary = path + ".tmp"
     with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
@@ -90,7 +80,7 @@ def _on_demand_tiles(working_dir: str):
     imagery manifest says on demand or pinned."""
     import O4_Tile_Info as TINFO
     for (lat, lon), info in sorted(TINFO.scan_tiles(working_dir).items()):
-        record = _read_manifest(_manifest_path(info.build_dir, lat, lon))
+        record = FNAMES.read_json_dict(_manifest_path(info.build_dir, lat, lon))
         if record.get("on_demand") or record.get("pinned"):
             yield info.build_dir, lat, lon
 

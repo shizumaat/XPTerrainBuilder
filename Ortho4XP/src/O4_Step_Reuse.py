@@ -129,9 +129,7 @@ _VECTOR_APP_VARS = ("osm_regional_extracts", "base_elevation_source",
 
 
 def _record_path(tile) -> str:
-    return os.path.join(
-        tile.build_dir,
-        "Ortho4XP_" + FNAMES.short_latlon(tile.lat, tile.lon) + "_steps.json")
+    return FNAMES.tile_record_path(tile.build_dir, tile.lat, tile.lon, "steps")
 
 
 def _identity(paths) -> str:

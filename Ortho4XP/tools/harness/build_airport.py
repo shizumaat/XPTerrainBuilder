@@ -2787,7 +2787,7 @@ def _resettle_inset_stamp(lat, lon, prog) -> list:
     JSON read."""
     import O4_Airport_Elevation_Insets as INSETS
     import O4_Config_Utils as CFG
-    import O4_File_Names as FNAMES              
+    import O4_File_Names as FNAMES
 
     tile = CFG.Tile(int(lat), int(lon), "")
     try:

@@ -315,7 +315,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                   if not c.aisle]
     # #1900 (RULINGS 2026-11-10l): and the mapped at-grade roads OFF the
     # pavement, which a neck's road runs BESIDE (HECA highway=service -3921)
-    from .ribbon_mint import _ribbon_ways   # lazy: it imports this module
+    from .ribbon_mint import _ribbon_ways  # lazy: it imports this module
     road_lines += [ln for _w, ln in _ribbon_ways(airport, rules)]
     road_tree = STRtree(road_lines) if road_lines else None
     shoulders: list[tuple[Polygon, _t.Any, float, str]] = []

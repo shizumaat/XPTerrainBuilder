@@ -112,17 +112,28 @@ def expected_size(header: bytes) -> int | None:
 def is_whole(path: str) -> bool:
     """Is ``path`` a complete DDS file?  ``False`` for a missing file, one
     that does not start with a DDS header, and one SHORTER than its own
-    header says it is — the file a converter killed mid-write leaves."""
+    header says it is — the file a converter killed mid-write leaves.
+
+    A file :func:`land` is swapping onto ``path`` at this instant is not
+    short: Windows refuses the open while ``os.replace`` holds the name
+    (a bare ``EACCES``), POSIX never does.  That refusal is retried
+    (:mod:`O4_Held_File`), so a whole texture mid-swap reads as whole —
+    the §8 "every name a whole DDS, always" a reader sees on every OS."""
     try:
-        size = os.path.getsize(path)
-        with open(path, "rb") as handle:
-            header = handle.read(HEADER_BYTES + _DX10_HEADER_BYTES)
+        (size, header) = HELD.retrying_a_held_file(
+            lambda: _size_and_head(path), HELD.is_held_name_on_create)
     except OSError:
         return False
     if len(header) < HEADER_BYTES or header[:4] != _MAGIC:
         return False
     expected = expected_size(header)
     return size > HEADER_BYTES if expected is None else size >= expected
+
+
+def _size_and_head(path: str) -> tuple[int, bytes]:
+    size = os.path.getsize(path)
+    with open(path, "rb") as handle:
+        return (size, handle.read(HEADER_BYTES + _DX10_HEADER_BYTES))
 
 
 def partial_name(final: str) -> str:

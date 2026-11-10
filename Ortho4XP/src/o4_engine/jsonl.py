@@ -184,7 +184,6 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
     from .flight_commands import flight_handlers, flight_plan_handlers
-    from .live_preview_commands import live_preview_handlers
     from .imagery_commands import (
         imagery_freshness_discard,
         ondemand_handlers,
@@ -193,6 +192,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         start_imagery_source_status,
         stop_imagery_follow,
     )
+    from .live_preview_commands import live_preview_handlers
     from .mesh_commands import mesh_crop
     from .object_seat import object_seat
     from .object_seat_edit import object_seat_set

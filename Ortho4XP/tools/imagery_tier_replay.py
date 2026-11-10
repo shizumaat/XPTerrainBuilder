@@ -1,7 +1,8 @@
 """Replay a recorder flight through the imagery tier planner (#1992 P3a).
 
     venv/bin/python tools/imagery_tier_replay.py extract FLIGHT.jsonl \
-        LOADS.csv PACK_DIR --out FLIGHT.replay.json [--window T0 T1]
+        [LOADS.csv PACK_DIR] --out FLIGHT.replay.json [--window T0 T1]
+        [--aircraft]
     venv/bin/python tools/imagery_tier_replay.py replay FLIGHT.replay.json \
         [--req-rate 85] [--convert-full-s 2] [--slots 1] [--lead 30]
         [--spawn-s 60] [--core] [--sweep]
@@ -37,6 +38,7 @@ import csv
 import json
 import math
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -81,8 +83,17 @@ def camera(p: dict) -> tuple[float, float, float]:
     return lat, lon, p.get("elev_m", 0.0) + p.get("view_y", 0.0) - p.get("local_y", 0.0)
 
 
-def extract(log: str, loads_csv: str, pack_dir: str, window=None) -> dict:
-    t0, pos = None, []
+def _dsf_open(row: dict) -> list | None:
+    """``[t, tile, pack]`` of a recorder ``open`` row of a ``.dsf``."""
+    m = re.search(r"([^/]+)/Earth nav data/[^/]+/([+-]\d\d[+-]\d\d\d)\.dsf$",
+                  row.get("path", ""))
+    return [row["t"], m.group(2), m.group(1)] if m else None
+
+
+def extract(log: str, loads_csv: str | None = None,
+            pack_dir: str | None = None, window=None,
+            aircraft: bool = False) -> dict:
+    t0, pos, dsf = None, [], []
     with open(log, encoding="utf-8") as f:
         for line in f:
             if '"kind":"meta"' in line and t0 is None:
@@ -90,22 +101,30 @@ def extract(log: str, loads_csv: str, pack_dir: str, window=None) -> dict:
             elif '"kind":"pos"' in line:
                 p = json.loads(line)
                 if "lat" in p:
-                    lat, lon, alt = camera(p)
+                    lat, lon, alt = ((p["lat"], p["lon"], p.get("elev_m", 0.0))
+                                     if aircraft else camera(p))
                     pos.append([round(p["t"] - t0, 2), round(lat, 6),
                                 round(lon, 6), round(alt, 1),
                                 round(p.get("gs_ms") or 0.0, 1)])
+            elif '"kind":"open"' in line and ".dsf" in line:
+                row = _dsf_open(json.loads(line))
+                if row:
+                    dsf.append([round(row[0] - t0, 2), *row[1:]])
     loads = []
-    with open(loads_csv, encoding="utf-8", newline="") as f:
-        for r in csv.DictReader(f):
-            if r["tile"] == "True" and r["finest"] not in ("", "None"):
-                loads.append([round(float(r["t"]) - t0, 2), r["file"],
-                              int(r["finest"])])
+    if loads_csv:
+        with open(loads_csv, encoding="utf-8", newline="") as f:
+            for r in csv.DictReader(f):
+                if r["tile"] == "True" and r["finest"] not in ("", "None"):
+                    loads.append([round(float(r["t"]) - t0, 2), r["file"],
+                                  int(r["finest"])])
     if window:
         lo, hi = window
         pos = [p for p in pos if lo <= p[0] <= hi]
         loads = [x for x in loads if lo <= x[0] <= hi]
-    return {"source": os.path.basename(log), "squares": read_squares(pack_dir),
-            "pos": pos, "loads": sorted(loads)}
+        dsf = [x for x in dsf if lo <= x[0] <= hi]
+    return {"source": os.path.basename(log),
+            "squares": read_squares(pack_dir) if pack_dir else [],
+            "pos": pos, "loads": sorted(loads), "dsf": dsf}
 
 
 # --------------------------------------------------------------------------
@@ -290,8 +309,10 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     ex = sub.add_parser("extract")
     ex.add_argument("log")
-    ex.add_argument("loads_csv")
-    ex.add_argument("pack_dir")
+    ex.add_argument("loads_csv", nargs="?")
+    ex.add_argument("pack_dir", nargs="?")
+    ex.add_argument("--aircraft", action="store_true",
+                    help="aircraft positions, not the camera's")
     ex.add_argument("--out", required=True)
     ex.add_argument("--window", nargs=2, type=float)
     rp = sub.add_parser("replay")
@@ -310,11 +331,12 @@ def main(argv=None) -> int:
                     "(undo X-Plane's ground-speed multiplier)")
     a = ap.parse_args(argv)
     if a.cmd == "extract":
-        data = extract(a.log, a.loads_csv, a.pack_dir, a.window)
+        data = extract(a.log, a.loads_csv, a.pack_dir, a.window, a.aircraft)
         with open(a.out, "w", encoding="utf-8") as f:
             json.dump(data, f, separators=(",", ":"))
         print(f"{a.out}: {len(data['squares'])} squares, {len(data['pos'])} "
-              f"positions, {len(data['loads'])} loads")
+              f"positions, {len(data['loads'])} loads, {len(data['dsf'])} "
+              f"DSF opens")
         return 0
     with open(a.replay_json, encoding="utf-8") as f:
         data = json.load(f)

@@ -1,8 +1,8 @@
 """Twins of the World pack experiment (``src/O4_World_Pack.py``,
 ``tools/world_pack.py``): tile names, placeholder DSF, the per-tile
 subfolder rewrites, the one-rename swap, the ini row and the distance
-rule.  The DSFTool round trips run when the platform's bundled DSFTool is
-present."""
+rule (the DSF window: ``test_world_window.py``).  The DSFTool round trips
+run when the platform's bundled DSFTool is present."""
 from __future__ import annotations
 
 import os
@@ -83,20 +83,6 @@ def test_tile_reach():
     far = WP.tile_reach(*cyyr, 53, -63)
     assert far["tiles"] == 2 and 100 < far["km"] < 110
     assert WP.tile_reach(*cyyr, 53, -62)["tiles"] == 1
-
-
-def test_xp_window_matches_flight_2():
-    # flight 2 opened column -138 at lon -135.65 and -139 at -136.65
-    assert WP.xp_window(60.75, -135.40, 60, -138)["in_window"] is False
-    assert WP.xp_window(60.75, -135.70, 60, -138)["in_window"] is True
-    assert WP.xp_window(60.97, -136.70, 60, -139)["in_window"] is True
-    # CYYR: +53-062 is in the start window, +53-063 enters 15 km west
-    cyyr = (53.3192, -60.4258)
-    assert WP.xp_window(*cyyr, 53, -62)["in_window"] is True
-    far = WP.xp_window(*cyyr, 53, -63)
-    assert far["in_window"] is False and 14 < far["km_to_load"] < 17
-    assert 75 < WP.xp_window(*cyyr, 53, -64)["km_to_load"] < 85
-    assert WP.xp_window(*cyyr, 55, -61)["in_window"] is False
 
 
 def test_ini_row_appended_once_and_removed():

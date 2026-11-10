@@ -32,7 +32,7 @@ __all__ = [
     "PACK_NAME", "PLACEHOLDER_AGENT", "tile_name", "parse_tile",
     "dsf_relpath", "placeholder_text", "write_placeholder", "is_placeholder",
     "block_tiles", "rewrite_ter", "rewrite_dsf_text", "relayout_tile",
-    "verify_tile", "swap_in", "swap_out", "tile_reach", "xp_window", "ini_install",
+    "verify_tile", "swap_in", "swap_out", "tile_reach", "ini_install",
     "ini_remove", "dsftool_path", "dsf_header",
 ]
 
@@ -333,41 +333,6 @@ def tile_reach(lat: float, lon: float, tlat: int, tlon: int) -> dict:
     dlon = max(tlon - lon, 0.0, lon - (tlon + 1))
     km = math.hypot(dlat, dlon * math.cos(math.radians(lat))) * _M_PER_DEG / 1000
     return {"tiles": tiles, "km": round(km, 1)}
-
-
-#: X-Plane 12's DSF window, read off the CYXY recorder flight 2
-#: (2026-11-10, 60°N; every .dsf open with the aircraft position): FOUR
-#: columns centred on a tile boundary B (columns B-2 .. B+1) and THREE rows
-#: (the aircraft's row +-1).  The window moves one column when the aircraft
-#: is more than ``WINDOW_SHIFT`` degrees of longitude from B (four shifts
-#: seen, all at 0.64-0.65).  A DSF is opened when its column enters.
-WINDOW_SHIFT = 0.65
-
-
-def xp_window(lat: float, lon: float, tlat: int, tlon: int) -> dict:
-    """Is tile (tlat, tlon) in X-Plane's DSF window for an aircraft at
-    (lat, lon), estimated with B = the nearest boundary (the history is
-    unknown), and how far the aircraft is from the line where it would
-    enter: ``{"in_window", "km_to_load"}``.  [measured at 60°N, flight 2;
-    assumed elsewhere]"""
-    centre = round(lon)
-    cols = tlon >= centre - 2 and tlon <= centre + 1
-    rows = abs(math.floor(lat) - tlat) <= 1
-    cos_lat = math.cos(math.radians(lat))
-    if tlon < centre - 2:              # west of the window: enters at T+2.35
-        dlon = lon - (tlon + 3 - WINDOW_SHIFT)
-    elif tlon > centre + 1:            # east: enters at T-0.35
-        dlon = (tlon - 1 + WINDOW_SHIFT) - lon
-    else:
-        dlon = 0.0
-    if tlat > math.floor(lat) + 1:
-        dlat = (tlat - 1) - lat
-    elif tlat < math.floor(lat) - 1:
-        dlat = lat - (tlat + 2)
-    else:
-        dlat = 0.0
-    km = max(max(dlon, 0.0) * cos_lat, max(dlat, 0.0)) * _M_PER_DEG / 1000
-    return {"in_window": cols and rows, "km_to_load": round(km, 1)}
 
 
 def ini_install(lines: list, pack_name: str = PACK_NAME) -> bool:

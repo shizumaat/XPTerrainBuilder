@@ -270,6 +270,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.sources",
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
+        "auto_patch_v2.classify.taxi_shoulder",
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.geom",
@@ -480,6 +481,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.sources",
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
+        "auto_patch_v2.classify.taxi_shoulder",
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.geom",
@@ -1162,6 +1164,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.sources",
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
+        "auto_patch_v2.classify.taxi_shoulder",
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.constraints",
@@ -1815,7 +1818,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
-    classify.taxi_letter classify.wall_clip constraints constraints.apron constraints.apron_shelf
+    classify.taxi_letter classify.taxi_shoulder
+     classify.wall_clip constraints constraints.apron constraints.apron_shelf
     constraints.assembly constraints.ceiling constraints.channel constraints.cluster_pad
     constraints.contiguity constraints.eat
     constraints.edge_deck constraints.end_lip constraints.flat_site
@@ -2002,7 +2006,8 @@ CODE_MODULES["solve"] = _mods("""
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules
-    classify.sources classify.taxi_letter classify.wall_clip constraints.apron
+    classify.sources classify.taxi_letter classify.taxi_shoulder
+     classify.wall_clip constraints.apron
     constraints.apron_shelf
     constraints.ceiling constraints.cluster_pad constraints.contiguity
     constraints.end_lip constraints.geometry constraints.groundside constraints.no_step
@@ -2144,7 +2149,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.pad_cut_corridor classify.pad_touch
     classify.ramp_runout classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint
-    classify.roles classify.rules classify.sources classify.taxi_letter classify.wall_clip
+    classify.roles classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
+     classify.wall_clip
     constraints
     constraints.apron constraints.apron_shelf constraints.assembly constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
@@ -2291,7 +2297,8 @@ CODE_MODULES["emit"] = _mods("""
     classify.pad_cut_corridor classify.pad_touch
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
-    classify.rules classify.sources classify.taxi_letter classify.wall_clip constraints.apron
+    classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
+     classify.wall_clip constraints.apron
     constraints.apron_shelf constraints.apron_trend constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
     constraints.edge_floor constraints.end_lip constraints.flat_site constraints.geometry
@@ -2385,7 +2392,8 @@ CODE_MODULES["verify"] = _mods("""
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
-    classify.taxi_letter classify.wall_clip constraints.apron constraints.ceiling
+    classify.taxi_letter classify.taxi_shoulder
+     classify.wall_clip constraints.apron constraints.ceiling
     constraints.channel
     constraints.cluster_pad constraints.contiguity constraints.eat constraints.end_lip
     constraints.geometry constraints.groundside constraints.junction_mesh

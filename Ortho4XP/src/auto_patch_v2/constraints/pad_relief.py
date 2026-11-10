@@ -66,6 +66,17 @@ row; ``--why-from`` on v11564 bound it through a ``service_road`` /
 ``parking_lot`` vertex and a frontage-hold contact.  Such a vertex takes
 offset 0, in the rows and the sidecar alike (one derivation, here).
 
+**AND A FOOT A STOREY OFF ITS GROUP'S ZERO IS ON ANOTHER FLOOR** (#1905,
+the split-level law of 2026-11-05: "an upper floor is never a ground
+level").  A foot authored at least ``[building_pad] low_level_min_step_m``
+(one storey) above or below its group's zero stands on a floor of the
+building, not on the ground the pad carries; it founds no target (a
+storey down is the lower level's, ``planar/low_level``).  MEASURED SBSP
+``building58``: groups straddling the terminal's storeys published
++5.07 / +6.53 m targets the pad's 1 % ceiling cannot build -- emitted flat
+at 793.0 m, read by the census as 5-6.5 m ``within_shape`` / ``pad_flat``
+rows; ``building67`` +7.67 m likewise.
+
 **NEAREST FOOT, NEVER INTERPOLATED.**  A pad vertex takes the target of
 the nearest foot within ``[placement] relief_radius_m`` and otherwise
 keeps the level.  Two feet 40 m apart say nothing about the ground
@@ -167,6 +178,8 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
                           for j in jt.query(Point(planar.vertices[v].xy)))}
 
     #: every group's feet in the frame, with the metres above its own zero
+    #: -- less a storey (module doc)
+    storey = float(law.tables.structures.building_pad.low_level_min_step_m)
     feet: list[tuple[float, float, float]] = []
     for g in groups.groups:
         if not g.feet:
@@ -181,8 +194,11 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
             # up its own structure.  The group keeps today's flat pad.
             continue
         for f in g.feet:
+            off = float(f.y) - float(g.y_zero)
+            if storey > 0.0 and abs(off) >= storey:
+                continue
             x, y = to_xy(f.lon, f.lat)
-            feet.append((x, y, float(f.y) - float(g.y_zero)))
+            feet.append((x, y, off))
     if not feet:
         return {}
     pts = [Point(x, y) for x, y, _o in feet]

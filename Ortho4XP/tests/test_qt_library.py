@@ -50,7 +50,7 @@ RESULT = {
 
 
 def _dialog(**kw):
-    dialog = QTLIB.LibraryDialog(None, "/tiles", "", **kw)
+    dialog = QTLIB.LibraryTilesSection(None, "/tiles", "", **kw)
     dialog.set_library(RESULT)
     return dialog
 
@@ -116,7 +116,7 @@ def test_a_real_scan_fills_the_window(app, tmp_path, monkeypatch):
     build = tmp_path / "Tiles" / "zOrtho4XP_+45-123" / "Earth nav data" / "+40-130"
     build.mkdir(parents=True)
     (build / "+45-123.dsf").write_bytes(b"x" * 10)
-    dialog = QTLIB.LibraryDialog(None, str(tmp_path / "Tiles"), "")
+    dialog = QTLIB.LibraryTilesSection(None, str(tmp_path / "Tiles"), "")
     dialog.refresh()
     deadline = time.time() + 10
     while not dialog.rows and time.time() < deadline:

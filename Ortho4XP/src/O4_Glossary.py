@@ -55,6 +55,11 @@ TERMS = {
     # Settings ▸ Imagery's per-region switch (RULINGS 2026-11-10e (3)):
     # one of simHeaven's X-World regions.
     "ondemand_region": "On demand in {region}?",
+    # The three app modes (RULINGS 2026-11-10j): the map toolbar's
+    # segmented control and the side pane each one shows.
+    "mode_build": "Build",
+    "mode_fly": "Fly",
+    "mode_library": "Library",
 }
 
 # key -> the words it retires as a PRIMARY label (titles, buttons, toggles,

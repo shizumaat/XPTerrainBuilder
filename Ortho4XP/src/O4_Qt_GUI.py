@@ -64,6 +64,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QStatusBar,
     QStyle,
     QToolBar,
@@ -123,6 +124,7 @@ import O4_Qt_Tile_Stale_Row as QTSTALEROW
 import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
+import O4_Qt_Modes as QTMODES
 import O4_Qt_Patch_Library as QTPATCHLIB
 import O4_Qt_Activity_List as QTACT
 import O4_Qt_Step_Strip as QTSTRIP
@@ -1117,6 +1119,10 @@ class MainWindow(QMainWindow):
         # downloads, and judging a source on the map is exactly why one
         # looks at it.  Only mappable providers are offered; the build
         # combo keeps the full list.
+        # The mode switch leads (RULINGS 2026-11-10j; Mac: Picker("Mode")).
+        self.mode_switch = QTMODES.ModeSwitch(
+            QTMODES.MODES.restore(self.prefs.get(QTMODES.MODES.PREF_KEY)))
+        toolbar.addWidget(self.mode_switch)
         toolbar.addWidget(QLabel(" Imagery Preview "))
         self.map_provider_combo = QComboBox()
         # Both imagery menus come from the engine's one list (#1345);
@@ -1588,7 +1594,6 @@ class MainWindow(QMainWindow):
         self.follow_line.toggle_requested.connect(self._toggle_imagery_follow)
         self.follow_line.setVisible(False)
         self._follow_stopped_by_user = False
-        bv.addWidget(self.follow_line)
         bv.addWidget(build_group)
         bv.addWidget(self.patch_editor.panel)
         bv.addStretch(1)
@@ -1648,13 +1653,14 @@ class MainWindow(QMainWindow):
         panel_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         panel_scroll.setFixedWidth(280)
         self.panel_scroll = panel_scroll
+        self._make_mode_panes()
 
         center = QWidget()
         ch = QHBoxLayout(center)
         ch.setContentsMargins(0, 0, 0, 0)
         ch.setSpacing(0)
         ch.addWidget(self.map, 1)
-        ch.addWidget(panel_scroll)
+        ch.addWidget(self.side_panel)
 
         # Console drawer
         self.console = QPlainTextEdit()
@@ -1733,9 +1739,9 @@ class MainWindow(QMainWindow):
         view_menu.addAction(console_action)
         # Library (#824; Mac: View ▸ Library, ⌘L): every built tile with
         # its size, and the download caches.
-        library_action = QAction("Library…", self)
+        library_action = QAction(QTMODES.mode_title("library"), self)
         library_action.setShortcut(QKeySequence("Ctrl+L"))
-        library_action.triggered.connect(self.open_library_dialog)
+        library_action.triggered.connect(lambda: self.set_mode("library"))
         view_menu.addAction(library_action)
         # Text size (#827): Bigger / Smaller / Actual Size, remembered.
         view_menu.addSeparator()
@@ -1818,7 +1824,7 @@ class MainWindow(QMainWindow):
         self.prefs["zl"] = _zoom_level(self.prefs.get("zl"), 16)
         shown = bool(self.prefs.get(SIDE_PANEL_KEY, True))
         self.panel_toggle.setChecked(shown)
-        self.panel_scroll.setVisible(shown)
+        self.side_panel.setVisible(shown)
         xplane = self.prefs.get("xplane_dir", "")
         if xplane and not CFG.custom_scenery_dir:
             candidate = os.path.join(xplane, "Custom Scenery")
@@ -1963,24 +1969,69 @@ class MainWindow(QMainWindow):
         self.flight_plan_dialog.show()
         return self.flight_plan_dialog
 
-    def open_library_dialog(self):
-        """View menu: the Library window (#824).  One at a time; it reads
-        the tiles folder and the caches as it opens."""
+    # ------------------------------------------------------------------
+    # Modes: Build · Fly · Library (RULINGS 2026-11-10j, O4_Qt_Modes)
+    # ------------------------------------------------------------------
+    def _make_mode_panes(self):
+        """The side pane per mode in one stack, the Fly offer above it."""
         import O4_Config_Utils as CFG
 
-        dialog = getattr(self, "library_dialog", None)
-        if dialog is not None and dialog.isVisible():
-            dialog.raise_()
-            return dialog
-        self.library_dialog = QTLIBRARY.LibraryDialog(
-            self, self.working_dir(), CFG.custom_scenery_dir,
+        self.build_pane = self.panel_scroll
+        self.fly_pane = QTMODES.FlyPane(self.follow_line)
+        self.library_pane = QTMODES.LibraryPane(
+            self.working_dir(), CFG.custom_scenery_dir,
             building=lambda: self._building,
             on_rebuild=self._rebuild_from_library,
             on_changed=self.refresh_tiles,
             restore_pack=self._session.reanchor_restore)
-        self.library_dialog.show()
-        self.library_dialog.refresh()
-        return self.library_dialog
+        self.mode_stack = QStackedWidget()
+        for pane in (self.build_pane, self.fly_pane, self.library_pane):
+            if pane is not self.build_pane:
+                scroll = QScrollArea()
+                scroll.setWidget(pane)
+                scroll.setWidgetResizable(True)
+                scroll.setFrameShape(QFrame.NoFrame)
+                scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                pane = scroll
+            self.mode_stack.addWidget(pane)
+        self.fly_offer = QTMODES.FlyOfferBanner()
+        self.fly_offer.open_requested.connect(lambda: self.set_mode("fly"))
+        self.side_panel = QWidget()
+        sv = QVBoxLayout(self.side_panel)
+        sv.setContentsMargins(0, 0, 0, 0)
+        sv.setSpacing(0)
+        sv.addWidget(self.fly_offer)
+        sv.addWidget(self.mode_stack, 1)
+        self.mode_switch.mode_changed.connect(self._mode_changed)
+        self._show_mode(self.mode_switch.mode())
+
+    def mode(self):
+        return self.mode_switch.mode()
+
+    def set_mode(self, mode):
+        """Show ``mode``'s pane (the toolbar's switch, View ▸ Library and
+        the Fly offer); the side pane opens if it was hidden."""
+        self.mode_switch.set_mode(mode)
+        if not self.panel_toggle.isChecked():
+            self.panel_toggle.setChecked(True)
+
+    def _mode_changed(self, mode):
+        self._show_mode(mode)
+        self.fly_offer.mode_changed(mode)
+        if self.prefs.get(QTMODES.MODES.PREF_KEY) != mode:
+            self.prefs[QTMODES.MODES.PREF_KEY] = mode
+            save_prefs(self.prefs)
+
+    def _show_mode(self, mode):
+        """One map and one selection; only the side pane changes.  The
+        Library reads the tiles folder and the caches each time it shows."""
+        import O4_Config_Utils as CFG
+
+        index = QTMODES.MODES.MODES.index(mode)
+        self.mode_stack.setCurrentIndex(index)
+        self.mode_stack.setFixedWidth(420 if mode == "library" else 280)
+        if mode == "library":
+            self.library_pane.refresh(self.working_dir(), CFG.custom_scenery_dir)
 
     def _rebuild_from_library(self, tiles):
         """Library ▸ Rebuild: select those tiles and press Build (built
@@ -2476,7 +2527,7 @@ class MainWindow(QMainWindow):
 
     def _show_side_panel(self, shown):
         """The toolbar's side-panel switch (Mac: the inspector toggle)."""
-        self.panel_scroll.setVisible(shown)
+        self.side_panel.setVisible(shown)
         self.panel_toggle.setToolTip(
             "Hide the side panel" if shown else "Show the side panel")
         if self.prefs.get(SIDE_PANEL_KEY, True) != shown:
@@ -2864,6 +2915,7 @@ class MainWindow(QMainWindow):
     def _on_imagery_follow_status(self, event):
         self.follow_line.show_status(event)
         self.follow_line.setVisible(True)
+        self.fly_offer.observe(event, self.mode())
 
     def _show_tile_pin(self, tile, info):
         self.tile_pin_row.show_tile(tile, info)

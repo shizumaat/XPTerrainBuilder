@@ -43,10 +43,39 @@ SWIFT = Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
 #: No refresh button in either app (#1258): both rescan Custom Scenery
 #: when it changes.
 TOOLBAR = (
+    # RULINGS 2026-11-10j: Build · Fly · Library leads (spec §14).
+    ("mode", "ModeSwitch(model:", "mode_switch"),
     ("imagery_preview", 'Picker("Imagery Preview"', "map_provider_combo"),
     ("scenery_filter", 'Picker("Scenery"', "scenery_filter_combo"),
     ("search", "ToolbarSearchField(", "search_edit"),
     ("side_panel", 'Image(systemName: "sidebar.trailing")', "panel_toggle"),
+)
+
+#: The side pane per mode (RULINGS 2026-11-10j; spec §14): (key, Swift
+#: marker in MapMainView.swift's ``ModePanes``, Qt window attribute).  One
+#: map and one selection; the Fly offer stands above the pane.
+MODE_PANES = (
+    ("build", "BuildPane(", "build_pane"),
+    ("fly", "FlyPane(", "fly_pane"),
+    ("library", "LibraryPane(", "library_pane"),
+)
+FLY_OFFER = ("FlyOfferBanner(model:", "fly_offer")
+
+#: Fly mode's pane, top to bottom (key, Swift marker in FlyPane.swift, Qt
+#: ``FlyPane`` attribute).  Lane U1 ships the placeholder and the follow
+#: line; U2 adds the flight rows of spec §14 in order around them.
+FLY_PANE = (
+    ("placeholder", "AppModeText.flyPlaceholder", "placeholder"),
+    ("follow_line", "ImageryFollowLine(model:", "follow_line"),
+)
+
+#: Library mode's pane, top to bottom (key, Swift marker in
+#: LibraryPane.swift, Qt ``LibraryPane`` attribute).  Spec §14's World
+#: regions, pack health and Convert sections join in their lanes.
+LIBRARY_PANE = (
+    ("tiles", "LibraryTilesSection(", "tiles_box"),
+    ("storage", "StorageSection(", "storage"),
+    ("patch_library", "PatchLibrarySection()", "patch_box"),
 )
 
 #: The Build box's controls, top to bottom: (key, Swift label, Qt attribute).
@@ -84,31 +113,31 @@ PATCH_EDIT_MENU = (
 
 #: The patch library's homes (#1699 phase 2), each in both apps:
 #: (key, Swift file, Swift marker, Qt owner, Qt attribute).  The match
-#: list sits in the Airports card under the airport list; the Library
-#: window carries the "Patch library" section and "Publish Patch…".
+#: list sits in the Airports card under the airport list; Library mode
+#: carries the "Patch library" section and the tiles' "Publish Patch…".
 PATCH_LIBRARY = (
     ("match_list", "BuildAirportsCard.swift", "LibraryMatchList(matches:",
      "airports_card", "library_match_list"),
-    ("library_section", "LibraryView.swift", "PatchLibrarySection()",
-     "library_dialog", "patch_box"),
+    ("library_section", "LibraryPane.swift", "PatchLibrarySection()",
+     "library_pane", "patch_box"),
     ("publish", "LibraryView.swift", 'Button("Publish Patch…")',
-     "library_dialog", "publish_btn"),
+     "library_tiles", "publish_btn"),
 )
 
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
 #: Swift file, Swift marker, Qt owner, Qt attribute).  The follow line
-#: leads the Build pane's boxes; the pin sits in the tile pane under the
+#: is in the Fly pane (RULINGS 2026-11-10j); the pin sits in the tile pane under the
 #: imagery check and in the Library's actions (and its tile menu); the
 #: Storage pane's ondemand row makes all low-res again.
 IMAGERY_ON_DEMAND = (
-    ("follow_line", "BuildPane.swift", "ImageryFollowLine(model:",
+    ("follow_line", "FlyPane.swift", "ImageryFollowLine(model:",
      "window", "follow_line"),
     ("tile_pin", "BuildPane.swift", "TilePinRow(pinned:",
      "window", "tile_pin_row"),
     ("library_pin", "LibraryView.swift", "model.togglePin(",
-     "library_dialog", "pin_btn"),
+     "library_tiles", "pin_btn"),
     ("library_menu", "LibraryView.swift", ".contextMenu(forSelectionType:",
-     "library_dialog", "_tile_menu"),
+     "library_tiles", "_tile_menu"),
     ("make_low_res", "StorageSettingsView.swift", "model.askMakeLowRes(",
      "storage", "ask_make_low_res"),
     # RULINGS 2026-11-10d and the owner's 1.0.480 feedback: the one disk
@@ -558,10 +587,9 @@ def test_both_patch_panels_say_checking_while_the_scan_runs(window):
 def test_the_patch_library_has_one_home_in_each_app(window):
     """#1699 phase 2: every patch-library control the Mac app shows, the
     Qt window shows too (and the reverse, by the manifest)."""
-    import O4_Qt_Library as QTLIB
-
     owners = {"airports_card": window.airports_card,
-              "library_dialog": QTLIB.LibraryDialog(None, "/tiles", "")}
+              "library_pane": window.library_pane,
+              "library_tiles": window.library_pane.tiles_box}
     for key, swift_file, marker, owner, attr in PATCH_LIBRARY:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
@@ -573,18 +601,19 @@ def test_the_patch_library_has_one_home_in_each_app(window):
 def test_imagery_on_demand_has_one_home_in_each_app(window):
     """#1992 P4: the follow line, the pins and "Make all low-res again"
     are in both apps (and, by the manifest, nowhere else)."""
-    import O4_Qt_Library as QTLIB
     import O4_Qt_Settings_Storage as QTSTORE
 
     owners = {"window": window,
-              "library_dialog": QTLIB.LibraryDialog(None, "/tiles", ""),
+              "library_tiles": window.library_pane.tiles_box,
               "storage": QTSTORE.StorageSection()}
     for key, swift_file, marker, owner, attr in IMAGERY_ON_DEMAND:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
     pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
-    # The follow line leads the boxes; the pin follows the imagery check.
-    assert pane.index("ImageryFollowLine(model:") < pane.index('box("Selection")')
+    # The follow line left the Build pane for Fly (10j); the pin follows
+    # the imagery check.
+    assert "ImageryFollowLine(model:" not in pane
+    assert window.follow_line.parentWidget() is window.fly_pane
     assert pane.index("TilePinRow(pinned:") > pane.index("TileImageryFreshnessRow(")
     form = window._info_layout
     assert (form.getWidgetPosition(window.tile_pin_row)[0]
@@ -674,3 +703,79 @@ def test_on_demand_rebuild_hint_is_the_macs():
     swift = (SWIFT / "BuildModel+OnDemandBuild.swift").read_text(encoding="utf-8")
     said = re.search(r'static let onDemandRebuildHint = "([^"]+)"', swift)
     assert said and said.group(1) == QTONDEMAND_BUILD.REBUILD_HINT
+
+
+# ─── the three modes (RULINGS 2026-11-10j, spec §14) ───────────────────────
+
+def _swift_rows(path: Path, start: str, rows) -> list:
+    block = (SWIFT / path).read_text(encoding="utf-8")
+    block = block[block.index(start):]
+    return [block.find(marker) for _key, marker, _attr in rows]
+
+
+def test_mac_mode_panes_are_the_manifest():
+    marks = _swift_rows("MapMainView.swift", "struct ModePanes", MODE_PANES)
+    assert -1 not in marks and marks == sorted(marks), marks
+    offer = _swift_rows("MapMainView.swift", "struct ModePanes",
+                        [("offer", FLY_OFFER[0], None)])[0]
+    assert -1 < offer < marks[0], "the Fly offer stands above the pane"
+    fly = _swift_rows("FlyPane.swift", "struct FlyPane", FLY_PANE)
+    assert -1 not in fly and fly == sorted(fly), fly
+    library = _swift_rows("LibraryPane.swift", "struct LibraryPane", LIBRARY_PANE)
+    assert -1 not in library and library == sorted(library), library
+
+
+def _laid_out(widget) -> list:
+    layout = widget.layout()
+    return [layout.itemAt(i).widget() for i in range(layout.count())
+            if layout.itemAt(i).widget() is not None]
+
+
+def test_qt_mode_panes_are_the_manifest(window):
+    stack = window.mode_stack
+    panes = [stack.widget(i) for i in range(stack.count())]
+    # Fly and Library scroll in their own area; Build is its scroll area.
+    shown = [panes[0]] + [scroll.widget() for scroll in panes[1:]]
+    assert shown == [getattr(window, attr) for _k, _m, attr in MODE_PANES]
+    side = _laid_out(window.side_panel)
+    assert side.index(getattr(window, FLY_OFFER[1])) < side.index(stack)
+    fly = _laid_out(window.fly_pane)
+    rows = [getattr(window.fly_pane, attr) for _k, _m, attr in FLY_PANE]
+    assert [w for w in fly if w in rows] == rows
+    library = _laid_out(window.library_pane)
+    rows = [getattr(window.library_pane, attr) for _k, _m, attr in LIBRARY_PANE]
+    assert [w for w in library if w in rows] == rows
+
+
+def test_qt_modes_swap_the_pane_and_keep_the_selection(window, monkeypatch):
+    import O4_App_Modes as MODES
+
+    monkeypatch.setattr(window.library_pane, "refresh", lambda *a: None)
+    monkeypatch.setattr(GUI, "save_prefs", lambda prefs: None)
+    window.map.set_selection({(47, -123), (47, -122)})
+    assert window.mode() == MODES.DEFAULT          # nothing remembered yet
+    for mode in ("fly", "library", "build"):
+        window.set_mode(mode)
+        assert window.mode() == mode
+        assert window.mode_stack.currentIndex() == MODES.MODES.index(mode)
+        assert window.prefs[MODES.PREF_KEY] == mode
+        assert window.map.selection() == {(47, -123), (47, -122)}
+    window.panel_toggle.setChecked(False)
+    window.set_mode("build")
+    assert window.panel_toggle.isChecked()      # a chosen mode shows its pane
+
+
+def test_qt_offers_fly_and_never_switches(window, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    import O4_Qt_Modes as QTMODES
+
+    monkeypatch.setattr(GUI, "save_prefs", lambda prefs: None)
+    window.show()
+    loaded = NS(state="following", xplane=True, flight_loads=0)
+    window._on_imagery_follow_status(loaded)
+    assert window.fly_offer.isVisible() and window.mode() == "build"
+    window.fly_offer.open_btn.click()
+    assert window.mode() == "fly" and not window.fly_offer.isVisible()
+    assert QTMODES.ModeSwitch("library").mode() == "library"
+    assert QTMODES.ModeSwitch("nonsense").mode() == "build"

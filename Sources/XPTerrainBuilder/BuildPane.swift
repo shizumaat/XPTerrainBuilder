@@ -87,10 +87,6 @@ struct BuildPane: View {
                                 buildModel.answerSlowStep(step, choice: choice)
                             }
                         }
-                        // Imagery on demand (#1992 §7; the Qt window's
-                        // FollowStatusLine): while the switch is on or
-                        // the follow job runs.
-                        ImageryFollowLine(model: buildModel.imageryFollow)
                         box("Selection") { selectionBox }
                         box("Build") { buildBox }
                         PatchInspector(model: buildModel.patchEdit)

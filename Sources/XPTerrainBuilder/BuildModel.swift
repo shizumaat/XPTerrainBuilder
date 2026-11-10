@@ -404,8 +404,10 @@ final class BuildModel: ObservableObject {
     @Published private(set) var lastRunSummary: String?
 
     let activity = BuildActivityModel()
-    /// The imagery follow job (#1992 P4): the Build pane's follow line.
+    /// The imagery follow job (#1992 P4): the Fly pane's follow line.
     let imageryFollow = ImageryFollowModel()
+    /// Build · Fly · Library (RULINGS 2026-11-10j) and the Fly offer.
+    let appMode = AppModeModel()
     let console = BuildConsoleModel()
     /// The one date filter of the Build History list and the map (#1226).
     @Published var historyRange: BuildDateRange = .all
@@ -1257,7 +1259,8 @@ final class BuildModel: ObservableObject {
         case .imagerySourceStatus(let code, let status):
             imageryStatus[code] = status
         case .imageryFollowStatus(let status):
-            imageryFollow.show(status) // the Build pane's follow line (#1992 P4)
+            imageryFollow.show(status) // the Fly pane's follow line (#1992 P4)
+            appMode.observe(status)    // offers Fly, never switches (10j)
         case .unknown:
             break // additive protocol: ignore unknown event types
         }

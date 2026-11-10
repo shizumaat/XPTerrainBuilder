@@ -178,9 +178,13 @@ struct MapMainView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Imagery picker up front (its own button, away from the search
-        // cluster), search and inspector trailing.  No refresh button
-        // (#1258): the Custom Scenery watcher rescans on any change.
+        // The mode switch leads (RULINGS 2026-11-10j), then the imagery
+        // picker (its own button, away from the search cluster), search
+        // and inspector trailing.  No refresh button (#1258): the Custom
+        // Scenery watcher rescans on any change.
+        ToolbarItem(placement: .navigation) {
+            ModeSwitch(model: buildModel.appMode)
+        }
         ToolbarItem(placement: .navigation) {
             // Live map imagery source — independent of the build provider.
             Menu {
@@ -441,11 +445,16 @@ struct MapMainView: View {
             // inspector container doesn't draw its own separator here.
             HStack(spacing: 0) {
                 Divider()
-                BuildPane()
+                ModePanes(modes: buildModel.appMode)
                     .environmentObject(buildModel)
                     .environmentObject(controller)
             }
-            .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
+            .inspectorColumnWidth(min: 240, ideal: 300, max: 520)
+        }
+        // A mode chosen (the switch, View ▸ Library, "Open Fly") shows
+        // its pane even when the side panel was hidden.
+        .onReceive(buildModel.appMode.$mode.dropFirst().removeDuplicates()) { _ in
+            inspectorBinding.wrappedValue = true
         }
     }
 
@@ -518,6 +527,24 @@ struct MapMainView: View {
         } else {
             rejectedFolder.value = ""
             controller.xplanePath = path
+        }
+    }
+}
+
+/// The side pane of the current mode (RULINGS 2026-11-10j): one map and
+/// one selection; only this pane changes. The Fly offer sits above it in
+/// Build and Library.
+struct ModePanes: View {
+    @ObservedObject var modes: AppModeModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            FlyOfferBanner(model: modes)
+            switch modes.mode {
+            case .build: BuildPane()
+            case .fly: FlyPane()
+            case .library: LibraryPane()
+            }
         }
     }
 }

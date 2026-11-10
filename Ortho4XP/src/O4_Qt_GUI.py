@@ -125,6 +125,8 @@ import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
 import O4_Qt_Modes as QTMODES
+import O4_Qt_Fly_Layer as QTFLYLAYER
+import O4_Qt_Fly_Pane as QTFLYPANE
 import O4_Qt_Patch_Library as QTPATCHLIB
 import O4_Qt_Activity_List as QTACT
 import O4_Qt_Step_Strip as QTSTRIP
@@ -946,6 +948,7 @@ class MainWindow(QMainWindow):
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
             EV.ImageryFollowStatus: self._on_imagery_follow_status,
+            EV.AircraftPosition: self._on_aircraft_position,
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
@@ -1977,7 +1980,12 @@ class MainWindow(QMainWindow):
         import O4_Config_Utils as CFG
 
         self.build_pane = self.panel_scroll
-        self.fly_pane = QTMODES.FlyPane(self.follow_line)
+        self.fly_pane = QTFLYPANE.FlyPane(
+            self.follow_line, run=self._fly_command,
+            airports=lambda: self._airports, prefs=self.prefs,
+            save_prefs=save_prefs)
+        self.fly_layer = QTFLYLAYER.FlyLayer(self.map, self.fly_pane)
+        self.map.add_layer(self.fly_layer)
         self.library_pane = QTMODES.LibraryPane(
             self.working_dir(), CFG.custom_scenery_dir,
             building=lambda: self._building,
@@ -2032,6 +2040,40 @@ class MainWindow(QMainWindow):
         self.mode_stack.setFixedWidth(420 if mode == "library" else 280)
         if mode == "library":
             self.library_pane.refresh(self.working_dir(), CFG.custom_scenery_dir)
+        self._fly_shown(mode == "fly")
+
+    # ------------------------------------------------------------------
+    # Fly mode (spec flight-manager-and-world-20261110 §4.3; lane U2)
+    # ------------------------------------------------------------------
+    def _fly_command(self, name, **arguments):
+        """A Fly command from the ONE command table (never re-spelled);
+        a command this engine lacks raises ``KeyError``."""
+        from o4_engine import jsonl
+
+        table = getattr(self, "_fly_table", None)
+        if table is None:
+            table = self._fly_table = jsonl.command_table(self._session)
+        if name not in table:
+            raise KeyError("unknown command: %r" % (name,))
+        return table[name](**arguments)
+
+    def _fly_shown(self, shown):
+        """The aircraft is watched, and the Fly layer drawn, while Fly
+        shows; X-Plane's saved plans are read each time it does."""
+        if shown == getattr(self, "_fly_watching", False):
+            return
+        self._fly_watching = shown
+        self.fly_layer.set_shown(shown)
+        try:
+            self._fly_command("aircraft_watch", on=shown)
+        except Exception as error:      # noqa: BLE001 -- the map simply has no aircraft
+            print("Fly: no aircraft watch (%s)" % error)
+        if shown:
+            self.fly_pane.refresh_plans(
+                self.prefs.get("xplane_dir", "") or _xplane_above_custom_scenery() or "")
+
+    def _on_aircraft_position(self, event):
+        self.fly_pane.show_position(event)
 
     def _rebuild_from_library(self, tiles):
         """Library ▸ Rebuild: select those tiles and press Build (built

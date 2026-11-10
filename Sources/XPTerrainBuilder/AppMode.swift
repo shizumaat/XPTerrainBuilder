@@ -21,7 +21,7 @@ enum AppMode: String, CaseIterable, Identifiable {
 
 /// The words of the modes (`O4_App_Modes` holds the same).
 enum AppModeText {
-    static let flyPlaceholder = "Flights come here: name a flight plan and the app makes the scenery for it. Until then, the line below follows X-Plane and sharpens the imagery around you."
+    static let flyPlaceholder = "Name a flight and the app makes the scenery for it: the departure ready before you fly, the route built ahead of you, the destination while you fly."
     static let offerText = "X-Plane has a flight loaded."
     static let offerOpen = "Open Fly"
     static let offerDismiss = "Not now"

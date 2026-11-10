@@ -62,11 +62,27 @@ MODE_PANES = (
 FLY_OFFER = ("FlyOfferBanner(model:", "fly_offer")
 
 #: Fly mode's pane, top to bottom (key, Swift marker in FlyPane.swift, Qt
-#: ``FlyPane`` attribute).  Lane U1 ships the placeholder and the follow
-#: line; U2 adds the flight rows of spec §14 in order around them.
+#: ``O4_Qt_Fly_Pane.FlyPane`` attribute): spec §14's rows (lane U2), with
+#: the departure + arrival quick entry after "Open plan file…" and the
+#: intro text (U1's placeholder) leading while no flight is named.
 FLY_PANE = (
     ("placeholder", "AppModeText.flyPlaceholder", "placeholder"),
+    ("plan_source", "Picker(FlyText.planSourceLabel", "plan_source_combo"),
+    ("simbrief", "SimBriefRow(model:", "simbrief_row"),
+    ("open_plan", "Button(FlyText.openPlan)", "open_plan_btn"),
+    ("quick_route", "QuickRouteRow(model:", "quick_route_row"),
+    ("flight_card", "FlightCard(model:", "flight_card"),
+    ("build_alternate", "Toggle(FlyText.buildAlternate", "chk_build_alternate"),
+    ("cruise_speed", "CruiseSpeedField(model:", "cruise_speed_edit"),
+    ("corridor", "CorridorWidthField(model:", "corridor_edit"),
+    ("readiness", "ReadinessChecklist(model:", "readiness_list"),
+    ("countdown", "FlightCountdown(model:", "countdown_label"),
+    ("world_line", "WorldStatusLine(model:", "world_line"),
     ("follow_line", "ImageryFollowLine(model:", "follow_line"),
+    ("sim_priority", "Picker(FlyText.simPriorityLabel", "sim_priority_combo"),
+    ("live_preview", "Toggle(FlyText.livePreview", "chk_live_preview"),   # #2001
+    ("divert", "Button(FlyText.divert)", "divert_btn"),
+    ("end_flight", "Button(FlyText.endFlight)", "end_flight_btn"),
 )
 
 #: Library mode's pane, top to bottom (key, Swift marker in

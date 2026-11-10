@@ -348,6 +348,9 @@ public enum O4Event: Sendable, Equatable {
     /// The imagery follow job's state (capability `imagery_follow`,
     /// #1992 P3b). See `O4ImageryFollowStatus`.
     case imageryFollowStatus(O4ImageryFollowStatus)
+    /// X-Plane's aircraft once a second while `aircraftWatch(on:)` is on
+    /// (capability `aircraft_position`, #2001). See `O4AircraftPosition`.
+    case aircraftPosition(O4AircraftPosition)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -528,6 +531,9 @@ public enum O4Event: Sendable, Equatable {
         // `class ImageryFollowStatus` in Ortho4XP/src/o4_engine/events.py.
         case "ImageryFollowStatus":
             return .imageryFollowStatus(O4ImageryFollowStatus.parse(object))
+        // `class AircraftPosition` in Ortho4XP/src/o4_engine/events.py.
+        case "AircraftPosition":
+            return .aircraftPosition(O4AircraftPosition.parse(object))
         // `class SlowStep` in Ortho4XP/src/o4_engine/events.py.
         case "SlowStep":
             return .slowStep(O4SlowStep.parse(object))

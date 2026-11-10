@@ -7,8 +7,7 @@ are the layout; ``tests/test_qt_layout_parity.py`` holds the two equal.
 - :class:`ModeSwitch` — Build · Fly · Library, leading the toolbar.
 - :class:`FlyOfferBanner` — "X-Plane has a flight loaded. Open Fly" above
   the side pane in Build and Library; never switches by itself.
-- :class:`FlyPane` — Fly mode's pane: the follow line under a placeholder
-  until the flight manager lands (lanes F1b/U2).
+- Fly mode's pane is ``O4_Qt_Fly_Pane.FlyPane`` (lane U2).
 - :class:`LibraryPane` — Library mode's pane: the built tiles, Storage
   (moved from Settings) and the patch library.
 """
@@ -110,25 +109,6 @@ class FlyOfferBanner(QFrame):
     def _dismiss(self):
         self.offer.dismiss()
         self.setVisible(False)
-
-
-class FlyPane(QWidget):
-    """Fly mode's pane: a placeholder and the follow line (``follow_line``,
-    moved here from the Build pane)."""
-
-    def __init__(self, follow_line, parent=None):
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        title = QLabel("<b>%s</b>" % mode_title("fly"))
-        layout.addWidget(title)
-        self.placeholder = QLabel(MODES.FLY_PLACEHOLDER)
-        self.placeholder.setWordWrap(True)
-        self.placeholder.setStyleSheet("color: gray;")
-        layout.addWidget(self.placeholder)
-        self.follow_line = follow_line
-        layout.addWidget(follow_line)
-        layout.addStretch(1)
 
 
 class LibraryPane(QWidget):

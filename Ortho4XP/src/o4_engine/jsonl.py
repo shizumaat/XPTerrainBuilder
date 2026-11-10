@@ -176,6 +176,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from O4_Tile_Texture_Check import tile_texture_check
 
     from . import patch_commands, patch_drop, patch_insert
+    from .aircraft_watch import aircraft_watch_handlers
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
     from .flight_commands import flight_plan_handlers
@@ -388,6 +389,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # flight_plans_list (X-Plane's Output/FMS plans, newest first) and
         # flight_plan_read, synchronous file reads.
         **flight_plan_handlers(),
+        # The Fly map's aircraft (#2001, capability aircraft_position):
+        # aircraft_watch {on} replies {"watching": bool}; AircraftPosition
+        # events follow once a second while it is on.
+        **aircraft_watch_handlers(session._emit),
     }
 
 

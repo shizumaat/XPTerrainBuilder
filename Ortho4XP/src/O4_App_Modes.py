@@ -26,10 +26,10 @@ DEFAULT = "build"
 #: ``AppMode``; Qt: prefs ``app_mode``).
 PREF_KEY = "app_mode"
 
-#: Fly mode's pane until the flight manager lands (spec §16 U1).
-FLY_PLACEHOLDER = ("Flights come here: name a flight plan and the app makes "
-                   "the scenery for it. Until then, the line below follows "
-                   "X-Plane and sharpens the imagery around you.")
+#: Fly mode's pane before a flight is named (spec §4.3).
+FLY_PLACEHOLDER = ("Name a flight and the app makes the scenery for it: the "
+                   "departure ready before you fly, the route built ahead of "
+                   "you, the destination while you fly.")
 OFFER_TEXT = "X-Plane has a flight loaded."
 OFFER_OPEN = "Open Fly"
 OFFER_DISMISS = "Not now"

@@ -1216,7 +1216,7 @@ def test_the_ritual_mounts_the_whole_shared_data_repo():
         "without them the road/corridor/DEM paths silently no-op")
     never = re.search(r'^NEVER_MOUNT="([^"]*)"', src, re.M)
     assert never and set(never.group(1).split()) == {
-        "Patches", "Tiles", "Previews", "tmp"}, (
+        "Patches", "Tiles", "Rebuild_cache", "Previews", "tmp"}, (
         f"NEVER_MOUNT is {never and never.group(1)!r}: these are lane "
         f"PRODUCTS, and sharing them would let one lane's output enter "
         f"another lane's build")

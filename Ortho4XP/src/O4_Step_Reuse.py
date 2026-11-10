@@ -140,7 +140,7 @@ _VECTOR_APP_VARS = ("osm_regional_extracts", "base_elevation_source",
 
 
 def _record_path(tile) -> str:
-    return FNAMES.tile_record_path(tile.build_dir, tile.lat, tile.lon, "steps")
+    return FNAMES.step_record_file(tile.build_dir, tile.lat, tile.lon)
 
 
 def _identity(paths) -> str:
@@ -156,7 +156,61 @@ def _read(tile) -> dict:
         return {}
     if not isinstance(doc, dict) or doc.get("schema") != SCHEMA:
         return {}
-    return doc
+    return _follow_moves(tile, doc)
+
+
+def _moved_row(row, tile, folder: str):
+    """``row`` with its path where the tile's accessors now name it, or
+    ``None`` when it did not move: a file recorded in the tile folder that
+    is read from the rebuild cache now (``FNAMES.rebuild_path``)."""
+    if not row or not isinstance(row[0], str):
+        return None
+    path = row[0]
+    if FNAMES.path_key(os.path.dirname(path)) != folder:
+        return None
+    now = FNAMES.rebuild_path(tile.build_dir, tile.lat, tile.lon,
+                              os.path.basename(path))
+    return [now] + list(row[1:]) if now != path else None
+
+
+def _follow_moves(tile, doc: dict) -> dict:
+    """The record as it reads after the tile's rebuild data moved into its
+    rebuild cache (owner RULINGS 2026-11-10d (4), ``O4_Rebuild_Cache``):
+    the output rows follow the files (a file recorded missing too) and
+    each digest cut from them is cut again, so a step whose record was
+    current stays reusable and a stale one stays stale.  The record on
+    disk takes the new paths at its next write."""
+    committed = doc.get("committed") or {}
+    if not committed or FNAMES.rebuild_dir(
+            tile.build_dir, tile.lat, tile.lon) is None:
+        return doc
+    folder = FNAMES.path_key(tile.build_dir)
+    out, moved = {}, False
+    handed_before = handed_after = None
+    for step in REUSABLE_STEPS:
+        entry = committed.get(step)
+        if not entry:
+            handed_before = handed_after = None
+            continue
+        entry = dict(entry)
+        handed = _handed_on(entry)
+        rows = [list(row) for row in entry.get("outputs") or ()]
+        current = _outputs_digest(rows) == entry.get("outputs_digest")
+        for index, row in enumerate(rows):
+            new = _moved_row(row, tile, folder)
+            if new is not None:
+                rows[index], moved = new, True
+        entry["outputs"] = rows
+        if current:
+            entry["outputs_digest"] = _outputs_digest(rows)
+        inputs = dict(entry.get("inputs") or {})
+        if handed_before is not None and inputs.get("previous") == \
+                handed_before:
+            inputs["previous"] = handed_after
+            entry.update(inputs=inputs, digest=_digest(inputs))
+        out[step] = entry
+        handed_before, handed_after = handed, _handed_on(entry)
+    return dict(doc, committed=out) if moved else doc
 
 
 def _write(tile, doc: dict) -> None:
@@ -353,7 +407,8 @@ def _output_files(tile, step: str, pack_dsfs=()) -> list:
         files = [node_file, FNAMES.input_poly_file(tile),
                  FNAMES.apt_file(tile), FNAMES.alt_file(tile),
                  ZPROV.zprov_file(node_file),
-                 os.path.join(tile.build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)]
+                 FNAMES.levelled_roads_file(tile.build_dir, tile.lat,
+                                            tile.lon)]
         files += _patch_files(tile)
     elif step == "mesh":
         # The pack DSFs the mesh step's object stage rewrote: a pack put
@@ -429,7 +484,7 @@ def bundle_absent_outputs(tile) -> tuple:
     node_file = FNAMES.input_node_file(tile)
     return (node_file, FNAMES.input_poly_file(tile), FNAMES.alt_file(tile),
             ZPROV.zprov_file(node_file),
-            os.path.join(tile.build_dir, FNAMES.LEVELLED_ROADS_SIDECAR))
+            FNAMES.levelled_roads_file(tile.build_dir, tile.lat, tile.lon))
 
 
 def _excused(tile, entry: dict) -> tuple:

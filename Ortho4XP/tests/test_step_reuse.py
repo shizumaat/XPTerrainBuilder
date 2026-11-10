@@ -33,6 +33,12 @@ class _Tile:
 
 @pytest.fixture
 def tile(tmp_path, monkeypatch):
+    return stand_in_tile(tmp_path, monkeypatch)
+
+
+def stand_in_tile(tmp_path, monkeypatch):
+    """The stand-in tile, its OSM / patch / mask / inset folders in
+    ``tmp_path`` (also ``test_rebuild_cache``'s)."""
     for name in ("osm", "patches", "masks", "build", "insets"):
         (tmp_path / name).mkdir()
     monkeypatch.setattr(FNAMES, "osm_dir", lambda lat, lon: str(tmp_path / "osm"))

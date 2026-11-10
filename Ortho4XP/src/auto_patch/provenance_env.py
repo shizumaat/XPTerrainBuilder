@@ -132,6 +132,9 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_MASKS_DIR":
         "where the masks are kept; the masks step runs after the patch "
         "and the airport build reads nothing there (#346)",
+    "O4_REBUILD_CACHE_DIR":
+        "where the tiles' rebuild data is kept (RULINGS 2026-11-10d); the "
+        "airport build reads nothing there",
     "O4_HARNESS_IN_LEDGER": "the harness's own re-entry marker",
     "O4_HARNESS_PYTHON": "which interpreter the lane ritual uses",
     "O4_RUN_LEDGER_PATH": "where the run ledger is kept",

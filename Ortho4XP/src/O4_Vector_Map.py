@@ -15,6 +15,7 @@ import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
 import O4_ZProv as ZPROV
 import O4_File_Names as FNAMES
+import O4_Rebuild_Cache as REBUILD
 import O4_Geo_Utils as GEO
 import O4_Proj_Runtime as PROJRT
 import O4_Airport_Utils as APT
@@ -1301,6 +1302,8 @@ def build_poly_file(tile):
 
     if not os.path.exists(tile.build_dir):
         os.makedirs(tile.build_dir)
+    # Rebuild data goes to the tile's rebuild cache (RULINGS 2026-11-10d).
+    REBUILD.claim(tile)
     if not os.path.exists(FNAMES.osm_dir(tile.lat, tile.lon)):
         os.makedirs(FNAMES.osm_dir(tile.lat, tile.lon))
 
@@ -2403,12 +2406,6 @@ def road_join_yield_pins(tile):
     return pins
 
 
-def levelled_roads_sidecar_path(build_dir):
-    """Path of a tile's levelled-roads sidecar (one spelling, shared with
-    ``tools/road_terrain_conformance.py --levelled-roads``)."""
-    return os.path.join(build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)
-
-
 def write_levelled_roads_sidecar(tile, levelled_roads):
     """Publish the clamp's per-way stations beside the tile.
 
@@ -2428,9 +2425,10 @@ def write_levelled_roads_sidecar(tile, levelled_roads):
     build_dir = getattr(tile, "build_dir", None)
     if not build_dir or levelled_roads is None:
         return None
-    path = levelled_roads_sidecar_path(build_dir)
+    path = os.path.join(build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)
     try:
         os.makedirs(build_dir, exist_ok=True)
+        path = FNAMES.levelled_roads_file(build_dir, tile.lat, tile.lon)
         with open(path, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(levelled_roads.sidecar(tile.lat, tile.lon), handle)
     except (OSError, TypeError, ValueError) as e:

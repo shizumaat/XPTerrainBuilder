@@ -152,7 +152,7 @@ CLONE_DIRS="Patches"
 CLONE_FILES="XPTerrainBuilder.cfg"
 # Lane-local products that must NOT be mounted even if the data repo has
 # them — two lanes writing one of these would overwrite each other's work.
-NEVER_MOUNT="Patches Tiles Previews tmp"
+NEVER_MOUNT="Patches Tiles Rebuild_cache Previews tmp"
 # The consultation surface (owner ruling 7e90032), relative to the REPO
 # ROOT of both the main tree and the worktree.  Mirrored read-only into a
 # lane whose checkout does not carry it; never overwritten when it does.
@@ -176,7 +176,7 @@ LANE_CAP=16
 # new lane's measurements.  A SYMLINK here is a mount and is never touched
 # (logs/ is a data-repo mount); Patches/ is re-cloned and the cfg re-copied
 # by the ritual exactly as for a fresh tree.
-RECYCLE_CLEAR="Patches Tiles Previews tmp logs DDS_cache dist build"
+RECYCLE_CLEAR="Patches Tiles Rebuild_cache Previews tmp logs DDS_cache dist build"
 
 die() { echo "REFUSING: $*" >&2; exit 2; }
 

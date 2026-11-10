@@ -38,7 +38,7 @@ from .adapted_riders import ADAPTED_SRC
 __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "unit_root",
            "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
-           "GROUP_REASON", "at_zero", "walled_lead",
+           "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "WALLED_SRC",
            "TOUCH_M"]
 
 #: the deck verdicts that make a member an OPEN structure — a deck
@@ -569,4 +569,27 @@ def walled_lead(record: _t.Any, m: _t.Any) -> "float | None":
         a = b.anchor
         if a.surface_z is not None and getattr(a, "datum", False):
             return float(a.surface_z) - float(a.y_zero)
+    return None
+
+
+#: the §16g unit datum source of a unit holding a walled plate
+WALLED_SRC = "walled_plate"
+
+
+def walled_unit_zero(members: _t.Iterable[_t.Any], surface: _t.Any) -> "float | None":
+    """The zero of a §16g unit that holds a RUNWAY-END WALLED PLATE (#1201,
+    #1977): the plate's datum — the median of the surface at its seat
+    stations less its ``plate_y`` (the §16e datum ``anchor_rule.datum_of``
+    states for ``plate_kind == "walled"``) — so the unit's other bodies ride
+    the plate instead of their walls' feet (KCRW 05's overrun deck stood
+    38.6 m over the runway end on its 46 m wall's foot); ``None`` when no
+    member is one or no station reads a surface."""
+    import statistics
+    for m in members:
+        if getattr(m, "plate_kind", "") != "walled" or getattr(m, "plate_y", None) is None:
+            continue
+        zs = [surface(float(q[0]), float(q[1])) for q in (getattr(m, "plate_stations", ()) or ())]
+        zs = [float(z) for z in zs if z is not None]
+        if zs:
+            return statistics.median(zs) - float(m.plate_y)
     return None

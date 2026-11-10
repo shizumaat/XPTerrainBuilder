@@ -57,6 +57,8 @@ class _End(_t.NamedTuple):
     u: tuple[float, float]           # outward along the axis
     L: float                         # the safety area's length
     hw: float                        # its half width
+    paved: float = 0.0               # the end's blast pad / overrun past it (m)
+    pave_hw: float = 0.0             # the runway's half width (m)
 
 
 def _ends(airport, law: Law) -> list[_End]:
@@ -72,8 +74,11 @@ def _ends(airport, law: Law) -> list[_End]:
         if L <= 0.0 or hw <= 0.0:
             continue
         ux, uy = (b[0] - a[0]) / d, (b[1] - a[1]) / d
-        out.append(_End(rw.id, 0, rw.ends[0].name, a, (-ux, -uy), L, hw))
-        out.append(_End(rw.id, 1, rw.ends[1].name, b, (ux, uy), L, hw))
+        phw = 0.5 * float(getattr(rw, "width_m", 0.0) or 0.0)
+        out.append(_End(rw.id, 0, rw.ends[0].name, a, (-ux, -uy), L, hw,
+                        float(getattr(rw.ends[0], "overrun_m", 0.0) or 0.0), phw))
+        out.append(_End(rw.id, 1, rw.ends[1].name, b, (ux, uy), L, hw,
+                        float(getattr(rw.ends[1], "overrun_m", 0.0) or 0.0), phw))
     return out
 
 
@@ -88,9 +93,12 @@ def _xy(e: _End, s: float, t: float) -> tuple[float, float]:
 
 
 def _window(e: _End, wl) -> _t.Any:
-    """The plan region an inner edge may stand in (witness 2)."""
+    """The plan region an inner edge may stand in (witness 2, either
+    reading: at the safety area's end, or at the paved end —
+    ``pavement_end_plate``)."""
     from shapely.geometry import Polygon
-    s0, s1 = wl.min_s_share * e.L, e.L + wl.max_s_beyond_m
+    s0 = min(wl.min_s_share * e.L, -wl.pavement_end_reach_m)
+    s1 = e.L + wl.max_s_beyond_m
     return Polygon([_xy(e, s0, -e.hw), _xy(e, s1, -e.hw), _xy(e, s1, e.hw), _xy(e, s0, e.hw)])
 
 
@@ -107,13 +115,24 @@ def _placed_tris(o, g) -> np.ndarray:
     return np.stack([X, Y, v[:, :, 1]], axis=2)
 
 
-def _read(o, g, e: _End, dem, law: Law) -> "WalledPlate | None":
-    """The four witnesses for one placement against one runway end."""
-    from shapely.geometry import LineString, Polygon
-    from shapely.ops import unary_union
+class Faces(_t.NamedTuple):
+    """A placement's static solid read against one runway end: the placed
+    triangles ``P`` (frame x, y, authored height), their ``(s, t)`` corners,
+    |n_y|, area, and centroid ``s`` / ``t`` / height; ``ok`` the non-degenerate."""
+    P: np.ndarray
+    S: np.ndarray
+    T: np.ndarray
+    ok: np.ndarray
+    ny: np.ndarray
+    area: np.ndarray
+    sc: np.ndarray
+    tc: np.ndarray
+    yc: np.ndarray
 
-    from .dem import dem_z_many
-    wl = law.tables.structures.walled_plate
+
+def faces(o, g, e: _End) -> "Faces | None":
+    """:class:`Faces` of ``o`` (geometry ``g``) against end ``e``; ``None``
+    when it has no static solid."""
     P = _placed_tris(o, g)
     if not P.shape[0]:
         return None
@@ -122,8 +141,21 @@ def _read(o, g, e: _End, dem, law: Law) -> "WalledPlate | None":
     nn = np.linalg.norm(n, axis=1)
     ok = nn > 1e-9
     ny = np.where(ok, np.abs(n[:, 2]) / np.maximum(nn, 1e-12), 0.0)
-    area = 0.5 * nn
-    sc, tc, yc = S.mean(axis=1), T.mean(axis=1), P[:, :, 2].mean(axis=1)
+    return Faces(P, S, T, ok, ny, 0.5 * nn, S.mean(axis=1), T.mean(axis=1),
+                 P[:, :, 2].mean(axis=1))
+
+
+def _read(o, g, e: _End, dem, law: Law) -> "WalledPlate | None":
+    """The four witnesses for one placement against one runway end."""
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+
+    from .dem import dem_z_many
+    wl = law.tables.structures.walled_plate
+    f = faces(o, g, e)
+    if f is None:
+        return None
+    P, S, T, ok, ny, area, sc, tc, yc = f
     near = ok & (sc > wl.min_s_share * e.L - 100.0) & \
         (sc < e.L + wl.max_s_beyond_m + 150.0) & (np.abs(tc) < e.hw + 150.0)
     flat = near & (ny >= float(law.tables.structures.bridge.deck_plate_normal_y_min))
@@ -213,6 +245,7 @@ def recognise(airport, objects: _t.Sequence[_t.Any], cache, law: Law
               ) -> tuple[WalledPlate, ...]:
     """Every runway-end walled plate among ``objects`` (``obj8.PlacedObject``,
     read on ``cache``), each with its origin set's ids (module docstring)."""
+    from . import pavement_end_plate as _pavement_end
     from .msl_feet import origin_key
     from .obj8 import is_stock_library_resource
     wl = law.tables.structures.walled_plate
@@ -235,7 +268,7 @@ def recognise(airport, objects: _t.Sequence[_t.Any], cache, law: Law
         if g is None or not g.solid.shape[0]:
             continue
         for e in hits:
-            rec = _read(o, g, e, dem, law)
+            rec = _read(o, g, e, dem, law) or _pavement_end.read(o, g, e, dem, law)
             if rec is not None:
                 found.append(rec)
                 break

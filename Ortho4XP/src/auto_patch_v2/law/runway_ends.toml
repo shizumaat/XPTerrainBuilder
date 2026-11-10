@@ -17,6 +17,7 @@ dem_window_m          = 60.0   # the DEM at a pin: the median of centreline samp
 peer_touch_m          = 1.0    # owner RULINGS 2026-11-10b (2) / (3): two runways' slabs (``Runway.slab_corners``) within this of each other TOUCH — their pavement connects (LSZI 07/25 and 07L/25R lie 0.31 m apart in the frame)
 peer_parallel_deg     = 5.0    # owner RULINGS 2026-11-10b (4): a runway is PARALLEL to another when their axes differ by no more than this
 peer_close_end_m      = 10.0   # owner RULINGS 2026-11-10b (3) (#1945, "less than 10m apart"): two CIFP-pinned ends of touching runways closer than this split their difference where the connecting pavement cannot hold both
+approach_reach_m      = 900.0  # owner RULINGS 2026-11-10i (#1977, airport/centreline_seat): an origin-built OBJECT_MSL set whose origin stands on a runway's extended centreline at most this far beyond its end (heading along it within peer_parallel_deg, within the runway's half width of the axis) is an approach-light set seated at the solved runway-end elevation; ICAO Annex 14: a precision approach lighting system extends 900 m from the threshold
 crosscheck_order      = ["nasr", "openaip", "ourairports"]   # 26a's order; a source with no provider module or no cache is skipped. RULINGS 2026-10-26m: a source flagged by (c) ALONE overrides CIFP only where its grade fits the DEM better than CIFP's
 
 [dem_noise_m]                  # (a) and cases E / E' (28m): the DEM tier's noise (fine / coarse = flat_site.detector.relief_floor_m)

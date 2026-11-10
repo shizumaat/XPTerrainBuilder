@@ -1,0 +1,1318 @@
+{
+ "_comment": "Written by tests/test_fly_pane.py (REGENERATE_FLY_PANE=1); read by Tests/SceneryKitTests/FlyPaneTests.swift.",
+ "events": {
+  "AircraftPosition": {
+   "event": "AircraftPosition",
+   "lat": 53.3,
+   "lon": -60.4,
+   "alt_m": 640.5,
+   "track_deg": 91.5,
+   "speed_ms": 72.0,
+   "on_ground": false,
+   "paused": true
+  },
+  "FlightStatus": {
+   "event": "FlightStatus",
+   "flight": "20261110T1612Z-CYYR-CYYT",
+   "state": "preparing",
+   "phase": "parked",
+   "ready": false,
+   "countdown_s": 712.0,
+   "reason": "",
+   "items": [
+    [
+     "world",
+     "done",
+     0.0,
+     ""
+    ],
+    [
+     "budget",
+     "done",
+     0.0,
+     ""
+    ],
+    [
+     "network",
+     "done",
+     0.0,
+     ""
+    ],
+    [
+     "prefetch",
+     "working",
+     null,
+     ""
+    ],
+    [
+     "departure",
+     "working",
+     412.0,
+     ""
+    ],
+    [
+     "first_window",
+     "waiting",
+     600.0,
+     ""
+    ],
+    [
+     "route",
+     "waiting",
+     712.0,
+     ""
+    ],
+    [
+     "destination",
+     "done",
+     0.0,
+     "Ready 18 min before it loads"
+    ],
+    [
+     "loaded",
+     "done",
+     0.0,
+     ""
+    ]
+   ],
+   "jobs": [
+    [
+     [
+      53,
+      -61
+     ],
+     "departure",
+     "full",
+     "building",
+     412.0,
+     null
+    ],
+    [
+     [
+      53,
+      -60
+     ],
+     "enroute",
+     "light",
+     "queued",
+     397.0,
+     1200.0
+    ],
+    [
+     [
+      52,
+      -59
+     ],
+     "enroute",
+     "light",
+     "swapped",
+     0.0,
+     900.0
+    ],
+    [
+     [
+      47,
+      -53
+     ],
+     "destination",
+     "full",
+     "staged",
+     0.0,
+     1080.0
+    ]
+   ],
+   "route_km": 833.6,
+   "done_km": 0.0,
+   "eta_s": 6480.0,
+   "late": [],
+   "shed": [],
+   "reload": "",
+   "diverted_to": ""
+  },
+  "WorldStatus": {
+   "state": "building",
+   "reason": "",
+   "building": [
+    [
+     "+53-060",
+     "light",
+     "mesh",
+     120.0
+    ]
+   ],
+   "loaded": [
+    "+53-061",
+    "+53-062"
+   ]
+  }
+ },
+ "text": {
+  "countdown": [
+   [
+    null,
+    "Ready in —"
+   ],
+   [
+    0,
+    "Ready"
+   ],
+   [
+    -5,
+    "Ready"
+   ],
+   [
+    30,
+    "Ready in under a minute"
+   ],
+   [
+    61,
+    "Ready in about 2 min"
+   ],
+   [
+    712,
+    "Ready in about 12 min"
+   ],
+   [
+    3600,
+    "Ready in about 60 min"
+   ]
+  ],
+  "items": [
+   [
+    [
+     "world",
+     "done",
+     0.0,
+     ""
+    ],
+    "✓ World pack in X-Plane"
+   ],
+   [
+    [
+     "budget",
+     "done",
+     0.0,
+     ""
+    ],
+    "✓ Fits the disk budget"
+   ],
+   [
+    [
+     "network",
+     "done",
+     0.0,
+     ""
+    ],
+    "✓ Internet, or everything on disk"
+   ],
+   [
+    [
+     "prefetch",
+     "working",
+     null,
+     ""
+    ],
+    "… Map data and elevation"
+   ],
+   [
+    [
+     "departure",
+     "working",
+     412.0,
+     ""
+    ],
+    "… Departure airport · about 7 min"
+   ],
+   [
+    [
+     "first_window",
+     "waiting",
+     600.0,
+     ""
+    ],
+    "○ Scenery around the departure · about 10 min"
+   ],
+   [
+    [
+     "route",
+     "waiting",
+     712.0,
+     ""
+    ],
+    "○ Route built ahead in time · about 12 min"
+   ],
+   [
+    [
+     "destination",
+     "done",
+     0.0,
+     "Ready 18 min before it loads"
+    ],
+    "✓ Destination airport · Ready 18 min before it loads"
+   ],
+   [
+    [
+     "loaded",
+     "done",
+     0.0,
+     ""
+    ],
+    "✓ Loaded in X-Plane"
+   ],
+   [
+    [
+     "world",
+     "blocked",
+     null,
+     "Restart X-Plane once"
+    ],
+    "! World pack in X-Plane · Restart X-Plane once"
+   ],
+   [
+    [
+     "alternate",
+     "failed",
+     null,
+     "The build failed twice"
+    ],
+    "✕ Alternate airport · The build failed twice"
+   ],
+   [
+    [
+     "mystery",
+     "waiting",
+     30.0,
+     ""
+    ],
+    "○ mystery · about 1 min"
+   ]
+  ],
+  "plan_rows": [
+   [
+    {
+     "name": "CYLWCYYC",
+     "origin": "CYLW",
+     "destination": "CYYC"
+    },
+    "CYLW → CYYC (CYLWCYYC)"
+   ],
+   [
+    {
+     "name": "VFR hop",
+     "origin": "",
+     "destination": ""
+    },
+    "VFR hop"
+   ],
+   [
+    {
+     "name": "X",
+     "origin": "KSEA",
+     "destination": ""
+    },
+    "KSEA → ? (X)"
+   ]
+  ],
+  "quick_plan": [
+   [
+    [
+     "cyyr",
+     53.3192,
+     -60.4258
+    ],
+    [
+     "CYYT",
+     47.6186,
+     -52.7519
+    ],
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    }
+   ]
+  ],
+  "cruise_kt": [
+   [
+    null,
+    250
+   ],
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    250
+   ],
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": {
+      "ident": "CYQX",
+      "lat": 48.94,
+      "lon": -54.57,
+      "alt_ft": null,
+      "t_s": null
+     },
+     "ete_s": 5400.0,
+     "cruise_ms": 144.04444444444445,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    280
+   ]
+  ],
+  "card": [
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    250,
+    [
+     "CYYR → CYYT",
+     "No alternate in the plan",
+     "834 km · 1 h 48 min en route"
+    ]
+   ],
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    120,
+    [
+     "CYYR → CYYT",
+     "No alternate in the plan",
+     "834 km · 3 h 45 min en route"
+    ]
+   ],
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": {
+      "ident": "CYQX",
+      "lat": 48.94,
+      "lon": -54.57,
+      "alt_ft": null,
+      "t_s": null
+     },
+     "ete_s": 5400.0,
+     "cruise_ms": 144.04444444444445,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    280,
+    [
+     "CYYR → CYYT",
+     "Alternate CYQX",
+     "834 km · 1 h 30 min en route"
+    ]
+   ]
+  ],
+  "world_line": [
+   [
+    null,
+    "World pack: —"
+   ],
+   [
+    {
+     "state": "building",
+     "reason": "",
+     "building": [
+      [
+       "+53-060",
+       "light",
+       "mesh",
+       120.0
+      ]
+     ],
+     "loaded": [
+      "+53-061",
+      "+53-062"
+     ]
+    },
+    "World pack building ahead · 1 building · 2 in X-Plane"
+   ],
+   [
+    {
+     "state": "paused",
+     "reason": "X-Plane is not answering"
+    },
+    "World pack paused · X-Plane is not answering"
+   ]
+  ],
+  "status_line": [
+   [
+    null,
+    ""
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261110T1612Z-CYYR-CYYT",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "light",
+       "queued",
+       397.0,
+       1200.0
+      ],
+      [
+       [
+        52,
+        -59
+       ],
+       "enroute",
+       "light",
+       "swapped",
+       0.0,
+       900.0
+      ],
+      [
+       [
+        47,
+        -53
+       ],
+       "destination",
+       "full",
+       "staged",
+       0.0,
+       1080.0
+      ]
+     ],
+     "route_km": 833.6,
+     "done_km": 0.0,
+     "eta_s": 6480.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": ""
+    },
+    "0 of 834 km flown"
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261110T1612Z-CYYR-CYYT",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "Building is 3 min behind",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "light",
+       "queued",
+       397.0,
+       1200.0
+      ],
+      [
+       [
+        52,
+        -59
+       ],
+       "enroute",
+       "light",
+       "swapped",
+       0.0,
+       900.0
+      ],
+      [
+       [
+        47,
+        -53
+       ],
+       "destination",
+       "full",
+       "staged",
+       0.0,
+       1080.0
+      ]
+     ],
+     "route_km": 833.6,
+     "done_km": 0.0,
+     "eta_s": 6480.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": ""
+    },
+    "Building is 3 min behind"
+   ]
+  ],
+  "legend_key": [
+   [
+    "full",
+    "queued",
+    "own"
+   ],
+   [
+    "full",
+    "fetching",
+    "building"
+   ],
+   [
+    "full",
+    "building",
+    "building"
+   ],
+   [
+    "full",
+    "staged",
+    "built"
+   ],
+   [
+    "full",
+    "swapped",
+    "built"
+   ],
+   [
+    "full",
+    "late",
+    "own"
+   ],
+   [
+    "full",
+    "shed",
+    "own"
+   ],
+   [
+    "full",
+    "failed",
+    "own"
+   ],
+   [
+    "light",
+    "queued",
+    "own"
+   ],
+   [
+    "light",
+    "fetching",
+    "building"
+   ],
+   [
+    "light",
+    "building",
+    "building"
+   ],
+   [
+    "light",
+    "staged",
+    "quick"
+   ],
+   [
+    "light",
+    "swapped",
+    "quick"
+   ],
+   [
+    "light",
+    "late",
+    "own"
+   ],
+   [
+    "light",
+    "shed",
+    "own"
+   ],
+   [
+    "light",
+    "failed",
+    "own"
+   ],
+   [
+    "drape",
+    "queued",
+    "own"
+   ],
+   [
+    "drape",
+    "fetching",
+    "building"
+   ],
+   [
+    "drape",
+    "building",
+    "building"
+   ],
+   [
+    "drape",
+    "staged",
+    "quick"
+   ],
+   [
+    "drape",
+    "swapped",
+    "quick"
+   ],
+   [
+    "drape",
+    "late",
+    "own"
+   ],
+   [
+    "drape",
+    "shed",
+    "own"
+   ],
+   [
+    "drape",
+    "failed",
+    "own"
+   ],
+   [
+    "placeholder",
+    "queued",
+    "own"
+   ],
+   [
+    "placeholder",
+    "fetching",
+    "building"
+   ],
+   [
+    "placeholder",
+    "building",
+    "building"
+   ],
+   [
+    "placeholder",
+    "staged",
+    "quick"
+   ],
+   [
+    "placeholder",
+    "swapped",
+    "quick"
+   ],
+   [
+    "placeholder",
+    "late",
+    "own"
+   ],
+   [
+    "placeholder",
+    "shed",
+    "own"
+   ],
+   [
+    "placeholder",
+    "failed",
+    "own"
+   ]
+  ],
+  "unknown_airport": [
+   [
+    " zzzz ",
+    "No airport ZZZZ in X-Plane's list."
+   ]
+  ],
+  "refusal": [
+   [
+    "",
+    "This engine has no flight manager yet."
+   ],
+   [
+    "unknown command: 'flight_create'",
+    "This engine has no flight manager yet."
+   ],
+   [
+    "No plan to build",
+    "No plan to build"
+   ]
+  ]
+ },
+ "track": {
+  "steps": [
+   [
+    53.0,
+    -60.0
+   ],
+   [
+    53.0001,
+    -60.0
+   ],
+   [
+    53.01,
+    -60.0
+   ],
+   [
+    53.02,
+    -60.01
+   ],
+   [
+    55.0,
+    -60.0
+   ],
+   [
+    55.01,
+    -60.0
+   ],
+   [
+    10.0,
+    179.99
+   ],
+   [
+    10.0,
+    -179.99
+   ],
+   [
+    10.0,
+    -179.9
+   ]
+  ],
+  "changed": [
+   true,
+   false,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true
+  ],
+  "parts": [
+   [
+    [
+     53.0,
+     -60.0
+    ],
+    [
+     53.01,
+     -60.0
+    ],
+    [
+     53.02,
+     -60.01
+    ]
+   ],
+   [
+    [
+     55.0,
+     -60.0
+    ],
+    [
+     55.01,
+     -60.0
+    ]
+   ],
+   [
+    [
+     10.0,
+     -179.99
+    ],
+    [
+     10.0,
+     -179.9
+    ]
+   ]
+  ]
+ },
+ "corridor": [
+  [
+   {
+    "source": "quick",
+    "origin": "CYYR",
+    "destination": "CYYT",
+    "waypoints": [
+     {
+      "ident": "CYYR",
+      "lat": 53.3192,
+      "lon": -60.4258,
+      "alt_ft": null,
+      "t_s": null
+     },
+     {
+      "ident": "CYYT",
+      "lat": 47.6186,
+      "lon": -52.7519,
+      "alt_ft": null,
+      "t_s": null
+     }
+    ],
+    "alternate": null,
+    "ete_s": null,
+    "cruise_ms": null,
+    "cruise_alt_ft": null,
+    "route_km": 833.7904167614038
+   },
+   20,
+   [],
+   [
+    [
+     47,
+     -54,
+     "own"
+    ],
+    [
+     47,
+     -53,
+     "own"
+    ],
+    [
+     48,
+     -55,
+     "own"
+    ],
+    [
+     48,
+     -54,
+     "own"
+    ],
+    [
+     48,
+     -53,
+     "own"
+    ],
+    [
+     49,
+     -57,
+     "own"
+    ],
+    [
+     49,
+     -56,
+     "own"
+    ],
+    [
+     49,
+     -55,
+     "own"
+    ],
+    [
+     50,
+     -58,
+     "own"
+    ],
+    [
+     50,
+     -57,
+     "own"
+    ],
+    [
+     50,
+     -56,
+     "own"
+    ],
+    [
+     51,
+     -59,
+     "own"
+    ],
+    [
+     51,
+     -58,
+     "own"
+    ],
+    [
+     51,
+     -57,
+     "own"
+    ],
+    [
+     52,
+     -61,
+     "own"
+    ],
+    [
+     52,
+     -60,
+     "own"
+    ],
+    [
+     52,
+     -59,
+     "own"
+    ],
+    [
+     53,
+     -61,
+     "own"
+    ],
+    [
+     53,
+     -60,
+     "own"
+    ]
+   ]
+  ],
+  [
+   {
+    "source": "quick",
+    "origin": "CYYR",
+    "destination": "CYYT",
+    "waypoints": [
+     {
+      "ident": "CYYR",
+      "lat": 53.3192,
+      "lon": -60.4258,
+      "alt_ft": null,
+      "t_s": null
+     },
+     {
+      "ident": "CYYT",
+      "lat": 47.6186,
+      "lon": -52.7519,
+      "alt_ft": null,
+      "t_s": null
+     }
+    ],
+    "alternate": null,
+    "ete_s": null,
+    "cruise_ms": null,
+    "cruise_alt_ft": null,
+    "route_km": 833.7904167614038
+   },
+   20,
+   [
+    [
+     [
+      53,
+      -61
+     ],
+     "departure",
+     "full",
+     "building",
+     412.0,
+     null
+    ],
+    [
+     [
+      53,
+      -60
+     ],
+     "enroute",
+     "light",
+     "queued",
+     397.0,
+     1200.0
+    ],
+    [
+     [
+      52,
+      -59
+     ],
+     "enroute",
+     "light",
+     "swapped",
+     0.0,
+     900.0
+    ],
+    [
+     [
+      47,
+      -53
+     ],
+     "destination",
+     "full",
+     "staged",
+     0.0,
+     1080.0
+    ]
+   ],
+   [
+    [
+     47,
+     -53,
+     "built"
+    ],
+    [
+     52,
+     -59,
+     "quick"
+    ],
+    [
+     53,
+     -61,
+     "building"
+    ],
+    [
+     53,
+     -60,
+     "own"
+    ]
+   ]
+  ],
+  [
+   null,
+   20,
+   [],
+   []
+  ]
+ ]
+}

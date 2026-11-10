@@ -36,6 +36,7 @@ import typing as _t
 
 import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
+import O4_Rebuild_Cache as REBUILD
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
 import O4_Tile_Staleness as _STALE
@@ -251,8 +252,9 @@ def library_delete(tiles, working_dir: str, scenery_dir: str = "",
     """ENGINE COMMAND ``library_delete``: delete built tiles' folders,
     removing their X-Plane link first.  Every tile is checked before any
     is deleted: one tile built by another tool refuses the whole call.
-    Refused without ``confirm``.  Patches (the user's airport edits) and
-    the caches stay.
+    Refused without ``confirm``.  The tile's rebuild data (RULINGS
+    2026-11-10d) goes with it; patches (the user's airport edits) and the
+    other caches stay.
 
     :returns: ``{"deleted": [[lat, lon], ...], "freed_bytes": int}``
     """
@@ -263,6 +265,7 @@ def library_delete(tiles, working_dir: str, scenery_dir: str = "",
             status = LINKS.link_status(lat, lon, build_dir, scenery_dir)
             if status in (LINKS.LinkStatus.INSTALLED, LINKS.LinkStatus.BROKEN):
                 LINKS.uninstall(lat, lon, build_dir, scenery_dir)
+        freed += REBUILD.remove(build_dir, lat, lon)     # its rebuild data
         size = TINFO.tree_size(build_dir)
         shutil.rmtree(build_dir, ignore_errors=True)
         freed += size - TINFO.tree_size(build_dir)
@@ -368,7 +371,8 @@ _REFUSED_WHILE_BUILDING = {
     "free_cache": "deleting anything", "library_delete": "deleting anything",
     "library_export_bundle": "exporting a tile",
     "library_import_bundle": "importing a tile",
-    "library_apply": "laying a library patch down"}
+    "library_apply": "laying a library patch down",
+    "rebuild_migrate": "moving tiles' rebuild data"}
 
 #: The commands :func:`start` runs, and the checks each makes on the read
 #: loop so a refusal is the command's own ``ok: false`` reply.
@@ -388,6 +392,8 @@ _COMMANDS: dict = {
 }
 # Settings > Storage (#1724) runs through the same worker and refusals.
 _COMMANDS.update(_storage.COMMANDS)
+# Moving old tiles' rebuild data into the cache (RULINGS 2026-11-10d).
+_COMMANDS.update(REBUILD.COMMANDS)
 # The map's stale-tile check (#1958) runs through the same worker.
 _COMMANDS.update(_STALE.COMMANDS)
 _REFUSED_WHILE_BUILDING.update(_storage.REFUSED_WHILE_BUILDING)

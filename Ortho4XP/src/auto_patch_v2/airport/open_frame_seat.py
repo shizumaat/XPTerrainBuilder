@@ -33,12 +33,13 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-from .adapted_riders import ADAPTED_SRC
+from .adapted_riders import ADAPTED_SRC, ADAPTED_ZERO_REASON
 
 __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "unit_root",
+           "frame_lifts", "carried_lift",
            "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
-           "GROUP_REASON", "at_zero", "walled_lead",
+           "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "WALLED_SRC",
            "TOUCH_M"]
 
 #: the deck verdicts that make a member an OPEN structure — a deck
@@ -260,6 +261,62 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
             # 2026-10-23e: airside wins)
             airside_out.update(az)
     return out
+
+
+def frame_lifts(plan: _t.Any, plan_wide: _t.Mapping[int, tuple]) -> dict[str, float]:
+    """``unit root -> the authored lift of its DOMINANT frame`` (the plan
+    unit holding most of its parts; ``root_zeros``' reading) for every
+    connected unit whose dominant frame was lifted (``OBJECT_AGL``)."""
+    size: dict[str, dict[str, int]] = {}
+    lift: dict[str, float] = {}
+    frame_of = {p.pid: (str(u.id), float(getattr(u, "agl_m", 0.0) or 0.0))
+                for u in getattr(plan, "units", ()) or () for m in u.members for p in m.parts}
+    for pid, seat in plan_wide.items():
+        if not seat or not seat[0] or pid not in frame_of:
+            continue
+        fid, lf = frame_of[pid]
+        r = unit_root(seat[0])
+        size.setdefault(r, {})[fid] = size.setdefault(r, {}).get(fid, 0) + 1
+        lift[fid] = lf
+    out = {}
+    for r, n in size.items():
+        lf = lift[max(sorted(n), key=lambda f: n[f])]
+        if lf > 0.0:
+            out[r] = lf
+    return out
+
+
+def carried_lift(record: _t.Any, m: _t.Any, lifts: _t.Mapping[str, float]) -> _t.Any:
+    """THE LIFT OF A CARRIED PIECE IS OVER ITS CARRIER'S FRAME (owner sim
+    read KMCI 1.0.480, 2026-11-10T15:47Z, "tiny hanging art floating above
+    the terminal").  A footless lifted piece a §16g unit carries
+    (``footprint_carry.UNIT_CARRY``) is seated on the unit's zero, and a
+    frame with no footed member keeps its row's lift (22b (1)) -- so it
+    stood its own lift over that zero.  Both lifts are one author's offsets
+    over one ground: the piece stands at the carrier's zero plus its lift
+    LESS the carrier frame's (``lifts``, :func:`frame_lifts`), baked, with
+    no lift left on its row.  KMCI: ``Fountain-KCI`` (+5.90) and
+    ``CEILING-DECO`` (+8.40) in the terminal's +8.50 frame stood 5.9 / 8.4
+    m over its 310.70 zero against 308.10 / 310.60."""
+    from .footprint_carry import UNIT_CARRY
+    from .placement_file import named_body
+    out, hit = [], False
+    for b in record.bodies:
+        a = b.anchor
+        lc = lifts.get(unit_root(getattr(b, "merged_into", "") or ""), 0.0)
+        if (not getattr(b, "lift_m", 0.0) or lc <= 0.0 or a.surface_z is None
+                or not str(a.reason).startswith(UNIT_CARRY)):
+            out.append(b)
+            continue
+        zero = float(a.surface_z) - float(a.y_zero) + float(b.lift_m) - lc
+        y0 = float(a.surface_z) - zero
+        off = tuple(a.offset)
+        a2 = _dc.replace(a, y_zero=y0, offset=(off[0], y0, off[2]),
+                         reason=f"{a.reason}; its lift {float(b.lift_m):+.2f} over the "
+                                f"carrier frame's {lc:+.2f} (zero {zero:.2f})")
+        out.append(named_body(m, _dc.replace(b, lift_m=0.0), anchor=a2))
+        hit = True
+    return _dc.replace(record, bodies=tuple(out)) if hit else record
 
 
 #: 22o: "bridges, road decks, etc. that touch or even come within a meter of
@@ -554,7 +611,7 @@ def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,
         return record
     counts["adapted_frame_loose_bodies"] = counts.get("adapted_frame_loose_bodies", 0) + n
     return _at_zero(record, m, zero, take,
-                    f"{GROUP_REASON} on its terrain-adapted member's zero at "
+                    f"{ADAPTED_ZERO_REASON} at "
                     f"{zero:.2f} (#1726, RULINGS 2026-10-22o)")
 
 
@@ -569,4 +626,27 @@ def walled_lead(record: _t.Any, m: _t.Any) -> "float | None":
         a = b.anchor
         if a.surface_z is not None and getattr(a, "datum", False):
             return float(a.surface_z) - float(a.y_zero)
+    return None
+
+
+#: the §16g unit datum source of a unit holding a walled plate
+WALLED_SRC = "walled_plate"
+
+
+def walled_unit_zero(members: _t.Iterable[_t.Any], surface: _t.Any) -> "float | None":
+    """The zero of a §16g unit that holds a RUNWAY-END WALLED PLATE (#1201,
+    #1977): the plate's datum — the median of the surface at its seat
+    stations less its ``plate_y`` (the §16e datum ``anchor_rule.datum_of``
+    states for ``plate_kind == "walled"``) — so the unit's other bodies ride
+    the plate instead of their walls' feet (KCRW 05's overrun deck stood
+    38.6 m over the runway end on its 46 m wall's foot); ``None`` when no
+    member is one or no station reads a surface."""
+    import statistics
+    for m in members:
+        if getattr(m, "plate_kind", "") != "walled" or getattr(m, "plate_y", None) is None:
+            continue
+        zs = [surface(float(q[0]), float(q[1])) for q in (getattr(m, "plate_stations", ()) or ())]
+        zs = [float(z) for z in zs if z is not None]
+        if zs:
+            return statistics.median(zs) - float(m.plate_y)
     return None

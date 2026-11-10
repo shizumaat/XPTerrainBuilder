@@ -289,6 +289,14 @@ pair_overlap_min_fraction = 0.5
 # drawn ground at its open edges (DEM 2 m of slope under a 197 m2 top).
 entrance_skirt_m     = 3.0
 entrance_bank_max_m  = 15.0
+# #1737 (owner 2026-11-02 ENGM "not seated with top flush to apron area"):
+# where airside pavement abuts an entrance face's top plan the face's top is
+# flush with that pavement's SOLVED level -- its floor that level less its
+# height, its zero that level less its top y (``constraints/airside_top``;
+# airside is king, the apron is never pulled to the face).  The reach is the
+# drawn_site "ground outside an edge" figure above: the apron vertices the
+# arrangement leaves along a face's edge stand within it (ENGM Ham3: 0.0-0.5 m).
+entrance_airside_reach_m = 1.5
 
 [cutout]                            # RULINGS 2026-09-06b (1) + 2026-09-08a: every below-grade OBJECT's trench = floor + at-grade rim INSIDE the wall, NO wall band
 # The owner's law: the trench floor slightly OVERLAPS the object's inner
@@ -1513,6 +1521,7 @@ min_area_m2       = 1000.0  # witness 1: the plate bin's near-horizontal face ar
 bin_m             = 0.5     # the plate bin: faces within this of the largest-area level
 min_s_share       = 0.5     # witness 2: the inner edge at s >= this x the safety-area length L ...
 max_s_beyond_m    = 60.0    # ... and s <= L + this (KSEA: 296.3-302.8 m against L 304.8 m)
+pavement_end_reach_m = 15.0 # #1977 paved-end reading: the near edge within this of the runway end + blast pad (KCRW 05: ~30 m into a 54 m pad)
 min_cover         = 0.8     # witnesses 2/3: share of the safety-area width the plate (and its wall) covers
 wall_normal_y_max = 0.3     # witness 3: |n_y| below this is a wall face
 wall_min_height_m = 2.0     # witness 3: the outer wall's depth under the plate (retaining_wall_min_height_m)

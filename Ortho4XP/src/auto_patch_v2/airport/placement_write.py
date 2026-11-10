@@ -157,6 +157,11 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                drape_law: _t.Any = None,
                # #1645: the tile whose DSF this plan writes (``tile_rows``)
                tile: "tuple[int, int] | None" = None,
+               # RULINGS 2026-11-10i (#1977): the graded surface's runway
+               # ends and ``runway_ends.approach_reach_m`` / ``peer_parallel_deg``
+               runway_ends: _t.Sequence = (),
+               approach_reach_m: float = 0.0,
+               approach_heading_deg: float = 0.0,
                ) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
@@ -210,7 +215,9 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,
         pads=pads, jetway_strips=jetway_strips, gate_m=jetway_strip_m,
         keep_tol_m=authored_keep_tol_m, feet_tol_m=split_tol_m,
-        elevated_m=elevated_base_m)
+        elevated_m=elevated_base_m, runway_ends=runway_ends,
+        approach_reach_m=approach_reach_m,
+        approach_heading_deg=approach_heading_deg)
     files = tuple(f for s in ss.splits for f in s.files)
     counts = dict(ss.counts)
     counts.update(counts_extra)
@@ -230,7 +237,10 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
               gate_m: float | None = None,
               keep_tol_m: float = 0.0,
               feet_tol_m: float = 0.3,
-              elevated_m: float = 0.0) -> tuple[tuple, tuple, tuple, dict]:
+              elevated_m: float = 0.0,
+              runway_ends: _t.Sequence = (),
+              approach_reach_m: float = 0.0,
+              approach_heading_deg: float = 0.0) -> tuple[tuple, tuple, tuple, dict]:
     """THE ROW HALF of the plan — ``(conversions, msl seats, riders,
     counts)``: what becomes of every DSF row the SPLIT did not replace.
     ONE implementation, two callers (:func:`build_plan` and
@@ -257,7 +267,11 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
       (:func:`_agl_rows_kept`; 0 disarms);
     * owner answer 48 (#1102): a converted ``OBJECT_MSL`` row is seated
       on its row with its geometry's feet on the surface under them
-      (``msl_feet.feet_seats``) instead of converted."""
+      (``msl_feet.feet_seats``) instead of converted;
+    * owner RULINGS 2026-11-10i (#1977): an origin-built converted set on
+      a runway's extended centreline is seated with its origin at the
+      runway end (``centreline_seat.centreline_seats``; no ``runway_ends``
+      or a 0 reach disarms)."""
     _records = getattr(rebake_plan, "authored_seats", ()) or ()
     conversions, _kept = _dw.conversions_for_dump(
         dump, pack_root, convert_agl=_seat.reseated_rows(_records))
@@ -274,6 +288,10 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     from . import terrain_shaped as _ts
     _split_ix = frozenset(s.placement.index for s in splits)
     terrain = _ts.row_seats(dump, _records, _split_ix)
+    # an adapted lifted row moves only where that changes something (14g (2))
+    _adapted = tuple(m for m in terrain if m.why == _ts.ADAPTED_WHY)
+    terrain = (tuple(m for m in terrain if m.why != _ts.ADAPTED_WHY)
+               + _agl_rows_kept(dump, _adapted, surface, keep_tol_m)[0])
     _terrain_ix = frozenset(m.index for m in terrain)
     settled = (_split_ix | kept_idx | features | landed | _terrain_ix)
     _rows = list(getattr(dump, "placements", ()) or ())
@@ -298,17 +316,28 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     # owner answer 48 (2026-10-20, #1102): a converted OBJECT_MSL row is
     # seated by its geometry's FEET, on its row, not by its origin
     from . import msl_feet as _mf
+    # RULINGS 2026-11-10i (#1977): an approach-light set off a runway end
+    from .centreline_seat import centreline_seats
+    ends_seated, conversions = centreline_seats(
+        dump, conversions, surface, pack_root, runway_ends,
+        reach_m=approach_reach_m, heading_tol_deg=approach_heading_deg,
+        tol_m=feet_tol_m, counts=msl_counts)
     # (``feet_tol_m`` = ``[placement] split_tol_m``, the seat's materiality)
     feet, conversions = _mf.feet_seats(dump, conversions, surface, pack_root,
                                        ss.unit_seats, tol_m=feet_tol_m,
                                        drape_tol_m=tol_m, counts=msl_counts)
-    msl = tuple(msl) + feet + terrain
+    msl = tuple(msl) + ends_seated + feet + terrain
     # owner RULINGS 2026-10-22f (#1214): a lifted row inside a re-seated
     # frame moves with the frame (KMCI's 614 terminal seats)
     from .frame_riders import frame_rider_seats
+    from .adapted_riders import authored_zeros, family_seats
+    _auth = authored_zeros(_records)
     _taken = (settled | frozenset(m.index for m in msl)
               | frozenset(c.index for c in conversions))
-    msl = msl + frame_rider_seats(dump, splits, surface, _taken, msl_counts)
+    # the rest of an adapted row's anchor family stands at its zero too
+    msl = msl + family_seats(dump, _auth, _taken, surface, keep_tol_m)
+    _taken = _taken | frozenset(m.index for m in msl)
+    msl = msl + frame_rider_seats(dump, splits, surface, _taken, msl_counts, _auth)
     # #1252: a stock row the plan never sees, standing on a re-seated
     # OBJECT_MSL frame's deck, moves with that frame instead of converting
     msl, conversions = deck_riders_of_pack(dump, pack_root, splits, msl,

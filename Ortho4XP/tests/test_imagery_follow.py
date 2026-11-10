@@ -477,7 +477,7 @@ def test_landings_over_110_percent_of_the_cap_start_a_sweep(xplane, tmp_path,
 
     def sweep(conn, cap, *, camera=None, in_session=False, now=None,
               abort=None):
-        calls.append((cap, in_session, camera is not None))
+        calls.append((getattr(cap, "cap", cap), in_session, camera is not None))
         return {"ran": True, "downgraded": 0}
 
     monkeypatch.setattr(DOWN, "sweep", sweep)

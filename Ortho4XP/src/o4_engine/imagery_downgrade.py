@@ -18,12 +18,14 @@ it) and its tier JPEG are removed, and one line goes to
 * :func:`_near_camera` -- inside 2 x its tier distance of the camera
   (never downgraded while the sim runs).
 * :func:`_downgrade` -- one row: land its placeholder, free what it held.
-* :func:`sweep` -- the cap: rows in ``lru_order`` (cores last; pins
-  never) until the total is at most 90 % of the cap, skipping squares
-  near the camera and textures landed in the last hour.
+* :func:`sweep` -- the ortho budget (RULINGS 2026-11-10c (2): favorites
+  count): rows in ``lru_order`` (cores next to last, favorites last)
+  until the budget's total (``O4_Imagery_OnDemand_Budget.Budget``: the
+  placeholders and DSFs plus the sharp bytes) is at most 90 % of it,
+  skipping squares near the camera and textures landed in the last hour.
 * :func:`downgrade_all` -- "Make all low-res again" (the Storage row's
-  clear action): every unpinned upgraded row, optionally of one tile or
-  not near since a cutoff.
+  clear action): every upgraded row but the favorites, optionally of one
+  tile or not near since a cutoff.
 """
 from __future__ import annotations
 
@@ -34,11 +36,12 @@ import typing as _t
 
 import O4_DDS_Cache as DDSC
 import O4_Disk_Usage as DISK
+import O4_Imagery_OnDemand_Budget as BUDGET
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Placeholder as PLACEHOLDER
 
 __all__ = ["CAP_SETTING", "DEFAULT_CAP_GB", "HIGH_WATER", "LOW_WATER",
-           "NEAR_FACTOR", "cap_bytes", "downgrade_all", "sweep"]
+           "NEAR_FACTOR", "budget", "cap_bytes", "downgrade_all", "sweep"]
 
 #: The global setting (Settings > Storage; its rows land in P4).
 CAP_SETTING = "imagery_on_demand_cap_gb"
@@ -49,6 +52,12 @@ LOW_WATER = 0.90
 HIGH_WATER = 1.10
 #: A square within this many times its tier distance of the camera stays.
 NEAR_FACTOR = 2.0
+
+
+def budget(conn, raw: "dict | None" = None) -> "BUDGET.Budget":
+    """The ortho budget of the index ``conn``: :func:`cap_bytes`, with the
+    on-demand tiles' placeholders and DSFs fixed in it."""
+    return BUDGET.measure(conn, cap_bytes(raw))
 
 
 def cap_bytes(raw: "dict | None" = None) -> int:
@@ -113,12 +122,14 @@ def _free_cache_entry(row: dict, users: "dict | None") -> int:
 
 
 def _downgrade(conn, row: dict, *, users: "dict | None" = None,
-              reason: str = "on-demand cap") -> "int | None":
+              reason: str = "on-demand cap",
+              favorites: bool = False) -> "int | None":
     """Land ``row``'s placeholder over its upgraded texture and free its
     cache entry and tier JPEG; the bytes freed, or ``None`` (nothing
     changed) when the row has no whole placeholder or the landing was
-    refused.  A pinned row is never downgraded."""
-    if row.get("pinned"):
+    refused.  A favorite (pinned) row goes only with ``favorites`` (the
+    budget sweep's last tier)."""
+    if row.get("pinned") and not favorites:
         return None
     path = INDEX.texture_path(row)
     kept = row.get("placeholder_path")
@@ -139,28 +150,35 @@ def _recent(row: dict, now: float) -> bool:
     return now - float(row.get("fetched_at") or 0.0) < IN_FLIGHT_SECONDS
 
 
-def sweep(conn, cap: int, *, camera=None, in_session: bool = False,
-          now: "float | None" = None,
+def sweep(conn, cap: "int | BUDGET.Budget", *, camera=None,
+          in_session: bool = False, now: "float | None" = None,
           abort: "_t.Callable[[], bool] | None" = None) -> dict:
-    """Hold the cap: when :func:`_should_sweep`, downgrade rows in
-    ``INDEX.lru_order`` until the counted total is at most
-    :data:`LOW_WATER` x ``cap``, skipping squares :func:`_near_camera`
-    and textures landed in the last hour.
+    """Hold the budget: when :func:`_should_sweep`, downgrade rows in
+    ``INDEX.lru_order(favorites=True)`` until the budget's total is at
+    most :data:`LOW_WATER` x its cap, skipping squares
+    :func:`_near_camera` and textures landed in the last hour.  ``cap``
+    is a :class:`O4_Imagery_OnDemand_Budget.Budget` (the engine's
+    callers: ``BUDGET.measure``), or bare bytes with nothing fixed.
 
     :returns: ``{"ran", "downgraded", "freed_bytes", "total_before",
-        "total_after", "cap_bytes", "skipped_near", "skipped_recent"}``
+        "total_after", "cap_bytes", "floor_bytes", "over_at_floor",
+        "skipped_near", "skipped_recent"}``
     """
+    budget = cap if isinstance(cap, BUDGET.Budget) else BUDGET.Budget(int(cap))
+    cap = budget.cap
     now = time.time() if now is None else now
     abort = abort or (lambda: False)
-    total = before = INDEX.capped_bytes(conn)
+    total = before = budget.total(INDEX.capped_bytes(conn))
     out = {"ran": False, "downgraded": 0, "freed_bytes": 0,
            "total_before": before, "cap_bytes": int(cap),
+           "floor_bytes": int(budget.fixed),
+           "over_at_floor": budget.over_at_floor,
            "skipped_near": 0, "skipped_recent": 0}
     if _should_sweep(total, cap, in_session=in_session):
         out["ran"] = True
         users = DDSC.key_users()
         target = cap * LOW_WATER
-        for row in INDEX.lru_order(conn):
+        for row in INDEX.lru_order(conn, favorites=True):
             if total <= target or abort():
                 break
             if _near_camera(row, camera):
@@ -169,12 +187,12 @@ def sweep(conn, cap: int, *, camera=None, in_session: bool = False,
             if _recent(row, now):
                 out["skipped_recent"] += 1
                 continue
-            freed = _downgrade(conn, row, users=users)
+            freed = _downgrade(conn, row, users=users, favorites=True)
             if freed is not None:
                 total -= int(row.get("full_bytes") or 0)
                 out["downgraded"] += 1
                 out["freed_bytes"] += freed
-    out["total_after"] = INDEX.capped_bytes(conn)
+    out["total_after"] = budget.total(INDEX.capped_bytes(conn))
     return out
 
 
@@ -182,7 +200,7 @@ def downgrade_all(conn, *, tile: "str | None" = None, camera=None,
                   not_near_since: "float | None" = None,
                   dry_run: bool = False, reason: str = "made low-res by hand",
                   abort: "_t.Callable[[], bool] | None" = None) -> dict:
-    """Every unpinned upgraded row (of ``tile`` when given; not flown near
+    """Every upgraded row but the favorites (of ``tile`` when given; not flown near
     since ``not_near_since`` when given) back to its placeholder, except
     the squares :func:`_near_camera`.  ``dry_run`` changes nothing and
     answers what would be freed.

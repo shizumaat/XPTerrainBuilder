@@ -22,8 +22,8 @@ import os
 import typing as _t
 
 from . import dsf as _dsf
-from . import dsf_write as _dw
 from . import obj8 as _obj8
+from .backup_state import pristine_dsf_path
 
 __all__ = ["pavement_pages"]
 
@@ -40,7 +40,7 @@ def pavement_pages(pack_root: str, pack_name: str, tile_lat: int, tile_lon: int,
 
     if not (pack_root and pack_name and mod_cache_root):
         return []
-    pack_dsf = _dw.pristine_dsf_path(
+    pack_dsf = pristine_dsf_path(
         _dsf.dsf_path_in_pack(pack_root, tile_lat, tile_lon))
     dump_path = _dsf.find_text_dump(mod_cache_root, pack_name, tile_lat,
                                     tile_lon, dsf_path=pack_dsf)

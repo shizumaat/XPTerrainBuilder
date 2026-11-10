@@ -361,3 +361,19 @@ taxiway, apron, junction 0; graded_strip 16 vertices ≤ 0.083 m. Census (law-tr
 walls, exempted by the census declaration above — 0 on the replay emit with it — and, on the replay
 emit, in-scope `within_shape` +8 / −4 — seven of the new rows on road `small_roads:-6086#3`, now
 under 16R's plate, ≤ 0.3 pp over its cap and hidden by the plate). Dry census of the recognition over the 40 other registered captures: 0 admits.
+
+## Amendment 2026-11-10 (#1977) — the PAVED-END reading
+
+A plate whose near edge stands AT the runway's paved end (the end plus its blast
+pad, within `pavement_end_reach_m`, either side) and covers `min_cover` of the
+RUNWAY's width there is the same structure one step nearer: an overrun deck on a
+retaining structure whose top continues the pavement (KCRW 05: a 104 x 61 m deck,
+its near edge 15 m into the 54 m blast pad, a 46 m side wall).  Witnesses 1 and 3
+hold (the plate's area; steep faces reaching `wall_min_height_m` under it on any
+side); witness 4 is reported, not gated (the wall need not stand across the outer
+end).  `airport/pavement_end_plate.py` reads it and publishes the same
+`WalledPlate`: `plate_y` is the plate's top AT its near edge (the owner: "the
+underside of its shell sits on the runway end flush"), the seat stations stand
+`station_inset_m` inside it, on the pavement, and `inner_s` / `inner` /
+`footprint` start where the plate LEAVES the pavement, so the safety area keeps
+the paved end and no pavement vertex takes the §5 (2) ceiling.

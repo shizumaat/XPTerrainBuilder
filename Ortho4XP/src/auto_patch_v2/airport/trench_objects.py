@@ -344,5 +344,6 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
                               bottom_y=None if cover is None else float(bottom),
                               face_plan=None if cover is None else _face_top(
                                   plan, xy, end_into, 2.0 * tol),
-                              face_top_z=None if cover is None else float(cover)))
+                              face_top_z=None if cover is None else float(cover),
+                              top_plan=None if cover is None else plan))
     return out

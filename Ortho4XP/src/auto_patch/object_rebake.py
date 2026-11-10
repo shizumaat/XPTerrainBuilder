@@ -1959,7 +1959,7 @@ def _restore_v2_writes(pack_root: str, record_paths: list[str]) -> int:
     loses bytes.  Every unlink goes through the one CUT_MARK-guarded
     remover, so an authored object on a ``__b`` name is never touched."""
     from auto_patch_v2.airport import backup_state as _bs
-    from auto_patch_v2.airport import dsf_write as _dw
+    from auto_patch_v2.airport import body_files as _bf
     from auto_patch_v2.airport import pack_health as _ph
     from auto_patch_v2.airport import pack_optimise as _po
 
@@ -1975,8 +1975,8 @@ def _restore_v2_writes(pack_root: str, record_paths: list[str]) -> int:
             # the record names the bodies, so remove them BEFORE the
             # entry that names them is dropped — and the files "Optimise
             # pack" wrote beside the vendor's (#1707)
-            removed += len(_dw.remove_cut_files(
-                _dw.written_body_files(pack_root, dsf_path)))
+            removed += len(_bf.remove_cut_files(
+                _bf.written_body_files(pack_root, dsf_path)))
             removed += len(_po.remove_generated(
                 pack_root, _po.generated_of(entries[basename])))
             # #1978: the health check's repaired object copies

@@ -108,7 +108,8 @@ def parent_packages(src_root: str, name: str,
 
 def closure(src_root: str, entry_modules: _t.Iterable[str],
             prefixes: "_t.Collection[str] | None" = None, *,
-            packages: bool = False) -> tuple[str, ...]:
+            packages: bool = False,
+            stop: _t.Collection[str] = ()) -> tuple[str, ...]:
     """The static import closure of ``entry_modules`` under ``src_root``
     (:func:`imports_of`, followed to a fixed point), entries included,
     sorted.  A package appears as its own name (its ``__init__``).
@@ -121,7 +122,12 @@ def closure(src_root: str, entry_modules: _t.Iterable[str],
     loads is not code the module calls, and following every parent would
     key each constraint generator on all of them — or when ``packages``
     is set: then what every parent ``__init__`` imports is followed as
-    Python loads it (the patch gate's one whole digest, #880)."""
+    Python loads it (the patch gate's one whole digest, #880).
+
+    ``stop``: modules that are in the closure when reached but whose own
+    imports are NOT followed — the entry of a unit the walked one hands
+    its work to, which has a key of its own (#1901, ``O4_Step_Code.
+    HANDED_OFF``)."""
     seen: set[str] = set()
     parents: set[str] = set()
     stack = list(entry_modules)
@@ -129,7 +135,8 @@ def closure(src_root: str, entry_modules: _t.Iterable[str],
         name = stack.pop()
         if name not in seen:
             seen.add(name)
-            stack.extend(imports_of(src_root, name, prefixes))
+            if name not in stop:
+                stack.extend(imports_of(src_root, name, prefixes))
             ups = parent_packages(src_root, name, prefixes)
             if packages:
                 stack.extend(ups)

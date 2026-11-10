@@ -37,6 +37,9 @@ _EXEMPT_LAUNCHES = {
         "spawn_kwargs is the caller's; O4_OSM_Extracts (its one src caller) passes the helper",
     "Unused/O4_Forest.py:build_forest":
         "dead code under src/Unused — imported by nothing",
+    "O4_World_Pack.py:_dsftool":
+        "stdlib-only by design (it runs from a world-pack kit copy without "
+        "O4_UI_Utils); a dev tool, macOS/Linux, never the app's build path",
     "Unused/Earth_Orbit_Textures.py:<module>":
         "dead code under src/Unused — imported by nothing",
 }

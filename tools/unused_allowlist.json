@@ -163,5 +163,310 @@
   "path": "Ortho4XP/src/O4_Imagery_OnDemand_Index.py",
   "name": "get",
   "reason": "on-demand index API of the follow job (#1992 P3b): one row by (tile, name)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "relayout_tile",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "swap_in",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "placeholder_text",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "dsftool_path",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "ini_remove",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "rewrite_dsf_text",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "rewrite_ter",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Rebuild_Cache.py",
+  "name": "legacy_entries",
+  "reason": "migration step of rebuild_migrate (reached by tools/rebuild_migrate.py and the storage command), twinned directly in tests/test_rebuild_cache.py"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Rebuild_Cache.py",
+  "name": "migrate_folder",
+  "reason": "migration step of rebuild_migrate (reached by tools/rebuild_migrate.py and the storage command), twinned directly in tests/test_rebuild_cache.py"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Rebuild_Cache.py",
+  "name": "migrate_tile",
+  "reason": "migration step of rebuild_migrate (reached by tools/rebuild_migrate.py and the storage command), twinned directly in tests/test_rebuild_cache.py"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
+  "name": "core_wants",
+  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
+  "name": "fetch_cores",
+  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
+  "name": "register_built",
+  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
+  "name": "start",
+  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape.py",
+  "name": "default_dds_name",
+  "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape.py",
+  "name": "drape_dsf_text",
+  "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape.py",
+  "name": "is_drape",
+  "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape.py",
+  "name": "pol_text",
+  "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape_Fetch.py",
+  "name": "fetch",
+  "reason": "entry point: `python src/O4_World_Drape_Fetch.py` (the drape kit's imagery fetch, run as a script from the world-pack kit); main calls fetch"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape_Fetch.py",
+  "name": "main",
+  "reason": "entry point: `python src/O4_World_Drape_Fetch.py` (the drape kit's imagery fetch, run as a script from the world-pack kit); main calls fetch"
+ },
+ {
+  "path": "Ortho4XP/src/O4_App_Modes.py",
+  "name": "flight_loaded",
+  "reason": "public type/helper of a flight-manager / World / lane module used inside it and named in its docstring contract; kept public for the next phase's caller (spec flight-manager-and-world-20261110 §16)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Plan.py",
+  "name": "Waypoint",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Plan.py",
+  "name": "parse_simbrief_json",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "Facts",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "Item",
+  "reason": "public type/helper of a flight-manager / World / lane module used inside it and named in its docstring contract; kept public for the next phase's caller (spec flight-manager-and-world-20261110 §16)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "Job",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "countdown",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "feasible",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "finish_times",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "job_estimate",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "klass_for",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "margin_s",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "next_job",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "readiness_items",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "rescale",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "route_times",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "shed_order",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Flight_Schedule.py",
+  "name": "tile_deadlines",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Window.py",
+  "name": "WindowTracker",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Window.py",
+  "name": "load_box",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Window.py",
+  "name": "plausible_columns",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Window.py",
+  "name": "plausible_rows",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Window.py",
+  "name": "route_entries",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Window.py",
+  "name": "window_tiles",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_XPlane_Log.py",
+  "name": "DsfLoad",
+  "reason": "public type/helper of a flight-manager / World / lane module used inside it and named in its docstring contract; kept public for the next phase's caller (spec flight-manager-and-world-20261110 §16)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_XPlane_Log.py",
+  "name": "parse_dsf_load",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_XPlane_Log.py",
+  "name": "parse_started",
+  "reason": "public type/helper of a flight-manager / World / lane module used inside it and named in its docstring contract; kept public for the next phase's caller (spec flight-manager-and-world-20261110 §16)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/centreline_seat.py",
+  "name": "on_extended_centreline",
+  "reason": "new public helper of a merged lane (batch 10) used by its module and its twin; kept public as the module's documented reading"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/direct_cog.py",
+  "name": "cog_sources",
+  "reason": "new public helper of a merged lane (batch 10) used by its module and its twin; kept public as the module's documented reading"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_commands.py",
+  "name": "flight_plan_read",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_commands.py",
+  "name": "flight_plans_list",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_commands.py",
+  "name": "plan_wire",
+  "reason": "public type/helper of a flight-manager / World / lane module used inside it and named in its docstring contract; kept public for the next phase's caller (spec flight-manager-and-world-20261110 §16)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_record.py",
+  "name": "FlightRecord",
+  "reason": "public type/helper of a flight-manager / World / lane module used inside it and named in its docstring contract; kept public for the next phase's caller (spec flight-manager-and-world-20261110 §16)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_record.py",
+  "name": "TileRow",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_record.py",
+  "name": "active_flight",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_record.py",
+  "name": "flight_id",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_record.py",
+  "name": "flights_dir",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_record.py",
+  "name": "from_plan",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_record.py",
+  "name": "list_flights",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_record.py",
+  "name": "load",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_record.py",
+  "name": "save",
+  "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
  }
 ]

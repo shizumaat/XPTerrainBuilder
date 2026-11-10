@@ -20,4 +20,7 @@ enum PrefKeys {
     /// The map's first-visit hint was dismissed (#828) — the Qt prefs
     /// key's string (`MapGuidance.hintDismissedKey`).
     static let mapHintDismissed = MapGuidance.hintDismissedKey
+    /// The last app mode, Build · Fly · Library (RULINGS 2026-11-10j);
+    /// the Qt prefs key is `app_mode` (`O4_App_Modes.PREF_KEY`).
+    static let appMode = "AppMode"
 }

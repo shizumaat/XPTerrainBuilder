@@ -32,6 +32,15 @@ public enum O4Glossary {
         "grading_airports": "Grading airports",
         "terrain_steps": "Map data, ground shape and water",
         "imagery_detail": "Imagery detail",
+        "favorite": "Favorite",
+        "disk_budget": "How much disk space may XPTerrainBuilder use (GB)?",
+        "installed_tiles": "Installed ortho tiles",
+        "ondemand_region": "On demand in {region}?",
+        "mode_build": "Build",
+        "mode_fly": "Fly",
+        "mode_library": "Library",
+        "live_flight_preview": "Live flight preview",
+        "xplane_own_scenery": "X-Plane's own scenery",
     ]
 
     /// Engine step key (wire `step_key`, legacy driver step) -> plain name.

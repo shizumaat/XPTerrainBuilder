@@ -16,8 +16,8 @@ import hashlib
 import json
 
 from . import apt_dat as _apt
-from . import dsf_write as _dw
 from . import pack as _pack
+from .backup_state import pristine_dsf_path
 from .file_hash import sha256_file
 
 __all__ = ["NO_APT_DAT", "digest", "pack_signature"]
@@ -45,7 +45,7 @@ def pack_signature(root: str, icao: str, lat: int, lon: int,
         return {"pack": "", "custom": False, "signature": NO_APT_DAT}
     block = _apt.read_airport_block(sel.apt_dat_path, icao) or []
     sig = _pack.signature(sel, block, lat, lon)
-    pristine = [_dw.pristine_dsf_path(p) for p in sig.dsf_paths]
+    pristine = [pristine_dsf_path(p) for p in sig.dsf_paths]
     if files is not None:
         files.extend([sel.apt_dat_path, sel.borrowed_apt_dat_path or ""] + pristine)
     return {"pack": sel.name, "custom": bool(sel.custom),

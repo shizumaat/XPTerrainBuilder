@@ -19,6 +19,13 @@ and the list omits (a STALE HIT after an edit there), and on the reverse.
 The top-level ``O4_*`` modules the stage reaches are not keyed — the same
 rule ``stage_code`` follows (#842, there for the spec author to rule).
 
+Since #1901 this key is also what the MESH STEP defers to: the mesh
+step's own key (``O4_Step_Code.HANDED_OFF``) leaves out every module it
+reaches only through the stage and this list covers, and its record
+holds this digest; a reused mesh under a changed one has the stage run
+over it (``O4_Step_Reuse.object_stage_stale``).  The ``O4_*`` modules
+this list leaves out stay in the mesh step's key.
+
 STDLIB ONLY, NO RELATIVE IMPORT: the specs execute this file with
 ``runpy`` (they never import engine packages); the shared mechanism
 (``O4_Code_Closure.py`` beside this file) is then loaded by path.
@@ -133,10 +140,12 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.backup_state",
     "auto_patch_v2.airport.basin_ring",
     "auto_patch_v2.airport.basin_witness",
+    "auto_patch_v2.airport.body_files",
     "auto_patch_v2.airport.borrow",
     "auto_patch_v2.airport.bridge_approach",
     "auto_patch_v2.airport.bridge_family",
     "auto_patch_v2.airport.bulk_geos",
+    "auto_patch_v2.airport.centreline_seat",
     "auto_patch_v2.airport.cifp",
     "auto_patch_v2.airport.cluster_profile",
     "auto_patch_v2.airport.contact",
@@ -148,8 +157,10 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.dem_witness",
     "auto_patch_v2.airport.dsf",
     "auto_patch_v2.airport.dsf_commands",
+    "auto_patch_v2.airport.dsf_dump",
     "auto_patch_v2.airport.dsf_dump_key",
     "auto_patch_v2.airport.dsf_heights",
+    "auto_patch_v2.airport.dsf_rows",
     "auto_patch_v2.airport.dsf_write",
     "auto_patch_v2.airport.entrance_seat",
     "auto_patch_v2.airport.extension_cache",
@@ -211,6 +222,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.pad_level_group",
     "auto_patch_v2.airport.partition_cache",
     "auto_patch_v2.airport.partition_code",
+    "auto_patch_v2.airport.pavement_end_plate",
     "auto_patch_v2.airport.placement_atom",
     "auto_patch_v2.airport.placement_body",
     "auto_patch_v2.airport.placement_boxes",

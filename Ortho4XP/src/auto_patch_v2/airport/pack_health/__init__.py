@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import typing as _t
 
-from ..pack_optimise import generated_of as _po_generated_of
+# the package, not its names: ``pack_optimise`` imports this package's
+# ``light_records`` while it is still initialising (#1901)
+from .. import pack_optimise as _po
 from . import objects as _ob
 from . import stacked_polygons as _sp
 
@@ -106,7 +108,7 @@ def recorded(entry: _t.Mapping[str, _t.Any] | None,
 
 def generated_of(entry: _t.Mapping[str, _t.Any] | None) -> list[str]:
     """The copies a DSF's record says the last write named."""
-    return _po_generated_of(entry, RECORD_KEY)
+    return _po.generated_of(entry, RECORD_KEY)
 
 
 def count(row: _t.Mapping[str, _t.Any] | None) -> int:

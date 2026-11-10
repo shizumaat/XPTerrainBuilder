@@ -13,6 +13,7 @@ import O4_Elevation_Level as ELEVATION_LEVEL
 import O4_Object_Stage as OBJECT_STAGE
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
+import O4_Rebuild_Cache as REBUILD
 import O4_Text_Files as TEXT
 import O4_Geo_Utils as GEO
 import O4_Mesh_IO as MESH_IO
@@ -1274,7 +1275,7 @@ def _levelled_road_lines(tile, scalx):
     import json
     from shapely import geometry
 
-    path = os.path.join(tile.build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)
+    path = FNAMES.levelled_roads_file(tile.build_dir, tile.lat, tile.lon)
     if not os.path.exists(path):
         return ([], 0.0)
     try:
@@ -2567,6 +2568,7 @@ def build_mesh(tile):
         + " : \n--------\n",
     )
     UI.progress_bar(1, 0)
+    REBUILD.claim(tile)             # rebuild data: RULINGS 2026-11-10d
     poly_file = FNAMES.input_poly_file(tile)
     node_file = FNAMES.input_node_file(tile)
     alt_file = FNAMES.alt_file(tile)

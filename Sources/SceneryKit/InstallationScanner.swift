@@ -467,7 +467,11 @@ public struct InstallationScanner {
             hash.combine(values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0)
             hash.combine(Double(values?.fileSize ?? 0))
             stats.record(size: values?.fileSize, modified: values?.contentModificationDate)
-            if isDSF {
+            // A World-pack placeholder is NOT a tile (World spec §18): it
+            // would read the whole region as built. Small files only are
+            // read; the engine's scan (`O4_Custom_Scenery.pack_tiles`)
+            // applies the same rule.
+            if isDSF, !O4WorldPack.isPlaceholder(file, size: values?.fileSize) {
                 tiles.insert(file.deletingPathExtension().lastPathComponent)
                 if sample == nil { sample = file }
             }
@@ -488,9 +492,7 @@ public struct InstallationScanner {
         var names: [String] = []
         let imageSuffixes = [".dds", ".png", ".jpg", ".jpeg"]
         for folder in ["terrain", "textures"] {
-            guard let entries = try? fm.contentsOfDirectory(
-                atPath: packURL.appendingPathComponent(folder).path) else { continue }
-            for name in entries.prefix(500) {
+            for name in probeNames(packURL.appendingPathComponent(folder)) {
                 names.append(name)
                 let lower = name.lowercased()
                 if lower.hasSuffix(".ter") { terCount += 1 }
@@ -502,6 +504,25 @@ public struct InstallationScanner {
         // elevation mesh has hundreds of .ter sharing a handful of textures.
         let photoTextured = imageCount >= 20 || (imageCount >= 5 && imageCount >= terCount)
         return (terCount > 0, photoTextured, PackImagery.fromFileNames(names))
+    }
+
+    /// Up to 500 names of `folder`; a pack laid out per tile (the World
+    /// pack: `terrain/<tile>/`, `textures/<tile>/`) is read through its
+    /// tile subfolders. The engine's `O4_Custom_Scenery._probe_names` twin.
+    func probeNames(_ folder: URL) -> [String] {
+        guard let entries = try? fm.contentsOfDirectory(atPath: folder.path) else { return [] }
+        var out: [String] = []
+        for name in entries.prefix(500) {
+            if TileMath.parse(name) != nil {
+                let inner = (try? fm.contentsOfDirectory(
+                    atPath: folder.appendingPathComponent(name).path)) ?? []
+                out.append(contentsOf: inner.prefix(500 - out.count))
+            } else {
+                out.append(name)
+            }
+            if out.count >= 500 { break }
+        }
+        return out
     }
 
     /// The pack folder's symlink target as an absolute, standardized URL —

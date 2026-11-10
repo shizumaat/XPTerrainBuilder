@@ -417,6 +417,7 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
     lines: list[str] = []
     out = lines.append
     report: dict[str, _t.Any] = {}
+    from ..airport.centreline_seat import runway_ends_ll
     from .publication import jetway_strips_ll
     _strip_records = jetway_strips_ll(pm, airport, strips,
                                       design_rep.jetway_strip)
@@ -428,7 +429,10 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
                            "runway_cap_yield": yield_records,
                            # jetway-strip spec §4 (C17): the object
                            # stage seats the riders off this
-                           "jetway_strips": _strip_records})
+                           "jetway_strips": _strip_records,
+                           # RULINGS 2026-11-10i (#1977): the object stage
+                           # seats approach-light sets at these ends
+                           "runway_ends": runway_ends_ll(airport)})
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=design_rep.jetway_strip,
                       hard_conflict=hard_conflict,
@@ -594,7 +598,7 @@ def _rebake(icao: str, pm, law: Law, surf, airport, objects_out, patch: PatchFil
         return None
     t = time.perf_counter()
     _pulse.tick("the object re-bake screen")
-    _plan_args = _rebake_inputs(pm, law, surf, airport)
+    _plan_args = _rebake_inputs(pm, law, surf, airport, objects_out[0])
     # the patch bodies the screen is keyed on, from the RENDERED bodies
     # (``rebake_screen.patch_body_sha256`` of the files once written)
     bodies = [hashlib.sha256(f.body.encode("utf-8")).hexdigest()

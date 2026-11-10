@@ -87,10 +87,6 @@ struct BuildPane: View {
                                 buildModel.answerSlowStep(step, choice: choice)
                             }
                         }
-                        // Imagery on demand (#1992 §7; the Qt window's
-                        // FollowStatusLine): while the switch is on or
-                        // the follow job runs.
-                        ImageryFollowLine(model: buildModel.imageryFollow)
                         box("Selection") { selectionBox }
                         box("Build") { buildBox }
                         PatchInspector(model: buildModel.patchEdit)
@@ -266,9 +262,10 @@ struct BuildPane: View {
                     await buildModel.updateImagery(active)
                 }
             }
-            if let info, info.pinApplies {
-                // Imagery on demand (#1992 §7; the Qt pane: the same).
-                TilePinRow(pinned: info.pinned == true) { pinned in
+            if let info, !info.builtElsewhere {
+                // Favorite (#1992 §7, RULINGS 2026-11-10c (1); the Qt pane:
+                // the same): on every built tile, switchable when on demand.
+                TilePinRow(pinned: info.pinned == true, applies: info.pinApplies) { pinned in
                     await buildModel.setImageryPinned(active, pinned)
                 }
             }
@@ -538,12 +535,16 @@ struct BuildPane: View {
                     }
                 }
             }
-            Divider()
-            Text("When it's done")
-                .scaledFont(.caption, weight: .semibold)
-                .foregroundStyle(.secondary)
-            Toggle("Install in X-Plane automatically", isOn: boolBinding(\.linkTiles))
-            Toggle("Skip tiles already built", isOn: boolBinding(\.skipBuilt))
+            // RULINGS 2026-11-10e (1): hidden under imagery on demand,
+            // where both behave as on (BuildModel+OnDemandBuild).
+            if !buildModel.onDemandBuilds {
+                Divider()
+                Text("When it's done")
+                    .scaledFont(.caption, weight: .semibold)
+                    .foregroundStyle(.secondary)
+                Toggle("Install in X-Plane automatically", isOn: boolBinding(\.linkTiles))
+                Toggle("Skip tiles already built", isOn: boolBinding(\.skipBuilt))
+            }
             DisclosureGroup("Advanced", isExpanded: $showingAdvanced) {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle(O4Glossary.term("terrain_steps"), isOn: boolBinding(\.doVector))
@@ -1018,7 +1019,11 @@ struct BuildPane: View {
         }
         if inRun > 0 { text += " · \(inRun) in current run" }
         let skipped = count - todo - inRun
-        if skipped > 0 { text += " · \(skipped) already built (skipped)" }
+        if skipped > 0 {
+            text += buildModel.onDemandBuilds
+                ? " · \(skipped) already built (skipped; \(BuildModel.onDemandRebuildHint))"
+                : " · \(skipped) already built (skipped)"
+        }
         return text
     }
 

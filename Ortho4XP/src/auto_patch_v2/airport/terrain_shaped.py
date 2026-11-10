@@ -58,7 +58,7 @@ __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
            "placement_fits", "fit", "grid_of_triangles", "dem_many_of",
            "grid_of_resource", "seat_records", "log_line", "row_seats",
            "PORTAL_SEAT", "ENTRANCE_SEAT", "OBJECT_FLOOR_SEAT", "HIDDEN_SEAT",
-           "FRAME_SEAT", "frame_zeros", "portal_seat_records"]
+           "FRAME_SEAT", "ADAPTED_SEAT", "ADAPTED_WHY", "frame_zeros", "portal_seat_records"]
 
 MIN_AREA_M2 = 20_000.0
 MIN_RELIEF_M = 5.0
@@ -86,8 +86,13 @@ HIDDEN_SEAT = "hidden shell"
 #: record's ``elevation`` (the frame's zero) and its deck pieces flush with
 #: what they carry (``placement_plan``, :func:`frame_zeros`)
 FRAME_SEAT = "object floor frame"
+#: a lifted row the terrain adapted to, at the zero its cut was read for
+#: (``airport/adapted_riders.seat_records``; owner sim read KMCI 1.0.480)
+ADAPTED_SEAT = "adapted row"
+#: the ``MslSeat.why`` of an :data:`ADAPTED_SEAT` row (14g (2) filters it)
+ADAPTED_WHY = "adapted_row"
 _WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
-        OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden"}
+        OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden", ADAPTED_SEAT: ADAPTED_WHY}
 
 
 def _deck_grid(g: _t.Any) -> "DeckGrid | None":
@@ -269,19 +274,24 @@ def log_line(icao: str, decks: _t.Sequence[TerrainFit]) -> str:
         f"{f.area_m2:,.0f} m2, relief {f.relief_m:.1f} m" for f in decks)
 
 
-def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None) -> list[dict[str, _t.Any]]:
+def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None,
+                        zeros: "_t.Mapping[str, float] | None" = None) -> list[dict[str, _t.Any]]:
     """One record per roofed portal seated at its mouth's pinned floor
     (``Tunnel.portal_seat``) -- the row :func:`row_seats` writes there --
     and per ENTRANCE face (#1747; ``to_ll`` the frame's xy -> (lat, lon)):
     seat :data:`ENTRANCE_SEAT`, its ``end`` ``[lat, lon]``, the elevation its
-    zero, which ``airport/entrance_seat`` lays on the face's own body."""
+    zero, which ``airport/entrance_seat`` lays on the face's own body.
+    ``zeros`` (tunnel id -> zero, #1737 ``constraints/airside_top``): an
+    entrance face whose top meets the airside takes its zero off the solved
+    surface instead of the planar seat."""
     out = []
     for tn in structures:
         ps = getattr(tn, "portal_seat", ())
         if not ps or not tn.portal:
             continue
+        zero = (zeros or {}).get(getattr(tn, "id", ""), float(ps[1]))
         rec = {"id": tn.portal, "resource": ps[0], "datum": "portal",
-               "seat": PORTAL_SEAT, "elevation": round(float(ps[1]), 3)}
+               "seat": PORTAL_SEAT, "elevation": round(float(zero), 3)}
         if len(ps) > 2:
             if to_ll is None:
                 continue

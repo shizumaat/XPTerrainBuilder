@@ -28,6 +28,7 @@ from __future__ import annotations
 import typing as _t
 
 from ..model.placement import KIND_AGL, KIND_MSL
+from .adapted_riders import ADAPTED_ZERO_REASON
 from .basin_ring import REASON_RIM as _REASON_RIM
 
 __all__ = ["is_sink", "body_lift", "authored_zero", "body_zero",
@@ -54,12 +55,14 @@ def body_lift(row: _t.Any, anchor: _t.Any = None, *,
     (its seat is the law's, "§18 walls/pits stay as they are"), and for a
     body whose anchor puts its zero at a height the LAW states — a §16e
     DATUM (a crest plate, a deck top) or a basin RIM (§14: "the object's
-    zero is the rim").  And 0 for a SINK (:func:`is_sink`)."""
+    zero is the rim"), or a loose piece hung on a terrain-adapted frame's
+    zero (``adapted_riders.ADAPTED_ZERO_REASON``).  And 0 for a SINK
+    (:func:`is_sink`)."""
     if getattr(row, "kind", "OBJECT") != KIND_AGL or reseated or is_sink(row):
         return 0.0
     if anchor is not None and (getattr(anchor, "datum", False)
                                or str(getattr(anchor, "reason", "")).startswith(
-                                   _REASON_RIM)):
+                                   (_REASON_RIM, ADAPTED_ZERO_REASON))):
         return 0.0
     return float(getattr(row, "elevation", 0.0) or 0.0)
 

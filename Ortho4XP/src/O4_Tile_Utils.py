@@ -9,6 +9,7 @@ import O4_UI_Utils as UI
 import O4_DDS_Encode as ENC
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
+import O4_Rebuild_Cache as REBUILD
 import O4_Imagery_Utils as IMG
 import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Vector_Map as VMAP
@@ -385,6 +386,7 @@ def build_tile(tile):
         + " : \n--------\n",
     )
 
+    REBUILD.claim(tile)             # rebuild data: RULINGS 2026-11-10d
     if not os.path.isfile(FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)):
         UI.lvprint(
             0, "ERROR: A mesh file must first be constructed for the tile!"

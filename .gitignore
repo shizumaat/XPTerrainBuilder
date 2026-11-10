@@ -40,3 +40,4 @@ Ortho4XP/.corpus_snapshot_mounts.json
 # Lane-ritual mounts and engine run output (never tracked; batch AD swept two symlinks in)
 Ortho4XP/DDS_cache
 Ortho4XP/logs
+Ortho4XP/Imagery_on_demand

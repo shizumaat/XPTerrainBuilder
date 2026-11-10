@@ -24,7 +24,7 @@ def drop_set(lines: _t.Sequence[str], params: _t.Mapping[str, float],
              ) -> tuple[set[int], dict[str, int]]:
     """The duplicate ordinals to delete from the dump ``lines``, and
     ``{"dropped": n, "groups": g}``."""
-    from ..dsf_write import duplicate_rows  # dsf_write imports this package
+    from ..dsf_rows import duplicate_rows
     groups = duplicate_rows(
         lines, tol_m=float(params.get("tol_m", DEFAULTS["tol_m"])),
         tol_deg=float(params.get("tol_deg", DEFAULTS["tol_deg"])),

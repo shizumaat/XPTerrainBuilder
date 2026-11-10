@@ -42,6 +42,7 @@ import O4_DDS_Cache as DDSCACHE
 import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
 import O4_File_Names as FNAMES
+import O4_Imagery_Regions as REGIONS
 
 __all__ = ["ALLOWED_DROPS", "DEFAULT_DROP", "STORE_DIR", "drop", "forget",
            "jpeg_dir", "jpeg_name", "keep", "kept_path", "land_kept",
@@ -61,9 +62,12 @@ _TILES_PER_TEXTURE = 16
 
 def drop(tile) -> int:
     """Zoom levels below its own each texture of ``tile`` is fetched at:
-    0 for a normal build, else the tile's ``placeholder_zl_drop`` (an
-    unknown value reads as the default)."""
+    0 for a normal build or a tile outside the regions on demand is on
+    for (RULINGS 2026-11-10e (3)), else the tile's ``placeholder_zl_drop``
+    (an unknown value reads as the default)."""
     if not getattr(tile, "imagery_on_demand", False):
+        return 0
+    if not REGIONS.tile_on_demand(tile):
         return 0
     if getattr(tile, "texture_mode", "full_ortho") == "default_xplane":
         return 0

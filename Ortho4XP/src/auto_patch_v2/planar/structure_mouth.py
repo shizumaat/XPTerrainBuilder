@@ -751,14 +751,34 @@ def face_top_z(airport, law: Law, members, mouth, mouth_dem: float) -> float:
     """The ground a BARE pack portal face's top is flush with (owner RULINGS
     2026-10-26p Q168): the ground beside the cover at its mouth
     (``planar/covered_ground.ground_beside``, #714 — a bare-earth DEM
-    carries the road under the lid), else the DEM there."""
-    from .covered_ground import _sections, ground_beside
+    carries the road under the lid), else the DEM there.  The ground beside
+    is read off the RUN of consecutive stations nearest the mouth
+    (``covered_ground.section_runs``, #1996), and only where that run
+    reaches the mouth: a cut read a kilometre down the bore is not this
+    mouth's cover."""
+    from .covered_ground import ground_beside
     zs = []
     for m in members:
         bore = getattr(m, "bore", None)
-        secs = _sections(airport.dem, bore, law) if bore is not None and airport.dem is not None \
-            else []
-        z = ground_beside(mouth, bore.line, secs) if secs else None
+        run = _run_at(airport.dem, bore, law, mouth) \
+            if bore is not None and airport.dem is not None else None
+        z = ground_beside(mouth, bore.line, run) if run else None
         if z is not None:
             zs.append(z)
     return max([mouth_dem, *zs])
+
+
+def _run_at(dem, bore, law: Law, mouth):
+    """The bore's run of cut stations (``covered_ground.section_runs``)
+    nearest ``mouth`` along the bore, if the mouth stands within one
+    dropped station (``2 x`` the station spacing) of its ends; else None."""
+    from .covered_ground import _STATION_M, _sections, section_runs
+    p = mouth if isinstance(mouth, Point) else Point(mouth)
+    s = bore.line.project(p)
+    reach = 2.0 * _STATION_M
+    best, gap = None, math.inf
+    for run in section_runs(_sections(dem, bore, law)):
+        d = max(run[0].s - s, s - run[-1].s, 0.0)
+        if d <= reach and d < gap:
+            best, gap = run, d
+    return best

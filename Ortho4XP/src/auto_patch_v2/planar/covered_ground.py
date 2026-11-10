@@ -32,6 +32,12 @@ the MOUTH DEPTH (``Tunnel.mouth_depth_m``, 7.5 m: the least a real road
 floor stands under the surface over it) reads no cut: where the DEM already stands
 over the cover (a DSM, a true bored tunnel, lidar that kept the lid)
 nothing moves, so an airport whose DEM sees the cover reads as before.
+A STATION THAT READS NO CUT IS NOT COVERED GROUND (#1996): the sections
+are read in runs of consecutive stations (:func:`section_runs`), and
+neither a footprint nor the ground beside it ever spans a gap of more than
+one dropped station — at EFHK the Ring Rail bores (~7.7 km, layer −3) read
+a cut at a few stations only, and the interpolation across 3.4 km of bore
+between them had lifted runway 15/33 and the terminal up to 14.9 m.
 
 ONE derivation site (RULINGS 2026-08-30l): ``planar/build`` writes the
 lifted value into ``Vertex.dem_z`` beside the tunnel ramps' own targets
@@ -74,12 +80,14 @@ from shapely.prepared import prep
 from shapely.strtree import STRtree
 
 from ..airport.dem import dem_z_many
+from ..geom.station_runs import section_runs as _station_runs
 from ..law import Law
 from .structure_approach import (Bore, carriageway_width_m, chains, is_tunnel,
                                  standing_cover)
 from .structure_service import airside_cut_roles
 
-__all__ = ["CoveredGround", "covered_ground", "covered_cuts", "ground_beside"]
+__all__ = ["CoveredGround", "covered_ground", "covered_cuts", "ground_beside",
+           "section_runs"]
 
 #: the across-axis sampling step of a cut's section (metres)
 _STEP_M = 1.0
@@ -219,6 +227,14 @@ def _sections(dem, bore: Bore, law: Law) -> list[_Section]:
     return out
 
 
+def section_runs(secs: _t.Sequence, station_m: float = _STATION_M) -> list[list]:
+    """A bore's sections in RUNS OF CONSECUTIVE STATIONS (#1996,
+    ``geom/station_runs``): a station that reads no cut is not covered
+    ground, and neither a footprint (:func:`_ribbon`) nor the ground beside
+    it (:func:`_ground_at`) ever spans more than one dropped station."""
+    return _station_runs(secs, station_m)
+
+
 def _ribbon(secs: list[_Section]):
     """The plan polygon a bore's sections span (rim to rim)."""
     if len(secs) < 2:
@@ -344,10 +360,26 @@ def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None, 
     return out
 
 
+def _bore_id(b: Bore) -> str:
+    return "+".join(str(w.id) for w in b.ways)
+
+
+def _cover_runs(br, cuts) -> set[int]:
+    """The runs (indices into ``cuts``) an edge bridge's cover joins: its
+    bores' runs whose ribbon meets the cover, else the nearest one — never
+    a run of the same bore a kilometre down the line (#1996)."""
+    mine = [k for k, (b, _s, _r) in enumerate(cuts) if _bore_id(b) in br.bores]
+    hit = {k for k in mine if cuts[k][2].intersects(br.cover)}
+    if hit or not mine:
+        return hit
+    return {min(mine, key=lambda k: cuts[k][2].distance(br.cover))}
+
+
 def covered_cuts(airport, classification, law: Law, decks: _t.Sequence = ()):
     """``(cuts, pav)``: every mapped bore under airside pavement whose DEM
-    reads a cut the mouth depth deep — ``(bore, sections, ribbon)``, the
-    ribbon rim to rim and NOT yet clipped — and the airside pavement union
+    reads a cut the mouth depth deep — ``(bore, sections, ribbon)`` PER RUN
+    of consecutive stations (:func:`section_runs`, #1996: a bore may give
+    several), the ribbon rim to rim and NOT yet clipped — and the airside pavement union
     (grown by the identity tolerance) they are clipped to; ``([], None)``
     where there is none.  The edge bridges (``planar/bridge_span``) and
     :func:`covered_ground` read the same cuts."""
@@ -363,10 +395,10 @@ def covered_cuts(airport, classification, law: Law, decks: _t.Sequence = ()):
     served = _served(chains(ways), airside, float(tn.terrain_cover_min_m), decks)
     cuts = []
     for b in served:
-        secs = _sections(dem, b, law)
-        rib = _ribbon(secs)
-        if rib is not None:
-            cuts.append((b, secs, rib))
+        for run in section_runs(_sections(dem, b, law)):
+            rib = _ribbon(run)
+            if rib is not None:
+                cuts.append((b, run, rib))
     if not cuts:
         return [], None
     return cuts, unary_union(airside).buffer(_PAVEMENT_TOL_M)
@@ -395,12 +427,14 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
     # 2026-10-28d Q212) is covered ground over every bore it edges, inside
     # the ribbon or not
     covers = unary_union([br.cover for br in bridges]) if bridges else None
-    ribs = {"+".join(str(w.id) for w in b.ways): rib for b, _secs, rib in cuts}
+    ribs: dict[str, _t.Any] = {}
+    for b, _secs, rib in cuts:
+        bid = _bore_id(b)
+        ribs[bid] = rib if bid not in ribs else unary_union([ribs[bid], rib])
     region = []
     paved = []
-    for b, secs, rib in cuts:
-        bid = "+".join(str(w.id) for w in b.ways)
-        own = [br.cover for br in bridges if bid in br.bores]
+    for k, (b, secs, rib) in enumerate(cuts):
+        own = [br.cover for br in bridges if k in _cover_runs(br, cuts)]
         under = rib.intersection(pav)
         region.append((b, secs, unary_union([under, *own])))
         if not under.is_empty:
@@ -412,7 +446,7 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
     rep.area_m2 = float(fp.area)
     rep.rings = [[(round(x, 2), round(y, 2)) for x, y in g.exterior.coords]
                  for g in getattr(fp, "geoms", [fp]) if g.geom_type == "Polygon"]
-    rep.bores = ["+".join(str(w.id) for w in b.ways) for b, *_r in cuts]
+    rep.bores = list(dict.fromkeys(_bore_id(b) for b, *_r in cuts))
     rep.mouth_walls = _mouth_walls(paved, pav, objects, float(tn.mouth_depth_m), bridges,
                                    covers, ribs)
     out = np.array(zs, dtype=float, copy=True)

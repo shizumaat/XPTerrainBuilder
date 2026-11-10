@@ -421,3 +421,16 @@ def test_a_reapplying_write_keeps_the_records_version(real_pack):
     B.invalidate_memo()
     _doc, row = _forest_row(rp)
     assert row["version"] == PF.UPGRADE_VERSION
+
+
+def test_an_empty_library_index_judges_nothing(monkeypatch, tmp_path):
+    """#1924: with an EMPTY library index (a pack copy outside the install)
+    no rename resolves, so the check says nothing — it never re-applies
+    the old record or stamps it with today's UPGRADE_VERSION."""
+    from auto_patch import agp_reader as AGP
+    from auto_patch import object_stage as OS
+    pd = types.SimpleNamespace(xroot=str(tmp_path), dump_path="",
+                               pristine="", dsf_path="", pack_name="P")
+    monkeypatch.setattr(OS, "pack_dump", lambda *a, **k: pd)
+    monkeypatch.setattr(AGP, "get_library_index", lambda root: {})
+    assert FS.check(str(tmp_path), 1, 2, read_only=False) is None

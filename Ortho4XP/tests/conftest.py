@@ -465,6 +465,35 @@ def _no_test_window_writes_the_engine_stderr_log_into_the_tree(
     yield
 
 
+@pytest.fixture(autouse=True)
+def _storage_log_never_reaches_the_shared_corpus(
+        monkeypatch, tmp_path_factory):
+    """``logs/storage.log`` is written only under this run's tmp tree (#1881).
+
+    ``o4_engine.storage`` logs every deletion to ``<data root>/logs``; in a
+    lane worktree ``logs`` is the MOUNTED shared corpus, so a test that
+    left the data root at the cwd wrote ``pytest-of-*`` paths into the
+    shared ``storage.log``.  The rule is general: a logs folder that does
+    not resolve inside pytest's base temp is swapped for a scratch one.
+    """
+    try:  # imported here: a test may import it lazily after setup
+        from o4_engine import storage
+    except ImportError:
+        storage = None
+    if storage is not None:
+        real_dir = storage._logs_dir
+        base = os.path.realpath(str(tmp_path_factory.getbasetemp()))
+
+        def scratch_dir():
+            path = real_dir()
+            if os.path.realpath(path).startswith(base + os.sep):
+                return path
+            return os.path.join(base, "storage-log-scratch", "logs")
+
+        monkeypatch.setattr(storage, "_logs_dir", scratch_dir)
+    yield
+
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SRC = os.path.normpath(os.path.join(_HERE, "..", "src"))
 if _SRC not in sys.path:

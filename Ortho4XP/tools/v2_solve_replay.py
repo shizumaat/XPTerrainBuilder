@@ -2059,7 +2059,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                    sites: list[tuple[float, float]] | None = None,
                    pad_read_only: bool = False, shape_dump: Path | None = None,
                    rim_diagnostics: bool = False, late: dict | None = None,
-                   gap_free: bool = False) -> dict:
+                   gap_free: bool = False, rule: dict | None = None) -> dict:
     """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
     the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
     it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
@@ -2243,7 +2243,12 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         print(f"[{icao}] clusters re-derived under the current tree: "
               f"{len(airport.clusters)} ({time.perf_counter() - _ct:.0f} s) {dict(_WHY)}")
         _ct = time.perf_counter()
-        cl = _classify(airport, law, _load_rules(), cache=_ocache)
+        # ``--rule`` arms the re-run CLASSIFY stage too (a classify law key
+        # as the one variable of a ``--from classify`` matched pair)
+        _crules = _rules_override(_load_rules(), rule) if rule else _load_rules()
+        if rule:
+            print(f"[{icao}] REPLAY ARM [rules] {rule}")
+        cl = _classify(airport, law, _crules, cache=_ocache)
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
         # RULINGS 2026-10-30e (#1686): the build's missed-pavement reading
@@ -2485,7 +2490,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            why_hard_stage: int | None = None,
            placement: dict | None = None,
            late_from: Path | None = None, gap_free: bool = False,
-           null_change: int | None = None) -> int:
+           null_change: int | None = None, rule: dict | None = None) -> int:
     import numpy as np
     from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps
@@ -2505,7 +2510,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         del _base
     prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
                           placement=placement, sites=sites, late=_late,
-                          gap_free=gap_free)
+                          gap_free=gap_free, rule=rule)
     if late_from is not None and _base_hold:
         # the last stage re-mints the HELD registry: the base solve's hold
         # report is carried over it, as ``pipeline/build`` does — without it
@@ -2990,7 +2995,9 @@ def main() -> int:
                          "of the capture, so a matched pair on one is two captures "
                          "\u2014 this makes the arm one command-line variable instead "
                          "of an edit to the shipped toml; e.g. "
-                         "--rule corridor.runway_shoulder_band=false")
+                         "--rule corridor.runway_shoulder_band=false.  With "
+                         "--replay --from classify it arms the re-run classify "
+                         "stage (e.g. --rule corridor.taxi_shoulder=false)")
     ap.add_argument("--stage-cache", action="store_true",
                     help="with --capture: serve the front-half stages (classify, planar, "
                          "flat_site, road_profile, shapes) from the v2 stage cache and "
@@ -3282,7 +3289,8 @@ def main() -> int:
                       chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard,
                       why_hard_stage=a.why_hard_stage, placement=pl,
                       late_from=a.late_from, gap_free=a.gap_free,
-                      null_change=a.null_change)
+                      null_change=a.null_change,
+                      rule=dict(it.split("=", 1) for it in a.rule) or None)
     ap.error("one of --capture / --replay")
     return 2
 

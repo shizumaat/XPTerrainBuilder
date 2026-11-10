@@ -213,7 +213,19 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # service road, so the 399 m2 apron gap piece beside it (30.1268, 31.4092)
     # is a groundside piece (gap:37, 273 m2) cut as one part more —
     # (94, 34, 60, 9) before.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (95, 34, 60, 9)
+    # RE-RECORDED (#1900, owner RULINGS 2026-11-10l): ``dsf:objpav99``'s neck
+    # beside route18 is a service road, so a new groundside piece stands
+    # beside it (gap:19, 1,035 m2 at 30.1266, 31.4092) — every other piece
+    # is unchanged.  It is cut once and merges 11 stations into its main
+    # group: read against this frame's BASE solve, which still carries the
+    # taxi E zone1 strip the neck used to mint (184.6 m2 knife-dropped) —
+    # (95, 34, 60, 9) before.
+    # RE-RECORDED (owner RULINGS 2026-11-10m): the narrow strips along taxi E
+    # join it as its shoulders, and the road gap piece beside them at
+    # 30.1273, 31.4108 shrinks 1,253 -> 975 m2 — one part and three merged
+    # stations fewer; knives and the knife-dropped area unchanged —
+    # (96, 35, 71, 194) before.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (95, 35, 68, 194)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)

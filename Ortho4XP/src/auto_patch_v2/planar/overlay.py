@@ -458,6 +458,12 @@ def build_arrangement(airport: Airport, classification: Classification,
         base_regions, _plateau = plateau_cut(base_regions, pad_regions, law,
                                              airport, float(grid), reg=reg)
         _pad_clip.update(_plateau)
+        # owner RULINGS 2026-11-10a (2) (#1950): a lot at a retaining wall's
+        # foot steps down from the held pad it meets at a declared KERB
+        # (``planar/foot_kerb``), cut out of the lot here
+        from .foot_kerb import foot_kerbs
+        base_regions, pad_regions = foot_kerbs(base_regions, pad_regions, airport, law,
+                                               float(grid), reg, _pad_clip)
 
     def _ring_lines_of(rs) -> list[LineString]:
         out: list[LineString] = []

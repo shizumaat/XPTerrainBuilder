@@ -93,8 +93,9 @@ from ..law.tables import (
 )
 from ..model.airport import Airport
 from ..model.frame import rotated_rectangle
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, is_bank_ref
 from ..model.platform import fill_levels, held_levels
+from .foot_lot import lots_at_foot
 from .road_descent import STAND_M, climb, descend
 
 __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
@@ -1719,6 +1720,15 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
     ltree = STRtree([lot_f[i] for i in lot_ids]) if lot_ids else None
     ptree = STRtree([pad_f[i] for i in pad_ids]) if pad_ids else None
     air_or_pad = up_v | {v for i in pad_ids for v in pm.ring_vertices(pm.faces[i].ring)}
+    all_foot: dict[int, float] = {}
+    for w in walls:
+        all_foot.update(lots_at_foot(w, lot_f))
+    # a vertex a pad also carries is the pad's: the lot steps down from it
+    # (owner RULINGS 2026-11-10a (2), the kerb ``planar/foot_kerb``)
+    at_foot = {v for i in all_foot for v in _face_vertices(pm, i)}
+    pad_v = {v for v in at_foot if any(pm.faces[q].role in pad_roles
+                                       and not is_bank_ref(pm.faces[q].ref)
+                                       for q in pm.vertices[v].incident_faces)}
     for k, w in enumerate(walls):
         # THE WALL IS ITS OWN FOOTPRINT, never a chord of it: a pack wall
         # bends (HECA ``metal_strip_2.obj`` comp 117: one 262 m piece fills
@@ -1790,9 +1800,12 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         # #1952 (R5): a lot at the foot of a wall whose low side the pack's
         # sheets name is flat at that foot, never at a building's level
         # (its vertices stay LOWER: the rows across the wall are released)
-        foot_lots = lots_at_foot(pm, w, {i: lot_f[i] for i in lots})
-        lots = [i for i in lots if i not in foot_lots]
-        at_foot = {v for i in foot_lots for v in _face_vertices(pm, i)}
+        # A FOOT LOT IS AT THE FOOT FOR EVERY WALL (2026-11-10a (2)): no
+        # other wall's lot->pad pair lifts it to a building's level (MEASURED
+        # KMCI: ``dsf:objpav405``, at ``wallslat.obj``'s foot too, followed
+        # ``building26/b1`` to 304.86 m over a 299.82 m foot)
+        foot_lots = lots_at_foot(w, {i: lot_f[i] for i in lots})
+        lots = [i for i in lots if i not in all_foot]
         pairs: list[tuple[int, int]] = []
         for lv in lower:
             if lv in at_foot:
@@ -1820,7 +1833,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   "upper": upper, "lower": lower,
                   "lots": lots, "pairs": pairs,
                   "foot_lots": {v: z for i, z in sorted(foot_lots.items())
-                                for v in _face_vertices(pm, i)}}
+                                for v in _face_vertices(pm, i) if v not in pad_v}}
     return out
 
 
@@ -1830,32 +1843,6 @@ def _face_vertices(pm: PlanarMap, fid: int) -> list[int]:
     return list(dict.fromkeys([*pm.ring_vertices(f.ring),
                                *(v for h in getattr(f, "holes", ()) or ()
                                  for v in pm.ring_vertices(h))]))
-
-
-def lots_at_foot(pm: PlanarMap, wall: WallPiece, lots: _t.Mapping[int, _t.Any]
-                 ) -> dict[int, float]:
-    """#1952 (R5; owner RULINGS 2026-11-09a (5)/(14)): THE LOT AT THE FOOT
-    IS FLAT AT THE FOOT — ``{lot face: level}`` for every lot page of
-    ``lots`` (``{face id: polygon}``) overlapping the LOWER band of a wall
-    whose low side the pack's sheets name (``WallPiece.low_side ==
-    "sheets"``): the wall's foot (``foot_profile``) at the station of the
-    lot's nearest point on the lower face, one level across the page.
-    Empty for any other wall (a DEM-witnessed wall's lot keeps its
-    building's level, 10-03c)."""
-    band, face = getattr(wall, "lower_band", None), getattr(wall, "lower_face", None)
-    st = [t for t in (getattr(wall, "foot_profile", None) or ()) if t[1] is not None]
-    if wall.low_side != "sheets" or band is None or band.is_empty or face is None or not st:
-        return {}
-    import numpy as np
-    from shapely.ops import nearest_points
-    a = np.asarray(st, float)
-    out = {}
-    for fid, g in lots.items():
-        if g.intersection(band).area <= 0.0:
-            continue
-        q = nearest_points(g, face)[1]
-        out[int(fid)] = float(np.interp(face.project(q), a[:, 0], a[:, 1]))
-    return out
 
 
 def gate_merged(spans: _t.Sequence[tuple[float, float, float]],

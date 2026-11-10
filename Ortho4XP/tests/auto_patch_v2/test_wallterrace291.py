@@ -397,7 +397,8 @@ def test_a_lot_at_a_sheet_walls_foot_is_flat_at_the_foot():
     page; a lot clear of the band, and any lot of a DEM-witnessed wall
     (10-03c: its building's level), take none."""
     from shapely.geometry import LineString
-    from auto_patch_v2.airport.road_ramp import WallPiece, lots_at_foot
+    from auto_patch_v2.airport.foot_lot import lots_at_foot
+    from auto_patch_v2.airport.road_ramp import WallPiece
     from auto_patch_v2.constraints.road_ramp import WALL_FOOT_RULING, wall_terrace_rows
     from auto_patch_v2.model.constraints import Band
     face = LineString([(300.0, 505.15), (500.0, 505.15)])
@@ -406,8 +407,8 @@ def test_a_lot_at_a_sheet_walls_foot_is_flat_at_the_foot():
     wall = WallPiece(WALL, 3.81, "skirt.obj#comp0", True, False, None, None,
                      face, foot, band, "sheets")
     lots = {7: box(320.0, 506.0, 360.0, 540.0), 8: box(320.0, 560.0, 360.0, 600.0)}
-    assert lots_at_foot(None, wall, lots) == {7: pytest.approx(299.8)}
-    assert lots_at_foot(None, wall._replace(low_side="dem"), lots) == {}
+    assert lots_at_foot(wall, lots) == {7: pytest.approx(299.8)}
+    assert lots_at_foot(wall._replace(low_side="dem"), lots) == {}
     planar = types.SimpleNamespace(road_terrace={"wall": {0: {
         "label": "skirt.obj#comp0", "foot_lots": {11: 299.8, 12: 299.8}}}})
     rows = [r for r in wall_terrace_rows(planar, None, None) if isinstance(r, Band)]

@@ -1,5 +1,7 @@
 """THE FILL'S RISERS AS DECLARED WALLS (owner RULINGS 2026-10-20d, 2026-10-27i;
-spec ``docs/specs/fill-step-at-road-kerb-spec.md`` §2 (4)-(5)).
+spec ``docs/specs/fill-step-at-road-kerb-spec.md`` §2 (4)-(5)) -- and a held
+pad's KERBS over a lot at a wall's foot (``planar/foot_kerb``, owner RULINGS
+2026-11-10a (2)), recorded the same way on the pad's held record.
 
 A pad fill that runs to its road mints its RISERS at the road's far kerb
 (``planar/fill_riser``, at the landing's derivation site): each a strip
@@ -30,7 +32,7 @@ from shapely.geometry import LineString, MultiLineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..law import Law
-from ..model.planar import STRIP_SUFFIX, PlanarMap
+from ..model.planar import KERB_SUFFIX, STRIP_SUFFIX, PlanarMap
 
 __all__ = ["riser_walls", "LABEL_PREFIX"]
 
@@ -59,6 +61,11 @@ def riser_walls(pm: PlanarMap, law: Law, counts: dict | None = None
     risers (module docstring)."""
     lands = getattr(pm.registries, "landings", None) or {}
     recs = {ref: rec["risers"] for ref, rec in lands.items() if rec.get("risers")}
+    # a HELD PAD's kerbs over a foot lot (``planar/foot_kerb``, owner
+    # RULINGS 2026-11-10a (2)): faces ``<pad>#kerb#strip``, the same record
+    held = getattr(pm.registries, "held", None) or {}
+    recs.update({f"{ref}{KERB_SUFFIX}": rec["kerbs"] for ref, rec in held.items()
+                 if rec.get("kerbs")})
     out: list[dict[str, _t.Any]] = []
     if not recs:
         if counts is not None:

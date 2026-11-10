@@ -17,8 +17,8 @@ row (``O4_Imagery_OnDemand_Index``) and a tier (1, 2, 3 =
   rules R1-R3).  A full tier goes into ``DDS_cache``; 1024/2048 tiers go
   nowhere else.
 
-It returns the facts the index records and raises :class:`LandFailed`
-when nothing whole of that tier landed.  The tile objects are read once
+It returns the facts the index records and raises ``RuntimeError`` when
+nothing whole of that tier landed (the job counts it as a failure).  The tile objects are read once
 per build folder (``O4_Config_Utils.Tile.read_from_config``).
 """
 from __future__ import annotations
@@ -32,10 +32,6 @@ import O4_Disk_Usage as DISK
 from O4_Imagery_Tier_Plan import TIER_WIDTH
 
 __all__ = ["TierLander"]
-
-
-class LandFailed(RuntimeError):
-    """No whole file of the asked tier landed."""
 
 
 def texture_corner(name: str) -> tuple[int, int]:
@@ -86,7 +82,7 @@ class TierLander:
         attrs = (til_x, til_y, int(row["zl"]), row["provider"])
         drop = _drop(tier)
         if not IMG.build_jpeg_ortho(tile, *attrs, drop=drop):
-            raise LandFailed(f"{row['name']}: the {width} px imagery did "
+            raise RuntimeError(f"{row['name']}: the {width} px imagery did "
                              "not download")
         IMG.convert_texture(tile, *attrs, drop=drop)
         jpeg = os.path.join(*IMG._source_jpeg_location(tile, *attrs,
@@ -102,7 +98,7 @@ def _tile_latlon(tile: str) -> tuple[int, int]:
 def _facts(final: str, width: int, jpeg, key, network: bool) -> dict:
     header = TIERS.texture_header(final)
     if header is None or header[0] != width or not DDS.is_whole(final):
-        raise LandFailed(f"{os.path.basename(final)}: no whole {width} px "
+        raise RuntimeError(f"{os.path.basename(final)}: no whole {width} px "
                          "file landed")
     return {"tier_px": width, "full_bytes": DISK.freeable_bytes(final),
             "jpeg_path": jpeg, "dds_cache_key": key, "network": network}

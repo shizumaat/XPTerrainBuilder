@@ -569,3 +569,21 @@ def test_the_lander_lands_a_tier_and_reports_its_facts(tier_build,
     facts = lander(row, 1)
     assert facts["tier_px"] == 1024 and facts["network"]
     assert facts["full_bytes"] > 0 and facts["jpeg_path"].endswith(".jpg")
+
+
+# --- the Terminal shell (tools/imagery_follow.py) --------------------------
+
+
+def test_the_terminal_shell_names_tiles_and_prints_a_status_line():
+    import importlib.util
+    path = Path(__file__).resolve().parent.parent / "tools" / "imagery_follow.py"
+    spec = importlib.util.spec_from_file_location("imagery_follow_tool", path)
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    assert tool.tile_of("/x/zOrtho4XP_+60-136") == (60, -136)
+    assert tool.tile_of("/x/custom", "-05+012") == (-5, 12)
+    with pytest.raises(SystemExit):
+        tool.tile_of("/x/custom")
+    text = tool.line(ImageryFollowStatus(state="paused", reason="Offline",
+                                         slots=2, buffer_s=-1.0))
+    assert "paused" in text and "buffer     -" in text and "(Offline)" in text

@@ -772,6 +772,14 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         notes.append(f"runway shoulder: {face.area:,.0f} m2 sharing "
                      f"{shared:,.1f} m with runway {rw.id} (§40 (1))")
 
+    # ── RULINGS 2026-11-10m: a strip along a taxiway is its SHOULDER ──
+    # one shape with the taxiway, stopping at every junction — before §27,
+    # so the strip is never flipped on its own (``taxi_shoulder``)
+    from .taxi_shoulder import join_taxi_shoulders
+    stats.update(join_taxi_shoulders(
+        final, TAXI_FAMILY, [ln for ln, _c in taxi_parts], rules,
+        lambda f: _holds_startup(f, start_tree)))
+
     # ── §27: an airside edge makes a lot (and a road) airside ──────
     # (a contact across a unit's own storey is none, owner answer 47 #1099:
     # the lot is cut back along it, ``storey_edge``)

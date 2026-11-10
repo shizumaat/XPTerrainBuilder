@@ -220,7 +220,12 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # group: read against this frame's BASE solve, which still carries the
     # taxi E zone1 strip the neck used to mint (184.6 m2 knife-dropped) —
     # (95, 34, 60, 9) before.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (96, 35, 71, 194)
+    # RE-RECORDED (owner RULINGS 2026-11-10m): the narrow strips along taxi E
+    # join it as its shoulders, and the road gap piece beside them at
+    # 30.1273, 31.4108 shrinks 1,253 -> 975 m2 — one part and three merged
+    # stations fewer; knives and the knife-dropped area unchanged —
+    # (96, 35, 71, 194) before.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (95, 35, 68, 194)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)

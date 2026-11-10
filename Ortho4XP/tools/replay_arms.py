@@ -47,11 +47,12 @@ _ARRANGE = tuple(f"{m}/{s}" for m in ("replay", "pad-read", "stage1-dump")
 
 #: flag -> (contexts it takes effect in, why it is inert everywhere else)
 EFFECT: dict[str, tuple[tuple[str, ...], str]] = {
-    "--rule": (("capture", "reclassify"),
+    "--rule": (("capture", "reclassify", "replay/classify"),
                "a classify/rules.toml key is read upstream of the capture, "
                "which HOLDS the classification and the flat site derived "
-               "from it; a matched pair is two --capture arms, or the dry "
-               "--reclassify read"),
+               "from it; a matched pair is two --capture arms, the dry "
+               "--reclassify read, or two --replay --from classify arms "
+               "(which re-run classify; lane lshoulder, RULINGS 2026-11-10m)"),
     "--placement": (("capture", *_ARRANGE),
                     "a [placement] key is read at classify / planar; a "
                     "later resume or a solved pickle re-uses the captured "

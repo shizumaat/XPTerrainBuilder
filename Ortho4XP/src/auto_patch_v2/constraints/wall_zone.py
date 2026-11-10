@@ -92,6 +92,9 @@ class RetainingLine(_t.NamedTuple):
     #: who witnessed the low side's ground (``airport/wall_sides``
     #: ``low_side``): ``"sheets"`` when the pack's own sheets name its foot
     low_side: str = ""
+    #: the wall's LOWER band (``WallSides.lower``), ``None`` when the record
+    #: carries none
+    lower_band: _t.Any = None
 
 
 def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
@@ -115,8 +118,19 @@ def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
                                  else None,
                                  None if not r.get("foot_profile")
                                  else tuple(map(tuple, r["foot_profile"])),
-                                 str(r.get("low_side") or "")))
+                                 str(r.get("low_side") or ""),
+                                 _band(r.get("lower_band"))))
     return out
+
+
+def _band(rings) -> _t.Any:
+    """The record's lower band (its parts' exterior rings), ``None`` when
+    it carries none."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    parts = [Polygon(c) for c in (rings or ()) if len(c) >= 4]
+    parts = [g if g.is_valid else g.buffer(0.0) for g in parts]
+    return unary_union(parts) if parts else None
 
 
 def _foot_xy(r: Linear, xy: _t.Mapping[int, tuple[float, float]], g: int
@@ -289,10 +303,13 @@ def face_foot(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> flo
     elsewhere.
 
     A WALL WHOSE FOOT THE PACK NAMES (``low_side == "sheets"``, #1952) is
-    flat at its foot across its whole lower band: within its ``smear`` of
-    the lower face, not only :data:`TOP_FACE_M` (MEASURED KMCI
-    ``Trimsheet-16.obj#2``: 43 outer-ring vertices of the foot strip
-    drifted to the old DEM, 299.17-301.07 m over a 299.82 m foot)."""
+    flat at its foot across its whole lower band (``lower_band``, within
+    the identity grid's half metre; its ``smear`` of the lower face where
+    the record carries no band), not only :data:`TOP_FACE_M` (MEASURED
+    KMCI ``Trimsheet-16.obj#2``: 43 outer-ring vertices of the foot strip
+    drifted to the old DEM, 299.17-301.07 m over a 299.82 m foot; held to
+    ``smear`` alone, 20 stayed off it -- the band's mitred corners stand
+    3.83-4.34 m off the face of a 3.81 m wall)."""
     import numpy as np
     from shapely.geometry import Point
     p = Point(xy)
@@ -302,8 +319,13 @@ def face_foot(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> flo
         d = w.lower_face.distance(p)
         other = (w.upper_face.distance(p) if w.upper_face is not None
                  else w.poly.exterior.distance(p))
-        lim = w.smear if w.low_side == "sheets" else TOP_FACE_M
-        if d <= lim and d <= other + 1e-6:
+        if w.low_side != "sheets":
+            on = d <= TOP_FACE_M
+        elif w.lower_band is not None:
+            on = w.lower_band.distance(p) <= 0.5
+        else:
+            on = d <= w.smear
+        if on and d <= other + 1e-6:
             s_ = w.lower_face.project(p)
             st = [t for t in w.foot_profile if t[1] is not None]
             near = min(w.foot_profile, key=lambda t: abs(t[0] - s_))

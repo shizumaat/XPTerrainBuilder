@@ -201,9 +201,17 @@ def test_a_sheet_walls_foot_strip_is_flat_at_the_foot_across_its_band():
     unheld = sheets._replace(foot_profile=((0.0, None), (face.length, None)))
     assert WZ.face_foot([unheld], (75.0, 0.0)) is None
     assert WZ.face_foot([sheets._replace(low_side="")], (75.0, 0.0)) is None
-    (read,) = WZ.retaining_lines({0: {"retains": True, "height_m": 5.0, "low_side": "sheets",
-                                      "line": list(WALL.exterior.coords)}})
-    assert read.low_side == "sheets"
+    # its band, mitred past the smear at a bend, is its foot strip: read
+    # off the band itself (KMCI: outer ring 3.83-4.34 m off a 3.81 m face)
+    banded = sheets._replace(lower_band=box(65.0, -100.0, 85.4, 100.0))
+    assert WZ.face_foot([banded], (85.3, 0.0)) == 289.5
+    assert WZ.face_foot([sheets], (85.3, 0.0)) is None       # smear alone
+    assert WZ.face_foot([banded], (86.0, 0.0)) is None
+    (read,) = WZ.retaining_lines({0: {
+        "retains": True, "height_m": 5.0, "low_side": "sheets",
+        "line": list(WALL.exterior.coords),
+        "lower_band": [list(box(65.0, -100.0, 85.4, 100.0).exterior.coords)]}})
+    assert read.low_side == "sheets" and abs(read.lower_band.area - 20.4 * 200.0) < 1e-6
 
 
 def test_the_foot_strip_is_the_lower_band_no_region_holds():

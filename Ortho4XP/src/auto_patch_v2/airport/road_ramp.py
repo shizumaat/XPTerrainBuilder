@@ -79,6 +79,7 @@ import math
 import typing as _t
 
 from ..geom import exact
+from ..geom.parts import nonempty_polygon_parts
 from ..law import Law
 from ..law.reference_code import ref_status
 from ..law.tables import (
@@ -1882,6 +1883,9 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                                    else [tuple(t) for t in w.foot_profile]),
                   "upper": upper, "lower": lower,
                   "low_side": str(getattr(w, "low_side", "") or ""),
+                  "lower_band": [[tuple(c) for c in q.exterior.coords]
+                                 for q in nonempty_polygon_parts(w.lower_band)]
+                  if getattr(w, "lower_band", None) is not None else None,
                   "lots": lots, "pairs": pairs,
                   "foot_lots": {v: z for i, z in sorted(foot_lots.items())
                                 for v in _face_vertices(pm, i) if v not in pad_v}}

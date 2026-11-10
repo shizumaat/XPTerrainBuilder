@@ -94,6 +94,18 @@ LIBRARY_PANE = (
     ("patch_library", "PatchLibrarySection()", "patch_box"),
 )
 
+#: Fly mode's map layers, bottom to top (key, Swift marker in
+#: FlyMapOverlay.swift, Qt marker in O4_Qt_Fly_Layer.py): "Live flight
+#: preview"'s installed imagery (#2001) lies under the corridor, the route,
+#: the track and the aircraft in both maps.
+FLY_MAP_LAYERS = (
+    ("live_preview", "drawPreview(cam", "self.preview.paint("),
+    ("corridor", "for cell in model.cells", "self._pane.cells()"),
+    ("route", "stroke(model.drawing", "FP.route_drawing("),
+    ("track", "stroke(model.track.parts", "track.parts()"),
+    ("aircraft", "drawAircraft(cam.point", "self._aircraft("),
+)
+
 #: The Build box's controls, top to bottom: (key, Swift label, Qt attribute).
 #: A Swift label is a ``Toggle``/``Picker`` title literal or its glossary
 #: term.  The Detail level (#1242) and the per-tile texture and elevation
@@ -795,3 +807,15 @@ def test_qt_offers_fly_and_never_switches(window, monkeypatch):
     assert window.mode() == "fly" and not window.fly_offer.isVisible()
     assert QTMODES.ModeSwitch("library").mode() == "library"
     assert QTMODES.ModeSwitch("nonsense").mode() == "build"
+
+
+def test_both_fly_maps_stack_the_layers_alike():
+    """The manifest's layers, in drawing order, in both apps (#2001)."""
+    swift = (SWIFT / "FlyMapOverlay.swift").read_text(encoding="utf-8")
+    swift = swift[swift.index("Canvas {"):]
+    qt = (Path(GUI.__file__).with_name("O4_Qt_Fly_Layer.py")
+          .read_text(encoding="utf-8"))
+    qt = qt[qt.index("def paint("):]
+    for source, column in ((swift, 1), (qt, 2)):
+        marks = [source.find(row[column]) for row in FLY_MAP_LAYERS]
+        assert -1 not in marks and marks == sorted(marks), (column, marks)

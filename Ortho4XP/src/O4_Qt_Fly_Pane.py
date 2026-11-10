@@ -7,7 +7,8 @@ top to bottom: name a flight (X-Plane's saved FMS plans, SimBrief, a plan
 file, a departure + arrival), the flight card, "Also build the alternate"
 (off, 10g), cruise speed and corridor, the readiness checklist and
 countdown, the World pack and follow lines, "While flying", "Live flight
-preview" (#2001; the imagery drawing is a stub), Divert… and End flight.
+preview" (#2001; the map's ``O4_Qt_Live_Preview`` draws it), Divert… and
+End flight.
 
 Words and rules: :mod:`O4_Fly_Text`, :mod:`O4_Fly_Layers`.  Engine
 commands go through ``run(name, **arguments)`` (the window's command
@@ -139,7 +140,7 @@ class FlyPane(QWidget):
                                       self.sim_priority_combo.currentData()))
         layout.addWidget(self.sim_priority_combo)
         self.chk_live_preview = QCheckBox(TEXT.LIVE_PREVIEW)
-        self.chk_live_preview.setToolTip(TEXT.LIVE_PREVIEW_STUB)
+        self.chk_live_preview.setToolTip(TEXT.LIVE_PREVIEW_HELP)
         self.chk_live_preview.setChecked(bool(self.prefs.get(PREF_LIVE_PREVIEW)))
         self.chk_live_preview.toggled.connect(
             lambda on: self._remember(PREF_LIVE_PREVIEW, bool(on)))

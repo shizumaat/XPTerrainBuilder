@@ -181,6 +181,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
     from .flight_commands import flight_plan_handlers
+    from .live_preview_commands import live_preview_handlers
     from .imagery_commands import (
         imagery_freshness_discard,
         ondemand_handlers,
@@ -403,6 +404,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # aircraft_watch {on} replies {"watching": bool}; AircraftPosition
         # events follow once a second while it is on.
         **aircraft_watch_handlers(session._emit),
+        # The map's "Live flight preview" (#2001, capability live_preview):
+        # live_preview_squares (the installed texture squares of a
+        # viewport, capped by zoom) and live_preview_mip (one square's
+        # small mip, base64), both synchronous file reads.
+        **live_preview_handlers(),
     }
 
 

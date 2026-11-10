@@ -41,10 +41,15 @@ final class FlyModel: ObservableObject {
     @Published var simPriority: String {
         didSet { UserDefaults.standard.set(simPriority, forKey: Self.simPriorityKey) }
     }
-    /// #2001's checkbox; the imagery drawing is a stub (lane U2 report).
+    /// #2001's checkbox: the map draws each square's installed imagery
+    /// (`preview`) while Fly shows.
     @Published var livePreview: Bool {
-        didSet { UserDefaults.standard.set(livePreview, forKey: Self.livePreviewKey) }
+        didSet {
+            UserDefaults.standard.set(livePreview, forKey: Self.livePreviewKey)
+            preview.setEnabled(watching && livePreview)
+        }
     }
+    let preview = LivePreviewModel()
     @Published private(set) var status: O4FlightStatus?
     @Published private(set) var worldStatus: O4JSON?
     @Published private(set) var track = AircraftTrack()
@@ -64,6 +69,11 @@ final class FlyModel: ObservableObject {
         let defaults = UserDefaults.standard
         simPriority = defaults.string(forKey: Self.simPriorityKey) ?? "balanced"
         livePreview = defaults.bool(forKey: Self.livePreviewKey)
+        preview.context = { [weak build] in
+            guard let build, build.engineCapabilities.supports(O4EngineCapabilities.livePreview),
+                  let context = build.libraryContext() else { return nil }
+            return (context.client, context.sceneryDir)
+        }
     }
 
     // MARK: - The map's layers
@@ -94,6 +104,7 @@ final class FlyModel: ObservableObject {
     func setWatching(_ on: Bool) {
         guard on != watching, let context = build?.libraryContext() else { return }
         watching = on
+        preview.setEnabled(on && livePreview)
         context.client.aircraftWatch(on: on)
         if on { refreshPlans() }
     }

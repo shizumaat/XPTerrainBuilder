@@ -21,6 +21,10 @@ cut) left a short file there, and the next build's "already on disk" test
   OrthoStudio XP's ``textures/dds.py`` (see the notice above
   :func:`full_mip_count`) and sized by the same :func:`expected_size` that
   :func:`is_whole` reads.
+* :func:`read_level` reads ONE mip level (the header, a seek, that
+  level's blocks): the map's "Live flight preview" (#2001) shows a
+  square's installed texture from its 256 px level without reading the
+  rest of the file.
 
 Standard library only.
 """
@@ -35,8 +39,8 @@ import O4_Held_File as HELD
 
 __all__ = ["BLOCK_FORMATS", "HEADER_BYTES", "assemble", "build_header",
            "expected_size", "full_mip_count", "is_partial_name", "is_whole",
-           "land", "level_size", "mip_dims", "partial_name", "split_levels",
-           "sweep_partials"]
+           "land", "level_offset", "level_size", "mip_dims", "parse_header",
+           "partial_name", "read_level", "split_levels", "sweep_partials"]
 
 #: ``"DDS "`` + the 124-byte ``DDS_HEADER``.
 HEADER_BYTES = 128
@@ -232,21 +236,53 @@ def assemble(width: int, height: int, fmt: str, levels) -> bytes:
     return b"".join((build_header(width, height, fmt, len(levels)), *levels))
 
 
-def split_levels(data) -> tuple[tuple[int, int, str], list[memoryview]]:
-    """``((width, height, fmt), [a zero-copy view per mip level])`` of a
-    DXT1/DXT5 file image; ``ValueError`` on anything else or a short one."""
-    header = bytes(data[:HEADER_BYTES])
-    expected = expected_size(header)
+def parse_header(header: bytes) -> tuple[int, int, str, int]:
+    """``(width, height, fmt, mip_count)`` of a DXT1/DXT5 file's first
+    :data:`HEADER_BYTES`; ``ValueError`` on anything else."""
+    header = bytes(header[:HEADER_BYTES])
     fourcc = header[84:88]
     fmt = next((name for name, (cc, _) in BLOCK_FORMATS.items()
                 if cc == fourcc), None)
-    if expected is None or fmt is None:
+    if expected_size(header) is None or fmt is None:
         raise ValueError("not a DXT1/DXT5 DDS file")
-    if len(data) < expected:
-        raise ValueError("DDS data truncated")
     (flags, height, width) = struct.unpack_from("<III", header, 8)
     (mip_count,) = struct.unpack_from("<I", header, 28)
     count = max(mip_count, 1) if flags & _DDSD_MIPMAPCOUNT else 1
+    return width, height, fmt, count
+
+
+def level_offset(width: int, height: int, fmt: str, level: int) -> int:
+    """Byte offset in the file of mip ``level`` (0 = full size): the
+    header plus every finer level's blocks."""
+    return HEADER_BYTES + sum(level_size(w, h, fmt)
+                              for w, h in mip_dims(width, height, level))
+
+
+def read_level(path: str, max_px: int) -> tuple[int, int, str, bytes]:
+    """``(width, height, fmt, blocks)`` of the finest mip of a DXT1/DXT5
+    file no larger than ``max_px`` on its longer side (the coarsest the
+    file holds when none is): the header and that level's bytes are the
+    only ones read.  ``ValueError`` on another file or a short one."""
+    with open(path, "rb") as handle:
+        width, height, fmt, count = parse_header(handle.read(HEADER_BYTES))
+        dims = mip_dims(width, height, count)
+        level = next((k for k, (w, h) in enumerate(dims)
+                      if max(w, h) <= max_px), count - 1)
+        w, h = dims[level]
+        size = level_size(w, h, fmt)
+        handle.seek(level_offset(width, height, fmt, level))
+        blocks = handle.read(size)
+    if len(blocks) != size:
+        raise ValueError("DDS data truncated")
+    return w, h, fmt, blocks
+
+
+def split_levels(data) -> tuple[tuple[int, int, str], list[memoryview]]:
+    """``((width, height, fmt), [a zero-copy view per mip level])`` of a
+    DXT1/DXT5 file image; ``ValueError`` on anything else or a short one."""
+    width, height, fmt, count = parse_header(data[:HEADER_BYTES])
+    if len(data) < expected_size(bytes(data[:HEADER_BYTES])):
+        raise ValueError("DDS data truncated")
     view, offset, levels = memoryview(data), HEADER_BYTES, []
     for w, h in mip_dims(width, height, count):
         size = level_size(w, h, fmt)

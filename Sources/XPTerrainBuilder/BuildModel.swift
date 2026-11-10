@@ -1264,6 +1264,7 @@ final class BuildModel: ObservableObject {
             imageryStatus[code] = status
         case .imageryFollowStatus(let status):
             imageryFollow.show(status) // the Fly pane's follow line (#1992 P4)
+            fly.preview.followLanded(status.landed) // a tier landed (#2001)
             appMode.observe(status)    // offers Fly, never switches (10j)
         case .worldStatus(let status):
             worldStatus = status

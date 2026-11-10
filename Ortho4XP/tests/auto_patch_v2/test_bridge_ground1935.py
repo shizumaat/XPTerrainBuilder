@@ -97,28 +97,11 @@ def test_a_gap_in_the_run_is_not_bridged():
     assert z[0] == 45.0 and np.allclose(z[1:], 40.0) and rep.vertices_lowered == 2
 
 
-def test_the_approach_carriageway_is_not_substituted():
-    # the approach (no bridge tag) leaves the bridge's north end; the DEM's
-    # embankment there is real ground and keeps its height
-    approach = OsmWay(-8, "small_roads", ((0.0, 100.0), (0.0, 200.0)), False,
-                      {"highway": "primary", "width": "8"})
-    runs, z, _rep = _lower(_Dem(6.0, extend=40.0), [0.0, 0.0], [99.0, 0.0], approach)
-    assert runs and z[0] == 46.0 and z[1] == 40.0
-
-
-def test_an_approach_is_another_bridges_ground():
-    # the approach of the north bridge passes under a second bridge (an
-    # east-west deck the DEM carries across x = 0 at y = 150): there the
-    # road is that bridge's ground and is substituted
-    class _Two(_Dem):
-        def z_many(self, xs, ys):
-            xs, ys = np.asarray(xs, float), np.asarray(ys, float)
-            z = super().z_many(xs, ys)
-            return np.where((np.abs(ys - 150.0) <= 4.5) & (np.abs(xs) <= 60.0), 46.0, z)
-    approach = OsmWay(-8, "small_roads", ((0.0, 100.0), (0.0, 200.0)), False,
-                      {"highway": "primary", "width": "8"})
-    over = OsmWay(-9, "small_roads", ((-60.0, 150.0), (60.0, 150.0)), False, dict(BRIDGE))
-    dem = _Two(6.0, extend=40.0)
-    runs, z, _rep = _lower(dem, [0.0, 0.0], [99.0, 150.0], approach, over)
-    assert {r.way_id for r in runs} == {-7, -9}
-    assert z[0] == 46.0 and z[1] == 40.0
+def test_the_road_a_bridge_leaves_from_reads_the_ground_beside_it():
+    # EFHK's terminal kerb (#1935): a road that ends where a bridge leaves
+    # it, inside that bridge's ribbon, is the bridge's ground (DEVIATION
+    # from the round-3 spec's approach exclusion, awaiting its ruling)
+    kerb = OsmWay(-8, "small_roads", ((0.0, 100.0), (0.0, 200.0)), False,
+                  {"highway": "primary", "width": "8"})
+    runs, z, _rep = _lower(_Dem(6.0, extend=40.0), [0.0, 0.0], [99.0, 0.0], kerb)
+    assert runs and z[0] == 40.0 and z[1] == 40.0

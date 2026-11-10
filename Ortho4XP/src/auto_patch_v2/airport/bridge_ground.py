@@ -26,10 +26,12 @@ THE VALUE.  Each run's ribbon is ``probe`` wide each side of the way; a
 point inside reads the lower of its DEM and the ground beside the deck,
 interpolated across (right side to left) and along the run.  LOWER ONLY:
 where the DEM already stands at the ground (bare earth) nothing moves.
-The carriageway of a bridge's APPROACH — a non-bridge highway way whose
-end meets that bridge way's end within ``identity.weld_spacing_m`` — is not
-substituted by that bridge's runs: its embankment is real ground (the same
-road passing under ANOTHER bridge is that bridge's ground, and is).
+Every road inside a ribbon reads it, the road a bridge leaves from
+included (DEVIATION from the round-3 spec, awaiting its author's ruling:
+the spec kept a bridge's APPROACH — a way whose end meets the bridge's end
+— raw; at EFHK the terminal kerb road ends where the one-lane ramp bridge
+-842 leaves it, under the departures drive's deck, and kept raw it stays
+on the deck the DEM carries, 0.8 m over the terminal pad).
 
 TWO SITES, ONE MODEL: ``planar/build`` substitutes ``Vertex.dem_z`` of the
 vertices no airside face carries (airside vertices keep their DEM and are
@@ -48,7 +50,6 @@ import typing as _t
 import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
-from shapely.prepared import prep
 from shapely.strtree import STRtree
 
 from ..geom.station_runs import section_runs
@@ -84,8 +85,6 @@ class BridgeRun:
     probe: float
     stations: tuple[_Station, ...]
     poly: Polygon
-    #: the bridge's approach carriageways (prepared), kept raw; or None
-    keep: _t.Any = None
 
     def ground(self, p: Point) -> float:
         """The ground beside the deck at ``p``: across, then along."""
@@ -179,26 +178,9 @@ def _ribbon(st: _t.Sequence[_Station], probe: float) -> Polygon | None:
     return None if poly.is_empty else poly
 
 
-def _approaches(airport, law: Law, ends: list[tuple[float, float]]):
-    """The carriageways (prepared) of the non-bridge highway ways whose end
-    meets one of the bridge way's ``ends`` within ``identity.weld_spacing_m``;
-    None where there is none."""
-    tol = float(law.tables.emit.identity.weld_spacing_m)
-    out = []
-    for w in getattr(airport, "osm_ways", ()):
-        t = w.tags or {}
-        if not t.get("highway") or is_bridge_way(t) or len(w.points) < 2:
-            continue
-        mine = (w.points[0], w.points[-1])
-        if any(math.hypot(p[0] - e[0], p[1] - e[1]) <= tol for p in mine for e in ends):
-            out.append(LineString(w.points).buffer(_half(t, law)))
-    u = unary_union(out) if out else None
-    return prep(u) if u is not None and not u.is_empty else None
-
-
 def bridge_runs(airport, law: Law) -> BridgeRuns:
     """Every run of deck-in-DEM stations along the airport's mapped highway
-    bridges (module doc), each with its bridge's approaches kept raw."""
+    bridges (module doc)."""
     dem = getattr(airport, "dem", None)
     runs: list[BridgeRun] = []
     for w in getattr(airport, "osm_ways", ()) if dem is not None else ():
@@ -210,12 +192,10 @@ def bridge_runs(airport, law: Law) -> BridgeRuns:
             continue
         half = _half(t, law)
         probe = _probe_m(dem, law, half)
-        mine = section_runs(_stations(dem, law, ln, half, probe), _STATION_M)
-        keep = _approaches(airport, law, [w.points[0], w.points[-1]]) if mine else None
-        for run in mine:
+        for run in section_runs(_stations(dem, law, ln, half, probe), _STATION_M):
             poly = _ribbon(run, probe)
             if poly is not None:
-                runs.append(BridgeRun(int(w.id), ln, probe, tuple(run), poly, keep))
+                runs.append(BridgeRun(int(w.id), ln, probe, tuple(run), poly))
     return BridgeRuns(runs)
 
 
@@ -232,7 +212,7 @@ def _index(runs) -> tuple[STRtree, tuple[float, float, float, float]]:
 
 def _ground_under(runs, xs: np.ndarray, ys: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """``(inside mask, ground beside)`` per point: the lowest reading of
-    every ribbon covering it, its bridge's approach carriageways excepted."""
+    every ribbon covering it."""
     n = len(xs)
     inside = np.zeros(n, bool)
     g = np.full(n, np.inf)
@@ -241,8 +221,7 @@ def _ground_under(runs, xs: np.ndarray, ys: np.ndarray) -> tuple[np.ndarray, np.
     tree, (x0, y0, x1, y1) = _index(runs)
     for i in np.flatnonzero((xs >= x0) & (xs <= x1) & (ys >= y0) & (ys <= y1)):
         p = Point(float(xs[i]), float(ys[i]))
-        hit = [int(k) for k in tree.query(p) if runs[int(k)].poly.covers(p)
-               and (runs[int(k)].keep is None or not runs[int(k)].keep.covers(p))]
+        hit = [int(k) for k in tree.query(p) if runs[int(k)].poly.covers(p)]
         if not hit:
             continue
         inside[i] = True

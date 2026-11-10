@@ -107,3 +107,18 @@ def test_the_session_remembers_a_batchs_overrides_per_tile():
     session._note_overrides([(53, -64)], {"profile": "light"})
     assert session.tile_overrides(53, -64) == {"profile": "light"}
     assert session.tile_overrides(53, -65) == {}
+
+
+def test_a_light_record_never_predicts_a_full_build():
+    """World spec §9: the time model never mixes profiles (a record
+    without one is a full build)."""
+    from o4_engine import tile_time_model as TTM
+
+    light = {"features": {"zoomlevel": 16, "profile": "light"}}
+    old = {"features": {"zoomlevel": 16}}
+    for step in ("vector", "imagery"):
+        assert not TTM._same_tile_compatible(light, {"zoomlevel": 16}, step)
+        assert TTM._same_tile_compatible(
+            light, {"zoomlevel": 16, "profile": "light"}, step)
+        assert TTM._same_tile_compatible(
+            old, {"zoomlevel": 16, "profile": "full"}, step)

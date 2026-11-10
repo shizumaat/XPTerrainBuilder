@@ -118,7 +118,7 @@ def _witness(scenery_dir: str):
 
 def tile_loaded(scenery_dir: str,
                 position: Optional[Callable[[], Optional[tuple]]] = None,
-                speed_ms: float = 0.0) -> Callable[[int, int], bool]:
+                speed_ms: Optional[float] = None) -> Callable[[int, int], bool]:
     """The predicate of rule S3 for one moment: may X-Plane hold tile
     ``(lat, lon)``?  Never, while X-Plane does not run.  While it runs:
     yes when the witness shows a load of it this session, or the aircraft
@@ -126,14 +126,18 @@ def tile_loaded(scenery_dir: str,
     latest, ``position_feed.latest_position``) has it in
     the union of the plausible DSF windows or within the S3 margin of
     entering it (:data:`S3_MARGIN_KM`, or 60 s of flight at ``speed_ms``
-    when more, ``O4_World_Ahead.margin_km``), or no position is known (the
-    disagreeing or unknown case counts as loaded)."""
+    when more, ``O4_World_Ahead.margin_km``; default the feed's latest
+    ``gs_ms``), or no position is known (the disagreeing or unknown case
+    counts as loaded)."""
     if not _xplane_running():
         return lambda lat, lon: False
     import O4_World_Ahead as AHEAD
     import O4_World_Window as WINDOW
 
-    from .position_feed import latest_position
+    from .position_feed import latest_position, latest_record
+    if speed_ms is None:
+        rec = latest_record() or {}
+        speed_ms = float(rec.get("gs_ms") or 0.0)
     margin = max(S3_MARGIN_KM, AHEAD.margin_km(speed_ms))
     loads = _witness(scenery_dir)[0]
     here = (position or latest_position)()

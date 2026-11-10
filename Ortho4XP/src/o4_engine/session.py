@@ -434,6 +434,11 @@ def reweight_plan_by_seconds(plan, estimated_seconds):
     return reweighted
 
 
+def _profile_of(overrides):
+    import O4_Build_Profile as PROFILE
+    return PROFILE.profile_of(overrides)
+
+
 def _record_tile_build(lat, lon, features, step_seconds):
     try:
         from . import tile_time_model
@@ -1761,6 +1766,9 @@ class EngineSession:
                     _record_tile_build(
                         lat, lon,
                         {"zoomlevel": zoomlevel, "provider": provider,
+                         # World spec §9: a light build's times never
+                         # predict a full one (tile_time_model).
+                         "profile": _profile_of(overrides),
                          "airports": autopatch_airports,
                          "autopatch_seconds":
                              self._autopatch_elapsed_seconds(),

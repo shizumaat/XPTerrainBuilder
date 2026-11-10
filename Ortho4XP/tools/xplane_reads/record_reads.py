@@ -88,13 +88,8 @@ def cache_reset(emit, scope: Scope, evict: bool) -> int:
     evict them so the flight's loads all come from disk."""
     n = 0
     for root in scope.tile:
-        d = os.path.join(root, "textures")
-        if not os.path.isdir(d):
-            continue
-        for b in sorted(os.listdir(d)):
-            if not b.lower().endswith(".dds") or b.startswith("."):
-                continue
-            p = os.path.realpath(os.path.join(d, b))
+        for p in pack_dds(root):
+            b = os.path.basename(p)
             got = cache_probe(p, evict)
             if got is None:
                 continue
@@ -103,6 +98,17 @@ def cache_reset(emit, scope: Scope, evict: bool) -> int:
                   "resident_pages": sum(e - s for s, e in got[0]),
                   "npages": got[1], "evicted": evict})
     return n
+
+
+def pack_dds(root: str) -> list[str]:
+    """Real paths of a test pack's DDS textures: ``textures/`` and its
+    per-tile subfolders (the World pack keeps ``textures/<tile>/``)."""
+    out = []
+    for d, subs, names in os.walk(os.path.join(root, "textures")):
+        subs[:] = sorted(s for s in subs if not s.startswith("."))
+        out += [os.path.realpath(os.path.join(d, b)) for b in sorted(names)
+                if b.lower().endswith(".dds") and not b.startswith(".")]
+    return out
 
 
 def xplane_dir(arg: str | None) -> str | None:
@@ -331,10 +337,7 @@ def run_check(a, scope: Scope, cs_roots: list[str]) -> int:
 
     free = shutil.disk_usage(os.path.dirname(os.path.abspath(out_path))).free
     res("disk space", free > 5e9, f"{free / 1e9:.0f} GB free next to the log")
-    tiles = [os.path.join(r, "textures") for r in scope.tile]
-    dds = sorted(os.path.realpath(os.path.join(d, b)) for d in tiles
-                 if os.path.isdir(d) for b in os.listdir(d)
-                 if b.lower().endswith(".dds") and not b.startswith("."))
+    dds = sorted(p for r in scope.tile for p in pack_dds(r))
     res("test packs", bool(dds), f"{len(dds)} DDS in {', '.join(scope.tile)}")
     if scope.kind == "all":
         res("Custom Scenery", bool(cs_roots) or None,

@@ -1,6 +1,6 @@
 # Flight manager, the dynamic World pack and the three app modes
 
-Status: SPEC DRAFT rev 1, 2026-11-10 (Fable spec author, read-only). Not ratified. No code changed.
+Status: rev 1, 2026-11-10 (Fable spec author). RATIFIED by the owner 2026-11-10T16:40Z ("all as recommended", §20 Q1–Q6 → RULINGS 2026-11-10k).
 Implements owner RULINGS 2026-11-10e (regions, build pane), 10g (flight manager), 10j (Build · Fly · Library), with 10c/10d (favorites, one disk budget) and the "dynamic World" end goal (memory `goal-loader-100gb-beta8.md`, update 15:22Z: retire every ThunderBlade ortho and run everything locally).
 Builds on: `docs/specs/local-imagery-cache-1992.md` rev 5 (`claude/lfav`; "the loader spec"), the World pack kit (`claude/lworld`), the drape kit (`claude/ldrape d36fdf51a`), #2001, #1699.
 

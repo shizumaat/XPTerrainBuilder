@@ -42,12 +42,12 @@ def _libc():
 
 
 def _call(a: bytes, b: bytes) -> int:
-    libc = _libc()
     if sys.platform == "darwin":
+        libc = _libc()
         return libc.renamex_np(a, b, ctypes.c_uint(_RENAME_SWAP))
     if sys.platform.startswith("linux"):
         try:
-            renameat2 = libc.renameat2
+            renameat2 = _libc().renameat2
         except AttributeError:
             raise ExchangeUnsupported(errno.ENOSYS,
                                       "libc has no renameat2") from None

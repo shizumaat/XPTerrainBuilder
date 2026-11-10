@@ -240,12 +240,39 @@ def hold_file_lock(
         yield acquired
     finally:
         if acquired:
-            try:
-                os.remove(lock_path)
-            except OSError:
-                # A stale-break by another process, or a manual cleanup,
-                # already removed our lock file -- nothing more to do.
-                pass
+            _release(lock_path)
+
+
+# How long a release keeps retrying a removal that Windows refuses.
+RELEASE_RETRY_SECONDS: float = 5.0
+
+
+def _release(lock_path: str) -> None:
+    """Remove the lock file this call created.
+
+    Gone already (a stale-break by another process, a manual cleanup) is
+    fine.  On Windows a waiter reading the identity line holds the file
+    open, and a file open without delete sharing refuses removal
+    (``PermissionError``) for that instant: the removal is retried, never
+    dropped -- a dropped release left a lock owned by this LIVE process,
+    so every later waiter polled to its full timeout (CI #1995)."""
+    deadline = time.monotonic() + RELEASE_RETRY_SECONDS
+    while True:
+        try:
+            os.remove(lock_path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            if time.monotonic() >= deadline:
+                UI.vprint(
+                    0,
+                    "   WARNING: could not remove the cache lock",
+                    lock_path,
+                    "(%s)." % error,
+                )
+                return
+            time.sleep(0.01)
 
 
 def _acquire(lock_path: str, deadline: float) -> bool:

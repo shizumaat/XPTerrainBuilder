@@ -2865,22 +2865,35 @@ def _fetch_base_void_fills(lat, lon, prog) -> list:
 #: The per-airport inset verdicts a ``dem`` refresh re-derives (#61):
 #: the inset EXISTS but the build would re-fetch it.  ``empty`` is a
 #: declared state (nothing is fetched), so it is not among them.
-REFRESHABLE_INSET_PROBLEMS = ("packs", "stale", "ladder")
+#: The per-airport verdicts a ``dem`` refresh re-derives: the pre-flight's
+#: own list (one copy -- this one had drifted without ``missing``, so a
+#: provider ranked above the cached raster that never answered (#1930 (1))
+#: was refused with ``--refresh-data dem`` as its cure, and that scope's
+#: ``--refresh-only`` run answered "nothing to derive" (LFMN FRANCE50CM,
+#: 2026-11-10)).
+REFRESHABLE_INSET_PROBLEMS = IPF.REFRESHABLE_KINDS
 
 
 def _refresh_airport_inset(root, state, lat, lon, icao, prog) -> list:
     """Re-derive ``icao``'s inset when the pre-flight's own per-airport
-    verdict is PACK-SET-STALE or STALE (#61); ``[]`` when there is
-    nothing to do.  Raises ``SystemExit`` when the verdict survives."""
+    verdict is one a build would fetch for (#61; MISSING since #1930:
+    a provider that never answered); ``[]`` when there is nothing to do.
+    Raises ``SystemExit`` when the verdict survives.
+
+    A MISSING verdict runs the pass AS A BUILD WOULD (``refresh=False``):
+    the fetch loop asks the unanswered provider before it reaches the
+    cache, and a usable cached raster below it is not re-fetched."""
     if not icao:
         return []
     problem = this_airports_inset_problem(state, lat, lon, icao)
     if problem is None or problem[0] not in REFRESHABLE_INSET_PROBLEMS:
         return []
+    refresh = problem[0] != "missing"
     prog.note(f"REFRESH dem (authorised, locked, ledgered): {icao}'s inset "
               f"is {problem[0].upper()} — re-deriving it through the "
-              f"--warm-insets pass (refresh): {problem[1]}")
-    warm_airport_insets([icao], root, lat, lon, prog)
+              f"--warm-insets pass ({'refresh' if refresh else 'as a build'}"
+              f"): {problem[1]}")
+    warm_airport_insets([icao], root, lat, lon, prog, refresh=refresh)
     again = this_airports_inset_problem(dem_cache_state(root, lat, lon),
                                         lat, lon, icao)
     if again is not None and again[0] in REFRESHABLE_INSET_PROBLEMS:
@@ -5976,40 +5989,64 @@ def main(argv=None) -> int:
 _CLAIMED_TAGS: list = []
 
 
+#: The stem files a run writes BEFORE it builds anything: its claim, its
+#: environment snapshot and (a ledger refusal's) frame.  A stem holding
+#: only these is a run that never produced; the rest are products.
+TAG_RECORD_SUFFIXES = (".progress", ".env.json", ".frame.json")
+
+
 def release_refused_tag(out_dir, tag: str):
     """Free ``tag``'s stem after a REFUSED run (#1930 (3)).
 
-    A refusal leaves only ``<tag>.progress`` (its claim and the refusal
-    text), so a re-run at the same explicit ``--tag`` collided with it.
-    The record is kept, renamed to ``<tag>.refused[_N].progress``; a stem
-    holding any other artifact is a run that built, and is left alone.
-    Returns the record's new path, or ``None`` when nothing moved."""
+    A refusal leaves only records -- ``<tag>.progress`` (its claim and the
+    refusal text) and, once the run got past its environment snapshot,
+    ``<tag>.env.json`` (eidw1980, 2026-11-10: that pair still blocked the
+    re-run) -- so a re-run at the same explicit ``--tag`` collided with
+    them.  The records are kept, renamed to ``<tag>.refused[_N]<suffix>``
+    under ONE ``N``; a stem holding any product is a run that built, and
+    is left alone.  Returns the progress record's new path, or ``None``
+    when nothing moved."""
     out_dir = Path(out_dir)
-    if tag_artifacts_present(out_dir, tag) != [f"{tag}.progress"]:
+    present = tag_artifacts_present(out_dir, tag)
+    records = [f"{tag}{suffix}" for suffix in TAG_RECORD_SUFFIXES]
+    if f"{tag}.progress" not in present or any(
+            name not in records for name in present):
         return None
     n = 1
     while True:
-        target = out_dir / (f"{tag}.refused.progress" if n == 1
-                            else f"{tag}.refused_{n}.progress")
-        if not target.exists():
+        stem = f"{tag}.refused" if n == 1 else f"{tag}.refused_{n}"
+        if not any((out_dir / f"{stem}{suffix}").exists()
+                   for suffix in TAG_RECORD_SUFFIXES):
             break
         n += 1
-    os.replace(out_dir / f"{tag}.progress", target)
-    return target
+    for suffix in TAG_RECORD_SUFFIXES:
+        if (out_dir / f"{tag}{suffix}").exists():
+            os.replace(out_dir / f"{tag}{suffix}", out_dir / f"{stem}{suffix}")
+    return out_dir / f"{stem}.progress"
+
+
+def _release_claimed_tags() -> None:
+    for out_dir, tag in _CLAIMED_TAGS:
+        moved = release_refused_tag(out_dir, tag)
+        if moved is not None:
+            print(f"  [harness] refused: tag {tag} released; its "
+                  f"record is {moved}", flush=True)
 
 
 def main_releasing_refused_tags(argv=None, *, run=None) -> int:
-    """:func:`main` (or ``run``), releasing the tag of a refused run."""
+    """:func:`main` (or ``run``), releasing the tag of a refused run --
+    a nonzero ``SystemExit`` or any exception that escapes it (a
+    shared-repo write refusal raised at its call site is a
+    ``RuntimeError``, never a ``SystemExit``)."""
     del _CLAIMED_TAGS[:]
     try:
         return (run or main)(argv)
     except SystemExit as exc:
         if exc.code not in (None, 0):
-            for out_dir, tag in _CLAIMED_TAGS:
-                moved = release_refused_tag(out_dir, tag)
-                if moved is not None:
-                    print(f"  [harness] refused: tag {tag} released; its "
-                          f"record is {moved}", flush=True)
+            _release_claimed_tags()
+        raise
+    except Exception:
+        _release_claimed_tags()
         raise
 
 

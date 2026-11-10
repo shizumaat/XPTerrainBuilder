@@ -49,6 +49,7 @@ SWIFT_TO_PYTHON = {
     "followStopped": TEXT.FOLLOW_TEMPLATES["stopped"],
     "followError": TEXT.FOLLOW_TEMPLATES["error"],
     "followDetail": TEXT.FOLLOW_DETAIL, "waitingReason": TEXT.WAITING_REASON,
+    "followNoTiles": TEXT.FOLLOW_NO_TILES,
     "xplaneAnswering": TEXT.XPLANE_ANSWERING, "xplaneSilent": TEXT.XPLANE_SILENT,
     "bufferNone": TEXT.BUFFER_NONE, "bufferAhead": TEXT.BUFFER_AHEAD,
 }
@@ -107,7 +108,8 @@ def test_the_status_line_renders_every_field():
             {**status, "reason": "A build is running"}))
     assert "A build is running" in TEXT.follow_lines(
         {"state": "paused", "reason": "A build is running"})[0]
-    assert TEXT.WAITING_REASON in TEXT.follow_lines({"state": "waiting"})[0]
+    assert TEXT.WAITING_REASON in TEXT.follow_lines({"state": "waiting",
+                                                     "textures": 1})[0]
     assert TEXT.BUFFER_NONE in TEXT.follow_lines({"buffer_s": -1})[1]
     assert TEXT.XPLANE_SILENT in TEXT.follow_lines({"xplane": False})[1]
 

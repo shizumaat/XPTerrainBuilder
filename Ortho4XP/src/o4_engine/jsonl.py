@@ -663,6 +663,10 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             for info in CFG_MIGRATIONS.migrate_global():
                 print("INFO: " + info, file=sys.stderr)
         session.subscribe(lambda event: write_obj(serialize_event(event)))
+        # A tile built with imagery on demand: indexed, its airport
+        # cores sharp, when the run ends (#1992 follow-up).
+        from .imagery_after_build import watch as _watch_built_tiles
+        _watch_built_tiles(session)
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.
         # ``capabilities`` defaults to ``events.CAPABILITIES`` — ONE list

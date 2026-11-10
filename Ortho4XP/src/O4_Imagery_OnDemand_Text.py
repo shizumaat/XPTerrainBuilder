@@ -19,7 +19,8 @@ __all__ = ["PIN_TITLE", "UNPIN_TITLE", "PIN_ROW_TITLE", "LOW_RES_STATE",
            "PINNED_STATE", "PINNED_BADGE", "PIN_HELP", "NOT_ON_DEMAND_STATE", "MAKE_LOW_RES_TITLE",
            "MAKE_LOW_RES_NONE", "PINS_LINE", "CORES_LINE", "OLDER_SHARP_NOTE",
            "FOLLOW_START_TITLE", "FOLLOW_STOP_TITLE", "FOLLOW_TEMPLATES",
-           "FOLLOW_DETAIL", "WAITING_REASON", "make_low_res_message",
+           "FOLLOW_DETAIL", "WAITING_REASON", "FOLLOW_NO_TILES",
+           "make_low_res_message",
            "pins_line", "pin_done", "follow_lines", "size_text"]
 
 # --- Favorites (spec §7: the Library's tile menu and the tile's info pane;
@@ -71,6 +72,12 @@ FOLLOW_DETAIL = ("{queued} queued · {slots} at a time · {buffer} · "
                  "track {track}° · {flight_loads} flight loads · {jumps} jumps · "
                  "{reloads} reloads")
 WAITING_REASON = "its Web API is not answering"
+#: The first sentence while the job follows (or waits) with no on-demand
+#: texture in its index: nothing it could sharpen.
+FOLLOW_NO_TILES = ("No on-demand tiles to follow yet: build a tile with "
+                   "imagery on demand, or convert one in the Library")
+#: The states whose first sentence that replaces.
+NO_TILES_STATES = ("waiting", "following")
 XPLANE_ANSWERING = "answering"
 XPLANE_SILENT = "not answering"
 BUFFER_NONE = "nothing queued"
@@ -148,4 +155,6 @@ def follow_lines(status: Mapping) -> Tuple[str, str]:
     values = _follow_values(status)
     state = str(status.get("state") or "starting")
     template = FOLLOW_TEMPLATES.get(state, FOLLOW_TEMPLATES["starting"])
+    if state in NO_TILES_STATES and values["textures"] == "0":
+        template = FOLLOW_NO_TILES
     return template.format(**values), FOLLOW_DETAIL.format(**values)

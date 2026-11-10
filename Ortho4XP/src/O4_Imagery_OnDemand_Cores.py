@@ -6,7 +6,11 @@ A core is every square whose centre lies within :data:`CORE_RING_S`
 (5.2 S, the 1024 px crossing, so the T2/T1 rings are in it) of a graded
 airport's reference point; inside, the tier the core wants is the one a
 camera standing at the airport would want (:func:`core_tier`: full within
-1.65 S, 2048 within 2.8 S, 1024 within 5.2 S).  Cores count against the
+1.65 S, 2048 within 2.8 S, 1024 within 5.2 S).  A texture finer than the
+tile's own zoom level -- the airport cover and approach corridors the
+build was asked for -- is a core at full resolution wherever it lies
+(owner 2026-11-10T14:26Z: the airport area keeps its high-res imagery,
+placeholders only outside).  Cores count against the
 cap and are downgraded only after every other row
 (``O4_Imagery_OnDemand_Index.lru_order``); the follow job fetches them
 after the build.
@@ -17,6 +21,7 @@ The airports are those the tile's patches graded: one
 grader).  General: no airport is named here.
 
 * :func:`airport_points` -- ``[(icao, lat, lon), ...]`` of a tile.
+* :func:`base_zoom` -- the tile's own zoom level (its imagery record).
 * :func:`core_names` -- the index rows of a tile that are in a core.
 * :func:`core_tier` -- the tier (0-3, ``O4_Imagery_Tier_Plan``) a core
   square wants, or ``None`` outside every core.
@@ -30,8 +35,8 @@ import O4_File_Names as FNAMES
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Tier_Plan as PLAN
 
-__all__ = ["CORE_RING_S", "GRADED_SUFFIX", "airport_points", "core_names",
-           "core_tier"]
+__all__ = ["CORE_RING_S", "GRADED_SUFFIX", "airport_points", "base_zoom",
+           "core_names", "core_tier"]
 
 #: The core's radius in units of a square's S: the 1024 px crossing.
 CORE_RING_S = PLAN.CROSSING_S[1]
@@ -41,8 +46,9 @@ GRADED_SUFFIX = ".graded.json"
 
 
 def _tile_patch_dir(lat: int, lon: int) -> str:
-    return os.path.join(FNAMES.patch_dir(lat, lon),
-                        FNAMES.short_latlon(lat, lon))
+    """The tile's patch folder, ``Patches/<10 deg>/<1 deg>`` (already
+    the tile's own: ``O4_File_Names.patch_dir``)."""
+    return FNAMES.patch_dir(lat, lon)
 
 
 def airport_points(lat: int, lon: int, patch_dir: "str | None" = None
@@ -69,10 +75,25 @@ def airport_points(lat: int, lon: int, patch_dir: "str | None" = None
     return points
 
 
-def core_tier(row: dict, points) -> "int | None":
-    """The finest tier a core wants for ``row``'s square: the tier whose
+def base_zoom(build_dir: str, lat: int, lon: int) -> "int | None":
+    """The zoom level the tile was built at (``zoomlevel`` of its imagery
+    record), ``None`` when the record does not say."""
+    import O4_Tile_Info as TINFO
+    try:
+        value = TINFO.read_imagery_record(build_dir, int(lat), int(lon)).get(
+            "zoomlevel")
+        return int(value) if value else None
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def core_tier(row: dict, points, base_zl: "int | None" = None) -> "int | None":
+    """The finest tier a core wants for ``row``'s square: full for a
+    texture finer than ``base_zl`` (a cover texture), else the tier whose
     crossing ``c_k * S`` contains the nearest airport of ``points``;
     ``None`` beyond :data:`CORE_RING_S`."""
+    if base_zl is not None and int(row.get("zl") or 0) > int(base_zl):
+        return len(PLAN.CROSSING_S) - 1
     size = float(row.get("load_size_m") or 0.0)
     if size <= 0 or not points:
         return None
@@ -82,6 +103,7 @@ def core_tier(row: dict, points) -> "int | None":
     return max(inside) if inside else None
 
 
-def core_names(rows, points) -> "set[str]":
+def core_names(rows, points, base_zl: "int | None" = None) -> "set[str]":
     """The names of ``rows`` (index rows of one tile) inside a core."""
-    return {row["name"] for row in rows if core_tier(row, points) is not None}
+    return {row["name"] for row in rows
+            if core_tier(row, points, base_zl) is not None}

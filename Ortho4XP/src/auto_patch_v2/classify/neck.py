@@ -259,7 +259,19 @@ def road_arms(face: Polygon, taxi_lines: list, road_lines: list,
     half that width of a road centreline (the road-strip statement of
     ``sources``, read on AREA because a pack page's degenerate spike adds
     run but no pavement — KBWI pol177's arm reads 355 m of wall for ~120 m
-    of road).  No new number."""
+    of road).  No new number.
+
+    #1900 (owner RULINGS 2026-11-10l, HECA ``dsf:objpav99``: "It's A,
+    there's no taxiway or apron running along that"): the same reading
+    holds for a NECK — road-wide pavement between two lobes of the route
+    territory, 802 m x 6-12 m with no taxi centreline — that a mapped road
+    runs BESIDE rather than down (the 1206 truck route 11.6 m off its
+    edge, OSM ``highway=service`` 6-7 m off, along the ~80 m where the
+    neck meets the road; the rest of it rings an infield).  A neck is
+    beside a road where its pavement lies within one road width
+    (``apron.arm_road_max_width_m``) of a road centreline beyond its own
+    width, and that stretch is at least a neck long
+    (``apron.neck_length_m``).  No new number."""
     if not taxi_lines or not road_lines:
         return []
     grid = rules.cells.opening_grid_m
@@ -272,14 +284,21 @@ def road_arms(face: Polygon, taxi_lines: list, road_lines: list,
     if not lobes:
         return []
     road_w = rules.apron.arm_road_max_width_m
-    lane = unary_union(road_lines).buffer(road_w / 2.0)
+    roads = unary_union(road_lines)
     out: list[Neck] = []
     for n in _cuts(face, face_g, lobes, lobes, rules, None)[0]:
-        if n.kind != "arm":
+        if n.kind == "arm":
+            n = _without_spikes(n, face, rules)
+        if n.width_m > road_w:
             continue
-        n = _without_spikes(n, face, rules)
-        if n.width_m <= road_w and n.polygon.intersection(lane).area >= \
-                rules.lot.through_min_fraction * n.area_m2:
+        if n.kind == "arm":            # the road runs down it
+            along = n.polygon.intersection(roads.buffer(road_w / 2.0)).area
+            need = rules.lot.through_min_fraction * n.area_m2
+        else:                          # the road runs beside the neck
+            along = n.polygon.intersection(
+                roads.buffer(road_w + n.width_m)).area
+            need = rules.apron.neck_length_m * n.width_m
+        if along >= need:
             out.append(n)
     return out
 

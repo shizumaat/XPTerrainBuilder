@@ -313,6 +313,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # #1728: the road centrelines a corridor's ROAD ARM is read against
     road_lines = [c.line for c in ev.truck_chains + ev.road_chains
                   if not c.aisle]
+    # #1900 (RULINGS 2026-11-10l): and the mapped at-grade roads OFF the
+    # pavement, which a neck's road runs BESIDE (HECA highway=service -3921)
+    from .ribbon_mint import _ribbon_ways   # lazy: it imports this module
+    road_lines += [ln for _w, ln in _ribbon_ways(airport, rules)]
     road_tree = STRtree(road_lines) if road_lines else None
     shoulders: list[tuple[Polygon, _t.Any, float, str]] = []
     # §43 AN APRON ENDS AT ITS MOUTH: a WORKLIST, not a plain loop — an
@@ -538,10 +542,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             if len(pieces) > 1:
                 stats["corridor_road_arms"] = \
                     stats.get("corridor_road_arms", 0) + len(arms)
+                stats["corridor_road_necks"] = stats.get(
+                    "corridor_road_necks", 0) + sum(a.kind == "neck" for a in arms)
                 for p, arm in pieces:
                     n = max(arms, key=lambda q: q.polygon.intersection(p).area)
                     queue.append((p, {
-                        "neck_cut": 1.0, "neck_kind": "arm",
+                        "neck_cut": 1.0, "neck_kind": n.kind,
                         "neck_width_m": n.width_m, "neck_length_m": n.length_m,
                         "corridor_road_arm": 1.0} if arm
                         else {"corridor_road_arm_parent": 1.0}))
@@ -584,7 +590,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # wide is the service road it carries.  A NECK (between two aprons)
         # is not an arm: §27 flips a road there straight back to apron
         # (measured HECA pav131, 9.3 m x 896 m2)
-        if is_neck and neck_ev.get("neck_kind") == "arm" and not taxi \
+        # #1900 (owner RULINGS 2026-11-10l): a corridor's road-wide NECK
+        # outside its route territory with a mapped road beside it is the
+        # road too, and §27 must not flip it (``airside_edge``)
+        if is_neck and (neck_ev.get("neck_kind") == "arm"
+                        or neck_ev.get("corridor_road_arm")) and not taxi \
                 and not _holds_startup(face, start_tree) and \
                 neck_ev.get("neck_width_m", float("inf")) <= rules.apron.arm_road_max_width_m:
             role = "service_road"

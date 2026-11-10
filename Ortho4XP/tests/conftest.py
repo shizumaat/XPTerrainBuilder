@@ -1064,6 +1064,25 @@ def _dsf_dump_cache_is_lane_local(tmp_path_factory):
         FNAMES.Default_dsf_cache_dir = previous
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _rebuild_cache_is_session_local(tmp_path_factory):
+    """No test writes a rebuild cache into the data folder (RULINGS
+    2026-11-10d (4)): ``O4_REBUILD_CACHE_DIR``, read at call time by
+    ``O4_File_Names.rebuild_root``, points at a session folder.  A test
+    tile's cache is its own (``O4_Rebuild_Cache`` gives a second tile
+    folder of the same tile a second cache)."""
+    previous = os.environ.get("O4_REBUILD_CACHE_DIR")
+    os.environ["O4_REBUILD_CACHE_DIR"] = str(
+        tmp_path_factory.mktemp("rebuild_cache"))
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("O4_REBUILD_CACHE_DIR", None)
+        else:
+            os.environ["O4_REBUILD_CACHE_DIR"] = previous
+
+
 #: Where the session mirrored the shared ``Airport_mod_cache`` to.  Module
 #: level for the same reason as the dump cache above: the twins read it.
 _LANE_AIRPORT_MOD_CACHE_DIR = None

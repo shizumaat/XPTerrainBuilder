@@ -11,6 +11,7 @@ Previews/
 Extents/Auto
 tmp/
 Tiles/
+Rebuild_cache/
 venv*/
 **/Ortho4XP.log
 **/__pycache__

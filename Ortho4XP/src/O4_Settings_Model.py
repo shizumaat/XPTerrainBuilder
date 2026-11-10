@@ -432,7 +432,8 @@ def _write_atomic_with_backup(path: str, data: dict,
 
     Parent directories are created as needed.  The new content is fully
     staged in a temporary file, an existing file at *path* is COPIED to
-    ``path + ".bak"``, and only then is the staged file moved into place
+    ``path + ".bak"`` (a tile config's backup goes with the tile's rebuild
+    data, ``O4_Config_Names.cfg_backup_path``), and only then is the staged file moved into place
     with :func:`os.replace`.
 
     THE BACKUP IS A COPY, NOT A RENAME (2026-09-13a): renaming the cfg
@@ -451,9 +452,10 @@ def _write_atomic_with_backup(path: str, data: dict,
     with open(tmp, "w", encoding=TEXT.WRITE_ENCODING, newline="\n") as f:
         for key, value in data.items():
             f.write(key + "=" + str(value) + "\n")
+    backup = CN.cfg_backup_path(path)
     if os.path.isfile(path) and not (keep_existing_backup
-                                     and os.path.isfile(path + ".bak")):
-        shutil.copy2(path, path + ".bak")
+                                     and os.path.isfile(backup)):
+        shutil.copy2(path, backup)
     os.replace(tmp, path)
 
 

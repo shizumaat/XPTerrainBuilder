@@ -54,7 +54,7 @@ import O4_Disk_Usage as DISK
 import O4_File_Names as FNAMES
 
 __all__ = ["CACHE", "KEPT", "STORES", "AUTO_CLEAN_DAYS", "CAPS_SETTING",
-           "ONDEMAND", "storage_scan", "storage_clear", "storage_auto_clean",
+           "ONDEMAND", "REBUILD", "storage_scan", "storage_clear", "storage_auto_clean",
            "parse_caps", "write_log", "COMMANDS", "REFUSED_WHILE_BUILDING"]
 
 #: a store the user may clear: the next build downloads or rebuilds it
@@ -68,6 +68,8 @@ CAPS_SETTING = "storage_cache_caps_gb"
 
 #: the on-demand imagery store's kind (#1992)
 ONDEMAND = "ondemand"
+#: the per-tile rebuild data store's kind (RULINGS 2026-11-10d (4))
+REBUILD = "rebuild"
 
 #: a file written this recently may be a download or a write in flight
 IN_FLIGHT_SECONDS = 3600.0
@@ -150,6 +152,12 @@ STORES: tuple = (
           "Working files of finished builds.", lambda: FNAMES.Tmp_dir),
     Store("logs", "Logs", CACHE,
           "Build logs; a problem report needs the recent ones.", _logs_dir),
+    # Per-tile rebuild data (RULINGS 2026-11-10d (4)): last in the clear
+    # order of 10d (3) -- it is what makes a rebuild take minutes.
+    Store(REBUILD, "Rebuild data", CACHE,
+          "The meshes and elevation grids of built tiles: a tile without "
+          "them rebuilds from its map and elevation data, which takes "
+          "longer. X-Plane never reads them.", FNAMES.rebuild_root),
     Store("tiles", "Built tiles", KEPT,
           "Your scenery. Delete tiles in the Library.",
           lambda: FNAMES.Tile_dir),

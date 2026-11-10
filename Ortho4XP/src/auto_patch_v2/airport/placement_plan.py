@@ -126,6 +126,7 @@ from .airside_deck_seat import (  # noqa: E402
     deck_owns_its_datum as _deck_owns_its_datum, refused_bridge as _refused_bridge)
 from .open_frame_seat import (  # noqa: E402
     OPEN_KINDS as _OPEN_KINDS, body_root as _body_root,
+    carried_lift as _carried_lift, frame_lifts as _frame_lifts,
     frame_root_boxes as _frame_root_boxes, frame_zero as _frame_zero,
     group_zero as _group_zero, open_zero as _open_zero, at_zero as _at_zero,
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
@@ -400,6 +401,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _gz = _root_zeros(_pw or {}, plan, surface, counts, _gz_air)   # 22q: airside first
     # #1726: member id -> the zero of the terrain-adapted member it touches
     _az = _adapted_member_zeros(plan, surface)
+    # a lifted footless piece a unit carries keeps its lift over the
+    # carrier frame's, not over the carrier's zero (KMCI 1.0.480)
+    _clift = _frame_lifts(plan, _pw or {})
     #: R5: a written body file -> its connected unit (a rider follows it)
     _file_root: dict[str, str] = {}
     # owner RULINGS 2026-10-03e (#290): the decks that are a UNIT'S —
@@ -1126,7 +1130,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
-                                          authored_keep_tol_m, footed_frame)
+                                          authored_keep_tol_m, footed_frame,
+                                          m, _clift)
                 record = _on_tile(record, m)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=landed,
@@ -1222,7 +1227,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
-                                          authored_keep_tol_m, footed_frame)
+                                          authored_keep_tol_m, footed_frame,
+                                          m, _clift)
                 record = _on_tile(record, m)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=landed,
@@ -1268,7 +1274,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     # H18r stayed there)
                     off_row = True
                 record, landed = _lifted(record, rows, reseated, surface,
-                                          authored_keep_tol_m, footed_frame)
+                                          authored_keep_tol_m, footed_frame,
+                                          m, _clift)
                 record = _on_tile(record, m)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=landed,
@@ -1311,7 +1318,9 @@ def _row_of(record: Split, rows: "_t.Sequence | None") -> _t.Any:
 
 def _lifted(record: Split, rows: "_t.Sequence | None",
             reseated: _t.AbstractSet[int], surface: _ar.Surface,
-            tol_m: float, footed_frame: bool) -> tuple[Split, "bool | None"]:
+            tol_m: float, footed_frame: bool, m: _t.Any = None,
+            carrier_lifts: "_t.Mapping[str, float] | None" = None
+            ) -> tuple[Split, "bool | None"]:
     """14g (1): every body of an ``OBJECT_AGL`` placement keeps the
     author's lift on its row (``authored_landing.body_lift`` decides
     which bodies do) — and 14g (3): does the placement land on its
@@ -1336,6 +1345,9 @@ def _lifted(record: Split, rows: "_t.Sequence | None",
         row, b.anchor, reseated=record.index in reseated))
         for b in record.bodies)
     record = _dc.replace(record, bodies=bodies)
+    if carrier_lifts and m is not None:
+        record = _carried_lift(record, m, carrier_lifts)
+        bodies = record.bodies
     landed = _lands(record, rows, surface, tol_m)
     if footed_frame and not landed and any(b.lift_m for b in bodies):
         record = _dc.replace(record, bodies=tuple(

@@ -58,7 +58,7 @@ __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
            "placement_fits", "fit", "grid_of_triangles", "dem_many_of",
            "grid_of_resource", "seat_records", "log_line", "row_seats",
            "PORTAL_SEAT", "ENTRANCE_SEAT", "OBJECT_FLOOR_SEAT", "HIDDEN_SEAT",
-           "FRAME_SEAT", "frame_zeros", "portal_seat_records"]
+           "FRAME_SEAT", "ADAPTED_SEAT", "ADAPTED_WHY", "frame_zeros", "portal_seat_records"]
 
 MIN_AREA_M2 = 20_000.0
 MIN_RELIEF_M = 5.0
@@ -86,8 +86,13 @@ HIDDEN_SEAT = "hidden shell"
 #: record's ``elevation`` (the frame's zero) and its deck pieces flush with
 #: what they carry (``placement_plan``, :func:`frame_zeros`)
 FRAME_SEAT = "object floor frame"
+#: a lifted row the terrain adapted to, at the zero its cut was read for
+#: (``airport/adapted_riders.seat_records``; owner sim read KMCI 1.0.480)
+ADAPTED_SEAT = "adapted row"
+#: the ``MslSeat.why`` of an :data:`ADAPTED_SEAT` row (14g (2) filters it)
+ADAPTED_WHY = "adapted_row"
 _WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
-        OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden"}
+        OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden", ADAPTED_SEAT: ADAPTED_WHY}
 
 
 def _deck_grid(g: _t.Any) -> "DeckGrid | None":

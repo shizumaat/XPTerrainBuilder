@@ -48,11 +48,11 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import typing as _t
-import weakref
 
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
+from ..airport.partition_prints import partition_prints
 from ..model.planar import COLLAR_SUFFIX, STRIP_SUFFIX, pad_base_ref
 from ..model.platform import LANDING_SEP
 from ..model.registries import Registries
@@ -73,46 +73,9 @@ def _parts(g) -> list[Polygon]:
             and not q.is_empty]
 
 
-#: issue #1706: ``id(partition) -> (weak reference, its prints)`` — one
-#: build's prefix runs (the main map, the ribbon-free map, the last stage's
-#: derives) read the SAME partition object, so its prints, and the memos
-#: they carry (``deck_components``' pieces: 94 s of EDDF's 923 s planar
-#: stage), are derived once per partition instead of once per run
-_PRINTS: dict[int, tuple] = {}
-
-
-def _prints(part) -> list:
-    """The deck model footprints of the pack partition (``bridge_family.
-    deck_prints`` over the partition, each deck parsed once), held for as
-    long as the partition object lives (:data:`_PRINTS`)."""
-    held = _PRINTS.get(id(part))
-    if held is not None and held[0]() is part:
-        return held[1]
-    prints = _derive_prints(part)
-    try:
-        ref = weakref.ref(part, _forget)
-    except TypeError:                         # not weakly referable: not held
-        return prints
-    _PRINTS[id(part)] = (ref, prints)
-    return prints
-
-
-def _forget(ref) -> None:
-    """A held partition died: drop its prints (only its own entry)."""
-    for k, held in list(_PRINTS.items()):
-        if held[0] is ref:
-            del _PRINTS[k]
-
-
-def _derive_prints(part) -> list:
-    from ..airport import bridge_family as _bf
-    from ..airport.placement_cut import _LineCutter
-
-    def _cutter(ui: int, _mi: int, m):
-        u = part.units[ui]
-        return _LineCutter(m, 0.0, 0, 0.0, 0.0, 0.0,
-                           float(u.anchor[0]), float(u.anchor[1]))
-    return _bf.deck_prints(part, _cutter)
+#: the deck prints of the partition, derived once per partition object
+#: (issue #1706; ``airport/partition_prints``)
+_prints = partition_prints
 
 
 def _free_pieces(g, taken, grid: float) -> list[Polygon]:
@@ -185,15 +148,18 @@ def _cut_back(plats, f, law, blocks):
     return unary_union(near).buffer(keep, join_style=2)
 
 
-def _fills(part, to_xy, law, blocks, vias, collar_m: float) -> list:
+def _fills(part, to_xy, law, blocks, vias, collar_m: float, counts: dict) -> list:
     """The pad fills of ``planar/pad_fill`` over this mint's blocks and
-    viaducts: prints within two bank widths are one fill."""
+    viaducts: prints within two bank widths are one fill, none under a deck
+    that stands over its own lower storey (RULINGS 2026-11-10f (1))."""
     from ..airport.slab_faces import witness_faces
     from ..law.tables import base_slab_law
     from .pad_fill import pier_fills, plate_fills
     lw = base_slab_law(law)
+    storey = float(law.tables.structures.building_pad.low_level_min_step_m)
     return (plate_fills(part, to_xy, lw, witness_faces(lw), blocks)
-            + pier_fills(vias, part, to_xy, blocks, BAND_M, 2.0 * collar_m))
+            + pier_fills(vias, part, to_xy, blocks, BAND_M, 2.0 * collar_m,
+                         storey, counts))
 
 
 def landing_regions(out: list, split_units: _t.Mapping[str, list],
@@ -343,7 +309,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     strip_polys = [r.polygon for r in strips if getattr(r, "polygon", None) is not None]
     targets = strip_polys + [r.polygon for r in lots if getattr(r, "polygon", None) is not None]
     reached: list = []          # the roads and lots a fill ran to: no collar over them
-    for f in _fills(part, to_xy, law, blocks, vias, collar_m):
+    for f in _fills(part, to_xy, law, blocks, vias, collar_m, counts):
         if not -BAND_M <= f.y <= BAND_M:
             counts["pad_fill_out_of_band"] = counts.get("pad_fill_out_of_band", 0) + 1
             continue

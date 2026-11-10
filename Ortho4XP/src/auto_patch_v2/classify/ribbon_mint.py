@@ -24,6 +24,7 @@ from .pad_touch import touch_limit_m
 from .rules import Rules
 from ..geom.parts import areal_part, line_parts
 from ..airport.road_ways import ribbon_half_width_m
+from ..airport.carried_roads import carried_runs
 
 __all__ = ["mint_osm_ribbons", "mint_reach_ribbons", "mint_pad_roads", "ribbon_extent",
            "road_extent",
@@ -460,7 +461,9 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     corridor, an earlier ribbon — and every pad's set-back is kept
     (roadweld100: "the ribbon takes the same set-back itself"), so no
     ribbon lies inside a pad face; structure faces (tunnel / bridge) cut
-    the ribbons at the structure pass like every other cell.
+    the ribbons at the structure pass like every other cell.  A road a
+    pack deck CARRIES (``airport/carried_roads``, RULINGS 2026-11-10f (1))
+    mints no ribbon over its run under the deck.
     ``first_out`` receives what :func:`mint_pad_roads` reads: each way's
     ribboned spans and the serial of its refs.  Returns (faces minted, m2)."""
     cx = _context(airport, ev, cells, law, rules)
@@ -530,6 +533,7 @@ def _context(airport: Airport, ev: Evidence, cells: list, law: Law, rules: Rules
     cap = role_cap(law, "service_road")
     return types.SimpleNamespace(
         ways=ways, extent=extent, zone=zone, cover=_cover(ev, rules),
+        carried=carried_runs(airport, law),
         hw=float(law.tables.emit.road_profile.lane_width_m), occupied=occupied,
         at_pads=occupied, lots=None, cap_l=float(cap.longitudinal) if cap else 0.0,
         dem=getattr(airport, "dem", None), law=law, rules=rules,
@@ -553,7 +557,9 @@ def _mint_pass(cx, inside, minus: dict | None, extra: dict, add,
                                                orr.road_gap_bridge_m))
         if minus is not None:
             spans = _interval_minus(spans, bridge_gaps(minus.get(key, []), 1e-6))
-        held = sorted((pads or {}).get(key, []))
+        # RULINGS 2026-11-10f (1): the deck's own road is no ground
+        spans = _interval_minus(spans, cx.carried.get(key, []))
+        held = _interval_minus(sorted((pads or {}).get(key, [])), cx.carried.get(key, []))
         if held:
             spans = _interval_minus(spans, bridge_gaps(held, 1e-6))
         for sp, ex, occ, kw in ((spans, extra, cx.occupied, {}),
@@ -621,10 +627,12 @@ def mint_pad_roads(airport: Airport, ev: Evidence, cells: list, law: Law,
     # and runway 18L/36R 0.05 m — the pad roads' strips (SPJC building24)
     # move none.  Owner question, not ruled.
     lots = lot_cells(cells)
+    carried = carried_runs(airport, law)
     n, area = 0, 0.0
     for (w, line), spans in zip(ways, served):
         mine = bridge_gaps(first["spans"].get((w.kind, w.id), []), 1e-6)
-        spans = _interval_minus(spans, mine)
+        spans = _interval_minus(_interval_minus(spans, mine),
+                                carried.get((w.kind, w.id), []))
         if not spans:
             continue
         k, m2, rib = _mint_spans(w, line, spans, occupied, first["serial"], cover,

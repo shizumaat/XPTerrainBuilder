@@ -28,6 +28,13 @@ Two witnesses, both read off the pack partition at the landing mint:
    Prints closer than two bank widths are one fill (two fills at one level
    cannot bank down and up between them); its extent is the convex hull of
    the group, at the block's datum + the group's lowest foot y.
+   NOT UNDER A STOREY (owner RULINGS 2026-11-10f (1), #1905): where the
+   deck's own frame stands parts on feet at least one storey
+   (``[building_pad] low_level_min_step_m``) below its prints inside the
+   deck, the ground is that LOWER storey and the deck stands over it — the
+   prints are the deck's own floor, and nothing is filled (MEASURED SBSP:
+   the departures deck's two kerb slabs, y -0.14 / -0.67, filled the
+   arrivals forecourt 10,485 m2 to the deck at 792.51 over parts at y -9).
 
 Each fill becomes a RAMP LANDING (``planar/landing``): its level rows, its
 1:3 collar and its lot cut are the landing's own.  Only shape is decided
@@ -124,13 +131,21 @@ def _print(q, to_xy):
     return h if h is not None and h.area > 0.0 else None
 
 
+def _lowest_foot(q) -> "float | None":
+    ys = [float(f[2]) for f in (getattr(q, "feet", ()) or ()) if len(f) >= 3]
+    return min(ys) if ys else None
+
+
 def pier_fills(vias: _t.Mapping[str, tuple], partition: _t.Any, to_xy,
                blocks: _t.Sequence[tuple[str, Polygon]], band: float,
-               join_m: float) -> list[Fill]:
+               join_m: float, storey_m: float = 0.0,
+               counts: "dict | None" = None) -> list[Fill]:
     """Witness 2 (module doc): ``vias`` is ``bridge_family.viaduct_units``'s
     ``{deck key: (block, voters, frame, print)}``; ``band`` the landing band
     (``landing.BAND_M``); ``join_m`` the distance under which two prints are
-    one fill (two bank widths)."""
+    one fill (two bank widths); ``storey_m`` one storey (0: never read) —
+    a deck whose frame stands feet that far under its prints fills
+    nothing (``pier_fill_over_storey`` in ``counts``)."""
     from ..airport import bridge_family as _bf
     if not vias or partition is None or not blocks:
         return []
@@ -148,9 +163,13 @@ def pier_fills(vias: _t.Mapping[str, tuple], partition: _t.Any, to_xy,
                for q in m.parts]
         hit = p.contains_many([0.5 * (q.box[0] + q.box[2]) for q in own],
                               [0.5 * (q.box[1] + q.box[3]) for q in own])
+        lows: list[float] = []
         for q, inside in zip(own, hit, strict=True):
             if not inside:
                 continue
+            lo = _lowest_foot(q)
+            if lo is not None:
+                lows.append(lo)
             ys = _foot_ys(q, band)
             if not ys or abs(float(getattr(q, "base_y", 0.0))) > band:
                 continue
@@ -162,6 +181,12 @@ def pier_fills(vias: _t.Mapping[str, tuple], partition: _t.Any, to_xy,
                 continue
             prints.append((off, min(ys)))
         if not prints:
+            continue
+        if storey_m > 0.0 and lows and min(lows) <= min(y for _g, y in prints) - storey_m:
+            # RULINGS 2026-11-10f (1): the deck stands over its frame's
+            # lower storey; that storey is the ground (module doc)
+            if counts is not None:
+                counts["pier_fill_over_storey"] = counts.get("pier_fill_over_storey", 0) + 1
             continue
         # one fill per group of prints within ``join_m`` of each other
         tree = STRtree([g for g, _y in prints])

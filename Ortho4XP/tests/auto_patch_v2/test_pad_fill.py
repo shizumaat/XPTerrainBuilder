@@ -155,3 +155,27 @@ def test_a_plate_fill_is_a_landing_of_its_block_with_its_collar(monkeypatch):
         assert r.polygon.distance(air) >= keep - 0.01   # the round buffer's chord
     assert counts["landings"] == 1
 
+
+
+def test_no_fill_under_a_deck_standing_over_its_own_lower_storey():
+    """#1905 (owner RULINGS 2026-11-10f (1), SBSP "b"): the departures
+    deck's kerb slabs stand at its zero and the deck's frame stands parts a
+    storey below them inside the deck — the arrivals level.  That storey is
+    the ground; the slabs are the deck's floor and nothing is filled."""
+    from auto_patch_v2.airport import bridge_family as BF
+    storey = LAW.tables.structures.building_pad.low_level_min_step_m
+    lower = _part(9, box(40, 115, 46, 121), base_y=-9.0, h=3.6,
+                  feet=((118.0, 43.0, -9.0),))
+    part = _partition(*_piers([10, 41, 72]), lower, res="CGO/Textura_4.obj")
+    vias = {"d": ("b5", 4, BF.frame_of(part.units[0].members[0]),
+                  _Deck(box(0, 100, 200, 200)))}
+    counts: dict = {}
+    assert PF.pier_fills(vias, part, to_xy, BLOCK, 0.5, 30.0, storey, counts) == []
+    assert counts == {"pier_fill_over_storey": 1}
+    # less than a storey under the prints: still the viaduct's ground prints
+    shallow = _part(9, box(40, 115, 46, 121), base_y=-2.0, h=3.6,
+                    feet=((118.0, 43.0, -2.0),))
+    part = _partition(*_piers([10, 41, 72]), shallow, res="CGO/Textura_4.obj")
+    vias = {"d": ("b5", 4, BF.frame_of(part.units[0].members[0]),
+                  _Deck(box(0, 100, 200, 200)))}
+    assert len(PF.pier_fills(vias, part, to_xy, BLOCK, 0.5, 30.0, storey)) == 1

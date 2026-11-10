@@ -534,6 +534,8 @@ class Bridge:
     deck_profile_bin_m: float
     deck_way_cover_min: float
     deck_way_carried_area_min: float
+    carried_twin_max_m: float           # 2026-11-10f (1): a road under a deck mapped twice
+    carried_twin_min_run_m: float
     pavement_deck_families: tuple[str, ...]   # 2026-09-06f: pavement cells of these role families spanning a corridor are decks
     deck_spanning_evidence: tuple[str, ...]
     abutment_sample_step_m: float

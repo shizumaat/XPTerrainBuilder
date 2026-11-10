@@ -558,6 +558,8 @@ deck_close_m            = 1.0      # a member's plate faces are closed at this b
 deck_profile_bin_m      = 10.0     # the deck-top profile along the axis: max face corner per bin (BRIDGE_PROFILE_BIN_LENGTH_M)
 deck_way_cover_min      = 0.5      # a mapped bridge way CARRIES a plate when its pieces inside the plate's rectangle project this much of the plate's length along its axis (OTHH: Bridge_05 0.97, _04 0.84, _01 0.67; a way crossing the 466-member TerminalRoads/Terminal_Base slab family transversally reads 0.02 — the slab is no deck)
 deck_way_carried_area_min = 0.5    # ...and the plates so carried hold at least this share of the family's deck plane: the way carries THE DECK (OTHH Bridge_01 71 %, _04 95 %, _05 88 %, the 02/03/06 interchange 72 %; Terminal_Parking 2 % — one 90 m kerb road beside 50,000 m² of parking slabs, a mosque on them: no deck, the feet law)
+carried_twin_max_m      = 1.0      # THE DECK'S OWN ROAD (owner RULINGS 2026-11-10f (1), #1905; airport/carried_roads.py): an untagged road whose centreline runs within this of a road the map places LOWER (layer < 0, covered, tunnel) inside a pack deck piece is one place mapped twice -- the deck's carried road over the lower one; it mints no ground ribbon under the deck.  MEASURED SBSP small_roads:-8899 / -8134 under BR_SBSP-Textura_4.obj#6: 0.46-0.63 m apart over 150 m (two carriageways stand a lane width apart or more)
+carried_twin_min_run_m  = 20.0     # ...for at least this length inside the piece (a crossing or a junction approach is no twin)
 # THE PAVEMENT DECK (RULINGS 2026-09-06f (1088)): an apt.dat / DSF pavement
 # cell of these role FAMILIES (precedence.toml [roles].family) that SPANS a
 # tunnel corridor — crosses it wall to wall with the corridor continuing on

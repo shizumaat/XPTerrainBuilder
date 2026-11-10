@@ -199,7 +199,9 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict,
                   named: _t.Sequence = ()) -> dict[str, dict[str, _t.Any]]:
     """:func:`cut_runouts` for a lower region's ROADS (``roads``): the same
     lips, along the at-grade carriageways (``road_yield.road_carriageways``)
-    at the road ramp law, descending or CLIMBING to the ground ahead.  An
+    at the road ramp law, descending or CLIMBING to the ground ahead (a
+    lip under a pack deck runs out nowhere: RULINGS 2026-11-10f (1), the
+    deck stands over the lower level and the DEM there reads the deck).  An
     end is ONE route's crossing of the level's rim (never grouped across
     :data:`END_M`), its strip that route's own carriageway (its half-width
     either side, clipped to that carriageway alone): grouped, or clipped to
@@ -223,8 +225,11 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict,
     g, cap = float(tn.ramp_grade), float(tn.ramp_max_grade)
     step = float(law.tables.emit.chords.station_spacing_m)
     riser = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
-    stat = {"ends": 0, "no_datum": 0, "climbs": 0, "falls": 0, "taken": 0}
+    stat = {"ends": 0, "no_datum": 0, "climbs": 0, "falls": 0, "taken": 0, "under_deck": 0}
     taken_by: list[str] = []
+    from ..airport.partition_prints import under_a_deck
+    to_ll = frame.transformers()[1]
+    part = getattr(airport, "partition", None)
     out: dict[str, dict[str, _t.Any]] = {}
     for ref, (L, bref, y) in sorted(levels.items()):
         datum = (held.get(bref) or {}).get("datum_pred")
@@ -238,6 +243,12 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict,
                 stat["ends"] += 1
                 if datum is None:
                     stat["no_datum"] += 1
+                    continue
+                if under_a_deck(part, to_ll, [(p.x, p.y)])[0]:
+                    # RULINGS 2026-11-10f (1): a road leaving its level under
+                    # a pack deck runs on beneath it at that level -- the deck
+                    # stands over it, and the DEM there reads the deck
+                    stat["under_deck"] += 1
                     continue
                 lx, ly = p.x, p.y
                 z0 = float(datum) + float(y)

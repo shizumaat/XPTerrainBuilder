@@ -67,8 +67,14 @@ def load_center_of(dds_path: str, sq: dict | None) -> tuple[int | None, str]:
     """S for a texture: the pack's own .ter when it is readable, else the
     size Ortho4XP would write.  Returns (S, "ter" | "name" | "none")."""
     stem = os.path.splitext(os.path.basename(dds_path))[0]
-    pack = os.path.dirname(os.path.dirname(dds_path))
+    folder = os.path.dirname(dds_path)
+    pack = os.path.dirname(folder)
     s = ter_load_center(os.path.join(pack, "terrain", stem + ".ter"))
+    if not s and os.path.basename(pack) == "textures":
+        # World pack: textures/<tile>/X.dds beside terrain/<tile>/X.ter
+        s = ter_load_center(os.path.join(os.path.dirname(pack), "terrain",
+                                         os.path.basename(folder),
+                                         stem + ".ter"))
     if s:
         return s, "ter"
     s = square_size_m(sq) if sq else None

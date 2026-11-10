@@ -441,9 +441,9 @@ def test_a_lot_is_at_the_foot_only_where_the_wall_retains():
     its wall retaining nothing): a lot whose nearest point on the lower
     face is nearest a ``None`` station takes no foot (it keeps its
     building's level, 10-03c) -- never a level interpolated through it."""
-    from shapely.geometry import LineString
     from auto_patch_v2.airport.foot_lot import lots_at_foot
     from auto_patch_v2.airport.road_ramp import WallPiece
+    from shapely.geometry import LineString
     face = LineString([(300.0, 505.15), (500.0, 505.15)])
     band = box(300.0, 505.15, 500.0, 508.96)
     foot = ((0.0, 299.8), (100.0, None), (200.0, 299.8))

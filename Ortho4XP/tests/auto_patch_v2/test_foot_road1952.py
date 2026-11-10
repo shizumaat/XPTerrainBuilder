@@ -9,20 +9,23 @@ so beyond the lot the road climbs out at the design grade.  MEASURED KMCI:
 five ring vertices of lot ``dsf:objpav660`` (foot 299.82 m)."""
 from __future__ import annotations
 
-import dataclasses as _dc
-
 import pytest
-from shapely.geometry import LineString, box
-
 from auto_patch_v2.airport import road_ramp as rr
 from auto_patch_v2.airport.road_ramp import WallPiece, with_road_ramp
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.classify.rules import load_rules
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar.build import build
+from shapely.geometry import LineString, box
 from tests.auto_patch_v2.test_crown import HALF_WIDTH, _rect
-from tests.auto_patch_v2.test_v2roadramp import (PLATEAU_Z, ROAD_W, RUN_LEN, _airport,
-                                                 _Hill, _road_vertices)
+from tests.auto_patch_v2.test_v2roadramp import (
+    PLATEAU_Z,
+    ROAD_W,
+    RUN_LEN,
+    _airport,
+    _Hill,
+    _road_vertices,
+)
 
 FOOT = PLATEAU_Z - 3.5
 

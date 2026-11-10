@@ -41,20 +41,15 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 
 from . import imagery_downgrade as DOWNGRADE
 
-__all__ = ["imagery_ondemand_scan", "imagery_pin", "imagery_ondemand_sweep",
-           "imagery_ondemand_downgrade_all"]
-
-
-def _manifest_path(build_dir: str, lat: int, lon: int) -> str:
-    """The tile's imagery manifest (``O4_Tile_Utils.imagery_manifest_path``
-    for a tile object)."""
-    return FNAMES.tile_record_path(build_dir, lat, lon, "imagery")
+__all__ = ["on_demand_tiles", "imagery_ondemand_scan", "imagery_pin",
+           "imagery_ondemand_sweep", "imagery_ondemand_downgrade_all"]
 
 
 def _set_manifest_pin(build_dir: str, lat: int, lon: int, pinned: bool) -> None:
     """Write ``pinned`` into the tile record (atomic replace)."""
-    path = _manifest_path(build_dir, lat, lon)
-    data = FNAMES.read_json_dict(path)
+    import O4_Tile_Info as TINFO
+    path = TINFO.imagery_record_path(build_dir, lat, lon)
+    data = TINFO.read_imagery_record(build_dir, lat, lon)
     data["pinned"] = bool(pinned)
     temporary = path + ".tmp"
     with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
@@ -75,12 +70,12 @@ def _keys_by_texture(users: dict) -> dict:
     return out
 
 
-def _on_demand_tiles(working_dir: str):
+def on_demand_tiles(working_dir: str):
     """``(build_dir, lat, lon)`` of every tile under ``working_dir`` whose
-    imagery manifest says on demand or pinned."""
+    imagery record says on demand or pinned."""
     import O4_Tile_Info as TINFO
     for (lat, lon), info in sorted(TINFO.scan_tiles(working_dir).items()):
-        record = FNAMES.read_json_dict(_manifest_path(info.build_dir, lat, lon))
+        record = TINFO.read_imagery_record(info.build_dir, lat, lon)
         if record.get("on_demand") or record.get("pinned"):
             yield info.build_dir, lat, lon
 
@@ -102,7 +97,7 @@ def imagery_ondemand_scan(working_dir: str = "",
     :returns: ``{"tiles", "rows", "capped_bytes", "pinned_bytes",
         "cap_bytes", "core_rows", "reset"}``
     """
-    tiles = list(_on_demand_tiles(working_dir or FNAMES.Tile_dir))
+    tiles = list(on_demand_tiles(working_dir or FNAMES.Tile_dir))
     users = _keys_by_texture(DDSC.key_users())
     conn = INDEX.open_index(index)
     try:

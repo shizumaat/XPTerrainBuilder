@@ -402,6 +402,8 @@ final class BuildModel: ObservableObject {
     @Published private(set) var lastRunSummary: String?
 
     let activity = BuildActivityModel()
+    /// The imagery follow job (#1992 P4): the Build pane's follow line.
+    let imageryFollow = ImageryFollowModel()
     let console = BuildConsoleModel()
     /// The one date filter of the Build History list and the map (#1226).
     @Published var historyRange: BuildDateRange = .all
@@ -810,6 +812,7 @@ final class BuildModel: ObservableObject {
             refreshAirportIndex()
             loadImagerySources()
             runStorageAutoClean()
+            syncImageryFollow()
         } catch {
             engineError = "Could not start the engine session: \(error.localizedDescription)"
             console.append("ERROR: \(engineError!)")
@@ -1247,8 +1250,8 @@ final class BuildModel: ObservableObject {
             break // the engine's scheduling signal; the tile's row moves on its own
         case .imagerySourceStatus(let code, let status):
             imageryStatus[code] = status
-        case .imageryFollowStatus:
-            break // shown by the on-demand status line (#1992 P4)
+        case .imageryFollowStatus(let status):
+            imageryFollow.show(status) // the Build pane's follow line (#1992 P4)
         case .unknown:
             break // additive protocol: ignore unknown event types
         }
@@ -3114,6 +3117,8 @@ final class BuildModel: ObservableObject {
                 at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try file.write(to: configURL)
             globalConfigValues[name] = value
+            // The world switch (#1992): follow X-Plane, or stop.
+            if name == Self.imageryOnDemandKey { syncImageryFollow() }
             // A tile value equal to the new global is no longer a
             // customization (and a different one now is): re-badge.
             refreshCustomizedTiles()

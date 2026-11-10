@@ -46,11 +46,18 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     public let builtBy: String
     /// Built by another tool: never rebuilt or deleted by the Library.
     public let readOnly: Bool
+    /// Imagery on demand (#1992): built low-res, and pinned sharp; nil
+    /// from an engine that predates the fields.
+    public let onDemand: Bool?
+    public let pinned: Bool?
 
     public var id: String { tile }
+    /// Does the tile's pin apply (built on demand, or pinned, by this app)?
+    public var pinApplies: Bool { !readOnly && (onDemand == true || pinned == true) }
 
     private enum CodingKeys: String, CodingKey {
-        case tile, lat, lon, zl, provider, built, airports
+        case tile, lat, lon, zl, provider, built, airports, pinned
+        case onDemand = "on_demand"
         case buildDir = "build_dir", sizeBytes = "size_bytes"
         case packsModified = "packs_modified", linkStatus = "link_status"
         case inXPlane = "in_xplane", builtBy = "built_by", readOnly = "read_only"

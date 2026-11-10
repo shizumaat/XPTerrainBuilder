@@ -95,6 +95,24 @@ PATCH_LIBRARY = (
      "library_dialog", "publish_btn"),
 )
 
+#: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
+#: Swift file, Swift marker, Qt owner, Qt attribute).  The follow line
+#: leads the Build pane's boxes; the pin sits in the tile pane under the
+#: imagery check and in the Library's actions (and its tile menu); the
+#: Storage pane's ondemand row makes all low-res again.
+IMAGERY_ON_DEMAND = (
+    ("follow_line", "BuildPane.swift", "ImageryFollowLine(model:",
+     "window", "follow_line"),
+    ("tile_pin", "BuildPane.swift", "TilePinRow(pinned:",
+     "window", "tile_pin_row"),
+    ("library_pin", "LibraryView.swift", "model.togglePin(",
+     "library_dialog", "pin_btn"),
+    ("library_menu", "LibraryView.swift", ".contextMenu(forSelectionType:",
+     "library_dialog", "_tile_menu"),
+    ("make_low_res", "StorageSettingsView.swift", "model.askMakeLowRes(",
+     "storage", "ask_make_low_res"),
+)
+
 #: The build-cost panel (#820): last in the Build box, just above Build —
 #: (Swift marker, Qt window attribute).
 PLAN_PANEL = ("PlanEstimatePanel(", "plan_panel")
@@ -533,6 +551,27 @@ def test_the_patch_library_has_one_home_in_each_app(window):
     card = window.airports_card.layout()
     assert card.indexOf(window.airports_card.library_match_list) == \
         card.indexOf(window.airports_card.airports_text) + 1
+
+
+def test_imagery_on_demand_has_one_home_in_each_app(window):
+    """#1992 P4: the follow line, the pins and "Make all low-res again"
+    are in both apps (and, by the manifest, nowhere else)."""
+    import O4_Qt_Library as QTLIB
+    import O4_Qt_Settings_Storage as QTSTORE
+
+    owners = {"window": window,
+              "library_dialog": QTLIB.LibraryDialog(None, "/tiles", ""),
+              "storage": QTSTORE.StorageSection()}
+    for key, swift_file, marker, owner, attr in IMAGERY_ON_DEMAND:
+        assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
+        assert getattr(owners[owner], attr, None) is not None, key
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    # The follow line leads the boxes; the pin follows the imagery check.
+    assert pane.index("ImageryFollowLine(model:") < pane.index('box("Selection")')
+    assert pane.index("TilePinRow(pinned:") > pane.index("TileImageryFreshnessRow(")
+    form = window._info_layout
+    assert (form.getWidgetPosition(window.tile_pin_row)[0]
+            == form.getWidgetPosition(window.imagery_freshness_row)[0] + 1)
 
 
 def test_both_tile_panes_show_the_path_under_built_by(window):

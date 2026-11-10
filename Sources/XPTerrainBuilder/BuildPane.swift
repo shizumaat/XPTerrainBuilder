@@ -87,6 +87,10 @@ struct BuildPane: View {
                                 buildModel.answerSlowStep(step, choice: choice)
                             }
                         }
+                        // Imagery on demand (#1992 §7; the Qt window's
+                        // FollowStatusLine): while the switch is on or
+                        // the follow job runs.
+                        ImageryFollowLine(model: buildModel.imageryFollow)
                         box("Selection") { selectionBox }
                         box("Build") { buildBox }
                         PatchInspector(model: buildModel.patchEdit)
@@ -260,6 +264,12 @@ struct BuildPane: View {
                 // pane: the same row)?
                 TileImageryFreshnessRow(freshness: imageryFreshness) {
                     await buildModel.updateImagery(active)
+                }
+            }
+            if let info, info.pinApplies {
+                // Imagery on demand (#1992 §7; the Qt pane: the same).
+                TilePinRow(pinned: info.pinned == true) { pinned in
+                    await buildModel.setImageryPinned(active, pinned)
                 }
             }
             if let info {

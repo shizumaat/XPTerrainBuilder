@@ -31,7 +31,7 @@ import O4_DDS_Tiers as TIERS
 import O4_Disk_Usage as DISK
 from O4_Imagery_Tier_Plan import TIER_WIDTH
 
-__all__ = ["LandFailed", "TierLander", "texture_corner"]
+__all__ = ["TierLander"]
 
 
 class LandFailed(RuntimeError):

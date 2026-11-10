@@ -55,7 +55,7 @@ import O4_XPlane_WebAPI as WEBAPI
 from O4_Imagery_Follow_Motion import MotionTracker
 
 __all__ = ["MAX_FAILURES", "OFFLINE_AFTER", "OFFLINE_PAUSE_S", "FollowJob",
-           "paused", "pause_count"]
+           "paused"]
 
 #: A texture that fails this many times is ``failed`` for the session.
 MAX_FAILURES = 3

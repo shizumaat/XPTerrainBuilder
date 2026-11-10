@@ -155,7 +155,7 @@ def _moved_row(row, tile, folder: str):
     if not row or not isinstance(row[0], str):
         return None
     path = row[0]
-    if os.path.normcase(os.path.realpath(os.path.dirname(path))) != folder:
+    if FNAMES.path_key(os.path.dirname(path)) != folder:
         return None
     now = FNAMES.rebuild_path(tile.build_dir, tile.lat, tile.lon,
                               os.path.basename(path))
@@ -173,7 +173,7 @@ def _follow_moves(tile, doc: dict) -> dict:
     if not committed or FNAMES.rebuild_dir(
             tile.build_dir, tile.lat, tile.lon) is None:
         return doc
-    folder = os.path.normcase(os.path.realpath(tile.build_dir))
+    folder = FNAMES.path_key(tile.build_dir)
     out, moved = {}, False
     handed_before = handed_after = None
     for step in REUSABLE_STEPS:

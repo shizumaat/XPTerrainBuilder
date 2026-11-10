@@ -11,18 +11,27 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import pytest
 
-import pytest  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import O4_Config_Names as CN  # noqa: E402
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Rebuild_Cache as REBUILD  # noqa: E402
 import O4_Step_Reuse as REUSE  # noqa: E402
-from test_step_reuse import _complete_build, _reasons, _Tile  # noqa: E402
 
 LAT, LON = 25, 51
 KEY = FNAMES.short_latlon(LAT, LON)
+
+
+def _twin():
+    """``test_step_reuse``: its stand-in tile and its build helpers."""
+    import test_step_reuse
+    return test_step_reuse
+
+
+def _reasons(tile):
+    return _twin()._reasons(tile)
 
 #: what an older build left in the tile folder
 _REBUILD_NAMES = ("Data%s.alt" % KEY, "Data%s.alt.frame.json" % KEY,
@@ -48,12 +57,12 @@ def _tile_folder(parent, names=_REBUILD_NAMES + _TILE_NAMES):
     (folder / "Earth nav data" / "+20+050").mkdir(parents=True)
     (folder / "Earth nav data" / "+20+050" / (KEY + ".dsf")).write_bytes(b"d")
     for name in names:
-        (folder / name).write_text(name, encoding="utf-8")
+        (folder / name).write_text(name, encoding="utf-8", newline="\n")
     return folder
 
 
 def _tile(folder):
-    tile = _Tile(folder)
+    tile = _twin()._Tile(folder)
     tile.lat, tile.lon = LAT, LON
     return tile
 
@@ -111,7 +120,8 @@ def test_migration_is_idempotent_and_never_replaces_the_cache(
     again = REBUILD.migrate_folder(str(tmp_path))
     assert again["moved_files"] == 0 and again["tiles"] == []
     # An old file next to a newer cached one is kept, never moved over it.
-    (folder / ("Data%s.mesh" % KEY)).write_text("old", encoding="utf-8")
+    (folder / ("Data%s.mesh" % KEY)).write_text("old", encoding="utf-8",
+                                                newline="\n")
     third = REBUILD.migrate_folder(str(tmp_path))
     assert third["moved_files"] == 0
     assert third["tiles"][0]["kept"] == ["Data%s.mesh" % KEY]
@@ -132,7 +142,8 @@ def test_a_file_not_yet_moved_is_read_where_the_old_build_left_it(
     folder = tmp_path / FNAMES.tile_dir(LAT, LON)
     folder.mkdir()
     REBUILD.claim(_tile(folder))
-    (folder / ("Data%s.mesh" % KEY)).write_text("old", encoding="utf-8")
+    (folder / ("Data%s.mesh" % KEY)).write_text("old", encoding="utf-8",
+                                                newline="\n")
     assert FNAMES.mesh_file(str(folder), LAT, LON) == str(
         folder / ("Data%s.mesh" % KEY))
 
@@ -176,27 +187,17 @@ def test_library_delete_takes_the_rebuild_data_with_the_tile(
 @pytest.fixture
 def built(tmp_path, monkeypatch, root):
     """A tile built BEFORE the cache: every step recorded, its files in
-    the tile folder."""
-    for name in ("osm", "patches", "masks", "insets"):
-        (tmp_path / name).mkdir()
-    monkeypatch.setattr(FNAMES, "osm_dir", lambda lat, lon: str(tmp_path / "osm"))
-    monkeypatch.setattr(FNAMES, "patch_dir",
-                        lambda lat, lon: str(tmp_path / "patches"))
-    monkeypatch.setattr(FNAMES, "mask_dir", lambda lat, lon: str(tmp_path / "masks"))
-    monkeypatch.setattr(FNAMES, "airport_inset_directory",
-                        lambda lat, lon: str(tmp_path / "insets"))
-    monkeypatch.delenv("O4_STEP_REUSE", raising=False)
-    (tmp_path / "osm" / "+25+051_airports.osm.bz2").write_bytes(b"osm")
-    (tmp_path / "masks" / "mask.png").write_bytes(b"mask")
+    the tile folder (``test_step_reuse``'s stand-in tile and folders)."""
+    tile = _twin().stand_in_tile(tmp_path, monkeypatch)
     folder = _tile_folder(tmp_path / "Tiles", names=_TILE_NAMES)
-    tile = _tile(folder)
+    tile.build_dir = str(folder)
     for path in (FNAMES.input_node_file(tile), FNAMES.input_poly_file(tile),
                  FNAMES.alt_file(tile), FNAMES.apt_file(tile),
                  FNAMES.mesh_file(tile.build_dir, LAT, LON)):
         assert os.path.dirname(path) == str(folder)      # the old layout
         with open(path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write("data")
-    _complete_build(tile)
+    _twin()._complete_build(tile)
     assert os.path.isfile(folder / ("Ortho4XP_%s_steps.json" % KEY))
     return tile
 
@@ -222,7 +223,7 @@ def test_the_migration_keeps_every_step_reusable(built):
 
 def test_a_step_stale_before_the_migration_stays_stale(built):
     mesh = FNAMES.mesh_file(built.build_dir, LAT, LON)
-    with open(mesh, "w", encoding="utf-8") as handle:
+    with open(mesh, "w", encoding="utf-8", newline="\n") as handle:
         handle.write("changed by hand")
     os.utime(mesh, (1, 1))
     before = _reasons(built)
@@ -236,5 +237,53 @@ def test_a_rebuild_in_the_new_layout_reuses_its_steps(tmp_path, built):
     """The claim at a step's start migrates; the next build reuses."""
     REBUILD.claim(built)
     assert _reasons(built) == {"vector": None, "mesh": None, "masks": None}
-    _complete_build(built, steps=())
+    _twin()._complete_build(built, steps=())
     assert REBUILD.legacy_entries(built.build_dir, LAT, LON) == []
+
+
+def test_rebuild_data_is_a_storage_cache_and_the_migration_a_command(
+        tmp_path, root):
+    """Settings > Storage lists it (kind ``rebuild``, which the disk-budget
+    lane clears last, RULINGS 2026-11-10d (3)); the Library transport runs
+    the migration and refuses it while a build runs."""
+    from o4_engine import library, storage
+    store = {s.kind: s for s in storage.STORES}[storage.REBUILD]
+    assert store.policy == storage.CACHE
+    assert store.path() == str(root)
+    assert "rebuild_migrate" in library.COMMANDS
+    with pytest.raises(ValueError, match="build is running"):
+        library.start(lambda event: None, "rebuild_migrate",
+                      busy=lambda: True)
+    folder = _tile_folder(tmp_path / "Tiles")
+    REBUILD.rebuild_migrate([str(folder.parent)])
+    row = {r["kind"]: r for r in storage.storage_scan()["stores"]}["rebuild"]
+    assert row["files"] == len(_REBUILD_NAMES) + 1          # + owner.json
+
+
+def test_a_move_from_another_volume_leaves_the_data_folder_room(
+        tmp_path, root, monkeypatch):
+    """Installed tiles on another drive: their rebuild data is copied into
+    the data folder only while that leaves MIN_FREE_BYTES free; the rest
+    stays where it is (still read there) and is reported."""
+    folder = _tile_folder(tmp_path)
+    monkeypatch.setattr(REBUILD, "_same_volume", lambda source, target: False)
+    monkeypatch.setattr(REBUILD, "MIN_FREE_BYTES", 10**18)
+    out = REBUILD.rebuild_migrate([str(tmp_path)])
+    assert out["moved_files"] == 0
+    assert out["no_room_files"] == len(_REBUILD_NAMES)
+    assert all((folder / n).exists() for n in _REBUILD_NAMES)
+    assert FNAMES.mesh_file(str(folder), LAT, LON) == str(
+        folder / ("Data%s.mesh" % KEY))
+
+
+def test_a_move_from_another_volume_copies_then_removes(
+        tmp_path, root, monkeypatch):
+    folder = _tile_folder(tmp_path)
+    monkeypatch.setattr(REBUILD, "_same_volume", lambda source, target: False)
+    monkeypatch.setattr(REBUILD, "MIN_FREE_BYTES", 0)
+    out = REBUILD.rebuild_migrate([str(tmp_path)])
+    assert out["moved_files"] == len(_REBUILD_NAMES)
+    assert out["copied_bytes"] == out["bytes"] > 0
+    cache = out["folders"][0]["tiles"][0]["cache"]
+    assert not any(n.endswith(".part") for n in os.listdir(cache))
+    assert not any((folder / n).exists() for n in _REBUILD_NAMES)

@@ -360,6 +360,12 @@ def rebuild_root():
     return data_path(REBUILD_CACHE_DIR)
 
 
+def path_key(path):
+    """``path`` as one spelling per file: links resolved, case folded where
+    the file system folds it -- for comparing two paths, never opening."""
+    return os.path.normcase(os.path.realpath(path))
+
+
 def rebuild_pointer_path(build_dir, lat, lon):
     """The tile folder's record naming its rebuild cache
     (``Ortho4XP_<tile>_rebuild.json``)."""

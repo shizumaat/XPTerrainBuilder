@@ -321,7 +321,8 @@ def test_the_job_runs_in_the_engine_and_reports_world_status(pack,
     from o4_engine import position_feed as FEED
 
     scenery, path, _staging = pack                  # a placeholder +53-064
-    with open(os.path.join(path, WP.MARKER), "w", encoding="utf-8") as h:
+    with open(os.path.join(path, WP.MARKER), "w", encoding="utf-8",
+              newline="\n") as h:
         h.write("{}")
     monkeypatch.setattr(WORLD, "_xplane_running", lambda: False)
     monkeypatch.setattr(RUN, "_settings", lambda: {"default_website": "BI"})

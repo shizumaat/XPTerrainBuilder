@@ -284,6 +284,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "O4_Bank_Annulus",
     "O4_Bathymetry_Band",
     "O4_Build_Info",
+    "O4_Build_Profile",
     "O4_Cfg_Module_Values",
     "O4_Cfg_Vars",
     "O4_Coastline_Vetting",

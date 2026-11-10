@@ -8,10 +8,10 @@ tools/world_pack.py --kit KIT ...``) or from a kit's own copy
 checkout).  Subcommands:
 
   make-kit --kit DIR --center +53-061 --radius 2 --skip +53-061
-      the pack folder with round-trip-checked placeholder DSFs, kit.json
+      the pack folder with placeholder DSFs (pure Python), kit.json
   stage TILE --tile-dir DIR    a built zOrtho4XP_<tile> laid out for the
                                pack (per-tile terrain/textures folders) + verify
-  verify                       every placeholder and staged tile, by DSFTool
+  verify                       every placeholder and staged tile (binary reads)
   install / restore            Custom Scenery link + scenery_packs.ini row
                                (X-Plane closed; backup kept in the kit)
   swapin TILE [--force]        staged tile -> pack, one rename of the DSF;
@@ -52,7 +52,8 @@ def _engine_dir(kit_cfg: dict | None) -> str:
 
 def _imports(engine: str):
     """O4_World_Pack and O4_World_Drape from the kit's copy (kit mode) or
-    the engine's src; the rest from the engine's src."""
+    the engine's src; the rest (O4_World_Window among them) from the
+    engine's src."""
     for path in (os.path.join(engine, "src"),
                  HERE if KIT_MODE else os.path.join(REPO_ENGINE, "src")):
         if path not in sys.path:
@@ -60,8 +61,9 @@ def _imports(engine: str):
     import O4_Scenery_Packs as PACKS
     import O4_World_Drape as DRAPE
     import O4_World_Pack as WP
+    import O4_World_Window as WIN
     import O4_XPlane_WebAPI as API
-    return WP, DRAPE, PACKS, API
+    return WP, DRAPE, PACKS, API, WIN
 
 
 def now() -> str:
@@ -76,7 +78,7 @@ class Kit:
         with open(os.path.join(self.root, "kit.json"), encoding="utf-8") as h:
             self.cfg = json.load(h)
         self.engine = _engine_dir(self.cfg)
-        self.WP, self.DRAPE, self.PACKS, self.API = _imports(self.engine)
+        self.WP, self.DRAPE, self.PACKS, self.API, self.WIN = _imports(self.engine)
         self.pack = os.path.join(self.root, self.cfg["pack_name"])
         self.staged = os.path.join(self.root, "staged")
         self.drapes = os.path.join(self.root, "drapes")
@@ -114,8 +116,7 @@ def aircraft(kit: Kit, tile: tuple[int, int] | None) -> dict:
            "cam_lat": round(clat, 5), "cam_lon": round(clon, 5),
            "elev_m": rec.get("elev"), "gs_ms": rec.get("gs_ms")}
     if tile:
-        out["reach"] = kit.WP.tile_reach(lat, lon, *tile)
-        out["window"] = kit.WP.xp_window(clat, clon, *tile)
+        out["window"] = kit.WIN.reach(clat, clon, *tile)
     return out
 
 
@@ -133,7 +134,7 @@ def kit_tiles(kit: Kit) -> list[tuple[int, int]]:
 def cmd_make_kit(a) -> int:
     root = os.path.abspath(a.kit)
     engine = os.path.abspath(a.engine or REPO_ENGINE)
-    WP, DRAPE, _, _ = _imports(engine)
+    WP, DRAPE, _, _, _ = _imports(engine)
     os.makedirs(root, exist_ok=True)
     cfg = {"pack_name": WP.PACK_NAME, "engine_dir": engine,
            "xplane_dir": a.xplane, "center": a.center, "radius": a.radius,
@@ -143,10 +144,11 @@ def cmd_make_kit(a) -> int:
     kit = Kit(root)
     made = [WP.tile_name(*t) for t in kit_tiles(kit)]
     for t in kit_tiles(kit):
-        WP.write_placeholder(kit.pack, *t, kit.tool)
+        WP.write_placeholder(kit.pack, *t)
     if KIT_MODE is False:                 # copy the files the kit runs
         shutil.copy2(os.path.abspath(__file__), os.path.join(root, "world.py"))
-        for module in (WP.__file__, DRAPE.__file__, _fetch_script()):
+        for module in (WP.__file__, DRAPE.__file__, WP.DSFB.__file__,
+                       _fetch_script()):
             shutil.copy2(module, root)
     kit.log({"event": "make_kit", "placeholders": made, "skip": a.skip})
     return 0
@@ -160,8 +162,8 @@ def stage(kit: Kit, tile: str, tile_dir: str) -> dict:
     final = os.path.join(kit.staged, tile)
     work = final + ".new"
     shutil.rmtree(work, ignore_errors=True)
-    counts = kit.WP.relayout_tile(tile_dir, work, lat, lon, kit.tool)
-    check = kit.WP.verify_tile(work, lat, lon, kit.tool)
+    counts = kit.WP.relayout_tile(tile_dir, work, lat, lon)
+    check = kit.WP.verify_tile(work, lat, lon)
     if check["problems"] or check["overlay"] or not check["pack_defs"]:
         raise SystemExit(f"staged {tile} failed its check: {check}")
     shutil.rmtree(final, ignore_errors=True)
@@ -197,7 +199,7 @@ def cmd_verify(a) -> int:
             res = kit.DRAPE.verify_drape(kit.pack, *t, kit.tool)
             ok = _drape_ok(res)
         else:
-            res = WP.verify_tile(kit.pack, *t, kit.tool)
+            res = WP.verify_tile(kit.pack, *t)
             ok = (res["overlay"] and not res["defs"]) \
                 if state == "placeholder" \
                 else (not res["problems"] and not res["overlay"])
@@ -212,7 +214,7 @@ def cmd_verify(a) -> int:
             if name.endswith(".new"):
                 continue
             root = os.path.join(kit.staged, name)
-            res = WP.verify_tile(root, *WP.parse_tile(name), kit.tool)
+            res = WP.verify_tile(root, *WP.parse_tile(name))
             head = WP.dsf_header(os.path.join(
                 root, WP.dsf_relpath(*WP.parse_tile(name))))
             ok = (not res["problems"] and not res["overlay"]
@@ -313,7 +315,7 @@ def cmd_swapin(a) -> int:
 def cmd_swapout(a) -> int:
     kit = Kit(a.kit)
     lat, lon = kit.WP.parse_tile(a.tile)
-    path = kit.WP.swap_out(kit.pack, lat, lon, kit.tool)
+    path = kit.WP.swap_out(kit.pack, lat, lon)
     kit.log({"event": "swapout", "tile": a.tile, "dsf": path,
              **aircraft(kit, (lat, lon))})
     return 0
@@ -490,9 +492,8 @@ def cmd_status(a) -> int:
                                                        "placeholder")
         staged = os.path.isdir(os.path.join(kit.staged, name))
         staged = f"{staged} drape={os.path.isdir(os.path.join(kit.drapes, name))}"
-        reach = (WP.tile_reach(pos["lat"], pos["lon"], *t),
-                 WP.xp_window(pos["cam_lat"], pos["cam_lon"], *t)) \
-            if "lat" in pos else ""
+        reach = (kit.WIN.reach(pos["cam_lat"], pos["cam_lon"], *t)
+                 if "lat" in pos else "")
         print(f"  {name}  {state:11s} staged={staged}  {reach}")
     return 0
 

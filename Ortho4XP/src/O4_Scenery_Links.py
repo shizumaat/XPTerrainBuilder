@@ -211,11 +211,18 @@ def install(
 ) -> None:
     """Install the tile (or group) link into ``scenery_dir``.
 
-    No-op if already INSTALLED.  A BROKEN link with the expected name is
+    No-op if already INSTALLED, or when the World pack holds the tile.
+    A BROKEN link with the expected name is
     silently replaced.  Raises ``ValueError`` on UNAVAILABLE or CONFLICT (a
     CONFLICT name is never overwritten).  Link-creation failures propagate as
     ``OSError``.
     """
+    import O4_World_Pack as WP
+
+    # The World pack draws a tile it holds (flight manager / World spec
+    # §4.1): a second pack for the same tile would fight it.
+    if not grouped and WP.holds_tile(scenery_dir, lat, lon):
+        return
     status = link_status(lat, lon, build_dir, scenery_dir, grouped)
     if status in (LinkStatus.INSTALLED, LinkStatus.PHYSICAL):
         return
@@ -284,18 +291,28 @@ def iter_installed_tiles(scenery_dir: str):
     examined — ``done``/``total`` drive a progress indicator over the whole
     Custom Scenery listing, and ``key``/``target_path`` carry the
     ``(lat, lon)`` and resolved path when the entry is an installed tile
-    (``None``/``None`` otherwise).  Acceptance is identical to
+    (``None``/``None`` otherwise).  The World pack's entry yields once per
+    tile it holds (placeholders are not tiles, flight manager / World spec
+    §18), its target the pack.  Acceptance is identical to
     :func:`installed_tiles`, which is this generator drained.
     """
+    import O4_World_Pack as WP
+
     if not scenery_dir or not os.path.isdir(scenery_dir):
         return
     entries = os.listdir(scenery_dir)
     total = len(entries)
     for done, entry in enumerate(entries, start=1):
         key = target = None
+        path = os.path.join(scenery_dir, entry)
+        if entry == WP.PACK_NAME and os.path.isdir(path):
+            target = os.path.realpath(path)
+            for key in sorted(WP.real_tiles(target)):
+                yield done, total, key, target
+            yield done, total, None, None
+            continue
         parsed = _parse_tile_name(entry)
         if parsed is not None:
-            path = os.path.join(scenery_dir, entry)
             # not isdir: broken link, or a plain file squatting on the name.
             if os.path.isdir(path):
                 key, target = parsed, os.path.realpath(path)
@@ -308,8 +325,9 @@ def installed_tiles(scenery_dir: str) -> dict:
     Returns ``{(lat, lon): target_path}`` for every entry named
     ``zOrtho4XP_±XX±YYY`` that is either a resolving symlink/junction or a
     plain directory (a tile folder living directly in Custom Scenery is just
-    as installed as a linked one).  Broken links, foreign names, and group
-    links are skipped.
+    as installed as a linked one), and for every tile of the World pack
+    (target: the pack).  Broken links, foreign names, and group links are
+    skipped.
     """
     result = {}
     for _done, _total, key, target in iter_installed_tiles(scenery_dir):

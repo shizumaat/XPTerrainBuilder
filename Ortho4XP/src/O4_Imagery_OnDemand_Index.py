@@ -14,6 +14,11 @@ COLUMNS (:data:`COLUMNS`, spec §5.1):
   ``provider`` -- identity; ``build_dir`` -- the tile's build folder, so
   ``<build_dir>/textures/<name>`` is the texture (beyond spec §5.1: a
   custom or grouped build dir cannot be derived from the tile name);
+* ``textures_dir``, ``terrain_dir``, ``config_dir`` -- where the tile's
+  textures, ``.ter`` files and imagery manifest are when they are not in
+  ``build_dir`` (a tile published into the World pack: flight manager /
+  World spec §7.3; the manifest's :data:`LAYOUT_KEY` names them, so a
+  rebuild restores them); every path is resolved by ``_tile_dir``;
 * ``centre_lat``, ``centre_lon``, ``load_size_m`` -- the ``.ter``
   ``LOAD_CENTER`` (S, spec §4.3);
 * ``state`` -- one of :data:`STATES`: ``low`` (the placeholder),
@@ -57,7 +62,9 @@ API (stable: the follow job, P3b, reads and writes through it):
   ``upgrading`` row back to what its file on disk is (``low``, or
   ``upgraded`` when the landing finished before the index was told), and
   the partials a killed landing left swept.
-* :func:`texture_path` -- ``<build_dir>/textures/<name>`` of a row;
+* :func:`texture_path` -- the texture of a row, through THE resolver of
+  a row's ``textures``, ``terrain`` and ``config`` folders
+  (``_tile_dir``);
   :func:`placeholder_width` -- its placeholder's width.
 * :func:`distance_m` / :func:`tier_distance_m` -- how far a row's square
   is from a point, and its current tier's distance ``c_k * S`` (spec
@@ -97,10 +104,14 @@ __all__ = [
     "mark_late", "mark_near", "open_index", "pinned_bytes",
     "placeholder_width", "protected_cache_keys", "protected_jpegs",
     "rebuild", "reset_upgrading", "rows", "set_core",
-    "set_pinned", "set_state", "texture_path", "tier_distance_m", "upsert",
+    "set_pinned", "set_state", "texture_path", "tier_distance_m",
+    "upsert", "LAYOUT_KEY",
 ]
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+#: The imagery-manifest key naming a published tile's folders
+#: (``{"textures_dir", "terrain_dir"}``, ``o4_engine.world_publish``).
+LAYOUT_KEY = "world_layout"
 #: Under ``<data>/Imagery_on_demand/`` (``O4_Imagery_Placeholder.STORE_DIR``).
 INDEX_FILE = "index.sqlite"
 STATES = ("low", "upgrading", "upgraded", "failed")
@@ -114,6 +125,9 @@ _SCHEMA = (
     ("zl", "INTEGER", 0),
     ("provider", "TEXT", ""),
     ("build_dir", "TEXT", None),
+    ("textures_dir", "TEXT", None),
+    ("terrain_dir", "TEXT", None),
+    ("config_dir", "TEXT", None),
     ("centre_lat", "REAL", None),
     ("centre_lon", "REAL", None),
     ("load_size_m", "REAL", None),
@@ -282,11 +296,26 @@ def set_core(conn: sqlite3.Connection, tile: str, names) -> int:
     return count
 
 
-def texture_path(row: dict) -> "str | None":
-    """The texture file a row describes, or ``None`` without a build dir."""
+_DIRS = {"textures": _TEXTURES, "terrain": _TERRAIN, "config": ""}
+
+
+def _tile_dir(row: dict, which: str) -> "str | None":
+    """The row's ``which`` folder (``textures``, ``terrain`` or
+    ``config``): its own ``<which>_dir`` column, else under its
+    ``build_dir``; ``None`` with neither."""
+    own = row.get(f"{which}_dir")
+    if own:
+        return own
     if not row.get("build_dir"):
         return None
-    return os.path.join(row["build_dir"], _TEXTURES, row["name"])
+    sub = _DIRS[which]
+    return os.path.join(row["build_dir"], sub) if sub else row["build_dir"]
+
+
+def texture_path(row: dict) -> "str | None":
+    """The texture file a row describes, or ``None`` without a folder."""
+    folder = _tile_dir(row, "textures")
+    return os.path.join(folder, row["name"]) if folder else None
 
 
 def placeholder_width(row: dict) -> int:
@@ -405,7 +434,8 @@ def protected_jpegs(conn: sqlite3.Connection) -> "set[str]":
 
 
 def _read_ter(path: str) -> "tuple[str, float, float, float] | None":
-    """``(texture name, centre lat, centre lon, S)`` of one ``.ter``."""
+    """``(texture name, centre lat, centre lon, S)`` of one ``.ter`` (or
+    a drape tile's ``.pol``: ``LOAD_CENTER`` and ``TEXTURE_NOWRAP``)."""
     centre, texture = None, None
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
@@ -414,8 +444,9 @@ def _read_ter(path: str) -> "tuple[str, float, float, float] | None":
                 if len(words) >= 4 and words[0] == "LOAD_CENTER":
                     centre = (float(words[1]), float(words[2]),
                               float(words[3]))
-                elif len(words) >= 2 and words[0] in ("BASE_TEX_NOWRAP",
-                                                      "BASE_TEX"):
+                elif len(words) >= 2 and words[0] in (
+                        "BASE_TEX_NOWRAP", "BASE_TEX",
+                        "TEXTURE_NOWRAP", "TEXTURE"):   # a drape's .pol
                     texture = os.path.basename(words[1].replace("\\", "/"))
     except (OSError, ValueError):
         return None
@@ -439,7 +470,9 @@ def _identity(name: str) -> "tuple[int, str]":
 
 def _manifest(build_dir: str, tile: str) -> dict:
     """The tile's imagery manifest (``O4_Tile_Utils.imagery_manifest_path``
-    names it from a tile object; the index has only the folder)."""
+    names it from a tile object; the index has only the folder; the
+    manifest stays in the build folder, so ``config_dir`` is ``None``
+    until a later phase moves it)."""
     path = os.path.join(build_dir, f"Ortho4XP_{tile}_imagery.json")
     try:
         with open(path, encoding="utf-8") as handle:
@@ -475,20 +508,26 @@ def _scan_tile(build_dir: str, lat: int, lon: int, *,
     tile = FNAMES.short_latlon(lat, lon)
     now = time.time() if now is None else now
     manifest = _manifest(build_dir, tile)
+    layout = manifest.get(LAYOUT_KEY) or {}
+    layout = layout if isinstance(layout, dict) else {}
+    where = {"build_dir": build_dir,
+             "textures_dir": layout.get("textures_dir"),
+             "terrain_dir": layout.get("terrain_dir"),
+             "config_dir": None}
     pinned = int(bool(manifest.get("pinned")))
     low_zl = manifest.get("placeholder_zl")
     low_px_set = manifest.get("placeholder_px")
     full_source = manifest.get("full_source")
     found = {}
     with contextlib.suppress(OSError):
-        for item in os.scandir(os.path.join(build_dir, _TERRAIN)):
-            if item.name.endswith(".ter"):
+        for item in os.scandir(_tile_dir(where, "terrain")):
+            if item.name.endswith((".ter", ".pol")):
                 facts = _read_ter(item.path)
                 if facts is not None:
                     found.setdefault(facts[0], facts[1:])
     result = []
     for name, (centre_lat, centre_lon, size) in sorted(found.items()):
-        path = os.path.join(build_dir, _TEXTURES, name)
+        path = os.path.join(_tile_dir(where, "textures"), name)
         header = TIERS.texture_header(path)
         if header is None or not DDS.is_whole(path):
             continue
@@ -505,7 +544,7 @@ def _scan_tile(build_dir: str, lat: int, lon: int, *,
         upgraded = header[0] > low_px
         result.append({
             "tile": tile, "name": name, "zl": zl, "provider": provider,
-            "build_dir": build_dir,
+            **where,
             "centre_lat": centre_lat, "centre_lon": centre_lon,
             "load_size_m": size,
             "state": "upgraded" if upgraded else "low",

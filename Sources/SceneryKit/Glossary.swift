@@ -35,6 +35,7 @@ public enum O4Glossary {
         "favorite": "Favorite",
         "disk_budget": "How much disk space may XPTerrainBuilder use (GB)?",
         "installed_tiles": "Installed ortho tiles",
+        "ondemand_region": "On demand in {region}?",
     ]
 
     /// Engine step key (wire `step_key`, legacy driver step) -> plain name.

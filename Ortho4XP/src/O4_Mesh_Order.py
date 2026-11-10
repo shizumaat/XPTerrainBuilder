@@ -43,6 +43,16 @@ LOCAL_MESH_TILES = 4
 ACTIONS = ("raise", "lower", "disable")
 
 
+def _is_ours(name: str, dsf: str, ours_dsf: str) -> bool:
+    """Is ``dsf`` (pack ``name``'s DSF of the tile) our tile: the build's
+    own DSF through its link, or a tile of the World pack (published by
+    copy; its placeholder is an overlay and never ours)."""
+    import O4_World_Pack as WP
+    if ours_dsf and FNAMES.path_key(dsf) == ours_dsf:
+        return True
+    return name == WP.PACK_NAME and not WP.is_placeholder(dsf)
+
+
 def _drawn_order(custom_scenery_dir: str, lat: int, lon: int,
                  build_dir: str):
     """``(ours, meshes)``: the index of our tile in the tile's load order
@@ -55,7 +65,7 @@ def _drawn_order(custom_scenery_dir: str, lat: int, lon: int,
         dsf = FNAMES.dsf_file(os.path.join(custom_scenery_dir, name), lat, lon)
         if not os.path.isfile(dsf):
             continue
-        if ours_dsf and FNAMES.path_key(dsf) == ours_dsf:
+        if _is_ours(name, dsf, ours_dsf):
             if ours is None:
                 ours = index
         elif HEADER.dsf_is_overlay(dsf) is False:
@@ -124,7 +134,7 @@ def _our_name(custom_scenery_dir: str, lat: int, lon: int,
     ours_dsf = FNAMES.path_key(FNAMES.dsf_file(build_dir, lat, lon))
     for name in SP.load_order(custom_scenery_dir):
         dsf = FNAMES.dsf_file(os.path.join(custom_scenery_dir, name), lat, lon)
-        if os.path.isfile(dsf) and FNAMES.path_key(dsf) == ours_dsf:
+        if os.path.isfile(dsf) and _is_ours(name, dsf, ours_dsf):
             return name
     return None
 

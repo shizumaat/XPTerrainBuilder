@@ -157,7 +157,7 @@ def _ortho4xp_version() -> str:
 #: is given the command's ``id`` as ``request``.
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "plan_estimate",
                                "build_airports", "imagery_freshness",
-                               *_LIBRARY.COMMANDS})
+                               "world_regions_set", *_LIBRARY.COMMANDS})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -170,12 +170,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # the emitter and the law tables (~0.25 s), which the handshake must
     # not wait for.
     import O4_Imagery_Sources as SOURCES
-    from O4_Tile_Customizations import tile_customizations
     from O4_Mesh_Order import apply_mesh_order, tile_mesh_order
     from O4_Scenery_Packs_Tidy import tidy_scenery_packs
+    from O4_Tile_Customizations import tile_customizations
     from O4_Tile_Texture_Check import tile_texture_check
 
     from . import patch_commands, patch_drop, patch_insert
+    from . import world_commands as WORLD
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
     from .imagery_commands import (
@@ -189,9 +190,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .mesh_commands import mesh_crop
     from .object_seat import object_seat
     from .object_seat_edit import object_seat_set
-    from .patch_roles import patch_role_set, patch_roles
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
+    from .patch_roles import patch_role_set, patch_roles
     from .plan_estimate import start_plan_estimate
     from .relief_commands import terrain_relief
     from .terrain_commands import terrain_sample
@@ -383,6 +384,15 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # index scan, a tile's pin and "Make all low-res again"; pin and
         # downgrade are refused while a build runs.
         **ondemand_handlers(lambda: bool(session._building)),
+        # The World pack (flight manager / World spec §5.2, capability
+        # world_pack): status and install sync; world_regions_set replies
+        # {"status": "started"} and completes through WorldReady carrying
+        # this command's id; world_tile_set gives a tile back.
+        "world_status": WORLD.world_status,
+        "world_install": WORLD.world_install,
+        "world_regions_set": lambda **kw: WORLD.start_world_regions_set(
+            session._emit, **kw),
+        "world_tile_set": WORLD.world_tile_set,
     }
 
 
@@ -667,6 +677,10 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         # cores sharp, when the run ends (#1992 follow-up).
         from .imagery_after_build import watch as _watch_built_tiles
         _watch_built_tiles(session)
+        # ... and published into the World pack when there is one
+        # (flight manager / World spec §7.3).
+        from .world_publish import watch as _watch_world
+        _watch_world(session)
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.
         # ``capabilities`` defaults to ``events.CAPABILITIES`` — ONE list

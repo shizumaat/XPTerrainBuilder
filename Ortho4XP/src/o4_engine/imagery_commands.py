@@ -118,7 +118,10 @@ def start_imagery_follow(emit: Callable[[Any], None],
             from .imagery_ondemand import on_demand_tiles
             tiles = [list(t) for t in on_demand_tiles(working_dir or FNAMES.Tile_dir)]
         base = WEBAPI.base_url(int(port or settings["port"]))
-        job = FollowJob(emit, reader=WEBAPI.PositionReader(base),
+        # The one position reader the World pack's swap rule and later
+        # the World job and flight manager share (position_feed).
+        from .position_feed import shared as shared_feed
+        job = FollowJob(emit, reader=shared_feed(base),
                         lander=TierLander(),
                         index_path=index_path, busy=busy,
                         lead_s=float(lead_s or settings["lead_s"]),

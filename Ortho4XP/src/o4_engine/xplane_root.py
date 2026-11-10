@@ -1,9 +1,31 @@
 """The X-Plane install a tile's build reads — light on purpose (#1989):
 the session's build hooks resolve it without importing the pack-object
-readers (``pack_objects`` re-exports it for its own callers)."""
+readers (``pack_objects`` re-exports it for its own callers) — and
+whether X-Plane runs (:func:`xplane_running`, the converter's and the
+World pack's one check)."""
 from __future__ import annotations
 
-__all__ = ["xplane_root_for"]
+import contextlib
+import subprocess
+import sys
+
+__all__ = ["xplane_root_for", "xplane_running"]
+
+
+def xplane_running() -> bool:
+    """Is an X-Plane process running on this machine (best effort: macOS
+    and Linux process names; ``False`` where it cannot tell)?"""
+    import O4_UI_Utils as UI
+    if sys.platform == "win32":
+        return False
+    for name in ("X-Plane", "X-Plane-x86_64", "X-Plane-arm64"):
+        with contextlib.suppress(OSError):
+            done = subprocess.run(["pgrep", "-x", name], capture_output=True,
+                                  check=False,
+                                  **UI.external_tool_keyword_arguments())
+            if done.returncode == 0:
+                return True
+    return False
 
 
 def xplane_root_for(lat: int, lon: int) -> str | None:

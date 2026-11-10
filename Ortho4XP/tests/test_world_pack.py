@@ -117,7 +117,8 @@ def test_ini_row_appended_once_and_removed():
 def _fake_staged(root, tile, lat, lon):
     for sub, name in (("terrain", "a.ter"), ("textures", "a.dds")):
         os.makedirs(os.path.join(root, sub, tile))
-        with open(os.path.join(root, sub, tile, name), "w") as h:
+        with open(os.path.join(root, sub, tile, name), "w", encoding="utf-8",
+                  newline="\n") as h:
             h.write(sub)
     dsf = os.path.join(root, WP.dsf_relpath(lat, lon))
     os.makedirs(os.path.dirname(dsf))

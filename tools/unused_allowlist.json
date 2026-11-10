@@ -163,5 +163,55 @@
   "path": "Ortho4XP/src/O4_Imagery_OnDemand_Index.py",
   "name": "get",
   "reason": "on-demand index API of the follow job (#1992 P3b): one row by (tile, name)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "relayout_tile",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "swap_in",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "ini_install",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "placeholder_text",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "is_placeholder",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "dsftool_path",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "ini_remove",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "rewrite_dsf_text",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "rewrite_ter",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "swap_out",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
  }
 ]

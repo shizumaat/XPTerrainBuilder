@@ -11,7 +11,9 @@ rebuild time, so a lost index downgrades nothing).
 COLUMNS (:data:`COLUMNS`, spec §5.1):
 
 * ``tile`` (``+60-136``), ``name`` (the texture's file name), ``zl``,
-  ``provider`` -- identity;
+  ``provider`` -- identity; ``build_dir`` -- the tile's build folder, so
+  ``<build_dir>/textures/<name>`` is the texture (beyond spec §5.1: a
+  custom or grouped build dir cannot be derived from the tile name);
 * ``centre_lat``, ``centre_lon``, ``load_size_m`` -- the ``.ter``
   ``LOAD_CENTER`` (S, spec §4.3);
 * ``state`` -- one of :data:`STATES`: ``low`` (the placeholder),
@@ -45,8 +47,13 @@ API (stable: the follow job, P3b, reads and writes through it):
   crossing, spec §4.7 R5).
 * :func:`set_pinned` / :func:`set_core` -- the per-tile pin, the airport
   core flags.
-* :func:`reset_upgrading` -- every ``upgrading`` row back to ``low`` (the
-  start of a session, spec §8).
+* :func:`reset_upgrading` -- the start of a session (spec §8): every
+  ``upgrading`` row back to what its file on disk is (``low``, or
+  ``upgraded`` when the landing finished before the index was told), and
+  the partials a killed landing left swept.
+* :func:`texture_path` -- ``<build_dir>/textures/<name>`` of a row;
+  :func:`placeholder_width`, :func:`disk_state` -- its placeholder's
+  width and what its file on disk is.
 * :func:`capped_bytes` / :func:`pinned_bytes` -- what counts against the
   cap (upgraded, unpinned) and the pins line.
 * :func:`lru_order` -- the downgrade order of spec §6.2 (cores last, then
@@ -76,11 +83,11 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 
 __all__ = [
     "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
-    "STATES", "capped_bytes", "get", "index_path", "lru_order",
+    "STATES", "capped_bytes", "disk_state", "get", "index_path", "lru_order",
     "mark_late", "mark_near", "open_index", "pinned_bytes",
-    "protected_cache_keys", "protected_jpegs", "rebuild",
-    "reset_upgrading", "rows", "scan_tile", "set_core", "set_pinned",
-    "set_state", "upsert",
+    "placeholder_width", "protected_cache_keys", "protected_jpegs",
+    "rebuild", "reset_upgrading", "rows", "scan_tile", "set_core",
+    "set_pinned", "set_state", "texture_path", "upsert",
 ]
 
 SCHEMA_VERSION = 1
@@ -96,6 +103,7 @@ _SCHEMA = (
     ("name", "TEXT NOT NULL", None),
     ("zl", "INTEGER", 0),
     ("provider", "TEXT", ""),
+    ("build_dir", "TEXT", None),
     ("centre_lat", "REAL", None),
     ("centre_lon", "REAL", None),
     ("load_size_m", "REAL", None),
@@ -257,11 +265,54 @@ def set_core(conn: sqlite3.Connection, tile: str, names) -> int:
     return count
 
 
+def texture_path(row: dict) -> "str | None":
+    """The texture file a row describes, or ``None`` without a build dir."""
+    if not row.get("build_dir"):
+        return None
+    return os.path.join(row["build_dir"], _TEXTURES, row["name"])
+
+
+def placeholder_width(row: dict) -> int:
+    """Width of the row's placeholder: its kept file's header, else the
+    default placeholder tier (512 px)."""
+    kept = row.get("placeholder_path")
+    header = TIERS.texture_header(kept) if kept else None
+    if header is not None:
+        return header[0]
+    return TIERS.tier_width(PLACEHOLDER.DEFAULT_DROP)
+
+
+def disk_state(row: dict) -> "tuple[str, int, int] | None":
+    """``(state, tier_px, full_bytes)`` the row's file on disk shows:
+    ``upgraded`` when wider than its placeholder; ``None`` when the file
+    is not a whole DDS or the row has no build dir."""
+    path = texture_path(row)
+    header = TIERS.texture_header(path) if path else None
+    if header is None or not DDS.is_whole(path):
+        return None
+    if header[0] > placeholder_width(row):
+        return "upgraded", header[0], DISK.freeable_bytes(path)
+    return "low", header[0], 0
+
+
 def reset_upgrading(conn: sqlite3.Connection) -> int:
-    """Every ``upgrading`` row back to ``low`` (an interrupted fetch never
-    landed: its partial is swept, the old file still stands)."""
-    return conn.execute("UPDATE textures SET state = 'low' "
-                        "WHERE state = 'upgrading'").rowcount
+    """The start of a session (spec §4.7 R7, §8): sweep the partials a
+    killed landing left beside every ``upgrading`` row's texture, and set
+    the row to what its file now is -- ``low``, or ``upgraded`` when the
+    landing finished but the index was not told.  Returns the rows
+    reset."""
+    found = [dict(r) for r in conn.execute(
+        "SELECT * FROM textures WHERE state = 'upgrading'")]
+    with conn:
+        for row in found:
+            path = texture_path(row)
+            if path:
+                DDS.sweep_partials(path)
+            facts = disk_state(row) or ("low", row["tier_px"], 0)
+            conn.execute("UPDATE textures SET state = ?, tier_px = ?, "
+                         "full_bytes = ? WHERE tile = ? AND name = ?",
+                         (*facts, row["tile"], row["name"]))
+    return len(found)
 
 
 def capped_bytes(conn: sqlite3.Connection) -> int:
@@ -387,6 +438,7 @@ def scan_tile(build_dir: str, lat: int, lon: int, *,
         upgraded = header[0] > low_px
         result.append({
             "tile": tile, "name": name, "zl": zl, "provider": provider,
+            "build_dir": build_dir,
             "centre_lat": centre_lat, "centre_lon": centre_lon,
             "load_size_m": size,
             "state": "upgraded" if upgraded else "low",

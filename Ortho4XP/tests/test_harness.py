@@ -11503,8 +11503,8 @@ def test_a_dem_refresh_rederives_the_build_airports_PACK_STALE_inset(
                         lambda state, lat, lon, icao: verdicts.pop(0))
     warmed = []
     monkeypatch.setattr(build_mod, "warm_airport_insets",
-                        lambda icaos, r, lat, lon, prog: warmed.append(
-                            (tuple(icaos), lat, lon)) or {})
+                        lambda icaos, r, lat, lon, prog, refresh=True:
+                        warmed.append((tuple(icaos), lat, lon)) or {})
     out = build_mod.refresh_tile_dem(root, 17, -63, _Notes(), icao="TFFJ")
     assert warmed == [(("TFFJ",), 17, -63)]
     assert out["derived"] == [

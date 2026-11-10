@@ -1417,16 +1417,25 @@ class SharedRepoWriteGuard:
         # The mutating path operations.  ``src``-side arguments are checked
         # too for the two-path calls: a rename OUT of the repo destroys the
         # cached artifact just as surely as one into it.
-        for name, n_paths in (("rename", 2), ("replace", 2), ("remove", 1),
-                              ("unlink", 1), ("rmdir", 1), ("mkdir", 1),
-                              ("makedirs", 1), ("truncate", 1)):
+        # ``symlink`` / ``link`` CREATE their second argument only (#1999:
+        # the Qt auto-install linked two pytest folders into the owner's
+        # Custom Scenery through ``os.symlink``, which this list missed);
+        # their first argument is the link's target, which is only read.
+        for name, checked in (("rename", (0, 1)), ("replace", (0, 1)),
+                              ("remove", (0,)), ("unlink", (0,)),
+                              ("rmdir", (0,)), ("mkdir", (0,)),
+                              ("makedirs", (0,)), ("truncate", (0,)),
+                              ("symlink", (1,)), ("link", (1,))):
             real = getattr(os, name, None)
             if real is None:
                 continue
             self._saved[name] = real
 
-            def _wrap(*a, _real=real, _n=n_paths, _nm=name, **kw):
-                for p in a[:_n]:
+            def _wrap(*a, _real=real, _idx=checked, _nm=name, **kw):
+                paths = [a[i] for i in _idx if i < len(a)]
+                if _nm in ("symlink", "link") and len(a) < 2 and "dst" in kw:
+                    paths.append(kw["dst"])
+                for p in paths:
                     # mkdir/makedirs on a directory that ALREADY exists
                     # mutates nothing (makedirs(exist_ok=True) no-ops;
                     # os.mkdir raises FileExistsError before touching the

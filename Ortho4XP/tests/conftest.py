@@ -353,6 +353,75 @@ def _qt_user_files_never_reach_the_checkout(tmp_path_factory):
     yield
 
 
+#: The folder every test's CONFIGURED Custom Scenery resolves to (#1999).
+REDIRECTED_SCENERY_PARTS = ("xplane_redirect", "Custom Scenery")
+
+
+def redirected_custom_scenery(tmp_path_factory) -> str:
+    """This run's stand-in Custom Scenery folder (created; under basetemp)."""
+    folder = tmp_path_factory.getbasetemp().joinpath(*REDIRECTED_SCENERY_PARTS)
+    folder.mkdir(parents=True, exist_ok=True)
+    return str(folder)
+
+
+def scenery_outside_tmp(path, basetemp) -> bool:
+    """Whether a configured Custom Scenery *path* is a real folder of this
+    machine — non-empty and not under pytest's *basetemp*."""
+    if not path:
+        return False
+    real = os.path.realpath(os.fspath(path))
+    base = os.path.realpath(os.fspath(basetemp))
+    return not (real == base or real.startswith(base + os.sep))
+
+
+@pytest.fixture(autouse=True)
+def _configured_custom_scenery_is_a_tmp_folder(monkeypatch, tmp_path_factory):
+    """Every test's CONFIGURED Custom Scenery is a pytest tmp folder (#1999).
+
+    The checkout's ``XPTerrainBuilder.cfg`` (and so ``CFG.custom_scenery_dir``
+    and ``SM.read_global_raw()``) names the owner's real install, and the
+    Qt auto-install linked two pytest folders into it on 2026-10-26
+    (``zOrtho4XP_+48-006`` / ``+49-006`` from ``test_qt_activity_keep``)
+    through ``os.symlink``, which the install write guard did not see.  The
+    guard now refuses links too; this redirect makes the configured install
+    a scratch folder for every test, so a code path that installs, links or
+    rewrites ``scenery_packs.ini`` lands there.  Tests that READ the real
+    install name it through ``xplane_root()``; a test that sets its own
+    folder (``monkeypatch.setattr(CFG, "custom_scenery_dir", ...)``) wins.
+    """
+    basetemp = tmp_path_factory.getbasetemp()
+    redirect = None
+    try:
+        import O4_Config_Utils as CFG
+    except Exception:                                   # pragma: no cover
+        CFG = None
+    if CFG is not None and scenery_outside_tmp(
+            getattr(CFG, "custom_scenery_dir", ""), basetemp):
+        redirect = redirected_custom_scenery(tmp_path_factory)
+        monkeypatch.setattr(CFG, "custom_scenery_dir", redirect)
+    try:
+        import O4_Settings_Model as SM
+    except Exception:                                   # pragma: no cover
+        SM = None
+    if SM is not None:
+        real_read = SM.read_global_raw
+
+        def read_global_raw(cfg_file=None):
+            raw = real_read(cfg_file)
+            # Only the CHECKOUT's own global cfg: a test's own cfg file
+            # under tmp keeps whatever it wrote.
+            default = cfg_file is None or os.path.realpath(
+                cfg_file) == os.path.realpath(SM._default_global_cfg())
+            if default and scenery_outside_tmp(
+                    raw.get("custom_scenery_dir", ""), basetemp):
+                raw = dict(raw, custom_scenery_dir=redirected_custom_scenery(
+                    tmp_path_factory))
+            return raw
+
+        monkeypatch.setattr(SM, "read_global_raw", read_global_raw)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _no_modal_first_run_wizard(monkeypatch):
     """No test opens the REAL first-run wizard by accident.

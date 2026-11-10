@@ -97,13 +97,20 @@ def check(pack_root: str, lat: int, lon: int, *,
     pd = pack_dump(pack_root, lat, lon, read_only=read_only)
     if pd is None:
         return None
+    index = _agp.get_library_index(pd.xroot)
+    if not index:
+        # #1924: an EMPTY index (a pack copy outside the install) resolves
+        # nothing, so the renames it "computes" are none; judging on it
+        # re-applied the old record and stamped it current.  Nothing is
+        # said, and the record keeps the rules it was written under.
+        return None
     asked: list = []
 
     def climate():
         asked.append(_tile_climate(pd.xroot, lat, lon))
         return asked[-1]
     old = _pf.old_forests(
-        pack_root, pd.dump_path, _agp.get_library_index(pd.xroot),
+        pack_root, pd.dump_path, index,
         os.path.join(pd.xroot, "Resources", "default scenery"),
         lambda: _agp.other_export_names(pd.xroot), climate)
     if old is None:

@@ -971,6 +971,27 @@ public final class OrthoEngineClient: @unchecked Sendable {
         send(command: "imagery_follow_stop")
     }
 
+    // MARK: - Build-ahead (World spec W2, capability world_job)
+
+    /// Start build-ahead in track mode: tiles about to enter X-Plane's
+    /// window are built and swapped into the World pack before they load.
+    /// The engine also starts it by itself beside the follow job;
+    /// `worldStatus` events report it every 2 s. `completion` gets the
+    /// reply's status: "started", "running", "off", or nil on a refusal.
+    public func startWorldJob(port: Int? = nil,
+                              completion: (@Sendable (String?) -> Void)? = nil) {
+        var arguments: [String: Any] = ["mode": "track"]
+        if let port { arguments["port"] = port }
+        send(command: "world_job_start", arguments: arguments) { reply in
+            completion?(reply.ok ? reply.result?["status"]?.stringValue : nil)
+        }
+    }
+
+    /// Stop build-ahead (builds already queued finish).
+    public func stopWorldJob() {
+        send(command: "world_job_stop")
+    }
+
     // MARK: - Default airport index (protocol 1.6)
 
     /// Ask the engine for X-Plane's Global Airports index. The engine owns

@@ -730,6 +730,8 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.open_frame_seat",
         "auto_patch_v2.airport.pack",
         "auto_patch_v2.airport.pack_ground",
+        "auto_patch_v2.airport.pack_health",
+        "auto_patch_v2.airport.pack_health.light_records",
         "auto_patch_v2.airport.pack_local",
         "auto_patch_v2.airport.pack_partition",
         "auto_patch_v2.airport.pack_work",
@@ -760,6 +762,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_targets",
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
+        "auto_patch_v2.airport.pool_memory",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.ring_contact_batch",
         "auto_patch_v2.airport.road_profile",
@@ -875,6 +878,8 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.open_frame_seat",
         "auto_patch_v2.airport.pack",
         "auto_patch_v2.airport.pack_ground",
+        "auto_patch_v2.airport.pack_health",
+        "auto_patch_v2.airport.pack_health.light_records",
         "auto_patch_v2.airport.pack_local",
         "auto_patch_v2.airport.pack_partition",
         "auto_patch_v2.airport.pack_work",
@@ -905,6 +910,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_targets",
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
+        "auto_patch_v2.airport.pool_memory",
         "auto_patch_v2.airport.public_road",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.ring_contact_batch",
@@ -1830,7 +1836,6 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     law.walled_plate_schema model.walled_plate
     constraints.deck_anchor
     constraints.taxi_route_yield
-    airport.deck_family_contact airport.obj8_rest
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     geom.exact
@@ -1888,7 +1893,6 @@ CODE_MODULES["jetway_strip"] = _mods("""
     geom.foot_planes constraints.group_level constraints.face_index
     airport.dem airport.walled_plate law.walled_plate_schema model.walled_plate
     constraints.taxi constraints.taxi_route_yield
-    airport.deck_family_contact airport.obj8_rest
 """)
 
 #: THE SOLVE AND THE LAST STAGE (spec §4b.4, §4b.5; #843 step 9b): the solve
@@ -2035,7 +2039,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.deck_anchor constraints.edge_floor
     constraints.deck_lines
     constraints.taxi_route_yield
-    airport.deck_family_contact airport.foot_lot airport.obj8_rest planar.basin_floor_width
+    airport.foot_lot
     planar.foot_kerb
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
@@ -2190,7 +2194,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.reach_under_covers
     constraints.deck_anchor
     constraints.taxi_route_yield
-    airport.deck_family_contact airport.foot_lot airport.obj8_rest planar.basin_floor_width
+    airport.foot_lot
     planar.foot_kerb
 """)
 CODE_MODULES["emit"] = _mods("""
@@ -2292,7 +2296,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.deck_anchor
     model.stage_one
     constraints.taxi_route_yield
-    airport.deck_family_contact airport.foot_lot airport.obj8_rest
+    airport.foot_lot
 """)
 CODE_MODULES["verify"] = _mods("""
     geom.exact
@@ -2380,7 +2384,6 @@ CODE_MODULES["verify"] = _mods("""
     model.stage_one
     verify.deck_flush
     constraints.taxi_route_yield
-    airport.deck_family_contact airport.obj8_rest
 """)
 
 

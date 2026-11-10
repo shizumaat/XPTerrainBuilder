@@ -268,8 +268,9 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     faces[:, :, 2] += lift
     fz = float(faces[:, :, 2].min())
     inside = [p for p in mates if p not in covers and _in_pit(p, foot, cache, tk)]
-    k = sum(1 for n in notes if n.startswith(f"walled pit {_base(o.path)}@"))
-    note = (f"walled pit {_base(o.path)}@{k}: floor y {floor_y:.2f}, rim y {rim_y:.2f} "
+    k = sum(1 for n in notes if n.startswith(f"object floor walled pit {_base(o.path)}@"))
+    note = (f"object floor walled pit {_base(o.path)}@{k}: floor y {floor_y:.2f}, "
+            f"rim y {rim_y:.2f} "
             f"(walls of " + ", ".join(_base(p.path) for p in covers) + f"; "
             f"{100 * max(rims)[0]:.0f} % of its outline), open {100 * (1 - roofed):.0f} %; "
             f"rim {zero + rim_y:.2f} stands {proud:+.2f} m over the ground around it ("
@@ -289,13 +290,39 @@ def _in_pit(p, foot, cache, tk: float) -> bool:
     pit's footprint (widened by a wall's thickness)?  The frame's
     placements elsewhere (a shared datum hangs a whole airport off one
     origin) keep their own seats."""
-    _y0, _y1, x0, x1, z0, z1 = cache.y_range(p.resolved)
+    y0, _y1, x0, x1, z0, z1 = cache.y_range(p.resolved)
+    if not y0 < math.inf:
+        # no vertices: a lights-only object is where its lights stand
+        x0, x1, z0, z1 = _light_box(p.resolved)
     if not (x1 > x0 and z1 > z0):
         return False
     a, b, d, e, xo, yo = _obj8.placement_affine(p.xy, p.heading_deg)
     box = shapely.Polygon([(a * x + b * z + xo, d * x + e * z + yo)
                            for x, z in ((x0, z0), (x1, z0), (x1, z1), (x0, z1))])
     return box.area > 0.0 and box.intersection(foot.buffer(tk)).area >= 0.5 * box.area
+
+
+def _light_box(path: str) -> tuple[float, float, float, float]:
+    """``(min_x, max_x, min_z, max_z)`` of an OBJ's positional light rows
+    (``obj8_split._POSITIONAL``), or an empty box."""
+    from .obj8_split import _POSITIONAL
+    xs, zs = [], []
+    try:
+        with open(path, "r", encoding="latin-1", errors="replace") as fh:
+            for ln in fh:
+                tok = ln.split()
+                k = _POSITIONAL.get(tok[0]) if tok else None
+                if k is not None and len(tok) >= k + 3:
+                    try:
+                        xs.append(float(tok[k]))
+                        zs.append(float(tok[k + 2]))
+                    except ValueError:
+                        continue
+    except OSError:
+        pass
+    if not xs:
+        return 0.0, 0.0, 0.0, 0.0
+    return min(xs), max(xs), min(zs), max(zs)
 
 
 def share_lift(floors: list, notes: list[str]) -> list:
@@ -318,7 +345,7 @@ def share_lift(floors: list, notes: list[str]) -> list:
         d = src.lift
         faces = f.faces.copy()
         faces[:, :, 2] += d
-        notes.append(f"{f.id}: read in the frame of {src.id} -> lifted {d:+.2f}")
+        notes.append(f"object floor {f.id}: read in the frame of {src.id} -> lifted {d:+.2f}")
         out.append(_dc.replace(
             f, faces=faces, zero_z=f.zero_z + d, floor_z=f.floor_z + d, lift=d,
             rim_z=None if f.rim_z is None else f.rim_z + d,

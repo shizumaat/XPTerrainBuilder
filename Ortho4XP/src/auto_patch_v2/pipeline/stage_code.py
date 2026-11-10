@@ -984,6 +984,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.rotated_rect",
+        "auto_patch_v2.geom.runway_contact",
         "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.station_runs",
         "auto_patch_v2.geom.terrain_deck",
@@ -1241,6 +1242,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.ramp_profile",
         "auto_patch_v2.geom.rotated_rect",
+        "auto_patch_v2.geom.runway_contact",
         "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.terrain_deck",
         "auto_patch_v2.geom.trend",
@@ -1414,6 +1416,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.object_floor geom.lowest_face model.airport
     """),
     "eat": _mods(_GENERATOR_CORE + """
+        geom.runway_contact
         geom.exact
         constraints.apron constraints.cluster_pad constraints.eat constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
@@ -1497,6 +1500,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.taxi_route_yield
     """),
     "no_step": _mods(_GENERATOR_CORE + """
+        geom.runway_contact
         geom.exact
         law.inset_class
         constraints.apron constraints.ceiling constraints.cluster_pad
@@ -1610,6 +1614,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.threshold_datum
     """),
     "deck_anchor": _mods(_GENERATOR_CORE + """
+        geom.runway_contact
         geom.exact
         law.inset_class
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1630,6 +1635,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.taxi constraints.taxi_route_yield
 """),
     "runway_chord": _mods(_GENERATOR_CORE + """
+        geom.runway_contact
         geom.exact
         law.inset_class
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1650,6 +1656,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.taxi constraints.taxi_route_yield
 """),
     "runway_mean_slope": _mods(_GENERATOR_CORE + """
+        geom.runway_contact
         geom.exact
         law.inset_class
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1670,6 +1677,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.taxi constraints.taxi_route_yield
 """),
     "runway_profile": _mods(_GENERATOR_CORE + """
+        geom.runway_contact
         geom.exact
         law.inset_class
         constraints.geometry constraints.precedence constraints.runway_profile
@@ -1677,6 +1685,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.shoulder_crossing geom.trend model.airport
     """),
     "runway_step": _mods(_GENERATOR_CORE + """
+        geom.runway_contact
         geom.exact
         law.inset_class
         constraints.geometry constraints.precedence constraints.runway_profile
@@ -1750,6 +1759,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    geom.runway_contact
     constraints.fill_bank
     constraints.object_floor geom.lowest_face
     geom.exact
@@ -1846,6 +1856,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.taxi_route_yield
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
+    geom.runway_contact
     geom.exact
         law.inset_class law.runway_ends_schema law.terrain_witness_schema
     airport constraints model airport.anchor_rule airport.apt_dat
@@ -1913,6 +1924,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    geom.runway_contact
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor geom.author_ground geom.lowest_face planar.object_floor_cells
@@ -2052,6 +2064,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    geom.runway_contact
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor constraints.object_floor planar.object_floor_cells
@@ -2208,6 +2221,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["emit"] = _mods("""
+    geom.runway_contact
     geom.station_runs airport.bridge_ground
     geom.shape_class
     airport.hanging_objects airport.object_cut airport.object_floor airport.wall_geometry
@@ -2310,6 +2324,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.foot_lot
 """)
 CODE_MODULES["verify"] = _mods("""
+    geom.runway_contact
     geom.exact
         constraints.runway_end_report law.runway_ends_schema law.terrain_witness_schema
     airport classify constraints emit model pipeline planar solve airport.anchor_rule

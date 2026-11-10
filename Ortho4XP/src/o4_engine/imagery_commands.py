@@ -14,9 +14,13 @@ synchronous file work.
 
 ``imagery_follow_start`` (#1992 P3b) starts the follow job
 (``o4_engine.imagery_follow``) and replies ``{"status": "started"}`` (or
-``"running"``); ``ImageryFollowStatus`` events report it until
+``"running"``; ``"off"`` for the apps' automatic start, P4, while the
+world switch is off); its settings come from the global config
+(:func:`follow_settings`); ``ImageryFollowStatus`` events report it until
 ``imagery_follow_stop`` ends it and replies its counts.  One job per
-engine.
+engine.  After a spawn or jump whose imagery missed X-Plane's flight-start
+window the job asks X-Plane to reload its scenery (#1992 P5, capability
+``imagery_spawn_reload``); ``reload: false`` starts a job that never does.
 
 On-demand imagery (#1992, capability ``imagery_ondemand``):
 ``imagery_ondemand_scan`` (the index rebuilt from the on-demand tiles),
@@ -25,6 +29,9 @@ On-demand imagery (#1992, capability ``imagery_ondemand``):
 ``imagery_ondemand_downgrade_all`` ("Make all low-res again"), synchronous
 file work in :mod:`o4_engine.imagery_ondemand`; those that change
 textures are refused while a build runs (:func:`ondemand_handlers`).
+``imagery_ondemand_convert`` (capability ``imagery_ondemand_convert``,
+P1c) sizes or converts the Custom Scenery folder's built tiles to
+on-demand copies (:mod:`o4_engine.imagery_convert`); it touches no build.
 
 A command module, not a session method, so the imagery menus stay out of
 the session's import closure (the patch and step code keys,
@@ -44,34 +51,87 @@ _FOLLOW: Dict[str, Any] = {"job": None}
 _FOLLOW_GUARD = threading.Lock()
 
 
+#: The follow job's settings (Settings > Imagery and > Speed & Downloads,
+#: ``O4_Cfg_Vars``): command argument -> (global setting, default).
+FOLLOW_SETTINGS = {"port": ("xplane_web_api_port", 8086),
+                   "lead_s": ("ondemand_lead_s", 30.0),
+                   "lands_per_s": ("ondemand_lands_per_s", 4.0)}
+#: The world switch (#1992 spec §7): with ``if_enabled`` the job starts
+#: only while it is on.
+ON_DEMAND_SETTING = "imagery_on_demand"
+
+
+def follow_settings(raw: Optional[dict] = None) -> Dict[str, Any]:
+    """``{"enabled", "port", "lead_s", "lands_per_s"}`` from the global
+    config ``raw`` (read when ``None``); a value that does not parse, or
+    is not positive, reads as its default."""
+    if raw is None:
+        import O4_Settings_Model as SM
+        raw = SM.read_global_raw()
+    out: Dict[str, Any] = {"enabled": str(raw.get(ON_DEMAND_SETTING, "")).strip()
+                           .lower() in ("true", "1", "yes", "on")}
+    for argument, (key, default) in FOLLOW_SETTINGS.items():
+        try:
+            value = type(default)(float(raw.get(key, "") or default))
+        except (TypeError, ValueError):
+            value = default
+        out[argument] = value if value > 0 else default
+    return out
+
+
 def start_imagery_follow(emit: Callable[[Any], None],
                          busy: Callable[[], bool] = lambda: False,
                          port: Optional[int] = None,
                          lead_s: Optional[float] = None,
+                         lands_per_s: Optional[float] = None,
                          tiles: Optional[Sequence[Sequence[Any]]] = None,
-                         index_path: Optional[str] = None) -> Dict[str, Any]:
-    """The command: start following X-Plane's camera on ``port`` (default
-    8086); ``tiles`` (``[build_dir, lat, lon]`` each) are rescanned into
-    the index first; ``busy()`` is true while a build runs."""
+                         working_dir: Optional[str] = None,
+                         if_enabled: bool = False,
+                         index_path: Optional[str] = None,
+                         reload: Optional[bool] = None) -> Dict[str, Any]:
+    """The command: start following X-Plane's camera.  ``port``,
+    ``lead_s`` and ``lands_per_s`` default to the settings
+    (:func:`follow_settings`); ``tiles`` (``[build_dir, lat, lon]`` each)
+    are rescanned into the index first, else, with ``working_dir``, every
+    on-demand tile under it.  ``if_enabled`` (the apps' automatic start)
+    replies ``{"status": "off"}`` while ``imagery_on_demand`` is off.
+    ``busy()`` is true while a build runs.  ``reload`` false: never ask
+    X-Plane to reload its scenery after a spawn or jump (default: ask,
+    through its Web API command)."""
     import O4_File_Names as FNAMES
-    import O4_Imagery_Tier_Plan as PLAN
     import O4_XPlane_WebAPI as WEBAPI
 
     from .imagery_follow import FollowJob
     from .imagery_follow_land import TierLander
+    settings = follow_settings()
+    if if_enabled and not settings["enabled"]:
+        return {"status": "off"}
     with _FOLLOW_GUARD:
         job = _FOLLOW["job"]
         if job is not None and job.running:
             return {"status": "running"}
-        reader = WEBAPI.PositionReader(
-            WEBAPI.base_url(int(port or WEBAPI.DEFAULT_PORT)))
+        if not tiles and working_dir is not None:
+            from .imagery_ondemand import on_demand_tiles
+            tiles = [list(t) for t in on_demand_tiles(working_dir or FNAMES.Tile_dir)]
+        base = WEBAPI.base_url(int(port or settings["port"]))
         log = os.path.join(FNAMES.data_path("logs"), "imagery_on_demand.log")
-        job = FollowJob(emit, reader=reader, lander=TierLander(),
+        job = FollowJob(emit, reader=WEBAPI.PositionReader(base),
+                        lander=TierLander(),
                         index_path=index_path, busy=busy,
-                        lead_s=float(lead_s or PLAN.DEFAULT_LEAD_S),
-                        log_path=log, rebuild_tiles=tiles or ())
+                        lead_s=float(lead_s or settings["lead_s"]),
+                        lands_per_s=float(lands_per_s or settings["lands_per_s"]),
+                        log_path=log, rebuild_tiles=tiles or (),
+                        reloader=None if reload is False else (
+                            lambda: WEBAPI.reload_scenery(base)))
         _FOLLOW["job"] = job.start()
     return {"status": "started"}
+
+
+def follow_running() -> bool:
+    """Is a follow job running (the apps' Start/Stop control)?"""
+    with _FOLLOW_GUARD:
+        job = _FOLLOW["job"]
+        return job is not None and job.running
 
 
 def stop_imagery_follow() -> Dict[str, Any]:
@@ -163,6 +223,7 @@ ONDEMAND_REFUSED_WHILE_BUILDING = {"imagery_pin": "pinning a tile",
 def ondemand_handlers(building: Callable[[], bool]) -> Dict[str, Callable]:
     """The on-demand commands for the transport; ``building`` says a
     build runs."""
+    from . import imagery_convert as CONVERT
     from . import imagery_ondemand as ONDEMAND
 
     def guarded(name, function):
@@ -180,4 +241,5 @@ def ondemand_handlers(building: Callable[[], bool]) -> Dict[str, Callable]:
         "imagery_ondemand_downgrade_all": guarded(
             "imagery_ondemand_downgrade_all",
             ONDEMAND.imagery_ondemand_downgrade_all),
+        "imagery_ondemand_convert": CONVERT.imagery_ondemand_convert,
     }

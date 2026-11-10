@@ -79,6 +79,11 @@ class TileInfo:
     # ORIGIN_OTHER — "some ortho" another tool made.  The maps style the
     # two apart.
     origin: str = ""
+    # Imagery on demand (#1992): the tile was built with low-res
+    # placeholder imagery, and its "always full resolution" pin — both
+    # from its imagery record (``O4_Tile_Utils.imagery_manifest_path``).
+    on_demand: bool = False
+    pinned: bool = False
 
 
 #: :attr:`TileInfo.origin` of a tile this app built, and of another's.
@@ -338,7 +343,35 @@ def _build_tile_info(
         volume_mounted=mounted,
         origin=(ORIGIN_HERE if built_here(build_dir, lat, lon, last_build)
                 else ORIGIN_OTHER),
+        **_on_demand_flags(build_dir, lat, lon),
     )
+
+
+def imagery_record_path(build_dir: str, lat: int, lon: int) -> str:
+    """The tile's imagery record (``O4_Tile_Utils.imagery_manifest_path``
+    for a tile object): beside its cfg, named for the tile."""
+    return os.path.join(build_dir, "Ortho4XP_%s_imagery.json"
+                        % FNAMES.short_latlon(lat, lon))
+
+
+def read_imagery_record(build_dir: str, lat: int, lon: int) -> dict:
+    """The tile's imagery record as a dict, ``{}`` when it has none or it
+    cannot be read."""
+    import json
+    try:
+        with open(imagery_record_path(build_dir, lat, lon),
+                  encoding="utf-8") as handle:
+            record = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return record if isinstance(record, dict) else {}
+
+
+def _on_demand_flags(build_dir: str, lat: int, lon: int) -> dict:
+    """``{"on_demand", "pinned"}`` from the tile's imagery record (#1992)."""
+    record = read_imagery_record(build_dir, lat, lon)
+    return {"on_demand": bool(record.get("on_demand")),
+            "pinned": bool(record.get("pinned"))}
 
 
 def _offline_tile_info(

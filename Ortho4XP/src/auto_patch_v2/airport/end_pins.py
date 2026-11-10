@@ -41,6 +41,12 @@ ONE derivation, at load, on the Airport every reader takes:
   pattern a few feet off the field (census 2026-11-06: 25 of the 69
   runways the field would otherwise stand, SDIB 925.07 / 925.07 m against
   a 47 m DEM fall) still follows the DEM.
+  PARALLEL CORROBORATION (owner RULINGS 2026-11-10b (4), #1928) — (b)
+  alone no longer refutes a pair a PARALLEL runway's standing CIFP pair
+  agrees with end for end within the class's ``grade_disagree_m``
+  (``airport/runway_peers.parallel_peer``): two surveys agreeing outvote
+  a DEM that disagrees with both (LTFM 17s against 16s, 5.2 / 4.6 m, on
+  old mine land the DEM puts 59.5 to 157 m).
   A flagged runway's CIFP is not truth: each source of 26a's order whose
   end-to-end difference agrees with the DEM's supplies the ends — and a
   runway flagged by (c) ALONE keeps its CIFP unless the source fits the
@@ -71,6 +77,7 @@ from ..law import Law
 from ..law.inset_class import dem_source_class
 from ..law.tables import runway_ends
 from ..model.airport import Airport, Runway
+from . import runway_peers as _peers
 from .cifp import match_designator
 from .dem import dem_z_many
 from .runway_ref_record import RefEnd
@@ -286,6 +293,7 @@ def verify(airport: Airport, law: Law, refs: _t.Sequence = (),
     tol_dem = t.grade_disagree_m.of(klass)
     win = float(t.dem_window_m)
     runways, records, lines = [], [], []
+    read = []
     for rw in airport.runways:
         cifp = {k: float(e.threshold_elev_m) for k, e in enumerate(rw.ends)
                 if e.threshold_elev_m is not None
@@ -294,10 +302,20 @@ def verify(airport: Airport, law: Law, refs: _t.Sequence = (),
                    for k, e in enumerate(rw.ends)]
         dem_end = [_unvoid(_dem_at(airport.dem, rw, k, 0.0, win), field_m, det) for k in range(2)]
         flags, seen = _flags(rw, field_m, cifp, dem_pin, refs, t, klass) if cifp else ([], {})
-        ends = list(rw.ends)
-        decided = ""
         vouched = bool(flags) and _field_vouches(flags, cifp, field_m, t)
         judged = {f for f in flags if not (vouched and f == "b")}
+        read.append((rw, cifp, dem_pin, dem_end, flags, seen, vouched, judged))
+    # RULINGS 2026-11-10b (4) (#1928): the runways whose CIFP pair stands
+    # on its own corroborate a parallel pair refused by (b) alone
+    stood = {rw.id: (rw, cifp) for rw, cifp, *_r, judged in read
+             if len(cifp) == 2 and not judged}
+    for rw, cifp, dem_pin, dem_end, flags, seen, vouched, judged in read:
+        ends = list(rw.ends)
+        decided = ""
+        peer = (_peers.parallel_peer(rw, cifp, stood, tol_dem, float(t.peer_parallel_deg))
+                if judged == {"b"} else None)
+        if peer is not None:
+            judged = set()
         if flags:
             # RULINGS 2026-10-26m: flagged by (c) ALONE, the CIFP is not yet
             # refuted — a source takes it off truth only where the source
@@ -328,7 +346,7 @@ def verify(airport: Airport, law: Law, refs: _t.Sequence = (),
                 ends = [e if k not in cifp else _dc.replace(e, cifp_elev_m=None)
                         for k, e in enumerate(ends)]
             lines.append(_line(airport.icao, rw, flags, cifp, field_m, dem_pin, klass,
-                               seen, decided, vouched))
+                               seen, decided, vouched, peer))
         new = _dc.replace(rw, ends=(ends[0], ends[1]))
         runways.append(new)
         for k, e in enumerate(new.ends):
@@ -354,7 +372,7 @@ def verify(airport: Airport, law: Law, refs: _t.Sequence = (),
 
 
 def _line(icao: str, rw: Runway, flags, cifp, field_m, dem_pin, klass, seen, decided,
-          vouched: bool = False) -> str:
+          vouched: bool = False, peer: str | None = None) -> str:
     """The ONE loud line of a flagged runway: every value the rule read."""
     def m(v):
         return "-" if v is None else f"{v:.2f}"
@@ -363,6 +381,8 @@ def _line(icao: str, rw: Runway, flags, cifp, field_m, dem_pin, klass, seen, dec
     dem = "/".join(m(v) for v in dem_pin)
     xs = "; ".join(f"{s} " + "/".join(m(v.get(n)) for n in names) for s, v in seen.items())
     then = ("the ends follow the DEM" if decided == "dem"
+            else f"CIFP stands: parallel runway {peer}'s CIFP agrees end for end "
+                 f"(RULINGS 2026-11-10b (4))" if peer is not None
             else "CIFP stands: within the field elevation's agreement, the DEM may "
                  "predate the airport (RULINGS 2026-11-06a (1))"
             if decided == CIFP and vouched and "c" not in flags

@@ -125,6 +125,9 @@ def _row(info, scenery_dir: str, packs_by_tile: dict) -> dict:
                                 LINKS.LinkStatus.PHYSICAL),
         "built_by": built_by,
         "read_only": built_by != BUILT_HERE,
+        # Imagery on demand (#1992): built low-res, and pinned sharp.
+        "on_demand": bool(getattr(info, "on_demand", False)),
+        "pinned": bool(getattr(info, "pinned", False)),
     }
 
 

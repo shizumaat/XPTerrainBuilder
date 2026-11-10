@@ -76,6 +76,16 @@ final class LibraryModel: ObservableObject {
         }
     }
 
+    /// "Always keep full resolution" / "Let it go low-res again" (#1992).
+    func togglePin(_ row: O4LibraryTile, _ buildModel: BuildModel) {
+        status = row.pinned == true ? "Unpinning…" : "Pinning…"
+        Task {
+            status = await buildModel.setImageryPinned(
+                BuildModel.TileCoord(lat: row.lat, lon: row.lon), row.pinned != true)
+            refresh(buildModel)
+        }
+    }
+
     func freeCache(_ cache: O4LibraryCache, _ buildModel: BuildModel) {
         guard let context = buildModel.libraryContext() else { return }
         status = "Freeing space…"
@@ -240,8 +250,17 @@ struct LibraryView: View {
     private var table: some View {
         Table(shown, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Tile", value: \.tile) { row in
-                Text(row.tile).monospacedDigit()
-                    .foregroundStyle(row.readOnly ? .secondary : .primary)
+                HStack(spacing: 4) {
+                    Text(row.tile).monospacedDigit()
+                        .foregroundStyle(row.readOnly ? .secondary : .primary)
+                    if row.pinned == true {
+                        // Pinned to full resolution (#1992 §7).
+                        Image(systemName: "pin.fill")
+                            .foregroundStyle(.secondary)
+                            .help(O4OnDemandText.pinnedState)
+                            .accessibilityLabel(O4OnDemandText.pinnedBadge)
+                    }
+                }
             }
             TableColumn("Size", value: \.sizeBytes) { row in
                 Text(Library.size(row.sizeBytes)).monospacedDigit()
@@ -266,6 +285,23 @@ struct LibraryView: View {
             .width(min: 60, ideal: 70)
             TableColumn("Built by", value: \.builtByText)
         }
+        // The tile's menu (#1992 §7): its pin (the Qt Library: the same).
+        .contextMenu(forSelectionType: O4LibraryTile.ID.self) { ids in
+            if ids.count == 1, let row = model.tiles.first(where: { ids.contains($0.id) }),
+               row.pinApplies {
+                Button(pinTitle(row)) { model.togglePin(row, buildModel) }
+                    .disabled(buildModel.isBuilding)
+            }
+        }
+    }
+
+    private func pinTitle(_ row: O4LibraryTile) -> String {
+        row.pinned == true ? O4OnDemandText.unpinTitle : O4OnDemandText.pinTitle
+    }
+
+    /// The one selected tile a pin applies to.
+    private var pinTarget: O4LibraryTile? {
+        selectedRows.count == 1 && selectedRows[0].pinApplies ? selectedRows[0] : nil
     }
 
     // MARK: - Actions
@@ -297,6 +333,11 @@ struct LibraryView: View {
                 .help("Share one airport's solved patch of this tile in the patch library")
                 .disabled(selectedRows.count != 1 || !writable || selectedRows.first?.airports.isEmpty != false
                           || buildModel.patchLibraryClient() == nil)
+            Button(pinTarget.map(pinTitle) ?? O4OnDemandText.pinTitle) {
+                if let row = pinTarget { model.togglePin(row, buildModel) }
+            }
+            .help(O4OnDemandText.pinHelp)
+            .disabled(pinTarget == nil || buildModel.isBuilding)
             Spacer()
             Text(model.status)
                 .foregroundStyle(.secondary)

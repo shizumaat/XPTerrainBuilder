@@ -7,7 +7,9 @@ A shell over the engine command ``imagery_follow_start`` /
 the named on-demand tile folders into the index, follows X-Plane's camera
 through its Web API, fetches finer imagery tiers ahead of it and prints
 one status line every ``--every`` seconds, until ``--minutes`` or Ctrl-C.
-X-Plane must be running with the tile's pack installed.
+X-Plane must be running with the tile's pack installed.  After a spawn
+or jump whose imagery missed X-Plane's flight-start window the job asks
+X-Plane to reload its scenery, once (#1992 P5); ``--no-reload`` never does.
 
     cd Ortho4XP && venv/bin/python tools/imagery_follow.py \\
         --tile-dir "Tiles/zOrtho4XP_+60-136" --minutes 60
@@ -49,7 +51,8 @@ def line(event) -> str:
             f"in flight {event.in_flight}/{event.slots}  buffer {buffer:>5}  "
             f"sharp {event.sharp}/{event.textures}  landed {event.landed}  "
             f"late {event.late}  failed {event.failed}  "
-            f"flight loads {event.flight_loads}")
+            f"flight loads {event.flight_loads}  jumps {event.jumps}  "
+            f"reloads {event.reloads}")
     return text + (f"  ({event.reason})" if event.reason else "")
 
 
@@ -66,6 +69,8 @@ def main(argv=None) -> int:
                         help="X-Plane Web API port (default 8086)")
     parser.add_argument("--lead", type=float, default=None,
                         help="seconds a tier starts before its crossing")
+    parser.add_argument("--no-reload", action="store_true",
+                        help="never ask X-Plane to reload its scenery")
     parser.add_argument("--minutes", type=float, default=240.0)
     parser.add_argument("--every", type=float, default=10.0,
                         help="seconds between printed status lines")
@@ -80,7 +85,8 @@ def main(argv=None) -> int:
             latest["event"] = event
 
     print(CMDS.start_imagery_follow(emit, port=a.port, lead_s=a.lead,
-                                    tiles=tiles), flush=True)
+                                    tiles=tiles, reload=not a.no_reload),
+          flush=True)
     deadline = time.time() + a.minutes * 60
     try:
         while time.time() < deadline:

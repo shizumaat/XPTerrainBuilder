@@ -164,6 +164,7 @@ _LAYOUT: list = [
         ("max_connect_retries", "Connection retries", "app", True, ""),
         ("max_baddata_retries", "Bad-data retries", "app", True, ""),
         ("check_tms_response", "Retry on imagery server errors", "app", True, ""),
+        ("xplane_web_api_port", "X-Plane Web API port", "app", True, ""),
     ]),
     ("imagery", "Imagery", [
         ("texture_mode", "What should the ground be textured with?", "tile", False,
@@ -182,10 +183,17 @@ _LAYOUT: list = [
          "Fills the white or black rectangles some providers leave over coastal water."),
         ("color_harmonization", "Even out imagery colors across the tile?", "tile", False,
          "Removes the patchwork of different photo dates and providers."),
+        # #1992 §7: the world switch (app-wide; P6 decides its default).
+        ("imagery_on_demand", "Fetch imagery on demand, worldwide?", "app", False,
+         "New builds get low-res imagery; full detail is fetched around the aircraft as you fly."),
         ("airport_ortho_fade_width", "Airport ortho fade width (m)", "tile", True, ""),
         ("sea_texture_blur", "Sea texture blur (m)", "tile", True, ""),
         ("skip_downloads", "Skip imagery downloads", "app", True, ""),
         ("skip_converts", "Skip DDS conversion", "app", True, ""),
+        ("placeholder_zl_drop",
+         "Low-res imagery detail (zoom levels below the build's)", "app", True, ""),
+        ("ondemand_lead_s", "Start fetching this many seconds ahead", "app", True, ""),
+        ("ondemand_lands_per_s", "Imagery swaps per second, at most", "app", True, ""),
     ]),
     ("mesh", "Ground Shape", [
         ("curvature_tol", "Curvature tolerance", "tile", True, ""),
@@ -301,6 +309,9 @@ _LAYOUT: list = [
         ("storage_auto_clean_days",
          "Delete cache files no build has used for how long?", "app", False,
          "Never keeps them. Built tiles and patches are never deleted."),
+        ("imagery_on_demand_cap_gb",
+         "How much space may sharp imagery use (GB)?", "app", False,
+         "Over it, imagery flown near longest ago goes low-res again. Pinned tiles do not count."),
         ("storage_cache_caps_gb", "Cache size limits (GB)", "app", True, ""),
     ]),
 ]

@@ -19,6 +19,8 @@ patch…" are the shared patch library (#1699 phase 2,
 import threading
 import time
 
+import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
+import O4_Qt_Imagery_OnDemand as QTONDEMAND
 import O4_Qt_Patch_Library as PATCHLIB
 import O4_Scenery_Links as LINKS
 from o4_engine import library as LIB
@@ -33,6 +35,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -125,6 +128,7 @@ class LibraryDialog(QDialog):
 
     loaded = Signal(object)
     done = Signal(str)
+    pinned = Signal(object)
 
     def __init__(self, parent, working_dir, scenery_dir, building=lambda: False,
                  on_rebuild=None, on_changed=None, restore_pack=None):
@@ -163,6 +167,9 @@ class LibraryDialog(QDialog):
         self.table.setSortingEnabled(True)
         self.table.itemSelectionChanged.connect(self._sync_buttons)
         self.table.itemChanged.connect(self._on_item_changed)
+        # The tile's menu (#1992 §7): its pin, as the Mac Library's.
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._tile_menu)
         layout.addWidget(self.table, 1)
 
         actions = QHBoxLayout()
@@ -193,9 +200,12 @@ class LibraryDialog(QDialog):
         self.publish_btn.setToolTip(
             "Share one airport's solved patch of this tile in the patch library")
         self.publish_btn.clicked.connect(self._publish_patch)
+        self.pin_btn = QPushButton(ONDEMAND_TEXT.PIN_TITLE)
+        self.pin_btn.setToolTip(ONDEMAND_TEXT.PIN_HELP)
+        self.pin_btn.clicked.connect(self._toggle_pin)
         for button in (self.install_btn, self.uninstall_btn, self.rebuild_btn,
                        self.delete_btn, self.restore_btn, self.export_btn,
-                       self.import_btn, self.publish_btn):
+                       self.import_btn, self.publish_btn, self.pin_btn):
             actions.addWidget(button)
         actions.addStretch(1)
         self.status_label = QLabel("")
@@ -227,6 +237,7 @@ class LibraryDialog(QDialog):
 
         self.loaded.connect(self._on_loaded)
         self.done.connect(self._on_done)
+        self.pinned.connect(self._on_pinned)
         self._sync_buttons()
 
     # ── loading ──────────────────────────────────────────────────────────
@@ -258,6 +269,8 @@ class LibraryDialog(QDialog):
         for r, row in enumerate(self.rows):
             for c, (_header, key) in enumerate(COLUMNS):
                 text, sort_value = _cell(row, key)
+                if key == "tile" and row.get("pinned"):
+                    text = "%s · %s" % (text, ONDEMAND_TEXT.PINNED_BADGE)
                 item = _Item(text, sort_value)
                 item.setData(Qt.UserRole, r)
                 if key == "in_xplane":
@@ -316,6 +329,48 @@ class LibraryDialog(QDialog):
                                     and bool(rows[0]["airports"]))
         for button in self.free_buttons.values():
             button.setEnabled(not busy)
+        pin = self._pin_target()
+        self.pin_btn.setEnabled(pin is not None and not busy)
+        self.pin_btn.setText(ONDEMAND_TEXT.UNPIN_TITLE
+                             if pin is not None and pin.get("pinned")
+                             else ONDEMAND_TEXT.PIN_TITLE)
+
+    # ── pins (#1992 §7) ─────────────────────────────────────────────────
+    def _pin_target(self):
+        """The one selected tile a pin applies to (built on demand or
+        pinned, by this app), else None."""
+        rows = self.selected_rows()
+        if len(rows) != 1 or rows[0]["read_only"]:
+            return None
+        row = rows[0]
+        return row if row.get("on_demand") or row.get("pinned") else None
+
+    def _tile_menu(self, point):
+        row = self._pin_target()
+        if row is None:
+            return
+        menu = QMenu(self)
+        action = menu.addAction(ONDEMAND_TEXT.UNPIN_TITLE if row.get("pinned")
+                                else ONDEMAND_TEXT.PIN_TITLE)
+        action.setEnabled(not self._building())
+        action.triggered.connect(self._toggle_pin)
+        menu.popup(self.table.viewport().mapToGlobal(point))
+
+    def _toggle_pin(self):
+        row = self._pin_target()
+        if row is None:
+            return
+        self.status_label.setText("Pinning…" if not row.get("pinned")
+                                  else "Unpinning…")
+        QTONDEMAND.pin_tile(row["lat"], row["lon"], not row.get("pinned"),
+                            self.pinned, busy=self._building,
+                            working_dir=self.working_dir)
+
+    def _on_pinned(self, result):
+        if isinstance(result, Exception):
+            self.status_label.setText(str(result))
+            return
+        self.done.emit(ONDEMAND_TEXT.pin_done(result))
 
     def _on_item_changed(self, item):
         if item.column() != IN_XPLANE_COLUMN:

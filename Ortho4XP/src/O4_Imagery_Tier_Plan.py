@@ -43,7 +43,7 @@ from typing import Mapping
 __all__ = [
     "CROSSING_S", "TIER_WIDTH", "TIER_REQUESTS", "TIER_BYTES",
     "DEFAULT_LEAD_S", "HORIZON_S", "LATERAL_MARGIN_S",
-    "Motion", "Square", "Fetch", "tier_for_mip", "plan",
+    "Motion", "Square", "Fetch", "tier_for_mip", "tier_of_width", "plan",
 ]
 
 # Tier k -> top-level width (px), source-zoom requests, BC1+mips bytes (§4.3).
@@ -106,6 +106,14 @@ def tier_for_mip(mip: int, full_width: int = 4096) -> int:
         if width >= TIER_WIDTH[tier]:
             return tier
     return 0
+
+
+def tier_of_width(px) -> int:
+    """The tier of a file ``px`` wide (an unknown width reads as 0)."""
+    try:
+        return TIER_WIDTH.index(int(px))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _offset_m(motion: Motion, sq: Square) -> tuple[float, float]:

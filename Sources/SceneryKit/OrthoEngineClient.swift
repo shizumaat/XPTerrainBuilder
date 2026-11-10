@@ -645,6 +645,10 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     /// Who built it (#1958, `O4_Tile_Info.built_here`): "xptb" for this
     /// app, "other" for another tool's tile; nil from an older engine.
     public let origin: String?
+    /// Imagery on demand (#1992): built with low-res imagery, and pinned
+    /// to full resolution; nil from an engine that predates the fields.
+    public let onDemand: Bool?
+    public let pinned: Bool?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -680,7 +684,12 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         volume = object["volume"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         volumeMounted = object["volume_mounted"]?.boolValue
         origin = object["origin"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        onDemand = object["on_demand"]?.boolValue
+        pinned = object["pinned"]?.boolValue
     }
+
+    /// Does the tile's pin apply (built on demand, or pinned)?
+    public var pinApplies: Bool { onDemand == true || pinned == true }
 
     /// Another tool built it (#1958): the map draws it as "other ortho".
     /// An engine that predates `origin` says nothing, so it stays ours.
@@ -933,11 +942,22 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// (`[buildDir, lat, lon]` each) are rescanned into the job's index
     /// first. `imageryFollowStatus` events report it until
     /// `stopImageryFollow`.
-    public func startImageryFollow(port: Int? = nil, tiles: [[Any]] = []) {
+    ///
+    /// `workingDir` rescans every on-demand tile under it instead (P4).
+    /// `ifEnabled` (the app's automatic start) starts it only while the
+    /// `imagery_on_demand` setting is on; `completion` gets the reply's
+    /// status: "started", "running", "off", or nil on a refusal.
+    public func startImageryFollow(port: Int? = nil, tiles: [[Any]] = [],
+                                   workingDir: String? = nil, ifEnabled: Bool = false,
+                                   completion: (@Sendable (String?) -> Void)? = nil) {
         var arguments: [String: Any] = [:]
         if let port { arguments["port"] = port }
         if !tiles.isEmpty { arguments["tiles"] = tiles }
-        send(command: "imagery_follow_start", arguments: arguments)
+        if let workingDir { arguments["working_dir"] = workingDir }
+        if ifEnabled { arguments["if_enabled"] = true }
+        send(command: "imagery_follow_start", arguments: arguments) { reply in
+            completion?(reply.ok ? reply.result?["status"]?.stringValue : nil)
+        }
     }
 
     /// Stop the follow job (fetches in flight finish first).
@@ -1378,7 +1398,8 @@ extension OrthoEngineClient {
         return Result { try result.decode(O4PackObjects.self) }
     }
 
-    private func request<T: Decodable & Sendable>(_ command: String,
+    /// One synchronous command → its typed reply (or the engine's error).
+    func request<T: Decodable & Sendable>(_ command: String,
                                                   _ arguments: [String: Any]) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             send(command: command, arguments: arguments) { reply in

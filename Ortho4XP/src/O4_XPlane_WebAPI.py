@@ -21,6 +21,12 @@ spec §4.5 (:attr:`PositionReader.resets`).
   pages scenery by the camera, which an outside view moves away from the
   aircraft.
 * :func:`poll_positions` — the recorder's 1 Hz loop.
+* :func:`command_id` / :func:`activate_command` — X-Plane's commands
+  (API v2, X-Plane 12.1.4 and later): the id of a command by name
+  (``GET /commands?filter[name]=<name>``) and its press-and-release
+  (``POST /command/<id>/activate`` with ``{"duration": 0}``).
+* :func:`reload_scenery` — :data:`RELOAD_SCENERY` activated: X-Plane
+  reads every scenery file again (spec §4.5, §11 U9; no plugin).
 
 Standard library only: the recorder runs under ``/usr/bin/python3``.
 """
@@ -31,12 +37,14 @@ import json
 import math
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
-__all__ = ["DEFAULT_PORT", "POS_REFS", "PositionReader", "base_url",
-           "camera_position", "now_stamp", "poll_positions",
-           "read_position", "resolve_refs"]
+# (command_id and activate_command are reload_scenery's parts.)
+__all__ = ["DEFAULT_PORT", "POS_REFS", "RELOAD_SCENERY", "PositionReader",
+           "base_url", "camera_position", "now_stamp", "poll_positions",
+           "read_position", "reload_scenery", "resolve_refs"]
 
 #: X-Plane's default Web API port (Settings > Network; expert setting
 #: ``xplane_web_api_port``).
@@ -68,6 +76,11 @@ POS_REFS = (
     ("sim_time_s", "sim/time/total_running_time_sec", False),
     ("frame_s", "sim/time/framerate_period", False),   # U10 stutter
 )
+
+#: X-Plane's command "Force reloading the current scenery" (its own
+#: ``Resources/plugins/Commands.txt``; the Developer menu's "Reload
+#: Scenery").
+RELOAD_SCENERY = "sim/operation/reload_scenery"
 
 _M_PER_DEG = 111_320.0
 
@@ -168,6 +181,56 @@ class PositionReader:
         out = (time.time() - self.down_since, self.errors_since_ok)
         self.down_since, self.errors_since_ok = None, 0
         return out
+
+
+def command_id(name: str, base: str | None = None,
+               timeout: float = 2.0) -> int | None:
+    """The id of X-Plane's command ``name``, or ``None`` when it has none:
+    no flight is loaded (the list is empty until one is), or X-Plane is
+    older than 12.1.4 (no ``/commands``).  A dropped connection raises."""
+    base = base or base_url()
+    q = urllib.parse.quote(name, safe="")
+    try:
+        data = _get(f"{base}/commands?filter%5Bname%5D={q}", timeout)["data"]
+    except urllib.error.HTTPError as error:
+        if error.code in (400, 404):    # invalid_command_name, no endpoint
+            return None
+        raise
+    return int(data[0]["id"]) if data else None
+
+
+def activate_command(name: str, base: str | None = None,
+                     duration_s: float = 0.0, timeout: float = 5.0) -> bool:
+    """Press and release X-Plane's command ``name``; ``True`` when X-Plane
+    took the request, ``False`` when it has no such command.  X-Plane may
+    carry a long command out before it answers (a scenery reload stalls
+    it), so no answer within ``timeout`` after the request was sent still
+    counts as taken; a refused connection raises."""
+    base = base or base_url()
+    ident = command_id(name, base)
+    if ident is None:
+        return False
+    request = urllib.request.Request(
+        f"{base}/command/{ident}/activate",
+        data=json.dumps({"duration": float(duration_s)}).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as answer:
+            answer.read()
+    except TimeoutError:                # sent; X-Plane is busy doing it
+        return True
+    except urllib.error.HTTPError as error:
+        if error.code == 404:           # invalid_command_id
+            return False
+        raise
+    return True
+
+
+def reload_scenery(base: str | None = None) -> bool:
+    """Ask X-Plane to reload the current scenery (every ``.ter``, DSF and
+    texture is read again; the sim stalls while it does).  ``True`` when
+    the request was taken."""
+    return activate_command(RELOAD_SCENERY, base)
 
 
 def camera_position(rec: dict) -> tuple[float, float]:

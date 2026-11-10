@@ -61,20 +61,32 @@ class MotionTracker:
         """One camera sample; the motion it implies."""
         self.jumped = False
         if self.samples:
-            t0, lat0, lon0, _ = self.samples[-1]
-            dt = t - t0
+            dt = t - self.samples[-1][0]
             if dt <= 0:
                 return self.motion()
-            dist = math.hypot(*_east_north_m(lat0, lon0, lat, lon))
+            dist = self.moved_m(lat, lon)
             if (dt < JUMP_WITHIN_S and dist > JUMP_S * self.square_m
                     and dist / dt > JUMP_MIN_MS):
-                self.samples.clear()
+                self.restart()
                 self.jumps += 1
                 self.jumped = True
         self.samples.append((t, lat, lon, alt_m))
         while len(self.samples) > 2 and t - self.samples[1][0] >= self.window_s:
             self.samples.popleft()
         return self.motion()
+
+    def moved_m(self, lat: float, lon: float) -> float:
+        """Metres from the last sample to ``(lat, lon)`` (``inf`` before
+        the first sample)."""
+        if not self.samples:
+            return math.inf
+        _, lat0, lon0, _ = self.samples[-1]
+        return math.hypot(*_east_north_m(lat0, lon0, lat, lon))
+
+    def restart(self) -> None:
+        """Forget the history: what follows is not a flight on from it (a
+        flight load; spec §4.5).  Speed is 0 until two samples."""
+        self.samples.clear()
 
     def motion(self) -> Motion | None:
         """The current motion, or ``None`` before the first sample."""

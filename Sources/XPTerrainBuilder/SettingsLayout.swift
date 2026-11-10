@@ -104,6 +104,7 @@ enum SettingsLayout {
             SettingItem("max_connect_retries", "Connection retries", .app, expert: true),
             SettingItem("max_baddata_retries", "Bad-data retries", .app, expert: true),
             SettingItem("check_tms_response", "Retry on imagery server errors", .app, expert: true),
+            SettingItem("xplane_web_api_port", "X-Plane Web API port", .app, expert: true),
         ]),
         SettingCategory(key: "imagery", title: "Imagery", icon: "photo", items: [
             SettingItem("texture_mode", "What should the ground be textured with?", .tile, summary: "Default X-Plane uses no orthophotos, only X-Plane's own terrain textures."),
@@ -113,10 +114,15 @@ enum SettingsLayout {
             SettingItem("cover_approach_ft", "How far along the approaches (ft on a 3° glide path)?", .tile, summary: "1,000 ft is about 5.8 km past each runway end; 0 covers the airport only."),
             SettingItem("sea_nodata_fill", "Repair blank spots in imagery over the sea?", .tile, summary: "Fills the white or black rectangles some providers leave over coastal water."),
             SettingItem("color_harmonization", "Even out imagery colors across the tile?", .tile, summary: "Removes the patchwork of different photo dates and providers."),
+            // #1992 §7: the world switch (app-wide; P6 decides its default).
+            SettingItem("imagery_on_demand", "Fetch imagery on demand, worldwide?", .app, summary: "New builds get low-res imagery; full detail is fetched around the aircraft as you fly."),
             SettingItem("airport_ortho_fade_width", "Airport ortho fade width (m)", .tile, expert: true),
             SettingItem("sea_texture_blur", "Sea texture blur (m)", .tile, expert: true),
             SettingItem("skip_downloads", "Skip imagery downloads", .app, expert: true),
             SettingItem("skip_converts", "Skip DDS conversion", .app, expert: true),
+            SettingItem("placeholder_zl_drop", "Low-res imagery detail (zoom levels below the build's)", .app, expert: true),
+            SettingItem("ondemand_lead_s", "Start fetching this many seconds ahead", .app, expert: true),
+            SettingItem("ondemand_lands_per_s", "Imagery swaps per second, at most", .app, expert: true),
         ]),
         SettingCategory(key: "mesh", title: "Ground Shape", icon: "triangle", items: [
             SettingItem("curvature_tol", "Curvature tolerance", .tile, expert: true),
@@ -202,6 +208,7 @@ enum SettingsLayout {
         // and the Clear buttons (StorageSection) above these rows.
         SettingCategory(key: "storage", title: "Storage", icon: "internaldrive", items: [
             SettingItem("storage_auto_clean_days", "Delete cache files no build has used for how long?", .app, summary: "Never keeps them. Built tiles and patches are never deleted."),
+            SettingItem("imagery_on_demand_cap_gb", "How much space may sharp imagery use (GB)?", .app, summary: "Over it, imagery flown near longest ago goes low-res again. Pinned tiles do not count."),
             SettingItem("storage_cache_caps_gb", "Cache size limits (GB)", .app, expert: true),
         ]),
     ]

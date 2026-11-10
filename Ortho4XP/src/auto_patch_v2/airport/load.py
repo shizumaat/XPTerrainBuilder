@@ -33,6 +33,7 @@ from . import imagery_read as _imagery
 from . import junction_witness as _junction_witness
 from . import old_dem_fill as _old_dem_fill
 from . import runway_end_witness as _end_witness
+from . import runway_peers as _runway_peers
 from . import runway_refs as _refs
 from . import dem as _dem
 from . import dsf as _dsf
@@ -775,6 +776,11 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     refs = _refs.lookup(icao, inputs.mod_cache_root,
                         law.tables.runway_ends.crosscheck_order)
     airport, rep.end_pins, end_lines = _end_pins.verify(airport, law, refs)
+    # CLOSE ENDS SPLIT (owner RULINGS 2026-11-10b (3), #1945): two pinned ends
+    # of touching runways within a few metres yield equally until the
+    # pavement between them complies — ONE site (``runway_peers``)
+    airport, split_lines = _runway_peers.split_close_ends(airport, law, rep.end_pins)
+    end_lines = list(end_lines) + split_lines
     rep.end_pin_lines = tuple(end_lines)
     rep.end_pin_crosscheck = tuple(src for src, _e in refs)
     for _line in end_lines:

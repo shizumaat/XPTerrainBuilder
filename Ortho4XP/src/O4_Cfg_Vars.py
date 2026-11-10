@@ -158,6 +158,45 @@ cfg_app_vars = {
             "20 GB unless named here. Empty: no other limits."
         ),
     },
+    # Imagery on demand (#1992 spec §7): the follow job's settings, read
+    # by ``o4_engine.imagery_commands.start_imagery_follow`` and the cap
+    # sweep (``o4_engine.imagery_downgrade.cap_bytes``).
+    "imagery_on_demand_cap_gb": {
+        "type": float,
+        "default": 100.0,
+        "hint": (
+            "With imagery on demand: how much disk the sharp imagery fetched "
+            "near flown areas may use, in GB. Over it, the textures flown "
+            "near longest ago are made low-res again (never deleted); airport "
+            "areas go last. Tiles you pin to full resolution are not counted."
+        ),
+    },
+    "ondemand_lead_s": {
+        "type": float,
+        "default": 30.0,
+        "hint": (
+            "With imagery on demand: how many seconds before the aircraft "
+            "reaches a texture's distance its sharper imagery starts "
+            "downloading."
+        ),
+    },
+    "ondemand_lands_per_s": {
+        "type": float,
+        "default": 4.0,
+        "hint": (
+            "With imagery on demand: at most this many textures are swapped "
+            "for sharper ones per second while X-Plane flies."
+        ),
+    },
+    "xplane_web_api_port": {
+        "type": int,
+        "default": 8086,
+        "hint": (
+            "The port of X-Plane's Web API (X-Plane 12.1.1 and later; "
+            "Settings > Network in X-Plane). Imagery on demand reads the "
+            "aircraft's position from it."
+        ),
+    },
     "base_elevation_source": {
         "module": "DEM",
         "type": str,
@@ -929,6 +968,10 @@ list_app_vars = [
     "ovl_exclude_net",
     "storage_auto_clean_days",
     "storage_cache_caps_gb",
+    "imagery_on_demand_cap_gb",
+    "ondemand_lead_s",
+    "ondemand_lands_per_s",
+    "xplane_web_api_port",
     "custom_scenery_dir",
     "custom_overlay_src",
     "custom_overlay_src_alternate",

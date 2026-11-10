@@ -65,6 +65,7 @@ import math
 import typing as _t
 
 from ..geom import exact
+from ..geom.runway_contact import touching_pins
 from ..geom.trend import trend_of as _trend_of
 from ..law import Law, inset_class
 from ..law.tables import (
@@ -169,6 +170,7 @@ CASE_UNMATCHED = "unmatched"    # D / D': no CIFP here, the other end pinned (22
 CASE_FLAGGED = "flagged"        # C: a flagged CIFP end the DEM decides (25a)
 CASE_LIDAR = "lidar"            # E: an apt.dat-only end the lidar outvotes (26e)
 CASE_GROUND = "ground"          # E': an apt.dat-only end a fine DEM outvotes (28m, 28o)
+CASE_TOUCHING = "touching"      # G: an apt.dat-only runway beside a surveyed one (11-10b (2))
 
 
 @_dc.dataclass(frozen=True)
@@ -243,6 +245,14 @@ def end_pin_cases(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, En
       COARSE ground never outvotes the record (owner RULINGS 2026-10-28o:
       on a 30 m DEM the DEM is often the less reliable side) — the
       datum stands there, however far off.
+    * ``touching`` (owner RULINGS 2026-11-10b (2), issue #1912): on a
+      runway with no surveyed end whose slab TOUCHES a runway with
+      surveyed pins (``geom/runway_contact.touching_pins``), 22a's pull
+      reaches across: each end is valued as ``unmatched`` is — the DEM,
+      clamped toward every touching pin within the runway's cap over the
+      distance between them ALONG THIS RUNWAY'S AXIS — so a parallel
+      runway abeam a surveyed pin takes its level (LSZI 07L/25R: the
+      lidar's 543.0 m beside 07/25's CIFP 544.98 m), instead of 26e.
     * ``datum``: otherwise the datum line (30z (2), unchanged).
 
     These are HARD pins, exactly a CIFP threshold's (``threshold_pins``
@@ -291,6 +301,11 @@ def end_pin_cases(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, En
                 else _datum_line(airport, law, rw, t, trends, end_v, along))
         pinned = [(end_v[e.name], float(e.threshold_elev_m)) for e in surveyed]
         lim = _datum_slope_cap(law, rw)
+        # 11-10b (2): the surveyed pins of a touching runway, by station here
+        touching = ([] if surveyed or flagged
+                    else [((p[0] - a_xy[0]) * ux + (p[1] - a_xy[1]) * uy, zp)
+                          for p, zp, _rid in touching_pins(
+                              airport, rw, float(law.tables.runway_ends.peer_touch_m))])
         for end in rw.ends:
             if end.threshold_elev_m is not None:
                 continue
@@ -313,6 +328,14 @@ def end_pin_cases(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, En
                 out[v] = EndPin(z, rw.id, end.name, CASE_UNMATCHED, None, dem)
                 continue
             zd = line(v)
+            if touching:
+                z = dem if dem is not None else zd
+                for sp, zp in touching:
+                    if lim is not None:
+                        reach = lim * abs(along(v) - sp)
+                        z = max(zp - reach, min(zp + reach, z))
+                out[v] = EndPin(z, rw.id, end.name, CASE_TOUCHING, zd, dem)
+                continue
             # 26v (#1359): an end whose CIFP record the layout and the imagery
             # outvoted "follows the lidar" — the datum line is no survey,
             # so no noise floor keeps it (KDIJ 22: 0.41 m under the lidar)
@@ -545,6 +568,7 @@ _CASE_RULING = {
     CASE_FLAGGED: "RULINGS 2026-10-25a flagged CIFP end follows the DEM",
     CASE_LIDAR: "RULINGS 2026-10-26e apt.dat end gives way to the lidar",
     CASE_GROUND: "RULINGS 2026-10-28m apt.dat end yields to the survey ground",
+    CASE_TOUCHING: "RULINGS 2026-11-10b (2) apt.dat runway takes its touching survey's level",
     "crosscheck": "RULINGS 2026-10-25a / 26a cross-check source",
 }
 

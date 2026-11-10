@@ -354,6 +354,8 @@ def main():
         QTimer.singleShot(0, lambda: QTDROP.offer(window, dropped))
     # Background liveness check of every imagery source (#1345).
     window.start_imagery_status_check()
+    # Imagery on demand (#1992): follow X-Plane when the switch is on.
+    window.sync_imagery_follow()
     code = app.exec()
     print("Bon vol!")
     sys.exit(code)

@@ -65,8 +65,12 @@ _OFFERED = {ref: key for key, ref, _ in WEBAPI.POS_REFS
 
 
 class FakeXPlane:
-    """The Web API v2 GETs: ids by name, values by id.  ``generation``
-    changes every id (a flight load); ``down`` refuses every request."""
+    """The Web API v2 GETs: ids by name, values by id; and its commands:
+    ``commands`` (name -> id; empty before a flight is loaded) listed by
+    name, activated by POST (``activations``: ``(id, body)``; ``stall_s``
+    delays that answer, as a scenery reload does).  ``generation``
+    changes every dataref id (a flight load); ``down`` refuses every
+    request."""
 
     def __init__(self):
         self.values = {"lat": 0.0, "lon": 0.0, "elev_m": 0.0, "gs_ms": 0.0,
@@ -75,21 +79,35 @@ class FakeXPlane:
         self.generation = 1
         self.down = False
         self.requests = 0
+        self.commands = {WEBAPI.RELOAD_SCENERY: 4711}
+        self.activations = []
+        self.stall_s = 0.0
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
 
-            def do_GET(self):
-                fake.requests += 1
-                status, body = fake.answer(self.path)
+            def _send(self, status, body):
                 data = json.dumps(body).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
+
+            def do_GET(self):
+                fake.requests += 1
+                self._send(*fake.answer(self.path))
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}")
+                status, answer = fake.activate(self.path, body)
+                try:
+                    self._send(status, answer)
+                except OSError:          # the client stopped waiting
+                    pass
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever,
@@ -105,6 +123,11 @@ class FakeXPlane:
         if self.down:
             return 503, {"error": "loading"}
         url = urlparse(path)
+        if url.path == "/api/v2/commands":
+            name = parse_qs(url.query).get("filter[name]", [""])[0]
+            if name not in self.commands:
+                return 404, {"error_code": "invalid_command_name"}
+            return 200, {"data": [{"id": self.commands[name], "name": name}]}
         if url.path == "/api/v2/datarefs":
             name = parse_qs(url.query).get("filter[name]", [""])[0]
             key = _OFFERED.get(name)
@@ -117,6 +140,20 @@ class FakeXPlane:
                 if self._id(key) == ident:
                     return 200, {"data": self.values[key]}
         return 404, {"error": "unknown id"}
+
+    def activate(self, path, body):
+        """``POST /api/v2/command/<id>/activate`` with ``{"duration": s}``."""
+        parts = urlparse(path).path.split("/")
+        if self.down:
+            return 503, {"error": "loading"}
+        if (len(parts) != 6 or parts[3] != "command" or parts[5] != "activate"
+                or int(parts[4]) not in self.commands.values()):
+            return 404, {"error_code": "invalid_command_id"}
+        if "duration" not in body:
+            return 400, {"error_code": "duration_missing"}
+        self.activations.append((int(parts[4]), body))
+        time.sleep(self.stall_s)
+        return 200, {}
 
     def close(self):
         self.server.shutdown()
@@ -249,22 +286,25 @@ def test_a_low_buffer_alone_adds_a_slot_and_a_steady_middle_keeps_it():
 # --- the follow job over flight 2 ----------------------------------------
 
 
-def _index_rows(tmp_path):
-    """One index row per flight-2 square; each texture a whole 512 px
-    placeholder... as a tiny whole DDS (the job reads headers only through
-    the lander)."""
+def _index_rows(tmp_path, squares=None, tiers=None):
+    """One index row per square (flight 2's unless given); each texture a
+    whole 512 px placeholder... as a tiny whole DDS (the job reads headers
+    only through the lander).  ``tiers`` (name -> tier) are already
+    upgraded."""
     build = tmp_path / "build"
     textures = build / "textures"
     textures.mkdir(parents=True)
     path = tmp_path / "index.sqlite"
     conn = INDEX.open_index(str(path))
-    for name, lat, lon, size in REPLAY["squares"]:
+    for name, lat, lon, size in squares or REPLAY["squares"]:
         _whole_dds(textures / name, 0)
+        tier = (tiers or {}).get(name, 0)
         INDEX.upsert(conn, {"tile": TILE, "name": name, "zl": 16,
                             "provider": "Arc", "build_dir": str(build),
                             "centre_lat": lat, "centre_lon": lon,
-                            "load_size_m": size, "state": "low",
-                            "tier_px": 512})
+                            "load_size_m": size,
+                            "state": "upgraded" if tier else "low",
+                            "tier_px": PLAN.TIER_WIDTH[tier]})
     conn.close()
     return str(path), textures
 

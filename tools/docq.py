@@ -187,8 +187,8 @@ def index_short() -> str:
     for path, desc in index_rows():
         first = re.split(r"(?<=[.;—])\s", desc, maxsplit=1)[0]
         first = re.sub(r"\*\*", "", first)
-        if len(first) > 150:
-            first = first[:147].rstrip() + "…"
+        if len(first) > 140:
+            first = first[:137].rstrip() + "…"
         out.append(f"{path}  —  {first}")
     return "\n".join(out)
 

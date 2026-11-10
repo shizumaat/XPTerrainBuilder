@@ -82,6 +82,10 @@ LOG_NAME = "storage.log"
 
 _PROTECTED_SUFFIXES = (".cfg", ".cfg.bak", ".anchor_bak", ".lock",
                        ".patch.osm", ".account.json", ".cookies.txt")
+#: The rebuild data store keeps a tile's ``.cfg.bak`` with its mesh: it is
+#: rebuild data, cleared with it (RULINGS 2026-11-10d (4)).
+_REBUILD_PROTECTED_SUFFIXES = tuple(s for s in _PROTECTED_SUFFIXES
+                                    if s != ".cfg.bak")
 
 
 @dataclass(frozen=True)
@@ -199,8 +203,10 @@ def _deletable(store: Store, name: str, st: os.stat_result,
     """A file of a CACHE store that is no config, backup, patch, lock or
     log, and was not written in the last hour (the folder-lock test is
     the caller's)."""
+    protected = (_REBUILD_PROTECTED_SUFFIXES if store.kind == REBUILD
+                 else _PROTECTED_SUFFIXES)
     return (store.policy == CACHE
-            and not name.endswith(_PROTECTED_SUFFIXES)
+            and not name.endswith(protected)
             and name != LOG_NAME
             and now - st.st_mtime >= IN_FLIGHT_SECONDS)
 

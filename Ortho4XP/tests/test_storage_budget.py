@@ -83,3 +83,13 @@ def test_the_recommended_minimum_is_half_again_above_50_gb():
     assert [t[0] for t in TOTAL.TIERS] == ["tmp", "imagery", "dsf_dumps",
                                            "elevation", ST.ONDEMAND,
                                            TOTAL.REBUILD_DATA]
+
+
+def test_the_rebuild_store_is_the_last_tier_and_clears_its_cfg_backups():
+    assert TOTAL.TIERS[-1] == (ST.REBUILD,)
+    store = ST._BY_KIND[ST.REBUILD]
+    old = os.stat(__file__)
+    later = old.st_mtime + 10 * ST.IN_FLIGHT_SECONDS
+    assert ST._deletable(store, "tile.cfg.bak", old, later)
+    assert not ST._deletable(store, "tile.cfg", old, later)
+    assert not ST._deletable(ST._BY_KIND["tmp"], "tile.cfg.bak", old, later)

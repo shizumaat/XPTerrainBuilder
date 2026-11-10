@@ -152,7 +152,7 @@ cfg_app_vars = {
             "Optional size limits, in GB, for single caches, as kind=GB pairs "
             "separated by commas, for example imagery=100, osm_extracts=20, "
             "dds=20. The kinds are imagery, dds, elevation, osm_extracts, osm, "
-            "airport_mod, dsf_dumps, masks, previews, tmp and logs. A cache "
+            "airport_mod, dsf_dumps, masks, previews, tmp, logs and rebuild. A cache "
             "over its limit loses its least recently used files first, when the "
             "app starts and after a build. The texture cache (dds) is held to "
             "20 GB unless named here. Empty: no other limits."

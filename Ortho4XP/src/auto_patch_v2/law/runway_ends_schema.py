@@ -55,6 +55,15 @@ class RunwayEnds:
     zero_placeholder_ft: float
     #: the DEM read at a pin: the median over this much centreline
     dem_window_m: float
+    #: owner RULINGS 2026-11-10b (2) / (3): two runway slabs within this
+    #: many metres of each other touch (their pavement connects)
+    peer_touch_m: float
+    #: owner RULINGS 2026-11-10b (4): two runway axes within this many
+    #: degrees are parallel
+    peer_parallel_deg: float
+    #: owner RULINGS 2026-11-10b (3): two pinned ends of touching runways
+    #: closer than this many metres split a difference the pavement cannot hold
+    peer_close_end_m: float
     #: the cross-check sources, in the order a flagged runway tries them
     #: (owner RULINGS 2026-10-26a); a name with no provider module is skipped
     crosscheck_order: tuple[str, ...]
@@ -65,7 +74,8 @@ def check_runway_ends(t: RunwayEnds, error: type[Exception]) -> None:
     ``LawError``): every tolerance is non-negative, the window positive,
     and the lidar noise no larger than the coarse one."""
     for name in ("field_equal_ft", "field_agree_m", "placeholder_spread_ft",
-                 "crosscheck_tol_ft", "zero_placeholder_ft"):
+                 "crosscheck_tol_ft", "zero_placeholder_ft", "peer_touch_m",
+                 "peer_parallel_deg", "peer_close_end_m"):
         if getattr(t, name) < 0.0:
             raise error(f"runway_ends.{name} {getattr(t, name)!r} < 0")
     if not t.dem_window_m > 0.0:

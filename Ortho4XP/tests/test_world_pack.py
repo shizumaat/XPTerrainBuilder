@@ -132,12 +132,17 @@ def test_swap_in_replaces_the_placeholder_in_one_rename(tmp_path):
     os.makedirs(os.path.dirname(dest))
     with open(dest, "wb") as h:
         h.write(b"XPLNEDSF " + WP.PLACEHOLDER_AGENT.encode())
-    held = open(dest, "rb")                  # X-Plane holding the old file
+    # X-Plane holding the old file: POSIX keeps the old inode for its
+    # reader; Windows refuses a rename over an open file (held-file
+    # handling is the flight-manager spec's phase X), so it is not held there.
+    held = None if os.name == "nt" else open(dest, "rb")
     res = WP.swap_in(pack, staged, 53, -63)
     assert res["was_placeholder"] is True
-    assert open(dest, "rb").read() == b"XPLNEDSF real tile"
-    assert b"placeholder" in held.read()     # old inode intact for its reader
-    held.close()
+    with open(dest, "rb") as h:
+        assert h.read() == b"XPLNEDSF real tile"
+    if held is not None:
+        assert b"placeholder" in held.read()  # old inode intact for its reader
+        held.close()
     assert os.path.isfile(os.path.join(pack, "terrain", "+53-063", "a.ter"))
     assert os.path.isfile(os.path.join(pack, "textures", "+53-063", "a.dds"))
     assert not WP.is_placeholder(dest)

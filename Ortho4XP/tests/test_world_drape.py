@@ -9,10 +9,9 @@ import importlib.util
 import json
 import os
 
-import pytest
-
 import O4_World_Drape as DRAPE
 import O4_World_Pack as WP
+import pytest
 
 ENGINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

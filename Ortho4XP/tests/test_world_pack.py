@@ -8,9 +8,8 @@ from __future__ import annotations
 import os
 import platform
 
-import pytest
-
 import O4_World_Pack as WP
+import pytest
 
 ENGINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

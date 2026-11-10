@@ -2,8 +2,9 @@
 World spec §4.1, §7.3), when there is one.
 
 The build runs in its ordinary build folder; when it is done
-(``BuildDone`` ok) and the World pack is in the Custom Scenery folder and
-the tile was built with imagery on demand, :func:`_publish_built` stages it
+(``BuildDone`` ok) and the app's World pack (made by ``world_install``,
+``world_commands.managed``) is in the Custom Scenery folder and the tile
+was built with imagery on demand, :func:`_publish_built` stages it
 in the pack's shape (``O4_World_Pack.publish``: binary rewrite, verify)
 and swaps it in, unless X-Plane may hold the tile (rule S3/S4): then it
 waits staged and :func:`_swap_waiting` swaps it later.  After the swap:
@@ -94,9 +95,9 @@ def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
                   ) -> Optional[dict]:
     """Publish one built tile (see the module docstring); ``None`` when
     there is no World pack or the tile was not built on demand."""
-    pack = WORLD.pack_dir(scenery_dir) if scenery_dir else ""
-    if not pack or not os.path.isdir(pack) or not _on_demand(build_dir, lat, lon):
+    if not WORLD.managed(scenery_dir) or not _on_demand(build_dir, lat, lon):
         return None
+    pack = WORLD.pack_dir(scenery_dir)
     if loaded is None:
         loaded = WORLD.tile_loaded(scenery_dir)
     result = WP.publish(pack, build_dir, lat, lon,
@@ -113,9 +114,9 @@ def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
 def _swap_waiting(scenery_dir: str, build_dir_of: Callable[[int, int], str],
                  loaded: Optional[Callable[[int, int], bool]] = None) -> list:
     """Swap in every staged tile X-Plane can no longer hold; the tiles."""
-    pack = WORLD.pack_dir(scenery_dir)
-    if not os.path.isdir(pack):
+    if not WORLD.managed(scenery_dir):
         return []
+    pack = WORLD.pack_dir(scenery_dir)
     done = WP.swap_staged(pack, WORLD.staging_root(),
                           loaded or WORLD.tile_loaded(scenery_dir))
     for name in done:
@@ -134,9 +135,8 @@ def watch(session: Any,
 
     def work() -> None:
         while True:
-            lat, lon = jobs.get()
+            lat, lon, where = jobs.get()
             try:
-                where = scenery_dir()
                 result = _publish_built(where, session.tile_build_dir(lat, lon),
                                        lat, lon)
                 if result is not None:
@@ -153,7 +153,9 @@ def watch(session: Any,
     def on_event(event) -> None:
         if (type(event).__name__ == "BuildDone" and event.ok
                 and not getattr(session, "_stepwise_run", False)):
-            jobs.put((int(event.lat), int(event.lon)))
+            # The Custom Scenery folder as configured NOW, on the
+            # emitting thread (not when the worker gets to it).
+            jobs.put((int(event.lat), int(event.lon), scenery_dir()))
     session.subscribe(on_event)
 
 

@@ -4,8 +4,10 @@ holds every tile the app manages, placeholders where none is built.
 
 * :func:`world_status` -- sync: the fields of ``WorldStatus`` plus the
   region rows (``regions``).
-* :func:`world_install` -- the pack folder and its ``scenery_packs.ini``
-  row; ``restart_needed`` when X-Plane runs (a new pack is read at start).
+* :func:`world_install` -- the pack folder, its marker (:func:`managed`:
+  builds publish only into a pack the app made) and its
+  ``scenery_packs.ini`` row; ``restart_needed`` when X-Plane runs (a new
+  pack is read at start).
 * :func:`start_world_regions_set` -- the on-demand regions (RULINGS
   2026-11-10e (3): the ``imagery_on_demand_<region>`` switches) set, then
   placeholders written for the tiles of the regions turned on that X-Plane's
@@ -36,6 +38,7 @@ import O4_File_Names as FNAMES
 import O4_World_Pack as WP
 
 __all__ = ["LOG_NAME", "pack_dir", "staging_root", "scenery_dir_or_default",
+           "managed",
            "tile_loaded", "world_status", "world_install",
            "start_world_regions_set", "world_tile_set",
            "status_event", "write_log"]
@@ -162,9 +165,16 @@ def _staged_count() -> int:
         return 0
 
 
+def managed(scenery_dir: str) -> bool:
+    """Has ``world_install`` made the World pack in ``scenery_dir`` (its
+    :data:`WP.MARKER`)?  Only then do builds publish into it."""
+    return bool(scenery_dir) and os.path.isfile(
+        os.path.join(pack_dir(scenery_dir), WP.MARKER))
+
+
 def _status_fields(scenery_dir: str) -> dict:
     pack = pack_dir(scenery_dir) if scenery_dir else ""
-    exists = bool(pack) and os.path.isdir(pack)
+    exists = managed(scenery_dir)
     installed = exists and _ini_has_row(scenery_dir)
     kinds = WP.world_tiles(pack) if exists else {}
     counts = {kind: 0 for kind in WP.KINDS}
@@ -223,6 +233,11 @@ def world_install(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
                          f"({scenery_dir!r}).")
     os.makedirs(os.path.join(pack_dir(scenery_dir), "Earth nav data"),
                 exist_ok=True)
+    marker = os.path.join(pack_dir(scenery_dir), WP.MARKER)
+    if not os.path.isfile(marker):
+        with open(marker, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump({"version": 1, "installed_at": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, handle)
     lines, newline = SP.read_ini_lines(_ini_path(scenery_dir), missing_ok=True)
     added = WP.ini_install(lines)
     SP.write_ini_lines(_ini_path(scenery_dir), lines, newline)
@@ -260,7 +275,7 @@ def _regions_set(regions, scenery_dir: str = "") -> Dict[str, Any]:
     pack = pack_dir(scenery_dir)
     out = {"regions": [c for c in known if c in chosen], "written": 0,
            "kept": 0, "removed": 0, "swapped_out": 0}
-    if not os.path.isdir(pack):
+    if not managed(scenery_dir):
         return out
     land = _global_tiles(scenery_dir)
     for code in known:
@@ -338,7 +353,7 @@ def world_tile_set(lat, lon, kind: str = "placeholder",
                          f"supported, not {kind!r}.")
     scenery_dir = scenery_dir_or_default(scenery_dir)
     pack = pack_dir(scenery_dir)
-    if not os.path.isdir(pack):
+    if not managed(scenery_dir):
         raise ValueError("world_tile_set: the World pack is not installed.")
     lat, lon = int(lat), int(lon)
     done = _swap_out(pack, lat, lon, tile_loaded(scenery_dir))

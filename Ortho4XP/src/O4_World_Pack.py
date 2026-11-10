@@ -49,7 +49,7 @@ from typing import Callable, Iterator
 import O4_DSF_Binary as DSFB
 
 __all__ = [
-    "PACK_NAME", "PLACEHOLDER_AGENT", "KINDS", "PLACEHOLDER_MAX_BYTES",
+    "PACK_NAME", "MARKER", "PLACEHOLDER_AGENT", "KINDS", "PLACEHOLDER_MAX_BYTES",
     "STAGING_DIR", "tile_name", "parse_tile",
     "dsf_relpath", "placeholder_text", "write_placeholder",
     "write_placeholders", "is_placeholder", "kind_of", "pack_dsfs",
@@ -60,6 +60,9 @@ __all__ = [
 ]
 
 PACK_NAME = "zXPTerrainBuilder World"
+#: Written by ``world_install`` into the pack's root: the app manages this
+#: pack (a kit's experimental pack of the same name is not published into).
+MARKER = "XPTerrainBuilder_world.json"
 #: ``sim/creation_agent`` of a placeholder: how :func:`is_placeholder` knows one.
 PLACEHOLDER_AGENT = "XPTerrainBuilder world placeholder"
 #: The kinds of tile the pack holds (spec §3); ``placeholder`` is no tile.

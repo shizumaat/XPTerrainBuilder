@@ -522,6 +522,35 @@ The World pack is a new layout: one pack, many tiles, per-tile subfolders, and t
 
 Emittable check: the layout is not a model, it has flown (H3).
 
+### 18.1 Completed census (W1, 2026-11-10, branch `claude/lw1`)
+
+Grep `["'](Earth nav data|textures|terrain)["']` over `src/`: 60 files; 20 are `auto_patch*` airport-pack readers and 1 is `Unused/`, leaving the **39** engine modules of the ruling above. Plus the non-literal consumers of installed tiles and the Swift scanners. Seam probe: the scanners run, old code (`c77d214ee`) against new, on one `tmp` Custom Scenery (World pack: 3 placeholders + 1 published tile; one `zOrtho4XP_` link).
+
+| Consumer | Where | Reads a World tile? | W1 | Seam probe (old → new) |
+|---|---|---|---|---|
+| `O4_Custom_Scenery.pack_tiles`, `_terrain_probe` | :202, :282 | yes (map packs, mesh order, tidy) | CHANGED: a placeholder is no tile (head read only of DSFs ≤ 4 kB); a per-tile `terrain/<tile>/`, `textures/<tile>/` is probed | pack `landmark`, 4 tiles → `ortho`, 1 tile |
+| `O4_Scenery_Links.iter_installed_tiles` (engine `scan`, `O4_Cfg_Migrations`) | :280 | yes | CHANGED: the World pack's real tiles are installed tiles | installed `[(46,8)]` → `[(45,7),(46,8)]` |
+| `O4_Scenery_Links.install` (`links_install`, Qt Library) | :205 | yes | CHANGED: no link for a tile the World pack holds | — (twin) |
+| `O4_Mesh_Order` (`_drawn_order`, `_our_name`) | :46 | yes | CHANGED: a World-pack tile is ours; a placeholder is an overlay, never a mesh | `checked` False → True |
+| Swift `InstallationScanner.collectDSFTiles`, `terrainAndTextureProbe` | :447, :475 | yes | CHANGED, same rule as the engine (size from the listing already read) | old code fails the twin: 3 tiles, not `ortho` |
+| Swift `DSFReader` (sample DSF) | | the sample | unchanged: the sample is now a real tile | |
+| `O4_Imagery_OnDemand_Index` | :136 | yes | CHANGED: `textures_dir`/`terrain_dir`/`config_dir` columns (schema 3), one resolver `_tile_dir` behind `texture_path`; the manifest's `world_layout` restores them on rebuild; `.pol` `LOAD_CENTER`/`TEXTURE_NOWRAP` read | |
+| `imagery_follow_land.TierLander` | :109 | yes | CHANGED: lands at `texture_path(row)`; the converter's output (written in the build folder) mirrored into the pack | |
+| `imagery_downgrade`, `imagery_ondemand._serve_full` | `texture_path` | yes | unchanged code (resolver) | |
+| `O4_Tile_Info`, engine `scan` built half, `library.py` :96, `O4_Qt_GUI` :2527–2572, `plan_estimate` :228 | build folder | no | unchanged: W1 keeps the build folder (§7.3 step 4 not done) | |
+| `O4_Imagery_Freshness` :94/442/502, `O4_Stopped_Build`, staleness, `O4_Tile_Texture_Check` | build folder | no | unchanged; OPEN: after a landing in the pack the build folder's copy is the placeholder, so these need the tile view before the build folder goes | |
+| Build writers: `O4_DSF_Utils`, `O4_Tile_Utils`, `O4_Imagery_Utils`, `O4_Overlay_Utils`, `O4_DDS_Cache`, `O4_Imagery_Prefetch`, `O4_Imagery_Fetch_Selfcheck`, `O4_Default_Terrain_Map`, `O4_File_Names`, `O4_Tile_Staging` | build folder | no | unchanged | |
+| `O4_Scenery_Packs` (`EARTH_NAV_DATA`, `load_order`), `O4_Scenery_Packs_Tidy` | | the row | unchanged: one ortho-group row (`ini_install`); tidy files only unlisted packs | |
+| `O4_Imagery_OnDemand_Budget.dsf_bytes` :73, `storage_installed` (`zOrtho4XP_` prefix) | | no | OPEN: the pack's DSF copies (~50 MB a tile, rewritten, not linked) are in no storage row | |
+| `storage_redundant` :99 | pack roots | yes | unchanged (correct) | |
+| `imagery_convert` :252, `O4_Imagery_OnDemand_Convert` | | no | unchanged until M (`_xplane_running` moved to `xplane_root.xplane_running`) | |
+| `tile_bundle/paths.py` :87 | comment | no | unchanged; export of a World tile OPEN | |
+| `build_airports.py` :111, `O4_MSFS_*`, `O4_Pool_Selfcheck`, 20 `auto_patch*` modules | airport / other packs | no (no `apt.dat` in the World pack) | unaffected | |
+| False positives: `O4_Tile_Failures` :699, `O4_Imagery_OnDemand_Text`, `events.py`, `O4_Vector_Utils` (scope label), `O4_Qt_Preview3D_*`, `O4_Qt_Pack_Optimise`, `imagery_follow.py` (count keys) | | | none | |
+| Swift `OrthoEngine.tileStates`, `BuildModel.refreshTileStatesLegacy` | `zOrtho4XP_` names | no | legacy fallback (engines without sessions); not reached | |
+
+Deviation for the spec author: §5.5's `world_regions` key is not added. RULINGS 2026-11-10e (3) and 10k (Q5, "on-demand regions start as the regions that already hold the user's tiles") make the World regions the six `imagery_on_demand_<region>` switches lane `lregions` landed; `world_regions_set` writes those, so one setting cannot disagree with another.
+
 ## 19. Unknowns and their tests
 
 | | Unknown | Test | Phase |

@@ -539,12 +539,16 @@ struct BuildPane: View {
                     }
                 }
             }
-            Divider()
-            Text("When it's done")
-                .scaledFont(.caption, weight: .semibold)
-                .foregroundStyle(.secondary)
-            Toggle("Install in X-Plane automatically", isOn: boolBinding(\.linkTiles))
-            Toggle("Skip tiles already built", isOn: boolBinding(\.skipBuilt))
+            // RULINGS 2026-11-10e (1): hidden under imagery on demand,
+            // where both behave as on (BuildModel+OnDemandBuild).
+            if !buildModel.onDemandBuilds {
+                Divider()
+                Text("When it's done")
+                    .scaledFont(.caption, weight: .semibold)
+                    .foregroundStyle(.secondary)
+                Toggle("Install in X-Plane automatically", isOn: boolBinding(\.linkTiles))
+                Toggle("Skip tiles already built", isOn: boolBinding(\.skipBuilt))
+            }
             DisclosureGroup("Advanced", isExpanded: $showingAdvanced) {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle(O4Glossary.term("terrain_steps"), isOn: boolBinding(\.doVector))
@@ -1019,7 +1023,11 @@ struct BuildPane: View {
         }
         if inRun > 0 { text += " · \(inRun) in current run" }
         let skipped = count - todo - inRun
-        if skipped > 0 { text += " · \(skipped) already built (skipped)" }
+        if skipped > 0 {
+            text += buildModel.onDemandBuilds
+                ? " · \(skipped) already built (skipped; \(BuildModel.onDemandRebuildHint))"
+                : " · \(skipped) already built (skipped)"
+        }
         return text
     }
 

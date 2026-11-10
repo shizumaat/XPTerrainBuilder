@@ -319,6 +319,8 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "O4_Imagery_Placeholder",
     "O4_Imagery_Prefetch",
     "O4_Imagery_Progress",
+    "O4_Imagery_Regions",
+    "O4_Imagery_Regions_Table",
     "O4_Imagery_Utils",
     "O4_Land_Witness",
     "O4_Machine_Slots",

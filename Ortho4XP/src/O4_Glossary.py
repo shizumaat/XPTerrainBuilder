@@ -52,6 +52,9 @@ TERMS = {
     # The one disk budget (RULINGS 2026-11-10d).
     "disk_budget": "How much disk space may XPTerrainBuilder use (GB)?",
     "installed_tiles": "Installed ortho tiles",
+    # Settings ▸ Imagery's per-region switch (RULINGS 2026-11-10e (3)):
+    # one of simHeaven's X-World regions.
+    "ondemand_region": "On demand in {region}?",
 }
 
 # key -> the words it retires as a PRIMARY label (titles, buttons, toggles,

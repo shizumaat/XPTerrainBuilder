@@ -925,6 +925,8 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Imagery_Certs",
         "O4_Imagery_Fetch",
         "O4_Imagery_Placeholder",
+        "O4_Imagery_Regions",
+        "O4_Imagery_Regions_Table",
         "O4_Imagery_Utils",
         "O4_Mask_Utils",
         "O4_Mesh_IO",

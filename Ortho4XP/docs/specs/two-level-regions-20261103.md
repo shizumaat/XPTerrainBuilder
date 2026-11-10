@@ -1145,16 +1145,21 @@ main floor.
 host's upper-floor regions (riser strips aside) are opened by one riser `w`
 (a neck under two risers joins no two pieces) and split into pieces.  A
 piece JOINS THE PASSAGE where it meets the level within two risers, fronts no
-block (none within two risers of the held block: the hall's lower storey at
-its own facade keeps the main floor, the riser off the block stays one
-storey) and no part of the unit whose authored base lies within one
-`PLANE_BAND_M` of the main floor's plane (`top_y + y_lo`) overlaps it by
-`WITNESS_M2` (1 m2).  The cut is re-run with those pieces in the seed's
-footprint (one cut, one riser).  Replay (capture lkmci3): pieces 378 + 301 +
-22 m2 join; `p7` 33,272 -> 33,650 m2.  Kept: the plaza (planters -8.2), the
-strip over the tunnel in the garage's west aisle (slabs at -9.2, the
-garage's west wall at -8.75), the facade strip by the garden (glazing -8.1),
-the road plates north of the deck (-7.9 .. -8.1).
+pad of its block standing at or over the main floor (none within two risers
+of the held block, nor of another level of the block whose `y_lo` lies within
+one `PLANE_BAND_M` of the main floor's: the hall's lower storey at its own
+facade keeps the main floor and no riser ends against a floor it shares) and
+no part of the unit whose authored base lies within one `PLANE_BAND_M` of the
+main floor's plane (`top_y + y_lo`) overlaps it by `WITNESS_M2` (1 m2).  The
+pieces and the riser between them join the level as they are; nothing else
+moves.  (Round-internal: re-cutting the level with the pieces in the seed's
+footprint re-closed it and moved its riser's end against `building26/p3`:
+8 more airside `terrace_actual_step` rows, 0.26-0.34 m, at 39.29682,
+-94.71838 in the replay census.)  Replay (capture lkmci3): pieces 378 + 301 +
+22 m2 join.  Kept: the plaza (planters -8.2), the strip over the tunnel in the
+garage's west aisle (slabs at -9.2, the garage's west wall at -8.75), the
+facade strip by the garden (glazing -8.1), the road plates north of the deck
+(-7.9 .. -8.1).
 
 **Not done: the owner's two halves meet (needs-owner).**  A road plate of the
 group (`concreteroad`, y -8.10 .. -7.58, 3.4 m x 377 m) runs under the

@@ -319,6 +319,14 @@ index stores it), the four files X-Plane can want within visible distance:
 | T2 | 2048 | zl-1 (ZL15) | 64 | 2.8 MB | 2.8 S |
 | T3 full | 4096 | zl | 256 | 11.2 MB | 1.65 S |
 
+**[rev 3, owner 2026-11-10T05:18Z, P3b]** Ground track and groundspeed are
+the CAMERA's, measured from its position deltas over the last few seconds
+on this machine's clock (`O4_Imagery_Follow_Motion`), never the
+`sim/flightmodel/position/groundspeed` dataref: flight 2 was flown with a
+ground-speed multiplier (4-8x) that dataref does not show. The target is
+the loader keeping up at true speed (P3a: 98.3 % of step-up opens served at
+true speed with one slot).
+
 **Rule.** From the camera position, ground track and groundspeed, predict
 each square's closest approach in the next few minutes (straight line plus
 a lateral margin of 0.5 S for turns). Its **target tier** is the finest
@@ -375,8 +383,17 @@ not yet measured under the job (§11 U7); with two textures in flight the
 ### 4.4 Fetch, convert, swap
 
 - One texture at a time per provider by default (`O4_Imagery_Prefetch`'s
-  `TEXTURES_IN_FLIGHT = 1` precedent; **[rev 2]** two allowed when the
-  queue's earliest deadline is at risk), through the same fetcher a build
+  `TEXTURES_IN_FLIGHT = 1` precedent; ~~**[rev 2]** two allowed when the
+  queue's earliest deadline is at risk~~ **[rev 3, owner ruling
+  2026-11-10T05:18Z]** ADAPTIVE LIKE VIDEO STREAMING: the job keeps a
+  buffer of fetched tiers ahead of the aircraft, measured as the queue's
+  tightest slack (each queued fetch's time to its crossing minus when it
+  would land with the work ahead of it at the current slots). Normally ONE
+  download runs; while the buffer depletes (under 5 s, or falling faster
+  than 0.5 s/s while under 15 s, for the 30 s lead; both scale with the
+  lead) one more slot is added every 5 s, up to 4; after the buffer has
+  held at 15 s or more for 20 s one slot is dropped every 5 s, back to one.
+  `O4_Imagery_Fetch_Slots`, P3b), through the same fetcher a build
   uses (`O4_Imagery_Fetch`: AIMD window, `Retry-After`, per-host budget
   shared across processes; `O4_Imagery_Utils.host_request_limit`,
   `provider_max_threads`). The provider's own throttling therefore holds

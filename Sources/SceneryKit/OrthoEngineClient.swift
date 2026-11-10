@@ -345,6 +345,9 @@ public enum O4Event: Sendable, Equatable {
     /// the report, or a `gateway_airports` command's outcome. See
     /// `O4GatewayAirports`.
     case gatewayAirports(O4GatewayAirports)
+    /// The imagery follow job's state (capability `imagery_follow`,
+    /// #1992 P3b). See `O4ImageryFollowStatus`.
+    case imageryFollowStatus(O4ImageryFollowStatus)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -522,6 +525,9 @@ public enum O4Event: Sendable, Equatable {
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
+        // `class ImageryFollowStatus` in Ortho4XP/src/o4_engine/events.py.
+        case "ImageryFollowStatus":
+            return .imageryFollowStatus(O4ImageryFollowStatus.parse(object))
         // `class SlowStep` in Ortho4XP/src/o4_engine/events.py.
         case "SlowStep":
             return .slowStep(O4SlowStep.parse(object))
@@ -918,6 +924,25 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// event per source follows from engine worker threads.
     public func startImagerySourceStatus() {
         send(command: "imagery_source_status")
+    }
+
+    // MARK: - Imagery on demand (#1992 P3b, capability imagery_follow)
+
+    /// Start the follow job: finer imagery tiers fetched ahead of
+    /// X-Plane's camera, read from its Web API on `port`. `tiles`
+    /// (`[buildDir, lat, lon]` each) are rescanned into the job's index
+    /// first. `imageryFollowStatus` events report it until
+    /// `stopImageryFollow`.
+    public func startImageryFollow(port: Int? = nil, tiles: [[Any]] = []) {
+        var arguments: [String: Any] = [:]
+        if let port { arguments["port"] = port }
+        if !tiles.isEmpty { arguments["tiles"] = tiles }
+        send(command: "imagery_follow_start", arguments: arguments)
+    }
+
+    /// Stop the follow job (fetches in flight finish first).
+    public func stopImageryFollow() {
+        send(command: "imagery_follow_stop")
     }
 
     // MARK: - Default airport index (protocol 1.6)

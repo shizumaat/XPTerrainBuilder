@@ -26,9 +26,6 @@ import sys
 import types
 
 import numpy
-import pytest
-from PIL import Image
-
 import O4_Cfg_Vars as CFGVARS
 import O4_DDS_Cache as DDSCACHE
 import O4_DDS_Encode as DDSENC
@@ -39,6 +36,8 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Imagery_Utils as IMG
 import O4_Step_Reuse as REUSE
 import O4_Tile_Utils as TILE
+import pytest
+from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools",
                                 "fixtures"))

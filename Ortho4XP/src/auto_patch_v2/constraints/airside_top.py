@@ -34,6 +34,7 @@ import typing as _t
 
 import numpy as np
 
+from ..geom import exact
 from ..law import Law
 from ..model.planar import PlanarMap
 
@@ -126,7 +127,7 @@ def _surface_z_at(surface, to_xy, tol_m: float = 0.05
     zs = np.array([float(v.z) for v in vs], dtype=float)
 
     def z_at(x: float, y: float) -> "float | None":
-        d2 = (xy[:, 0] - x) ** 2 + (xy[:, 1] - y) ** 2
+        d2 = exact.sq(xy[:, 0] - x) + exact.sq(xy[:, 1] - y)
         k = int(np.argmin(d2))
         return float(zs[k]) if d2[k] <= tol_m * tol_m else None
     return z_at

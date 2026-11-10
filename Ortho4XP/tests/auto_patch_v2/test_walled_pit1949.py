@@ -81,7 +81,8 @@ def test_the_frames_placements_in_the_pit_move_with_it_and_the_rest_keep_their_s
     lamps = tmp_path / "lamps.obj"
     lamps.write_text("I\n800\nOBJ\n\nPOINT_COUNTS 0 0 0 0\n\n"
                      "LIGHT_PARAM full_custom_halo_night 10.0 9.0 10.0 1 1 1 1 100 0 -1 0 1\n"
-                     "LIGHT_PARAM full_custom_halo_night 50.0 9.0 30.0 1 1 1 1 100 0 -1 0 1\n")
+                     "LIGHT_PARAM full_custom_halo_night 50.0 9.0 30.0 1 1 1 1 100 0 -1 0 1\n",
+                     encoding="utf-8", newline="\n")
     far = _write(tmp_path / "far.obj", [_box(500.0, 500.0, 30.0, 30.0, 8.0)])
     objs = _pit(tmp_path) + [_at(str(lamps), "dsf:obj3"), _at(far, "dsf:obj4")]
     floors, notes = _read(objs, 90.0)

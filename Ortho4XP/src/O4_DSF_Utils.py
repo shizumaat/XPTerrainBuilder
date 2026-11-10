@@ -14,10 +14,12 @@ import O4_Airport_Approach_Cover as COVER
 import O4_Airport_Fade_Masks as FADE
 import O4_Bathymetry as BATHY
 import O4_DDS_File as DDS
+import O4_DDS_Tiers as TIERS
 import O4_Default_Terrain_Map as DEFTER
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Mask_Utils as MASK
 import O4_Mesh_Utils as MESH
 import O4_Overlay_Utils as OVL
@@ -1286,7 +1288,7 @@ def _build_dsf_body(tile, download_queue):
                 target_tex = os.path.join(
                     tile.build_dir, "textures", texture_file_name
                 )
-                if not DDS.is_whole(target_tex):
+                if PLACEHOLDER.needs_build(tile, target_tex):
                     download_queue.put(texture_attributes)
                     textures_queued_count[0] += 1
                 else:
@@ -1470,11 +1472,11 @@ def _build_dsf_body(tile, download_queue):
                                 tile.build_dir, "textures", texture_file_name
                                 )
                         rebuild = False
-                        if (not DDS.is_whole(target_tex)):
+                        if PLACEHOLDER.needs_build(tile, target_tex):
                             rebuild = True
                         elif (tile.imprint_masks_to_dds):
                             # Maybe target_tex was a DXT1, we need DXT5
-                            if (os.path.getsize(target_tex) < 20000000):
+                            if not TIERS.is_dxt5(target_tex):
                                 rebuild = True
                             # Maybe masks were updated after target_tex created
                             target_mask = MASK.mask_name_for_texture(tile,
@@ -1486,10 +1488,8 @@ def _build_dsf_body(tile, download_queue):
                                     rebuild = True
                         else:
                             # maybe target_tex was a DXT5, it should ne a DXT1
-                            if (os.path.getsize(target_tex) > 20000000):
+                            if TIERS.is_dxt5(target_tex):
                                 rebuild = True
-                            else:
-                                print(os.path.getsize(target_tex))
 
                         if (rebuild or not tile.imprint_masks_to_dds):
                             mask_im.save(os.path.join(
@@ -1724,7 +1724,7 @@ def _build_dsf_body(tile, download_queue):
                             tile.build_dir, "textures", texture_file_name
                             )
                 rebuild = False
-                if (not DDS.is_whole(target_tex)):
+                if PLACEHOLDER.needs_build(tile, target_tex):
                     rebuild = True
                 if (rebuild):
                     download_queue.put(texture_attributes)

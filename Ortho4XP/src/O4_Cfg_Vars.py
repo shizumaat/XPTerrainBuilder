@@ -728,6 +728,28 @@ cfg_tile_vars = {
         },
         "hint": "What the base mesh is textured with. Full Ortho: orthophotos everywhere (classic). Airport Ortho: orthophotos on and around airports only, fading into X-Plane default terrain. Default X-Plane: no orthophotos; the custom mesh uses X-Plane default landclass terrain read from the installed Global Scenery.",
     },
+    "imagery_on_demand": {
+        "type": bool,
+        "default": False,
+        "hint": (
+            "Fetch imagery on demand (#1992): new builds get "
+            "low-resolution placeholder imagery under every texture's own "
+            "name (the scenery file, terrain files and masks are those of "
+            "a full build); full detail is fetched later around the "
+            "aircraft. Off: every texture is built at full resolution."
+        ),
+    },
+    "placeholder_zl_drop": {
+        "type": int,
+        "default": 3,
+        "values": (2, 3),
+        "hint": (
+            "With imagery on demand: how many zoom levels below the "
+            "build's the low-resolution imagery is fetched at. 3 gives "
+            "512 px textures (4 map requests each instead of 256), 2 gives "
+            "1024 px."
+        ),
+    },
     "airport_ortho_fade_width": {
         "type": float,
         "default": 1000.0,
@@ -980,6 +1002,8 @@ list_mask_vars = [
 
 list_dsf_vars = [
     "texture_mode",
+    "imagery_on_demand",
+    "placeholder_zl_drop",
     "airport_ortho_fade_width",
     "cover_airports_with_highres",
     "cover_extent",

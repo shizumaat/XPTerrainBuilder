@@ -14,9 +14,10 @@ synchronous file work.
 
 On-demand imagery (#1992, capability ``imagery_ondemand``):
 ``imagery_ondemand_scan`` (the index rebuilt from the on-demand tiles),
-``imagery_pin`` (a tile's "always full resolution") and
+``imagery_pin`` (a tile's "always full resolution"),
+``imagery_ondemand_sweep`` (hold the storage cap now) and
 ``imagery_ondemand_downgrade_all`` ("Make all low-res again"), synchronous
-file work in :mod:`o4_engine.imagery_ondemand`; the two that change
+file work in :mod:`o4_engine.imagery_ondemand`; those that change
 textures are refused while a build runs (:func:`ondemand_handlers`).
 
 A command module, not a session method, so the imagery menus stay out of
@@ -103,6 +104,8 @@ def imagery_freshness_discard(lat: int, lon: int, working_dir: str) -> Dict[str,
 #: The on-demand commands that land textures: refused while a build runs
 #: (a build may be converting the same tile's textures).
 ONDEMAND_REFUSED_WHILE_BUILDING = {"imagery_pin": "pinning a tile",
+                                   "imagery_ondemand_sweep":
+                                   "holding the imagery storage limit",
                                    "imagery_ondemand_downgrade_all":
                                    "making imagery low-res again"}
 
@@ -122,6 +125,8 @@ def ondemand_handlers(building: Callable[[], bool]) -> Dict[str, Callable]:
     return {
         "imagery_ondemand_scan": ONDEMAND.imagery_ondemand_scan,
         "imagery_pin": guarded("imagery_pin", ONDEMAND.imagery_pin),
+        "imagery_ondemand_sweep": guarded("imagery_ondemand_sweep",
+                                          ONDEMAND.imagery_ondemand_sweep),
         "imagery_ondemand_downgrade_all": guarded(
             "imagery_ondemand_downgrade_all",
             ONDEMAND.imagery_ondemand_downgrade_all),

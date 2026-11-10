@@ -11,6 +11,10 @@
   manifest) and the index; pinning lands every full texture the
   ``DDS_cache`` still holds for the tile (``O4_DDS_Cache.serve``) and
   answers how many are still to fetch (the follow job fetches them).
+* :func:`imagery_ondemand_sweep` -- hold the cap now (the sweep the
+  automatic cleanup runs at launch, and the follow job above 110 %),
+  optionally with the camera's position and a cap other than the
+  setting's (the P2 verification flight sets 1 GB).
 * :func:`imagery_ondemand_downgrade_all` -- "Make all low-res again":
   every unpinned sharp texture back to its placeholder
   (``imagery_downgrade.downgrade_all``); ``dry_run`` answers the space
@@ -37,7 +41,7 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 
 from . import imagery_downgrade as DOWNGRADE
 
-__all__ = ["imagery_ondemand_scan", "imagery_pin",
+__all__ = ["imagery_ondemand_scan", "imagery_pin", "imagery_ondemand_sweep",
            "imagery_ondemand_downgrade_all"]
 
 
@@ -192,6 +196,35 @@ def imagery_pin(lat: int, lon: int, working_dir: str = "",
         conn.close()
 
 
+def _camera(camera_lat, camera_lon):
+    if camera_lat is None or camera_lon is None:
+        return None
+    from types import SimpleNamespace
+    return SimpleNamespace(lat=float(camera_lat), lon=float(camera_lon))
+
+
+def imagery_ondemand_sweep(cap_gb: Optional[float] = None,
+                           camera_lat: Optional[float] = None,
+                           camera_lon: Optional[float] = None,
+                           in_session: bool = False,
+                           index: Optional[str] = None) -> Dict[str, Any]:
+    """ENGINE COMMAND ``imagery_ondemand_sweep``: the cap sweep
+    (``imagery_downgrade.sweep``) now, with ``cap_gb`` in place of the
+    ``imagery_on_demand_cap_gb`` setting when given, sparing the squares
+    near ``camera_lat`` / ``camera_lon`` when given.
+
+    :returns: ``imagery_downgrade.sweep``'s reply
+    """
+    cap = (int(float(cap_gb) * 1e9) if cap_gb is not None
+           else DOWNGRADE.cap_bytes())
+    conn = INDEX.open_index(index)
+    try:
+        return DOWNGRADE.sweep(conn, cap, camera=_camera(camera_lat, camera_lon),
+                               in_session=bool(in_session))
+    finally:
+        conn.close()
+
+
 def imagery_ondemand_downgrade_all(confirm: bool = False, dry_run: bool = False,
                                    lat: Optional[int] = None,
                                    lon: Optional[int] = None,
@@ -210,10 +243,7 @@ def imagery_ondemand_downgrade_all(confirm: bool = False, dry_run: bool = False,
     if not dry_run and not confirm:
         raise ValueError("Making imagery low-res again frees its space. Send "
                          "dry_run=true to see how much, then confirm=true.")
-    camera = None
-    if camera_lat is not None and camera_lon is not None:
-        from types import SimpleNamespace
-        camera = SimpleNamespace(lat=float(camera_lat), lon=float(camera_lon))
+    camera = _camera(camera_lat, camera_lon)
     tile = (FNAMES.short_latlon(int(lat), int(lon))
             if lat is not None and lon is not None else None)
     conn = INDEX.open_index(index)

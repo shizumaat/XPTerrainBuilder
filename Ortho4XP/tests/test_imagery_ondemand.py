@@ -456,3 +456,17 @@ def test_the_imagery_manifest_keeps_the_pin(tmp_path, monkeypatch):
     monkeypatch.setattr(TILEU, "_mesh_identity", lambda tile: None)
     TILEU._write_imagery_manifest(tile, {}, {})
     assert TILEU.read_imagery_manifest(tile)["pinned"] is True
+
+
+def test_the_sweep_command_takes_a_cap_and_a_camera(scanned):
+    conn = scanned.make(4)
+    _sharp(conn, 4)
+    for row in INDEX.rows(conn):
+        INDEX.set_state(conn, TILE, row["name"], "upgraded", fetched_at=0.0)
+    first = INDEX.rows(conn)[0]
+    conn.close()
+    out = ONDEMAND.imagery_ondemand_sweep(cap_gb=1e-9, camera_lat=first[
+        "centre_lat"], camera_lon=first["centre_lon"])
+    assert out["ran"] and out["skipped_near"] >= 1 and out["downgraded"] >= 1
+    conn = INDEX.open_index()
+    assert INDEX.get(conn, TILE, first["name"])["state"] == "upgraded"

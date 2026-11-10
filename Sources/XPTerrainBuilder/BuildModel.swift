@@ -408,8 +408,10 @@ final class BuildModel: ObservableObject {
     @Published private(set) var lastRunSummary: String?
 
     let activity = BuildActivityModel()
-    /// The imagery follow job (#1992 P4): the Build pane's follow line.
+    /// The imagery follow job (#1992 P4): the Fly pane's follow line.
     let imageryFollow = ImageryFollowModel()
+    /// Build · Fly · Library (RULINGS 2026-11-10j) and the Fly offer.
+    let appMode = AppModeModel()
     let console = BuildConsoleModel()
     /// The one date filter of the Build History list and the map (#1226).
     @Published var historyRange: BuildDateRange = .all
@@ -1261,9 +1263,12 @@ final class BuildModel: ObservableObject {
         case .imagerySourceStatus(let code, let status):
             imageryStatus[code] = status
         case .imageryFollowStatus(let status):
-            imageryFollow.show(status) // the Build pane's follow line (#1992 P4)
+            imageryFollow.show(status) // the Fly pane's follow line (#1992 P4)
+            appMode.observe(status)    // offers Fly, never switches (10j)
         case .worldStatus(let status):
             worldStatus = status
+        case .aircraftPosition(let position):
+            fly.show(position)         // the Fly map's aircraft (#2001)
         case .unknown:
             break // additive protocol: ignore unknown event types
         }
@@ -1359,6 +1364,8 @@ final class BuildModel: ObservableObject {
 
     /// "Select from flight plan…" (#829): the panel and the route overlay.
     lazy var flightPlan = FlightPlanSelection(build: self)
+    /// Fly mode's state: the flight being named, its status, the aircraft.
+    lazy var fly = FlyModel(build: self)
     /// The pack reference outlines under it (spec §0 A4).
     lazy var packOutlines = PatchPackOutlines(patch: patchEdit)
     /// The object inspector over it (#1702).

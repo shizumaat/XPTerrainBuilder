@@ -3,7 +3,8 @@ import SwiftUI
 import SceneryKit
 import UniformTypeIdentifiers
 
-/// The Library window (#824): every built tile with its size, zoom level,
+/// Library mode's tiles section (#824; the Library window until RULINGS
+/// 2026-11-10j moved it into `LibraryPane`): every built tile with its size, zoom level,
 /// imagery source, built date, graded airports, modified packs and the
 /// "In X-Plane" switch, plus the disk panel (tiles total and each download
 /// cache with "Free space…"). The engine's `library_*` commands do the
@@ -13,9 +14,9 @@ import UniformTypeIdentifiers
 /// space ask first. Export / Import Library Bundle carry a built tile to
 /// another installation (#1699 phase 1; the Qt dialog has the same two).
 /// The "Patch library" section and "Publish Patch…" are the shared patch
-/// library (#1699 phase 2, `PatchLibraryView.swift`).
+/// library (#1699 phase 2, `PatchLibraryView.swift`), placed by the pane.
+/// The table's selection IS the map's (one selection across modes).
 enum Library {
-    static let windowID = "library"
     /// A tile bundle's file extension (`tile_bundle.export.BUNDLE_SUFFIX`).
     static let bundleExtension = "xptbundle"
 
@@ -159,10 +160,9 @@ final class LibraryModel: ObservableObject {
     }
 }
 
-struct LibraryView: View {
+struct LibraryTilesSection: View {
     @EnvironmentObject private var buildModel: BuildModel
     @StateObject private var model = LibraryModel()
-    @State private var selection = Set<O4LibraryTile.ID>()
     @State private var search = ""
     @State private var sortOrder = [KeyPathComparator(\O4LibraryTile.tile)]
     @State private var confirmDelete = false
@@ -176,7 +176,25 @@ struct LibraryView: View {
     }
 
     private var selectedRows: [O4LibraryTile] {
-        model.tiles.filter { selection.contains($0.id) }
+        model.tiles.filter { selection.wrappedValue.contains($0.id) }
+    }
+
+    /// The map's selection, as the table's rows (one selection, 10j).
+    private var selection: Binding<Set<O4LibraryTile.ID>> {
+        Binding(
+            get: {
+                Set(model.tiles.filter {
+                    buildModel.selected.contains(BuildModel.TileCoord(lat: $0.lat, lon: $0.lon))
+                }.map(\.id))
+            },
+            set: { ids in
+                let coords = model.tiles.filter { ids.contains($0.id) }
+                    .map { BuildModel.TileCoord(lat: $0.lat, lon: $0.lon) }
+                buildModel.selected = Set(coords)
+                if let first = coords.first, !coords.contains(where: { $0 == buildModel.activeTile }) {
+                    buildModel.activeTile = first
+                }
+            })
     }
 
     private var selectedPacks: [O4LibraryPack] {
@@ -188,25 +206,26 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            table
-            Divider()
-            actions.padding(8)
-            Divider()
-            PatchLibrarySection().padding(8)
-            Divider()
-            diskPanel.padding(8)
-        }
-        .frame(minWidth: 820, minHeight: 460)
-        .searchable(text: $search, prompt: "Search tiles, airports, imagery")
-        .toolbar {
-            ToolbarItem {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                TextField("Search tiles, airports, imagery", text: $search)
+                    .textFieldStyle(.roundedBorder)
                 Button { model.refresh(buildModel) } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Read the tiles folder and the caches again")
                 .disabled(model.isLoading)
             }
+            table.frame(minHeight: 240)
+            actions
+            if !model.status.isEmpty {
+                Text(model.status)
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
+            diskPanel
         }
         .onAppear { model.refresh(buildModel) }
         .sheet(item: $publishing) { tile in PublishPatchSheet(tile: tile) }
@@ -248,7 +267,7 @@ struct LibraryView: View {
     // MARK: - Table (columns as O4_Qt_Library.COLUMNS)
 
     private var table: some View {
-        Table(shown, selection: $selection, sortOrder: $sortOrder) {
+        Table(shown, selection: selection, sortOrder: $sortOrder) {
             TableColumn("Tile", value: \.tile) { row in
                 HStack(spacing: 4) {
                     Text(row.tile).monospacedDigit()
@@ -306,8 +325,10 @@ struct LibraryView: View {
 
     // MARK: - Actions
 
+    /// Three buttons a row: the section lives in the side pane.
     private var actions: some View {
-        HStack {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3),
+                  alignment: .leading, spacing: 6) {
             Button("Install") { setInstalled(true) }
                 .disabled(selectedRows.isEmpty)
             Button("Uninstall") { setInstalled(false) }
@@ -338,11 +359,8 @@ struct LibraryView: View {
             }
             .help(O4OnDemandText.pinHelp)
             .disabled(pinTarget == nil || buildModel.isBuilding)
-            Spacer()
-            Text(model.status)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
         }
+        .controlSize(.small)
     }
 
     private func setInstalled(_ install: Bool) {

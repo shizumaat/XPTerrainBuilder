@@ -55,6 +55,16 @@ TERMS = {
     # Settings ▸ Imagery's per-region switch (RULINGS 2026-11-10e (3)):
     # one of simHeaven's X-World regions.
     "ondemand_region": "On demand in {region}?",
+    # The three app modes (RULINGS 2026-11-10j): the map toolbar's
+    # segmented control and the side pane each one shows.
+    "mode_build": "Build",
+    "mode_fly": "Fly",
+    "mode_library": "Library",
+    # Fly mode (spec flight-manager-and-world §14, #2001): the map's
+    # checkbox for each square's installed imagery, and the legend's word
+    # for a tile we have not built (never "placeholder").
+    "live_flight_preview": "Live flight preview",
+    "xplane_own_scenery": "X-Plane's own scenery",
 }
 
 # key -> the words it retires as a PRIMARY label (titles, buttons, toggles,

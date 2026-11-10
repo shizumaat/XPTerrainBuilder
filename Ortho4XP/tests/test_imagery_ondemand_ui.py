@@ -199,7 +199,7 @@ def test_the_library_pin_calls_imagery_pin(qapp, monkeypatch):
         calls.append((lat, lon, kw)) or {"tile": "+60-136", "pinned": kw["pinned"],
                                          "served": 3, "to_fetch": 5}))
     _sync_thread(monkeypatch)
-    dialog = QTLIB.LibraryDialog(None, "/tiles", "")
+    dialog = QTLIB.LibraryTilesSection(None, "/tiles", "")
     monkeypatch.setattr(dialog, "refresh", lambda: None)
     row = {"tile": "+60-136", "lat": 60, "lon": -136, "build_dir": "/t",
            "size_bytes": 1, "zl": 16, "provider": "BI", "built": None,

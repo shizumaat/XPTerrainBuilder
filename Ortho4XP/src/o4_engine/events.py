@@ -225,6 +225,7 @@ CAPABILITIES: tuple = (
     "imagery_spawn_reload",         # 2026-11-10, #1992 P5 scenery reload after a spawn or jump
     "imagery_ondemand_convert",     # 2026-11-10, #1992 P1c built tiles -> on-demand copies
     "world_pack",                   # 2026-11-10, World spec W1 world_* + WorldStatus/Ready
+    "aircraft_position",            # 2026-11-10, #2001 aircraft_watch + AircraftPosition
 )
 
 
@@ -1112,6 +1113,30 @@ class WorldReady(EngineEvent):
     request: Any = None
     result: Any = None
     error: str = ""
+
+
+@dataclass(frozen=True)
+class AircraftPosition(EngineEvent):
+    """X-Plane's aircraft, once a second while ``aircraft_watch`` is on
+    (spec flight-manager-and-world-20261110 §5.3; #2001; capability
+    ``aircraft_position``): the Fly map's aircraft and track.
+
+    ``lat``/``lon`` degrees, ``alt_m`` above sea level, ``track_deg``
+    true track over the ground (from position deltas; the heading while
+    the aircraft stands still), ``speed_ms`` groundspeed, ``on_ground``
+    (under 3 m above the ground), ``paused`` (the sim is paused).
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    lat: float = 0.0
+    lon: float = 0.0
+    alt_m: float = 0.0
+    track_deg: float = 0.0
+    speed_ms: float = 0.0
+    on_ground: bool = False
+    paused: bool = False
 
 
 @dataclass(frozen=True)

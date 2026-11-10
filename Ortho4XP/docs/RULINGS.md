@@ -10754,3 +10754,4 @@ Process (standing):
 
 **2026-11-10l: a no-centreline pavement neck beside a service road is a road (owner, Noah, 2026-11-10T17:30Z, #1900 HECA: "It's A, there's no taxiway or apron running along that").** A long narrow neck of a pack pavement page with no taxi centreline (outside the page's route territory) that runs beside a mapped service road/vehicle route is a SERVICE ROAD: it grades as a road and mints no taxi zone/strip on either side, and §27 must not flip it to apron. (HECA objpav99 cell 356: 802 m × 6–12 m, cross_connector E today.)
 
+

@@ -246,6 +246,12 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
             notes.append(f"unit {s.unit}: no level left on {pref} off the airside")
             continue
         H, L, S = cut
+        if len(host) > 1:
+            # the main floor is where its parts stand (RULINGS 2026-11-10n,
+            # ``planar/main_floor_witness``): its pieces no main-floor part
+            # stands on, off the block, are the passage's ground too
+            H, L, S = _unwitnessed_to_passage(s, host, pref, by_ref, reg, (H, L, S), P, A,
+                                              others, airport, law, grid, w, notes)
         polys = {k: valid_area(unary_union([r.polygon for r in rs])) for k, rs in by_ref.items()
                  if k != pref and k in reg.held}
         # the object is seated on its own pad: its zero is that block's datum,
@@ -390,6 +396,33 @@ def _to_lot(q, S, lots, pads, w: float) -> tuple:
     reach = lots.buffer(w, join_style=2)
     T = valid_area(valid_area(S.intersection(reach)).difference(pads.buffer(w, join_style=2)))
     return valid_area(unary_union([q, T])), valid_area(S.difference(reach))
+
+
+def _unwitnessed_to_passage(s: LevelSeed, host: set, pref: str, by_ref: dict, reg: Registries,
+                            cut: tuple, P, A, others, airport, law, grid: float, w: float,
+                            notes: list) -> tuple:
+    """``(H, L, S)``: the passage ``cut`` out of the main floor, re-cut with
+    the main floor's unwitnessed pieces (``planar/main_floor_witness``) in
+    its footprint, or ``cut`` where there are none."""
+    from .low_level import level_cut
+    from .main_floor_witness import unwitnessed, upper_floor_ys
+    part = getattr(airport, "partition", None)
+    if part is None or not (0 <= s.unit < len(part.units)):
+        return cut
+    L = cut[1]
+    left = _less(host, by_ref, L.buffer(w, join_style=2), grid)
+    block = valid_area(unary_union([r.polygon for r in left if str(r.ref) == pref]))
+    extra = unwitnessed(part.units[s.unit], airport.frame.entry(),
+                        upper_floor_ys(host, reg.landings), left, L, block, w)
+    if not extra:
+        return cut
+    got = level_cut(P, unary_union([s.footprint, *extra]), A, others, law, grid, 0.0, airport,
+                    grow=False, whole=True)
+    if got is None:
+        return cut
+    notes.append(f"unit {s.unit}: {len(extra)} main-floor piece(s) "
+                 f"{sum(q.area for q in extra):.0f} m2 no main-floor part stands on join the passage")
+    return got
 
 
 def _less(host: set, by_ref: dict, Lw, grid: float) -> list:

@@ -134,3 +134,62 @@ def test_the_garden_beside_the_lot_stands_in_a_court_at_the_lot_floor(law, tmp_p
 def test_a_garden_beside_no_lot_has_no_court(law, tmp_path):
     _s, _out, reg, _c = _run(law, tmp_path, _garage(), extra=_garden())
     assert not any(v.get("piece_of") for v in reg.landings.values())
+
+
+def _slab(x0, y0, x1, y1, y):
+    """A footless slab (a road plate, a kerb): no walls, ``height_m`` 0.5."""
+    return types.SimpleNamespace(**{**vars(_wall(x0, y0, x1, y1, y, 1)), "feet": (),
+                                    "height_m": 0.5})
+
+
+def _run_beside(law, tmp_path, extra):
+    """The garage at the block's east end with a lot's pad north of a band
+    of the main floor beside it (RULINGS 2026-11-10n): ``extra`` stands on
+    the band."""
+    lot = box(165.0, 39.0, 200.0, 100.0)
+    A = _airport([*_terminal()[:-1], _wall(0.0, 0.0, 100.0, 70.0, -8.2, 300),
+                  _wall(110.0, 0.0, 165.0, 70.0, -10.4, 200),
+                  _slab(168.0, 0.0, 200.0, 38.0, -10.4), *extra], tmp_path)
+    A.osm_ways = [_road()]
+    A.frame.transformers = lambda: ((lambda lon, lat: (lon, lat)), (lambda x, y: (y, x)))
+    H, L, S, rec = LL.plan_low(P, AIR, A, law, 0.5)
+    tmpl = Region(role="building", ref="term", polygon=P, code_number=None, code_letter=None,
+                  side="airside", source="cell")
+    regs = [_dc.replace(tmpl, polygon=H.difference(lot)),
+            _dc.replace(tmpl, ref="term/p1", polygon=L.difference(lot)),
+            _dc.replace(tmpl, ref="term/p1#strip", polygon=S.difference(lot)),
+            _dc.replace(tmpl, ref="lotpad", polygon=lot)]
+    reg = Registries()
+    reg.held["term"] = {"unit": "term", "datum_pred": 30.0}
+    reg.landings["term/p1"] = {"block": "term", "y": rec["y_lo"], "deck": None,
+                               "kind": LL.LOW_KIND, **rec}
+    seeds, _n = LR.level_seeds(A, _cls(), law)
+    counts: dict = {}
+    out = LR.seed_levels(regs, reg, seeds, [AirRegion(AIR, "cell")], A, law, 0.5, counts)
+    return out, reg, counts
+
+
+def test_a_main_floor_band_no_main_floor_part_stands_on_is_the_passage(law, tmp_path):
+    """The band between the garage and the lot's pad holds no part at the
+    main floor: its ground is the passage's, at the garage's base."""
+    out, reg, counts = _run_beside(law, tmp_path, ())
+    (ref, rec), = ((k, v) for k, v in reg.landings.items() if v.get("witness") == "passage")
+    band = box(172.0, 2.0, 198.0, 30.0)
+    lvl = unary_union([r.polygon for r in out if str(r.ref) == ref])
+    assert lvl.intersection(band).area > 0.9 * band.area, counts.get("level_seed_list")
+    main = unary_union([r.polygon for r in out if str(r.ref) == "term/p1"])
+    assert main.intersection(band).area < 1e-6
+    assert main.intersection(box(5.0, 5.0, 95.0, 65.0)).area > 0.9 * 90.0 * 60.0
+
+
+def test_a_main_floor_band_its_parts_stand_on_keeps_the_main_floor(law, tmp_path):
+    """A road plate at the main floor on the band: the author's level there
+    is the main floor's, and the band keeps it."""
+    out, reg, _c = _run_beside(law, tmp_path, [_slab(172.0, 2.0, 198.0, 30.0, -8.1)])
+    (ref, _rec), = ((k, v) for k, v in reg.landings.items() if v.get("witness") == "passage")
+    band = box(172.0, 2.0, 198.0, 30.0)
+    lvl = unary_union([r.polygon for r in out if str(r.ref) == ref])
+    assert lvl.intersection(band).area < 0.05 * band.area
+    main = unary_union([r.polygon for r in out if str(r.ref) == "term/p1"])
+    assert main.intersection(band).area > 0.9 * band.area
+

@@ -173,10 +173,12 @@ class _FlightClock:
 def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
                   build_s: float | None = None, full_s: float = 900.0,
                   cruise_kt: float = 290.0, corridor_km: float = 20.0,
-                  capacity: int = 16, cores: int = 18) -> dict:
+                  capacity: int = 16, cores: int = 18,
+                  speed: float = 1.0) -> dict:
     """The flight manager over the recording (see the module): the wait,
     the countdown, the ground reload, then the flight's swaps against
-    X-Plane's opens."""
+    X-Plane's opens.  ``speed`` flies the recording that many times faster
+    (the plan's cruise with it)."""
     from datetime import datetime, timezone
 
     import O4_Flight_Schedule as SCHEDULE
@@ -215,7 +217,8 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
 
     plan = _flight_plan(flight, dest)
     record = RECORD.from_plan(plan, "none", datetime.now(timezone.utc),
-                              cruise_kt=cruise_kt, corridor_km=corridor_km)
+                              cruise_kt=cruise_kt * speed,
+                              corridor_km=corridor_km)
     manager = FlightManager(
         record, plan, builder=builder, publisher=FakePublisher(), facts=facts,
         state_of=state_of, estimate=estimate, intermediate=kind,
@@ -237,13 +240,13 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
     swapped_loaded = []
     prev = None
     for t, lat, lon, alt, *_ in pos:
-        clock.rec_t, clock.now = t, wait + t
+        clock.rec_t, clock.now = t, wait + t / speed
         builder.now = clock.now
         gs = 0.0
         if prev is not None and t > prev[0]:
             gs = (JOB._M_PER_DEG * math.hypot(
                 lat - prev[1], (lon - prev[2]) * math.cos(math.radians(lat)))
-                / (t - prev[0]))
+                / ((t - prev[0]) / speed))
         prev = (t, lat, lon)
         before = {j.tile: j.state for j in manager.jobs}
         manager.tick(clock.now, {"lat": lat, "lon": lon,
@@ -261,14 +264,15 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
                      "state": job.state,
                      "deadline_s": round(job.deadline_s, 1),
                      "swapped_s": None if swapped is None else round(swapped, 1),
-                     "opened_s": None if opened is None else round(wait + opened, 1),
-                     "margin_s": (round(wait + opened - swapped, 1)
+                     "opened_s": (None if opened is None
+                                  else round(wait + opened / speed, 1)),
+                     "margin_s": (round(wait + opened / speed - swapped, 1)
                                   if swapped is not None and opened is not None
                                   else None)})
     late = [r["tile"] for r in rows if r["opened_s"] is not None
             and (r["margin_s"] is None or r["margin_s"] <= 0)]
     covered = first_countdown is not None and first_countdown >= wait - 1.0
-    return {"wait_s": wait, "countdown_s": first_countdown,
+    return {"speed": speed, "wait_s": wait, "countdown_s": first_countdown,
             "countdown_rose": rose, "reloads": reloads,
             "state": record.state, "phase": record.phase,
             "items": [list(i) for i in manager.items], "tiles": rows,
@@ -277,7 +281,8 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
 
 
 def _print_flight(result: dict) -> None:
-    print(f"flight: waited {result['wait_s']:.0f} s on the ground (countdown "
+    print(f"flight at {result['speed']:g}x: waited {result['wait_s']:.0f} s "
+          f"on the ground (countdown "
           f"at creation {result['countdown_s']}), reloads "
           f"{result['reloads']}, now {result['state']} / {result['phase']}: "
           + ("OK" if result["ok"] else f"LATE {result['late']}"))
@@ -336,13 +341,15 @@ def main(argv=None) -> int:
         kit = json.load(f)
     if a.flight:
         dest = tuple(float(v) for v in a.flight.split(","))
-        result = replay_flight(flight, kit, dest, a.kind, a.build_s, a.full_s,
-                               a.cruise_kt, a.corridor_km, a.capacity, a.cores)
+        results = [replay_flight(flight, kit, dest, a.kind, a.build_s,
+                                 a.full_s, a.cruise_kt, a.corridor_km,
+                                 a.capacity, a.cores, k) for k in a.speed]
         if a.json:
-            print(json.dumps(result, indent=1))
+            print(json.dumps(results, indent=1))
         else:
-            _print_flight(result)
-        return 0 if result["ok"] else 1
+            for result in results:
+                _print_flight(result)
+        return 0 if all(r["ok"] for r in results) else 1
     results = [replay(flight, kit, a.kind, a.build_s, s, a.capacity, a.cores)
                for s in a.speed]
     flown = as_flown(flight, kit)

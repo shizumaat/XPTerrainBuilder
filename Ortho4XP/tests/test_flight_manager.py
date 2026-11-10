@@ -146,6 +146,15 @@ def test_slow_builds_wait_longer_and_still_never_load_a_placeholder(recording):
     assert small["wait_s"] > R.replay_flight(*recording, DEST)["wait_s"]
 
 
+def test_a_faster_flight_waits_longer_on_the_ground(recording):
+    """The same flight at 3x (870 kt): the countdown moves the corridor's
+    builds before departure (10g: the flight waits for readiness) and
+    nothing X-Plane opens is late."""
+    slow, fast = (R.replay_flight(*recording, DEST, speed=k) for k in (1, 3))
+    assert fast["ok"], fast
+    assert fast["wait_s"] >= slow["wait_s"]
+
+
 # ------------------------------------------------------- manager details
 
 class _Builder:

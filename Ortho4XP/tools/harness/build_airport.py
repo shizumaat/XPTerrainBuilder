@@ -2677,8 +2677,6 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     """
     import O4_Config_Utils as CFG                          # noqa: E402
     import O4_File_Names as FNAMES                         # noqa: E402
-    import O4_OSM_Utils as OSM                             # noqa: E402
-    import O4_Vector_Map as VMAP                           # noqa: E402
     import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
 
     lat, lon = int(lat), int(lon)
@@ -2688,6 +2686,8 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
         derived += _complete_pending_insets(root, lat, lon, prog,
                                             tile_wide=not icao)
         derived += _fetch_base_void_fills(lat, lon, prog)
+        if not icao:
+            derived += _resettle_inset_stamp(lat, lon, prog)
         if not derived:
             prog.note(f"refresh dem: tile {lat:+d}{lon:+d} already has its "
                       f"base raster and its airport insets — nothing to "
@@ -2727,10 +2727,7 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
                 f"unauthorised fetch.  Authorise osm_layers in the SAME "
                 f"run (--refresh-data osm_layers,dem): that pass derives "
                 f"the airports layer first, which is why it runs first.")
-        layer = OSM.OSM_layer()
-        OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
-                                     ["all"], cached_suffix="airports")
-        dico = VMAP.build_airports_dico(tile, layer)
+        dico = _tile_airports_dico(tile, lat, lon)
         # Spec §B row 5: the refresh reads the tile's own INSET MODE like
         # any build, so it refetches the SELECTED airports, not all 17.
         from auto_patch.selection import inset_keys, resolved_inset_mode
@@ -2762,6 +2759,57 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     derived += _fetch_base_void_fills(lat, lon, prog)
     prog.note(f"refresh dem done: {derived}")
     return {"tile": [lat, lon], "derived": derived}
+
+
+def _tile_airports_dico(tile, lat, lon) -> dict:
+    """The tile's airport dictionary from its CACHED airports layer, built
+    as ``prepare_tile_airports_and_dem`` builds it (no query)."""
+    import O4_OSM_Utils as OSM                             # noqa: E402
+    import O4_Vector_Map as VMAP                           # noqa: E402
+
+    layer = OSM.OSM_layer()
+    OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
+                                 ["all"], cached_suffix="airports")
+    return VMAP.build_airports_dico(tile, layer)
+
+
+def _resettle_inset_stamp(lat, lon, prog) -> list:
+    """Re-run the tile's inset pass when its completion stamp no longer
+    settles the tile (#1930 (2)); returns what it derived.
+
+    MEASURED (t476, 2026-11-07): after a provider was added,
+    ``--refresh-data dem --refresh-only`` answered "nothing to derive" and
+    left ``complete.json`` listing only the old provider's rasters; only a
+    build under ``--refresh-data dem`` rewrote it.  The engine's own
+    predicate (``is_cached``) decides; the engine's own pass
+    (``ensure_insets_for_tile``, ``refresh=False`` -- as a build runs it)
+    re-settles and writes the stamp.  A tile it already settles costs one
+    JSON read."""
+    import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
+    import O4_Config_Utils as CFG                          # noqa: E402
+    import O4_File_Names as FNAMES                         # noqa: E402
+
+    tile = CFG.Tile(int(lat), int(lon), "")
+    try:
+        tile.read_from_config()
+    except Exception:
+        pass
+    if INSETS.is_cached(tile):
+        return []
+    if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):
+        return []           # refused for the layer, by name, elsewhere
+    stamp = INSETS.inset_completion_stamp_path(lat, lon)
+    prog.note(f"REFRESH dem (authorised, locked, ledgered): the inset "
+              f"completion stamp of {lat:+d}{lon:+d} no longer settles the "
+              f"tile — re-running the tile's inset pass as a build would")
+    INSETS.ensure_insets_for_tile(tile, _tile_airports_dico(tile, lat, lon),
+                                  refresh=False)
+    if not INSETS.is_cached(tile):
+        raise SystemExit(
+            f"REFUSING: --refresh-data dem re-ran the inset pass of tile "
+            f"{lat:+d}{lon:+d} and its completion stamp {stamp} STILL does "
+            f"not settle it")
+    return [stamp]
 
 
 def _fetch_base_void_fills(lat, lon, prog) -> list:
@@ -5203,6 +5251,7 @@ def main(argv=None) -> int:
               f"{ROOT} — the build will use {root}.")
     out_dir = Path(args.out)
     tag = claim_tag(out_dir, args.icao, args.tag)
+    _CLAIMED_TAGS.append((out_dir, tag))
     prog = Progress(out_dir / f"{tag}.progress")
     prog.note(f"START {tag} argv={' '.join(sys.argv[1:])}")
 
@@ -5923,5 +5972,46 @@ def main(argv=None) -> int:
     return 0
 
 
+#: The tags :func:`main` claimed in this process, for :func:`main`.
+_CLAIMED_TAGS: list = []
+
+
+def release_refused_tag(out_dir, tag: str):
+    """Free ``tag``'s stem after a REFUSED run (#1930 (3)).
+
+    A refusal leaves only ``<tag>.progress`` (its claim and the refusal
+    text), so a re-run at the same explicit ``--tag`` collided with it.
+    The record is kept, renamed to ``<tag>.refused[_N].progress``; a stem
+    holding any other artifact is a run that built, and is left alone.
+    Returns the record's new path, or ``None`` when nothing moved."""
+    out_dir = Path(out_dir)
+    if tag_artifacts_present(out_dir, tag) != [f"{tag}.progress"]:
+        return None
+    n = 1
+    while True:
+        target = out_dir / (f"{tag}.refused.progress" if n == 1
+                            else f"{tag}.refused_{n}.progress")
+        if not target.exists():
+            break
+        n += 1
+    os.replace(out_dir / f"{tag}.progress", target)
+    return target
+
+
+def main_releasing_refused_tags(argv=None, *, run=None) -> int:
+    """:func:`main` (or ``run``), releasing the tag of a refused run."""
+    del _CLAIMED_TAGS[:]
+    try:
+        return (run or main)(argv)
+    except SystemExit as exc:
+        if exc.code not in (None, 0):
+            for out_dir, tag in _CLAIMED_TAGS:
+                moved = release_refused_tag(out_dir, tag)
+                if moved is not None:
+                    print(f"  [harness] refused: tag {tag} released; its "
+                          f"record is {moved}", flush=True)
+        raise
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main_releasing_refused_tags())

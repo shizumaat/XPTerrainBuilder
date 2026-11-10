@@ -2483,6 +2483,8 @@ def test_an_authorised_dem_refresh_DERIVES_the_tiles_insets(
     # the inset passes before it.
     monkeypatch.setattr(build_mod, "_fetch_base_void_fills",
                         lambda *a, **k: [])
+    monkeypatch.setattr(build_mod, "_resettle_inset_stamp",
+                        lambda *a, **k: [])
     import O4_Airport_Elevation_Insets as INSETS
     import O4_DEM_Utils as DEM
     import O4_File_Names as FNAMES
@@ -11487,6 +11489,8 @@ def test_a_dem_refresh_rederives_the_build_airports_PACK_STALE_inset(
     # #1603's base-void pass loads a real raster; these twins are about
     # the inset passes before it.
     monkeypatch.setattr(build_mod, "_fetch_base_void_fills",
+                        lambda *a, **k: [])
+    monkeypatch.setattr(build_mod, "_resettle_inset_stamp",
                         lambda *a, **k: [])
     root = _cold_tile_root(tmp_path, monkeypatch, build_mod, 17, -63)
     elev = root / "Elevation_data" / "N10W070"

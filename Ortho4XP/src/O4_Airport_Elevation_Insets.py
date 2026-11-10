@@ -8746,6 +8746,22 @@ def airport_inset_frame_problem(lat, lon, icao, required_box,
                 "record either — this airport's provider chain has never "
                 "been asked, so the build would fetch it (--refresh-data "
                 "dem)" % (icao, FNAMES.airport_inset_directory(lat, lon)))
+    # A PROVIDER RANKED ABOVE THE CACHED RASTER THAT NEVER ANSWERED (#1930,
+    # ARCTICDEM2M added 2026-11-07): the fetch loop asks it before it
+    # reaches the cache, and its answer rewrites the tile's index.json --
+    # a shared-repo write mid-build.  Named here so the pre-flight refuses
+    # it up front with its cure and production's frame_state agrees.
+    unanswered = unanswered_inset_providers(
+        lat, lon, icao, required_box, providers_config)
+    if unanswered:
+        return ("missing",
+                "airport elevation inset of %s in %s: provider(s) %s rank "
+                "above the cached raster and have NEVER ANSWERED for it "
+                "(added since the last fetch, or the fetch failed), so the "
+                "build would ask them and rewrite the inset index "
+                "(--refresh-data dem)"
+                % (icao, FNAMES.airport_inset_directory(lat, lon),
+                   ", ".join(unanswered)))
     # The fetch loop reuses the FIRST ranked provider whose cache is
     # usable, so that raster is the one whose staleness decides.
     path = paths[0]

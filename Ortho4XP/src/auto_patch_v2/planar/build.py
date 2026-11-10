@@ -52,6 +52,7 @@ from .level_depth import airport_level_b
 from .level_regions import level_seeds
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
+from ..airport.bridge_ground import BridgeGround, bridge_ground, bridge_runs
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
 from .structure_approach import wall_field
 from .structure_road import mouth_pair_roads
@@ -100,6 +101,7 @@ class BuildStats:
     dropped_seam_faces: int = 0
     structures: StructureStats = _dc.field(default_factory=StructureStats)
     covered_ground: CoveredGround = _dc.field(default_factory=CoveredGround)
+    bridge_ground: BridgeGround = _dc.field(default_factory=BridgeGround)
     basins: BasinStats = _dc.field(default_factory=BasinStats)
     weld: WeldStats = _dc.field(default_factory=WeldStats)
     tunnel_objects: TunnelObjectStats = _dc.field(default_factory=TunnelObjectStats)
@@ -465,6 +467,15 @@ def build(airport: Airport, classification: Classification, law: Law,
         zs, shadow = road_shadow(getattr(airport, "dem", None), law, through,
                                  _band_only_vertices(faces, face_vs), xs, ys, zs)
         print(f"  [planar] {shadow.line()}")
+    # #1935: under a mapped bridge the DEM's deck is not the ground — the
+    # vertices no airside face carries read the ground beside the deck
+    # (``airport/bridge_ground``; ramp targets still win below)
+    bruns = bridge_runs(airport, law)
+    if bruns:
+        zs, stats.bridge_ground = bridge_ground(bruns, xs, ys, zs,
+                                                _airside_vertices(faces, face_vs),
+                                                _seam_vertices(arr, vertices_xy))
+        print(f"  [planar] {stats.bridge_ground.line()}")
     dp = frame.identity_dp
     vertices: dict[int, Vertex] = {}
     for v, p in enumerate(vertices_xy):
@@ -548,6 +559,15 @@ def _face_vertices(edge_list) -> dict[int, set[int]]:
         for f in (e.left_face, e.right_face):
             if f is not None:
                 out.setdefault(f, set()).update((e.a, e.b))
+    return out
+
+
+def _airside_vertices(faces, face_vs) -> set[int]:
+    """The vertices an airside face carries."""
+    out: set[int] = set()
+    for fid, f in faces.items():
+        if getattr(f, "side", "airside") == "airside":
+            out.update(face_vs.get(fid, ()))
     return out
 
 

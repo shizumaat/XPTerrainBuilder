@@ -544,6 +544,10 @@ class Bridge:
     deck_pier_footprint_max: float
     deck_pier_close_m: float
     deck_min_clearance_under_m: float
+    #: #1935 (``airport/bridge_ground``): the ground beside a deck the DEM
+    #: carries is read this many DEM postings past the carriageway's
+    #: half-width + the stand-off, each side
+    ground_probe_dem_cells: float
 
 
 @_dc.dataclass(frozen=True)

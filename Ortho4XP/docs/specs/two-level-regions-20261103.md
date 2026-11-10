@@ -1111,3 +1111,62 @@ it -- the shape #1306's extensions already have. Every reader of
 
 Emittable: every new region is a flat pad face with a riser strip, as the
 round-4 levels.
+
+### 18.1 The main floor is where its parts stand (lane lkmci3, 2026-11-10; owner RULINGS 2026-11-10n)
+
+Owner (21:37Z, on the 10h lane's questions): "1. It should be flush with the
+bottom of the garage, which should stay seated as part of the terminal object
+group. I believe that would be one story below the departures deck 2. All
+the objects in the vicinity there should stay as a group, then terrain is cut
+or lifted to meet the various levels the author made."
+
+**What the authored group says (KMCI `building26`, unit 20, zero 310.70).**
+The garage's walls stand at y -10.36 (300.34 m): its base.  The departures
+deck (one slab, y -6.85 .. -5.38, 13,424 m2) spans the corridor between the
+hall and the garage, its soffit at 303.85 m, one storey over the garage's
+base.  The hall's lower (main) floor parts stand at y -8.1 .. -8.3
+(302.4-302.6 m): the plaza's planters, the glazing by the garden.  The
+passage (`level_regions`, seed walls at -10.36, depth 4.63 under the stand
+floor -5.73) carries the at-grade roads under the deck at the garage's base;
+in the current tree its datum puts it at 300.32 m against the garage's
+authored 300.34 (0.02 m).
+
+**The defect (as built on lkmci2 + main a653addd5, fresh capture lkmci3).**
+The main floor `p1` was read off EVERY lower part of the unit
+(`low_level.plan_low`), so after the passage was cut out of it, pieces of it
+stood where no main-floor part stands: the 378 m2 band along the garage's
+north side (where `big_roads:-12349` runs under the deck's end to the lots:
+its face read 300.31-302.44 m) and the 301 m2 band along its south side, and
+slivers between the passage's lanes.  The author made no level there at the
+main floor.
+
+**The rule (`planar/main_floor_witness.unwitnessed`, called from
+`level_regions._unwitnessed_to_passage`).**  After the passage's cut, the
+host's upper-floor regions (riser strips aside) are opened by one riser `w`
+(a neck under two risers joins no two pieces) and split into pieces.  A
+piece JOINS THE PASSAGE where it meets the level within two risers, fronts no
+block (none within two risers of the held block: the hall's lower storey at
+its own facade keeps the main floor, the riser off the block stays one
+storey) and no part of the unit whose authored base lies within one
+`PLANE_BAND_M` of the main floor's plane (`top_y + y_lo`) overlaps it by
+`WITNESS_M2` (1 m2).  The cut is re-run with those pieces in the seed's
+footprint (one cut, one riser).  Replay (capture lkmci3): pieces 378 + 301 +
+22 m2 join; `p7` 33,272 -> 33,650 m2.  Kept: the plaza (planters -8.2), the
+strip over the tunnel in the garage's west aisle (slabs at -9.2, the
+garage's west wall at -8.75), the facade strip by the garden (glazing -8.1),
+the road plates north of the deck (-7.9 .. -8.1).
+
+**Not done: the owner's two halves meet (needs-owner).**  A road plate of the
+group (`concreteroad`, y -8.10 .. -7.58, 3.4 m x 377 m) runs under the
+departures deck ALONG the mapped road the passage carries (`big_roads:-11605`),
+at the main floor (302.6 m, 1.25 m under the deck's soffit); road plates at
+y -7.9 .. -8.1 cover the deck's north end (2,300 m2 of `concreteroad`).  10n
+(1) puts the road under the deck at the garage's base: the plate then stands
+2.3 m over the ground (as on lkmci2); 10n (2) lifts the ground to the plate:
+the road leaves the garage's base.  The lane keeps (1) (the specific ruling)
+and the plate floats; the grass medians under the deck (y -7.90, 2.9 m wide,
+133-179 m2 each, under the least pad) float likewise.
+
+**Consumer census (RULINGS 2026-08-30l).**  No new shape class: the joined
+pieces are more of the passage level's own footprint, cut by the same
+`level_cut`; every reader of §18's table reads them as it reads the level.

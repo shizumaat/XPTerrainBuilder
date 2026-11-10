@@ -421,7 +421,8 @@ def _unwitnessed_to_passage(s: LevelSeed, host: set, pref: str, by_ref: dict, re
     if got is None:
         return cut
     notes.append(f"unit {s.unit}: {len(extra)} main-floor piece(s) "
-                 f"{sum(q.area for q in extra):.0f} m2 no main-floor part stands on join the passage")
+                 f"{sum(q.area for q in extra):.0f} m2 no main-floor part stands on "
+                 "join the passage")
     return got
 
 

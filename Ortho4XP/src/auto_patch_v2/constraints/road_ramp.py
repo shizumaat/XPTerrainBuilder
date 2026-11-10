@@ -238,7 +238,14 @@ def _wall_step_rows(planar: PlanarMap, walls: _t.Mapping[int, _t.Mapping]) -> li
     against its nearest upper vertex — the step across the line is at most
     the wall (the publication declares ``min(h, emitted)``).  MEASURED KATL
     (harness ``katlwall_KATL2``): without it the step at ``muro_concreto5``
-    read 11.155 m over a 10.65 m wall."""
+    read 11.155 m over a 10.65 m wall.
+
+    A VERTEX HELD AT A NAMED FOOT TAKES NO STEP FLOOR (#1952): a lower
+    vertex carrying a foot Band in ANY wall record (``foot_lots``,
+    :func:`_foot_lot_rows`) is at the foot the pack names; a floor against
+    an upper vertex at a pad or apron over it (MEASURED KMCI: 304.74-304.85
+    m over a 3.81 m wall, floor 300.93 m) would lift it off that foot."""
+    held = {int(v) for r in walls.values() for v in (r.get("foot_lots") or {})}
     rows: list[Row] = []
     for k in sorted(walls):
         rec = walls[k]
@@ -247,6 +254,8 @@ def _wall_step_rows(planar: PlanarMap, walls: _t.Mapping[int, _t.Mapping]) -> li
             continue
         h = float(rec.get("height_m") or 0.0)
         for lv in lo:
+            if int(lv) in held:
+                continue
             x, y = planar.vertices[lv].xy
             uv = min(up, key=lambda q: (exact.hypot(planar.vertices[q].xy[0] - x,
                                                    planar.vertices[q].xy[1] - y), q))

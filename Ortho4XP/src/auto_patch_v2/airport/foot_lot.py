@@ -29,9 +29,18 @@ class _FootWall(_t.NamedTuple):
 def lots_at_foot(wall, lots: _t.Mapping[int, _t.Any]) -> dict[int, float]:
     """``{lot id: level}`` for every lot of ``lots`` (``{id: polygon}``)
     overlapping the lower band of ``wall`` when its low side is the
-    sheets' (module docstring); empty for any other wall."""
+    sheets' (module docstring); empty for any other wall.
+
+    A LOT IS AT THE FOOT ONLY WHERE THE WALL RETAINS (#1952): no level for
+    a lot whose nearest point on the lower face is nearest a station that
+    retains nothing (``foot_profile`` ``None``, the same test as
+    ``constraints/wall_zone.face_foot``) -- never a level interpolated
+    through it; that lot keeps its building's level (10-03c).  MEASURED
+    KMCI ``dsf:objpav15`` (stations 208-270 None): held 299.82 m over a DEM
+    of 301.25-301.90 m."""
     band, face = getattr(wall, "lower_band", None), getattr(wall, "lower_face", None)
-    st = [t for t in (getattr(wall, "foot_profile", None) or ()) if t[1] is not None]
+    prof = tuple(getattr(wall, "foot_profile", None) or ())
+    st = [t for t in prof if t[1] is not None]
     if wall.low_side != "sheets" or band is None or band.is_empty or face is None or not st:
         return {}
     import numpy as np
@@ -41,8 +50,10 @@ def lots_at_foot(wall, lots: _t.Mapping[int, _t.Any]) -> dict[int, float]:
     for fid, g in lots.items():
         if g.intersection(band).area <= 0.0:
             continue
-        q = nearest_points(g, face)[1]
-        out[int(fid)] = float(np.interp(face.project(q), a[:, 0], a[:, 1]))
+        s_ = face.project(nearest_points(g, face)[1])
+        if min(prof, key=lambda t: abs(t[0] - s_))[1] is None:
+            continue     # a station that retains nothing
+        out[int(fid)] = float(np.interp(s_, a[:, 0], a[:, 1]))
     return out
 
 

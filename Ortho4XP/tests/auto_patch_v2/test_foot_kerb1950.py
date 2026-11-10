@@ -109,3 +109,14 @@ def test_the_foot_walls_are_the_retaining_walls_whose_low_side_is_the_sheets():
     (got,) = sheet_walls(types.SimpleNamespace(retaining_walls=(side, dem)))
     assert got.lower_band is w.lower_band and got.low_side == "sheets"
     assert sheet_walls(types.SimpleNamespace()) == []
+
+
+def test_no_kerb_where_the_wall_retains_nothing(law, monkeypatch):
+    """#1952 S1 (b): the lot's nearest station on the lower face retains
+    nothing (``foot_profile`` ``None``): it is no foot lot, so no kerb."""
+    w = _wall()
+    w.foot_profile = ((0.0, None), (100.0, None), (200.0, 299.8))
+    monkeypatch.setattr(FK, "_foot_walls", lambda _a: [w])
+    base, pads = _regions()
+    b2, p2 = FK.foot_kerbs(base, pads, types.SimpleNamespace(dem=None), law, 0.5, _reg(305.0))
+    assert b2 == base and p2 == pads

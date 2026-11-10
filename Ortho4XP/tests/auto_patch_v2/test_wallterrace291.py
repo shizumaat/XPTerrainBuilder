@@ -414,3 +414,40 @@ def test_a_lot_at_a_sheet_walls_foot_is_flat_at_the_foot():
     rows = [r for r in wall_terrace_rows(planar, None, None) if isinstance(r, Band)]
     assert [(r.v, r.lo, r.hi) for r in rows] == [(11, 299.8, 299.8), (12, 299.8, 299.8)]
     assert all(r.source.ruling == WALL_FOOT_RULING for r in rows)
+
+
+def test_a_vertex_held_at_a_named_foot_takes_no_step_floor():
+    """#1952 (KMCI round 4, S1 (a)): a lower vertex carrying a foot Band
+    (``foot_lots`` of ANY wall record -- here the kerb's) is at the foot
+    the pack names: no 15a (2) floor against the pad over it; a lower
+    vertex without one keeps its floor."""
+    from auto_patch_v2.constraints.road_ramp import WALL_STEP_RULING, wall_terrace_rows
+    from auto_patch_v2.model.constraints import Band, Linear
+    V = {21: (0.0, 10.0), 11: (0.0, 0.0), 13: (5.0, 0.0)}
+    planar = types.SimpleNamespace(
+        vertices={v: types.SimpleNamespace(xy=p) for v, p in V.items()},
+        road_terrace={"wall": {
+            0: {"label": "kerb", "upper": [21], "lower": [11, 13], "retains": True,
+                "height_m": 3.81},
+            1: {"label": "skirt.obj#comp0", "foot_lots": {11: 299.8}}}})
+    rows = wall_terrace_rows(planar, None, None)
+    steps = [r for r in rows if isinstance(r, Linear) and r.source.ruling == WALL_STEP_RULING]
+    assert [r.terms[0][0] for r in steps] == [13]
+    assert [(r.v, r.lo) for r in rows if isinstance(r, Band)] == [(11, 299.8)]
+
+
+def test_a_lot_is_at_the_foot_only_where_the_wall_retains():
+    """#1952 (S1 (b); MEASURED KMCI ``dsf:objpav15``, stations 208-270 of
+    its wall retaining nothing): a lot whose nearest point on the lower
+    face is nearest a ``None`` station takes no foot (it keeps its
+    building's level, 10-03c) -- never a level interpolated through it."""
+    from shapely.geometry import LineString
+    from auto_patch_v2.airport.foot_lot import lots_at_foot
+    from auto_patch_v2.airport.road_ramp import WallPiece
+    face = LineString([(300.0, 505.15), (500.0, 505.15)])
+    band = box(300.0, 505.15, 500.0, 508.96)
+    foot = ((0.0, 299.8), (100.0, None), (200.0, 299.8))
+    wall = WallPiece(WALL, 3.81, "skirt.obj#comp0", True, False, None, None,
+                     face, foot, band, "sheets")
+    lots = {7: box(310.0, 506.0, 330.0, 540.0), 8: box(392.0, 506.0, 408.0, 540.0)}
+    assert lots_at_foot(wall, lots) == {7: pytest.approx(299.8)}

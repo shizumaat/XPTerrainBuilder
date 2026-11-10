@@ -801,6 +801,8 @@ class EngineSession:
         self._work_queue_lock = threading.Lock()
         # tile -> its batch's per-build switches (#818, build(overrides=)).
         self._tile_overrides: dict = {}
+        # tile -> its build folder (:meth:`tile_build_dir`).
+        self._tile_build_dirs: dict = {}
         # Serializes enqueue_build decisions (one view command at a time).
         self._command_lock = threading.Lock()
         # Provider-account status the secret store owns and the command
@@ -1016,6 +1018,7 @@ class EngineSession:
         self._building = True
         self._tile_overrides = {}
         self._note_overrides(tiles, overrides)
+        self._note_build_dirs(tiles, custom_build_dir)
         self._stepwise_run = steps is not None
         self._prefetch_imagery = (bool(prefetch) if prefetch is not None
                                   else not self._stepwise_run)
@@ -1144,6 +1147,19 @@ class EngineSession:
             for tile in tiles:
                 self._tile_overrides[tuple(tile)] = dict(overrides)
 
+    def _note_build_dirs(self, tiles, custom_build_dir):
+        """Remember each tile's build folder (:meth:`tile_build_dir`)."""
+        for tile in tiles:
+            lat, lon = int(tile[0]), int(tile[1])
+            self._tile_build_dirs[(lat, lon)] = FNAMES.build_dir(
+                lat, lon, custom_build_dir or "")
+
+    def tile_build_dir(self, lat, lon):
+        """The folder this session builds tile ``(lat, lon)`` into (the
+        default one for a tile it never built)."""
+        key = (int(lat), int(lon))
+        return self._tile_build_dirs.get(key) or FNAMES.build_dir(*key, "")
+
     def enqueue_build(self, tiles, provider, zoomlevel, custom_build_dir,
                       do_vector=True, do_imagery=True, do_overlays=False,
                       slots=None, boundary_policy=None, missing_art=None,
@@ -1222,6 +1238,7 @@ class EngineSession:
                      if tile not in already_queued
                      and tile != self._active_tile]
             self._note_overrides(fresh, overrides)
+            self._note_build_dirs(fresh, custom_build_dir)
             for tile in fresh:
                 # A tile stopped earlier in this run is wanted again: its
                 # old cancel must not stop the new attempt (#1326).

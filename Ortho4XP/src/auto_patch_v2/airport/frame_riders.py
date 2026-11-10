@@ -73,10 +73,15 @@ def _lift(row: _t.Any) -> float:
 
 
 def _frames(splits: _t.Sequence[_t.Any], rows: _t.Sequence[_t.Any],
-            surface: Surface) -> list[tuple[float, list[tuple]]]:
+            surface: Surface, authored: _t.Sequence[tuple] = ()
+            ) -> list[tuple[float, list[tuple]]]:
     """``(displacement, plan boxes)`` per re-seated frame that DROPPED an
     authored lift — keyed by its row's anchor spelling and lift, the
-    shared-datum identity."""
+    shared-datum identity.  The displacement is measured from where the
+    frame's row stood: the zero its terrain was adapted for where an
+    ``adapted_riders`` record names its origin and lift (that row is
+    written there), else the drape at its origin plus the lift."""
+    from .adapted_riders import frame_zero
     acc: dict[tuple, tuple[list[float], list[tuple]]] = {}
     for s in splits:
         i = s.placement.index
@@ -86,15 +91,15 @@ def _frames(splits: _t.Sequence[_t.Any], rows: _t.Sequence[_t.Any],
         lift = _lift(row)
         if lift <= 0.0 or any(float(b.lift_m or 0.0) for b in s.bodies):
             continue
-        g = surface(float(row.lat), float(row.lon))
-        if g is None:
+        base = frame_zero(surface, (float(row.lat), float(row.lon)), lift, authored)
+        if base is None:
             continue
         key = (round(float(row.lat), 7), round(float(row.lon), 7), round(lift, 3))
         d = acc.setdefault(key, ([], []))
         for b in s.bodies:
             if b.surface_z is None:
                 continue
-            d[0].append(float(b.surface_z) - float(b.y_zero) - (float(g) + lift))
+            d[0].append(float(b.surface_z) - float(b.y_zero) - base)
             if b.plan_box is not None:
                 d[1].append(tuple(float(q) for q in b.plan_box))
     out = []
@@ -107,13 +112,15 @@ def _frames(splits: _t.Sequence[_t.Any], rows: _t.Sequence[_t.Any],
 
 def frame_rider_seats(dump: _t.Any, splits: _t.Sequence[_t.Any],
                       surface: Surface, taken: _t.AbstractSet[int],
-                      counts: "dict | None" = None) -> tuple:
+                      counts: "dict | None" = None,
+                      authored: _t.Sequence[tuple] = ()) -> tuple:
     """The ``MslSeat`` of every lifted row standing inside a re-seated
     frame, moved by that frame's displacement.  ``taken`` are the rows
-    already split, converted or row-seated (never touched here)."""
+    already split, converted or row-seated (never touched here);
+    ``authored`` the ``adapted_riders.authored_zeros`` (:func:`_frames`)."""
     from ..model.placement import MslSeat
     rows = list(getattr(dump, "placements", ()) or ())
-    frames = [f for f in _frames(splits, rows, surface) if abs(f[0]) > MOVE_MIN_M]
+    frames = [f for f in _frames(splits, rows, surface, authored) if abs(f[0]) > MOVE_MIN_M]
     out = []
     for i, row in enumerate(rows):
         lift = _lift(row)

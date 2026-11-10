@@ -594,7 +594,7 @@ def _rebake(icao: str, pm, law: Law, surf, airport, objects_out, patch: PatchFil
         return None
     t = time.perf_counter()
     _pulse.tick("the object re-bake screen")
-    _plan_args = _rebake_inputs(pm, law, surf, airport)
+    _plan_args = _rebake_inputs(pm, law, surf, airport, objects_out[0])
     # the patch bodies the screen is keyed on, from the RENDERED bodies
     # (``rebake_screen.patch_body_sha256`` of the files once written)
     bodies = [hashlib.sha256(f.body.encode("utf-8")).hexdigest()

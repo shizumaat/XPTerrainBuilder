@@ -858,13 +858,16 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     pad_read: dict[str, bool] = {}
     adapted = frozenset(getattr(plan, "adapted_frame_pids", ()) or ())
     adapted_memo: dict[str, "float | None"] = {}
+    from .adapted_riders import authored_zeros
+    authored = authored_zeros(getattr(plan, "authored_seats", ()) or ())
     for un in units:
         zero: float | None = None
         where = src = ""
         if adapted:
             # #1726: a unit touching a TERRAIN-ADAPTED member of its own
             # frame (never re-seated) takes that member's zero
-            az = _adapted_zero(un, units, adapted, frame_of, surface, adapted_memo)
+            az = _adapted_zero(un, units, adapted, frame_of, surface, adapted_memo,
+                               authored)
             if az is not None:
                 from .adapted_riders import ADAPTED_SRC
                 out[un.id] = (az, "", ADAPTED_SRC)
@@ -931,7 +934,7 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
 def _adapted_zero(un: _t.Any, units: _t.Sequence[_t.Any],
                   adapted: _t.AbstractSet[int],
                   frame_of: _t.Mapping[int, tuple], surface: _t.Any,
-                  memo: dict) -> "float | None":
+                  memo: dict, authored: _t.Sequence[tuple] = ()) -> "float | None":
     """#1726 (owner sim read KBWI 2026-11-03; RULINGS 2026-10-22o "connected
     objects stay as one group"): the zero of the TERRAIN-ADAPTED member
     the unit's parts touch in their own frame (``RebakePlan.
@@ -941,7 +944,9 @@ def _adapted_zero(un: _t.Any, units: _t.Sequence[_t.Any],
     zero, with no wall-base lift: the walls of one authored frame already
     stand where its author drew them.  Read over every piece of the unit
     (one root id) so the pieces keep one zero; ``None`` where no part of
-    the unit touches one, or the surface reads nothing at the origin."""
+    the unit touches one, or the surface reads nothing at the origin.
+    ``authored``: ``adapted_riders.authored_zeros`` -- a row written at the
+    zero its terrain was adapted for stands there, not on the mesh."""
     root = _unit_root(un.id)
     if root not in memo:
         pids = set()
@@ -956,7 +961,8 @@ def _adapted_zero(un: _t.Any, units: _t.Sequence[_t.Any],
                 by[frame_of[q]] = by.get(frame_of[q], 0) + 1
             (anchor, lift), _n = max(sorted(by.items()), key=lambda kv: kv[1])
             from .adapted_riders import frame_zero
-            memo[root] = frame_zero(surface, anchor, lift) if len(anchor) >= 2 else None
+            memo[root] = (frame_zero(surface, anchor, lift, authored)
+                          if len(anchor) >= 2 else None)
     return memo[root]
 
 

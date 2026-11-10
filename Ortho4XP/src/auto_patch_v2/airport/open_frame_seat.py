@@ -33,7 +33,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-from .adapted_riders import ADAPTED_SRC
+from .adapted_riders import ADAPTED_SRC, ADAPTED_ZERO_REASON
 
 __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "unit_root",
            "group_key", "root_zeros", "body_root",
@@ -554,7 +554,7 @@ def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,
         return record
     counts["adapted_frame_loose_bodies"] = counts.get("adapted_frame_loose_bodies", 0) + n
     return _at_zero(record, m, zero, take,
-                    f"{GROUP_REASON} on its terrain-adapted member's zero at "
+                    f"{ADAPTED_ZERO_REASON} at "
                     f"{zero:.2f} (#1726, RULINGS 2026-10-22o)")
 
 

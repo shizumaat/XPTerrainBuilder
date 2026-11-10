@@ -274,6 +274,10 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     from . import terrain_shaped as _ts
     _split_ix = frozenset(s.placement.index for s in splits)
     terrain = _ts.row_seats(dump, _records, _split_ix)
+    # an adapted lifted row moves only where that changes something (14g (2))
+    _adapted = tuple(m for m in terrain if m.why == _ts.ADAPTED_WHY)
+    terrain = (tuple(m for m in terrain if m.why != _ts.ADAPTED_WHY)
+               + _agl_rows_kept(dump, _adapted, surface, keep_tol_m)[0])
     _terrain_ix = frozenset(m.index for m in terrain)
     settled = (_split_ix | kept_idx | features | landed | _terrain_ix)
     _rows = list(getattr(dump, "placements", ()) or ())
@@ -306,9 +310,14 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     # owner RULINGS 2026-10-22f (#1214): a lifted row inside a re-seated
     # frame moves with the frame (KMCI's 614 terminal seats)
     from .frame_riders import frame_rider_seats
+    from .adapted_riders import authored_zeros, family_seats
+    _auth = authored_zeros(_records)
     _taken = (settled | frozenset(m.index for m in msl)
               | frozenset(c.index for c in conversions))
-    msl = msl + frame_rider_seats(dump, splits, surface, _taken, msl_counts)
+    # the rest of an adapted row's anchor family stands at its zero too
+    msl = msl + family_seats(dump, _auth, _taken, surface, keep_tol_m)
+    _taken = _taken | frozenset(m.index for m in msl)
+    msl = msl + frame_rider_seats(dump, splits, surface, _taken, msl_counts, _auth)
     # #1252: a stock row the plan never sees, standing on a re-seated
     # OBJECT_MSL frame's deck, moves with that frame instead of converting
     msl, conversions = deck_riders_of_pack(dump, pack_root, splits, msl,

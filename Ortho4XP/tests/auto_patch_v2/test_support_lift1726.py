@@ -53,3 +53,21 @@ def test_walls_witness_the_storey_and_its_columns_keep_its_plane(monkeypatch):
     parts = [(_part(30.0, 9.0, 0.0, 200), (0, 0)), (_part(30.0, 9.0, -10.5, 60), (0, 0)),
              (_part(0.5, 6.0, -8.2, 300), (0, 0))]
     assert _levels(monkeypatch, parts) == (0.0, -8.2)
+
+
+def test_upper_storey_walls_do_not_dilute_the_lower_storeys_witness(monkeypatch):
+    """KMCI 1.0.480 (owner 2026-11-10T15:47Z "the terminal is too low"): one
+    block for the whole unit (RULINGS 2026-11-09a (13)) brought the concourse
+    walls over the apron (y -1.0 / 0.0) into the read; 226 of 2,846 wall feet
+    at y -10.5 fell under the 10 % share and the hall's lower level was lost.
+    The share is of the walls reaching the stand floor (y -5.8) or below."""
+    floor = 0.0
+    parts = [(_part(30.0, 9.0, floor + 5.0, 2400), (0, 0)),       # concourse walls above
+             (_part(30.0, 9.0, floor, 300), (0, 0)),              # the stand-side floor
+             (_part(30.0, 9.0, floor - 4.6, 226), (0, 0)),        # the lower storey's walls
+             (_part(0.5, 6.0, floor - 2.4, 1400), (0, 0))]        # its columns
+    assert _levels(monkeypatch, parts) == (0.0, -2.4)
+    # the KBWI guard is unchanged: poles alone found no storey
+    parts = [(_part(30.0, 9.0, floor + 5.0, 2400), (0, 0)), (_part(30.0, 9.0, floor, 300), (0, 0)),
+             (_part(0.3, 11.0, floor - 6.15, 400), (0, 0))]
+    assert _levels(monkeypatch, parts) == (0.0, None)

@@ -56,10 +56,47 @@ LANDMARKS = {
 }
 
 
-def test_the_table_is_current_with_its_generator():
+def test_the_table_is_generated_from_an_installed_set():
+    """The committed table was made by ``--from-installed`` (its header
+    names the source); off the packages it agrees with the map, and the
+    exact data moved few tiles from it (83 of 64,800 on 2026-11-10)."""
     table = HERE.parent / "src" / "O4_Imagery_Regions_Table.py"
-    assert table.read_text(encoding="utf-8") == GEN.render()
+    text = table.read_text(encoding="utf-8")
+    assert "\n".join(GEN.source_lines({(0, 0): {"europe": 1}})[:2]) in text
     assert tuple(GEN.REGION_CODES) == tuple(CODES)
+    moved = sum(REGIONS.region_of(lat, lon) != GEN.region_at(lat + 0.5, lon + 0.5)
+                for lat in range(-90, 90) for lon in range(-180, 180))
+    assert 0 < moved <= 200
+
+
+def _package(root, name, *tiles):
+    for lat, lon in tiles:
+        ten = "%+03d%+04d" % (lat - lat % 10, lon - lon % 10)
+        folder = root / name / "Earth nav data" / ten
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / ("%+03d%+04d.dsf" % (lat, lon))).write_bytes(b"")
+
+
+def test_from_installed_reads_the_packages_tile_names(tmp_path):
+    """A tile the packages name is in their region (most packages, a
+    tie to the map's); a tile none names falls back to the map."""
+    _package(tmp_path, "simHeaven_X-WORLD-Pro_Asia-05-details", (48, 2), (30, 31))
+    _package(tmp_path, "simHeaven_X-WORLD-Pro_Asia-09-scenery", (48, 2))
+    _package(tmp_path, "simHeaven_X-WORLD-Pro_Europe-05-details", (48, 2))
+    _package(tmp_path, "simHeaven_X-WORLD-Pro_Africa-05-details", (30, 31))
+    _package(tmp_path, "simHeaven_X-WORLD-Pro_Australia-Oceania-05-details",
+             (-34, 151))
+    _package(tmp_path, "simHeaven_X-WORLD-Pro_Library", (40, -74))
+    (tmp_path / "unrelated").mkdir()
+    installed = GEN.installed_tiles(str(tmp_path))
+    assert set(installed) == {(48, 2), (30, 31), (-34, 151)}
+    assert GEN.tile_region(48, 2, installed) == "asia"          # 2 packages to 1
+    assert GEN.tile_region(30, 31, installed) == "africa"       # tie: the map's
+    assert GEN.tile_region(-34, 151, installed) == "australia_oceania"
+    assert GEN.tile_region(40, -74, installed) == "america"     # none: the map
+    text = GEN.render(installed)
+    assert "3 tiles named" in text and "digitized; no installed" not in text
+    assert "no installed package was read" in GEN.render()
 
 
 def test_every_tile_is_in_exactly_one_region():

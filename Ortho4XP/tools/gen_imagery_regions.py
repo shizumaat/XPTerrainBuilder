@@ -20,14 +20,29 @@ lines are extended as noted.
 Regions are decided by each tile's CENTRE (lat + 0.5, lon + 0.5).  The
 table holds every tile on Earth, land and sea, in exactly one region.
 
-    cd Ortho4XP && venv/bin/python tools/gen_imagery_regions.py [--check]
+THE EXACT SOURCE (``--from-installed``).  An installed X-World Pro set
+names its tiles: each region's packages
+(``Custom Scenery/simHeaven_X-WORLD-Pro_<Region>-NN-*``) hold one
+``Earth nav data/<10° dir>/<tile>.dsf`` per tile they cover.  A tile
+those packages cover is in their region; a tile two regions' packages
+both cover (a border or a strait) is in the region with MORE packages
+carrying it, a tie going to the map's region (the map's region is among
+the candidates on every such tile of the 2026-11-10 install).  Only a
+tile no package covers (open sea) falls back to the digitized map.  The
+generated header records which source made the table.
 
-``--check`` exits 1 when the committed table differs from a fresh run.
+    cd Ortho4XP && venv/bin/python tools/gen_imagery_regions.py \
+        [--from-installed "<X-Plane>/Custom Scenery"] [--check]
+
+``--check`` exits 1 when the committed table differs from a fresh run
+from the same source.
 """
 
 from __future__ import annotations
 
+import collections
 import os
+import re
 import sys
 
 TABLE = os.path.join(os.path.dirname(__file__), "..", "src",
@@ -128,13 +143,61 @@ def region_at(lat, lon):
     return "asia"
 
 
-def rows():
-    """``{lat: ((lon_from, code), ...)}`` runs for every 1° tile row."""
+#: An X-World Pro package folder: ``simHeaven_X-WORLD-Pro_<Region>-NN-*``.
+PACKAGE = re.compile(r"simHeaven_X-WORLD-Pro_(?P<region>.+?)-\d\d-")
+#: A DSF tile file name, ``+48+002.dsf``.
+DSF = re.compile(r"(?P<lat>[+-]\d\d)(?P<lon>[+-]\d\d\d)\.dsf", re.I)
+
+
+def _code(region):
+    """``Australia-Oceania`` -> ``australia_oceania``."""
+    code = region.lower().replace("-", "_")
+    if code not in REGION_CODES:
+        raise ValueError("unknown X-World region %r" % region)
+    return code
+
+
+def installed_tiles(custom_scenery):
+    """``{(lat, lon): Counter({code: packages})}`` over the X-World Pro
+    packages installed in ``custom_scenery`` (read only)."""
+    out = collections.defaultdict(collections.Counter)
+    for name in sorted(os.listdir(custom_scenery)):
+        match = PACKAGE.match(name)
+        nav = os.path.join(custom_scenery, name, "Earth nav data")
+        if not match or not os.path.isdir(nav):
+            continue
+        code = _code(match.group("region"))
+        for sub in sorted(os.listdir(nav)):
+            folder = os.path.join(nav, sub)
+            if not os.path.isdir(folder):
+                continue
+            for dsf in os.listdir(folder):
+                tile = DSF.fullmatch(dsf)
+                if tile:
+                    out[(int(tile.group("lat")), int(tile.group("lon")))][code] += 1
+    return dict(out)
+
+
+def tile_region(lat, lon, installed=None):
+    """The region of tile (``lat``, ``lon``): its installed packages'
+    region (most packages, a tie to the map's), else the map's."""
+    mapped = region_at(lat + 0.5, lon + 0.5)
+    carried = (installed or {}).get((lat, lon))
+    if not carried:
+        return mapped
+    top = max(carried.values())
+    best = sorted(code for code, n in carried.items() if n == top)
+    return mapped if mapped in best else best[0]
+
+
+def rows(installed=None):
+    """``{lat: ((lon_from, code), ...)}`` runs for every 1° tile row,
+    from ``installed`` (:func:`installed_tiles`) and the map."""
     out = {}
     for lat in range(-90, 90):
         runs = []
         for lon in range(-180, 180):
-            code = region_at(lat + 0.5, lon + 0.5)
+            code = tile_region(lat, lon, installed)
             if not runs or runs[-1][1] != code:
                 runs.append((lon, code))
         out[lat] = tuple(runs)
@@ -146,11 +209,32 @@ LETTERS = {"europe": "E", "america": "A", "asia": "S", "africa": "F",
            "australia_oceania": "O", "antarctica": "N"}
 
 
-def render():
+def source_lines(installed=None):
+    """The header lines naming the table's source."""
+    if not installed:
+        return ["Source: simHeaven's X-World region map (read 2026-11-10),",
+                "digitized; no installed package was read."]
+    named = collections.Counter()
+    for carried in installed.values():
+        named.update(carried.keys())
+    per = ["%s %d," % (code, named[code]) for code in REGION_CODES if named[code]]
+    return ["Source: an installed simHeaven X-World Pro set",
+            "(Custom Scenery/simHeaven_X-WORLD-Pro_<Region>-NN-*, the DSF",
+            "names under Earth nav data): %d tiles named; tiles each" % len(installed),
+            "region names: " + " ".join(per[:3]),
+            "    " + " ".join(per[3:]),
+            "a tile two regions name going to the one with more packages",
+            "carrying it (a tie to the map's); the other tiles (sea) from",
+            "simHeaven's X-World region map (read 2026-11-10), digitized."]
+
+
+def render(installed=None):
     lines = [
         '"""Every 1° tile\'s imagery region — GENERATED by',
-        "``tools/gen_imagery_regions.py`` (do not edit; its docstring names",
-        "the source: simHeaven's X-World region map, read 2026-11-10).",
+        "``tools/gen_imagery_regions.py`` (do not edit; its docstring",
+        "describes both sources).",
+        "",
+    ] + source_lines(installed) + [
         "",
         "``ROWS[lat]`` holds ``lon_from:letter`` runs west to east (letters",
         "in :data:`REGIONS`): a tile ``(lat, lon)`` is in the region of the",
@@ -160,7 +244,7 @@ def render():
     ]
     lines.extend("    %r: %r," % (letter, code) for code, letter in LETTERS.items())
     lines += ["}", "", "ROWS = {"]
-    for lat, runs in rows().items():
+    for lat, runs in rows(installed).items():
         body = " ".join("%d:%s" % (lon, LETTERS[code]) for lon, code in runs)
         lines.append("    %d: %r," % (lat, body))
     lines.append("}")
@@ -168,7 +252,13 @@ def render():
 
 
 def main(argv):
-    text = render()
+    installed = None
+    if "--from-installed" in argv:
+        installed = installed_tiles(argv[argv.index("--from-installed") + 1])
+        if not installed:
+            print("no simHeaven X-World Pro package found there")
+            return 2
+    text = render(installed)
     if "--check" in argv:
         with open(TABLE, encoding="utf-8") as f:
             same = f.read() == text

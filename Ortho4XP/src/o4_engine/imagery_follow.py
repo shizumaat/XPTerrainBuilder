@@ -70,6 +70,9 @@ STATUS_EVERY_S = 2.0
 ROWS_EVERY_S = 30.0
 #: Seconds between ``last_near_at`` writes (the index throttles per row).
 NEAR_EVERY_S = 10.0
+#: Seconds between storage-cap checks while landing (spec §6.2: during a
+#: session a sweep starts only over 110 % of the cap).
+SWEEP_EVERY_S = 60.0
 #: Default seconds one landing takes per tier before any is measured
 #: (the P3a replay's model at 85 requests/s and a 2 s full convert).
 DEFAULT_FETCH_S = {1: 0.3, 2: 1.9, 3: 5.0}
@@ -135,11 +138,15 @@ class FollowJob:
                  busy=lambda: False, lead_s: float = PLAN.DEFAULT_LEAD_S,
                  period_s: float = 1.0, max_slots: int = SLOTS.MAX_SLOTS,
                  lands_per_s: float = 4.0, clock=time.time, log_path=None,
-                 slots: SLOTS.FetchSlots | None = None, rebuild_tiles=()):
+                 slots: SLOTS.FetchSlots | None = None, rebuild_tiles=(),
+                 cap_bytes: int | None = None):
         self.emit = emit
         self.reader, self.lander = reader, lander
         self.index_path = index_path
         self.rebuild_tiles = [tuple(t) for t in rebuild_tiles or ()]
+        self.cap_bytes = cap_bytes
+        self._sweep_at = -math.inf
+        self._landed_since_sweep = 0
         self.busy = busy
         self.lead_s, self.period_s = float(lead_s), float(period_s)
         self.lands_per_s = float(lands_per_s)
@@ -167,7 +174,7 @@ class FollowJob:
         self._last_status: tuple | None = None
         self._fetch_s = dict(DEFAULT_FETCH_S)
         self.counts = {"landed": 0, "late": 0, "failed": 0, "bytes": 0,
-                       "network": 0}
+                       "network": 0, "downgraded": 0}
         self.landings: list[dict] = []       # what landed, in order
         self.state, self.reason = "starting", ""
         self.buffer_s = math.inf
@@ -221,6 +228,9 @@ class FollowJob:
             INDEX.rebuild(self._conn, self.rebuild_tiles,
                           placeholder_root=_placeholder_root())
         INDEX.reset_upgrading(self._conn)
+        if self.cap_bytes is None:
+            from .imagery_downgrade import cap_bytes
+            self.cap_bytes = cap_bytes()
         self._reload_rows(self.clock())
 
     def close(self) -> None:
@@ -260,6 +270,7 @@ class FollowJob:
         self._update_slots(fetches, now)
         if not rec.get("paused"):
             self._mark_near(now)
+        self._sweep(now)
         why = self._why_paused(now)
         if why:
             self.state, self.reason = "paused", why
@@ -377,6 +388,7 @@ class FollowJob:
         self._fetch_s[tier] = 0.7 * self._fetch_s[tier] + 0.3 * seconds
         self._fail_streak = 0
         self.counts["landed"] += 1
+        self._landed_since_sweep += 1
         self.counts["bytes"] += int(facts.get("full_bytes") or 0)
         self.counts["network"] += int(bool(facts.get("network", True)))
         landing = {"square": key, "tier": tier,
@@ -410,21 +422,31 @@ class FollowJob:
             return
         self._near_at = now
         m = self.motion
-        cos_lat = math.cos(math.radians(m.lat))
         near_by_tile: dict[str, list[str]] = {}
         near = set()
         for key, row in self._rows.items():
-            reach = PLAN.CROSSING_S[_tier_of_px(row["tier_px"])] * row[
-                "load_size_m"]
-            east = (row["centre_lon"] - m.lon) * 111_320.0 * cos_lat
-            north = (row["centre_lat"] - m.lat) * 111_320.0
-            if math.hypot(east, north) <= reach:
+            if INDEX.distance_m(row, m.lat, m.lon) <= INDEX.tier_distance_m(row):
                 near.add(key)
                 near_by_tile.setdefault(row["tile"], []).append(row["name"])
         for tile, names in near_by_tile.items():
             fresh = [n for n in names if f"{tile}/{n}" not in self._near]
             INDEX.mark_near(self._conn, tile, names, now, approaching=fresh)
         self._near = near
+
+    def _sweep(self, now: float) -> None:
+        """The 110 % trigger (spec §6.2): after landings, at most once a
+        minute, ``imagery_downgrade.sweep`` in session mode, sparing the
+        squares near the camera."""
+        if (not self._landed_since_sweep or not self.cap_bytes
+                or now - self._sweep_at < SWEEP_EVERY_S):
+            return
+        from .imagery_downgrade import sweep
+        self._sweep_at, self._landed_since_sweep = now, 0
+        result = sweep(self._conn, self.cap_bytes, camera=self.motion,
+                       in_session=True, now=now, abort=self._stop.is_set)
+        if result["downgraded"]:
+            self.counts["downgraded"] += result["downgraded"]
+            self._reload_rows(now)
 
     # ----------------------------------------------------------- report
 

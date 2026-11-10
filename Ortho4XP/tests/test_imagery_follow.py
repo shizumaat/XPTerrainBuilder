@@ -430,6 +430,26 @@ def test_no_fetch_starts_while_a_build_runs(xplane, tmp_path):
     job.close()
 
 
+def test_landings_over_110_percent_of_the_cap_start_a_sweep(xplane, tmp_path,
+                                                           monkeypatch):
+    from o4_engine import imagery_downgrade as DOWN
+    calls = []
+
+    def sweep(conn, cap, *, camera=None, in_session=False, now=None,
+              abort=None):
+        calls.append((cap, in_session, camera is not None))
+        return {"ran": True, "downgraded": 0}
+
+    monkeypatch.setattr(DOWN, "sweep", sweep)
+    job, _e, clock, _l, _t, _i = _job(xplane, tmp_path, cap_bytes=5000)
+    job.open()
+    _fly(job, xplane, clock, REPLAY["pos"][:200])
+    assert job.counts["landed"] > 0
+    assert calls and all(c == (5000, True, True) for c in calls)
+    assert len(calls) <= 200 / FOLLOW.SWEEP_EVERY_S + 1
+    job.close()
+
+
 def test_failures_mark_failed_and_offline_pauses(xplane, tmp_path):
     names = {n for n, *_ in REPLAY["squares"]}
     lander = FakeLander(fail=names)             # the provider refuses all

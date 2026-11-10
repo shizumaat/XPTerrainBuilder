@@ -221,6 +221,7 @@ CAPABILITIES: tuple = (
     "patch_drop",                   # 2026-11-09, #1979 patch_drop_plan / patch_drop_install
     "tile_staleness",               # 2026-11-09, #1958 tile_staleness (LibraryReady)
     "imagery_follow",               # 2026-11-10, #1992 P3b follow job + ImageryFollowStatus
+    "imagery_ondemand",             # 2026-11-10, #1992 P2 scan / pin / downgrade_all
 )
 
 

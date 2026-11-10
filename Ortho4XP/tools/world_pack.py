@@ -57,9 +57,9 @@ def _imports(engine: str):
                  HERE if KIT_MODE else os.path.join(REPO_ENGINE, "src")):
         if path not in sys.path:
             sys.path.insert(0, path)
-    import O4_World_Pack as WP
-    import O4_World_Drape as DRAPE
     import O4_Scenery_Packs as PACKS
+    import O4_World_Drape as DRAPE
+    import O4_World_Pack as WP
     import O4_XPlane_WebAPI as API
     return WP, DRAPE, PACKS, API
 

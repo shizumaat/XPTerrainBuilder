@@ -248,5 +248,35 @@
   "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
   "name": "start",
   "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape.py",
+  "name": "default_dds_name",
+  "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape.py",
+  "name": "drape_dsf_text",
+  "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape.py",
+  "name": "is_drape",
+  "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape.py",
+  "name": "pol_text",
+  "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape_Fetch.py",
+  "name": "fetch",
+  "reason": "entry point: `python src/O4_World_Drape_Fetch.py` (the drape kit's imagery fetch, run as a script from the world-pack kit); main calls fetch"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Drape_Fetch.py",
+  "name": "main",
+  "reason": "entry point: `python src/O4_World_Drape_Fetch.py` (the drape kit's imagery fetch, run as a script from the world-pack kit); main calls fetch"
  }
 ]

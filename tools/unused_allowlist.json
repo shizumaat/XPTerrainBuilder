@@ -166,48 +166,53 @@
  },
  {
   "path": "Ortho4XP/src/O4_World_Pack.py",
-  "name": "dsftool_path",
-  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
- },
- {
-  "path": "Ortho4XP/src/O4_World_Pack.py",
-  "name": "ini_install",
-  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
- },
- {
-  "path": "Ortho4XP/src/O4_World_Pack.py",
-  "name": "ini_remove",
-  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
- },
- {
-  "path": "Ortho4XP/src/O4_World_Pack.py",
-  "name": "placeholder_text",
-  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
- },
- {
-  "path": "Ortho4XP/src/O4_World_Pack.py",
   "name": "relayout_tile",
-  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
- },
- {
-  "path": "Ortho4XP/src/O4_World_Pack.py",
-  "name": "rewrite_dsf_text",
-  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
- },
- {
-  "path": "Ortho4XP/src/O4_World_Pack.py",
-  "name": "rewrite_ter",
-  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
  },
  {
   "path": "Ortho4XP/src/O4_World_Pack.py",
   "name": "swap_in",
-  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "ini_install",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "placeholder_text",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "is_placeholder",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "dsftool_path",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "ini_remove",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "rewrite_dsf_text",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
+ },
+ {
+  "path": "Ortho4XP/src/O4_World_Pack.py",
+  "name": "rewrite_ter",
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
  },
  {
   "path": "Ortho4XP/src/O4_World_Pack.py",
   "name": "swap_out",
-  "reason": "world-pack operation: called by the CLI Ortho4XP/tools/world_pack.py (tools/INDEX.md) or by the module's own pack steps, and twinned in tests/test_world_pack.py; the ratchet reads only src/ users"
+  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
  },
  {
   "path": "Ortho4XP/src/O4_Rebuild_Cache.py",

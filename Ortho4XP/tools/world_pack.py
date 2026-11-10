@@ -19,6 +19,10 @@ checkout).  Subcommands:
   swapout TILE                 placeholder back over the DSF
   onthefly TILE                build TILE now (light settings, kit data
                                root), stage, verify, swap in; Ctrl-C safe
+  drape TILE [--exclude for]   DRAPED tile: the tile's orthophotos laid over
+                               X-Plane's default mesh by an overlay DSF (one
+                               .pol per texture square), no OSM/DEM/mesh;
+                               fetch, write, verify, swap in (O4_World_Drape)
   status                       each tile's state and the aircraft's distance
   reload                       X-Plane's sim/operation/reload_scenery (Web API)
 
@@ -47,16 +51,17 @@ def _engine_dir(kit_cfg: dict | None) -> str:
 
 
 def _imports(engine: str):
-    """O4_World_Pack from the kit's copy (kit mode) or the engine's src; the
-    rest from the engine's src."""
+    """O4_World_Pack and O4_World_Drape from the kit's copy (kit mode) or
+    the engine's src; the rest from the engine's src."""
     for path in (os.path.join(engine, "src"),
                  HERE if KIT_MODE else os.path.join(REPO_ENGINE, "src")):
         if path not in sys.path:
             sys.path.insert(0, path)
     import O4_World_Pack as WP
+    import O4_World_Drape as DRAPE
     import O4_Scenery_Packs as PACKS
     import O4_XPlane_WebAPI as API
-    return WP, PACKS, API
+    return WP, DRAPE, PACKS, API
 
 
 def now() -> str:
@@ -71,9 +76,10 @@ class Kit:
         with open(os.path.join(self.root, "kit.json"), encoding="utf-8") as h:
             self.cfg = json.load(h)
         self.engine = _engine_dir(self.cfg)
-        self.WP, self.PACKS, self.API = _imports(self.engine)
+        self.WP, self.DRAPE, self.PACKS, self.API = _imports(self.engine)
         self.pack = os.path.join(self.root, self.cfg["pack_name"])
         self.staged = os.path.join(self.root, "staged")
+        self.drapes = os.path.join(self.root, "drapes")
         self.build_root = os.path.join(self.root, "build_root")
         self.tool = self.WP.dsftool_path(self.engine)
 
@@ -127,7 +133,7 @@ def kit_tiles(kit: Kit) -> list[tuple[int, int]]:
 def cmd_make_kit(a) -> int:
     root = os.path.abspath(a.kit)
     engine = os.path.abspath(a.engine or REPO_ENGINE)
-    WP, _, _ = _imports(engine)
+    WP, DRAPE, _, _ = _imports(engine)
     os.makedirs(root, exist_ok=True)
     cfg = {"pack_name": WP.PACK_NAME, "engine_dir": engine,
            "xplane_dir": a.xplane, "center": a.center, "radius": a.radius,
@@ -138,9 +144,10 @@ def cmd_make_kit(a) -> int:
     made = [WP.tile_name(*t) for t in kit_tiles(kit)]
     for t in kit_tiles(kit):
         WP.write_placeholder(kit.pack, *t, kit.tool)
-    if KIT_MODE is False:                 # copy the two files the kit runs
+    if KIT_MODE is False:                 # copy the files the kit runs
         shutil.copy2(os.path.abspath(__file__), os.path.join(root, "world.py"))
-        shutil.copy2(WP.__file__, root)
+        for module in (WP.__file__, DRAPE.__file__, _fetch_script()):
+            shutil.copy2(module, root)
     kit.log({"event": "make_kit", "placeholders": made, "skip": a.skip})
     return 0
 
@@ -168,16 +175,33 @@ def cmd_stage(a) -> int:
     return 0
 
 
+def tile_state(kit: Kit, path: str) -> str:
+    """``placeholder`` / ``drape`` / ``real`` of the DSF at ``path``."""
+    if kit.WP.is_placeholder(path):
+        return "placeholder"
+    return "drape" if kit.DRAPE.is_drape(path) else "real"
+
+
+def _drape_ok(res: dict) -> bool:
+    return bool(res["overlay"] and res["agent"] and res["defs"]
+                and not res["problems"])
+
+
 def cmd_verify(a) -> int:
     kit = Kit(a.kit)
     WP, bad = kit.WP, 0
     for t in kit_tiles(kit):
         path = os.path.join(kit.pack, WP.dsf_relpath(*t))
-        state = "placeholder" if WP.is_placeholder(path) else "real"
-        res = WP.verify_tile(kit.pack, *t, kit.tool)
+        state = tile_state(kit, path)
+        if state == "drape":
+            res = kit.DRAPE.verify_drape(kit.pack, *t, kit.tool)
+            ok = _drape_ok(res)
+        else:
+            res = WP.verify_tile(kit.pack, *t, kit.tool)
+            ok = (res["overlay"] and not res["defs"]) \
+                if state == "placeholder" \
+                else (not res["problems"] and not res["overlay"])
         head = WP.dsf_header(path)
-        ok = (res["overlay"] and not res["defs"]) if state == "placeholder" \
-            else (not res["problems"] and not res["overlay"])
         ok = ok and head["magic_ok"] and head["md5_ok"]
         bad += not ok
         print(f"pack   {WP.tile_name(*t)} {state:11s} overlay={res['overlay']}"
@@ -199,6 +223,17 @@ def cmd_verify(a) -> int:
                   f"{res['pack_defs']} ters={res['ters_checked']} tex_refs="
                   f"{res['tex_refs']} problems={res['problems'][:3]} "
                   f"{'OK' if ok else 'BAD'}")
+    if os.path.isdir(kit.drapes):
+        for name in sorted(os.listdir(kit.drapes)):
+            if name.endswith(".new") or name == "work":
+                continue
+            res = kit.DRAPE.verify_drape(os.path.join(kit.drapes, name),
+                                        *WP.parse_tile(name), kit.tool)
+            ok = _drape_ok(res)
+            bad += not ok
+            print(f"drape  {name} polygons={res['polygons']} pols="
+                  f"{res['pols_checked']} excludes={res['excludes']} "
+                  f"problems={res['problems'][:3]} {'OK' if ok else 'BAD'}")
     print("verify:", "OK" if not bad else f"{bad} BAD")
     return 1 if bad else 0
 
@@ -248,9 +283,10 @@ def cmd_restore(a) -> int:
 
 
 # ---------------------------------------------------------------- swaps
-def swapin(kit: Kit, tile: str, force: bool, webapi: bool) -> dict:
+def swapin(kit: Kit, tile: str, force: bool, webapi: bool,
+           staged_root: str | None = None) -> dict:
     lat, lon = kit.WP.parse_tile(tile)
-    staged = os.path.join(kit.staged, tile)
+    staged = os.path.join(staged_root or kit.staged, tile)
     if not os.path.isfile(os.path.join(staged, kit.WP.dsf_relpath(lat, lon))):
         raise SystemExit(f"nothing staged for {tile}: run stage or onthefly")
     pos = aircraft(kit, (lat, lon)) if webapi else {"webapi": "skipped"}
@@ -287,17 +323,29 @@ def cmd_swapout(a) -> int:
 def run_build(kit: Kit, tile: str, minutes: float, nice: int,
               webapi: bool) -> tuple[int, str]:
     """The engine's headless tile build (``tools/run_tile_build.py``) into
-    the kit's data root; status every 30 s; Ctrl-C or the deadline kills
-    the whole build process group.  Returns (exit code, log path)."""
+    the kit's data root.  Returns (exit code, log path)."""
     lat, lon = kit.WP.parse_tile(tile)
-    log = os.path.join(kit.build_root, f"build_{tile}.log")
+    return run_engine(kit, tile, ["tools/run_tile_build.py", str(lat),
+                                  str(lon)], f"build_{tile}.log", minutes,
+                      nice, webapi)
+
+
+def run_engine(kit: Kit, tile: str, argv: list, log_name: str,
+               minutes: float, nice: int, webapi: bool,
+               label: str = "building") -> tuple[int, str]:
+    """One engine process (``venv/bin/python ARGV`` in the engine checkout)
+    on the kit's data root; status every 30 s; Ctrl-C or the deadline
+    kills the whole process group.  Returns (exit code, log path)."""
+    lat, lon = kit.WP.parse_tile(tile)
+    log = os.path.join(kit.build_root, log_name)
+    os.makedirs(kit.build_root, exist_ok=True)
     env = dict(os.environ, ORTHO4XP_DATA_ROOT=kit.build_root)
     py = os.path.join(kit.engine, "venv", "bin", "python")
     with open(log, "w", encoding="utf-8") as out:
         proc = subprocess.Popen(
-            [py, "tools/run_tile_build.py", str(lat), str(lon)],
-            cwd=kit.engine, env=env, stdout=out, stderr=subprocess.STDOUT,
-            start_new_session=True, preexec_fn=lambda: os.nice(nice))
+            [py, *argv], cwd=kit.engine, env=env, stdout=out,
+            stderr=subprocess.STDOUT, start_new_session=True,
+            preexec_fn=lambda: os.nice(nice))
     deadline, last = time.time() + 60 * minutes, 0.0
     try:
         while proc.poll() is None:
@@ -310,13 +358,13 @@ def run_build(kit: Kit, tile: str, minutes: float, nice: int,
                 last = time.time()
                 step = _last_step(log)
                 pos = aircraft(kit, (lat, lon)) if webapi else {}
-                print(f"{now()} building {tile}: {step} | aircraft "
+                print(f"{now()} {label} {tile}: {step} | aircraft "
                       f"{pos.get('reach', pos.get('webapi', '-'))}", flush=True)
             time.sleep(2)
     except KeyboardInterrupt:
         os.killpg(proc.pid, signal.SIGTERM)
         proc.wait(30)
-        kit.log({"event": "onthefly_aborted", "tile": tile})
+        kit.log({"event": f"{label}_aborted", "tile": tile})
         raise SystemExit("aborted: the pack was not touched") from None
     return proc.returncode, log
 
@@ -324,7 +372,7 @@ def run_build(kit: Kit, tile: str, minutes: float, nice: int,
 def _last_step(log: str) -> str:
     try:
         with open(log, encoding="utf-8", errors="replace") as h:
-            steps = [ln.strip() for ln in h if ln.startswith("=== step")]
+            steps = [line.strip() for line in h if line.startswith("=== step")]
         return steps[-1] if steps else "starting"
     except OSError:
         return "?"
@@ -356,6 +404,76 @@ def cmd_onthefly(a) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- drape
+def _fetch_script() -> str:
+    """``O4_World_Drape_Fetch.py``: the kit's copy, else the engine's."""
+    return os.path.join(HERE if KIT_MODE else os.path.join(REPO_ENGINE, "src"),
+                        "O4_World_Drape_Fetch.py")
+
+
+def _last_json(log: str) -> dict | None:
+    try:
+        with open(log, encoding="utf-8", errors="replace") as h:
+            lines = [line for line in h if line.startswith("{")]
+        return json.loads(lines[-1]) if lines else None
+    except (OSError, ValueError):
+        return None
+
+
+def cmd_drape(a) -> int:
+    """Fetch the tile's imagery (placeholder tier), write the draped
+    overlay, verify it with DSFTool, swap it in (always: a tile already in
+    X-Plane's window shows only after ``reload``, which the log says)."""
+    kit = Kit(a.kit)
+    WP, DRAPE = kit.WP, kit.DRAPE
+    lat, lon = WP.parse_tile(a.tile)
+    webapi = not a.no_webapi
+    exclude = tuple(x for x in (a.exclude or "").split(",") if x)
+    start = kit.log({"event": "drape_start", "tile": a.tile,
+                     "exclude": exclude,
+                     **(aircraft(kit, (lat, lon)) if webapi else {})})
+    t0 = time.time()
+    work = os.path.join(kit.drapes, "work")
+    rc, log = run_engine(
+        kit, a.tile, [_fetch_script(), str(lat), str(lon), work, "--zl",
+                      str(a.zl), "--provider", a.provider, "--drop",
+                      str(a.drop), "--engine", kit.engine],
+        f"drape_{a.tile}.log", a.max_minutes, a.nice, webapi, "draping")
+    fetched = _last_json(log)
+    t1 = time.time()
+    if not fetched or not fetched.get("dds"):
+        kit.log({"event": "drape_fetch_failed", "tile": a.tile, "rc": rc,
+                 "log": log, "fetch": fetched})
+        return 1
+    final = os.path.join(kit.drapes, a.tile)
+    shutil.rmtree(final + ".new", ignore_errors=True)
+    counts = DRAPE.write_drape(lat, lon, a.zl, a.provider,
+                               fetched["textures"], final + ".new", kit.tool,
+                               exclude)
+    check = DRAPE.verify_drape(final + ".new", lat, lon, kit.tool)
+    head = WP.dsf_header(os.path.join(final + ".new", WP.dsf_relpath(lat, lon)))
+    if not _drape_ok(check) or not (head["magic_ok"] and head["md5_ok"]):
+        raise SystemExit(f"drape {a.tile} failed its check: {check} {head}")
+    shutil.rmtree(final, ignore_errors=True)
+    os.rename(final + ".new", final)
+    t2 = time.time()
+    rec = {"event": "drape_staged", "tile": a.tile, "fetch": fetched,
+           **counts, "verify": {k: check[k] for k in (
+               "polygons", "pols_checked", "points", "excludes")},
+           "fetch_s": round(t1 - t0, 1), "write_verify_s": round(t2 - t1, 1)}
+    kit.log(rec)
+    if a.no_swap:
+        return 0
+    res = swapin(kit, a.tile, force=True, webapi=webapi,
+                 staged_root=kit.drapes)
+    late = (res.get("window") or {}).get("in_window")
+    kit.log({"event": "drape_done", "tile": a.tile, "start": start["utc"],
+             "total_s": round(time.time() - t0, 1), "late_in_window": late,
+             "next": "run `world.py reload` to see it now" if late else
+             "X-Plane opens it when its column enters the window"})
+    return 0
+
+
 # ---------------------------------------------------------------- status
 def cmd_status(a) -> int:
     kit = Kit(a.kit)
@@ -368,8 +486,10 @@ def cmd_status(a) -> int:
     for t in kit_tiles(kit):
         name = WP.tile_name(*t)
         path = os.path.join(kit.pack, WP.dsf_relpath(*t))
-        state = "placeholder" if WP.is_placeholder(path) else "REAL"
+        state = tile_state(kit, path).upper().replace("PLACEHOLDER",
+                                                       "placeholder")
         staged = os.path.isdir(os.path.join(kit.staged, name))
+        staged = f"{staged} drape={os.path.isdir(os.path.join(kit.drapes, name))}"
         reach = (WP.tile_reach(pos["lat"], pos["lon"], *t),
                  WP.xp_window(pos["cam_lat"], pos["cam_lon"], *t)) \
             if "lat" in pos else ""
@@ -384,13 +504,22 @@ def cmd_reload(a) -> int:
     return 0 if sent else 1
 
 
+def _console():
+    """``O4_Console_Encoding`` from the engine checkout (the kit's
+    ``engine_dir`` in kit mode)."""
+    engine = REPO_ENGINE
+    if KIT_MODE:
+        with open(os.path.join(HERE, "kit.json"), encoding="utf-8") as h:
+            engine = _engine_dir(json.load(h))
+    src = os.path.join(engine, "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    import O4_Console_Encoding
+    return O4_Console_Encoding
+
+
 def main(argv=None) -> int:
-    try:  # the engine's console pin; a kit copy runs without the engine
-        sys.path.insert(0, os.path.join(REPO_ENGINE, "src"))
-        import O4_Console_Encoding
-        O4_Console_Encoding.configure_console_streams()
-    except ImportError:
-        pass
+    _console().configure_console_streams()
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--kit", default=HERE if KIT_MODE else None)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -429,6 +558,21 @@ def main(argv=None) -> int:
     s.add_argument("--no-swap", action="store_true")
     s.add_argument("--no-webapi", action="store_true")
     s.set_defaults(fn=cmd_onthefly)
+    s = sub.add_parser("drape")
+    s.add_argument("tile")
+    s.add_argument("--exclude", default="",
+                   help="default-scenery classes to hide under the tile, "
+                        "comma-separated: for (forests), obj (objects/"
+                        "autogen), net (roads), ...; default none")
+    s.add_argument("--zl", type=int, default=16)
+    s.add_argument("--provider", default="BI")
+    s.add_argument("--drop", type=int, default=3,
+                   help="zoom levels below --zl fetched (3 = 512 px)")
+    s.add_argument("--max-minutes", type=float, default=15)
+    s.add_argument("--nice", type=int, default=10)
+    s.add_argument("--no-swap", action="store_true")
+    s.add_argument("--no-webapi", action="store_true")
+    s.set_defaults(fn=cmd_drape)
     s = sub.add_parser("status")
     s.add_argument("--no-webapi", action="store_true")
     s.set_defaults(fn=cmd_status)

@@ -77,8 +77,7 @@ def placeholder_text(lat: int, lon: int) -> str:
 
 def _dsftool(tool: str, *args: str, timeout: float = 600) -> str:
     done = subprocess.run([tool, *args], capture_output=True, text=True,
-                          encoding="utf-8", errors="replace",
-                          timeout=timeout)
+                          encoding="utf-8", errors="replace", timeout=timeout)
     if done.returncode != 0:
         raise RuntimeError(f"DSFTool {' '.join(args[:1])} failed "
                            f"(exit {done.returncode}): {done.stdout[-400:]}"

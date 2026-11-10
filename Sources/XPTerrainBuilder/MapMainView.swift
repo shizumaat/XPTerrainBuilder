@@ -405,6 +405,8 @@ struct MapMainView: View {
                         firstMin: 300, secondMin: 180) {
             MapCanvasView(camera: controller.mapCamera,
                           canvasSize: controller.mapCanvasSize)
+                // Patches dropped on the map (#1979): PatchDropInstall.swift.
+                .modifier(PatchDropTarget(buildModel: buildModel))
                 .overlay {
                     SearchReticleOverlay(reticle: searchReticle, camera: controller.mapCamera)
                 }

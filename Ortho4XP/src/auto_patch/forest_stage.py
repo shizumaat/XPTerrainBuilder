@@ -67,6 +67,7 @@ class PackForests(_t.NamedTuple):
     old: tuple                 # ``pack_forests.OldForest`` rows
     upgraded: dict             # the recorded renames, {} = none
     version: int = 0           # the rules the recorded one was written under
+    climate: _t.Any = None     # ``pack_climate.Climate`` of the tile (#1965)
 
     @property
     def renames(self) -> dict:
@@ -96,10 +97,15 @@ def check(pack_root: str, lat: int, lon: int, *,
     pd = pack_dump(pack_root, lat, lon, read_only=read_only)
     if pd is None:
         return None
+    asked: list = []
+
+    def climate():
+        asked.append(_tile_climate(pd.xroot, lat, lon))
+        return asked[-1]
     old = _pf.old_forests(
         pack_root, pd.dump_path, _agp.get_library_index(pd.xroot),
         os.path.join(pd.xroot, "Resources", "default scenery"),
-        lambda: _agp.other_export_names(pd.xroot))
+        lambda: _agp.other_export_names(pd.xroot), climate)
     if old is None:
         return None
     upgraded, version = {}, 0
@@ -109,7 +115,7 @@ def check(pack_root: str, lat: int, lon: int, *,
         upgraded = _pf.recorded(entry, sha256_file(pd.pristine))
         version = _pf.recorded_version(entry) if upgraded else 0
     return PackForests(pd.pack_name, pd.dsf_path, tuple(old), upgraded,
-                       version)
+                       version, asked[0] if asked else None)
 
 
 def _announce(pf: PackForests, pack_root: str, lat: int, lon: int,
@@ -175,6 +181,8 @@ def forest_stage(plan_, tile, *, writes: bool,
     if pf is None or not pf.old:
         return ""
     UI.vprint(1, "  " + _pf.log_line(pf.pack_name, pf.old))
+    for line in _pf.target_lines(pf.old, pf.climate):
+        UI.vprint(1, "    " + line)
     if pf.current:
         return "current"
     if not pf.renames and not pf.upgraded:
@@ -253,3 +261,67 @@ def undo(pack_root: str, lat: int | None = None,
     return _PR.undo_recorded(
         pack_root, lat, lon, _pf.RECORD_KEY,
         lambda dsf: _write(PackForests(name, dsf, (), {}), pack_root, {}))
+
+
+# ── THE TILE'S CLIMATE (issue #1965) ─────────────────────────────────────
+# X-Plane 12's own Global Scenery tile names its landclass terrains and
+# forests with climate tags; ``pack_climate`` reads the climate from those
+# names.  Only the DSF's DEFINITIONS are read: DSFTool streams the dump to
+# a pipe and is stopped at the first non-definition row
+# (``O4_DSFTool.head``; under a second, nothing written).  Without a Global
+# Scenery tile, or when DSFTool cannot read it, the latitude band stands
+# in.  Memoised per tile and file.
+
+#: Global Scenery packs under ``<X-Plane>/Global Scenery`` (X-Plane's
+#: installer names, ``O4_Default_Terrain_Map``)
+_PACKS = ("X-Plane 12 Global Scenery", "X-Plane 12 Demo Areas")
+#: the dump's definition rows (and its preamble) — anything else ends them
+_HEADER = ("PROPERTY", "TERRAIN_DEF", "OBJECT_DEF", "POLYGON_DEF",
+           "NETWORK_DEF", "RASTER_DEF", "DIVISIONS", "HEIGHTS", "I", "A", "800",
+           "DSF2TEXT", "#", "")
+
+_MEMO: dict[tuple[str, float], _t.Any] = {}
+
+
+def _global_dsf(xroot: str, lat: int, lon: int) -> str | None:
+    """The tile's Global Scenery DSF under the X-Plane folder ``xroot``;
+    ``None`` when none is installed."""
+    import O4_File_Names as FNAMES
+    rel = os.path.join("Earth nav data", FNAMES.long_latlon(lat, lon) + ".dsf")
+    roots = [os.path.join(xroot or "", "Global Scenery", p) for p in _PACKS]
+    return next((os.path.join(r, rel) for r in roots
+                 if os.path.isfile(os.path.join(r, rel))), None)
+
+
+def _definitions(dsf: str) -> list[str]:
+    import O4_DSFTool as _dsftool
+
+    from .dsf_reader import _dsftool_path
+    tool = _dsftool_path()
+    if tool is None:
+        return []
+    lines = _dsftool.head([tool, "--dsf2text", dsf, "-"],
+                          lambda ln: ln.split(" ", 1)[0].strip() not in _HEADER)
+    return [ln.split(" ", 1)[1] for ln in lines
+            if ln.endswith((".ter", ".for")) and " " in ln]
+
+
+def _tile_climate(xroot: str, lat: int, lon: int):
+    """``pack_climate.Climate`` of the tile: X-Plane 12's own, else the
+    latitude band's (module doc).  Never raises."""
+    from auto_patch_v2.airport import pack_climate as _pc
+    dsf = _global_dsf(xroot, lat, lon)
+    if dsf is None:
+        return _pc.latitude_climate(lat + 0.5)
+    try:
+        key = (dsf, os.path.getmtime(dsf))
+    except OSError:
+        return _pc.latitude_climate(lat + 0.5)
+    if key not in _MEMO:
+        try:
+            names = _definitions(dsf)
+        except Exception:
+            names = []
+        _MEMO[key] = (_pc.climate_of_names(names)
+                      or _pc.latitude_climate(lat + 0.5))
+    return _MEMO[key]

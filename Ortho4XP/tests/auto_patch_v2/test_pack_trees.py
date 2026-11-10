@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 from auto_patch_v2.airport import pack_forests as PF
 from auto_patch_v2.airport import pack_trees as PT
-from auto_patch_v2.airport.pack_trees_map import FAMILIES, LOCAL_FOREST
+from auto_patch_v2.airport.pack_climate import g8_forest
+from auto_patch_v2.airport.pack_trees_map import FAMILIES
 
 FIR = "lib/vegetation/trees/coniferous/fir_*.for"
 SOLID = "A\n1200\nFOREST\nSHADER_3D\nMESH 0 3 3\n"
@@ -107,7 +108,8 @@ def _for(rows, spacing="5 5") -> str:
 ])
 def test_a_local_forest_maps_by_its_trees(tmp_path, rows, spacing, want):
     p = _write(tmp_path / "forest.for", _for(rows, spacing))
-    assert PT.local_forest_target(str(p)) == LOCAL_FOREST[want]
+    assert PT.local_forest_target(str(p)) == g8_forest(*want, None)
+    assert g8_forest(*want, None).endswith("_tmp_wet.for")
 
 
 @pytest.mark.parametrize("rows,want", [

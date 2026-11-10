@@ -16,20 +16,35 @@ proximity): the connected component, over the plan's SPLIT rows, of
   none: its §16f zero-plane family, ``family_of``) — the structure group
   the stage seats together.
 
-A placement the plan did not cut is a group of its own.  Pure functions
-over :func:`o4_engine.object_seat._plan_entries` values.
+A placement the plan KEPT whole whose bodies were seated in a structure
+unit (the plan's ``kept`` row ``units``) belongs to that unit's group too
+(owner RULINGS 2026-11-09a (15), "stay and move together": LFMN's T1
+unit kept Terminal2/3/4 whole once their seat landed on the authored one,
+and each became a group of its own).  Any other placement the plan did not
+cut is a group of its own.  Pure functions over
+:func:`o4_engine.object_seat._plan_entries` values.
 """
 from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["group_rows", "group_zeros", "group_seat"]
+__all__ = ["group_rows", "group_zeros", "group_seat", "in_group"]
 
 Entries = _t.Mapping[int, tuple[str, _t.Mapping]]
 
 
 def _split_rows(entries: Entries) -> dict[int, _t.Mapping]:
     return {row: rec for row, (kind, rec) in entries.items() if kind == "split"}
+
+
+def _keyed_rows(entries: Entries) -> dict[int, set[str]]:
+    """Every row a structure unit ties to others, with its units: the
+    split rows (:func:`_keys`) and the kept-whole rows seated in a unit."""
+    out = {r: _keys(rec) for r, rec in _split_rows(entries).items()}
+    for row, (kind, rec) in entries.items():
+        if kind == "kept" and rec.get("units"):
+            out[row] = {str(u) for u in rec["units"]}
+    return out
 
 
 def _unit(body: _t.Mapping) -> str:
@@ -45,11 +60,10 @@ def _keys(rec: _t.Mapping) -> set[str]:
 
 def group_rows(entries: Entries, row: int) -> tuple[int, ...]:
     """The rows of ``row``'s group, sorted: ``(row,)`` when the plan did not
-    cut it."""
-    splits = _split_rows(entries)
-    if int(row) not in splits:
+    cut it and kept it in no structure unit."""
+    keys = _keyed_rows(entries)
+    if int(row) not in keys:
         return (int(row),)
-    keys = {r: _keys(rec) for r, rec in splits.items()}
     rows_of: dict[str, set[int]] = {}
     for r, ks in keys.items():
         for k in ks:
@@ -95,31 +109,55 @@ def _group_ring(bodies: _t.Iterable[_t.Mapping]) -> list[list[float]]:
     return [[round(a, 8), round(b, 8)] for a, b in hull] if len(hull) >= 3 else []
 
 
+def _kept_zeros(entries: Entries, rows: _t.Iterable[int]) -> list[float]:
+    """The zeros (m MSL) the group's kept-whole rows land at."""
+    return [float(rec["zero_m"]) for kind, rec in (entries.get(r, ("", {})) for r in rows)
+            if kind == "kept" and rec.get("zero_m") is not None]
+
+
+def in_group(entries: Entries, row: int) -> bool:
+    """Does ``row`` move with a group (#1970) — a row the plan cut, or a
+    kept-whole row its structure unit ties to others?"""
+    return (entries.get(int(row), ("",))[0] == "split"
+            or len(group_rows(entries, row)) > 1)
+
+
+def _kept_boxes(entries: Entries, rows: _t.Iterable[int]) -> list[dict]:
+    """The group's kept-whole rows' anchors, as point boxes for the ring."""
+    return [{"geom_box": [rec["lat"], rec["lon"], rec["lat"], rec["lon"]]}
+            for kind, rec in (entries.get(r, ("", {})) for r in rows)
+            if kind == "kept" and rec.get("lat") is not None and rec.get("lon") is not None]
+
+
 def group_zeros(entries: Entries, rows: _t.Iterable[int]) -> list[float]:
     """Where the plan puts each body's authored zero (m MSL), the bodies
-    off every graded face left out."""
+    off every graded face left out, then each kept-whole row's."""
     from auto_patch_v2.airport.placement_coherence import plan_body_zero
-    return [z for z in map(plan_body_zero, _group_bodies(entries, rows)) if z is not None]
+    rows = tuple(rows)
+    return [z for z in map(plan_body_zero, _group_bodies(entries, rows))
+            if z is not None] + _kept_zeros(entries, rows)
 
 
 def group_seat(entries: Entries, row: int, offset_m: float | None = None,
                built: bool = True) -> dict | None:
     """The object inspector's record (``object_seat``'s fields) for the
-    group of SPLIT row ``row``; ``None`` when the plan did not cut it.
+    group of ``row``; ``None`` when it is in none (:func:`in_group`).
     ``offset_m``: the lift the user gave the group (``built``: the pack
     DSF was last written with it).  The group's bottom is its lowest
     part's zero; it has no single top."""
-    if entries.get(int(row), ("",))[0] != "split":
+    if not in_group(entries, row):
         return None
     from .object_seat import _m  # the inspector's metres
     rows = group_rows(entries, row)
     bodies = _group_bodies(entries, rows)
+    whole = len(_kept_zeros(entries, rows))   # a kept row is one part
     off = float(offset_m or 0.0)
     zeros = [z + off for z in group_zeros(entries, rows)]
     names = _source_names(entries, rows)
     shown = ", ".join(names[:3]) + (", …" if len(names) > 3 else "")
+    parts = len(bodies) + whole
     lines = [f"Group of {len(rows)} object{'s' if len(rows) != 1 else ''}, "
-             f"{len(bodies)} part{'s' if len(bodies) != 1 else ''}: {shown}"]
+             f"{parts} part{'s' if parts != 1 else ''}: {shown}"]
     if zeros:
         lines.append(f"Bottom {_m(min(zeros))} MSL")
         if max(zeros) - min(zeros) >= 0.05:
@@ -131,11 +169,11 @@ def group_seat(entries: Entries, row: int, offset_m: float | None = None,
         why += "" if built else "; rebuild the tile to place it there"
     else:
         why = "Its parts move together, as one group"
-    return {"seat": "group", "bodies": len(bodies), "pending": False,
+    return {"seat": "group", "bodies": parts, "pending": False,
             "zero_m": min(zeros) if zeros else None,
             "zero_max_m": max(zeros) if zeros else None,
             "ground_m": None, "height_m": None,
             "bottom_m": round(min(zeros), 3) if zeros else None, "top_m": None,
             "why": why, "lines": lines + [why + "."], "user_offset_m": offset_m,
-            "group": {"rows": list(rows), "parts": len(bodies), "sources": names,
-                      "ring": _group_ring(bodies)}}
+            "group": {"rows": list(rows), "parts": parts, "sources": names,
+                      "ring": _group_ring(bodies + _kept_boxes(entries, rows))}}

@@ -1055,3 +1055,70 @@ def test_C_close_decks_keep_the_floor_down_between_them(law):
     between = 0.0
     assert c.floor_z(between) < 100.0 - 1.0          # still well under grade
     assert not any("held" in n and "ABOVE it" in n for n in st.notes), st.notes
+
+
+# ── RULINGS 2026-11-09a (6): A PACK WITNESS COUNTS ONLY ALONG ITS STRETCH ─
+
+def test_0911a6_the_channel_stops_where_its_pack_witness_stops(law, monkeypatch):
+    """LFMN ``channel:0`` (#1961): a car-park level 4.4 m down witnessed
+    the first 80 m of a 1,284 m tram corridor, and its floor ran the whole
+    864 m between the outermost crossings.  Under a CREDIBLE survey that
+    reads no cut (flat ground), the ends are cut back to the stretch the
+    witness runs along; the deck outside it leaves the record, named."""
+    import auto_patch_v2.planar.channel as chmod
+    wall = _Placed("dsf:objP", Polygon(_rect(-8.0, 100.0, 8.0, 200.0)), 88.0)
+    ap = _airport(law, [_pavement_with_corridor()], [_road()])
+    cls = Classification(tuple(_cells()), (), {}, ())
+    monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: False)
+    coarse, _st = identify_channels(ap, cls, law, [wall])
+    # §45 (7): a coarse DEM is never a witness against a channel
+    assert len(coarse) == 1 and coarse[0].ends[0] < 400.0, coarse
+    monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: True)
+    chans, st = identify_channels(ap, cls, law, [wall])
+    assert len(chans) == 1, (st.refused, st.notes)
+    c = chans[0]
+    assert c.datum_source == DATUM_PACK
+    # the wall stands at y 100..200 = stations 500..600 of the axis
+    assert c.ends == pytest.approx((500.0, 600.0), abs=1.0)
+    assert len(c.decks) == 1 and c.decks[0].s0 >= 500.0 - 1e-6
+    assert all(500.0 - 1e-6 <= s <= 600.0 + 1e-6 for s, _z in c.profile)
+    assert Polygon(c.region).bounds[1] > 90.0
+    assert any("2026-11-09a (6)" in n and "dsf:objP" in n and "1 of 2 deck(s)" in n
+               for n in st.notes), st.notes
+
+
+def test_0911a6_a_stretch_under_corridor_min_length_is_refused(law, monkeypatch):
+    """"…or is refused if what is left is shorter than
+    ``corridor_min_length_m``" — by name, with the metres left."""
+    import auto_patch_v2.planar.channel as chmod
+    ch = law.tables.structures.channel
+    short = ch.corridor_min_length_m * 0.6
+    wall = _Placed("dsf:objS", Polygon(_rect(-8.0, 100.0, 8.0, 100.0 + short)), 88.0)
+    monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: True)
+    ap = _airport(law, [_pavement_with_corridor()], [_road()])
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()),
+                                  law, [wall])
+    assert chans == [], [(c.id, c.ends) for c in chans]
+    assert any("2026-11-09a (6)" in r and "corridor_min_length_m" in r and "dsf:objS" in r
+               for r in st.refused), st.refused
+
+
+def test_0911a6_a_survey_that_reads_the_cut_keeps_the_ends(law, monkeypatch):
+    """Where the credible survey itself reads the cut past the witness
+    (KDFW's 1 m DTM), the channel keeps running with it — the ruling cuts
+    only "where the survey shows no cut"."""
+    import auto_patch_v2.planar.channel as chmod
+    class _WalledCut(_PlaneDem):
+        """A 9 m cut with walled sides 6 m off the axis, the whole way."""
+
+        def z(self, x: float, y: float) -> float:
+            return 91.0 if abs(float(x)) < 6.0 else 100.0
+
+    wall = _Placed("dsf:objK", Polygon(_rect(-8.0, 100.0, 8.0, 200.0)), 88.0)
+    monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: True)
+    ap = _airport(law, [_pavement_with_corridor()], [_road()], dem=_WalledCut())
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()),
+                                  law, [wall])
+    assert len(chans) == 1, (st.refused, st.notes)
+    assert chans[0].ends[0] < 400.0, chans[0].ends
+    assert not any("2026-11-09a (6)" in n for n in st.notes + st.refused)

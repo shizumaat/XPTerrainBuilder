@@ -42,6 +42,7 @@ from . import obj8 as _obj8
 from . import object_pack as _object_pack
 from . import object_window as _window
 from . import object_pavement as _objpav
+from . import network_pages as _netpages
 from . import osm as _osm
 from . import pack as _pack
 from . import riders as _riders
@@ -193,6 +194,9 @@ class LoadReport:
     #: as GAP SHEETS (never a pavement source) — pages and their m2
     dsf_gap_sheets: int = 0
     dsf_gap_sheet_m2: float = 0.0
+    #: #1957 (``airport/network_pages.py``): the network witness's line —
+    #: the §60 pages taken as pavement sources, or why they stayed sheets
+    network_pages_line: str = ""
     #: §42 (3) (RULINGS 2026-09-13cv): the pack's DRAPED OBJ8 ground
     #: polygons admitted as source polygons — bodies, m2, per resource,
     #: and every draped resource refused with its reason
@@ -716,6 +720,20 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             sel = _dc.replace(sel, borrow=bres.decision)
         rep.pavement_source = bres.record(sel.name)
         rep.pavement_borrow_line = bres.line(icao)
+    # ── #1957 THE PAGES THAT CARRY THE TAXI NETWORK ARE THE PAVEMENT: when
+    # the sources (after the borrow's last word) carry under the key's share
+    # of the network, the §60 pages are the pack's pavement — sources, not
+    # sheets (``airport/network_pages.py``)
+    n_pol = len(pol_sheets)
+    netdec, net_pages = _netpages.decide(
+        pavements, tuple(gap_sheets[len(gap_sheets) - n_pol:]) if n_pol else (),
+        taxi_nodes, taxi_edges,
+        float(law.tables.structures.load.network_pages_share_max))
+    rep.network_pages_line = netdec.line(icao)
+    if net_pages:
+        pavements = pavements + net_pages
+        gap_sheets = gap_sheets[:len(gap_sheets) - n_pol]
+        rep.dsf_gap_sheets, rep.dsf_gap_sheet_m2 = 0, 0.0
 
     # ── DEM ────────────────────────────────────────────────────────
     if inputs.elevation_root and inputs.dem_frame == "production":

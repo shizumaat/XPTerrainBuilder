@@ -167,6 +167,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
@@ -340,6 +341,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_roof",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.dem",
@@ -545,6 +547,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.apron_shelf",
         "auto_patch_v2.planar.arrangement_memo",
         "auto_patch_v2.planar.basin_datum",
+        "auto_patch_v2.planar.basin_floor_width",
         "auto_patch_v2.planar.basin_geometry",
         "auto_patch_v2.planar.basin_rim",
         "auto_patch_v2.planar.basins",
@@ -556,6 +559,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.channel_depth",
         "auto_patch_v2.planar.channel_floor",
         "auto_patch_v2.planar.channel_geometry",
+        "auto_patch_v2.planar.channel_stretch",
         "auto_patch_v2.planar.channel_witness",
         "auto_patch_v2.planar.chords",
         "auto_patch_v2.planar.covered_bores",
@@ -586,6 +590,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.low_extent",
         "auto_patch_v2.planar.low_fill",
         "auto_patch_v2.planar.low_level",
+        "auto_patch_v2.planar.mouth_opening",
         "auto_patch_v2.planar.object_corridor",
         "auto_patch_v2.planar.object_floor_cells",
         "auto_patch_v2.planar.overlay",
@@ -833,6 +838,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
@@ -1538,6 +1544,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
     airport.deck_signature airport.dem geom.water_level airport.dem_witness airport.dsf
+    airport.deck_family_contact
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
@@ -1630,6 +1637,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
     airport.deck_signature airport.dem_witness airport.dsf airport.extension_cache
+    airport.deck_family_contact
     airport.file_hash airport.footprint_carry airport.footprint_connector
     airport.footprint_seats airport.footprint_unit airport.one_building airport.frame_entry
     airport.line_object airport.msl_feet airport.obj8
@@ -1701,6 +1709,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
     airport.bridge_family airport.bulk_geos airport.cluster_profile airport.contact
     airport.contents airport.deck_signature airport.dem geom.water_level airport.dem_production
+    airport.deck_family_contact
     airport.dem_record airport.dem_shared airport.dem_witness airport.door_wells
     airport.dsf airport.extension_cache airport.file_hash airport.file_witness
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
@@ -1775,10 +1784,10 @@ CODE_MODULES["solve"] = _mods("""
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.back_cache pipeline.capture_state
     pipeline.solve_record pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
-    planar.basin_datum
+    planar.basin_datum planar.basin_floor_width
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
-    planar.channel_claims planar.channel_floor planar.channel_geometry
+    planar.channel_claims planar.channel_floor planar.channel_geometry planar.channel_stretch
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     planar.cut_frame planar.deck_bridge planar.deck_walls
@@ -1798,6 +1807,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.structure_service planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
+    planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
@@ -1835,6 +1845,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
     airport.bridge_family airport.bulk_geos airport.cluster_profile airport.contact
     airport.contents airport.deck_signature airport.dem geom.water_level airport.dem_production
+    airport.deck_family_contact
     airport.dem_record airport.dem_shared airport.dem_witness airport.door_wells
     airport.dsf airport.extension_cache airport.file_hash airport.file_witness
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
@@ -1924,10 +1935,10 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     pipeline.back_cache pipeline.capture_state pipeline.constraint_records
     pipeline.late_records pipeline.late_stage pipeline.shapes pipeline.solve_record
     pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
-    planar.basin_datum
+    planar.basin_datum planar.basin_floor_width
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
-    planar.channel_claims planar.channel_floor planar.channel_geometry
+    planar.channel_claims planar.channel_floor planar.channel_geometry planar.channel_stretch
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     planar.cut_frame planar.deck_bridge planar.deck_walls
@@ -1947,6 +1958,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.structure_service planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
+    planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
@@ -1981,6 +1993,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
     airport.deck_signature airport.dem airport.dem_witness airport.dsf geom.water_level
+    airport.deck_family_contact
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
@@ -2073,7 +2086,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.apt_flatten
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
-    airport.deck_signature airport.dem airport.dem_witness airport.dsf
+    airport.deck_family_contact airport.deck_signature airport.dem airport.dem_witness airport.dsf
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8

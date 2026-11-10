@@ -828,6 +828,10 @@ def rebake_after_mesh(tile) -> dict:
                   "placement stage skipped entirely (no pack is read, "
                   "dumped or written, no placement plan is computed)")
         return counts
+    # THE PACKS THIS BUILD ASKED ABOUT (#1916, RULINGS 2026-11-09a (9)):
+    # each placed airport's pack, then — once, in the ``finally`` below,
+    # whatever return the stage takes — every other pack on the tile
+    asked: set[str] = set()
     try:
         patch_dir = os.path.dirname(object_anchor_worklist_path(tile))
         # RULINGS 2026-09-09w (3): the engine loads ITS OWN plan files only.
@@ -955,7 +959,7 @@ def rebake_after_mesh(tile) -> dict:
                 # forests, the draped photos, the apt.dat's flatten flag
                 # (the placement write below re-applies what they record)
                 from . import adjust_stage as _adjust
-                _adjust.adjust_stage(plan_, tile, writes=writes)
+                _adjust.adjust_stage(plan_, tile, writes=writes, asked=asked)
                 # #1707: ... and whether the user's "Optimise pack" applies
                 from . import optimise_stage as _optimise
                 _optimise.optimise_stage(plan_, tile, writes=writes)
@@ -1045,6 +1049,11 @@ def rebake_after_mesh(tile) -> dict:
     except Exception as exc:
         UI.vprint(1, f"  [v2 rebake] failed: {exc}")
         UI.vprint(2, traceback.format_exc())
+    finally:
+        from . import adjust_stage as _adjust
+        from . import pack_copy as _pack_copy
+        _adjust.tile_stage(tile, asked=asked, writes=(
+            not _pack_stand_down(tile) and _pack_copy.copy_dir() is None))
     return counts
 
 

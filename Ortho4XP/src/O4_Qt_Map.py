@@ -27,6 +27,7 @@ import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
 import O4_Map_Overzoom as OVERZOOM
 import O4_Qt_Map_Labels as QTLABELS
+import O4_Qt_Map_Legend as QTLEGEND
 import O4_Qt_Rotate_Cursor as ROTATE
 import O4_Qt_Selection_Ring as RING
 import O4_Qt_Text_Scale as QTTEXT
@@ -85,6 +86,8 @@ BUILT_COLOR = "#4CAF6E"
 # A built tile whose folder lives on another drive (#1987): brown, with
 # "Requires <drive>" top-right (MapCanvasView.swift builtExternalTile).
 BUILT_EXTERNAL_COLOR = "#A0703C"
+# A tile another tool built is gray, one whose airport pack changed since
+# its build purple and dashed (#1958, O4_Qt_Map_Legend).
 #: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
 SETTINGS_BADGE_COLOR = "#0A84FF"
 #: The custom-patch band (#1229); MapCanvasView.customPatchBand.
@@ -386,6 +389,7 @@ class MapView(QGraphicsView):
         self._dimmed = set()
         self._installed = set()      # (lat, lon)
         self._conflicts = set()      # (lat, lon) with mixed imagery sources
+        self._stale = {}             # (lat, lon) -> stale verdict (#1958)
         self._customized = set()     # (lat, lon) with tile settings (#1350)
         self._custom_patched = set()  # (lat, lon) with a custom patch (#1229)
         self._selection = set()
@@ -540,6 +544,17 @@ class MapView(QGraphicsView):
         warning-badge set, computed off the UI thread by the window."""
         self._conflicts = set(conflicts)
         self.viewport().update()
+
+    def set_stale(self, stale):
+        """Built tiles whose airport pack changed since the build (#1958):
+        ``{(lat, lon): O4_Tile_Staleness verdict}``, stale ones only."""
+        stale = dict(stale)
+        if stale != self._stale:
+            self._stale = stale
+            self.viewport().update()
+
+    def stale(self):
+        return dict(self._stale)
 
     def set_customized(self, tiles):
         """Tiles whose cfg customizes a setting (#1350): the settings
@@ -1209,6 +1224,12 @@ class MapView(QGraphicsView):
         for layer in self._layers:
             layer.paint(painter)
         self._draw_zoom_badge(painter)
+        if self._scenery_filter != SCENERY_FILTER_OTHERS:
+            QTLEGEND.paint_legend(
+                painter, QRectF(self.viewport().rect()),
+                QTLEGEND.legend_kinds(self._built, self._stale),
+                painter.fontMetrics().height() + 24, BUILT_COLOR,
+                BUILT_EXTERNAL_COLOR)
         painter.end()
 
     def _draw_zoom_badge(self, painter):
@@ -1305,16 +1326,28 @@ class MapView(QGraphicsView):
         # user is judging (#1256; MapCanvasView.swift draws the same).
         painter.setBrush(Qt.NoBrush)
         if built is not None:
-            # Built: a green border (brown on another drive, #1987);
-            # installed adds the inset double border.
-            base = QColor(BUILT_EXTERNAL_COLOR
-                          if getattr(built, "volume", "") else BUILT_COLOR)
+            # Built: a green border (brown on another drive, #1987; gray
+            # when another tool built it, purple and dashed when its
+            # airport pack changed, #1958); installed adds the inset
+            # double border.
+            elsewhere = QTLEGEND.built_elsewhere(built)
+            stale = not elsewhere and tile in self._stale
+            if elsewhere:
+                base = QColor(QTLEGEND.OTHER_ORTHO_COLOR)
+                base.setAlpha(255)
+            elif stale:
+                base = QColor(QTLEGEND.STALE_COLOR)
+            else:
+                base = QColor(BUILT_EXTERNAL_COLOR
+                              if getattr(built, "volume", "") else BUILT_COLOR)
             dim = 0.3 if tile in self._dimmed else 1.0
             border = QColor(base)
             border.setAlphaF(0.85 * dim)
             pen = QPen(border)
             pen.setCosmetic(True)
             pen.setWidth(2)
+            if stale:
+                pen.setDashPattern([3, 2])
             painter.setPen(pen)
             painter.drawRect(r)
             if tile in self._installed:
@@ -1412,7 +1445,8 @@ class MapView(QGraphicsView):
             else None,
             self._ortho_tiles if self._scenery_filter != SCENERY_FILTER_BUILT
             else None,
-            QTTEXT.current_scale(), self._ortho_imagery, self._conflicts)
+            QTTEXT.current_scale(), self._ortho_imagery, self._conflicts,
+            self._stale)
 
     def _draw_airports(self, painter):
         """Sectional-style airport marks by size (#817, mac-app parity).

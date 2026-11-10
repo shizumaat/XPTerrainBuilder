@@ -292,6 +292,9 @@ final class BuildModel: ObservableObject {
     /// patch" row. The engine owns the rule (`custom_patches`,
     /// O4_Custom_Patches.py).
     @Published private(set) var customPatchTiles: [TileCoord: [String]] = [:]
+    /// Built tiles whose airport packs changed since the build (#1958,
+    /// `BuildModel+StaleTiles.swift`): only the stale ones.
+    @Published var staleTiles: [TileCoord: O4StaleTile] = [:]
     @Published private(set) var isScanning = false
     @Published private(set) var scanPhase = ""
     private var scanAccumBuilt: [TileCoord: O4TileInfo] = [:]
@@ -1050,6 +1053,7 @@ final class BuildModel: ObservableObject {
             refreshConflictTiles()
             refreshCustomizedTiles()
             refreshCustomPatchTiles()
+            refreshStaleTiles()
         case .tileState(let lat, let lon, let state, let label, let percent, let detail,
                         let attempt):
             let coord = TileCoord(lat: lat, lon: lon)

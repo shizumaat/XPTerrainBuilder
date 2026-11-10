@@ -2,14 +2,16 @@
 hiding the write carries, and its Undo.
 
 The witness reads the files only: the pack's own ``.pol`` (draped, one
-non-wrapping image, no surface, not weather-transparent), its placement
+non-wrapping image, no paved surface, not weather-transparent), its placement
 (image-mapped north-up, over an airport, photo-sized) and its image (not
 all see-through).  A draped pavement or marking polygon, a decal turned
 to its runway, a see-through overlay and a library polygon are never
 one.  The grid rule (RULINGS 2026-11-07a (3), ``pack_drape_grid``) then
 hides only a machine-named photo grid that extends outside the airport,
-as whole one-layer stacks: a single photo, scattered tiles and a photo
-laid over a photo are kept.  Synthetic packs, a byte-copy DSFTool; no
+WHOLE (#1960); a detail-texture grid drawn over it stays (RULINGS
+2026-11-09a (11), #1946); every other photo of the pack on the tile goes
+with it (RULINGS 2026-11-09a (10), #1968).  A single photo and scattered
+tiles alone are kept; a decal on a tile holds nothing.  Synthetic packs, a byte-copy DSFTool; no
 network, no corpus.
 """
 from __future__ import annotations
@@ -47,6 +49,13 @@ POLS = {
                        "SCALE 25 25\n",
     "ground/haze.pol": "A\n850\nDRAPED_POLYGON\nTEXTURE_NOWRAP haze.dds\n"
                        "SCALE 25 25\n",
+    "ground/oil.pol": "A\n850\nDRAPED_POLYGON\nTEXTURE_NOWRAP oil.dds\n"
+                      "SCALE 25 25\nLOAD_CENTER 25.0 51.0 29 2048\n"
+                      "LAYER_GROUP markings 2\n",
+    **{f"nice/nice_0x{n}.pol": f"A\n850\nDRAPED_POLYGON\n\nDECAL_LIB decal.dcl\n"
+                               "LAYER_GROUP terrain 1\nSURFACE grass\n\n"
+                               f"TEXTURE_NOWRAP nice_0x{n}.png\nSCALE 25 25"
+       for n in range(1, 7)},
     **{f"grid/Tile{n}.pol": f"A\n850\nDRAPED_POLYGON\nTEXTURE_NOWRAP\tTile{n}.dds\n"
                             "SCALE 25 25\nLOAD_CENTER 25.0 51.0 300 2048\n"
                             "LAYER_GROUP terrain 1\n" for n in range(1, 7)},
@@ -58,7 +67,7 @@ POLS = {
 IMAGES = {"ortho/photo.dds": True, "ortho/plain.dds": True,
           "ground/asphalt.dds": True, "ground/stripe.dds": True,
           "ground/grime.dds": False, "ground/skid.dds": True,
-          "ground/haze.dds": False,
+          "ground/haze.dds": False, "ground/oil.dds": True,
           **{f"grid/Tile{n}.dds": True for n in range(1, 7)},
           **{f"grid/Veil{n}.dds": False for n in range(1, 7)}}
 AT = (51.000, 25.000, 0.003)        # over the airport (lon, lat, size)
@@ -132,15 +141,30 @@ def pack(tmp_path):
 
 
 def _found(pack, dump=None):
-    areas = PD.airport_bounds(str(pack / "Earth nav data" / "apt.dat"))[0]
+    areas = [b for b, _ok in PD.airport_boxes(str(pack / "Earth nav data" / "apt.dat"))]
     return PD.draped_orthos(str(pack), (dump or _dump()).splitlines(True), areas)
 
 
-def test_only_the_grid_tiles_over_the_airport_are_hidden(pack):
+def test_the_grid_over_the_airport_is_hidden_whole(pack):
     found = _found(pack)
     assert [(m.index, m.path) for m in found] == [
-        (9, "grid/Tile1.pol"), (10, "grid/Tile2.pol")]
+        (9 + k, f"grid/Tile{k + 1}.pol") for k in range(6)], \
+        "every tile, the four off the airport too (#1960)"
     assert all(m.kind == "polygon" and m.uses == 1 for m in found)
+
+
+def test_a_decal_on_a_tile_holds_nothing(pack):
+    oil = [("ground/oil.pol", 0.0, (51.0045, 25.0005, 0.0003))]
+    found = {m.path for m in _found(pack, _dump(DEFS + oil))}
+    assert found == {f"grid/Tile{k}.pol" for k in range(1, 7)}, \
+        "an oil decal (with WED's LOAD_CENTER) is not a photo stack (#1960)"
+
+
+def test_a_grid_carrying_a_grass_surface_is_a_photo_grid(pack):
+    nice = [(f"nice/nice_0x{k + 1}.pol", 0.0, w) for k, (_p, _t, w) in enumerate(GRID)]
+    found = {m.path for m in _found(pack, _dump(DEFS[:9] + nice))}
+    assert found == {f"nice/nice_0x{k}.pol" for k in range(1, 7)}, \
+        "SURFACE grass + DECAL_LIB, no LOAD_CENTER: still a photo grid (#1943)"
 
 
 def test_single_photos_and_scattered_tiles_are_kept(pack):
@@ -157,16 +181,35 @@ def test_a_grid_inside_the_airport_is_kept(pack):
                                "111 25.10 50.90\n111 25.10 51.10\n"
                                "111 24.90 51.10\n113 24.90 50.90\n99\n"),
                    encoding="utf-8", newline="")
-    areas, bounded = PD.airport_bounds(str(apt))
+    rows = PD.airport_boxes(str(apt))
+    areas, bounded = [b for b, _ok in rows], all(ok for _b, ok in rows)
     assert bounded
     assert PD.draped_orthos(str(pack), _dump().splitlines(True), areas,
                             bounded=bounded) == ()
 
 
-def test_a_photo_laid_over_a_photo_is_kept_whole(pack):
+def test_a_photo_grid_under_a_detail_grid_is_hidden(pack):
+    tiles = {f"grid/Tile{k}.pol" for k in range(1, 7)}
     veils = [(f"grid/Veil{k + 1}.pol", 0.0, w) for k, (_p, _t, w) in enumerate(GRID)]
-    assert _found(pack, _dump(DEFS + veils)) == (), \
-        "a see-through detail grid over the base grid: the pack's blend"
+    assert {m.path for m in _found(pack, _dump(DEFS + veils))} == tiles, \
+        "hide the grid, keep the detail textures (RULINGS 2026-11-09a (11))"
+    part = [(f"grid/Veil{k + 1}.pol", 0.0, (lon + 0.008, lat, d))
+            for k, (_p, _t, (lon, lat, d)) in enumerate(GRID)]
+    assert {m.path for m in _found(pack, _dump(DEFS + part))} == tiles, \
+        "a detail grid over one column: the whole photo grid, no veil (#1946)"
+
+
+def test_every_photo_of_the_pack_goes_with_the_grid(pack):
+    far = [(p, t, (lon + 0.4, lat + 0.4, d)) for p, t, (lon, lat, d) in GRID]
+    stray = [("grid/Tile1.pol", 0.0, (51.3, 25.3, 0.004)),     # tiles nothing
+             ("grid/Tile2.pol", 30.0, (51.2, 25.2, 0.004))]    # reads turned
+    defs = DEFS + far + stray
+    found = {m.index for m in _found(pack, _dump(defs))}
+    assert found == set(range(9, len(defs))), \
+        "hide them all so our ortho imagery shows (RULINGS 2026-11-09a (10))"
+    alone = DEFS[:9] + far + stray
+    assert _found(pack, _dump(alone)) == (), \
+        "with no grid over the airport nothing is hidden"
 
 
 def test_masks_over_the_hidden_photos_go_with_them(pack, tmp_path):
@@ -176,8 +219,8 @@ def test_masks_over_the_hidden_photos_go_with_them(pack, tmp_path):
             encoding="utf-8", newline="")
     veils = [(f"grid/Veil{k + 1}.pol", 0.0, w) for k, (_p, _t, w) in enumerate(GRID)]
     found = {m.path for m in _found(pack, _dump(DEFS + veils))}
-    assert found == {"grid/Tile1.pol", "grid/Tile2.pol",
-                     "grid/Veil1.pol", "grid/Veil2.pol"}
+    assert found == {f"grid/{n}{k}.pol" for n in ("Tile", "Veil")
+                     for k in range(1, 7)}
 
 
 def test_draped_pavement_and_markings_are_never_photos(pack):
@@ -223,7 +266,7 @@ def test_the_record_reads_back_only_for_its_pristine_file(pack):
     row = PA.record("abc", found, {}, "t")
     assert PD.recorded({PD.RECORD_KEY: row}, "abc") == found
     assert PD.recorded({PD.RECORD_KEY: row}, "other") == ()
-    assert PD.summary(found)["count"] == 2
+    assert PD.summary(found)["count"] == 6
 
 
 # ── the write hides them; Undo puts them back ───────────────────────────
@@ -261,9 +304,8 @@ def test_the_write_hides_them_and_undo_puts_them_back(written):
     W.write_pack(str(rp.pack), plan, rp.tool, allow_live_install=True,
                  drapes=found)
     live = rp.dsf.read_text(encoding="utf-8")
-    assert "grid/Tile1.pol" not in live and "grid/Tile2.pol" not in live
-    assert live.count("POLYGON_DEF ") == len(DEFS) - 2
-    assert "POLYGON_DEF grid/Tile3.pol" in live, "the tiles off the airport stay"
+    assert "grid/Tile1.pol" not in live and "grid/Tile6.pol" not in live
+    assert live.count("POLYGON_DEF ") == len(DEFS) - 6
     assert "ground/skid.pol" in live and "BEGIN_POLYGON 0 65535 4" in live
     assert DS.undo(str(rp.pack)) == ["Earth nav data/+20+050/+25+051.dsf"]
     assert rp.dsf.read_bytes() == original

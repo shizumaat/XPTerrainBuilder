@@ -34,8 +34,24 @@ enum PatchLibraryText {
         case "available": return "patch v\(row.version) available"
         case "newer": return "v\(row.version) available (you have v\(row.localVersion ?? 0))"
         case "pack_changed": return "your pack changed — the next build solves it here"
+        case "installed": return "v\(row.localVersion ?? row.version) installed"
         default: return "patches for another version of this pack"
         }
+    }
+
+    /// The Library's filter (#1958; the engine's `patch_library.scan.FILTERS`,
+    /// same keys, words and states): key, label, the states it lists.
+    static let filters: [(key: String, label: String, states: Set<String>)] = [
+        ("all", "All", ["available", "newer", "pack_changed", "other", "installed"]),
+        ("available", "Available", ["available", "other"]),
+        ("installed", "Installed", ["installed", "pack_changed"]),
+        ("newer", "Newer version", ["newer"]),
+    ]
+
+    /// The rows `filter` lists.
+    static func filtered(_ rows: [O4PatchLibraryRow], by filter: String) -> [O4PatchLibraryRow] {
+        guard let states = filters.first(where: { $0.key == filter })?.states else { return rows }
+        return rows.filter { states.contains($0.state) }
     }
 
     static func tier(_ match: O4PatchLibraryMatch) -> String {
@@ -50,6 +66,7 @@ enum PatchLibraryText {
 struct PatchLibrarySection: View {
     @EnvironmentObject private var buildModel: BuildModel
     @State private var status = ""
+    @AppStorage("PatchLibraryFilter") private var filter = "all"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -58,15 +75,26 @@ struct PatchLibrarySection: View {
                 Spacer()
                 Text(status.isEmpty ? buildModel.patchLibraryStatus : status)
                     .foregroundStyle(.secondary).lineLimit(2)
+                // Available / installed / newer (#1958; Qt: filter_combo).
+                Picker("Show", selection: $filter) {
+                    ForEach(PatchLibraryText.filters, id: \.key) { item in
+                        Text(item.label).tag(item.key)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
                 Button("Check Now") { buildModel.checkPatchLibrary(force: true) }
                     .help("Read the library's index again")
                     .disabled(buildModel.patchLibraryClient() == nil)
             }
-            let rows = buildModel.patchLibraryCheck?.rows ?? []
+            let all = buildModel.patchLibraryCheck?.rows ?? []
+            let rows = PatchLibraryText.filtered(all, by: filter)
             if rows.isEmpty {
                 Text(buildModel.patchLibraryCheck == nil
                      ? "Not checked yet."
-                     : "No patch in the library for your installed airports and built tiles.")
+                     : all.isEmpty
+                     ? "No patch in the library for your installed airports and built tiles."
+                     : "No patch in the library matches this filter.")
                     .foregroundStyle(.secondary)
             }
             ForEach(rows) { row in
@@ -91,7 +119,9 @@ struct PatchLibrarySection: View {
                     } else if row.state == "newer" {
                         Button("Update") { apply(row) }
                     }
-                    Button("Ignore") { Task { await buildModel.ignorePatchLibraryRow(row) } }
+                    if row.state != "installed" {
+                        Button("Ignore") { Task { await buildModel.ignorePatchLibraryRow(row) } }
+                    }
                 }
                 .disabled(buildModel.isBuilding)
             }

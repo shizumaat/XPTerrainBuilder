@@ -74,6 +74,16 @@ class TileInfo:
     resolved_dir: str = ""
     volume: str = ""
     volume_mounted: bool = True
+    # Who built it (#1958): ORIGIN_HERE for this app (a build record row,
+    # a step record or a stamped tile cfg, :func:`built_here`), else
+    # ORIGIN_OTHER — "some ortho" another tool made.  The maps style the
+    # two apart.
+    origin: str = ""
+
+
+#: :attr:`TileInfo.origin` of a tile this app built, and of another's.
+ORIGIN_HERE = "xptb"
+ORIGIN_OTHER = "other"
 
 
 ##############################################################################
@@ -244,6 +254,30 @@ def effective_imagery(info) -> Optional[Tuple[str, Optional[int], str]]:
     return None
 
 
+def built_here(build_dir: str, lat: int, lon: int,
+               last_build: Optional[dict] = None) -> bool:
+    """Whether this app built the tile: its build record names this app,
+    or it has this app's step record, or its tile cfg carries the stamp
+    this app writes.  A folder with none of them was built by another
+    tool (the Library lists it read-only)."""
+    if ((last_build or {}).get("builder") or {}).get("tool") == \
+            TILELOG.BUILDER_TOOL:
+        return True
+    short = FNAMES.short_latlon(lat, lon)
+    if os.path.isfile(os.path.join(build_dir,
+                                   "Ortho4XP_" + short + "_steps.json")):
+        return True
+    import O4_Cfg_Vars as CFGVARS
+    try:
+        with TEXT.open_supplied(CN.tile_cfg_path(build_dir, lat, lon)) as handle:
+            for line in handle:
+                if line.split("=", 1)[0].strip() == CFGVARS.cfg_stamp_key:
+                    return True
+    except OSError:
+        pass
+    return False
+
+
 def _build_tile_info(
     build_dir: str, lat: int, lon: int, dir_name: str
 ) -> Optional[TileInfo]:
@@ -302,6 +336,8 @@ def _build_tile_info(
         resolved_dir=resolved_dir,
         volume=volume,
         volume_mounted=mounted,
+        origin=(ORIGIN_HERE if built_here(build_dir, lat, lon, last_build)
+                else ORIGIN_OTHER),
     )
 
 

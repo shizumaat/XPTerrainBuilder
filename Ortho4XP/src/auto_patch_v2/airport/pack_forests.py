@@ -30,7 +30,8 @@ resources."  This module owns the pure halves, any pack, any tile:
   shrubs to X-Plane 12 ground cover of no greater height), and its own
   flat tree OBJECTS (``kind="object"``) to the X-Plane 12 3D tree
   species of the same kind — under the same "this install provides it
-  as 3D" rule.
+  as 3D" rule.  Both in the tile's CLIMATE (issue #1965,
+  :mod:`.pack_climate`): the ``climate`` argument of :func:`old_forests`.
 * THE RENAME — :func:`_rename_definitions`: the dump text with the mapped
   ``POLYGON_DEF`` rows pointing at their targets.  Only those rows change;
   every polygon keeps its index, its points and every other byte.
@@ -56,13 +57,14 @@ from . import pack_trees_clear as _clear
 from . import pack_trees_density as _density
 from .obj8 import resolve_resource
 from .pack_art import FIRST_PATHS, count_uses, declared_definitions
+from .pack_climate import Climate
 from .pack_forests_map import FOREST_MAP
 from .pack_trees_map import FAMILIES, GRASS_M, PLANTERS
 
 __all__ = ["old_forests",
            "renames_of", "apply_upgrade", "record",
            "recorded", "recorded_version", "clear_strips", "summary",
-           "log_line", "RECORD_KEY", "UPGRADE_VERSION"]
+           "log_line", "target_lines", "RECORD_KEY", "UPGRADE_VERSION"]
 
 #: the key of the record row (``o4_placement_provenance.json``)
 RECORD_KEY = "forest_upgrade"
@@ -73,8 +75,9 @@ RECORD_KEY = "forest_upgrade"
 #: 4: shrubs are barberry, and the pack's own kept tall vegetation is
 #: cleared off the strips too — RULINGS 2026-11-06d (7)(8);
 #: 5: grass-class files keep the pack's own flat file, no 3D grass
-#: planter — owner 2026-11-07, deferred to Beta 8)
-UPGRADE_VERSION = 5
+#: planter — owner 2026-11-07, deferred to Beta 8;
+#: 6: the species and forests of the tile's climate, issue #1965)
+UPGRADE_VERSION = 6
 #: a ``.for`` line keyword that only X-Plane 12's 3D trees use
 KEYWORDS_3D = frozenset({"SHADER_3D", "MESH"})
 
@@ -156,16 +159,21 @@ def _target(target: str, index: _t.Mapping[str, str],
 def old_forests(pack_root: str, source: str | _t.Sequence[str],
                 index: _t.Mapping[str, str] | None,
                 default_scenery: str,
-                also_exported: _t.Callable[[], _t.Container[str]] | None = None
+                also_exported: _t.Callable[[], _t.Container[str]] | None = None,
+                climate: Climate | _t.Callable[[], Climate | None] | None = None
                 ) -> tuple[OldForest, ...] | None:
     """THE CHECK.  Every flat forest ``source`` (a dump path, or its rows)
     declares, with its use count and its target; ``()`` when there is
     none.  ``None`` without a library index: a virtual path could not be
     resolved, so nothing is said.  ``also_exported`` answers the
     LOWER-CASED names the index does not carry but a seasonal or
-    excluding export provides; asked only for a target the index lacks."""
+    excluding export provides; asked only for a target the index lacks.
+    ``climate`` (or a function answering it, asked only for the pack's
+    own trees) picks their X-Plane 12 species and forests; ``None`` is
+    the temperate default."""
     if index is None:
         return None
+    clim = _lazy(climate)
     kinds: dict[str, str | None] = {}
     found: list[tuple[str, int, str, str, bool]] = []
     pack = os.path.abspath(pack_root) + os.sep
@@ -185,12 +193,12 @@ def old_forests(pack_root: str, source: str | _t.Sequence[str],
         if (not local and also_exported is not None
                 and p.lower() in also_exported()):
             continue        # a seasonal export (3D) wins over a backup's file
-        want = (_pt.local_forest_target(phys) if local
+        want = (_pt.local_forest_target(phys, clim()) if local
                 else FOREST_MAP.get(forest_key(phys, default_scenery), ""))
         found.append(("polygon", i, path,
                       _target(want, index, kinds, also_exported), local))
     found.extend(_tree_objects(pack_root, decl["object"], index, kinds,
-                               also_exported))
+                               also_exported, clim))
     if not found:
         return ()
     uses = count_uses(source, {(k, i) for k, i, *_ in found})
@@ -198,11 +206,27 @@ def old_forests(pack_root: str, source: str | _t.Sequence[str],
                  for k, i, p, t, loc in found)
 
 
+def _lazy(climate: Climate | _t.Callable[[], Climate | None] | None
+          ) -> _t.Callable[[], Climate | None]:
+    """``climate`` as a function asked at most once."""
+    if not callable(climate):
+        return lambda: climate
+    memo: list[Climate | None] = []
+
+    def ask() -> Climate | None:
+        if not memo:
+            memo.append(climate())
+        return memo[0]
+    return ask
+
+
 def _tree_objects(pack_root: str, paths: _t.Sequence[str],
                   index: _t.Mapping[str, str], kinds: dict[str, str | None],
-                  also_exported: _t.Callable[[], _t.Container[str]] | None
+                  also_exported: _t.Callable[[], _t.Container[str]] | None,
+                  clim: _t.Callable[[], Climate | None] = lambda: None
                   ) -> list[tuple[str, int, str, str, bool]]:
-    """The pack's own flat tree objects (``pack_trees.flat_trees``)."""
+    """The pack's own flat tree objects (``pack_trees.flat_trees``), each
+    to its family in the climate (``pack_trees.object_family``)."""
     out = []
     for i, path in enumerate(paths):
         p = path.replace("\\", "/").replace(":", "/")
@@ -214,7 +238,8 @@ def _tree_objects(pack_root: str, paths: _t.Sequence[str],
         ft = _pt.flat_trees(cand)
         if ft is not None:
             out.append(("object", i, path,
-                        _target(ft.family, index, kinds, also_exported), True))
+                        _target(_pt.object_family(ft, clim()), index, kinds,
+                                also_exported), True))
     return out
 
 
@@ -369,3 +394,18 @@ def log_line(pack: str, old: _t.Sequence[OldForest]) -> str:
         line += (f", {s['unmapped']} have none and stay as they are "
                  f"— first: {s['first_unmapped'][0]}")
     return line
+
+
+def target_lines(old: _t.Sequence[OldForest], climate: Climate | None
+                 ) -> list[str]:
+    """The build log's account of the pack's own trees (issue #1965): the
+    climate they were chosen for, and each definition's X-Plane 12
+    target (``kept`` = the pack's own file stays)."""
+    own = [f for f in old if f.local]
+    if not own:
+        return []
+    c = climate
+    out = [f"climate {c.tag} (from {c.source})" if c is not None
+           else "climate: temperate default (none read)"]
+    out += [f"{f.path} -> {f.target or 'kept'}" for f in own]
+    return out

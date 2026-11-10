@@ -1412,5 +1412,6 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
             connector_of=b.anchor.connector_of,
             lift_m=b.lift_m, msl_z=b.msl_z) for b in s.bodies))
         for s in ss.splits)
-    kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)
+    kept = tuple(_pm.Kept(k.index, k.resource, k.reason, k.units, k.lat, k.lon,
+                          k.zero_m) for k in ss.kept)
     return splits, kept

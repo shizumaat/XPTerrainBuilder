@@ -21,8 +21,8 @@ role=bathymetry
 # ---- Access keys copied VERBATIM from FRANCE50CM.elv (same service) ----
 access_strategy=wfs_tile_index
 wfs_service_url=https://data.geopf.fr/wfs/ows
-wfs_type_name=IGNF_MNT-LIDAR-HD:dalle
-url_property=url
+wfs_type_name=IGNF_LIDAR-HD_METADONNEE:metadata
+url_property=url_mnt
 
 # Native ground resolution of the source rasters, in metres.
 native_resolution_m=0.5

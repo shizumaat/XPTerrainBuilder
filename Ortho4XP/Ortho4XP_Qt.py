@@ -343,6 +343,15 @@ def main():
 
     window = O4_Qt_GUI.MainWindow()
     window.show()
+    # Patches opened on the app icon or given as launch arguments (#1979).
+    import O4_Qt_Patch_Drop as QTDROP
+
+    app.installEventFilter(window.patch_drop)
+    dropped = QTDROP.launch_paths(sys.argv)
+    if dropped:
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(0, lambda: QTDROP.offer(window, dropped))
     # Background liveness check of every imagery source (#1345).
     window.start_imagery_status_check()
     code = app.exec()

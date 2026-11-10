@@ -19,6 +19,7 @@ import time
 
 from o4_engine import library as LIB
 from O4_Qt_Widgets import wrap_and_never_widen
+from patch_library import scan as SCAN
 from patch_library.terms import NC_MARK
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
@@ -67,7 +68,15 @@ def _state_text(row) -> str:
         return "v%d available (you have v%d)" % (row["version"], row.get("local_version") or 0)
     if row["state"] == "pack_changed":
         return "your pack changed — the next build solves it here"
+    if row["state"] == "installed":
+        return "v%d installed" % (row.get("local_version") or row["version"])
     return "patches for another version of this pack"
+
+
+def _filtered_rows(rows, key: str) -> list:
+    """The rows the Library's filter ``key`` lists (``scan.FILTERS``)."""
+    states = dict((k, st) for k, _label, st in SCAN.FILTERS).get(key, SCAN.STATES)
+    return [row for row in rows if row["state"] in states]
 
 
 def _tier_text(match) -> str:
@@ -101,8 +110,10 @@ def check_at_launch(working_dir, say=print):
             result = command("library_check")(working_dir=working_dir)
         except Exception:                  # offline: the Library box says so
             return
-        if result.get("configured") and result.get("rows"):
-            say(_notice(result["rows"]))
+        rows = [r for r in result.get("rows") or ()
+                if r["state"] in SCAN.ACTIONABLE]
+        if result.get("configured") and rows:
+            say(_notice(rows))
     threading.Thread(target=run, daemon=True, name="o4-qt-patch-library-launch").start()
 
 
@@ -160,6 +171,13 @@ class PatchLibraryBox(QGroupBox):
         top = QHBoxLayout()
         self.status_label = _caption("Not checked yet.")
         top.addWidget(self.status_label, 1)
+        # Available / installed / newer (#1958; Mac: Picker("Show")).
+        self.filter_combo = QComboBox()
+        for key, label, _states in SCAN.FILTERS:
+            self.filter_combo.addItem(label, key)
+        self.filter_combo.currentIndexChanged.connect(
+            lambda _i: self.result is not None and self.set_check(self.result))
+        top.addWidget(self.filter_combo)
         self.check_btn = QPushButton("Check now")
         self.check_btn.setToolTip("Read the library's index again")
         self.check_btn.clicked.connect(lambda: self.check(force=True))
@@ -189,10 +207,12 @@ class PatchLibraryBox(QGroupBox):
         if not result.get("configured"):
             self.status_label.setText("The patch library is not set up in this app yet.")
             return
-        rows = result.get("rows") or []
+        rows = _filtered_rows(result.get("rows") or [],
+                             self.filter_combo.currentData() or "all")
         self.status_label.setText(
             "" if rows else "No patch in the library for your installed airports "
-            "and built tiles.")
+            "and built tiles." if not result.get("rows") else
+            "No patch in the library matches this filter.")
         for row in rows:
             self.row_widgets.append(self._row_widget(row))
             self.rows_box.addWidget(self.row_widgets[-1])
@@ -215,10 +235,11 @@ class PatchLibraryBox(QGroupBox):
             button.clicked.connect(lambda _c=False, r=row: self.apply(r))
             line.addWidget(button)
             widget.buttons[label] = button
-        ignore = QPushButton("Ignore")
-        ignore.clicked.connect(lambda _c=False, r=row: self.ignore(r))
-        line.addWidget(ignore)
-        widget.buttons["Ignore"] = ignore
+        if row["state"] != "installed":     # current: nothing to ignore (#1958)
+            ignore = QPushButton("Ignore")
+            ignore.clicked.connect(lambda _c=False, r=row: self.ignore(r))
+            line.addWidget(ignore)
+            widget.buttons["Ignore"] = ignore
         for button in widget.buttons.values():
             button.setEnabled(not self._building())
         return widget

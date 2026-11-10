@@ -291,6 +291,43 @@ def test_visible_texture_still_admits(tmp_path):
     assert S.pol_declaration(_pol(tmp_path, "g/x.pol", "concrete")).invisible is False
 
 
+def _texture(path, alpha, fmt):
+    from PIL import Image
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    Image.new("RGBA", (32, 32), (0, 0, 0, alpha)).save(path, format=fmt)
+
+
+def test_a_dds_stands_in_for_the_named_png(tmp_path):
+    """#1957 (LIME Aerosoft): the page names ``Hard_Surface.png`` and the
+    pack ships only ``Hard_Surface.dds`` — X-Plane draws the DDS, so the
+    DDS's alpha is the witness: fully transparent, the page is refused."""
+    rel = "objects/ZZ_DF-Hard_Surface/pol/Hard_Surface.pol"
+    path = _hard_surface(tmp_path, rel, 0)
+    os.remove(os.path.join(os.path.dirname(path), "Hard_Surface.png"))
+    _texture(os.path.join(os.path.dirname(path), "Hard_Surface.dds"), 0, "DDS")
+    assert S.texture_file(path, "Hard_Surface.png").endswith("Hard_Surface.dds")
+    assert S.pol_declaration(path).invisible
+    assert _gate(tmp_path)(rel) == (None, "concrete")
+    # an opaque DDS paints: the sheet stands
+    _texture(os.path.join(os.path.dirname(path), "Hard_Surface.dds"), 255, "DDS")
+    assert not S.pol_declaration(path).invisible
+
+
+def test_a_backslash_texture_path_resolves(tmp_path):
+    """#1957 (LGAV FlyTampa): ``TEXTURE ..\\..\\Texture\\transparent.dds``
+    is relative to the page with Windows separators."""
+    path = os.path.join(str(tmp_path), "Grounds_Markings", "Grounds", "transparent.pol")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        # the pack's own bytes: CRLF rows, a lone CR before SURFACE
+        fh.write("I\r\n850\t\r\nDRAPED_POLYGON\r\n\r\n"
+                 "TEXTURE\t\t..\\..\\Texture\\transparent.dds\r\n"
+                 "SCALE\t\t25 25\r\n\nLAYER_GROUP airport +1\rSURFACE asphalt")
+    _texture(os.path.join(str(tmp_path), "Texture", "transparent.dds"), 0, "DDS")
+    assert S.pol_declaration(path).invisible
+    assert S.texture_file(path, "nothing_here.png") is None
+
+
 # ── #1686: a material's SHADE is not a light fixture ─────────────────────
 
 @pytest.mark.parametrize("rel", [

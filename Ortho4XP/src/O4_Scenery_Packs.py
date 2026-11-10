@@ -41,8 +41,10 @@ InstallationScanner.swift``, is the cross-language reference and
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
+import threading
 from typing import Iterable
 
 __all__ = [
@@ -66,6 +68,7 @@ __all__ = [
     "read_ini_lines",
     "write_ini_lines",
     "insert_new_packs",
+    "listing_snapshot",
 ]
 
 INI_FILENAME = "scenery_packs.ini"
@@ -226,6 +229,10 @@ def earth_nav_data(pack_root: str) -> str:
     (Linux) answers only the one on disk, so the directory is LISTED.
     The canonical spelling is returned when nothing matches (the caller's
     ``isfile`` then answers False)."""
+    return _snapshot(("earth", pack_root), lambda: _earth_nav_data(pack_root))
+
+
+def _earth_nav_data(pack_root: str) -> str:
     exact = os.path.join(pack_root, EARTH_NAV_DATA)
     if os.path.isdir(exact):
         return exact
@@ -239,6 +246,37 @@ def earth_nav_data(pack_root: str) -> str:
         if name.casefold() == want and os.path.isdir(path):
             return path
     return exact
+
+
+_SNAPSHOT = threading.local()
+
+
+@contextlib.contextmanager
+def listing_snapshot():
+    """Read Custom Scenery's listing ONCE for the block, on this thread.
+
+    A caller that asks the pack selector about hundreds of airports in a
+    row (the map's stale-tile check, #1958) would otherwise list a few
+    thousand pack folders per airport.  Inside the block
+    :func:`enabled_pack_names` and :func:`earth_nav_data` answer from what
+    they read first; outside it (every build) nothing is remembered."""
+    outer = getattr(_SNAPSHOT, "memo", None)
+    if outer is None:
+        _SNAPSHOT.memo = {}
+    try:
+        yield
+    finally:
+        if outer is None:
+            _SNAPSHOT.memo = None
+
+
+def _snapshot(key: tuple, compute):
+    memo = getattr(_SNAPSHOT, "memo", None)
+    if memo is None:
+        return compute()
+    if key not in memo:
+        memo[key] = compute()
+    return memo[key]
 
 
 def disabled_pack_names(custom_scenery_dir: str) -> set[str]:
@@ -260,6 +298,11 @@ def enabled_pack_names(custom_scenery_dir: str) -> set[str]:
     An entry listed but missing from disk (a removed pack, a dangling
     symlink onto an unmounted volume) simply is not in the set.
     """
+    return set(_snapshot(("enabled", custom_scenery_dir),
+                         lambda: _enabled_pack_names(custom_scenery_dir)))
+
+
+def _enabled_pack_names(custom_scenery_dir: str) -> set[str]:
     if not custom_scenery_dir or not os.path.isdir(custom_scenery_dir):
         return set()
     disabled = disabled_pack_names(custom_scenery_dir)

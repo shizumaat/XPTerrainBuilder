@@ -197,7 +197,7 @@ def test_the_publisher_swaps_a_staged_tile_holding_only_its_follow(pack,
         return swap(*a, **kw)
     monkeypatch.setattr(WP, "swap_staged", watched)
     clock = {"t": 0.0}
-    pub = RUN.PackPublisher(scenery, lambda lat, lon: "/build",
+    pub = RUN._PackPublisher(scenery, lambda lat, lon: "/build",
                             clock=lambda: clock["t"])
     assert pub.settle((53, -64), "light", held=False) == "pending"
     clock["t"] = RUN.PENDING_S + 1
@@ -274,7 +274,7 @@ def test_the_session_builder_queues_a_light_build_by_deadline():
             calls.append((tiles, provider, zoomlevel, kw))
             return True
 
-    builder = RUN.SessionBuilder(Session(), "BI", 16)
+    builder = RUN._SessionBuilder(Session(), "BI", 16)
     before = time.time()
     assert builder.start((53, -64), "light", 600.0, "P1")
     tiles, provider, zoomlevel, kw = calls[0]

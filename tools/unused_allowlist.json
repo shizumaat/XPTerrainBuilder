@@ -181,11 +181,6 @@
  },
  {
   "path": "Ortho4XP/src/O4_World_Pack.py",
-  "name": "dsftool_path",
-  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
- },
- {
-  "path": "Ortho4XP/src/O4_World_Pack.py",
   "name": "ini_remove",
   "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
  },
@@ -256,12 +251,12 @@
  },
  {
   "path": "Ortho4XP/src/O4_World_Drape_Fetch.py",
-  "name": "fetch",
+  "name": "main",
   "reason": "entry point: `python src/O4_World_Drape_Fetch.py` (the drape kit's imagery fetch, run as a script from the world-pack kit); main calls fetch"
  },
  {
-  "path": "Ortho4XP/src/O4_World_Drape_Fetch.py",
-  "name": "main",
-  "reason": "entry point: `python src/O4_World_Drape_Fetch.py` (the drape kit's imagery fetch, run as a script from the world-pack kit); main calls fetch"
+  "path": "Ortho4XP/src/O4_XPlane_Log.py",
+  "name": "DsfLoad",
+  "reason": "record type: what parse_dsf_load / pack_loads / LogTail.read return, read by attribute (world_commands tile_loaded and _status_fields: rec.tris); never constructed outside its module"
  }
 ]

@@ -13,7 +13,7 @@ def test_the_s3_margin_is_005_degrees_or_60_s_whichever_is_more():
     assert AHEAD.margin_km(0.0) == pytest.approx(5.566, abs=1e-3)
     assert AHEAD.margin_km(50.0) == pytest.approx(5.566, abs=1e-3)
     assert AHEAD.margin_km(157.6) == pytest.approx(9.456, abs=1e-3)
-    assert AHEAD.margin_s(157.6) == pytest.approx(60.0)
+    assert AHEAD._margin_s(157.6) == pytest.approx(60.0)
     assert AHEAD.deadline_s(700.0, 157.6) == pytest.approx(
         700.0 - 60.0 - AHEAD.SWAP_S)
 
@@ -24,7 +24,7 @@ def test_entries_along_a_straight_track_match_the_tracker_flown_there():
     point by point names them."""
     live = W.WindowTracker()
     live.load(53.30, -60.45)
-    entries = AHEAD.track_entries(live, 53.30, -60.45, 270.0, 150.0, 1500.0)
+    entries = AHEAD._track_entries(live, 53.30, -60.45, 270.0, 150.0, 1500.0)
     assert live.cols == {-60}                       # the live one never moves
     first = {t: s for t, s in entries.items() if t[1] == -63}
     assert set(first) == {(52, -63), (53, -63), (54, -63)}

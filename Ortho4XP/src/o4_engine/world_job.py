@@ -60,7 +60,7 @@ import O4_World_Window as WINDOW
 from O4_Imagery_Follow_Motion import MotionTracker
 
 __all__ = ["KINDS", "ESTIMATE_S", "SPREAD", "MOVING_MS", "PARKED_ASSUMED_MS",
-           "SWAP_SPACING_S", "MAX_ATTEMPTS", "Job", "WorldJob"]
+           "SWAP_SPACING_S", "MAX_ATTEMPTS", "WorldJob"]
 
 #: The intermediate kinds the job builds (spec §3, §17: D1 picks one).
 KINDS = ("light", "drape")
@@ -87,7 +87,7 @@ Tile = tuple[int, int]
 
 
 @dataclass
-class Job:
+class _Job:
     """One tile of build-ahead (spec §6.3)."""
     tile: Tile
     kind: str
@@ -125,7 +125,7 @@ class WorldJob:
         self.governor = GOVERNOR.FrameGovernor(sim_priority)
         self.tracker = WINDOW.WindowTracker()
         self.motion = MotionTracker()
-        self.jobs: dict[Tile, Job] = {}
+        self.jobs: dict[Tile, _Job] = {}
         self.swaps: list[tuple[Tile, float]] = []     # (tile, at)
         self.last_swap: tuple = ()
         self.state, self.reason = "idle", ""
@@ -281,7 +281,7 @@ class WorldJob:
             if job is not None and job.state not in ("queued", "late"):
                 continue
             if job is None:
-                job = self.jobs[tile] = Job(tile, self.kind, now + deadline)
+                job = self.jobs[tile] = _Job(tile, self.kind, now + deadline)
             job.deadline = now + deadline
             moving = self._track is not None
             job.state = "late" if moving and deadline < low else "queued"

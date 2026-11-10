@@ -10,14 +10,14 @@ gives it the session, the World pack and X-Plane.
   :func:`autostart` starts it beside the follow job (both apps call
   ``imagery_follow_start`` at launch) when imagery on demand is on and the
   World pack is installed.  :func:`world_job_stop` stops it.
-* :class:`SessionBuilder` -- a ``light`` tile is an ordinary build through
+* :class:`_SessionBuilder` -- a ``light`` tile is an ordinary build through
   the session's queue (``enqueue_build`` with ``overrides={"profile":
   "light"}``, its ``deadline`` and class ``P1``; never interactive:
   ``missing_art="leave"``); ``world_publish.watch`` stages and publishes it
   as every finished build.  A ``drape`` tile (setting
   ``world_intermediate``, until D1) is fetched and written straight into
   the staging folder (``O4_World_Drape_Fetch``, ``O4_World_Drape``).
-* :class:`PackPublisher` -- swaps a staged tile when the job's rule S3
+* :class:`_PackPublisher` -- swaps a staged tile when the job's rule S3
   allows, holding the follow job for that tile only (S7).
 """
 from __future__ import annotations
@@ -34,8 +34,7 @@ import O4_World_Pack as WP
 from . import world_commands as WORLD
 from .world_job import KINDS, WorldJob
 
-__all__ = ["STATUS_EVERY_S", "SessionBuilder", "PackPublisher",
-           "world_job_start", "world_job_stop", "autostart"]
+__all__ = ["STATUS_EVERY_S", "world_job_start", "world_job_stop", "autostart"]
 
 #: Seconds between ``WorldStatus`` events while the job runs.
 STATUS_EVERY_S = 2.0
@@ -60,7 +59,7 @@ def _utc() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-class SessionBuilder:
+class _SessionBuilder:
     """The job's builds through the engine session (see the module)."""
 
     def __init__(self, session: Any, provider: str, zoomlevel: int,
@@ -144,7 +143,7 @@ def drape_tile(tile, provider: str, zoomlevel: int) -> bool:
     return not DRAPE.verify_drape(staged, lat, lon, tool)["problems"]
 
 
-class PackPublisher:
+class _PackPublisher:
     """Swaps the job's staged tiles into the World pack (see the module)."""
 
     def __init__(self, scenery_dir: str, build_dir_of: Callable[[int, int], str],
@@ -239,12 +238,12 @@ class _Runner:
         zoomlevel = int(values.get("default_zl") or 16)
         self.emit, self.scenery_dir = emit, scenery_dir
         self.feed = shared(WEBAPI.base_url(int(port)) if port else None)
-        builder = SessionBuilder(
+        builder = _SessionBuilder(
             session, provider, zoomlevel,
             drape=lambda tile: drape_tile(tile, provider, zoomlevel))
         self.job = WorldJob(
             builder=builder,
-            publisher=PackPublisher(scenery_dir, session.tile_build_dir),
+            publisher=_PackPublisher(scenery_dir, session.tile_build_dir),
             wanted=_Wanted(scenery_dir), kind=kind,
             capacity=SLOTS.session_capacity(), cores=os.cpu_count() or 4,
             fly_slots=int(values.get("fly_build_slots") or 0),

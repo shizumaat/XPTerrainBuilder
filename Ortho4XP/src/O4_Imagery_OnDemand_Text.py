@@ -20,7 +20,7 @@ __all__ = ["PIN_TITLE", "UNPIN_TITLE", "PIN_ROW_TITLE", "LOW_RES_STATE",
            "MAKE_LOW_RES_NONE", "PINS_LINE", "CORES_LINE", "OLDER_SHARP_NOTE",
            "FOLLOW_START_TITLE", "FOLLOW_STOP_TITLE", "FOLLOW_TEMPLATES",
            "FOLLOW_DETAIL", "WAITING_REASON", "make_low_res_message",
-           "pins_line", "pin_done", "follow_lines"]
+           "pins_line", "pin_done", "follow_lines", "size_text"]
 
 # --- Favorites (spec §7: the Library's tile menu and the tile's info pane;
 # "pin" renamed Favorite by RULINGS 2026-11-10c (1); the identifiers and the
@@ -79,7 +79,7 @@ BUFFER_AHEAD = "{seconds} s ahead"
 KNOTS_PER_MS = 1.943844
 
 
-def _size_text(nbytes) -> str:
+def size_text(nbytes) -> str:
     """``12.3 MB`` / ``1.25 GB`` (decimal), the same in both apps."""
     value = float(nbytes or 0)
     if value >= 1e9:
@@ -91,13 +91,13 @@ def make_low_res_message(freed_bytes, textures: int) -> str:
     """The "Make all low-res again" confirmation: the space it frees."""
     return ("This makes %d sharp texture(s) low-res again and frees %s. "
             "They are fetched again when you fly near; favorites are "
-            "kept." % (int(textures), _size_text(freed_bytes)))
+            "kept." % (int(textures), size_text(freed_bytes)))
 
 
 def pins_line(pinned_bytes, pinned_files: int, core_files: int = 0) -> str:
     """The Storage row's extra lines: the airport cores among the counted
     textures (when any), then the favorites, inside the ortho budget."""
-    pins = PINS_LINE.format(bytes=_size_text(pinned_bytes),
+    pins = PINS_LINE.format(bytes=size_text(pinned_bytes),
                             files=int(pinned_files))
     if not core_files:
         return pins
@@ -131,7 +131,7 @@ def _follow_values(status: Mapping) -> dict:
         "buffer": (BUFFER_NONE if buffer_s < 0
                    else BUFFER_AHEAD.format(seconds="%.0f" % buffer_s)),
         "landed": "%d" % num("landed"),
-        "bytes_landed": _size_text(num("bytes_landed")),
+        "bytes_landed": size_text(num("bytes_landed")),
         "failed": "%d" % num("failed"),
         "xplane": XPLANE_ANSWERING if status.get("xplane") else XPLANE_SILENT,
         "lat": "%.3f" % num("lat"), "lon": "%.3f" % num("lon"),

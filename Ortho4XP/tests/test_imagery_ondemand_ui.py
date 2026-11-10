@@ -324,7 +324,7 @@ def test_favorites_show_a_star_on_both_maps(qapp):
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QImage, QPainter
 
-    points = STAR.star_points(0.0, 0.0, 10.0)
+    points = STAR._star_points(0.0, 0.0, 10.0)
     assert len(points) == 10 and points[0] == (0.0, -10.0)
     image = QImage(64, 64, QImage.Format_ARGB32)
     image.fill(0)

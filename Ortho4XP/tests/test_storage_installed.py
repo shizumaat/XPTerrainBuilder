@@ -42,4 +42,4 @@ def test_folders_sized_links_counted_never_followed(tmp_path, monkeypatch):
 def test_unset_or_missing_scenery_measures_nothing(tmp_path):
     assert not INSTALLED.installed_tiles("", str(tmp_path / "c.json"))["measured"]
     assert not INSTALLED.installed_tiles(str(tmp_path / "nope"))["measured"]
-    assert INSTALLED.link_volume("D:\\Tiles\\zOrtho4XP_+1+1") == "D:"
+    assert INSTALLED._link_volume("D:\\Tiles\\zOrtho4XP_+1+1") == "D:"

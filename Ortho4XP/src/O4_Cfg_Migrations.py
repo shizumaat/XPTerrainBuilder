@@ -6,7 +6,7 @@ through :func:`migrate_global`, each recorded in the file's
 hand afterwards is never touched:
 
 1. the airport Detail hand-over (#1985, ``O4_Airport_Detail.migrate_cfg``);
-2. the preset imagery reach (:func:`migrate_preset_extent`, below);
+2. the preset imagery reach (:func:`_migrate_preset_extent`, below);
 3. raised registry defaults (``O4_Cfg_Vars.migrate_changed_defaults``).
 
 Every reader of the global cfg calls :func:`migrate_global` BEFORE it
@@ -22,10 +22,10 @@ from __future__ import annotations
 
 import os
 
-__all__ = ["PRESET_EXTENT_ENTRY", "OLD_PRESET_EXTENT", "migrate_preset_extent",
+__all__ = ["PRESET_EXTENT_ENTRY", "OLD_PRESET_EXTENT",
            "migrate_global"]
 
-#: The register entry of :func:`migrate_preset_extent`.
+#: The register entry of :func:`_migrate_preset_extent`.
 PRESET_EXTENT_ENTRY = "preset_cover_extent"
 
 #: Every preset wrote ``cover_extent=1.0`` until 2026-11-09; since then
@@ -59,7 +59,7 @@ def _preset_extent_change(raw):
     return {}
 
 
-def migrate_preset_extent(cfg_path):
+def _migrate_preset_extent(cfg_path):
     """Apply :func:`_preset_extent_change` to the global cfg at
     ``cfg_path`` ONCE (register entry :data:`PRESET_EXTENT_ENTRY`).
 
@@ -101,7 +101,7 @@ def migrate_global(cfg_path=None):
             import O4_Config_Names as CN
             cfg_path = CN.global_cfg_path()
         return (AIRPORT_DETAIL.migrate_cfg(cfg_path)
-                + migrate_preset_extent(cfg_path)
+                + _migrate_preset_extent(cfg_path)
                 + CV.migrate_changed_defaults(cfg_path))
     except Exception:
         return []

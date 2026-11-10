@@ -13,14 +13,14 @@ import math
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
-__all__ = ["STAR_COLOR", "MIN_SQUARE_PX", "draw_star", "star_points"]
+__all__ = ["STAR_COLOR", "MIN_SQUARE_PX", "draw_star"]
 
 STAR_COLOR = "#FFD60A"
 #: Below this square size on screen the star is not drawn.
 MIN_SQUARE_PX = 14.0
 
 
-def star_points(cx: float, cy: float, radius: float):
+def _star_points(cx: float, cy: float, radius: float):
     """The ten corners of a five-pointed star centred on ``(cx, cy)``, the
     first point straight up (y grows downward)."""
     inner = radius * 0.45
@@ -36,7 +36,7 @@ def draw_star(painter, r, px: float, scale: float) -> None:
     if px <= MIN_SQUARE_PX:
         return
     size = min(max(px * 0.16, 11.0), 20.0) / max(scale, 1e-12)
-    corners = star_points(r.right() - size * 0.7, r.bottom() - size * 0.7,
+    corners = _star_points(r.right() - size * 0.7, r.bottom() - size * 0.7,
                           size * 0.5)
     path = QPainterPath()
     path.moveTo(QPointF(*corners[0]))

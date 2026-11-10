@@ -55,7 +55,7 @@ def test_old_preset_extent_moves_when_the_rest_is_a_preset(tmp_path):
     body = "".join("%s=%s\n" % (name, value) for name, value in
                    PRESETS.cfg_values(PRESETS.preset("balanced")).items())
     path = _cfg(tmp_path, body.replace("cover_extent=0.0", "cover_extent=1.0"))
-    lines = MIG.migrate_preset_extent(path)
+    lines = MIG._migrate_preset_extent(path)
     assert lines and "cover_extent=0.0" in lines[0]
     assert SM._parse_cfg(path)["cover_extent"] == "0.0"
     assert MIG.PRESET_EXTENT_ENTRY in pathlib.Path(
@@ -68,11 +68,11 @@ def test_hand_changed_key_keeps_the_extent(tmp_path):
     body = body.replace("cover_extent=0.0", "cover_extent=1.0")
     path = _cfg(tmp_path, body.replace("elevation_level=auto",
                                        "elevation_level=30", 1))
-    assert MIG.migrate_preset_extent(path) == []
+    assert MIG._migrate_preset_extent(path) == []
     assert SM._parse_cfg(path)["cover_extent"] == "1.0"
     # Registered: a later match is never migrated (the 1.0 is the user's).
     path = _cfg(tmp_path, body)
-    assert MIG.migrate_preset_extent(path) == []
+    assert MIG._migrate_preset_extent(path) == []
     assert SM._parse_cfg(path)["cover_extent"] == "1.0"
 
 

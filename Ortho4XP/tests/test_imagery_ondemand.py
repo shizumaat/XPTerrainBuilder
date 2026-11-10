@@ -309,7 +309,7 @@ def test_the_budget_floor_counts_and_warns(world):
     is ``over_at_floor`` (the apps warn)."""
     import O4_Imagery_OnDemand_Budget as BUDGET
     conn = world.make(4)
-    floor = BUDGET.floor_bytes(conn)
+    floor = BUDGET._floor_bytes(conn)
     assert floor > 0
     budget = BUDGET.measure(conn, floor // 2)
     assert budget.fixed == floor and budget.over_at_floor
@@ -319,7 +319,7 @@ def test_the_budget_floor_counts_and_warns(world):
     assert out["total_before"] == floor + sharp
     assert out["total_after"] == floor                       # all low-res
     assert not BUDGET.measure(conn, floor * 2).over_at_floor
-    assert [BUDGET.tier_of(r) for r in (
+    assert [BUDGET._tier_of(r) for r in (
         {"pinned": 0, "core": 0}, {"pinned": 0, "core": 1},
         {"pinned": 1, "core": 1})] == [0, 1, 2]
 

@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
 import O4_DSF_Compress as DSFC
+import O4_Imagery_OnDemand_Budget as BUDGET
 
 __all__ = ["DEFAULT_PX", "STAMP", "convert_tile", "is_converted",
            "plan_tile"]
@@ -93,11 +94,8 @@ class _TilePlan:
         return sum(item[1] for item in getattr(self, which))
 
 
-def _size(path: str) -> int:
-    try:
-        return os.stat(path).st_size
-    except OSError:
-        return 0
+#: A file's size, 0 when it is gone (shared with the ortho budget).
+_size = BUDGET.file_size
 
 
 def _tree_bytes(path: str) -> int:

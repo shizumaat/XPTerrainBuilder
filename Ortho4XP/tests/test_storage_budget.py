@@ -30,13 +30,13 @@ BLOCK = 40960   # a whole number of allocation blocks
 
 
 def _budget(monkeypatch, nbytes):
-    monkeypatch.setattr(TOTAL, "budget_bytes", lambda raw=None: int(nbytes))
+    monkeypatch.setattr(TOTAL, "_budget_bytes", lambda raw=None: int(nbytes))
 
 
 def test_unset_budget_clears_nothing_and_says_so(monkeypatch):
     data = _root()
-    assert TOTAL.budget_bytes({"storage_budget_gb": "0"}) == 0
-    assert TOTAL.budget_bytes({"storage_budget_gb": "1.5"}) == 1_500_000_000
+    assert TOTAL._budget_bytes({"storage_budget_gb": "0"}) == 0
+    assert TOTAL._budget_bytes({"storage_budget_gb": "1.5"}) == 1_500_000_000
     _budget(monkeypatch, 0)
     old = _write(str(data / "tmp" / "x.bin"), 5000, age_days=30)
     assert TOTAL.hold(ST._Sweep(False, "t", None), time.time()) is None
@@ -78,8 +78,8 @@ def test_a_budget_under_the_floor_warns(monkeypatch):
 
 
 def test_the_recommended_minimum_is_half_again_above_50_gb():
-    assert TOTAL.recommended_bytes(10**9) == 10**9 + TOTAL.ROOM_MIN_BYTES
-    assert TOTAL.recommended_bytes(400 * 10**9) == 600 * 10**9
+    assert TOTAL._recommended_bytes(10**9) == 10**9 + TOTAL.ROOM_MIN_BYTES
+    assert TOTAL._recommended_bytes(400 * 10**9) == 600 * 10**9
     assert [t[0] for t in TOTAL.TIERS] == ["tmp", "imagery", "dsf_dumps",
                                            "elevation", ST.ONDEMAND,
                                            TOTAL.REBUILD_DATA]

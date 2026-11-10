@@ -7,7 +7,7 @@ folder's caches, the sharp imagery, rebuild data and the built tiles.
   (``imagery_on_demand_cap_gb``) and nothing else is cleared for space.
 * The FLOOR, never cleared (10d (2)): the on-demand placeholders, the
   DSFs of every built tile, the user's patches and their own elevation
-  files (``geotiffs``).  :func:`recommended_bytes` is the floor plus
+  files (``geotiffs``).  :func:`_recommended_bytes` is the floor plus
   WORKING ROOM: half the floor, at least 50 GB (:data:`ROOM_SHARE`,
   :data:`ROOM_MIN_BYTES`) -- room for one build's downloads and
   intermediates on top of what is kept.
@@ -42,10 +42,10 @@ import O4_File_Names as FNAMES
 import O4_Imagery_OnDemand_Budget as BUDGET
 
 from . import storage as STORAGE
+from .storage_installed import write_json
 
 __all__ = ["SETTING", "ROOM_SHARE", "ROOM_MIN_BYTES", "TIERS", "REBUILD_DATA",
-           "TIER_HOOKS", "budget_bytes", "floor_parts", "recommended_bytes",
-           "status", "hold", "session_budget"]
+           "TIER_HOOKS", "status", "hold", "session_budget"]
 
 SETTING = "storage_budget_gb"
 ROOM_SHARE = 0.5
@@ -63,7 +63,7 @@ TIER_HOOKS: dict = {}
 _LAST = "storage_budget.json"
 
 
-def budget_bytes(raw: "dict | None" = None) -> int:
+def _budget_bytes(raw: "dict | None" = None) -> int:
     """The budget in bytes; 0 when it is not set (or does not parse)."""
     if raw is None:
         import O4_Settings_Model as SM
@@ -79,7 +79,7 @@ def _index():
     return STORAGE._ondemand_index()
 
 
-def floor_parts(rows: "list[dict]") -> dict:
+def _floor_parts(rows: "list[dict]") -> dict:
     """``{"placeholders", "dsf", "patches", "geotiffs"}`` bytes; ``rows``
     are :func:`storage.storage_scan`'s store rows."""
     by_kind = {row["kind"]: row for row in rows}
@@ -97,19 +97,9 @@ def floor_parts(rows: "list[dict]") -> dict:
             "geotiffs": int(by_kind.get("geotiffs", {}).get("bytes", 0))}
 
 
-def recommended_bytes(floor: int) -> int:
+def _recommended_bytes(floor: int) -> int:
     """The floor plus the working room."""
     return int(floor + max(ROOM_MIN_BYTES, ROOM_SHARE * floor))
-
-
-def _record(path: str, data: dict) -> None:
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path + ".tmp", "w", encoding="utf-8") as handle:
-            json.dump(data, handle)
-        os.replace(path + ".tmp", path)
-    except OSError:
-        pass
 
 
 def _last_path() -> str:
@@ -123,14 +113,14 @@ def status(rows: "list[dict]", raw: "dict | None" = None) -> dict:
     ``used`` is every store plus the placeholders (no store row counts
     them); ``under_floor``: a budget set below the floor (the warning).
     Writes nothing."""
-    parts = floor_parts(rows)
+    parts = _floor_parts(rows)
     floor = sum(parts.values())
     used = sum(int(row.get("bytes") or 0) for row in rows) + parts["placeholders"]
     sharp = sum(int(row.get("bytes") or 0) for row in rows
                 if row["kind"] == STORAGE.ONDEMAND)
-    budget = budget_bytes(raw)
+    budget = _budget_bytes(raw)
     out = {"budget_bytes": budget, "used_bytes": used, "floor_bytes": floor,
-           "floor": parts, "recommended_bytes": recommended_bytes(floor),
+           "floor": parts, "recommended_bytes": _recommended_bytes(floor),
            "under_floor": bool(budget and budget < floor),
            "over_budget": bool(budget and used > budget), "sharp_bytes": sharp}
     return out
@@ -140,7 +130,7 @@ def session_budget(conn, cap_bytes: int) -> BUDGET.Budget:
     """The follow job's budget: with the total budget set, its cap and
     the last scan's bytes other than the sharp imagery; else the sharp
     imagery limit ``cap_bytes`` over the on-demand floor."""
-    budget = budget_bytes()
+    budget = _budget_bytes()
     if budget:
         try:
             with open(_last_path(), encoding="utf-8") as handle:
@@ -173,13 +163,13 @@ def hold(sweep, now: float,
     (``imagery_downgrade.LOW_WATER``); None when the budget is not set
     (the caller then holds the sharp imagery's own limit)."""
     from . import imagery_downgrade as DOWNGRADE
-    budget = budget_bytes()
+    budget = _budget_bytes()
     if not budget:
         return None
     rows = (scan or STORAGE.storage_scan)()["stores"]
     figures = status(rows)
     used = figures["used_bytes"]
-    _record(_last_path(), {"budget_bytes": budget,
+    write_json(_last_path(), {"budget_bytes": budget,
                            "other_bytes": used - figures["sharp_bytes"]})
     over = used - int(budget * DOWNGRADE.LOW_WATER)
     if used <= budget:

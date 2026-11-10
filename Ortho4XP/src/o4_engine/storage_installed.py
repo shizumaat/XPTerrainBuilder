@@ -23,7 +23,7 @@ import stat
 
 import O4_File_Names as FNAMES
 
-__all__ = ["PREFIX", "CACHE_NAME", "installed_tiles", "link_volume"]
+__all__ = ["PREFIX", "CACHE_NAME", "installed_tiles", "write_json"]
 
 PREFIX = "zOrtho4XP_"
 CACHE_NAME = "installed_tiles_sizes.json"
@@ -35,7 +35,7 @@ def _is_link(path: str) -> bool:
     return os.path.islink(path) or bool(isjunction and isjunction(path))
 
 
-def link_volume(target: str) -> str:
+def _link_volume(target: str) -> str:
     """The volume a link's target text names: ``/Volumes/<name>`` ->
     ``<name>``, a Windows drive -> ``D:``, otherwise :data:`THIS_DISK`."""
     if len(target) >= 2 and target[1] == ":" and target[0].isalpha():
@@ -97,7 +97,8 @@ def _read_cache(path: str) -> dict:
         return {}
 
 
-def _write_cache(path: str, data: dict) -> None:
+def write_json(path: str, data: dict) -> None:
+    """Write ``data`` to ``path`` atomically; a failure is silent (a cache)."""
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path + ".tmp", "w", encoding="utf-8") as handle:
@@ -129,7 +130,7 @@ def installed_tiles(custom_scenery: str, cache_path: "str | None" = None) -> dic
                 target = os.readlink(path)
             except OSError:
                 target = ""
-            volume = link_volume(target)
+            volume = _link_volume(target)
             volumes[volume] = volumes.get(volume, 0) + 1
             continue
         if not os.path.isdir(path):
@@ -142,7 +143,7 @@ def installed_tiles(custom_scenery: str, cache_path: "str | None" = None) -> dic
         out["local_count"] += 1
         out["local_bytes"] += size
     if new != old:
-        _write_cache(cache_path, new)
+        write_json(cache_path, new)
     out["linked"] = [{"volume": v, "count": c, "mounted": _volume_mounted(v)}
                      for v, c in sorted(volumes.items())]
     out["linked_count"] = sum(volumes.values())

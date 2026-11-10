@@ -9,12 +9,12 @@ a setting or a store of its own.
 
 * :data:`CLEAR_TIERS` -- what is made low-res first: ordinary sharp
   imagery, then airport cores (spec §6.1), then favorites.
-* :func:`tier_of` -- an index row's tier (its position in
+* :func:`_tier_of` -- an index row's tier (its position in
   :data:`CLEAR_TIERS`).
 * :func:`placeholder_bytes` / :func:`build_dirs` / :func:`dsf_bytes` --
   the parts of the floor (the total disk budget, ``o4_engine.storage_budget``,
   reads them too).
-* :func:`floor_bytes` -- the bytes the on-demand tiles hold even at
+* :func:`_floor_bytes` -- the bytes the on-demand tiles hold even at
   placeholder resolution: every row's kept placeholder (counted once) and
   each tile's scenery files (``Earth nav data/*/*.dsf``).
 * :class:`Budget` -- ``cap`` and ``fixed`` (the floor); its
@@ -30,21 +30,22 @@ import glob
 import os
 from dataclasses import dataclass
 
-__all__ = ["CLEAR_TIERS", "Budget", "build_dirs", "dsf_bytes", "floor_bytes",
-           "measure", "placeholder_bytes", "tier_of"]
+__all__ = ["CLEAR_TIERS", "Budget", "build_dirs", "dsf_bytes", "file_size",
+           "measure", "placeholder_bytes"]
 
 #: Made low-res first to last (favorites last, airport cores just before).
 CLEAR_TIERS = ("sharp", "airport", "favorite")
 
 
-def tier_of(row: dict) -> int:
+def _tier_of(row: dict) -> int:
     """The row's position in :data:`CLEAR_TIERS`."""
     if row.get("pinned"):
         return CLEAR_TIERS.index("favorite")
     return CLEAR_TIERS.index("airport" if row.get("core") else "sharp")
 
 
-def _size(path: str) -> int:
+def file_size(path: str) -> int:
+    """``path``'s size in bytes, 0 when it is gone."""
     try:
         return os.stat(path).st_size
     except OSError:
@@ -53,7 +54,7 @@ def _size(path: str) -> int:
 
 def placeholder_bytes(conn) -> int:
     """The kept placeholders of the index, one per distinct file."""
-    return sum(_size(path) for path in {
+    return sum(file_size(path) for path in {
         os.path.normcase(os.path.abspath(path)) for (path,) in conn.execute(
             "SELECT placeholder_path FROM textures") if path})
 
@@ -70,11 +71,11 @@ def dsf_bytes(folders) -> int:
     total = 0
     for folder in {os.path.realpath(f) for f in folders}:
         pattern = os.path.join(glob.escape(folder), "Earth nav data", "*", "*.dsf")
-        total += sum(_size(path) for path in glob.glob(pattern))
+        total += sum(file_size(path) for path in glob.glob(pattern))
     return total
 
 
-def floor_bytes(conn) -> int:
+def _floor_bytes(conn) -> int:
     """Placeholders plus each on-demand tile's DSF files: what the tiles
     use at their lowest resolution."""
     return placeholder_bytes(conn) + dsf_bytes(build_dirs(conn))
@@ -99,4 +100,4 @@ class Budget:
 
 def measure(conn, cap: int) -> Budget:
     """The :class:`Budget` of the index ``conn`` for ``cap`` bytes."""
-    return Budget(int(cap), floor_bytes(conn))
+    return Budget(int(cap), _floor_bytes(conn))

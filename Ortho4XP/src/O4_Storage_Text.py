@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import List, Mapping, Tuple
 
+import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
+
 __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "BUDGET_UNSET", "BUDGET_UNDER_FLOOR", "BUDGET_HELP",
            "ONDEMAND_FLOOR_WARNING", "INSTALLED_TITLE", "INSTALLED_LOCAL",
@@ -54,12 +56,8 @@ INSTALLED_HELP = ("The zOrtho4XP_ entries of X-Plane's Custom Scenery folder. "
                   "another drive are counted, not measured.")
 
 
-def size_text(nbytes) -> str:
-    """``12.3 MB`` / ``1.25 GB`` (decimal), the same in both apps."""
-    value = float(nbytes or 0)
-    if value >= 1e9:
-        return "%.2f GB" % (value / 1e9)
-    return "%.1f MB" % (value / 1e6)
+#: ``12.3 MB`` / ``1.25 GB`` (decimal), the same in both apps.
+size_text = ONDEMAND_TEXT.size_text
 
 
 def budget_lines(budget: Mapping) -> Tuple[str, str]:

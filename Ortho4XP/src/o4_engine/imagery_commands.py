@@ -39,7 +39,6 @@ the session's import closure (the patch and step code keys,
 """
 from __future__ import annotations
 
-import os
 import threading
 from typing import Any, Callable, Dict, Optional, Sequence
 
@@ -104,7 +103,7 @@ def start_imagery_follow(emit: Callable[[Any], None],
     import O4_File_Names as FNAMES
     import O4_XPlane_WebAPI as WEBAPI
 
-    from .imagery_follow import FollowJob
+    from .imagery_follow import FollowJob, log_path
     from .imagery_follow_land import TierLander
     settings = follow_settings()
     if if_enabled and not settings["enabled"]:
@@ -114,16 +113,17 @@ def start_imagery_follow(emit: Callable[[Any], None],
         if job is not None and job.running:
             return {"status": "running"}
         if not tiles and working_dir is not None:
+            # Every place a tile may be (#1992 follow-up): the build
+            # folder, the Tiles folder and Custom Scenery.
             from .imagery_ondemand import on_demand_tiles
             tiles = [list(t) for t in on_demand_tiles(working_dir or FNAMES.Tile_dir)]
         base = WEBAPI.base_url(int(port or settings["port"]))
-        log = os.path.join(FNAMES.data_path("logs"), "imagery_on_demand.log")
         job = FollowJob(emit, reader=WEBAPI.PositionReader(base),
                         lander=TierLander(),
                         index_path=index_path, busy=busy,
                         lead_s=float(lead_s or settings["lead_s"]),
                         lands_per_s=float(lands_per_s or settings["lands_per_s"]),
-                        log_path=log, rebuild_tiles=tiles or (),
+                        log_path=log_path(), rebuild_tiles=tiles or (),
                         reloader=None if reload is False else (
                             lambda: WEBAPI.reload_scenery(base)))
         _FOLLOW["job"] = job.start()

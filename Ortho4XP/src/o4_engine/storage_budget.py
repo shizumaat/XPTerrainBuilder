@@ -17,8 +17,8 @@ folder's caches, the sharp imagery, rebuild data and the built tiles.
   -> scenery dumps, water masks, airport pack caches -> elevation and
   map extracts -> sharp imagery (``imagery_downgrade.sweep``: cores,
   then favorites last) -> per-tile rebuild data (:data:`REBUILD_DATA`,
-  a HOOK: the store lands with 10d (4) in another lane, registered in
-  :data:`TIER_HOOKS`).
+  the ``storage.REBUILD`` store, oldest first; :data:`TIER_HOOKS` stays
+  for a tier no store row holds).
 * :func:`status` -- the budget's figures for the Storage pane (and the
   warning when the budget is under the floor); :func:`hold` -- the
   automatic cleanup's step (``storage.storage_auto_clean``);
@@ -50,8 +50,9 @@ __all__ = ["SETTING", "ROOM_SHARE", "ROOM_MIN_BYTES", "TIERS", "REBUILD_DATA",
 SETTING = "storage_budget_gb"
 ROOM_SHARE = 0.5
 ROOM_MIN_BYTES = 50 * 10**9
-#: The per-tile rebuild data tier (10d (4): another lane adds the store).
-REBUILD_DATA = "rebuild_data"
+#: The per-tile rebuild data tier (10d (4)): the ``storage.REBUILD`` store,
+#: cleared LAST, least recently used (oldest tile) first.
+REBUILD_DATA = STORAGE.REBUILD
 #: Cheapest to rebuild first (RULINGS 2026-11-10d (3)).
 TIERS: tuple = (("tmp", "logs", "previews"), ("imagery", "dds"),
                 ("dsf_dumps", "masks", "airport_mod"),

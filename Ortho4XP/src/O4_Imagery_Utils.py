@@ -45,7 +45,7 @@ Image.MAX_IMAGE_PIXELS = 1000000000  # Not a decompression bomb attack!
 # (colour-harmonization spec §3); the imagery manifest records its name.
 # Version 3 stores the values losslessly (#1223); a version-2 sidecar was
 # rounded to 3 decimals, so it fails the settings hash and is re-solved.
-COLOR_FIELD_FILE = "color_field.json"
+COLOR_FIELD_FILE = FNAMES.COLOR_FIELD_FILE
 COLOR_FIELD_VERSION = 3
 
 has_URL = False
@@ -2796,7 +2796,8 @@ def _color_field_record(tile, fields, seam_table, statistics):
 
 
 def color_field_path(tile) -> str:
-    return os.path.join(tile.build_dir, COLOR_FIELD_FILE)
+    return FNAMES.rebuild_path(tile.build_dir, tile.lat, tile.lon,
+                               COLOR_FIELD_FILE)
 
 
 def read_color_field(tile):

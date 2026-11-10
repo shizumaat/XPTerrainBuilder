@@ -97,7 +97,7 @@ def build_recipe(pack_root: str, lines: _t.Sequence[str],
     (``textures.plan_textures``).  An object a step left unswapped is
     one the copies may lighten.  Deterministic for one pack, one install
     and one set of steps."""
-    from ..dsf_write import placement_rows
+    from ..dsf_rows import placement_rows
     from ..pack_art import declared_definitions
     chosen = chosen_steps(steps)
     recipe = default_recipe()

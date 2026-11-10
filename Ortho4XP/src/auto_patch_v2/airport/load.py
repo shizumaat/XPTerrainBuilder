@@ -37,7 +37,7 @@ from . import runway_peers as _runway_peers
 from . import runway_refs as _refs
 from . import dem as _dem
 from . import dsf as _dsf
-from . import dsf_write as _dw
+from .backup_state import pristine_dsf_path
 from . import facade as _facade
 from . import obj8 as _obj8
 from . import object_pack as _object_pack
@@ -628,7 +628,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     # the pack, ``+30+031.dsf`` (the ``.anchor_bak``'s) after
     # (#1645: one sidecar per tile DSF read, the origin's first)
     for t, mark, _dp, _pp in reads:
-        pack_dsf = _dw.pristine_dsf_path(_dsf.dsf_path_in_pack(sel.root, *t))
+        pack_dsf = pristine_dsf_path(_dsf.dsf_path_in_pack(sel.root, *t))
         cache_path = (inputs.footprint_cache_path if mark is None else None) or (
             os.path.join(_dsf.mod_cache_dir(inputs.mod_cache_root, sel.name),
                          _dsf.footprint_cache_name(pack_dsf))
@@ -1105,7 +1105,7 @@ def _pack_dump(icao: str, inputs: Inputs, rep: LoadReport, name: str, root: str,
                tile: tuple[int, int]) -> str | None:
     """The cached text dump of pack ``name``'s PRISTINE tile DSF; a pack
     DSF with none REFUSES the build (``PackDumpStale``)."""
-    pack_dsf = _dw.pristine_dsf_path(_dsf.dsf_path_in_pack(root, *tile))
+    pack_dsf = pristine_dsf_path(_dsf.dsf_path_in_pack(root, *tile))
     dump_path = (_dsf.find_text_dump(inputs.mod_cache_root, name, *tile,
                                      dsf_path=pack_dsf)
                  if inputs.mod_cache_root else None)

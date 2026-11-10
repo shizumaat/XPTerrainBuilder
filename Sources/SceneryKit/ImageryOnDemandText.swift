@@ -39,6 +39,10 @@ public enum O4OnDemandText {
     public static let followError = "Following stopped: {reason}"
     public static let followDetail = "{queued} queued · {slots} at a time · {buffer} · {landed} landed ({bytes_landed}) · {failed} failed · X-Plane {xplane} at {lat}, {lon}, {speed} kt, track {track}° · {flight_loads} flight loads · {jumps} jumps · {reloads} reloads"
     public static let waitingReason = "its Web API is not answering"
+    /// The first sentence while the job follows (or waits) with no
+    /// on-demand texture in its index.
+    public static let followNoTiles = "No on-demand tiles to follow yet: build a tile with imagery on demand, or convert one in the Library"
+    static let noTilesStates: Set<String> = ["waiting", "following"]
     public static let xplaneAnswering = "answering"
     public static let xplaneSilent = "not answering"
     public static let bufferNone = "nothing queued"
@@ -102,7 +106,8 @@ public enum O4OnDemandText {
     /// `(headline, detail)` of the status line for one status.
     public static func followLines(_ s: O4ImageryFollowStatus) -> (headline: String, detail: String) {
         let values = followValues(s)
-        let template = followTemplates[s.state] ?? followStarting
+        var template = followTemplates[s.state] ?? followStarting
+        if noTilesStates.contains(s.state), s.textures == 0 { template = followNoTiles }
         return (fill(template, values), fill(followDetail, values))
     }
 

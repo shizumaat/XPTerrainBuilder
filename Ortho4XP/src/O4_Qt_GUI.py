@@ -97,7 +97,7 @@ import O4_Qt_Imagery_Freshness as QTFRESH
 import O4_Qt_Imagery_OnDemand as QTONDEMAND
 import O4_Qt_Mesh_Order as QTMESHORDER
 import O4_Qt_Missing_Textures as QTMISSING
-from o4_engine import EngineSession
+from o4_engine.session import EngineSession
 from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
 import O4_Qt_Build_OnDemand as QTONDEMAND_BUILD
@@ -914,6 +914,10 @@ class MainWindow(QMainWindow):
         self._bridge.packs_ready.connect(self._on_packs_ready)
         self._bridge.pin_done.connect(self._on_pin_done)
         self._session.subscribe(self._bridge.event.emit)
+        # A tile built with imagery on demand: indexed, its airport cores
+        # sharp, when the run ends (#1992 follow-up; the Mac engine's too).
+        from o4_engine.imagery_after_build import watch as _watch_built_tiles
+        _watch_built_tiles(self._session)
         self._storage_auto_clean()          # at launch (#1724)
         self._event_handlers = {
             EV.ScanProgress: self._on_scan_progress,

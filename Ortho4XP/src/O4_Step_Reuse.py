@@ -66,6 +66,16 @@ that safe:
   (``O4_Stopped_Build``), which changes their content, so the next build
   reruns the mesh step and reuses the vector step (whose input is the
   pristine pack, ``provenance.pack_dsf_input_identity``);
+- the mesh step HANDS OFF its object stage (#1901, ``O4_Step_Code.
+  HANDED_OFF``): the mesh step's code key leaves the object stage out,
+  its record holds the object stage's own code digest
+  (``O4_Object_Stage_Code``) instead, and a mesh step reused under a
+  changed one has the object stage run over it — a change to the pack
+  writer re-seats the objects in seconds and rebuilds no mesh
+  (:func:`object_stage_stale`; the session re-cuts the record after).
+  What the mesh step hands on leaves its pack DSFs out
+  (:func:`_handed_on`): no later step reads them, so that re-run leaves
+  the masks reusable;
 - the record file is replaced whole (temporary file + ``os.replace``): a
   process killed while writing it leaves the record as it was, and one
   that cannot be read reads as no record.
@@ -102,7 +112,8 @@ import O4_File_Names as FNAMES
 __all__ = ["REUSABLE_STEPS", "BUNDLE_TRUSTED_KEYS", "stale_reason",
            "predicted_reuse", "record", "forget_from", "reused_label",
            "edit_only_changes", "committed_entry", "adopt_bundle_record",
-           "bundle_absent_outputs", "live_settings", "code_identity"]
+           "bundle_absent_outputs", "live_settings", "code_identity",
+           "object_stage_stale"]
 
 # 2026-10-14: pack DSFs keyed as the build's input and scenery_packs.ini
 # by content (#615 self-invalidation); a 2026-10-13 record reads as none.
@@ -129,7 +140,7 @@ _VECTOR_APP_VARS = ("osm_regional_extracts", "base_elevation_source",
 
 
 def _record_path(tile) -> str:
-    return FNAMES.tile_record_path(tile.build_dir, tile.lat, tile.lon, "steps")
+    return FNAMES.step_record_file(tile.build_dir, tile.lat, tile.lon)
 
 
 def _identity(paths) -> str:
@@ -145,7 +156,61 @@ def _read(tile) -> dict:
         return {}
     if not isinstance(doc, dict) or doc.get("schema") != SCHEMA:
         return {}
-    return doc
+    return _follow_moves(tile, doc)
+
+
+def _moved_row(row, tile, folder: str):
+    """``row`` with its path where the tile's accessors now name it, or
+    ``None`` when it did not move: a file recorded in the tile folder that
+    is read from the rebuild cache now (``FNAMES.rebuild_path``)."""
+    if not row or not isinstance(row[0], str):
+        return None
+    path = row[0]
+    if FNAMES.path_key(os.path.dirname(path)) != folder:
+        return None
+    now = FNAMES.rebuild_path(tile.build_dir, tile.lat, tile.lon,
+                              os.path.basename(path))
+    return [now] + list(row[1:]) if now != path else None
+
+
+def _follow_moves(tile, doc: dict) -> dict:
+    """The record as it reads after the tile's rebuild data moved into its
+    rebuild cache (owner RULINGS 2026-11-10d (4), ``O4_Rebuild_Cache``):
+    the output rows follow the files (a file recorded missing too) and
+    each digest cut from them is cut again, so a step whose record was
+    current stays reusable and a stale one stays stale.  The record on
+    disk takes the new paths at its next write."""
+    committed = doc.get("committed") or {}
+    if not committed or FNAMES.rebuild_dir(
+            tile.build_dir, tile.lat, tile.lon) is None:
+        return doc
+    folder = FNAMES.path_key(tile.build_dir)
+    out, moved = {}, False
+    handed_before = handed_after = None
+    for step in REUSABLE_STEPS:
+        entry = committed.get(step)
+        if not entry:
+            handed_before = handed_after = None
+            continue
+        entry = dict(entry)
+        handed = _handed_on(entry)
+        rows = [list(row) for row in entry.get("outputs") or ()]
+        current = _outputs_digest(rows) == entry.get("outputs_digest")
+        for index, row in enumerate(rows):
+            new = _moved_row(row, tile, folder)
+            if new is not None:
+                rows[index], moved = new, True
+        entry["outputs"] = rows
+        if current:
+            entry["outputs_digest"] = _outputs_digest(rows)
+        inputs = dict(entry.get("inputs") or {})
+        if handed_before is not None and inputs.get("previous") == \
+                handed_before:
+            inputs["previous"] = handed_after
+            entry.update(inputs=inputs, digest=_digest(inputs))
+        out[step] = entry
+        handed_before, handed_after = handed, _handed_on(entry)
+    return dict(doc, committed=out) if moved else doc
 
 
 def _write(tile, doc: dict) -> None:
@@ -342,7 +407,8 @@ def _output_files(tile, step: str, pack_dsfs=()) -> list:
         files = [node_file, FNAMES.input_poly_file(tile),
                  FNAMES.apt_file(tile), FNAMES.alt_file(tile),
                  ZPROV.zprov_file(node_file),
-                 os.path.join(tile.build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)]
+                 FNAMES.levelled_roads_file(tile.build_dir, tile.lat,
+                                            tile.lon)]
         files += _patch_files(tile)
     elif step == "mesh":
         # The pack DSFs the mesh step's object stage rewrote: a pack put
@@ -418,7 +484,7 @@ def bundle_absent_outputs(tile) -> tuple:
     node_file = FNAMES.input_node_file(tile)
     return (node_file, FNAMES.input_poly_file(tile), FNAMES.alt_file(tile),
             ZPROV.zprov_file(node_file),
-            os.path.join(tile.build_dir, FNAMES.LEVELLED_ROADS_SIDECAR))
+            FNAMES.levelled_roads_file(tile.build_dir, tile.lat, tile.lon))
 
 
 def _excused(tile, entry: dict) -> tuple:
@@ -442,11 +508,47 @@ def _outputs_digest(rows) -> str:
 def _handed_on(entry: dict) -> str:
     """What a step hands the next one: its output content and its inputs
     without its code digest (a change of code reaches the next step only
-    through the files it writes)."""
+    through the files it writes).  The pack DSFs the mesh step's object
+    stage rewrote are left out (#1901): no later step reads them."""
     inputs = {k: v for k, v in (entry.get("inputs") or {}).items()
               if k != "code"}
-    return _digest({"outputs": entry.get("outputs_digest"),
+    return _digest({"outputs": _handed_outputs_digest(entry),
                     "inputs": inputs})
+
+
+def _handed_outputs_digest(entry: dict) -> str:
+    """The digest of ``entry``'s output rows less its ``pack_dsfs`` — the
+    recorded ``outputs_digest`` itself when it has none, so a record
+    without pack writes hands on what it always did."""
+    packs = set(entry.get("pack_dsfs") or ())
+    if not packs:
+        return entry.get("outputs_digest")
+    return _outputs_digest([row for row in entry.get("outputs") or ()
+                            if row and row[0] not in packs])
+
+
+def _object_stage_code() -> "str | None":
+    """The object stage's own code digest (``O4_Object_Stage_Code``)."""
+    import O4_Object_Stage_Code as OBJCODE
+    return OBJCODE.runtime_digest()
+
+
+def object_stage_stale(tile) -> str | None:
+    """Over a REUSED mesh step (#1901): None when the object stage's code
+    is the one the mesh step's record was cut under, else why it must run
+    again — its own per-airport reuse (``object_stage_reuse``) then
+    decides airport by airport.  Never raises (an unreadable record means
+    "run it")."""
+    try:
+        entry = committed_entry(tile, "mesh")
+        live = _object_stage_code()
+        if live is None:
+            return "the object stage has no code identity"
+        if entry.get("object_code") != live:
+            return "the object stage's code changed"
+        return None
+    except Exception as error:
+        return "its record could not be checked (%s)" % (error,)
 
 
 def _previous_digest(doc: dict, step: str) -> str:
@@ -615,6 +717,8 @@ def record(tile, step: str, osm_files=None) -> None:
                            "osm_files": osm_files if step == "vector"
                            else None,
                            "pack_dsfs": pack_dsfs,
+                           "object_code": (_object_stage_code()
+                                           if step == "mesh" else None),
                            "outputs": rows,
                            "outputs_digest": _outputs_digest(rows)}
         _write(tile, {"committed": committed})

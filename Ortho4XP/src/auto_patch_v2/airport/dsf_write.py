@@ -126,15 +126,13 @@ import re
 import shutil
 import struct
 import tempfile
-import time
 import typing as _t
-import uuid
 from bisect import bisect_left
 
 import O4_DSFTool as _dsftool
 from O4_DSFTool import DsfToolError
 
-from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
+from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS,
                                HIDDEN, KIND_AGL, KIND_MSL, KIND_ON_GROUND, POOL_QUANTA,
                                PROVENANCE_FILENAME, TOL_DEG, PlacementPlan)
 from . import authored_landing as _al
@@ -149,8 +147,16 @@ from . import pack_health as _ph
 from . import pack_optimise as _po
 from . import split_guard as _sg
 from . import user_seats as _us
-from .backup_state import BackupUnproven, State
+from .backup_state import BackupUnproven, State, pristine_dsf_path
+from .body_files import _body_paths, remove_cut_files, written_body_files
+from .dsf_dump import dump
+from .dsf_rows import duplicate_rows, placement_rows
 from .file_hash import sha256_file
+
+# ``pristine_dsf_path``, ``dump``, ``placement_rows``, ``duplicate_rows``
+# and the body-file names are the READ side, re-exported under the names
+# the writer-side callers use (#1901): the patch build imports them from
+# their own modules, so a change here never keys a terrain re-solve.
 
 __all__ = ["conversions_for_dump", "TOL_DEG", "TOL_HEADING_DEG", "TOL_ELEV_M",
            "pool_tolerances",
@@ -160,29 +166,6 @@ __all__ = ["conversions_for_dump", "TOL_DEG", "TOL_HEADING_DEG", "TOL_ELEV_M",
            "live_install_roots", "pristine_dsf_path", "written_body_files",
            "BackupUnproven", "DsfToolError"]
 
-
-def pristine_dsf_path(dsf_path: str) -> str:
-    """THE ONE READ FRAME of the object stage (RULINGS 2026-09-11m), now
-    the ONE RULE's answer (§12a (3) row 1).
-
-    ``<dsf>.anchor_bak`` when one is there AND still belongs to the pack
-    on disk, else the live file.  Once :func:`write_pack` has run, the
-    live DSF carries the bodies this stage minted and the backup beside
-    it is the pack as installed; a plan derived from the LIVE file names
-    placements (``dsf:obj3021`` …) that the write half — which dumps the
-    backup — cannot find, and ``edit_dump`` refuses.  EVERY object-stage
-    read resolves through here, so a second build over a written pack
-    plans exactly what the first one planned.
-
-    WHAT §12a CHANGED: a pack the user updated IN PLACE leaves our OLD
-    backup behind, and the backup is then not the pack at all.
-    ``backup_state.classify_dsf`` decides, and this returns its
-    ``read_path`` — so the plan, the footprints, the partition-cache key
-    and the freshness identity all describe the pack that is INSTALLED.
-
-    A path that already IS a backup is returned unchanged (never
-    ``.anchor_bak.anchor_bak``)."""
-    return _bs.classify_dsf(dsf_path).read_path
 
 #: The three placement rows (``airport/dsf.read_dump``'s grammar).
 PLACEMENT_KINDS = (KIND_ON_GROUND, KIND_MSL, KIND_AGL)
@@ -290,47 +273,6 @@ def conversions_for_dump(dump_obj: _t.Any, pack_root: str | None = None,
 
 # ── the text edit (pure) ────────────────────────────────────────────────
 
-def placement_rows(lines: _t.Sequence[str]) -> list[tuple[int, int, list[str]]]:
-    """``(ordinal, line index, tokens)`` for every row
-    ``airport/dsf.read_dump`` counts as a placement, in dump order.
-
-    The ordinal is the plan's ``index``, so the acceptance rule here is
-    read_dump's EXACTLY — a row whose def index is out of range, or
-    whose numbers do not parse, is a placement to neither (twin-asserted
-    in ``tests/auto_patch_v2/test_v2dsfagl.py``)."""
-    out: list[tuple[int, int, list[str]]] = []
-    n_defs = 0
-    ordinal = 0
-    for i, raw in enumerate(lines):
-        if not raw or raw[0] in "#\n":
-            continue
-        toks = raw.split()
-        kw = toks[0]
-        if kw == "OBJECT_DEF":
-            n_defs += 1
-            continue
-        if kw == KIND_ON_GROUND and len(toks) >= 4:
-            hi, elev_i = 4, None
-        elif kw in CONVERTIBLE_KINDS and len(toks) >= 5:
-            hi, elev_i = 5, 4
-        else:
-            continue
-        try:
-            oi = int(toks[1])
-            float(toks[2]); float(toks[3])
-            if len(toks) > hi:
-                float(toks[hi])
-            if elev_i is not None:
-                float(toks[elev_i])
-        except (ValueError, IndexError):
-            continue
-        if not (0 <= oi < n_defs):
-            continue
-        out.append((ordinal, i, toks))
-        ordinal += 1
-    return out
-
-
 def _object_defs(lines: _t.Sequence[str]) -> tuple[list[str], int]:
     """The ``OBJECT_DEF`` paths in order and the line index AFTER the
     last one (where new defs are appended)."""
@@ -341,95 +283,6 @@ def _object_defs(lines: _t.Sequence[str]) -> tuple[list[str], int]:
             defs.append(raw[len("OBJECT_DEF"):].strip())
             last = i
     return defs, last + 1
-
-
-def duplicate_rows(lines: _t.Sequence[str],
-                   of: _t.AbstractSet[int] | None = None, *,
-                   tol_m: float | None = None, tol_deg: float = 0.0,
-                   tol_h: float = 0.0) -> dict[int, list[int]]:
-    """§15 (4): the DUPLICATE placement rows, ``{first ordinal: [the
-    others]}``.
-
-    Rows of one resource identical in DEF, longitude, latitude and
-    HEADING are ONE placement: the pack drew the same object twice on
-    the same spot, and the re-seat plan reads it once.  Splitting then
-    replaced ONE of them and left the other drawing the WHOLE un-split
-    object at the datum — measured on LEMD's pristine DSF, 19 of the
-    ``Airport_Cargo`` resources carry two identical rows on the shared
-    datum ``-3.564788 40.492764``, so 19 whole objects survived every
-    split the plan made.
-
-    ``of`` restricts the answer to groups whose FIRST row is one of
-    those ordinals — the plan's SPLIT indices, an EMPTY set meaning no
-    split and so no group: a pack that authors the same info sign twice
-    on purpose is the pack's business, and nothing here touches a row no
-    split replaces.  ``None`` is every group (what the twin reads).
-
-    ``tol_m`` (issue #1707 D1, the user's "Optimise pack"): rows of one
-    def and row kind whose positions lie within ``tol_m`` metres, headings
-    within ``tol_deg`` and heights (``OBJECT_AGL`` / ``OBJECT_MSL``)
-    within ``tol_h`` metres of a group's FIRST row are that placement
-    too.  ``None`` (the default) is the exact token match above."""
-    if tol_m is not None:
-        groups = _near_groups(placement_rows(lines), tol_m, tol_deg, tol_h)
-    else:
-        seen: dict[tuple, list[int]] = {}
-        for o, _i, toks in placement_rows(lines):
-            hdg = toks[4] if toks[0] == KIND_ON_GROUND else (
-                toks[5] if len(toks) > 5 else "")
-            seen.setdefault((toks[0], toks[1], toks[2], toks[3], hdg),
-                            []).append(o)
-        groups = list(seen.values())
-    return {v[0]: v[1:] for v in groups
-            if len(v) > 1 and (of is None or v[0] in of)}
-
-
-#: metres per radian on the mean Earth sphere (the D1 tolerance's frame)
-_EARTH_R_M = 6371008.8
-
-
-def _near_groups(rows: _t.Iterable[tuple[int, int, list[str]]], tol_m: float,
-                 tol_deg: float, tol_h: float) -> list[list[int]]:
-    """:func:`duplicate_rows`' tolerance groups, in dump order: each row
-    joins the first group of its (kind, def) whose FIRST row is inside
-    every tolerance, else starts one.  A grid of ``tol_m`` cells finds
-    the candidates (the 3x3 cells around a row hold every row within
-    ``tol_m``)."""
-    cell = max(float(tol_m), 1e-3)
-    firsts: dict[tuple, list[tuple[float, float, float, float | None, list[int]]]] = {}
-    groups: list[list[int]] = []
-    for o, _i, toks in rows:
-        lat = float(toks[3])
-        y = math.radians(lat) * _EARTH_R_M
-        x = math.radians(float(toks[2])) * _EARTH_R_M * math.cos(math.radians(lat))
-        if toks[0] == KIND_ON_GROUND:
-            hdg, h = float(toks[4]), None
-        else:
-            h = float(toks[4])
-            hdg = float(toks[5]) if len(toks) > 5 else 0.0
-        gx, gy = int(math.floor(x / cell)), int(math.floor(y / cell))
-        group = None
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                for fx, fy, fh, fz, members in firsts.get(
-                        (toks[0], toks[1], gx + dx, gy + dy), ()):
-                    turn = abs(hdg - fh) % 360.0
-                    if (math.hypot(x - fx, y - fy) <= tol_m
-                            and min(turn, 360.0 - turn) <= tol_deg
-                            and (h is None or abs(h - fz) <= tol_h)):
-                        group = members
-                        break
-                if group is not None:
-                    break
-            if group is not None:
-                break
-        if group is None:
-            group = []
-            groups.append(group)
-            firsts.setdefault((toks[0], toks[1], gx, gy), []).append(
-                (x, y, hdg, h, group))
-        group.append(o)
-    return groups
 
 
 def _eol(lines: _t.Sequence[str]) -> str:
@@ -606,139 +459,6 @@ _exit_in_words = _dsftool.exit_in_words
 #: The module the launcher spawns through — where a twin stands in for
 #: the DSFTool child (``monkeypatch.setattr(dsf_write.subprocess, "run", …)``).
 subprocess = _dsftool.subprocess
-
-
-#: A ``<dump>.<pid>.<token>.partial`` older than this is the litter of a
-#: process that was killed mid-dump; the next dump of that file removes it.
-_PARTIAL_DUMP_STALE_S = 3600.0
-
-
-def _remove_quietly(path: str) -> None:
-    try:
-        os.remove(path)
-    except OSError:
-        pass
-
-
-#: Waits between attempts to rename a finished dump onto its name when the
-#: rename is refused (about 2 s in all).
-_LAND_RETRY_WAITS_S = (0.05, 0.1, 0.2, 0.4, 0.6, 0.65)
-
-
-def _land_dump(partial: str, text_out: str, started: float) -> None:
-    """Rename the finished ``partial`` onto ``text_out``.
-
-    ON WINDOWS THE RENAME CAN BE REFUSED (``PermissionError``): another
-    worker is renaming its own dump of the same DSF onto the name at this
-    instant, or a reader has the old dump open (#560, PR #569 — six
-    workers dump one pack DSF at once).  If a whole dump has landed there
-    since this dump began (``started``), another writer won: it is the
-    same text, so ours is dropped and theirs is used.  Otherwise the
-    rename is tried again for about two seconds, then :class:`DsfToolError`
-    names the refusal.  The caller removes ``partial`` on every path.
-    """
-    refusal: OSError | None = None
-    for wait in (0.0,) + _LAND_RETRY_WAITS_S:
-        if wait:
-            time.sleep(wait)
-        try:
-            os.replace(partial, text_out)
-            return
-        except PermissionError as error:
-            refusal = error
-        try:
-            landed = os.stat(text_out)
-            # 2 s: the coarsest file-time step of a supported file system
-            if landed.st_size > 0 and landed.st_mtime >= started - 2.0:
-                return
-        except OSError:
-            pass
-    raise DsfToolError(
-        f"the finished text dump could not be moved onto {text_out}: "
-        f"{refusal} — another program has that file open") from refusal
-
-
-def _sweep_stale_partials(text_out: str) -> None:
-    """Remove the ``.partial`` files a KILLED dump of ``text_out`` left."""
-    folder, prefix = os.path.split(text_out)
-    try:
-        names = os.listdir(folder or ".")
-    except OSError:
-        return
-    for name in names:
-        if name.startswith(prefix + ".") and name.endswith(".partial"):
-            path = os.path.join(folder, name)
-            try:
-                if time.time() - os.path.getmtime(path) > _PARTIAL_DUMP_STALE_S:
-                    os.remove(path)
-            except OSError:
-                pass
-
-
-def _dump_pool_selected(dsf_path: str, partial: str, text_out: str,
-                        tool: str, timeout: float | None) -> bool:
-    """The retry after a DSFTool CRASH (#568): dump a temp copy of the DSF
-    whose command stream selects a pool first
-    (:func:`dsf_commands.select_pool_first`).  ``False`` when the DSF does
-    not have that trait — the crash is then another one and stands.  The
-    DSF itself is never written; the copy lives in the system temp dir."""
-    try:
-        with open(dsf_path, "rb") as fh:
-            repaired = _cmds.select_pool_first(fh.read())
-    except OSError:
-        return False
-    if repaired is None:
-        return False
-    with tempfile.TemporaryDirectory(prefix="dsf_pool_select_") as folder:
-        copy = os.path.join(folder, os.path.basename(dsf_path))
-        with open(copy, "wb") as fh:
-            fh.write(repaired)
-        _run([tool, "--dsf2text", copy, partial], writes=partial,
-             declares=text_out, timeout=timeout)
-    return True
-
-
-def dump(dsf_path: str, text_out: str, tool: str, *,
-         timeout: float | None = None) -> str:
-    """``DSFTool --dsf2text`` into ``text_out``; returns it.
-
-    ATOMIC (#560): DSFTool writes a ``.partial`` file BESIDE ``text_out``
-    and that file is renamed onto it only after DSFTool exited 0 and wrote
-    something.  DSFTool creates its output before it reads the DSF, so a
-    crash left a 0-byte file under the final name — measured 2026-10-11:
-    DSFTool 2.4.0-b1 dies with SIGSEGV on one stock Global Airports tile
-    and every build of that tile found the empty dump.  A failed, killed or
-    timed-out run now leaves NOTHING under ``text_out`` (an older good
-    dump there is untouched), and two processes dumping one DSF each
-    rename a complete file — the last one wins, both are whole.  The
-    ``.partial`` name ends in neither ``.text`` nor ``.dsf``, so no reader
-    globs it.  Raises :class:`DsfToolError` naming the real cause.
-
-    A CRASH is retried once on a temp copy with a pool selected first
-    (#568, :func:`_dump_pool_selected`): the text is the one DSFTool would
-    have written for the DSF itself, every row and every property, and
-    only its ``# file:`` comment names the copy.
-    """
-    if not tool or not os.path.isfile(tool):
-        raise DsfToolError(f"DSFTool binary required, got {tool!r}")
-    _sweep_stale_partials(text_out)
-    started = time.time()
-    partial = f"{text_out}.{os.getpid()}.{uuid.uuid4().hex[:8]}.partial"
-    try:
-        try:
-            _run([tool, "--dsf2text", dsf_path, partial], writes=partial,
-                 declares=text_out, timeout=timeout)
-        except DsfToolError as error:
-            if not (error.crashed and _dump_pool_selected(
-                    dsf_path, partial, text_out, tool, timeout)):
-                raise
-        if not os.path.isfile(partial) or os.path.getsize(partial) == 0:
-            raise DsfToolError(
-                f"{tool} --dsf2text exited 0 but wrote no text for {dsf_path}")
-        _land_dump(partial, text_out, started)
-    finally:
-        _remove_quietly(partial)
-    return text_out
 
 
 #: DSFTool 2.4's TEXT READER holds a line in a 512-byte buffer: a longer
@@ -1338,80 +1058,6 @@ class WriteResult:
     plan: PlacementPlan | None = None
     #: #1703: the rows written at a hand-set seat (``user_seats``)
     hand_seated: tuple[int, ...] = ()
-
-
-def remove_cut_files(paths: _t.Iterable[str]) -> tuple[str, ...]:
-    """Unlink the given body files — each confirmed to carry this writer's
-    ``CUT_MARK`` first, so a corrupt or hand-edited record can never
-    delete an authored object.  ONE implementation for the restore step
-    (11m), the shared-DSF orphan removal (#25) and the UI restore (#26).
-    Returns what went."""
-    removed: list[str] = []
-    for path in paths:
-        try:
-            if not os.path.isfile(path):
-                continue
-            with open(path, "r", encoding="utf-8", errors="replace") as fh:
-                if CUT_MARK not in fh.read(4096):
-                    continue
-            os.remove(path)
-        except OSError:
-            continue
-        removed.append(path)
-    return tuple(sorted(removed))
-
-
-def _body_paths(pack_root: str, rows: _t.Any) -> tuple[str, ...]:
-    """Record-relative body names -> absolute paths inside the pack (a
-    name that escapes the pack is dropped)."""
-    if not isinstance(rows, list):
-        return ()
-    out: list[str] = []
-    root = os.path.abspath(pack_root)
-    for rel in rows:
-        if not isinstance(rel, str) or not rel:
-            continue
-        p = os.path.abspath(os.path.join(root, *rel.replace("\\", "/").split("/")))
-        if p.startswith(root + os.sep):
-            out.append(p)
-    return tuple(out)
-
-
-def written_body_files(pack_root: str, dsf_path: str,
-                       icao: str = "") -> tuple[str, ...]:
-    """The body files the PREVIOUS write of this DSF made, as absolute
-    paths, from ``o4_placement_provenance.json`` beside it (11m).
-
-    PER AIRPORT (#25).  One pack DSF can serve TWO airports (TNCM + TFFG
-    on +18-064); each is written in turn, and the restore step before
-    the second write must remove only the SECOND airport's previous
-    bodies — the first's are still referenced by the DSF the second
-    write composes.  With ``icao`` and an ``airports`` map in the entry,
-    that airport's list (nothing when it has none); without ``icao``
-    the entry's whole list (every airport's — the UI restore's frame).
-    An entry from before the map holds ONE airport's list, which is the
-    previous write's whatever its ICAO: it is returned either way, so a
-    pack written up to this version cleans up exactly as it did.
-
-    The restore step removes exactly these before writing again — a plan
-    that cuts fewer bodies than the last one would otherwise leave the
-    surplus ``__b<k>.obj`` in the pack forever.  A pack with no
-    provenance, or provenance from before this key existed, names
-    nothing and NOTHING is removed.
-
-    PER DSF (§12a (2)).  The record lands in the 10°x10° ``Earth nav
-    data/<bucket>/`` folder, which may hold SEVERAL of a pack's DSFs; the
-    version-1 record held one DSF's ``body_files`` at the top level, so
-    writing DSF B removed DSF A's bodies while A's live DSF still
-    referenced them.  A version-1 record is honoured only when its
-    ``dsf`` field names THIS file — otherwise it names nothing, which is
-    11m's own rule (no record ⇒ remove nothing)."""
-    entry = _bs.dsf_entry(_bs.read_record(dsf_path), os.path.basename(dsf_path))
-    airports = entry.get("airports")
-    if icao and isinstance(airports, dict):
-        a = airports.get(icao)
-        return _body_paths(pack_root, (a or {}).get("body_files") or [])
-    return _body_paths(pack_root, entry.get("body_files") or [])
 
 
 def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,

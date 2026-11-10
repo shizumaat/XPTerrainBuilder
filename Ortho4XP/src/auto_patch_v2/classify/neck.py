@@ -93,7 +93,7 @@ from ..geom.parts import areal_part
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["Neck", "cover_arms", "necks_of", "split_at_necks"]
+__all__ = ["Neck", "cover_arms", "necks_of", "road_arms", "split_at_necks"]
 
 
 @_dc.dataclass(frozen=True)
@@ -235,6 +235,82 @@ def cover_arms(face: Polygon, cover, rules: Rules) -> list[Neck]:
     return [_dc.replace(n, reread=True)
             for n in _cuts(face, face_g, lobes, lobes, rules, None)[0]
             if n.width_m < w and _is_arm(n.aspect, n.mouth_factor, rules)]
+
+
+def road_arms(face: Polygon, taxi_lines: list, road_lines: list,
+              rules: Rules) -> list[Neck]:
+    """§43 (1)'s ARM read off a TAXI CORRIDOR'S OWN TERRITORY (#1728).
+
+    KBWI ``dsf:pol177`` is one pack page carrying taxiway K and, hanging
+    off it, a 9-13 m wide, ~120 m long service road that runs to the
+    15L/33R edge (OSM ``highway=service`` ``-734`` down its middle, no taxi
+    centreline on it).  The ladder reads the page by its MEAN width along
+    K (13.2 m), calls the whole of it a corridor, and the road arm shipped
+    ``stub`` — taxi law, bound into the runway edge.  Owner 2026-10-31:
+    "the straight part here ... is a service road, not a taxiway".
+
+    The wide body here is the corridor's ROUTE TERRITORY — the face within
+    ``junction.route_territory_half_width_m`` of the taxi centrelines it
+    carries — and what leaves it across a cross-section and follows a path
+    is an arm by the same verdict as ``cover_arms`` (``_is_arm``,
+    ``apron.neck_length_m``).  It is kept only where it is road-wide
+    (``apron.arm_road_max_width_m``, the #1877 statement) and a ROAD runs
+    along it: at least ``lot.through_min_fraction`` of its area lies within
+    half that width of a road centreline (the road-strip statement of
+    ``sources``, read on AREA because a pack page's degenerate spike adds
+    run but no pavement — KBWI pol177's arm reads 355 m of wall for ~120 m
+    of road).  No new number."""
+    if not taxi_lines or not road_lines:
+        return []
+    grid = rules.cells.opening_grid_m
+    face_g = shapely.set_precision(face, grid)
+    half = rules.junction.route_territory_half_width_m
+    territory = shapely.set_precision(
+        unary_union([ln.buffer(half) for ln in taxi_lines]), grid)
+    lobes = [b for b in polygon_parts(shapely.intersection(
+        face_g, territory, grid_size=grid)) if b.area > rules.cells.min_area_m2]
+    if not lobes:
+        return []
+    road_w = rules.apron.arm_road_max_width_m
+    lane = unary_union(road_lines).buffer(road_w / 2.0)
+    out: list[Neck] = []
+    for n in _cuts(face, face_g, lobes, lobes, rules, None)[0]:
+        if n.kind != "arm":
+            continue
+        n = _without_spikes(n, face, rules)
+        if n.width_m <= road_w and n.polygon.intersection(lane).area >= \
+                rules.lot.through_min_fraction * n.area_m2:
+            out.append(n)
+    return out
+
+
+def _without_spikes(n: Neck, face: Polygon, rules: Rules) -> Neck:
+    """``n`` with each SPIKE cut off at its base: a part of the arm under
+    ``cells.on_tol_m`` across (gone in the arm's opening by that radius)
+    and as long as a neck (``apron.neck_length_m``, half its perimeter).
+    MEASURED KBWI ``dsf:pol177``: a 34 m2 zero-width wedge of the pack
+    ring runs 220 m along taxiway ``dsf:pol318``, and riding on the road
+    arm it read 440 m of lateral airside contact, so §27 flipped the road
+    straight back to apron.  The spike is not road; it stays out of the
+    arm (a sliver cell of its own)."""
+    tol = rules.cells.on_tol_m
+    body = max(polygon_parts(n.polygon.buffer(-tol).buffer(tol)),
+               key=lambda g: g.area, default=None)
+    if body is None:
+        return n
+    cuts = list(n.cuts)
+    for sp in polygon_parts(n.polygon.difference(body)):
+        if sp.exterior.length / 2.0 < rules.apron.neck_length_m:
+            continue
+        chord = _mouth_chord(sp.exterior.intersection(body.buffer(
+            rules.cells.snap_grid_m)), face, rules)[0]
+        if chord is not None:
+            cuts.append(chord)
+    if len(cuts) == len(n.cuts):
+        return n
+    run = body.exterior.length / 2.0
+    return _dc.replace(n, polygon=body, cuts=tuple(cuts), length_m=run,
+                       width_m=body.area / run, area_m2=body.area)
 
 
 def _cuts(face: Polygon, face_g, lobes: list[Polygon], reach: list,

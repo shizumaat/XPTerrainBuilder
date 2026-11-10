@@ -23,6 +23,8 @@ final class StorageModel: ObservableObject {
         let message: String
         let kinds: [String]
         let olderThanDays: Double?
+        /// "Make all low-res again" rather than a deletion (#1992).
+        var lowRes = false
     }
 
     static let ageChoices: [Double] = [30, 60, 90, 180, 365]
@@ -38,6 +40,32 @@ final class StorageModel: ObservableObject {
             do {
                 scan = try await client.storageScan()
                 status = ""
+            } catch {
+                status = "\(error)"
+            }
+            isWorking = false
+        }
+    }
+
+    /// "Make all low-res again" (#1992 §7): a dry run first, so the
+    /// confirmation names the space it frees; pins are untouched.
+    func askMakeLowRes(_ buildModel: BuildModel) {
+        guard let client = buildModel.libraryContext()?.client else { return }
+        isWorking = true
+        status = "Measuring what would go…"
+        Task {
+            do {
+                let preview = try await client.imageryMakeAllLowRes(dryRun: true)
+                status = ""
+                if preview.downgraded == 0 {
+                    status = O4OnDemandText.makeLowResNone
+                } else {
+                    pending = PendingClear(
+                        title: O4OnDemandText.makeLowResTitle + "?",
+                        message: O4OnDemandText.makeLowResMessage(
+                            freedBytes: preview.freedBytes, textures: preview.downgraded),
+                        kinds: [], olderThanDays: nil, lowRes: true)
+                }
             } catch {
                 status = "\(error)"
             }
@@ -66,10 +94,13 @@ final class StorageModel: ObservableObject {
                 if preview.files == 0 {
                     status = "No cache file is older than \(Int(days)) days."
                 } else {
+                    // Sharp imagery is made low-res, not deleted (#1992).
+                    let sharp = (preview.kinds?["ondemand"] ?? 0) > 0
                     pending = PendingClear(
                         title: "Clear cache files not used for \(Int(days)) days?",
                         message: "This deletes \(preview.files) file(s) and frees \(Library.size(preview.freedBytes)). "
-                            + "Built tiles and airport patches are kept.",
+                            + "Built tiles and airport patches are kept."
+                            + (sharp ? " " + O4OnDemandText.olderSharpNote : ""),
                         kinds: [], olderThanDays: days)
                 }
             } catch {
@@ -81,6 +112,7 @@ final class StorageModel: ObservableObject {
 
     func confirm(_ clear: PendingClear, _ buildModel: BuildModel) {
         guard let client = buildModel.libraryContext()?.client else { return }
+        if clear.lowRes { return makeLowRes(client, buildModel) }
         isWorking = true
         status = "Clearing…"
         Task {
@@ -88,6 +120,24 @@ final class StorageModel: ObservableObject {
                 let done = try await client.storageClear(
                     kinds: clear.kinds, olderThanDays: clear.olderThanDays, dryRun: false)
                 status = "Freed \(Library.size(done.freedBytes)) in \(done.files) file(s)."
+                    + (done.stopped ? " A build started, so the rest was kept." : "")
+            } catch {
+                status = "\(error)"
+            }
+            isWorking = false
+            refresh(buildModel)
+        }
+    }
+}
+
+extension StorageModel {
+    fileprivate func makeLowRes(_ client: OrthoEngineClient, _ buildModel: BuildModel) {
+        isWorking = true
+        status = "Making imagery low-res again…"
+        Task {
+            do {
+                let done = try await client.imageryMakeAllLowRes(dryRun: false)
+                status = "Freed \(Library.size(done.freedBytes)) in \(done.downgraded) texture(s)."
                     + (done.stopped ? " A build started, so the rest was kept." : "")
             } catch {
                 status = "\(error)"
@@ -128,7 +178,9 @@ struct StorageSection: View {
         .confirmationDialog(model.pending?.title ?? "", isPresented: Binding(
             get: { model.pending != nil }, set: { if !$0 { model.pending = nil } }),
             presenting: model.pending) { clear in
-            Button("Clear", role: .destructive) { model.confirm(clear, buildModel) }
+            Button(clear.lowRes ? O4OnDemandText.makeLowResTitle : "Clear", role: .destructive) {
+                model.confirm(clear, buildModel)
+            }
             Button("Cancel", role: .cancel) {}
         } message: { clear in
             Text(clear.message)
@@ -136,8 +188,11 @@ struct StorageSection: View {
         if let scan = model.scan {
             Section("Caches") {
                 ForEach(scan.stores.filter(\.isCache)) { store in
-                    StorageRow(store: store) { model.askClear(store) }
-                        .disabled(model.isWorking || buildModel.isBuilding)
+                    // Sharp imagery is made low-res, never deleted (#1992).
+                    StorageRow(store: store) {
+                        if store.isOnDemand { model.askMakeLowRes(buildModel) } else { model.askClear(store) }
+                    }
+                    .disabled(model.isWorking || buildModel.isBuilding)
                 }
                 HStack {
                     Picker("Clear cache files not used for", selection: $olderThan) {
@@ -168,6 +223,12 @@ private struct StorageRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(store.label)
                 Text(store.note).font(.caption).foregroundStyle(.secondary)
+                if store.isOnDemand {
+                    // The pins, outside the cap (#1992 §7): their own line.
+                    Text(O4OnDemandText.pinsText(bytes: store.pinnedBytes ?? 0,
+                                                 files: store.pinnedFiles ?? 0))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
@@ -176,7 +237,8 @@ private struct StorageRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             if let clear {
-                Button("Clear…", action: clear).disabled(store.files == 0)
+                Button(store.isOnDemand ? O4OnDemandText.makeLowResTitle + "…" : "Clear…",
+                       action: clear).disabled(store.files == 0)
             }
         }
         .help(store.path)

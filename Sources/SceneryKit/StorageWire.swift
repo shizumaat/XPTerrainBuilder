@@ -36,13 +36,19 @@ public struct O4StorageStore: Decodable, Equatable, Identifiable, Sendable {
     public let files: Int
     /// Unix time a file in it was last used; nil when it is empty.
     public let lastUsed: Double?
+    /// The `ondemand` store only (#1992): the pins, outside the cap.
+    public let pinnedBytes: Int64?
+    public let pinnedFiles: Int?
 
     public var id: String { kind }
     public var isCache: Bool { policy == "cache" }
+    /// Sharp imagery near flown areas (#1992): made low-res, never deleted.
+    public var isOnDemand: Bool { kind == "ondemand" }
 
     private enum CodingKeys: String, CodingKey {
         case kind, label, policy, note, path, bytes, files
         case apparentBytes = "apparent_bytes", lastUsed = "last_used"
+        case pinnedBytes = "pinned_bytes", pinnedFiles = "pinned_files"
     }
 }
 
@@ -55,9 +61,11 @@ public struct O4StorageCleared: Decodable, Equatable, Sendable {
     public let stopped: Bool
     /// `storage_auto_clean` only: false when both settings are off.
     public let ran: Bool?
+    /// Bytes freed per store (`ondemand`: made low-res, not deleted).
+    public let kinds: [String: Int64]?
 
     private enum CodingKeys: String, CodingKey {
-        case files, stopped, ran
+        case files, stopped, ran, kinds
         case freedBytes = "freed_bytes", dryRun = "dry_run"
     }
 }

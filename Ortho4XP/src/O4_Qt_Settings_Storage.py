@@ -3,7 +3,9 @@
 
 Every store of the data folder with the space deleting it frees and when
 it was last used (``o4_engine.storage``), a Clear… button per cache, and
-"Clear cache files not used for N days" across every cache.  Built tiles,
+"Clear cache files not used for N days" across every cache.  The sharp
+imagery near flown areas (#1992) is made low-res again, never deleted:
+its row's action is "Make all low-res again…".  Built tiles,
 patches and overlays are listed under Kept and never cleared here.  Every
 clear asks first and names the space it frees (a whole cache: its measured
 size; by age: a dry run).  The folder walks and deletions run on a daemon
@@ -17,6 +19,7 @@ default).
 import threading
 import time
 
+import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
 from o4_engine import storage as STORAGE
 from O4_Qt_Library import emit_from_thread, fmt_size
 from O4_Qt_Settings_General import _row, _Section, _value
@@ -47,6 +50,17 @@ def _age_label(days):
     return "1 year" if days >= 365 else "%d days" % days
 
 
+def _older_message(preview):
+    """The "Clear cache files not used for…" confirmation: what is
+    deleted, and (#1992) the sharp imagery that is made low-res instead."""
+    message = ("This deletes %d file(s) and frees %s. Built tiles and "
+               "airport patches are kept."
+               % (preview["files"], fmt_size(preview["freed_bytes"])))
+    if preview.get("kinds", {}).get(STORAGE.ONDEMAND):
+        message += " " + ONDEMAND_TEXT.OLDER_SHARP_NOTE
+    return message
+
+
 def run_auto_clean(busy, report):
     """The automatic cleanup on a daemon thread; ``report(sentence)`` gets
     one line when it freed anything.  Skipped while ``busy()``."""
@@ -71,6 +85,7 @@ class StorageSection(_Section):
     loaded = Signal(object)
     cleared = Signal(object)
     previewed = Signal(object)
+    low_res_previewed = Signal(object)
 
     def __init__(self, busy=lambda: False, parent=None):
         super().__init__(parent)
@@ -108,6 +123,7 @@ class StorageSection(_Section):
         self.loaded.connect(self._on_loaded)
         self.cleared.connect(self._on_cleared)
         self.previewed.connect(self._on_previewed)
+        self.low_res_previewed.connect(self._on_low_res_previewed)
 
     # -- threads -------------------------------------------------------
     def _run(self, work, signal):
@@ -147,14 +163,26 @@ class StorageSection(_Section):
         row = QWidget()
         line = QHBoxLayout(row)
         line.setContentsMargins(0, 0, 0, 0)
+        note = store["note"]
+        if store["kind"] == STORAGE.ONDEMAND:
+            # The pins, outside the cap (#1992 §7): their own line.
+            note += "<br>" + ONDEMAND_TEXT.pins_line(
+                store.get("pinned_bytes", 0), store.get("pinned_files", 0))
         name = _value("%s<br><span style='%s'>%s</span>"
-                      % (store["label"], NOTE_STYLE, store["note"]))
+                      % (store["label"], NOTE_STYLE, note))
         name.setToolTip(store["path"])
         line.addWidget(name, 1)
         line.addWidget(_value("%s<br><span style='%s'>Last used %s</span>"
                               % (fmt_size(store["bytes"]), NOTE_STYLE,
                                  _date(store["last_used"]))))
-        if store["policy"] == STORAGE.CACHE:
+        if store["kind"] == STORAGE.ONDEMAND:
+            # Its clear is a downgrade, never a deletion (spec §6.3).
+            button = QPushButton(ONDEMAND_TEXT.MAKE_LOW_RES_TITLE + "…")
+            button.setEnabled(store["files"] > 0)
+            button.clicked.connect(self.ask_make_low_res)
+            line.addWidget(button)
+            self.clear_buttons[store["kind"]] = button
+        elif store["policy"] == STORAGE.CACHE:
             button = QPushButton("Clear…")
             button.setEnabled(store["files"] > 0)
             button.clicked.connect(lambda _c=False, s=store: self.ask_clear(s))
@@ -196,10 +224,42 @@ class StorageSection(_Section):
                 "No cache file is older than %d days." % days)
             return
         if self.confirm("Clear cache files not used for %s?" % _age_label(days),
-                        "This deletes %d file(s) and frees %s. Built tiles and "
-                        "airport patches are kept."
-                        % (preview["files"], fmt_size(preview["freed_bytes"]))):
+                        _older_message(preview)):
             self._clear([], days)
+
+    # -- "Make all low-res again" (#1992 §7) ---------------------------
+    def ask_make_low_res(self):
+        """A dry run first, so the confirmation names the space freed."""
+        if self.busy():
+            self.status_label.setText(BUSY)
+            return
+        from o4_engine.imagery_ondemand import imagery_ondemand_downgrade_all
+        self.status_label.setText("Measuring what would go…")
+        self._run(lambda: imagery_ondemand_downgrade_all(dry_run=True),
+                  self.low_res_previewed)
+
+    def _on_low_res_previewed(self, result):
+        if isinstance(result, Exception):
+            self.status_label.setText(str(result))
+            return
+        self.status_label.setText("")
+        if not result["downgraded"]:
+            self.status_label.setText(ONDEMAND_TEXT.MAKE_LOW_RES_NONE)
+            return
+        if self.confirm(ONDEMAND_TEXT.MAKE_LOW_RES_TITLE + "?",
+                        ONDEMAND_TEXT.make_low_res_message(
+                            result["freed_bytes"], result["downgraded"])):
+            self._make_low_res()
+
+    def _make_low_res(self):
+        from o4_engine.imagery_ondemand import imagery_ondemand_downgrade_all
+        self.status_label.setText("Making imagery low-res again…")
+
+        def work():
+            done = imagery_ondemand_downgrade_all(confirm=True)
+            return {"freed_bytes": done["freed_bytes"],
+                    "files": done["downgraded"], "stopped": done["stopped"]}
+        self._run(work, self.cleared)
 
     def _clear(self, kinds, days):
         self.status_label.setText("Clearing…")

@@ -94,6 +94,7 @@ import O4_Settings_Selection as SEL
 import O4_Qt_Imagery_Menu as QTIMENU
 import O4_Qt_Map as QTMAP
 import O4_Qt_Imagery_Freshness as QTFRESH
+import O4_Qt_Imagery_OnDemand as QTONDEMAND
 import O4_Qt_Mesh_Order as QTMESHORDER
 import O4_Qt_Missing_Textures as QTMISSING
 from o4_engine import EngineSession
@@ -710,6 +711,8 @@ class _EngineBridge(QObject):
     # (tile, [modified_packs entry, ...]) from a worker probe of the
     # reanchor provenance sidecars in Custom Scenery.
     reanchor_ready = Signal(object)
+    # An ``imagery_pin`` reply (or its error) from a worker (#1992).
+    pin_done = Signal(object)
     # [AirportEntry, ...] once the Global Airports index has loaded.
     airports_ready = Signal(object)
     # (generation, [O4_Custom_Scenery.SceneryPack, ...]) from a worker
@@ -908,6 +911,7 @@ class MainWindow(QMainWindow):
         self._bridge.stale_ready.connect(self._on_stale_ready)
         self._bridge.airports_ready.connect(self._on_airports_ready)
         self._bridge.packs_ready.connect(self._on_packs_ready)
+        self._bridge.pin_done.connect(self._on_pin_done)
         self._session.subscribe(self._bridge.event.emit)
         self._storage_auto_clean()          # at launch (#1724)
         self._event_handlers = {
@@ -934,6 +938,7 @@ class MainWindow(QMainWindow):
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
+            EV.ImageryFollowStatus: self._on_imagery_follow_status,
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
@@ -1262,6 +1267,11 @@ class MainWindow(QMainWindow):
         self.imagery_freshness_row.update_requested.connect(
             self._update_tile_imagery)
         ig.addRow("Imagery check:", self.imagery_freshness_row)
+        # Imagery on demand (#1992 §7; mac-app parity: TilePinRow): an
+        # on-demand tile's "Always keep full resolution".
+        self.tile_pin_row = QTONDEMAND.TilePinRow()
+        self.tile_pin_row.pin_requested.connect(self._pin_tile)
+        ig.addRow("%s:" % QTONDEMAND.TEXT.PIN_ROW_TITLE, self.tile_pin_row)
         # Who built it (#1226, owner Q95): the build record, else the DSF.
         self.info_built_by = ElidedRowLabel("—")
         ig.addRow("Built by:", self.info_built_by)
@@ -1382,6 +1392,7 @@ class MainWindow(QMainWindow):
         self._info_layout.setRowVisible(self.other_scenery_row, False)
         self._info_layout.setRowVisible(self.custom_settings_row, False)
         self._info_layout.setRowVisible(self.custom_patch_row, False)
+        self._info_layout.setRowVisible(self.tile_pin_row, False)
         self._modified_airport_packs = []
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)
@@ -1565,6 +1576,14 @@ class MainWindow(QMainWindow):
         boxes = QWidget()
         bv = QVBoxLayout(boxes)
         bv.setContentsMargins(0, 0, 0, 0)
+        # Imagery on demand (#1992 §7; mac-app parity: ImageryFollowLine):
+        # the follow job's line and its Start/Stop, while the world switch
+        # is on or a job runs (sync_imagery_follow).
+        self.follow_line = QTONDEMAND.FollowStatusLine()
+        self.follow_line.toggle_requested.connect(self._toggle_imagery_follow)
+        self.follow_line.setVisible(False)
+        self._follow_stopped_by_user = False
+        bv.addWidget(self.follow_line)
         bv.addWidget(build_group)
         bv.addWidget(self.patch_editor.panel)
         bv.addStretch(1)
@@ -2014,6 +2033,8 @@ class MainWindow(QMainWindow):
                 QByteArray.fromBase64(settings_geometry.encode("ascii"))
             )
         dialog.exec()
+        # The world switch may have changed (#1992): follow or stop.
+        self.sync_imagery_follow()
         # Blended settings apply immediately (Option C): every close path
         # keeps the changes, so the result is consumed unconditionally.
         old_xplane = self.prefs.get("xplane_dir", "")
@@ -2791,6 +2812,73 @@ class MainWindow(QMainWindow):
         from o4_engine.imagery_commands import start_imagery_source_status
         start_imagery_source_status(self._session._emit)
 
+    # -- Imagery on demand (#1992 P4) -----------------------------------
+    def sync_imagery_follow(self):
+        """Start the follow job when the world switch is on (and the user
+        has not stopped it), stop it when the switch is off; the line
+        shows while either is true.  Called by the entry point after the
+        window shows and after Settings closes — never by the
+        constructor (tests build windows and may not reach the network)."""
+        from o4_engine import imagery_commands as CMDS
+        enabled = CMDS.follow_settings()["enabled"]
+        running = CMDS.follow_running()
+        if enabled and not running and not self._follow_stopped_by_user:
+            self._start_imagery_follow()
+            running = True
+        elif not enabled and running:
+            self._stop_imagery_follow()
+            running = False
+        self.follow_line.set_running(running)
+        self.follow_line.setVisible(enabled or running)
+
+    def _start_imagery_follow(self):
+        from o4_engine import imagery_commands as CMDS
+        session = self._session            # never the window (see below)
+        CMDS.start_imagery_follow(session._emit,
+                                  busy=lambda: bool(session._building),
+                                  working_dir=self.working_dir())
+
+    def _stop_imagery_follow(self):
+        from o4_engine import imagery_commands as CMDS
+        if CMDS.follow_running():
+            # The job's last status ("stopped") arrives as an event.
+            threading.Thread(target=CMDS.stop_imagery_follow, daemon=True,
+                             name="o4-imagery-follow-stop").start()
+
+    def _toggle_imagery_follow(self, start):
+        """The line's Follow X-Plane / Stop Following."""
+        self._follow_stopped_by_user = not start
+        if start:
+            self._start_imagery_follow()
+        else:
+            self._stop_imagery_follow()
+        self.follow_line.set_running(start)
+
+    def _on_imagery_follow_status(self, event):
+        self.follow_line.show_status(event)
+        self.follow_line.setVisible(True)
+
+    def _show_tile_pin(self, tile, info):
+        self.tile_pin_row.show_tile(tile, info)
+        self._info_layout.setRowVisible(
+            self.tile_pin_row, QTONDEMAND.TilePinRow.applies(info))
+
+    def _pin_tile(self, request):
+        """The tile pane's pin: ``imagery_pin``, then the tiles rescan
+        (the pane and the Library read the pin from the tile)."""
+        lat, lon, pinned = request
+        QTONDEMAND.pin_tile(lat, lon, pinned, self._bridge.pin_done,
+                            busy=lambda: bool(self._building),
+                            working_dir=self.working_dir())
+
+    def _on_pin_done(self, result):
+        if isinstance(result, Exception):
+            print(str(result))
+            return
+        print(QTONDEMAND.TEXT.pin_done(result))
+        self.tile_pin_row.set_pinned(result.get("pinned", False))
+        self.refresh_tiles()
+
     def _on_imagery_source_status(self, event):
         self._imagery_status[event.code] = (event.status, event.reason)
         self._refresh_imagery_menus()
@@ -3260,6 +3348,7 @@ class MainWindow(QMainWindow):
                 w.setText("…" if pending else "—")
             self.tile_path_row.show_info(None)
             self.tile_stale_row.show_verdict(None, None)
+            self._show_tile_pin(None, None)
             self.info_title.setText(
                 self.info_title.text()
                 + ("  (scanning…)" if pending else "  (not built)")
@@ -3286,6 +3375,7 @@ class MainWindow(QMainWindow):
         self.info_built_by.setText(TINFO.with_built_by(info).built_by or "—")
         self.tile_path_row.show_info(info)
         self.tile_stale_row.show_verdict(tile, self.map.stale().get(tile))
+        self._show_tile_pin(tile, info)
         if info.size_bytes is None:
             self.info_size.setText("computing…")
             threading.Thread(
@@ -5548,6 +5638,7 @@ class MainWindow(QMainWindow):
         self._reanchor_probe.close()
         self._stale_probe.close()
         self.imagery_freshness_row.close_probe()
+        self._stop_imagery_follow()
         # The 3D preview's building reader runs in a worker process (#753).
         self.patch_editor.engine.close()
         event.accept()

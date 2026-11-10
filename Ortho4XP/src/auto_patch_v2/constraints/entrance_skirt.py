@@ -34,12 +34,15 @@ _SKIRT_RULING = "tunnel.object.entrance_skirt_m (RULINGS 2026-11-06c (3))"
 def skirt_pins(planar, airport, law, tn, faces_by_ref: _t.Mapping[str, _t.Sequence],
                vertex_faces, own_roles: _t.Container[str],
                shared: _t.Callable[[int], bool], pin: _t.Callable[..., None],
-               inputs: tuple) -> int:
+               inputs: tuple, held: "list[int] | None" = None) -> int:
     """Pin ``tn``'s skirt (module doc) through ``pin(v, z, src, senior)``:
     ``faces_by_ref`` maps a ref (its ``#n`` piece suffix aside) to its
     faces, ``vertex_faces`` is the precedence view's vertex -> face ids,
     ``own_roles`` the structure roles and the skirt's, ``shared`` the rim's
-    ground rule.  Returns the number pinned."""
+    ground rule.  ``held`` given (#1737: the face's top meets the airside,
+    ``constraints/airside_top``), the level piece's vertices are appended to
+    it for the caller to hold at that seat, never pinned.  Returns the number
+    pinned or held."""
     rec = getattr(tn, "entrance_skirt", ())
     if not rec:
         return 0
@@ -60,7 +63,10 @@ def skirt_pins(planar, airport, law, tn, faces_by_ref: _t.Mapping[str, _t.Sequen
     n = 0
     for v in sorted(core):
         if not airside(v):
-            pin(v, top, src_top, senior=True)
+            if held is not None:
+                held.append(v)
+            else:
+                pin(v, top, src_top, senior=True)
             n += 1
     for v in sorted(ring_vs(bank_ref) - core):
         if airside(v) or shared(v):

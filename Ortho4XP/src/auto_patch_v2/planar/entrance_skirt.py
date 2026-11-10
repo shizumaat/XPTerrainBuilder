@@ -41,7 +41,7 @@ from shapely.ops import substring, unary_union
 from ..model.frame import XY
 from .mouth_opening import axis_left_normal
 
-__all__ = ["face_front_mouth", "is_entrance_face", "entrance_skirt", "skirt_refs"]
+__all__ = ["face_front_mouth", "is_entrance_face", "entrance_skirt", "entrance_top", "skirt_refs"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 #: plan samples along the skirt's ring for the bank width (metres)
@@ -164,3 +164,20 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float):
 def skirt_refs(tid: str) -> tuple[str, str]:
     """The refs of a tunnel's skirt faces: its level piece and its bank."""
     return f"entrance_skirt:{tid}", f"entrance_bank:{tid}"
+
+
+def entrance_top(pin) -> tuple:
+    """``Tunnel.entrance_top`` of an entrance ``pin`` (#1737): ``(its top
+    plan's exterior rings, top y, top y - bottom y)`` -- the top y over the
+    object's zero, read back from the seat its cover set (``trench_objects.
+    mouth_portals``: zero = floor - bottom, top = cover - zero) -- or ``()``
+    with no top plan."""
+    plan = getattr(pin, "top_plan", None)
+    top_z, bottom = getattr(pin, "face_top_z", None), getattr(pin, "bottom_y", None)
+    floor = getattr(pin, "floor_z", None)
+    if plan is None or plan.is_empty or None in (top_z, bottom, floor):
+        return ()
+    top_y = float(top_z) - (float(floor) - float(bottom))
+    rings = tuple(tuple((float(x), float(y)) for x, y in g.exterior.coords)
+                  for g in getattr(plan, "geoms", [plan]) if not g.is_empty)
+    return (rings, top_y, top_y - float(bottom)) if rings else ()

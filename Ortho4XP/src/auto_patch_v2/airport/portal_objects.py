@@ -107,6 +107,11 @@ class Portal:
     #: is graded up to it (``planar/entrance_skirt``); ``None`` otherwise
     face_plan: object = None
     face_top_z: "float | None" = None
+    #: #1737: the top plan the face's cover was read over (``trench_objects.
+    #: _face_at``) -- a lid's as well as a headwall's: where AIRSIDE pavement
+    #: abuts it, the face's top is that pavement's level
+    #: (``constraints/airside_top``); ``None`` otherwise
+    top_plan: object = None
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:

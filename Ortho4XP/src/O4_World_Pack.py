@@ -77,6 +77,7 @@ def placeholder_text(lat: int, lon: int) -> str:
 
 def _dsftool(tool: str, *args: str, timeout: float = 600) -> str:
     done = subprocess.run([tool, *args], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace",
                           timeout=timeout)
     if done.returncode != 0:
         raise RuntimeError(f"DSFTool {' '.join(args[:1])} failed "
@@ -92,7 +93,7 @@ def write_placeholder(pack: str, lat: int, lon: int, tool: str) -> str:
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with tempfile.TemporaryDirectory() as work:
         src = os.path.join(work, "ph.txt")
-        with open(src, "w", encoding="utf-8") as handle:
+        with open(src, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(placeholder_text(lat, lon))
         out = os.path.join(work, "ph.dsf")
         _dsftool(tool, "--text2dsf", src, out)
@@ -197,7 +198,7 @@ def relayout_tile(tile_dir: str, out_dir: str, lat: int, lon: int,
         _dsftool(tool, "--dsf2text", src_dsf, txt)
         with open(txt, encoding="utf-8") as handle:
             text, counts["dsf_defs"] = rewrite_dsf_text(handle.read(), tile)
-        with open(txt, "w", encoding="utf-8") as handle:
+        with open(txt, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
         _dsftool(tool, "--text2dsf", txt, dst_dsf)
     return counts

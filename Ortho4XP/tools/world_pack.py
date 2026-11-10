@@ -385,6 +385,12 @@ def cmd_reload(a) -> int:
 
 
 def main(argv=None) -> int:
+    try:  # the engine's console pin; a kit copy runs without the engine
+        sys.path.insert(0, os.path.join(REPO_ENGINE, "src"))
+        import O4_Console_Encoding
+        O4_Console_Encoding.configure_console_streams()
+    except ImportError:
+        pass
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--kit", default=HERE if KIT_MODE else None)
     sub = p.add_subparsers(dest="cmd", required=True)

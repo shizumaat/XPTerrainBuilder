@@ -243,6 +243,7 @@ def _in_process_session(queued):
     session._parallel = None
     session._eta = None
     session._tile_overrides = {}
+    session._tile_build_dirs = {}
     session._cancelled_tiles = set()
     session._run_items = {}
     session.new_tile_attempt = lambda tile: None

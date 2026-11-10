@@ -74,6 +74,10 @@ _WITNESS = re.compile(
 
 #: ``relpath`` -> {trap id: reason}.  Reviewed, file-scoped exemptions.
 ALLOWED = {
+    "tools/world_pack.py": {
+        "posix_os_call": "dev kit for the world-pack experiment (process groups "
+                         "for the on-the-fly build child); macOS only, never on Windows",
+    },
     "tools/harness/bounded_run.py": {
         "posix_os_call": "POSIX-only lane wrapper (process groups); never run on Windows",
         "posix_signal": "POSIX-only lane wrapper (process groups); never run on Windows",

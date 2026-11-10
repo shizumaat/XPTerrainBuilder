@@ -340,7 +340,8 @@ def convert(custom_scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX
     entry, so ``swap`` puts a real folder under the entry's name).
     Returns ``{"rows", "bytes_written", "seconds"}``."""
     work = work_dir or _work_dir_for(custom_scenery_dir)
-    os.makedirs(work, exist_ok=True)
+    if swap or not local_root:          # copies into a local root need none
+        os.makedirs(work, exist_ok=True)
     if swap and not EXCHANGE.supported(work):
         raise EXCHANGE.ExchangeUnsupported(
             "no atomic exchange in %s: --swap refused (copies only)" % work)

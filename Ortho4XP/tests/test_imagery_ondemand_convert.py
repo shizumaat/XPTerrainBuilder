@@ -327,6 +327,20 @@ def test_revert_and_local_folder_entries(world):
     assert all(r["source_path"].startswith(aside) for r in rows)
 
 
+def test_local_root_copy_touches_nothing_else(world):
+    root = str(world.tmp / "root")
+    rows = _convert(world, swap=False, local_root=root)["rows"]
+    assert [r["status"] for r in rows] == ["copied", "copied"]
+    assert not os.path.exists(world.work)
+    for folder in (world.new, world.old):
+        entry = os.path.join(world.scenery, os.path.basename(folder))
+        assert os.path.islink(entry) and os.path.realpath(entry) == folder
+        assert CONVERT.is_converted(os.path.join(root, os.path.basename(
+            folder)), folder, PX)
+    again = _convert(world, swap=False, local_root=root)["rows"]
+    assert [r["status"] for r in again] == ["copy already done"] * 2
+
+
 def test_lander_prefers_the_mounted_source(world, monkeypatch, tmp_path):
     import O4_Imagery_Utils as IMG
     called = []

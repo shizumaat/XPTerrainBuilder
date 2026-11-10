@@ -22,6 +22,7 @@ public enum O4OnDemandText {
     public static let makeLowResTitle = "Make all low-res again"
     public static let makeLowResNone = "No sharp imagery to make low-res again."
     public static let pinsLine = "Pinned tiles: {bytes} in {files} texture(s), never made low-res"
+    public static let coresLine = "{files} of them near airports, made low-res last"
     public static let olderSharpNote = "Sharp imagery near flown areas is made low-res again, not deleted, and fetched again when you fly near; pinned tiles are kept."
 
     // The follow status line (spec §7: the activity area).
@@ -61,9 +62,11 @@ public enum O4OnDemandText {
             + "They are fetched again when you fly near; pinned tiles are kept."
     }
 
-    /// The Storage row's second line: the pins, outside the cap.
-    public static func pinsText(bytes: Int64, files: Int) -> String {
-        fill(pinsLine, ["bytes": sizeText(bytes), "files": "\(files)"])
+    /// The Storage row's extra lines: the airport cores among the counted
+    /// textures (when any), then the pins, outside the cap.
+    public static func pinsText(bytes: Int64, files: Int, cores: Int = 0) -> String {
+        let pins = fill(pinsLine, ["bytes": sizeText(bytes), "files": "\(files)"])
+        return cores == 0 ? pins : fill(coresLine, ["files": "\(cores)"]) + "\n" + pins
     }
 
     /// One sentence for an `imagery_pin` reply.

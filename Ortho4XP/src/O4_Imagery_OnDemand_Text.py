@@ -17,7 +17,7 @@ from typing import Mapping, Tuple
 
 __all__ = ["PIN_TITLE", "UNPIN_TITLE", "PIN_ROW_TITLE", "LOW_RES_STATE",
            "PINNED_STATE", "PINNED_BADGE", "PIN_HELP", "MAKE_LOW_RES_TITLE",
-           "MAKE_LOW_RES_NONE", "PINS_LINE", "OLDER_SHARP_NOTE",
+           "MAKE_LOW_RES_NONE", "PINS_LINE", "CORES_LINE", "OLDER_SHARP_NOTE",
            "FOLLOW_START_TITLE", "FOLLOW_STOP_TITLE", "FOLLOW_TEMPLATES",
            "FOLLOW_DETAIL", "WAITING_REASON", "make_low_res_message",
            "pins_line", "pin_done", "follow_lines"]
@@ -38,6 +38,8 @@ PIN_HELP = ("A pinned tile is fetched whole at full resolution, is never "
 MAKE_LOW_RES_TITLE = "Make all low-res again"
 MAKE_LOW_RES_NONE = "No sharp imagery to make low-res again."
 PINS_LINE = "Pinned tiles: {bytes} in {files} texture(s), never made low-res"
+#: The row's airport cores (spec §6.1): counted, made low-res last.
+CORES_LINE = "{files} of them near airports, made low-res last"
 #: Added to "Clear cache files not used for…" when the sweep reaches the
 #: sharp imagery: it is made low-res again, never deleted.
 OLDER_SHARP_NOTE = ("Sharp imagery near flown areas is made low-res again, "
@@ -86,10 +88,14 @@ def make_low_res_message(freed_bytes, textures: int) -> str:
             "kept." % (int(textures), _size_text(freed_bytes)))
 
 
-def pins_line(pinned_bytes, pinned_files: int) -> str:
-    """The Storage row's second line: the pins, outside the cap."""
-    return PINS_LINE.format(bytes=_size_text(pinned_bytes),
+def pins_line(pinned_bytes, pinned_files: int, core_files: int = 0) -> str:
+    """The Storage row's extra lines: the airport cores among the counted
+    textures (when any), then the pins, outside the cap."""
+    pins = PINS_LINE.format(bytes=_size_text(pinned_bytes),
                             files=int(pinned_files))
+    if not core_files:
+        return pins
+    return CORES_LINE.format(files=int(core_files)) + "\n" + pins
 
 
 def pin_done(result: Mapping) -> str:

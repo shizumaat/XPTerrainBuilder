@@ -39,6 +39,8 @@ public struct O4StorageStore: Decodable, Equatable, Identifiable, Sendable {
     /// The `ondemand` store only (#1992): the pins, outside the cap.
     public let pinnedBytes: Int64?
     public let pinnedFiles: Int?
+    /// Of the counted textures, those near airports (made low-res last).
+    public let coreFiles: Int?
 
     public var id: String { kind }
     public var isCache: Bool { policy == "cache" }
@@ -49,6 +51,7 @@ public struct O4StorageStore: Decodable, Equatable, Identifiable, Sendable {
         case kind, label, policy, note, path, bytes, files
         case apparentBytes = "apparent_bytes", lastUsed = "last_used"
         case pinnedBytes = "pinned_bytes", pinnedFiles = "pinned_files"
+        case coreFiles = "core_files"
     }
 }
 

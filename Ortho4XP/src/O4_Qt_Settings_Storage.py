@@ -167,7 +167,8 @@ class StorageSection(_Section):
         if store["kind"] == STORAGE.ONDEMAND:
             # The pins, outside the cap (#1992 §7): their own line.
             note += "<br>" + ONDEMAND_TEXT.pins_line(
-                store.get("pinned_bytes", 0), store.get("pinned_files", 0))
+                store.get("pinned_bytes", 0), store.get("pinned_files", 0),
+                store.get("core_files", 0)).replace("\n", "<br>")
         name = _value("%s<br><span style='%s'>%s</span>"
                       % (store["label"], NOTE_STYLE, note))
         name.setToolTip(store["path"])

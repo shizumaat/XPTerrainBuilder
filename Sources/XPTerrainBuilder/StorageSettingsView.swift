@@ -226,7 +226,8 @@ private struct StorageRow: View {
                 if store.isOnDemand {
                     // The pins, outside the cap (#1992 §7): their own line.
                     Text(O4OnDemandText.pinsText(bytes: store.pinnedBytes ?? 0,
-                                                 files: store.pinnedFiles ?? 0))
+                                                 files: store.pinnedFiles ?? 0,
+                                                 cores: store.coreFiles ?? 0))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

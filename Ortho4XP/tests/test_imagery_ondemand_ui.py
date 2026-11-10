@@ -37,6 +37,7 @@ SWIFT_TO_PYTHON = {
     "pinnedState": TEXT.PINNED_STATE, "pinnedBadge": TEXT.PINNED_BADGE,
     "pinHelp": TEXT.PIN_HELP, "makeLowResTitle": TEXT.MAKE_LOW_RES_TITLE,
     "makeLowResNone": TEXT.MAKE_LOW_RES_NONE, "pinsLine": TEXT.PINS_LINE,
+    "coresLine": TEXT.CORES_LINE,
     "olderSharpNote": TEXT.OLDER_SHARP_NOTE,
     "followStartTitle": TEXT.FOLLOW_START_TITLE,
     "followStopTitle": TEXT.FOLLOW_STOP_TITLE,
@@ -163,6 +164,9 @@ def test_make_all_low_res_names_the_space_it_frees():
     message = TEXT.make_low_res_message(2_500_000_000, 220)
     assert "2.50 GB" in message and "220" in message
     assert "pinned tiles are kept" in message
+    assert TEXT.pins_line(1_400_000_000, 7) == (
+        "Pinned tiles: 1.40 GB in 7 texture(s), never made low-res")
+    assert TEXT.pins_line(0, 0, 3).startswith("3 of them near airports")
 
 
 @pytest.fixture

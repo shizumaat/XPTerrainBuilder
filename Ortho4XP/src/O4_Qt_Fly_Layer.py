@@ -57,7 +57,9 @@ class FlyLayer:
         if self.preview is None:
             return
         south, north, west, east = self._map.visible_bounds()
-        mid = (south + north) / 2
+        # clamped to the Mercator range: before the map is first laid out
+        # its bounds can reach a pole, where the projection is undefined
+        mid = max(-85.0, min(85.0, (south + north) / 2))
         px = self._point(mid, west + 1).x() - self._point(mid, west).x()
         self.preview.set_view(south, west, north, east, px)
 

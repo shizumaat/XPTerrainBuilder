@@ -80,6 +80,7 @@ from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Sour
 from ..model.frame import XY
 from ..model.planar import Face, PlanarMap
 from ..model.structures import SKIRT_ROLE, UNDERPASS_NOTE, Basin, Tunnel, profile_z
+from .airside_top import TOP_FLUSH, top_seat, top_seats
 from .entrance_skirt import skirt_pins
 from .edge_floor import DECK_FLOOR, edge_seats_of, seat_pair, sloped_floor_rows
 from .precedence import view
@@ -295,6 +296,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     for f in planar.faces.values():
         faces_by_ref.setdefault(f.ref.split("#")[0], []).append(f)
     seats_of = edge_seats_of(planar, law)
+    top_seats_of = top_seats(planar, law)
     via_stations: dict[str, list[tuple[float, list[int]]]] = {}
     for tn in tunnels:
         inputs = (tn.id, *(f"osm:{w}" for w in tn.ways))
@@ -402,8 +404,15 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             groups = _rim_rows(planar, airport, path, wall_vs, shared, pin, src_wall,
                                own_ground=bool(getattr(tn, "edge_back", ())))
             # RULINGS 2026-11-06c (3): an entrance face's skirt is its top
+            # -- #1737: held level with the airside seat where it has one
+            top_at = top_seat(top_seats_of, tn)
+            held: list[int] = []
             skirt_pins(planar, airport, law, tn, faces_by_ref, vw.vertex_faces,
-                       (*structure_roles, SKIRT_ROLE), shared, pin, inputs)
+                       (*structure_roles, SKIRT_ROLE), shared, pin, inputs,
+                       held=None if top_at is None else held)
+            for v in held:
+                pins.pop(v, None)
+                rows.extend(seat_pair(v, (top_at[0], 0.0), Source(GEN, TOP_FLUSH, inputs)))
             if tn.cap_centre is not None and groups:
                 uc = path.project(Point(tn.cap_centre))
                 cap_reps.append(min(groups, key=lambda g: abs(g[0] - uc))[1][0])
@@ -601,6 +610,11 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 # airside, less its walls' bottom — never deeper than the
                 # object; the two-sided pair of the mouth-depth idiom above
                 rows.extend(seat_pair(group[0], seats[0], src_mouth))
+            elif top_seat(top_seats_of, tn) is not None:
+                # #1737: AN ENTRANCE FACE'S TOP MEETS THE AIRSIDE -- its floor
+                # is the airside's solved level less its height, never the
+                # DEM-max seat (``constraints/airside_top``)
+                rows.extend(seat_pair(group[0], top_seat(top_seats_of, tn), src_mouth))
             elif tn.source in ("object", "door", "sunken_road") or getattr(tn, "edge_back", ()) \
                     or getattr(tn, "portal_floor", False):
                 # (an EDGE BRIDGE's floor is the object's: its deck level −

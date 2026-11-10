@@ -269,19 +269,24 @@ def log_line(icao: str, decks: _t.Sequence[TerrainFit]) -> str:
         f"{f.area_m2:,.0f} m2, relief {f.relief_m:.1f} m" for f in decks)
 
 
-def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None) -> list[dict[str, _t.Any]]:
+def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None,
+                        zeros: "_t.Mapping[str, float] | None" = None) -> list[dict[str, _t.Any]]:
     """One record per roofed portal seated at its mouth's pinned floor
     (``Tunnel.portal_seat``) -- the row :func:`row_seats` writes there --
     and per ENTRANCE face (#1747; ``to_ll`` the frame's xy -> (lat, lon)):
     seat :data:`ENTRANCE_SEAT`, its ``end`` ``[lat, lon]``, the elevation its
-    zero, which ``airport/entrance_seat`` lays on the face's own body."""
+    zero, which ``airport/entrance_seat`` lays on the face's own body.
+    ``zeros`` (tunnel id -> zero, #1737 ``constraints/airside_top``): an
+    entrance face whose top meets the airside takes its zero off the solved
+    surface instead of the planar seat."""
     out = []
     for tn in structures:
         ps = getattr(tn, "portal_seat", ())
         if not ps or not tn.portal:
             continue
+        zero = (zeros or {}).get(getattr(tn, "id", ""), float(ps[1]))
         rec = {"id": tn.portal, "resource": ps[0], "datum": "portal",
-               "seat": PORTAL_SEAT, "elevation": round(float(ps[1]), 3)}
+               "seat": PORTAL_SEAT, "elevation": round(float(zero), 3)}
         if len(ps) > 2:
             if to_ll is None:
                 continue

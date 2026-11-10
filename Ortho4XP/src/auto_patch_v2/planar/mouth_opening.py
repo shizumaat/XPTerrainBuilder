@@ -24,7 +24,7 @@ import typing as _t
 
 from ..model.frame import XY
 
-__all__ = ["axis_left_normal", "opening_halves"]
+__all__ = ["axis_left_normal", "group_opening", "opening_halves"]
 
 
 def axis_left_normal(axis) -> XY:
@@ -50,3 +50,23 @@ def opening_halves(axis, edges: _t.Sequence[XY]) -> "tuple[float, float] | None"
     if left <= 0.0 or right <= 0.0:
         return None
     return float(left), float(right)
+
+
+def group_opening(pins: _t.Sequence[_t.Any], axis) -> "tuple[float, tuple[XY, XY]]":
+    """``(width, (edge, edge))``: THE OPENING OF A GROUP OF BORES ONE MOUTH
+    OBJECT FACES is the hull, across ``axis`` (mouth first), of every
+    member's opening (``Portal.opening_xy``) -- the ramp grades to the
+    object's full width, never to one member's slot (#1737, owner 2026-11-02
+    ENGM: "tunnels should grade to it's full width on the low side";
+    MEASURED ENGM ``Ham3.obj``: the four rail bores' faces read 28.0 m, 28.0
+    m, 28.1 m and 1.2 m -- the last a slot beside the face's wall -- and the
+    group's ramp took the first member's 1.2 m).  ``(0.0, ())`` with fewer
+    than two edges."""
+    edges = [tuple(e) for p in pins for e in (getattr(p, "opening_xy", ()) or ())]
+    if len(edges) < 2 or len(axis.coords) < 2:
+        return 0.0, ()
+    m = axis.coords[0]
+    nv = axis_left_normal(axis)
+    offs = sorted(((e[0] - m[0]) * nv[0] + (e[1] - m[1]) * nv[1], e) for e in edges)
+    (lo, a), (hi, b) = offs[0], offs[-1]
+    return float(hi - lo), (a, b)

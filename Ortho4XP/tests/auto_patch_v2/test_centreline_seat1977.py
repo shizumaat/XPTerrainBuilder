@@ -124,3 +124,15 @@ def test_runway_ends_ll_names_both_ends_with_the_axis():
     a, b = CS.runway_ends_ll(types.SimpleNamespace(runways=(rw,)))
     assert (a["end"], a["far_lat"], b["end"], b["far_lat"]) == ("05", 38.01, "23", 38.0)
     assert a["half_width_m"] == b["half_width_m"] == 22.86
+
+
+def test_the_mesh_sampler_reaches_the_runway_ends():
+    """KCRW: the plan's members end 200 m short of RWY 23's end, so the
+    sampler built on their box answered no surface there."""
+    b = (-81.6033, 38.3622, -81.5862, 38.3802)
+    ends = [{"lat": 38.38229593, "lon": -81.58427953}, {"lat": 38.36972031,
+                                                       "lon": -81.6014823}]
+    assert CS.bounds_with_ends(b, ends) == (-81.6033, 38.3622, -81.58427953, 38.38229593)
+    assert CS.bounds_with_ends(b, ()) == b
+    assert CS.bounds_with_ends((0.0, 0.0, 0.0, 0.0), ends[:1]) == (
+        -81.58427953, 38.38229593, -81.58427953, 38.38229593)

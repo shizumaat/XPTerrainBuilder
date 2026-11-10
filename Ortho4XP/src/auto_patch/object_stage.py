@@ -100,6 +100,23 @@ def mesh_placement_sampler(mesh_path: str,
     return _sample
 
 
+def _sampler_bounds(plan_, patch_dir: str) -> tuple[float, float, float, float]:
+    """The mesh the placement stage samples: the plan's witnesses and the
+    runway ends of the graded surface beside the patch (RULINGS 2026-11-10i,
+    #1977: an approach-light set is seated at the end's solved elevation,
+    which may lie outside every plan member's box)."""
+    from auto_patch_v2.airport.centreline_seat import bounds_with_ends
+    from auto_patch_v2.model.rebake import graded_surface_path
+    ends = ()
+    try:
+        import json as _json
+        with open(graded_surface_path(patch_dir, plan_.icao), encoding="utf-8") as fh:
+            ends = (_json.load(fh).get("provenance") or {}).get("runway_ends") or ()
+    except (OSError, ValueError):
+        pass
+    return bounds_with_ends(plan_.bounds(), ends)
+
+
 def _placement_surface(mesh_sample):
     """The placement stage's design surface over a mesh sampler
     (RULINGS 2026-09-12g (2)).
@@ -1010,7 +1027,8 @@ def rebake_after_mesh(tile) -> dict:
                 def _compute(plan_=plan_, law=law, omit=omit, key=key):
                     return _place_objects(
                         plan_, law,
-                        mesh_placement_sampler(mesh_path, plan_.bounds()),
+                        mesh_placement_sampler(mesh_path,
+                                               _sampler_bounds(plan_, patch_dir)),
                         tile, patch_dir, write_enabled, measure_only,
                         omit=omit, plan_key=key)
                 pc = {}

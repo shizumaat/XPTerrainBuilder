@@ -33,8 +33,8 @@ from __future__ import annotations
 import math
 import typing as _t
 
-__all__ = ["CENTRELINE_END", "runway_ends_ll", "on_extended_centreline",
-           "centreline_seats"]
+__all__ = ["CENTRELINE_END", "runway_ends_ll", "bounds_with_ends",
+           "on_extended_centreline", "centreline_seats"]
 
 #: the ``MslSeat.why`` of :func:`centreline_seats`
 CENTRELINE_END = "centreline_end"
@@ -56,6 +56,22 @@ def runway_ends_ll(airport: _t.Any) -> list[dict[str, _t.Any]]:
                         "far_lat": float(far.ll[0]), "far_lon": float(far.ll[1]),
                         "half_width_m": hw})
     return out
+
+
+def bounds_with_ends(bounds: tuple[float, float, float, float],
+                     runway_ends: _t.Sequence[_t.Mapping[str, _t.Any]]
+                     ) -> tuple[float, float, float, float]:
+    """``(min_lon, min_lat, max_lon, max_lat)`` widened to every runway end
+    point (the placement stage's mesh sampler must reach the end the set
+    is seated at); an empty ``bounds`` (all zero) is replaced."""
+    lons = [float(e["lon"]) for e in runway_ends]
+    lats = [float(e["lat"]) for e in runway_ends]
+    if not lons:
+        return bounds
+    if any(bounds):
+        lons += [bounds[0], bounds[2]]
+        lats += [bounds[1], bounds[3]]
+    return (min(lons), min(lats), max(lons), max(lats))
 
 
 def _local(lat0: float, lon0: float, lat: float, lon: float) -> tuple[float, float]:

@@ -1286,7 +1286,11 @@ def _write_pack(a, plan, ss, sampler) -> None:
         jetway_strips=_strips,
         gate_m=float(_law2.tables.emit.design.jetway_strip_m),
         keep_tol_m=float(_law2.tables.structures.placement.authored_keep_tol_m),
-        feet_tol_m=float(_law2.tables.structures.placement.split_tol_m))
+        feet_tol_m=float(_law2.tables.structures.placement.split_tol_m),
+        # RULINGS 2026-11-10i (#1977): approach-light sets off runway ends
+        runway_ends=tuple((_gd.get("provenance") or {}).get("runway_ends") or ()),
+        approach_reach_m=float(_law2.tables.runway_ends.approach_reach_m),
+        approach_heading_deg=float(_law2.tables.runway_ends.peer_parallel_deg))
     counts = dict(ss.counts)
     counts.update(_rows)
     pl = PlacementPlan(icao=plan.icao, pack_name=os.path.basename(root),
@@ -1572,7 +1576,12 @@ def _main() -> int:
             print(line)
     sampler, pads, rims = surface_from_graded(a.graded, tol_m)
     if a.mesh:
-        sampler = surface_from_mesh(a.mesh, plan.bounds(), sampler)
+        # RULINGS 2026-11-10i (#1977): the sampler reaches the runway ends
+        from auto_patch_v2.airport.centreline_seat import bounds_with_ends
+        with open(a.graded, encoding="utf-8") as _fh:
+            _ends = (json.load(_fh).get("provenance") or {}).get("runway_ends") or ()
+        sampler = surface_from_mesh(a.mesh, bounds_with_ends(plan.bounds(), _ends),
+                                    sampler)
         print(f"  surface: the BUILT MESH {os.path.basename(a.mesh)} "
               f"(the app's own placement ground); pads, rims, decks and "
               f"face roles from {os.path.basename(a.graded)}")

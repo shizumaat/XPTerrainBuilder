@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC (spec flight-manager-and-world-20261110 U7): shaped on
+     SimBrief's OFP field names (fetch, general, origin, destination,
+     alternate, navlog/fix, times), values invented.  Replace with a real,
+     anonymised OFP when one is available; the twin in
+     tests/test_flight_plan_profile.py must then still pass. -->
+<OFP>
+  <fetch>
+    <userid>123456</userid>
+    <static_id></static_id>
+    <status>Success</status>
+    <time>0.0123</time>
+  </fetch>
+  <general>
+    <icao_airline>XXX</icao_airline>
+    <flight_number>1</flight_number>
+    <cruise_profile>LRC</cruise_profile>
+    <initial_altitude>24000</initial_altitude>
+    <cruise_tas>280</cruise_tas>
+    <cruise_mach>0.46</cruise_mach>
+    <route_distance>250</route_distance>
+    <air_distance>255</air_distance>
+  </general>
+  <origin>
+    <icao_code>ENGM</icao_code>
+    <iata_code>OSL</iata_code>
+    <elevation>681</elevation>
+    <pos_lat>60.193917</pos_lat>
+    <pos_long>11.100361</pos_long>
+  </origin>
+  <destination>
+    <icao_code>ENBR</icao_code>
+    <iata_code>BGO</iata_code>
+    <elevation>170</elevation>
+    <pos_lat>60.293386</pos_lat>
+    <pos_long>5.218142</pos_long>
+  </destination>
+  <alternate>
+    <icao_code>ENZV</icao_code>
+    <iata_code>SVG</iata_code>
+    <elevation>29</elevation>
+    <pos_lat>58.876700</pos_lat>
+    <pos_long>5.637780</pos_long>
+  </alternate>
+  <alternate>
+    <icao_code>ENHD</icao_code>
+    <pos_lat>59.345300</pos_lat>
+    <pos_long>5.208360</pos_long>
+  </alternate>
+  <times>
+    <est_time_enroute>3300</est_time_enroute>
+    <sched_time_enroute>3600</sched_time_enroute>
+    <taxi_out>600</taxi_out>
+    <taxi_in>300</taxi_in>
+  </times>
+  <navlog>
+    <fix>
+      <ident>TOC</ident>
+      <name>TOP OF CLIMB</name>
+      <type>ltlg</type>
+      <stage>CLB</stage>
+      <pos_lat>60.300000</pos_lat>
+      <pos_long>9.800000</pos_long>
+      <altitude_feet>24000</altitude_feet>
+      <true_airspeed>280</true_airspeed>
+      <groundspeed>265</groundspeed>
+      <time_leg>900</time_leg>
+      <time_total>900</time_total>
+    </fix>
+    <fix>
+      <ident>TOD</ident>
+      <name>TOP OF DESCENT</name>
+      <type>ltlg</type>
+      <stage>CRZ</stage>
+      <pos_lat>60.350000</pos_lat>
+      <pos_long>6.500000</pos_long>
+      <altitude_feet>24000</altitude_feet>
+      <true_airspeed>280</true_airspeed>
+      <groundspeed>290</groundspeed>
+      <time_leg>1500</time_leg>
+      <time_total>2400</time_total>
+    </fix>
+    <fix>
+      <ident>ENBR</ident>
+      <name>BERGEN</name>
+      <type>apt</type>
+      <stage>DSC</stage>
+      <pos_lat>60.293386</pos_lat>
+      <pos_long>5.218142</pos_long>
+      <altitude_feet>170</altitude_feet>
+      <time_leg>900</time_leg>
+      <time_total>3300</time_total>
+    </fix>
+  </navlog>
+</OFP>

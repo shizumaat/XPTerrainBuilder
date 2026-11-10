@@ -1,0 +1,107 @@
+{
+ "_comment": "Written by tests/test_flight_plan_profile.py (REGENERATE_FLIGHT_WIRE=1); decoded by Tests/SceneryKitTests/FlightWireTests.swift.",
+ "flight_plans_list": {
+  "plans": [
+   {
+    "path": "/X-Plane 12/Output/FMS plans/CCCCDDDD.fms",
+    "name": "CCCCDDDD",
+    "origin": "CCCC",
+    "destination": "DDDD",
+    "modified_at": 1700000500
+   },
+   {
+    "path": "/X-Plane 12/Output/FMS plans/AAAABBBB.fms",
+    "name": "AAAABBBB",
+    "origin": "AAAA",
+    "destination": "BBBB",
+    "modified_at": 1700000000
+   }
+  ]
+ },
+ "flight_plan_read": {
+  "source": "simbrief_ofp_full.xml",
+  "origin": "ENGM",
+  "destination": "ENBR",
+  "waypoints": [
+   {
+    "ident": "ENGM",
+    "lat": 60.193917,
+    "lon": 11.100361,
+    "alt_ft": 681.0,
+    "t_s": 0.0
+   },
+   {
+    "ident": "TOC",
+    "lat": 60.3,
+    "lon": 9.8,
+    "alt_ft": 24000.0,
+    "t_s": 900.0
+   },
+   {
+    "ident": "TOD",
+    "lat": 60.35,
+    "lon": 6.5,
+    "alt_ft": 24000.0,
+    "t_s": 2400.0
+   },
+   {
+    "ident": "ENBR",
+    "lat": 60.293386,
+    "lon": 5.218142,
+    "alt_ft": 170.0,
+    "t_s": 3300.0
+   }
+  ],
+  "alternate": {
+   "ident": "ENZV",
+   "lat": 58.8767,
+   "lon": 5.63778,
+   "alt_ft": 29.0,
+   "t_s": null
+  },
+  "ete_s": 3300.0,
+  "cruise_ms": 144.04444444444445,
+  "cruise_alt_ft": 24000.0,
+  "route_km": 325.3037726137833
+ },
+ "flight_plan_read_fms": {
+  "source": "short_hop_v11.fms",
+  "origin": "KSEA",
+  "destination": "KPDX",
+  "waypoints": [
+   {
+    "ident": "KSEA",
+    "lat": 47.449,
+    "lon": -122.309306,
+    "alt_ft": 0.0,
+    "t_s": null
+   },
+   {
+    "ident": "SEA",
+    "lat": 47.435372,
+    "lon": -122.309608,
+    "alt_ft": 0.0,
+    "t_s": null
+   },
+   {
+    "ident": "BTG",
+    "lat": 45.747389,
+    "lon": -122.592494,
+    "alt_ft": 0.0,
+    "t_s": null
+   },
+   {
+    "ident": "KPDX",
+    "lat": 45.588722,
+    "lon": -122.5975,
+    "alt_ft": 0.0,
+    "t_s": null
+   }
+  ],
+  "alternate": null,
+  "ete_s": null,
+  "cruise_ms": null,
+  "cruise_alt_ft": null,
+  "route_km": 208.09845147181565
+ }
+}

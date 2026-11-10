@@ -178,6 +178,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from . import patch_commands, patch_drop, patch_insert
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
+    from .flight_commands import flight_plan_handlers
     from .imagery_commands import (
         imagery_freshness_discard,
         ondemand_handlers,
@@ -383,6 +384,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # index scan, a tile's pin and "Make all low-res again"; pin and
         # downgrade are refused while a build runs.
         **ondemand_handlers(lambda: bool(session._building)),
+        # Flight manager (spec flight-manager-and-world-20261110 §5.2):
+        # flight_plans_list (X-Plane's Output/FMS plans, newest first) and
+        # flight_plan_read, synchronous file reads.
+        **flight_plan_handlers(),
     }
 
 

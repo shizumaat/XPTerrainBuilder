@@ -1217,8 +1217,8 @@ public final class OrthoEngineClient: @unchecked Sendable {
         // ImageryFreshnessReady` and `class WorldReady` in
         // Ortho4XP/src/o4_engine/events.py, the completions of the
         // `pack_objects`, Library, `plan_estimate` (#820), `build_airports`
-        // (#818), `imagery_freshness` (#1666) and `world_regions_set`
-        // (World spec §5.2) commands whose id is `request`.
+        // (#818), `imagery_freshness` (#1666), `world_regions_set` and
+        // `world_migrate` (World spec §5.2) commands whose id is `request`.
         switch object["event"] as? String {
         case "PackObjectsReady", "LibraryReady", "PlanEstimateReady", "BuildAirportsReady",
              "ImageryFreshnessReady", "WorldReady":

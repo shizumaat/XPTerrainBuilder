@@ -25,6 +25,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     public static let worldPack = "world_pack"
     /// `aircraft_watch` + `AircraftPosition` (#2001): flag only.
     public static let aircraftPosition = "aircraft_position"
+    /// `world_migrate` (World spec §13 M1): the per-tile packs moved into
+    /// the World pack; flag only.
+    public static let worldMigrate = "world_migrate"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

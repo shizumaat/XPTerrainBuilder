@@ -3,9 +3,9 @@ import SceneryKit
 
 /// Library mode's side pane (RULINGS 2026-11-10j; spec §14, lane U1),
 /// top to bottom: the built tiles (the Library window until 10j), Storage
-/// with the disk budget (moved from Settings, which keeps a pointer) and
-/// the patch library. The Qt window's `O4_Qt_Modes.LibraryPane` is the
-/// same.
+/// with the disk budget (moved from Settings, which keeps a pointer), the
+/// patch library and Convert existing tiles (World spec §13). The Qt
+/// window's `O4_Qt_Modes.LibraryPane` is the same.
 struct LibraryPane: View {
     @EnvironmentObject var buildModel: BuildModel
 
@@ -25,6 +25,7 @@ struct LibraryPane: View {
                         .scrollDisabled(true)
                         .frame(minHeight: 320)
                     PatchLibrarySection()
+                    ConvertTilesSection()
                 }
                 .padding(10)
             }

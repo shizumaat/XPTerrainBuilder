@@ -157,7 +157,8 @@ def _ortho4xp_version() -> str:
 #: is given the command's ``id`` as ``request``.
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "plan_estimate",
                                "build_airports", "imagery_freshness",
-                               "world_regions_set", *_LIBRARY.COMMANDS})
+                               "world_regions_set", "world_migrate",
+                               *_LIBRARY.COMMANDS})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -198,6 +199,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .plan_estimate import start_plan_estimate
     from .relief_commands import terrain_relief
     from .terrain_commands import terrain_sample
+    from .world_migrate import start_world_migrate
     return {
         "scan": session.scan,
         "build": session.build,
@@ -395,6 +397,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "world_regions_set": lambda **kw: WORLD.start_world_regions_set(
             session._emit, **kw),
         "world_tile_set": WORLD.world_tile_set,
+        # Phase M (capability world_migrate): the per-tile packs moved
+        # into the World pack -- dry run, run, revert or stop; completes
+        # through WorldReady carrying this command's id.
+        "world_migrate": lambda **kw: start_world_migrate(session._emit, **kw),
         # Flight manager (spec flight-manager-and-world-20261110 §5.2):
         # flight_plans_list (X-Plane's Output/FMS plans, newest first) and
         # flight_plan_read, synchronous file reads.

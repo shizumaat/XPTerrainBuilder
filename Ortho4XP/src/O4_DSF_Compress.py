@@ -13,6 +13,10 @@ cookie) and shrinks to ~60 % as LZMA.
 * :func:`decodes_to` -- the archive, decoded by that reader (not by the
   tool that wrote it), equals the source DSF's bytes (SHA-256 of each).
 * :func:`is_compressed` -- the file already is a 7z.
+* :func:`unpack` -- the reverse of :func:`compress`: a 7z DSF written out
+  uncompressed (the engine's own reader first; 7-Zip for an archive it
+  cannot decode), checked by its MD5 footer (World spec §13 M1: a
+  compressed tile is unpacked before its binary relayout).
 
 Standard library only (plus the engine's own DSF reader).
 """
@@ -26,7 +30,8 @@ import subprocess
 import O4_DSF_Header as DSFH
 import O4_UI_Utils as UI  # posix_spawn launches, never fork
 
-__all__ = ["CompressError", "compress", "decodes_to", "is_compressed"]
+__all__ = ["CompressError", "compress", "decodes_to", "is_compressed",
+           "unpack"]
 
 _SEVEN_ZIP = b"7z\xbc\xaf\x27\x1c"
 
@@ -92,3 +97,50 @@ def compress(source: str, dest: str, *, threads: int = 2) -> None:
     finally:
         with contextlib.suppress(OSError):
             os.remove(temp)
+
+
+def _unpack_with_tool(source: str, scratch: str) -> bytes:
+    """The one DSF a 7z holds, extracted by 7-Zip into ``scratch``."""
+    command = [_seven_zip(), "e", "-y", "-bd", f"-o{os.path.abspath(scratch)}",
+               "--", os.path.abspath(source)]
+    done = subprocess.run(command, capture_output=True, check=False,
+                          **UI.external_tool_keyword_arguments())
+    if done.returncode != 0:
+        raise CompressError(f"7-Zip exited {done.returncode} unpacking "
+                            f"{source}: "
+                            + done.stderr.decode("utf-8", "replace")[-300:])
+    names = [n for n in os.listdir(scratch) if not n.startswith(".")]
+    if len(names) != 1:
+        raise CompressError(f"{source}: the 7z holds {len(names)} files, "
+                            "not one DSF")
+    with open(os.path.join(scratch, names[0]), "rb") as handle:
+        return handle.read()
+
+
+def unpack(source: str, dest: str) -> int:
+    """Write the DSF ``source`` (a 7z, or already uncompressed) to
+    ``dest`` uncompressed; bytes written.  The pure-Python reader
+    (``O4_DSF_Header.dsf_bytes``) decodes the archives :func:`compress`
+    writes; any other 7z goes through 7-Zip.  The result must carry the
+    ``XPLNEDSF`` cookie and a matching MD5 footer, else ``CompressError``
+    and ``dest`` untouched.  Written under a temporary name and renamed."""
+    import tempfile
+
+    import O4_DSF_Binary as DSFB
+    data = DSFH.dsf_bytes(source)
+    if not data and is_compressed(source):
+        with tempfile.TemporaryDirectory(
+                prefix="o4_dsf_unpack_",
+                dir=os.path.dirname(os.path.abspath(dest)) or None) as scratch:
+            data = _unpack_with_tool(source, scratch)
+    if not data.startswith(b"XPLNEDSF") or not DSFB.dsf_md5_ok(data):
+        raise CompressError(f"{source} does not unpack to a whole DSF")
+    temp = f"{dest}.{os.getpid()}.part"
+    try:
+        with open(temp, "wb") as handle:
+            handle.write(data)
+        os.replace(temp, dest)
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(temp)
+    return len(data)

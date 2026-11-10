@@ -87,11 +87,12 @@ FLY_PANE = (
 
 #: Library mode's pane, top to bottom (key, Swift marker in
 #: LibraryPane.swift, Qt ``LibraryPane`` attribute).  Spec §14's World
-#: regions, pack health and Convert sections join in their lanes.
+#: regions and pack health sections join in their lanes (Convert: lane M).
 LIBRARY_PANE = (
     ("tiles", "LibraryTilesSection(", "tiles_box"),
     ("storage", "StorageSection(", "storage"),
     ("patch_library", "PatchLibrarySection()", "patch_box"),
+    ("convert", "ConvertTilesSection(", "convert_box"),            # §13
 )
 
 #: The Build box's controls, top to bottom: (key, Swift label, Qt attribute).

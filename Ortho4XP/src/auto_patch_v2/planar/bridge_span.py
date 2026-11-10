@@ -208,7 +208,8 @@ def edge_bridges(objects, cache, cuts, pav, law) -> tuple[EdgeBridge, ...]:
         _a, q = nearest_points(Point(o.xy), pav)
         out.append(EdgeBridge(str(o.id), str(o.path), float(depth), tuple(back),
                               tuple(plan), u, cover, float(max(zs)),
-                              tuple("+".join(str(w.id) for w in cuts[k][0].ways) for k in met),
+                              tuple(dict.fromkeys("+".join(str(w.id) for w in cuts[k][0].ways)
+                                                  for k in met)),
                               (float(q.x), float(q.y))))
     return tuple(out)
 

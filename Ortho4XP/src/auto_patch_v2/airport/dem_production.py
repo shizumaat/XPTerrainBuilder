@@ -609,25 +609,10 @@ class ProductionDem:
         composed 1 m 3DEP frame read ``(None, 'base_tier')`` → ``coarse``
         → ``_lidar_credible`` False.  One line is logged when a fallback
         fires, naming the key and the file."""
-        lat, lon = self.frame.origin
-        t = self.tile(int(math.floor(lat)), int(math.floor(lon)))
+        t = self._origin_tile()
         if t is None:
             return None, "unknown"
-        finest: float | None = None
-        note: str | None = None
-        for e in t.inset_provenance:
-            if not isinstance(e, dict):
-                continue
-            # v1 ``provenance._entries_for_icao``: an entry naming another
-            # airport is not this airport's; one naming none counts
-            if e.get("icao") and str(e["icao"]).upper() != self.icao.upper():
-                continue
-            f, whence = self._entry_pixel_m(e)
-            if f is None:
-                continue
-            if finest is None or f < finest:
-                finest = f
-                note = whence
+        finest, note, _entry = self._finest_inset(t)
         if finest is not None:
             if note is not None:
                 seen = self.__dict__.setdefault("_pixel_notes", set())
@@ -644,6 +629,44 @@ class ProductionDem:
         if f > 0.0:
             return f, "overlay"
         return None, "base_tier"
+
+    def declared_source_class(self) -> str | None:
+        """The DEM class the finest inset's provider DECLARES (``.elv``
+        ``dem_class=``, #1929; stamped on the manifest entry by the bake),
+        or ``None`` -- the pixel rule then classes it.  The same entry
+        :meth:`source_pixel_m` reads, so pixel and class never disagree
+        about which source they describe."""
+        t = self._origin_tile()
+        if t is None:
+            return None
+        _pixel, _note, entry = self._finest_inset(t)
+        klass = (entry or {}).get("dem_class")
+        return str(klass) if klass else None
+
+    def _origin_tile(self):
+        lat, lon = self.frame.origin
+        return self.tile(int(math.floor(lat)), int(math.floor(lon)))
+
+    def _finest_inset(self, t) -> tuple[float | None, str | None,
+                                         dict | None]:
+        """``(pixel_m, note, entry)`` of THIS airport's finest baked inset
+        on tile ``t`` (``None``s when none states a pixel)."""
+        finest: float | None = None
+        note: str | None = None
+        chosen: dict | None = None
+        for e in t.inset_provenance:
+            if not isinstance(e, dict):
+                continue
+            # v1 ``provenance._entries_for_icao``: an entry naming another
+            # airport is not this airport's; one naming none counts
+            if e.get("icao") and str(e["icao"]).upper() != self.icao.upper():
+                continue
+            f, whence = self._entry_pixel_m(e)
+            if f is None:
+                continue
+            if finest is None or f < finest:
+                finest, note, chosen = f, whence, e
+        return finest, note, chosen
 
     @staticmethod
     def _entry_pixel_m(entry: dict) -> tuple[float | None, str | None]:

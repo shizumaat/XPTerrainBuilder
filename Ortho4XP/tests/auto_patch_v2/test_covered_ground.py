@@ -9,7 +9,6 @@ from __future__ import annotations
 import types
 
 import numpy as np
-
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.law import load_default
 from auto_patch_v2.model.airport import OsmWay
@@ -102,3 +101,57 @@ def test_the_open_cut_beside_the_pavement_keeps_the_dem():
     # inside the covered chain) is the open cut's, not the deck's
     z, rep = _run(_Dem(20.0), [0.0, 0.0], [10.0, 60.0])
     assert np.allclose(z, [300.0, 280.0])
+
+
+class _TwoCuts(_Dem):
+    """Two 20 m-deep cut stretches (|y| in [400, 600]) 800 m apart, flat
+    ground (the DEM sees the bored tunnel's cover) between them."""
+
+    def z_many(self, xs, ys):
+        xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+        cut = (np.abs(xs) < self.half) & (np.abs(ys) >= 400.0) & (np.abs(ys) <= 600.0)
+        return np.where(cut, 300.0 - self.cut, 300.0)
+
+
+def test_flat_ground_between_two_cut_stretches_is_not_covered_ground():
+    # #1996 (EFHK Ring Rail): the bore reads a cut only at its two ends;
+    # the pavement over the middle stands on the DEM and is never lifted
+    # by an interpolation across the kilometre between them
+    dem = _TwoCuts(20.0)
+    ap = types.SimpleNamespace(dem=dem, osm_ways=(OsmWay(
+        -1, "big_roads", ((0.0, -600.0), (0.0, 600.0)), False,
+        {"highway": "motorway", "tunnel": "yes", "lanes": "5"}),))
+    ring = ((-500.0, -700.0), (500.0, -700.0), (500.0, 700.0), (-500.0, 700.0))
+    cl = Classification((Cell(1, "runway", "10/28", ring, (), 4, "E", "airside",
+                              "runway", {}),), (), {}, ())
+    # the middle sits 20 m lower than its DEM to prove a lift would show
+    xs = np.array([0.0, 0.0, 0.0])
+    ys = np.array([0.0, 500.0, -500.0])
+    z0 = dem.z_many(xs, ys) - np.array([20.0, 0.0, 0.0])
+    z, rep = covered_ground(ap, cl, LAW, xs, ys, z0)
+    assert z[0] == z0[0]                       # the middle is not covered
+    assert np.allclose(z[1:], 300.0)           # both cut stretches are
+    assert rep.bores == ["-1"]
+
+
+def test_a_single_dropped_station_is_one_run():
+    from auto_patch_v2.planar.covered_ground import section_runs
+    S = types.SimpleNamespace
+    runs = section_runs([S(s=0.0), S(s=5.0), S(s=15.0), S(s=20.0)])
+    assert [len(r) for r in runs] == [4]
+    runs = section_runs([S(s=0.0), S(s=5.0), S(s=20.0), S(s=25.0), S(s=40.0)])
+    assert [len(r) for r in runs] == [2, 2]    # a lone station reads nothing
+
+
+def test_a_portal_face_with_no_run_in_reach_reads_the_dem():
+    # planar/structure_mouth.face_top_z: the ground beside the cover is the
+    # run's nearest the mouth, only where it reaches the mouth (#1996)
+    from auto_patch_v2.planar.structure_approach import chains
+    from auto_patch_v2.planar.structure_mouth import face_top_z
+    dem = _TwoCuts(20.0)
+    bore = chains([OsmWay(-1, "big_roads", ((0.0, -600.0), (0.0, 600.0)), False,
+                          {"highway": "motorway", "tunnel": "yes", "lanes": "5"})])[0]
+    ap = types.SimpleNamespace(dem=dem)
+    members = [types.SimpleNamespace(bore=bore)]
+    assert face_top_z(ap, LAW, members, (0.0, 0.0), 280.0) == 280.0
+    assert abs(face_top_z(ap, LAW, members, (0.0, 600.0), 280.0) - 300.0) < 1e-6

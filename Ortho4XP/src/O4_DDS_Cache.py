@@ -64,8 +64,8 @@ import O4_DDS_File as DDS
 
 __all__ = ["CACHE_ENV", "DIR_ENV", "MAX_GB_ENV", "DEFAULT_MAX_GB",
            "cache_root", "converter_identity", "enabled", "evict",
-           "held_by_built_tiles", "forget_missing", "max_bytes", "serve",
-           "store", "texture_key"]
+           "held_by_built_tiles", "forget_missing", "link_or_copy", "max_bytes",
+           "serve", "store", "texture_key"]
 
 #: ``0`` turns the cache off; anything else, unset included, is on.
 CACHE_ENV = "O4_DDS_CACHE"
@@ -244,7 +244,9 @@ def _entry(key: str, root: "str | None" = None) -> str:
     return os.path.join(root or cache_root(), key[:2], key + ".dds")
 
 
-def _link_or_copy(source: str, target: str) -> bool:
+def link_or_copy(source: str, target: str) -> bool:
+    """Hard link ``source`` at ``target``, else copy it; ``False`` (and no
+    ``target``) when neither works."""
     try:
         os.link(source, target)
         return True
@@ -313,18 +315,30 @@ def _tile_holds(build_dir: str, name: str, size: int) -> bool:
         return False
 
 
+def entry_path(key: str, root: "str | None" = None) -> str:
+    """Where the store keeps ``key``'s texture (it may not exist)."""
+    return _entry(key, root)
+
+
+def key_users(root: "str | None" = None) -> "dict[str, list]":
+    """``{key: [(build dir, texture name), ...]}``: every build dir the
+    notes name as using each entry (#1992: the on-demand index finds a
+    texture's key, and a downgrade keeps an entry a neighbour uses)."""
+    users: dict[str, list] = {}
+    for build_dir, uses in _read_notes(root or cache_root()).values():
+        for key, name in uses:
+            users.setdefault(key, []).append((build_dir, name))
+    return users
+
+
 def held_by_built_tiles(root: "str | None" = None) -> list[str]:
     """The entries of the store that every build dir noted as using them
     holds itself, whole and of the same size, and that are not hard
     links (a link shares its bytes with the tile: removing it frees
     nothing).  Deletes nothing."""
     root = root or cache_root()
-    users: dict[str, list] = {}
-    for build_dir, uses in _read_notes(root).values():
-        for key, name in uses:
-            users.setdefault(key, []).append((build_dir, name))
     held = []
-    for key, where in sorted(users.items()):
+    for key, where in sorted(key_users(root).items()):
         entry = _entry(key, root)
         try:
             st = os.lstat(entry)
@@ -369,7 +383,7 @@ def serve(key: "str | None", dds_final: str) -> bool:
             os.remove(entry)
         return False
     partial = DDS.partial_name(dds_final)
-    if not _link_or_copy(entry, partial) or not DDS.land(partial, dds_final):
+    if not link_or_copy(entry, partial) or not DDS.land(partial, dds_final):
         return False
     with contextlib.suppress(OSError):
         os.utime(entry)                     # least recently USED
@@ -388,7 +402,7 @@ def store(key: "str | None", dds_final: str) -> bool:
     temp = f"{entry}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
     try:
         os.makedirs(os.path.dirname(entry), exist_ok=True)
-        if not _link_or_copy(dds_final, temp):
+        if not link_or_copy(dds_final, temp):
             return False
         os.replace(temp, entry)
     except OSError:
@@ -406,12 +420,43 @@ def store(key: "str | None", dds_final: str) -> bool:
     return True
 
 
-def evict(root: "str | None" = None, cap: "int | None" = None) -> list[str]:
+def _kept_by_ondemand() -> "set[str]":
+    """Keys the on-demand index marks upgraded or pinned (#1992 spec
+    §6.3): the cap must not delete a sharp texture's entry.  Read with
+    ``sqlite3`` here, not through ``O4_Imagery_OnDemand_Index``: this
+    module is in the patch build's import closure and the index is not
+    (``tests/test_patch_code_closure.py``); the query is that module's
+    ``protected_cache_keys``, held equal by ``tests/test_imagery_ondemand
+    .py``.  Empty when there is no index; never raises."""
+    import sqlite3
+
+    import O4_File_Names as FNAMES
+    path = os.path.join(FNAMES.data_path("Imagery_on_demand"), "index.sqlite")
+    if not os.path.isfile(path):
+        return set()
+    try:
+        conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=5.0)
+        try:
+            return {row[0] for row in conn.execute(
+                "SELECT dds_cache_key FROM textures WHERE dds_cache_key IS "
+                "NOT NULL AND (state = 'upgraded' OR pinned = 1)")}
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return set()
+
+
+def evict(root: "str | None" = None, cap: "int | None" = None,
+          keep: "set[str] | None" = None) -> list[str]:
     """Remove the least recently used entries until the store is at most
-    ``cap`` bytes (:func:`max_bytes`); returns the removed paths.  Racing
-    another process's sweep is harmless: a vanished file is skipped."""
+    ``cap`` bytes (:func:`max_bytes`); returns the removed paths.  The
+    entries of ``keep`` (keys; default: what the on-demand index marks
+    upgraded or pinned) count but are never removed.  Racing another
+    process's sweep is harmless: a vanished file is skipped."""
     root = root or cache_root()
     cap = max_bytes() if cap is None else cap
+    keep = _kept_by_ondemand() if keep is None else keep
+    kept_names = {key + ".dds" for key in keep}
     entries = []
     with contextlib.suppress(OSError):
         for shard in os.scandir(root):
@@ -429,6 +474,8 @@ def evict(root: "str | None" = None, cap: "int | None" = None) -> list[str]:
     for (_mtime, size, path) in sorted(entries):
         if total <= cap:
             break
+        if os.path.basename(path) in kept_names:
+            continue
         with contextlib.suppress(OSError):
             os.remove(path)
             removed.append(path)

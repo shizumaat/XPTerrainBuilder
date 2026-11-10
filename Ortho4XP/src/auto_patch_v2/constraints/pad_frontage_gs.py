@@ -43,7 +43,7 @@ from ..law.tables import pavement_roles, role_side
 from ..model.airport import Airport
 from ..model.constraints import Row, Source
 from ..model.map_memo import per_map
-from ..model.planar import PlanarMap, is_bank_ref, pad_base_ref
+from ..model.planar import BEYOND, PlanarMap, is_bank_ref, pad_base_ref
 from .groundside import groundside_face_roles
 from .pads import (_pad_polys, _two_sided, design_law, frontage_radius_m,
                    pad_frontage, pad_fronts_airside, rigid_roles)
@@ -362,6 +362,11 @@ def groundside_frontage(planar: PlanarMap, law: Law
     here is the face standing OFF an airside-fronting pad inside the
     radius.
 
+    NOR IS A BUILDING'S LAND SIDE (owner RULINGS 2026-11-10a (5), #1935):
+    a lot the pads left beyond any aircraft (``<ref>#beyond<k>``,
+    ``planar/reach_after_pads``) stands back from the pad and keeps its own
+    ground; the pair is held like a hillside terrace.
+
     A HILLSIDE TERRACE IS NOT A FRONTAGE (§28 (6), owner RULINGS
     2026-09-13o/13p, the quantity re-based on the pad's AIRSIDE FRONTAGE
     by 2026-09-18c (1)).  A pair whose :func:`pair_dem_step_m` exceeds
@@ -393,7 +398,7 @@ def groundside_frontage(planar: PlanarMap, law: Law
     held = 0
     held_pairs: set[tuple[int, int]] = set()
     out: dict[int, list[tuple[int, str, float, list[int], list[int]]]] = {}
-    for gid, _role, _ref, gvs, gpoly in _groundside_geoms(planar, law):
+    for gid, _role, gref, gvs, gpoly in _groundside_geoms(planar, law):
         cand = (tree.query(gpoly, predicate="dwithin", distance=r) if r > 0.0
                 else tree.query(gpoly, predicate="intersects"))
         got: list[tuple[int, str, float, list[int], list[int]]] = []
@@ -417,7 +422,11 @@ def groundside_frontage(planar: PlanarMap, law: Law
             # a per-consumer veto is the defect 08-30l names.
             step = pair_dem_step_m(planar, law, front, pid, ppoly, pgroup,
                                    rel=front_rel)
-            if step is not None and abs(step) > bound:
+            # THE LAND SIDE STEPS DOWN FROM THE PAD (owner RULINGS
+            # 2026-11-10a (5)): a lot the pads left beyond any aircraft
+            # (``planar/reach_after_pads``) is held as a terrace, the pad's
+            # edge the kerb or wall, whatever the DEM step
+            if BEYOND in str(gref) or (step is not None and abs(step) > bound):
                 held += 1
                 held_pairs.add((gid, pid))
                 continue

@@ -587,6 +587,15 @@ deck_plate_connected_min = 0.50     # ...and the plate must be ONE piece: the la
 deck_pier_footprint_max = 0.20     # the ground-contact footprint over the plate footprint, at or under which the plate is CARRIED (on piers) rather than WALLED: the elevated-deck gate
 deck_pier_close_m       = 0.5      # the ground-contact faces' plan traces are buffered this much before the union (a wall is a zero-area plan sliver; this is what makes it a ring, and what fills a pier's outline)
 deck_min_clearance_under_m = 1.0   # AFTER the seat: the mesh under SOME station must lie this far under the seated face there, or be water — a plate whose every station stands on the ground it covers spans nothing (a canopy, an elevated kerb road on columns: OTHH Terminal_Parking); the deck seat is refused with a finding and the feet law governs
+# THE GROUND UNDER A MAPPED BRIDGE IS THE GROUND BESIDE IT (#1935,
+# ``airport/bridge_ground``).  A DSM-like DEM carries a mapped road bridge's
+# DECK: the road and lot under it read the deck's height.  A station every
+# 5 m along a highway bridge way whose deck (the highest DEM inside the
+# carriageway) stands clearance_minimum_m over the lower side and
+# [cockpit] visual_m over the higher, read this many DEM postings past the
+# carriageway's half-width + the stand-off on each side, is a deck in the
+# DEM; under it the ground is interpolated from the two sides (lower only).
+ground_probe_dem_cells = 2.0
 
 [building_pad]
 weld_to_touching_pavement = true   # contact = value (09-01g)

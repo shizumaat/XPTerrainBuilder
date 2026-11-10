@@ -27,6 +27,7 @@ import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Http_Pushback as PUSHBACK
 import O4_Imagery_Async as FETCH_ASYNC
+import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Machine_Slots as MACHINE_SLOTS
 import O4_Mask_Utils as MASK
 import O4_Triangle_Run as TRIANGLE_RUN
@@ -1967,8 +1968,12 @@ def download_jpeg_ortho(
     provider_code,
     super_resol_factor=1,
     require_complete=False,
+    drop=0,
 ):
     """Download one orthophoto into ``file_dir``; 1 on success, 0 if not.
+
+    ``drop`` (#1992, placeholder build mode): the same square fetched
+    ``drop`` zoom levels coarser, a ``4096 >> drop`` px image.
 
     ``require_complete`` (the background prefetch, #1002): a texture with
     a part the provider did not answer is NOT saved (no white-filled
@@ -1976,20 +1981,21 @@ def download_jpeg_ortho(
     under a temporary name and renamed, so a reader never sees half a
     file — the imagery step downloads anything the prefetch did not."""
     provider = providers_dict[provider_code]
+    fetch_zl = zoomlevel - drop
     if ("super_resol_factor" in provider) and (super_resol_factor == 1):
         super_resol_factor = int(provider["super_resol_factor"])
     if "max_zl" in provider:
         max_zl = int(provider["max_zl"])
-        if zoomlevel > max_zl:
-            super_resol_factor = 2 ** (max_zl - zoomlevel)
-    width = height = int(4096 * super_resol_factor)
+        if fetch_zl > max_zl:
+            super_resol_factor = 2 ** (max_zl - fetch_zl)
+    width = height = int((4096 >> drop) * super_resol_factor)
     # we treat first the case of webmercator grid type servers
     if "grid_type" in provider and provider["grid_type"] == "webmercator":
-        tilbox = [til_x_left, til_y_top, til_x_left + 16, til_y_top + 16]
+        tilbox = PLACEHOLDER.tilbox(til_x_left, til_y_top, drop)
         tilbox_mod = [int(round(p * super_resol_factor)) for p in tilbox]
         zoom_shift = round(log(super_resol_factor) / log(2))
         (success, big_image) = build_texture_from_tilbox(
-            tilbox_mod, zoomlevel + zoom_shift, provider
+            tilbox_mod, fetch_zl + zoom_shift, provider
         )
     # if not we are in the world of epsg:3857 bboxes
     else:
@@ -2111,8 +2117,13 @@ def note_orthophoto_download(tile):
 
 
 def build_jpeg_ortho(
-    tile, til_x_left, til_y_top, zoomlevel, provider_code, out_file_name=""
+    tile, til_x_left, til_y_top, zoomlevel, provider_code, out_file_name="",
+    drop=None,
 ):
+    """Put one texture's orthophoto in the imagery cache; 1 on success.
+
+    ``drop`` (#1992 follow job): fetch the tier that many zoom levels below
+    the texture's own instead of what the tile's mode asks (``None``)."""
     texture_attributes = (til_x_left, til_y_top, zoomlevel, provider_code)
     if provider_code in local_combined_providers_dict:
         data_found = False
@@ -2238,12 +2249,8 @@ def build_jpeg_ortho(
                 )
                 return 0
     elif provider_code in providers_dict:
-        file_name = FNAMES.jpeg_file_name_from_attributes(
-            til_x_left, til_y_top, zoomlevel, provider_code
-        )
-        file_dir = FNAMES.jpeg_file_dir_from_attributes(
-            tile.lat, tile.lon, zoomlevel, providers_dict[provider_code]
-        )
+        (file_dir, file_name) = _source_jpeg_location(
+            tile, *texture_attributes, drop=drop)
         state = artifact_state(os.path.join(file_dir, file_name))
         if state == "unreadable":
             # NOT "missing": re-downloading here would overwrite an
@@ -2258,6 +2265,7 @@ def build_jpeg_ortho(
             if not download_orthophoto_once(
                 file_dir, file_name, *texture_attributes,
                 on_download=lambda: note_orthophoto_download(tile),
+                drop=_placeholder_drop(tile, provider_code, drop),
             ):
                 return 0
         else:
@@ -2602,14 +2610,39 @@ def _source_jpeg_path(tile, til_x_left, til_y_top, zoomlevel, provider_code):
     has no own imagery (a combined/composited provider, spec §5 Q7)."""
     if provider_code not in providers_dict:
         return None
-    return os.path.join(
-        FNAMES.jpeg_file_dir_from_attributes(
-            tile.lat, tile.lon, zoomlevel, providers_dict[provider_code]
-        ),
-        FNAMES.jpeg_file_name_from_attributes(
-            til_x_left, til_y_top, zoomlevel, provider_code
-        ),
-    )
+    return os.path.join(*_source_jpeg_location(
+        tile, til_x_left, til_y_top, zoomlevel, provider_code))
+
+
+def _placeholder_drop(tile, provider_code, drop=None):
+    """Zoom levels below its own a texture of ``tile`` from
+    ``provider_code`` is fetched at (#1992): ``drop`` when the caller
+    names a tier (the follow job), else the tile's placeholder drop, for
+    a provider with imagery of its own; 0 for a combined one (its layers
+    are composited at full size) and for a normal build."""
+    if (provider_code not in providers_dict
+            or provider_code in local_combined_providers_dict):
+        return 0
+    return PLACEHOLDER.drop(tile) if drop is None else int(drop)
+
+
+def _source_jpeg_location(tile, til_x_left, til_y_top, zoomlevel,
+                         provider_code, drop=None):
+    """``(folder, file name)`` of the cached JPEG a texture of a provider
+    with imagery of its own is converted from: the full-size orthophoto,
+    or in placeholder mode (or for a coarser tier, ``drop``) the coarser
+    one (``O4_Imagery_Placeholder``)."""
+    provider = providers_dict[provider_code]
+    drop = _placeholder_drop(tile, provider_code, drop)
+    if drop:
+        return (PLACEHOLDER.jpeg_dir(tile.lat, tile.lon, zoomlevel,
+                                     provider, drop),
+                PLACEHOLDER.jpeg_name(til_x_left, til_y_top, zoomlevel,
+                                      provider_code, drop))
+    return (FNAMES.jpeg_file_dir_from_attributes(
+                tile.lat, tile.lon, zoomlevel, provider),
+            FNAMES.jpeg_file_name_from_attributes(
+                til_x_left, til_y_top, zoomlevel, provider_code))
 
 
 def collect_color_statistics_for_harmonization(
@@ -3063,8 +3096,11 @@ def _file_for_tool(source, png_file_name):
 
 
 def convert_texture(
-    tile, til_x_left, til_y_top, zoomlevel, provider_code, type="dds"
+    tile, til_x_left, til_y_top, zoomlevel, provider_code, type="dds",
+    drop=None,
 ):
+    # ``drop`` (#1992 follow job): convert the tier that many zoom levels
+    # below the texture's own (0 = full) instead of the tile mode's.
     # The in-process encoder (default) encodes DXT1/DXT5 in this thread
     # (O4_DDS_Encode); O4_DDS_ENCODER=tool runs DDSTool / nvcompress.
     inproc = type == "dds" and DDSENC.chosen_encoder() == "inproc"
@@ -3138,13 +3174,13 @@ def convert_texture(
                 if small_array.max() > 30:
                     masked_texture = True
 
+    # #1992: a placeholder build converts the coarser JPEG into a smaller
+    # DDS under the same name; it never enters the content-keyed cache.
+    drop = _placeholder_drop(tile, provider_code, drop) if type == "dds" else 0
+    texture_size = 4096 >> drop
     if provider_code in providers_dict:
-        jpeg_file_name = FNAMES.jpeg_file_name_from_attributes(
-            til_x_left, til_y_top, zoomlevel, provider_code
-        )
-        file_dir = FNAMES.jpeg_file_dir_from_attributes(
-            tile.lat, tile.lon, zoomlevel, providers_dict[provider_code]
-        )
+        (file_dir, jpeg_file_name) = _source_jpeg_location(
+            tile, til_x_left, til_y_top, zoomlevel, provider_code, drop=drop)
     harmonization_field = color_harmonization_field_for_texture(
         tile, til_x_left, til_y_top, zoomlevel, provider_code
     )
@@ -3165,7 +3201,8 @@ def convert_texture(
                     big_image, mask_im, til_x_left, til_y_top, zoomlevel
                 )
             UI.vprint(2, "      Applying alpha mask directly to orthophoto.")
-            big_image.putalpha(mask_im.resize((4096, 4096), Image.Resampling.BICUBIC))
+            big_image.putalpha(mask_im.resize((texture_size, texture_size),
+                                              Image.Resampling.BICUBIC))
             if type == "dds":
                 try:
                     os.remove(
@@ -3211,7 +3248,8 @@ def convert_texture(
                     big_image, mask_im, til_x_left, til_y_top, zoomlevel
                 )
             UI.vprint(2, "      Applying alpha mask directly to orthophoto.")
-            big_image.putalpha(mask_im.resize((4096, 4096), Image.Resampling.BICUBIC))
+            big_image.putalpha(mask_im.resize((texture_size, texture_size),
+                                              Image.Resampling.BICUBIC))
             if type == "dds":
                 try:
                     os.remove(
@@ -3243,7 +3281,8 @@ def convert_texture(
         dds_partial = DDS.partial_name(dds_final)
         # #839: a texture whose source and converter were seen before is
         # served from the content-keyed cache, byte for byte.
-        cache_key = _dds_cache_key(file_to_convert, dxt5, inproc)
+        cache_key = None if drop else _dds_cache_key(
+            file_to_convert, dxt5, inproc)
         if DDSCACHE.serve(cache_key, dds_final):
             inproc_done = cache_served = True
         elif inproc:
@@ -3253,7 +3292,8 @@ def convert_texture(
                 file_to_convert, temp_png = _file_for_tool(
                     file_to_convert, png_file_name)
                 erase_tmp_png = erase_tmp_png or temp_png
-                cache_key = _dds_cache_key(file_to_convert, dxt5, False)
+                cache_key = None if drop else _dds_cache_key(
+                    file_to_convert, dxt5, False)
                 inproc_done = cache_served = DDSCACHE.serve(
                     cache_key, dds_final)
         conv_cmd = _dds_tool_cmd(file_to_convert, dxt5, dds_partial)
@@ -3355,7 +3395,12 @@ def convert_texture(
             os.path.join(tile.build_dir, "textures", out_file_name),
         )
         time.sleep(1)
-    if dds_final is not None and not cache_served:
+    if dds_final is not None and drop:
+        # a finer on-demand tier (drop 1, 2) is neither a placeholder nor
+        # a full texture: it goes to neither store.
+        if drop == PLACEHOLDER.drop(tile):
+            PLACEHOLDER.keep(tile, dds_final)
+    elif dds_final is not None and not cache_served:
         DDSCACHE.store(cache_key, dds_final)
     if erase_tmp_png:
         try:

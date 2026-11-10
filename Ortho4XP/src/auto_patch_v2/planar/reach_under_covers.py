@@ -52,7 +52,7 @@ from ..geom.parts import nonempty_polygon_parts
 from ..law.tables import role_side, taxi_half_width_m
 from .structure_approach import carriageway_width_m
 
-__all__ = ["covered_beyond"]
+__all__ = ["covered_beyond", "room_pieces", "split_beyond"]
 
 #: the faces an aircraft taxis on (``classify/reachability``'s, with the runways)
 _TAXI_ROLES = frozenset(("primary_parallel", "secondary_parallel", "stub",
@@ -87,7 +87,7 @@ def covered_beyond(regions: list, law, airport) -> "tuple[list, dict]":
     r0 = taxi_half_width_m(law, None)
     if not aprons or not r0 or r0 <= 0.0:
         return regions, {}
-    reach, unreach = _room(regions, cov, float(r0), law)
+    reach, unreach = room_pieces(regions, cov, float(r0), law)
     if not unreach:
         return regions, {"covered_beyond": 0}
     swept = unary_union([p.buffer(float(r0)) for p in reach])
@@ -109,7 +109,8 @@ def covered_beyond(regions: list, law, airport) -> "tuple[list, dict]":
             q = _core(q, inside, swept, cov, share)
             lost.setdefault(i, []).extend(g for g in nonempty_polygon_parts(q)
                                           if g.area >= pmin)
-    return _split(regions, lost, law) if lost else (regions, {"covered_beyond": 0})
+    return (split_beyond(regions, lost, law, "covered_beyond") if lost
+            else (regions, {"covered_beyond": 0}))
 
 
 def _core(q, inside, swept, cov, share: float):
@@ -125,24 +126,29 @@ def _core(q, inside, swept, cov, share: float):
     return unary_union([core, *keep]) if keep else core
 
 
-def _room(regions: list, cov, r0: float, law) -> "tuple[list, list]":
+def room_pieces(regions: list, cov, r0: float, law) -> "tuple[list, list]":
     """``(reaching, unreaching)`` room pieces: the airside pavement less the
-    covers, eroded by ``r0``; a piece reaches when its sweep meets a
-    taxi-family face or a runway."""
+    covers (``None``: no cover), eroded by ``r0``; a piece reaches when its
+    sweep meets a taxi-family face or a runway."""
     cells = [r for r in regions if r.source == "cell" and r.polygon is not None
              and not r.polygon.is_empty]
     air = unary_union([r.polygon for r in cells if role_side(law, r.role) == "airside"])
     taxi = unary_union([r.polygon for r in cells if r.role in _TAXI_ROLES])
     weld = float(law.tables.emit.identity.weld_spacing_m)
-    pieces = nonempty_polygon_parts(air.buffer(weld).difference(cov).buffer(-(r0 + weld)))
+    closed = air.buffer(weld) if cov is None else air.buffer(weld).difference(cov)
+    pieces = nonempty_polygon_parts(closed.buffer(-(r0 + weld)))
     reach = [p for p in pieces if p.buffer(r0).intersects(taxi)]
     return reach, [p for p in pieces if not p.buffer(r0).intersects(taxi)]
 
 
-def _split(regions: list, lost: dict, law) -> "tuple[list, dict]":
+def split_beyond(regions: list, lost: dict, law, key: str,
+                 keep_off=None) -> "tuple[list, dict]":
     """The regions with each face's ``lost`` parts cut out of it and minted
     beside it as groundside ``<ref>#beyond<k>``, numbered after the beyond
-    pieces already minted."""
+    pieces already minted; the counts under ``key``.  ``keep_off``: ground
+    a minted piece stands back from (the pads' set-back knife,
+    ``reach_after_pads._beyond_passages``) -- the part inside it is cut out
+    of the page and minted as nothing: bare ground between the two."""
     from ..classify.open_default import unclassified_groundside_role
     from ..classify.rules import load_rules
     from .reach_after_pads import BEYOND
@@ -160,12 +166,17 @@ def _split(regions: list, lost: dict, law) -> "tuple[list, dict]":
                    nonempty_polygon_parts(r.polygon.difference(unary_union(lost[i]))))
         k = 1
         for q in lost[i]:
-            while f"{r.ref}{BEYOND}{k}" in taken:
-                k += 1
-            ref = f"{r.ref}{BEYOND}{k}"
-            taken.add(ref)
             role, _evid = unclassified_groundside_role(q, rules, road_reached=False)
-            out.append(_dc.replace(r, role=role, ref=ref, polygon=q, side=role_side(law, role)))
-            n += 1
-            m2 += float(q.area)
-    return out, {"covered_beyond": n, "covered_beyond_m2": round(m2, 1)}
+            parts = ([q] if keep_off is None else
+                     [g for g in nonempty_polygon_parts(q.difference(keep_off))
+                      if g.area >= rules.cells.min_area_m2])
+            for g in parts:
+                while f"{r.ref}{BEYOND}{k}" in taken:
+                    k += 1
+                ref = f"{r.ref}{BEYOND}{k}"
+                taken.add(ref)
+                out.append(_dc.replace(r, role=role, ref=ref, polygon=g,
+                                       side=role_side(law, role)))
+                n += 1
+                m2 += float(g.area)
+    return out, {key: n, f"{key}_m2": round(m2, 1)}

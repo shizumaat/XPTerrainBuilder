@@ -161,7 +161,9 @@ from elevation_access.definitions import (
     _parse_boolean,
     _parse_bounding_boxes,
     _parse_float,
+    DEM_CLASS_KEY,
     coverage_boxes,
+    declared_dem_class,
     export_image_definition_refusal,
     parse_archive_zones,
     provider_serves_country,
@@ -614,6 +616,19 @@ def initialize_elevation_providers_dict(providers_directory=None):
             definition["native_resolution_m"] = _parse_float(
                 definition.get("native_resolution_m"), default=None
             )
+        if DEM_CLASS_KEY in definition:
+            # #1929: a declared class overrides the native-pixel rule; a
+            # value outside the vocabulary is dropped (the pixel rule then
+            # stands) and said once.
+            klass = declared_dem_class(definition[DEM_CLASS_KEY])
+            if klass is None:
+                UI.vprint(0, "   WARNING: elevation provider", provider_code,
+                          "declares an unknown", DEM_CLASS_KEY + "=" +
+                          str(definition[DEM_CLASS_KEY]),
+                          "- its class follows its pixel size.")
+                del definition[DEM_CLASS_KEY]
+            else:
+                definition[DEM_CLASS_KEY] = klass
         if "resolution_ladder" in definition:
             definition["resolution_ladder_rungs"] = _parse_resolution_ladder(
                 definition["resolution_ladder"], provider_code
@@ -7275,7 +7290,26 @@ def _inset_bake_provenance_entry(inset_path):
                 stated if stated is not None else native)
         except Exception:
             pass
+    klass = _provider_dem_class(entry.get("provider")
+                                or stem.rsplit("_", 1)[-1])
+    if klass:
+        entry[DEM_CLASS_KEY] = klass
     return entry
+
+
+def _provider_dem_class(provider_code):
+    """The ``dem_class=`` the provider's CURRENT definition declares
+    (#1929), or ``None``.  Read from the registry, never the inset's
+    sidecar: the class belongs to the source, so an inset fetched before
+    the declaration is classed by it too."""
+    if not provider_code:
+        return None
+    if not elevation_providers_dict:
+        initialize_elevation_providers_dict()
+    definition = elevation_providers_dict.get(str(provider_code).upper())
+    if not isinstance(definition, dict):
+        return None
+    return declared_dem_class(definition.get(DEM_CLASS_KEY))
 
 
 def _bake_one_inset(tile, inset_path, feather_m, inset=None,
@@ -8772,6 +8806,22 @@ def airport_inset_frame_problem(lat, lon, icao, required_box,
                 "record either — this airport's provider chain has never "
                 "been asked, so the build would fetch it (--refresh-data "
                 "dem)" % (icao, FNAMES.airport_inset_directory(lat, lon)))
+    # A PROVIDER RANKED ABOVE THE CACHED RASTER THAT NEVER ANSWERED (#1930,
+    # ARCTICDEM2M added 2026-11-07): the fetch loop asks it before it
+    # reaches the cache, and its answer rewrites the tile's index.json --
+    # a shared-repo write mid-build.  Named here so the pre-flight refuses
+    # it up front with its cure and production's frame_state agrees.
+    unanswered = unanswered_inset_providers(
+        lat, lon, icao, required_box, providers_config)
+    if unanswered:
+        return ("missing",
+                "airport elevation inset of %s in %s: provider(s) %s rank "
+                "above the cached raster and have NEVER ANSWERED for it "
+                "(added since the last fetch, or the fetch failed), so the "
+                "build would ask them and rewrite the inset index "
+                "(--refresh-data dem)"
+                % (icao, FNAMES.airport_inset_directory(lat, lon),
+                   ", ".join(unanswered)))
     # The fetch loop reuses the FIRST ranked provider whose cache is
     # usable, so that raster is the one whose staleness decides.
     path = paths[0]
@@ -10174,13 +10224,20 @@ def resolve_base_definition(lat, lon, selector="auto", prefer_coarse=False):
     if selector == "View":
         one_arc_second = elevation_providers_dict.get("VIEWFINDER1")
         three_arc_second = elevation_providers_dict.get("VIEWFINDER3")
-        if (
-            not prefer_coarse
-            and one_arc_second is not None
-            and one_arc_second.get("enabled", True)
-            and base_definition_covers_tile(one_arc_second, lat, lon)
-        ):
-            return one_arc_second
+
+        def publishes(definition):
+            return (definition is not None
+                    and definition.get("enabled", True)
+                    and base_definition_covers_tile(definition, lat, lon))
+
+        # The preferred archive where it publishes this tile, else the
+        # other one where IT does (#1933: Iceland/Greenland zones exist
+        # in dem1 only, so the 90 m preference asked dem3/P27 for a 404).
+        order = ((three_arc_second, one_arc_second) if prefer_coarse
+                 else (one_arc_second, three_arc_second))
+        for definition in order:
+            if publishes(definition):
+                return definition
         return three_arc_second
     alias_code = LEGACY_BASE_KEYWORD_ALIASES.get(selector)
     if alias_code is not None:

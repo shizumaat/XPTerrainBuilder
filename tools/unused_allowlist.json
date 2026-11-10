@@ -148,5 +148,25 @@
   "path": "Ortho4XP/src/auto_patch_v2/airport/pack_health/objects.py",
   "name": "remove",
   "reason": "reached as a package attribute (`_ph.objects.remove(...)` in airport/dsf_write.py and auto_patch/object_rebake.py), which the name scan does not follow"
+ },
+ {
+  "path": "Ortho4XP/src/O4_DDS_Tiers.py",
+  "name": "tier_from_dds",
+  "reason": "#1992 P1a's specified tier cut (spec §4.6, §14 P1a round-trip twin); its production readers are the P2 downgrade and P3 tier landing of the same spec, the next phases"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Imagery_OnDemand_Index.py",
+  "name": "upsert",
+  "reason": "on-demand index API of the follow job (#1992 P3b, a parallel lane): it writes rows through it"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Imagery_OnDemand_Index.py",
+  "name": "get",
+  "reason": "on-demand index API of the follow job (#1992 P3b): one row by (tile, name)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Imagery_OnDemand_Cores.py",
+  "name": "core_tier",
+  "reason": "the tier an airport core square wants: the follow job (#1992 P3b) fetches cores after the build with it"
  }
 ]

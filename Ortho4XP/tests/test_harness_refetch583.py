@@ -276,6 +276,8 @@ def test_a_dem_refresh_reasks_the_stale_negatives_it_used_to_refuse_on(
     # the inset passes before it.
     monkeypatch.setattr(build_mod, "_fetch_base_void_fills",
                         lambda *a, **k: [])
+    monkeypatch.setattr(build_mod, "_resettle_inset_stamp",
+                        lambda *a, **k: [])
     root = _warm_tile_root(tmp_path, monkeypatch)
     state = build_mod.dem_cache_state(root, 45, -123)
     assert state["base_raster"] and state["airport_insets"]
@@ -334,6 +336,8 @@ def test_a_dem_refresh_that_leaves_a_row_pending_refuses(
     # #1603's base-void pass loads a real raster; these twins are about
     # the inset passes before it.
     monkeypatch.setattr(build_mod, "_fetch_base_void_fills",
+                        lambda *a, **k: [])
+    monkeypatch.setattr(build_mod, "_resettle_inset_stamp",
                         lambda *a, **k: [])
     root = _warm_tile_root(tmp_path, monkeypatch)
     negative = ("dem", "index.json [Lehman Field:USGS3DEP]", "still stale")

@@ -27,6 +27,16 @@ SAFETY, the rules the apps rely on:
   (``library.start`` refuses; ``abort`` stops a sweep a new build
   overtakes), or without a line in ``logs/storage.log``.
 
+ON-DEMAND IMAGERY (#1992 spec §6.3): the ``ondemand`` store is the sharp
+imagery the follow job fetched (counted from the on-demand index, not by
+walking a folder); clearing it DOWNGRADES every unpinned texture to its
+placeholder (``o4_engine.imagery_downgrade``), it never deletes a texture
+name; its row carries the pinned tiles as a second line (outside the
+cap), and the automatic cleanup holds its own cap
+(``imagery_on_demand_cap_gb``).  The ``imagery`` and ``dds`` caches never
+delete the source or the entry of a texture the index marks upgraded or
+pinned.
+
 Over the JSON-lines transport these are Library commands: they reply
 ``{"status": "started"}`` and ``LibraryReady`` completes them
 (``library.start``).  The Qt app calls the functions on its own thread.
@@ -44,8 +54,8 @@ import O4_Disk_Usage as DISK
 import O4_File_Names as FNAMES
 
 __all__ = ["CACHE", "KEPT", "STORES", "AUTO_CLEAN_DAYS", "CAPS_SETTING",
-           "storage_scan", "storage_clear", "storage_auto_clean",
-           "parse_caps", "COMMANDS", "REFUSED_WHILE_BUILDING"]
+           "ONDEMAND", "storage_scan", "storage_clear", "storage_auto_clean",
+           "parse_caps", "write_log", "COMMANDS", "REFUSED_WHILE_BUILDING"]
 
 #: a store the user may clear: the next build downloads or rebuilds it
 CACHE = "cache"
@@ -55,6 +65,9 @@ KEPT = "kept"
 #: the settings :func:`storage_auto_clean` reads (``O4_Cfg_Vars``)
 AUTO_CLEAN_DAYS = "storage_auto_clean_days"
 CAPS_SETTING = "storage_cache_caps_gb"
+
+#: the on-demand imagery store's kind (#1992)
+ONDEMAND = "ondemand"
 
 #: a file written this recently may be a download or a write in flight
 IN_FLIGHT_SECONDS = 3600.0
@@ -89,6 +102,18 @@ def _logs_dir() -> str:
     return FNAMES.data_path("logs")
 
 
+def _ondemand_dir() -> str:
+    import O4_Imagery_Placeholder as PLACEHOLDER
+    return FNAMES.data_path(PLACEHOLDER.STORE_DIR)
+
+
+def _ondemand_index():
+    """The on-demand index, or ``None`` when no build made one."""
+    import O4_Imagery_OnDemand_Index as INDEX
+    path = INDEX.index_path()
+    return INDEX.open_index(path) if os.path.isfile(path) else None
+
+
 _AGAIN = " is downloaded again the next time a tile that needs it is built."
 #: Every store, in the order the apps list them.
 STORES: tuple = (
@@ -98,6 +123,10 @@ STORES: tuple = (
           "Textures are converted again from the orthophotos when needed; "
           "an entry a built tile also holds frees nothing.",
           DDSC.cache_root),
+    Store(ONDEMAND, "Sharp imagery near flown areas", CACHE,
+          "Made low-res again, never deleted: sharp imagery is fetched "
+          "again when you fly near. Pinned tiles are not counted and "
+          "never made low-res.", _ondemand_dir),
     Store("elevation", "Elevation and airport insets", CACHE,
           "Elevation" + _AGAIN, lambda: FNAMES.Elevation_dir),
     Store("osm_extracts", "Regional map extracts", CACHE,
@@ -166,12 +195,35 @@ def _deletable(store: Store, name: str, st: os.stat_result,
             and now - st.st_mtime >= IN_FLIGHT_SECONDS)
 
 
+def _ondemand_protected(store: Store) -> set:
+    """The files of ``store`` the on-demand index marks upgraded or
+    pinned (spec §6.3), normalised; empty for other stores."""
+    if store.kind not in ("imagery", "dds"):
+        return set()
+    import O4_Imagery_OnDemand_Index as INDEX
+    try:
+        conn = _ondemand_index()
+    except Exception:
+        return set()
+    if conn is None:
+        return set()
+    try:
+        if store.kind == "imagery":
+            return INDEX.protected_jpegs(conn)
+        return {os.path.normcase(os.path.abspath(DDSC.entry_path(key)))
+                for key in INDEX.protected_cache_keys(conn)}
+    finally:
+        conn.close()
+
+
 def _files(store: Store, now: float):
     """``(path, stat, deletable)`` of every regular file of ``store``;
-    a symlink is neither followed nor listed."""
+    a symlink is neither followed nor listed; a file the on-demand index
+    protects is listed, never deletable."""
     root = store.path()
-    if not root or not os.path.isdir(root):
+    if store.kind == ONDEMAND or not root or not os.path.isdir(root):
         return
+    keep = _ondemand_protected(store)
     for folder, dirs, names in os.walk(root):
         if folder == root and store.skip:
             dirs[:] = [d for d in dirs if d not in store.skip]
@@ -184,10 +236,41 @@ def _files(store: Store, now: float):
                 continue
             if not stat.S_ISREG(st.st_mode):
                 continue
-            yield path, st, not held and _deletable(store, name, st, now)
+            yield path, st, (not held and _deletable(store, name, st, now)
+                             and os.path.normcase(os.path.abspath(path))
+                             not in keep)
+
+
+def _measure_ondemand(store: Store) -> dict:
+    """The ``ondemand`` row from the index: the counted (upgraded,
+    unpinned) bytes, plus the pins line and the airport-core rows."""
+    import O4_Imagery_OnDemand_Index as INDEX
+    row = {"kind": store.kind, "label": store.label, "policy": store.policy,
+           "note": store.note, "path": store.path(), "bytes": 0,
+           "apparent_bytes": 0, "files": 0, "last_used": None,
+           "pinned_bytes": 0, "pinned_files": 0, "core_files": 0}
+    conn = _ondemand_index()
+    if conn is None:
+        return row
+    try:
+        upgraded = INDEX.rows(conn, state="upgraded")
+        counted = [r for r in upgraded if not r["pinned"]]
+        near = [r["last_near_at"] for r in counted if r["last_near_at"]]
+        row.update(
+            bytes=INDEX.capped_bytes(conn), apparent_bytes=sum(
+                int(r["full_bytes"] or 0) for r in upgraded),
+            files=len(counted), last_used=max(near) if near else None,
+            pinned_bytes=INDEX.pinned_bytes(conn),
+            pinned_files=len(upgraded) - len(counted),
+            core_files=sum(1 for r in counted if r["core"]))
+    finally:
+        conn.close()
+    return row
 
 
 def _measure(store: Store, now: float) -> dict:
+    if store.kind == ONDEMAND:
+        return _measure_ondemand(store)
     freeable = apparent = files = 0
     newest = None
     for path, st, _deletable in _files(store, now):
@@ -274,6 +357,14 @@ class _Sweep:
         self.files += 1
         return size
 
+    def downgraded(self, store: Store, result: dict) -> None:
+        """Book an on-demand downgrade's result (its own log lines are
+        written by ``imagery_downgrade``)."""
+        self.freed[store.kind] = (self.freed.get(store.kind, 0)
+                                  + int(result.get("freed_bytes", 0)))
+        self.files += int(result.get("downgraded", 0))
+        self.stopped = self.stopped or bool(result.get("stopped"))
+
     def _write(self, line: str) -> None:
         if self._log is None:
             os.makedirs(_logs_dir(), exist_ok=True)
@@ -293,6 +384,49 @@ class _Sweep:
                 "stopped": self.stopped}
 
 
+def write_log(line: str) -> None:
+    """Append one dated line to ``logs/storage.log`` (a deletion or a
+    downgrade made outside a :class:`_Sweep`)."""
+    os.makedirs(_logs_dir(), exist_ok=True)
+    with open(os.path.join(_logs_dir(), LOG_NAME), "a", encoding="utf-8",
+              newline="\n") as log:
+        log.write(time.strftime("%Y-%m-%dT%H:%M:%SZ ", time.gmtime())
+                  + line + "\n")
+
+
+def _clear_ondemand(store: Store, cutoff: float | None,
+                    sweep: _Sweep) -> None:
+    """Clearing the ``ondemand`` store: every unpinned sharp texture (not
+    flown near since ``cutoff``) made low-res again."""
+    from . import imagery_downgrade as DOWNGRADE
+    conn = _ondemand_index()
+    if conn is None:
+        return
+    try:
+        sweep.downgraded(store, DOWNGRADE.downgrade_all(
+            conn, not_near_since=cutoff, dry_run=sweep.dry_run,
+            reason=sweep.reason, abort=sweep.abort))
+    finally:
+        conn.close()
+
+
+def _hold_ondemand_cap(sweep: _Sweep, now: float) -> None:
+    """The automatic cleanup's on-demand cap (``imagery_on_demand_cap_gb``:
+    over the cap, made low-res to 90 % of it).  A dry run sizes nothing
+    here: what a sweep frees depends on the camera."""
+    from . import imagery_downgrade as DOWNGRADE
+    if sweep.dry_run:
+        return
+    conn = _ondemand_index()
+    if conn is None:
+        return
+    try:
+        sweep.downgraded(_BY_KIND[ONDEMAND], DOWNGRADE.sweep(
+            conn, DOWNGRADE.cap_bytes(), now=now, abort=sweep.abort))
+    finally:
+        conn.close()
+
+
 def _prune_empty_dirs(root: str) -> None:
     for folder, _dirs, _names in os.walk(root, topdown=False):
         if folder != root:
@@ -304,6 +438,9 @@ def _prune_empty_dirs(root: str) -> None:
 
 def _clear_store(store: Store, cutoff: float | None, sweep: _Sweep,
                  now: float) -> None:
+    if store.kind == ONDEMAND:
+        _clear_ondemand(store, cutoff, sweep)
+        return
     for path, st, deletable in list(_files(store, now)):
         if sweep.abort():
             sweep.stopped = True
@@ -317,6 +454,8 @@ def _clear_store(store: Store, cutoff: float | None, sweep: _Sweep,
 def _evict_to_cap(store: Store, cap: int, sweep: _Sweep, now: float) -> None:
     """Least recently used first until what the store holds is at most
     ``cap`` bytes; a protected file counts but is never evicted."""
+    if store.kind == ONDEMAND:
+        return              # its cap is imagery_on_demand_cap_gb
     rows = list(_files(store, now))
     total = sum(DISK.freeable_bytes(path, st) for path, st, _d in rows)
     oldest_first = sorted((row for row in rows if row[2]),
@@ -468,6 +607,8 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
         if sweep.stopped:
             break
         _evict_to_cap(_BY_KIND[kind], int(cap), sweep, now)
+    if not sweep.stopped:
+        _hold_ondemand_cap(sweep, now)
     if not sweep.stopped:
         _remove_redundant(sweep, now)
     out = sweep.result()

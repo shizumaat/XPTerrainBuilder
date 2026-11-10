@@ -61,7 +61,7 @@ function (docstrings excluded).
 | O4_DEM_Utils.py | read_elevation_from_file | 4 | uncoded | | assumed no-data or EPSG, unsupported raster read as zero altitude |
 | O4_DEM_Utils.py | fill_nodata_values_with_nearest_neighbor | 1 | uncoded | | holes too large to fill are set to zero |
 | O4_Airport_Elevation_Insets.py | _parse_resolution_ladder | 2 | config | | a malformed ladder rung is skipped |
-| O4_Airport_Elevation_Insets.py | initialize_elevation_providers_dict | 4 | config | | an unreadable or refused provider definition, or an unreadable archive-zones table, is skipped |
+| O4_Airport_Elevation_Insets.py | initialize_elevation_providers_dict | 5 | config | | an unreadable or refused provider definition, or an unreadable archive-zones table, is skipped; an unknown dem_class= is dropped (the pixel rule classes the source) |
 | O4_Airport_Elevation_Insets.py | select_provider_definitions | 1 | config | | an unknown provider code is ignored |
 | O4_Airport_Elevation_Insets.py | fetch_inset | 1 | config | | a provider names no access strategy |
 | O4_Airport_Elevation_Insets.py | _building_footprint_polygons_from_layer | 1 | uncoded | | buildings are not masked out of a surface-model inset |

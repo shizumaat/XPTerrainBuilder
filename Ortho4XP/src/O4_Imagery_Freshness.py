@@ -415,7 +415,14 @@ def discard_tile_imagery(lat: int, lon: int, build_dir: str, provider_code: str,
     """"Update Imagery": remove the tile's cached orthophotos of
     ``provider_code`` at ``zl`` (with their records) and its converted
     base textures, so the rebuild that follows downloads them again.
-    ``{"jpegs": n, "textures": m}`` removed."""
+    ``{"jpegs": n, "textures": m}`` removed.
+
+    An ON-DEMAND tile (#1992 spec §6.3; its imagery manifest says
+    ``on_demand`` or ``pinned``) never loses a texture name: each texture
+    is made low-res again from the kept placeholder, and the placeholder's
+    orthophoto and kept copy are removed so the rebuild makes it anew;
+    on a pinned tile the full textures' cache entries go too and the reply
+    names ``refetch`` (the follow job fetches the full set again)."""
     import O4_File_Names as FNAMES
     if providers is None:
         import O4_Imagery_Utils as IMG
@@ -424,6 +431,10 @@ def discard_tile_imagery(lat: int, lon: int, build_dir: str, provider_code: str,
     removed = {"jpegs": 0, "textures": 0}
     if not provider or not zl:
         return removed
+    record = _imagery_record(build_dir, lat, lon)
+    if record.get("on_demand") or record.get("pinned"):
+        return _discard_on_demand(lat, lon, build_dir, provider_code, int(zl),
+                                  provider, record)
     folder = FNAMES.jpeg_file_dir_from_attributes(lat, lon, int(zl), provider)
     for til_x, til_y in _tile_textures(build_dir, provider_code, int(zl)):
         jpeg = os.path.join(folder, FNAMES.jpeg_file_name_from_attributes(
@@ -438,3 +449,82 @@ def discard_tile_imagery(lat: int, lon: int, build_dir: str, provider_code: str,
             if kind:
                 removed[kind] += 1
     return removed
+
+
+def _imagery_record(build_dir: str, lat: int, lon: int) -> Dict[str, Any]:
+    """The tile's imagery manifest (``O4_Tile_Utils``), ``{}`` when none."""
+    import O4_File_Names as FNAMES
+    path = os.path.join(build_dir, "Ortho4XP_%s_imagery.json"
+                        % FNAMES.short_latlon(lat, lon))
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _remove_counted(paths, removed: Dict[str, int], kind: str) -> None:
+    for path in paths:
+        with contextlib.suppress(OSError):
+            os.remove(path)
+            if kind:
+                removed[kind] += 1
+
+
+def _discard_on_demand(lat: int, lon: int, build_dir: str, provider_code: str,
+                       zl: int, provider: dict, record: Dict[str, Any]
+                       ) -> Dict[str, int]:
+    """"Update Imagery" on an on-demand or pinned tile (see
+    :func:`discard_tile_imagery`)."""
+    from types import SimpleNamespace
+
+    import O4_DDS_Cache as DDSC
+    import O4_File_Names as FNAMES
+    import O4_Imagery_Placeholder as PLACEHOLDER
+    tile = SimpleNamespace(lat=lat, lon=lon)
+    drop = zl - int(record.get("placeholder_zl") or zl - PLACEHOLDER.DEFAULT_DROP)
+    pinned = bool(record.get("pinned"))
+    removed = {"jpegs": 0, "textures": 0, "placeholders": 0, "refetch": 0}
+    full_dir = FNAMES.jpeg_file_dir_from_attributes(lat, lon, zl, provider)
+    low_dir = PLACEHOLDER.jpeg_dir(lat, lon, zl, provider, drop)
+    own = os.path.abspath(build_dir)
+    users = DDSC.key_users() if pinned else {}
+    for til_x, til_y in _tile_textures(build_dir, provider_code, zl):
+        name = FNAMES.dds_file_name_from_attributes(til_x, til_y, zl,
+                                                    provider_code)
+        full = os.path.join(full_dir, FNAMES.jpeg_file_name_from_attributes(
+            til_x, til_y, zl, provider_code))
+        low = os.path.join(low_dir, PLACEHOLDER.jpeg_name(
+            til_x, til_y, zl, provider_code, drop))
+        _remove_counted((full, low), removed, "jpegs")
+        _remove_counted((_record_path(full),), removed, "")
+        texture = os.path.join(build_dir, "textures", name)
+        PLACEHOLDER.land_kept(PLACEHOLDER.kept_path(tile, name), texture)
+        removed["placeholders"] += int(PLACEHOLDER.forget(tile, name))
+        if pinned:
+            removed["refetch"] += 1
+            _remove_counted([DDSC.entry_path(key) for key, where in users.items()
+                             if any(os.path.abspath(b) == own and n == name
+                                    for b, n in where)], removed, "")
+    _forget_index_rows(lat, lon)
+    return removed
+
+
+def _forget_index_rows(lat: int, lon: int) -> None:
+    """Every index row of the tile back to low: its textures are
+    placeholders now, and the cap must not count bytes they no longer
+    hold."""
+    import O4_File_Names as FNAMES
+    import O4_Imagery_OnDemand_Index as INDEX
+    path = INDEX.index_path()
+    if not os.path.isfile(path):
+        return
+    conn = INDEX.open_index(path)
+    try:
+        for row in INDEX.rows(conn, tile=FNAMES.short_latlon(lat, lon)):
+            INDEX.set_state(conn, row["tile"], row["name"], "low",
+                            tier_px=INDEX.placeholder_width(row), full_bytes=0,
+                            dds_cache_key=None, jpeg_path=None)
+    finally:
+        conn.close()

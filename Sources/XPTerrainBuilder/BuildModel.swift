@@ -1247,6 +1247,8 @@ final class BuildModel: ObservableObject {
             break // the engine's scheduling signal; the tile's row moves on its own
         case .imagerySourceStatus(let code, let status):
             imageryStatus[code] = status
+        case .imageryFollowStatus:
+            break // shown by the on-demand status line (#1992 P4)
         case .unknown:
             break // additive protocol: ignore unknown event types
         }

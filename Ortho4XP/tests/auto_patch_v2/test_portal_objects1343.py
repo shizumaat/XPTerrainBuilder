@@ -205,3 +205,17 @@ def test_a_roofed_portals_opening_is_its_roof_across_the_bore(tmp_path):
     north)."""
     got, _r = _read([_placed(_portal(tmp_path))])
     assert abs(got[0].opening_m - 14.0) < 1e-6
+
+
+def test_a_roofs_opening_reads_only_the_parts_over_the_bore_end():
+    """#1910 (LOWS ``Terminal_LOWS_61.obj``: 183.71 m across a 7 m bore
+    from the whole roof, 16.22 m from the parts over the end): a roof part
+    standing clear of the end roofs something else and widens no opening."""
+    from shapely.geometry import MultiPolygon
+    end, into = (0.0, 0.0), (0.0, 1.0)            # a bore running north
+    over = _sbox(-8.0, -4.0, 8.0, 6.0)            # 16 m across, over the end
+    far = _sbox(150.0, -4.0, 170.0, 6.0)          # the same object's far wing
+    width, edges = P._roof_opening(MultiPolygon([over, far]), end, into, 5.0)
+    assert abs(width - 16.0) < 1e-9
+    assert sorted(round(e[0], 6) for e in edges) == [-8.0, 8.0]
+    assert P._roof_opening(far, end, into, 5.0) == (0.0, ())

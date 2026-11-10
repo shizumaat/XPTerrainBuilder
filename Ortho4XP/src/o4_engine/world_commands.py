@@ -123,14 +123,17 @@ def tile_loaded(scenery_dir: str,
     """The predicate of rule S3 for one moment: may X-Plane hold tile
     ``(lat, lon)``?  Never, while X-Plane does not run.  While it runs:
     yes when the witness shows a load of it this session, or the aircraft
-    (``position()`` -> ``(lat, lon)``, from the position feed) has it in
+    (``position()`` -> ``(lat, lon)``; default the shared position feed's
+    latest, ``position_feed.latest_position``) has it in
     the union of the plausible DSF windows, or no position is known (the
     disagreeing or unknown case counts as loaded)."""
     if not _xplane_running():
         return lambda lat, lon: False
     import O4_World_Window as WINDOW
+
+    from .position_feed import latest_position
     loads = _witness(scenery_dir)[0]
-    here = position() if position else None
+    here = (position or latest_position)()
 
     def held(lat: int, lon: int) -> bool:
         if (lat, lon) in loads or here is None:

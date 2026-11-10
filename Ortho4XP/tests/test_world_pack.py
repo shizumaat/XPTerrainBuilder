@@ -166,7 +166,8 @@ def _dsf2text(path: str) -> str:
 @pytest.mark.parametrize("lat,lon", [(53, -63), (-1, 5), (45, 7)])
 def test_placeholder_bytes_equal_dsftools(tmp_path, lat, lon):
     src = tmp_path / "ph.txt"
-    src.write_text(WP.placeholder_text(lat, lon), encoding="utf-8")
+    src.write_text(WP.placeholder_text(lat, lon), encoding="utf-8",
+                   newline="\n")
     out = tmp_path / "ph.dsf"
     subprocess.run([_tool(), "--text2dsf", str(src), str(out)],
                    capture_output=True, check=True)

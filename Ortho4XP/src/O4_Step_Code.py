@@ -200,6 +200,8 @@ _SHARED: tuple[str, ...] = (
     "O4_DDS_Refine",
     "O4_DEM_Utils",
     "O4_DSFTool",
+    "O4_DSF_Binary",
+    "O4_DSF_Header",
     "O4_Elevation_Level",
     "O4_External_Writes",
     "O4_File_Lock",
@@ -230,6 +232,7 @@ _SHARED: tuple[str, ...] = (
     "O4_Vector_Map",
     "O4_Vector_Utils",
     "O4_Version",
+    "O4_World_Pack",
     "O4_ZProv",
     "auto_patch",
     "auto_patch.agp_reader",
@@ -898,7 +901,6 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
     "vector": (
     ),
     "mesh": (
-        "O4_DSF_Header",
         "O4_Mesh_IO",
         "O4_Mesh_Utils",
         "O4_Num_Text",

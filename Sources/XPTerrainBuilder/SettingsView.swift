@@ -665,9 +665,10 @@ private struct CategoryPane: View {
         let overridden = known.filter { $0.scope == .tile && overriddenNames.contains($0.name) }
         Form {
             // Storage (#1724): the data folder's sizes and Clear buttons
-            // above the cleanup settings (Qt: O4_Qt_Settings_Storage).
+            // live in Library mode (RULINGS 2026-11-10j); a pointer here
+            // above the cleanup settings (Qt: O4_Qt_Modes.LibraryPointer).
             if category.key == "storage" {
-                StorageSection()
+                StoragePointer()
             }
             // Imagery (#1985): the build zoom leads, moved from General.
             if category.key == "imagery" {

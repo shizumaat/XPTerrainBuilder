@@ -224,6 +224,8 @@ CAPABILITIES: tuple = (
     "imagery_ondemand",             # 2026-11-10, #1992 P2 scan / pin / downgrade_all
     "imagery_spawn_reload",         # 2026-11-10, #1992 P5 scenery reload after a spawn or jump
     "imagery_ondemand_convert",     # 2026-11-10, #1992 P1c built tiles -> on-demand copies
+    "world_pack",                   # 2026-11-10, World spec W1 world_* + WorldStatus/Ready
+    "aircraft_position",            # 2026-11-10, #2001 aircraft_watch + AircraftPosition
 )
 
 
@@ -1056,6 +1058,85 @@ class ImageryFollowStatus(EngineEvent):
     flight_loads: int = 0
     jumps: int = 0
     reloads: int = 0
+
+
+@dataclass(frozen=True)
+class WorldStatus(EngineEvent):
+    """The World pack's state (flight manager / World spec §5.3,
+    capability ``world_pack``, ``o4_engine.world_commands``): emitted when
+    the pack changes (a publish, a region switch, a tile given back) and,
+    once build-ahead runs (W2), every ~2 s.
+
+    ``state``: ``off`` (no World pack), ``idle``, ``following``,
+    ``building``, ``paused``, ``error``; ``reason`` one sentence, ready to
+    show.  ``installed``: the pack and its ``scenery_packs.ini`` row exist;
+    ``seen_by_xplane``: this X-Plane session listed it (``None``: unknown);
+    ``restart_needed``: installed while X-Plane runs without it.
+    ``tiles``: ``{placeholder, drape, light, full, staged}`` counts;
+    ``queue`` jobs waiting; ``building`` rows ``[tile, kind, step,
+    remaining_s]``; ``loaded`` tiles X-Plane loaded this session (the
+    ``Log.txt`` witness); ``last_swap`` ``[tile, kind, utc]``; ``slots``,
+    ``frame_ms``, ``governor`` (``ok``, ``reduced``) the CPU share (W2);
+    ``bytes`` the pack's size.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    state: str = "off"
+    reason: str = ""
+    installed: bool = False
+    seen_by_xplane: Optional[bool] = None
+    restart_needed: bool = False
+    tiles: Any = None
+    queue: int = 0
+    building: tuple = ()
+    loaded: tuple = ()
+    last_swap: tuple = ()
+    slots: int = 0
+    frame_ms: float = 0.0
+    governor: str = "ok"
+    bytes: int = 0
+
+
+@dataclass(frozen=True)
+class WorldReady(EngineEvent):
+    """The completion half of ``world_regions_set`` (and, phase M,
+    ``world_migrate``): the command replies ``{"status": "started"}`` and
+    the work runs on a worker thread.  ``request`` is the command's ``id``;
+    ``result`` its counts or ``None``, with ``error`` the failure sentence.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
+    result: Any = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class AircraftPosition(EngineEvent):
+    """X-Plane's aircraft, once a second while ``aircraft_watch`` is on
+    (spec flight-manager-and-world-20261110 §5.3; #2001; capability
+    ``aircraft_position``): the Fly map's aircraft and track.
+
+    ``lat``/``lon`` degrees, ``alt_m`` above sea level, ``track_deg``
+    true track over the ground (from position deltas; the heading while
+    the aircraft stands still), ``speed_ms`` groundspeed, ``on_ground``
+    (under 3 m above the ground), ``paused`` (the sim is paused).
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    lat: float = 0.0
+    lon: float = 0.0
+    alt_m: float = 0.0
+    track_deg: float = 0.0
+    speed_ms: float = 0.0
+    on_ground: bool = False
+    paused: bool = False
 
 
 @dataclass(frozen=True)

@@ -24,8 +24,8 @@ import O4_Airport_Detail as AIRPORT_DETAIL
 import O4_Cfg_Migrations as CFG_MIGRATIONS
 import O4_File_Names as FNAMES
 import O4_Qt_Airport_Detail as QTDETAIL
+import O4_Qt_Modes as QTMODES
 import O4_Qt_Settings_General as GENERAL
-import O4_Qt_Settings_Storage as QTSTORAGE
 import O4_Settings_Model as SM
 import O4_Settings_Presets as PRESETS
 import O4_Settings_Selection as SEL
@@ -1112,13 +1112,13 @@ class SettingsWindow(SelectionEdits, QDialog):
                     self._detail_changed)
                 self.content_layout.addWidget(self.imagery_zoom_row)
             elif key == "storage":
-                # The data folder's sizes and Clear buttons (#1724), above
-                # the cleanup settings, as on the Mac.
+                # The data folder's sizes and Clear buttons (#1724) live
+                # in Library mode (RULINGS 2026-11-10j); a pointer here.
                 # A weak method: a bound one is a window<->section cycle,
                 # and a QDialog the cyclic GC frees later can crash Qt.
-                busy = weakref.WeakMethod(self._engine_busy)
-                self.storage_section = QTSTORAGE.StorageSection(
-                    busy=lambda: bool(busy() and busy()()))
+                show = weakref.WeakMethod(self._show_library)
+                self.storage_section = QTMODES.LibraryPointer(
+                    lambda: show() and show()())
                 self.content_layout.addWidget(self.storage_section)
             hidden_count = 0
             for setting in SM.settings_for(key):
@@ -1198,11 +1198,12 @@ class SettingsWindow(SelectionEdits, QDialog):
         self._update_footer_actions()
         self._apply_filter()
 
-    def _engine_busy(self):
-        """Is the main window's engine building (Storage never deletes
-        then)?"""
-        session = getattr(self.parent(), "_session", None)
-        return bool(getattr(session, "_building", False))
+    def _show_library(self):
+        """Settings ▸ Storage's "Show in Library": the main window's
+        Library mode (sizes, Clear and the disk budget's use)."""
+        set_mode = getattr(self.parent(), "set_mode", None)
+        if set_mode is not None:
+            set_mode("library")
 
     def _add_app_sections(self):
         """General's app-level sections, in the Mac app's order (#1267):
@@ -1515,8 +1516,6 @@ class SettingsWindow(SelectionEdits, QDialog):
                 self.storage_section.matches(query) if query
                 else selected in (None, "storage"))
             self.storage_section.setVisible(shown)
-            if selected == "storage" and shown and self.storage_section.scan is None:
-                self.storage_section.refresh()
         if tile_view:
             count = len(override_union)
             subject = (

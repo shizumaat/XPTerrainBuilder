@@ -115,7 +115,14 @@ enum SettingsLayout {
             SettingItem("sea_nodata_fill", "Repair blank spots in imagery over the sea?", .tile, summary: "Fills the white or black rectangles some providers leave over coastal water."),
             SettingItem("color_harmonization", "Even out imagery colors across the tile?", .tile, summary: "Removes the patchwork of different photo dates and providers."),
             // #1992 §7: the world switch (app-wide; P6 decides its default).
-            SettingItem("imagery_on_demand", "Fetch imagery on demand, worldwide?", .app, summary: "New builds get low-res imagery; full detail is fetched around the aircraft as you fly."),
+            SettingItem("imagery_on_demand", "Fetch imagery on demand?", .app, summary: "New builds get low-res imagery; full detail is fetched around the aircraft as you fly."),
+            // RULINGS 2026-11-10e (3): on demand region by region.
+            SettingItem("imagery_on_demand_europe", "On demand in Europe?", .app, summary: "simHeaven's X-World region; off, its new tiles build at full resolution."),
+            SettingItem("imagery_on_demand_america", "On demand in America?", .app, summary: "simHeaven's X-World region; off, its new tiles build at full resolution."),
+            SettingItem("imagery_on_demand_asia", "On demand in Asia?", .app, summary: "simHeaven's X-World region; off, its new tiles build at full resolution."),
+            SettingItem("imagery_on_demand_africa", "On demand in Africa?", .app, summary: "simHeaven's X-World region; off, its new tiles build at full resolution."),
+            SettingItem("imagery_on_demand_australia_oceania", "On demand in Australia-Oceania?", .app, summary: "simHeaven's X-World region; off, its new tiles build at full resolution."),
+            SettingItem("imagery_on_demand_antarctica", "On demand in Antarctica?", .app, summary: "simHeaven's X-World region; off, its new tiles build at full resolution."),
             SettingItem("airport_ortho_fade_width", "Airport ortho fade width (m)", .tile, expert: true),
             SettingItem("sea_texture_blur", "Sea texture blur (m)", .tile, expert: true),
             SettingItem("skip_downloads", "Skip imagery downloads", .app, expert: true),

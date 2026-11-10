@@ -33,7 +33,7 @@ from .airside_edge import airside_edge_flip
 from .evidence import Evidence, _osm_roads, polygon_parts
 from .rules import Rules
 
-__all__ = ["Verdict", "judge", "close_rim"]
+__all__ = ["Verdict", "judge", "close_rim", "fill_to_taxi"]
 
 
 @_dc.dataclass(frozen=True)
@@ -110,3 +110,34 @@ def close_rim(part: Polygon, aprons: _t.Sequence[Polygon], tree: STRtree | None,
     grown = shapely.set_precision(unary_union([part, *fill]), grid)
     bodies = [g for g in polygon_parts(grown) if g.intersects(part)]
     return max(bodies, key=lambda g: g.area) if bodies else part
+
+
+def fill_to_taxi(part: Polygon, taxis: _t.Sequence[Polygon],
+                 reaches: _t.Sequence[float], tree: STRtree | None,
+                 keep_out: _t.Iterable, grid: float) -> Polygon:
+    """An apron ``part`` grown across the pack's own pavement to every taxi
+    face beside it (#1976): THE PAVEMENT WINS OVER THE STRIP.
+
+    The mint cuts every piece out of the taxi band envelope, so where a
+    pack page runs from an apron to a taxiway the piece stopped one band
+    short of the taxi face and ``planar/zones`` drew the band there — a
+    taxiway strip graded through the middle of drawn apron (CYYC: a 703 m2
+    ``adjacent_ground:taxi:E:zone1`` piece between ``dsf:pol593``'s taxi
+    junction and ``gapapron:1``, 1.5 m below the apron beside it).  An apron
+    lies flush on a taxiway with no strip between (``planar/zones`` cuts a
+    gap apron out of every band it reaches), so the gap between the part and
+    each taxi face within that face's band ``reaches[j]`` is closed exactly
+    as :func:`close_rim` closes it onto an apron ring, less ``keep_out``
+    (ground that is not the sheet, every other standing cell, the runway
+    band, the other pieces)."""
+    if tree is None:
+        return part
+    keep = [g for g in keep_out if g is not None and not g.is_empty]
+    for j in sorted(int(j) for j in tree.query(
+            part.buffer(max(reaches, default=0.0)), predicate="intersects")):
+        r = float(reaches[j])
+        if r <= 0.0 or part.distance(taxis[j]) > r:
+            continue
+        one = STRtree([taxis[j]])
+        part = close_rim(part, [taxis[j]], one, keep, 0.5 * r + grid, grid)
+    return part

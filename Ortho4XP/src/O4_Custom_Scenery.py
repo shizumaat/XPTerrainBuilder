@@ -20,12 +20,14 @@ whole globe, and its 35 000 airports are what
 :mod:`O4_Airport_Index` already serves.
 """
 
+import contextlib
 import os
 import re
 from dataclasses import dataclass, field
 from typing import Iterator, Optional, Sequence, Set, Tuple
 
 import O4_File_Names as FNAMES
+
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
 import O4_Scenery_Packs as _scenery_packs
 
@@ -59,6 +61,8 @@ _SKIPPED_PACKS = frozenset({"Global Airports"})
 _OURS_RE = re.compile(r"^(zOrtho4XP_|yOrtho4XP_Overlays$)")
 
 _DSF_RE = re.compile(r"^([+-]\d{2})([+-]\d{3})\.dsf$", re.IGNORECASE)
+#: A per-tile subfolder of ``terrain/`` or ``textures/`` (the World pack).
+_TILE_DIR_RE = re.compile(r"^[+-]\d{2}[+-]\d{3}$")
 
 
 @dataclass(frozen=True)
@@ -200,12 +204,17 @@ def pack_imagery(content_root: str) -> Optional[Tuple[str, Optional[int]]]:
 
 
 def pack_tiles(content_root: str) -> frozenset:
-    """(lat, lon) of every ``Earth nav data`` DSF the pack ships.
+    """(lat, lon) of every ``Earth nav data`` DSF the pack ships, except
+    the World pack's placeholders (flight manager / World spec §18: a
+    placeholder is not a tile, ``O4_World_Pack.is_placeholder``).
 
     The tree is two levels deep by X-Plane's own convention
     (``±X0±Y00/±XX±YYY.dsf``), so this is a listing of the nav-data folder
-    plus one listing per decade folder — never a full-pack walk.
+    plus one listing per decade folder — never a full-pack walk; only a
+    DSF small enough to be a placeholder has its head read.
     """
+    import O4_World_Pack as WP
+
     nav = os.path.join(content_root, "Earth nav data")
     tiles = set()
     try:
@@ -213,14 +222,19 @@ def pack_tiles(content_root: str) -> frozenset:
     except OSError:
         return frozenset()
     for group in groups:
-        group_dir = os.path.join(nav, group)
         try:
-            names = os.listdir(group_dir)
+            entries = list(os.scandir(os.path.join(nav, group)))
         except OSError:
             continue
-        for name in names:
-            match = _DSF_RE.match(name)
-            if match is not None:
+        for entry in entries:
+            match = _DSF_RE.match(entry.name)
+            if match is None:
+                continue
+            try:
+                size = entry.stat().st_size
+            except OSError:
+                continue
+            if not WP.is_placeholder(entry.path, size):
                 tiles.add((int(match.group(1)), int(match.group(2))))
     return frozenset(tiles)
 
@@ -279,6 +293,27 @@ def iter_airport_packs(scenery_dir: str) -> Iterator[tuple]:
             yield (entry, path, content_root, entry not in disabled, airports)
 
 
+def _probe_names(content_root: str, folder: str) -> list:
+    """Up to 500 names of ``folder``; a pack laid out per tile (the World
+    pack: ``terrain/<tile>/``, ``textures/<tile>/``) is read through its
+    first tile subfolders instead."""
+    try:
+        names = os.listdir(os.path.join(content_root, folder))
+    except OSError:
+        return []
+    out = []
+    for name in names[:500]:
+        if _TILE_DIR_RE.match(name):
+            with contextlib.suppress(OSError):
+                out.extend(os.listdir(os.path.join(content_root, folder,
+                                                   name))[:500 - len(out)])
+        else:
+            out.append(name)
+        if len(out) >= 500:
+            break
+    return out
+
+
 def _terrain_probe(content_root: str) -> Tuple[bool, bool]:
     """(has .ter scenery, holds photo-tile quantities of images).
 
@@ -290,11 +325,7 @@ def _terrain_probe(content_root: str) -> Tuple[bool, bool]:
     ter_count = 0
     image_count = 0
     for folder in ("terrain", "textures"):
-        try:
-            names = os.listdir(os.path.join(content_root, folder))
-        except OSError:
-            continue
-        for name in names[:500]:
+        for name in _probe_names(content_root, folder):
             lower = name.lower()
             if lower.endswith(".ter"):
                 ter_count += 1

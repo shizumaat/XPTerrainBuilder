@@ -304,12 +304,14 @@ def _stamp_cut_rings(seats: dict, pm, airport) -> None:
                     seats[oid][CUT_FRAME_Z] = round(float(tn.cut_frame[1]), 3)
 
 
-def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
+def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     """THE PLANAR AND SOLVED FACTS the rebake plan reads beyond the pack
     partition — ``tunnel_objects`` (the plate seats) / ``exclude`` /
     ``below_grade`` / ``deck_datum``, the keywords ``rebake_screen.take``
     and ``rebake_plan.plan`` share.  ONE assembly: the build and any
-    instrument that replays its rebake section call this."""
+    instrument that replays its rebake section call this.  ``objects`` (the
+    loaded placements): each lifted row the terrain adapted to gets the
+    zero its cut was read for (``airport/adapted_riders.seat_records``)."""
     _to_xy = airport.frame.transformers()[0]
     # a basin family is PLATE-seated onto its floor (2026-09-06b (3)),
     # never excluded; ``exclude`` stays for any other caller
@@ -331,19 +333,25 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
     # issue #1730: a terrain-shaped hard deck's row is seated at its DEM fit
     from ..airport import object_floor as _of
     from ..airport import terrain_shaped as _ts
+    from ..constraints.airside_top import solved_entrance_zeros
     floors = tuple(getattr(pm, "object_floors", ()) or ())
     # #1903: a trench object's floor and its frame are written whole at
     # their read zero — no other seat moves them (a deck of the frame the
     # pavement drives across is planned: ``ObjectFloor.decks``, B2)
     floor_seats = _of.seat_records(floors, airport.frame.transformers()[1])
     excluded |= {str(r["id"]) for r in floor_seats if r.get("seat") != _of.FRAME_SEAT}
+    from ..airport.adapted_riders import seat_records as _adapted_seats
+    adapted = (_adapted_seats(objects, excluded - _authored_seats.kept_ids(seats)
+                              - {str(r["id"]) for r in floor_seats},
+                              airport.frame.transformers()[1]) if objects else [])
     return {
         "tunnel_objects": _plate_seats(pm, law, seats),
         "authored_seats": (tuple(seats[k] for k in sorted(seats))
                            + tuple(_ts.seat_records(airport))
-                           + tuple(_ts.portal_seat_records(pm.structures,
-                                                           airport.frame.transformers()[1]))
-                           + tuple(floor_seats)),
+                           + tuple(_ts.portal_seat_records(
+                               pm.structures, airport.frame.transformers()[1],
+                               zeros=solved_entrance_zeros(pm, law, surf, _to_xy)))
+                           + tuple(floor_seats) + tuple(adapted)),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``

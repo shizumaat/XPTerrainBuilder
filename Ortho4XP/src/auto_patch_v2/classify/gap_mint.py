@@ -37,11 +37,11 @@ from ..law import Law
 from ..airport.slab_faces import witness_faces
 from ..geom.base_slab import base_slabs
 from ..geom.proportions import road_proportioned
-from ..law.tables import base_slab_law, gap_standoff_m, snap_margin_m
+from ..law.tables import base_slab_law, gap_standoff_m, snap_margin_m, zone_edge_offset_m
 from ..model.airport import Airport
 from ..model.planar import GAP_APRON_PREFIX, GAP_PREFIX, is_osm_ribbon_ref
 from .evidence import Evidence, polygon_parts
-from .gap_apron import close_rim, judge
+from .gap_apron import close_rim, fill_to_taxi, judge
 from .rules import Rules
 
 __all__ = ["mint_gap_pieces", "standoff_m", "slab_role", "ROLE", "LOT_ROLE",
@@ -252,6 +252,8 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     verdict = dict(zip(judged, judge(
         [kept[i][0] for i in judged], airport, ev, cells, sheet, stand + weld_m,
         law, rules, ROLE, KIND))) if judged else {}
+    taxi_fill = _taxi_fill(cells, polys, airport, law, sheet, flush, off,
+                           stand) if judged else None
     j = 0
     for k, (part, apron_m, touches) in enumerate(kept):
         v = verdict.get(k)
@@ -268,6 +270,8 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
             # THE WELD IS MADE HERE (§59 (2) 4): the rim closed onto the apron
             # rings, clear of every standing cell and every other piece
             others = [q for i, (q, _m, _t) in enumerate(kept) if i != k]
+            if taxi_fill is not None:
+                part = fill_to_taxi(part, *taxi_fill(part, others), grid)
             part = close_rim(part, aprons, apron_tree,
                              [standing, band_knife, *others], weld_m, grid)
             edge_m = apron_m if v.airside_edge_m is None else v.airside_edge_m
@@ -303,3 +307,34 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
             add(role, ref, part, KIND, None, None, evid)
         stats["gap_piece_m2"] += float(part.area)
     return stats
+
+
+def _taxi_fill(cells, polys, airport, law: Law, sheet, flush, off, stand):
+    """``(part, others) -> fill_to_taxi`` arguments: the taxi faces, each
+    with its band's reach past its edge (``zone_edge_offset_m`` plus the
+    stand-off — the envelope the mint cut), and the ground an apron piece
+    may NOT take on its way to one (#1976): off the sheet, every other
+    standing cell at its stand-off (aprons and ribbons flush, as today), the
+    RUNWAY band (strip area is never apron population, 2026-08-21d), the
+    other pieces.  ``None`` with no taxi face."""
+    from .roles import TAXI_FAMILY
+    from .ribbon_mint import ribbon_extent
+    taxi = [(c, q) for c, q in polys if c.role in TAXI_FAMILY]
+    if not taxi or sheet.is_empty:
+        return None
+    taxis = [q for _c, q in taxi]
+    reaches = [(zone_edge_offset_m(law, "junction", c.code_number, c.code_letter) or 0.0)
+               + stand for c, _q in taxi]
+    standing = unary_union(flush + taxis + [
+        off(q) for c, q in polys if c.role not in TAXI_FAMILY
+        and not (c.role == "apron" or is_osm_ribbon_ref(c.ref))])
+    runway = ribbon_extent([c for c in cells if c.role not in TAXI_FAMILY], law,
+                           Polygon(), getattr(airport, "runways", ()))
+    runway_knife = off(runway) if not runway.is_empty else Polygon()
+    tree = STRtree(taxis)
+
+    def args(part, others):
+        box = part.buffer(2.0 * max(reaches)).envelope
+        return taxis, reaches, tree, [box.difference(sheet), standing, runway_knife,
+                                      *others]
+    return args

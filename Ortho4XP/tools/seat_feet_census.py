@@ -497,7 +497,8 @@ def _print_coherence(plan: dict, rebake_path: str, rows_dump: str,
         from auto_patch_v2.airport.dsf import read_dump
         dump = read_dump(rows_dump, accept_polygon=lambda _p: False)
         r = PCo.census_frame_riders(dump, plan.get("splits", ()),
-                                    plan.get("msl_seats", ()), surface)
+                                    plan.get("msl_seats", ()), surface,
+                                    authored_seats=reb.authored_seats)
     for line in PCo.coherence_lines(g, b, r):
         print(line)
     # #1214 round 3, R1: every body file the plan names is a file in the pack

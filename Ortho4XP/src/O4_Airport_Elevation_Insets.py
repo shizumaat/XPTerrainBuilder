@@ -407,8 +407,10 @@ def elevation_providers_directory():
 #: a single ``;``-separated line.  Only ``coverage_bbox`` is in the set
 #: (owner RULINGS 2026-09-16c: a provider declares DISJOINT regions).
 #: ``resolution_ladder`` repeats the same way, one coarser rung per line
-#: (#130, see :func:`_parse_resolution_ladder`).
-MULTI_VALUE_KEYS = frozenset(("coverage_bbox", "resolution_ladder"))
+#: (#130, see :func:`_parse_resolution_ladder`).  ``cog_source`` is one
+#: footprinted raster per line (#1926, ``strategies/direct_cog``).
+MULTI_VALUE_KEYS = frozenset(
+    ("coverage_bbox", "resolution_ladder", "cog_source"))
 
 
 #: The third field of a ``resolution_ladder`` line that names ANOTHER

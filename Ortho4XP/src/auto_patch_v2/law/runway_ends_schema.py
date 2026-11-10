@@ -64,6 +64,9 @@ class RunwayEnds:
     #: owner RULINGS 2026-11-10b (3): two pinned ends of touching runways
     #: closer than this many metres split a difference the pavement cannot hold
     peer_close_end_m: float
+    #: owner RULINGS 2026-11-10i (#1977): how far beyond a runway end an
+    #: approach-light set's origin may stand on the extended centreline
+    approach_reach_m: float
     #: the cross-check sources, in the order a flagged runway tries them
     #: (owner RULINGS 2026-10-26a); a name with no provider module is skipped
     crosscheck_order: tuple[str, ...]
@@ -75,7 +78,7 @@ def check_runway_ends(t: RunwayEnds, error: type[Exception]) -> None:
     and the lidar noise no larger than the coarse one."""
     for name in ("field_equal_ft", "field_agree_m", "placeholder_spread_ft",
                  "crosscheck_tol_ft", "zero_placeholder_ft", "peer_touch_m",
-                 "peer_parallel_deg", "peer_close_end_m"):
+                 "peer_parallel_deg", "peer_close_end_m", "approach_reach_m"):
         if getattr(t, name) < 0.0:
             raise error(f"runway_ends.{name} {getattr(t, name)!r} < 0")
     if not t.dem_window_m > 0.0:

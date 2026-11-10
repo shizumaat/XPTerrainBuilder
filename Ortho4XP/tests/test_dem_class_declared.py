@@ -6,8 +6,8 @@ satellite-stereo DSM (vertical error ~1-4 m, strips that may predate the
 airport), so the pixel rule called it lidar -- the old-DEM witness never
 fired, ``grade_disagree_m`` took the lidar tolerance, ``runway_profile``
 read CASE_LIDAR.  An ``.elv`` ``dem_class=`` key now overrides the pixel
-rule; ARCTICDEM2M declares ``fine``.  Every other shipped provider
-declares nothing, so its class is unchanged (the twin below).  No network,
+rule; ARCTICDEM2M and NPOLARS0 (#1926) declare ``fine``.  Every other
+shipped provider declares nothing, so its class is unchanged (the twin below).  No network,
 no corpus: a hand-built ``ProductionDem`` tile carries the manifest.
 """
 import json
@@ -28,7 +28,10 @@ _PROVIDERS = os.path.normpath(
 #: The providers that declare a class, and the class.  A provider added
 #: here is a deliberate change of its class for every consumer of
 #: ``law/inset_class`` (census in the #1929 lane report).
-DECLARED = {"ARCTICDEM2M": T.FLAT_CLASS_FINE}
+DECLARED = {"ARCTICDEM2M": T.FLAT_CLASS_FINE,
+            # #1926: NPI S0 photogrammetric DTM, 2.5-5 m pixel -- "fine"
+            # by its pixel too, declared so no future pixel reads lidar.
+            "NPOLARS0": T.FLAT_CLASS_FINE}
 
 
 @pytest.fixture

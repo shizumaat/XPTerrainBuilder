@@ -75,6 +75,7 @@ struct MapCanvasView: View {
             }
             .overlay { PatchOverlay(model: buildModel.patchEdit, camera: camera) }
             .overlay { FlightRouteOverlay(model: buildModel.flightPlan, camera: camera) }
+            .overlay { FlyMapOverlay(model: buildModel.fly, modes: buildModel.appMode, camera: camera) }
             .background(Self.ocean)
             .gesture(pan(size: proxy.size))
             .gesture(tileSelect(size: proxy.size))

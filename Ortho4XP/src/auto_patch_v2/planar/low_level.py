@@ -212,7 +212,16 @@ def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] |
     if got is None:
         return None
     t, _X, Y, _at = got
-    own = _low_plane(walled_feet(parts, law, to_xy, supports=False)[1], t)
+    # THE UPPER STOREYS WITNESS NO LOWER ONE (KMCI 1.0.480, owner sim read
+    # 2026-11-10T15:47Z "the terminal is too low"): the share a lower
+    # storey's walls must hold is of the walls that reach the stand floor or
+    # below.  Once a unit is ONE block (RULINGS 2026-11-09a (13)) its
+    # concourse walls over the apron (y -1.0 / 0.0, 1,700 feet) diluted
+    # ``building26``'s 487 walls at y -10.5 .. -8.0 under the 10 % share, the
+    # read fell to the frontage (t -1) and the hall's lower level (-2.43 m,
+    # 43,000 m2) was never minted.
+    own = _low_plane([y for y in walled_feet(parts, law, to_xy, supports=False)[1]
+                      if y <= t + _plane_band()], t)
     if own is None:
         return t, None
     low = _low_plane(Y.tolist(), t)

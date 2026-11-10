@@ -9,7 +9,11 @@ shares with other strategies is imported from ``elevation_access``.
 import datetime
 import os
 
-from elevation_access.definitions import _coverage_bbox_intersects
+from elevation_access.definitions import (
+    _bounding_boxes_intersect,
+    _coverage_bbox_intersects,
+    _parse_bounding_box,
+)
 from elevation_access.gdal_support import has_gdal
 from elevation_access.registry import register_access_strategy
 from elevation_access.stac_assets import _stac_asset_href_to_vsicurl
@@ -20,8 +24,41 @@ from elevation_access.warp import (
 )
 
 __all__ = [
+    "COG_SOURCE_KEY",
     "DirectCogStrategy",
+    "cog_sources",
 ]
+
+
+#: The repeated ``.elv`` key of a FOOTPRINTED source (#1926):
+#: ``cog_source=W,S,E,N|<url or GDAL virtual path>``, one line per raster.
+#: A publisher of a few dozen regional blocks (the Norwegian Polar
+#: Institute's S0 terrain-model zips) cannot be listed in ``cog_urls``:
+#: every airport would open every block's header remotely.  With a
+#: footprint per source only the blocks that touch the airport box are
+#: read.  A raster whose data is several islands repeats its path on one
+#: line per island (read once, at the first line touching the box).
+#: Lines keep file order, and the warp lets LATER inputs win on overlap,
+#: so a file lists the source it trusts most last.
+COG_SOURCE_KEY = "cog_source"
+
+
+def cog_sources(definition):
+    """The ``(box, path)`` pairs of the definition's ``cog_source`` lines.
+
+    Repeated lines arrive ``;``-joined (the reader's
+    ``MULTI_VALUE_KEYS``).  A malformed line is skipped: one bad footprint
+    must not widen a source to every airport.
+    """
+    pairs = []
+    for record in str(definition.get(COG_SOURCE_KEY, "")).split(";"):
+        if "|" not in record:
+            continue
+        (box_text, path) = record.split("|", 1)
+        box = _parse_bounding_box(box_text.strip())
+        if box is not None and path.strip():
+            pairs.append((box, _stac_asset_href_to_vsicurl(path.strip())))
+    return pairs
 
 
 # =====================================================================
@@ -44,17 +81,27 @@ class DirectCogStrategy:
     # Windowed /vsicurl reader: eligible for whole-tile overlay fetches.
     supports_wide_area = True
 
-    def _vsicurl_inputs(self, definition):
-        return [
+    def _vsicurl_inputs(self, definition, bounding_box_wgs84=None):
+        """``cog_urls`` (read for every box), then the ``cog_source``
+        rasters with a footprint touching ``bounding_box_wgs84``, each
+        once, in the order of its first line touching the box."""
+        inputs = [
             _stac_asset_href_to_vsicurl(url.strip())
             for url in str(definition.get("cog_urls", "")).split(",")
             if url.strip()
         ]
+        for (box, path) in cog_sources(definition):
+            if path not in inputs and (
+                bounding_box_wgs84 is None
+                or _bounding_boxes_intersect(box, bounding_box_wgs84)
+            ):
+                inputs.append(path)
+        return inputs
 
     def discover(self, definition, bounding_box_wgs84):
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
-        inputs = self._vsicurl_inputs(definition)
+        inputs = self._vsicurl_inputs(definition, bounding_box_wgs84)
         return [{"source": path} for path in inputs] or None
 
     def fetch(
@@ -66,7 +113,7 @@ class DirectCogStrategy:
     ):
         if not has_gdal:
             return None
-        inputs = self._vsicurl_inputs(definition)
+        inputs = self._vsicurl_inputs(definition, bounding_box_wgs84)
         if not inputs:
             return None
         if not warp_vsicurl_sources_to_geotiff(

@@ -38,8 +38,11 @@ primary label in either app.
 | The Build-pane toggle that runs the first three steps | "Map data, ground shape and water" |
 | Settings ▸ Imagery's build zoom (moved from General by #1985, where "Detail" now names the airport Detail choice) | "Imagery detail" |
 | A tile kept at full resolution: the tile pane's switch, the Library's action and badge, the map's star (was "pin", RULINGS 2026-11-10c (1)) | "Favorite" |
+| The map toolbar's segmented control and the side pane it shows (RULINGS 2026-11-10j): today's view; flights and the scenery made for them; built tiles, Favorites, Storage and the patch library | "Build", "Fly", "Library" |
+| Fly mode's map (spec flight-manager-and-world §14, #2001): the checkbox that shows each square's installed imagery; the legend's word for a tile the app has not built, which X-Plane draws itself (never "placeholder") | "Live flight preview", "X-Plane's own scenery" |
 | Settings ▸ Storage's one disk budget (RULINGS 2026-11-10d) | "How much disk space may XPTerrainBuilder use (GB)?" |
-| Settings ▸ Storage's row of the tiles X-Plane loads from Custom Scenery | "Installed ortho tiles" |
+| Library ▸ Storage's row (Settings ▸ Storage until RULINGS 2026-11-10j) of the tiles X-Plane loads from Custom Scenery | "Installed ortho tiles" |
+| Settings ▸ Imagery's switch for imagery on demand in one of simHeaven's X-World regions (RULINGS 2026-11-10e (3)) | "On demand in {region}?" |
 | Detail levels (ZL12–ZL21) | The ZL number, with its pixel size at the equator as secondary text: "ZL16 · ~2 m per pixel" (~40 m at ZL12 … ~0.07 m at ZL21) |
 
 ## Owner ruling 2026-10-18: detail levels keep their ZL numbers

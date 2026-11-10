@@ -153,15 +153,19 @@ def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
 
 def census_frame_riders(dump: _t.Any, splits: _t.Sequence[_t.Any],
                         msl_seats: _t.Sequence[_t.Mapping[str, _t.Any]],
-                        surface: Surface, tol_m: float = RIDER_TOL_M) -> dict:
+                        surface: Surface, tol_m: float = RIDER_TOL_M,
+                        authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = ()) -> dict:
     """Lifted rows standing in a re-seated frame (``frame_riders``'s own
     population, read on the plan's MODEL records ``splits``) whose written
-    height is off the frame-relative one, or under the ground."""
+    height is off the frame-relative one, or under the ground.
+    ``authored_seats``: the rebake plan's (an adapted row's frame is
+    measured from its record, as the writer measures it)."""
+    from .adapted_riders import authored_zeros
     from .frame_riders import _frames, _lift
     splits = [_as_record(q) for q in splits]
     rows = list(getattr(dump, "placements", ()) or ())
     written = {int(m["index"]): float(m["elevation"]) for m in msl_seats}
-    frames = _frames(splits, rows, surface)
+    frames = _frames(splits, rows, surface, authored_zeros(authored_seats))
     split_idx = {int(q.placement.index) for q in splits}
     n = off = under = 0
     worst: list[tuple[float, str]] = []

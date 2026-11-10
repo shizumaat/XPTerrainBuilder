@@ -153,17 +153,47 @@ def test_the_sheet_outline_is_simplified_before_the_difference():
 
 def test_a_piece_never_claims_the_runway_or_taxi_familys_band():
     """The adjacent-ground bands are not cells; the mint subtracts their
-    un-trimmed envelope (``ribbon_mint.ribbon_extent``) like a standing cell."""
+    un-trimmed envelope (``ribbon_mint.ribbon_extent``) like a standing cell
+    — for a ROAD piece; an apron piece takes the pack's pavement up to the
+    taxi face (the twin below)."""
+    from auto_patch_v2.classify.ribbon_mint import ribbon_extent
+    taxi = Cell(0, "junction", "pav9", _ring(box(0, 0, 200, 30)), (), 4, "E", "airside",
+                "junction", {})
+    band = ribbon_extent([taxi], LAW, Polygon())
+    assert band.area > Polygon(taxi.ring).area            # there IS a band here
+    # a road down the sheet: the piece is a ROAD (no apron to touch)
+    road = _evidence(truck=[[(0, 150), (200, 150)]])
+    lot = _cell(1, "parking_lot", "lot1", box(0, 300, 200, 400))
+    out, stats, _ = _mint(_airport(box(0, 30, 200, 300)), [taxi, lot], road)
+    assert len(out) == 1 and out[0][0] == gm.ROLE
+    assert out[0][2].intersection(band).area == pytest.approx(0.0, abs=1e-6)
+    assert stats["gap_band_trim_m2"] > 0.0
+
+
+def test_an_apron_piece_runs_flush_to_the_taxi_face_across_its_band():
+    """#1976 (CYYC 51.13475, -114.01470): THE PAVEMENT WINS OVER THE STRIP.
+    A pack page drawn from an apron to a taxiway is apron up to the taxi
+    face; cut short of it by the band envelope, ``planar/zones`` drew a
+    taxiway strip through the drawn apron 1.5 m below it.  The runway band
+    is still never claimed (strip area is never apron, 2026-08-21d)."""
     from auto_patch_v2.classify.ribbon_mint import ribbon_extent
     taxi = Cell(0, "junction", "pav9", _ring(box(0, 0, 200, 30)), (), 4, "E", "airside",
                 "junction", {})
     apron = _cell(1, "apron", "pav1", box(0, 300, 200, 400))
-    band = ribbon_extent([taxi, apron], LAW, Polygon())
-    assert band.area > Polygon(taxi.ring).area            # there IS a band here
     out, stats, _ = _mint(_airport(box(0, 30, 200, 300)), [taxi, apron])
-    assert len(out) == 1
-    assert out[0][2].intersection(band).area == pytest.approx(0.0, abs=1e-6)
-    assert stats["gap_band_trim_m2"] > 0.0
+    assert len(out) == 1 and out[0][0] == "apron"
+    piece = out[0][2]
+    assert piece.distance(Polygon(taxi.ring)) == pytest.approx(0.0, abs=1e-6)
+    assert piece.intersection(Polygon(taxi.ring)).area == pytest.approx(0.0, abs=1e-6)
+    assert piece.area == pytest.approx(200.0 * 270.0, rel=1e-3)
+    assert stats["gap_band_trim_m2"] > 0.0               # the mint did cut it first
+    # a RUNWAY beside the same sheet: its band is never taken
+    rwy = Cell(2, "runway", "05/23", _ring(box(0, -60, 200, 0)), (), 4, "E", "airside",
+               "runway", {})
+    rband = ribbon_extent([rwy], LAW, Polygon())
+    out, _s, _n = _mint(_airport(box(0, 30, 200, 300)), [taxi, apron, rwy])
+    assert out[0][0] == "apron"
+    assert out[0][2].intersection(rband).area == pytest.approx(0.0, abs=1e-6)
 
 
 def test_a_piece_shares_its_rim_with_a_mapped_road_ribbon():

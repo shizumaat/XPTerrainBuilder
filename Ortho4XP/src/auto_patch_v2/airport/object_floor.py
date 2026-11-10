@@ -82,6 +82,7 @@ from ..geom.lowest_face import floor_z_at  # noqa: F401  (re-exported)
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
 from . import terrain_shaped as _ts
+from . import walled_pit as _wp
 from .below_grade_witness import around as _around_ids
 from .below_grade_witness import author_ground as _author_ground_of
 from .below_grade_witness import floor_share as _floor_share
@@ -90,6 +91,7 @@ from .below_grade_witness import xp as _xp
 from .below_grade_witness import zero_of as _zero
 from .hanging_objects import _co_placed, _has_floor
 from .object_cut import _base, _face_normals_y, _plan_segments, placement_order, valid_polygon
+from .walled_pit import share_lift as _share_lift
 
 __all__ = ["ObjectFloor", "FloorDeck", "read_object_floors", "floor_z_at", "seat_records",
            "floor_portals", "owns_ground", "has_footprint", "FLOOR_REF", "FLOOR_WALL_REF", "SHELL",
@@ -139,6 +141,9 @@ class ObjectFloor:
     hidden: bool = False
     #: B2: the hard-deck pieces of its frame the pavement drives across
     decks: tuple = ()
+    #: #1949: the metres its whole frame was moved so a walled pit's rim
+    #: lands on the ground around it (``airport/walled_pit``); 0 = authored
+    lift: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -454,13 +459,21 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
     bands = _WallBands(cache, law)
     shares: dict[str, float] = {}
     ag = _author_ground_of(placed, cache, law, msl, scale, shares, ground)
+    near = _CoPlaced(placed, ob.cover_placement_tol_m)
+    pit_walls = _wp.Walls(cache, law)
     for o in placed:
-        if o.id in taken or not _has_floor(cache, o, law):
+        if o.id in taken:
+            continue
+        if not _has_floor(cache, o, law):
+            # #1949: a floor AT a shared datum, walled to a rim over it
+            got = _walled_pit(o, cache, law, msl, ag, ground, scale, shares, near, pit_walls,
+                              notes)
+            if got is not None:
+                out.append(got)
             continue
         g = cache.geometry(o.resolved)
         share = _floor_share(g, law)
-        mates = [p for p in placed
-                 if p.id != o.id and _co_placed(o, p, ob.cover_placement_tol_m)]
+        mates = near(o)
         shells = shells or {}
         sunk = ""
         if share >= ob.floor_object_min_share:
@@ -517,8 +530,43 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
         out.append(ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@{k}", o.id, o.path,
                                tuple(p.id for p in covers), zero, fz, foot, faces, (note,),
                                seats))
-    out = _deepest(out, law, notes)
+    out = _deepest(_share_lift(out, notes), law, notes)
     return out, notes
+
+
+class _CoPlaced:
+    """The co-placed mates of a placement (``hanging_objects._co_placed``),
+    looked up in a plan grid ``tol`` wide rather than over every placement
+    (the walled-pit read asks it of every plate object)."""
+
+    def __init__(self, placed, tol: float):
+        self.tol, self.cells = tol, {}
+        for p in placed:
+            self.cells.setdefault(self._key(p.xy), []).append(p)
+
+    def _key(self, xy):
+        return (int(math.floor(xy[0] / self.tol)), int(math.floor(xy[1] / self.tol)))
+
+    def __call__(self, o):
+        i, j = self._key(o.xy)
+        return [p for di in (-1, 0, 1) for dj in (-1, 0, 1)
+                for p in self.cells.get((i + di, j + dj), ())
+                if p.id != o.id and _co_placed(o, p, self.tol)]
+
+
+def _walled_pit(o, cache, law, msl, ag, ground, scale, shares, near, walls, notes):
+    """#1949 (``airport/walled_pit``): ``o`` read as a walled pit's floor
+    when it is a plate object with a co-placed mate that is not."""
+    ob = law.tables.structures.tunnel.object
+    g = cache.geometry(o.resolved)
+    if g is None or not len(g.solid) or _mate_share(o, cache, law, shares) \
+            < ob.floor_object_min_share:
+        return None
+    mates = near(o)
+    if not any(_mate_share(p, cache, law, shares) < ob.floor_object_min_share for p in mates):
+        return None
+    return _wp.read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls,
+                               lambda p: _mate_share(p, cache, law, shares), notes)
 
 
 def _concave(o, g, msl, law, mates, ground, notes: list[str],

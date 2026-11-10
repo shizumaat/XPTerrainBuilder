@@ -611,6 +611,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             # a CLAMPED GATE is a clamp within D of the rider (#31)
             jetway_strip_m=float(law.tables.emit.design.jetway_strip_m),
             drape=drape, drape_law=drape_law, tile=(tile.lat, tile.lon),
+            # RULINGS 2026-11-10i (#1977): approach-light sets off runway ends
+            runway_ends=tuple(((_gd or {}).get("provenance") or {})
+                              .get("runway_ends") or ()),
+            approach_reach_m=float(law.tables.runway_ends.approach_reach_m),
+            approach_heading_deg=float(law.tables.runway_ends.peer_parallel_deg),
             engine_version=_engine_version(), law_digest=digest,
             write_cuts=bool(write_enabled and not measure_only))
     _pulse.clear()

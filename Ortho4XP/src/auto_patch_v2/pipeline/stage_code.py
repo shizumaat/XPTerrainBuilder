@@ -2230,7 +2230,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["emit"] = _mods("""
-    geom.runway_contact
+    geom.runway_contact airport.centreline_seat
     geom.station_runs airport.bridge_ground
     geom.shape_class
     airport.hanging_objects airport.object_cut airport.object_floor airport.wall_geometry

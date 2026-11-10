@@ -54,6 +54,7 @@ __all__ = [
 # Row types (apt.dat 1100 / 1200).
 ROW_AIRPORT = 1
 ROW_RUNWAY = 100
+ROW_WATER_RUNWAY = 101
 ROW_HELIPAD = 102
 ROW_PAVEMENT = 110
 ROW_NODE = 111
@@ -212,17 +213,22 @@ class AptAirport:
     taxi_edges: tuple[AptTaxiEdge, ...]
     truck_edges: tuple[AptTaxiEdge, ...]
     startups: tuple[AptStartup, ...]
+    #: row 101 WATER runway ends, ``((lat, lon), ...)`` — a seaplane base
+    #: (header 16) authors nothing else; read only as a placement witness
+    water_ends: tuple[tuple[float, float], ...] = ()
 
     def reference_point(self) -> tuple[float, float]:
         """``(lat, lon)`` of the airport reference point: the 1302
         ``datum_lat``/``datum_lon`` when authored, else the mean of the
         FIRST non-empty witness in this order — runway ends, pavement
-        exteriors, helipads, boundary exteriors, taxi nodes, startups.
+        exteriors, helipads, water runway ends, boundary exteriors, taxi
+        nodes, startups.
 
         A block carrying none of them (no geometry at all) raises
         ``ValueError``.  A heliport block (row 17) authors only a row-102
         helipad — no runway, no pavement — and used to raise here, failing
-        the whole tile's airport (#1355, #1356)."""
+        the whole tile's airport (#1355, #1356); a seaplane base (row 16)
+        authors only row-101 water runways and did the same (#1897)."""
         md = self.metadata
         if "datum_lat" in md and "datum_lon" in md:
             try:
@@ -234,6 +240,7 @@ class AptAirport:
             lambda: [(p[1], p[0]) for pv in self.pavements
                      for ring in pv.rings[:1] for p in ring],
             lambda: [(h.lat, h.lon) for h in self.helipads],
+            lambda: list(self.water_ends),
             lambda: [(p[1], p[0]) for b in self.boundaries
                      for ring in b.rings[:1] for p in ring],
             lambda: [(n.lat, n.lon) for n in self.taxi_nodes.values()],
@@ -601,6 +608,7 @@ def parse_airport_block(block: list[str]) -> AptAirport:
     taxi_edges: list[AptTaxiEdge] = []
     truck_edges: list[AptTaxiEdge] = []
     startups: list[AptStartup] = []
+    water_ends: list[tuple[float, float]] = []
 
     # Contour-block state: header tokens + node rows.
     kind: int | None = None
@@ -653,6 +661,13 @@ def parse_airport_block(block: list[str]) -> AptAirport:
             hp = _helipad(toks)
             if hp is not None:
                 helipads.append(hp)
+        elif rt == ROW_WATER_RUNWAY and len(toks) >= 9:
+            # 101 width buoys  name lat lon  name lat lon
+            try:
+                water_ends += [(float(toks[4]), float(toks[5])),
+                               (float(toks[7]), float(toks[8]))]
+            except ValueError:
+                pass
         elif rt == ROW_TAXI_NODE and len(toks) >= 5:
             try:
                 n = AptTaxiNode(int(toks[4]), float(toks[1]), float(toks[2]),
@@ -691,7 +706,7 @@ def parse_airport_block(block: list[str]) -> AptAirport:
     return AptAirport(icao, name, elevation_ft, metadata, tuple(runways),
                       tuple(helipads), tuple(pavements), tuple(lines),
                       tuple(boundaries), taxi_nodes, tuple(taxi_edges),
-                      tuple(truck_edges), tuple(startups))
+                      tuple(truck_edges), tuple(startups), tuple(water_ends))
 
 
 def _startup_width_class(toks: list[str]) -> str:

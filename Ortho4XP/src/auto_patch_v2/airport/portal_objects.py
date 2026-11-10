@@ -150,13 +150,20 @@ def opening_span(lo: float, hi: float, end_xy: XY, into: "XY | None") -> tuple[f
     return float(hi - lo), tuple((end_xy[0] + q * nx, end_xy[1] + q * ny) for q in (lo, hi))
 
 
-def _roof_opening(roof, end_xy: XY, into: "XY | None") -> tuple[float, tuple]:
-    """A roofed portal's OPENING: the extent of its placed roof plan across
-    the bore's direction ``into`` (:func:`opening_span`)."""
+def _roof_opening(roof, end_xy: XY, into: "XY | None", tol: float) -> tuple[float, tuple]:
+    """A roofed portal's OPENING: the extent across the bore's direction
+    ``into`` (:func:`opening_span`) of the roof PARTS standing over this
+    bore end (within ``tol``, the test that admitted the portal).
+
+    #1910: a roof plan is the object's every roof, and a large object's
+    are scattered — LOWS ``Terminal_LOWS_61.obj`` read 183.71 m across a
+    7 m service bore from its whole roof, 16.22 m from the two parts over
+    the end.  A part standing clear of the end roofs something else."""
     if roof is None or roof.is_empty or into is None:
         return 0.0, ()
-    s = across_bore([c for g in getattr(roof, "geoms", [roof]) for c in g.exterior.coords],
-                    end_xy, into)
+    end = Point(end_xy)
+    parts = [g for g in getattr(roof, "geoms", [roof]) if g.distance(end) <= tol]
+    s = across_bore([c for g in parts for c in g.exterior.coords], end_xy, into)
     return opening_span(min(s), max(s), end_xy, into) if s else (0.0, ())
 
 
@@ -381,7 +388,7 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                 continue
         for j in near:
             xy, wid = ends[j]
-            width, edges = _roof_opening(roof, xy, into.get((xy, wid)))
+            width, edges = _roof_opening(roof, xy, into.get((xy, wid)), tol)
             # a tall portal's floor is the ground ON ITS ROOF less its roof
             # top: the ground at the cap stands inside the surveyed cut
             out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,

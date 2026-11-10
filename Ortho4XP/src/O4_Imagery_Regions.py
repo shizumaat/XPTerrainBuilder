@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import bisect
 
-from O4_Imagery_Regions_Table import ROWS
+import O4_Imagery_Regions_Table as TABLE
 
 __all__ = ["REGIONS", "SETTING_PREFIX", "default_settings", "region_of",
            "setting_name", "tile_on_demand"]
@@ -38,7 +38,14 @@ REGIONS = (
 #: A region's setting is this prefix and its code.
 SETTING_PREFIX = "imagery_on_demand_"
 
-_STARTS = {lat: [run[0] for run in runs] for lat, runs in ROWS.items()}
+#: lat -> ([lon_from, ...], [code, ...]), parsed once from the table.
+_RUNS = {
+    lat: tuple(map(list, zip(*((int(lon), TABLE.REGIONS[letter])
+                               for lon, letter in (run.split(":")
+                                                   for run in row.split())),
+                             strict=True)))
+    for lat, row in TABLE.ROWS.items()
+}
 
 
 def setting_name(code: str) -> str:
@@ -51,8 +58,8 @@ def region_of(lat: int, lon: int) -> str:
     (``lat``, ``lon``); longitudes wrap, latitudes clamp."""
     lat = min(89, max(-90, int(lat)))
     lon = (int(lon) + 180) % 360 - 180
-    runs = ROWS[lat]
-    return runs[bisect.bisect_right(_STARTS[lat], lon) - 1][1]
+    starts, codes = _RUNS[lat]
+    return codes[bisect.bisect_right(starts, lon) - 1]
 
 
 def tile_on_demand(tile) -> bool:

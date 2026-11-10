@@ -25,6 +25,7 @@ import O4_Glossary as GLOSSARY  # noqa: E402
 import O4_Imagery_Placeholder as PLACEHOLDER  # noqa: E402
 import O4_Imagery_Regions as REGIONS  # noqa: E402
 import O4_Settings_Model as SM  # noqa: E402
+from O4_Imagery_Regions_Table import REGIONS as LETTERS  # noqa: E402
 from O4_Imagery_Regions_Table import ROWS  # noqa: E402
 
 CODES = [code for code, _label in REGIONS.REGIONS]
@@ -64,10 +65,14 @@ def test_the_table_is_current_with_its_generator():
 def test_every_tile_is_in_exactly_one_region():
     assert sorted(ROWS) == list(range(-90, 90))
     seen = set()
-    for lat, runs in ROWS.items():
-        starts = [lon for lon, _code in runs]
+    assert sorted(LETTERS.values()) == sorted(CODES)
+    for lat, row in ROWS.items():
+        runs = [run.split(":") for run in row.split()]
+        starts = [int(lon) for lon, _letter in runs]
         assert starts[0] == -180 and starts == sorted(set(starts)), lat
-        assert all(a[1] != b[1] for a, b in zip(runs, runs[1:])), lat
+        assert all(letter in LETTERS for _lon, letter in runs), lat
+        assert all(a[1] != b[1]
+                   for a, b in zip(runs, runs[1:], strict=False)), lat
         for lon in range(-180, 180):
             seen.add(REGIONS.region_of(lat, lon))
     assert seen == set(CODES)

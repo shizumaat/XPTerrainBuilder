@@ -313,10 +313,9 @@ _LAYOUT: list = [
         ("storage_budget_gb",
          "How much disk space may XPTerrainBuilder use (GB)?", "app", False,
          "More space keeps downloads and rebuild data, so tiles rebuild in "
-         "minutes instead of re-downloading."),
+         "minutes."),
         ("imagery_on_demand_cap_gb",
-         "How much space may sharp imagery use (GB)?", "app", True,
-         "Over it, imagery flown near longest ago goes low-res again; airports and then favorites go last."),
+         "How much space may sharp imagery use (GB)?", "app", True, ""),
         ("storage_cache_caps_gb", "Cache size limits (GB)", "app", True, ""),
     ]),
 ]

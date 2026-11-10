@@ -101,7 +101,7 @@ def write_json(path: str, data: dict) -> None:
     """Write ``data`` to ``path`` atomically; a failure is silent (a cache)."""
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path + ".tmp", "w", encoding="utf-8") as handle:
+        with open(path + ".tmp", "w", encoding="utf-8", newline="\n") as handle:
             json.dump(data, handle)
         os.replace(path + ".tmp", path)
     except OSError:

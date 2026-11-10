@@ -9,10 +9,12 @@ hand afterwards is never touched:
 2. the preset imagery reach (:func:`_migrate_preset_extent`, below);
 3. raised registry defaults (``O4_Cfg_Vars.migrate_changed_defaults``).
 
-Every reader of the global cfg calls :func:`migrate_global` BEFORE it
-reads: the engine's config module at import, the JSONL engine before its
-hello (the Mac app re-reads the global cfg on that hello), and the Qt
-Settings window.  Before 2026-11-10 the JSONL engine migrated lazily, at
+The app-facing readers call :func:`migrate_global` BEFORE they read: the
+JSONL engine before its hello (the Mac app re-reads the global cfg on
+that hello) and the Qt Settings window.  ``O4_Config_Utils`` keeps its own
+two import-time migrations (Detail, raised defaults) and does NOT import
+this module, so the build steps' code keys (``O4_Step_Code``,
+``provenance_code``) do not grow: a preset's reach is a Settings matter.  Before 2026-11-10 the JSONL engine migrated lazily, at
 the first command that imported ``O4_Config_Utils`` — after the Mac app
 had read the file once and for good — so the app showed the
 pre-migration values (Detail "Custom") for the whole session.

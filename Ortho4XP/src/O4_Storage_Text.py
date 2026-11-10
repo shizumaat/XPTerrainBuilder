@@ -37,7 +37,8 @@ BUDGET_UNSET = ("No disk budget set: using {used}. Recommended at least "
                 "{recommended} ({floor} is never cleared).")
 BUDGET_UNDER_FLOOR = ("The budget is below what is never cleared ({floor}). "
                       "Raise it to at least {recommended}.")
-BUDGET_HELP = ("Never cleared: your built tiles' scenery files and low-res "
+BUDGET_HELP = ("More space keeps downloads and rebuild data, so tiles rebuild "
+               "in minutes instead of re-downloading. Never cleared: your built tiles' scenery files and low-res "
                "imagery, your airport patches and your own elevation files. "
                "The recommended minimum adds room to work: half of that, at "
                "least 50 GB. Over the budget, what is cheapest to rebuild "

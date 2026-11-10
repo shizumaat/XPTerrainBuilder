@@ -12,7 +12,7 @@ public enum O4StorageText {
     public static let budgetLine = "Using {used} of {budget}; {floor} is never cleared. Recommended at least {recommended}."
     public static let budgetUnset = "No disk budget set: using {used}. Recommended at least {recommended} ({floor} is never cleared)."
     public static let budgetUnderFloor = "The budget is below what is never cleared ({floor}). Raise it to at least {recommended}."
-    public static let budgetHelp = "Never cleared: your built tiles' scenery files and low-res imagery, your airport patches and your own elevation files. The recommended minimum adds room to work: half of that, at least 50 GB. Over the budget, what is cheapest to rebuild goes first, oldest first; favorites go last."
+    public static let budgetHelp = "More space keeps downloads and rebuild data, so tiles rebuild in minutes instead of re-downloading. Never cleared: your built tiles' scenery files and low-res imagery, your airport patches and your own elevation files. The recommended minimum adds room to work: half of that, at least 50 GB. Over the budget, what is cheapest to rebuild goes first, oldest first; favorites go last."
     public static let ondemandFloorWarning = "Your on-demand tiles need {floor} even at low resolution, more than the {cap} limit."
     public static let installedTitle = "Installed ortho tiles"
     public static let installedLocal = "{count} folder(s) on this disk: {bytes}"

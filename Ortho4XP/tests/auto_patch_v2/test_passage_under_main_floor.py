@@ -142,10 +142,11 @@ def _slab(x0, y0, x1, y1, y):
                                     "height_m": 0.5})
 
 
-def _run_beside(law, tmp_path, extra):
+def _run_beside(law, tmp_path, extra, neighbour=None):
     """The garage at the block's east end with a lot's pad north of a band
     of the main floor beside it (RULINGS 2026-11-10n): ``extra`` stands on
-    the band."""
+    the band; ``neighbour`` (a level record) makes the pad north of the band
+    another level of the block."""
     lot = box(165.0, 39.0, 200.0, 100.0)
     A = _airport([*_terminal()[:-1], _wall(0.0, 0.0, 100.0, 70.0, -8.2, 300),
                   _wall(110.0, 0.0, 165.0, 70.0, -10.4, 200),
@@ -158,11 +159,14 @@ def _run_beside(law, tmp_path, extra):
     regs = [_dc.replace(tmpl, polygon=H.difference(lot)),
             _dc.replace(tmpl, ref="term/p1", polygon=L.difference(lot)),
             _dc.replace(tmpl, ref="term/p1#strip", polygon=S.difference(lot)),
-            _dc.replace(tmpl, ref="lotpad", polygon=lot)]
+            _dc.replace(tmpl, ref="lotpad" if neighbour is None else "term/p9", polygon=lot)]
     reg = Registries()
     reg.held["term"] = {"unit": "term", "datum_pred": 30.0}
     reg.landings["term/p1"] = {"block": "term", "y": rec["y_lo"], "deck": None,
                                "kind": LL.LOW_KIND, **rec}
+    if neighbour is not None:
+        reg.landings["term/p9"] = {"block": "term", "deck": None, "kind": LL.LOW_KIND,
+                                   **neighbour(rec)}
     seeds, _n = LR.level_seeds(A, _cls(), law)
     counts: dict = {}
     out = LR.seed_levels(regs, reg, seeds, [AirRegion(AIR, "cell")], A, law, 0.5, counts)
@@ -193,3 +197,20 @@ def test_a_main_floor_band_its_parts_stand_on_keeps_the_main_floor(law, tmp_path
     main = unary_union([r.polygon for r in out if str(r.ref) == "term/p1"])
     assert main.intersection(band).area > 0.9 * band.area
 
+
+
+def test_a_band_fronting_another_main_floor_level_keeps_the_main_floor(law, tmp_path):
+    """The pad north of the band is another level of the block (read off
+    another witness, not the main floor the passage was cut out of) standing
+    at the main floor's height: joined, the passage's riser would end against
+    it (KMCI ``building26/p3``); the band keeps the main floor.  A level at
+    the passage's floor there takes nothing from it."""
+    band = box(172.0, 2.0, 198.0, 30.0)
+    out, _reg, _c = _run_beside(law, tmp_path, (), neighbour=lambda r: {
+        "y": r["y_lo"], "y_lo": r["y_lo"], "top_y": r["top_y"] - 3.0})
+    main = unary_union([r.polygon for r in out if str(r.ref) == "term/p1"])
+    assert main.intersection(band).area > 0.9 * band.area
+    out, _reg, _c = _run_beside(law, tmp_path, (), neighbour=lambda r: {
+        "y": -4.6, "y_lo": -4.6, "top_y": r["top_y"] - 3.0})
+    main = unary_union([r.polygon for r in out if str(r.ref) == "term/p1"])
+    assert main.intersection(band).area < 1e-6

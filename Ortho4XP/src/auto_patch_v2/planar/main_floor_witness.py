@@ -26,19 +26,24 @@ JOINS THE PASSAGE where:
 * no part of the seed's unit stands on it at the main floor: no part whose
   authored base lies within one ``PLANE_BAND_M`` of the floor's plane
   (``top_y + y_lo`` of its level record) overlaps it by :data:`WITNESS_M2`;
-* it does not front the block: a piece within two risers of the held block
-  is the hall's lower storey at its own facade and keeps the main floor (the
-  riser off the block stays one storey).
+* it fronts no pad of its block standing at or over the main floor: a piece
+  within two risers of the held block, or of another level of the block at
+  the main floor's plane (one ``PLANE_BAND_M``), is the hall's lower storey
+  at its own facade and keeps the main floor (the riser off the block stays
+  one storey, and no riser is minted against a floor the piece shares).
 
 MEASURED KMCI ``building26`` (capture lkmci3): the passage ``p7`` (-4.63,
 the garage's walls at y -10.36) beside the main floor ``p1`` (-2.51, the
-hall's floor at y -8.23); ``p1`` pieces with no part at the main floor: the
-324 m2 band along the garage's north side (between the garage and the lots
-north of it), the 301 m2 band along its south side and the slivers between
-the passage lanes under the deck's north end.  The plaza (planters at
--8.2), the facade strip by the garden (glazing at -8.1), the road plates
-north of the deck (-8.0 / -8.1) and the strip over the tunnel (the garage
-aisle's slabs at -9.2 / -8.8) keep the main floor.
+hall's floor at y -8.23); ``p1`` pieces with no part at the main floor join
+it: the 378 m2 band along the garage's north side (between the garage and
+the ``p5`` lots level at -4.63 north of it), the 301 m2 band along its south
+side, a 22 m2 sliver.  The plaza (planters at -8.2), the facade strip by the
+garden (glazing at -8.1), the road plates north of the deck (-8.0 / -8.1)
+and the strip over the tunnel (the garage aisle's slabs at -9.2 / -8.8) keep
+the main floor.  The pieces join the level as they are, with the riser
+between them (``level_regions._unwitnessed_to_passage``): re-cutting the
+level with them in its footprint re-closed it elsewhere and moved its
+riser's end against ``building26/p3``, 8 more riser-end steps in the census.
 
 NOT DONE HERE (needs the owner): the parts standing at the main floor ON the
 passage.  MEASURED KMCI: a 3.4 m x 377 m road plate (y -8.10, 302.6 m) runs
@@ -67,16 +72,17 @@ WITNESS_M2 = 1.0
 
 
 def unwitnessed(unit, to_xy, upper: _t.Mapping[str, float], regs: _t.Sequence,
-                L, block, w: float) -> list:
+                L, high, w: float) -> list:
     """The pieces of the upper floors (``upper``: ``{level ref: authored
     floor y}``) among ``regs`` that join the passage level ``L`` (module
-    docstring); ``block`` the held block left by the cut, ``w`` the riser
+    docstring); ``high`` the pads of the block at or over the main floor
+    (the held block left by the cut and its main-floor levels), ``w`` the riser
     width, ``unit`` the seed's partition unit, ``to_xy`` the frame entry."""
     if unit is None or not upper or L is None or L.is_empty:
         return []
     floors = sorted(set(float(y) for y in upper.values()))
     near_L = L.buffer(2.0 * w, join_style=2)
-    near_B = None if block is None or block.is_empty else block.buffer(2.0 * w, join_style=2)
+    near_B = None if high is None or high.is_empty else high.buffer(2.0 * w, join_style=2)
     U = valid_area(unary_union([r.polygon for r in regs
                                 if str(r.ref) in upper and r.polygon is not None]))
     # a neck narrower than two risers joins no two pieces (MEASURED KMCI: the

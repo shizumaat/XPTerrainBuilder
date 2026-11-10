@@ -250,8 +250,8 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
             # the main floor is where its parts stand (RULINGS 2026-11-10n,
             # ``planar/main_floor_witness``): its pieces no main-floor part
             # stands on, off the block, are the passage's ground too
-            H, L, S = _unwitnessed_to_passage(s, host, pref, by_ref, reg, (H, L, S), P, A,
-                                              others, airport, law, grid, w, notes)
+            H, L, S = _unwitnessed_to_passage(s, host, pref, by_ref, reg, (H, L, S), P,
+                                              airport, grid, w, notes)
         polys = {k: valid_area(unary_union([r.polygon for r in rs])) for k, rs in by_ref.items()
                  if k != pref and k in reg.held}
         # the object is seated on its own pad: its zero is that block's datum,
@@ -399,31 +399,59 @@ def _to_lot(q, S, lots, pads, w: float) -> tuple:
 
 
 def _unwitnessed_to_passage(s: LevelSeed, host: set, pref: str, by_ref: dict, reg: Registries,
-                            cut: tuple, P, A, others, airport, law, grid: float, w: float,
-                            notes: list) -> tuple:
-    """``(H, L, S)``: the passage ``cut`` out of the main floor, re-cut with
-    the main floor's unwitnessed pieces (``planar/main_floor_witness``) in
-    its footprint, or ``cut`` where there are none."""
-    from .low_level import level_cut
+                            cut: tuple, P, airport, grid: float, w: float, notes: list) -> tuple:
+    """``(H, L, S)``: the passage ``cut`` out of the main floor with the main
+    floor's unwitnessed pieces (``planar/main_floor_witness``) joined to the
+    level, or ``cut`` where there are none."""
     from .main_floor_witness import unwitnessed, upper_floor_ys
     part = getattr(airport, "partition", None)
     if part is None or not (0 <= s.unit < len(part.units)):
         return cut
     L = cut[1]
     left = _less(host, by_ref, L.buffer(w, join_style=2), grid)
-    block = valid_area(unary_union([r.polygon for r in left if str(r.ref) == pref]))
-    extra = unwitnessed(part.units[s.unit], airport.frame.entry(),
-                        upper_floor_ys(host, reg.landings), left, L, block, w)
+    ys = upper_floor_ys(host, reg.landings)
+    high = valid_area(unary_union([r.polygon for r in left if str(r.ref) == pref]
+                                  + _main_floor_pads(pref, host, by_ref, reg, _host_lo(ys, reg))))
+    extra = unwitnessed(part.units[s.unit], airport.frame.entry(), ys, left, L, high, w)
     if not extra:
         return cut
-    got = level_cut(P, unary_union([s.footprint, *extra]), A, others, law, grid, 0.0, airport,
-                    grow=False, whole=True)
-    if got is None:
-        return cut
+    # the pieces and the riser between them and the level join it: the level
+    # is untouched elsewhere (a re-cut re-closed it and moved its riser's end
+    # against ``p3`` at KMCI, 8 more riser-end steps)
+    X = valid_area(unary_union(extra))
+    gap = valid_area(L.buffer(w, join_style=2).intersection(X.buffer(w, join_style=2)))
+    L = valid_area(unary_union([L, X, valid_area(gap.intersection(P))]))
+    Lw = valid_area(L.buffer(w, join_style=2))
     notes.append(f"unit {s.unit}: {len(extra)} main-floor piece(s) "
-                 f"{sum(q.area for q in extra):.0f} m2 no main-floor part stands on "
-                 "join the passage")
-    return got
+                 f"{X.area:.0f} m2 no main-floor part stands on join the passage")
+    return (valid_area(P.difference(Lw)), L,
+            valid_area(valid_area(P.intersection(Lw)).difference(L)))
+
+
+def _host_lo(ys: dict, reg: Registries) -> "float | None":
+    """The lowest ``y_lo`` of the upper floors ``ys`` (their level records)."""
+    los = [float(reg.landings[k]["y_lo"]) for k in ys if k in reg.landings]
+    return min(los) if los else None
+
+
+def _main_floor_pads(pref: str, host: set, by_ref: dict, reg: Registries,
+                     lo: "float | None") -> list:
+    """The polygons of the block ``pref``'s other levels (not in ``host``,
+    riser strips aside) standing at or over the main floor ``lo`` (within
+    one ``PLANE_BAND_M``)."""
+    from ..airport.airside_group_seat import PLANE_BAND_M
+    if lo is None:
+        return []
+    out = []
+    for k, rs in by_ref.items():
+        rec = reg.landings.get(k)
+        po = plane_of(k)
+        if (k in host or k.endswith(STRIP_SUFFIX) or rec is None or po is None
+                or po[0] != pref or rec.get("y_lo") is None):
+            continue
+        if float(rec["y_lo"]) >= lo - float(PLANE_BAND_M):
+            out.extend(r.polygon for r in rs)
+    return out
 
 
 def _less(host: set, by_ref: dict, Lw, grid: float) -> list:

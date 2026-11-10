@@ -418,6 +418,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.portal_floor",
         "auto_patch_v2.airport.portal_objects",
         "auto_patch_v2.airport.ramp_feet",
         "auto_patch_v2.airport.reader_work",
@@ -1936,7 +1937,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
-    airport.walled_pit
+    airport.walled_pit airport.portal_floor
     geom.runway_contact
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
@@ -2078,7 +2079,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
-    airport.walled_pit constraints.airside_top
+    airport.walled_pit airport.portal_floor constraints.airside_top
     geom.runway_contact
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks

@@ -48,6 +48,14 @@ class AuthorGround:
         self.faces, self.owners = faces[keep], owners[keep] if len(owners) else owners
         self._tree = STRtree(tris[keep]) if keep.any() else None
 
+    def without(self, ids: _t.AbstractSet[str]) -> "AuthorGround":
+        """This ground less the faces of the placements ``ids`` (a walled
+        pit's floor stands under its rim: it is no ground, #1949)."""
+        if not ids or not len(self.faces):
+            return self
+        keep = ~np.isin(self.owners, list(ids))
+        return AuthorGround(self.faces[keep], self.owners[keep])
+
     def at(self, xs, ys, exclude: _t.AbstractSet[str] = frozenset()) -> np.ndarray:
         """The lowest plate face's z under each point; NaN where none (or
         only an ``exclude``-d placement's) stands."""

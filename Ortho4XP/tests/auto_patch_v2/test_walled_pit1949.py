@@ -88,3 +88,16 @@ def test_the_frames_placements_in_the_pit_move_with_it_and_the_rest_keep_their_s
     floors, notes = _read(objs, 90.0)
     assert len(floors) == 1, notes
     assert {pid for pid, _r, _z in floors[0].seats} == {"dsf:obj1", "dsf:obj2", "dsf:obj3"}
+
+
+def test_a_pit_floor_is_no_author_ground_for_the_floors_read_after_it():
+    """#1949 (5): the pit's floor plate stands under its rim — dropped from
+    the author's ground (``AuthorGround.without``), it is never the ground
+    another floor (OMDB ``duong_ray_FACE``) is read against."""
+    from auto_patch_v2.geom.author_ground import AuthorGround
+    tri = np.array([[[0.0, 0.0, 1.0], [10.0, 0.0, 1.0], [0.0, 10.0, 1.0]]])
+    ag = AuthorGround(np.concatenate([tri, tri + [0.0, 0.0, 5.0]]), ["pit", "plate"])
+    assert abs(ag.at([1.0], [1.0])[0] - 1.0) < 1e-9
+    rest = ag.without({"pit"})
+    assert abs(rest.at([1.0], [1.0])[0] - 6.0) < 1e-9 and list(rest.owners) == ["plate"]
+    assert ag.without(set()) is ag

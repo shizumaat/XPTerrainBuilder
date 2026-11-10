@@ -396,11 +396,11 @@ def test_a_lot_at_a_sheet_walls_foot_is_flat_at_the_foot():
     side the pack's sheets name takes the wall's foot, one level across the
     page; a lot clear of the band, and any lot of a DEM-witnessed wall
     (10-03c: its building's level), take none."""
-    from shapely.geometry import LineString
     from auto_patch_v2.airport.foot_lot import lots_at_foot
     from auto_patch_v2.airport.road_ramp import WallPiece
     from auto_patch_v2.constraints.road_ramp import WALL_FOOT_RULING, wall_terrace_rows
     from auto_patch_v2.model.constraints import Band
+    from shapely.geometry import LineString
     face = LineString([(300.0, 505.15), (500.0, 505.15)])
     band = box(300.0, 505.15, 500.0, 508.96)
     foot = ((0.0, 299.8), (100.0, 299.8), (200.0, 299.8))

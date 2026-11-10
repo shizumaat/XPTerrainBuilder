@@ -28,6 +28,9 @@ COLUMNS (:data:`COLUMNS`, spec §5.1):
   (``O4_Disk_Usage.counted_once_bytes``: a hard-linked
   ``DDS_cache`` entry counts once; 0 while ``low``);
 * ``dds_cache_key``, ``jpeg_path`` -- what a downgrade frees;
+* ``source_path`` -- the texture's FULL DDS elsewhere (a built tile
+  converted to on-demand form, P1c: ``<manifest full_source>/textures/
+  <name>``); the lander lands from it while it is mounted, no network;
 * ``fetched_at``, ``last_near_at``, ``near_count``, ``late_count`` -- the
   LRU and spec §11 U5 (epoch seconds).
 
@@ -44,6 +47,8 @@ API (stable: the follow job, P3b, reads and writes through it):
 * :func:`mark_near` -- ``last_near_at = now`` for names the camera came
   within their tier distance of (at most once a minute per row), and
   ``near_count += 1`` for those that start a new approach.
+* :func:`forget_tile` -- delete a tile's rows (a converted entry
+  swapped back, ``imagery_convert.revert``).
 * :func:`mark_late` -- ``late_count += 1`` (a tier landed after its
   crossing, spec §4.7 R5).
 * :func:`set_pinned` / :func:`set_core` -- the per-tile pin, the airport
@@ -86,14 +91,15 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 
 __all__ = [
     "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
-    "STATES", "capped_bytes", "distance_m", "get", "index_path", "lru_order",
+    "STATES", "capped_bytes", "distance_m", "forget_tile", "get",
+    "index_path", "lru_order",
     "mark_late", "mark_near", "open_index", "pinned_bytes",
     "placeholder_width", "protected_cache_keys", "protected_jpegs",
     "rebuild", "reset_upgrading", "rows", "set_core",
     "set_pinned", "set_state", "texture_path", "tier_distance_m", "upsert",
 ]
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 #: Under ``<data>/Imagery_on_demand/`` (``O4_Imagery_Placeholder.STORE_DIR``).
 INDEX_FILE = "index.sqlite"
 STATES = ("low", "upgrading", "upgraded", "failed")
@@ -118,6 +124,7 @@ _SCHEMA = (
     ("full_bytes", "INTEGER", 0),
     ("dds_cache_key", "TEXT", None),
     ("jpeg_path", "TEXT", None),
+    ("source_path", "TEXT", None),
     ("fetched_at", "REAL", None),
     ("last_near_at", "REAL", None),
     ("near_count", "INTEGER", 0),
@@ -238,6 +245,12 @@ def mark_near(conn: sqlite3.Connection, tile: str, names, now: float, *,
             conn.execute("UPDATE textures SET near_count = near_count + 1 "
                          "WHERE tile = ? AND name = ?", (tile, name))
     return written
+
+
+def forget_tile(conn: sqlite3.Connection, tile: str) -> int:
+    """Delete every row of ``tile``; returns the rows deleted."""
+    return conn.execute("DELETE FROM textures WHERE tile = ?",
+                        (tile,)).rowcount
 
 
 def mark_late(conn: sqlite3.Connection, tile: str, name: str) -> None:
@@ -443,7 +456,9 @@ def _scan_tile(build_dir: str, lat: int, lon: int, *,
     ``.ter`` names and ``textures/`` holds whole; ``tier_px`` from its
     header, ``low`` when that equals the placeholder width, else
     ``upgraded`` with the bytes its downgrade frees; ``pinned`` from the imagery
-    manifest; ``placeholder_path`` when ``placeholder_dir`` holds it;
+    manifest (whose ``placeholder_px``, when set, is the low width);
+    ``source_path`` from its ``full_source``; ``placeholder_path`` when
+    ``placeholder_dir`` holds it;
     ``dds_cache_key`` from ``cache_keys`` (name -> key); ``fetched_at``
     the upgraded file's mtime; ``last_near_at`` = ``now``.  Not on disk,
     so not restored: ``core`` (:func:`set_core`), ``near_count``,
@@ -454,6 +469,8 @@ def _scan_tile(build_dir: str, lat: int, lon: int, *,
     manifest = _manifest(build_dir, tile)
     pinned = int(bool(manifest.get("pinned")))
     low_zl = manifest.get("placeholder_zl")
+    low_px_set = manifest.get("placeholder_px")
+    full_source = manifest.get("full_source")
     found = {}
     with contextlib.suppress(OSError):
         for item in os.scandir(os.path.join(build_dir, _TERRAIN)):
@@ -470,8 +487,13 @@ def _scan_tile(build_dir: str, lat: int, lon: int, *,
         zl, provider = _identity(name)
         drop = (zl - int(low_zl)) if low_zl else 3
         low_px = TIERS.tier_width(drop) if drop in TIERS.TIER_DROPS else 512
+        if low_px_set:
+            low_px = int(low_px_set)
         kept = (os.path.join(placeholder_dir, name) if placeholder_dir
                 else None)
+        kept_header = TIERS.texture_header(kept) if kept else None
+        if kept_header is not None:
+            low_px = kept_header[0]     # as placeholder_width reads it
         upgraded = header[0] > low_px
         result.append({
             "tile": tile, "name": name, "zl": zl, "provider": provider,
@@ -485,6 +507,8 @@ def _scan_tile(build_dir: str, lat: int, lon: int, *,
             "full_bytes": DISK.counted_once_bytes(path) if upgraded else 0,
             "dds_cache_key": (cache_keys or {}).get(name),
             "jpeg_path": None,
+            "source_path": (os.path.join(full_source, _TEXTURES, name)
+                            if full_source else None),
             "fetched_at": _mtime(path) if upgraded else None,
             "last_near_at": now,
             "near_count": 0, "late_count": 0,

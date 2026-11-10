@@ -6,6 +6,10 @@ and landed over what is on disk (#1992 local-imagery-cache spec §4.4,
 row (``O4_Imagery_OnDemand_Index``) and a tier (1, 2, 3 =
 1024, 2048, 4096 px), it
 
+* lands the tier from the row's ``source_path`` -- the full DDS of a
+  built tile converted to on-demand form (P1c), on a library volume --
+  while that file is there and whole: the full file copied, a lower tier
+  cut from its levels (``O4_DDS_Tiers.tier_from_file``); no network;
 * serves a FULL tier from the content-keyed ``DDS_cache`` by hard link
   when the row carries its key (no network, spec §4.4);
 * else fetches the square ``drop`` zoom levels below the texture's own
@@ -23,6 +27,7 @@ per build folder (``O4_Config_Utils.Tile.read_from_config``).
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import threading
 
@@ -74,6 +79,8 @@ class TierLander:
         import O4_Imagery_Utils as IMG
         final = os.path.join(row["build_dir"], "textures", row["name"])
         width = TIER_WIDTH[int(tier)]
+        if _land_from_source(row.get("source_path"), final, width):
+            return _facts(final, width, None, None, False)
         key = row.get("dds_cache_key")
         if width == TIERS.FULL_WIDTH and key and DDSCACHE.serve(key, final):
             return _facts(final, width, row.get("jpeg_path"), key, False)
@@ -88,6 +95,34 @@ class TierLander:
         jpeg = os.path.join(*IMG._source_jpeg_location(tile, *attrs,
                                                        drop=drop))
         return _facts(final, width, jpeg, None, True)
+
+
+def _land_from_source(source, final: str, width: int) -> bool:
+    """Land the ``width`` px tier of the full DDS ``source`` over ``final``
+    (partial name, then ``O4_DDS_File.land``); ``False`` -- nothing
+    written -- when there is no source, it is not mounted or not whole, or
+    it holds no ``width`` px level."""
+    import shutil
+    if not source or not DDS.is_whole(source):
+        return False
+    header = TIERS.texture_header(source)
+    if header is None or header[0] < width:
+        return False
+    partial = DDS.partial_name(final)
+    try:
+        if header[0] == width:
+            shutil.copyfile(source, partial)
+        else:
+            data = TIERS.tier_from_file(source, width)
+            if data is None:
+                return False
+            with open(partial, "wb") as handle:
+                handle.write(data)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.remove(partial)
+        return False
+    return DDS.land(partial, final)
 
 
 def _tile_latlon(tile: str) -> tuple[int, int]:

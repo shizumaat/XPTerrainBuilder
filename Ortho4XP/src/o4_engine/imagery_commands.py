@@ -25,6 +25,9 @@ On-demand imagery (#1992, capability ``imagery_ondemand``):
 ``imagery_ondemand_downgrade_all`` ("Make all low-res again"), synchronous
 file work in :mod:`o4_engine.imagery_ondemand`; those that change
 textures are refused while a build runs (:func:`ondemand_handlers`).
+``imagery_ondemand_convert`` (capability ``imagery_ondemand_convert``,
+P1c) sizes or converts the Custom Scenery folder's built tiles to
+on-demand copies (:mod:`o4_engine.imagery_convert`); it touches no build.
 
 A command module, not a session method, so the imagery menus stay out of
 the session's import closure (the patch and step code keys,
@@ -163,6 +166,7 @@ ONDEMAND_REFUSED_WHILE_BUILDING = {"imagery_pin": "pinning a tile",
 def ondemand_handlers(building: Callable[[], bool]) -> Dict[str, Callable]:
     """The on-demand commands for the transport; ``building`` says a
     build runs."""
+    from . import imagery_convert as CONVERT
     from . import imagery_ondemand as ONDEMAND
 
     def guarded(name, function):
@@ -180,4 +184,5 @@ def ondemand_handlers(building: Callable[[], bool]) -> Dict[str, Callable]:
         "imagery_ondemand_downgrade_all": guarded(
             "imagery_ondemand_downgrade_all",
             ONDEMAND.imagery_ondemand_downgrade_all),
+        "imagery_ondemand_convert": CONVERT.imagery_ondemand_convert,
     }

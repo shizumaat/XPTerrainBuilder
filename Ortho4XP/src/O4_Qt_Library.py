@@ -167,7 +167,7 @@ class LibraryDialog(QDialog):
         self.table.setSortingEnabled(True)
         self.table.itemSelectionChanged.connect(self._sync_buttons)
         self.table.itemChanged.connect(self._on_item_changed)
-        # The tile's menu (#1992 §7): its pin, as the Mac Library's.
+        # The tile's menu (#1992 §7): its Favorite, as the Mac Library's.
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._tile_menu)
         layout.addWidget(self.table, 1)
@@ -360,8 +360,8 @@ class LibraryDialog(QDialog):
         row = self._pin_target()
         if row is None:
             return
-        self.status_label.setText("Pinning…" if not row.get("pinned")
-                                  else "Unpinning…")
+        self.status_label.setText("Adding to Favorites…" if not row.get("pinned")
+                                  else "Removing from Favorites…")
         QTONDEMAND.pin_tile(row["lat"], row["lon"], not row.get("pinned"),
                             self.pinned, busy=self._building,
                             working_dir=self.working_dir)

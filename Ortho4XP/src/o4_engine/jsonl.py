@@ -656,6 +656,12 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             # Below the user's applications, inherited by every tile,
             # airport and pool process this engine starts (#1225).
             O4_Machine_Slots.lower_priority()
+            # The global cfg's one-time migrations run BEFORE the hello:
+            # the Mac app re-reads the global cfg on the hello, so it never
+            # shows pre-migration values (1.0.480: Detail "Custom").
+            import O4_Cfg_Migrations as CFG_MIGRATIONS
+            for info in CFG_MIGRATIONS.migrate_global():
+                print("INFO: " + info, file=sys.stderr)
         session.subscribe(lambda event: write_obj(serialize_event(event)))
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.

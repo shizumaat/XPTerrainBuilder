@@ -266,9 +266,10 @@ struct BuildPane: View {
                     await buildModel.updateImagery(active)
                 }
             }
-            if let info, info.pinApplies {
-                // Imagery on demand (#1992 §7; the Qt pane: the same).
-                TilePinRow(pinned: info.pinned == true) { pinned in
+            if let info, !info.builtElsewhere {
+                // Favorite (#1992 §7, RULINGS 2026-11-10c (1); the Qt pane:
+                // the same): on every built tile, switchable when on demand.
+                TilePinRow(pinned: info.pinned == true, applies: info.pinApplies) { pinned in
                     await buildModel.setImageryPinned(active, pinned)
                 }
             }

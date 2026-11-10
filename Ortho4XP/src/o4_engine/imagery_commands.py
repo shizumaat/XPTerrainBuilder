@@ -68,8 +68,11 @@ def follow_settings(raw: Optional[dict] = None) -> Dict[str, Any]:
     if raw is None:
         import O4_Settings_Model as SM
         raw = SM.read_global_raw()
-    out: Dict[str, Any] = {"enabled": str(raw.get(ON_DEMAND_SETTING, "")).strip()
-                           .lower() in ("true", "1", "yes", "on")}
+    switch = str(raw.get(ON_DEMAND_SETTING, "")).strip().lower()
+    if not switch:  # unset: the registry default (ON, RULINGS 2026-11-10c (3))
+        import O4_Cfg_Vars as CV
+        switch = str(CV.cfg_vars[ON_DEMAND_SETTING]["default"]).lower()
+    out: Dict[str, Any] = {"enabled": switch in ("true", "1", "yes", "on")}
     for argument, (key, default) in FOLLOW_SETTINGS.items():
         try:
             value = type(default)(float(raw.get(key, "") or default))

@@ -7,6 +7,7 @@ import logging
 import os
 
 import O4_Airport_Detail as AIRPORT_DETAIL
+import O4_Cfg_Migrations as CFG_MIGRATIONS
 import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Cfg_Vars as CFG
 import O4_Config_Names as CONFIG_NAMES
@@ -36,7 +37,6 @@ from O4_Cfg_Vars import (
     list_vector_vars,
     cfg_stamp_key,
     cleanup_retired_cfg_keys,
-    migrate_changed_defaults,
     legacy_cfg_value,
     _legacy_cfg_reported,
     retired_cfg_keys,
@@ -119,9 +119,11 @@ for var in cfg_vars:
 RETIRED_CFG_KEYS = tuple(retired_cfg_keys)
 
 ################################################################################
-# Update from the global XPTerrainBuilder.cfg.  The airport Detail
-# hand-over (#1985) runs once, before the read, so this run reads it.
-for _info in AIRPORT_DETAIL.migrate_cfg(global_cfg_file):
+# Update from the global XPTerrainBuilder.cfg.  Its one-time migrations
+# (O4_Cfg_Migrations: the airport Detail hand-over #1985, the presets'
+# imagery reach, raised registry defaults) run before the read, so this
+# run reads them.
+for _info in CFG_MIGRATIONS.migrate_global(global_cfg_file):
     UI.lvprint(0, "   INFO:", _info)
 try:
     f = TEXT.open_supplied(global_cfg_file, legacy_ansi=True)
@@ -154,10 +156,6 @@ try:
     # it was read from and reported once, never warned about forever.
     for _info in cleanup_retired_cfg_keys(global_cfg_file):
         UI.lvprint(0, "   INFO:", _info)
-    # A raised registry default reaches a cfg that stored the old one
-    # automatically (owner 2026-11-04, masks_width 100 -> 500).
-    for _info in migrate_changed_defaults(global_cfg_file):
-        UI.lvprint(0, "   INFO:", _info)
 except FileNotFoundError:
     # Create a new global config file using default values
     os.makedirs(os.path.dirname(global_cfg_file), exist_ok=True)
@@ -173,8 +171,7 @@ except FileNotFoundError:
     _LOGGER.info("No global config file found. New config created using defaults.")
     # A fresh file holds the NEW defaults: register them as migrated so a
     # value later set by hand to an old default is never rewritten.
-    migrate_changed_defaults(global_cfg_file)
-    AIRPORT_DETAIL.migrate_cfg(global_cfg_file)
+    CFG_MIGRATIONS.migrate_global(global_cfg_file)
 except Exception as e:
     _LOGGER.error("Error accessing global config file: %s", e)
 

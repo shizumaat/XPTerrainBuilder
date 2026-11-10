@@ -20,6 +20,7 @@ import threading
 import time
 
 import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
+import O4_Storage_Text as STORAGE_TEXT
 from o4_engine import storage as STORAGE
 from O4_Qt_Library import emit_from_thread, fmt_size
 from O4_Qt_Settings_General import _row, _Section, _value
@@ -38,6 +39,7 @@ __all__ = ["StorageSection", "AGE_CHOICES", "run_auto_clean"]
 #: "Clear cache files not used for": days (the Mac picker's choices)
 AGE_CHOICES = (30, 60, 90, 180, 365)
 NOTE_STYLE = "color: gray; font-size: 11px;"
+WARNING_STYLE = "color: #C0392B; font-size: 11px;"
 BUSY = "A build is running; stop it or let it finish before deleting anything."
 
 
@@ -75,6 +77,9 @@ def run_auto_clean(busy, report):
         if done["ran"] and done["files"]:
             report("Storage cleanup freed %s in %d file(s) (logs/storage.log)."
                    % (fmt_size(done["freed_bytes"]), done["files"]))
+        warning = STORAGE_TEXT.cleanup_warning(done)
+        if warning:
+            report(warning)
     threading.Thread(target=work, daemon=True, name="o4-storage-clean").start()
 
 
@@ -95,9 +100,22 @@ class StorageSection(_Section):
         self.folder_label = _value()
         _row(self.layout_, "Folder", self.folder_label)
         self.caches_label = _value()
+        self.caches_label.setToolTip(STORAGE_TEXT.CACHES_HELP)
         _row(self.layout_, "Caches", self.caches_label)
         self.kept_label = _value()
+        self.kept_label.setToolTip(STORAGE_TEXT.KEPT_HELP)
         _row(self.layout_, "Your tiles and patches", self.kept_label)
+        # X-Plane's installed tiles, wherever they live (owner, 1.0.480).
+        self.installed_label = _value()
+        self.installed_label.setToolTip(STORAGE_TEXT.INSTALLED_HELP)
+        _row(self.layout_, STORAGE_TEXT.INSTALLED_TITLE, self.installed_label)
+        # The one disk budget (RULINGS 2026-11-10d) and its warning.
+        self.budget_label = _value()
+        self.budget_label.setToolTip(STORAGE_TEXT.BUDGET_HELP)
+        _row(self.layout_, STORAGE_TEXT.BUDGET_TITLE, self.budget_label)
+        self.budget_warning = _value(style=WARNING_STYLE)
+        self.budget_warning.setVisible(False)
+        self.layout_.addWidget(self.budget_warning)
         bar = QHBoxLayout()
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh)
@@ -148,6 +166,12 @@ class StorageSection(_Section):
         self.folder_label.setText(scan["root"])
         self.caches_label.setText(fmt_size(scan["cache_bytes"]))
         self.kept_label.setText(fmt_size(scan["kept_bytes"]))
+        self.installed_label.setText("<br>".join(STORAGE_TEXT.installed_lines(
+            scan.get("installed") or {})))
+        line, warning = STORAGE_TEXT.budget_lines(scan.get("budget") or {})
+        self.budget_label.setText(line)
+        self.budget_warning.setText(warning)
+        self.budget_warning.setVisible(bool(warning))
         while self.rows_layout.count():
             item = self.rows_layout.takeAt(0)
             if item.widget() is not None:
@@ -165,10 +189,14 @@ class StorageSection(_Section):
         line.setContentsMargins(0, 0, 0, 0)
         note = store["note"]
         if store["kind"] == STORAGE.ONDEMAND:
-            # The pins, outside the cap (#1992 §7): their own line.
+            # The favorites, inside the budget (#1992 §7): their own line;
+            # the warning when the tiles do not fit even low-res.
             note += "<br>" + ONDEMAND_TEXT.pins_line(
                 store.get("pinned_bytes", 0), store.get("pinned_files", 0),
                 store.get("core_files", 0)).replace("\n", "<br>")
+            warning = STORAGE_TEXT.ondemand_warning(store)
+            if warning:
+                note += "<br><span style='%s'>%s</span>" % (WARNING_STYLE, warning)
         name = _value("%s<br><span style='%s'>%s</span>"
                       % (store["label"], NOTE_STYLE, note))
         name.setToolTip(store["path"])

@@ -6,9 +6,9 @@
   job runs: every ``ImageryFollowStatus`` field (headline and detail),
   and "Follow X-Plane" / "Stop Following", so a flight needs no Terminal.
   Shown while the world switch is on or a job runs.
-* :class:`TilePinRow` -- the tile pane's "Resolution" row on an on-demand
-  or pinned tile: its state and "Always keep full resolution" / "Let it
-  go low-res again" (engine ``imagery_pin``).
+* :class:`TilePinRow` -- the tile pane's "Favorite" row ("pin" renamed
+  Favorite, RULINGS 2026-11-10c (1)): a switch on every tile this app
+  built, working on a tile built on demand (engine ``imagery_pin``).
 * :func:`pin_tile` -- the pin on a daemon thread (the Library uses it
   too); refused while a build runs, as the engine command is.
 """
@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import O4_Imagery_OnDemand_Text as TEXT
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QPushButton,
+                               QVBoxLayout, QWidget)
 
 __all__ = ["FollowStatusLine", "TilePinRow", "pin_tile", "BUSY_PIN"]
 
 NOTE_STYLE = "color: gray; font-size: 11px;"
-BUSY_PIN = "A build is running; pin or unpin the tile when it ends."
+BUSY_PIN = "A build is running; change the favorite when it ends."
 
 
 def pin_tile(lat, lon, pinned, signal, busy=lambda: False, working_dir=""):
@@ -85,7 +86,10 @@ class FollowStatusLine(QWidget):
 
 
 class TilePinRow(QWidget):
-    """The tile pane's "Resolution" row of an on-demand or pinned tile."""
+    """The tile pane's "Favorite" row: a switch (a check box) that makes
+    the tile a favorite, and the tile's state beside it.  Shown on every
+    tile this app built; the switch works on a tile built on demand (or
+    already a favorite)."""
 
     #: (lat, lon, pinned) the user asked for.
     pin_requested = Signal(object)
@@ -95,37 +99,54 @@ class TilePinRow(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+        self.switch = QCheckBox()
+        self.switch.setToolTip(TEXT.PIN_HELP)
+        self.switch.setAccessibleName(TEXT.PIN_ROW_TITLE)
+        self.switch.clicked.connect(self._clicked)
+        layout.addWidget(self.switch, 0)
         self.label = QLabel("—")
         self.label.setWordWrap(True)
         self.label.setToolTip(TEXT.PIN_HELP)
         layout.addWidget(self.label, 1)
-        self.button = QPushButton(TEXT.PIN_TITLE)
-        self.button.setToolTip(TEXT.PIN_HELP)
-        self.button.clicked.connect(self._clicked)
-        layout.addWidget(self.button, 0)
         self._tile = None
         self._pinned = False
+        self._applies = False
 
     @staticmethod
     def applies(info) -> bool:
-        """Does the row show for this tile (built on demand, or pinned)?"""
+        """Can this tile be a favorite (built on demand, or one already)?"""
         return info is not None and bool(
             getattr(info, "on_demand", False) or getattr(info, "pinned", False))
 
+    @staticmethod
+    def shows(info) -> bool:
+        """Does the row show for this tile (any tile this app built)?"""
+        import O4_Qt_Map_Legend as QTLEGEND
+        return info is not None and not QTLEGEND.built_elsewhere(info)
+
     def show_tile(self, tile, info) -> None:
         """The active tile and its :class:`O4_Tile_Info.TileInfo`."""
-        self._tile = tuple(tile) if tile and self.applies(info) else None
+        self._applies = self.applies(info)
+        self._tile = tuple(tile) if tile and self._applies else None
         self.set_pinned(bool(getattr(info, "pinned", False)))
 
+    @property
+    def pinned(self) -> bool:
+        """The favorite state the row shows."""
+        return self._pinned
+
     def set_pinned(self, pinned: bool) -> None:
-        """Show the pin state (the tile's, or the engine's answer)."""
+        """Show the favorite state (the tile's, or the engine's answer)."""
         self._pinned = bool(pinned)
-        self.label.setText(TEXT.PINNED_STATE if self._pinned
+        self.switch.setChecked(self._pinned)
+        self.switch.setEnabled(self._applies)
+        self.label.setText(TEXT.NOT_ON_DEMAND_STATE if not self._applies
+                           else TEXT.PINNED_STATE if self._pinned
                            else TEXT.LOW_RES_STATE)
-        self.button.setText(TEXT.UNPIN_TITLE if self._pinned
-                            else TEXT.PIN_TITLE)
 
     def _clicked(self) -> None:
-        if self._tile is not None:
-            self.pin_requested.emit((self._tile[0], self._tile[1],
-                                     not self._pinned))
+        if self._tile is None:
+            self.switch.setChecked(self._pinned)
+            return
+        self.pin_requested.emit((self._tile[0], self._tile[1],
+                                 not self._pinned))

@@ -161,7 +161,29 @@ struct StorageSection: View {
                     Text(scan.root).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
                 }
                 LabeledContent("Caches", value: Library.size(scan.cacheBytes))
+                    .help(O4StorageText.cachesHelp)
                 LabeledContent("Your tiles and patches", value: Library.size(scan.keptBytes))
+                    .help(O4StorageText.keptHelp)
+                if let installed = scan.installed {
+                    // X-Plane's installed tiles, wherever they live (owner, 1.0.480).
+                    LabeledContent(O4StorageText.installedTitle) {
+                        Text(O4StorageText.installedLines(installed).joined(separator: "\n"))
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .help(O4StorageText.installedHelp)
+                }
+                if let budget = scan.budget {
+                    // The one disk budget (RULINGS 2026-11-10d) and its warning.
+                    let lines = O4StorageText.budgetLines(budget)
+                    LabeledContent(O4StorageText.budgetTitle) {
+                        Text(lines.line).multilineTextAlignment(.trailing)
+                    }
+                    .help(O4StorageText.budgetHelp)
+                    if !lines.warning.isEmpty {
+                        Label(lines.warning, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }
                 if scan.measured != "private" {
                     Text("Sizes are allocated bytes: this disk cannot report shared (cloned) blocks.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -224,11 +246,16 @@ private struct StorageRow: View {
                 Text(store.label)
                 Text(store.note).font(.caption).foregroundStyle(.secondary)
                 if store.isOnDemand {
-                    // The pins, outside the cap (#1992 §7): their own line.
+                    // The favorites, inside the budget (#1992 §7): their own
+                    // line; the warning when the tiles do not fit even low-res.
                     Text(O4OnDemandText.pinsText(bytes: store.pinnedBytes ?? 0,
                                                  files: store.pinnedFiles ?? 0,
                                                  cores: store.coreFiles ?? 0))
                         .font(.caption).foregroundStyle(.secondary)
+                    let warning = O4StorageText.ondemandWarning(store)
+                    if !warning.isEmpty {
+                        Text(warning).font(.caption).foregroundStyle(.orange)
+                    }
                 }
             }
             Spacer()

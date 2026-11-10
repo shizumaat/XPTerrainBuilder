@@ -183,7 +183,8 @@ _LAYOUT: list = [
          "Fills the white or black rectangles some providers leave over coastal water."),
         ("color_harmonization", "Even out imagery colors across the tile?", "tile", False,
          "Removes the patchwork of different photo dates and providers."),
-        # #1992 §7: the world switch (app-wide; P6 decides its default).
+        # #1992 §7: the world switch (app-wide; ON by default, RULINGS
+        # 2026-11-10c (3)).
         ("imagery_on_demand", "Fetch imagery on demand, worldwide?", "app", False,
          "New builds get low-res imagery; full detail is fetched around the aircraft as you fly."),
         ("airport_ortho_fade_width", "Airport ortho fade width (m)", "tile", True, ""),
@@ -309,9 +310,13 @@ _LAYOUT: list = [
         ("storage_auto_clean_days",
          "Delete cache files no build has used for how long?", "app", False,
          "Never keeps them. Built tiles and patches are never deleted."),
+        ("storage_budget_gb",
+         "How much disk space may XPTerrainBuilder use (GB)?", "app", False,
+         "More space keeps downloads and rebuild data, so tiles rebuild in "
+         "minutes instead of re-downloading."),
         ("imagery_on_demand_cap_gb",
-         "How much space may sharp imagery use (GB)?", "app", False,
-         "Over it, imagery flown near longest ago goes low-res again. Pinned tiles do not count."),
+         "How much space may sharp imagery use (GB)?", "app", True,
+         "Over it, imagery flown near longest ago goes low-res again; airports and then favorites go last."),
         ("storage_cache_caps_gb", "Cache size limits (GB)", "app", True, ""),
     ]),
 ]

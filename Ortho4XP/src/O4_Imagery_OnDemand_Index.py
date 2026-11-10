@@ -62,8 +62,9 @@ API (stable: the follow job, P3b, reads and writes through it):
 * :func:`distance_m` / :func:`tier_distance_m` -- how far a row's square
   is from a point, and its current tier's distance ``c_k * S`` (spec
   §4.3, ``O4_Imagery_Tier_Plan.CROSSING_S``).
-* :func:`capped_bytes` / :func:`pinned_bytes` -- what counts against the
-  cap (upgraded, unpinned) and the pins line.
+* :func:`capped_bytes` / :func:`pinned_bytes` -- the sharp bytes in the
+  ortho budget (every upgraded row, favorites included) and the
+  favorites line.
 * :func:`lru_order` -- the downgrade order of spec §6.2 (cores last, then
   oldest ``last_near_at``).
 * :func:`protected_cache_keys` / :func:`protected_jpegs` -- what the
@@ -356,25 +357,32 @@ def reset_upgrading(conn: sqlite3.Connection) -> int:
 
 
 def capped_bytes(conn: sqlite3.Connection) -> int:
-    """Freeable bytes counted against the cap: upgraded, unpinned rows."""
+    """Freeable bytes counted against the ortho budget: every upgraded
+    row, favorites included (RULINGS 2026-11-10c (2))."""
     return int(conn.execute(
         "SELECT COALESCE(SUM(full_bytes), 0) FROM textures "
-        "WHERE state = 'upgraded' AND pinned = 0").fetchone()[0])
+        "WHERE state = 'upgraded'").fetchone()[0])
 
 
 def pinned_bytes(conn: sqlite3.Connection) -> int:
-    """Bytes of the pinned tiles' upgraded textures (outside the cap)."""
+    """Bytes of the favorite (pinned) tiles' upgraded textures: the
+    Storage row's favorites line, a part of :func:`capped_bytes`."""
     return int(conn.execute(
         "SELECT COALESCE(SUM(full_bytes), 0) FROM textures "
         "WHERE state = 'upgraded' AND pinned = 1").fetchone()[0])
 
 
-def lru_order(conn: sqlite3.Connection) -> "list[dict]":
-    """Upgraded, unpinned rows in downgrade order: non-core first, then
-    oldest ``last_near_at`` (never-near first)."""
+def lru_order(conn: sqlite3.Connection, *,
+              favorites: bool = False) -> "list[dict]":
+    """Upgraded rows in downgrade order (``O4_Imagery_OnDemand_Budget``
+    tiers): non-core first, then cores, then -- with ``favorites`` -- the
+    favorite (pinned) rows; oldest ``last_near_at`` first within each
+    (never-near first).  Without ``favorites`` the favorites are left
+    out (the hand-made "Make all low-res again" keeps them)."""
+    where = "" if favorites else " AND pinned = 0"
     return [dict(r) for r in conn.execute(
-        "SELECT * FROM textures WHERE state = 'upgraded' AND pinned = 0 "
-        "ORDER BY core, COALESCE(last_near_at, 0), tile, name")]
+        "SELECT * FROM textures WHERE state = 'upgraded'" + where +
+        " ORDER BY pinned, core, COALESCE(last_near_at, 0), tile, name")]
 
 
 def protected_cache_keys(conn: sqlite3.Connection) -> "set[str]":

@@ -16,35 +16,40 @@ from __future__ import annotations
 from typing import Mapping, Tuple
 
 __all__ = ["PIN_TITLE", "UNPIN_TITLE", "PIN_ROW_TITLE", "LOW_RES_STATE",
-           "PINNED_STATE", "PINNED_BADGE", "PIN_HELP", "MAKE_LOW_RES_TITLE",
+           "PINNED_STATE", "PINNED_BADGE", "PIN_HELP", "NOT_ON_DEMAND_STATE", "MAKE_LOW_RES_TITLE",
            "MAKE_LOW_RES_NONE", "PINS_LINE", "CORES_LINE", "OLDER_SHARP_NOTE",
            "FOLLOW_START_TITLE", "FOLLOW_STOP_TITLE", "FOLLOW_TEMPLATES",
            "FOLLOW_DETAIL", "WAITING_REASON", "make_low_res_message",
            "pins_line", "pin_done", "follow_lines"]
 
-# --- Pins (spec §7: the Library's tile menu and the tile's info pane) ---
-PIN_TITLE = "Always keep full resolution"
-UNPIN_TITLE = "Let it go low-res again"
-PIN_ROW_TITLE = "Resolution"
+# --- Favorites (spec §7: the Library's tile menu and the tile's info pane;
+# "pin" renamed Favorite by RULINGS 2026-11-10c (1); the identifiers and the
+# engine wire keep "pin" / ``pinned``) ---
+PIN_TITLE = "Add to Favorites"
+UNPIN_TITLE = "Remove from Favorites"
+PIN_ROW_TITLE = "Favorite"
 LOW_RES_STATE = "Sharp near the aircraft, low-res elsewhere"
-PINNED_STATE = "Always full resolution (pinned)"
-#: After a pinned tile's name in the Library.
-PINNED_BADGE = "Pinned"
-PIN_HELP = ("A pinned tile is fetched whole at full resolution, is never "
-            "made low-res again and does not count against the storage "
-            "limit.")
+PINNED_STATE = "Kept at full resolution"
+#: After a favorite tile's name in the Library.
+PINNED_BADGE = "Favorite"
+PIN_HELP = ("A favorite tile is fetched whole at full resolution. It counts "
+            "toward the ortho budget and is the last imagery made low-res "
+            "again when the budget is full.")
+#: The Favorite row of a tile built with full imagery (nothing to keep).
+NOT_ON_DEMAND_STATE = ("Built with full imagery everywhere; favorites are for "
+                       "tiles built with imagery on demand.")
 
 # --- Storage (spec §6.3 / §7: the ondemand row and its pins line) ---
 MAKE_LOW_RES_TITLE = "Make all low-res again"
 MAKE_LOW_RES_NONE = "No sharp imagery to make low-res again."
-PINS_LINE = "Pinned tiles: {bytes} in {files} texture(s), never made low-res"
+PINS_LINE = "Favorites: {bytes} in {files} texture(s), made low-res last"
 #: The row's airport cores (spec §6.1): counted, made low-res last.
 CORES_LINE = "{files} of them near airports, made low-res last"
 #: Added to "Clear cache files not used for…" when the sweep reaches the
 #: sharp imagery: it is made low-res again, never deleted.
 OLDER_SHARP_NOTE = ("Sharp imagery near flown areas is made low-res again, "
                     "not deleted, and fetched again when you fly near; "
-                    "pinned tiles are kept.")
+                    "favorites are kept.")
 
 # --- The follow status line (spec §7: the activity area) ---
 FOLLOW_START_TITLE = "Follow X-Plane"
@@ -85,13 +90,13 @@ def _size_text(nbytes) -> str:
 def make_low_res_message(freed_bytes, textures: int) -> str:
     """The "Make all low-res again" confirmation: the space it frees."""
     return ("This makes %d sharp texture(s) low-res again and frees %s. "
-            "They are fetched again when you fly near; pinned tiles are "
+            "They are fetched again when you fly near; favorites are "
             "kept." % (int(textures), _size_text(freed_bytes)))
 
 
 def pins_line(pinned_bytes, pinned_files: int, core_files: int = 0) -> str:
     """The Storage row's extra lines: the airport cores among the counted
-    textures (when any), then the pins, outside the cap."""
+    textures (when any), then the favorites, inside the ortho budget."""
     pins = PINS_LINE.format(bytes=_size_text(pinned_bytes),
                             files=int(pinned_files))
     if not core_files:
@@ -102,8 +107,8 @@ def pins_line(pinned_bytes, pinned_files: int, core_files: int = 0) -> str:
 def pin_done(result: Mapping) -> str:
     """One sentence for an ``imagery_pin`` reply."""
     if not result.get("pinned"):
-        return "%s may go low-res again." % result.get("tile", "The tile")
-    return ("%s is pinned: %d texture(s) sharp now, %d to fetch."
+        return "%s is no longer a favorite." % result.get("tile", "The tile")
+    return ("%s is a favorite: %d texture(s) sharp now, %d to fetch."
             % (result.get("tile", "The tile"), int(result.get("served", 0)),
                int(result.get("to_fetch", 0))))
 

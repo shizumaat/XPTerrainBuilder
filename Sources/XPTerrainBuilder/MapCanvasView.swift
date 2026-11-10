@@ -477,6 +477,16 @@ struct MapCanvasView: View {
                         .foregroundStyle(.yellow),
                     at: CGPoint(x: r.maxX - s * 0.7, y: r.minY + s * 0.7))
             }
+            // A favorite (#1992, RULINGS 2026-11-10c (1)): a yellow star,
+            // bottom-right (Qt: O4_Qt_Map_Favorite.draw_star).
+            if info.pinned == true, r.width > 14 {
+                let s = min(max(r.width * 0.16, 11), 20)
+                context.draw(
+                    Text(Image(systemName: "star.fill"))
+                        .font(.system(size: s))
+                        .foregroundStyle(.yellow),
+                    at: CGPoint(x: r.maxX - s * 0.7, y: r.maxY - s * 0.7))
+            }
         }
 
         // Custom patch (#1229): a 4 pt orange band just inside the tile's

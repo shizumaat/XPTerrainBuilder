@@ -161,14 +161,30 @@ cfg_app_vars = {
     # Imagery on demand (#1992 spec §7): the follow job's settings, read
     # by ``o4_engine.imagery_commands.start_imagery_follow`` and the cap
     # sweep (``o4_engine.imagery_downgrade.cap_bytes``).
+    "storage_budget_gb": {
+        "type": float,
+        "default": 0.0,
+        "hint": (
+            "The one disk budget for everything XPTerrainBuilder stores "
+            "(RULINGS 2026-11-10d): caches, sharp imagery, rebuild data and "
+            "built tiles, in GB. Over it, what is cheapest to rebuild goes "
+            "first, oldest first: temporary files, logs and previews; "
+            "orthophotos already converted; scenery dumps and masks; "
+            "elevation and map extracts; then sharp imagery (favorites "
+            "last). Placeholders, scenery files, patches and your own "
+            "elevation files are never cleared. 0: not set (the sharp "
+            "imagery limit applies alone)."
+        ),
+    },
     "imagery_on_demand_cap_gb": {
         "type": float,
         "default": 100.0,
         "hint": (
-            "With imagery on demand: how much disk the sharp imagery fetched "
-            "near flown areas may use, in GB. Over it, the textures flown "
-            "near longest ago are made low-res again (never deleted); airport "
-            "areas go last. Tiles you pin to full resolution are not counted."
+            "With imagery on demand: the ortho budget, in GB -- how much "
+            "disk the imagery of the tiles built on demand may use, "
+            "favorites included (RULINGS 2026-11-10c (2)). Over it, the "
+            "sharp textures flown near longest ago are made low-res again "
+            "(never deleted); airport areas go next to last, favorites last."
         ),
     },
     "ondemand_lead_s": {
@@ -769,7 +785,8 @@ cfg_tile_vars = {
     },
     "imagery_on_demand": {
         "type": bool,
-        "default": False,
+        # ON by default: RULINGS 2026-11-10c (3).
+        "default": True,
         "hint": (
             "Fetch imagery on demand (#1992): new builds get "
             "low-resolution placeholder imagery under every texture's own "
@@ -968,6 +985,7 @@ list_app_vars = [
     "ovl_exclude_net",
     "storage_auto_clean_days",
     "storage_cache_caps_gb",
+    "storage_budget_gb",
     "imagery_on_demand_cap_gb",
     "ondemand_lead_s",
     "ondemand_lands_per_s",

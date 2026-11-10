@@ -1022,6 +1022,10 @@ final class BuildModel: ObservableObject {
             engineCapabilities = O4EngineCapabilities(protocolVersion: protocolVersion,
                                                       flags: capabilities)
             buildLog.notice("engine hello: \(version) protocol \(protocolVersion)")
+            // The engine ran the global cfg's one-time migrations before
+            // its hello (O4_Cfg_Migrations): read the migrated values, or
+            // Settings shows the pre-migration ones (1.0.480: Detail Custom).
+            reloadGlobalConfig()
             checkPatchLibraryAtLaunch()
         case .stderr(let line):
             console.append(line)

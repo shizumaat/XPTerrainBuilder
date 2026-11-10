@@ -1267,8 +1267,8 @@ class MainWindow(QMainWindow):
         self.imagery_freshness_row.update_requested.connect(
             self._update_tile_imagery)
         ig.addRow("Imagery check:", self.imagery_freshness_row)
-        # Imagery on demand (#1992 §7; mac-app parity: TilePinRow): an
-        # on-demand tile's "Always keep full resolution".
+        # Favorite (#1992 §7, RULINGS 2026-11-10c (1); mac-app parity:
+        # TilePinRow): the switch that keeps a tile at full resolution.
         self.tile_pin_row = QTONDEMAND.TilePinRow()
         self.tile_pin_row.pin_requested.connect(self._pin_tile)
         ig.addRow("%s:" % QTONDEMAND.TEXT.PIN_ROW_TITLE, self.tile_pin_row)
@@ -2861,7 +2861,7 @@ class MainWindow(QMainWindow):
     def _show_tile_pin(self, tile, info):
         self.tile_pin_row.show_tile(tile, info)
         self._info_layout.setRowVisible(
-            self.tile_pin_row, QTONDEMAND.TilePinRow.applies(info))
+            self.tile_pin_row, QTONDEMAND.TilePinRow.shows(info))
 
     def _pin_tile(self, request):
         """The tile pane's pin: ``imagery_pin``, then the tiles rescan
@@ -2874,6 +2874,8 @@ class MainWindow(QMainWindow):
     def _on_pin_done(self, result):
         if isinstance(result, Exception):
             print(str(result))
+            # Refused: the switch goes back to the tile's state.
+            self.tile_pin_row.set_pinned(self.tile_pin_row.pinned)
             return
         print(QTONDEMAND.TEXT.pin_done(result))
         self.tile_pin_row.set_pinned(result.get("pinned", False))

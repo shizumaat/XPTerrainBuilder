@@ -14,11 +14,52 @@ public struct O4StorageScan: Decodable, Equatable, Sendable {
     /// "private" (APFS could say) or "allocated" (it could not).
     public let measured: String
     public let autoCleanDays: Double
+    /// The one disk budget (RULINGS 2026-11-10d); nil from an older engine.
+    public let budget: O4StorageBudget?
+    /// X-Plane's installed `zOrtho4XP_*` entries; nil from an older engine.
+    public let installed: O4InstalledTiles?
 
     private enum CodingKeys: String, CodingKey {
-        case root, stores, measured
+        case root, stores, measured, budget, installed
         case cacheBytes = "cache_bytes", keptBytes = "kept_bytes"
         case autoCleanDays = "auto_clean_days"
+    }
+}
+
+/// `storage_scan`'s `budget` (`o4_engine/storage_budget.py` `status`).
+public struct O4StorageBudget: Decodable, Equatable, Sendable {
+    public let budgetBytes: Int64
+    public let usedBytes: Int64
+    public let floorBytes: Int64
+    public let recommendedBytes: Int64
+    public let underFloor: Bool
+    public let overBudget: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case budgetBytes = "budget_bytes", usedBytes = "used_bytes"
+        case floorBytes = "floor_bytes", recommendedBytes = "recommended_bytes"
+        case underFloor = "under_floor", overBudget = "over_budget"
+    }
+}
+
+/// `storage_scan`'s `installed` (`o4_engine/storage_installed.py`).
+public struct O4InstalledTiles: Decodable, Equatable, Sendable {
+    public struct Linked: Decodable, Equatable, Sendable {
+        public let volume: String
+        public let count: Int
+        public let mounted: Bool
+    }
+    public let customScenery: String
+    public let localCount: Int
+    public let localBytes: Int64
+    public let linkedCount: Int
+    public let linked: [Linked]
+    public let measured: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case linked, measured
+        case customScenery = "custom_scenery", localCount = "local_count"
+        case localBytes = "local_bytes", linkedCount = "linked_count"
     }
 }
 
@@ -36,11 +77,16 @@ public struct O4StorageStore: Decodable, Equatable, Identifiable, Sendable {
     public let files: Int
     /// Unix time a file in it was last used; nil when it is empty.
     public let lastUsed: Double?
-    /// The `ondemand` store only (#1992): the pins, outside the cap.
+    /// The `ondemand` store only (#1992): the favorites, inside the budget.
     public let pinnedBytes: Int64?
     public let pinnedFiles: Int?
     /// Of the counted textures, those near airports (made low-res last).
     public let coreFiles: Int?
+    /// What the on-demand tiles hold even low-res, the sharp imagery
+    /// limit, and whether the first exceeds the second (the warning).
+    public let floorBytes: Int64?
+    public let capBytes: Int64?
+    public let overAtFloor: Bool?
 
     public var id: String { kind }
     public var isCache: Bool { policy == "cache" }
@@ -51,7 +97,8 @@ public struct O4StorageStore: Decodable, Equatable, Identifiable, Sendable {
         case kind, label, policy, note, path, bytes, files
         case apparentBytes = "apparent_bytes", lastUsed = "last_used"
         case pinnedBytes = "pinned_bytes", pinnedFiles = "pinned_files"
-        case coreFiles = "core_files"
+        case coreFiles = "core_files", floorBytes = "floor_bytes"
+        case capBytes = "cap_bytes", overAtFloor = "over_at_floor"
     }
 }
 
@@ -66,9 +113,23 @@ public struct O4StorageCleared: Decodable, Equatable, Sendable {
     public let ran: Bool?
     /// Bytes freed per store (`ondemand`: made low-res, not deleted).
     public let kinds: [String: Int64]?
+    /// `storage_auto_clean` only: the disk budget's figures when it is set,
+    /// else the on-demand tiles' floor against the sharp imagery limit.
+    public let budget: O4StorageBudget?
+    public let ondemandFloor: OndemandFloor?
+
+    public struct OndemandFloor: Decodable, Equatable, Sendable {
+        public let overAtFloor: Bool
+        public let floorBytes: Int64
+        public let capBytes: Int64
+        private enum CodingKeys: String, CodingKey {
+            case overAtFloor = "over_at_floor", floorBytes = "floor_bytes", capBytes = "cap_bytes"
+        }
+    }
 
     private enum CodingKeys: String, CodingKey {
-        case files, stopped, ran, kinds
+        case files, stopped, ran, kinds, budget
+        case ondemandFloor = "ondemand_floor"
         case freedBytes = "freed_bytes", dryRun = "dry_run"
     }
 }

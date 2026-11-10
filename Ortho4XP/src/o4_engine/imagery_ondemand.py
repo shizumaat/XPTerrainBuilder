@@ -35,6 +35,7 @@ import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
 import O4_Disk_Usage as DISK
 import O4_File_Names as FNAMES
+import O4_Imagery_OnDemand_Budget as BUDGET
 import O4_Imagery_OnDemand_Cores as CORES
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Placeholder as PLACEHOLDER
@@ -90,9 +91,11 @@ def on_demand_tiles(working_dir: str):
 
 
 def _figures(conn) -> Dict[str, Any]:
+    budget = DOWNGRADE.budget(conn)
     return {"capped_bytes": INDEX.capped_bytes(conn),
             "pinned_bytes": INDEX.pinned_bytes(conn),
-            "cap_bytes": DOWNGRADE.cap_bytes(),
+            "cap_bytes": budget.cap, "floor_bytes": budget.fixed,
+            "over_at_floor": budget.over_at_floor,
             "core_rows": len(INDEX.rows(conn, core=True)),
             "rows": len(INDEX.rows(conn))}
 
@@ -183,7 +186,8 @@ def imagery_pin(lat: int, lon: int, working_dir: str = "",
                 pinned: bool = True,
                 index: Optional[str] = None) -> Dict[str, Any]:
     """ENGINE COMMAND ``imagery_pin``: pin (or unpin) tile ``(lat, lon)``.
-    A pinned tile is never downgraded and is outside the cap; pinning
+    A favorite (pinned) tile counts in the ortho budget and is made
+    low-res last (RULINGS 2026-11-10c (2)); pinning
     lands every full texture the ``DDS_cache`` holds for it.
 
     :returns: ``{"tile", "pinned", "served", "to_fetch", "rows",
@@ -242,7 +246,8 @@ def imagery_ondemand_sweep(cap_gb: Optional[float] = None,
            else DOWNGRADE.cap_bytes())
     conn = INDEX.open_index(index)
     try:
-        return DOWNGRADE.sweep(conn, cap, camera=_camera(camera_lat, camera_lon),
+        return DOWNGRADE.sweep(conn, BUDGET.measure(conn, cap),
+                               camera=_camera(camera_lat, camera_lon),
                                in_session=bool(in_session))
     finally:
         conn.close()

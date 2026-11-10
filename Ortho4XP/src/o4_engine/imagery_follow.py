@@ -523,8 +523,10 @@ class FollowJob:
                 or now - self._sweep_at < SWEEP_EVERY_S):
             return
         from .imagery_downgrade import sweep
+        from .storage_budget import session_budget
         self._sweep_at, self._landed_since_sweep = now, 0
-        result = sweep(self._conn, self.cap_bytes, camera=self.motion,
+        result = sweep(self._conn, session_budget(self._conn, self.cap_bytes),
+                       camera=self.motion,
                        in_session=True, now=now, abort=self._stop.is_set)
         if result["downgraded"]:
             self.counts["downgraded"] += result["downgraded"]

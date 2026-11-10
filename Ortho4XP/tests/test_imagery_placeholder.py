@@ -115,7 +115,7 @@ def test_drop_follows_the_mode(tmp_path):
 def test_the_cfg_registry_refuses_a_256_px_placeholder():
     assert CFGVARS.cfg_vars["placeholder_zl_drop"]["values"] == (2, 3)
     assert CFGVARS.cfg_vars["placeholder_zl_drop"]["default"] == 3
-    assert CFGVARS.cfg_vars["imagery_on_demand"]["default"] is False
+    assert CFGVARS.cfg_vars["imagery_on_demand"]["default"] is True
 
 
 def test_tilbox_and_names():

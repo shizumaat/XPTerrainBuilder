@@ -918,6 +918,8 @@ class MainWindow(QMainWindow):
         # sharp, when the run ends (#1992 follow-up; the Mac engine's too).
         from o4_engine.imagery_after_build import watch as _watch_built_tiles
         _watch_built_tiles(self._session)
+        from o4_engine.world_publish import watch as _watch_world
+        _watch_world(self._session)
         self._storage_auto_clean()          # at launch (#1724)
         self._event_handlers = {
             EV.ScanProgress: self._on_scan_progress,

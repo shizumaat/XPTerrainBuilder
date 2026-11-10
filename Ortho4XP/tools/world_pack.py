@@ -8,10 +8,10 @@ tools/world_pack.py --kit KIT ...``) or from a kit's own copy
 checkout).  Subcommands:
 
   make-kit --kit DIR --center +53-061 --radius 2 --skip +53-061
-      the pack folder with round-trip-checked placeholder DSFs, kit.json
+      the pack folder with placeholder DSFs (pure Python), kit.json
   stage TILE --tile-dir DIR    a built zOrtho4XP_<tile> laid out for the
                                pack (per-tile terrain/textures folders) + verify
-  verify                       every placeholder and staged tile, by DSFTool
+  verify                       every placeholder and staged tile (binary reads)
   install / restore            Custom Scenery link + scenery_packs.ini row
                                (X-Plane closed; backup kept in the kit)
   swapin TILE [--force]        staged tile -> pack, one rename of the DSF;
@@ -116,7 +116,6 @@ def aircraft(kit: Kit, tile: tuple[int, int] | None) -> dict:
            "cam_lat": round(clat, 5), "cam_lon": round(clon, 5),
            "elev_m": rec.get("elev"), "gs_ms": rec.get("gs_ms")}
     if tile:
-        out["reach"] = kit.WP.tile_reach(lat, lon, *tile)
         out["window"] = kit.WIN.reach(clat, clon, *tile)
     return out
 
@@ -145,10 +144,11 @@ def cmd_make_kit(a) -> int:
     kit = Kit(root)
     made = [WP.tile_name(*t) for t in kit_tiles(kit)]
     for t in kit_tiles(kit):
-        WP.write_placeholder(kit.pack, *t, kit.tool)
+        WP.write_placeholder(kit.pack, *t)
     if KIT_MODE is False:                 # copy the files the kit runs
         shutil.copy2(os.path.abspath(__file__), os.path.join(root, "world.py"))
-        for module in (WP.__file__, DRAPE.__file__, _fetch_script()):
+        for module in (WP.__file__, DRAPE.__file__, WP.DSFB.__file__,
+                       _fetch_script()):
             shutil.copy2(module, root)
     kit.log({"event": "make_kit", "placeholders": made, "skip": a.skip})
     return 0
@@ -162,8 +162,8 @@ def stage(kit: Kit, tile: str, tile_dir: str) -> dict:
     final = os.path.join(kit.staged, tile)
     work = final + ".new"
     shutil.rmtree(work, ignore_errors=True)
-    counts = kit.WP.relayout_tile(tile_dir, work, lat, lon, kit.tool)
-    check = kit.WP.verify_tile(work, lat, lon, kit.tool)
+    counts = kit.WP.relayout_tile(tile_dir, work, lat, lon)
+    check = kit.WP.verify_tile(work, lat, lon)
     if check["problems"] or check["overlay"] or not check["pack_defs"]:
         raise SystemExit(f"staged {tile} failed its check: {check}")
     shutil.rmtree(final, ignore_errors=True)
@@ -199,7 +199,7 @@ def cmd_verify(a) -> int:
             res = kit.DRAPE.verify_drape(kit.pack, *t, kit.tool)
             ok = _drape_ok(res)
         else:
-            res = WP.verify_tile(kit.pack, *t, kit.tool)
+            res = WP.verify_tile(kit.pack, *t)
             ok = (res["overlay"] and not res["defs"]) \
                 if state == "placeholder" \
                 else (not res["problems"] and not res["overlay"])
@@ -214,7 +214,7 @@ def cmd_verify(a) -> int:
             if name.endswith(".new"):
                 continue
             root = os.path.join(kit.staged, name)
-            res = WP.verify_tile(root, *WP.parse_tile(name), kit.tool)
+            res = WP.verify_tile(root, *WP.parse_tile(name))
             head = WP.dsf_header(os.path.join(
                 root, WP.dsf_relpath(*WP.parse_tile(name))))
             ok = (not res["problems"] and not res["overlay"]
@@ -315,7 +315,7 @@ def cmd_swapin(a) -> int:
 def cmd_swapout(a) -> int:
     kit = Kit(a.kit)
     lat, lon = kit.WP.parse_tile(a.tile)
-    path = kit.WP.swap_out(kit.pack, lat, lon, kit.tool)
+    path = kit.WP.swap_out(kit.pack, lat, lon)
     kit.log({"event": "swapout", "tile": a.tile, "dsf": path,
              **aircraft(kit, (lat, lon))})
     return 0
@@ -492,9 +492,8 @@ def cmd_status(a) -> int:
                                                        "placeholder")
         staged = os.path.isdir(os.path.join(kit.staged, name))
         staged = f"{staged} drape={os.path.isdir(os.path.join(kit.drapes, name))}"
-        reach = (WP.tile_reach(pos["lat"], pos["lon"], *t),
-                 kit.WIN.reach(pos["cam_lat"], pos["cam_lon"], *t)) \
-            if "lat" in pos else ""
+        reach = (kit.WIN.reach(pos["cam_lat"], pos["cam_lon"], *t)
+                 if "lat" in pos else "")
         print(f"  {name}  {state:11s} staged={staged}  {reach}")
     return 0
 

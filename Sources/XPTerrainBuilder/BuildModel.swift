@@ -266,6 +266,10 @@ final class BuildModel: ObservableObject {
     @Published private(set) var imagerySources: [O4ImagerySource] = []
     /// Launch-time liveness per source code; absent = unknown (enabled).
     @Published private(set) var imageryStatus: [String: O4ImageryStatus] = [:]
+    /// The World pack's last `WorldStatus` (capability `world_pack`,
+    /// World spec §5.3); nil before the engine sent one. The Fly and
+    /// Library panes read it.
+    @Published private(set) var worldStatus: O4WorldStatus?
     private var imageryStatusChecked = false
     @Published private(set) var missingPackages: [String]?
     @Published private(set) var globalConfigValues: [String: O4Value] = [:]
@@ -1258,6 +1262,8 @@ final class BuildModel: ObservableObject {
             imageryStatus[code] = status
         case .imageryFollowStatus(let status):
             imageryFollow.show(status) // the Build pane's follow line (#1992 P4)
+        case .worldStatus(let status):
+            worldStatus = status
         case .unknown:
             break // additive protocol: ignore unknown event types
         }

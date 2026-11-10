@@ -15,6 +15,9 @@ regions builds full imagery, as with on demand off.
   reads: its region's switch.
 * :func:`default_settings` — the switches a first run sets: the regions
   holding the user's built tiles, every region when there are none.
+* :func:`region_tiles` — every 1° tile of one region (land and sea; the
+  World pack keeps those X-Plane's own scenery has, flight manager /
+  World spec §7.1).
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ import bisect
 import O4_Imagery_Regions_Table as TABLE
 
 __all__ = ["REGIONS", "SETTING_PREFIX", "default_settings", "region_of",
-           "setting_name", "tile_on_demand"]
+           "region_tiles", "setting_name", "tile_on_demand"]
 
 #: simHeaven's X-World regions, (code, label), in Settings order.
 REGIONS = (
@@ -76,3 +79,16 @@ def default_settings(tiles) -> dict:
     held = {region_of(lat, lon) for lat, lon in tiles}
     return {setting_name(code): (not held or code in held)
             for code, _label in REGIONS}
+
+
+def region_tiles(code: str) -> list:
+    """``(lat, lon)`` of every 1° tile the table puts in region ``code``,
+    south to north, west to east."""
+    out = []
+    for lat in sorted(_RUNS):
+        starts, codes = _RUNS[lat]
+        for i, start in enumerate(starts):
+            if codes[i] == code:
+                end = starts[i + 1] if i + 1 < len(starts) else 180
+                out.extend((lat, lon) for lon in range(start, end))
+    return out

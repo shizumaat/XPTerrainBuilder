@@ -20,6 +20,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     public static let patchDrop = "patch_drop"
     /// `tile_staleness` (#1958), after the freeze: flag only.
     public static let tileStaleness = "tile_staleness"
+    /// `world_status` / `world_install` / `world_regions_set` /
+    /// `world_tile_set` + `WorldStatus` / `WorldReady` (World spec W1).
+    public static let worldPack = "world_pack"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

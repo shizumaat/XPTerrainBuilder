@@ -13,7 +13,27 @@ Reading a plan (stdlib only):
   ``Flightplan/Waypoints/Waypoint/Pos @Lat @Lon``.
 * :func:`parse_simbrief` -- SimBrief's fetcher answer
   (:func:`simbrief_url`): ``origin``, ``navlog/fix`` and ``destination``,
-  each ``pos_lat`` / ``pos_long``.
+  each ``pos_lat`` / ``pos_long``; :func:`parse_simbrief_json` reads the
+  same answer fetched with ``&json=1``.
+
+What the flight manager needs beyond the route (spec
+``docs/specs/flight-manager-and-world-20261110.md`` §6.1): the plan's
+alternate, per-waypoint altitude (``alt_ft``) and time after takeoff
+(``t_s``), the time en route (``ete_s``), the cruise speed (``cruise_ms``)
+and level (``cruise_alt_ft``).  Each is ``None`` when the plan does not
+say.  The SimBrief field names are the ones SimBrief's OFP answer uses
+(endpoint documented at developers.navigraph.com/docs/simbrief/
+fetching-ofp-data): ``alternate`` (``icao_code``, ``pos_lat``,
+``pos_long``; repeated when several are planned, the first is taken),
+``times/est_time_enroute`` (s), ``general/cruise_tas`` (kt),
+``general/initial_altitude`` (ft), and per navlog ``fix``
+``altitude_feet`` and ``time_total`` (s after takeoff).  They are NOT yet
+checked against a real OFP (spec U7): the repo's fixtures are synthetic.
+An ``.fms`` carries altitudes but no times or speed; a ``.lnmpln`` its
+``Header/CruisingAlt`` and each ``Pos @Alt``.
+
+:func:`list_fms_plans` lists X-Plane's ``Output/FMS plans/`` newest first
+(owner RULINGS 2026-11-10g: the plans are read automatically).
 
 Route -> tiles: :func:`route_tiles` densifies every leg along the GREAT
 CIRCLE (a long leg bends poleward of the straight lat/lon line, and a
@@ -39,6 +59,7 @@ __all__ = [
     "parse_simbrief", "parse_plan_text", "read_plan_file", "simbrief_url",
     "fetch_simbrief", "route_tiles", "route_drawing", "radius_km",
     "summary_text", "tiles_text", "densify", "route_length_km",
+    "parse_simbrief_json", "list_fms_plans", "fms_plans_dir",
 ]
 
 Tile = Tuple[int, int]
@@ -78,12 +99,24 @@ class Waypoint(NamedTuple):
     ident: str
     lat: float
     lon: float
+    #: Planned altitude, feet; None when the plan has none.
+    alt_ft: Optional[float] = None
+    #: Planned time after takeoff, seconds; None when the plan has none.
+    t_s: Optional[float] = None
 
 
 class FlightPlan(NamedTuple):
     waypoints: List[Waypoint]
     #: Where the plan came from, for the summary: "file.fms", "SimBrief".
     source: str = ""
+    #: The plan's (first) alternate airport, or None.
+    alternate: Optional[Waypoint] = None
+    #: Planned time en route (takeoff to landing), seconds.
+    ete_s: Optional[float] = None
+    #: Planned cruise true airspeed, m/s.
+    cruise_ms: Optional[float] = None
+    #: Planned cruise (initial) altitude, feet.
+    cruise_alt_ft: Optional[float] = None
 
     @property
     def origin(self) -> str:
@@ -103,6 +136,15 @@ class FlightPlan(NamedTuple):
 def _plausible(lat: float, lon: float) -> bool:
     return (math.isfinite(lat) and math.isfinite(lon)
             and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0)
+
+
+def _number(text: Optional[str]) -> Optional[float]:
+    """A finite float from ``text``, else None."""
+    try:
+        value = float((text or "").strip())
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _plan(waypoints: List[Waypoint], source: str, kind: str) -> FlightPlan:
@@ -132,7 +174,8 @@ def parse_fms(text: str, source: str = "") -> FlightPlan:
         except ValueError:
             continue
         if kind in _FMS_TYPES and _plausible(lat, lon):
-            waypoints.append(Waypoint(tokens[1], lat, lon))
+            # v3: TYPE IDENT ALT LAT LON; v11: TYPE IDENT VIA ALT LAT LON.
+            waypoints.append(Waypoint(tokens[1], lat, lon, _number(tokens[-3])))
     return _plan(waypoints, source, "X-Plane flight plan")
 
 
@@ -157,11 +200,14 @@ def parse_lnmpln(text: str, source: str = "") -> FlightPlan:
             continue
         if _plausible(lat, lon):
             ident = (wp.findtext("Ident") or wp.findtext("Name") or "").strip()
-            waypoints.append(Waypoint(ident, lat, lon))
-    return _plan(waypoints, source, "Little Navmap plan")
+            waypoints.append(Waypoint(ident, lat, lon, _number(pos.get("Alt"))))
+    plan = _plan(waypoints, source, "Little Navmap plan")
+    cruise = _number(root.findtext("./Flightplan/Header/CruisingAlt"))
+    return plan._replace(cruise_alt_ft=cruise)
 
 
-def _simbrief_point(node: Optional[ET.Element]) -> Optional[Waypoint]:
+def _simbrief_point(node: Optional[ET.Element],
+                    t_s: Optional[float] = None) -> Optional[Waypoint]:
     if node is None:
         return None
     try:
@@ -172,7 +218,16 @@ def _simbrief_point(node: Optional[ET.Element]) -> Optional[Waypoint]:
     if not _plausible(lat, lon):
         return None
     ident = (node.findtext("icao_code") or node.findtext("ident") or "").strip()
-    return Waypoint(ident, lat, lon)
+    alt = _number(node.findtext("altitude_feet"))
+    if alt is None:
+        alt = _number(node.findtext("elevation"))   # an airport's own level
+    if t_s is None:
+        t_s = _number(node.findtext("time_total"))
+    return Waypoint(ident, lat, lon, alt, t_s)
+
+
+#: Knots to metres per second.
+KT_TO_MS = KM_PER_NM * 1000.0 / 3600.0
 
 
 def parse_simbrief(text: str, source: str = "SimBrief") -> FlightPlan:
@@ -185,10 +240,46 @@ def parse_simbrief(text: str, source: str = "SimBrief") -> FlightPlan:
     if status and status.lower() != "success":
         reason = re.sub(r"^error:\s*", "", status, flags=re.IGNORECASE)
         raise FlightPlanError("SimBrief: %s" % reason)
-    points = [_simbrief_point(root.find("origin"))]
+    ete = _number(root.findtext("./times/est_time_enroute"))
+    points = [_simbrief_point(root.find("origin"), 0.0)]
     points += [_simbrief_point(fix) for fix in root.findall("./navlog/fix")]
-    points.append(_simbrief_point(root.find("destination")))
-    return _plan([p for p in points if p is not None], source, "SimBrief plan")
+    points.append(_simbrief_point(root.find("destination"), ete))
+    plan = _plan([p for p in points if p is not None], source, "SimBrief plan")
+    alternates = (_simbrief_point(n) for n in root.findall("alternate"))
+    tas = _number(root.findtext("./general/cruise_tas"))
+    return plan._replace(
+        alternate=next((a for a in alternates if a is not None), None),
+        ete_s=ete,
+        cruise_ms=None if tas is None else tas * KT_TO_MS,
+        cruise_alt_ft=_number(root.findtext("./general/initial_altitude")))
+
+
+def _json_element(tag: str, value) -> ET.Element:
+    """SimBrief's JSON answer as the XML tree it mirrors: an object's keys
+    are children, a list is the same child repeated, a scalar is text."""
+    node = ET.Element(tag)
+    if isinstance(value, dict):
+        for key, child in value.items():
+            for item in child if isinstance(child, list) else [child]:
+                node.append(_json_element(str(key), item))
+    elif value is not None:
+        node.text = str(value)
+    return node
+
+
+def parse_simbrief_json(text: str, source: str = "SimBrief") -> FlightPlan:
+    """SimBrief's fetcher answer with ``&json=1``: the same fields as the
+    XML (:func:`parse_simbrief`), read through the same rule."""
+    import json
+
+    try:
+        data = json.loads(text)
+    except ValueError:
+        raise FlightPlanError("This SimBrief answer is not valid JSON.") from None
+    if not isinstance(data, dict):
+        raise FlightPlanError("This SimBrief answer is not a plan.")
+    return parse_simbrief(ET.tostring(_json_element("OFP", data), encoding="unicode"),
+                          source)
 
 
 def parse_plan_text(text: str, name: str = "") -> FlightPlan:
@@ -199,6 +290,8 @@ def parse_plan_text(text: str, name: str = "") -> FlightPlan:
     if ext == "fms":
         return parse_fms(text, name)
     head = text.lstrip()[:4096]
+    if head.startswith("{"):
+        return parse_simbrief_json(text, name or "SimBrief")
     if head.startswith("<"):
         if "<LittleNavmap" in head:
             return parse_lnmpln(text, name)
@@ -215,6 +308,40 @@ def read_plan_file(path: str) -> FlightPlan:
     except OSError as exc:
         raise FlightPlanError("Could not read %s (%s)." % (path, exc.strerror)) from exc
     return parse_plan_text(text, path.replace("\\", "/").rsplit("/", 1)[-1])
+
+
+def fms_plans_dir(xplane_dir: str) -> str:
+    """X-Plane's own folder of saved FMS plans."""
+    import os
+
+    return os.path.join(xplane_dir, "Output", "FMS plans")
+
+
+def list_fms_plans(folder: str) -> List[dict]:
+    """Every readable ``.fms`` in ``folder``, newest first: ``{path, name,
+    origin, destination, modified_at}`` (``modified_at`` in Unix seconds;
+    ``name`` the file name without ``.fms``).  A file that is not a plan
+    is left out; a missing folder lists nothing."""
+    import os
+
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    rows = []
+    for name in names:
+        path = os.path.join(folder, name)
+        if not name.lower().endswith(".fms") or not os.path.isfile(path):
+            continue
+        try:
+            plan = read_plan_file(path)
+            modified = os.path.getmtime(path)
+        except (FlightPlanError, OSError):
+            continue
+        rows.append({"path": path, "name": name[:-4], "origin": plan.origin,
+                     "destination": plan.destination, "modified_at": modified})
+    rows.sort(key=lambda r: (-r["modified_at"], r["name"]))
+    return rows
 
 
 def simbrief_url(user: str) -> str:

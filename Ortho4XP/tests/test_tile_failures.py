@@ -616,7 +616,8 @@ def test_stand_in_elevation_is_a_note_from_the_sidecar(monkeypatch,
     UNPATCHED.record(tile, [])
     UNPATCHED.record_substitutions(tile, [
         {"cell": c, "code": "GLO30", "path": "/x/%s.tif" % c,
-         "source": "Viewfinder Panoramas", "fallback": "Copernicus GLO-30"}
+         "source": "Viewfinder Panoramas", "fallback": "Copernicus GLO-30",
+         "reason": "unanswered"}
         for c in ("+45-123", "+45-124")])
     # the airport record written afterwards keeps the substitutions
     UNPATCHED.record(tile, [])
@@ -677,7 +678,8 @@ def test_stand_in_note_names_each_airports_winning_inset(monkeypatch,
         {"icao": "BGGH", "provider": "ARCTICDEM2M", "resolution_m": 2}]
     UNPATCHED.record_substitutions(_DemProcessTile(), [
         {"cell": c, "code": "GLO30", "path": "/x/%s.tif" % c,
-         "source": "Viewfinderpanoramas", "fallback": "Copernicus GLO-30"}
+         "source": "Viewfinderpanoramas", "fallback": "Copernicus GLO-30",
+         "reason": "absent"}
         for c in ("+63-052", "+63-051")])
 
     install_stub_pipeline(monkeypatch)
@@ -685,9 +687,9 @@ def test_stand_in_note_names_each_airports_winning_inset(monkeypatch,
                            do_vector=False), 10, 20)
     (note,) = done.notes
     assert note["why"] == (
-        "Viewfinderpanoramas did not answer, so Copernicus GLO-30 was "
-        "used. It includes trees and buildings, so the ground there may "
-        "read a few metres high. The airports keep their own detailed "
+        "Viewfinderpanoramas does not have this area on its server, so "
+        "Copernicus GLO-30 was used. It includes trees and buildings, so "
+        "the ground there may read a few metres high. The airports keep their own detailed "
         "elevation: AAAA from ISLANDSDEM (2 m), BGGH from ARCTICDEM2M "
         "(2 m).")
 

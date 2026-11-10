@@ -29,6 +29,12 @@ search_limit=100
 max_strips=40
 
 native_resolution_m=2
+# DECLARED DEM CLASS (#1929): satellite stereo DSM, vertical error ~1-4 m,
+# strips that may predate the airport -- "fine", not lidar, whatever the
+# 2 m pixel says (the pixel rule would class it lidar: the old-DEM witness
+# never fired, grade_disagree_m took the lidar 1.5 m, runway_profile read
+# CASE_LIDAR).
+dem_class=fine
 
 # North of 60 N, all longitudes; Alaska south of 60 N; Kamchatka.
 coverage_bbox=-180.0,60.0,180.0,84.0

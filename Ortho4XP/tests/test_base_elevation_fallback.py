@@ -398,8 +398,33 @@ def test_a_substituted_cell_is_read_tied_to_its_configured_neighbour(
         "cell": "+48-123", "code": "SPARE1",
         "path": _Fallback().tile_cache_path(world["SPARE1"], *CELL),
         # the names the tile's closing note shows (RULINGS 2026-10-12e)
-        "source": "View", "keyword": "View", "fallback": "Spare one"}]
+        "source": "View", "keyword": "View", "fallback": "Spare one",
+        "reason": base_fallback.REASON_UNANSWERED}]
     assert "tied to its south neighbour" in capsys.readouterr().out
+
+
+def test_an_absent_cell_is_noted_as_not_on_the_server(world):
+    """#1933: a 404 is the server saying "not here" -- the closing note
+    says so, never "did not answer" (an outage)."""
+    import O4_Tile_Failures as FAIL
+
+    _Configured.outcome = "absent"
+    assert _ensure() == 1
+    substitutions = []
+    DEM.read_base_cell("View", *CELL, False, 5, substitutions=substitutions)
+    assert substitutions[0]["reason"] == base_fallback.REASON_ABSENT
+    (note,) = FAIL.fold(FAIL.from_substitutions(substitutions), "+48-123",
+                        built=True, note=True)
+    assert note["why"].startswith(
+        "View does not have this area on its server, so Spare one was "
+        "used.")
+    # a fallback file a previous process fetched: the reason is unseen
+    base_fallback.forget_unreachable_sources()
+    unseen = []
+    DEM.read_base_cell("View", *CELL, False, 5, substitutions=unseen)
+    (note,) = FAIL.fold(FAIL.from_substitutions(unseen), "+48-123",
+                        built=True, note=True)
+    assert note["why"].startswith("View could not supply it, so Spare one")
 
 
 def test_a_configured_cell_is_read_exactly_as_before(world):
@@ -663,7 +688,8 @@ def test_the_note_names_the_providers_not_the_keyword(world, shipped):
     row = {"cell": "+48-123", "code": glo30["code"], "path": "/x/y.tif",
            "source": base_fallback.configured_label("View", shipped),
            "keyword": "View",
-           "fallback": base_fallback.source_label(glo30)}
+           "fallback": base_fallback.source_label(glo30),
+           "reason": base_fallback.REASON_UNANSWERED}
     (note,) = FAIL.fold(FAIL.from_substitutions([row]), "+48-123",
                         built=True, note=True)
     assert note["why"].startswith(

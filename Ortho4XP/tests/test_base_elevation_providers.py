@@ -77,6 +77,7 @@ def test_shipped_definitions_parse(shipped_registry):
         "SONNY1",
         "ENGLAND1M",
         "NORWAY1M",
+        "NPOLARS0",
         "SWISSALTI3D",
         "SPAIN5M",
         "POLAND1M",

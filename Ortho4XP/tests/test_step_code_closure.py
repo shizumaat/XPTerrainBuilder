@@ -34,10 +34,30 @@ def _drift(src: Path, entries, declared) -> tuple[list, list]:
     return sorted(closure - set(declared)), sorted(set(declared) - closure)
 
 
+def _handed_off_keyed(src: Path, step: str) -> set:
+    """The modules ``step`` reaches ONLY through its hand-off
+    (``O4_Step_Code.HANDED_OFF``) that the object stage's own key covers
+    (#1901) — left out of the step's key."""
+    import O4_Object_Stage_Code as OBJCODE
+    off = STEPCODE.HANDED_OFF.get(step, ())
+    if not off:
+        return set()
+    entries = STEPCODE.ENTRY_MODULES[step]
+    full = set(CLOSURE.closure(str(src), entries))
+    cut = set(CLOSURE.closure(str(src), entries, stop=off))
+    return (full - cut) & set(OBJCODE.CODE_MODULES)
+
+
+def _step_drift(src: Path, step: str, declared) -> tuple[list, list]:
+    """:func:`_drift` of ``step``'s closure less its keyed hand-off."""
+    expected = set(CLOSURE.closure(str(src), STEPCODE.ENTRY_MODULES[step]))
+    expected -= _handed_off_keyed(src, step)
+    return sorted(expected - set(declared)), sorted(set(declared) - expected)
+
+
 @pytest.mark.parametrize("step", STEPCODE.STEPS)
 def test_every_module_a_step_imports_is_in_its_code_key(step):
-    missing, extra = _drift(SRC, STEPCODE.ENTRY_MODULES[step],
-                            STEPCODE.CODE_MODULES[step])
+    missing, extra = _step_drift(SRC, step, STEPCODE.CODE_MODULES[step])
     assert not missing, (
         f"the {step} step imports these and O4_Step_Code.CODE_MODULES"
         f"[{step!r}] does not key on them — a change there would be a "
@@ -104,8 +124,12 @@ def test_the_twin_bites(tmp_path):
     # on the real tree: drop one module from the mesh step's list
     short = tuple(m for m in STEPCODE.CODE_MODULES["mesh"]
                   if m != "auto_patch.post_mesh")
-    assert _drift(SRC, STEPCODE.ENTRY_MODULES["mesh"], short)[0] == [
-        "auto_patch.post_mesh"]
+    assert _step_drift(SRC, "mesh", short)[0] == ["auto_patch.post_mesh"]
+    # and one the object stage keys, put back in the mesh step's list
+    extra = tuple(sorted(STEPCODE.CODE_MODULES["mesh"]
+                         + ("auto_patch_v2.airport.dsf_write",)))
+    assert _step_drift(SRC, "mesh", extra)[1] == [
+        "auto_patch_v2.airport.dsf_write"]
 
 
 def _copy_sources(dest: Path) -> Path:
@@ -147,15 +171,59 @@ def test_an_edit_outside_the_closure_keeps_every_step_and_inside_moves_it(
                for s, v in STEPCODE.freeze_digests(str(copy)).items())
 
 
+def test_the_hand_off_is_keyed_by_the_object_stage_or_by_the_step():
+    """#1901, the #346 guarantee across the hand-off: every module the
+    mesh step reaches is keyed by the mesh step or by the object stage it
+    hands off to — and that hand-off really enters the object stage."""
+    import O4_Object_Stage_Code as OBJCODE
+    assert STEPCODE.HANDED_OFF == {"mesh": ("O4_Object_Stage",)}
+    entries = STEPCODE.ENTRY_MODULES["mesh"]
+    full = set(CLOSURE.closure(str(SRC), entries))
+    keyed = set(STEPCODE.CODE_MODULES["mesh"]) | set(OBJCODE.CODE_MODULES)
+    assert full <= keyed, sorted(full - keyed)
+    stage = set(CLOSURE.closure(str(SRC), STEPCODE.HANDED_OFF["mesh"]))
+    assert set(OBJCODE.ENTRY_MODULES) <= stage
+    assert "O4_Object_Stage" in STEPCODE.CODE_MODULES["mesh"]   # its entry stays
+    left_out = _handed_off_keyed(SRC, "mesh")
+    for writer in ("auto_patch.object_stage",
+                   "auto_patch_v2.airport.dsf_write",
+                   "auto_patch_v2.airport.placement_write",
+                   "auto_patch_v2.airport.pack_journal"):
+        assert writer in left_out, writer
+
+
+@pytest.mark.parametrize("path", [
+    ("auto_patch", "object_stage.py"),
+    ("auto_patch_v2", "airport", "dsf_write.py"),
+    ("auto_patch_v2", "airport", "placement_write.py"),
+    ("auto_patch_v2", "airport", "pack_journal.py")])
+def test_an_object_stage_edit_moves_no_step_and_no_patch(tmp_path, path):
+    """THE POINT OF #1901: an edit confined to the object stage (the pack
+    writer, the rebake) moves the object stage's own key — re-run over the
+    reused mesh — and neither a tile step's key nor the patch's, so no
+    terrain is re-solved and no mesh rebuilt."""
+    import O4_Object_Stage_Code as OBJCODE
+    from auto_patch import provenance_code
+    copy = _copy_sources(tmp_path / "src")
+    steps = STEPCODE.freeze_digests(str(copy))
+    patch = provenance_code.patch_freeze_digest(str(copy))
+    stage = CLOSURE.modules_digest(str(copy), OBJCODE.CODE_MODULES)
+    _append(copy.joinpath(*path))
+    assert STEPCODE.freeze_digests(str(copy)) == steps
+    assert provenance_code.patch_freeze_digest(str(copy)) == patch
+    assert CLOSURE.modules_digest(str(copy), OBJCODE.CODE_MODULES) != stage
+
+
 @pytest.mark.parametrize("step, module, path", [
-    ("mesh", "auto_patch.object_stage", ("auto_patch", "object_stage.py")),
+    ("mesh", "O4_Mesh_Utils", ("O4_Mesh_Utils.py",)),
     ("masks", "O4_Imagery_Utils", ("O4_Imagery_Utils.py",)),
 ])
 def test_an_edit_to_one_steps_own_code_moves_that_step_alone(
         tmp_path, step, module, path):
-    """The hub cuts (lane ``cloudstepcut``): the post-mesh object stage is
-    the mesh step's alone, the imagery module the masks step's alone — an
-    edit there re-runs that step and keeps the others."""
+    """The hub cuts (lane ``cloudstepcut``): the mesh module is the mesh
+    step's alone, the imagery module the masks step's alone — an edit
+    there re-runs that step and keeps the others.  (The post-mesh object
+    stage is keyed by itself since #1901: the test above.)"""
     owners = [s for s in STEPCODE.STEPS if module in STEPCODE.CODE_MODULES[s]]
     assert owners == [step], owners
     copy = _copy_sources(tmp_path / "src")

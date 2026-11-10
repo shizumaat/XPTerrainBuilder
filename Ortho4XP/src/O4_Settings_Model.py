@@ -183,9 +183,23 @@ _LAYOUT: list = [
          "Fills the white or black rectangles some providers leave over coastal water."),
         ("color_harmonization", "Even out imagery colors across the tile?", "tile", False,
          "Removes the patchwork of different photo dates and providers."),
-        # #1992 §7: the world switch (app-wide; P6 decides its default).
-        ("imagery_on_demand", "Fetch imagery on demand, worldwide?", "app", False,
+        # #1992 §7: the world switch (app-wide; ON by default, RULINGS
+        # 2026-11-10c (3)).
+        ("imagery_on_demand", "Fetch imagery on demand?", "app", False,
          "New builds get low-res imagery; full detail is fetched around the aircraft as you fly."),
+        # RULINGS 2026-11-10e (3): on demand region by region.
+        ("imagery_on_demand_europe", "On demand in Europe?", "app", False,
+         "simHeaven's X-World region; off, its new tiles build at full resolution."),
+        ("imagery_on_demand_america", "On demand in America?", "app", False,
+         "simHeaven's X-World region; off, its new tiles build at full resolution."),
+        ("imagery_on_demand_asia", "On demand in Asia?", "app", False,
+         "simHeaven's X-World region; off, its new tiles build at full resolution."),
+        ("imagery_on_demand_africa", "On demand in Africa?", "app", False,
+         "simHeaven's X-World region; off, its new tiles build at full resolution."),
+        ("imagery_on_demand_australia_oceania", "On demand in Australia-Oceania?", "app", False,
+         "simHeaven's X-World region; off, its new tiles build at full resolution."),
+        ("imagery_on_demand_antarctica", "On demand in Antarctica?", "app", False,
+         "simHeaven's X-World region; off, its new tiles build at full resolution."),
         ("airport_ortho_fade_width", "Airport ortho fade width (m)", "tile", True, ""),
         ("sea_texture_blur", "Sea texture blur (m)", "tile", True, ""),
         ("skip_downloads", "Skip imagery downloads", "app", True, ""),
@@ -309,9 +323,12 @@ _LAYOUT: list = [
         ("storage_auto_clean_days",
          "Delete cache files no build has used for how long?", "app", False,
          "Never keeps them. Built tiles and patches are never deleted."),
+        ("storage_budget_gb",
+         "How much disk space may XPTerrainBuilder use (GB)?", "app", False,
+         "More space keeps downloads and rebuild data, so tiles rebuild in "
+         "minutes."),
         ("imagery_on_demand_cap_gb",
-         "How much space may sharp imagery use (GB)?", "app", False,
-         "Over it, imagery flown near longest ago goes low-res again. Pinned tiles do not count."),
+         "How much space may sharp imagery use (GB)?", "app", True, ""),
         ("storage_cache_caps_gb", "Cache size limits (GB)", "app", True, ""),
     ]),
 ]
@@ -432,7 +449,8 @@ def _write_atomic_with_backup(path: str, data: dict,
 
     Parent directories are created as needed.  The new content is fully
     staged in a temporary file, an existing file at *path* is COPIED to
-    ``path + ".bak"``, and only then is the staged file moved into place
+    ``path + ".bak"`` (a tile config's backup goes with the tile's rebuild
+    data, ``O4_Config_Names.cfg_backup_path``), and only then is the staged file moved into place
     with :func:`os.replace`.
 
     THE BACKUP IS A COPY, NOT A RENAME (2026-09-13a): renaming the cfg
@@ -451,9 +469,10 @@ def _write_atomic_with_backup(path: str, data: dict,
     with open(tmp, "w", encoding=TEXT.WRITE_ENCODING, newline="\n") as f:
         for key, value in data.items():
             f.write(key + "=" + str(value) + "\n")
+    backup = CN.cfg_backup_path(path)
     if os.path.isfile(path) and not (keep_existing_backup
-                                     and os.path.isfile(path + ".bak")):
-        shutil.copy2(path, path + ".bak")
+                                     and os.path.isfile(backup)):
+        shutil.copy2(path, backup)
     os.replace(tmp, path)
 
 

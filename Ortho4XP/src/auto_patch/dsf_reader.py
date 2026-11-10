@@ -204,7 +204,7 @@ def ensure_dsf_text_path(dsf_path: str,
         where = os.path.join(FNAMES.Utils_dir, platform.system().lower())
         if raise_on_failure:
             from auto_patch_v2.airport.dsf import content_keyed_dump
-            from auto_patch_v2.airport.dsf_write import DsfToolError
+            from auto_patch_v2.airport.dsf_dump import DsfToolError
             cached = cache_dir and content_keyed_dump(cache_dir, dsf_path)
             if cached:
                 return cached
@@ -316,7 +316,7 @@ def ensure_dsf_text_path(dsf_path: str,
         # ``posix_spawn()``, never ``fork()`` — after GDAL has warped in
         # this process a forked child segfaults in PROJ's atfork handler
         # before ``exec``).
-        from auto_patch_v2.airport.dsf_write import DsfToolError, dump
+        from auto_patch_v2.airport.dsf_dump import DsfToolError, dump
         try:
             try:
                 os.makedirs(cache_dir, exist_ok=True)

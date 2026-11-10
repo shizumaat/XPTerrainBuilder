@@ -204,6 +204,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.pad_level_group",
         "auto_patch_v2.airport.partition_cache",
         "auto_patch_v2.airport.partition_code",
+        "auto_patch_v2.airport.pavement_end_plate",
         "auto_patch_v2.airport.placement_atom",
         "auto_patch_v2.airport.placement_body",
         "auto_patch_v2.airport.placement_boxes",
@@ -391,6 +392,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.pad_level_group",
         "auto_patch_v2.airport.partition_cache",
         "auto_patch_v2.airport.partition_code",
+        "auto_patch_v2.airport.pavement_end_plate",
         "auto_patch_v2.airport.placement_atom",
         "auto_patch_v2.airport.placement_body",
         "auto_patch_v2.airport.placement_boxes",
@@ -453,6 +455,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_mouth",
         "auto_patch_v2.airport.wall_sheets",
         "auto_patch_v2.airport.wall_sides",
+        "auto_patch_v2.airport.walled_pit",
         "auto_patch_v2.airport.walled_plate",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
@@ -742,6 +745,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.pad_level_group",
         "auto_patch_v2.airport.partition_cache",
         "auto_patch_v2.airport.partition_code",
+        "auto_patch_v2.airport.pavement_end_plate",
         "auto_patch_v2.airport.placement_atom",
         "auto_patch_v2.airport.placement_body",
         "auto_patch_v2.airport.placement_boxes",
@@ -893,6 +897,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.pad_level_group",
         "auto_patch_v2.airport.partition_cache",
         "auto_patch_v2.airport.partition_code",
+        "auto_patch_v2.airport.pavement_end_plate",
         "auto_patch_v2.airport.placement_atom",
         "auto_patch_v2.airport.placement_body",
         "auto_patch_v2.airport.placement_boxes",
@@ -1090,6 +1095,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.pad_level_group",
         "auto_patch_v2.airport.partition_cache",
         "auto_patch_v2.airport.partition_code",
+        "auto_patch_v2.airport.pavement_end_plate",
         "auto_patch_v2.airport.placement_atom",
         "auto_patch_v2.airport.placement_body",
         "auto_patch_v2.airport.placement_boxes",
@@ -1158,6 +1164,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.constraints",
+        "auto_patch_v2.constraints.airside_top",
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_shelf",
         "auto_patch_v2.constraints.assembly",
@@ -1444,6 +1451,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.flat_site constraints.geometry constraints.precedence model.airport
     """),
     "foot_rows": _mods(_GENERATOR_CORE + """
+    constraints.airside_top
         geom.exact
         constraints.apron constraints.cluster_pad constraints.foot_rows
         constraints.geometry constraints.pad_relief constraints.pad_warning
@@ -1702,6 +1710,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.strips model.airport model.end_area model.threshold_datum
     """),
     "structures": _mods(_GENERATOR_CORE + """
+    constraints.airside_top
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
@@ -1759,6 +1768,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    constraints.airside_top
     geom.runway_contact
     constraints.fill_bank
     constraints.object_floor geom.lowest_face
@@ -1850,6 +1860,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level
     model.stage_one
+    airport.pavement_end_plate
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped
     law.walled_plate_schema model.walled_plate
     constraints.deck_anchor
@@ -1910,6 +1921,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     model.registries model.structures model.threshold_datum
     geom.slope_pad
     geom.foot_planes constraints.group_level constraints.face_index
+    airport.pavement_end_plate
     airport.dem airport.walled_plate law.walled_plate_schema model.walled_plate
     constraints.taxi constraints.taxi_route_yield
 """)
@@ -1924,6 +1936,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    airport.walled_pit
     geom.runway_contact
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
@@ -2055,6 +2068,7 @@ CODE_MODULES["solve"] = _mods("""
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low
+    airport.pavement_end_plate
     airport.walled_plate law.walled_plate_schema model.stage_one model.walled_plate
     planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
     constraints.deck_anchor constraints.edge_floor
@@ -2064,6 +2078,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    airport.walled_pit constraints.airside_top
     geom.runway_contact
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
@@ -2212,6 +2227,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
+    airport.pavement_end_plate
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped law.walled_plate_schema
     model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads
     planar.reach_under_covers
@@ -2221,7 +2237,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["emit"] = _mods("""
-    geom.runway_contact
+    airport.walled_pit constraints.airside_top
+    geom.runway_contact airport.centreline_seat
     geom.station_runs airport.bridge_ground
     geom.shape_class
     airport.hanging_objects airport.object_cut airport.object_floor airport.wall_geometry
@@ -2317,6 +2334,7 @@ CODE_MODULES["emit"] = _mods("""
     model.road_yield pipeline.band_road_wall
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index
+    airport.pavement_end_plate
     airport.walled_plate law.walled_plate_schema model.walled_plate
     constraints.deck_anchor
     model.stage_one
@@ -2404,6 +2422,7 @@ CODE_MODULES["verify"] = _mods("""
     geom.slope_pad
     model.road_yield pipeline.band_road_wall
     geom.foot_planes constraints.group_level constraints.face_index
+    airport.pavement_end_plate
     airport.walled_plate law.walled_plate_schema model.walled_plate
     constraints.deck_anchor constraints.edge_floor
     constraints.deck_lines

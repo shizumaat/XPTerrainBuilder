@@ -340,6 +340,12 @@ class Tunnel:
     #: level piece is held at the face's top, the bank falls to the DEM
     #: (``constraints/entrance_skirt``); ``()`` otherwise
     entrance_skirt: tuple = ()
+    #: #1737: an ENTRANCE face's TOP -- ``(its top plan's rings, top y, top
+    #: y - bottom y)`` (``Portal.top_plan``): where airside pavement abuts the
+    #: plan, the top is flush with that pavement's SOLVED level, the floor that
+    #: level less the face's height and the face's zero that level less its top
+    #: y (``constraints/airside_top``); ``()`` for every other mouth
+    entrance_top: tuple = ()
     #: owner RULINGS 2026-10-27l / 2026-10-28d: the BACK line of the edge
     #: bridge that pinned this trench (``planar/bridge_span``), or ``()`` —
     #: a terrain deck over it is level with the airside abeam

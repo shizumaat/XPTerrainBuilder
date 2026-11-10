@@ -34,8 +34,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -49,7 +47,8 @@ import O4_File_Names as FNAMES
 import O4_Imagery_OnDemand_Convert as CONVERT
 import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Path_Exchange as EXCHANGE
-import O4_UI_Utils as UI  # posix_spawn launches, never fork
+
+from .xplane_root import xplane_running as _xplane_running
 
 __all__ = ["WORK_DIR_NAME", "convert", "converted_tiles", "dry_run",
            "imagery_ondemand_convert", "revert"]
@@ -107,21 +106,6 @@ def _entries(custom_scenery_dir: str, names=None) -> "list[_Entry]":
         found.append(_Entry(item.name, item.path, key[0], key[1], kind,
                            source, item.name in enabled))
     return found
-
-
-def _xplane_running() -> bool:
-    """Is an X-Plane process running on this machine (best effort: macOS
-    and Linux process names; ``False`` where it cannot tell)?"""
-    if sys.platform == "win32":
-        return False
-    for name in ("X-Plane", "X-Plane-x86_64", "X-Plane-arm64"):
-        with contextlib.suppress(OSError):
-            done = subprocess.run(["pgrep", "-x", name], capture_output=True,
-                                  check=False,
-                                  **UI.external_tool_keyword_arguments())
-            if done.returncode == 0:
-                return True
-    return False
 
 
 # ----------------------------------------------------------------- dry run

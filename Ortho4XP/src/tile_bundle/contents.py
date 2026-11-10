@@ -91,4 +91,9 @@ def destination(tile, name: str) -> str:
     if root is None:
         raise ValueError("bundle member %r is outside build/, patches/, "
                          "masks/" % name)
+    import O4_Rebuild_Cache as REBUILD
+    if folder == "build" and REBUILD.is_rebuild_name(base, tile.lat, tile.lon):
+        # The mesh and the airports go with the rebuild data (RULINGS
+        # 2026-11-10d).
+        return FNAMES.rebuild_path(tile.build_dir, tile.lat, tile.lon, base)
     return os.path.join(root, base)

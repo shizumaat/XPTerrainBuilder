@@ -365,6 +365,13 @@
    "evidence": "licence-named",
    "summary": "US federal work (NOAA): public domain, no use restriction."
   },
+  "NPOLARS0": {
+   "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+   "attribution": "Norwegian Polar Institute, S0 Terrain model Svalbard (doi:10.21334/npolar.2014.dce53a47)",
+   "terms": "https://creativecommons.org/licenses/by/4.0/",
+   "evidence": "read",
+   "summary": "CC BY 4.0 (the _Lisens_License.txt in every S0 zip, read 2026-11-10): any use, the Norwegian Polar Institute must be credited."
+  },
   "NORWAY1M": {
    "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
    "attribution": "Kartverket, Nasjonal hoydemodell",

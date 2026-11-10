@@ -29,11 +29,13 @@ SAFETY, the rules the apps rely on:
 
 ON-DEMAND IMAGERY (#1992 spec §6.3): the ``ondemand`` store is the sharp
 imagery the follow job fetched (counted from the on-demand index, not by
-walking a folder); clearing it DOWNGRADES every unpinned texture to its
-placeholder (``o4_engine.imagery_downgrade``), it never deletes a texture
-name; its row carries the pinned tiles as a second line (outside the
-cap), and the automatic cleanup holds its own cap
-(``imagery_on_demand_cap_gb``).  The ``imagery`` and ``dds`` caches never
+walking a folder); clearing it DOWNGRADES every texture but the
+favorites to its placeholder (``o4_engine.imagery_downgrade``), it never
+deletes a texture name; its row carries the favorites as a second line
+(inside the budget, RULINGS 2026-11-10c (2)) and the budget's floor, and
+the automatic cleanup holds the ortho budget
+(``imagery_on_demand_cap_gb``; favorites made low-res last).  The
+``imagery`` and ``dds`` caches never
 delete the source or the entry of a texture the index marks upgraded or
 pinned.
 
@@ -54,7 +56,7 @@ import O4_Disk_Usage as DISK
 import O4_File_Names as FNAMES
 
 __all__ = ["CACHE", "KEPT", "STORES", "AUTO_CLEAN_DAYS", "CAPS_SETTING",
-           "ONDEMAND", "storage_scan", "storage_clear", "storage_auto_clean",
+           "ONDEMAND", "REBUILD", "storage_scan", "storage_clear", "storage_auto_clean",
            "parse_caps", "write_log", "COMMANDS", "REFUSED_WHILE_BUILDING"]
 
 #: a store the user may clear: the next build downloads or rebuilds it
@@ -68,6 +70,8 @@ CAPS_SETTING = "storage_cache_caps_gb"
 
 #: the on-demand imagery store's kind (#1992)
 ONDEMAND = "ondemand"
+#: the per-tile rebuild data store's kind (RULINGS 2026-11-10d (4))
+REBUILD = "rebuild"
 
 #: a file written this recently may be a download or a write in flight
 IN_FLIGHT_SECONDS = 3600.0
@@ -78,6 +82,10 @@ LOG_NAME = "storage.log"
 
 _PROTECTED_SUFFIXES = (".cfg", ".cfg.bak", ".anchor_bak", ".lock",
                        ".patch.osm", ".account.json", ".cookies.txt")
+#: The rebuild data store keeps a tile's ``.cfg.bak`` with its mesh: it is
+#: rebuild data, cleared with it (RULINGS 2026-11-10d (4)).
+_REBUILD_PROTECTED_SUFFIXES = tuple(s for s in _PROTECTED_SUFFIXES
+                                    if s != ".cfg.bak")
 
 
 @dataclass(frozen=True)
@@ -125,8 +133,8 @@ STORES: tuple = (
           DDSC.cache_root),
     Store(ONDEMAND, "Sharp imagery near flown areas", CACHE,
           "Made low-res again, never deleted: sharp imagery is fetched "
-          "again when you fly near. Pinned tiles are not counted and "
-          "never made low-res.", _ondemand_dir),
+          "again when you fly near. Favorites count too and are made "
+          "low-res last; \"Make all low-res again\" keeps them.", _ondemand_dir),
     Store("elevation", "Elevation and airport insets", CACHE,
           "Elevation" + _AGAIN, lambda: FNAMES.Elevation_dir),
     Store("osm_extracts", "Regional map extracts", CACHE,
@@ -150,6 +158,12 @@ STORES: tuple = (
           "Working files of finished builds.", lambda: FNAMES.Tmp_dir),
     Store("logs", "Logs", CACHE,
           "Build logs; a problem report needs the recent ones.", _logs_dir),
+    # Per-tile rebuild data (RULINGS 2026-11-10d (4)): last in the clear
+    # order of 10d (3) -- it is what makes a rebuild take minutes.
+    Store(REBUILD, "Rebuild data", CACHE,
+          "The meshes and elevation grids of built tiles: a tile without "
+          "them rebuilds from its map and elevation data, which takes "
+          "longer. X-Plane never reads them.", FNAMES.rebuild_root),
     Store("tiles", "Built tiles", KEPT,
           "Your scenery. Delete tiles in the Library.",
           lambda: FNAMES.Tile_dir),
@@ -189,8 +203,10 @@ def _deletable(store: Store, name: str, st: os.stat_result,
     """A file of a CACHE store that is no config, backup, patch, lock or
     log, and was not written in the last hour (the folder-lock test is
     the caller's)."""
+    protected = (_REBUILD_PROTECTED_SUFFIXES if store.kind == REBUILD
+                 else _PROTECTED_SUFFIXES)
     return (store.policy == CACHE
-            and not name.endswith(_PROTECTED_SUFFIXES)
+            and not name.endswith(protected)
             and name != LOG_NAME
             and now - st.st_mtime >= IN_FLIGHT_SECONDS)
 
@@ -242,27 +258,36 @@ def _files(store: Store, now: float):
 
 
 def _measure_ondemand(store: Store) -> dict:
-    """The ``ondemand`` row from the index: the counted (upgraded,
-    unpinned) bytes, plus the pins line and the airport-core rows."""
+    """The ``ondemand`` row from the index: the sharp bytes in the ortho
+    budget (favorites included, RULINGS 2026-11-10c (2)), the favorites
+    line and the airport-core rows, and the budget's floor: what the
+    on-demand tiles hold even low-res (``over_at_floor``: more than the
+    budget, the apps warn)."""
     import O4_Imagery_OnDemand_Index as INDEX
+
+    from . import imagery_downgrade as DOWNGRADE
     row = {"kind": store.kind, "label": store.label, "policy": store.policy,
            "note": store.note, "path": store.path(), "bytes": 0,
            "apparent_bytes": 0, "files": 0, "last_used": None,
-           "pinned_bytes": 0, "pinned_files": 0, "core_files": 0}
+           "pinned_bytes": 0, "pinned_files": 0, "core_files": 0,
+           "floor_bytes": 0, "cap_bytes": DOWNGRADE.cap_bytes(),
+           "over_at_floor": False}
     conn = _ondemand_index()
     if conn is None:
         return row
     try:
         upgraded = INDEX.rows(conn, state="upgraded")
-        counted = [r for r in upgraded if not r["pinned"]]
-        near = [r["last_near_at"] for r in counted if r["last_near_at"]]
+        near = [r["last_near_at"] for r in upgraded if r["last_near_at"]]
+        budget = DOWNGRADE.budget(conn)
         row.update(
             bytes=INDEX.capped_bytes(conn), apparent_bytes=sum(
                 int(r["full_bytes"] or 0) for r in upgraded),
-            files=len(counted), last_used=max(near) if near else None,
+            files=len(upgraded), last_used=max(near) if near else None,
             pinned_bytes=INDEX.pinned_bytes(conn),
-            pinned_files=len(upgraded) - len(counted),
-            core_files=sum(1 for r in counted if r["core"]))
+            pinned_files=sum(1 for r in upgraded if r["pinned"]),
+            core_files=sum(1 for r in upgraded if r["core"] and not r["pinned"]),
+            floor_bytes=budget.fixed, cap_bytes=budget.cap,
+            over_at_floor=budget.over_at_floor)
     finally:
         conn.close()
     return row
@@ -410,19 +435,24 @@ def _clear_ondemand(store: Store, cutoff: float | None,
         conn.close()
 
 
-def _hold_ondemand_cap(sweep: _Sweep, now: float) -> None:
+def _hold_ondemand_cap(sweep: _Sweep, now: float) -> "dict | None":
     """The automatic cleanup's on-demand cap (``imagery_on_demand_cap_gb``:
-    over the cap, made low-res to 90 % of it).  A dry run sizes nothing
-    here: what a sweep frees depends on the camera."""
+    over the cap, made low-res to 90 % of it); its ``{"over_at_floor",
+    "floor_bytes", "cap_bytes"}`` (the apps warn when the tiles do not fit
+    it even low-res).  A dry run sizes nothing here: what a sweep frees
+    depends on the camera."""
     from . import imagery_downgrade as DOWNGRADE
     if sweep.dry_run:
-        return
+        return None
     conn = _ondemand_index()
     if conn is None:
-        return
+        return None
     try:
-        sweep.downgraded(_BY_KIND[ONDEMAND], DOWNGRADE.sweep(
-            conn, DOWNGRADE.cap_bytes(), now=now, abort=sweep.abort))
+        result = DOWNGRADE.sweep(conn, DOWNGRADE.budget(conn), now=now,
+                                 abort=sweep.abort)
+        sweep.downgraded(_BY_KIND[ONDEMAND], result)
+        return {key: result[key] for key in
+                ("over_at_floor", "floor_bytes", "cap_bytes")}
     finally:
         conn.close()
 
@@ -451,24 +481,37 @@ def _clear_store(store: Store, cutoff: float | None, sweep: _Sweep,
         _prune_empty_dirs(store.path())
 
 
+def _evict_oldest(stores, over_by: int, sweep: _Sweep, now: float) -> int:
+    """Delete the deletable files of ``stores`` together, least recently
+    used first, until ``over_by`` bytes are freed; the bytes freed.  A
+    protected file is never evicted (the ONDEMAND store has no files:
+    it is made low-res, ``imagery_downgrade``)."""
+    rows = [(store, path, st) for store in stores if store.kind != ONDEMAND
+            for path, st, deletable in _files(store, now) if deletable]
+    rows.sort(key=lambda row: _last_used(row[2]))
+    freed = 0
+    for store, path, st in rows:
+        if freed >= over_by:
+            break
+        if sweep.abort():
+            sweep.stopped = True
+            break
+        freed += sweep.delete(store, path, st)
+    if not sweep.dry_run:
+        for store in stores:
+            _prune_empty_dirs(store.path())
+    return freed
+
+
 def _evict_to_cap(store: Store, cap: int, sweep: _Sweep, now: float) -> None:
     """Least recently used first until what the store holds is at most
     ``cap`` bytes; a protected file counts but is never evicted."""
     if store.kind == ONDEMAND:
         return              # its cap is imagery_on_demand_cap_gb
-    rows = list(_files(store, now))
-    total = sum(DISK.freeable_bytes(path, st) for path, st, _d in rows)
-    oldest_first = sorted((row for row in rows if row[2]),
-                          key=lambda row: _last_used(row[1]))
-    for path, st, _deletable in oldest_first:
-        if total <= cap:
-            break
-        if sweep.abort():
-            sweep.stopped = True
-            break
-        total -= sweep.delete(store, path, st)
-    if not sweep.dry_run:
-        _prune_empty_dirs(store.path())
+    total = sum(DISK.freeable_bytes(path, st)
+                for path, st, _d in _files(store, now))
+    if total > cap:
+        _evict_oldest([store], total - cap, sweep, now)
 
 
 def _remove_redundant(sweep: _Sweep, now: float) -> None:
@@ -538,14 +581,20 @@ def storage_scan() -> dict:
     apparent bytes, file count and last use (epoch seconds, None when
     empty), plus the two automatic-cleanup settings.
 
-    :returns: ``{"root", "stores": [row, ...], "cache_bytes",
-        "kept_bytes", "measured", "auto_clean_days", "caps"}``
+    :returns: ``{"root", "stores": [row, ...], "budget"
+        (``storage_budget.status``), "installed"
+        (``storage_installed.installed_tiles``), "cache_bytes", "kept_bytes",
+        "measured", "auto_clean_days", "caps"}``
     """
+    from . import storage_budget as TOTAL
+    from . import storage_installed as INSTALLED
+    from .storage_redundant import _custom_scenery_dir
     now = time.time()
     rows = [_measure(store, now) for store in STORES]
     days, caps = _settings()
     root = FNAMES.current_data_root()
-    return {"root": root, "stores": rows,
+    return {"root": root, "stores": rows, "budget": TOTAL.status(rows),
+            "installed": INSTALLED.installed_tiles(_custom_scenery_dir()),
             "cache_bytes": sum(r["bytes"] for r in rows if r["policy"] == CACHE),
             "kept_bytes": sum(r["bytes"] for r in rows if r["policy"] == KEPT),
             "measured": ("private" if DISK.private_bytes(root) is not None
@@ -588,10 +637,16 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
     (``storage_cache_caps_gb``) evicted least recently used first, then,
     whatever the settings, the files nothing needs any more
     (``o4_engine.storage_redundant``: texture-cache copies of what built
-    tiles hold, caches of airport packs no longer installed).
+    tiles hold, caches of airport packs no longer installed), then the
+    one disk budget (``storage_budget.hold``; when it is not set, the
+    sharp imagery's own limit).
 
     :returns: :func:`storage_clear`'s reply plus ``"ran"`` (False when both
-        settings are off and nothing was redundant)
+        settings are off and nothing was redundant), ``"budget"``
+        (``storage_budget.status`` when the budget is set) and
+        ``"ondemand_floor"`` (when it is not; ``_hold_ondemand_cap``) --
+        what the apps' after-build warning reads
+        (``O4_Storage_Text.cleanup_warning``)
     """
     set_days, set_caps = _settings()
     days = set_days if days is None else float(days)
@@ -608,10 +663,17 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
             break
         _evict_to_cap(_BY_KIND[kind], int(cap), sweep, now)
     if not sweep.stopped:
-        _hold_ondemand_cap(sweep, now)
-    if not sweep.stopped:
         _remove_redundant(sweep, now)
+    budget = ondemand = None
+    if not sweep.stopped:
+        # The one disk budget (RULINGS 2026-11-10d), else the sharp
+        # imagery's own limit.
+        from . import storage_budget as TOTAL
+        budget = TOTAL.hold(sweep, now)
+        if budget is None:
+            ondemand = _hold_ondemand_cap(sweep, now)
     out = sweep.result()
+    out["budget"], out["ondemand_floor"] = budget, ondemand
     out["ran"] = bool(days > 0 or caps or out["files"])
     return out
 

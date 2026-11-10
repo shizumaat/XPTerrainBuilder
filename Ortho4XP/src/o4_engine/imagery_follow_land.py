@@ -34,11 +34,13 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
 import threading
 
 import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
 import O4_Disk_Usage as DISK
+import O4_Imagery_OnDemand_Index as INDEX
 from O4_Imagery_Tier_Plan import TIER_WIDTH
 
 __all__ = ["TierLander"]
@@ -106,7 +108,7 @@ class TierLander:
     def __call__(self, row: dict, tier: int) -> dict:
         import O4_DDS_Cache as DDSCACHE
         import O4_Imagery_Utils as IMG
-        final = os.path.join(row["build_dir"], "textures", row["name"])
+        final = INDEX.texture_path(row)
         width = TIER_WIDTH[int(tier)]
         if _land_from_source(row.get("source_path"), final, width):
             return _facts(final, width, None, None, False)
@@ -123,7 +125,25 @@ class TierLander:
             raise RuntimeError(f"{row['name']}: the {width} px imagery did "
                              "not download")
         IMG.convert_texture(tile, *attrs, drop=drop)
+        _mirror(os.path.join(row["build_dir"], "textures", row["name"]), final)
         return _facts(final, width, jpeg, None, not cached)
+
+
+def _mirror(built: str, final: str) -> None:
+    """The texture the converter wrote in the build folder, put over
+    ``final`` when the row's textures live elsewhere (a World-pack tile,
+    spec §7.3): hard-linked (copied across volumes) beside it and renamed
+    over it in one step."""
+    if os.path.abspath(built) == os.path.abspath(final):
+        return
+    partial = final + ".landing"
+    with contextlib.suppress(OSError):
+        os.remove(partial)
+    try:
+        os.link(built, partial)
+    except OSError:
+        shutil.copy2(built, partial)
+    os.replace(partial, final)
 
 
 def _land_from_source(source, final: str, width: int) -> bool:

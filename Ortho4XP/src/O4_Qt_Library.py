@@ -1,5 +1,6 @@
-"""The Library window (#824): every built tile with its size, zoom level,
-imagery source, built date, graded airports, modified packs and the
+"""Library mode's tiles section (#824; a window until RULINGS 2026-11-10j
+moved it into the Library pane, ``O4_Qt_Modes.LibraryPane``): every built
+tile with its size, zoom level, imagery source, built date, graded airports, modified packs and the
 "In X-Plane" switch, plus the disk panel (tiles total and each download
 cache, each with "Free space…").
 
@@ -13,7 +14,8 @@ never rebuilt or deleted.  Deleting and freeing space ask first.
 to another installation (#1699 phase 1, ``tile_bundle``; the Mac app's
 Library has the same two buttons).  The "Patch library" box and "Publish
 patch…" are the shared patch library (#1699 phase 2,
-``O4_Qt_Patch_Library``; the Mac app's ``PatchLibraryView``).
+``O4_Qt_Patch_Library``; the Mac app's ``PatchLibraryView``); the pane
+places the box (it is a section of its own there).
 """
 
 import threading
@@ -27,7 +29,6 @@ from o4_engine import library as LIB
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QDialog,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -41,6 +42,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 from tile_bundle.export import BUNDLE_SUFFIX
 
@@ -123,7 +125,7 @@ class _Item(QTableWidgetItem):
             return super().__lt__(other)
 
 
-class LibraryDialog(QDialog):
+class LibraryTilesSection(QWidget):
     """What is built, and how much space it and the caches take."""
 
     loaded = Signal(object)
@@ -133,8 +135,6 @@ class LibraryDialog(QDialog):
     def __init__(self, parent, working_dir, scenery_dir, building=lambda: False,
                  on_rebuild=None, on_changed=None, restore_pack=None):
         super().__init__(parent)
-        self.setWindowTitle("Library")
-        self.resize(980, 560)
         self.working_dir = working_dir
         self.scenery_dir = scenery_dir
         self._building = building
@@ -167,12 +167,13 @@ class LibraryDialog(QDialog):
         self.table.setSortingEnabled(True)
         self.table.itemSelectionChanged.connect(self._sync_buttons)
         self.table.itemChanged.connect(self._on_item_changed)
-        # The tile's menu (#1992 §7): its pin, as the Mac Library's.
+        # The tile's menu (#1992 §7): its Favorite, as the Mac Library's.
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._tile_menu)
         layout.addWidget(self.table, 1)
 
-        actions = QHBoxLayout()
+        # Three buttons a row: the section lives in the side pane.
+        actions = QGridLayout()
         self.install_btn = QPushButton("Install")
         self.install_btn.clicked.connect(lambda: self._set_installed(True))
         self.uninstall_btn = QPushButton("Uninstall")
@@ -203,17 +204,18 @@ class LibraryDialog(QDialog):
         self.pin_btn = QPushButton(ONDEMAND_TEXT.PIN_TITLE)
         self.pin_btn.setToolTip(ONDEMAND_TEXT.PIN_HELP)
         self.pin_btn.clicked.connect(self._toggle_pin)
-        for button in (self.install_btn, self.uninstall_btn, self.rebuild_btn,
-                       self.delete_btn, self.restore_btn, self.export_btn,
-                       self.import_btn, self.publish_btn, self.pin_btn):
-            actions.addWidget(button)
-        actions.addStretch(1)
-        self.status_label = QLabel("")
-        actions.addWidget(self.status_label)
+        for index, button in enumerate((
+                self.install_btn, self.uninstall_btn, self.rebuild_btn,
+                self.delete_btn, self.restore_btn, self.export_btn,
+                self.import_btn, self.publish_btn, self.pin_btn)):
+            actions.addWidget(button, index // 3, index % 3)
         layout.addLayout(actions)
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
 
+        # Not laid out here: the Library pane places it as its own section.
         self.patch_box = PATCHLIB.PatchLibraryBox(working_dir, building)
-        layout.addWidget(self.patch_box)
 
         disk = QGroupBox("Disk")
         self.disk_grid = QGridLayout(disk)
@@ -360,8 +362,8 @@ class LibraryDialog(QDialog):
         row = self._pin_target()
         if row is None:
             return
-        self.status_label.setText("Pinning…" if not row.get("pinned")
-                                  else "Unpinning…")
+        self.status_label.setText("Adding to Favorites…" if not row.get("pinned")
+                                  else "Removing from Favorites…")
         QTONDEMAND.pin_tile(row["lat"], row["lon"], not row.get("pinned"),
                             self.pinned, busy=self._building,
                             working_dir=self.working_dir)

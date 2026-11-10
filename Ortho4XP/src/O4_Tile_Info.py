@@ -164,13 +164,15 @@ def _parse_cfg(
     return provider, zl, has_zones, custom_dem, high_zl_airports, cover_zl
 
 
-def _mesh_date(build_dir: str) -> Optional[float]:
-    """Newest mtime among the tile's ``.dsf`` and ``Data*.mesh`` files."""
+def _mesh_date(build_dir: str, lat: int, lon: int) -> Optional[float]:
+    """Newest mtime among the tile's ``.dsf`` and ``Data*.mesh`` files
+    (the mesh in the tile's rebuild cache, or the folder's own)."""
     candidates = glob.glob(
         os.path.join(build_dir, "Earth nav data", "**", "*.dsf"),
         recursive=True,
     )
     candidates += glob.glob(os.path.join(build_dir, "Data*.mesh"))
+    candidates.append(FNAMES.mesh_file(build_dir, lat, lon))
     mtimes = []
     for path in candidates:
         try:
@@ -268,9 +270,7 @@ def built_here(build_dir: str, lat: int, lon: int,
     if ((last_build or {}).get("builder") or {}).get("tool") == \
             TILELOG.BUILDER_TOOL:
         return True
-    short = FNAMES.short_latlon(lat, lon)
-    if os.path.isfile(os.path.join(build_dir,
-                                   "Ortho4XP_" + short + "_steps.json")):
+    if os.path.isfile(FNAMES.step_record_file(build_dir, lat, lon)):
         return True
     import O4_Cfg_Vars as CFGVARS
     try:
@@ -333,7 +333,7 @@ def _build_tile_info(
         custom_dem=custom_dem,
         detected_provider=detected_provider,
         detected_zl=detected_zl,
-        mesh_date=_mesh_date(build_dir),
+        mesh_date=_mesh_date(build_dir, lat, lon),
         imagery_date=_imagery_date(build_dir),
         size_bytes=None,
         last_build=last_build,

@@ -75,6 +75,7 @@ struct MapCanvasView: View {
             }
             .overlay { PatchOverlay(model: buildModel.patchEdit, camera: camera) }
             .overlay { FlightRouteOverlay(model: buildModel.flightPlan, camera: camera) }
+            .overlay { FlyMapOverlay(model: buildModel.fly, modes: buildModel.appMode, camera: camera) }
             .background(Self.ocean)
             .gesture(pan(size: proxy.size))
             .gesture(tileSelect(size: proxy.size))
@@ -476,6 +477,16 @@ struct MapCanvasView: View {
                         .font(.system(size: s))
                         .foregroundStyle(.yellow),
                     at: CGPoint(x: r.maxX - s * 0.7, y: r.minY + s * 0.7))
+            }
+            // A favorite (#1992, RULINGS 2026-11-10c (1)): a yellow star,
+            // bottom-right (Qt: O4_Qt_Map_Favorite.draw_star).
+            if info.pinned == true, r.width > 14 {
+                let s = min(max(r.width * 0.16, 11), 20)
+                context.draw(
+                    Text(Image(systemName: "star.fill"))
+                        .font(.system(size: s))
+                        .foregroundStyle(.yellow),
+                    at: CGPoint(x: r.maxX - s * 0.7, y: r.maxY - s * 0.7))
             }
         }
 

@@ -72,7 +72,8 @@ __all__ = ["State", "Verdict", "BackupUnproven", "OWNERSHIP_PROPERTY",
            "classify_dsf", "classify_object", "adopt", "carries_our_mark",
            "backup_matches_record", "read_record", "dsf_entry",
            "update_dsf_entry", "record_path_for", "preserve_live_copy",
-           "stamp", "invalidate_memo", "drop_dsf_entry", "restore_record"]
+           "stamp", "invalidate_memo", "drop_dsf_entry", "restore_record",
+           "pristine_dsf_path"]
 
 #: The in-band ownership mark ``edit_dump`` writes into every DSF this
 #: engine encodes.  MEASURED 2026-09-18 on a real pack DSF (TFFJ
@@ -711,3 +712,27 @@ def adopt(v: Verdict, *, now: datetime | None = None) -> str:
         os.replace(tmp, v.backup)
     invalidate_memo()
     return superseded
+
+
+def pristine_dsf_path(dsf_path: str) -> str:
+    """THE ONE READ FRAME of the object stage (RULINGS 2026-09-11m), now
+    the ONE RULE's answer (§12a (3) row 1).
+
+    ``<dsf>.anchor_bak`` when one is there AND still belongs to the pack
+    on disk, else the live file.  Once ``dsf_write.write_pack`` has run, the
+    live DSF carries the bodies this stage minted and the backup beside
+    it is the pack as installed; a plan derived from the LIVE file names
+    placements (``dsf:obj3021`` …) that the write half — which dumps the
+    backup — cannot find, and ``edit_dump`` refuses.  EVERY object-stage
+    read resolves through here, so a second build over a written pack
+    plans exactly what the first one planned.
+
+    WHAT §12a CHANGED: a pack the user updated IN PLACE leaves our OLD
+    backup behind, and the backup is then not the pack at all.
+    ``backup_state.classify_dsf`` decides, and this returns its
+    ``read_path`` — so the plan, the footprints, the partition-cache key
+    and the freshness identity all describe the pack that is INSTALLED.
+
+    A path that already IS a backup is returned unchanged (never
+    ``.anchor_bak.anchor_bak``)."""
+    return classify_dsf(dsf_path).read_path

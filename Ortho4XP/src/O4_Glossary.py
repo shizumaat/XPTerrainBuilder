@@ -46,6 +46,25 @@ TERMS = {
     # The build zoom's row in Settings ▸ Imagery (#1985): "Detail" alone
     # now names the airport Detail choice in General.
     "imagery_detail": "Imagery detail",
+    # A tile kept at full resolution (RULINGS 2026-11-10c (1): "pin"
+    # renamed Favorite; the engine wire keeps ``pinned``).
+    "favorite": "Favorite",
+    # The one disk budget (RULINGS 2026-11-10d).
+    "disk_budget": "How much disk space may XPTerrainBuilder use (GB)?",
+    "installed_tiles": "Installed ortho tiles",
+    # Settings ▸ Imagery's per-region switch (RULINGS 2026-11-10e (3)):
+    # one of simHeaven's X-World regions.
+    "ondemand_region": "On demand in {region}?",
+    # The three app modes (RULINGS 2026-11-10j): the map toolbar's
+    # segmented control and the side pane each one shows.
+    "mode_build": "Build",
+    "mode_fly": "Fly",
+    "mode_library": "Library",
+    # Fly mode (spec flight-manager-and-world §14, #2001): the map's
+    # checkbox for each square's installed imagery, and the legend's word
+    # for a tile we have not built (never "placeholder").
+    "live_flight_preview": "Live flight preview",
+    "xplane_own_scenery": "X-Plane's own scenery",
 }
 
 # key -> the words it retires as a PRIMARY label (titles, buttons, toggles,
@@ -68,6 +87,7 @@ RETIRED = {
     "airport_elevation": ("Airport lidar insets",),
     "elevation_source": ("Custom elevation data (DEM)",),
     "map_data_server": ("Overpass server",),
+    "favorite": ("Always keep full resolution", "Let it go low-res again"),
 }
 
 # Bare technical words a Settings row OUTSIDE Expert may not use in its

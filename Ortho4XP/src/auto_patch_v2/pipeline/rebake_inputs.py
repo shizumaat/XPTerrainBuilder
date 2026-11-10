@@ -333,6 +333,7 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     # issue #1730: a terrain-shaped hard deck's row is seated at its DEM fit
     from ..airport import object_floor as _of
     from ..airport import terrain_shaped as _ts
+    from ..constraints.airside_top import solved_entrance_zeros
     floors = tuple(getattr(pm, "object_floors", ()) or ())
     # #1903: a trench object's floor and its frame are written whole at
     # their read zero — no other seat moves them (a deck of the frame the
@@ -347,8 +348,9 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
         "tunnel_objects": _plate_seats(pm, law, seats),
         "authored_seats": (tuple(seats[k] for k in sorted(seats))
                            + tuple(_ts.seat_records(airport))
-                           + tuple(_ts.portal_seat_records(pm.structures,
-                                                           airport.frame.transformers()[1]))
+                           + tuple(_ts.portal_seat_records(
+                               pm.structures, airport.frame.transformers()[1],
+                               zeros=solved_entrance_zeros(pm, law, surf, _to_xy)))
                            + tuple(floor_seats) + tuple(adapted)),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],

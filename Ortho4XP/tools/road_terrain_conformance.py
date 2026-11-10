@@ -87,7 +87,7 @@ THREE MODES, the same reading:
 
     # CORE-OWNED ROADS — the clamp pass's own population
     venv/bin/python tools/road_terrain_conformance.py \
-        --levelled-roads Tiles/zOrtho4XP_+40-004/o4_levelled_roads.json \
+        --levelled-roads Rebuild_cache/zOrtho4XP_+40-004/o4_levelled_roads.json \
         [--rank] [--site hillA=...] [--profile] [--json OUT]
 """
 

@@ -1,0 +1,94 @@
+{
+ "_comment": "SYNTHETIC (spec U7): the JSON form (&json=1) of simbrief_ofp_full.xml; values invented, field names SimBrief's.",
+ "fetch": {
+  "userid": "123456",
+  "static_id": "",
+  "status": "Success",
+  "time": "0.0123"
+ },
+ "general": {
+  "icao_airline": "XXX",
+  "flight_number": "1",
+  "cruise_profile": "LRC",
+  "initial_altitude": "24000",
+  "cruise_tas": "280",
+  "cruise_mach": "0.46",
+  "route_distance": "250",
+  "air_distance": "255"
+ },
+ "origin": {
+  "icao_code": "ENGM",
+  "iata_code": "OSL",
+  "elevation": "681",
+  "pos_lat": "60.193917",
+  "pos_long": "11.100361"
+ },
+ "destination": {
+  "icao_code": "ENBR",
+  "iata_code": "BGO",
+  "elevation": "170",
+  "pos_lat": "60.293386",
+  "pos_long": "5.218142"
+ },
+ "alternate": [
+  {
+   "icao_code": "ENZV",
+   "iata_code": "SVG",
+   "elevation": "29",
+   "pos_lat": "58.876700",
+   "pos_long": "5.637780"
+  },
+  {
+   "icao_code": "ENHD",
+   "pos_lat": "59.345300",
+   "pos_long": "5.208360"
+  }
+ ],
+ "times": {
+  "est_time_enroute": "3300",
+  "sched_time_enroute": "3600",
+  "taxi_out": "600",
+  "taxi_in": "300"
+ },
+ "navlog": {
+  "fix": [
+   {
+    "ident": "TOC",
+    "name": "TOP OF CLIMB",
+    "type": "ltlg",
+    "stage": "CLB",
+    "pos_lat": "60.300000",
+    "pos_long": "9.800000",
+    "altitude_feet": "24000",
+    "true_airspeed": "280",
+    "groundspeed": "265",
+    "time_leg": "900",
+    "time_total": "900"
+   },
+   {
+    "ident": "TOD",
+    "name": "TOP OF DESCENT",
+    "type": "ltlg",
+    "stage": "CRZ",
+    "pos_lat": "60.350000",
+    "pos_long": "6.500000",
+    "altitude_feet": "24000",
+    "true_airspeed": "280",
+    "groundspeed": "290",
+    "time_leg": "1500",
+    "time_total": "2400"
+   },
+   {
+    "ident": "ENBR",
+    "name": "BERGEN",
+    "type": "apt",
+    "stage": "DSC",
+    "pos_lat": "60.293386",
+    "pos_long": "5.218142",
+    "altitude_feet": "170",
+    "time_leg": "900",
+    "time_total": "3300"
+   }
+  ]
+ }
+}

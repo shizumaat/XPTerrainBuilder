@@ -44,6 +44,7 @@ from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
                                _clusters, _contacts_of, _median,
                                bodies_of_plan, cluster_plane, pad_plurality,
                                union_area_m2)
+from .open_frame_seat import WALLED_SRC, walled_unit_zero
 # §16g (3)/(11) THE UNIT CARRY AND THE UNIT'S CONTENTS live in
 # ``footprint_carry`` (issue #303: this file passed the 1,500-line split
 # point again); re-exported here, the names every caller and test reads.
@@ -858,11 +859,18 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     pad_read: dict[str, bool] = {}
     adapted = frozenset(getattr(plan, "adapted_frame_pids", ()) or ())
     adapted_memo: dict[str, "float | None"] = {}
+    member_of = {p.pid: m for u in plan.units for m in u.members for p in m.parts}
     from .adapted_riders import authored_zeros
     authored = authored_zeros(getattr(plan, "authored_seats", ()) or ())
     for un in units:
         zero: float | None = None
         where = src = ""
+        # #1977: a unit holding a runway-end walled plate rides the plate
+        wz = walled_unit_zero({id(member_of[q]): member_of[q] for q in un.pids
+                               if q in member_of}.values(), surface)
+        if wz is not None:
+            out[un.id] = (wz, "", WALLED_SRC)
+            continue
         if adapted:
             # #1726: a unit touching a TERRAIN-ADAPTED member of its own
             # frame (never re-seated) takes that member's zero
@@ -1563,7 +1571,8 @@ def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
                else (f"deck {where}" if src == "deck"
                      else (f"its viaduct {where} (RULINGS 2026-10-03e)"
                            if src == VIADUCT_SRC
-                           else "its median ground")))
+                           else ("its walled plate's datum (RULINGS 2026-10-27u, #1977)"
+                                 if src == WALLED_SRC else "its median ground"))))
             + f" at {zero:.2f} (own ground {own - z_i:+.2f} m)"
             + ("" if z_i <= zero else
                f" — §16g (2)/17x AIRSIDE FLOOR: raised to {z_i:.2f} "

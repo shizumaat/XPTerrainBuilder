@@ -43,8 +43,14 @@ LOCAL_MESH_TILES = 4
 ACTIONS = ("raise", "lower", "disable")
 
 
-def _real(path: str) -> str:
-    return os.path.normcase(os.path.realpath(path))
+def _is_ours(name: str, dsf: str, ours_dsf: str) -> bool:
+    """Is ``dsf`` (pack ``name``'s DSF of the tile) our tile: the build's
+    own DSF through its link, or a tile of the World pack (published by
+    copy; its placeholder is an overlay and never ours)."""
+    import O4_World_Pack as WP
+    if ours_dsf and FNAMES.path_key(dsf) == ours_dsf:
+        return True
+    return name == WP.PACK_NAME and not WP.is_placeholder(dsf)
 
 
 def _drawn_order(custom_scenery_dir: str, lat: int, lon: int,
@@ -52,13 +58,14 @@ def _drawn_order(custom_scenery_dir: str, lat: int, lon: int,
     """``(ours, meshes)``: the index of our tile in the tile's load order
     (``None`` when X-Plane does not load it) and ``[(index, name)]`` of
     the other packs whose DSF for the tile is a base mesh."""
-    ours_dsf = _real(FNAMES.dsf_file(build_dir, lat, lon)) if build_dir else ""
+    ours_dsf = (FNAMES.path_key(FNAMES.dsf_file(build_dir, lat, lon))
+                if build_dir else "")
     ours, meshes = None, []
     for index, name in enumerate(SP.load_order(custom_scenery_dir)):
         dsf = FNAMES.dsf_file(os.path.join(custom_scenery_dir, name), lat, lon)
         if not os.path.isfile(dsf):
             continue
-        if ours_dsf and _real(dsf) == ours_dsf:
+        if _is_ours(name, dsf, ours_dsf):
             if ours is None:
                 ours = index
         elif HEADER.dsf_is_overlay(dsf) is False:
@@ -124,10 +131,10 @@ def _row_index(lines: list, name: str):
 def _our_name(custom_scenery_dir: str, lat: int, lon: int,
               build_dir: str):
     """The Custom Scenery entry X-Plane loads our tile's DSF from."""
-    ours_dsf = _real(FNAMES.dsf_file(build_dir, lat, lon))
+    ours_dsf = FNAMES.path_key(FNAMES.dsf_file(build_dir, lat, lon))
     for name in SP.load_order(custom_scenery_dir):
         dsf = FNAMES.dsf_file(os.path.join(custom_scenery_dir, name), lat, lon)
-        if os.path.isfile(dsf) and _real(dsf) == ours_dsf:
+        if os.path.isfile(dsf) and _is_ours(name, dsf, ours_dsf):
             return name
     return None
 

@@ -1,0 +1,14 @@
+Log.txt for X-Plane 12.4.4-r1-797a4e10 (build 124418 Apple Silicon, Metal 646dc937b470b09095269edff84b0f09c0fc88f2)
+X-Plane Started on Tue Nov 10 08:41:06 2026
+I found the following scenery packages (prioritized in this order):
+1086 Global Scenery/Global Airports/
+1268 Custom Scenery/simHeaven_X-WORLD-Pro_America-05-details/
+1272 Custom Scenery/simHeaven_X-WORLD-Pro_America-09-scenery/
+3889 Custom Scenery/zOrtho4XP_+64-148/
+4187 Resources/default scenery/1000 world terrain/
+
+0:00:01.509 I/INS: Global scenery version: 122013
+0:00:25.870 I/SCN: DSF load time: 677 for file Global Scenery/Global Airports/Earth nav data/+60-150/+65-150.dsf (0 tris, 0 skipped for 0.0 m^2)
+0:00:25.870 I/SCN: DSF load time: 292 for file Custom Scenery/simHeaven_X-WORLD-Pro_America-05-details/Earth nav data/+60-150/+63-148.dsf (0 tris, 0 skipped for 0.0 m^2)
+0:00:25.870 I/SCN: DSF load time: 4980227 for file Custom Scenery/zOrtho4XP_+64-148/Earth nav data/+60-150/+64-148.dsf (3624014 tris, 10 skipped for -0.1 m^2)
+0:00:25.870 I/SCN: DSF load time: 420487 for file Custom Scenery/zOrtho4XP_+64-149/Earth nav data/+60-150/+64-149.dsf (245496 tris, 18 skipped for -0.9 m^2)

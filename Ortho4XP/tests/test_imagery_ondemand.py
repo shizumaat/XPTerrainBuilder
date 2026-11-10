@@ -276,15 +276,52 @@ def test_cores_go_only_after_every_other_row(world):
     assert left[rows[0]["name"]] == left[rows[1]["name"]] == "upgraded"
 
 
-def test_pins_never_and_outside_the_cap(world):
-    conn = world.make(4)
-    _sharp(conn, 4)
+def test_favorites_count_and_go_last(world):
+    """RULINGS 2026-11-10c (2): favorites are inside the budget, made
+    low-res after every other row (cores just before them); the
+    hand-made "Make all low-res again" keeps them."""
+    conn = world.make(6)
+    total = _sharp(conn, 6)
+    rows = INDEX.rows(conn)
     INDEX.set_pinned(conn, TILE, True)
-    assert INDEX.capped_bytes(conn) == 0 and INDEX.pinned_bytes(conn) > 0
-    assert not DOWNGRADE.sweep(conn, 1, now=1e10)["ran"]
+    assert INDEX.capped_bytes(conn) == total == INDEX.pinned_bytes(conn)
     assert DOWNGRADE.downgrade_all(conn)["downgraded"] == 0
-    assert DOWNGRADE._downgrade(conn, INDEX.rows(conn)[0]) is None
-    assert {r["state"] for r in INDEX.rows(conn)} == {"upgraded"}
+    assert DOWNGRADE._downgrade(conn, INDEX.rows(conn)[0]) is None  # kept
+    for row in rows[:3]:                                     # 3 not favorites
+        conn.execute("UPDATE textures SET pinned = 0 WHERE name = ?",
+                     (row["name"],))
+    INDEX.set_core(conn, TILE, [rows[2]["name"]])
+    order = [(r["name"], r["pinned"]) for r in INDEX.lru_order(conn, favorites=True)]
+    assert [n for n, _p in order][:3] == [rows[0]["name"], rows[1]["name"],
+                                          rows[2]["name"]]   # core third
+    assert [p for _n, p in order] == [0, 0, 0, 1, 1, 1]      # favorites last
+    out = DOWNGRADE.sweep(conn, int(total / 1.5), now=1e10)  # 3 of 6 go
+    left = {r["name"]: r["state"] for r in INDEX.rows(conn)}
+    assert out["ran"] and all(left[r["name"]] == "low" for r in rows[:3])
+    assert all(left[r["name"]] == "upgraded" for r in rows[3:])
+    out = DOWNGRADE.sweep(conn, 1, now=1e10)                 # then favorites
+    assert {r["state"] for r in INDEX.rows(conn)} == {"low"}
+    assert _all_whole(conn)
+
+
+def test_the_budget_floor_counts_and_warns(world):
+    """The placeholders and DSFs sit in the budget; a budget under them
+    is ``over_at_floor`` (the apps warn)."""
+    import O4_Imagery_OnDemand_Budget as BUDGET
+    conn = world.make(4)
+    floor = BUDGET._floor_bytes(conn)
+    assert floor > 0
+    budget = BUDGET.measure(conn, floor // 2)
+    assert budget.fixed == floor and budget.over_at_floor
+    sharp = _sharp(conn, 4)
+    out = DOWNGRADE.sweep(conn, budget, now=1e10)
+    assert out["over_at_floor"] and out["floor_bytes"] == floor
+    assert out["total_before"] == floor + sharp
+    assert out["total_after"] == floor                       # all low-res
+    assert not BUDGET.measure(conn, floor * 2).over_at_floor
+    assert [BUDGET._tier_of(r) for r in (
+        {"pinned": 0, "core": 0}, {"pinned": 0, "core": 1},
+        {"pinned": 1, "core": 1})] == [0, 1, 2]
 
 
 def test_a_downgrade_frees_the_cache_entry_and_jpeg_and_logs(world):

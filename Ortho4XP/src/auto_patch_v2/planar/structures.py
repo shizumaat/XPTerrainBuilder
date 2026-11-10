@@ -136,8 +136,9 @@ from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
                              deck_items, decks_over_climb, emit_decks,
                              object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
-from .entrance_skirt import entrance_skirt, face_front_mouth, is_entrance_face, skirt_refs
-from .mouth_opening import opening_halves
+from .entrance_skirt import (entrance_skirt, entrance_top, face_front_mouth, is_entrance_face,
+                             skirt_refs)
+from .mouth_opening import group_opening, opening_halves
 from .structure_underpass import (underpass_bores as _underpass_bores,
                                   approach_along, bore_roads, mouth_parent, UNDERPASS_TAG,
                                   UNDERPASS_NOTE)
@@ -492,6 +493,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             deck_pin(deck, members[0]) if deck is not None else None if c is not None else next(
             (q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
                          for m in members) if q is not None), None)
+        if pin is not None and c is None and edge is None and deck is None:
+            # #1737: a group of bores one mouth object faces opens across
+            # every member's opening (``mouth_opening.group_opening``)
+            mates = [q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
+                                 for m in members)
+                     if q is not None and q.object_id == pin.object_id]
+            g_w, g_xy = group_opening(mates, axis_ln) if len(mates) > 1 else (0.0, ())
+            if g_w > float(getattr(pin, "opening_m", 0.0) or 0.0):
+                pin = _dc.replace(pin, opening_m=g_w, opening_xy=g_xy)
         # owner 2026-11-04 (ENTC): a ROOFED portal's ramp is as wide as its
         # opening, edge to edge along the axis (no pavement trace)
         opening = 0.0 if pin is None else float(getattr(pin, "opening_m", 0.0) or 0.0)
@@ -1224,6 +1234,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                             2.0 * float(tn.object.bore_end_tolerance_m))
                     if skirt is not None:
                         extra["entrance_skirt"] = (skirt[2], *skirt_refs(tid))
+                    top = entrance_top(pin)
+                    if top:
+                        extra["entrance_top"] = top
                 elif opening > 0.0:
                     # a roofed portal's zero is the road at its mouth: the
                     # object stage seats it at the pinned floor (ENTC)

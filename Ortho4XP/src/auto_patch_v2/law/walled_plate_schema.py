@@ -34,6 +34,10 @@ class WalledPlateLaw:
     #: L + ``max_s_beyond_m``] beyond the end (L the safety-area length)
     min_s_share: float = 0.5
     max_s_beyond_m: float = 60.0
+    #: witness 2, the PAVED-END reading (#1977, ``pavement_end_plate``): the
+    #: plate's near edge lies within this of the paved end (the runway end
+    #: plus its blast pad), either side (m)
+    pavement_end_reach_m: float = 15.0
     #: witnesses 2/3: the share of the safety area's width (and of the
     #: plate's stations) the plate and its outer wall must cover
     min_cover: float = 0.8

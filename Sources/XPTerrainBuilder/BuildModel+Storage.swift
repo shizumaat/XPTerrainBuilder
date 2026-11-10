@@ -10,10 +10,14 @@ extension BuildModel {
     func runStorageAutoClean() {
         guard let client = libraryContext()?.client else { return }
         Task { @MainActor [weak self] in
-            guard let done = try? await client.storageAutoClean(),
-                  done.ran == true, done.files > 0 else { return }
-            self?.console.append(
-                "Storage cleanup freed \(Library.size(done.freedBytes)) in \(done.files) file(s) (logs/storage.log).")
+            guard let done = try? await client.storageAutoClean() else { return }
+            if done.ran == true, done.files > 0 {
+                self?.console.append(
+                    "Storage cleanup freed \(Library.size(done.freedBytes)) in \(done.files) file(s) (logs/storage.log).")
+            }
+            // The disk budget's warning (RULINGS 2026-11-10c (2) / 10d (2)).
+            let warning = O4StorageText.cleanupWarning(done)
+            if !warning.isEmpty { self?.console.append(warning) }
         }
     }
 }

@@ -35,7 +35,8 @@ SWIFT_TO_PYTHON = {
     "pinTitle": TEXT.PIN_TITLE, "unpinTitle": TEXT.UNPIN_TITLE,
     "pinRowTitle": TEXT.PIN_ROW_TITLE, "lowResState": TEXT.LOW_RES_STATE,
     "pinnedState": TEXT.PINNED_STATE, "pinnedBadge": TEXT.PINNED_BADGE,
-    "pinHelp": TEXT.PIN_HELP, "makeLowResTitle": TEXT.MAKE_LOW_RES_TITLE,
+    "pinHelp": TEXT.PIN_HELP, "notOnDemandState": TEXT.NOT_ON_DEMAND_STATE,
+    "makeLowResTitle": TEXT.MAKE_LOW_RES_TITLE,
     "makeLowResNone": TEXT.MAKE_LOW_RES_NONE, "pinsLine": TEXT.PINS_LINE,
     "coresLine": TEXT.CORES_LINE,
     "olderSharpNote": TEXT.OLDER_SHARP_NOTE,
@@ -48,6 +49,7 @@ SWIFT_TO_PYTHON = {
     "followStopped": TEXT.FOLLOW_TEMPLATES["stopped"],
     "followError": TEXT.FOLLOW_TEMPLATES["error"],
     "followDetail": TEXT.FOLLOW_DETAIL, "waitingReason": TEXT.WAITING_REASON,
+    "followNoTiles": TEXT.FOLLOW_NO_TILES,
     "xplaneAnswering": TEXT.XPLANE_ANSWERING, "xplaneSilent": TEXT.XPLANE_SILENT,
     "bufferNone": TEXT.BUFFER_NONE, "bufferAhead": TEXT.BUFFER_AHEAD,
 }
@@ -106,7 +108,8 @@ def test_the_status_line_renders_every_field():
             {**status, "reason": "A build is running"}))
     assert "A build is running" in TEXT.follow_lines(
         {"state": "paused", "reason": "A build is running"})[0]
-    assert TEXT.WAITING_REASON in TEXT.follow_lines({"state": "waiting"})[0]
+    assert TEXT.WAITING_REASON in TEXT.follow_lines({"state": "waiting",
+                                                     "textures": 1})[0]
     assert TEXT.BUFFER_NONE in TEXT.follow_lines({"buffer_s": -1})[1]
     assert TEXT.XPLANE_SILENT in TEXT.follow_lines({"xplane": False})[1]
 
@@ -130,7 +133,7 @@ def test_the_settings_round_trip_through_the_cfg(tmp_path):
     from o4_engine import imagery_commands as CMDS
     from o4_engine import imagery_downgrade as DOWNGRADE
 
-    for name, default in (("imagery_on_demand", False),
+    for name, default in (("imagery_on_demand", True),
                           ("imagery_on_demand_cap_gb", 100.0),
                           ("ondemand_lead_s", 30.0),
                           ("ondemand_lands_per_s", 4.0),
@@ -140,7 +143,7 @@ def test_the_settings_round_trip_through_the_cfg(tmp_path):
         assert SM.get_setting(name) is not None, name
     cfg = str(tmp_path / "XPTerrainBuilder.cfg")
     assert CMDS.follow_settings(SM.read_global_raw(cfg)) == {
-        "enabled": False, "port": 8086, "lead_s": 30.0, "lands_per_s": 4.0}
+        "enabled": True, "port": 8086, "lead_s": 30.0, "lands_per_s": 4.0}
     SM.write_global({"imagery_on_demand": "True", "xplane_web_api_port": "9001",
                      "ondemand_lead_s": "45", "ondemand_lands_per_s": "2",
                      "imagery_on_demand_cap_gb": "12.5"}, cfg)
@@ -163,9 +166,9 @@ def test_the_automatic_start_waits_for_the_switch(monkeypatch):
 def test_make_all_low_res_names_the_space_it_frees():
     message = TEXT.make_low_res_message(2_500_000_000, 220)
     assert "2.50 GB" in message and "220" in message
-    assert "pinned tiles are kept" in message
+    assert "favorites are kept" in message
     assert TEXT.pins_line(1_400_000_000, 7) == (
-        "Pinned tiles: 1.40 GB in 7 texture(s), never made low-res")
+        "Favorites: 1.40 GB in 7 texture(s), made low-res last")
     assert TEXT.pins_line(0, 0, 3).startswith("3 of them near airports")
 
 
@@ -196,7 +199,7 @@ def test_the_library_pin_calls_imagery_pin(qapp, monkeypatch):
         calls.append((lat, lon, kw)) or {"tile": "+60-136", "pinned": kw["pinned"],
                                          "served": 3, "to_fetch": 5}))
     _sync_thread(monkeypatch)
-    dialog = QTLIB.LibraryDialog(None, "/tiles", "")
+    dialog = QTLIB.LibraryTilesSection(None, "/tiles", "")
     monkeypatch.setattr(dialog, "refresh", lambda: None)
     row = {"tile": "+60-136", "lat": 60, "lon": -136, "build_dir": "/t",
            "size_bytes": 1, "zl": 16, "provider": "BI", "built": None,
@@ -225,14 +228,22 @@ def test_the_tile_pane_pin_row(qapp):
     row = QTONDEMAND.TilePinRow()
     asked = []
     row.pin_requested.connect(asked.append)
-    assert not row.applies(NS(on_demand=False, pinned=False))
+    # RULINGS 2026-11-10c (1): a Favorite switch on every tile this app
+    # built, working on a tile built on demand.
+    full = NS(on_demand=False, pinned=False, origin="")
+    assert not row.applies(full) and row.shows(full)
+    assert not row.shows(NS(on_demand=False, pinned=False, origin="other"))
+    row.show_tile((60, -136), full)
+    assert not row.switch.isEnabled()
+    assert row.label.text() == TEXT.NOT_ON_DEMAND_STATE
     row.show_tile((60, -136), NS(on_demand=True, pinned=False))
     assert row.label.text() == TEXT.LOW_RES_STATE
-    row.button.click()
+    assert row.switch.isEnabled() and not row.switch.isChecked()
+    row.switch.click()
     assert asked == [(60, -136, True)]
     row.show_tile((60, -136), NS(on_demand=True, pinned=True))
-    assert row.button.text() == TEXT.UNPIN_TITLE
-    row.button.click()
+    assert row.switch.isChecked() and row.label.text() == TEXT.PINNED_STATE
+    row.switch.click()
     assert asked[-1] == (60, -136, False)
 
 
@@ -305,3 +316,26 @@ def test_the_mac_pin_and_low_res_reach_the_engine_commands():
         assert "setImageryPinned(" in (app / name).read_text(encoding="utf-8"), name
     follow = (app / "BuildModel+ImageryFollow.swift").read_text(encoding="utf-8")
     assert "client.imageryPin(" in follow
+
+
+def test_favorites_show_a_star_on_both_maps(qapp):
+    """RULINGS 2026-11-10c (1): a favorite tile carries a star on the map
+    (Qt ``O4_Qt_Map_Favorite``; Mac ``MapCanvasView`` ``star.fill``)."""
+    import O4_Qt_Map as QTMAP
+    import O4_Qt_Map_Favorite as STAR
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QImage, QPainter
+
+    points = STAR._star_points(0.0, 0.0, 10.0)
+    assert len(points) == 10 and points[0] == (0.0, -10.0)
+    image = QImage(64, 64, QImage.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    STAR.draw_star(painter, QRectF(0, 0, 64, 64), 64.0, 1.0)
+    painter.end()
+    assert image.pixelColor(56, 57).alpha() > 0          # bottom-right
+    assert image.pixelColor(8, 8).alpha() == 0
+    assert "QTFAVSTAR.draw_star" in Path(QTMAP.__file__).read_text(encoding="utf-8")
+    mac = (REPO / "Sources" / "XPTerrainBuilder" / "MapCanvasView.swift").read_text(
+        encoding="utf-8")
+    assert 'info.pinned == true' in mac and 'systemName: "star.fill"' in mac

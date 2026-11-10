@@ -152,7 +152,7 @@ cfg_app_vars = {
             "Optional size limits, in GB, for single caches, as kind=GB pairs "
             "separated by commas, for example imagery=100, osm_extracts=20, "
             "dds=20. The kinds are imagery, dds, elevation, osm_extracts, osm, "
-            "airport_mod, dsf_dumps, masks, previews, tmp and logs. A cache "
+            "airport_mod, dsf_dumps, masks, previews, tmp, logs and rebuild. A cache "
             "over its limit loses its least recently used files first, when the "
             "app starts and after a build. The texture cache (dds) is held to "
             "20 GB unless named here. Empty: no other limits."
@@ -161,14 +161,30 @@ cfg_app_vars = {
     # Imagery on demand (#1992 spec §7): the follow job's settings, read
     # by ``o4_engine.imagery_commands.start_imagery_follow`` and the cap
     # sweep (``o4_engine.imagery_downgrade.cap_bytes``).
+    "storage_budget_gb": {
+        "type": float,
+        "default": 0.0,
+        "hint": (
+            "The one disk budget for everything XPTerrainBuilder stores "
+            "(RULINGS 2026-11-10d): caches, sharp imagery, rebuild data and "
+            "built tiles, in GB. Over it, what is cheapest to rebuild goes "
+            "first, oldest first: temporary files, logs and previews; "
+            "orthophotos already converted; scenery dumps and masks; "
+            "elevation and map extracts; then sharp imagery (favorites "
+            "last). Placeholders, scenery files, patches and your own "
+            "elevation files are never cleared. 0: not set (the sharp "
+            "imagery limit applies alone)."
+        ),
+    },
     "imagery_on_demand_cap_gb": {
         "type": float,
         "default": 100.0,
         "hint": (
-            "With imagery on demand: how much disk the sharp imagery fetched "
-            "near flown areas may use, in GB. Over it, the textures flown "
-            "near longest ago are made low-res again (never deleted); airport "
-            "areas go last. Tiles you pin to full resolution are not counted."
+            "With imagery on demand: the ortho budget, in GB -- how much "
+            "disk the imagery of the tiles built on demand may use, "
+            "favorites included (RULINGS 2026-11-10c (2)). Over it, the "
+            "sharp textures flown near longest ago are made low-res again "
+            "(never deleted); airport areas go next to last, favorites last."
         ),
     },
     "ondemand_lead_s": {
@@ -769,13 +785,71 @@ cfg_tile_vars = {
     },
     "imagery_on_demand": {
         "type": bool,
-        "default": False,
+        # ON by default: RULINGS 2026-11-10c (3).
+        "default": True,
         "hint": (
             "Fetch imagery on demand (#1992): new builds get "
             "low-resolution placeholder imagery under every texture's own "
             "name (the scenery file, terrain files and masks are those of "
             "a full build); full detail is fetched later around the "
             "aircraft. Off: every texture is built at full resolution."
+        ),
+    },
+    # On demand region by region (RULINGS 2026-11-10e (3)): simHeaven's
+    # X-World regions (O4_Imagery_Regions).  On by default; a first run
+    # keeps on only the regions holding built tiles (O4_Cfg_Migrations).
+    "imagery_on_demand_europe": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "Europe region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
+    "imagery_on_demand_america": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "America region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
+    "imagery_on_demand_asia": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "Asia region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
+    "imagery_on_demand_africa": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "Africa region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
+    "imagery_on_demand_australia_oceania": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "Australia-Oceania region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
+        ),
+    },
+    "imagery_on_demand_antarctica": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "With imagery on demand: new tiles in simHeaven's X-World "
+            "Antarctica region get low-resolution imagery and full detail on "
+            "demand. Off: tiles there are built at full resolution."
         ),
     },
     "placeholder_zl_drop": {
@@ -968,6 +1042,7 @@ list_app_vars = [
     "ovl_exclude_net",
     "storage_auto_clean_days",
     "storage_cache_caps_gb",
+    "storage_budget_gb",
     "imagery_on_demand_cap_gb",
     "ondemand_lead_s",
     "ondemand_lands_per_s",
@@ -1046,6 +1121,12 @@ list_mask_vars = [
 list_dsf_vars = [
     "texture_mode",
     "imagery_on_demand",
+    "imagery_on_demand_europe",
+    "imagery_on_demand_america",
+    "imagery_on_demand_asia",
+    "imagery_on_demand_africa",
+    "imagery_on_demand_australia_oceania",
+    "imagery_on_demand_antarctica",
     "placeholder_zl_drop",
     "airport_ortho_fade_width",
     "cover_airports_with_highres",

@@ -348,6 +348,12 @@ public enum O4Event: Sendable, Equatable {
     /// The imagery follow job's state (capability `imagery_follow`,
     /// #1992 P3b). See `O4ImageryFollowStatus`.
     case imageryFollowStatus(O4ImageryFollowStatus)
+    /// The World pack's state (capability `world_pack`, flight manager /
+    /// World spec §5.3). See `O4WorldStatus`.
+    case worldStatus(O4WorldStatus)
+    /// X-Plane's aircraft once a second while `aircraftWatch(on:)` is on
+    /// (capability `aircraft_position`, #2001). See `O4AircraftPosition`.
+    case aircraftPosition(O4AircraftPosition)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -528,6 +534,12 @@ public enum O4Event: Sendable, Equatable {
         // `class ImageryFollowStatus` in Ortho4XP/src/o4_engine/events.py.
         case "ImageryFollowStatus":
             return .imageryFollowStatus(O4ImageryFollowStatus.parse(object))
+        // `class WorldStatus` in Ortho4XP/src/o4_engine/events.py.
+        case "WorldStatus":
+            return .worldStatus(O4WorldStatus.parse(object))
+        // `class AircraftPosition` in Ortho4XP/src/o4_engine/events.py.
+        case "AircraftPosition":
+            return .aircraftPosition(O4AircraftPosition.parse(object))
         // `class SlowStep` in Ortho4XP/src/o4_engine/events.py.
         case "SlowStep":
             return .slowStep(O4SlowStep.parse(object))
@@ -1201,14 +1213,15 @@ public final class OrthoEngineClient: @unchecked Sendable {
         }
         // A STRING LITERAL match (see O4Event.parse): these are `class
         // PackObjectsReady`, `class LibraryReady`, `class
-        // PlanEstimateReady`, `class BuildAirportsReady` and `class
-        // ImageryFreshnessReady` in Ortho4XP/src/o4_engine/events.py, the
-        // completions of the `pack_objects`, Library, `plan_estimate`
-        // (#820), `build_airports` (#818) and `imagery_freshness` (#1666)
-        // commands whose id is `request`.
+        // PlanEstimateReady`, `class BuildAirportsReady`, `class
+        // ImageryFreshnessReady` and `class WorldReady` in
+        // Ortho4XP/src/o4_engine/events.py, the completions of the
+        // `pack_objects`, Library, `plan_estimate` (#820), `build_airports`
+        // (#818), `imagery_freshness` (#1666) and `world_regions_set`
+        // (World spec §5.2) commands whose id is `request`.
         switch object["event"] as? String {
         case "PackObjectsReady", "LibraryReady", "PlanEstimateReady", "BuildAirportsReady",
-             "ImageryFreshnessReady":
+             "ImageryFreshnessReady", "WorldReady":
             if let request = (object["request"] as? NSNumber)?.intValue,
                let waiter = lock.withLock({ eventWaiters.removeValue(forKey: request) }) {
                 waiter(O4JSON.from(object))

@@ -9,21 +9,24 @@ import Foundation
 /// template, filled with the same number formats as the Qt window's, so
 /// every `ImageryFollowStatus` field is shown, worded once.
 public enum O4OnDemandText {
-    // Pins (spec §7: the Library's tile menu and the tile's info pane).
-    public static let pinTitle = "Always keep full resolution"
-    public static let unpinTitle = "Let it go low-res again"
-    public static let pinRowTitle = "Resolution"
+    // Favorites (spec §7: the Library's tile menu and the tile's info pane;
+    // "pin" renamed Favorite by RULINGS 2026-11-10c (1); identifiers and the
+    // engine wire keep "pin" / `pinned`).
+    public static let pinTitle = "Add to Favorites"
+    public static let unpinTitle = "Remove from Favorites"
+    public static let pinRowTitle = "Favorite"
     public static let lowResState = "Sharp near the aircraft, low-res elsewhere"
-    public static let pinnedState = "Always full resolution (pinned)"
-    public static let pinnedBadge = "Pinned"
-    public static let pinHelp = "A pinned tile is fetched whole at full resolution, is never made low-res again and does not count against the storage limit."
+    public static let pinnedState = "Kept at full resolution"
+    public static let pinnedBadge = "Favorite"
+    public static let pinHelp = "A favorite tile is fetched whole at full resolution. It counts toward the ortho budget and is the last imagery made low-res again when the budget is full."
+    public static let notOnDemandState = "Built with full imagery everywhere; favorites are for tiles built with imagery on demand."
 
     // Storage (spec §6.3 / §7: the ondemand row and its pins line).
     public static let makeLowResTitle = "Make all low-res again"
     public static let makeLowResNone = "No sharp imagery to make low-res again."
-    public static let pinsLine = "Pinned tiles: {bytes} in {files} texture(s), never made low-res"
+    public static let pinsLine = "Favorites: {bytes} in {files} texture(s), made low-res last"
     public static let coresLine = "{files} of them near airports, made low-res last"
-    public static let olderSharpNote = "Sharp imagery near flown areas is made low-res again, not deleted, and fetched again when you fly near; pinned tiles are kept."
+    public static let olderSharpNote = "Sharp imagery near flown areas is made low-res again, not deleted, and fetched again when you fly near; favorites are kept."
 
     // The follow status line (spec §7: the activity area).
     public static let followStartTitle = "Follow X-Plane"
@@ -36,6 +39,10 @@ public enum O4OnDemandText {
     public static let followError = "Following stopped: {reason}"
     public static let followDetail = "{queued} queued · {slots} at a time · {buffer} · {landed} landed ({bytes_landed}) · {failed} failed · X-Plane {xplane} at {lat}, {lon}, {speed} kt, track {track}° · {flight_loads} flight loads · {jumps} jumps · {reloads} reloads"
     public static let waitingReason = "its Web API is not answering"
+    /// The first sentence while the job follows (or waits) with no
+    /// on-demand texture in its index.
+    public static let followNoTiles = "No on-demand tiles to follow yet: build a tile with imagery on demand, or convert one in the Library"
+    static let noTilesStates: Set<String> = ["waiting", "following"]
     public static let xplaneAnswering = "answering"
     public static let xplaneSilent = "not answering"
     public static let bufferNone = "nothing queued"
@@ -59,11 +66,11 @@ public enum O4OnDemandText {
     /// The "Make all low-res again" confirmation: the space it frees.
     public static func makeLowResMessage(freedBytes: Int64, textures: Int) -> String {
         "This makes \(textures) sharp texture(s) low-res again and frees \(sizeText(freedBytes)). "
-            + "They are fetched again when you fly near; pinned tiles are kept."
+            + "They are fetched again when you fly near; favorites are kept."
     }
 
     /// The Storage row's extra lines: the airport cores among the counted
-    /// textures (when any), then the pins, outside the cap.
+    /// textures (when any), then the favorites, inside the ortho budget.
     public static func pinsText(bytes: Int64, files: Int, cores: Int = 0) -> String {
         let pins = fill(pinsLine, ["bytes": sizeText(bytes), "files": "\(files)"])
         return cores == 0 ? pins : fill(coresLine, ["files": "\(cores)"]) + "\n" + pins
@@ -72,8 +79,8 @@ public enum O4OnDemandText {
     /// One sentence for an `imagery_pin` reply.
     public static func pinDone(_ result: O4ImageryPinResult) -> String {
         result.pinned
-            ? "\(result.tile) is pinned: \(result.served) texture(s) sharp now, \(result.toFetch) to fetch."
-            : "\(result.tile) may go low-res again."
+            ? "\(result.tile) is a favorite: \(result.served) texture(s) sharp now, \(result.toFetch) to fetch."
+            : "\(result.tile) is no longer a favorite."
     }
 
     /// The template slots of one status, formatted as the Qt window does.
@@ -99,7 +106,8 @@ public enum O4OnDemandText {
     /// `(headline, detail)` of the status line for one status.
     public static func followLines(_ s: O4ImageryFollowStatus) -> (headline: String, detail: String) {
         let values = followValues(s)
-        let template = followTemplates[s.state] ?? followStarting
+        var template = followTemplates[s.state] ?? followStarting
+        if noTilesStates.contains(s.state), s.textures == 0 { template = followNoTiles }
         return (fill(template, values), fill(followDetail, values))
     }
 

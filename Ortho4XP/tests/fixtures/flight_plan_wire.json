@@ -62,7 +62,7 @@
   "ete_s": 3300.0,
   "cruise_ms": 144.04444444444445,
   "cruise_alt_ft": 24000.0,
-  "route_km": 325.3037726137833
+  "route_km": 325.303773
  },
  "flight_plan_read_fms": {
   "source": "short_hop_v11.fms",
@@ -102,6 +102,6 @@
   "ete_s": null,
   "cruise_ms": null,
   "cruise_alt_ft": null,
-  "route_km": 208.09845147181565
+  "route_km": 208.098451
  }
 }

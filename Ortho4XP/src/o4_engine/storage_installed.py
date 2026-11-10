@@ -61,7 +61,9 @@ def _stamp(folder: str) -> list:
         with os.scandir(folder) as entries:
             for entry in entries:
                 if entry.is_dir(follow_symlinks=False):
-                    stamps.append([entry.name, entry.stat(follow_symlinks=False).st_mtime])
+                    # os.lstat, not entry.stat: on Windows the scandir copy of a
+                    # sub-folder's mtime is the parent's lazily-updated record.
+                    stamps.append([entry.name, os.lstat(entry.path).st_mtime])
         stamps.append([".", os.stat(folder).st_mtime])
     except OSError:
         pass

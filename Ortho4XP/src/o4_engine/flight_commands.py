@@ -42,7 +42,7 @@ def plan_wire(plan: "FP.FlightPlan") -> Dict[str, Any]:
         "alternate": None if plan.alternate is None else _place(plan.alternate),
         "ete_s": plan.ete_s, "cruise_ms": plan.cruise_ms,
         "cruise_alt_ft": plan.cruise_alt_ft,
-        "route_km": FP.route_length_km(plan.points()),
+        "route_km": round(FP.route_length_km(plan.points()), 6),  # libm-stable digits
     }
 
 

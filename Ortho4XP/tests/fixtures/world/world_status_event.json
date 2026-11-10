@@ -13,7 +13,14 @@
   "staged": 1
  },
  "queue": 2,
- "building": [],
+ "building": [
+  [
+   "+53-065",
+   "light",
+   "building",
+   412
+  ]
+ ],
  "loaded": [
   "+53-063"
  ],

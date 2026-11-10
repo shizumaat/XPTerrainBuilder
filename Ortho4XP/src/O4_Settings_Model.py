@@ -165,6 +165,8 @@ _LAYOUT: list = [
         ("max_baddata_retries", "Bad-data retries", "app", True, ""),
         ("check_tms_response", "Retry on imagery server errors", "app", True, ""),
         ("xplane_web_api_port", "X-Plane Web API port", "app", True, ""),
+        # World spec §5.5 / §10: build-ahead's share while flying.
+        ("fly_build_slots", "Tiles built at once while flying", "app", True, ""),
     ]),
     ("imagery", "Imagery", [
         ("texture_mode", "What should the ground be textured with?", "tile", False,
@@ -208,6 +210,8 @@ _LAYOUT: list = [
          "Low-res imagery detail (zoom levels below the build's)", "app", True, ""),
         ("ondemand_lead_s", "Start fetching this many seconds ahead", "app", True, ""),
         ("ondemand_lands_per_s", "Imagery swaps per second, at most", "app", True, ""),
+        # World spec §5.5 / §17: the intermediate kind, until D1 decides.
+        ("world_intermediate", "Tiles built ahead of the aircraft", "app", True, ""),
     ]),
     ("mesh", "Ground Shape", [
         ("curvature_tol", "Curvature tolerance", "tile", True, ""),

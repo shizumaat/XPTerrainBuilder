@@ -181,11 +181,6 @@
  },
  {
   "path": "Ortho4XP/src/O4_World_Pack.py",
-  "name": "dsftool_path",
-  "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
- },
- {
-  "path": "Ortho4XP/src/O4_World_Pack.py",
   "name": "ini_remove",
   "reason": "World pack experiment kit (#1992, owner idea 2026-11-10): called by tools/world_pack.py and its kit copy world.py, which the scan does not read"
  },
@@ -256,7 +251,7 @@
  },
  {
   "path": "Ortho4XP/src/O4_World_Drape_Fetch.py",
-  "name": "fetch",
+  "name": "main",
   "reason": "entry point: `python src/O4_World_Drape_Fetch.py` (the drape kit's imagery fetch, run as a script from the world-pack kit); main calls fetch"
  },
  {

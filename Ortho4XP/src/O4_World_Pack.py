@@ -449,10 +449,17 @@ def _place_dir(staged: str, dest: str) -> None:
         shutil.rmtree(old, ignore_errors=True)
 
 
-def swap_in(pack: str, staged: str, lat: int, lon: int) -> dict:
+def swap_in(pack: str, staged: str, lat: int, lon: int,
+            merge: bool = False) -> dict:
     """Put a staged real tile into the pack: its terrain and texture
     folders first (new names X-Plane has never seen), then the DSF over the
-    placeholder in ONE ``os.replace`` — the only change X-Plane can see."""
+    placeholder in ONE ``os.replace`` — the only change X-Plane can see.
+    The folders are renamed in whole (rule S5 allows that for a tile X-Plane
+    has not loaded only); ``merge`` replaces file by file instead and keeps
+    every old name (:func:`_merge_in`, for a loaded tile just before a
+    reload)."""
+    if merge:
+        return _merge_in(pack, staged, lat, lon)
     tile = tile_name(lat, lon)
     for sub in ("terrain", "textures"):
         _place_dir(os.path.join(staged, sub, tile),
@@ -466,6 +473,56 @@ def swap_in(pack: str, staged: str, lat: int, lon: int) -> dict:
     _link_or_copy(os.path.join(staged, dsf_relpath(lat, lon)), partial)
     os.replace(partial, dest)
     return {"tile": tile, "dsf": dest, "was_placeholder": was_placeholder}
+
+
+def _merge_in(pack: str, staged: str, lat: int, lon: int) -> dict:
+    """Rule S5 (``swap_in(merge=True)``): put a staged tile over one
+    X-Plane may have loaded, just before a scenery reload, without removing
+    any name it may still open.  Each staged file is hard-linked in under
+    its own name, a same-named file replaced by ONE ``os.replace``; the DSF
+    last.  The pack's files the staged tile does not have are left in
+    place and returned as ``stale`` (relative paths) for
+    :func:`_remove_stale` once the witness shows the reload read the new
+    DSF.  ``{"tile", "dsf", "was_placeholder", "stale"}``."""
+    tile = tile_name(lat, lon)
+    stale = []
+    for sub in ("terrain", "textures"):
+        src = os.path.join(staged, sub, tile)
+        dest = os.path.join(pack, sub, tile)
+        os.makedirs(dest, exist_ok=True)
+        names = set(os.listdir(src)) if os.path.isdir(src) else set()
+        for name in sorted(names):
+            _replace_with_link(os.path.join(src, name),
+                               os.path.join(dest, name))
+        stale += [os.path.join(sub, tile, name)
+                  for name in sorted(set(os.listdir(dest)) - names)
+                  if not name.startswith(".")]
+    dest = os.path.join(pack, dsf_relpath(lat, lon))
+    was_placeholder = is_placeholder(dest)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    _replace_with_link(os.path.join(staged, dsf_relpath(lat, lon)), dest)
+    return {"tile": tile, "dsf": dest, "was_placeholder": was_placeholder,
+            "stale": stale}
+
+
+def _replace_with_link(src: str, dest: str) -> None:
+    partial = dest + ".partial"
+    if os.path.exists(partial):
+        os.remove(partial)
+    _link_or_copy(src, partial)
+    os.replace(partial, dest)
+
+
+def _remove_stale(pack: str, stale) -> int:
+    """Remove the ``stale`` names :func:`_merge_in` left (call only after
+    the witness shows the reload read the new DSF, rule S5); the count
+    removed."""
+    removed = 0
+    for rel in stale:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(os.path.join(pack, rel))
+            removed += 1
+    return removed
 
 
 def swap_out(pack: str, lat: int, lon: int) -> str:

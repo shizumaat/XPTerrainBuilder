@@ -226,6 +226,7 @@ CAPABILITIES: tuple = (
     "imagery_ondemand_convert",     # 2026-11-10, #1992 P1c built tiles -> on-demand copies
     "world_pack",                   # 2026-11-10, World spec W1 world_* + WorldStatus/Ready
     "aircraft_position",            # 2026-11-10, #2001 aircraft_watch + AircraftPosition
+    "world_job",                    # 2026-11-10, World spec W2 world_job_start/stop (track mode)
 )
 
 

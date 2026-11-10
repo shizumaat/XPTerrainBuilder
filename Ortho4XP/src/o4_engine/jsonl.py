@@ -178,6 +178,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from . import patch_commands, patch_drop, patch_insert
     from . import world_commands as WORLD
     from .aircraft_watch import aircraft_watch_handlers
+    from . import world_job_run as WORLD_JOB
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
     from .flight_commands import flight_plan_handlers
@@ -378,9 +379,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # follow job fetches finer tiers ahead of X-Plane's camera.  Start
         # replies {"status": "started"}; ImageryFollowStatus events follow
         # until imagery_follow_stop, which replies the job's counts.  No
-        # fetch starts while a build runs.
-        "imagery_follow_start": lambda **kw: start_imagery_follow(
-            session._emit, busy=lambda: bool(session._building), **kw),
+        # fetch starts for a tile a build has queued or is building, or a
+        # World-pack swap holds (World spec §8.7, S7).  The build-ahead
+        # job (world_job, capability world_job) starts beside it.
+        "imagery_follow_start": lambda **kw: _start_follow_and_world(
+            session, start_imagery_follow, WORLD_JOB.autostart, **kw),
         "imagery_follow_stop": stop_imagery_follow,
         # On-demand imagery (#1992 P2, capability imagery_ondemand): the
         # index scan, a tile's pin and "Make all low-res again"; pin and
@@ -403,7 +406,24 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # aircraft_watch {on} replies {"watching": bool}; AircraftPosition
         # events follow once a second while it is on.
         **aircraft_watch_handlers(session._emit),
+        # Build-ahead (World spec §8.5, capability world_job): start
+        # replies {"status": "started" | "running" | "off"}; WorldStatus
+        # events every 2 s until world_job_stop, which replies its counts.
+        "world_job_start": lambda **kw: WORLD_JOB.world_job_start(
+            session, **kw),
+        "world_job_stop": WORLD_JOB.world_job_stop,
     }
+
+
+def _start_follow_and_world(session: EngineSession, start_follow: Callable,
+                            start_world: Callable, **kw) -> Dict[str, Any]:
+    """``imagery_follow_start``: the follow job, holding only the tiles
+    a build has queued or is building (``session.building_tiles``), then
+    the build-ahead job beside it when it may run (its own reply is not
+    the command's)."""
+    reply = start_follow(session._emit, busy=session.building_tiles, **kw)
+    start_world(session, port=kw.get("port"))
+    return reply
 
 
 def _library_handler(session: EngineSession, name: str) -> Callable:

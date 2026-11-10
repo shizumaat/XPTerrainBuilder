@@ -12,8 +12,9 @@ subscriber (:meth:`PositionFeed.subscribe`).  No thread of its own: the
 feed reads only while someone reads it (the follow job ticks at 1 Hz).
 
 :func:`shared` returns the one feed of a Web API base;
-:func:`latest_position` the camera position of the freshest record any
-feed holds (``None`` when no feed has read lately).
+:func:`latest_record` the freshest record any feed holds and
+:func:`latest_position` its camera position (``None`` when no feed has
+read lately).
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 __all__ = ["MAX_AGE_S", "FRESH_S", "shared",
-           "latest_position"]
+           "latest_record", "latest_position"]
 
 #: A record younger than this is served again instead of a new read.
 MAX_AGE_S = 0.5
@@ -106,14 +107,20 @@ def shared(base: Optional[str] = None) -> _PositionFeed:
         return feed
 
 
-def latest_position(max_age_s: float = FRESH_S) -> Optional[tuple]:
-    """``(lat, lon)`` of X-Plane's camera from the freshest record any
-    feed holds, or ``None``."""
-    import O4_XPlane_WebAPI as WEBAPI
+def latest_record(max_age_s: float = FRESH_S) -> Optional[dict]:
+    """The freshest position record any feed holds, or ``None``."""
     with _FEEDS_GUARD:
         feeds = list(_FEEDS.values())
     for feed in feeds:
         rec = feed.latest(max_age_s)
         if rec is not None:
-            return WEBAPI.camera_position(rec)
+            return rec
     return None
+
+
+def latest_position(max_age_s: float = FRESH_S) -> Optional[tuple]:
+    """``(lat, lon)`` of X-Plane's camera from the freshest record any
+    feed holds, or ``None``."""
+    import O4_XPlane_WebAPI as WEBAPI
+    rec = latest_record(max_age_s)
+    return None if rec is None else WEBAPI.camera_position(rec)

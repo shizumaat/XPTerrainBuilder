@@ -116,6 +116,28 @@ def test_lock_released_on_exception(tmp_path):
     assert not os.path.exists(lock_target + ".lock")
 
 
+def test_release_refused_by_an_open_reader_is_retried(tmp_path, monkeypatch):
+    """Windows refuses to remove a file a waiter has open to read its
+    identity line (PermissionError).  The release retries instead of
+    leaving a lock owned by this live process for every later waiter to
+    poll to its timeout (CI #1995, the corner-sharing clip test hung)."""
+    lock_target = str(tmp_path / "artifact")
+    real_remove = os.remove
+    refusals = {"left": 2}
+
+    def windows_remove(path):
+        if path == lock_target + ".lock" and refusals["left"]:
+            refusals["left"] -= 1
+            raise PermissionError(13, "being used by another process", path)
+        real_remove(path)
+
+    monkeypatch.setattr(LOCK.os, "remove", windows_remove)
+    with LOCK.hold_file_lock(lock_target, timeout_seconds=5.0) as acquired:
+        assert acquired is True
+    assert refusals["left"] == 0
+    assert not os.path.exists(lock_target + ".lock")
+
+
 # =====================================================================
 # Stale lock (old mtime) is broken and acquisition proceeds
 # =====================================================================

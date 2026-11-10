@@ -87,6 +87,9 @@ class WallSides:
     #: low-side ground meets there, ``z`` None at a station that retains
     #: nothing (:func:`_foot_retaining`); ``None`` where unread
     foot_profile: tuple | None = None
+    #: who witnessed the low side's ground (``WallComponent.low_side_source``):
+    #: ``"sheets"`` when the pack's own sheets name the wall's foot (#1952)
+    low_side: str = ""
 
     def side_of(self, xy) -> str | None:
         """``"upper"`` / ``"lower"`` for a point in one of the bands, else
@@ -183,36 +186,54 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
         if not w.retains or h <= clear or getattr(getattr(w, "member", None), "id", None) in plates:
             continue
         smear = wall_smear_m(h)
-        for g in w.pieces:
+        sheets = getattr(w, "low_side_source", "") == "sheets"
+        for i, g in enumerate(w.pieces):
             faces = _wall_faces(g)
-            if faces is None:
+            k = None if faces is None else _upper_index(dem, w, i, faces, smear)
+            if k is None:
                 continue
-            a, b = (_face_band(f, g, smear) for f in faces)
-            za, zb = (_median_ground(dem, f, smear) for f in faces)
-            if not (math.isfinite(za) and math.isfinite(zb)):
-                continue
-            both = a.intersection(b)
+            uf, lf = faces if k == 0 else faces[::-1]
+            up, lo = (_face_band(f, g, smear) for f in (uf, lf))
+            both = up.intersection(lo)
             if not both.is_empty:
-                a, b = a.difference(both), b.difference(both)
-            up, lo = (a, b) if za >= zb else (b, a)
+                up, lo = up.difference(both), lo.difference(both)
             wide = 2.0 * g.area / g.length
             core = g.buffer(-min(0.5, wide / 4.0))
-            uf, lf = faces if za >= zb else faces[::-1]
             top = top_of(w, g, uf) if top_of is not None else None
             foot = foot_of(w, g, lf) if foot_of is not None else None
             raw = top
-            if top is not None:
+            if top is not None and not sheets:
                 top = _retaining_stations(dem, uf, top, smear, h)
             if foot is not None and top is not None \
                     and all(z is None for _s, z in top):
                 foot = None     # no hill along it: no lower level either
             if foot is not None:
-                foot = _foot_retaining(_foot_on_ground(dem, lf, foot, smear),
+                # a wall whose low side the pack's sheets name: the DEM is no
+                # witness of its ground (#1952), the foot is the sheets'
+                foot = _foot_retaining(foot if sheets else
+                                       _foot_on_ground(dem, lf, foot, smear),
                                        lf, uf, raw, clear)
             out.append(WallSides(g, h, smear, up, lo, w.top_y, w.resource,
                                  None if core.is_empty else core,
-                                 uf, top, lf, foot))
+                                 uf, top, lf, foot,
+                                 str(getattr(w, "low_side_source", "") or "")))
     return tuple(out)
+
+
+def _upper_index(dem, wall, i: int, faces, smear: float) -> int | None:
+    """Which of piece ``i``'s two ``faces`` is its UPPER one (0 / 1), or
+    ``None``: for a wall whose low side the pack's sheets name (#1952,
+    ``WallComponent.low_side_source``) the face its side witness found
+    the airside pavement beside (``wall_sheets.paved_faces`` — the lidar
+    may predate the wall and show no step); else the face whose median
+    ground ``smear`` out stands over the other's (``None`` unread)."""
+    if getattr(wall, "low_side_source", "") == "sheets":
+        paved = tuple(getattr(wall, "paved_face", ()) or ())
+        return paved[i] if i < len(paved) else None
+    za, zb = (_median_ground(dem, f, smear) for f in faces)
+    if not (math.isfinite(za) and math.isfinite(zb)):
+        return None
+    return 0 if za >= zb else 1
 
 
 def _walled_plate_ids(airport) -> frozenset:

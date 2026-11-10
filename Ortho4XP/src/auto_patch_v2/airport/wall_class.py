@@ -33,6 +33,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from ..model.airport import Airport
+from .wall_sheets import airside_union, hung_wall, low_side_y, obj_top_y, paved_faces, sheets_of
 
 __all__ = ["WallComponent", "NOT_WALL_RESOURCE_WORDS", "wall_class_components",
            "retaining_sides"]
@@ -53,8 +54,9 @@ class WallComponent:
     comp: int
     retains: bool = False
     #: the height it RETAINS (#1158): its solid height, or its depth under
-    #: its own zero where it stands proud (:func:`_depth_under_zero`); 0.0
-    #: where it retains none
+    #: its own zero where it stands proud (:func:`_depth_under_zero`), or its
+    #: top over the ground on its low side where its footing is authored
+    #: below that ground (RULINGS 2026-11-09a (14)); 0.0 where it retains none
     retained_m: float = 0.0
     #: the part's extent ABOVE its object's zero (``base_y + height``,
     #: #1633: the wall's top as seated), ``None`` where the reading has none
@@ -68,6 +70,22 @@ class WallComponent:
     #: (``airport/wall_top`` reads the member's triangles), ``None`` unread
     origin: tuple | None = _dc.field(default=None, compare=False)
     member: _t.Any = _dc.field(default=None, compare=False, repr=False)
+    #: the authored ``y`` the RETAINED face reaches up to (#1139: its zero,
+    #: the parapet above retaining nothing); ``None`` where the face it
+    #: retains runs to its top (:func:`_retains_its_height`)
+    retained_top_y: float | None = None
+    #: what witnessed the ground on its low side (#1952): ``"dem"`` — the
+    #: step across it in the DEM (:func:`_retains_its_height`), ``"sheets"``
+    #: — the pack's own co-linear sheets (``airport/wall_sheets``, read only
+    #: where the DEM shows no step), ``""`` where it retains nothing
+    low_side_source: str = ""
+    #: a ``"sheets"`` wall's COMPOSITE: every sheet's footprint (frame xy),
+    #: its own pieces' among them (``airport/wall_shade``: no pad from any)
+    sheets: tuple = _dc.field(default=(), compare=False, repr=False)
+    #: a ``"sheets"`` wall's side witness: per piece, the index of its long
+    #: face (``wall_sides._wall_faces``) with airside pavement beside it —
+    #: the UPPER face — or ``None`` (``wall_sheets.paved_faces``)
+    paved_face: tuple = ()
 
 
 #: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
@@ -105,7 +123,9 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
         return []
     to_xy = airport.frame.entry()
     out: list[WallComponent] = []
+    paved: list = []            # the apt.dat airside union, read once on demand
     for u in part.units:
+        got: list[WallComponent] = []
         for m in u.members:
             if _not_a_wall(m.resource):
                 continue                    # 29h (Q-72b): a fence is no wall
@@ -134,25 +154,78 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 if sum(g.length for g in polys) / 2.0 < \
                         float(cfg.retaining_wall_min_length_m):
                     continue
-                # #1139: an object that IS one wall (its only part) may
-                # retain only what stands under its zero
-                depth = _depth_under_zero(p) if len(m.parts) == 1 else None
-                retained = _retains_its_height(
-                    airport, whole, wide, float(p.height_m), cfg, depth
-                ) if _stands_on_ground(p) else 0.0
-                retains = retained > 0.0
-                if wide > float(cfg.retaining_wall_max_width_m) and not retains:
-                    continue
                 by = getattr(p, "base_y", None)
+                top_y = None if by is None else float(by) + float(p.height_m)
                 if seat is None:
                     seat = _seat_z(airport, u, m, to_xy)
-                out.append(WallComponent(tuple(polys), float(p.height_m),
+                # #1139 / RULINGS 2026-11-09a (14): an object that IS one wall
+                # (its only part) may retain only what stands under its zero,
+                # or only what stands over the ground on its low side
+                one = len(m.parts) == 1
+                depth = _depth_under_zero(p) if one else None
+                retained = _retains_its_height(
+                    airport, whole, wide, float(p.height_m), cfg, depth,
+                    seat + top_y if one and _hangs_from_zero(top_y, seat, cfg) else None,
+                ) if _stands_on_ground(p) else 0.0
+                retains = retained > 0.0
+                # the face a depth retains reaches its zero, not its top
+                kept_top = 0.0 if retains and depth is not None and \
+                    retained == depth and retained != float(p.height_m) else None
+                source, sheet = ("dem" if retains else ""), None
+                if not retains and hung_wall(p, one, top_y, seat, cfg):
+                    sheet = _sheet_wall(airport, u, m, p, tuple(polys), cfg, to_xy, paved)
+                if sheet is not None:
+                    retained, top_y, sheet = sheet[0], sheet[1], sheet[2:]
+                    retains, source = True, "sheets"
+                if wide > float(cfg.retaining_wall_max_width_m) and not retains:
+                    continue
+                got.append(WallComponent(tuple(polys), float(p.height_m),
                                          m.resource, int(p.comp), retains,
-                                         float(retained),
-                                         None if by is None else
-                                         float(by) + float(p.height_m),
-                                         seat, _origin(u, m), m))
+                                         float(retained), top_y, seat,
+                                         _origin(u, m), m, kept_top, source,
+                                         *(sheet or ())))
+        out.extend(_one_wall_per_composite(got, u, to_xy, cfg))
     return out
+
+
+def _sheet_wall(airport: Airport, unit, member, part, pieces: tuple, cfg, to_xy,
+                paved: list) -> tuple | None:
+    """THE THIRD WITNESS (#1952, owner RULINGS 2026-11-09a (14)): a gate-G
+    wall (``airport/wall_sheets``) whose side witness S holds and whose
+    sheets name the ground on its low side retains its OBJ top less that
+    ground, when that is at least ``retaining_wall_min_height_m`` and under
+    its solid height — ``(retained, top_y, sheet footprints, paved
+    faces)``; ``None`` otherwise (it retains nothing, as before)."""
+    if not paved:
+        paved.append(airside_union(airport))
+    faces = paved_faces(pieces, paved[0], cfg)
+    if faces is None:
+        return None
+    sheets = sheets_of(unit, (member.id, int(part.comp)), to_xy, cfg)
+    low = low_side_y(sheets)
+    top = None if low is None else obj_top_y(member, _origin(unit, member), to_xy)
+    if top is None:
+        return None
+    kept = top - low
+    if not float(cfg.retaining_wall_min_height_m) <= kept < float(part.height_m):
+        return None
+    return kept, top, tuple(s.poly for s in sheets), faces
+
+
+def _one_wall_per_composite(comps: list[WallComponent], unit, to_xy, cfg
+                            ) -> list[WallComponent]:
+    """R1 (#1952): the sheets of a composite are ONE wall, carried by the
+    gate-G wall with the largest footprint among them; every other
+    component of ``unit`` whose part is one of its sheets is absorbed."""
+    walls = sorted((c for c in comps if c.low_side_source == "sheets"),
+                   key=lambda c: -sum(g.area for g in c.pieces))
+    taken: set = set()
+    for c in walls:
+        if (c.member.id, c.comp) in taken:
+            continue
+        taken.update(s.key for s in sheets_of(unit, (c.member.id, c.comp), to_xy, cfg)
+                     if s.key != (c.member.id, c.comp))
+    return [c for c in comps if (getattr(c.member, "id", None), c.comp) not in taken]
 
 
 def _seat_z(airport: Airport, unit, member, to_xy) -> float | None:
@@ -212,7 +285,7 @@ def _depth_under_zero(part) -> float | None:
 
 
 def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg,
-                        depth: float | None = None) -> float:
+                        depth: float | None = None, top_abs: float | None = None) -> float:
     """A WALL THAT RETAINS ITS OWN HEIGHT (owner RULINGS 2026-10-15a (2),
     issue #715): slender for its height (``wide <= height x
     retaining_wall_thick_width_per_height``: KATL's 10.65 m concrete
@@ -241,8 +314,17 @@ def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg
     admits KATL ``muro_ladrillo`` alone over the 33 registered captures.
     Slenderness is judged on the solid height, as before.
 
-    Returns the height it retains (the solid height, else the depth — the
-    first the step matches), 0.0 where it retains none."""
+    THE HEIGHT OVER ITS LOW SIDE (owner RULINGS 2026-11-09a (14), #1952):
+    "a retaining wall's height is what it retains above the ground on its
+    low side, not its full modelled solid height (which includes the part
+    authored below ground)" — ``top_abs`` (its top as it sits, absolute)
+    less the ground on its low side (:func:`_kept_above_low_side`), read
+    for the same one-wall objects as the depth, and only where part of the
+    solid stands under that ground (a footing).
+
+    Returns the height it retains (the solid height, else the depth, else
+    the height over its low side — the first the step matches), 0.0 where
+    it retains none."""
     per = getattr(cfg, "retaining_wall_thick_width_per_height", None)
     lo = getattr(cfg, "retaining_wall_step_min_fraction", None)
     hi = getattr(cfg, "retaining_wall_step_max_fraction", None)
@@ -252,11 +334,50 @@ def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg
         return 0.0
     if wide > height * float(per):
         return 0.0
-    step = _step_across(dem, whole, wide, max(float(ring_m), height))
+    ring = max(float(ring_m), height)
+    step = _step_across(dem, whole, wide, ring)
     if step is None:
         return 0.0
-    return next((h for h in (height, depth) if h is not None and h > 0.0
+    kept = None if top_abs is None else \
+        _kept_above_low_side(dem, whole, wide, ring, float(top_abs), height)
+    return next((h for h in (height, depth, kept) if h is not None and h > 0.0
                  and float(lo) * h <= step <= float(hi) * h), 0.0)
+
+
+def _hangs_from_zero(top_y: float | None, seat: float | None, cfg) -> bool:
+    """A wall whose top stands within ``retaining_wall_clear_step_m`` of its
+    object's zero, seated: the zero of a retaining wall is the upper ground
+    it holds (:func:`_depth_under_zero`), so its face hangs from there down
+    past the low side's ground to its footing (KMCI's border wall, y -14.0
+    .. -0.9; KATL ``muro_concreto5``, -9.70 .. +0.95).  A part standing far
+    over its zero is a building's (LEMD ``OldTerminal_FSX-T2SL4``: a 16 m
+    facade, its top 15.4 m over its zero) and its height over the low side
+    is never read (RULINGS 2026-11-09a (14))."""
+    return top_y is not None and seat is not None and \
+        float(top_y) <= float(cfg.retaining_wall_clear_step_m)
+
+
+def _kept_above_low_side(dem, whole, wide: float, ring_m: float, top_abs: float,
+                         height: float) -> float | None:
+    """THE HEIGHT A WALL RETAINS OVER THE GROUND ON ITS LOW SIDE (RULINGS
+    2026-11-09a (14)): ``top_abs`` less the median of the LOWER reading of
+    each across pair (:func:`_across_pairs`, the witness's own samples),
+    or ``None`` where that is not under its solid ``height`` (nothing of it
+    is authored below ground) or not above zero (its top stands under the
+    ground)."""
+    import numpy as np
+
+    from .dem import dem_z_many
+    near, _wall, far = _across_pairs(whole, wide, ring_m)
+    if len(near) < 4:
+        return None
+    low = np.fmin(dem_z_many(dem, near[:, 0], near[:, 1]),
+                  dem_z_many(dem, far[:, 0], far[:, 1]))
+    low = low[np.isfinite(low)]
+    if low.size < 4:
+        return None
+    kept = float(top_abs) - float(np.median(low))
+    return kept if 0.0 < kept < float(height) else None
 
 
 def _across_pairs(whole, wide: float, ring_m: float):
@@ -308,11 +429,17 @@ def retaining_sides(airport: Airport, wall: WallComponent, cfg, step_m: float):
     Read at the witness's own across samples: a sample whose ground stands
     ``step_m`` under the far one is LOWER, over it UPPER, else neither (a
     wall's ends and returns).  Each sample owns the 2 m of band from the
-    wall out to its ring point.  Empty bands without a DEM."""
+    wall out to its ring point.  Empty bands without a DEM.
+
+    A wall whose low side the pack's sheets name (#1952,
+    ``low_side_source == "sheets"``): the DEM is no witness of it, so its
+    sides are its side witness's (:func:`_sheet_sides`)."""
     import numpy as np
     from shapely.geometry import LineString
 
     from .dem import dem_z_many
+    if getattr(wall, "low_side_source", "") == "sheets":
+        return _sheet_sides(wall)
     whole = unary_union(wall.pieces)
     ring = max(float(cfg.retaining_wall_step_ring_m), float(wall.height_m))
     dem = getattr(airport, "dem", None)
@@ -333,3 +460,26 @@ def retaining_sides(airport: Airport, wall: WallComponent, cfg, step_m: float):
 
     with np.errstate(invalid="ignore"):
         return _side(d > step_m), _side(d < -step_m), ring
+
+
+def _sheet_sides(wall):
+    """``(upper, lower, ring)`` of a wall whose low side the pack's sheets
+    name (#1952, R3): per piece, the band beside the face its side witness
+    found the airside pavement along (``WallComponent.paved_face``) and
+    the band beside the other, ``ring`` = ``wall_smear_m`` of the height it
+    retains wide (``airport/wall_sides``' own bands)."""
+    from ..model.wall_reach import wall_smear_m
+    from .wall_sides import _face_band, _wall_faces
+    ring = wall_smear_m(float(wall.retained_m or wall.height_m))
+    up, lo = [], []
+    for i, g in enumerate(wall.pieces):
+        faces = _wall_faces(g)
+        k = wall.paved_face[i] if i < len(wall.paved_face) else None
+        if faces is None or k is None:
+            continue
+        up.append(_face_band(faces[k], g, ring))
+        lo.append(_face_band(faces[1 - k], g, ring))
+    u = unary_union(up) if up else Polygon()
+    v = unary_union(lo) if lo else Polygon()
+    both = u.intersection(v)
+    return (u.difference(both), v.difference(both), ring) if not both.is_empty else (u, v, ring)

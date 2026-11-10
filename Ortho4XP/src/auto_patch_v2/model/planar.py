@@ -43,6 +43,7 @@ __all__ = ["NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Face", "Brea
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
            "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "plane_origin_ref", "BLOCK_SEP",
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
+           "KERB_SUFFIX", "kerb_ref",
            "FILL_BANK_PREFIX", "is_fill_bank_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
@@ -93,6 +94,17 @@ STRIP_SUFFIX = "#strip"
 def is_strip_ref(ref: object) -> bool:
     """Is this face ref an inter-block terrace STRIP (spec §56 (3))?"""
     return str(ref).endswith(STRIP_SUFFIX)
+
+
+#: owner RULINGS 2026-11-10a (2) (#1950): a held pad's KERB over a lot at a
+#: retaining wall's foot is ``<pad>#kerb#strip`` (``planar/foot_kerb``) — a
+#: bank face (:func:`is_bank_ref`) whose ``<pad>#kerb`` is no platform's
+KERB_SUFFIX = "#kerb"
+
+
+def kerb_ref(pad_ref: object) -> str:
+    """The face ref of pad ``pad_ref``'s kerb strips."""
+    return f"{pad_ref}{KERB_SUFFIX}{STRIP_SUFFIX}"
 
 
 #: owner RULINGS 2026-10-14n D2 (#709): the ref of an APRON-EDGE SHELF face,

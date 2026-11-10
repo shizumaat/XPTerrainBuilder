@@ -79,6 +79,7 @@ import math
 import typing as _t
 
 from ..geom import exact
+from ..geom.parts import nonempty_polygon_parts
 from ..geom.ramp_grade import grade_envelope
 from ..law import Law
 from ..law.reference_code import ref_status
@@ -96,6 +97,7 @@ from ..model.airport import Airport
 from ..model.frame import rotated_rectangle
 from ..model.planar import PlanarMap
 from ..model.platform import fill_levels, held_levels
+from .foot_lot import foot_vertices, lots_at_foot
 from .road_descent import STAND_M, climb, descend
 
 __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
@@ -739,7 +741,8 @@ def _ramp_figures(ramps: _t.Sequence[_t.Mapping[str, _t.Any]], design: float,
 
 
 def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
-                      profiles=None, retaining: _t.Sequence = ()) -> RampTargets:
+                      profiles=None, retaining: _t.Sequence = (),
+                      foot: _t.Mapping[int, float] | None = None) -> RampTargets:
     """§37 (6)'s target for every groundside-road vertex, AS A FUNCTION OF
     (ROUTE, STATION) ALONE — §37 (8)'s "the ramp target is the road's
     CENTRELINE profile per station" (owner RULINGS 2026-09-13bb).
@@ -784,6 +787,19 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     vertex shared with the airside ON such a wall is no mouth — the road
     does not leave the airside there, it runs at the wall's foot, and no
     ramp descends from the wall's top edge.
+
+    ``foot`` -- A ROAD LEAVES A FOOT LOT FROM THE FOOT (#1952): ``{vertex:
+    foot}`` of the lots at a wall's foot (``airport/foot_lot.
+    foot_vertices``).  A road vertex on such a ring is at the lot's foot
+    (its foot Band, ``constraints/road_ramp._foot_lot_rows``); the road's
+    ramp is SEEDED there -- a cut (:func:`road_descent.climb`) where the
+    foot stands over ``STAND_M`` under the road's floor, a mouth
+    (:func:`road_descent.descend`) where over -- and beyond it the road
+    climbs or descends at the design grade, cap-limited.  The vertex's own
+    target is withdrawn by :func:`with_road_ramp` (``rep["_foot"]``), as a
+    mouth's is.  MEASURED KMCI ``small_roads:-12627`` shares five ring
+    vertices with lot ``dsf:objpav660`` (foot 299.82 m) and carried "ramp
+    to the DEM" targets 303.29-303.43 m there: the lot tilted to 301.47 m.
     """
     roads = _road_roles(law)
     owned = _owned(pm, roads, law)
@@ -899,9 +915,17 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # vertex.
     lane = float(prof_f.lane_width_m)
     floor_of = _floors(pm, owned, frame, ways)
+    # #1952: the road leaves a foot lot from the foot (docstring ``foot``)
+    feet = {v: float(z) for v, z in (foot or {}).items() if v in floor_of}
+    seeds = {**mouths, **{v: z for v, z in feet.items() if z > floor_of[v] + STAND_M}}
+    cut_from = {**cut_from, **{v: z for v, z in feet.items()
+                               if z < floor_of[v] - STAND_M}}
+    rep["foot_seeds"] = len(seeds) - len(mouths)
+    rep["foot_cuts"] = sum(1 for v, z in feet.items() if z < floor_of[v] - STAND_M)
+    rep["_foot"] = frozenset(feet)
 
     def _level(v: int) -> float | None:
-        return mouths[v] if v in mouths else floor_of.get(v)
+        return seeds[v] if v in seeds else floor_of.get(v)
 
     def _route_end(v: int) -> tuple | None:
         """(route, which end) where ``v`` stands within a lane width of its
@@ -915,7 +939,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
         return (f_[0], 1) if items[-1][0] - f_[1] <= lane else None
 
     design = float(rc.ramp_grade)
-    g, reach, ramps = descend(adj, mouths, _level, floor_of, design, cap, lane, _route_end)
+    g, reach, ramps = descend(adj, seeds, _level, floor_of, design, cap, lane, _route_end)
     rep.update(_ramp_figures(ramps, design, cap))
     # THE MIRROR (#1531): a contact cut INTO the hill stands under the
     # road's floor, and the road climbs out of it on a cut ramp — the SAME
@@ -1535,6 +1559,11 @@ class WallPiece(_t.NamedTuple):
     #: (``WallSides.lower_face`` / ``foot_profile``, #1662)
     lower_face: _t.Any = None
     foot_profile: tuple | None = None
+    #: the band beside the LOWER face (``WallSides.lower``) and what
+    #: witnessed the low side's ground (``WallComponent.low_side_source``,
+    #: #1952): a lot touching that band of a ``"sheets"`` wall takes its foot
+    lower_band: _t.Any = None
+    low_side: str = ""
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1556,16 +1585,20 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
     sides = tuple(getattr(airport, "retaining_walls", ()) or ())
     out = []
     for c in wall_class_components(airport, cfg):
+        # 2026-11-09a (14): a retaining wall's height is the height it
+        # retains, never its solid height (its footing is below ground)
+        h = float(c.retained_m if c.retains and c.retained_m > 0.0 else c.height_m)
         for g in c.pieces:
-            if _piece_length(g) >= float(c.height_m):
+            if _piece_length(g) >= h:
                 side = next((w for w in sides if w.poly.equals(g)), None)
-                out.append(WallPiece(g, float(c.height_m),
-                                     f"{c.resource}#comp{c.comp}",
+                out.append(WallPiece(g, h, f"{c.resource}#comp{c.comp}",
                                      bool(c.retains), False,
                                      getattr(side, "upper_face", None),
                                      getattr(side, "top_profile", None),
                                      getattr(side, "lower_face", None),
-                                     getattr(side, "foot_profile", None)))
+                                     getattr(side, "foot_profile", None),
+                                     getattr(side, "lower", None),
+                                     str(getattr(c, "low_side_source", "") or "")))
     return tuple(out)
 
 
@@ -1616,6 +1649,39 @@ def _is_lot_page(face, lot_roles: frozenset, roads: frozenset) -> bool:
         return True
     return (face.role in roads and face.side == "groundside"
             and bool(getattr(face, "road_by_proportions", False)))
+
+
+def _pad_roles(law: Law) -> frozenset[str]:
+    """The roles of a PAD (an airside contact outside §20b's stage 1)."""
+    from ..law.tables import airside_stage_roles
+    stage1 = airside_stage_roles(law)
+    return frozenset(r for r in contact_roles(law)
+                     if role_side(law, r) == "airside" and r not in stage1)
+
+
+def _lot_roles(law: Law) -> frozenset[str]:
+    """The roles of a LOT (10-03c): groundside value roles, no road, no
+    structure."""
+    roads = _road_roles(law)
+    return frozenset(r for r in law.tables.precedence.roles
+                     if r not in roads and role_side(law, r) == "groundside"
+                     and is_value_role(law, r) and not is_structure_role(law, r))
+
+
+def _foot_vertices(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece]
+                   ) -> dict[int, float]:
+    """``airport/foot_lot.foot_vertices`` over every lot page of ``pm``
+    (:func:`_is_lot_page`) -- for the road that leaves a foot lot
+    (:func:`road_ramp_targets` ``foot``)."""
+    from shapely.geometry import Polygon as _Poly
+    lot_roles, roads = _lot_roles(law), _road_roles(law)
+    lot_f: dict[int, _t.Any] = {}
+    for fid, f in pm.faces.items():
+        ring = list(pm.ring_vertices(f.ring))
+        if _is_lot_page(f, lot_roles, roads) and len(ring) >= 3:
+            g = _Poly([pm.vertices[v].xy for v in ring])
+            lot_f[fid] = g if g.is_valid else g.buffer(0.0)
+    return foot_vertices(pm, lot_f, walls, _pad_roles(law)) if lot_f else {}
 
 
 def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
@@ -1669,11 +1735,8 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
     from ..law.tables import airside_stage_roles
     stage1 = airside_stage_roles(law)
     roads = _road_roles(law)
-    pad_roles = frozenset(r for r in contact_roles(law)
-                          if role_side(law, r) == "airside" and r not in stage1)
-    lot_roles = frozenset(r for r in law.tables.precedence.roles
-                          if r not in roads and role_side(law, r) == "groundside"
-                          and is_value_role(law, r) and not is_structure_role(law, r))
+    pad_roles = _pad_roles(law)
+    lot_roles = _lot_roles(law)
     lane = float(law.tables.emit.road_profile.lane_width_m)
     foot = terr.get("foot") or {}
     # every vertex with a side to stand on
@@ -1698,6 +1761,13 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
     ltree = STRtree([lot_f[i] for i in lot_ids]) if lot_ids else None
     ptree = STRtree([pad_f[i] for i in pad_ids]) if pad_ids else None
     air_or_pad = up_v | {v for i in pad_ids for v in pm.ring_vertices(pm.faces[i].ring)}
+    all_foot: dict[int, float] = {}
+    for w in walls:
+        all_foot.update(lots_at_foot(w, lot_f))
+    # a vertex a pad also carries is the pad's: the lot steps down from it
+    # (owner RULINGS 2026-11-10a (2), the kerb ``planar/foot_kerb``)
+    at_foot = {v for i in all_foot for v in _face_vertices(pm, i)}
+    pad_v = at_foot - foot_vertices(pm, lot_f, walls, pad_roles).keys()
     for k, w in enumerate(walls):
         # THE WALL IS ITS OWN FOOTPRINT, never a chord of it: a pack wall
         # bends (HECA ``metal_strip_2.obj`` comp 117: one 262 m piece fills
@@ -1766,8 +1836,19 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         # (sw1018 capture) — lot ``dsf:objpav394`` is one 264-vertex page
         # over 8 m of relief (95.6-104.0 m), and coupling all of it to
         # ``building15`` (99.04 m) left it at 96.3-103.6 m, flat nowhere
+        # #1952 (R5): a lot at the foot of a wall whose low side the pack's
+        # sheets name is flat at that foot, never at a building's level
+        # (its vertices stay LOWER: the rows across the wall are released)
+        # A FOOT LOT IS AT THE FOOT FOR EVERY WALL (2026-11-10a (2)): no
+        # other wall's lot->pad pair lifts it to a building's level (MEASURED
+        # KMCI: ``dsf:objpav405``, at ``wallslat.obj``'s foot too, followed
+        # ``building26/b1`` to 304.86 m over a 299.82 m foot)
+        foot_lots = lots_at_foot(w, {i: lot_f[i] for i in lots})
+        lots = [i for i in lots if i not in all_foot]
         pairs: list[tuple[int, int]] = []
         for lv in lower:
+            if lv in at_foot:
+                continue
             p = Point(pm.vertices[lv].xy)
             cand = ([pad_ids[int(j)] for j in ptree.query(p, predicate="dwithin",
                                                           distance=2.0 * reach)]
@@ -1789,8 +1870,22 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   "foot_profile": (None if getattr(w, "foot_profile", None) is None
                                    else [tuple(t) for t in w.foot_profile]),
                   "upper": upper, "lower": lower,
-                  "lots": lots, "pairs": pairs}
+                  "low_side": str(getattr(w, "low_side", "") or ""),
+                  "lower_band": [[tuple(c) for c in part.exterior.coords]
+                                 for part in nonempty_polygon_parts(w.lower_band)]
+                  if getattr(w, "lower_band", None) is not None else None,
+                  "lots": lots, "pairs": pairs,
+                  "foot_lots": {v: z for i, z in sorted(foot_lots.items())
+                                for v in _face_vertices(pm, i) if v not in pad_v}}
     return out
+
+
+def _face_vertices(pm: PlanarMap, fid: int) -> list[int]:
+    """A face's ring and hole vertices."""
+    f = pm.faces[fid]
+    return list(dict.fromkeys([*pm.ring_vertices(f.ring),
+                               *(v for h in getattr(f, "holes", ()) or ()
+                                 for v in pm.ring_vertices(h))]))
 
 
 def gate_merged(spans: _t.Sequence[tuple[float, float, float]],
@@ -1902,7 +1997,8 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     # terrace, and the rows across it from the road (``wall_release``)
     walls = wall_pieces(airport, service) + mouth_wall_pieces(pm)
     retaining = tuple(w.poly for w in walls if w.retains)
-    tg = road_ramp_targets(pm, law, airport, profiles, retaining)
+    tg = road_ramp_targets(pm, law, airport, profiles, retaining,
+                           _foot_vertices(pm, law, walls) if walls else None)
     frame = tg.frame
     frep = tg.report.pop("_frame_report", {})
     frep.pop("_ways", None)            # the Way objects are not a report
@@ -1913,6 +2009,7 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     gaps = tg.report.pop("_contact_gap", {})
     merged = tg.report.pop("_merged", frozenset())
     route_ways = tg.report.pop("_route_ways", {})
+    on_foot = tg.report.pop("_foot", frozenset())
     # §37 (10) (1) AT THE MOUTH THE LEVEL IS THE AIRSIDE'S, AND ONLY THE
     # AIRSIDE'S.  A road END that takes a reach contact carries the §37 (6)
     # ramp target too — the clamp of its own terrain, which at HECA
@@ -1936,9 +2033,10 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     # §46 (7): the targets are DEM levels; published on the read grid so
     # the last bits PROJ's inverse leaves in a sample never reach a row
     targets = {v: z for v, z in tg.targets.items()
-               if v not in at_mouth and v not in on_plate}
+               if v not in at_mouth and v not in on_plate and v not in on_foot}
     if report is not None:
         report["contact_mouth_withdrawn"] = len(tg.targets) - len(targets)
+        report["foot_withdrawn"] = sum(1 for v in tg.targets if v in on_foot)
     # OWNER RULINGS 2026-09-27a (11) (Q-22, TFFJ ``dsf:objpav0#1`` ending
     # 0.5 m short of apron ``pav2`` 3.7 m over its DEM): A REACH CONTACT
     # WITHIN ONE LANE WIDTH SEEDS THE RAMP FROM STAGE 1's SOLVED APRON

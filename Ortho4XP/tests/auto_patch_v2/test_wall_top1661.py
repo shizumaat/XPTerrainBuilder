@@ -54,7 +54,8 @@ def test_a_proud_wall_is_capped_at_what_it_retains(monkeypatch):
     # 21 m solid, top at +6, retaining only the 15 m under its zero: the
     # upper ground is AT the zero and the 6 m above it is a parapet
     comp = types.SimpleNamespace(seat_z=280.0, member=object(), origin=(0.0, 0.0),
-                                 height_m=21.0, retained_m=15.0, top_y=6.0)
+                                 height_m=21.0, retained_m=15.0, top_y=6.0,
+                                 retained_top_y=0.0)
     a = np.asarray(WT.top_profile(comp, WALL, _upper_face(), None), float)
     assert float(a[:, 1].max()) == 280.0
     full = types.SimpleNamespace(seat_z=280.0, member=object(), origin=(0.0, 0.0),
@@ -184,6 +185,35 @@ def test_only_the_lower_face_takes_the_foot():
     assert WZ.face_foot([line], (75.0, 0.0)) is None         # out on the low side
 
 
+def test_a_sheet_walls_foot_strip_is_flat_at_the_foot_across_its_band():
+    """#1952 S3 (KMCI ``Trimsheet-16.obj#2``: the strip's outer ring drifted
+    to the old DEM): a wall whose foot the pack's sheets name holds its
+    foot across its lower band (``smear`` out), still nearer the lower face
+    than the upper and still not at a station that retains nothing; a
+    DEM-witnessed wall keeps the face's metre."""
+    face = _lower_face()
+    prof = ((0.0, 289.5), (face.length, 289.5))
+    sheets = WZ.RetainingLine(WALL, 80.0, 20.0, {}, _upper_face(), None, face, prof,
+                              "sheets")
+    assert WZ.face_foot([sheets], (75.0, 0.0)) == 289.5      # 10 m out, in the band
+    assert WZ.face_foot([sheets], (86.0, 0.0)) is None       # past the band
+    assert WZ.face_foot([sheets], (60.0, 0.0)) is None       # the upper face
+    unheld = sheets._replace(foot_profile=((0.0, None), (face.length, None)))
+    assert WZ.face_foot([unheld], (75.0, 0.0)) is None
+    assert WZ.face_foot([sheets._replace(low_side="")], (75.0, 0.0)) is None
+    # its band, mitred past the smear at a bend, is its foot strip: read
+    # off the band itself (KMCI: outer ring 3.83-4.34 m off a 3.81 m face)
+    banded = sheets._replace(lower_band=box(65.0, -100.0, 85.4, 100.0))
+    assert WZ.face_foot([banded], (85.3, 0.0)) == 289.5
+    assert WZ.face_foot([sheets], (85.3, 0.0)) is None       # smear alone
+    assert WZ.face_foot([banded], (86.0, 0.0)) is None
+    (read,) = WZ.retaining_lines({0: {
+        "retains": True, "height_m": 5.0, "low_side": "sheets",
+        "line": list(WALL.exterior.coords),
+        "lower_band": [list(box(65.0, -100.0, 85.4, 100.0).exterior.coords)]}})
+    assert read.low_side == "sheets" and abs(read.lower_band.area - 20.4 * 200.0) < 1e-6
+
+
 def test_the_foot_strip_is_the_lower_band_no_region_holds():
     up, lo = box(40.0, -100.0, 60.0, 100.0), box(65.0, -100.0, 85.0, 100.0)
     w = WS.WallSides(WALL, 20.0, 20.0, up, lo, 6.0, "w", WALL.buffer(-0.5),
@@ -239,3 +269,22 @@ def test_a_station_that_retains_nothing_holds_no_foot():
                              (face.length, None)))
     assert WZ.face_foot([line], (65.0, -60.0)) == 289.5
     assert WZ.face_foot([line], (65.0, 60.0)) is None
+
+
+def test_a_footed_walls_foot_is_its_retained_faces_bottom(monkeypatch):
+    """#1952 R4: a wall retaining 3.81 m of its 15 m solid (its top y 0,
+    its footing to y -15 under the low side's ground) has its foot 3.81 m
+    under its top, never at the footing."""
+    from auto_patch_v2.airport import sunken_ramp
+    monkeypatch.setattr(sunken_ramp, "_member_tris", lambda *a, **k: _east_tris())
+    comp = types.SimpleNamespace(seat_z=300.0, member=object(), origin=(0.0, 0.0),
+                                 height_m=15.0, retained_m=3.81, top_y=0.0,
+                                 retained_top_y=None)
+    a = np.asarray(WT.foot_profile(comp, WALL, _lower_face(), None), float)
+    assert np.allclose(a[:, 1], 296.19)
+    # a depth wall (#1139: retains the 15 m under its zero) keeps its bottom
+    deep = types.SimpleNamespace(seat_z=300.0, member=object(), origin=(0.0, 0.0),
+                                 height_m=21.0, retained_m=15.0, top_y=6.0,
+                                 retained_top_y=0.0)
+    a = np.asarray(WT.foot_profile(deep, WALL, _lower_face(), None), float)
+    assert np.allclose(a[:, 1], 285.0)

@@ -107,7 +107,7 @@ from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
 from .blast_pad import blast_pad_end
 from .storey_edge import STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
-from .neck import cover_arms, necks_of, split_at_necks
+from .neck import cover_arms, necks_of, road_arms, split_at_necks
 from .open_default import (apron_evidence, narrow_road, open_pavement_role,
                            unclassified_groundside_role)
 from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m, gridded,
@@ -310,6 +310,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     scored: list[tuple[Polygon, str, str, str | None, dict, bool]] = []
     through = _through_routes(ev, rules) if prox is not None else []
     corridors = _route_corridors(through, ev, rules) if prox is not None else None
+    # #1728: the road centrelines a corridor's ROAD ARM is read against
+    road_lines = [c.line for c in ev.truck_chains + ev.road_chains
+                  if not c.aisle]
+    road_tree = STRtree(road_lines) if road_lines else None
     shoulders: list[tuple[Polygon, _t.Any, float, str]] = []
     # §43 AN APRON ENDS AT ITS MOUTH: a WORKLIST, not a plain loop — an
     # apron-candidate face that turns out to hold a neck is cut at the
@@ -520,6 +524,28 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # neck pass at all, with or without the amendment (measured, the
         # 17x dry LEMD arm: cell 471 `role=apron kind=apron ref=pav188`
         # BYTE-IDENTICAL on both arms until this line was fixed).
+        # #1728 A CORRIDOR'S ROAD ARM IS THE ROAD (owner 2026-10-31, KBWI
+        # dsf:pol177): road-wide pavement that leaves the taxi centreline's
+        # route territory along a road centreline is cut at its mouth
+        # (``neck.road_arms``); the arm piece then takes the #1877 verdict
+        # below, the rest is re-scored as the corridor it is
+        if kind == "corridor" and not apron_refused and not neck_ev \
+                and road_tree is not None:
+            near = [road_lines[int(j)] for j in road_tree.query(face)]
+            arms = road_arms(face, [c.line for c in taxi], near, rules) \
+                if near else []
+            pieces = split_at_necks(face, arms, rules) if arms else []
+            if len(pieces) > 1:
+                stats["corridor_road_arms"] = \
+                    stats.get("corridor_road_arms", 0) + len(arms)
+                for p, arm in pieces:
+                    n = max(arms, key=lambda q: q.polygon.intersection(p).area)
+                    queue.append((p, {
+                        "neck_cut": 1.0, "neck_kind": "arm",
+                        "neck_width_m": n.width_m, "neck_length_m": n.length_m,
+                        "corridor_road_arm": 1.0} if arm
+                        else {"corridor_road_arm_parent": 1.0}))
+                continue
         already_cut = bool(neck_ev.get("neck_cut")
                            or neck_ev.get("neck_new_apron"))
         if not already_cut and (kind == "apron" or apron_refused):

@@ -51,6 +51,7 @@ import O4_DSF_Compress as DSFC
 import O4_Imagery_OnDemand_Convert as CONVERT
 import O4_World_Pack as WP
 
+from .imagery_convert import sibling_work_dir
 from .xplane_root import xplane_running as _xplane_running
 
 __all__ = ["WORK_DIR_NAME", "Journal", "work_dir_for", "entries",
@@ -69,8 +70,7 @@ _RUN = threading.Lock()
 
 def work_dir_for(scenery_dir: str) -> str:
     """The work folder of a Custom Scenery folder."""
-    parent = os.path.dirname(os.path.abspath(scenery_dir))
-    return os.path.join(parent, WORK_DIR_NAME)
+    return sibling_work_dir(scenery_dir, WORK_DIR_NAME)
 
 
 class Journal:

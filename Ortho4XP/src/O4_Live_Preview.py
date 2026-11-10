@@ -16,7 +16,7 @@ returns); this module is the rule and the read, pure of settings
   (none while a square would be under :data:`MIN_SQUARE_PX` on screen;
   at most :data:`MAX_TILES` tiles and :data:`MAX_SQUARES` squares, the
   nearest the viewport's centre first) with the mip size each should be
-  fetched at (:func:`mip_px`: the on-screen size rounded up to a power of
+  fetched at (:func:`_mip_px`: the on-screen size rounded up to a power of
   two, :data:`MIN_MIP_PX`..:data:`MAX_MIP_PX`).  Each carries a
   ``stamp`` (modification time and size): a square whose stamp changes
   (the follow job landed a finer tier) is fetched again.
@@ -43,7 +43,7 @@ from O4_DDS_Decode import decode_blocks
 
 __all__ = ["APP_CACHE_IMAGES", "MAX_MIP_PX", "MAX_SQUARES", "MAX_TILES",
            "MIN_MIP_PX", "MIN_SQUARE_PX", "existing_dirs", "mip_image",
-           "mip_px", "parse_texture", "squares", "tiles_in"]
+           "parse_texture", "squares"]
 
 #: Below this many screen pixels a square is not drawn (the map is too
 #: far out for imagery to read; the tile outlines say enough).
@@ -82,7 +82,7 @@ def parse_texture(name: str) -> "dict | None":
             "east": (col + 16) / n * 360.0 - 180.0}
 
 
-def tiles_in(south: float, west: float, north: float,
+def _tiles_in(south: float, west: float, north: float,
              east: float) -> "list[tuple[int, int]]":
     """The 1° tiles a viewport touches, its centre's first."""
     lat0, lat1 = math.floor(max(south, -85.0)), math.floor(min(north, 84.999))
@@ -108,7 +108,7 @@ def existing_dirs(candidates) -> "list[str]":
     return out
 
 
-def mip_px(screen_px: float) -> int:
+def _mip_px(screen_px: float) -> int:
     """The mip size to fetch for a square ``screen_px`` wide on screen."""
     want = max(MIN_MIP_PX, min(MAX_MIP_PX, screen_px))
     return min(MAX_MIP_PX, 2 ** math.ceil(math.log2(want)))
@@ -151,7 +151,7 @@ def squares(south: float, west: float, north: float, east: float,
     Replies ``{"squares": [{key, path, stamp, px, zl, north, south, west,
     east}], "capped": bool, "reason": "" | "zoom"}`` (``zoom``: squares
     are installed here but too small to draw at this zoom)."""
-    tiles = tiles_in(south, west, north, east)
+    tiles = _tiles_in(south, west, north, east)
     out, too_small = [], False
     capped = len(tiles) > MAX_TILES
     for lat, lon in tiles[:MAX_TILES] if px_per_deg > 0 else ():
@@ -164,7 +164,7 @@ def squares(south: float, west: float, north: float, east: float,
                 continue
             out.append({"key": "%s/%s" % (WP.tile_name(lat, lon), sq["name"]),
                         "path": sq["path"], "stamp": sq["stamp"],
-                        "px": mip_px(screen), "zl": sq["zl"],
+                        "px": _mip_px(screen), "zl": sq["zl"],
                         "north": sq["north"], "south": sq["south"],
                         "west": sq["west"], "east": sq["east"]})
     clat, clon = (south + north) / 2, (west + east) / 2

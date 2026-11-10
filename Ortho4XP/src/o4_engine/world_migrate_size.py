@@ -113,7 +113,7 @@ def _pick(rows, entries, sample: int) -> list:
     """Up to ``sample`` ``(entry, action)`` to time: the actions share the
     sample, each spread evenly over its entries."""
     groups: Dict[str, list] = {}
-    for row, entry in zip(rows, entries):
+    for row, entry in zip(rows, entries, strict=False):
         if row["action"] in ("copy", "stage"):
             groups.setdefault(row["action"], []).append((entry, row["action"]))
     if not groups:
@@ -156,7 +156,7 @@ def dry_run(scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX,
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         rows = list(pool.map(lambda pair: _size_row(pair[0], pair[1],
                                                     scenery_dir, px),
-                             zip(found, actions)))
+                             zip(found, actions, strict=False)))
     timed = []
     if sample > 0:
         if sample_root:

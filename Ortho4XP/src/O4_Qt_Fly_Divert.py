@@ -28,12 +28,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-__all__ = ["DivertDialog", "airport_rows", "post_notice"]
+__all__ = ["DivertDialog", "post_notice"]
 
 _TRAY: dict = {}
 
 
-def airport_rows(entries) -> list:
+def _airport_rows(entries) -> list:
     """X-Plane's airport list (``O4_Airport_Index`` entries) as the
     search's rows ``[ident, name, lat, lon]``."""
     return [[e.code, getattr(e, "name", "") or "", e.lat, e.lon]
@@ -47,7 +47,7 @@ class DivertDialog(QDialog):
                  parent=None):
         super().__init__(parent)
         self.setWindowTitle(DTEXT.DIVERT_TITLE)
-        self._rows = airport_rows(airports())
+        self._rows = _airport_rows(airports())
         self._choice: Optional[Any] = None
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("<b>%s</b>" % DTEXT.DIVERT_TITLE))

@@ -318,5 +318,25 @@
   "path": "Ortho4XP/src/o4_engine/flight_record.py",
   "name": "flight_id",
   "reason": "public API of a flight-manager / World module (spec flight-manager-and-world-20261110 §16) exercised by its twin; the app/engine caller lands in a later phase (W2/F1b/U3)"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_job_run.py",
+  "name": "pack_state",
+  "reason": "test seam: tests/test_flight_manager.py monkeypatches flight_job_run.pack_state to fake the World pack state"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/flight_job_run.py",
+  "name": "estimate",
+  "reason": "test seam: tests/test_flight_manager.py monkeypatches flight_job_run.estimate to fix the tile times"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/live_preview_commands.py",
+  "name": "live_preview_squares",
+  "reason": "JSONL command handler: registered by name through live_preview_handlers() in o4_engine.jsonl, reached by the command string"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/live_preview_commands.py",
+  "name": "live_preview_mip",
+  "reason": "JSONL command handler: registered by name through live_preview_handlers() in o4_engine.jsonl, reached by the command string"
  }
 ]

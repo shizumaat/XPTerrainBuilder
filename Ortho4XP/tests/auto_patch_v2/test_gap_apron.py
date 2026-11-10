@@ -350,7 +350,8 @@ def test_the_class_table_read_on_a_real_map():
     # strips along taxi E join it (``classify/taxi_shoulder``), so the road
     # piece beside them at 30.1273, 31.4108 shrinks 1,253 -> 975 m2 and
     # sorts after gap:19 (gap:16 -> gap:20; gap:17-19 move down by one)
-    assert road == [0, 2, 4, 7, 11, 12, 20, 30, 31, 36]      # (#798: + gap:36; #1876: -> 35; #1900: +1; 10m)
+    # (#798: + gap:36; #1876: -> 35; #1900: +1; 10m)
+    assert road == [0, 2, 4, 7, 11, 12, 20, 30, 31, 36]
     assert all(c.evidence["road_evidence"] == 1.0 for c in pieces
                if c.evidence.get("touches_apron") == 1.0)
     by = {False: [], True: []}
@@ -360,7 +361,8 @@ def test_the_class_table_read_on_a_real_map():
     # (regL3 round 2: the taxi faces lettered by their pavement width move
     # the road evidence of gap:19 / gap:22 / gap:20 / gap:21 — refs only)
     # (#798: the gap refs after gap:36 move up by one — 38 -> 39, 39 -> 40)
-    assert sorted(by[False]) == [16, 40]                       # no road evidence (#1900: 39 -> 40; 10m: 17 -> 16)
+    # no road evidence (#1900: 39 -> 40; 10m: 17 -> 16)
+    assert sorted(by[False]) == [16, 40]
     # (lane xplat399: the §43 opening read on ``cells.opening_grid_m`` cuts
     # different necks/arms at HECA, so the gap pieces between them move —
     # gap:35 -> gap:34 in the share, gap:33 grows; refs only here)
@@ -368,7 +370,8 @@ def test_the_class_table_read_on_a_real_map():
     # gap piece at -2751, -156 — that piece and gapapron:7's gap:24 swap
     # numbers, 24 -> 23; refs only)
     # (#808: gap:19 is gone; the refs after it move down by one)
-    assert sorted(by[True]) == [13, 15, 17, 21, 22, 23, 32, 33, 35, 41]  # §37 (2)'s share (#1900: >= 19 +1; 10m: 18 -> 17)
+    # §37 (2)'s share (#1900: >= 19 +1; 10m: 18 -> 17)
+    assert sorted(by[True]) == [13, 15, 17, 21, 22, 23, 32, 33, 35, 41]
     assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(12)]  # #1876: 13 -> 12
     assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (12, 10)
     # the owner's sites stand in ROAD pieces (#430 / #292: gap:7; #358: gap:0)

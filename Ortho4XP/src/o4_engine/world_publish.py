@@ -130,7 +130,8 @@ def watch(session: Any,
           scenery_dir: Callable[[], str] = WORLD.scenery_dir_or_default
           ) -> None:
     """Subscribe to ``session``: each tile built ok is published on one
-    worker thread, in build order; a ``WorldStatus`` follows each."""
+    worker thread, in build order, and the tiles still staged are retried;
+    a ``WorldStatus`` follows each."""
     jobs: "queue.Queue[tuple]" = queue.Queue()
 
     def work() -> None:
@@ -142,6 +143,9 @@ def watch(session: Any,
                 if result is not None:
                     swap = ((result["tile"], "full", _utc())
                             if result["state"] == "swapped" else ())
+                    # Tiles staged earlier swap in now if they may (S3);
+                    # the build-ahead job (W2) retries them on its own.
+                    _swap_waiting(where, session.tile_build_dir)
                     session._emit(WORLD.status_event(where, last_swap=swap))
             except Exception as error:      # logged; the build is done
                 WORLD.write_log({"publish_error": repr(error)[:300],

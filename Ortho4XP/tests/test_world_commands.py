@@ -240,3 +240,31 @@ def test_s3_while_xplane_runs(world, monkeypatch):
     # +53-062 enters at lon -60.35 (0.65° past its column): 5 km out.
     near = WORLD.tile_loaded(world, position=lambda: (53.3, -60.30))
     assert near(53, -63) is False and near(53, -62) is True
+
+
+def test_watch_publishes_a_built_tile_on_its_worker(world, tmp_path):
+    """``watch``: a ``BuildDone`` ok of an on-demand tile is published and
+    a ``WorldStatus`` follows; the configured folder is read at the event."""
+    from o4_engine.events import BuildDone
+    WORLD.world_install(world)
+    build = _build(tmp_path)
+    emitted, handlers = [], []
+
+    class Session:
+        _stepwise_run = False
+
+        def tile_build_dir(self, lat, lon):
+            return build
+
+        def subscribe(self, fn):
+            handlers.append(fn)
+
+        def _emit(self, event):
+            emitted.append(event)
+    PUBLISH.watch(Session(), scenery_dir=lambda: world)
+    handlers[0](BuildDone(lat=45, lon=7, ok=True))
+    deadline = time.monotonic() + 20
+    while not emitted and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert emitted and emitted[0].tiles["full"] == 1
+    assert emitted[0].last_swap[0] == "+45+007"

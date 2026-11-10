@@ -37,13 +37,16 @@ from typing import Any, Callable, Dict, Optional
 import O4_File_Names as FNAMES
 import O4_World_Pack as WP
 
-__all__ = ["LOG_NAME", "pack_dir", "staging_root", "scenery_dir_or_default",
+__all__ = ["LOG_NAME", "S3_MARGIN_KM", "pack_dir", "staging_root", "scenery_dir_or_default",
            "managed",
            "tile_loaded", "world_status", "world_install",
            "start_world_regions_set", "world_tile_set",
            "status_event", "write_log"]
 
 LOG_NAME = "world_pack.log"
+#: Rule S3's margin outside the window: 0.05° (the 60 s of flight it also
+#: names needs a speed, which the build-ahead job has; W2).
+S3_MARGIN_KM = 0.05 * 111.32
 _GLOBAL_PACK = os.path.join("Global Scenery", "X-Plane 12 Global Scenery")
 _GUARD = threading.Lock()
 
@@ -120,8 +123,9 @@ def tile_loaded(scenery_dir: str,
     yes when the witness shows a load of it this session, or the aircraft
     (``position()`` -> ``(lat, lon)``; default the shared position feed's
     latest, ``position_feed.latest_position``) has it in
-    the union of the plausible DSF windows, or no position is known (the
-    disagreeing or unknown case counts as loaded)."""
+    the union of the plausible DSF windows or within :data:`S3_MARGIN_KM`
+    of entering it, or no position is known (the disagreeing or unknown
+    case counts as loaded)."""
     if not _xplane_running():
         return lambda lat, lon: False
     import O4_World_Window as WINDOW
@@ -133,7 +137,8 @@ def tile_loaded(scenery_dir: str,
     def held(lat: int, lon: int) -> bool:
         if (lat, lon) in loads or here is None:
             return True
-        return WINDOW.reach(here[0], here[1], lat, lon)["in_window"]
+        where = WINDOW.reach(here[0], here[1], lat, lon)
+        return where["in_window"] or where["km_to_load"] < S3_MARGIN_KM
     return held
 
 

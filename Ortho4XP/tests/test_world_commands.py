@@ -219,3 +219,19 @@ def test_world_status_wire_fixture_is_what_python_emits():
     payload.pop("ts")
     with open(WIRE_FIXTURE, encoding="utf-8") as h:
         assert json.load(h) == payload
+
+
+def test_s3_while_xplane_runs(world, monkeypatch):
+    """S3: with X-Plane running a tile is held when the witness saw it
+    load, when the aircraft has it in (or within the margin of) the DSF
+    window, or when no position is known."""
+    monkeypatch.setattr(WORLD, "_xplane_running", lambda: True)
+    monkeypatch.setattr(WORLD, "_witness", lambda _s: ({(50, 0): None}, []))
+    assert WORLD.tile_loaded(world, position=lambda: None)(10, 10) is True
+    held = WORLD.tile_loaded(world, position=lambda: (53.3, -60.4))
+    assert held(50, 0) is True                  # the witness saw it load
+    assert held(53, -61) is True                # under the aircraft
+    assert held(53, -66) is False               # far west, outside
+    # +53-062 enters at lon -60.35 (0.65° past its column): 5 km out.
+    near = WORLD.tile_loaded(world, position=lambda: (53.3, -60.30))
+    assert near(53, -63) is False and near(53, -62) is True

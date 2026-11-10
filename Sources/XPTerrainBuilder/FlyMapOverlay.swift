@@ -5,11 +5,20 @@ import SceneryKit
 /// corridor tiles by legend, the route, the aircraft's track and the
 /// aircraft. Its own view, so the base map never redraws for it; drawn in
 /// Fly mode only. The Qt window's `O4_Qt_Fly_Layer.FlyLayer` is the same.
-/// "Live flight preview" (each square's installed imagery) is a stub.
+/// Under them, while "Live flight preview" is on, each visible square's
+/// installed imagery (`LivePreviewModel`), asked again when the map moves.
 struct FlyMapOverlay: View {
     @ObservedObject var model: FlyModel
     @ObservedObject var modes: AppModeModel
     @ObservedObject var camera: ViewState<MapCamera>
+    @ObservedObject private var preview: LivePreviewModel
+
+    init(model: FlyModel, modes: AppModeModel, camera: ViewState<MapCamera>) {
+        self.model = model
+        self.modes = modes
+        self.camera = camera
+        self.preview = model.preview
+    }
 
     /// The legend's colors (Qt: `O4_Qt_Fly_Layer.LEGEND_COLORS`).
     static func color(_ key: String) -> Color {
@@ -32,24 +41,57 @@ struct FlyMapOverlay: View {
     }
 
     private var canvas: some View {
-        Canvas { context, size in
-            let cam = camera.value
-            for cell in model.cells {
-                let a = cam.point(lon: Double(cell.lon), lat: Double(cell.lat + 1), in: size)
-                let b = cam.point(lon: Double(cell.lon + 1), lat: Double(cell.lat), in: size)
-                let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
-                                  width: abs(b.x - a.x), height: abs(b.y - a.y))
-                context.stroke(Path(rect.insetBy(dx: 2, dy: 2)),
-                               with: .color(Self.color(cell.key)), lineWidth: 2)
+        GeometryReader { proxy in
+            Canvas { context, size in
+                let cam = camera.value
+                drawPreview(cam, size, &context)
+                drawLayers(cam, size, &context)
             }
-            stroke(model.drawing, cam, size, &context, MapCanvasView.magenta, 2.5)
-            stroke(model.track.parts, cam, size, &context, Self.aircraft, 2)
-            if let last = model.track.last {
-                drawAircraft(cam.point(lon: last.lon, lat: last.lat, in: size),
-                             track: last.track, &context)
-            }
+            .onAppear { viewMoved(proxy.size) }
+            .onChange(of: camera.value) { _, _ in viewMoved(proxy.size) }
+            .onChange(of: proxy.size) { _, size in viewMoved(size) }
+            .onChange(of: model.livePreview) { _, _ in viewMoved(proxy.size) }
         }
         .allowsHitTesting(false)
+    }
+
+    /// The viewport and its pixels per degree of longitude, for the preview.
+    private func viewMoved(_ size: CGSize) {
+        let cam = camera.value
+        let topLeft = cam.coordinate(of: .zero, in: size)
+        let bottomRight = cam.coordinate(of: CGPoint(x: size.width, y: size.height), in: size)
+        preview.setView(south: bottomRight.lat, west: topLeft.lon, north: topLeft.lat,
+                        east: bottomRight.lon, pxPerDegree: cam.scale)
+    }
+
+    /// Each square's installed imagery (#2001), under everything else.
+    private func drawPreview(_ cam: MapCamera, _ size: CGSize, _ context: inout GraphicsContext) {
+        _ = preview.revision
+        for square in preview.squares {
+            guard let image = preview.image(square) else { continue }
+            let a = cam.point(lon: square.west, lat: square.north, in: size)
+            let b = cam.point(lon: square.east, lat: square.south, in: size)
+            let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                              width: abs(b.x - a.x), height: abs(b.y - a.y))
+            context.draw(Image(decorative: image, scale: 1), in: rect)
+        }
+    }
+
+    private func drawLayers(_ cam: MapCamera, _ size: CGSize, _ context: inout GraphicsContext) {
+        for cell in model.cells {
+            let a = cam.point(lon: Double(cell.lon), lat: Double(cell.lat + 1), in: size)
+            let b = cam.point(lon: Double(cell.lon + 1), lat: Double(cell.lat), in: size)
+            let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                              width: abs(b.x - a.x), height: abs(b.y - a.y))
+            context.stroke(Path(rect.insetBy(dx: 2, dy: 2)),
+                           with: .color(Self.color(cell.key)), lineWidth: 2)
+        }
+        stroke(model.drawing, cam, size, &context, MapCanvasView.magenta, 2.5)
+        stroke(model.track.parts, cam, size, &context, Self.aircraft, 2)
+        if let last = model.track.last {
+            drawAircraft(cam.point(lon: last.lon, lat: last.lat, in: size),
+                         track: last.track, &context)
+        }
     }
 
     private func stroke(_ parts: [[GeoPoint]], _ cam: MapCamera, _ size: CGSize,

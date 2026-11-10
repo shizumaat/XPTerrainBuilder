@@ -60,7 +60,7 @@ private struct FlyPaneRows: View {
                         ForEach(FlyText.simPriorities, id: \.0) { Text($0.1).tag($0.0) }
                     }
                     Toggle(FlyText.livePreview, isOn: $fly.livePreview)
-                        .help(FlyText.livePreviewStub)
+                        .help(FlyText.livePreviewHelp)
                     ReloadOfferRow(model: fly)
                     Button(FlyText.divert) { fly.divertShown = true }
                         .disabled(fly.status == nil)

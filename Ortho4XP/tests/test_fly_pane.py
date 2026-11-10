@@ -191,7 +191,7 @@ def test_the_words_are_the_macs():
                  "PLAN_NONE", "SIMBRIEF_BUTTON", "QUICK_FROM", "QUICK_TO",
                  "QUICK_BUTTON", "PREPARE", "BUILD_ALTERNATE", "CRUISE_LABEL",
                  "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "LIVE_PREVIEW",
-                 "LIVE_PREVIEW_STUB", "DIVERT", "END_FLIGHT",
+                 "LIVE_PREVIEW_HELP", "DIVERT", "END_FLIGHT",
                  "NO_FLIGHT_MANAGER", "NO_STATUS"):
         camel = re.sub(r"_(\w)", lambda m: m.group(1).upper(), name.lower())
         said = re.search(r'static let %s = "([^"]+)"' % camel, swift)

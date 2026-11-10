@@ -230,6 +230,7 @@ CAPABILITIES: tuple = (
     "flight_manager",               # 2026-11-10, World spec F1b flight_* + FlightStatus/Ready
     "flight_notices",               # 2026-11-10, World spec F2 flight_divert/reload + FlightNotice
     "world_migrate",                # 2026-11-10, World spec M world_migrate (+ WorldReady)
+    "live_preview",                 # 2026-11-10, #2001 live_preview_squares / live_preview_mip
 )
 
 

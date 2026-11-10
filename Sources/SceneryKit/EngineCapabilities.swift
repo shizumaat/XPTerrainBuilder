@@ -37,6 +37,8 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// `world_migrate` (World spec §13 M1): the per-tile packs moved into
     /// the World pack; flag only.
     public static let worldMigrate = "world_migrate"
+    /// `live_preview_squares` / `live_preview_mip` (#2001): flag only.
+    public static let livePreview = "live_preview"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

@@ -128,6 +128,7 @@ import O4_Qt_Modes as QTMODES
 import O4_Qt_Fly_Divert as QTFLYDIVERT
 import O4_Qt_Fly_Layer as QTFLYLAYER
 import O4_Qt_Fly_Pane as QTFLYPANE
+import O4_Qt_Live_Preview as QTLIVEPREVIEW
 import O4_Qt_Patch_Library as QTPATCHLIB
 import O4_Qt_Activity_List as QTACT
 import O4_Qt_Step_Strip as QTSTRIP
@@ -1992,7 +1993,9 @@ class MainWindow(QMainWindow):
             self.follow_line, run=self._fly_command,
             airports=lambda: self._airports, prefs=self.prefs,
             save_prefs=save_prefs)
-        self.fly_layer = QTFLYLAYER.FlyLayer(self.map, self.fly_pane)
+        self.live_preview = QTLIVEPREVIEW.LivePreview(self._fly_command, self)
+        self.fly_layer = QTFLYLAYER.FlyLayer(self.map, self.fly_pane,
+                                             self.live_preview)
         self.map.add_layer(self.fly_layer)
         self.library_pane = QTMODES.LibraryPane(
             self.working_dir(), CFG.custom_scenery_dir,
@@ -2982,6 +2985,7 @@ class MainWindow(QMainWindow):
 
     def _on_imagery_follow_status(self, event):
         self.follow_line.show_status(event)
+        self.live_preview.follow_landed(getattr(event, "landed", None))  # #2001
         self.follow_line.setVisible(True)
         self.fly_offer.observe(event, self.mode())
 

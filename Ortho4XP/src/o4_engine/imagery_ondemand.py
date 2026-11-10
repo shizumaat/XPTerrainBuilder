@@ -41,8 +41,9 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 
 from . import imagery_downgrade as DOWNGRADE
 
-__all__ = ["on_demand_tiles", "imagery_ondemand_scan", "imagery_pin",
-           "imagery_ondemand_sweep", "imagery_ondemand_downgrade_all"]
+__all__ = ["forget_tile", "on_demand_tiles", "imagery_ondemand_scan", "imagery_pin",
+           "imagery_ondemand_sweep", "imagery_ondemand_downgrade_all",
+           "register_tiles"]
 
 
 def _set_manifest_pin(build_dir: str, lat: int, lon: int, pinned: bool) -> None:
@@ -72,12 +73,20 @@ def _keys_by_texture(users: dict) -> dict:
 
 def on_demand_tiles(working_dir: str):
     """``(build_dir, lat, lon)`` of every tile under ``working_dir`` whose
-    imagery record says on demand or pinned."""
+    imagery record says on demand or pinned, then every built tile
+    converted to on-demand form (``imagery_convert.converted_tiles``)."""
     import O4_Tile_Info as TINFO
+
+    from .imagery_convert import converted_tiles
+    seen = set()
     for (lat, lon), info in sorted(TINFO.scan_tiles(working_dir).items()):
         record = TINFO.read_imagery_record(info.build_dir, lat, lon)
         if record.get("on_demand") or record.get("pinned"):
+            seen.add(os.path.abspath(info.build_dir))
             yield info.build_dir, lat, lon
+    for folder, lat, lon in converted_tiles():
+        if os.path.abspath(folder) not in seen:
+            yield folder, lat, lon
 
 
 def _figures(conn) -> Dict[str, Any]:
@@ -86,6 +95,40 @@ def _figures(conn) -> Dict[str, Any]:
             "cap_bytes": DOWNGRADE.cap_bytes(),
             "core_rows": len(INDEX.rows(conn, core=True)),
             "rows": len(INDEX.rows(conn))}
+
+
+def _rebuild_rows(conn, tiles, cache_keys=None) -> None:
+    """The index rows of ``tiles`` (``(build_dir, lat, lon)``) rebuilt from
+    disk, and their airport cores marked."""
+    INDEX.rebuild(conn, tiles, placeholder_root=_placeholder_root(),
+                  cache_keys=cache_keys)
+    for _build_dir, lat, lon in tiles:
+        tile = FNAMES.short_latlon(lat, lon)
+        INDEX.set_core(conn, tile, CORES.core_names(
+            INDEX.rows(conn, tile=tile), CORES.airport_points(lat, lon)))
+
+
+def register_tiles(tiles, index: Optional[str] = None) -> int:
+    """Write the index rows of ``tiles`` just converted to on-demand form
+    (``imagery_convert``): the scan's rebuild for those tiles only.
+    Returns their rows."""
+    conn = INDEX.open_index(index)
+    try:
+        _rebuild_rows(conn, list(tiles))
+        return sum(len(INDEX.rows(conn, tile=FNAMES.short_latlon(lat, lon)))
+                   for (_d, lat, lon) in tiles)
+    finally:
+        conn.close()
+
+
+def forget_tile(tile: str, index: Optional[str] = None) -> int:
+    """Drop every index row of ``tile`` (a converted entry swapped back);
+    the rows removed."""
+    conn = INDEX.open_index(index)
+    try:
+        return INDEX.forget_tile(conn, tile)
+    finally:
+        conn.close()
 
 
 def imagery_ondemand_scan(working_dir: str = "",
@@ -105,12 +148,7 @@ def imagery_ondemand_scan(working_dir: str = "",
             own = os.path.abspath(build_dir)
             return {name: found[-1] for (where, name), found in users.items()
                     if where == own}
-        INDEX.rebuild(conn, tiles, placeholder_root=_placeholder_root(),
-                      cache_keys=keys)
-        for _build_dir, lat, lon in tiles:
-            tile = FNAMES.short_latlon(lat, lon)
-            INDEX.set_core(conn, tile, CORES.core_names(
-                INDEX.rows(conn, tile=tile), CORES.airport_points(lat, lon)))
+        _rebuild_rows(conn, tiles, keys)
         reset = INDEX.reset_upgrading(conn)
         return {"tiles": len(tiles), "reset": reset, **_figures(conn)}
     finally:

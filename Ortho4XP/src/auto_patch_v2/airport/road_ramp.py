@@ -1881,6 +1881,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   "foot_profile": (None if getattr(w, "foot_profile", None) is None
                                    else [tuple(t) for t in w.foot_profile]),
                   "upper": upper, "lower": lower,
+                  "low_side": str(getattr(w, "low_side", "") or ""),
                   "lots": lots, "pairs": pairs,
                   "foot_lots": {v: z for i, z in sorted(foot_lots.items())
                                 for v in _face_vertices(pm, i) if v not in pad_v}}

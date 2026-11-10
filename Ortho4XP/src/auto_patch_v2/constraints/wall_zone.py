@@ -89,6 +89,9 @@ class RetainingLine(_t.NamedTuple):
     #: (``airport/wall_top.foot_profile``, #1662), ``None`` when unread
     lower_face: _t.Any = None
     foot_profile: tuple | None = None
+    #: who witnessed the low side's ground (``airport/wall_sides``
+    #: ``low_side``): ``"sheets"`` when the pack's own sheets name its foot
+    low_side: str = ""
 
 
 def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
@@ -111,7 +114,8 @@ def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
                                  LineString(r["lower_face"]) if r.get("lower_face")
                                  else None,
                                  None if not r.get("foot_profile")
-                                 else tuple(map(tuple, r["foot_profile"]))))
+                                 else tuple(map(tuple, r["foot_profile"])),
+                                 str(r.get("low_side") or "")))
     return out
 
 
@@ -282,7 +286,13 @@ def face_foot(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> flo
     wall's end, nearer the end edge, is on it too: measured KATL
     ``muro_concreto``, 0.32 m off the face and 0.23 m off the end) — at a
     station that retains (``wall_sides._foot_retaining``); ``None``
-    elsewhere."""
+    elsewhere.
+
+    A WALL WHOSE FOOT THE PACK NAMES (``low_side == "sheets"``, #1952) is
+    flat at its foot across its whole lower band: within its ``smear`` of
+    the lower face, not only :data:`TOP_FACE_M` (MEASURED KMCI
+    ``Trimsheet-16.obj#2``: 43 outer-ring vertices of the foot strip
+    drifted to the old DEM, 299.17-301.07 m over a 299.82 m foot)."""
     import numpy as np
     from shapely.geometry import Point
     p = Point(xy)
@@ -292,7 +302,8 @@ def face_foot(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> flo
         d = w.lower_face.distance(p)
         other = (w.upper_face.distance(p) if w.upper_face is not None
                  else w.poly.exterior.distance(p))
-        if d <= TOP_FACE_M and d <= other + 1e-6:
+        lim = w.smear if w.low_side == "sheets" else TOP_FACE_M
+        if d <= lim and d <= other + 1e-6:
             s_ = w.lower_face.project(p)
             st = [t for t in w.foot_profile if t[1] is not None]
             near = min(w.foot_profile, key=lambda t: abs(t[0] - s_))

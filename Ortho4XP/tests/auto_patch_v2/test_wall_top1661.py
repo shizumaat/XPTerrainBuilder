@@ -185,6 +185,27 @@ def test_only_the_lower_face_takes_the_foot():
     assert WZ.face_foot([line], (75.0, 0.0)) is None         # out on the low side
 
 
+def test_a_sheet_walls_foot_strip_is_flat_at_the_foot_across_its_band():
+    """#1952 S3 (KMCI ``Trimsheet-16.obj#2``: the strip's outer ring drifted
+    to the old DEM): a wall whose foot the pack's sheets name holds its
+    foot across its lower band (``smear`` out), still nearer the lower face
+    than the upper and still not at a station that retains nothing; a
+    DEM-witnessed wall keeps the face's metre."""
+    face = _lower_face()
+    prof = ((0.0, 289.5), (face.length, 289.5))
+    sheets = WZ.RetainingLine(WALL, 80.0, 20.0, {}, _upper_face(), None, face, prof,
+                              "sheets")
+    assert WZ.face_foot([sheets], (75.0, 0.0)) == 289.5      # 10 m out, in the band
+    assert WZ.face_foot([sheets], (86.0, 0.0)) is None       # past the band
+    assert WZ.face_foot([sheets], (60.0, 0.0)) is None       # the upper face
+    unheld = sheets._replace(foot_profile=((0.0, None), (face.length, None)))
+    assert WZ.face_foot([unheld], (75.0, 0.0)) is None
+    assert WZ.face_foot([sheets._replace(low_side="")], (75.0, 0.0)) is None
+    (read,) = WZ.retaining_lines({0: {"retains": True, "height_m": 5.0, "low_side": "sheets",
+                                      "line": list(WALL.exterior.coords)}})
+    assert read.low_side == "sheets"
+
+
 def test_the_foot_strip_is_the_lower_band_no_region_holds():
     up, lo = box(40.0, -100.0, 60.0, 100.0), box(65.0, -100.0, 85.0, 100.0)
     w = WS.WallSides(WALL, 20.0, 20.0, up, lo, 6.0, "w", WALL.buffer(-0.5),

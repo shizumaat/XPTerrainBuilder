@@ -48,14 +48,23 @@ SHALLOW_WATER_CATEGORIES = (
 )
 SHALLOW_WATER_EDGE_FADE_M = 150.0
 # Mask squares straddle tile edges (the orthophoto grid never aligns
-# with integer degrees), so the fallback query reaches this far into
-# the neighbouring tiles: flats polygons lying wholly beyond the tile
-# line still rasterize into the shared straddling squares, and the two
-# tiles' copies of such a square agree.  Sized for the worst case (a
-# ZL14 mask square is ~0.35 degrees) plus the pre-mask pad and fade.
-SHALLOW_WATER_QUERY_MARGIN_DEGREES = 0.5
+# with integer degrees), so the fallback query reaches into the
+# neighbouring tiles: flats polygons lying wholly beyond the tile line
+# still rasterize into the shared straddling squares, and the two
+# tiles' copies of such a square agree.  The reach is exactly the union
+# of the squares the tile's masks draw plus the alpha's edge-fade pad
+# (:func:`_shallow_water_query_margins`), taken on the grid of the
+# COARSEST offered ``mask_zl`` (O4_Cfg_Vars: 14, 15, 16) so the one
+# per-tile cache serves every mask_zl setting.  It is per side and at
+# most ~0.36 degrees; the former flat 0.5 degrees reached a further
+# regional extract for a sliver of land no square ever draws (#1919:
+# tile +53+009 downloaded detmold-regbez, whose polygon tops out at
+# 52.53 N, for its 52.5 N margin edge).
+SHALLOW_WATER_REACH_ZL = 14
 # Cache schema for the shallow-water categories: bumped when the query
-# bbox gained the margin so pre-margin caches re-download once.
+# bbox gained the margin so pre-margin caches re-download once.  The
+# square-union reach lies inside the former 0.5-degree box, so caches
+# stamped "margin-0.5" are supersets and stay valid.
 SHALLOW_WATER_CACHE_SCHEMA = "margin-0.5"
 # Where the measured bathymetry band's coverage simply ENDS while the
 # water is still shallow — intertidal lidar that stops at the waterline,
@@ -745,6 +754,33 @@ def _note_skipped(tile, category):
         tile.shallow_water_skipped = [category]
 
 
+def _shallow_water_square_box(til_x, til_y, zoomlevel):
+    """(lat_min, lon_min, lat_max, lon_max) of one mask square padded by
+    the shallow-water alpha's edge fade: the area whose polygons
+    :func:`build_shallow_water_alpha` draws into that square."""
+    (lat_max, lon_min) = GEO.gtile_to_wgs84(til_x, til_y, zoomlevel)
+    (lat_min, lon_max) = GEO.gtile_to_wgs84(til_x + 16, til_y + 16,
+                                            zoomlevel)
+    pad_degrees = 2 * SHALLOW_WATER_EDGE_FADE_M / GEO.lat_to_m
+    return (lat_min - pad_degrees, lon_min - pad_degrees,
+            lat_max + pad_degrees, lon_max + pad_degrees)
+
+
+def _shallow_water_query_margins(lat, lon,
+                                zoomlevel=SHALLOW_WATER_REACH_ZL):
+    """(south, west, north, east) degrees by which the shallow-water
+    query box must exceed tile (lat, lon): the padded union of the mask
+    squares ``build_masks`` draws for it (the same orthogrid range)."""
+    (til_x_min, til_y_min) = GEO.wgs84_to_orthogrid(lat + 1, lon, zoomlevel)
+    (til_x_max, til_y_max) = GEO.wgs84_to_orthogrid(lat, lon + 1, zoomlevel)
+    (south_edge, west_edge, _n, _e) = _shallow_water_square_box(
+        til_x_min, til_y_max, zoomlevel)
+    (_s, _w, north_edge, east_edge) = _shallow_water_square_box(
+        til_x_max, til_y_min, zoomlevel)
+    return (max(0.0, lat - south_edge), max(0.0, lon - west_edge),
+            max(0.0, north_edge - lat - 1), max(0.0, east_edge - lon - 1))
+
+
 def load_shallow_water_polygons(tile):
     """The tile's mapped shallow-water polygons, by category.
 
@@ -772,7 +808,8 @@ def load_shallow_water_polygons(tile):
                 [],
                 cached_suffix=cached_suffix,
                 cache_schema=SHALLOW_WATER_CACHE_SCHEMA,
-                bbox_margin_degrees=SHALLOW_WATER_QUERY_MARGIN_DEGREES,
+                bbox_margin_degrees=_shallow_water_query_margins(
+                    tile.lat, tile.lon),
             ):
                 UI.lvprint(
                     0,
@@ -823,17 +860,11 @@ def build_shallow_water_alpha(til_x, til_y, tile, shallow_water_categories):
     from shapely.geometry import box as shapely_box
 
     (latm0, lonm0) = GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl)
-    (latm1, lonm1) = GEO.gtile_to_wgs84(
-        til_x + 16, til_y + 16, tile.mask_zl
-    )
     # Tile-relative degree bbox of the square, padded by the edge fade.
-    pad_degrees = 2 * SHALLOW_WATER_EDGE_FADE_M / GEO.lat_to_m
-    square = shapely_box(
-        lonm0 - tile.lon - pad_degrees,
-        latm1 - tile.lat - pad_degrees,
-        lonm1 - tile.lon + pad_degrees,
-        latm0 - tile.lat + pad_degrees,
-    )
+    (lat_min, lon_min, lat_max, lon_max) = _shallow_water_square_box(
+        til_x, til_y, tile.mask_zl)
+    square = shapely_box(lon_min - tile.lon, lat_min - tile.lat,
+                         lon_max - tile.lon, lat_max - tile.lat)
     depth_ceiling = max(
         float(getattr(tile, "reef_visibility_depth", 25.0)), 0.01
     )

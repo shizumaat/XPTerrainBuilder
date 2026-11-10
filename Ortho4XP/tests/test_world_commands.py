@@ -42,7 +42,9 @@ def wire_sample() -> WorldStatus:
                        seen_by_xplane=True, restart_needed=False,
                        tiles={"placeholder": 3, "drape": 0, "light": 1,
                               "full": 2, "staged": 1},
-                       queue=2, building=(), loaded=("+53-063",),
+                       queue=2,
+                       building=(("+53-065", "light", "building", 412),),
+                       loaded=("+53-063",),
                        last_swap=("+53-064", "light", "2026-11-10T15:02:24Z"),
                        slots=1, frame_ms=21.8, governor="ok", bytes=1234)
 

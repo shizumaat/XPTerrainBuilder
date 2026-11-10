@@ -76,11 +76,13 @@ FLY_PANE = (
     ("cruise_speed", "CruiseSpeedField(model:", "cruise_speed_edit"),
     ("corridor", "CorridorWidthField(model:", "corridor_edit"),
     ("readiness", "ReadinessChecklist(model:", "readiness_list"),
+    ("offline_waiver", "OfflineWaiverRow(model:", "offline_waiver_row"),  # F2, 10k Q3
     ("countdown", "FlightCountdown(model:", "countdown_label"),
     ("world_line", "WorldStatusLine(model:", "world_line"),
     ("follow_line", "ImageryFollowLine(model:", "follow_line"),
     ("sim_priority", "Picker(FlyText.simPriorityLabel", "sim_priority_combo"),
     ("live_preview", "Toggle(FlyText.livePreview", "chk_live_preview"),   # #2001
+    ("reload_offer", "ReloadOfferRow(model:", "reload_offer_row"),     # F2, S6 (b)
     ("divert", "Button(FlyText.divert)", "divert_btn"),
     ("end_flight", "Button(FlyText.endFlight)", "end_flight_btn"),
 )

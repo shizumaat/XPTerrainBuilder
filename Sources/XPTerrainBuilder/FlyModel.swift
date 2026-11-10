@@ -9,9 +9,9 @@ import AppKit
 /// with its track for the map. The Qt window's `O4_Qt_Fly_Pane.FlyPane`
 /// holds the same; words and rules are SceneryKit `FlyText` / `FlyLayers`.
 ///
-/// The `flight_*` commands and `FlightStatus` belong to lane F1b: until
-/// an engine has them the pane says `FlyText.noFlightManager` and is
-/// exercised on the shared fixture (`FlyPaneTests`).
+/// The `flight_*` commands, `FlightStatus` and `FlightReady` are the
+/// flight manager's (capability `flight_manager`); an engine without them
+/// makes the pane say `FlyText.noFlightManager`.
 @MainActor
 final class FlyModel: ObservableObject {
     static let simPriorityKey = "FlySimPriority"
@@ -49,6 +49,11 @@ final class FlyModel: ObservableObject {
     @Published private(set) var worldStatus: O4JSON?
     @Published private(set) var track = AircraftTrack()
     @Published private(set) var position: O4AircraftPosition?
+    /// "Divert…": the airport search sheet and its query (lane F2).
+    @Published var divertShown = false
+    @Published var divertQuery = ""
+    /// The last `FlightNotice` (also posted as a system notification).
+    @Published private(set) var notice: O4FlightNotice?
     private var watching = false
 
     var simBriefUser: String {
@@ -84,8 +89,25 @@ final class FlyModel: ObservableObject {
         track.add(lat: position.lat, lon: position.lon, track: position.trackDegrees)
     }
 
-    /// A `FlightStatus` (lane F1b adds its `O4Event` case and calls this).
+    /// A `FlightStatus` (the flight manager, every 2 s and on a change).
     func show(_ status: O4FlightStatus) { self.status = status }
+
+    /// A `FlightReady`: `flight_plan_simbrief`'s plan, or its refusal.
+    func showReady(_ reply: O4JSON) {
+        if let error = reply["error"]?.stringValue, !error.isEmpty {
+            message = FlyText.refusal(error)
+        } else if let plan = O4FlightPlanRead.parse(reply["result"]) {
+            message = nil
+            self.plan = plan
+        }
+    }
+
+    /// A `FlightNotice` (lane F2): a system notification, and the pane's
+    /// last notice line.
+    func show(_ notice: O4FlightNotice) {
+        self.notice = notice
+        FlightNotifier.post(notice)
+    }
 
     /// A `WorldStatus`'s fields (lane W1 calls this).
     func showWorld(_ fields: O4JSON) { worldStatus = fields }
@@ -172,9 +194,35 @@ final class FlyModel: ObservableObject {
         command("flight_update", arguments.merging(["flight": flight]) { a, _ in a }) { _ in }
     }
 
-    func divert() {
+    /// "Divert…"'s airport search over X-Plane's airport list.
+    var divertResults: [FlyDivertText.Airport] {
+        guard let build else { return [] }
+        let airports = build.globalAirports.map {
+            FlyDivertText.Airport(ident: $0.icao, name: $0.name, lat: $0.latitude, lon: $0.longitude)
+        }
+        return FlyDivertText.matches(divertQuery, in: airports)
+    }
+
+    var hasAlternate: Bool { plan?.alternate != nil }
+
+    /// `flight_divert`: the plan's alternate (nil) or a searched airport.
+    func divert(to airport: FlyDivertText.Airport?) {
         guard let flight = status?.flight else { return }
-        command("flight_divert", ["flight": flight, "to": "alternate"]) { _ in }
+        let to: Any = airport.map { ["ident": $0.ident, "lat": $0.lat, "lon": $0.lon] } ?? "alternate"
+        divertShown = false
+        divertQuery = ""
+        command("flight_divert", ["flight": flight, "to": to]) { _ in }
+    }
+
+    /// The reload in the air (S6 (b)): "Reload scenery now" / "Not now".
+    func reload(notNow: Bool) {
+        guard let flight = status?.flight else { return }
+        command("flight_reload", ["flight": flight, "not_now": notNow]) { _ in }
+    }
+
+    /// "Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3).
+    func waiveOffline() {
+        update(["waive_offline": true])
     }
 
     func endFlight() {

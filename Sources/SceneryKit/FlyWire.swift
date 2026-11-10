@@ -70,6 +70,9 @@ public struct O4FlightStatus: Sendable, Equatable {
     public let etaSeconds: Double?
     public let reload: String
     public let divertedTo: String
+    /// En-route tiles that need the internet and may be left to X-Plane's
+    /// own scenery (`flight_update {waive_offline: true}`, F2).
+    public var waivable: [String] = []
 
     public static func parse(_ json: O4JSON?) -> O4FlightStatus? {
         guard let json, let flight = json["flight"]?.stringValue else { return nil }
@@ -88,7 +91,7 @@ public struct O4FlightStatus: Sendable, Equatable {
                        remainingSeconds: r.count > 4 ? r[4].doubleValue : nil,
                        marginSeconds: r.count > 5 ? r[5].doubleValue : nil)
         }
-        return O4FlightStatus(
+        var status = O4FlightStatus(
             flight: flight, state: json["state"]?.stringValue ?? "preparing",
             phase: json["phase"]?.stringValue ?? "",
             ready: json["ready"]?.boolValue ?? false,
@@ -100,6 +103,34 @@ public struct O4FlightStatus: Sendable, Equatable {
             etaSeconds: json["eta_s"]?.doubleValue,
             reload: json["reload"]?.stringValue ?? "",
             divertedTo: json["diverted_to"]?.stringValue ?? "")
+        status.waivable = (json["waivable"]?.arrayValue ?? []).compactMap { $0.stringValue }
+        return status
+    }
+}
+
+/// `FlightNotice` (§5.3, lane F2): one notice of the active flight, shown
+/// as a system notification (`code`, `title`, `text`, `severity`).
+public struct O4FlightNotice: Sendable, Equatable {
+    public let flight: String
+    public let code: String
+    public let title: String
+    public let text: String
+    public let severity: String
+
+    public init(flight: String, code: String, title: String, text: String, severity: String) {
+        self.flight = flight
+        self.code = code
+        self.title = title
+        self.text = text
+        self.severity = severity
+    }
+
+    public static func parse(_ json: O4JSON?) -> O4FlightNotice? {
+        guard let json, let code = json["code"]?.stringValue, !code.isEmpty else { return nil }
+        return O4FlightNotice(flight: json["flight"]?.stringValue ?? "", code: code,
+                              title: json["title"]?.stringValue ?? "",
+                              text: json["text"]?.stringValue ?? "",
+                              severity: json["severity"]?.stringValue ?? "info")
     }
 }
 

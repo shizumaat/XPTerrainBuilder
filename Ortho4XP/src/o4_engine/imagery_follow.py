@@ -23,9 +23,13 @@ The rules it keeps (spec §4.7, §8):
 * at most ``lands_per_s`` landings start per second (R6);
 * at start, partials are swept and ``upgrading`` rows reset (R7);
 * a tier landed after its crossing is counted ``late`` (R5, U5);
-* PAUSE: no new fetch starts while a build runs (``busy()``) or while a
-  Library command that changes tiles holds :func:`paused` — the converter
-  and a build would race on ``textures/``; fetches in flight finish;
+* PAUSE: no new fetch starts while a Library command that changes tiles
+  holds :func:`paused` — the converter would race on ``textures/``;
+  fetches in flight finish.  A build or a World-pack swap holds only ITS
+  tiles (World spec §8.7, S7): ``busy()`` returns the names of the tiles
+  being built (a bare ``True`` still holds every tile) and
+  ``paused(tiles=...)`` holds the tiles named; fetches for every other
+  tile go on;
 * no network: :data:`OFFLINE_AFTER` failures in a row pause fetching for
   :data:`OFFLINE_PAUSE_S` ("Offline: imagery stays low-res"; files that
   need no download still land); a texture that fails
@@ -66,7 +70,7 @@ import O4_XPlane_WebAPI as WEBAPI
 from O4_Imagery_Follow_Motion import MotionTracker
 
 __all__ = ["MAX_FAILURES", "OFFLINE_AFTER", "OFFLINE_PAUSE_S", "FollowJob",
-           "paused", "log_path", "write_log"]
+           "paused", "held_tiles", "log_path", "write_log"]
 
 #: A texture that fails this many times is ``failed`` for the session.
 MAX_FAILURES = 3
@@ -92,20 +96,38 @@ DEFAULT_FETCH_S = {1: 0.3, 2: 1.9, 3: 5.0}
 
 _PAUSES = 0
 _PAUSES_GUARD = threading.Lock()
+#: tile name -> holders of :func:`paused` for that tile alone.
+_TILE_PAUSES: dict = {}
 
 
 @contextlib.contextmanager
-def paused(_reason: str = ""):
+def paused(_reason: str = "", tiles=None):
     """While held, no follow job starts a new fetch (a Library command that
-    deletes or replaces tiles holds it)."""
+    deletes or replaces tiles holds it); with ``tiles`` (names such as
+    ``+53-064``), none for those tiles only (a World-pack swap, S7)."""
     global _PAUSES
+    names = None if tiles is None else [str(t) for t in tiles]
     with _PAUSES_GUARD:
-        _PAUSES += 1
+        if names is None:
+            _PAUSES += 1
+        for name in names or ():
+            _TILE_PAUSES[name] = _TILE_PAUSES.get(name, 0) + 1
     try:
         yield
     finally:
         with _PAUSES_GUARD:
-            _PAUSES -= 1
+            if names is None:
+                _PAUSES -= 1
+            for name in names or ():
+                _TILE_PAUSES[name] -= 1
+                if not _TILE_PAUSES[name]:
+                    del _TILE_PAUSES[name]
+
+
+def held_tiles() -> "set[str]":
+    """The tiles :func:`paused` holds one by one now."""
+    with _PAUSES_GUARD:
+        return set(_TILE_PAUSES)
 
 
 def pause_count() -> int:
@@ -136,7 +158,8 @@ class FollowJob:
     """One follow session.  ``reader`` is an ``O4_XPlane_WebAPI``
     ``PositionReader``; ``lander(row, tier)`` lands one file and returns
     the index facts (``imagery_follow_land.TierLander``); ``index_path``
-    the index file; ``busy()`` is true while a build runs; ``emit``
+    the index file; ``busy()`` names the tiles being built (``True``:
+    every tile is held, see the module); ``emit``
     receives each ``ImageryFollowStatus``; ``reloader()`` asks X-Plane to
     reload its scenery and says whether it took the request (``None``:
     the job never reloads)."""
@@ -283,15 +306,29 @@ class FollowJob:
             self._mark_near(now)
         self._sweep(now)
         offline = now < self._offline_until
-        if self.busy() or pause_count():
+        held = self._held()
+        if held is True or pause_count():
             self.state = "paused"
             self.reason = "A build is running; imagery waits for it"
         else:
             self.state, self.reason = ("paused", OFFLINE_REASON) if offline \
                 else ("following", "")
+            if held:
+                fetches = [f for f in fetches
+                           if (self._rows.get(f.square) or {}).get("tile")
+                           not in held]
             self._dispatch(fetches, now, downloads=not offline)
         self._settle_spawn(now, lat, lon)
         self._status(now)
+
+    def _held(self):
+        """``True`` when every tile is held, else the names of the tiles
+        held now (``busy()`` and :func:`held_tiles`)."""
+        busy = self.busy()
+        if busy is True or (busy and not isinstance(
+                busy, (set, frozenset, list, tuple))):
+            return True
+        return set(busy or ()) | held_tiles()
 
     # ------------------------------------------------- spawn and jump
 

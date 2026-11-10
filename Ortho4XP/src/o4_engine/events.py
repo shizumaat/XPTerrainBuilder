@@ -226,6 +226,9 @@ CAPABILITIES: tuple = (
     "imagery_ondemand_convert",     # 2026-11-10, #1992 P1c built tiles -> on-demand copies
     "world_pack",                   # 2026-11-10, World spec W1 world_* + WorldStatus/Ready
     "aircraft_position",            # 2026-11-10, #2001 aircraft_watch + AircraftPosition
+    "world_job",                    # 2026-11-10, World spec W2 world_job_start/stop (track mode)
+    "flight_manager",               # 2026-11-10, World spec F1b flight_* + FlightStatus/Ready
+    "flight_notices",               # 2026-11-10, World spec F2 flight_divert/reload + FlightNotice
 )
 
 
@@ -1105,6 +1108,90 @@ class WorldReady(EngineEvent):
     ``world_migrate``): the command replies ``{"status": "started"}`` and
     the work runs on a worker thread.  ``request`` is the command's ``id``;
     ``result`` its counts or ``None``, with ``error`` the failure sentence.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
+    result: Any = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class FlightStatus(EngineEvent):
+    """The active flight's state (flight manager / World spec §5.3,
+    capability ``flight_manager``, ``o4_engine.flight_job_run``): every
+    ~2 s while a flight runs and at once on a change.
+
+    ``flight`` the record's id; ``state`` ``preparing`` ``ready``
+    ``flying`` ``arrived`` ``closed`` ``error``; ``phase`` ``parked``
+    ``taxi`` ``airborne`` ``approach`` ``landed`` (empty while X-Plane is
+    not read); ``ready`` every readiness row done (10g: the flight always
+    waits for it); ``countdown_s`` seconds until ready (None: no
+    defensible figure, the views show a dash); ``reason`` one sentence
+    ready to show; ``items`` the readiness rows ``[key, state, eta_s,
+    detail]`` (§6.2); ``jobs`` rows ``[tile, role, kind, state,
+    remaining_s, margin_s]`` (``tile`` ``[lat, lon]``); ``route_km``,
+    ``done_km``, ``eta_s`` (to landing); ``late`` and ``shed`` tile names;
+    ``reload`` ``""``, ``ground_pending``, ``offered``, ``scheduled``,
+    ``sent``; ``diverted_to`` the diversion airport (``flight_divert``,
+    lane F2); ``waivable`` the en-route tiles that need the internet and
+    may be left to X-Plane's own scenery (``flight_update
+    {waive_offline: true}``, RULINGS 2026-11-10k Q3).
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    flight: str = ""
+    state: str = "preparing"
+    phase: str = ""
+    ready: bool = False
+    countdown_s: Optional[float] = None
+    reason: str = ""
+    items: tuple = ()
+    jobs: tuple = ()
+    route_km: float = 0.0
+    done_km: float = 0.0
+    eta_s: Optional[float] = None
+    late: tuple = ()
+    shed: tuple = ()
+    reload: str = ""
+    diverted_to: str = ""
+    waivable: tuple = ()
+
+
+@dataclass(frozen=True)
+class FlightNotice(EngineEvent):
+    """One notice of the active flight (flight manager / World spec §5.3;
+    lane F2, capability ``flight_notices``): posted once, and each app
+    shows it as a system notification (Mac ``UNUserNotificationCenter``,
+    Qt ``QSystemTrayIcon``) unless the user turned flight notifications
+    off.  ``code`` (``ready``, ``destination_ready``, ``diversion_ready``,
+    ``reload_announced``, ``offline``, ... -- ``o4_engine.flight_notices.
+    CODES``), ``title`` and ``text`` ready to show, ``severity`` ``info``
+    or ``warning``.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    flight: str = ""
+    code: str = ""
+    title: str = ""
+    text: str = ""
+    severity: str = "info"
+
+
+@dataclass(frozen=True)
+class FlightReady(EngineEvent):
+    """The completion half of an async flight command
+    (``flight_plan_simbrief``; capability ``flight_manager``): the command
+    replies ``{"status": "started"}`` and the work runs on a worker
+    thread.  ``request`` is the command's ``id``; ``result`` its answer
+    (``flight_plan_simbrief``: the plan, ``flight_plan_read``'s shape) or
+    ``None``, with ``error`` the failure sentence.
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).

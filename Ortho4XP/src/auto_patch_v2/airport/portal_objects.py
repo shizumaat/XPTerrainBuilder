@@ -43,6 +43,7 @@ from shapely.strtree import STRtree
 from ..model.frame import XY
 from . import frame_entry as _fe
 from . import obj8 as _obj8
+from .below_grade_witness import zero_of
 from .hanging_objects import edge_wall_reading, flush_hanging
 from .obj8_clip import _bulk_polys
 from .object_cut import _face_normals_y, _plan_area
@@ -112,6 +113,11 @@ class Portal:
     #: abuts it, the face's top is that pavement's level
     #: (``constraints/airside_top``); ``None`` otherwise
     top_plan: object = None
+    #: #1949: a ROOFED portal's zero as its row reads (``below_grade_witness
+    #: .zero_of``): off the road its roof states at the bore end, its own
+    #: floor is the cut there (``airport/portal_floor``); ``None`` with no
+    #: ground read
+    zero_z: "float | None" = None
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -284,9 +290,9 @@ def _at_grade(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, roof, law,
     booths, #1972), and its roof top states no depth."""
     if ground is None or roof is None or roof.is_empty:
         return ""
-    from .below_grade_witness import depth_under, zero_of
+    from .below_grade_witness import row_depth_under
     low = min((c.min_y for c in cache.genuine(o.resolved)), default=0.0)
-    b = depth_under(zero_of(o, ground.msl) + low, roof, {o.id}, ground, law)
+    b = row_depth_under(o, low, roof, {o.id}, ground, law)
     floor = law.tables.structures.tunnel.object.floor_sunken_min_m
     if not b.depth < floor:
         return ""
@@ -399,7 +405,8 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
             out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,
                               (float(o.xy[0]), float(o.xy[1])),
                               floor_z=(cover[j] - depth) if j in cover else None,
-                              opening_m=width, opening_xy=edges))
+                              opening_m=width, opening_xy=edges,
+                              zero_z=None if ground is None else zero_of(o, ground.msl)))
     out.sort(key=lambda p: (p.end_xy, p.object_id))
     return out, refused
 

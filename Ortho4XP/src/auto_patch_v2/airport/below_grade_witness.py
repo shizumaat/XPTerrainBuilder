@@ -33,8 +33,8 @@ from ..geom import author_ground as _ag
 from . import obj8 as _obj8
 from .object_cut import _face_normals_y
 
-__all__ = ["author_ground", "around", "ground_of", "depth_under", "zero_of",
-           "floor_share", "placed_all", "xp"]
+__all__ = ["author_ground", "around", "ground_of", "depth_under", "row_depth_under",
+           "zero_of", "floor_share", "placed_all", "xp"]
 
 
 class _Below(_t.NamedTuple):
@@ -176,3 +176,24 @@ def depth_under(bottom_z: float, foot, exclude: _t.AbstractSet[str], g: _Ground,
                         f"ground around it (" + ("its plates" if r.source == "plates"
                                                  else "NO PLATES: the DEM")
                  + f" {r.z:.2f}, plates over {100 * r.share:.0f} % of the ring)")
+
+
+def row_depth_under(o, low_y: float, foot, exclude: _t.AbstractSet[str], g: _Ground, law,
+                    what: str = "its bottom") -> _Below:
+    """:func:`depth_under` of placement ``o``'s solid ``low_y`` metres over
+    its zero.  A row drawn on the ground (``OBJECT`` / ``OBJECT_AGL``) STATES
+    its own depth under the author's ground: ``-(agl + low_y)``.  The deeper
+    of that and the anchor-sample reading counts (#1949 OMDB
+    ``tunner_5_1``, AGL -4.8: the DEM at its anchor reads 8.43 over a
+    4.21 ground around it — a surface model seeing a structure — and put
+    its floor 0.48 m under the ground; a DEM that sees a real trench under
+    an AGL-0 row still reads it).  An ``OBJECT_MSL`` row states no ground."""
+    b = depth_under(zero_of(o, g.msl) + low_y, foot, exclude, g, law, what)
+    if o.kind == "OBJECT_MSL" or b.depth != b.depth:
+        return b
+    stated = -(float(o.agl_m) + float(low_y))
+    if not stated > b.depth:
+        return b
+    return _Below(stated, f"{what} stands {stated:.2f} m under the ground its AGL "
+                          f"{float(o.agl_m):.2f} is drawn on (the row's own statement; "
+                          f"the anchor reading: {b.why})")

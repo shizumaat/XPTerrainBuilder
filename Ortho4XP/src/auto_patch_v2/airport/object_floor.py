@@ -461,15 +461,21 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
     ag = _author_ground_of(placed, cache, law, msl, scale, shares, ground)
     near = _CoPlaced(placed, ob.cover_placement_tol_m)
     pit_walls = _wp.Walls(cache, law)
+    floored = {o.id for o in placed if o.id not in taken and _has_floor(cache, o, law)}
     for o in placed:
-        if o.id in taken:
+        if o.id in taken or o.id in floored:
             continue
-        if not _has_floor(cache, o, law):
-            # #1949: a floor AT a shared datum, walled to a rim over it
-            got = _walled_pit(o, cache, law, msl, ag, ground, scale, shares, near, pit_walls,
-                              notes)
-            if got is not None:
-                out.append(got)
+        # #1949: a floor AT a shared datum, walled to a rim over it
+        got = _walled_pit(o, cache, law, msl, ag, ground, scale, shares, near, pit_walls,
+                          notes)
+        if got is not None:
+            out.append(got)
+    # a walled pit's frame stands under its rim: none of it is the author's
+    # ground any other floor is read against (#1949: hamnen's floor, 0.31
+    # over a 1.70 DEM, was the "ground" duong_ray_FACE stood 11.43 m over)
+    ag = ag.without({pid for f in out for pid, _r, _z in f.seats})
+    for o in placed:
+        if o.id not in floored:
             continue
         g = cache.geometry(o.resolved)
         share = _floor_share(g, law)

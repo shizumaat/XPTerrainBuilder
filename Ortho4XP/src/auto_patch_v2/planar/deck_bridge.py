@@ -258,9 +258,9 @@ def _elevated(d, frame, piece, top_y: float, bottom_y: float, ground, law) -> st
     :func:`_road_floor`)."""
     if ground is None or top_y - bottom_y < law.tables.structures.tunnel.clearance_m:
         return ""
-    from ..airport.below_grade_witness import depth_under, zero_of
-    b = depth_under(zero_of(d, ground.msl) + bottom_y, piece, {str(q.id) for q in frame},
-                    ground, law, what="the road its frame stands on")
+    from ..airport.below_grade_witness import row_depth_under
+    b = row_depth_under(d, bottom_y, piece, {str(q.id) for q in frame}, ground, law,
+                        what="the road its frame stands on")
     floor = law.tables.structures.tunnel.object.floor_sunken_min_m
     if not b.depth < floor:
         return ""

@@ -97,5 +97,6 @@ class TunnelObject:
     # RULINGS 2026-11-06c (3): THE ENTRANCE SKIRT (``planar/entrance_skirt``)
     entrance_skirt_m: float            # the ground this far round the face's top is at that top
     entrance_bank_max_m: float         # …then falls to the DEM over at most this
-    # #1737: an entrance face's top meets the AIRSIDE (``constraints/airside_top``)
-    entrance_airside_reach_m: float    # airside this near the face's top is the grade it is flush with
+    # #1737: an entrance face's top meets the AIRSIDE (``constraints/airside_top``);
+    # airside this near the face's top is the grade it is flush with
+    entrance_airside_reach_m: float

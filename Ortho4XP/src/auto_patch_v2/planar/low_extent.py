@@ -34,7 +34,9 @@ level's witness and block) at THE OBJECTS' BOTTOM: the densest
 strip ``#strip`` along the pads it faces.  The KATL control tower stands in
 no unit of the terminal's group and is not taken in (27h); a retaining wall
 outside the group whose lower face meets a level JOINS it -- its foot strip
-is held at the level (:func:`_join_walls`, owner 2026-11-04 on #1306).
+is held at the level (:func:`_join_walls`, owner 2026-11-04 on #1306) --
+never a wall whose foot the pack's sheets name (owner RULINGS 2026-11-10a
+(1)): that strip follows the wall's own foot.
 """
 from __future__ import annotations
 
@@ -224,6 +226,9 @@ def _join_walls(reg: Registries, levels: dict, by_ref: dict, made: list, air_all
     joined = []
     for w in walls:
         band = getattr(w, "lower", None)
+        # 2026-11-10a (1): a wall whose foot the pack names keeps its foot
+        if getattr(w, "low_side", "") == "sheets":
+            continue
         if band is None or band.is_empty or not getattr(w, "foot_profile", None) \
                 or any(o.intersection(w.poly).area >= 0.5 * w.poly.area for o in own_walls):
             continue

@@ -236,6 +236,27 @@ def wall_terrace_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                                       (f"vertex:{lv}", str(rec.get("label", "")))),
                                follows=(int(lv),)))
     rows.extend(_wall_step_rows(planar, walls))
+    rows.extend(_foot_lot_rows(walls))
+    return rows
+
+
+def _foot_lot_rows(walls: _t.Mapping[int, _t.Mapping]) -> list[Row]:
+    """#1952 (R5): a lot at the foot of a wall whose low side the pack's
+    sheets name is flat AT THAT FOOT — one ``Band`` per lot vertex at the
+    level ``airport/road_ramp.lots_at_foot`` read (``foot_lots``), the
+    foot row's own ruling (10-03c: the ground is flattened out to the
+    bottom of the wall)."""
+    rows: list[Row] = []
+    seen: set[int] = set()
+    for k in sorted(walls):
+        rec = walls[k]
+        for v, z in sorted((rec.get("foot_lots") or {}).items()):
+            if int(v) in seen:
+                continue
+            seen.add(int(v))
+            rows.append(Band(int(v), float(z), float(z),
+                             Source("wall_terrace", WALL_FOOT_RULING,
+                                    (f"vertex:{v}", str(rec.get("label", ""))))))
     return rows
 
 
@@ -246,7 +267,14 @@ def _wall_step_rows(planar: PlanarMap, walls: _t.Mapping[int, _t.Mapping]) -> li
     against its nearest upper vertex — the step across the line is at most
     the wall (the publication declares ``min(h, emitted)``).  MEASURED KATL
     (harness ``katlwall_KATL2``): without it the step at ``muro_concreto5``
-    read 11.155 m over a 10.65 m wall."""
+    read 11.155 m over a 10.65 m wall.
+
+    A VERTEX HELD AT A NAMED FOOT TAKES NO STEP FLOOR (#1952): a lower
+    vertex carrying a foot Band in ANY wall record (``foot_lots``,
+    :func:`_foot_lot_rows`) is at the foot the pack names; a floor against
+    an upper vertex at a pad or apron over it (MEASURED KMCI: 304.74-304.85
+    m over a 3.81 m wall, floor 300.93 m) would lift it off that foot."""
+    held = {int(v) for r in walls.values() for v in (r.get("foot_lots") or {})}
     rows: list[Row] = []
     for k in sorted(walls):
         rec = walls[k]
@@ -255,6 +283,8 @@ def _wall_step_rows(planar: PlanarMap, walls: _t.Mapping[int, _t.Mapping]) -> li
             continue
         h = float(rec.get("height_m") or 0.0)
         for lv in lo:
+            if int(lv) in held:
+                continue
             x, y = planar.vertices[lv].xy
             uv = min(up, key=lambda q: (exact.hypot(planar.vertices[q].xy[0] - x,
                                                    planar.vertices[q].xy[1] - y), q))

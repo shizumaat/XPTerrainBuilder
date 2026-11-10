@@ -23,7 +23,9 @@ the LOWER face — the lowest sample within :data:`FOOT_FACE_M` of that face
 per station, plus the seat: the bottom edge the low-side ground meets
 (owner RULINGS 2026-10-03c "terrain should be flattened out to the bottom
 of the wall"; 2026-10-27h Q188 "the bottom of the retaining wall").  Only
-samples on the face count, so a footing buried under the hill is not read.
+samples on the face count, so a footing buried under the hill is not read;
+and a wall that retains less than its solid height has its foot where the
+face it retains stops (:func:`_retained_floor`, #1952), never its footing.
 Geometry only; no airport is named (RULINGS 2026-10-05e)."""
 from __future__ import annotations
 
@@ -80,6 +82,7 @@ def foot_profile(comp, piece, face, to_xy, cache=None) -> tuple | None:
     if got is None:
         return None
     st, z, seat = got
+    z = np.maximum(z, _retained_floor(comp))
     return tuple((float(a), seat + float(b)) for a, b in zip(st, z, strict=True))
 
 
@@ -116,12 +119,30 @@ def _stations(comp, piece, face, to_xy, cache, where, high: bool):
 
 
 def _retaining_cap(comp) -> float:
-    """The highest authored ``y`` the wall retains to: its zero plus the
-    part of its solid height it retains (``top_y - height + retained``) for
-    a wall that retains less than its height; unbounded otherwise."""
-    h = float(getattr(comp, "height_m", 0.0) or 0.0)
-    kept = float(getattr(comp, "retained_m", 0.0) or 0.0)
+    """The highest authored ``y`` the wall retains to
+    (``WallComponent.retained_top_y``: its zero, for a wall that retains
+    only its depth under it); unbounded where the face it retains runs to
+    its top — its solid height, or its height over the ground on its low
+    side (RULINGS 2026-11-09a (14): the part under that ground is its
+    footing, and the top is still the top)."""
+    cap = getattr(comp, "retained_top_y", None)
     top_y = getattr(comp, "top_y", None)
-    if top_y is None or kept <= 0.0 or kept >= h - 1e-6:
+    if cap is None or top_y is None or float(cap) >= float(top_y) - 1e-6:
         return math.inf
-    return float(top_y) - h + kept
+    return float(cap)
+
+
+def _retained_floor(comp) -> float:
+    """The lowest authored ``y`` of the face a wall RETAINS (#1952, owner
+    RULINGS 2026-11-09a (14), the mirror of :func:`_retaining_cap`): the
+    top of that face (its zero for a depth wall, else its top) less the
+    height it retains, where that is under its solid height — the part
+    below is its footing, authored under the low side's ground (KMCI's
+    border wall: top y -0.93, retains 3.81 m, footing to -13.98); unbounded
+    below where it retains its whole height."""
+    held = float(getattr(comp, "retained_m", 0.0) or 0.0)
+    solid = getattr(comp, "height_m", None)
+    top_y = getattr(comp, "top_y", None)
+    if held <= 0.0 or solid is None or top_y is None or held >= float(solid) - 1e-6:
+        return -math.inf
+    return min(float(top_y), _retaining_cap(comp)) - held

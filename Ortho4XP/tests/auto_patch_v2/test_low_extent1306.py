@@ -172,7 +172,7 @@ def test_a_group_levels_vertices_are_stage_twos_but_airside_pavement_s():
     assert stage_two_vertices(pm, {"b/p1": {}}) == frozenset({1, 2})
 
 
-def _joining(law, tmp_path, monkeypatch, gap):
+def _joining(law, tmp_path, monkeypatch, gap, low_side=""):
     """The terminal's level ``blk/p1`` (y 0..70) and a retaining wall
     outside its group, its lower band ``gap`` m south of the level."""
     import types
@@ -185,7 +185,8 @@ def _joining(law, tmp_path, monkeypatch, gap):
     band = box(20.0, y0, 180.0, -gap)                 # the lower band, smear 10 m
     A.retaining_walls = (types.SimpleNamespace(
         poly=box(20.0, y0 - 1.0, 180.0, y0), height_m=10.0, lower=band,
-        foot_profile=((0.0, 280.7), (160.0, 280.7)), resource="muro.obj"),)
+        foot_profile=((0.0, 280.7), (160.0, 280.7)), resource="muro.obj",
+        low_side=low_side),)
     strip = Region(role="graded_strip", ref="adjacent_ground:wall:muro.obj#0",
                    polygon=box(20.0, y0, 180.0, y0 + 6.0), code_number=None,
                    code_letter=None, side="airside", source="zone")
@@ -214,6 +215,15 @@ def test_a_retaining_wall_whose_lower_face_meets_a_level_joins_it(law, tmp_path,
 
 def test_a_wall_beyond_its_reach_of_every_level_joins_none(law, tmp_path, monkeypatch):
     reg, counts = _joining(law, tmp_path, monkeypatch, gap=45.0)   # reach 40 m
+    assert not any(v.get("wall_strips") for v in reg.landings.values())
+    assert "low_level_wall_joins" not in counts
+
+
+def test_a_wall_whose_foot_the_pack_names_joins_no_level(law, tmp_path, monkeypatch):
+    """Owner RULINGS 2026-11-10a (1) (#1952): a wall whose low side the
+    pack's own sheets name keeps its foot strip at ITS foot, never at a
+    level beside it -- the same wall 5 m off the level joins none."""
+    reg, counts = _joining(law, tmp_path, monkeypatch, gap=5.0, low_side="sheets")
     assert not any(v.get("wall_strips") for v in reg.landings.values())
     assert "low_level_wall_joins" not in counts
 

@@ -2184,8 +2184,11 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         airport = attach_sunken_ramps(airport, law)
     # issue #1633: likewise ``Airport.wall_shade`` (the retaining walls no
     # pad takes) and ``Airport.retaining_walls`` (their two sides, round 3),
-    # derived off the capture's own partition and DEM
-    if getattr(airport, "wall_shade", None) is None or \
+    # derived off the capture's own partition and DEM -- and ALWAYS on an
+    # early resume (#1952): classify and planar re-read the wall class under
+    # the current tree, so the captured walls would be a second reading
+    if resume in ("classify", "planar") or \
+            getattr(airport, "wall_shade", None) is None or \
             not getattr(airport, "retaining_walls", ()) or \
             any(getattr(w, "top_profile", None) is None
                 or getattr(w, "foot_profile", None) is None

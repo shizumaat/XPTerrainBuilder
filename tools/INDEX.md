@@ -196,6 +196,7 @@ them anywhere.
 
 | Tool | Reach for it when |
 |---|---|
+| `Ortho4XP/tools/imagery_tier_replay.py` | Judging the on-demand imagery TIER PLANNER (`src/O4_Imagery_Tier_Plan.py`, #1992 P3a) against a recorder flight with no sim: `extract` turns a `record_reads.py` log + the kit's `analyse_reads.py --csv` per-load rows + the pack's `.ter` `LOAD_CENTER` lines into one compact JSON (`--window` cuts a fixture); `replay` steps the camera positions, plans once per position, runs a simulated fetcher (`--req-rate`, `--convert-full-s`, `--slots`, `--lead`) and counts the recorded STEP-UP opens that found a file at least as fine on disk in time, plus requests and MB per minute and per km. `--true-speed` re-times the flight to the groundspeed dataref (flight 2 flew with X-Plane's ground-speed multiplier, up to ~8x); `--core` starts with the start position's tiers on disk (a built airport's kept core); `--sweep` prints the req-rate x slots x lead x core grid; `--spawn-s` sets the flight-start window reported apart (P5's problem). Velocity comes from position deltas, never the groundspeed dataref. Fixture: `Ortho4XP/tests/fixtures/imagery_tier/flight2_outbound.replay.json`; twin `Ortho4XP/tests/test_imagery_tier_plan.py`. |
 
 ## Libraries, data and one-offs
 

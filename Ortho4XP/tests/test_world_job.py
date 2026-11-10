@@ -303,3 +303,54 @@ def test_the_commands_refuse_what_is_not_there(tmp_path, monkeypatch):
     assert RUN.autostart(object()) in (None, {"status": "off"})
     assert RUN.world_job_stop() == {"status": "stopped", "swapped": 0,
                                     "late": 0}
+
+
+def test_the_job_runs_in_the_engine_and_reports_world_status(pack,
+                                                             monkeypatch):
+    """The command starts the job on its thread: positions from the shared
+    feed, a parked ring queued through the session, ``WorldStatus`` with
+    the job's fields; stop joins it."""
+    import O4_Machine_Slots as SLOTS
+    from o4_engine import position_feed as FEED
+
+    scenery, path, _staging = pack                  # a placeholder +53-064
+    with open(os.path.join(path, WP.MARKER), "w", encoding="utf-8") as h:
+        h.write("{}")
+    monkeypatch.setattr(WORLD, "_xplane_running", lambda: False)
+    monkeypatch.setattr(RUN, "_settings", lambda: {"default_website": "BI"})
+    monkeypatch.setattr(SLOTS, "session_capacity", lambda: 3)
+
+    class Feed:
+        def read(self):
+            return {"lat": CYYR[0], "lon": CYYR[1], "frame_s": 0.02}
+    monkeypatch.setattr(FEED, "shared", lambda base=None: Feed())
+    events, builds = [], []
+
+    class Session:
+        _emit = events.append
+
+        def subscribe(self, callback):
+            pass
+
+        def enqueue_build(self, tiles, *args, **kw):
+            builds.append((tiles, kw["overrides"]))
+            return True
+
+        def tile_build_dir(self, lat, lon):
+            return "/build"
+
+    assert RUN.world_job_start(Session(), scenery_dir=scenery) == {
+        "status": "started"}
+    assert RUN.world_job_start(Session(), scenery_dir=scenery) == {
+        "status": "running"}
+    deadline = time.time() + 15
+    while not (builds and events) and time.time() < deadline:
+        time.sleep(0.1)
+    stopped = RUN.world_job_stop()
+    assert stopped["status"] == "stopped"
+    # The history is unknown (no flight load seen, no witness): the union
+    # of the plausible windows holds column -063, so the ring starts at -064.
+    assert builds == [([(53, -64)], {"profile": "light"})]
+    status = events[-1]
+    assert type(status).__name__ == "WorldStatus" and status.installed is False
+    assert status.state == "off"                     # no ini row: the pack's own

@@ -37,7 +37,7 @@ import O4_World_Pack as WP
 from . import imagery_follow as FOLLOW
 from . import world_commands as WORLD
 
-__all__ = ["LAYOUT_KEY", "watch"]
+__all__ = ["LAYOUT_KEY", "watch", "write_layout"]
 
 #: The imagery-manifest key naming a published tile's pack folders (the
 #: index's reader owns the name).
@@ -49,7 +49,7 @@ def _manifest_path(build_dir: str, lat: int, lon: int) -> str:
                         % WP.tile_name(lat, lon))
 
 
-def _write_layout(build_dir: str, lat: int, lon: int,
+def write_layout(build_dir: str, lat: int, lon: int,
                  pack: Optional[str]) -> bool:
     """Name the pack's folders of the tile in its imagery manifest
     (``pack`` None: remove the name).  ``False`` without a manifest."""
@@ -84,7 +84,7 @@ def _after_swap(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
     import O4_Scenery_Links as LINKS
 
     from . import imagery_ondemand as ONDEMAND
-    _write_layout(build_dir, lat, lon, WORLD.pack_dir(scenery_dir))
+    write_layout(build_dir, lat, lon, WORLD.pack_dir(scenery_dir))
     with contextlib.suppress(Exception):     # the index is a cache
         ONDEMAND.register_tiles([(build_dir, lat, lon)])
     with contextlib.suppress(ValueError, OSError):

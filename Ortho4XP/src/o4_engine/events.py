@@ -229,6 +229,7 @@ CAPABILITIES: tuple = (
     "world_job",                    # 2026-11-10, World spec W2 world_job_start/stop (track mode)
     "flight_manager",               # 2026-11-10, World spec F1b flight_* + FlightStatus/Ready
     "flight_notices",               # 2026-11-10, World spec F2 flight_divert/reload + FlightNotice
+    "world_migrate",                # 2026-11-10, World spec M world_migrate (+ WorldReady)
 )
 
 

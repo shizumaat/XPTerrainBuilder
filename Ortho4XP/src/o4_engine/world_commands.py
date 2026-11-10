@@ -226,8 +226,9 @@ def world_status(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
 
 
 def status_event(scenery_dir: str, **extra):
-    """A ``WorldStatus`` event of the pack now (``extra`` sets fields such
-    as ``last_swap``)."""
+    """A ``WorldStatus`` event of the pack now (``extra`` sets or
+    overrides fields such as ``last_swap``, or ``state`` and ``reason``
+    while a migration runs)."""
     from .events import WorldStatus
     fields = _status_fields(scenery_dir_or_default(scenery_dir))
     fields.pop("kinds")

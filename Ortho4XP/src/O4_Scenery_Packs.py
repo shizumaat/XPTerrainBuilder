@@ -67,6 +67,7 @@ __all__ = [
     "KIND_RANKS",
     "read_ini_lines",
     "write_ini_lines",
+    "set_rows_enabled",
     "insert_new_packs",
     "listing_snapshot",
 ]
@@ -444,6 +445,27 @@ def write_ini_lines(ini_path: str, lines: list, newline: str) -> None:
     with open(temporary, "w", encoding="utf-8", newline="") as handle:
         handle.write(newline.join(lines))
     os.replace(temporary, ini_path)
+
+
+def set_rows_enabled(lines: list, names, enabled: bool) -> list:
+    """Mark the rows of the packs ``names`` ``SCENERY_PACK`` (``enabled``)
+    or ``SCENERY_PACK_DISABLED`` in ``lines`` (edited in place; a row keeps
+    its place and path).  Returns the names whose row changed; a pack with
+    no row is left alone (the World migration retires a tile's row this
+    way, World spec §13 M1, and its revert enables it again)."""
+    wanted = set(names)
+    token = _ENABLED_TOKEN if enabled else _DISABLED_TOKEN
+    changed = []
+    for index, line in enumerate(lines):
+        is_row, name = _row_pack(line)
+        if not is_row or name not in wanted:
+            continue
+        path = line.strip().split(None, 1)[1]
+        new = f"{token} {path}"
+        if line.strip() != new:
+            lines[index] = new
+            changed.append(name)
+    return changed
 
 
 def _row_pack(line: str):

@@ -34,6 +34,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// `flight_divert` / `flight_reload` / `flight_update {waive_offline}`
     /// + `FlightNotice` (World spec F2).
     public static let flightNotices = "flight_notices"
+    /// `world_migrate` (World spec §13 M1): the per-tile packs moved into
+    /// the World pack; flag only.
+    public static let worldMigrate = "world_migrate"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

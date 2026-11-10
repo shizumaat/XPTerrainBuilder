@@ -12,6 +12,19 @@ import Foundation
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("Ortho4XP/tests/fixtures")
 
+    /// `world_migrate`'s `WorldReady` (the shared fixture, a dry run of
+    /// the owner's Custom Scenery; `test_world_migrate.py` holds its keys
+    /// to the engine's) decodes to the sentence and the tiles to move.
+    @Test func worldMigrateDecodesThePythonResult() throws {
+        let url = Self.fixtures.appendingPathComponent("world/world_migrate_ready.json")
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let result = try OrthoEngineClient.decodeWorldMigrateReady(O4JSON.from(object)).get()
+        #expect(result.action == "dry_run" && result.toMove == 2590)
+        #expect(result.summary.hasPrefix("2,590 tiles can move") && result.failed.isEmpty)
+        #expect(!result.stopped)
+    }
+
     @Test func worldStatusDecodesThePythonEvent() throws {
         let url = Self.fixtures.appendingPathComponent("world/world_status_event.json")
         let object = try #require(

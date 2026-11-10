@@ -111,6 +111,12 @@ IMAGERY_ON_DEMAND = (
      "library_dialog", "_tile_menu"),
     ("make_low_res", "StorageSettingsView.swift", "model.askMakeLowRes(",
      "storage", "ask_make_low_res"),
+    # RULINGS 2026-11-10d and the owner's 1.0.480 feedback: the one disk
+    # budget's line and X-Plane's installed tiles, in the Data Folder box.
+    ("disk_budget", "StorageSettingsView.swift", "O4StorageText.budgetLines(",
+     "storage", "budget_label"),
+    ("installed_tiles", "StorageSettingsView.swift", "O4StorageText.installedLines(",
+     "storage", "installed_label"),
 )
 
 #: The build-cost panel (#820): last in the Build box, just above Build —

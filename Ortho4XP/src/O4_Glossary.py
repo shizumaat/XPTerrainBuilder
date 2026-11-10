@@ -46,6 +46,12 @@ TERMS = {
     # The build zoom's row in Settings ▸ Imagery (#1985): "Detail" alone
     # now names the airport Detail choice in General.
     "imagery_detail": "Imagery detail",
+    # A tile kept at full resolution (RULINGS 2026-11-10c (1): "pin"
+    # renamed Favorite; the engine wire keeps ``pinned``).
+    "favorite": "Favorite",
+    # The one disk budget (RULINGS 2026-11-10d).
+    "disk_budget": "How much disk space may XPTerrainBuilder use (GB)?",
+    "installed_tiles": "Installed ortho tiles",
 }
 
 # key -> the words it retires as a PRIMARY label (titles, buttons, toggles,
@@ -68,6 +74,7 @@ RETIRED = {
     "airport_elevation": ("Airport lidar insets",),
     "elevation_source": ("Custom elevation data (DEM)",),
     "map_data_server": ("Overpass server",),
+    "favorite": ("Always keep full resolution", "Let it go low-res again"),
 }
 
 # Bare technical words a Settings row OUTSIDE Expert may not use in its

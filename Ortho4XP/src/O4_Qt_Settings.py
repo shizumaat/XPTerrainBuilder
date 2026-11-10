@@ -21,6 +21,7 @@ import re
 import weakref
 
 import O4_Airport_Detail as AIRPORT_DETAIL
+import O4_Cfg_Migrations as CFG_MIGRATIONS
 import O4_File_Names as FNAMES
 import O4_Qt_Airport_Detail as QTDETAIL
 import O4_Qt_Settings_General as GENERAL
@@ -899,6 +900,10 @@ class SettingsWindow(SelectionEdits, QDialog):
 
         # Global-effective values (registry default overlaid by the global
         # config file), plus preference values from the caller.
+        # The global cfg's one-time migrations first (O4_Cfg_Migrations;
+        # the Mac app re-reads on the engine's hello), so the cards and
+        # Detail never show pre-migration values.
+        CFG_MIGRATIONS.migrate_global()
         self._global_file_vals = SM.read_global_raw()
         self._global_vals = {}
         for setting in SM.settings():

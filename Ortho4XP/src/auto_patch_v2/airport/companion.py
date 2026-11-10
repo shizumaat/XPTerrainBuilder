@@ -93,7 +93,7 @@ def find(airport, mod_cache_root: str, lat: int, lon: int,
     named and skipped (the dump is made before the build, never here)."""
     from shapely.geometry import Point
     from shapely.prepared import prep
-    from .dsf_write import pristine_dsf_path
+    from .backup_state import pristine_dsf_path
     main_root = airport.pack.pack_root
     region = _region(airport) if main_root and mod_cache_root else None
     if region is None:

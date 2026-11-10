@@ -78,7 +78,7 @@ final class LibraryModel: ObservableObject {
 
     /// "Always keep full resolution" / "Let it go low-res again" (#1992).
     func togglePin(_ row: O4LibraryTile, _ buildModel: BuildModel) {
-        status = row.pinned == true ? "Unpinning…" : "Pinning…"
+        status = row.pinned == true ? "Removing from Favorites…" : "Adding to Favorites…"
         Task {
             status = await buildModel.setImageryPinned(
                 BuildModel.TileCoord(lat: row.lat, lon: row.lon), row.pinned != true)
@@ -254,9 +254,9 @@ struct LibraryView: View {
                     Text(row.tile).monospacedDigit()
                         .foregroundStyle(row.readOnly ? .secondary : .primary)
                     if row.pinned == true {
-                        // Pinned to full resolution (#1992 §7).
-                        Image(systemName: "pin.fill")
-                            .foregroundStyle(.secondary)
+                        // A favorite (#1992 §7, RULINGS 2026-11-10c (1)).
+                        Image(systemName: "star.fill")
+                            .foregroundStyle(.yellow)
                             .help(O4OnDemandText.pinnedState)
                             .accessibilityLabel(O4OnDemandText.pinnedBadge)
                     }

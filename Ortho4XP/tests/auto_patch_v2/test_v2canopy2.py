@@ -232,6 +232,24 @@ def test_a_pad_vertex_takes_the_nearest_foot_and_the_far_one_keeps_the_level(mon
     assert 12 not in off                                      # no foot within r
 
 
+def test_a_foot_a_storey_off_its_zero_founds_no_target(monkeypatch):
+    """#1905 SBSP ``building58``: a group straddling the terminal's storeys
+    (a foot +6.53 m over its zero) is a floor of the building, not ground
+    the pad carries -- the split-level law (2026-11-05): "an upper floor is
+    never a ground level".  At a storey (``low_level_min_step_m``) or more,
+    above or below, the foot founds no target; under it, it does."""
+    law = _law()
+    step = float(law.tables.structures.building_pad.low_level_min_step_m)
+    verts = {10: (0.0, 0.0), 11: (40.0, 0.0)}
+    pad = Polygon([(-20, -20), (60, -20), (60, 20), (-20, 20)])
+    for rise, kept in ((step + 0.5, False), (-(step + 0.5), False), (step - 0.5, True)):
+        gs = G.derive(_partition([_columns(n=3, pitch=20.0, rise=rise)]), 0.0, 1.0)
+        off = _offsets(monkeypatch, law, _Airport(gs), verts, pad, [])
+        assert (11 in off) is kept, rise
+        if kept:
+            assert off[11] == pytest.approx(rise, abs=1e-6)
+
+
 def test_an_infeasible_body_gets_no_relief_target(monkeypatch):
     """§11 (4): the terrain is only adapted where the adapted surface
     stays lawful.  A body whose authored relief asks more of the ground

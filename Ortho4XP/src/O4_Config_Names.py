@@ -74,6 +74,27 @@ def tile_cfg_path(build_dir: str, lat: int, lon: int) -> str:
     return os.path.join(build_dir, tile_cfg_name(lat, lon))
 
 
+def tile_cfg_key(name: str):
+    """``(lat, lon)`` of a tile config file name (this app's or
+    Ortho4XP's), or ``None`` for any other name."""
+    for prefix in (TILE_CFG_PREFIX, ORTHO4XP_TILE_CFG_PREFIX):
+        if name.startswith(prefix) and name.endswith(".cfg"):
+            return FNAMES.parse_tile_key(name[len(prefix):-len(".cfg")])
+    return None
+
+
+def cfg_backup_path(path: str) -> str:
+    """Where a config file's backup (``*.cfg.bak``) is written: a tile
+    config's goes with the tile's rebuild data (owner RULINGS 2026-11-10d
+    (4), ``FNAMES.rebuild_path``), any other one beside it."""
+    name = os.path.basename(path)
+    key = tile_cfg_key(name)
+    if key is None:
+        return path + ".bak"
+    return FNAMES.rebuild_path(os.path.dirname(path), key[0], key[1],
+                               name + ".bak")
+
+
 def global_cfg_path() -> str:
     """This app's global config in the current data root."""
     return FNAMES.data_path(GLOBAL_CFG_NAME)

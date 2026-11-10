@@ -66,7 +66,7 @@ import O4_XPlane_WebAPI as WEBAPI
 from O4_Imagery_Follow_Motion import MotionTracker
 
 __all__ = ["MAX_FAILURES", "OFFLINE_AFTER", "OFFLINE_PAUSE_S", "FollowJob",
-           "paused"]
+           "paused", "log_path", "write_log"]
 
 #: A texture that fails this many times is ``failed`` for the session.
 MAX_FAILURES = 3
@@ -243,6 +243,7 @@ class FollowJob:
             from .imagery_downgrade import cap_bytes
             self.cap_bytes = cap_bytes()
         self._reload_rows(self.clock())
+        self._log({"start": len(self.rebuild_tiles), "textures": len(self._rows)})
 
     def close(self) -> None:
         """Let the fetches in flight finish (bounded), record them, and
@@ -523,8 +524,10 @@ class FollowJob:
                 or now - self._sweep_at < SWEEP_EVERY_S):
             return
         from .imagery_downgrade import sweep
+        from .storage_budget import session_budget
         self._sweep_at, self._landed_since_sweep = now, 0
-        result = sweep(self._conn, self.cap_bytes, camera=self.motion,
+        result = sweep(self._conn, session_budget(self._conn, self.cap_bytes),
+                       camera=self.motion,
                        in_session=True, now=now, abort=self._stop.is_set)
         if result["downgraded"]:
             self.counts["downgraded"] += result["downgraded"]
@@ -570,12 +573,23 @@ class FollowJob:
 
     def _log(self, record: dict) -> None:
         """One line of ``logs/imagery_on_demand.log`` (spec §4.4)."""
-        if not self.log_path:
-            return
-        with contextlib.suppress(OSError):
-            os.makedirs(os.path.dirname(self.log_path) or ".", exist_ok=True)
-            with open(self.log_path, "a", encoding="utf-8",
-                      newline="\n") as handle:
-                handle.write(time.strftime("%Y-%m-%dT%H:%M:%S ")
-                             + " ".join(f"{k}={v}" for k, v in record.items())
-                             + "\n")
+        write_log(self.log_path, record)
+
+
+def log_path() -> str:
+    """``logs/imagery_on_demand.log`` under the data root."""
+    import O4_File_Names as FNAMES
+    return os.path.join(FNAMES.data_path("logs"), "imagery_on_demand.log")
+
+
+def write_log(path, record: dict) -> None:
+    """One ``key=value`` line of the on-demand log at ``path`` (none
+    when ``path`` is empty); never raises."""
+    if not path:
+        return
+    with contextlib.suppress(OSError):
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "a", encoding="utf-8", newline="\n") as handle:
+            handle.write(time.strftime("%Y-%m-%dT%H:%M:%S ")
+                         + " ".join(f"{k}={v}" for k, v in record.items())
+                         + "\n")

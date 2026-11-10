@@ -26,6 +26,7 @@ import O4_Imagery_Sources as SOURCES
 import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
 import O4_Map_Overzoom as OVERZOOM
+import O4_Qt_Map_Favorite as QTFAVSTAR
 import O4_Qt_Map_Labels as QTLABELS
 import O4_Qt_Map_Legend as QTLEGEND
 import O4_Qt_Rotate_Cursor as ROTATE
@@ -1368,6 +1369,9 @@ class MapView(QGraphicsView):
             # is bigger than the tile and reads as noise on the grid.
             if tile in self._conflicts and px > 14:
                 self._draw_conflict_badge(painter, r, px, scale)
+            # A favorite (#1992, RULINGS 2026-11-10c (1)): a star.
+            if getattr(built, "pinned", False):
+                QTFAVSTAR.draw_star(painter, r, px, scale)
 
         if custom_patched:
             self._draw_custom_patch_band(painter, r, scale)

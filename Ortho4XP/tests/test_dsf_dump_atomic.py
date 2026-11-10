@@ -29,7 +29,7 @@ import pytest
 
 from auto_patch import dsf_reader, engine_v2
 from auto_patch_v2.airport import dsf as dsf_v2
-from auto_patch_v2.airport import dsf_write
+from auto_patch_v2.airport import dsf_dump, dsf_write
 
 DUMP_TEXT = "A\n800\nDSF2TEXT\n\nPROPERTY sim/west -123\nOBJECT_DEF a.obj\n"
 
@@ -131,7 +131,7 @@ def test_a_good_dump_lands_whole_and_sweeps_a_killed_runs_litter(tmp_path, monke
     out = tmp_path / "+47-123.dsf.abcd1234.text"
     killed = tmp_path / (out.name + ".999.deadbeef.partial")
     killed.write_text("half", encoding="utf-8", newline="")
-    old = time.time() - 2 * dsf_write._PARTIAL_DUMP_STALE_S
+    old = time.time() - 2 * dsf_dump._PARTIAL_DUMP_STALE_S
     os.utime(killed, (old, old))
     _dsftool(monkeypatch)
 
@@ -181,8 +181,8 @@ def _refusing_replace(monkeypatch, times, on_refusal=None):
             raise PermissionError(13, "Access is denied")
         return real(src, dst)
 
-    monkeypatch.setattr(dsf_write.os, "replace", replace)
-    monkeypatch.setattr(dsf_write.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(dsf_dump.os, "replace", replace)
+    monkeypatch.setattr(dsf_dump.time, "sleep", lambda _s: None)
     return refused
 
 
@@ -231,7 +231,7 @@ def test_a_rename_refused_for_good_names_the_cause(tmp_path, monkeypatch, alread
         dsf_write.dump(_dsf(tmp_path), str(out), _fake_tool(tmp_path))
 
     assert "Access is denied" in str(caught.value)
-    assert len(refused) == 1 + len(dsf_write._LAND_RETRY_WAITS_S)
+    assert len(refused) == 1 + len(dsf_dump._LAND_RETRY_WAITS_S)
     # what was there is untouched: never a stale or empty dump served as new
     assert (out.read_bytes() if out.exists() else None) == already_there
     assert not [n for n in _names(tmp_path) if n.endswith(".partial")]

@@ -38,8 +38,9 @@ FILE_SUFFIX = ".dsf_inputs.npz"
 
 def path(tile) -> str:
     import O4_File_Names as FNAMES
-    return os.path.join(tile.build_dir, "Data" + FNAMES.short_latlon(
-        tile.lat, tile.lon) + FILE_SUFFIX)
+    return FNAMES.rebuild_path(tile.build_dir, tile.lat, tile.lon, "Data"
+                               + FNAMES.short_latlon(tile.lat, tile.lon)
+                               + FILE_SUFFIX)
 
 
 def compute(tile) -> dict:

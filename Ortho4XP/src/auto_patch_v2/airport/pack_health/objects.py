@@ -19,8 +19,10 @@ from __future__ import annotations
 import os
 import typing as _t
 
+# the package, not its names: ``pack_optimise`` imports this package's
+# ``light_records`` while it is still initialising (#1901)
+from .. import pack_optimise as _po
 from ..pack_optimise import objcopy as _oc
-from ..pack_optimise import remove_generated, write_if_changed
 from . import light_records as _lr
 
 __all__ = ["COPY_SUFFIX", "GENERATED_MARK", "copy_path",
@@ -145,7 +147,7 @@ def write_copies(pack_root: str, paths: _t.Iterable[str]) -> list[str]:
         rel = copy_path(path).replace("\\", "/")
         dst = os.path.join(pack_root, *rel.replace("\\", "/").split("/"))
         if not _current(dst, phys):
-            write_if_changed(dst, _copy_text(phys), "latin-1")
+            _po.write_if_changed(dst, _copy_text(phys), "latin-1")
         out.append(rel)
     return out
 
@@ -158,4 +160,4 @@ def rename_rows(text: str, paths: _t.Iterable[str]) -> tuple[str, int]:
 def remove(pack_root: str, rels: _t.Iterable[str]) -> list[str]:
     """Remove copies ``rels`` (pack-relative); only a name carrying
     :data:`GENERATED_MARK` is ever touched."""
-    return remove_generated(pack_root, rels, GENERATED_MARK)
+    return _po.remove_generated(pack_root, rels, GENERATED_MARK)

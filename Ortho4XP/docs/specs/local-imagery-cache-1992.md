@@ -605,6 +605,18 @@ counts once (`O4_Disk_Usage.freeable_bytes`).
   their ZL17/18 cover squares included) plus their T2/T1 rings, ~30
   textures and ~0.4 GB per airport at 60°N [estimate]. Fetched after the
   build, counted in the cap, downgraded only when no other row is left.
+- **[rev 5, RULINGS 2026-11-10c/d]** Pins are renamed **Favorites** in
+  both apps (wire and index keep `pinned`). Favorites COUNT: one budget
+  holds every on-demand tile's imagery, favorites included, and over it
+  the order is ordinary sharp imagery → airport cores → favorites
+  (`O4_Imagery_OnDemand_Budget.CLEAR_TIERS`); "Make all low-res again" by
+  hand still keeps favorites. The budget also counts its FLOOR (the
+  placeholders and the tiles' DSFs, never freed); a budget under it
+  warns. 10d then makes this budget part of ONE disk budget for
+  everything the app stores (`storage_budget_gb`, `o4_engine/storage_budget.py`):
+  when it is set the sharp imagery is its fifth clear tier; when it is not,
+  `imagery_on_demand_cap_gb` (now Expert) bounds the sharp imagery alone.
+  The text below is rev 2's and is superseded where it says otherwise.
 - **Pins** ("always full resolution", per tile, owner decision 3): the
   whole tile is fetched at full resolution, **never downgraded, and
   outside the cap** (the Storage row shows them as their own line).
@@ -665,8 +677,9 @@ defaults, hints). Same rows, same order, same pane, in the same PR.
 
 | Key | Pane | Row text | Default |
 |---|---|---|---|
-| `imagery_on_demand` | Imagery (`.app`) | "Fetch imagery on demand, worldwide?" Summary: "New builds get low-resolution imagery; full detail is fetched automatically around the aircraft and kept within the storage limit." | off until §14 P6 passes; then an owner call (§12) |
-| `imagery_on_demand_cap_gb` | Storage | "How much space may sharp imagery use (GB)?" | **100** |
+| `imagery_on_demand` | Imagery (`.app`) | "Fetch imagery on demand, worldwide?" Summary: "New builds get low-resolution imagery; full detail is fetched automatically around the aircraft and kept within the storage limit." | **on** (rev 5, RULINGS 2026-11-10c (3); was "off until §14 P6 passes") |
+| `storage_budget_gb` **[rev 5]** | Storage | "How much disk space may XPTerrainBuilder use (GB)?" Summary: "More space keeps downloads and rebuild data, so tiles rebuild in minutes instead of re-downloading." The pane shows use, floor and the recommended minimum (floor + max(50 GB, 50 % of floor)) | 0 = not set |
+| `imagery_on_demand_cap_gb` | Storage, expert **[rev 5]** | "How much space may sharp imagery use (GB)?" (applies only while `storage_budget_gb` is not set) | **100** |
 | `placeholder_zl_drop` | Imagery, expert | "Low-res imagery detail (zoom levels below the build's)" | 3 (2 or 3 allowed) |
 | `ondemand_lead_s` | Imagery, expert | "Start fetching this many seconds ahead" | 30 (§11 U7) |
 | `ondemand_lands_per_s` | Imagery, expert | "Imagery swaps per second, at most" | 4 |
@@ -674,6 +687,12 @@ defaults, hints). Same rows, same order, same pane, in the same PR.
 
 Rev 1's `refine_radius_km` is deleted: the tier distances come from each
 square's S (§4.3).
+
+**Favorites [rev 5]:** the tile pane's "Favorite" row is a switch on every
+tile the app built (enabled on a tile built on demand); the Library's
+action reads "Add to Favorites" / "Remove from Favorites", its badge a
+star; the map draws a star on a favorite tile (Mac `MapCanvasView`, Qt
+`O4_Qt_Map_Favorite`). The rev 2 paragraph below is superseded.
 
 **Pins:** a per-tile action in the Library (both apps: the tile's context
 menu and its info pane) "Always keep full resolution" / "Let it go low-res
@@ -772,6 +791,9 @@ tiles they build; providers as today; hosting deferred (#1986); spawn and
 jump reload automatically; airport cores kept sharp, downgraded last.
 
 Left for the owner:
+
+**[rev 5]** Both answered 2026-11-10: favorites count (10c (2), then one
+disk budget 10d); the world switch defaults on (10c (3)).
 
 1. Pins **outside** the cap (this spec's reading of "don't count against
    the cap's LRU"), or counted in it but never evicted?
@@ -968,8 +990,10 @@ and registers the log with `frames.py register` beside the l1992 kit.
   (**U8**).
 - **Flight (owner or a tester with the hardware):** the CYXY profile on
   Windows and on Linux with the job on. Pass as P3b, plus the `os.replace`
-  refusal count and the longest wait per landing. Then the owner decides
-  the world switch's default (§12 q2).
+  refusal count and the longest wait per landing. **[rev 5]** The default
+  is already on (RULINGS 2026-11-10c (3): the hold was caution, not a
+  requirement); P6 no longer gates it, and the owner may reverse it after
+  the first flight.
 
 ### Order and parallel lanes
 

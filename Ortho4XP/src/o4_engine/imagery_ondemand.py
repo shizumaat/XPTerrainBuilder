@@ -35,6 +35,7 @@ import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
 import O4_Disk_Usage as DISK
 import O4_File_Names as FNAMES
+import O4_Imagery_OnDemand_Budget as BUDGET
 import O4_Imagery_OnDemand_Cores as CORES
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Placeholder as PLACEHOLDER
@@ -71,30 +72,66 @@ def _keys_by_texture(users: dict) -> dict:
     return out
 
 
-def on_demand_tiles(working_dir: str):
-    """``(build_dir, lat, lon)`` of every tile under ``working_dir`` whose
-    imagery record says on demand or pinned, then every built tile
-    converted to on-demand form (``imagery_convert.converted_tiles``)."""
+def _tile_roots(working_dir: str = "") -> "list[str]":
+    """Every folder a built tile may live in: ``working_dir`` (the apps'
+    build folder, a custom build dir among them), the Tiles folder, and
+    Custom Scenery (a tile built straight into it, or linked there);
+    each once."""
+    from . import storage_redundant
+    out: list = []
+    for folder in (working_dir, FNAMES.Tile_dir,
+                   storage_redundant._custom_scenery_dir()):
+        if folder and os.path.isdir(folder) and all(
+                os.path.realpath(folder) != os.path.realpath(o) for o in out):
+            out.append(folder)
+    return out
+
+
+def on_demand_tiles(working_dir: str = ""):
+    """``(build_dir, lat, lon)`` of every tile under :func:`_tile_roots`
+    whose imagery record says on demand or pinned, then every built tile
+    converted to on-demand form (``imagery_convert.converted_tiles``);
+    a tile reached twice (a Custom Scenery link to the Tiles folder) and
+    a second copy of one tile are given once, the first root's."""
     import O4_Tile_Info as TINFO
 
     from .imagery_convert import converted_tiles
-    seen = set()
-    for (lat, lon), info in sorted(TINFO.scan_tiles(working_dir).items()):
-        record = TINFO.read_imagery_record(info.build_dir, lat, lon)
-        if record.get("on_demand") or record.get("pinned"):
-            seen.add(os.path.abspath(info.build_dir))
-            yield info.build_dir, lat, lon
+    seen, keys = set(), set()
+    for root in _tile_roots(working_dir):
+        for (lat, lon), info in sorted(TINFO.scan_tiles(root).items()):
+            real = os.path.realpath(info.build_dir)
+            if real in seen or (lat, lon) in keys:
+                continue
+            record = TINFO.read_imagery_record(info.build_dir, lat, lon)
+            if record.get("on_demand") or record.get("pinned"):
+                seen.add(real)
+                keys.add((lat, lon))
+                yield info.build_dir, lat, lon
     for folder, lat, lon in converted_tiles():
-        if os.path.abspath(folder) not in seen:
+        if os.path.realpath(folder) not in seen and (lat, lon) not in keys:
             yield folder, lat, lon
 
 
 def _figures(conn) -> Dict[str, Any]:
+    budget = DOWNGRADE.budget(conn)
     return {"capped_bytes": INDEX.capped_bytes(conn),
             "pinned_bytes": INDEX.pinned_bytes(conn),
-            "cap_bytes": DOWNGRADE.cap_bytes(),
+            "cap_bytes": budget.cap, "floor_bytes": budget.fixed,
+            "over_at_floor": budget.over_at_floor,
             "core_rows": len(INDEX.rows(conn, core=True)),
             "rows": len(INDEX.rows(conn))}
+
+
+def _cache_keys():
+    """``build_dir -> {texture name: DDS_cache key}`` from the store's
+    notes (the full textures a build left in ``DDS_cache``)."""
+    users = _keys_by_texture(DDSC.key_users())
+
+    def keys(build_dir):
+        own = os.path.abspath(build_dir)
+        return {name: found[-1] for (where, name), found in users.items()
+                if where == own}
+    return keys
 
 
 def _rebuild_rows(conn, tiles, cache_keys=None) -> None:
@@ -102,19 +139,21 @@ def _rebuild_rows(conn, tiles, cache_keys=None) -> None:
     disk, and their airport cores marked."""
     INDEX.rebuild(conn, tiles, placeholder_root=_placeholder_root(),
                   cache_keys=cache_keys)
-    for _build_dir, lat, lon in tiles:
+    for build_dir, lat, lon in tiles:
         tile = FNAMES.short_latlon(lat, lon)
         INDEX.set_core(conn, tile, CORES.core_names(
-            INDEX.rows(conn, tile=tile), CORES.airport_points(lat, lon)))
+            INDEX.rows(conn, tile=tile), CORES.airport_points(lat, lon),
+            CORES.base_zoom(build_dir, lat, lon)))
 
 
 def register_tiles(tiles, index: Optional[str] = None) -> int:
     """Write the index rows of ``tiles`` just converted to on-demand form
-    (``imagery_convert``): the scan's rebuild for those tiles only.
+    (``imagery_convert``) or just built in on-demand mode
+    (``imagery_after_build``): the scan's rebuild for those tiles only.
     Returns their rows."""
     conn = INDEX.open_index(index)
     try:
-        _rebuild_rows(conn, list(tiles))
+        _rebuild_rows(conn, list(tiles), _cache_keys())
         return sum(len(INDEX.rows(conn, tile=FNAMES.short_latlon(lat, lon)))
                    for (_d, lat, lon) in tiles)
     finally:
@@ -141,14 +180,9 @@ def imagery_ondemand_scan(working_dir: str = "",
         "cap_bytes", "core_rows", "reset"}``
     """
     tiles = list(on_demand_tiles(working_dir or FNAMES.Tile_dir))
-    users = _keys_by_texture(DDSC.key_users())
     conn = INDEX.open_index(index)
     try:
-        def keys(build_dir):
-            own = os.path.abspath(build_dir)
-            return {name: found[-1] for (where, name), found in users.items()
-                    if where == own}
-        _rebuild_rows(conn, tiles, keys)
+        _rebuild_rows(conn, tiles, _cache_keys())
         reset = INDEX.reset_upgrading(conn)
         return {"tiles": len(tiles), "reset": reset, **_figures(conn)}
     finally:
@@ -183,7 +217,8 @@ def imagery_pin(lat: int, lon: int, working_dir: str = "",
                 pinned: bool = True,
                 index: Optional[str] = None) -> Dict[str, Any]:
     """ENGINE COMMAND ``imagery_pin``: pin (or unpin) tile ``(lat, lon)``.
-    A pinned tile is never downgraded and is outside the cap; pinning
+    A favorite (pinned) tile counts in the ortho budget and is made
+    low-res last (RULINGS 2026-11-10c (2)); pinning
     lands every full texture the ``DDS_cache`` holds for it.
 
     :returns: ``{"tile", "pinned", "served", "to_fetch", "rows",
@@ -242,7 +277,8 @@ def imagery_ondemand_sweep(cap_gb: Optional[float] = None,
            else DOWNGRADE.cap_bytes())
     conn = INDEX.open_index(index)
     try:
-        return DOWNGRADE.sweep(conn, cap, camera=_camera(camera_lat, camera_lon),
+        return DOWNGRADE.sweep(conn, BUDGET.measure(conn, cap),
+                               camera=_camera(camera_lat, camera_lon),
                                in_session=bool(in_session))
     finally:
         conn.close()

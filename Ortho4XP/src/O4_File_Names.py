@@ -320,6 +320,95 @@ def tile_record_path(build_dir, lat, lon, kind):
         build_dir, "Ortho4XP_" + short_latlon(lat, lon) + "_" + kind + ".json")
 
 
+# ---------------------------------------------------------------------------
+# Rebuild data (owner RULINGS 2026-11-10d (4)): a tile's build intermediates
+# — the ``Data<tile>.*`` files (.node/.poly/.alt/.mesh/.apt/... ), the step
+# record, the vector step's sidecars, the tile cfg's backup — live in a
+# per-tile REBUILD CACHE under the data folder, not in the installed tile
+# folder, which holds only what X-Plane reads (``Earth nav data``,
+# ``terrain``, ``textures``) and the small records the apps read for tile
+# info (the tile cfg, the imagery and unpatched-airport records, the build
+# logs).
+#
+# THE ONE RESOLUTION POINT is :func:`rebuild_path`: every reader and writer
+# of a rebuild file names it through here (``mesh_file``, ``alt_file``, ...
+# below).  The tile folder names its cache in a small POINTER record
+# (:func:`rebuild_pointer_path`), so a reader in any tree, given only the
+# tile folder, finds the same files; a folder with no pointer (a tile
+# built before 10d, or by another tool) keeps its files where they are, and
+# a file the cache does not hold yet is read where an old build left it
+# (the read-old-path fallback).  ``O4_Rebuild_Cache`` claims the cache at
+# the start of a build and moves old files into it.
+# ---------------------------------------------------------------------------
+REBUILD_CACHE_DIR = "Rebuild_cache"
+#: the pointer record's kind (:func:`tile_record_path`)
+REBUILD_POINTER_KIND = "rebuild"
+REBUILD_POINTER_SCHEMA = "o4.rebuild_pointer/1"
+
+
+def rebuild_root():
+    """Root of the per-tile rebuild caches (``<data root>/Rebuild_cache``).
+
+    ``O4_REBUILD_CACHE_DIR`` overrides it, read AT CALL TIME, with the
+    precedence of ``O4_MASKS_DIR`` (:func:`masks_root`): an explicitly
+    chosen data root wins.  The test session points it at a temporary
+    folder (``tests/conftest.py``)."""
+    override = os.environ.get("O4_REBUILD_CACHE_DIR")
+    if override and _data_root_override is None and not os.environ.get(
+            "ORTHO4XP_DATA_ROOT"):
+        return override
+    return data_path(REBUILD_CACHE_DIR)
+
+
+def path_key(path):
+    """``path`` as one spelling per file: links resolved, case folded where
+    the file system folds it -- for comparing two paths, never opening."""
+    return os.path.normcase(os.path.realpath(path))
+
+
+def rebuild_pointer_path(build_dir, lat, lon):
+    """The tile folder's record naming its rebuild cache
+    (``Ortho4XP_<tile>_rebuild.json``)."""
+    return tile_record_path(build_dir, lat, lon, REBUILD_POINTER_KIND)
+
+
+def rebuild_dir(build_dir, lat, lon):
+    """The rebuild cache the tile folder names, or ``None`` (no pointer,
+    an unreadable one, or one into a data folder that is gone).  The
+    cache folder is made again when only it is missing (a cleanup may
+    prune an emptied folder)."""
+    if not build_dir:
+        return None
+    cache = read_json_dict(rebuild_pointer_path(build_dir, lat, lon)).get(
+        "cache")
+    if not isinstance(cache, str) or not os.path.isabs(cache):
+        return None
+    if not os.path.isdir(cache):
+        if not os.path.isdir(os.path.dirname(cache)):
+            return None
+        try:
+            os.makedirs(cache, exist_ok=True)
+        except OSError:
+            return None
+    return cache
+
+
+def rebuild_path(build_dir, lat, lon, name):
+    """Where the tile's rebuild file ``name`` is read and written.
+
+    In the cache the tile folder names; but a file only an old build left
+    in the tile folder is read there until it is moved (the fallback), and
+    a tile folder with no cache keeps its files."""
+    legacy = os.path.join(build_dir, name)
+    cache = rebuild_dir(build_dir, lat, lon)
+    if cache is None:
+        return legacy
+    moved = os.path.join(cache, name)
+    if not os.path.exists(moved) and os.path.exists(legacy):
+        return legacy
+    return moved
+
+
 def read_json_dict(path):
     """A JSON object from ``path``, or ``{}`` — NEVER raises: a missing or
     garbled record means "nothing recorded"."""
@@ -495,90 +584,49 @@ def manual_patch_icaos_in(directory):
     return out
 
 
+def _data_file(tile, suffix):
+    """The tile's ``Data<tile><suffix>`` rebuild file (:func:`rebuild_path`)."""
+    return rebuild_path(tile.build_dir, tile.lat, tile.lon,
+                        "Data" + short_latlon(tile.lat, tile.lon) + suffix)
+
+
+def _iterated(tile, extension):
+    """``.N<extension>`` on a refining run (``iterate`` N), else the bare
+    extension."""
+    return ("." + str(tile.iterate) if tile.iterate else "") + extension
+
+
 def input_node_file(tile):
-    if tile.iterate:
-        return os.path.join(
-            tile.build_dir,
-            "Data"
-            + short_latlon(tile.lat, tile.lon)
-            + "."
-            + str(tile.iterate)
-            + ".node",
-        )
-    else:
-        return os.path.join(
-            tile.build_dir, "Data" + short_latlon(tile.lat, tile.lon) + ".node"
-        )
+    return _data_file(tile, _iterated(tile, ".node"))
 
 
 def input_poly_file(tile):
-    if tile.iterate:
-        return os.path.join(
-            tile.build_dir,
-            "Data"
-            + short_latlon(tile.lat, tile.lon)
-            + "."
-            + str(tile.iterate)
-            + ".poly",
-        )
-    else:
-        return os.path.join(
-            tile.build_dir, "Data" + short_latlon(tile.lat, tile.lon) + ".poly"
-        )
+    return _data_file(tile, _iterated(tile, ".poly"))
 
 
 def output_node_file(tile):
-    return os.path.join(
-        tile.build_dir,
-        "Data"
-        + short_latlon(tile.lat, tile.lon)
-        + "."
-        + str(tile.iterate + 1)
-        + ".node",
-    )
+    return _data_file(tile, "." + str(tile.iterate + 1) + ".node")
 
 
 def output_ele_file(tile):
-    return os.path.join(
-        tile.build_dir,
-        "Data"
-        + short_latlon(tile.lat, tile.lon)
-        + "."
-        + str(tile.iterate + 1)
-        + ".ele",
-    )
+    return _data_file(tile, "." + str(tile.iterate + 1) + ".ele")
 
 
 def alt_file(tile):
-    if tile.iterate:
-        return os.path.join(
-            tile.build_dir,
-            "Data"
-            + short_latlon(tile.lat, tile.lon)
-            + "."
-            + str(tile.iterate)
-            + ".alt",
-        )
-    else:
-        return os.path.join(
-            tile.build_dir, "Data" + short_latlon(tile.lat, tile.lon) + ".alt"
-        )
+    return _data_file(tile, _iterated(tile, ".alt"))
 
 
 def apt_file(tile):
-    return os.path.join(
-        tile.build_dir, "Data" + short_latlon(tile.lat, tile.lon) + ".apt"
-    )
+    return _data_file(tile, ".apt")
 
 
 def weight_file(tile):
-    return os.path.join(
-        tile.build_dir, "Data" + short_latlon(tile.lat, tile.lon) + ".weight"
-    )
+    return _data_file(tile, ".weight")
 
 
 def mesh_file(build_dir, lat, lon):
-    return os.path.join(build_dir, "Data" + short_latlon(lat, lon) + ".mesh")
+    return rebuild_path(build_dir, lat, lon,
+                        "Data" + short_latlon(lat, lon) + ".mesh")
 
 
 def dsf_file(build_dir, lat, lon):
@@ -1157,3 +1205,24 @@ def geotiff_file_name_from_attributes(
 #: The road clamp pass's own measurement, beside the tile it describes
 #: (written by ``O4_Vector_Map``, read by ``O4_Mesh_Utils``).
 LEVELLED_ROADS_SIDECAR = "o4_levelled_roads.json"
+
+#: The DSF step's colour-harmonisation record (``O4_Imagery_Utils``), kept
+#: between builds of the tile.
+COLOR_FIELD_FILE = "color_field.json"
+
+
+def step_record_file(build_dir, lat, lon):
+    """The tile's step record (``O4_Step_Reuse``; a rebuild file)."""
+    return rebuild_path(build_dir, lat, lon, os.path.basename(
+        tile_record_path("", lat, lon, "steps")))
+
+
+def levelled_roads_file(build_dir, lat, lon):
+    """The tile's levelled-roads sidecar (written by ``O4_Vector_Map``,
+    read by ``O4_Mesh_Utils``; a rebuild file)."""
+    return rebuild_path(build_dir, lat, lon, LEVELLED_ROADS_SIDECAR)
+
+
+#: Rebuild files whose name does not carry the tile (one per build folder;
+#: ``O4_Rebuild_Cache.is_rebuild_name``).
+UNTAGGED_REBUILD_NAMES = (LEVELLED_ROADS_SIDECAR, COLOR_FIELD_FILE)

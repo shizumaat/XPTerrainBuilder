@@ -11,6 +11,7 @@ import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Cfg_Vars as CFG
 import O4_Config_Names as CONFIG_NAMES
 import O4_File_Names as FNAMES
+import O4_Rebuild_Cache as REBUILD
 import O4_Text_Files as TEXT
 import O4_UI_Utils as UI
 import O4_Unmounted_Links as UNMOUNTED
@@ -264,6 +265,9 @@ class Tile:
                     e,
                 )
                 raise Exception
+        # The tile's rebuild data lives in its rebuild cache (owner RULINGS
+        # 2026-11-10d (4)); an older build's moves in now.
+        REBUILD.claim(self)
 
     def _check_elevation_folder(self):
         """Refuse a tile whose ``Elevation_data/<bucket>`` folder is a

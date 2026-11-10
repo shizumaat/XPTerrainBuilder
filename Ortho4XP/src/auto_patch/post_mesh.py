@@ -353,10 +353,15 @@ def _mesh_is_newer_than_alt(tile, mesh_path: str) -> bool:
         return True
     # All .alt variants for this tile (plain ``Data<tile>.alt`` plus any
     # ``Data<tile>.<iterate>.alt`` from the densify path).
-    tile_stub = os.path.join(
-        tile.build_dir, "Data" + FNAMES.short_latlon(tile.lat, tile.lon)
-    )
-    alt_candidates = [tile_stub + ".alt"] + glob.glob(tile_stub + ".*.alt")
+    # In the tile's rebuild cache, or where a build before RULINGS
+    # 2026-11-10d left them.
+    stem = "Data" + FNAMES.short_latlon(tile.lat, tile.lon)
+    alt_candidates = []
+    for folder in {tile.build_dir, FNAMES.rebuild_dir(
+            tile.build_dir, tile.lat, tile.lon) or tile.build_dir}:
+        tile_stub = os.path.join(folder, stem)
+        alt_candidates += [tile_stub + ".alt"] + glob.glob(
+            tile_stub + ".*.alt")
     newest_alt_mtime = None
     for alt_path in alt_candidates:
         try:

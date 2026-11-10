@@ -180,6 +180,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .elevation_commands import cursor_elevation
     from .imagery_commands import (
         imagery_freshness_discard,
+        ondemand_handlers,
         start_imagery_freshness,
         start_imagery_source_status,
     )
@@ -368,6 +369,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "imagery_freshness": lambda **kw: start_imagery_freshness(
             session._emit, **kw),
         "imagery_freshness_discard": imagery_freshness_discard,
+        # On-demand imagery (#1992 P2, capability imagery_ondemand): the
+        # index scan, a tile's pin and "Make all low-res again"; pin and
+        # downgrade are refused while a build runs.
+        **ondemand_handlers(lambda: bool(session._building)),
     }
 
 

@@ -315,18 +315,30 @@ def _tile_holds(build_dir: str, name: str, size: int) -> bool:
         return False
 
 
+def entry_path(key: str, root: "str | None" = None) -> str:
+    """Where the store keeps ``key``'s texture (it may not exist)."""
+    return _entry(key, root)
+
+
+def key_users(root: "str | None" = None) -> "dict[str, list]":
+    """``{key: [(build dir, texture name), ...]}``: every build dir the
+    notes name as using each entry (#1992: the on-demand index finds a
+    texture's key, and a downgrade keeps an entry a neighbour uses)."""
+    users: dict[str, list] = {}
+    for build_dir, uses in _read_notes(root or cache_root()).values():
+        for key, name in uses:
+            users.setdefault(key, []).append((build_dir, name))
+    return users
+
+
 def held_by_built_tiles(root: "str | None" = None) -> list[str]:
     """The entries of the store that every build dir noted as using them
     holds itself, whole and of the same size, and that are not hard
     links (a link shares its bytes with the tile: removing it frees
     nothing).  Deletes nothing."""
     root = root or cache_root()
-    users: dict[str, list] = {}
-    for build_dir, uses in _read_notes(root).values():
-        for key, name in uses:
-            users.setdefault(key, []).append((build_dir, name))
     held = []
-    for key, where in sorted(users.items()):
+    for key, where in sorted(key_users(root).items()):
         entry = _entry(key, root)
         try:
             st = os.lstat(entry)
@@ -408,12 +420,35 @@ def store(key: "str | None", dds_final: str) -> bool:
     return True
 
 
-def evict(root: "str | None" = None, cap: "int | None" = None) -> list[str]:
+def _kept_by_ondemand() -> "set[str]":
+    """Keys the on-demand index marks upgraded or pinned (#1992 spec
+    §6.3): the cap must not delete a sharp texture's entry.  Empty when
+    there is no index; never raises."""
+    try:
+        import O4_Imagery_OnDemand_Index as ONDEMAND
+        path = ONDEMAND.index_path()
+        if not os.path.isfile(path):
+            return set()
+        conn = ONDEMAND.open_index(path)
+        try:
+            return ONDEMAND.protected_cache_keys(conn)
+        finally:
+            conn.close()
+    except Exception:
+        return set()
+
+
+def evict(root: "str | None" = None, cap: "int | None" = None,
+          keep: "set[str] | None" = None) -> list[str]:
     """Remove the least recently used entries until the store is at most
-    ``cap`` bytes (:func:`max_bytes`); returns the removed paths.  Racing
-    another process's sweep is harmless: a vanished file is skipped."""
+    ``cap`` bytes (:func:`max_bytes`); returns the removed paths.  The
+    entries of ``keep`` (keys; default: what the on-demand index marks
+    upgraded or pinned) count but are never removed.  Racing another
+    process's sweep is harmless: a vanished file is skipped."""
     root = root or cache_root()
     cap = max_bytes() if cap is None else cap
+    keep = _kept_by_ondemand() if keep is None else keep
+    kept_names = {key + ".dds" for key in keep}
     entries = []
     with contextlib.suppress(OSError):
         for shard in os.scandir(root):
@@ -431,6 +466,8 @@ def evict(root: "str | None" = None, cap: "int | None" = None) -> list[str]:
     for (_mtime, size, path) in sorted(entries):
         if total <= cap:
             break
+        if os.path.basename(path) in kept_names:
+            continue
         with contextlib.suppress(OSError):
             os.remove(path)
             removed.append(path)

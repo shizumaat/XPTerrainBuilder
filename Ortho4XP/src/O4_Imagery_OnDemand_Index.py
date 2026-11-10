@@ -54,6 +54,9 @@ API (stable: the follow job, P3b, reads and writes through it):
 * :func:`texture_path` -- ``<build_dir>/textures/<name>`` of a row;
   :func:`placeholder_width`, :func:`disk_state` -- its placeholder's
   width and what its file on disk is.
+* :func:`distance_m` / :func:`tier_distance_m` -- how far a row's square
+  is from a point, and its current tier's distance ``c_k * S`` (spec
+  §4.3, ``O4_Imagery_Tier_Plan.CROSSING_S``).
 * :func:`capped_bytes` / :func:`pinned_bytes` -- what counts against the
   cap (upgraded, unpinned) and the pins line.
 * :func:`lru_order` -- the downgrade order of spec §6.2 (cores last, then
@@ -71,6 +74,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import sqlite3
 import time
@@ -282,6 +286,30 @@ def placeholder_width(row: dict) -> int:
     return TIERS.tier_width(PLACEHOLDER.DEFAULT_DROP)
 
 
+_M_PER_DEG = 111_320.0
+
+
+def distance_m(row: dict, lat: float, lon: float) -> float:
+    """Ground distance in metres from ``(lat, lon)`` to the row's square
+    centre (equirectangular: exact enough within visible distance)."""
+    if row.get("centre_lat") is None or row.get("centre_lon") is None:
+        return math.inf
+    east = ((row["centre_lon"] - lon) * _M_PER_DEG
+            * math.cos(math.radians(lat)))
+    north = (row["centre_lat"] - lat) * _M_PER_DEG
+    return math.hypot(east, north)
+
+
+def tier_distance_m(row: dict) -> float:
+    """``c_k * S`` of the row's current tier: inside it X-Plane wants this
+    tier (``O4_Imagery_Tier_Plan.CROSSING_S``; 0 without an S)."""
+    import O4_Imagery_Tier_Plan as PLAN
+    size = row.get("load_size_m") or 0.0
+    tiers = [k for k, width in enumerate(PLAN.TIER_WIDTH)
+             if width <= int(row.get("tier_px") or 0)]
+    return PLAN.CROSSING_S[tiers[-1] if tiers else 0] * float(size)
+
+
 def disk_state(row: dict) -> "tuple[str, int, int] | None":
     """``(state, tier_px, full_bytes)`` the row's file on disk shows:
     ``upgraded`` when wider than its placeholder; ``None`` when the file
@@ -453,18 +481,37 @@ def scan_tile(build_dir: str, lat: int, lon: int, *,
     return result
 
 
+#: What only the index knows (spec §5.3), carried over a rebuild.
+_INDEX_ONLY = ("core", "last_near_at", "near_count", "late_count",
+               "fetched_at", "jpeg_path")
+
+
+def _carry(old: "dict | None", row: dict) -> None:
+    if old is None:
+        return
+    for column in _INDEX_ONLY:
+        if old.get(column) is not None:
+            row[column] = old[column]
+    if old.get("tier_px") == row["tier_px"] and not row["dds_cache_key"]:
+        row["dds_cache_key"] = old.get("dds_cache_key")
+
+
 def rebuild(conn: sqlite3.Connection, tiles, *, now: "float | None" = None,
             placeholder_root: "str | None" = None, cache_keys=None) -> int:
     """Replace the rows of each ``(build_dir, lat, lon)`` in ``tiles`` by
-    :func:`scan_tile`'s; a tile's ``core`` flags survive (they come from
-    its airports, not its files: :func:`set_core`).  ``placeholder_root``
-    is the store's ``placeholders`` folder; ``cache_keys`` a callable
-    ``build_dir -> {name: key}``.  Returns the rows written."""
+    :func:`scan_tile`'s.  What only the index knows survives for a row
+    still on disk: its ``core`` flag (from its airports:
+    :func:`set_core`), ``last_near_at``, the counts, ``fetched_at``,
+    ``jpeg_path``, and ``dds_cache_key`` while the tier is unchanged; a
+    LOST index therefore comes back with ``last_near_at`` = ``now``.
+    ``placeholder_root`` is the store's ``placeholders`` folder;
+    ``cache_keys`` a callable ``build_dir -> {name: key}``.  Returns the
+    rows written."""
     now = time.time() if now is None else now
     written = 0
     for build_dir, lat, lon in tiles:
         tile = FNAMES.short_latlon(lat, lon)
-        cores = {r["name"] for r in rows(conn, tile=tile, core=True)}
+        old = {r["name"]: r for r in rows(conn, tile=tile)}
         keep_dir = (os.path.join(placeholder_root, tile)
                     if placeholder_root else None)
         keys = cache_keys(build_dir) if cache_keys else None
@@ -473,7 +520,7 @@ def rebuild(conn: sqlite3.Connection, tiles, *, now: "float | None" = None,
         with conn:
             conn.execute("DELETE FROM textures WHERE tile = ?", (tile,))
             for row in found:
-                row["core"] = int(row["name"] in cores)
+                _carry(old.get(row["name"]), row)
                 upsert(conn, row)
         written += len(found)
     return written

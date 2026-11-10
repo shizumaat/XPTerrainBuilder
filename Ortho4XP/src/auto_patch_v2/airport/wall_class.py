@@ -33,8 +33,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from ..model.airport import Airport
-from .wall_sheets import (airside_union, hung_wall, low_side_y, obj_top_y,
-                          paved_faces, sheets_of)
+from .wall_sheets import airside_union, hung_wall, low_side_y, obj_top_y, paved_faces, sheets_of
 
 __all__ = ["WallComponent", "NOT_WALL_RESOURCE_WORDS", "wall_class_components",
            "retaining_sides"]

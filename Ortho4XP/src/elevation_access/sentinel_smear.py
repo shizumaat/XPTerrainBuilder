@@ -53,7 +53,6 @@ __all__ = [
     "SMEAR_MIN_CELLS",
     "SMEAR_STEP_M",
     "mask_sentinel_smear",
-    "sentinel_smear_region",
 ]
 
 #: Metres a rim pixel must stand below the ground beside it to witness.
@@ -93,7 +92,7 @@ def _witness_count(values, valid):
     return int(witnesses.sum())
 
 
-def sentinel_smear_region(values, valid):
+def _sentinel_smear_region(values, valid):
     """The smeared rim of ``values`` (the module rule) as a boolean mask,
     or ``None`` when the raster carries no smear.  ``valid`` is the mask
     of pixels holding data."""
@@ -136,7 +135,7 @@ def mask_sentinel_smear(raster_path, before_write=None):
     if nodata is not None:
         valid &= values != nodata
     try:
-        mask = sentinel_smear_region(values, valid)
+        mask = _sentinel_smear_region(values, valid)
     except ImportError:                                  # pragma: no cover
         return None
     if mask is None or not mask.any():

@@ -830,6 +830,7 @@ _SHARED: tuple[str, ...] = (
     "elevation_access.refusal_rest",
     "elevation_access.registry",
     "elevation_access.sea_cell",
+    "elevation_access.sentinel_smear",
     "elevation_access.stac_assets",
     "elevation_access.strategies",
     "elevation_access.strategies.aoi_zip_download",

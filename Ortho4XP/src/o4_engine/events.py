@@ -222,6 +222,7 @@ CAPABILITIES: tuple = (
     "tile_staleness",               # 2026-11-09, #1958 tile_staleness (LibraryReady)
     "imagery_follow",               # 2026-11-10, #1992 P3b follow job + ImageryFollowStatus
     "imagery_ondemand",             # 2026-11-10, #1992 P2 scan / pin / downgrade_all
+    "imagery_spawn_reload",         # 2026-11-10, #1992 P5 scenery reload after a spawn or jump
 )
 
 
@@ -1027,7 +1028,8 @@ class ImageryFollowStatus(EngineEvent):
     queued).  ``sharp`` textures at full resolution of ``textures``;
     ``landed``, ``late``, ``failed``, ``bytes_landed`` this session;
     ``flight_loads`` Web API id resets (a flight load), ``jumps`` camera
-    jumps.
+    jumps, ``reloads`` scenery reloads the job asked X-Plane for after a
+    spawn or jump whose imagery missed the flight-start window (#1992 P5).
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).
@@ -1052,6 +1054,7 @@ class ImageryFollowStatus(EngineEvent):
     bytes_landed: int = 0
     flight_loads: int = 0
     jumps: int = 0
+    reloads: int = 0
 
 
 @dataclass(frozen=True)

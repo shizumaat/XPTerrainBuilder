@@ -439,8 +439,55 @@ load), or a camera jump of more than 5 S in under 5 s (map jump, replay,
 | Wait for the step-down | blurry field for the whole local flight | none |
 | Prefetch before the flight ("Make sharp now", §8) | sharp | the user names the area |
 
-The reload is skipped when nothing missed the window. Whether it may also
-fire in the air after a jump at speed is an owner question (§12).
+The reload is skipped when nothing missed the window. ~~Whether it may also
+fire in the air after a jump at speed is an owner question (§12).~~
+**[rev 4]** It also fires in the air after a jump (owner, 2026-11-10).
+
+**[rev 4, P5 as built]** `O4_Imagery_Spawn` (pure) and the follow job.
+
+- **Witnesses.** `spawn`: the first position a follow session reads.
+  `flight_load`: positions resume after a Web API drop. `jump`: the
+  camera moved more than 5 S in under 5 s at a speed no aircraft flies
+  (`O4_Imagery_Follow_Motion`). Positions that resume where the camera
+  was (within 2 km) open nothing when the drop was shorter than 10 s (a
+  stutter: X-Plane read nothing again; flight 1's load dropped the API
+  for ~90 s) or when this job's own reload was sent less than 120 s
+  before (the reload's stall). A new witness replaces an open episode.
+- **Core.** Every square a camera standing at the new place wants finer
+  than its file on disk, by the kept-core rule of §6.1
+  (`O4_Imagery_OnDemand_Cores.core_tier`: full inside 1.65 S, 2048
+  inside 2.8 S, 1024 inside 5.2 S). Checked on flight 1's start: the rule
+  names 71 squares at the field (14 full, 19 at 2048, 38 at 1024); of the
+  70 textures X-Plane opened finer than the placeholder ~24 s after the
+  load, 63 at exactly the rule's tier and all within one tier [measured,
+  `tests/test_imagery_spawn.py`]. Each square is fetched once, straight
+  at its tier; files that need no download (a `DDS_cache` entry of the
+  full tier, or the tier's cached JPEG) first, then the finest tier
+  first, nearest first. Files that need no download take no fetch slot
+  (up to 4 at once, still under R6's 4 landings a second: 71 files in
+  18 s) and land while the job is offline. Downloads use the adaptive
+  slots of §4.4 with the window's end as their deadline, so the buffer
+  reads empty and the slots open.
+- **Window.** 24 s after a `flight_load` or `jump` witness, of which 20 s
+  are counted on (the witness may trail X-Plane's first opens; §11 U11).
+  A session's first position has no window: X-Plane may have stood there
+  for an hour, so whatever lands for its core is taken as missed.
+- **Reload.** When nothing of the core is left to land (downloaded,
+  or failed three times), the episode closes. One reload is sent if a
+  file landed after the window AND the camera is still inside the
+  distance where X-Plane wants a finer tier than the file it read at the
+  load (§2.5: it holds the coarser level and no step-up open will come).
+  Nothing missed, nothing landed (no network), or the camera gone from
+  there: no reload. Never a second one for the same witness.
+- **How.** X-Plane's own command `sim/operation/reload_scenery` through
+  the Web API (§11 U9): no plugin. `imagery_follow_start` takes
+  `reload: false` for a job that never reloads; `ImageryFollowStatus`
+  carries `reloads`; capability `imagery_spawn_reload`. X-Plane before
+  12.1.4, or with no flight loaded, has no such command: the job logs
+  `reload=no` and goes on.
+- **Log.** `logs/imagery_on_demand.log` gets `spawn=<witness> core=N
+  local=N window_s=S` when an episode opens and `spawn_done=<witness>
+  landed=N missed=N stale=N reload=sent|no` when it closes.
 
 ### 4.6 Partial and mip-level DDS files **[rev 2, new]**
 
@@ -712,7 +759,7 @@ build at that zoom would.
 | U6 | Do the provider's lower zooms (T1/T2) match the full zoom (date, colour)? A mismatch pops at each tier change | Tier ladder vs full-only | Offline: fetch ZL13-16 of 50 squares, downsample the full, per-square ΔE and change-detection; if it fails, the ladder is T0 → full, fetched earlier | P3a |
 | U7 | Download + convert time per tier under the job, and the right `T_lead` | §4.3 lead table | Offline bench on the real fetcher (no sim), 100 textures per tier per provider | P3a |
 | U8 | Windows: does X-Plane hold handles or mapped views; how often does `os.replace` fail? | §4.7 | Process Monitor (or `handle.exe`) trace during a flight + a swap stress with the kit's `swap.py`; Linux: `strace -f -e trace=openat,mmap,munmap,close` | P6 |
-| U9 | Can a Web API command reload the scenery, or is a plugin (`XPLMReloadScenery`) needed? How long is the stall? | §4.5 | List the Web API's commands (`/api/v2/commands`) for a scenery reload; time a reload with the recorder (first to last `.ter` open) | P5 |
+| U9 | ~~Can a Web API command reload the scenery, or is a plugin (`XPLMReloadScenery`) needed?~~ **[rev 4] Answered: a command, no plugin.** The Web API's v2 (X-Plane 12.1.4+) lists commands (`GET /api/v2/commands?filter[name]=<name>`) and activates one (`POST /api/v2/command/<id>/activate`, body `{"duration": 0}` = press and release) [source: developer.x-plane.com/article/x-plane-web-api, "Activate a command (v2+)"]; X-Plane 12 ships `sim/operation/reload_scenery`, "Force reloading the current scenery" [source: `Resources/plugins/Commands.txt` of the X-Plane 12 install on this Mac]. `O4_XPlane_WebAPI.reload_scenery` sends it. Not yet run against a live X-Plane (none was running). Still open: how long is the stall? | §4.5 | Time a reload with the recorder (first to last `.ter` open) on the P5 flight; confirm the POST is taken (`reload=sent` in the log, then the `.ter` burst) | P5 |
 | U10 | Do landings or the job's disk I/O cause stutter? | R6 rate | Recorder logs frame period (`sim/time/framerate_period`); compare legs with the job on and off | P3 |
 | U11 | Is the flight-start window always ~24 s (one sample)? | §4.5 step 2 | Recorder across five spawns (cold start, airport change, map jump, replay, situation load) | P5 |
 | U12 | Does an outside or replay camera page by the camera (assumed) or the aircraft? | §4.2 position | One leg in an external view orbiting ~10 km out | P3 |
@@ -729,8 +776,9 @@ Left for the owner:
 1. Pins **outside** the cap (this spec's reading of "don't count against
    the cap's LRU"), or counted in it but never evicted?
 2. The world switch's default once §14 P6 passes: on or off?
-3. The automatic reload after a jump **in the air** at speed (a stall
-   mid-flight), or only on the ground and at a flight load?
+3. ~~The automatic reload after a jump **in the air** at speed (a stall
+   mid-flight), or only on the ground and at a flight load?~~ **[rev 4]**
+   Decided 2026-11-10: yes, also in the air.
 
 ## 13. Work items
 
@@ -900,6 +948,14 @@ and registers the log with `frames.py register` beside the l1992 kit.
   reads full files after the reload (or inside the window when cached);
   reload stall timed (**U9**); window measured across five spawns
   (**U11**).
+- **[rev 4] Built** (lane `lp5`): §4.5 "P5 as built". U9 found the
+  command, so no plugin and no plugin spec. Twins:
+  `tests/test_imagery_spawn.py` on
+  `tests/fixtures/imagery_spawn/flight1_start.replay.json` (flight 1's
+  first 160 s, cut with `tools/imagery_tier_replay.py extract ... --window
+  0 160`). For U11 the recorder log gives, per spawn, the seconds from
+  `pos_resumed` to the mip 4 burst and to the finer burst; the job's
+  `spawn=` / `spawn_done=` lines give its side.
 
 ### P6 — Windows and Linux (medium)
 

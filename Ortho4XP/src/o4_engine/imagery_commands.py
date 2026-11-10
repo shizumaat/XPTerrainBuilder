@@ -16,7 +16,9 @@ synchronous file work.
 (``o4_engine.imagery_follow``) and replies ``{"status": "started"}`` (or
 ``"running"``); ``ImageryFollowStatus`` events report it until
 ``imagery_follow_stop`` ends it and replies its counts.  One job per
-engine.
+engine.  After a spawn or jump whose imagery missed X-Plane's flight-start
+window the job asks X-Plane to reload its scenery (#1992 P5, capability
+``imagery_spawn_reload``); ``reload: false`` starts a job that never does.
 
 On-demand imagery (#1992, capability ``imagery_ondemand``):
 ``imagery_ondemand_scan`` (the index rebuilt from the on-demand tiles),
@@ -49,10 +51,13 @@ def start_imagery_follow(emit: Callable[[Any], None],
                          port: Optional[int] = None,
                          lead_s: Optional[float] = None,
                          tiles: Optional[Sequence[Sequence[Any]]] = None,
-                         index_path: Optional[str] = None) -> Dict[str, Any]:
+                         index_path: Optional[str] = None,
+                         reload: Optional[bool] = None) -> Dict[str, Any]:
     """The command: start following X-Plane's camera on ``port`` (default
     8086); ``tiles`` (``[build_dir, lat, lon]`` each) are rescanned into
-    the index first; ``busy()`` is true while a build runs."""
+    the index first; ``busy()`` is true while a build runs; ``reload``
+    false: never ask X-Plane to reload its scenery after a spawn or jump
+    (default: ask, through its Web API command)."""
     import O4_File_Names as FNAMES
     import O4_Imagery_Tier_Plan as PLAN
     import O4_XPlane_WebAPI as WEBAPI
@@ -63,13 +68,15 @@ def start_imagery_follow(emit: Callable[[Any], None],
         job = _FOLLOW["job"]
         if job is not None and job.running:
             return {"status": "running"}
-        reader = WEBAPI.PositionReader(
-            WEBAPI.base_url(int(port or WEBAPI.DEFAULT_PORT)))
+        base = WEBAPI.base_url(int(port or WEBAPI.DEFAULT_PORT))
         log = os.path.join(FNAMES.data_path("logs"), "imagery_on_demand.log")
-        job = FollowJob(emit, reader=reader, lander=TierLander(),
+        job = FollowJob(emit, reader=WEBAPI.PositionReader(base),
+                        lander=TierLander(),
                         index_path=index_path, busy=busy,
                         lead_s=float(lead_s or PLAN.DEFAULT_LEAD_S),
-                        log_path=log, rebuild_tiles=tiles or ())
+                        log_path=log, rebuild_tiles=tiles or (),
+                        reloader=None if reload is False else (
+                            lambda: WEBAPI.reload_scenery(base)))
         _FOLLOW["job"] = job.start()
     return {"status": "started"}
 

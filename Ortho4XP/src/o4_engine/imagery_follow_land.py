@@ -20,6 +20,11 @@ row (``O4_Imagery_OnDemand_Index``) and a tier (1, 2, 3 =
 It returns the facts the index records and raises ``RuntimeError`` when
 nothing whole of that tier landed (the job counts it as a failure).  The tile objects are read once
 per build folder (``O4_Config_Utils.Tile.read_from_config``).
+
+:meth:`TierLander.local` says a landing needs NO download (the full
+tier's ``DDS_cache`` entry, or the tier's source JPEG, is on disk): at a
+spawn or jump the follow job lands those first, inside X-Plane's
+flight-start window (spec §4.5).
 """
 from __future__ import annotations
 
@@ -69,6 +74,30 @@ class TierLander:
                 self._tiles[key] = tile
             return tile
 
+    def _source_jpeg(self, row: dict, tier: int) -> "str | None":
+        """Where the tier's source JPEG is cached, for a provider with
+        imagery of its own (a combined provider has no single file)."""
+        import O4_Imagery_Utils as IMG
+        if row["provider"] not in IMG.providers_dict:
+            return None
+        til_x, til_y = texture_corner(row["name"])
+        return os.path.join(*IMG._source_jpeg_location(
+            self._tile(row), til_x, til_y, int(row["zl"]), row["provider"],
+            drop=_drop(tier)))
+
+    def local(self, row: dict, tier: int) -> bool:
+        """Can ``tier`` of ``row`` land with no download?  Never raises."""
+        import O4_DDS_Cache as DDSCACHE
+        try:
+            key = row.get("dds_cache_key")
+            if (TIER_WIDTH[int(tier)] == TIERS.FULL_WIDTH and key
+                    and os.path.isfile(DDSCACHE.entry_path(key))):
+                return True
+            jpeg = self._source_jpeg(row, tier)
+            return bool(jpeg) and os.path.isfile(jpeg)
+        except Exception:               # unreadable tile: not local
+            return False
+
     def __call__(self, row: dict, tier: int) -> dict:
         import O4_DDS_Cache as DDSCACHE
         import O4_Imagery_Utils as IMG
@@ -81,13 +110,13 @@ class TierLander:
         til_x, til_y = texture_corner(row["name"])
         attrs = (til_x, til_y, int(row["zl"]), row["provider"])
         drop = _drop(tier)
+        jpeg = self._source_jpeg(row, tier)
+        cached = bool(jpeg) and os.path.isfile(jpeg)
         if not IMG.build_jpeg_ortho(tile, *attrs, drop=drop):
             raise RuntimeError(f"{row['name']}: the {width} px imagery did "
                              "not download")
         IMG.convert_texture(tile, *attrs, drop=drop)
-        jpeg = os.path.join(*IMG._source_jpeg_location(tile, *attrs,
-                                                       drop=drop))
-        return _facts(final, width, jpeg, None, True)
+        return _facts(final, width, jpeg, None, not cached)
 
 
 def _tile_latlon(tile: str) -> tuple[int, int]:

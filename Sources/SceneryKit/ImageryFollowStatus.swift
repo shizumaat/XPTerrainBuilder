@@ -10,7 +10,10 @@ import Foundation
 /// is the engine's sentence, shown verbatim), `stopped` or `error`.
 /// `slots` is how many textures are fetched at once (1 unless the
 /// buffer ahead of the aircraft is depleting); `bufferSeconds` is that
-/// buffer, nil when nothing is queued. The field names are the JSON keys
+/// buffer, nil when nothing is queued. `reloads` counts the scenery
+/// reloads the engine asked X-Plane for after a spawn or jump whose
+/// imagery missed the flight-start window (#1992 P5, capability
+/// `imagery_spawn_reload`). The field names are the JSON keys
 /// of `class ImageryFollowStatus` in `Ortho4XP/src/o4_engine/events.py`.
 public struct O4ImageryFollowStatus: Sendable, Equatable {
     public let state: String
@@ -32,6 +35,7 @@ public struct O4ImageryFollowStatus: Sendable, Equatable {
     public let bytesLanded: Int64
     public let flightLoads: Int
     public let jumps: Int
+    public var reloads: Int = 0
 
     /// Is the job running (not stopped and not failed)?
     public var running: Bool { state != "stopped" && state != "error" }
@@ -53,6 +57,7 @@ public struct O4ImageryFollowStatus: Sendable, Equatable {
             sharp: int("sharp"), textures: int("textures"),
             landed: int("landed"), late: int("late"), failed: int("failed"),
             bytesLanded: (object["bytes_landed"] as? NSNumber)?.int64Value ?? 0,
-            flightLoads: int("flight_loads"), jumps: int("jumps"))
+            flightLoads: int("flight_loads"), jumps: int("jumps"),
+            reloads: int("reloads"))
     }
 }

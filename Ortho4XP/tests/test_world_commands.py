@@ -96,7 +96,7 @@ def test_install_status_and_regions(world):
     europe = REGIONS.region_of(45, 7)
     africa = REGIONS.region_of(-34, 18)
     order = [c for c, _ in REGIONS.REGIONS]
-    res = WORLD.world_regions_set([europe, africa], world)
+    res = WORLD._regions_set([europe, africa], world)
     # Only the tiles X-Plane's own scenery has (land) get a placeholder.
     assert res["written"] == 3
     assert res["regions"] == sorted([europe, africa], key=order.index)
@@ -107,20 +107,20 @@ def test_install_status_and_regions(world):
     assert not rows[REGIONS.region_of(40, -100)]["enabled"]
     assert SM.read_global_raw()[REGIONS.setting_name(europe)] == "True"
     # Giving Africa back removes its placeholder; Europe's stay.
-    res = WORLD.world_regions_set([europe], world)
+    res = WORLD._regions_set([europe], world)
     assert res["removed"] == 1 and res["written"] == 0 and res["kept"] == 2
     assert WORLD.world_status(world)["tiles"]["placeholder"] == 2
     with pytest.raises(ValueError):
-        WORLD.world_regions_set(["atlantis"], world)
+        WORLD._regions_set(["atlantis"], world)
 
 
 def test_publish_a_build_and_give_it_back(world, tmp_path):
     WORLD.world_install(world)
-    WORLD.world_regions_set([REGIONS.region_of(45, 7)], world)
+    WORLD._regions_set([REGIONS.region_of(45, 7)], world)
     build = _build(tmp_path)
     LINKS.install(45, 7, build, world)              # the app's auto-install
     assert os.path.islink(os.path.join(world, "zOrtho4XP_+45+007"))
-    res = PUBLISH.publish_built(world, build, 45, 7,
+    res = PUBLISH._publish_built(world, build, 45, 7,
                                 loaded=lambda la, lo: False)
     assert res["state"] == "swapped" and not res["problems"]
     pack = WORLD.pack_dir(world)
@@ -137,9 +137,9 @@ def test_publish_a_build_and_give_it_back(world, tmp_path):
     row = {"build_dir": build, "name": "a.dds", **layout}
     assert INDEX.texture_path(row) == os.path.join(layout["textures_dir"],
                                                    "a.dds")
-    assert INDEX.tile_dir({"build_dir": build}, "terrain") == os.path.join(
+    assert INDEX._tile_dir({"build_dir": build}, "terrain") == os.path.join(
         build, "terrain")
-    assert INDEX.tile_dir({"build_dir": build}, "config") == build
+    assert INDEX._tile_dir({"build_dir": build}, "config") == build
     # Status: one full tile; the engine scan sees it installed.
     status = WORLD.world_status(world)
     assert status["tiles"]["full"] == 1 and status["tiles"]["placeholder"] == 1
@@ -155,20 +155,20 @@ def test_publish_a_build_and_give_it_back(world, tmp_path):
 
 def test_no_pack_or_not_on_demand_publishes_nothing(world, tmp_path):
     build = _build(tmp_path)
-    assert PUBLISH.publish_built(world, build, 45, 7) is None
+    assert PUBLISH._publish_built(world, build, 45, 7) is None
     WORLD.world_install(world)
     other = _build(tmp_path / "b", on_demand=False)
-    assert PUBLISH.publish_built(world, other, 45, 7) is None
+    assert PUBLISH._publish_built(world, other, 45, 7) is None
 
 
 def test_a_held_tile_waits_staged(world, tmp_path):
     WORLD.world_install(world)
     build = _build(tmp_path)
-    res = PUBLISH.publish_built(world, build, 45, 7,
+    res = PUBLISH._publish_built(world, build, 45, 7,
                                 loaded=lambda la, lo: True)
     assert res["state"] == "staged"
     assert not WP.holds_tile(world, 45, 7)
-    assert PUBLISH.swap_waiting(world, lambda la, lo: build,
+    assert PUBLISH._swap_waiting(world, lambda la, lo: build,
                                 loaded=lambda la, lo: False) == ["+45+007"]
     assert WP.holds_tile(world, 45, 7)
 
@@ -177,13 +177,13 @@ def test_scanners_read_placeholders_as_no_tile(world, tmp_path):
     """Spec §18 seam: before W1 the World pack read as a landmark pack
     covering every placeholder, and its real tiles as not installed."""
     WORLD.world_install(world)
-    WORLD.world_regions_set([REGIONS.region_of(45, 7)], world)
+    WORLD._regions_set([REGIONS.region_of(45, 7)], world)
     build = _build(tmp_path)
     for i in range(30):
         with open(os.path.join(build, "textures", f"{i}_x_BI16.dds"),
                   "wb") as h:
             h.write(b"DDS ")
-    PUBLISH.publish_built(world, build, 45, 7, loaded=lambda la, lo: False)
+    PUBLISH._publish_built(world, build, 45, 7, loaded=lambda la, lo: False)
     pack = {p.name: p for p in CS.scan_packs(world)}[WP.PACK_NAME]
     assert pack.tiles == frozenset({(45, 7)})       # (45, 8): a placeholder
     assert pack.kind == "ortho"

@@ -24,7 +24,7 @@ import hashlib
 import struct
 from typing import Callable, Iterable, Optional
 
-__all__ = ["DEFN_TABLES", "atom", "dsf_file", "dsf_md5_ok", "atoms",
+__all__ = ["DEFN_TABLES", "dsf_md5_ok", "atoms",
            "properties", "definitions", "placeholder_bytes", "rewrite"]
 
 _COOKIE = b"XPLNEDSF"
@@ -32,12 +32,12 @@ _COOKIE = b"XPLNEDSF"
 DEFN_TABLES = ("TERT", "OBJT", "POLY", "NETW", "DEMN")
 
 
-def atom(name: str, body: bytes) -> bytes:
+def _atom(name: str, body: bytes) -> bytes:
     """One atom: ``name`` stored byte-reversed, the length, the body."""
     return name.encode("ascii")[::-1] + struct.pack("<I", 8 + len(body)) + body
 
 
-def dsf_file(top: Iterable[bytes]) -> bytes:
+def _dsf_file(top: Iterable[bytes]) -> bytes:
     """A whole DSF from its top-level atoms: cookie, version, MD5 footer."""
     body = _COOKIE + struct.pack("<I", 1) + b"".join(top)
     return body + hashlib.md5(body).digest()
@@ -108,21 +108,21 @@ def placeholder_bytes(lat: int, lon: int, agent: str) -> bytes:
     property-only text (empty definition tables, an empty 4-plane and
     2-plane point pool, one command), 328 bytes for the World pack's
     agent."""
-    head = atom("HEAD", atom("PROP", _prop_bytes([
+    head = _atom("HEAD", _atom("PROP", _prop_bytes([
         ("sim/planet", "earth"), ("sim/overlay", "1"),
         ("sim/creation_agent", agent), ("sim/west", str(lon)),
         ("sim/east", str(lon + 1)), ("sim/north", str(lat + 1)),
         ("sim/south", str(lat))])))
-    defn = atom("DEFN", b"".join(atom(t, b"") for t in DEFN_TABLES))
+    defn = _atom("DEFN", b"".join(_atom(t, b"") for t in DEFN_TABLES))
     # PO32: 0 points, 4 planes, per-plane encoding 3 (RLE + differenced).
     scal = struct.pack("<8f", 1.0, float(lon), 1.0, float(lat),
                        65535.0, -32768.0, 0.0, 0.0)
-    geod = atom("GEOD", atom("PO32", struct.pack("<IB4B", 0, 4, 3, 3, 3, 3))
-                + atom("SC32", scal)
-                + atom("PO32", struct.pack("<IB", 0, 0)) + atom("SC32", b""))
+    geod = _atom("GEOD", _atom("PO32", struct.pack("<IB4B", 0, 4, 3, 3, 3, 3))
+                + _atom("SC32", scal)
+                + _atom("PO32", struct.pack("<IB", 0, 0)) + _atom("SC32", b""))
     # One command: 2 = set the junction offset (uint32 0).
-    cmds = atom("CMDS", struct.pack("<BI", 2, 0))
-    return dsf_file([head, defn, geod, cmds])
+    cmds = _atom("CMDS", struct.pack("<BI", 2, 0))
+    return _dsf_file([head, defn, geod, cmds])
 
 
 def rewrite(buf: bytes,
@@ -142,18 +142,18 @@ def rewrite(buf: bytes,
                 if kid == "PROP":
                     words = _strings(buf[kbody:kend])
                     pairs = list(zip(words[0::2], words[1::2], strict=False))
-                    kids.append(atom("PROP", _prop_bytes(props(pairs))))
+                    kids.append(_atom("PROP", _prop_bytes(props(pairs))))
                 else:
                     kids.append(buf[kbody - 8:kend])
-            whole = atom("HEAD", b"".join(kids))
+            whole = _atom("HEAD", b"".join(kids))
         elif name == "DEFN" and defs is not None:
             kids = []
             for kid, kbody, kend in atoms(buf, body, end):
                 if kid in DEFN_TABLES:
-                    kids.append(atom(kid, _table(
+                    kids.append(_atom(kid, _table(
                         defs(kid, s) for s in _strings(buf[kbody:kend]))))
                 else:
                     kids.append(buf[kbody - 8:kend])
-            whole = atom("DEFN", b"".join(kids))
+            whole = _atom("DEFN", b"".join(kids))
         out.append(whole)
-    return dsf_file(out)
+    return _dsf_file(out)

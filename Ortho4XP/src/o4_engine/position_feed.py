@@ -21,7 +21,7 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-__all__ = ["MAX_AGE_S", "FRESH_S", "PositionFeed", "shared",
+__all__ = ["MAX_AGE_S", "FRESH_S", "shared",
            "latest_position"]
 
 #: A record younger than this is served again instead of a new read.
@@ -30,7 +30,7 @@ MAX_AGE_S = 0.5
 FRESH_S = 5.0
 
 
-class PositionFeed:
+class _PositionFeed:
     """One Web API position reader, fanned out (see the module)."""
 
     def __init__(self, reader: Any, max_age_s: float = MAX_AGE_S,
@@ -91,18 +91,18 @@ class PositionFeed:
         return unsubscribe
 
 
-_FEEDS: Dict[str, PositionFeed] = {}
+_FEEDS: Dict[str, _PositionFeed] = {}
 _FEEDS_GUARD = threading.Lock()
 
 
-def shared(base: Optional[str] = None) -> PositionFeed:
+def shared(base: Optional[str] = None) -> _PositionFeed:
     """THE feed of the Web API at ``base`` (default: the app's)."""
     import O4_XPlane_WebAPI as WEBAPI
     base = base or WEBAPI.base_url()
     with _FEEDS_GUARD:
         feed = _FEEDS.get(base)
         if feed is None:
-            feed = _FEEDS[base] = PositionFeed(WEBAPI.PositionReader(base))
+            feed = _FEEDS[base] = _PositionFeed(WEBAPI.PositionReader(base))
         return feed
 
 

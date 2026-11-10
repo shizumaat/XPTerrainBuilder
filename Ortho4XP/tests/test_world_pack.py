@@ -206,7 +206,7 @@ def test_binary_rewrite_keeps_every_other_atom(tmp_path, fixture, lat, lon):
             else DSFB.placeholder_bytes(lat, lon, WP.PLACEHOLDER_AGENT))
     assert DSFB.rewrite(data, props=lambda p: p, defs=lambda t, s: s) == data
     tile = WP.tile_name(lat, lon)
-    out = DSFB.rewrite(data, defs=lambda t, s: WP.pack_def(s, tile))
+    out = DSFB.rewrite(data, defs=lambda t, s: WP._pack_def(s, tile))
     assert DSFB.dsf_md5_ok(out)
     for table, refs in DSFB.definitions(out).items():
         for ref in refs:
@@ -232,7 +232,7 @@ def test_binary_rewrite_equals_the_dsftool_round_trip(tmp_path, fixture,
     want, _n = WP.rewrite_dsf_text(_dsf2text(source), WP.tile_name(lat, lon))
     agent = re.compile(r"^PROPERTY sim/creation_agent (.*)$", re.M)
     old = agent.search(want).group(1)
-    assert agent.search(got).group(1) == WP.stamp(old, "light")
+    assert agent.search(got).group(1) == WP._stamp(old, "light")
     assert agent.sub("", got) == agent.sub("", want)
 
 
@@ -258,10 +258,10 @@ def test_kind_stamp_and_publish(tmp_path):
     check = WP.verify_tile(os.path.join(scenery, WP.PACK_NAME), lat, lon)
     assert not check["problems"] and check["kind"] == "full"
     assert check["pack_defs"] == 2 and check["tex_refs"] == 4
-    assert WP.stamp("XPTerrainBuilder 1.0 [world light]", "full") == \
+    assert WP._stamp("XPTerrainBuilder 1.0 [world light]", "full") == \
         "XPTerrainBuilder 1.0 [world full]"
     with pytest.raises(ValueError):
-        WP.stamp("x", "placeholder")
+        WP._stamp("x", "placeholder")
 
 
 def test_publish_refuses_a_tile_that_does_not_verify(tmp_path):

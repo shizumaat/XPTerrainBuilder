@@ -3,10 +3,10 @@ World spec §4.1, §7.3), when there is one.
 
 The build runs in its ordinary build folder; when it is done
 (``BuildDone`` ok) and the World pack is in the Custom Scenery folder and
-the tile was built with imagery on demand, :func:`publish_built` stages it
+the tile was built with imagery on demand, :func:`_publish_built` stages it
 in the pack's shape (``O4_World_Pack.publish``: binary rewrite, verify)
 and swaps it in, unless X-Plane may hold the tile (rule S3/S4): then it
-waits staged and :func:`swap_waiting` swaps it later.  After the swap:
+waits staged and :func:`_swap_waiting` swaps it later.  After the swap:
 
 * the tile's imagery manifest names the pack's folders
   (:data:`LAYOUT_KEY`), so the on-demand index rows read and land
@@ -34,8 +34,7 @@ import O4_World_Pack as WP
 
 from . import world_commands as WORLD
 
-__all__ = ["LAYOUT_KEY", "write_layout", "publish_built",
-           "swap_waiting", "watch"]
+__all__ = ["LAYOUT_KEY", "watch"]
 
 #: The imagery-manifest key naming a published tile's pack folders (the
 #: index's reader owns the name).
@@ -47,7 +46,7 @@ def _manifest_path(build_dir: str, lat: int, lon: int) -> str:
                         % WP.tile_name(lat, lon))
 
 
-def write_layout(build_dir: str, lat: int, lon: int,
+def _write_layout(build_dir: str, lat: int, lon: int,
                  pack: Optional[str]) -> bool:
     """Name the pack's folders of the tile in its imagery manifest
     (``pack`` None: remove the name).  ``False`` without a manifest."""
@@ -82,14 +81,14 @@ def _after_swap(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
     import O4_Scenery_Links as LINKS
 
     from . import imagery_ondemand as ONDEMAND
-    write_layout(build_dir, lat, lon, WORLD.pack_dir(scenery_dir))
+    _write_layout(build_dir, lat, lon, WORLD.pack_dir(scenery_dir))
     with contextlib.suppress(Exception):     # the index is a cache
         ONDEMAND.register_tiles([(build_dir, lat, lon)])
     with contextlib.suppress(ValueError, OSError):
         LINKS.uninstall(lat, lon, build_dir, scenery_dir)
 
 
-def publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
+def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
                   kind: str = "full",
                   loaded: Optional[Callable[[int, int], bool]] = None
                   ) -> Optional[dict]:
@@ -111,7 +110,7 @@ def publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
     return result
 
 
-def swap_waiting(scenery_dir: str, build_dir_of: Callable[[int, int], str],
+def _swap_waiting(scenery_dir: str, build_dir_of: Callable[[int, int], str],
                  loaded: Optional[Callable[[int, int], bool]] = None) -> list:
     """Swap in every staged tile X-Plane can no longer hold; the tiles."""
     pack = WORLD.pack_dir(scenery_dir)
@@ -138,7 +137,7 @@ def watch(session: Any,
             lat, lon = jobs.get()
             try:
                 where = scenery_dir()
-                result = publish_built(where, session.tile_build_dir(lat, lon),
+                result = _publish_built(where, session.tile_build_dir(lat, lon),
                                        lat, lon)
                 if result is not None:
                     swap = ((result["tile"], "full", _utc())

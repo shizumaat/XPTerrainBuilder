@@ -19,7 +19,7 @@ class FakeReader:
 def test_one_read_per_period_fanned_out():
     now = [100.0]
     reader = FakeReader()
-    feed = FEED.PositionFeed(reader, max_age_s=0.5, clock=lambda: now[0])
+    feed = FEED._PositionFeed(reader, max_age_s=0.5, clock=lambda: now[0])
     seen = []
     stop = feed.subscribe(seen.append)
     first = feed.read()
@@ -39,7 +39,7 @@ def test_one_read_per_period_fanned_out():
 
 
 def test_a_failing_subscriber_never_stops_the_feed():
-    feed = FEED.PositionFeed(FakeReader(), max_age_s=0.0)
+    feed = FEED._PositionFeed(FakeReader(), max_age_s=0.0)
 
     def boom(_rec):
         raise RuntimeError("subscriber")

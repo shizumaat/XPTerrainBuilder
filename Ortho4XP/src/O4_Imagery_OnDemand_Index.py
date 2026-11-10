@@ -18,7 +18,7 @@ COLUMNS (:data:`COLUMNS`, spec §5.1):
   textures, ``.ter`` files and imagery manifest are when they are not in
   ``build_dir`` (a tile published into the World pack: flight manager /
   World spec §7.3; the manifest's :data:`LAYOUT_KEY` names them, so a
-  rebuild restores them); every path is resolved by :func:`tile_dir`;
+  rebuild restores them); every path is resolved by ``_tile_dir``;
 * ``centre_lat``, ``centre_lon``, ``load_size_m`` -- the ``.ter``
   ``LOAD_CENTER`` (S, spec §4.3);
 * ``state`` -- one of :data:`STATES`: ``low`` (the placeholder),
@@ -62,8 +62,9 @@ API (stable: the follow job, P3b, reads and writes through it):
   ``upgrading`` row back to what its file on disk is (``low``, or
   ``upgraded`` when the landing finished before the index was told), and
   the partials a killed landing left swept.
-* :func:`tile_dir` -- THE resolver of a row's ``textures``, ``terrain``
-  and ``config`` folders; :func:`texture_path` -- the texture of a row;
+* :func:`texture_path` -- the texture of a row, through THE resolver of
+  a row's ``textures``, ``terrain`` and ``config`` folders
+  (``_tile_dir``);
   :func:`placeholder_width` -- its placeholder's width.
 * :func:`distance_m` / :func:`tier_distance_m` -- how far a row's square
   is from a point, and its current tier's distance ``c_k * S`` (spec
@@ -103,7 +104,7 @@ __all__ = [
     "mark_late", "mark_near", "open_index", "pinned_bytes",
     "placeholder_width", "protected_cache_keys", "protected_jpegs",
     "rebuild", "reset_upgrading", "rows", "set_core",
-    "set_pinned", "set_state", "texture_path", "tier_distance_m", "tile_dir",
+    "set_pinned", "set_state", "texture_path", "tier_distance_m",
     "upsert", "LAYOUT_KEY",
 ]
 
@@ -298,7 +299,7 @@ def set_core(conn: sqlite3.Connection, tile: str, names) -> int:
 _DIRS = {"textures": _TEXTURES, "terrain": _TERRAIN, "config": ""}
 
 
-def tile_dir(row: dict, which: str) -> "str | None":
+def _tile_dir(row: dict, which: str) -> "str | None":
     """The row's ``which`` folder (``textures``, ``terrain`` or
     ``config``): its own ``<which>_dir`` column, else under its
     ``build_dir``; ``None`` with neither."""
@@ -313,7 +314,7 @@ def tile_dir(row: dict, which: str) -> "str | None":
 
 def texture_path(row: dict) -> "str | None":
     """The texture file a row describes, or ``None`` without a folder."""
-    folder = tile_dir(row, "textures")
+    folder = _tile_dir(row, "textures")
     return os.path.join(folder, row["name"]) if folder else None
 
 
@@ -519,14 +520,14 @@ def _scan_tile(build_dir: str, lat: int, lon: int, *,
     full_source = manifest.get("full_source")
     found = {}
     with contextlib.suppress(OSError):
-        for item in os.scandir(tile_dir(where, "terrain")):
+        for item in os.scandir(_tile_dir(where, "terrain")):
             if item.name.endswith((".ter", ".pol")):
                 facts = _read_ter(item.path)
                 if facts is not None:
                     found.setdefault(facts[0], facts[1:])
     result = []
     for name, (centre_lat, centre_lon, size) in sorted(found.items()):
-        path = os.path.join(tile_dir(where, "textures"), name)
+        path = os.path.join(_tile_dir(where, "textures"), name)
         header = TIERS.texture_header(path)
         if header is None or not DDS.is_whole(path):
             continue

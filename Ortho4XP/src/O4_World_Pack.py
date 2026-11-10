@@ -18,9 +18,9 @@ World spec 2026-11-10 §2.1).
 Every DSF in the pack says what it is through ``sim/creation_agent``
 (:func:`kind_of`, spec §18): a placeholder (:data:`PLACEHOLDER_AGENT`) is
 NOT a tile; a drape, light or full tile is a tile of that kind (the stage
-step stamps ``[world <kind>]`` onto the builder's agent, :func:`stamp`).
+step stamps ``[world <kind>]`` onto the builder's agent, :func:`_stamp`).
 
-Publishing a build (spec §7.3): :func:`stage_tile` lays the build folder
+Publishing a build (spec §7.3): :func:`_stage_tile` lays the build folder
 out in the pack's shape under a staging folder -- textures hard-linked,
 ``.ter`` references and DSF definitions given the tile subfolder by a
 BINARY rewrite (``O4_DSF_Binary``; no DSFTool) -- :func:`verify_tile`
@@ -38,7 +38,7 @@ copy beside the engine checkout.
 """
 from __future__ import annotations
 
-import hashlib
+import contextlib
 import math
 import os
 import re
@@ -52,9 +52,9 @@ __all__ = [
     "PACK_NAME", "PLACEHOLDER_AGENT", "KINDS", "PLACEHOLDER_MAX_BYTES",
     "STAGING_DIR", "tile_name", "parse_tile",
     "dsf_relpath", "placeholder_text", "write_placeholder",
-    "write_placeholders", "is_placeholder", "kind_of", "stamp", "pack_dsfs",
-    "real_tiles", "holds_tile", "world_tiles", "block_tiles", "rewrite_ter", "pack_def",
-    "rewrite_dsf_text", "relayout_tile", "verify_tile", "stage_tile",
+    "write_placeholders", "is_placeholder", "kind_of", "pack_dsfs",
+    "real_tiles", "holds_tile", "world_tiles", "block_tiles", "rewrite_ter",
+    "rewrite_dsf_text", "relayout_tile", "verify_tile",
     "publish", "swap_staged", "swap_in", "swap_out", "ini_install",
     "ini_remove", "dsftool_path", "dsf_header",
 ]
@@ -176,7 +176,7 @@ def kind_of(path: str) -> str | None:
     return m.group(1) if m else "full"
 
 
-def stamp(agent: str, kind: str) -> str:
+def _stamp(agent: str, kind: str) -> str:
     """``agent`` with the World kind ``[world <kind>]`` at its end (an
     earlier stamp replaced)."""
     if kind not in KINDS[1:]:
@@ -258,11 +258,11 @@ def rewrite_ter(text: str, tile: str) -> tuple[str, int]:
 
 _DEF_PATH = re.compile(r"^((?:TERRAIN|OBJECT|POLYGON|NETWORK)_DEF\s+)(\S+)",
                        re.M)
-#: The DEFN tables whose strings name files (:func:`pack_def` applies).
+#: The DEFN tables whose strings name files (:func:`_pack_def` applies).
 _DEF_TABLES = ("TERT", "OBJT", "POLY", "NETW")
 
 
-def pack_def(ref: str, tile: str) -> str:
+def _pack_def(ref: str, tile: str) -> str:
     """A definition path of a tile moved into the World pack: under the
     pack's ``terrain/`` or ``textures/`` it gains the tile subfolder;
     library paths (``lib/...``) and built-ins (``terrain_Water``) are left
@@ -275,13 +275,13 @@ def pack_def(ref: str, tile: str) -> str:
 
 def rewrite_dsf_text(text: str, tile: str) -> tuple[str, int]:
     """DSFTool text of a tile moved into the World pack, each definition
-    through :func:`pack_def` -- the text oracle of the binary rewrite in
+    through :func:`_pack_def` -- the text oracle of the binary rewrite in
     :func:`relayout_tile` (the twin compares them)."""
     count = 0
 
     def one(m: re.Match) -> str:
         nonlocal count
-        new = pack_def(m.group(2), tile)
+        new = _pack_def(m.group(2), tile)
         count += new != m.group(2)
         return m.group(1) + new
     return _DEF_PATH.sub(one, text), count
@@ -335,15 +335,15 @@ def relayout_tile(tile_dir: str, out_dir: str, lat: int, lon: int,
     def defs(table: str, ref: str) -> str:
         if table not in _DEF_TABLES:
             return ref
-        new = pack_def(ref, tile)
+        new = _pack_def(ref, tile)
         counts["dsf_defs"] += new != ref
         return new
 
     def props(pairs: list) -> list:
-        out = [(k, stamp(v, kind) if k == "sim/creation_agent" else v)
+        out = [(k, _stamp(v, kind) if k == "sim/creation_agent" else v)
                for k, v in pairs]
         if not any(k == "sim/creation_agent" for k, _v in out):
-            out.append(("sim/creation_agent", stamp("", kind)))
+            out.append(("sim/creation_agent", _stamp("", kind)))
         return out
     _write_atomic(os.path.join(out_dir, dsf_relpath(lat, lon)),
                   DSFB.rewrite(data, props=props, defs=defs))
@@ -416,21 +416,12 @@ def dsf_header(path: str) -> dict:
         data = handle.read()
     out = {"bytes": len(data), "magic_ok": data[:8] == b"XPLNEDSF",
            "version": int.from_bytes(data[8:12], "little"),
-           "md5_ok": hashlib.md5(data[:-16]).digest() == data[-16:],
-           "atoms": [], "properties": {}}
-    at, end = 12, len(data) - 16
-    while at + 8 <= end:
-        name = data[at:at + 4][::-1].decode("ascii", "replace")
-        size = int.from_bytes(data[at + 4:at + 8], "little")
-        if size < 8:
-            break
-        out["atoms"].append(name)
-        if name == "HEAD" and data[at + 8:at + 12][::-1] == b"PROP":
-            psize = int.from_bytes(data[at + 12:at + 16], "little")
-            words = data[at + 16:at + 8 + psize].split(b"\0")
-            for k, v in zip(words[0::2], words[1::2], strict=False):
-                out["properties"][k.decode()] = v.decode("utf-8", "replace")
-        at += size
+           "md5_ok": DSFB.dsf_md5_ok(data), "atoms": [], "properties": {}}
+    with contextlib.suppress(ValueError):
+        out["atoms"] = [name for name, _b, _e in
+                        DSFB.atoms(data, 12, len(data) - 16)]
+        if "HEAD" in out["atoms"]:
+            out["properties"] = dict(DSFB.properties(data))
     return out
 
 
@@ -480,7 +471,7 @@ def swap_out(pack: str, lat: int, lon: int) -> str:
     return write_placeholder(pack, lat, lon)
 
 
-def stage_tile(build_dir: str, staging_root: str, lat: int, lon: int,
+def _stage_tile(build_dir: str, staging_root: str, lat: int, lon: int,
                kind: str = "full") -> dict:
     """Stage a built tile for the pack (spec §7.3 steps 2-3): an earlier
     staging of it is replaced, the tile laid out by :func:`relayout_tile`
@@ -512,7 +503,7 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
     ("swapped" | "staged" | "failed"), "problems", "counts"}``."""
     tile = tile_name(lat, lon)
     try:
-        done = stage_tile(build_dir, staging_root, lat, lon, kind)
+        done = _stage_tile(build_dir, staging_root, lat, lon, kind)
     except (OSError, ValueError) as error:
         return {"tile": tile, "state": "failed", "problems": [str(error)],
                 "counts": {}}

@@ -36,8 +36,8 @@ import O4_File_Names as FNAMES
 import O4_World_Pack as WP
 
 __all__ = ["LOG_NAME", "pack_dir", "staging_root", "scenery_dir_or_default",
-           "loaded_tiles", "tile_loaded", "world_status", "world_install",
-           "start_world_regions_set", "world_regions_set", "world_tile_set",
+           "tile_loaded", "world_status", "world_install",
+           "start_world_regions_set", "world_tile_set",
            "status_event", "write_log"]
 
 LOG_NAME = "world_pack.log"
@@ -107,14 +107,6 @@ def _witness(scenery_dir: str):
         os.path.normpath(scenery_dir))))
     records = tail.read()
     return XLOG.pack_loads(records, WP.PACK_NAME), tail.packages
-
-
-def loaded_tiles(scenery_dir: str) -> dict:
-    """The World pack's tiles X-Plane loaded this session (the witness),
-    ``{}`` when X-Plane does not run."""
-    if not _xplane_running():
-        return {}
-    return _witness(scenery_dir)[0]
 
 
 def tile_loaded(scenery_dir: str,
@@ -250,7 +242,7 @@ def _global_tiles(scenery_dir: str) -> "set | None":
     return {key for key, _path, _size in WP.pack_dsfs(root)}
 
 
-def world_regions_set(regions, scenery_dir: str = "") -> Dict[str, Any]:
+def _regions_set(regions, scenery_dir: str = "") -> Dict[str, Any]:
     """The work of ``world_regions_set`` (see the module docstring), on
     the caller's thread.  ``{"regions", "written", "kept", "removed",
     "swapped_out"}``."""
@@ -325,7 +317,7 @@ def start_world_regions_set(emit: Callable[[Any], None],
     def work() -> None:
         with _GUARD:
             try:
-                result = world_regions_set(regions, scenery_dir)
+                result = _regions_set(regions, scenery_dir)
             except Exception as error:      # the sentence goes to the app
                 emit(WorldReady(request=request, result=None,
                                 error=str(error) or repr(error)))

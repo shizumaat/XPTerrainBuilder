@@ -161,9 +161,9 @@ def test_a_wall_with_no_airside_beside_it_is_not_a_sheet_wall(monkeypatch):
 
 
 def test_the_low_side_is_the_median_face_bottom_never_the_footing():
-    from auto_patch_v2.airport.wall_sheets import SheetPart, low_side_y
-    s = [SheetPart(("a", 0), None, -13.98, 825.0), SheetPart(("b", 0), None, -14.06, 828.0),
-         SheetPart(("c", 0), None, -4.74, 777.0), SheetPart(("d", 0), None, -6.88, 120.0),
-         SheetPart(("e", 1), None, -13.2, 50.0)]   # within the footing's metre
+    from auto_patch_v2.airport.wall_sheets import _SheetPart, low_side_y
+    s = [_SheetPart(("a", 0), None, -13.98, 825.0), _SheetPart(("b", 0), None, -14.06, 828.0),
+         _SheetPart(("c", 0), None, -4.74, 777.0), _SheetPart(("d", 0), None, -6.88, 120.0),
+         _SheetPart(("e", 1), None, -13.2, 50.0)]   # within the footing's metre
     assert low_side_y(s) == -4.74
     assert low_side_y(s[:2]) is None                # only footing: no low side read

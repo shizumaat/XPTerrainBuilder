@@ -41,7 +41,7 @@ import numpy as np
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
-__all__ = ["FOOTING_CLEAR_M", "SheetPart", "hung_wall", "paved_faces",
+__all__ = ["FOOTING_CLEAR_M", "hung_wall", "paved_faces",
            "airside_union", "sheets_of", "low_side_y", "obj_top_y"]
 
 #: a sheet whose base stands less than this over the composite's lowest
@@ -59,7 +59,7 @@ _RAY_STEP_M = 2.0
 _RAY_START_M = 0.2
 
 
-class SheetPart(_t.NamedTuple):
+class _SheetPart(_t.NamedTuple):
     """One part of a placement unit as a candidate sheet."""
 
     key: tuple          # ``(member id, part comp)``
@@ -159,7 +159,7 @@ def _part_poly(part, to_xy):
     return unary_union(polys) if polys else None
 
 
-def sheets_of(unit, key: tuple, to_xy, cfg) -> list[SheetPart]:
+def sheets_of(unit, key: tuple, to_xy, cfg) -> list[_SheetPart]:
     """THE COMPOSITE: the parts of ``unit`` (fences excluded; at least
     ``[service] retaining_wall_min_height_m`` tall and ``_min_length_m``
     long) whose footprints overlap the part ``key`` (``(member id,
@@ -168,7 +168,7 @@ def sheets_of(unit, key: tuple, to_xy, cfg) -> list[SheetPart]:
     from .wall_class import _not_a_wall
     lo_h = float(cfg.retaining_wall_min_height_m)
     lo_l = float(cfg.retaining_wall_min_length_m)
-    cand: list[SheetPart] = []
+    cand: list[_SheetPart] = []
     for m in unit.members:
         if _not_a_wall(m.resource):
             continue
@@ -178,7 +178,7 @@ def sheets_of(unit, key: tuple, to_xy, cfg) -> list[SheetPart]:
             g = _part_poly(p, to_xy)
             if g is None or g.length / 2.0 < lo_l:
                 continue
-            cand.append(SheetPart((m.id, int(p.comp)), g, float(p.base_y), g.length / 2.0))
+            cand.append(_SheetPart((m.id, int(p.comp)), g, float(p.base_y), g.length / 2.0))
     seed = [i for i, c in enumerate(cand) if c.key == key]
     if not seed:
         return []
@@ -192,7 +192,7 @@ def sheets_of(unit, key: tuple, to_xy, cfg) -> list[SheetPart]:
     return [cand[i] for i in sorted(got)]
 
 
-def low_side_y(sheets: _t.Sequence[SheetPart]) -> float | None:
+def low_side_y(sheets: _t.Sequence[_SheetPart]) -> float | None:
     """THE LOW SIDE'S GROUND AS AUTHORED: the length-weighted median
     ``base_y`` of the sheets standing at least :data:`FOOTING_CLEAR_M`
     over the lowest base; ``None`` when none does."""

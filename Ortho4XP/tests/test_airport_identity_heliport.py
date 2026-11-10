@@ -95,3 +95,18 @@ def test_the_selector_never_queues_the_far_block(tmp_path, monkeypatch):
     (c,) = SEL.select_patch_airports(tile, str(tmp_path), "All")
     assert c.disposition == "apt_dat_elsewhere" and "skipped" in c.reason
     assert SEL.patch_set([c]) == set()
+
+
+def test_a_seaplane_base_takes_its_reference_point_from_the_water_runway(tmp_path):
+    """#1897: a row-16 seaplane base authors one row-101 water runway (and
+    an EMPTY 1302 datum); its reference point is the runway's midpoint,
+    not a refusal that stops a strict tile build."""
+    path = _apt(tmp_path, "16      0 0 0 ZZS1 [S] Harbor",
+                "1302 datum_lat \n1302 datum_lon \n"
+                "101 97.33 0 14  55.34634703 -131.67883054 32  "
+                "55.34318616 -131.66116806")
+    apt = parse_airport_block(read_airport_block(path, "ZZS1"))
+    assert not apt.runways and not apt.pavements and not apt.helipads
+    lat, lon = apt.reference_point()
+    assert lat == pytest.approx(0.5 * (55.34634703 + 55.34318616))
+    assert lon == pytest.approx(0.5 * (-131.67883054 + -131.66116806))

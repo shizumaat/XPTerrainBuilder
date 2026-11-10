@@ -362,6 +362,11 @@ def groundside_frontage(planar: PlanarMap, law: Law
     here is the face standing OFF an airside-fronting pad inside the
     radius.
 
+    NOR IS A BUILDING'S LAND SIDE (owner RULINGS 2026-11-10a (5), #1935):
+    a lot the pads left beyond any aircraft (``<ref>#beyond<k>``,
+    ``planar/reach_after_pads``) stands back from the pad and keeps its own
+    ground; the pair is held like a hillside terrace.
+
     A HILLSIDE TERRACE IS NOT A FRONTAGE (§28 (6), owner RULINGS
     2026-09-13o/13p, the quantity re-based on the pad's AIRSIDE FRONTAGE
     by 2026-09-18c (1)).  A pair whose :func:`pair_dem_step_m` exceeds
@@ -393,7 +398,8 @@ def groundside_frontage(planar: PlanarMap, law: Law
     held = 0
     held_pairs: set[tuple[int, int]] = set()
     out: dict[int, list[tuple[int, str, float, list[int], list[int]]]] = {}
-    for gid, _role, _ref, gvs, gpoly in _groundside_geoms(planar, law):
+    from ..planar.reach_after_pads import BEYOND
+    for gid, _role, gref, gvs, gpoly in _groundside_geoms(planar, law):
         cand = (tree.query(gpoly, predicate="dwithin", distance=r) if r > 0.0
                 else tree.query(gpoly, predicate="intersects"))
         got: list[tuple[int, str, float, list[int], list[int]]] = []
@@ -417,7 +423,11 @@ def groundside_frontage(planar: PlanarMap, law: Law
             # a per-consumer veto is the defect 08-30l names.
             step = pair_dem_step_m(planar, law, front, pid, ppoly, pgroup,
                                    rel=front_rel)
-            if step is not None and abs(step) > bound:
+            # THE LAND SIDE STEPS DOWN FROM THE PAD (owner RULINGS
+            # 2026-11-10a (5)): a lot the pads left beyond any aircraft
+            # (``planar/reach_after_pads``) is held as a terrace, the pad's
+            # edge the kerb or wall, whatever the DEM step
+            if BEYOND in str(gref) or (step is not None and abs(step) > bound):
                 held += 1
                 held_pairs.add((gid, pid))
                 continue

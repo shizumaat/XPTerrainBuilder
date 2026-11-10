@@ -50,6 +50,8 @@ from elevation_access.registry import ACCESS_STRATEGIES
 
 __all__ = [
     "FALLBACK_RANK_KEY",
+    "REASON_ABSENT",
+    "REASON_UNANSWERED",
     "UNREACHABLE_MEMORY_S",
     "cached_reads_only",
     "cell_file",
@@ -79,6 +81,18 @@ _unreachable = {}
 _proxied = {}
 
 
+#: Why a cell was substituted, as the closing note words it (#1933): the
+#: configured source answered "not there" (an archive 404/410, a missing
+#: member) or did not answer at all.
+REASON_ABSENT = "absent"
+REASON_UNANSWERED = "unanswered"
+
+# (lat, lon) -> REASON_* of the substitution this process made for it.  A
+# cell read from a fallback file an EARLIER process fetched has no entry:
+# its note then says neither (the reason was not seen this build).
+_fallback_reasons = {}
+
+
 # True inside :func:`cached_reads_only` (a one-element list: no rebinding).
 _cached_only = [False]
 
@@ -106,6 +120,7 @@ def forget_unreachable_sources():
     """Drop the memory of failed hosts (a twin's reset)."""
     _unreachable.clear()
     _proxied.clear()
+    _fallback_reasons.clear()
 
 
 def source_label(definition):
@@ -236,7 +251,9 @@ def read_base_cell(source, lat, lon, providers, info_only=False,
                               "code": fallback["code"], "path": path,
                               "source": configured_label(source, providers),
                               "keyword": str(source),
-                              "fallback": source_label(fallback)})
+                              "fallback": source_label(fallback),
+                              "reason": _fallback_reasons.get(
+                                  (int(lat), int(lon)), "")})
     cell = result[-1]
     if info_only or cell is None:
         return result
@@ -356,6 +373,8 @@ def _take_fallback(configured, lat, lon, configured_failure, verbose,
                 % (source_label(configured), said, cell, label,
                    _cache_path(strategy, definition, lat, lon),
                    source_label(configured), configured_failure))
+            _fallback_reasons[(int(lat), int(lon))] = (
+                REASON_ABSENT if absent else REASON_UNANSWERED)
             return 1
         failures.append((label, "has no data for this cell"))
         if sea_cell.is_land_complete(definition):

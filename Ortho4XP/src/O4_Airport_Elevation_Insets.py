@@ -10148,13 +10148,20 @@ def resolve_base_definition(lat, lon, selector="auto", prefer_coarse=False):
     if selector == "View":
         one_arc_second = elevation_providers_dict.get("VIEWFINDER1")
         three_arc_second = elevation_providers_dict.get("VIEWFINDER3")
-        if (
-            not prefer_coarse
-            and one_arc_second is not None
-            and one_arc_second.get("enabled", True)
-            and base_definition_covers_tile(one_arc_second, lat, lon)
-        ):
-            return one_arc_second
+
+        def publishes(definition):
+            return (definition is not None
+                    and definition.get("enabled", True)
+                    and base_definition_covers_tile(definition, lat, lon))
+
+        # The preferred archive where it publishes this tile, else the
+        # other one where IT does (#1933: Iceland/Greenland zones exist
+        # in dem1 only, so the 90 m preference asked dem3/P27 for a 404).
+        order = ((three_arc_second, one_arc_second) if prefer_coarse
+                 else (one_arc_second, three_arc_second))
+        for definition in order:
+            if publishes(definition):
+                return definition
         return three_arc_second
     alias_code = LEGACY_BASE_KEYWORD_ALIASES.get(selector)
     if alias_code is not None:

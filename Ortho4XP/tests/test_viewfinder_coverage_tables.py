@@ -100,6 +100,13 @@ def test_iceland_greenland_and_britain_resolve_to_dem1(registry, tile, code):
     if code in ("P22", "P27", "Q27", "Q22"):
         assert not ea_base_tiles.base_definition_covers_tile(
             registry["VIEWFINDER3"], lat, lon)
+        # The 90 m preference (elevation_level auto/"90") still lands on
+        # dem1 where dem3 publishes no archive: "auto" ranks VIEWFINDER1
+        # and round-trips through the "View" keyword (#1933).
+        for selector in ("View", "auto"):
+            assert INSETS.resolve_base_definition(
+                lat, lon, selector, prefer_coarse=True)["code"] == (
+                    "VIEWFINDER1"), selector
 
 
 def test_an_unreadable_zone_table_disables_the_source(tmp_path):

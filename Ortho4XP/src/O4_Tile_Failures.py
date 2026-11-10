@@ -246,7 +246,7 @@ CATALOGUE = {
     # (RULINGS 2026-10-12e; ``elevation_access.base_fallback``)
     "elevation_substituted": Entry(
         "with stand-in elevation for {cells}.",
-        "{source} did not answer, so {fallback} was used. It includes "
+        "{source} {substituted_why}, so {fallback} was used. It includes "
         "trees and buildings, so the ground there may read a few metres "
         "high.{kept}", "rebuild_later", severity="info"),
     "pack_write_failed": Entry(
@@ -687,6 +687,8 @@ def _describe(code: str, tile: str, airports: list, params: dict,
         "reason": params.get("reason") or "the cause was not recorded.",
         "source": params.get("source") or "the elevation source",
         "fallback": params.get("fallback") or "another source",
+        "substituted_why": _SUBSTITUTED_WHY.get(params.get("reason", ""),
+                                                _SUBSTITUTED_WHY[""]),
         "pack": ("the scenery pack “%s”" % pack) if pack
                 else "a scenery pack on this tile",
         "step": params.get("step") or "build",
@@ -732,6 +734,15 @@ def _describe(code: str, tile: str, airports: list, params: dict,
         "detail": "\n".join(details),
         "log_path": log_path,
     }
+
+
+# Why a base cell was substituted (``elevation_access.base_fallback``
+# REASON_*, #1933): a 404 is the server saying "not here", never an outage.
+_SUBSTITUTED_WHY = {
+    "absent": "does not have this area on its server",
+    "unanswered": "did not answer",
+    "": "could not supply it",
+}
 
 
 # The shallow-water fallback's categories (``O4_Mask_Utils.
@@ -890,6 +901,7 @@ def from_substitutions(rows: Iterable[dict],
                    cell=str(row.get("cell") or "?"),
                    source=row.get("source") or "",
                    fallback=row.get("fallback") or row.get("code") or "",
+                   reason=row.get("reason") or "",
                    kept=kept)
             for row in rows or () if isinstance(row, dict)]
 

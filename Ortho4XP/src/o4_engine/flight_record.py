@@ -31,7 +31,7 @@ from .patch_file import write_atomic
 __all__ = [
     "FlightRecord", "TileRow", "STATES", "SOURCE_KINDS", "PROFILE_BASES",
     "flight_id", "from_plan", "flights_dir", "save", "load", "list_flights",
-    "active_flight", "DEFAULT_CORRIDOR_KM",
+    "active_flight", "DEFAULT_CORRIDOR_KM", "plan_of",
 ]
 
 FOLDER = "Flights"
@@ -173,6 +173,25 @@ def from_plan(plan, source_kind: str, now: datetime, *,
         waypoints=[_waypoint(w) for w in plan.waypoints],
         profile=_profile(plan, cruise_kt, aircraft_ms),
         corridor_km=float(corridor_km), created_at=_utc(now))
+
+
+def _plan_point(row: Optional[Dict[str, Any]]):
+    if not row:
+        return None
+    return FP.Waypoint(str(row.get("ident") or ""), float(row["lat"]),
+                       float(row["lon"]), row.get("alt_ft"), row.get("t_s"))
+
+
+def plan_of(record: FlightRecord) -> "FP.FlightPlan":
+    """The plan a record was made from (its waypoints, alternate and
+    profile), to run the flight again after the engine restarts."""
+    profile = record.profile or {}
+    return FP.FlightPlan(
+        [_plan_point(w) for w in record.waypoints],
+        source=str((record.source or {}).get("name") or ""),
+        alternate=_plan_point(record.alternate),
+        ete_s=profile.get("ete_s"), cruise_ms=profile.get("cruise_ms"),
+        cruise_alt_ft=profile.get("cruise_alt_ft"))
 
 
 # ===========================================================================

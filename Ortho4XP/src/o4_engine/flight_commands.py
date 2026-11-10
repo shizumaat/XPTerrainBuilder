@@ -11,18 +11,40 @@ Plan reading (lane F1a), both synchronous file reads:
 * ``flight_plan_read {path}`` -- one plan file (``.fms``, ``.lnmpln``, a
   saved SimBrief answer): :func:`plan_wire`.
 
-The flight's own commands (``flight_create`` ... ``flight_end``) join this
-module with the flight manager (lane F1b).
+The flight's own commands (lane F1b, capability ``flight_manager``;
+:func:`flight_handlers`):
+
+* ``flight_plan_simbrief {user}`` -- ``{"status": "started"}``, then
+  ``FlightReady`` with the latest SimBrief plan (:func:`plan_wire`).
+* ``flight_create {plan | path | dep + arr, build_alternate?: false,
+  cruise_kt?, corridor_km?}`` -- a plan as ``flight_plan_read`` gives it
+  (``.fms``, ``.lnmpln``, SimBrief), a plan file, or a departure and an
+  arrival ``{ident, lat, lon}``; the record is written and its job starts
+  (``world_job_start {mode: "flight"}``); ``{"flight": id}``.
+  ``FlightStatus`` events follow.  One flight is active at a time.
+* ``flight_status {flight?}`` -- the ``FlightStatus`` fields now.
+* ``flight_update {flight, build_alternate?, cruise_kt?, corridor_km?}``
+  -- the flight card's choices; the jobs are planned again.
+* ``flight_end {flight}`` -- the flight closes; build-ahead's track mode
+  may start again.  ``flight_list`` -- the records, newest first.
+* ``flight_divert`` -- refused until diversion lands (phase F2).
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+import os
+import threading
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict, Optional
 
 import O4_Flight_Plan as FP
 
+from . import flight_job_run as FLIGHT
+from . import flight_record as RECORD
+from . import world_commands as WORLD
+
 __all__ = ["flight_plans_list", "flight_plan_read", "plan_wire",
-           "flight_plan_handlers"]
+           "flight_plan_handlers", "flight_handlers"]
 
 
 def _place(w) -> Dict[str, Any]:
@@ -64,3 +86,213 @@ def flight_plan_handlers() -> Dict[str, Callable]:
     """This module's entries for the command table."""
     return {"flight_plans_list": flight_plans_list,
             "flight_plan_read": flight_plan_read}
+
+
+# ===========================================================================
+# The flight (lane F1b)
+# ===========================================================================
+def _wire_point(row: Optional[Dict[str, Any]]) -> Optional["FP.Waypoint"]:
+    if not row:
+        return None
+    try:
+        lat, lon = float(row["lat"]), float(row["lon"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("A waypoint of this plan has no position.") from error
+    return FP.Waypoint(str(row.get("ident") or ""), lat, lon,
+                       row.get("alt_ft"), row.get("t_s"))
+
+
+def plan_from_wire(doc: Dict[str, Any]) -> "FP.FlightPlan":
+    """:func:`plan_wire`'s shape (what the apps send back) as a plan."""
+    points = [_wire_point(w) for w in (doc or {}).get("waypoints") or ()]
+    if len(points) < 2:
+        raise ValueError("This plan has no route: it needs a departure and "
+                         "a destination.")
+    return FP.FlightPlan(points, source=str(doc.get("source") or ""),
+                         alternate=_wire_point(doc.get("alternate")),
+                         ete_s=doc.get("ete_s"), cruise_ms=doc.get("cruise_ms"),
+                         cruise_alt_ft=doc.get("cruise_alt_ft"))
+
+
+def _source_kind(name: str) -> str:
+    """``O4_Flight_Record.SOURCE_KINDS`` of a plan's ``source``."""
+    lowered = (name or "").lower()
+    if lowered.startswith("simbrief"):
+        return "simbrief"
+    for kind in ("fms", "lnmpln"):
+        if lowered.endswith("." + kind):
+            return kind
+    return "none"
+
+
+def _plan_of(plan, path: str, dep, arr) -> "FP.FlightPlan":
+    if plan:
+        return plan_from_wire(plan)
+    if path:
+        return FP.read_plan_file(path)
+    if dep and arr:
+        ends = [_wire_point(dep), _wire_point(arr)]
+        return FP.FlightPlan([w._replace(ident=w.ident.upper()) for w in ends],
+                             source="quick")
+    raise ValueError("Name a flight: a plan, a plan file, or a departure "
+                     "and an arrival.")
+
+
+def _number(value, default: Optional[float]) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
+
+
+def flight_create(session, emit=None, plan=None, path: str = "", dep=None,
+                  arr=None, build_alternate: bool = False, cruise_kt=None,
+                  corridor_km=None, scenery_dir: str = "", port=None,
+                  **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_create`` (see the module)."""
+    from . import world_job_run as WORLD_JOB
+    flight_plan = _plan_of(plan, path, dep, arr)
+    scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
+    if not WORLD.managed(scenery_dir):
+        raise ValueError("Install the World pack first (Library ▸ World): "
+                         "a flight's tiles go into it.")
+    running = FLIGHT.current()
+    if running is not None:
+        raise ValueError("A flight is already active (%s): end it first."
+                         % running.manager.record.id)
+    settings = FLIGHT._settings()
+    corridor = _number(corridor_km, _number(settings.get("fly_corridor_km"),
+                                            RECORD.DEFAULT_CORRIDOR_KM))
+    record = RECORD.from_plan(
+        flight_plan, _source_kind(flight_plan.source), datetime.now(timezone.utc),
+        build_alternate=bool(build_alternate),
+        cruise_kt=_number(cruise_kt, None), corridor_km=corridor)
+    RECORD.save(record, RECORD.flights_dir())
+    WORLD_JOB.world_job_start(session, emit, mode="flight", flight=record.id,
+                              scenery_dir=scenery_dir, port=port)
+    return {"flight": record.id}
+
+
+def _record(flight: str = "") -> Optional["RECORD.FlightRecord"]:
+    folder = RECORD.flights_dir()
+    if not flight:
+        return RECORD.active_flight(folder)
+    try:
+        return RECORD.load(os.path.join(folder, flight + ".json"))
+    except (OSError, ValueError):
+        return None
+
+
+def _runner_for(flight: str = ""):
+    runner = FLIGHT.current()
+    if runner is not None and flight in ("", runner.manager.record.id):
+        return runner
+    return None
+
+
+def flight_status(flight: str = "", **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_status``: the ``FlightStatus`` fields of
+    the running flight (or of the record, when it no longer runs);
+    ``{"flight": None}`` when there is none."""
+    runner = _runner_for(flight)
+    if runner is not None:
+        return runner.status()
+    record = _record(flight)
+    if record is None:
+        return {"flight": None}
+    return {"flight": record.id, "state": record.state, "phase": record.phase,
+            "ready": record.state in ("ready", "flying", "arrived"),
+            "countdown_s": None, "reason": "", "items": [],
+            "jobs": [[t.tile, t.role, t.kind, t.state, 0.0, None]
+                     for t in record.tiles],
+            "late": [], "shed": [], "reload": "", "diverted_to": ""}
+
+
+def flight_update(flight: str = "", build_alternate=None, cruise_kt=None,
+                  corridor_km=None, **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_update``: the flight card's choices."""
+    import O4_Flight_Schedule as SCHEDULE
+    runner = _runner_for(flight)
+    if runner is None:
+        raise ValueError("That flight is not active.")
+    with runner.lock:
+        record = runner.manager.record
+        if build_alternate is not None:
+            record.build_alternate = bool(build_alternate)
+        speed = _number(cruise_kt, None)
+        if speed is not None:
+            record.profile.update(cruise_ms=speed * SCHEDULE.KT_TO_MS,
+                                  basis="pilot")
+        corridor = _number(corridor_km, None)
+        if corridor is not None:
+            record.corridor_km = corridor
+        runner.manager.replan()
+    RECORD.save(record, RECORD.flights_dir())
+    return {"flight": record.id}
+
+
+def flight_end(session=None, flight: str = "", **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_end``: the flight closes (its record keeps
+    what was built); build-ahead's track mode may start again."""
+    from . import world_job_run as WORLD_JOB
+    runner = _runner_for(flight)
+    record = FLIGHT.stop() if runner is not None else _record(flight)
+    if record is None:
+        raise ValueError("No such flight.")
+    record.state = "closed"
+    RECORD.save(record, RECORD.flights_dir())
+    if session is not None:
+        WORLD_JOB.autostart(session)
+    return {"flight": record.id, "state": record.state}
+
+
+def flight_list(**_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_list``: the records, newest first."""
+    return {"flights": [
+        {"flight": r.id, "state": r.state, "created_at": r.created_at,
+         "origin": (r.origin or {}).get("ident", ""),
+         "destination": (r.destination or {}).get("ident", "")}
+        for r in RECORD.list_flights(RECORD.flights_dir())]}
+
+
+def flight_divert(**_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_divert``: refused until diversion lands
+    (spec §8.6, phase F2)."""
+    raise ValueError("Diverting is not available yet in this version.")
+
+
+def start_flight_plan_simbrief(emit: Callable[[Any], None], request: Any = None,
+                               user: str = "", **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_plan_simbrief``: ``{"status": "started"}``,
+    then ``FlightReady`` with the plan (``request`` = this command's id)."""
+    from .events import FlightReady
+    user = (user or "").strip()
+    if not user:
+        raise ValueError("Enter your SimBrief username or pilot ID.")
+
+    def work() -> None:
+        try:
+            result = plan_wire(FP.fetch_simbrief(user))
+        except Exception as error:          # the sentence goes to the app
+            emit(FlightReady(request=request, error=str(error) or repr(error)))
+            return
+        emit(FlightReady(request=request, result=result))
+    threading.Thread(target=work, daemon=True, name="o4-simbrief").start()
+    return {"status": "started"}
+
+
+def flight_handlers(session) -> Dict[str, Callable]:
+    """The flight's entries for the command table (capability
+    ``flight_manager``)."""
+    emit = session._emit
+    return {
+        "flight_plan_simbrief": lambda **kw: start_flight_plan_simbrief(
+            emit, **kw),
+        "flight_create": lambda **kw: flight_create(session, emit, **kw),
+        "flight_status": flight_status,
+        "flight_update": flight_update,
+        "flight_end": lambda **kw: flight_end(session, **kw),
+        "flight_list": flight_list,
+        "flight_divert": flight_divert,
+    }

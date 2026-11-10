@@ -951,6 +951,10 @@ class MainWindow(QMainWindow):
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
             EV.ImageryFollowStatus: self._on_imagery_follow_status,
             EV.AircraftPosition: self._on_aircraft_position,
+            # The flight manager (lane F1b): the Fly pane's state, and
+            # flight_plan_simbrief's plan.
+            EV.FlightStatus: self._on_flight_status,
+            EV.FlightReady: self._on_flight_ready,
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
@@ -2076,6 +2080,13 @@ class MainWindow(QMainWindow):
 
     def _on_aircraft_position(self, event):
         self.fly_pane.show_position(event)
+
+    def _on_flight_status(self, event):
+        self.fly_pane.show_status(event)
+
+    def _on_flight_ready(self, event):
+        """``flight_plan_simbrief``'s plan, or its refusal sentence."""
+        self.fly_pane.show_ready(event)
 
     def _rebuild_from_library(self, tiles):
         """Library ▸ Rebuild: select those tiles and press Build (built

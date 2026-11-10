@@ -354,6 +354,12 @@ public enum O4Event: Sendable, Equatable {
     /// X-Plane's aircraft once a second while `aircraftWatch(on:)` is on
     /// (capability `aircraft_position`, #2001). See `O4AircraftPosition`.
     case aircraftPosition(O4AircraftPosition)
+    /// The active flight's state every 2 s and on a change (capability
+    /// `flight_manager`, World spec §5.3). See `O4FlightStatus`.
+    case flightStatus(O4FlightStatus)
+    /// An async flight command's completion no caller waits for
+    /// (`flight_plan_simbrief`: the plan, or `error`): the whole event.
+    case flightReady(O4JSON)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -540,6 +546,14 @@ public enum O4Event: Sendable, Equatable {
         // `class AircraftPosition` in Ortho4XP/src/o4_engine/events.py.
         case "AircraftPosition":
             return .aircraftPosition(O4AircraftPosition.parse(object))
+        // `class FlightStatus` in Ortho4XP/src/o4_engine/events.py.
+        case "FlightStatus":
+            guard let status = O4FlightStatus.parse(O4JSON.from(object)) else { return .unknown(event: type) }
+            return .flightStatus(status)
+        // `class FlightReady` in Ortho4XP/src/o4_engine/events.py (when no
+        // waiter took it: see the completion switch in `handle`).
+        case "FlightReady":
+            return .flightReady(O4JSON.from(object))
         // `class SlowStep` in Ortho4XP/src/o4_engine/events.py.
         case "SlowStep":
             return .slowStep(O4SlowStep.parse(object))
@@ -1238,11 +1252,12 @@ public final class OrthoEngineClient: @unchecked Sendable {
         // ImageryFreshnessReady` and `class WorldReady` in
         // Ortho4XP/src/o4_engine/events.py, the completions of the
         // `pack_objects`, Library, `plan_estimate` (#820), `build_airports`
-        // (#818), `imagery_freshness` (#1666) and `world_regions_set`
-        // (World spec §5.2) commands whose id is `request`.
+        // (#818), `imagery_freshness` (#1666), `world_regions_set`
+        // (World spec §5.2) and `flight_plan_simbrief` (`class
+        // FlightReady`, F1b) commands whose id is `request`.
         switch object["event"] as? String {
         case "PackObjectsReady", "LibraryReady", "PlanEstimateReady", "BuildAirportsReady",
-             "ImageryFreshnessReady", "WorldReady":
+             "ImageryFreshnessReady", "WorldReady", "FlightReady":
             if let request = (object["request"] as? NSNumber)?.intValue,
                let waiter = lock.withLock({ eventWaiters.removeValue(forKey: request) }) {
                 waiter(O4JSON.from(object))

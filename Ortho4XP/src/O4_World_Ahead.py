@@ -12,6 +12,8 @@ place: build-ahead's planning without a route (flight manager / World spec
 * :func:`ring` is the parked case (no track to run): the tiles that enter
   on the window's next move in ANY direction, with the km the aircraft
   has to go before each would enter (``O4_World_Window.reach``).
+* :func:`held` is rule S3's verdict for one tile now (witnessed, in the
+  window, or within the margin of entering it).
 * :func:`deadline_s` is an entry time less rule S3's margin
   (:func:`_margin_s`: 0.05° or 60 s of flight, whichever is more) and the
   swap (:data:`SWAP_S`).
@@ -25,7 +27,7 @@ import math
 import O4_World_Window as WINDOW
 
 __all__ = ["MARGIN_DEG", "MARGIN_S", "SWAP_S", "STEP_S", "TURN_DEG",
-           "TURN_RATE_DEG_S", "margin_km", "deadline_s", "ahead", "ring"]
+           "TURN_RATE_DEG_S", "margin_km", "held", "deadline_s", "ahead", "ring"]
 
 #: Rule S3: a tile is swapped only this far outside the window ...
 MARGIN_DEG = 0.05
@@ -49,6 +51,17 @@ def margin_km(gs_ms: float) -> float:
     """Rule S3's margin in km at ``gs_ms``: 0.05° or 60 s of flight,
     whichever is more."""
     return max(MARGIN_DEG * _M_PER_DEG, max(gs_ms, 0.0) * MARGIN_S) / 1000.0
+
+
+def held(tracker: WINDOW.WindowTracker, position, gs_ms: float, tile: Tile,
+         seen=()) -> bool:
+    """Rule S3: may X-Plane hold ``tile`` now -- witnessed (``seen``), in
+    the window, or within :func:`margin_km` of entering it?  An unknown
+    ``position`` (``None``) answers yes."""
+    if tile in seen or position is None:
+        return True
+    where = WINDOW.reach(*position, *tile, tracker=tracker)
+    return where["in_window"] or where["km_to_load"] < margin_km(gs_ms)
 
 
 def _margin_s(gs_ms: float) -> float:

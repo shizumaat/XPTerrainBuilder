@@ -198,11 +198,8 @@ class WorldJob:
     def held(self, tile: Tile) -> bool:
         """Rule S3: may X-Plane hold ``tile`` now (witnessed, in the window,
         or within the margin of entering it)?  Unknown position: yes."""
-        if tile in self._seen_loads or self.position is None:
-            return True
-        where = WINDOW.reach(*self.position, *tile, tracker=self.tracker)
-        return (where["in_window"]
-                or where["km_to_load"] < AHEAD.margin_km(self.gs_ms))
+        return AHEAD.held(self.tracker, self.position, self.gs_ms, tile,
+                          self._seen_loads)
 
     def _held_soon(self, tile: Tile) -> bool:
         """Would ``tile`` be held one swap spacing from now?"""

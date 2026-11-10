@@ -157,7 +157,8 @@ def _ortho4xp_version() -> str:
 #: is given the command's ``id`` as ``request``.
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "plan_estimate",
                                "build_airports", "imagery_freshness",
-                               "world_regions_set", *_LIBRARY.COMMANDS})
+                               "world_regions_set", "flight_plan_simbrief",
+                               *_LIBRARY.COMMANDS})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -177,11 +178,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
 
     from . import patch_commands, patch_drop, patch_insert
     from . import world_commands as WORLD
-    from .aircraft_watch import aircraft_watch_handlers
     from . import world_job_run as WORLD_JOB
+    from .aircraft_watch import aircraft_watch_handlers
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
-    from .flight_commands import flight_plan_handlers
+    from .flight_commands import flight_handlers, flight_plan_handlers
     from .imagery_commands import (
         imagery_freshness_discard,
         ondemand_handlers,
@@ -402,6 +403,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # flight_plans_list (X-Plane's Output/FMS plans, newest first) and
         # flight_plan_read, synchronous file reads.
         **flight_plan_handlers(),
+        # The flight manager (§5.2, capability flight_manager): flight_create
+        # replies {flight}; FlightStatus events follow while it runs;
+        # flight_plan_simbrief completes with FlightReady.
+        **flight_handlers(session),
         # The Fly map's aircraft (#2001, capability aircraft_position):
         # aircraft_watch {on} replies {"watching": bool}; AircraftPosition
         # events follow once a second while it is on.

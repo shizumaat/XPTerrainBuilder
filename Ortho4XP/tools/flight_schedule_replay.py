@@ -16,10 +16,24 @@ Pass: each World tile X-Plane opened was swapped in BEFORE its first open
 recording starts on a loaded flight, so the window starts at the flight
 load rule (``WindowTracker.load``, B = round(lon), R = floor(lat)).
 
+``--flight DEST_LAT,DEST_LON`` replays the FLIGHT MANAGER instead (lane
+F1b, ``o4_engine.flight_manager.FlightManager``): a flight from the
+recording's first position to that destination is created (corridor
+``--corridor-km``, cruise ``--cruise-kt``), the pilot waits on the ground
+until it is ready (10g: the readiness rows and the countdown, the staged
+first-window tiles merged in with ONE ground reload, S6 (a)), then the
+recording is flown from that moment.  A fake builder takes ``--build-s``
+per intermediate tile and ``--full-s`` per ``full`` build (departure,
+destination).  Pass: the countdown at creation covers the wait, it never
+rose while waiting, every opened World tile of the flight was swapped
+before its first open and no loaded tile was swapped.
+
 usage:
   flight_schedule_replay.py [FIXTURE] [--kit KIT] [--kind light|drape]
                             [--build-s S] [--speed K ...] [--capacity N]
                             [--cores N] [--json]
+                            [--flight LAT,LON [--full-s S] [--cruise-kt K]
+                             [--corridor-km KM]]
 
 FIXTURE defaults to ``tests/fixtures/world/cyyr_world_flight.replay.json``
 (positions + ``.dsf`` opens, cut by ``imagery_tier_replay.py extract
@@ -34,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 
@@ -49,17 +64,19 @@ KIT = os.path.join(FIXTURES, "cyyr_world_kit.json")
 
 
 class FakeBuilder:
-    """Each build takes ``seconds``; any number may run (the job's slots
-    bound them)."""
+    """Each build takes ``seconds`` (a number, or ``{kind: seconds}``);
+    any number may run (the job's slots bound them)."""
 
-    def __init__(self, seconds: float) -> None:
-        self.seconds = float(seconds)
+    def __init__(self, seconds) -> None:
+        self.seconds = seconds
         self.now = 0.0
         self.running: dict = {}
         self.started: list = []
 
     def start(self, tile, kind, deadline_in_s, klass) -> bool:
-        self.running[tuple(tile)] = self.now + self.seconds
+        took = (self.seconds[kind] if isinstance(self.seconds, dict)
+                else float(self.seconds))
+        self.running[tuple(tile)] = self.now + took
         self.started.append((tuple(tile), self.now))
         return True
 
@@ -136,6 +153,143 @@ def replay(flight: dict, kit: dict, kind: str = "light",
             "ok": not late and not loaded_swaps}
 
 
+def _flight_plan(flight: dict, dest: tuple):
+    import O4_Flight_Plan as FP
+    lat, lon = flight["pos"][0][1:3]
+    return FP.FlightPlan([FP.Waypoint("DEP", lat, lon),
+                          FP.Waypoint("DEST", float(dest[0]), float(dest[1]))],
+                         source="replay")
+
+
+class _FlightClock:
+    """The replay's two clocks: the manager's (seconds since the flight
+    was created) and the recording's (its own seconds, the witness's)."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.rec_t = 0.0
+
+
+def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
+                  build_s: float | None = None, full_s: float = 900.0,
+                  cruise_kt: float = 290.0, corridor_km: float = 20.0,
+                  capacity: int = 16, cores: int = 18) -> dict:
+    """The flight manager over the recording (see the module): the wait,
+    the countdown, the ground reload, then the flight's swaps against
+    X-Plane's opens."""
+    from datetime import datetime, timezone
+
+    import O4_Flight_Schedule as SCHEDULE
+    from o4_engine import flight_record as RECORD
+    from o4_engine.flight_manager import FlightManager
+
+    seconds = {kind: JOB.ESTIMATE_S[kind] if build_s is None else float(build_s),
+               "full": float(full_s)}
+    placeholders = {WP.parse_tile(n) for n in kit["placeholders"]}
+    external = {WP.parse_tile(n) for n in kit.get("external", ())}
+    opens = _opens(flight, kit["pack"])
+    pos = flight["pos"]
+    ground = pos[0][3]
+    first = pos[0]
+    clock = _FlightClock()
+    builder = FakeBuilder(seconds)
+    reloads: list = []
+
+    def state_of(tile):
+        return ("external" if tile in external
+                else "placeholder" if tile in placeholders else None)
+
+    def estimate(tile, k, role):
+        return SCHEDULE.job_estimate(k, seconds[k], known=True)
+
+    def facts():
+        seen = {t for t, at in opens.items() if at <= clock.rec_t}
+        return {"world_installed": True, "world_seen": True,
+                "xplane_running": True, "budget_fits": True,
+                "network_ok": True, "all_on_disk": True,
+                "prefetch_done": True, "loads": seen}
+
+    def ground_reload(tiles):
+        reloads.append((clock.now, [WP.tile_name(*t) for t in tiles]))
+        return True
+
+    plan = _flight_plan(flight, dest)
+    record = RECORD.from_plan(plan, "none", datetime.now(timezone.utc),
+                              cruise_kt=cruise_kt, corridor_km=corridor_km)
+    manager = FlightManager(
+        record, plan, builder=builder, publisher=FakePublisher(), facts=facts,
+        state_of=state_of, estimate=estimate, intermediate=kind,
+        parked_slots=JOB.GOVERNOR.parked_slots(capacity),
+        flight_slots=JOB.GOVERNOR.flight_slots(cores, 0, capacity),
+        ground_reload=ground_reload)
+    parked = {"lat": first[1], "lon": first[2], "agl_m": 0.0, "gs_ms": 0.0}
+    manager.tracker.load(first[1], first[2])
+    countdowns = []
+    while record.state == "preparing" and clock.now < 6 * 3600:
+        builder.now = clock.now
+        manager.tick(clock.now, parked)
+        countdowns.append((clock.now, manager.countdown_s))
+        clock.now += 1.0
+    wait = clock.now
+    first_countdown = next((c for _t, c in countdowns if c is not None), None)
+    rose = [(t, a, b) for (t, a), (_u, b) in zip(countdowns, countdowns[1:], strict=False)
+            if a is not None and b is not None and b > a + 1.0]
+    swapped_loaded = []
+    prev = None
+    for t, lat, lon, alt, *_ in pos:
+        clock.rec_t, clock.now = t, wait + t
+        builder.now = clock.now
+        gs = 0.0
+        if prev is not None and t > prev[0]:
+            gs = (JOB._M_PER_DEG * math.hypot(
+                lat - prev[1], (lon - prev[2]) * math.cos(math.radians(lat)))
+                / (t - prev[0]))
+        prev = (t, lat, lon)
+        before = {j.tile: j.state for j in manager.jobs}
+        manager.tick(clock.now, {"lat": lat, "lon": lon,
+                                 "agl_m": max(0.0, alt - ground), "gs_ms": gs})
+        for job in manager.jobs:
+            if (job.state == "swapped" and before.get(job.tile) != "swapped"
+                    and job.tile in opens and opens[job.tile] <= t):
+                swapped_loaded.append(WP.tile_name(*job.tile))
+    rows = []
+    for job in manager.jobs:
+        swapped = manager._runs.get(job.tile, {}).get("swapped_at")
+        opened = opens.get(job.tile)
+        rows.append({"tile": WP.tile_name(*job.tile), "role": job.role,
+                     "kind": job.kind, "klass": "P%d" % job.klass,
+                     "state": job.state,
+                     "deadline_s": round(job.deadline_s, 1),
+                     "swapped_s": None if swapped is None else round(swapped, 1),
+                     "opened_s": None if opened is None else round(wait + opened, 1),
+                     "margin_s": (round(wait + opened - swapped, 1)
+                                  if swapped is not None and opened is not None
+                                  else None)})
+    late = [r["tile"] for r in rows if r["opened_s"] is not None
+            and (r["margin_s"] is None or r["margin_s"] <= 0)]
+    covered = first_countdown is not None and first_countdown >= wait - 1.0
+    return {"wait_s": wait, "countdown_s": first_countdown,
+            "countdown_rose": rose, "reloads": reloads,
+            "state": record.state, "phase": record.phase,
+            "items": [list(i) for i in manager.items], "tiles": rows,
+            "late": late, "loaded_swaps": swapped_loaded,
+            "ok": covered and not rose and not late and not swapped_loaded}
+
+
+def _print_flight(result: dict) -> None:
+    print(f"flight: waited {result['wait_s']:.0f} s on the ground (countdown "
+          f"at creation {result['countdown_s']}), reloads "
+          f"{result['reloads']}, now {result['state']} / {result['phase']}: "
+          + ("OK" if result["ok"] else f"LATE {result['late']}"))
+    for row in result["tiles"]:
+        print(f"  {row['tile']} {row['role']:<11} {row['kind']:<8} "
+              f"{row['klass']} {row['state']:<8} deadline {row['deadline_s']}"
+              f"  swapped {row['swapped_s']}  opened {row['opened_s']}  "
+              f"margin {row['margin_s']}")
+    for tile in result["loaded_swaps"]:
+        print(f"  SWAPPED A LOADED TILE {tile}")
+
+
 def as_flown(flight: dict, kit: dict) -> dict:
     """The one tile built in flight on the CYYR flight, as flown: its
     swap against its first open (spec §15: 397 s, swapped well before)."""
@@ -171,11 +325,24 @@ def main(argv=None) -> int:
     ap.add_argument("--capacity", type=int, default=16)
     ap.add_argument("--cores", type=int, default=18)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--flight", default=None, metavar="LAT,LON")
+    ap.add_argument("--full-s", type=float, default=900.0)
+    ap.add_argument("--cruise-kt", type=float, default=290.0)
+    ap.add_argument("--corridor-km", type=float, default=20.0)
     a = ap.parse_args(argv)
     with open(a.fixture, encoding="utf-8") as f:
         flight = json.load(f)
     with open(a.kit, encoding="utf-8") as f:
         kit = json.load(f)
+    if a.flight:
+        dest = tuple(float(v) for v in a.flight.split(","))
+        result = replay_flight(flight, kit, dest, a.kind, a.build_s, a.full_s,
+                               a.cruise_kt, a.corridor_km, a.capacity, a.cores)
+        if a.json:
+            print(json.dumps(result, indent=1))
+        else:
+            _print_flight(result)
+        return 0 if result["ok"] else 1
     results = [replay(flight, kit, a.kind, a.build_s, s, a.capacity, a.cores)
                for s in a.speed]
     flown = as_flown(flight, kit)

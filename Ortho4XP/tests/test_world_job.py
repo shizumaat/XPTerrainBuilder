@@ -299,8 +299,11 @@ def test_the_session_builder_queues_a_light_build_by_deadline():
 
 def test_the_commands_refuse_what_is_not_there(tmp_path, monkeypatch):
     monkeypatch.setattr(RUN, "_settings", lambda: {})
-    with pytest.raises(ValueError, match="flight"):
-        RUN.world_job_start(object(), mode="flight")
+    with pytest.raises(ValueError, match="unknown mode"):
+        RUN.world_job_start(object(), mode="glide")
+    with pytest.raises(ValueError, match="World pack"):       # F1b's mode
+        RUN.world_job_start(object(), mode="flight", flight="x",
+                            scenery_dir=str(tmp_path))
     with pytest.raises(ValueError, match="kind"):
         RUN.world_job_start(object(), kind="heavy")
     assert RUN.world_job_start(object(), scenery_dir=str(tmp_path),

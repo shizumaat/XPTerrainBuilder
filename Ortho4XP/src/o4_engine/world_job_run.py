@@ -6,10 +6,14 @@ gives it the session, the World pack and X-Plane.
 * :func:`world_job_start` (``world_job_start {mode: "track"}``) starts it
   on a thread that reads the shared position feed
   (``position_feed.shared``) once a second and emits ``WorldStatus``
-  every 2 s; ``mode: "flight"`` arrives with the flight manager (F1b).
-  :func:`autostart` starts it beside the follow job (both apps call
-  ``imagery_follow_start`` at launch) when imagery on demand is on and the
-  World pack is installed.  :func:`world_job_stop` stops it.
+  every 2 s.  ``mode: "flight", flight: <id>`` runs that flight's job
+  instead (``flight_job_run``, lane F1b: the route's corridor, departure
+  and destination by their deadlines, ``FlightStatus``); track mode does
+  not run beside a flight.  :func:`autostart` starts it beside the follow
+  job (both apps call ``imagery_follow_start`` at launch) when imagery on
+  demand is on and the World pack is installed -- the active flight, when
+  a record is still preparing, ready or flying.  :func:`world_job_stop`
+  stops track mode (``flight_end`` stops a flight).
 * :class:`_SessionBuilder` -- a ``light`` tile is an ordinary build through
   the session's queue (``enqueue_build`` with ``overrides={"profile":
   "light"}``, its ``deadline`` and class ``P1``; never interactive:
@@ -279,9 +283,14 @@ def world_job_start(session, emit=None, mode: str = "track", flight=None,
     "running" | "off"}`` ("off": ``if_enabled`` and on-demand is off or
     no World pack is installed)."""
     global _RUNNER
+    if mode == "flight":
+        return _flight_start(session, emit, flight, scenery_dir, port)
     if mode != "track":
-        raise ValueError("world_job_start: only mode 'track' is available "
-                         "(mode 'flight' arrives with the flight manager).")
+        raise ValueError(f"world_job_start: unknown mode {mode!r} "
+                         "(known: 'track', 'flight').")
+    from . import flight_job_run as FLIGHT
+    if FLIGHT.current() is not None:
+        return {"status": "running", "mode": "flight"}
     values = _settings()
     kind = kind or values.get("world_intermediate") or "light"
     if kind not in KINDS:
@@ -302,6 +311,25 @@ def world_job_start(session, emit=None, mode: str = "track", flight=None,
         _RUNNER.thread.start()
     WORLD.write_log({"world_job": "start", "kind": kind, "mode": mode})
     return {"status": "started"}
+
+
+def _flight_start(session, emit, flight, scenery_dir: str, port) -> dict:
+    """``world_job_start {mode: "flight", flight}``: run that flight's job
+    (``flight_job_run.start``); the World pack must be installed."""
+    from . import flight_job_run as FLIGHT
+    from . import flight_record as RECORD
+    scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
+    if not WORLD.managed(scenery_dir):
+        raise ValueError("Install the World pack first (Library ▸ World): "
+                         "a flight's tiles go into it.")
+    path = os.path.join(RECORD.flights_dir(), f"{flight}.json")
+    try:
+        record = RECORD.load(path)
+    except (OSError, ValueError) as error:
+        raise ValueError(f"world_job_start: no flight {flight!r}.") from error
+    status = FLIGHT.start(session, emit or session._emit, record,
+                          RECORD.plan_of(record), scenery_dir, port)
+    return {"status": status, "mode": "flight", "flight": record.id}
 
 
 def world_job_stop(**_ignored) -> dict:
@@ -326,6 +354,11 @@ def autostart(session, port=None, **_ignored) -> Optional[dict]:
     """Start the job beside the follow job when it may run (see
     :func:`world_job_start`, ``if_enabled``); never raises."""
     try:
+        from . import flight_record as RECORD
+        active = RECORD.active_flight(RECORD.flights_dir())
+        if active is not None and WORLD.managed(WORLD.scenery_dir_or_default()):
+            return world_job_start(session, mode="flight", flight=active.id,
+                                   port=port)
         return world_job_start(session, port=port, if_enabled=True)
     except Exception as error:              # logged; the follow job starts
         WORLD.write_log({"world_job_autostart": repr(error)[:300]})

@@ -9,9 +9,9 @@ import AppKit
 /// with its track for the map. The Qt window's `O4_Qt_Fly_Pane.FlyPane`
 /// holds the same; words and rules are SceneryKit `FlyText` / `FlyLayers`.
 ///
-/// The `flight_*` commands and `FlightStatus` belong to lane F1b: until
-/// an engine has them the pane says `FlyText.noFlightManager` and is
-/// exercised on the shared fixture (`FlyPaneTests`).
+/// The `flight_*` commands, `FlightStatus` and `FlightReady` are the
+/// flight manager's (capability `flight_manager`); an engine without them
+/// makes the pane say `FlyText.noFlightManager`.
 @MainActor
 final class FlyModel: ObservableObject {
     static let simPriorityKey = "FlySimPriority"
@@ -84,8 +84,18 @@ final class FlyModel: ObservableObject {
         track.add(lat: position.lat, lon: position.lon, track: position.trackDegrees)
     }
 
-    /// A `FlightStatus` (lane F1b adds its `O4Event` case and calls this).
+    /// A `FlightStatus` (the flight manager, every 2 s and on a change).
     func show(_ status: O4FlightStatus) { self.status = status }
+
+    /// A `FlightReady`: `flight_plan_simbrief`'s plan, or its refusal.
+    func showReady(_ reply: O4JSON) {
+        if let error = reply["error"]?.stringValue, !error.isEmpty {
+            message = FlyText.refusal(error)
+        } else if let plan = O4FlightPlanRead.parse(reply["result"]) {
+            message = nil
+            self.plan = plan
+        }
+    }
 
     /// A `WorldStatus`'s fields (lane W1 calls this).
     func showWorld(_ fields: O4JSON) { worldStatus = fields }

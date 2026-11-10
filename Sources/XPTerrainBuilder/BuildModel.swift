@@ -1269,6 +1269,10 @@ final class BuildModel: ObservableObject {
             worldStatus = status
         case .aircraftPosition(let position):
             fly.show(position)         // the Fly map's aircraft (#2001)
+        case .flightStatus(let status):
+            fly.show(status)           // the Fly pane's flight (F1b)
+        case .flightReady(let reply):
+            fly.showReady(reply)       // flight_plan_simbrief's plan
         case .unknown:
             break // additive protocol: ignore unknown event types
         }

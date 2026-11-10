@@ -59,7 +59,8 @@ __all__ = [
     "parse_simbrief", "parse_plan_text", "read_plan_file", "simbrief_url",
     "fetch_simbrief", "route_tiles", "route_drawing", "radius_km",
     "summary_text", "tiles_text", "densify", "route_length_km",
-    "parse_simbrief_json", "list_fms_plans", "fms_plans_dir",
+    "parse_simbrief_json", "list_fms_plans", "fms_plans_dir", "tile_of",
+    "off_route_km",
 ]
 
 Tile = Tuple[int, int]
@@ -471,8 +472,19 @@ def _candidate_tiles(lat: float, lon: float, radius: float):
             yield (tlat, tlon)
 
 
-def _tile_of(lat: float, lon: float) -> Tile:
+def tile_of(lat: float, lon: float) -> Tile:
+    """The 1x1 degree tile ``(lat, lon)`` lies in (longitude wrapped)."""
     return (min(89, math.floor(lat)), ((math.floor(lon) + 180) % 360) - 180)
+
+
+def off_route_km(samples: Sequence[Tuple[float, float]], tile: Tile) -> float:
+    """How far tile ``(tlat, tlon)`` lies from a densified route
+    (``samples``): 0 when the route crosses it, else the great-circle
+    distance from the nearest sample to the tile's rectangle, km."""
+    if any(tile_of(lat, lon) == tuple(tile) for lat, lon in samples):
+        return 0.0
+    return min((_tile_distance_km(lat, lon, *tile) for lat, lon in samples),
+               default=math.inf)
 
 
 def route_tiles(points: Sequence[Tuple[float, float]],
@@ -482,9 +494,9 @@ def route_tiles(points: Sequence[Tuple[float, float]],
     if not points:
         return []
     radius = max(0.0, float(radius_km_))
-    chosen = {_tile_of(*points[0]), _tile_of(*points[-1])}
+    chosen = {tile_of(*points[0]), tile_of(*points[-1])}
     for lat, lon in densify(points):
-        chosen.add(_tile_of(lat, lon))
+        chosen.add(tile_of(lat, lon))
         for tile in _candidate_tiles(lat, lon, radius):
             if tile not in chosen and _tile_distance_km(lat, lon, *tile) <= radius:
                 chosen.add(tile)

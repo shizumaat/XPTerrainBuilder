@@ -11,8 +11,9 @@ preview" (#2001; the imagery drawing is a stub), Divert… and End flight.
 
 Words and rules: :mod:`O4_Fly_Text`, :mod:`O4_Fly_Layers`.  Engine
 commands go through ``run(name, **arguments)`` (the window's command
-table, never re-spelled); the ``flight_*`` commands and ``FlightStatus``
-belong to lane F1b, and until an engine has them the pane says
+table, never re-spelled); the ``flight_*`` commands, ``FlightStatus`` and
+``FlightReady`` are the flight manager's (lane F1b, capability
+``flight_manager``); an engine without them makes the pane say
 :data:`O4_Fly_Text.NO_FLIGHT_MANAGER`.
 """
 
@@ -278,9 +279,17 @@ class FlyPane(QWidget):
     # events (the window feeds them)
     # ------------------------------------------------------------------
     def show_status(self, event):
-        """A ``FlightStatus`` (lane F1b's event, or its dict)."""
+        """A ``FlightStatus`` (the flight manager's event, or its dict)."""
         self.status = _fields(event)
         self._show()
+
+    def show_ready(self, event):
+        """A ``FlightReady``: the SimBrief plan, or why there is none."""
+        if getattr(event, "error", ""):
+            self._say(TEXT.refusal(event.error))
+        elif isinstance(getattr(event, "result", None), dict):
+            self._say()
+            self.set_plan(event.result)
 
     def show_world(self, event):
         """A ``WorldStatus`` (lane W1's event, or its dict)."""

@@ -176,7 +176,8 @@ def _stage(staging, lat, lon, names=("a.ter",), dsf=FIXTURE_DSF):
         os.makedirs(os.path.join(root, sub, tile), exist_ok=True)
     for name in names:
         sub = "terrain" if name.endswith(".ter") else "textures"
-        with open(os.path.join(root, sub, tile, name), "w") as h:
+        with open(os.path.join(root, sub, tile, name), "w", encoding="utf-8",
+                  newline="\n") as h:
             h.write(name + "@" + os.path.basename(staging))
     dest = os.path.join(root, WP.dsf_relpath(lat, lon))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -218,12 +219,13 @@ def test_s5_a_merge_swap_never_removes_a_name(pack):
     first = _stage(staging + "1", 53, -64, names=("a.ter", "x.dds"))
     WP.swap_in(path, first, 53, -64)
     texture = os.path.join(path, "textures", tile, "x.dds")
-    held_open = open(texture)                       # X-Plane maps it
+    held_open = open(texture, encoding="utf-8")   # X-Plane maps it
     second = _stage(staging + "2", 53, -64, names=("a.ter", "y.dds"))
     done = WP.swap_in(path, second, 53, -64, merge=True)
     assert os.path.isfile(texture)                  # the old name stays
     assert done["stale"] == [os.path.join("textures", tile, "x.dds")]
-    with open(os.path.join(path, "terrain", tile, "a.ter")) as h:
+    with open(os.path.join(path, "terrain", tile, "a.ter"),
+              encoding="utf-8") as h:
         assert h.read().endswith("2")               # replaced in one rename
     assert os.path.isfile(os.path.join(path, "textures", tile, "y.dds"))
     assert held_open.read().startswith("x.dds")

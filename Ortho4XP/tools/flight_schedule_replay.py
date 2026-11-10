@@ -160,6 +160,8 @@ def _print(result: dict) -> None:
 
 
 def main(argv=None) -> int:
+    import O4_Console_Encoding
+    O4_Console_Encoding.configure_console_streams()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("fixture", nargs="?", default=FIXTURE)
     ap.add_argument("--kit", default=KIT)

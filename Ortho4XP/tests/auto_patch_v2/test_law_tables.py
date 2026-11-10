@@ -645,3 +645,11 @@ def test_mouth_depth_is_its_composition():
     tn = load_tables(DEFAULT_LAW_DIR).structures.tunnel
     assert (tn.clearance_m, tn.equipment_m, tn.roof_m, tn.cover_m) == (5.0, 0.3, 1.0, 1.2)
     assert tn.mouth_depth_m == pytest.approx(7.5)
+
+
+def test_bridge_ground_probe_is_law():
+    # #1935 (``airport/bridge_ground``): the ground beside a deck the DEM
+    # carries is read this many DEM postings past the stand-off
+    b = load_tables(DEFAULT_LAW_DIR).structures.bridge
+    assert b.ground_probe_dem_cells == 2.0
+    assert b.clearance_minimum_m == 4.2

@@ -597,12 +597,17 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     # ground PAST the lidar's smear of the step, on its own side
     from .wall_sides import smear_sampler
     walls = tuple(getattr(airport, "retaining_walls", ()) or ())
-    sample = smear_sampler(_sample_fn(airport), walls)
-    inside = _inside_fn(airport)
     # THE BAND v2 CLAMPS UNDER (spec §2-SUPPLEMENT S.2 (b)): the patch
     # coverage at the SAME ``lane_width + 2`` offset the core's ribbon is
     # differenced by, so both engines draw one boundary.
     band_fn = _band_fn(pm, lw)
+    # #1935: under a mapped bridge the DEM's deck is not the ground — the
+    # same reading ``planar/build`` writes into ``dem_z`` (inside the band
+    # only: out of it the core's own profile stands)
+    from .bridge_ground import bridge_runs, bridge_sampler
+    bridges = bridge_runs(airport, law)
+    sample = bridge_sampler(smear_sampler(_sample_fn(airport), walls), bridges, band_fn)
+    inside = _inside_fn(airport)
     ways: list[Way] = []
     VECT = _core_vector_utils()
     for w in airport.osm_ways:
@@ -624,6 +629,10 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
         pts = [pm.vertices[v].xy for v in b.vertices(pm)]
         ways.extend(clamp_way(ROUTE, f"{b.ref}#{b.id}", pts, sample, cap_,
                               rp.station_m, inside))
+    if bridges:
+        print(f"  [road_profile] bridge ground (#1935): {len(bridges)} run(s); "
+              f"{getattr(sample, 'lowered', 0)} station(s) lowered, "
+              f"{getattr(sample, 'edge_kept', 0)} kept raw outside the band")
     prof = RoadProfiles(cap_, rp.station_m, lw, rp.answer_radius_lane_widths * lw,
                         tuple(ways), walls=walls)
     axis_set = set(axis_roles(law))

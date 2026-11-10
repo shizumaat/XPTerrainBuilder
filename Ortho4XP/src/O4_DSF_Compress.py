@@ -24,6 +24,7 @@ import os
 import subprocess
 
 import O4_DSF_Header as DSFH
+import O4_UI_Utils as UI  # posix_spawn launches, never fork
 
 __all__ = ["CompressError", "compress", "decodes_to", "is_compressed"]
 
@@ -74,13 +75,13 @@ def compress(source: str, dest: str, *, threads: int = 2) -> None:
     temp = f"{dest}.{os.getpid()}.part.7z"
     with contextlib.suppress(OSError):
         os.remove(temp)
-    folder, name = os.path.split(os.path.abspath(source))
     command = [_seven_zip(), "a", "-t7z", "-m0=lzma", "-mx=5", "-mhc=off",
                f"-mmt={max(1, int(threads))}", "-bd", "-y",
-               os.path.abspath(temp), "--", name]   # a tile "-28-057" is no switch
+               os.path.abspath(temp), "--",   # a tile "-28-057" is no switch
+               os.path.abspath(source)]       # 7z stores the bare name
     try:
-        done = subprocess.run(command, cwd=folder, capture_output=True,
-                              check=False)
+        done = subprocess.run(command, capture_output=True, check=False,
+                              **UI.external_tool_keyword_arguments())
         if done.returncode != 0:
             raise CompressError(
                 f"7-Zip exited {done.returncode} on {source}: "

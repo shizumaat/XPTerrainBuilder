@@ -63,7 +63,8 @@ FOLLOW_TEMPLATES = {
 FOLLOW_DETAIL = ("{queued} queued · {slots} at a time · {buffer} · "
                  "{landed} landed ({bytes_landed}) · {failed} failed · "
                  "X-Plane {xplane} at {lat}, {lon}, {speed} kt, "
-                 "track {track}° · {flight_loads} flight loads · {jumps} jumps")
+                 "track {track}° · {flight_loads} flight loads · {jumps} jumps · "
+                 "{reloads} reloads")
 WAITING_REASON = "its Web API is not answering"
 XPLANE_ANSWERING = "answering"
 XPLANE_SILENT = "not answering"
@@ -133,6 +134,7 @@ def _follow_values(status: Mapping) -> dict:
         "track": "%.0f" % num("track_deg"),
         "flight_loads": "%d" % num("flight_loads"),
         "jumps": "%d" % num("jumps"),
+        "reloads": "%d" % num("reloads"),
     }
 
 

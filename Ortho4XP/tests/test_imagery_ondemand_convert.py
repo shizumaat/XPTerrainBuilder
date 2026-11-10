@@ -347,7 +347,7 @@ def test_lander_prefers_the_mounted_source(world, monkeypatch, tmp_path):
     monkeypatch.setattr(IMG, "build_jpeg_ortho",
                         lambda *a, **k: called.append(a) or False)
     monkeypatch.setattr(LAND.TierLander, "_tile",
-                        lambda self, r: SimpleNamespace())
+                        lambda self, r: SimpleNamespace(lat=60, lon=-136))
     build = tmp_path / "copy"
     name = "1000_2016_Arc16.dds"
     final = build / "textures" / name

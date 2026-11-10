@@ -35,7 +35,7 @@ public struct O4ImageryFollowStatus: Sendable, Equatable {
     public let bytesLanded: Int64
     public let flightLoads: Int
     public let jumps: Int
-    public var reloads: Int = 0
+    public let reloads: Int
 
     /// Is the job running (not stopped and not failed)?
     public var running: Bool { state != "stopped" && state != "error" }

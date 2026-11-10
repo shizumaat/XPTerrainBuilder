@@ -49,6 +49,7 @@ import O4_File_Names as FNAMES
 import O4_Imagery_OnDemand_Convert as CONVERT
 import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Path_Exchange as EXCHANGE
+import O4_UI_Utils as UI  # posix_spawn launches, never fork
 
 __all__ = ["WORK_DIR_NAME", "convert", "converted_tiles", "dry_run",
            "imagery_ondemand_convert", "revert"]
@@ -116,7 +117,8 @@ def _xplane_running() -> bool:
     for name in ("X-Plane", "X-Plane-x86_64", "X-Plane-arm64"):
         with contextlib.suppress(OSError):
             done = subprocess.run(["pgrep", "-x", name], capture_output=True,
-                                  check=False)
+                                  check=False,
+                                  **UI.external_tool_keyword_arguments())
             if done.returncode == 0:
                 return True
     return False

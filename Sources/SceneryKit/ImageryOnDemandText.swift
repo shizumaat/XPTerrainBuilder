@@ -34,7 +34,7 @@ public enum O4OnDemandText {
     public static let followPaused = "Imagery paused: {reason}"
     public static let followStopped = "Not following X-Plane"
     public static let followError = "Following stopped: {reason}"
-    public static let followDetail = "{queued} queued · {slots} at a time · {buffer} · {landed} landed ({bytes_landed}) · {failed} failed · X-Plane {xplane} at {lat}, {lon}, {speed} kt, track {track}° · {flight_loads} flight loads · {jumps} jumps"
+    public static let followDetail = "{queued} queued · {slots} at a time · {buffer} · {landed} landed ({bytes_landed}) · {failed} failed · X-Plane {xplane} at {lat}, {lon}, {speed} kt, track {track}° · {flight_loads} flight loads · {jumps} jumps · {reloads} reloads"
     public static let waitingReason = "its Web API is not answering"
     public static let xplaneAnswering = "answering"
     public static let xplaneSilent = "not answering"
@@ -92,7 +92,7 @@ public enum O4OnDemandText {
             "lat": String(format: "%.3f", s.lat), "lon": String(format: "%.3f", s.lon),
             "speed": String(format: "%.0f", s.speedMS * knotsPerMS),
             "track": String(format: "%.0f", s.trackDegrees),
-            "flight_loads": "\(s.flightLoads)", "jumps": "\(s.jumps)",
+            "flight_loads": "\(s.flightLoads)", "jumps": "\(s.jumps)", "reloads": "\(s.reloads)",
         ]
     }
 

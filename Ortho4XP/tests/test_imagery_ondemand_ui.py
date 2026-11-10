@@ -89,14 +89,14 @@ def test_the_status_line_renders_every_field():
               "track_deg": 271.0, "queued": 31, "in_flight": 2, "slots": 3,
               "buffer_s": 47.0, "sharp": 14, "textures": 120, "landed": 9,
               "late": 4, "failed": 5, "bytes_landed": 34_500_000,
-              "flight_loads": 6, "jumps": 7}
+              "flight_loads": 6, "jumps": 7, "reloads": 8}
     assert set(status) == set(_event_fields()), "a field has no test value"
     headline, detail = TEXT.follow_lines(status)
     line = headline + " " + detail
     for shown in ("14 of 120 sharp", "2 downloading", "4 late", "31 queued",
                   "3 at a time", "47 s ahead", "9 landed (34.5 MB)",
                   "5 failed", "X-Plane answering", "60.123, -136.456",
-                  "194 kt", "track 271°", "6 flight loads", "7 jumps"):
+                  "194 kt", "track 271°", "6 flight loads", "7 jumps", "8 reloads"):
         assert shown in line, shown
     # reason and state: each state has its sentence, the reason verbatim.
     for state, template in TEXT.FOLLOW_TEMPLATES.items():

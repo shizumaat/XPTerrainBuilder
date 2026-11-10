@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["lots_at_foot", "sheet_walls"]
+__all__ = ["foot_vertices", "lots_at_foot", "sheet_walls"]
 
 
 class _FootWall(_t.NamedTuple):
@@ -54,6 +54,33 @@ def lots_at_foot(wall, lots: _t.Mapping[int, _t.Any]) -> dict[int, float]:
         if min(prof, key=lambda t: abs(t[0] - s_))[1] is None:
             continue     # a station that retains nothing
         out[int(fid)] = float(np.interp(s_, a[:, 0], a[:, 1]))
+    return out
+
+
+def foot_vertices(pm, lot_faces: _t.Mapping[int, _t.Any], walls,
+                  pad_roles: _t.AbstractSet[str]) -> dict[int, float]:
+    """``{vertex: foot}``: every ring and hole vertex of a lot of
+    ``lot_faces`` (``{face id: polygon}``) at a wall's foot
+    (:func:`lots_at_foot` over ``walls``; the lowest foot where two walls
+    name one) that no pad of ``pad_roles`` carries -- a vertex a pad also
+    carries is the pad's, and the lot steps down from it (owner RULINGS
+    2026-11-10a (2), ``planar/foot_kerb``).  One reading for the wall
+    terrace's foot Bands and the road that leaves the lot
+    (``airport/road_ramp``)."""
+    from ..model.planar import is_bank_ref
+    feet: dict[int, float] = {}
+    for w in walls:
+        for i, z in lots_at_foot(w, lot_faces).items():
+            feet[i] = min(z, feet.get(i, z))
+    out: dict[int, float] = {}
+    for i, z in sorted(feet.items()):
+        f = pm.faces[i]
+        for ring in (f.ring, *(getattr(f, "holes", ()) or ())):
+            for v in pm.ring_vertices(ring):
+                if any(pm.faces[q].role in pad_roles and not is_bank_ref(pm.faces[q].ref)
+                       for q in pm.vertices[v].incident_faces):
+                    continue
+                out[v] = min(z, out.get(v, z))
     return out
 
 

@@ -587,13 +587,16 @@ def _OSM_queries_to_OSM_layer_serialized(
         # (the shallow-water mask fallback) need the features lying
         # wholly on the other side of the line, which the plain tile
         # bbox never returns.  Callers passing a margin must bump their
-        # cache_schema (the cache file is still keyed per tile).
-        bounding_box = (
-            lat - bbox_margin_degrees,
-            lon - bbox_margin_degrees,
-            lat + 1 + bbox_margin_degrees,
-            lon + 1 + bbox_margin_degrees,
-        )
+        # cache_schema (the cache file is still keyed per tile).  The
+        # margin is one number for every side, or (south, west, north,
+        # east) when the consumer's reach differs per side (#1919: mask
+        # squares overhang the tile by their own grid, never a constant).
+        (south, west, north, east) = (
+            tuple(bbox_margin_degrees)
+            if isinstance(bbox_margin_degrees, (tuple, list))
+            else (bbox_margin_degrees,) * 4)
+        bounding_box = (lat - south, lon - west,
+                        lat + 1 + north, lon + 1 + east)
         # Regional-extract backend first (docs/specs/
         # osm-regional-extracts-spec.md): serve the statements from
         # locally stored Geofabrik extracts when the covering regions

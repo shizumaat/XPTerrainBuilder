@@ -254,11 +254,15 @@ class _Runner:
                                        name="o4-world-job")
 
     def run(self) -> None:
-        status_at = -1e18
+        status_at, resets = -1e18, self.feed.resets
         while not self.stop_event.wait(1.0):
             now = time.monotonic()
             try:
-                self.job.tick(now, self.feed.read())
+                rec = self.feed.read()
+                if self.feed.resets != resets:      # a flight (re)load
+                    resets = self.feed.resets
+                    self.job.forget_window()
+                self.job.tick(now, rec)
             except Exception as error:      # logged; the job goes on
                 WORLD.write_log({"world_job_error": repr(error)[:300]})
             if now - status_at >= STATUS_EVERY_S:

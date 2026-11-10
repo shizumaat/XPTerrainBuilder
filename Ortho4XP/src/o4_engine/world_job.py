@@ -144,6 +144,13 @@ class WorldJob:
         self.tracker.load(lat, lon)
         self.motion.restart()
 
+    def forget_window(self) -> None:
+        """X-Plane loaded a flight somewhere unknown (the feed's reader
+        re-resolved): the window's history is unknown again (the union,
+        then the witness narrows it) and so is the motion."""
+        self.tracker.forget()
+        self.motion.restart()
+
     def estimate(self) -> tuple[float, float]:
         """``(low, high)`` seconds one build of the job's kind takes now."""
         base = self.estimate_s[self.kind] * self.scale

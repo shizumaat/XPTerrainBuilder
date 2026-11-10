@@ -145,6 +145,13 @@ def test_finished_tiles_swap_when_s3_allows_spaced_unless_urgent():
     assert len(job.swaps) == 2 and job.swaps[1][1] - job.swaps[0][1] >= 10
 
 
+def test_a_flight_load_elsewhere_forgets_the_window():
+    job, _b, _p = _job()
+    job.flight_loaded(*CYYR)
+    job.forget_window()
+    assert not job.tracker.cols and job.motion.motion() is None
+
+
 def test_a_jump_forgets_the_window():
     job, _b, _p = _job()
     job.flight_loaded(*CYYR)
@@ -321,6 +328,8 @@ def test_the_job_runs_in_the_engine_and_reports_world_status(pack,
     monkeypatch.setattr(SLOTS, "session_capacity", lambda: 3)
 
     class Feed:
+        resets = 0
+
         def read(self):
             return {"lat": CYYR[0], "lon": CYYR[1], "frame_s": 0.02}
     monkeypatch.setattr(FEED, "shared", lambda base=None: Feed())

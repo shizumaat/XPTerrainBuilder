@@ -392,6 +392,7 @@ class Facts:
     budget_fits: Optional[bool] = None
     budget_detail: str = ""
     network_ok: Optional[bool] = None
+    network_detail: str = ""                # what the network row is blocked on
     all_on_disk: bool = False               # nothing this flight needs is remote
     prefetch_done: Optional[bool] = None
     build_alternate: bool = False
@@ -415,7 +416,9 @@ def _flag_item(key: str, flag: Optional[bool], blocked: str) -> Item:
 
 def _jobs_item(key: str, jobs: List[Job], ends: Dict[int, float]) -> Item:
     """Done when every job is built; failed when one failed; else the
-    time until the last of them is built."""
+    time until the last of them is built.  A job given up (``shed``: the
+    offline waiver, a diversion) is not waited for."""
+    jobs = [j for j in jobs if j.state != "shed"]
     if all(j.state in DONE_STATES for j in jobs):
         return Item(key, "done", 0.0, "")
     if any(j.state == "failed" for j in jobs):
@@ -459,7 +462,7 @@ def readiness_items(facts: Facts) -> List[Item]:
     rows = [world,
             _flag_item("budget", facts.budget_fits, facts.budget_detail),
             _flag_item("network", True if facts.all_on_disk else facts.network_ok,
-                       "Needs internet"),
+                       facts.network_detail or "Needs internet"),
             Item("prefetch", "done", 0.0, "") if facts.prefetch_done
             else Item("prefetch", "working", None, ""),
             _jobs_item("departure", role("departure"), ends),

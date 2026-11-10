@@ -28,12 +28,22 @@ destination).  Pass: the countdown at creation covers the wait, it never
 rose while waiting, every opened World tile of the flight was swapped
 before its first open and no loaded tile was swapped.
 
+``--divert T,LAT,LON[,IDENT]`` (lane F2, spec §8.6) diverts the flight at
+the recording's second T to that airport (``FlightManager.divert``: its
+tile built ``full`` first, the old destination's build stopped);
+``--approach`` then flies on past the recording's end, straight to the
+diversion airport at the last groundspeed, descending evenly to land
+there (so rule S6 (b), the one reload near the ground, can be seen).
+The result adds the notices posted (``FlightNotice`` codes), the reloads
+in the air and the diversion tile's margin.
+
 usage:
   flight_schedule_replay.py [FIXTURE] [--kit KIT] [--kind light|drape]
                             [--build-s S] [--speed K ...] [--capacity N]
                             [--cores N] [--json]
                             [--flight LAT,LON [--full-s S] [--cruise-kt K]
-                             [--corridor-km KM]]
+                             [--corridor-km KM] [--divert T,LAT,LON[,IDENT]
+                             [--approach]]]
 
 FIXTURE defaults to ``tests/fixtures/world/cyyr_world_flight.replay.json``
 (positions + ``.dsf`` opens, cut by ``imagery_tier_replay.py extract
@@ -72,6 +82,7 @@ class FakeBuilder:
         self.now = 0.0
         self.running: dict = {}
         self.started: list = []
+        self.cancelled: list = []
 
     def start(self, tile, kind, deadline_in_s, klass) -> bool:
         took = (self.seconds[kind] if isinstance(self.seconds, dict)
@@ -79,6 +90,11 @@ class FakeBuilder:
         self.running[tuple(tile)] = self.now + took
         self.started.append((tuple(tile), self.now))
         return True
+
+    def cancel(self, tile) -> None:
+        """Stop a build (a diversion's old destination)."""
+        self.running.pop(tuple(tile), None)
+        self.cancelled.append((tuple(tile), self.now))
 
     def poll(self, now: float) -> list:
         done = [t for t, at in self.running.items() if at <= now]
@@ -170,17 +186,42 @@ class _FlightClock:
         self.rec_t = 0.0
 
 
+def approach_positions(last: list, airport: tuple, ground: float,
+                       step_s: float = 1.0) -> list:
+    """Recorder rows ``[t, lat, lon, alt]`` flying straight on from
+    ``last`` to ``airport`` ``(lat, lon)`` at ``last``'s groundspeed
+    (``last[4]``), descending evenly to ``ground`` there; then 60 s
+    standing on it."""
+    t0, lat0, lon0, alt0 = last[:4]
+    gs = max(30.0, float(last[4] if len(last) > 4 else 70.0))
+    dist = JOB._M_PER_DEG * math.hypot(airport[0] - lat0, (airport[1] - lon0)
+                                       * math.cos(math.radians(lat0)))
+    steps = max(1, int(dist / gs / step_s))
+    rows = []
+    for i in range(1, steps + 1):
+        f = i / steps
+        rows.append([t0 + i * step_s, lat0 + f * (airport[0] - lat0),
+                     lon0 + f * (airport[1] - lon0),
+                     alt0 + f * (ground - alt0), gs * (1 - f)])
+    end = rows[-1][0]
+    rows += [[end + k, airport[0], airport[1], ground, 0.0]
+             for k in range(1, 61)]
+    return rows
+
+
 def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
                   build_s: float | None = None, full_s: float = 900.0,
                   cruise_kt: float = 290.0, corridor_km: float = 20.0,
                   capacity: int = 16, cores: int = 18,
-                  speed: float = 1.0) -> dict:
+                  speed: float = 1.0, divert: dict | None = None,
+                  approach: bool = False) -> dict:
     """The flight manager over the recording (see the module): the wait,
     the countdown, the ground reload, then the flight's swaps against
     X-Plane's opens.  ``speed`` flies the recording that many times faster
     (the plan's cruise with it)."""
     from datetime import datetime, timezone
 
+    import O4_Flight_Plan as FP
     import O4_Flight_Schedule as SCHEDULE
     from o4_engine import flight_record as RECORD
     from o4_engine.flight_manager import FlightManager
@@ -212,10 +253,16 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
                 "prefetch_done": True, "loads": seen}
 
     def ground_reload(tiles):
-        reloads.append((clock.now, [WP.tile_name(*t) for t in tiles]))
+        names = [WP.tile_name(*t) for t in tiles]
+        if manager.takeoff_at is None:
+            reloads.append((clock.now, names))
+        else:
+            reloads_air.append((clock.now, names))
         return True
 
     plan = _flight_plan(flight, dest)
+    reloads_air: list = []
+    notices: list = []
     record = RECORD.from_plan(plan, "none", datetime.now(timezone.utc),
                               cruise_kt=cruise_kt * speed,
                               corridor_km=corridor_km)
@@ -239,7 +286,17 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
             if a is not None and b is not None and b > a + 1.0]
     swapped_loaded = []
     prev = None
+    diverted_tile = None
+    if divert is not None and approach:
+        pos = list(pos) + approach_positions(
+            pos[-1], (divert["lat"], divert["lon"]), ground)
     for t, lat, lon, alt, *_ in pos:
+        if divert is not None and diverted_tile is None and t >= divert["at_s"]:
+            target = FP.Waypoint(divert.get("ident", "DIVERT"),
+                                 float(divert["lat"]), float(divert["lon"]))
+            manager.divert(wait + t / speed, target, False,
+                           cancel=builder.cancel)
+            diverted_tile = FP.tile_of(target.lat, target.lon)
         clock.rec_t, clock.now = t, wait + t / speed
         builder.now = clock.now
         gs = 0.0
@@ -251,8 +308,11 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
         before = {j.tile: j.state for j in manager.jobs}
         manager.tick(clock.now, {"lat": lat, "lon": lon,
                                  "agl_m": max(0.0, alt - ground), "gs_ms": gs})
+        notices += [(round(clock.now, 1), n["code"]) for n in manager.notices()]
+        reloaded = {n for _at, names in reloads_air for n in names}
         for job in manager.jobs:
             if (job.state == "swapped" and before.get(job.tile) != "swapped"
+                    and WP.tile_name(*job.tile) not in reloaded
                     and job.tile in opens and opens[job.tile] <= t):
                 swapped_loaded.append(WP.tile_name(*job.tile))
     rows = []
@@ -270,11 +330,18 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
                                   if swapped is not None and opened is not None
                                   else None)})
     late = [r["tile"] for r in rows if r["opened_s"] is not None
+            and (diverted_tile is None
+                 or r["tile"] != WP.tile_name(*diverted_tile))
             and (r["margin_s"] is None or r["margin_s"] <= 0)]
+    diverted = next((r for r in rows if diverted_tile is not None
+                     and r["tile"] == WP.tile_name(*diverted_tile)), None)
     covered = first_countdown is not None and first_countdown >= wait - 1.0
     return {"speed": speed, "wait_s": wait, "countdown_s": first_countdown,
             "countdown_rose": rose, "reloads": reloads,
             "state": record.state, "phase": record.phase,
+            "reloads_air": reloads_air, "notices": notices,
+            "diverted": diverted, "cancelled": [
+                (WP.tile_name(*t), round(at, 1)) for t, at in builder.cancelled],
             "items": [list(i) for i in manager.items], "tiles": rows,
             "late": late, "loaded_swaps": swapped_loaded,
             "ok": covered and not rose and not late and not swapped_loaded}
@@ -293,6 +360,11 @@ def _print_flight(result: dict) -> None:
               f"margin {row['margin_s']}")
     for tile in result["loaded_swaps"]:
         print(f"  SWAPPED A LOADED TILE {tile}")
+    if result.get("diverted"):
+        print(f"  diverted to {result['diverted']}; reloads in the air "
+              f"{result['reloads_air']}; cancelled {result['cancelled']}")
+    if result.get("notices"):
+        print(f"  notices {result['notices']}")
 
 
 def as_flown(flight: dict, kit: dict) -> dict:
@@ -334,6 +406,8 @@ def main(argv=None) -> int:
     ap.add_argument("--full-s", type=float, default=900.0)
     ap.add_argument("--cruise-kt", type=float, default=290.0)
     ap.add_argument("--corridor-km", type=float, default=20.0)
+    ap.add_argument("--divert", default=None, metavar="T,LAT,LON[,IDENT]")
+    ap.add_argument("--approach", action="store_true")
     a = ap.parse_args(argv)
     with open(a.fixture, encoding="utf-8") as f:
         flight = json.load(f)
@@ -341,9 +415,16 @@ def main(argv=None) -> int:
         kit = json.load(f)
     if a.flight:
         dest = tuple(float(v) for v in a.flight.split(","))
+        divert = None
+        if a.divert:
+            parts = a.divert.split(",")
+            divert = {"at_s": float(parts[0]), "lat": float(parts[1]),
+                      "lon": float(parts[2]),
+                      "ident": parts[3] if len(parts) > 3 else "DIVERT"}
         results = [replay_flight(flight, kit, dest, a.kind, a.build_s,
                                  a.full_s, a.cruise_kt, a.corridor_km,
-                                 a.capacity, a.cores, k) for k in a.speed]
+                                 a.capacity, a.cores, k, divert, a.approach)
+                   for k in a.speed]
         if a.json:
             print(json.dumps(results, indent=1))
         else:

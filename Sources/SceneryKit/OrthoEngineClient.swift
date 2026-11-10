@@ -357,6 +357,9 @@ public enum O4Event: Sendable, Equatable {
     /// The active flight's state every 2 s and on a change (capability
     /// `flight_manager`, World spec §5.3). See `O4FlightStatus`.
     case flightStatus(O4FlightStatus)
+    /// One notice of the active flight (capability `flight_notices`, World
+    /// spec F2): a system notification. See `O4FlightNotice`.
+    case flightNotice(O4FlightNotice)
     /// An async flight command's completion no caller waits for
     /// (`flight_plan_simbrief`: the plan, or `error`): the whole event.
     case flightReady(O4JSON)
@@ -550,6 +553,10 @@ public enum O4Event: Sendable, Equatable {
         case "FlightStatus":
             guard let status = O4FlightStatus.parse(O4JSON.from(object)) else { return .unknown(event: type) }
             return .flightStatus(status)
+        // `class FlightNotice` in Ortho4XP/src/o4_engine/events.py.
+        case "FlightNotice":
+            guard let notice = O4FlightNotice.parse(O4JSON.from(object)) else { return .unknown(event: type) }
+            return .flightNotice(notice)
         // `class FlightReady` in Ortho4XP/src/o4_engine/events.py (when no
         // waiter took it: see the completion switch in `handle`).
         case "FlightReady":

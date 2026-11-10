@@ -24,6 +24,13 @@ tiles made ready by their deadlines, its readiness rows and countdown.
   first-window tiles over the loaded ones and reload once, on the
   ground).
 
+Lane F2 adds the diversion (:meth:`FlightManager.divert`, spec §8.6,
+``flight_divert``), the one reload in the air (rule S6 (b),
+``flight_air_reload``), the flight's notices (``flight_notices``) and the
+offline waiver (§11, RULINGS 2026-11-10k Q3: en-route tiles that cannot
+be built without the internet may be left to X-Plane's own scenery;
+never the departure or the destination).
+
 The flight always waits for readiness (10g): ``ready`` is every row of
 §6.2 ``done``; the countdown is the schedule's (``O4_Flight_Schedule``)
 from the recorded estimates, a dash (None) while a row is blocked.  Once
@@ -34,7 +41,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import O4_Flight_Plan as FP
 import O4_Flight_Schedule as SCHEDULE
@@ -42,6 +49,9 @@ import O4_World_Ahead as AHEAD
 import O4_World_Pack as WP
 import O4_World_Window as WINDOW
 
+from . import flight_divert as DIVERT
+from .flight_air_reload import LOW_AGL_M, NEAR_KM, AirReload
+from .flight_notices import Board
 from .flight_record import FlightRecord, TileRow
 
 __all__ = ["BUILT_KINDS", "FULL_ROLES", "MAX_ATTEMPTS", "flight_jobs",
@@ -109,31 +119,50 @@ def _job_for(role: str, have: Optional[str], intermediate: str
 def flight_jobs(plan: "FP.FlightPlan", *, corridor_km: float,
                 build_alternate: bool, cruise_ms: Optional[float],
                 intermediate: str, state_of: Callable[[Tile], Optional[str]],
-                estimate: Callable[[Tile, str, str], Tuple[float, float]]
+                estimate: Callable[[Tile, str, str], Tuple[float, float]],
+                leg: Optional["DIVERT.Leg"] = None
                 ) -> Tuple[List["SCHEDULE.Job"], Tuple[list, list]]:
     """The flight's jobs and its route ``(samples, seconds after
     takeoff)`` (see the module).  ``state_of(tile)`` is the World pack's
     word for a tile: ``placeholder``, a built kind, ``external`` or None
     (no placeholder: outside the enabled regions); ``estimate(tile, kind,
-    role)`` a ``(lo, hi)`` seconds range."""
+    role)`` a ``(lo, hi)`` seconds range.  ``leg`` (a diversion,
+    ``flight_divert``): an airborne leg starts at the aircraft
+    ``leg.start_s`` after takeoff, with no departure and no first window;
+    the diversion airport is built in class P0 (§8.6)."""
+    leg = leg or DIVERT.Leg()
     samples, times = SCHEDULE.route_times(plan, cruise_ms)
+    times = [t + leg.start_s for t in times]
     speed = (cruise_ms or plan.cruise_ms
              or SCHEDULE.DEFAULT_CRUISE_KT * SCHEDULE.KT_TO_MS)
     first, last = plan.waypoints[0], plan.waypoints[-1]
     corridor = set(FP.route_tiles(plan.points(), corridor_km))
-    for end in (first, last):
+    for end in ((last,) if leg.airborne else (first, last)):
         corridor.update(_neighbours(FP.tile_of(end.lat, end.lon)))
     entries = WINDOW.route_entries(samples)
     deadlines = SCHEDULE.tile_deadlines(times, entries, speed)
+    if leg.airborne:            # already in X-Plane's window: due now
+        deadlines.update({t: times[0] for t, i in entries.items() if i <= 0})
+    roles = _roles(plan, corridor, build_alternate)
+    if leg.airborne:
+        start = FP.tile_of(first.lat, first.lon)
+        if roles.get(start) == "departure":
+            roles[start] = "enroute"
     jobs = []
-    for tile, role in sorted(_roles(plan, corridor, build_alternate).items()):
+    for tile, role in sorted(roles.items()):
         decided = _job_for(role, state_of(tile), intermediate)
         if decided is None:
             continue
         kind, state = decided
+        if (leg.airborne and role == "enroute" and state == "queued"
+                and entries.get(tile) == 0):
+            state = "late"          # X-Plane holds it already: its own scenery
+        klass = SCHEDULE.klass_for(role, entries.get(tile) == 0
+                                   and not leg.airborne)
+        if leg.diverted and role == "destination":
+            klass = SCHEDULE.P0
         jobs.append(SCHEDULE.Job(
-            tile=tile, role=role, kind=kind,
-            klass=SCHEDULE.klass_for(role, entries.get(tile) == 0),
+            tile=tile, role=role, kind=kind, klass=klass,
             deadline_s=deadlines.get(tile, times[-1]),
             est_s=(tuple(estimate(tile, kind, role)) if state == "queued"
                    else (0.0, 0.0)),
@@ -159,6 +188,16 @@ class FlightManager:
         self.parked_slots = max(1, int(parked_slots))
         self.flight_slots = max(1, int(flight_slots))
         self.ground_reload, self.stamp = ground_reload, stamp
+        self.departure = plan.waypoints[0]
+        self.leg = DIVERT.Leg()
+        self.air = AirReload()
+        self.board = Board()
+        self.diverted_to = ""
+        self.diversions = 0
+        self.waive_offline = False
+        self.waivable: Tuple[Tile, ...] = ()
+        self.agl_m: Optional[float] = None
+        self._km_offset = 0.0
         self.tracker = WINDOW.WindowTracker()
         self.position: Optional[Tuple[float, float]] = None
         self.gs_ms = 0.0
@@ -178,27 +217,64 @@ class FlightManager:
 
     # ------------------------------------------------------------ plan
 
-    def replan(self) -> None:
-        """(Re)make the jobs from the record's choices; a tile already
-        started, built or failed keeps its state (``flight_update``)."""
-        old = {j.tile: j for j in self.jobs}
+    def _plan_jobs(self) -> List["SCHEDULE.Job"]:
         jobs, (self.samples, self.times) = flight_jobs(
             self.plan, corridor_km=self.record.corridor_km,
             build_alternate=self.record.build_alternate,
             cruise_ms=self.record.profile.get("cruise_ms"),
             intermediate=self.intermediate, state_of=self.state_of,
-            estimate=self.estimate)
+            estimate=self.estimate, leg=self.leg)
+        self._km = [self._km_offset]
+        for a, b in zip(self.samples, self.samples[1:], strict=False):
+            self._km.append(self._km[-1] + FP.route_length_km([a, b]))
+        return jobs
+
+    def replan(self) -> None:
+        """(Re)make the jobs from the record's choices; a tile already
+        started, built or failed keeps its state (``flight_update``); a
+        build under way or staged that the new plan no longer lists
+        stays to be published."""
+        old = {j.tile: j for j in self.jobs}
         kept = []
-        for job in jobs:
-            prior = old.get(job.tile)
+        for job in self._plan_jobs():
+            prior = old.pop(job.tile, None)
             if (prior is not None and prior.kind == job.kind
                     and prior.state not in ("queued", "late")):
                 job = replace(job, state=prior.state, est_s=prior.est_s)
             kept.append(job)
+        kept += [j for _t, j in sorted(old.items())
+                 if j.state in ("building", "staged")]
         self.jobs = kept
-        self._km = [0.0]
-        for a, b in zip(self.samples, self.samples[1:], strict=False):
-            self._km.append(self._km[-1] + FP.route_length_km([a, b]))
+
+    def divert(self, now: float, target: "FP.Waypoint",
+               is_alternate: bool, cancel: Callable[[Tile], Any] = None
+               ) -> str:
+        """Spec §8.6 (``flight_divert``): ``target`` replaces the
+        destination; its tile is built ``full`` in class P0; the leg is
+        planned again from the aircraft (in the air) or the departure;
+        the old destination's build stops at its next step boundary
+        (``cancel(tile)``) unless the new leg still needs it.  Returns
+        the name the status shows (``diverted_to``)."""
+        last = self.plan.waypoints[-1]
+        old_destination = FP.tile_of(last.lat, last.lon)
+        flown = None if self.takeoff_at is None else now - self.takeoff_at
+        self._km_offset = self._done_km() if flown is not None else 0.0
+        self.plan, self.leg = DIVERT.divert_leg(
+            self.plan, target, self.position, flown, is_alternate)
+        if is_alternate:
+            self.record.build_alternate = False
+        self.jobs = DIVERT.merge_after_divert(
+            self.jobs, self._plan_jobs(), old_destination,
+            cancel or (lambda tile: None))
+        name = target.ident or "%.4f, %.4f" % (target.lat, target.lon)
+        self.record.notes.append({"diverted_to": name, "from": last.ident,
+                                  "at": self.stamp(), "alternate": is_alternate})
+        self.record.destination = {"ident": target.ident, "lat": target.lat,
+                                   "lon": target.lon}
+        if self.air.state != "sent":
+            self.air = AirReload()
+        self.diverted_to, self.diversions = name, self.diversions + 1
+        return name
 
     def _set(self, tile: Tile, **changes) -> None:
         self.jobs = [replace(j, **changes) if j.tile == tile else j
@@ -217,10 +293,14 @@ class FlightManager:
         self._move(now, rec, facts)
         self._harvest(now)
         self._settle(now, facts)
+        self._air_reload(now)
         if self.record.state in ("preparing", "ready", "flying"):
             self._mark_late(now)
             self._dispatch(now)
+        self._offline(facts)
+        was = self.record.state
         self._readiness(now, facts)
+        self._notices(was)
 
     def _move(self, now: float, rec: Optional[dict], facts: dict) -> None:
         for tile in set(facts.get("loads") or ()) - self._seen:
@@ -234,6 +314,8 @@ class FlightManager:
         self.tracker.update(lat, lon)
         self.position = (lat, lon)
         self.gs_ms = float(rec.get("gs_ms") or 0.0)
+        agl = rec.get("agl_m")
+        self.agl_m = None if agl is None else float(agl)
         self.record.phase = self._phase(now, rec)
 
     def _phase(self, now: float, rec: dict) -> str:
@@ -382,7 +464,7 @@ class FlightManager:
         loaded there)?"""
         if self.position is None:
             return False
-        first = self.plan.waypoints[0]
+        first = self.departure
         return WINDOW.reach(*self.position, *FP.tile_of(first.lat, first.lon),
                             tracker=self.tracker)["in_window"]
 
@@ -391,13 +473,15 @@ class FlightManager:
         Not while one of them waits staged: X-Plane holds its placeholder
         (rule S3 refused the swap), so only a reload reads it (S6 (a))."""
         return not any(j.klass == SCHEDULE.P0 and j.state == "staged"
+                       and j.role in ("departure", "enroute")
                        for j in self.jobs)
 
     def _readiness(self, now: float, facts: dict) -> None:
         jobs = self._live_jobs(now)
         known = {k: facts[k] for k in (
             "world_installed", "world_seen", "xplane_running", "budget_fits",
-            "budget_detail", "network_ok", "all_on_disk", "prefetch_done")
+            "budget_detail", "network_ok", "all_on_disk", "prefetch_done",
+            "network_detail")
             if facts.get(k) is not None}
         self.items = SCHEDULE.readiness_items(SCHEDULE.Facts(
             jobs=tuple(jobs), slots=self.slots(), flight_slots=self.flight_slots,
@@ -436,6 +520,9 @@ class FlightManager:
         done and the aircraft on the ground, the staged departure and
         first-window tiles go in (merged, S5) and X-Plane reloads once."""
         loaded = next((i for i in self.items if i.key == "loaded"), None)
+        if self.takeoff_at is not None:        # S6 (a) is on the ground only
+            self.reload = ""
+            return
         if loaded is None or loaded.state == "done":
             if self.reload == "ground_pending":
                 self.reload = ""
@@ -446,15 +533,139 @@ class FlightManager:
         if not others or self.record.phase not in ("parked", ""):
             return
         tiles = [j.tile for j in self.jobs if j.klass == SCHEDULE.P0
-                 and j.state == "staged"]
+                 and j.state == "staged" and j.role in ("departure", "enroute")]
         if not self.ground_reload(tiles):
             return
         self.reload = "sent"
+        self.board.post("reloading_on_ground")
         for tile in tiles:
             self._runs.setdefault(tile, {})["swapped_at"] = now
             self._set(tile, state="swapped")
         self.items = [i._replace(state="done", eta_s=0.0, detail="")
                       if i.key == "loaded" else i for i in self.items]
+
+    # ------------------------------------------- S6 (b), offline, notices
+
+    def _destination(self) -> Tuple["FP.Waypoint", Optional["SCHEDULE.Job"]]:
+        last = self.plan.waypoints[-1]
+        job = self._job(FP.tile_of(last.lat, last.lon))
+        return last, (job if job is not None and job.role == "destination"
+                      else None)
+
+    def _air_reload(self, now: float) -> None:
+        """Rule S6 (b) (``flight_air_reload``): the destination waits
+        staged because X-Plane loaded its area; near the ground, the one
+        reload of the flight is announced, then sent unless "Not now"."""
+        if self.takeoff_at is None:
+            return
+        last, job = self._destination()
+        needed = job is not None and job.state == "staged"
+        if needed:
+            self.board.post("destination_late", key=self.diversions,
+                            destination=last.ident)
+        near = (self.position is not None and self.agl_m is not None
+                and self.agl_m < LOW_AGL_M
+                and FP.route_length_km([self.position, (last.lat, last.lon)])
+                <= NEAR_KM)
+        action = self.air.step(now, needed, near)
+        if action == "announce":
+            self.board.post("reload_announced", key=self.diversions,
+                            destination=last.ident)
+        elif action == "send":
+            self._send_air_reload(now, job.tile)
+
+    def _send_air_reload(self, now: float, tile: Tile) -> bool:
+        if not self.ground_reload([tile]):
+            return False
+        self.air.sent()
+        self._runs.setdefault(tile, {})["swapped_at"] = now
+        self._set(tile, state="swapped")
+        return True
+
+    def reload_now(self, now: float) -> bool:
+        """``flight_reload``: the pilot asks for the offered reload (in
+        the air, rule S6 (b)); False when none is offered."""
+        _last, job = self._destination()
+        if (self.takeoff_at is None or job is None or job.state != "staged"
+                or not self.air.press()):
+            return False
+        return self._send_air_reload(now, job.tile)
+
+    def not_now(self) -> bool:
+        """``flight_reload {not_now: true}``: the announced reload waits
+        until the pilot asks for it."""
+        return self.air.not_now()
+
+    def _offline(self, facts: dict) -> None:
+        """§11 / RULINGS 2026-11-10k Q3: corridor tiles whose map data or
+        elevation could not be fetched (``facts["offline_tiles"]``).  With
+        the pilot's waiver, en-route ones are left to X-Plane's own
+        scenery (shed) and the network row is done; the departure and
+        destination are never waived."""
+        missing = {tuple(t) for t in facts.get("offline_tiles") or ()}
+        roles = {j.tile: j.role for j in self.jobs}
+        enroute = tuple(sorted(t for t in missing
+                               if roles.get(t) in ("enroute", "alternate")))
+        vital = [t for t in missing
+                 if roles.get(t) in ("departure", "destination")]
+        if not missing:
+            self.waivable = ()
+            return
+        if self.waive_offline and not vital:
+            for tile in enroute:
+                job = self._job(tile)
+                if job is not None and job.state in ("queued", "late"):
+                    self._set(tile, state="shed")
+            facts.update(network_ok=True, prefetch_done=True)
+            self.waivable = ()
+            return
+        self.waivable = () if vital else enroute
+        facts["network_detail"] = (
+            "Needs internet for the departure or destination" if vital
+            else "Needs internet for %d tile(s) en route" % len(enroute))
+        if enroute and not vital:
+            self.board.post("offline", key=len(enroute), count=len(enroute))
+
+    def waive(self) -> int:
+        """The pilot's "Fly with X-Plane's own scenery there"; the tiles
+        it covers."""
+        self.waive_offline = True
+        self.record.notes.append({"offline_waived": [
+            WP.tile_name(*t) for t in self.waivable], "at": self.stamp()})
+        return len(self.waivable)
+
+    def _notices(self, was: str) -> None:
+        """The one-shot ``FlightNotice`` codes (``flight_notices``)."""
+        last, job = self._destination()
+        dest = last.ident or self.diverted_to
+        if was == "preparing" and self.record.state == "ready":
+            self.board.post("ready", origin=self.departure.ident,
+                            destination=dest)
+        if (job is not None and job.state == "swapped"
+                and self.record.state in ("ready", "flying")):
+            margin = None
+            run = self._runs.get(job.tile, {})
+            if "swapped_at" in run and self.takeoff_at is not None:
+                margin = self.takeoff_at + job.deadline_s - run["swapped_at"]
+            if self.leg.diverted:
+                self.board.post("diversion_ready", key=self.diversions,
+                                destination=dest)
+            elif job.est_s != (0.0, 0.0):       # built for this flight
+                self.board.post("destination_ready", destination=dest,
+                                margin_s=margin)
+        late = sum(1 for j in self.jobs if j.state == "late")
+        if late:
+            self.board.post("tile_late", key=late, count=late)
+        budget = next((i for i in self.items if i.key == "budget"), None)
+        if budget is not None and budget.state == "blocked":
+            self.board.post("budget", detail=budget.detail)
+        if was != "arrived" and self.record.state == "arrived":
+            self.board.post("arrived", destination=dest)
+
+    def notices(self) -> List[dict]:
+        """The notices posted since the last call (the runner emits each
+        as a ``FlightNotice``)."""
+        return self.board.drain()
 
     # ---------------------------------------------------------- status
 
@@ -511,8 +722,9 @@ class FlightManager:
             "late": tuple(WP.tile_name(*j.tile) for j in self.jobs
                           if j.state == "late"),
             "shed": tuple(WP.tile_name(*j.tile) for j in shed),
-            "reload": self.reload,
-            "diverted_to": "",
+            "reload": self.reload if self.takeoff_at is None else self.air.state,
+            "diverted_to": self.diverted_to,
+            "waivable": tuple(WP.tile_name(*t) for t in self.waivable),
         }
 
     def record_tiles(self) -> List[TileRow]:

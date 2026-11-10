@@ -60,6 +60,42 @@ import Foundation
                                                           marginSeconds: nil))
     }
 
+    /// Lane F2: `FlightNotice` is an `O4Event`; the "Divert…" search, the
+    /// reload and offline-waiver lines give the Python answers
+    /// (`O4_Fly_Divert_Text`).
+    @Test func divertNoticeAndWaiver() throws {
+        let events = try #require(Self.raw["events"] as? [String: Any])
+        let object = try #require(events["FlightNotice"] as? [String: Any])
+        guard case .flightNotice(let notice)? = O4Event.parse(object: object) else {
+            Issue.record("FlightNotice is not an O4Event")
+            return
+        }
+        #expect(notice.code == "diversion_ready" && notice.title == "Diversion ready")
+        #expect(notice.flight == Self.status.flight && notice.severity == "info")
+        #expect(O4EngineCapabilities.flightNotices == "flight_notices")
+        func airport(_ row: O4JSON) -> FlyDivertText.Airport {
+            let r = row.arrayValue!
+            return FlyDivertText.Airport(ident: r[0].stringValue!, name: r[1].stringValue ?? "",
+                                         lat: r[2].doubleValue!, lon: r[3].doubleValue!)
+        }
+        for c in Self.cases("divert_row_label") {
+            #expect(FlyDivertText.rowLabel(airport(c[0])) == c[1].stringValue)
+        }
+        let index = (Self.doc["text"]?["divert_airports"]?.arrayValue ?? []).map(airport)
+        #expect(index.count == 6)
+        for c in Self.cases("divert_matches") {
+            let want = (c[2].arrayValue ?? []).map(airport)
+            #expect(FlyDivertText.matches(c[0].stringValue!, in: index,
+                                          limit: c[1].intValue!) == want)
+        }
+        for c in Self.cases("reload_line") {
+            #expect(FlyDivertText.reloadLine(O4FlightStatus.parse(c[0])) == c[1].stringValue)
+        }
+        for c in Self.cases("waiver_line") {
+            #expect(FlyDivertText.waiverLine(O4FlightStatus.parse(c[0])) == c[1].stringValue)
+        }
+    }
+
     @Test func countdownAndItems() {
         for c in Self.cases("countdown") {
             #expect(FlyText.countdown(c[0].doubleValue) == c[1].stringValue)

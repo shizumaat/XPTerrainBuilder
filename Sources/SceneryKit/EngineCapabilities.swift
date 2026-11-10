@@ -31,6 +31,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// `flight_list` / `flight_plan_simbrief` + `FlightStatus` /
     /// `FlightReady` (World spec F1b).
     public static let flightManager = "flight_manager"
+    /// `flight_divert` / `flight_reload` / `flight_update {waive_offline}`
+    /// + `FlightNotice` (World spec F2).
+    public static let flightNotices = "flight_notices"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

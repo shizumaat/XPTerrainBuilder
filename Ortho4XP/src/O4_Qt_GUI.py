@@ -125,6 +125,7 @@ import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
 import O4_Qt_Modes as QTMODES
+import O4_Qt_Fly_Divert as QTFLYDIVERT
 import O4_Qt_Fly_Layer as QTFLYLAYER
 import O4_Qt_Fly_Pane as QTFLYPANE
 import O4_Qt_Patch_Library as QTPATCHLIB
@@ -955,6 +956,7 @@ class MainWindow(QMainWindow):
             # flight_plan_simbrief's plan.
             EV.FlightStatus: self._on_flight_status,
             EV.FlightReady: self._on_flight_ready,
+            EV.FlightNotice: self._on_flight_notice,
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
@@ -2083,6 +2085,12 @@ class MainWindow(QMainWindow):
 
     def _on_flight_status(self, event):
         self.fly_pane.show_status(event)
+
+    def _on_flight_notice(self, event):
+        """One ``FlightNotice`` (lane F2): a system notification and the
+        Fly pane's notice line."""
+        self.fly_pane.show_notice(event)
+        QTFLYDIVERT.post_notice(self, event)
 
     def _on_flight_ready(self, event):
         """``flight_plan_simbrief``'s plan, or its refusal sentence."""

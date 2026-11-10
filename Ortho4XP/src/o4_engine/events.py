@@ -228,6 +228,7 @@ CAPABILITIES: tuple = (
     "aircraft_position",            # 2026-11-10, #2001 aircraft_watch + AircraftPosition
     "world_job",                    # 2026-11-10, World spec W2 world_job_start/stop (track mode)
     "flight_manager",               # 2026-11-10, World spec F1b flight_* + FlightStatus/Ready
+    "flight_notices",               # 2026-11-10, World spec F2 flight_divert/reload + FlightNotice
 )
 
 
@@ -1134,7 +1135,10 @@ class FlightStatus(EngineEvent):
     remaining_s, margin_s]`` (``tile`` ``[lat, lon]``); ``route_km``,
     ``done_km``, ``eta_s`` (to landing); ``late`` and ``shed`` tile names;
     ``reload`` ``""``, ``ground_pending``, ``offered``, ``scheduled``,
-    ``sent``; ``diverted_to`` (phase F2).
+    ``sent``; ``diverted_to`` the diversion airport (``flight_divert``,
+    lane F2); ``waivable`` the en-route tiles that need the internet and
+    may be left to X-Plane's own scenery (``flight_update
+    {waive_offline: true}``, RULINGS 2026-11-10k Q3).
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).
@@ -1155,6 +1159,29 @@ class FlightStatus(EngineEvent):
     shed: tuple = ()
     reload: str = ""
     diverted_to: str = ""
+    waivable: tuple = ()
+
+
+@dataclass(frozen=True)
+class FlightNotice(EngineEvent):
+    """One notice of the active flight (flight manager / World spec §5.3;
+    lane F2, capability ``flight_notices``): posted once, and each app
+    shows it as a system notification (Mac ``UNUserNotificationCenter``,
+    Qt ``QSystemTrayIcon``) unless the user turned flight notifications
+    off.  ``code`` (``ready``, ``destination_ready``, ``diversion_ready``,
+    ``reload_announced``, ``offline``, ... -- ``o4_engine.flight_notices.
+    CODES``), ``title`` and ``text`` ready to show, ``severity`` ``info``
+    or ``warning``.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    flight: str = ""
+    code: str = ""
+    title: str = ""
+    text: str = ""
+    severity: str = "info"
 
 
 @dataclass(frozen=True)

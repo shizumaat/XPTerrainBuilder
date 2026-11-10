@@ -410,8 +410,14 @@ def test_create_status_update_end(engine, monkeypatch):
     assert status["phase"] == "parked" and status["items"]
     assert table["flight_update"](flight=flight, corridor_km=40,
                                   build_alternate=True) == {"flight": flight}
-    with pytest.raises(ValueError, match="not available"):
+    with pytest.raises(ValueError, match="no alternate"):
         table["flight_divert"](flight=flight, to="alternate")
+    assert table["flight_divert"](
+        flight=flight, to={"ident": "alt", "lat": 52.5, "lon": -62.5}) == {
+        "flight": flight, "diverted_to": "ALT"}
+    assert table["flight_status"]()["diverted_to"] == "ALT"
+    with pytest.raises(ValueError, match="No scenery reload"):
+        table["flight_reload"](flight=flight)
     assert [r["flight"] for r in table["flight_list"]()["flights"]] == [flight]
     starts = []
     monkeypatch.setattr(WORLD_JOB, "autostart",

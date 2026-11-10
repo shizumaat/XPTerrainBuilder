@@ -18,9 +18,14 @@ what it touches:
   (``flight_budget`` against ``storage_budget.status``), the corridor
   pre-fetch and the network (:func:`prefetch_tile`: elevation and map
   data of every corridor tile not on disk);
-* the ground reload of rule S6 (a) (:func:`_ground_reload`): the staged
-  departure and first-window tiles merged over the loaded ones (rule S5,
-  ``O4_World_Pack.swap_in(merge=True)``), then X-Plane reloads once.
+* the reloads of rule S6 (a) and (b) (``flight_swap_reload.MergeReload``):
+  the staged tiles merged over the loaded ones (rule S5,
+  ``O4_World_Pack.swap_in(merge=True)``), X-Plane reloads once, and the
+  names the new tiles no longer use go once the witness shows the
+  reload read them (lane F2);
+* the manager's one-shot notices, each emitted as a ``FlightNotice``
+  (lane F2), and :meth:`_Runner.cancel` for a diversion's old
+  destination (``session.cancel_tile``).
 
 :func:`start` replaces build-ahead's track mode while a flight is active
 (``world_job_start {mode: "flight"}``); :func:`stop` ends it and track
@@ -31,10 +36,9 @@ from __future__ import annotations
 
 import contextlib
 import os
-import shutil
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import O4_Flight_Schedule as SCHEDULE
 import O4_World_Pack as WP
@@ -137,6 +141,7 @@ class _Facts:
         tiles = sorted({j.tile for j in jobs})
         missing = [t for t in tiles if not on_disk(t)]
         self.values["all_on_disk"] = not missing
+        self.values["offline_tiles"] = ()
         self.values["prefetch_done"] = None if missing else True
         threading.Thread(target=self._budget, args=(jobs, flight_s, len(missing)),
                          daemon=True, name="o4-flight-budget").start()
@@ -161,15 +166,16 @@ class _Facts:
         self.values.update(budget_fits=fits, budget_detail=detail)
 
     def _prefetch(self, tiles, prefetch) -> None:
-        ok = True
+        failed = []
         for lat, lon in tiles:
             try:
                 prefetch(lat, lon)
             except Exception as error:      # offline or a source down
                 WORLD.write_log({"flight_prefetch_error": repr(error)[:300],
                                  "tile": WP.tile_name(lat, lon)})
-                ok = False
-        self.values.update(network_ok=ok, prefetch_done=ok)
+                failed.append((lat, lon))
+        self.values.update(network_ok=not failed, prefetch_done=not failed,
+                           offline_tiles=tuple(failed))
 
     def __call__(self) -> dict:
         now = time.monotonic()
@@ -188,31 +194,26 @@ class _Facts:
         self.values.update(
             world_installed=fields["installed"],
             world_seen=fields["seen_by_xplane"], xplane_running=running,
-            loads=set(loads))
+            loads=set(loads),
+            load_stamps={tile: r.t_s for tile, r in loads.items()})
 
 
-def _ground_reload(scenery_dir: str, build_dir_of, port=None
-                   ) -> Callable[[List[Tuple[int, int]]], bool]:
-    """Rule S6 (a) (see the module); True when X-Plane took the reload."""
-    def reload(tiles) -> bool:
-        import O4_XPlane_WebAPI as WEBAPI
+def _reloader(scenery_dir: str, build_dir_of, port=None):
+    """Rules S6 (a), (b) with S5 (``flight_swap_reload.MergeReload``)."""
+    import O4_XPlane_WebAPI as WEBAPI
 
-        from . import world_publish as PUBLISH
-        pack = WORLD.pack_dir(scenery_dir)
-        for lat, lon in tiles:
-            staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
-            if not os.path.isfile(os.path.join(staged, WP.dsf_relpath(lat, lon))):
-                continue
-            done = WP.swap_in(pack, staged, lat, lon, merge=True)
-            shutil.rmtree(staged, ignore_errors=True)
-            PUBLISH._after_swap(scenery_dir, build_dir_of(lat, lon), lat, lon)
-            WORLD.write_log({"swap_in": done["tile"], "merge": True,
-                             "stale": len(done["stale"]), "from": "flight"})
+    from .flight_swap_reload import MergeReload
+
+    def send() -> bool:
         base = WEBAPI.base_url(int(port)) if port else None
-        sent = bool(WEBAPI.reload_scenery(base))
-        WORLD.write_log({"flight_reload": sent, "tiles": len(tiles)})
-        return sent
-    return reload
+        return bool(WEBAPI.reload_scenery(base))
+
+    def witness() -> dict:
+        if not WORLD._xplane_running():
+            return {}
+        return {tile: r.t_s for tile, r in
+                WORLD._witness(scenery_dir)[0].items()}
+    return MergeReload(scenery_dir, build_dir_of, send, witness)
 
 
 def status_event(fields: dict):
@@ -240,6 +241,8 @@ class _Runner:
                                          SLOTS.session_capacity())
         self.governor = GOVERNOR.FrameGovernor(
             values.get("fly_sim_priority") or "balanced")
+        self.session = session
+        self.reloader = _reloader(scenery_dir, session.tile_build_dir, port)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
             drape=lambda tile: drape_tile(tile, provider, zoomlevel))
@@ -251,8 +254,7 @@ class _Runner:
             intermediate=values.get("world_intermediate") or "light",
             parked_slots=GOVERNOR.parked_slots(SLOTS.session_capacity()),
             flight_slots=self.cap,
-            ground_reload=_ground_reload(scenery_dir, session.tile_build_dir,
-                                         port),
+            ground_reload=self.reloader,
             stamp=_utc)
         self.manager.facts = _Facts(scenery_dir, self.manager.jobs,
                                     self.manager.times[-1])
@@ -264,6 +266,19 @@ class _Runner:
 
     def now(self) -> float:
         return time.monotonic() - self.t0
+
+    def cancel(self, tile) -> None:
+        """A diversion's old destination: its build stops after the
+        current step (``session.cancel_tile``)."""
+        with contextlib.suppress(Exception):
+            self.session.cancel_tile(int(tile[0]), int(tile[1]))
+
+    def _emit_notices(self) -> None:
+        from .events import FlightNotice
+        flight = self.manager.record.id
+        for notice in self.manager.notices():
+            self.emit(FlightNotice(flight=flight, **notice))
+            WORLD.write_log({"flight_notice": notice["code"]})
 
     def status(self) -> dict:
         with self.lock:
@@ -282,6 +297,7 @@ class _Runner:
                         self.governor.observe(now, rec.get("frame_s"), building)
                         self.manager.flight_slots = self.governor.allowed(self.cap)
                     self.manager.tick(now, rec)
+                    self.reloader.sweep(self.manager.facts().get("load_stamps"))
                     fields = self.manager.status(now)
                     record = self.manager.record
                     record.tiles = self.manager.record_tiles()
@@ -294,6 +310,7 @@ class _Runner:
                 if changed != last or now - sent_at >= STATUS_EVERY_S:
                     last, sent_at = changed, now
                     self.emit(status_event(fields))
+                self._emit_notices()
             except Exception as error:      # logged; the flight goes on
                 WORLD.write_log({"flight_error": repr(error)[:300]})
 

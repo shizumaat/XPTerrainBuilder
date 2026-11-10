@@ -160,3 +160,49 @@ def test_the_layer_draws_in_fly_only(qapp):
     pane.show_position(NS(lat=53.3, lon=-60.3, track_deg=90.0))
     assert view.updates > before and len(pane.track.parts()) == 1
     assert drawn()
+
+
+def test_divert_waiver_reload_and_notice(qapp):
+    """Lane F2: the waiver row shows the tiles that need the internet and
+    sends ``flight_update {waive_offline}``; the reload offer shows "Not
+    now" only while announced and sends ``flight_reload``; "Divert…"'s
+    dialog searches X-Plane's airports and sends ``flight_divert``; a
+    ``FlightNotice`` becomes the pane's notice line."""
+    import O4_Qt_Fly_Divert as QTDIVERT
+    answers = {"flight_update": {}, "flight_reload": {}, "flight_divert": {}}
+    engine = _Engine(answers)
+    pane, _saved = _pane(engine)
+    status = dict(CASES["events"]["FlightStatus"], waivable=["+53-062"],
+                  reload="scheduled", diverted_to="CYQX")
+    pane.show_status(status)
+    assert not pane.offline_waiver_row.isHidden()
+    assert "1 tile(s)" in pane.waiver_label.text()
+    pane.offline_waiver_row.buttons[0].click()
+    assert engine.calls[-1] == ("flight_update", {
+        "flight": status["flight"], "waive_offline": True})
+    assert not pane.reload_offer_row.isHidden() and not pane.not_now_btn.isHidden()
+    pane.not_now_btn.click()
+    assert engine.calls[-1] == ("flight_reload", {"flight": status["flight"],
+                                                  "not_now": True})
+    pane.show_status(dict(status, reload="offered", waivable=[]))
+    assert pane.offline_waiver_row.isHidden() and pane.not_now_btn.isHidden()
+    pane.reload_offer_row.buttons[0].click()
+    assert engine.calls[-1][1]["not_now"] is False
+    pane.divert_to({"ident": "CYYT", "lat": 47.6, "lon": -52.7})
+    assert engine.calls[-1] == ("flight_divert", {
+        "flight": status["flight"], "to": {"ident": "CYYT", "lat": 47.6,
+                                           "lon": -52.7}})
+    dialog = QTDIVERT.DivertDialog(
+        lambda: [NS(code="CYYT", name="St. John's", lat=47.6, lon=-52.7),
+                 NS(code="CYYR", name="Goose Bay", lat=53.3, lon=-60.4)], True)
+    dialog.search_edit.setText("goose")
+    assert dialog.results.count() == 1
+    dialog.divert_btn.click()
+    assert dialog.choice() == {"ident": "CYYR", "lat": 53.3, "lon": -60.4}
+    alt = QTDIVERT.DivertDialog(lambda: [], True)
+    alt.alternate_btn.click()
+    assert alt.choice() == "alternate"
+    notice = CASES["events"]["FlightNotice"]
+    pane.show_notice(notice)
+    assert not pane.notice_label.isHidden()
+    assert pane.notice_label.text().startswith("Diversion ready")

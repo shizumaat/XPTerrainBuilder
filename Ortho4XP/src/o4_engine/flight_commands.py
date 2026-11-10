@@ -23,11 +23,22 @@ The flight's own commands (lane F1b, capability ``flight_manager``;
   (``world_job_start {mode: "flight"}``); ``{"flight": id}``.
   ``FlightStatus`` events follow.  One flight is active at a time.
 * ``flight_status {flight?}`` -- the ``FlightStatus`` fields now.
-* ``flight_update {flight, build_alternate?, cruise_kt?, corridor_km?}``
-  -- the flight card's choices; the jobs are planned again.
+* ``flight_update {flight, build_alternate?, cruise_kt?, corridor_km?,
+  waive_offline?}`` -- the flight card's choices; the jobs are planned
+  again.  ``waive_offline``: "Fly with X-Plane's own scenery there" for
+  the en-route tiles that need the internet (RULINGS 2026-11-10k Q3).
 * ``flight_end {flight}`` -- the flight closes; build-ahead's track mode
   may start again.  ``flight_list`` -- the records, newest first.
-* ``flight_divert`` -- refused until diversion lands (phase F2).
+
+Lane F2 (capability ``flight_notices``):
+
+* ``flight_divert {flight, to}`` -- ``to`` is ``"alternate"``, an airport
+  ``{ident, lat, lon}`` (the apps' airport search), ``[lat, lon]`` or an
+  ident (the engine's airport index); the destination is replaced and
+  its tile built ``full`` first (spec §8.6).  ``{"flight", "diverted_to"}``.
+* ``flight_reload {flight, not_now?}`` -- the reload in the air (rule
+  S6 (b)): the pilot's "Reload now", or "Not now" for the announced one.
+* ``FlightNotice`` events: one per notice (``flight_notices``).
 """
 
 from __future__ import annotations
@@ -206,11 +217,13 @@ def flight_status(flight: str = "", **_ignored) -> Dict[str, Any]:
             "countdown_s": None, "reason": "", "items": [],
             "jobs": [[t.tile, t.role, t.kind, t.state, 0.0, None]
                      for t in record.tiles],
-            "late": [], "shed": [], "reload": "", "diverted_to": ""}
+            "late": [], "shed": [], "reload": "", "diverted_to": "",
+            "waivable": []}
 
 
 def flight_update(flight: str = "", build_alternate=None, cruise_kt=None,
-                  corridor_km=None, **_ignored) -> Dict[str, Any]:
+                  corridor_km=None, waive_offline=None, **_ignored
+                  ) -> Dict[str, Any]:
     """ENGINE COMMAND ``flight_update``: the flight card's choices."""
     import O4_Flight_Schedule as SCHEDULE
     runner = _runner_for(flight)
@@ -228,6 +241,8 @@ def flight_update(flight: str = "", build_alternate=None, cruise_kt=None,
         if corridor is not None:
             record.corridor_km = corridor
         runner.manager.replan()
+        if waive_offline:
+            runner.manager.waive()
     RECORD.save(record, RECORD.flights_dir())
     return {"flight": record.id}
 
@@ -256,10 +271,52 @@ def flight_list(**_ignored) -> Dict[str, Any]:
         for r in RECORD.list_flights(RECORD.flights_dir())]}
 
 
-def flight_divert(**_ignored) -> Dict[str, Any]:
-    """ENGINE COMMAND ``flight_divert``: refused until diversion lands
-    (spec §8.6, phase F2)."""
-    raise ValueError("Diverting is not available yet in this version.")
+def _airport_lookup(ident: str):
+    """``(lat, lon)`` of an ident in the engine's airport index (built by
+    ``airport_index``); None when the index is missing or lacks it."""
+    try:
+        import O4_Airport_Index as INDEX
+        import O4_File_Names as FNAMES
+        for entry in INDEX.load_index(FNAMES.airport_index_cache()):
+            if entry.code.upper() == ident:
+                return entry.lat, entry.lon
+    except Exception:                       # no index: the app sends a place
+        return None
+    return None
+
+
+def flight_divert(flight: str = "", to: Any = "alternate", **_ignored
+                  ) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_divert`` (see the module)."""
+    from .flight_divert import divert_target
+    runner = _runner_for(flight)
+    if runner is None:
+        raise ValueError("That flight is not active.")
+    with runner.lock:
+        manager = runner.manager
+        target, is_alternate = divert_target(to, manager.plan, _airport_lookup)
+        name = manager.divert(runner.now(), target, is_alternate,
+                              cancel=runner.cancel)
+        record = manager.record
+    RECORD.save(record, RECORD.flights_dir())
+    return {"flight": record.id, "diverted_to": name}
+
+
+def flight_reload(flight: str = "", not_now: bool = False, **_ignored
+                  ) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_reload`` (see the module): ``{"flight",
+    "reload"}`` -- the reload state after the pilot's choice."""
+    runner = _runner_for(flight)
+    if runner is None:
+        raise ValueError("That flight is not active.")
+    with runner.lock:
+        manager = runner.manager
+        done = (manager.not_now() if not_now
+                else manager.reload_now(runner.now()))
+        state = manager.air.state
+    if not done:
+        raise ValueError("No scenery reload is waiting.")
+    return {"flight": manager.record.id, "reload": state}
 
 
 def start_flight_plan_simbrief(emit: Callable[[Any], None], request: Any = None,
@@ -295,4 +352,5 @@ def flight_handlers(session) -> Dict[str, Callable]:
         "flight_end": lambda **kw: flight_end(session, **kw),
         "flight_list": flight_list,
         "flight_divert": flight_divert,
+        "flight_reload": flight_reload,
     }

@@ -20,6 +20,7 @@ from auto_patch_v2.planar.low_extent import AirRegion
 from auto_patch_v2.planar.low_level import LOW_KIND
 from auto_patch_v2.planar.overlay import Region
 from shapely.geometry import box
+from shapely.ops import unary_union
 from test_two_pads1214 import _airport, _wall
 
 T = box(400.0, 0.0, 500.0, 100.0)        # the terminal's held block (D 30)
@@ -46,7 +47,7 @@ def _cls():
     return types.SimpleNamespace(cells=[types.SimpleNamespace(ring=ring, holes=(), role="apron")])
 
 
-def _run(law, parts, tmp_path, roads=(), ground=lambda x, y: 26.0):
+def _run(law, parts, tmp_path, roads=(), ground=lambda x, y: 26.0, pads=(), held=(), **kw):
     A = _airport(parts, tmp_path, ground=ground)
     A.osm_ways = list(roads)
     A.frame.transformers = lambda: ((lambda lon, lat: (lon, lat)), (lambda x, y: (y, x)))
@@ -54,10 +55,13 @@ def _run(law, parts, tmp_path, roads=(), ground=lambda x, y: 26.0):
     reg = Registries()
     reg.held["term"] = {"unit": "term", "datum_pred": 30.0}
     reg.held["stn"] = {"unit": "stn", "datum_pred": 30.0}
+    for ref in held:
+        reg.held[ref] = {"unit": ref, "datum_pred": 30.0}
     regs = [Region(role="building", ref=ref, polygon=g, code_number=None, code_letter=None,
-                   side="airside", source="cell") for ref, g in (("term", T), ("stn", STN))]
+                   side="airside", source="cell")
+            for ref, g in (("term", T), ("stn", STN), *pads)]
     counts: dict = {}
-    out = LR.seed_levels(regs, reg, seeds, [AirRegion(AIR, "cell")], A, law, 0.5, counts)
+    out = LR.seed_levels(regs, reg, seeds, [AirRegion(AIR, "cell")], A, law, 0.5, counts, **kw)
     return seeds, out, reg, counts
 
 
@@ -127,3 +131,71 @@ def test_a_support_founds_no_seed(law, tmp_path):
     assert seeds == ()
 
 
+
+
+#: a deck of the station's block standing over its lower storey (#1905
+#: round 3, ``pad_fill.StoreyFloor``): its ground prints east of the station
+FLOOR_PRINTS = (box(543.0, 10.0, 580.0, 32.0), box(543.0, 38.0, 580.0, 60.0))
+FOOT = box(552.0, 33.0, 558.0, 37.0)        # a pad of its own on the deck floor
+
+
+def _lower():
+    """The arrivals road under the deck floor: the map places it lower."""
+    return types.SimpleNamespace(id=-2, points=[(543.0, 35.0), (580.0, 35.0)],
+                                 tags={"highway": "service", "layer": "-1", "covered": "yes"})
+
+
+def _floor():
+    from auto_patch_v2.planar.pad_fill import StoreyFloor
+    return StoreyFloor("stn", "deck6", FLOOR_PRINTS)
+
+
+@pytest.fixture
+def no_deck(monkeypatch):
+    """No pack deck carries a road here (``airport/carried_roads``)."""
+    from auto_patch_v2.airport import partition_prints as PP
+    monkeypatch.setattr(PP, "partition_prints", lambda _part: [])
+
+
+def test_the_deck_floor_is_a_piece_of_the_level_at_its_depth(law, tmp_path, no_deck):
+    """SBSP (owner RULINGS 2026-11-10f (1) "b"): the arrivals level spans
+    the departures deck's floor -- one more piece ``<block>/p<k>`` at the
+    host level's y, its record the host's with ``floor_of`` the deck."""
+    _s, out, reg, _c = _run(law, _station(), tmp_path, roads=[_road(), _lower()],
+                            floors=(_floor(),))
+    (ref, rec), = ((k, v) for k, v in reg.landings.items() if v.get("floor_of"))
+    host = reg.landings["stn/p1"]
+    assert ref == "stn/p2" and rec["floor_of"] == "deck6" and rec["piece_of"] == "stn/p1"
+    assert rec["y_lo"] == host["y_lo"] == pytest.approx(-4.0) and rec["block"] == "stn"
+    q = next(r.polygon for r in out if r.ref == ref)
+    # the prints and the lower road between them (closed), short of the riser
+    assert q.area > 0.8 * 35.0 * 50.0
+    assert any(r.ref == ref + "#strip" for r in out)
+
+
+def test_a_pad_of_its_own_on_the_deck_floor_joins_it_a_held_one_is_kept(law, tmp_path,
+                                                                         no_deck):
+    _s, out, reg, c = _run(law, _station(), tmp_path, roads=[_road(), _lower()], floors=(_floor(),),
+                           pads=(("foot", FOOT),))
+    assert c["forecourt_pads_absorbed"] == 1 and not any(r.ref == "foot" for r in out)
+    q = unary_union([r.polygon for r in out if r.ref == "stn/p2"])
+    assert q.contains(FOOT.buffer(-0.01))
+    _s, out, reg, c = _run(law, _station(), tmp_path, roads=[_road(), _lower()], floors=(_floor(),),
+                           pads=(("foot", FOOT),), held=("foot",))
+    assert "forecourt_pads_absorbed" not in c
+    assert unary_union([r.polygon for r in out if r.ref == "foot"]).equals(FOOT)
+    q = unary_union([r.polygon for r in out if r.ref == "stn/p2"])
+    assert q.intersection(FOOT).area < 1e-6
+
+
+def test_no_floor_no_change(law, tmp_path):
+    """``floors=()`` is the level as before; a floor of another block is
+    not this level's."""
+    from auto_patch_v2.planar.pad_fill import StoreyFloor
+    _s, a, ra, ca = _run(law, _station(), tmp_path, roads=[_road()])
+    _s, b, rb, cb = _run(law, _station(), tmp_path, roads=[_road()], floors=())
+    _s, c, rc, cc = _run(law, _station(), tmp_path, roads=[_road()],
+                         floors=(StoreyFloor("term", "deck6", FLOOR_PRINTS),))
+    for got, rg, cn in ((b, rb, cb), (c, rc, cc)):
+        assert [(r.ref, r.polygon.wkt) for r in got] == [(r.ref, r.polygon.wkt) for r in a]
+        assert rg.landings == ra.landings and cn == ca

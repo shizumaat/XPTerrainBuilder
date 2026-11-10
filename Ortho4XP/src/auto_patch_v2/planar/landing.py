@@ -148,10 +148,12 @@ def _cut_back(plats, f, law, blocks):
     return unary_union(near).buffer(keep, join_style=2)
 
 
-def _fills(part, to_xy, law, blocks, vias, collar_m: float, counts: dict) -> list:
+def _fills(part, to_xy, law, blocks, vias, collar_m: float, counts: dict,
+           floors: "list | None" = None) -> list:
     """The pad fills of ``planar/pad_fill`` over this mint's blocks and
     viaducts: prints within two bank widths are one fill, none under a deck
-    that stands over its own lower storey (RULINGS 2026-11-10f (1))."""
+    that stands over its own lower storey (RULINGS 2026-11-10f (1)) -- its
+    prints go to ``floors`` (``pad_fill.StoreyFloor``)."""
     from ..airport.slab_faces import witness_faces
     from ..law.tables import base_slab_law
     from .pad_fill import pier_fills, plate_fills
@@ -159,20 +161,22 @@ def _fills(part, to_xy, law, blocks, vias, collar_m: float, counts: dict) -> lis
     storey = float(law.tables.structures.building_pad.low_level_min_step_m)
     return (plate_fills(part, to_xy, lw, witness_faces(lw), blocks)
             + pier_fills(vias, part, to_xy, blocks, BAND_M, 2.0 * collar_m,
-                         storey, counts))
+                         storey, counts, floors))
 
 
 def landing_regions(out: list, split_units: _t.Mapping[str, list],
                     air_polys: _t.Sequence[Polygon], airport, law,
                     grid: float, collar_m: float,
                     counts: dict, *, reg: Registries, strips: _t.Sequence = (),
-                    lots: _t.Sequence = ()) -> list:
+                    lots: _t.Sequence = (), floors: "list | None" = None) -> list:
     """The landing + collar regions to add to the pad regions ``out``
     (module docstring), registering each in ``reg.landings`` (and its
     run-outs in ``reg.landing_runouts``).  ``strips``: the ROAD STRIPS a
     fill that cannot bank down runs to (``planar/fill_road``); ``lots``:
     the lots it runs to as well, which keep lot law (RULINGS 2026-10-27i).
-    Such a fill mints its RISERS at the far kerb (``planar/fill_riser``)."""
+    Such a fill mints its RISERS at the far kerb (``planar/fill_riser``).
+    ``floors``: receives the ``pad_fill.StoreyFloor`` of every deck that
+    stands over its lower storey (#1905 round 3)."""
     held, landings, runouts = reg.held, reg.landings, reg.landing_runouts
     landings.clear()
     runouts.clear()
@@ -309,7 +313,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     strip_polys = [r.polygon for r in strips if getattr(r, "polygon", None) is not None]
     targets = strip_polys + [r.polygon for r in lots if getattr(r, "polygon", None) is not None]
     reached: list = []          # the roads and lots a fill ran to: no collar over them
-    for f in _fills(part, to_xy, law, blocks, vias, collar_m, counts):
+    for f in _fills(part, to_xy, law, blocks, vias, collar_m, counts, floors):
         if not -BAND_M <= f.y <= BAND_M:
             counts["pad_fill_out_of_band"] = counts.get("pad_fill_out_of_band", 0) + 1
             continue

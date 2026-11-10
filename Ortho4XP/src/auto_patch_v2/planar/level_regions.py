@@ -45,6 +45,20 @@ The unreachable pieces the level touches (``#beyond``) are its floor too
 (step (b)), each a riser off the pads; every road leaving the region runs
 out to its ground (``planar/cut_runout`` roads, step 8).
 
+THE DECK FLOOR IT STANDS UNDER (#1905 round 3; owner RULINGS 2026-11-10f
+(1): the forecourt at the arrivals level, the deck standing over it).  A
+deck of the level's block that stands over the block's lower storey
+(``pad_fill.StoreyFloor``: its prints are no fill) is the level's too: its
+extent ``E`` -- the deck's ground prints, the seed's footprint inside their
+hull and the carriageway of every road the map places lower
+(``carried_roads.is_tagged_lower``) within ``pad_frontage_m`` of them,
+closed by ``pad_frontage_m`` -- is minted as one more piece of the level
+(:func:`_pieces`, its riser, gaps and run-outs), its record the host's
+with ``floor_of`` the deck.  A pad of its own (no held block) lying wholly
+inside ``E`` joins the piece (``forecourt_pads_absorbed``).  MEASURED SBSP:
+the arrivals road ``small_roads:-8134`` ran 0 m inside the passage level
+and 0 m inside its pad, just off the level's rim under the deck floor.
+
 Nothing here names a pack, a resource or an airport.
 """
 from __future__ import annotations
@@ -52,7 +66,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-from shapely.geometry import Polygon, box
+from shapely.geometry import LineString, Polygon, box
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -191,12 +205,15 @@ def _ground(g, dem, step: float):
 
 
 def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_all, airport,
-                law, grid: float, counts: dict, beyond: _t.Sequence = ()) -> list:
+                law, grid: float, counts: dict, beyond: _t.Sequence = (), *,
+                floors: _t.Sequence = ()) -> list:
     """``regs`` (the pad regions, the levels minted) with the pad under every
     seed with a passage cut into its one flat lower level (module
     docstring); each level registered in ``reg.landings``.  ``beyond``: the
     unreachable pieces, the level's floor where they touch it (step (b),
-    :func:`_pieces`)."""
+    :func:`_pieces`); ``floors``: the decks standing over a block's lower
+    storey (``pad_fill.StoreyFloor``), the floor a level of that block
+    spans (module docstring)."""
     from .low_level import LOW_KIND, level_cut
     counts["level_seeds"] = len(seeds)
     cands = [s for s in seeds if s.passage is not None]
@@ -303,6 +320,10 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
                              roads_of, dem, step,
                              float(law.tables.structures.building_pad.min_area_m2), gaps)
         levels.update(more)
+        for fl in (f for f in floors if f.block == block):
+            regs, more = _floor_piece(regs, reg, L, fl, s, block, ref, air, near, w, n_k,
+                                      roads_of, dem, step, law, gaps, airport, counts)
+            levels.update(more)
         notes.append(f"{ref} of unit {s.unit} on {pref}: y {-s.depth:+.2f} {L.area:.0f} m2, "
                      f"soffit {soffit} ({'SHORT of' if short else 'clears'} {clear:g} m), "
                      f"lowest overhead {under.get('any_y')}")
@@ -317,14 +338,70 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
     return regs
 
 
+def _floor_piece(regs: list, reg: Registries, L, fl, s, block: str, host: str, air,
+                 near: float, w: float, n_k: dict, roads_of, dem, step: float, law,
+                 gaps: dict, airport, counts: dict) -> "tuple[list, dict]":
+    """``(regs, levels)``: the deck floor ``fl`` (``pad_fill.StoreyFloor``)
+    minted as a piece of the passage level ``L`` (module docstring: THE DECK
+    FLOOR IT STANDS UNDER), the pads of their own inside it absorbed."""
+    E = _floor_extent(fl, s, airport, law, near)
+    if E.is_empty:
+        return regs, {}
+    regs, gone = _absorb(regs, reg, E)
+    if gone:
+        counts["forecourt_pads_absorbed"] = counts.get("forecourt_pads_absorbed", 0) + len(gone)
+        E = valid_area(unary_union([E, *gone]))
+    return _pieces(regs, reg, L, [E], block, host, s, air, near, w, n_k, roads_of, dem,
+                   step, float(law.tables.structures.building_pad.min_area_m2), gaps,
+                   extra={"floor_of": fl.deck_key})
+
+
+def _floor_extent(fl, s, airport, law, near: float):
+    """``E``: the deck's prints, the seed's footprint inside their hull and
+    the lower-tagged roads' carriageways within ``near`` of them (flat
+    caps), closed by ``near``."""
+    from ..airport.carried_roads import is_tagged_lower
+    from ..airport.road_ways import ribbon_half_width_m
+    U = valid_area(unary_union(list(fl.prints)))
+    if U.is_empty:
+        return U
+    parts = [U, valid_area(s.footprint.intersection(U.convex_hull))]
+    for wy in getattr(airport, "osm_ways", ()) or ():
+        tags = wy.tags or {}
+        if not tags.get("highway") or len(wy.points) < 2 or not is_tagged_lower(tags):
+            continue
+        line = LineString(wy.points)
+        if line.distance(U) <= near:
+            parts.append(line.buffer(ribbon_half_width_m(tags, law), cap_style="flat"))
+    E = valid_area(unary_union(parts))
+    return valid_area(E.buffer(near, join_style=2).buffer(-near, join_style=2))
+
+
+def _absorb(regs: list, reg: Registries, E) -> "tuple[list, list]":
+    """``(regs, polygons)``: ``regs`` less every plain-ref pad of its own
+    (no held block) lying wholly inside ``E`` (at most 1 m2 outside), and
+    those pads' polygons."""
+    by: dict[str, list] = {}
+    for r in regs:
+        if r.polygon is not None and not r.polygon.is_empty:
+            by.setdefault(str(r.ref), []).append(r.polygon)
+    gone = {ref for ref, ps in by.items()
+            if "/" not in ref and "#" not in ref and ref not in reg.held
+            and unary_union(ps).difference(E).area <= 1.0}
+    if not gone:
+        return regs, []
+    return ([r for r in regs if str(r.ref) not in gone],
+            [p for ref in sorted(gone) for p in by[ref]])
+
+
 def _pieces(regs: list, reg: Registries, L, beyond, block: str, host: str, s, air,
             near: float, w: float, n_k: dict, roads_of, dem, step: float, pmin: float,
-            gaps: dict) -> "tuple[list, dict]":
+            gaps: dict, extra: "dict | None" = None) -> "tuple[list, dict]":
     """``(regs, levels)``: every unreachable piece within ``pad_frontage_m``
     of the passage level ``L`` minted beside it at its floor (step (b)),
     ``<block>/p<k>`` with a riser along the pads and every open edge but
     the roads leaving it; ``levels`` the minted ``{ref: (piece, block,
-    y)}``."""
+    y)}``; ``extra`` added to each piece's record."""
     from .low_level import LOW_KIND
     gs = [g for g in beyond if g.distance(L) <= near + w]
     if not gs:
@@ -357,7 +434,7 @@ def _pieces(regs: list, reg: Registries, L, beyond, block: str, host: str, s, ai
         pads = unary_union([pads, q.buffer(w, join_style=2)])
         reg.landings[ref] = {**reg.landings[host], "area_m2": round(q.area, 1),
                              "ground_z": _ground(q, dem, 2.0), "piece_of": host,
-                             "kind": LOW_KIND, "y_hi": -step}
+                             "kind": LOW_KIND, "y_hi": -step, **(extra or {})}
         levels[ref] = (q, block, -s.depth)
     return out, levels
 

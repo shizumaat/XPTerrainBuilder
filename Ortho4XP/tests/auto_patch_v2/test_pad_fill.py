@@ -170,8 +170,14 @@ def test_no_fill_under_a_deck_standing_over_its_own_lower_storey():
     vias = {"d": ("b5", 4, BF.frame_of(part.units[0].members[0]),
                   _Deck(box(0, 100, 200, 200)))}
     counts: dict = {}
-    assert PF.pier_fills(vias, part, to_xy, BLOCK, 0.5, 30.0, storey, counts) == []
+    floors: list = []
+    assert PF.pier_fills(vias, part, to_xy, BLOCK, 0.5, 30.0, storey, counts, floors) == []
     assert counts == {"pier_fill_over_storey": 1}
+    # #1905 round 3: the prints are handed on, each its own polygon (never
+    # their hull), as the deck's floor
+    (fl,) = floors
+    assert (fl.block, fl.deck_key, len(fl.prints)) == ("b5", "d", 3)
+    assert sum(g.area for g in fl.prints) == pytest.approx(3 * 2.0 * 30.0)
     # less than a storey under the prints: still the viaduct's ground prints
     shallow = _part(9, box(40, 115, 46, 121), base_y=-2.0, h=3.6,
                     feet=((118.0, 43.0, -2.0),))

@@ -105,3 +105,20 @@ def test_a_kerb_road_in_and_out_of_the_print_by_a_metre_is_carried_whole(deck):
     down = _way(-8134, [(0, 18.5), (60, 21.0), (120, 18.5), (200, 18.5)], layer="-1")
     got = CR.carried_runs(_airport([up, down]), LAW)
     assert len(got[("airport_small_roads", -8899)]) == 1
+
+
+def _routes_over(monkeypatch, runs):
+    from auto_patch_v2.planar import cut_runout as CRO
+    monkeypatch.setattr(CR, "carried_runs", lambda _a, _l, counts=None: runs)
+    level = box(0, -10, 100, 10)
+    way = _way(-8899, [(50, 0), (200, 0)])
+    return CRO._routes(_airport([way]), LAW, [level], 0.5)
+
+
+def test_a_way_carried_where_it_crosses_the_level_edge_is_no_route(monkeypatch):
+    """#1905 round 3 (R4): the deck's own road leaves the lower level where
+    the deck carries it -- it runs out nowhere; carried elsewhere only, it
+    is a route."""
+    assert len(_routes_over(monkeypatch, {})) == 1
+    assert _routes_over(monkeypatch, {("airport_small_roads", -8899): [(30.0, 80.0)]}) == []
+    assert len(_routes_over(monkeypatch, {("airport_small_roads", -8899): [(90.0, 140.0)]})) == 1

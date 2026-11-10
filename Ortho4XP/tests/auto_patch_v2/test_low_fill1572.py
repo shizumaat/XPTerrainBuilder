@@ -88,3 +88,15 @@ def test_the_band_reaches_a_slanted_edge():
     # the level's high part keeps its outline
     assert rest.area >= 0.8 * SLANT.area - 1.0
     assert rest.buffer(-1e-6).contains(box(1.0, 1.0, 199.0, 70.0))
+
+
+def test_a_deck_floor_piece_keeps_its_fill():
+    """#1905 round 3 (R3): a level piece under a deck (``floor_of``) stands
+    under that deck; no fill band is cut off it."""
+    reg = types.SimpleNamespace(landings={"b/p2": {"kind": "low_level", "block": "b",
+                                                   "floor_of": "d"}})
+    airport = types.SimpleNamespace(dem=_Dem())
+    res = [_R("b/p2", LEVEL), _R("b", box(0.0, -50.0, 200.0, -1.0))]
+    counts: dict = {}
+    got = cut_fill_bands(res, reg, [LOT_N], airport, _law(), 1.0, counts, "low_level")
+    assert got == res and "low_level_fill_cut" not in counts

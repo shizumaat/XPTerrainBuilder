@@ -35,6 +35,9 @@ Two witnesses, both read off the pack partition at the landing mint:
    prints are the deck's own floor, and nothing is filled (MEASURED SBSP:
    the departures deck's two kerb slabs, y -0.14 / -0.67, filled the
    arrivals forecourt 10,485 m2 to the deck at 792.51 over parts at y -9).
+   The refused deck's print polygons (each print, never their hull) are
+   handed on as a :class:`StoreyFloor`: the lower storey's level spans
+   them (``planar/level_regions.seed_levels``, #1905 round 3).
 
 Each fill becomes a RAMP LANDING (``planar/landing``): its level rows, its
 1:3 collar and its lot cut are the landing's own.  Only shape is decided
@@ -47,7 +50,7 @@ from shapely.geometry import MultiPoint, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-__all__ = ["Fill", "plate_fills", "pier_fills"]
+__all__ = ["Fill", "StoreyFloor", "plate_fills", "pier_fills"]
 
 
 class Fill(_t.NamedTuple):
@@ -60,6 +63,16 @@ class Fill(_t.NamedTuple):
     kind: str
     source: str
     voters: int = 1
+
+
+class StoreyFloor(_t.NamedTuple):
+    """A deck standing over its frame's lower storey (``pier_fills``): its
+    ``block``, its ``deck_key`` and its ground ``prints`` off the blocks
+    (planar metres) -- the deck's own floor, which the lower level spans."""
+
+    block: str
+    deck_key: str
+    prints: tuple
 
 
 def _block_index(blocks: _t.Sequence[tuple[str, Polygon]]):
@@ -139,13 +152,15 @@ def _lowest_foot(q) -> "float | None":
 def pier_fills(vias: _t.Mapping[str, tuple], partition: _t.Any, to_xy,
                blocks: _t.Sequence[tuple[str, Polygon]], band: float,
                join_m: float, storey_m: float = 0.0,
-               counts: "dict | None" = None) -> list[Fill]:
+               counts: "dict | None" = None,
+               floors: "list | None" = None) -> list[Fill]:
     """Witness 2 (module doc): ``vias`` is ``bridge_family.viaduct_units``'s
     ``{deck key: (block, voters, frame, print)}``; ``band`` the landing band
     (``landing.BAND_M``); ``join_m`` the distance under which two prints are
     one fill (two bank widths); ``storey_m`` one storey (0: never read) —
     a deck whose frame stands feet that far under its prints fills
-    nothing (``pier_fill_over_storey`` in ``counts``)."""
+    nothing (``pier_fill_over_storey`` in ``counts``) and its prints go
+    to ``floors`` as one :class:`StoreyFloor`."""
     from ..airport import bridge_family as _bf
     if not vias or partition is None or not blocks:
         return []
@@ -187,6 +202,8 @@ def pier_fills(vias: _t.Mapping[str, tuple], partition: _t.Any, to_xy,
             # lower storey; that storey is the ground (module doc)
             if counts is not None:
                 counts["pier_fill_over_storey"] = counts.get("pier_fill_over_storey", 0) + 1
+            if floors is not None:
+                floors.append(StoreyFloor(bref, str(key), tuple(g for g, _y in prints)))
             continue
         # one fill per group of prints within ``join_m`` of each other
         tree = STRtree([g for g, _y in prints])

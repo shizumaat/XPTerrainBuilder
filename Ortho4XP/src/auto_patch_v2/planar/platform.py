@@ -306,6 +306,7 @@ def platform_split(base_regions, pad_regions, law: Law,
     # block is registered and after the ref pass above (it never renames
     # a ``<unit>/landing<k>``)
     from .landing import LOT_ROLES, landing_regions
+    floors: list = []          # the decks over a lower storey (#1905 round 3)
     from .fill_road import road_strips as _strips
     from ..law.tables import role_side as _side
 
@@ -325,7 +326,7 @@ def platform_split(base_regions, pad_regions, law: Law,
         # RULINGS 2026-10-20d R2: the road strips a fill runs to, and
         # (27i) the lots between it and its road, which keep lot law
         strips=_road_strips(base_regions, law),
-        lots=_road_strips(base_regions, law, LOT_ROLES)))
+        lots=_road_strips(base_regions, law, LOT_ROLES), floors=floors))
     # owner RULINGS 2026-10-19ai (#809): a held block whose unit carries
     # its own one-storey step gets a second, LOWER level along it, tied to
     # the block's datum (``planar/low_level``); after the landings, which
@@ -350,7 +351,7 @@ def platform_split(base_regions, pad_regions, law: Law,
                           # along" its own unreachable apron)
                           lots=[r.polygon for r in base_regions if r.polygon is not None
                                 and r.role in LOT_ROLES and BEYOND not in str(r.ref)],
-                          seeds=seeds)
+                          seeds=seeds, floors=floors)
     counts["platforms"] = sum(1 for p in platforms if not p.refused)
     counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(

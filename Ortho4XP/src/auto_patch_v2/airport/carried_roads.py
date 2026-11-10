@@ -158,7 +158,8 @@ def _derive(airport, law, tally: dict) -> dict:
 def _xy_box(to_ll, frame, la0, lo0, la1, lo1):
     from shapely.geometry import box as _box
     to_xy = frame.transformers()[0]
-    xs, ys = zip(*(to_xy(lo, la) for la, lo in ((la0, lo0), (la0, lo1), (la1, lo0), (la1, lo1))))
+    xs, ys = zip(*(to_xy(lo, la) for la, lo in ((la0, lo0), (la0, lo1), (la1, lo0), (la1, lo1))),
+                 strict=True)
     return _box(min(xs), min(ys), max(xs), max(ys))
 
 

@@ -520,7 +520,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                     storey_lots: _t.Sequence = (),
                     air_all: _t.Sequence | None = None,
                     beyond: _t.Sequence = (),
-                    lots: _t.Sequence = (), seeds: _t.Sequence = ()) -> list:
+                    lots: _t.Sequence = (), seeds: _t.Sequence = (),
+                    floors: _t.Sequence = ()) -> list:
     """The pad regions ``out`` with every held block whose unit carries a
     lower storey split into its high block, its low level ``<ref>/p1`` and
     the riser strip (module docstring); each low level registered in
@@ -534,7 +535,9 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     the parking lots a level's fill band is cut along (``planar/low_fill``);
     ``seeds`` the units whose walls stand a storey under their zero, whose
     lower levels take the unreachable pieces they touch
-    (``planar/level_regions.seed_levels``, round 4)."""
+    (``planar/level_regions.seed_levels``, round 4); ``floors`` the decks
+    standing over their block's lower storey (``pad_fill.StoreyFloor``),
+    whose floor a passage level spans (#1905 round 3)."""
     from ..airport.obj8_grade import STEPPED
     from .group_low import plan_group_low
     from .pad_blocks import unit_base
@@ -654,7 +657,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
             continue
         res.append(r)
     res = extend_levels(res, reg, air_all, airport, law, grid, counts, beyond)
-    res = _seeded(res, reg, seeds, air_all, airport, law, grid, counts, beyond)
+    res = _seeded(res, reg, seeds, air_all, airport, law, grid, counts, beyond, floors)
     # one region, one depth (``planar/level_regions.region_depths``, round 4)
     from .level_regions import region_depths
     res = region_depths(res, reg, law, grid, counts)
@@ -678,12 +681,13 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
 
 
 def _seeded(regs: list, reg: Registries, seeds, air_all, airport, law, grid: float,
-            counts: dict, beyond) -> list:
+            counts: dict, beyond, floors: _t.Sequence = ()) -> list:
     """``regs`` with the seeds' lower levels (``planar/level_regions``)."""
     if not seeds:
         return regs
     from .level_regions import seed_levels
-    return seed_levels(regs, reg, seeds, air_all, airport, law, grid, counts, beyond)
+    return seed_levels(regs, reg, seeds, air_all, airport, law, grid, counts, beyond,
+                       floors=floors)
 
 
 def _group_floors(airport, air_polys, tree, law) -> _t.Callable[[int], _t.Any]:

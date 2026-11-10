@@ -43,9 +43,10 @@ from __future__ import annotations
 import math
 import typing as _t
 
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
+from ..geom.parts import line_parts
 from ..geom.parts import nonempty_polygon_parts as _parts
 from ..geom.valid_area import valid_area
 
@@ -199,9 +200,7 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict,
                   named: _t.Sequence = ()) -> dict[str, dict[str, _t.Any]]:
     """:func:`cut_runouts` for a lower region's ROADS (``roads``): the same
     lips, along the at-grade carriageways (``road_yield.road_carriageways``)
-    at the road ramp law, descending or CLIMBING to the ground ahead (a
-    lip under a pack deck runs out nowhere: RULINGS 2026-11-10f (1), the
-    deck stands over the lower level and the DEM there reads the deck).  An
+    at the road ramp law, descending or CLIMBING to the ground ahead.  An
     end is ONE route's crossing of the level's rim (never grouped across
     :data:`END_M`), its strip that route's own carriageway (its half-width
     either side, clipped to that carriageway alone): grouped, or clipped to
@@ -225,11 +224,8 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict,
     g, cap = float(tn.ramp_grade), float(tn.ramp_max_grade)
     step = float(law.tables.emit.chords.station_spacing_m)
     riser = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
-    stat = {"ends": 0, "no_datum": 0, "climbs": 0, "falls": 0, "taken": 0, "under_deck": 0}
+    stat = {"ends": 0, "no_datum": 0, "climbs": 0, "falls": 0, "taken": 0}
     taken_by: list[str] = []
-    from ..airport.partition_prints import under_a_deck
-    to_ll = frame.transformers()[1]
-    part = getattr(airport, "partition", None)
     out: dict[str, dict[str, _t.Any]] = {}
     for ref, (L, bref, y) in sorted(levels.items()):
         datum = (held.get(bref) or {}).get("datum_pred")
@@ -243,12 +239,6 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict,
                 stat["ends"] += 1
                 if datum is None:
                     stat["no_datum"] += 1
-                    continue
-                if under_a_deck(part, to_ll, [(p.x, p.y)])[0]:
-                    # RULINGS 2026-11-10f (1): a road leaving its level under
-                    # a pack deck runs on beneath it at that level -- the deck
-                    # stands over it, and the DEM there reads the deck
-                    stat["under_deck"] += 1
                     continue
                 lx, ly = p.x, p.y
                 z0 = float(datum) + float(y)
@@ -346,12 +336,28 @@ def _end(L, lip, d, pts, prof, ground, side: float, corr, taken, step: float,
             "at": (round(lat, 7), round(lon, 7))}
 
 
+def _carried_at(line: LineString, edge, runs) -> bool:
+    """Does one of ``line``'s crossings of ``edge`` lie in a carried run
+    ``(s0, s1)`` (arclength along ``line``)?"""
+    if not runs:
+        return False
+    for q in line_parts(line.intersection(edge)):
+        a, b = line.project(Point(q.coords[0])), line.project(Point(q.coords[-1]))
+        lo, hi = min(a, b), max(a, b)
+        if any(s0 <= lo and hi <= s1 for s0, s1 in runs):
+            return True
+    return False
+
+
 def _routes(airport, law, levels, grid: float) -> list:
     """``[(route, half-width)]``: the ROUTES (``viaduct_road._route``:
     through the junctions, the least turn) of every at-grade mapped road
     way of a ribbon class (``road_yield.road_carriageways``) crossing a
     level's edge, with that crossing way's carriageway half-width
-    (``airport/road_ways.ribbon_half_width_m``)."""
+    (``airport/road_ways.ribbon_half_width_m``).  A way a pack deck carries
+    where it crosses the edge (``airport/carried_roads``, #1905 round 3) is
+    the deck's road, not the level's: no route."""
+    from ..airport.carried_roads import carried_runs
     from ..airport.road_ways import ribbon_half_width_m
     from ..classify.rules import load_rules
     from .structure_approach import is_bridge, is_tunnel
@@ -366,10 +372,13 @@ def _routes(airport, law, levels, grid: float) -> list:
              and not is_tunnel(w, tn.admitted_values) and _layer(w.tags or {}) <= 0]
     edge = unary_union([L.boundary for L in levels]).buffer(max(grid, 0.5))
     nb = _graph(roads)
+    carried = carried_runs(airport, law)
     out, seen = [], set()
     for w in roads:
         line = LineString(w.points)
         if (w.tags or {}).get("highway") not in ribbon or not line.intersects(edge):
+            continue
+        if carried and _carried_at(line, edge, carried.get((str(w.kind), int(w.id)), ())):
             continue
         r = _route(w, nb, law)
         key = tuple(round(c, 1) for xy in (r.coords[0], r.coords[-1]) for c in xy)

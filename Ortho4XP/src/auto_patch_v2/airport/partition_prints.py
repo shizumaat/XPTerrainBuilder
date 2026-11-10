@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import weakref
 
-__all__ = ["partition_prints", "under_a_deck"]
+__all__ = ["partition_prints"]
 
 #: ``id(partition) -> (weak reference, its prints)``
 _PRINTS: dict[int, tuple] = {}
@@ -30,19 +30,6 @@ def partition_prints(part) -> list:
         return prints
     _PRINTS[id(part)] = (ref, prints)
     return prints
-
-
-def under_a_deck(part, to_ll, xys) -> list[bool]:
-    """Per plan point ``(x, y)``: does it stand inside a pack deck's model
-    footprint (``to_ll(x, y) -> (lat, lon)``, the frame's inverse)?"""
-    if part is None or not xys:
-        return [False] * len(xys)
-    ll = [to_ll(float(x), float(y)) for x, y in xys]
-    out = [False] * len(xys)
-    for p in partition_prints(part):
-        for i, h in enumerate(p.contains_many([a for a, _b in ll], [b for _a, b in ll], 0.0)):
-            out[i] = out[i] or bool(h)
-    return out
 
 
 def _forget(ref) -> None:

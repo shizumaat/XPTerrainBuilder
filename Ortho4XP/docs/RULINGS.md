@@ -10713,3 +10713,4 @@ Process (standing):
 **2026-11-10a: KMCI round 4 (owner, Noah, 2026-11-10T00:20Z, "b" to the master's option (b)).**
 - (1) #1952 A building unit's lower-level platform (the 2026-10-19ai low level, `platform_collar`) never holds ground across a retaining wall: ground on the wall's LOWER side follows the wall's foot (2026-11-09a (14)), not the terminal's lower floor.
 - (2) #1950 A groundside lot at a retaining wall's foot may step down from a building pad at their shared edge (the pad edge is a wall/kerb there, not a graded join), so the lot lies flat at the foot.
+- (3) #1950 (00:26Z, "c"): the KMCI garden stays as the pack draws it (level with the terminal's main floor and the road plates, 2.4 m under the pack's apron plates); revisit only if the step reads wrong in the sim.

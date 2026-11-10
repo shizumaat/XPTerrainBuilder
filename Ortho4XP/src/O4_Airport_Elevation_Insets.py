@@ -161,7 +161,9 @@ from elevation_access.definitions import (
     _parse_boolean,
     _parse_bounding_boxes,
     _parse_float,
+    DEM_CLASS_KEY,
     coverage_boxes,
+    declared_dem_class,
     export_image_definition_refusal,
     parse_archive_zones,
     provider_serves_country,
@@ -613,6 +615,19 @@ def initialize_elevation_providers_dict(providers_directory=None):
             definition["native_resolution_m"] = _parse_float(
                 definition.get("native_resolution_m"), default=None
             )
+        if DEM_CLASS_KEY in definition:
+            # #1929: a declared class overrides the native-pixel rule; a
+            # value outside the vocabulary is dropped (the pixel rule then
+            # stands) and said once.
+            klass = declared_dem_class(definition[DEM_CLASS_KEY])
+            if klass is None:
+                UI.vprint(0, "   WARNING: elevation provider", provider_code,
+                          "declares an unknown", DEM_CLASS_KEY + "=" +
+                          str(definition[DEM_CLASS_KEY]),
+                          "- its class follows its pixel size.")
+                del definition[DEM_CLASS_KEY]
+            else:
+                definition[DEM_CLASS_KEY] = klass
         if "resolution_ladder" in definition:
             definition["resolution_ladder_rungs"] = _parse_resolution_ladder(
                 definition["resolution_ladder"], provider_code
@@ -7249,7 +7264,26 @@ def _inset_bake_provenance_entry(inset_path):
                 stated if stated is not None else native)
         except Exception:
             pass
+    klass = _provider_dem_class(entry.get("provider")
+                                or stem.rsplit("_", 1)[-1])
+    if klass:
+        entry[DEM_CLASS_KEY] = klass
     return entry
+
+
+def _provider_dem_class(provider_code):
+    """The ``dem_class=`` the provider's CURRENT definition declares
+    (#1929), or ``None``.  Read from the registry, never the inset's
+    sidecar: the class belongs to the source, so an inset fetched before
+    the declaration is classed by it too."""
+    if not provider_code:
+        return None
+    if not elevation_providers_dict:
+        initialize_elevation_providers_dict()
+    definition = elevation_providers_dict.get(str(provider_code).upper())
+    if not isinstance(definition, dict):
+        return None
+    return declared_dem_class(definition.get(DEM_CLASS_KEY))
 
 
 def _bake_one_inset(tile, inset_path, feather_m, inset=None,

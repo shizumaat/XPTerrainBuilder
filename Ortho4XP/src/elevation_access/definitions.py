@@ -12,6 +12,8 @@ import re
 from elevation_access.gdal_support import osr
 
 __all__ = [
+    "DEM_CLASSES",
+    "DEM_CLASS_KEY",
     "EXPORT_IMAGE_FORMATS",
     "GLOBAL_COUNTRY",
     "ROLE_AIRPORT_INSET",
@@ -26,6 +28,7 @@ __all__ = [
     "_parse_bounding_boxes",
     "_parse_float",
     "coverage_boxes",
+    "declared_dem_class",
     "export_image_definition_refusal",
     "parse_archive_zones",
     "provider_countries",
@@ -118,6 +121,22 @@ def parse_archive_zones(text):
         line = line.split("#", 1)[0]
         codes.update(token for token in re.split(r"[,\s]+", line) if token)
     return frozenset(codes)
+
+
+#: The ``.elv`` key that DECLARES a provider's DEM class (#1929), over the
+#: native-pixel rule (``auto_patch_v2.law.tables.flat_source_class``): a
+#: 2 m satellite-stereo DSM (ArcticDEM) is not lidar, whatever its pixel.
+#: The values are the law's source classes (``FLAT_CLASS_*``; a twin pins
+#: the two lists equal).  A provider without the key keeps the pixel rule.
+DEM_CLASS_KEY = "dem_class"
+DEM_CLASSES = ("lidar", "fine", "coarse")
+
+
+def declared_dem_class(value):
+    """A ``dem_class=`` value normalised, or ``None`` when absent or not
+    one of :data:`DEM_CLASSES`."""
+    klass = str(value or "").strip().lower()
+    return klass if klass in DEM_CLASSES else None
 
 
 def coverage_boxes(definition):

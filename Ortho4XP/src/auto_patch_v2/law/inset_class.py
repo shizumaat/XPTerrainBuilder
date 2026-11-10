@@ -7,15 +7,18 @@ where it reads a cut) and ``constraints/eat`` (owner RULINGS 2026-10-15e
 (2): on credible lidar the EAT law is report-only) — and a reading two
 packages need goes DOWN, never sideways.  The class comes from the pixel
 size through :func:`law.tables.flat_source_class` (``lidar_credible_max_m``),
-never a second pixel-size rule.  Duck-typed on the airport and the DEM so
-``law`` imports nothing above it.
+never a second pixel-size rule -- unless the inset's provider DECLARES its
+class (``.elv`` ``dem_class=``, #1929: a 2 m satellite-stereo DSM is not
+lidar), which the sampler states through ``declared_source_class``.
+Duck-typed on the airport and the DEM so ``law`` imports nothing above it.
 """
 from __future__ import annotations
 
 import typing as _t
 
 from .model import Law
-from .tables import FLAT_CLASS_COARSE, FLAT_CLASS_LIDAR, flat_source_class
+from .tables import (FLAT_CLASS_COARSE, FLAT_CLASS_FINE, FLAT_CLASS_LIDAR,
+                     flat_source_class)
 
 __all__ = ["dem_source_class", "ground_class", "lidar_credible"]
 
@@ -23,14 +26,23 @@ __all__ = ["dem_source_class", "ground_class", "lidar_credible"]
 def dem_source_class(dem, law: Law) -> tuple[str | None, float | None, str]:
     """``(class, pixel_m, whence)``: the production sampler states the
     finest source that baked (``source_pixel_m``); a sampler stating
-    nothing is an unknown class."""
+    nothing is an unknown class.  An inset whose provider declares its
+    class (``declared_source_class``) takes that class over its pixel's."""
     fn = getattr(dem, "source_pixel_m", None)
     if not callable(fn):
         return None, None, "unknown"
     pixel, whence = fn()
     if pixel is None:
         return (FLAT_CLASS_COARSE if whence == "base_tier" else None), None, whence
-    return flat_source_class(law, pixel), float(pixel), whence
+    declared = _declared_class(dem) if whence == "inset" else None
+    return declared or flat_source_class(law, pixel), float(pixel), whence
+
+
+def _declared_class(dem) -> str | None:
+    fn = getattr(dem, "declared_source_class", None)
+    klass = fn() if callable(fn) else None
+    return klass if klass in (FLAT_CLASS_LIDAR, FLAT_CLASS_FINE,
+                              FLAT_CLASS_COARSE) else None
 
 
 def ground_class(airport: _t.Any, law: Law) -> str | None:

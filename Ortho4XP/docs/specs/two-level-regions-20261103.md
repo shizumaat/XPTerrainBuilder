@@ -1426,13 +1426,17 @@ master's scratchpad.
   2) now stand under a passage seed's plan and are refused; unit 2's host is
   its block alone, so the road takes the level's floor (y -7.42 under the
   zero) instead of apron - 7.5. Reported for sign-off (19.3 item 9).
-- OPEN DEFECT (not fixed this round): with the trench refused, two
-  degenerate ribbon pieces of the kept road (`big_roads:-11605#7`, 4
-  vertices, zero area, mid-road at 39.29787..39.29827,-94.7184x;
-  `-11605#5`, 2 vertices at 39.2986,-94.7183) carry vertices no other face
-  shares. They solve to the DEM, which reads the departures deck: 310.87 -
-  311.41 and 305.7 m over a road at 302.45 (replay arm4). In the arm before
-  the kerb change they held 302.27. Keeping the carriageway a riser clear
-  did not remove them. The next round finds what emits them (the ribbon
-  cut at the old R6 run's ends, or the road ribbon split against the
-  kerb-slab edge) before any app build carries this branch.
+- OPEN, REPLAY ONLY: with the trench refused, two degenerate ribbon pieces
+  of the kept road (`big_roads:-11605#7`, 4 vertices, zero area, mid-road
+  at 39.29787..39.29827,-94.7184x; `-11605#5`, 2 vertices at
+  39.2986,-94.7183) carry vertices no other face shares. In the
+  `--replay --from planar` arms they solve to the DEM, which reads the
+  departures deck (310.87 - 311.41 and 305.7 m over a road at 302.45). The
+  closing patch build (lkmci4_449722b3a) holds them at 302.41 (no vertex
+  over 306 m in the window). Keeping the carriageway a riser clear did not
+  remove them from the replay. Still to find: what emits them.
+- Exits in the closing build: the south-west exit keeps a riser on the
+  road (`big_roads:-12358#6`, 2.30 m at 39.29708,-94.71878; the control
+  replay's was 2.36 m on -11605 at the same place) and
+  `small_roads:-13577#1` 4.67 m at 39.29695,-94.71895. The north exit
+  -11871 steps 0.55 m (6.0 %). 19.3 item 5 is not met.

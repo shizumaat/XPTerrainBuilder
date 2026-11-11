@@ -533,7 +533,14 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # route territory along a road centreline is cut at its mouth
         # (``neck.road_arms``); the arm piece then takes the #1877 verdict
         # below, the rest is re-scored as the corridor it is
-        if kind == "corridor" and not apron_refused and not neck_ev \
+        # A §43 ARM piece the ladder reads as a corridor is offered once
+        # too (#1900, RULINGS 2026-11-11d/e: the road leg of a taxiway arm
+        # is the road only beside its road); a road-arm product never is
+        offered = not neck_ev or (neck_ev.get("neck_cut")
+                                  and neck_ev.get("neck_kind") == "arm"
+                                  and not neck_ev.get("corridor_road_arm")
+                                  and not neck_ev.get("corridor_road_arm_parent"))
+        if kind == "corridor" and not apron_refused and offered \
                 and road_tree is not None:
             near = [road_lines[int(j)] for j in road_tree.query(face)]
             arms = road_arms(face, [c.line for c in taxi], near, rules) \
@@ -549,8 +556,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                     queue.append((p, {
                         "neck_cut": 1.0, "neck_kind": n.kind,
                         "neck_width_m": n.width_m, "neck_length_m": n.length_m,
-                        "corridor_road_arm": 1.0} if arm
-                        else {"corridor_road_arm_parent": 1.0}))
+                        "corridor_road_arm": 1.0,
+                        **({"neck_road_beside": 1.0} if n.road_beside else {})}
+                        if arm else dict(neck_ev, corridor_road_arm_parent=1.0)))
                 continue
         already_cut = bool(neck_ev.get("neck_cut")
                            or neck_ev.get("neck_new_apron"))
@@ -593,10 +601,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # #1900 (owner RULINGS 2026-11-10l): a corridor's road-wide NECK
         # outside its route territory with a mapped road beside it is the
         # road too, and §27 must not flip it (``airside_edge``)
+        # RULINGS 2026-11-11e (1a): a piece a mapped road runs BESIDE is
+        # read against the free-road width, not the 12 m cap (`_road_wide`)
         if is_neck and (neck_ev.get("neck_kind") == "arm"
                         or neck_ev.get("corridor_road_arm")) and not taxi \
                 and not _holds_startup(face, start_tree) and \
-                neck_ev.get("neck_width_m", float("inf")) <= rules.apron.arm_road_max_width_m:
+                _road_wide(neck_ev, rules):
             role = "service_road"
             evid = dict(evid, arm_road=1.0)
             stats["arm_roads"] = stats.get("arm_roads", 0) + 1
@@ -1268,6 +1278,18 @@ def _cut_lines(ev: Evidence, region, rules: Rules,
     prox = unary_union(src) if src else None
     spurs = _keyholes([ln for ln, _c in taxi_parts + truck_parts], region, rules)
     return taxi_parts, truck_parts, prox, spurs, src_cuts
+
+
+def _road_wide(neck_ev, rules: Rules) -> bool:
+    """The arm-road width test of #1877 / RULINGS 2026-11-10l: a §43 piece
+    at most ``apron.arm_road_max_width_m`` wide — or, owner RULINGS
+    2026-11-11e (1a), one a mapped road runs beside (``neck.road_arms``
+    read it with ``neck.road_beside``) at most the free-road width
+    ``service.free_max_width_m``."""
+    w = neck_ev.get("neck_width_m", float("inf"))
+    if neck_ev.get("neck_road_beside"):
+        return w <= rules.service.free_max_width_m
+    return w <= rules.apron.arm_road_max_width_m
 
 
 def _free_road_parts(line: LineString, pavement_union, rules: Rules

@@ -4,6 +4,9 @@ holds every tile the app manages, placeholders where none is built.
 
 * :func:`world_status` -- sync: the fields of ``WorldStatus`` plus the
   region rows (``regions``).
+* :func:`world_onboard` -- at the app's start: the World pack made when
+  its folder does not exist (owner 2026-11-11, RULINGS 2026-11-11a), and
+  how many per-tile packs "Convert existing tiles" could move.
 * :func:`world_install` -- the pack folder, its marker (:func:`managed`:
   builds publish only into a pack the app made) and its
   ``scenery_packs.ini`` row; ``restart_needed`` when X-Plane runs (a new
@@ -39,7 +42,7 @@ import O4_World_Pack as WP
 
 __all__ = ["LOG_NAME", "S3_MARGIN_KM", "pack_dir", "staging_root", "scenery_dir_or_default",
            "managed",
-           "tile_loaded", "world_status", "world_install",
+           "tile_loaded", "world_status", "world_install", "world_onboard",
            "start_world_regions_set", "world_tile_set",
            "status_event", "write_log"]
 
@@ -262,6 +265,25 @@ def world_install(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
     write_log({"install": scenery_dir, "ini_added": added})
     return {"installed": True, "ini_added": added,
             "restart_needed": bool(running and added)}
+
+
+def world_onboard(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``world_onboard`` (the apps' start, RULINGS
+    2026-11-11a): when no World pack folder exists in the Custom Scenery
+    folder, :func:`world_install` makes it; ``{"created", "offer",
+    "restart_needed"}`` -- ``offer``: the enabled ``zOrtho4XP_`` entries
+    (on a mounted drive) that ``world_migrate`` could move, which the apps
+    then ask about once.  A folder that exists is never touched."""
+    from .world_migrate import entries
+    scenery_dir = scenery_dir_or_default(scenery_dir)
+    if (not scenery_dir or not os.path.isdir(scenery_dir)
+            or os.path.isdir(pack_dir(scenery_dir))):
+        return {"created": False, "offer": 0, "restart_needed": False}
+    installed = world_install(scenery_dir)
+    offer = sum(1 for entry in entries(scenery_dir)
+                if entry.enabled and entry.kind != "link-unmounted")
+    return {"created": True, "offer": offer,
+            "restart_needed": installed["restart_needed"]}
 
 
 def _global_tiles(scenery_dir: str) -> "set | None":

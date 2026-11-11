@@ -39,8 +39,20 @@ def test_unset_budget_clears_nothing_and_says_so(monkeypatch):
     assert TOTAL._budget_bytes({"storage_budget_gb": "1.5"}) == 1_500_000_000
     _budget(monkeypatch, 0)
     old = _write(str(data / "tmp" / "x.bin"), 5000, age_days=30)
-    assert TOTAL.hold(ST._Sweep(False, "t", None), time.time()) is None
+    # RULINGS 2026-11-11a: the default applies and is shown, but over it
+    # nothing is cleared until the user says yes (the apps ask first).
+    monkeypatch.setattr(TOTAL, "DEFAULT_BUDGET_GB", 1e-9)
+    monkeypatch.setattr(TOTAL, "_recommended_bytes", lambda floor: 1)
+    out = TOTAL.hold(ST._Sweep(False, "t", None), time.time())
+    assert not out["budget_set"] and out["over_budget"]
+    assert out["budget_bytes"] == out["default_bytes"] == 1
     assert os.path.exists(old)
+
+
+def test_the_default_is_200_gb_or_the_recommended_minimum_when_more():
+    assert TOTAL.DEFAULT_BUDGET_GB == 200
+    assert TOTAL._default_budget_bytes(10**9) == 200 * 10**9
+    assert TOTAL._default_budget_bytes(170 * 10**9) == 255 * 10**9
 
 
 def test_tiers_go_cheapest_first_and_the_floor_stays(monkeypatch):

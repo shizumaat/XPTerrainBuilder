@@ -89,6 +89,10 @@ struct MapMainView: View {
             }
             .interactiveDismissDisabled()
         }
+        // No World folder at the start (#2007): made, then asked once.
+        .sheet(item: $buildModel.worldOnboard) { offer in
+            WorldOnboardSheet(offer: offer).environmentObject(buildModel)
+        }
         // Tiles not built / built with warnings (protocol 1.10, #562, #564).
         .sheet(item: $buildModel.runIssues) { issues in
             RunIssuesSheet(issues: issues, buildModel: buildModel) {
@@ -405,40 +409,16 @@ struct MapMainView: View {
         // re-injected per pane). The package list is a NATIVE trailing
         // inspector spanning the full window height, with the standard
         // toolbar toggle.
-        RestorableSplit(orientation: .vertical, autosaveName: "MainSplit.Vertical",
-                        firstMin: 300, secondMin: 180) {
-            MapCanvasView(camera: controller.mapCamera,
-                          canvasSize: controller.mapCanvasSize)
-                // Patches dropped on the map (#1979): PatchDropInstall.swift.
-                .modifier(PatchDropTarget(buildModel: buildModel))
-                .overlay {
-                    SearchReticleOverlay(reticle: searchReticle, camera: controller.mapCamera)
-                }
-                .overlay(alignment: .top) {
-                    MapHintOverlay().environmentObject(buildModel)
-                }
-                .overlay(alignment: .topTrailing) {
-                    AirportSearchResults(text: searchText, search: buildModel.airportSearch,
-                                         handledElsewhere: searchHandledElsewhere,
-                                         onPick: selectAirport)
-                }
-                .overlay(alignment: .topLeading) {
-                    // Select from flight plan (#829): over the map, not a
-                    // sheet, so the selection is watched as the radius moves.
-                    FlightPlanPanel(model: buildModel.flightPlan) { tiles in
-                        controller.zoomToTiles(tiles.map { (lat: $0.lat, lon: $0.lon) })
-                    }
-                }
-                .environmentObject(controller)
-                .environmentObject(controller.progress)
+        // Build and Fly: the map over the console; Library: the tiles
+        // table over the map, no console (#2007, owner 2026-11-11).
+        ModeMainSplit(modes: buildModel.appMode) {
+            mapPane
+        } console: {
+            consolePane
+        } table: {
+            LibraryTilesSection(model: buildModel.library)
                 .environmentObject(buildModel)
-                .environmentObject(buildModel.activity)
-                .environmentObject(buildModel.imagery)
-        } second: {
-            BuildConsoleView(console: buildModel.console)
                 .environmentObject(controller)
-                .environmentObject(controller.progress)
-                .environmentObject(buildModel)
         }
         .inspector(isPresented: inspectorBinding) {
             // Hairline between the map/console and the inspector — the
@@ -456,6 +436,43 @@ struct MapMainView: View {
         .onReceive(buildModel.appMode.$mode.dropFirst().removeDuplicates()) { _ in
             inspectorBinding.wrappedValue = true
         }
+    }
+
+    private var mapPane: some View {
+        MapCanvasView(camera: controller.mapCamera,
+                      canvasSize: controller.mapCanvasSize)
+            // Patches dropped on the map (#1979): PatchDropInstall.swift.
+            .modifier(PatchDropTarget(buildModel: buildModel))
+            .overlay {
+                SearchReticleOverlay(reticle: searchReticle, camera: controller.mapCamera)
+            }
+            .overlay(alignment: .top) {
+                MapHintOverlay().environmentObject(buildModel)
+            }
+            .overlay(alignment: .topTrailing) {
+                AirportSearchResults(text: searchText, search: buildModel.airportSearch,
+                                     handledElsewhere: searchHandledElsewhere,
+                                     onPick: selectAirport)
+            }
+            .overlay(alignment: .topLeading) {
+                // Select from flight plan (#829): over the map, not a
+                // sheet, so the selection is watched as the radius moves.
+                FlightPlanPanel(model: buildModel.flightPlan) { tiles in
+                    controller.zoomToTiles(tiles.map { (lat: $0.lat, lon: $0.lon) })
+                }
+            }
+            .environmentObject(controller)
+            .environmentObject(controller.progress)
+            .environmentObject(buildModel)
+            .environmentObject(buildModel.activity)
+            .environmentObject(buildModel.imagery)
+    }
+
+    private var consolePane: some View {
+        BuildConsoleView(console: buildModel.console)
+            .environmentObject(controller)
+            .environmentObject(controller.progress)
+            .environmentObject(buildModel)
     }
 
     private var inspectorBinding: Binding<Bool> {
@@ -527,6 +544,26 @@ struct MapMainView: View {
         } else {
             rejectedFolder.value = ""
             controller.xplanePath = path
+        }
+    }
+}
+
+/// The main split of the current mode: the map over the console in Build
+/// and Fly; in Library the tiles table over the map and no console (#2007;
+/// the Qt window's `map_split` is the same). The map is one view either way.
+struct ModeMainSplit<Map: View, Console: View, Table: View>: View {
+    @ObservedObject var modes: AppModeModel
+    @ViewBuilder let map: () -> Map
+    @ViewBuilder let console: () -> Console
+    @ViewBuilder let table: () -> Table
+
+    var body: some View {
+        if modes.mode == .library {
+            RestorableSplit(orientation: .vertical, autosaveName: "MainSplit.Library",
+                            firstMin: 160, secondMin: 240, first: table, second: map)
+        } else {
+            RestorableSplit(orientation: .vertical, autosaveName: "MainSplit.Vertical",
+                            firstMin: 300, secondMin: 180, first: map, second: console)
         }
     }
 }

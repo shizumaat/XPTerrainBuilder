@@ -33,6 +33,7 @@ import os
 import shutil
 import threading
 import typing as _t
+from concurrent.futures import ThreadPoolExecutor
 
 import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
@@ -43,7 +44,7 @@ import O4_Tile_Staleness as _STALE
 
 from . import storage as _storage
 
-__all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "library_scan",
+__all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "ROW_WORKERS", "library_scan",
            "cache_sizes", "free_cache", "library_delete",
            "library_export_bundle", "library_import_bundle",
            "PATCH_LIBRARY_COMMANDS", "COMMANDS", "patch_library_command", "start"]
@@ -63,6 +64,12 @@ CACHE_KINDS = {
     "osm": ("Map data", "OpenStreetMap data is downloaded again the next "
             "time a tile that uses it is built."),
 }
+
+
+#: Library rows built at once: each walks a tile folder (I/O bound).  On
+#: 2,551 tiles (owner's library, 2026-11-11) 38 s one at a time, 17 s
+#: four at a time; eight or sixteen were slower.
+ROW_WORKERS = 4
 
 
 def _cache_dir(kind: str) -> str:
@@ -150,19 +157,29 @@ def _packs_by_tile(scenery_dir: str) -> dict:
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
-def library_scan(working_dir: str, scenery_dir: str = "") -> dict:
+def library_scan(working_dir: str, scenery_dir: str = "", caches: bool = True,
+                 infos: "dict | None" = None) -> dict:
     """ENGINE COMMAND ``library_scan``: every built tile of *working_dir*
     (the per-tile build folders' parent), its total, and the caches.
+
+    ``infos`` -- the map's last scan of *working_dir*
+    (``EngineSession.scanned_tiles``; the transport passes it), so the
+    tile folders are not read twice (#2006); None reads them.  ``caches``
+    False leaves the cache walk out (``"caches": []``).  The rows are
+    built :data:`ROW_WORKERS` at a time (each is a folder walk).
 
     :returns: ``{"tiles": [row, ...], "tiles_bytes": int,
         "caches": cache_sizes()["caches"]}``, rows sorted by tile key.
     """
     packs = _packs_by_tile(scenery_dir)
-    rows = [_row(info, scenery_dir, packs)
-            for _key, info in sorted(TINFO.scan_tiles(working_dir).items())]
+    if infos is None:
+        infos = TINFO.scan_tiles(working_dir)
+    ordered = [info for _key, info in sorted(infos.items())]
+    with ThreadPoolExecutor(ROW_WORKERS, thread_name_prefix="o4-library-row") as pool:
+        rows = list(pool.map(lambda info: _row(info, scenery_dir, packs), ordered))
     return {"tiles": rows,
             "tiles_bytes": sum(row["size_bytes"] for row in rows),
-            "caches": cache_sizes()["caches"]}
+            "caches": cache_sizes()["caches"] if caches else []}
 
 
 def cache_sizes() -> dict:

@@ -8,8 +8,10 @@ are the layout; ``tests/test_qt_layout_parity.py`` holds the two equal.
 - :class:`FlyOfferBanner` — "X-Plane has a flight loaded. Open Fly" above
   the side pane in Build and Library; never switches by itself.
 - Fly mode's pane is ``O4_Qt_Fly_Pane.FlyPane`` (lane U2).
-- :class:`LibraryPane` — Library mode's pane: the built tiles, Storage
-  (moved from Settings), the patch library and Convert existing tiles.
+- :class:`LibraryPane` — Library mode's pane (#2007): the data folder,
+  the disk budget, the patch library, Convert existing tiles and the
+  Caches line; its tiles table stands above the map (the window's
+  ``map_split``).
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import O4_App_Modes as MODES
 import O4_Glossary as GLOSSARY
 import O4_Qt_Convert_Tiles as QTCONVERT
 import O4_Qt_Library as QTLIB
+import O4_Qt_Library_Storage as QTLIBSTORE
 import O4_Qt_Settings_Storage as QTSTORAGE
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -113,13 +116,17 @@ class FlyOfferBanner(QFrame):
 
 
 class LibraryPane(QWidget):
-    """Library mode's pane, top to bottom: the built tiles
-    (``tiles_box``), Storage (``storage``, from Settings), the patch
-    library (``patch_box``) and Convert existing tiles (``convert_box``,
-    World spec §13)."""
+    """Library mode's pane, top to bottom (#2007, owner 2026-11-11): the
+    data folder (``folder_row``), the disk budget (``budget_box``, the
+    first item after it), the patch library (``patch_box``), Convert
+    existing tiles (``convert_box``, World spec §13) and the Caches line
+    (``caches_box``; Details… opens ``storage``, the per-cache list, in its
+    own window).  ``tiles_box`` -- the tiles table -- is not laid out here:
+    the window places it above the map."""
 
     def __init__(self, working_dir, scenery_dir, building=lambda: False,
-                 on_rebuild=None, on_changed=None, restore_pack=None, parent=None):
+                 on_rebuild=None, on_changed=None, restore_pack=None,
+                 scanned=None, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -127,14 +134,19 @@ class LibraryPane(QWidget):
         self.tiles_box = QTLIB.LibraryTilesSection(
             None, working_dir, scenery_dir, building=building,
             on_rebuild=on_rebuild, on_changed=on_changed,
-            restore_pack=restore_pack)
-        layout.addWidget(self.tiles_box, 1)
+            restore_pack=restore_pack, scanned=scanned)
         self.storage = QTSTORAGE.StorageSection(busy=building)
-        layout.addWidget(self.storage)
+        self.folder_row = QTLIBSTORE.DataFolderRow(self.storage)
+        layout.addWidget(self.folder_row)
+        self.budget_box = QTLIBSTORE.DiskBudgetBox(self.storage)
+        layout.addWidget(self.budget_box)
         self.patch_box = self.tiles_box.patch_box
         layout.addWidget(self.patch_box)
         self.convert_box = QTCONVERT.ConvertTilesSection(scenery_dir)
         layout.addWidget(self.convert_box)
+        self.caches_box = QTLIBSTORE.CachesLine(self.storage)
+        layout.addWidget(self.caches_box)
+        layout.addStretch(1)
 
     def refresh(self, working_dir, scenery_dir):
         """Read the tiles folder, the caches and the data folder again

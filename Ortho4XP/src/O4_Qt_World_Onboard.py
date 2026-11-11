@@ -4,7 +4,8 @@ SceneryKit's ``O4WorldOnboardText``).
 
 When no World folder exists at the start, the engine makes it
 (``world_commands.world_onboard``); when per-tile ortho packs could move
-into it, :class:`OnboardDialog` asks once what managing them gives and
+into it and were never offered (RULINGS 2026-11-11h (2): the engine
+records the offer, Not now included), :class:`OnboardDialog` asks once what managing them gives and
 offers Move… (Convert existing tiles, its dry run's numbers first) or Not
 now (Library ▸ Convert existing tiles asks again).  Spec §13 M1 holds:
 the packs' ``scenery_packs.ini`` rows are disabled, never removed.
@@ -27,8 +28,8 @@ __all__ = ["TITLE", "INTRO", "ADVANTAGES", "NOTE", "MOVE", "NOT_NOW", "DONE",
            "OnboardDialog", "check_at_launch"]
 
 TITLE = "Let XPTerrainBuilder manage your ortho tiles?"
-INTRO = ("XPTerrainBuilder made its World folder in Custom Scenery. It can "
-         "move the {count} ortho tile(s) you already have into it.")
+INTRO = ("XPTerrainBuilder can move the {count} ortho tile(s) you already "
+         "have into its World folder in Custom Scenery.")
 ADVANTAGES = ("One disk budget: everything the app keeps fits the space you "
               "give it.|Low-res placeholders: fly anywhere, sharp imagery "
               "arrives as you fly.|Build-ahead and the flight manager make the "
@@ -103,8 +104,7 @@ class _Onboarding(QObject):
                          "o4-qt-world-onboard")
 
     def _ready(self, result):
-        if isinstance(result, Exception) or not result.get("created") \
-                or not result.get("offer"):
+        if isinstance(result, Exception) or not result.get("offer"):
             return
         self.dialog = OnboardDialog(int(result["offer"]), self.scenery_dir, self.window)
         self.dialog.show()

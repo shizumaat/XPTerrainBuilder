@@ -22,8 +22,9 @@ struct DataFolderRow: View {
     }
 }
 
-/// The disk budget, visible and editable. Unset, the default applies and
-/// is shown; a budget below what is in use asks "downgrade scenery to low
+/// The disk budget, visible and editable. Unset, the default applies,
+/// holds the current install (RULINGS 2026-11-11h (1)) and Confirm records
+/// it; a budget below what is in use asks "downgrade scenery to low
 /// res to fit?" with the bytes first (Cancel keeps the old budget).
 struct DiskBudgetSection: View {
     @EnvironmentObject var buildModel: BuildModel
@@ -41,9 +42,13 @@ struct DiskBudgetSection: View {
                 Text(lines.line).fixedSize(horizontal: false, vertical: true)
                 Text(O4StorageText.defaultLine(budget))
                     .scaledFont(.caption).foregroundStyle(.secondary)
-                ForEach([lines.warning, O4StorageText.overDefaultLine(budget)].filter { !$0.isEmpty },
-                        id: \.self) { warning in
-                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                let held = O4StorageText.heldLine(budget)
+                if !held.isEmpty {
+                    Text(held).scaledFont(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !lines.warning.isEmpty {
+                    Label(lines.warning, systemImage: "exclamationmark.triangle.fill")
                         .scaledFont(.caption).foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -57,8 +62,10 @@ struct DiskBudgetSection: View {
                     .disabled(Double(field).map { $0 <= 0 } ?? true)
                 if budget?.budgetSet == true {
                     Button(O4StorageText.budgetUseDefault) { setBudget(0) }
-                } else if budget?.overBudget == true, let budget {
-                    Button(O4StorageText.budgetFit) { asking = budget.budgetBytes }
+                } else if let budget {
+                    Button(O4StorageText.budgetConfirm) {
+                        setBudget(Double(budget.budgetBytes) / 1e9)
+                    }
                 }
             }
             .disabled(model.isWorking || buildModel.isBuilding)

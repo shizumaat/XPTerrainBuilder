@@ -9,7 +9,8 @@ all three (its ``scan_shown`` signal).
 
 - :class:`DataFolderRow` -- the data folder.
 - :class:`DiskBudgetBox` -- the budget, visible and editable; unset, the
-  default applies and is shown; a budget below what is in use asks
+  default applies, holds the current install (RULINGS 2026-11-11h (1))
+  and Confirm records it; a budget below what is in use asks
   "downgrade scenery to low res to fit?" with the bytes first (Cancel
   keeps the old budget).
 - :class:`CachesLine` -- the total, Clear… and Details….
@@ -64,7 +65,7 @@ class DataFolderRow(QWidget):
 
 class DiskBudgetBox(QWidget):
     """The disk budget: its line, the default and recommended figures, a
-    field with Set (and Use Default / Fit to Budget…)."""
+    field with Set (and Use Default once set, Confirm until then)."""
 
     def __init__(self, storage, parent=None):
         super().__init__(parent)
@@ -94,10 +95,10 @@ class DiskBudgetBox(QWidget):
         self.default_btn = QPushButton(TEXT.BUDGET_USE_DEFAULT)
         self.default_btn.clicked.connect(lambda: self._set(0.0))
         row.addWidget(self.default_btn)
-        self.fit_btn = QPushButton(TEXT.BUDGET_FIT)
-        self.fit_btn.clicked.connect(
-            lambda: self._ask(int(self.budget.get("budget_bytes") or 0)))
-        row.addWidget(self.fit_btn)
+        self.confirm_btn = QPushButton(TEXT.BUDGET_CONFIRM)
+        self.confirm_btn.clicked.connect(
+            lambda: self._set(int(self.budget.get("budget_bytes") or 0) / 1e9))
+        row.addWidget(self.confirm_btn)
         row.addStretch(1)
         layout.addLayout(row)
         storage.scan_shown.connect(self.show_scan)
@@ -108,11 +109,13 @@ class DiskBudgetBox(QWidget):
         line, warning = TEXT.budget_lines(self.budget) if self.budget else ("", "")
         self.budget_label.setText(line)
         self.default_label.setText(TEXT.default_line(self.budget) if self.budget else "")
-        warnings = [w for w in (warning, TEXT.over_default_line(self.budget)) if w]
-        self.budget_warning.setText("<br>".join(warnings))
-        self.budget_warning.setVisible(bool(warnings))
+        held = TEXT.held_line(self.budget) if self.budget else ""
+        self.default_label.setText("<br>".join(
+            t for t in (self.default_label.text(), held) if t))
+        self.budget_warning.setText(warning)
+        self.budget_warning.setVisible(bool(warning))
         self.default_btn.setVisible(bool(self.budget.get("budget_set")))
-        self.fit_btn.setVisible(bool(TEXT.over_default_line(self.budget)))
+        self.confirm_btn.setVisible(bool(held))
         self._show_field()
 
     def _show_field(self):

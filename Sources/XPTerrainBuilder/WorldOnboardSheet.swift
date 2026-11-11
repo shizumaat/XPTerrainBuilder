@@ -4,7 +4,8 @@ import SceneryKit
 extension BuildModel {
     /// At the start (#2007, RULINGS 2026-11-11a): when no World folder
     /// exists the engine makes it (`world_onboard`), and when tiles could
-    /// move into it the onboarding sheet asks once. "Not now" leaves
+    /// move into it that were never offered (RULINGS 2026-11-11h (2)) the
+    /// onboarding sheet asks once. "Not now" leaves
     /// Library ▸ Convert existing tiles to ask again.
     func checkWorldOnboardAtLaunch() {
         guard !worldOnboardChecked,
@@ -14,7 +15,7 @@ extension BuildModel {
         Task { @MainActor [weak self] in
             guard let done = try? await context.client.worldOnboard(sceneryDir: context.sceneryDir)
             else { return }
-            if done.created, done.offer > 0 { self?.worldOnboard = done }
+            if done.offer > 0 { self?.worldOnboard = done }
         }
     }
 }

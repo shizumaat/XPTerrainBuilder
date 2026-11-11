@@ -120,9 +120,16 @@ LIBRARY_STORAGE = (
      "budget_box", "budget_edit"),
     ("budget_downgrade", "LibraryStorage.swift", "O4StorageText.downgradeMessage(",
      "budget_box", "_ask"),
+    # RULINGS 2026-11-11h (1): unconfirmed, Confirm records the default.
+    ("budget_confirm", "LibraryStorage.swift", "Button(O4StorageText.budgetConfirm)",
+     "budget_box", "confirm_btn"),
     ("world_onboard", "MapMainView.swift", "WorldOnboardSheet(offer:",
      "onboard", "OnboardDialog"),
 )
+
+#: Settings ▸ Storage rows that live in the Library pane ONLY (RULINGS
+#: 2026-11-11h (3)): neither app's Settings lists them.
+LIBRARY_ONLY_SETTINGS = ("storage_budget_gb",)
 
 #: Fly mode's map layers, bottom to top (key, Swift marker in
 #: FlyMapOverlay.swift, Qt marker in O4_Qt_Fly_Layer.py): "Live flight
@@ -847,6 +854,14 @@ def test_the_library_storage_rows_have_one_home_in_each_app(window):
     for key, swift_file, marker, owner, attr in LIBRARY_STORAGE:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
+
+
+def test_the_disk_budget_is_not_a_settings_row_in_either_app():
+    import O4_Settings_Model as SM
+    swift = (SWIFT / "SettingsLayout.swift").read_text(encoding="utf-8")
+    rows = {member[0] for _key, _title, members in SM._LAYOUT for member in members}
+    for name in LIBRARY_ONLY_SETTINGS:
+        assert name not in rows and 'SettingItem("%s"' % name not in swift, name
 
 
 def test_qt_modes_swap_the_pane_and_keep_the_selection(window, monkeypatch):

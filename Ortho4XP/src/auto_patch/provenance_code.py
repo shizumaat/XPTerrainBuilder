@@ -487,6 +487,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.partition_cache",
     "auto_patch_v2.airport.partition_code",
     "auto_patch_v2.airport.pavement_end_plate",
+    "auto_patch_v2.airport.pit_frame",
     "auto_patch_v2.airport.placement_atom",
     "auto_patch_v2.airport.placement_body",
     "auto_patch_v2.airport.placement_boxes",

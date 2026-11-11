@@ -24,7 +24,7 @@ water takes it flat.  The water is the tile's OSM ``water`` layer
 its sea, closed from the ``coastline`` layer by the build's own
 partition (``O4_Vector_Map.cached_coastline_multilinestring`` +
 ``sea_area_from_coastline``); both are fetched once when nothing is on
-disk.  :func:`start_water` runs that fetch on a thread so it overlaps the
+disk.  :func:`_start_water` runs that fetch on a thread so it overlaps the
 photo download (``O4_World_Drape_Fetch``).
 """
 from __future__ import annotations
@@ -37,8 +37,7 @@ import numpy
 import O4_Geo_Utils as GEO
 from PIL import Image, ImageDraw
 
-__all__ = ["OPEN_WATER_ALPHA", "tile_water", "start_water", "square_mask",
-           "write_masks", "start_masks"]
+__all__ = ["OPEN_WATER_ALPHA", "tile_water", "square_mask", "start_masks"]
 
 #: Photo opacity over open water on a drape's water copy, 0-255 (RULINGS
 #: 2026-11-11j (2), owner 14:17Z "halfway between those two": the regular
@@ -144,7 +143,7 @@ def tile_water(tile):
     return _union(_inland(tile), _sea_or_none(tile))
 
 
-def start_water(tile):
+def _start_water(tile):
     """Start the tile's water (:func:`tile_water`) on two threads, inland
     and sea at once, so the fetch overlaps the photo download; the
     returned callable ``join(timeout=None)`` gives ``(area, seconds)``,
@@ -215,11 +214,11 @@ def square_mask(area, lat: int, lon: int, til_x: int, til_y: int, zl: int,
 
 
 def start_masks(tile, squares, zl: int, provider: str, px: int):
-    """:func:`write_masks` on a thread (the water read and the masks both
+    """:func:`_write_masks` on a thread (the water read and the masks both
     overlap the photo download; a 4096 px tile's masks took 213 s); the
     returned callable ``join(timeout=None)`` gives its result, or ``None``
     while it still runs."""
-    joiner = _thread(lambda t: write_masks(t, squares, zl, provider, px),
+    joiner = _thread(lambda t: _write_masks(t, squares, zl, provider, px),
                      tile)
 
     def join(timeout=None):
@@ -228,18 +227,18 @@ def start_masks(tile, squares, zl: int, provider: str, px: int):
     return join
 
 
-def write_masks(tile, squares, zl: int, provider: str, px: int,
+def _write_masks(tile, squares, zl: int, provider: str, px: int,
                 water=None) -> dict:
     """Write the mask of every square of ``squares`` that touches water
     into ``tile.build_dir/textures`` under the engine's mask name
     (``FNAMES.mask_file``), where ``convert_texture`` imprints it into a
     DXT5 when ``tile.imprint_masks_to_dds`` is set.  ``water`` is a
-    :func:`start_water` joiner (else the water is read here).  Returns
+    :func:`_start_water` joiner (else the water is read here).  Returns
     counts and seconds."""
     import O4_File_Names as FNAMES
     import O4_Mask_Utils as MASK
     t0 = time.time()
-    area, fetch_s = (water or start_water(tile))()
+    area, fetch_s = (water or _start_water(tile))()
     t1 = time.time()
     out = {"water_data": area is not None, "masked": 0,
            "water_fetch_s": fetch_s, "water_wait_s": round(t1 - t0, 1)}

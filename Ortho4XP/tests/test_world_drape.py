@@ -282,13 +282,13 @@ def test_write_masks_puts_135_on_open_water_and_255_on_land(tmp_path,
                     (mid_lon + 63, south - 0.01 - 52),
                     (mid_lon + 63, north + 0.01 - 52),
                     (west - 0.01 + 63, north + 0.01 - 52)])
-    out = WATER.write_masks(Tile(), [(x, y)], 16, "BI", 512,
+    out = WATER._write_masks(Tile(), [(x, y)], 16, "BI", 512,
                             water=lambda: (lake, 1.5))
     assert out["masked"] == 1 and out["water_fetch_s"] == 1.5
     mask = numpy.array(Image.open(tmp_path / "textures" / f"{y}_{x}_ZL16.png"))
     assert mask[256, 20] == 135 and mask[256, 500] == 255
     assert 135 < mask[256, 250] < 255                # the shore feather
-    none = WATER.write_masks(Tile(), [(x, y)], 16, "BI", 512,
+    none = WATER._write_masks(Tile(), [(x, y)], 16, "BI", 512,
                              water=lambda: (None, 0.5))
     assert none["water_data"] is False and none["masked"] == 0
     # on a thread beside the download; a join past its wait gives None
@@ -313,7 +313,7 @@ def test_start_water_overlaps_and_gives_up_at_its_wait(monkeypatch):
     monkeypatch.setattr(WATER, "_inland", lambda tile: box(0, 0, .1, .1))
     monkeypatch.setattr(WATER, "_sea", lambda tile: gate.wait(5) and box(.5, .5, 1, 1))
     t0 = time.time()
-    join = WATER.start_water(object())
+    join = WATER._start_water(object())
     assert join(0.2) == (None, None) and time.time() - t0 < 2
     gate.set()
     area, seconds = join()

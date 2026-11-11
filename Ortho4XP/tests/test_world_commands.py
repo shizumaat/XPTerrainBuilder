@@ -42,7 +42,9 @@ def wire_sample() -> WorldStatus:
                        seen_by_xplane=True, restart_needed=False,
                        tiles={"placeholder": 3, "drape": 0, "light": 1,
                               "full": 2, "staged": 1},
-                       queue=2, building=(), loaded=("+53-063",),
+                       queue=2,
+                       building=(("+53-065", "light", "building", 412),),
+                       loaded=("+53-063",),
                        last_swap=("+53-064", "light", "2026-11-10T15:02:24Z"),
                        slots=1, frame_ms=21.8, governor="ok", bytes=1234)
 
@@ -240,6 +242,22 @@ def test_s3_while_xplane_runs(world, monkeypatch):
     # +53-062 enters at lon -60.35 (0.65° past its column): 5 km out.
     near = WORLD.tile_loaded(world, position=lambda: (53.3, -60.30))
     assert near(53, -63) is False and near(53, -62) is True
+
+
+def test_watch_holds_no_thread_until_a_tile_is_built():
+    """``watch`` starts its worker with the first job: a session (a test
+    window) that never builds leaks no thread (#2004 CI: 98 idle workers
+    at the Qt suite's segfault)."""
+    import threading
+
+    class Session:
+        def subscribe(self, fn):
+            pass
+    before = sum(t.name == "o4-world-publish" for t in threading.enumerate())
+    for _ in range(3):
+        PUBLISH.watch(Session(), scenery_dir=lambda: "/nowhere")
+    after = sum(t.name == "o4-world-publish" for t in threading.enumerate())
+    assert after == before
 
 
 def test_watch_publishes_a_built_tile_on_its_worker(world, tmp_path):

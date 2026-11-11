@@ -21,6 +21,27 @@ import Foundation
     static func plan(_ json: O4JSON) -> O4FlightPlanRead? { O4FlightPlanRead.parse(json) }
     static let status = O4FlightStatus.parse(doc["events"]?["FlightStatus"])!
 
+    /// The flight manager's events reach the app as `O4Event`s (F1b):
+    /// `FlightStatus` (the fixture's, the Python class's field set,
+    /// `test_flight_manager.py`) and an unwaited `FlightReady`.
+    @Test func flightEventsAreEvents() throws {
+        let events = try #require(Self.raw["events"] as? [String: Any])
+        let object = try #require(events["FlightStatus"] as? [String: Any])
+        guard case .flightStatus(let status)? = O4Event.parse(object: object) else {
+            Issue.record("FlightStatus is not an O4Event")
+            return
+        }
+        #expect(status == Self.status)
+        let ready: [String: Any] = ["event": "FlightReady", "request": 3,
+                                    "result": ["source": "SimBrief", "waypoints": []], "error": ""]
+        guard case .flightReady(let reply)? = O4Event.parse(object: ready) else {
+            Issue.record("FlightReady is not an O4Event")
+            return
+        }
+        #expect(reply["result"]?["source"]?.stringValue == "SimBrief")
+        #expect(O4EngineCapabilities.flightManager == "flight_manager")
+    }
+
     @Test func eventsDecode() throws {
         let events = try #require(Self.raw["events"] as? [String: Any])
         let object = try #require(events["AircraftPosition"] as? [String: Any])
@@ -37,6 +58,42 @@ import Foundation
         #expect(Self.status.jobs[0] == O4FlightStatus.Job(lat: 53, lon: -61, role: "departure", kind: "full",
                                                           state: "building", remainingSeconds: 412,
                                                           marginSeconds: nil))
+    }
+
+    /// Lane F2: `FlightNotice` is an `O4Event`; the "Divert…" search, the
+    /// reload and offline-waiver lines give the Python answers
+    /// (`O4_Fly_Divert_Text`).
+    @Test func divertNoticeAndWaiver() throws {
+        let events = try #require(Self.raw["events"] as? [String: Any])
+        let object = try #require(events["FlightNotice"] as? [String: Any])
+        guard case .flightNotice(let notice)? = O4Event.parse(object: object) else {
+            Issue.record("FlightNotice is not an O4Event")
+            return
+        }
+        #expect(notice.code == "diversion_ready" && notice.title == "Diversion ready")
+        #expect(notice.flight == Self.status.flight && notice.severity == "info")
+        #expect(O4EngineCapabilities.flightNotices == "flight_notices")
+        func airport(_ row: O4JSON) -> FlyDivertText.Airport {
+            let r = row.arrayValue!
+            return FlyDivertText.Airport(ident: r[0].stringValue!, name: r[1].stringValue ?? "",
+                                         lat: r[2].doubleValue!, lon: r[3].doubleValue!)
+        }
+        for c in Self.cases("divert_row_label") {
+            #expect(FlyDivertText.rowLabel(airport(c[0])) == c[1].stringValue)
+        }
+        let index = (Self.doc["text"]?["divert_airports"]?.arrayValue ?? []).map(airport)
+        #expect(index.count == 6)
+        for c in Self.cases("divert_matches") {
+            let want = (c[2].arrayValue ?? []).map(airport)
+            #expect(FlyDivertText.matches(c[0].stringValue!, in: index,
+                                          limit: c[1].intValue!) == want)
+        }
+        for c in Self.cases("reload_line") {
+            #expect(FlyDivertText.reloadLine(O4FlightStatus.parse(c[0])) == c[1].stringValue)
+        }
+        for c in Self.cases("waiver_line") {
+            #expect(FlyDivertText.waiverLine(O4FlightStatus.parse(c[0])) == c[1].stringValue)
+        }
     }
 
     @Test func countdownAndItems() {

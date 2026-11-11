@@ -52,6 +52,7 @@ private struct FlyPaneRows: View {
                     CruiseSpeedField(model: fly)
                     CorridorWidthField(model: fly)
                     ReadinessChecklist(model: fly)
+                    OfflineWaiverRow(model: fly)
                     FlightCountdown(model: fly)
                     WorldStatusLine(model: fly)
                     ImageryFollowLine(model: follow)
@@ -59,9 +60,11 @@ private struct FlyPaneRows: View {
                         ForEach(FlyText.simPriorities, id: \.0) { Text($0.1).tag($0.0) }
                     }
                     Toggle(FlyText.livePreview, isOn: $fly.livePreview)
-                        .help(FlyText.livePreviewStub)
-                    Button(FlyText.divert) { fly.divert() }
+                        .help(FlyText.livePreviewHelp)
+                    ReloadOfferRow(model: fly)
+                    Button(FlyText.divert) { fly.divertShown = true }
                         .disabled(fly.status == nil)
+                        .sheet(isPresented: $fly.divertShown) { DivertSheet(model: fly) }
                     Button(FlyText.endFlight) { fly.endFlight() }
                         .disabled(fly.status == nil)
                 }
@@ -190,6 +193,71 @@ struct FlightCountdown: View {
                 }
             }
         }
+    }
+}
+
+/// "N tiles en route need the internet" and "Fly with X-Plane's own
+/// scenery there" (RULINGS 2026-11-10k Q3; lane F2).
+struct OfflineWaiverRow: View {
+    @ObservedObject var model: FlyModel
+
+    var body: some View {
+        let line = FlyDivertText.waiverLine(model.status)
+        if !line.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(line).scaledFont(.caption).foregroundStyle(.orange)
+                Button(FlyDivertText.waiveOffline) { model.waiveOffline() }
+            }
+        }
+    }
+}
+
+/// The one reload in the air (rule S6 (b)): announced 30 s ahead with
+/// "Not now"; after it, "Reload scenery now" (lane F2).
+struct ReloadOfferRow: View {
+    @ObservedObject var model: FlyModel
+
+    var body: some View {
+        let line = FlyDivertText.reloadLine(model.status)
+        if !line.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(line).scaledFont(.callout)
+                HStack {
+                    Button(FlyDivertText.reloadNow) { model.reload(notNow: false) }
+                    if model.status?.reload == "scheduled" {
+                        Button(FlyDivertText.notNow) { model.reload(notNow: true) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// "Divert…": the plan's alternate first, then any airport by search
+/// (spec §4.3 step 8; lane F2).
+struct DivertSheet: View {
+    @ObservedObject var model: FlyModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(FlyDivertText.divertTitle).scaledFont(.headline)
+            if model.hasAlternate {
+                Button(FlyDivertText.divertAlternate) { model.divert(to: nil) }
+            }
+            TextField(FlyDivertText.divertSearch, text: $model.divertQuery)
+            List(model.divertResults, id: \.ident) { airport in
+                Button(FlyDivertText.rowLabel(airport)) { model.divert(to: airport) }
+                    .buttonStyle(.plain)
+            }
+            .frame(minHeight: 180)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+            }
+        }
+        .padding(12)
+        .frame(width: 360)
     }
 }
 

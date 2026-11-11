@@ -127,7 +127,8 @@
    "late": [],
    "shed": [],
    "reload": "",
-   "diverted_to": ""
+   "diverted_to": "",
+   "waivable": []
   },
   "WorldStatus": {
    "state": "building",
@@ -144,6 +145,14 @@
     "+53-061",
     "+53-062"
    ]
+  },
+  "FlightNotice": {
+   "event": "FlightNotice",
+   "flight": "20261110T1612Z-CYYR-CYYT",
+   "code": "diversion_ready",
+   "title": "Diversion ready",
+   "text": "Scenery for CYQX is in place.",
+   "severity": "info"
   }
  },
  "text": {
@@ -687,7 +696,8 @@
      "late": [],
      "shed": [],
      "reload": "",
-     "diverted_to": ""
+     "diverted_to": "",
+     "waivable": []
     },
     "0 of 834 km flown"
    ],
@@ -808,7 +818,8 @@
      "late": [],
      "shed": [],
      "reload": "",
-     "diverted_to": ""
+     "diverted_to": "",
+     "waivable": []
     },
     "Building is 3 min behind"
    ]
@@ -993,6 +1004,213 @@
    [
     "No plan to build",
     "No plan to build"
+   ]
+  ],
+  "divert_airports": [
+   [
+    "CYQX",
+    "Gander International",
+    48.94,
+    -54.57
+   ],
+   [
+    "CYYT",
+    "St. John's International",
+    47.62,
+    -52.75
+   ],
+   [
+    "CYYR",
+    "Goose Bay",
+    53.32,
+    -60.43
+   ],
+   [
+    "CYY",
+    "",
+    50.0,
+    -60.0
+   ],
+   [
+    "KGND",
+    "Gandy Field",
+    40.0,
+    -100.0
+   ],
+   [
+    "CYQXA",
+    "Gander Seaplane",
+    48.95,
+    -54.6
+   ]
+  ],
+  "divert_matches": [
+   [
+    "cyy",
+    12,
+    [
+     [
+      "CYY",
+      "",
+      50.0,
+      -60.0
+     ],
+     [
+      "CYYR",
+      "Goose Bay",
+      53.32,
+      -60.43
+     ],
+     [
+      "CYYT",
+      "St. John's International",
+      47.62,
+      -52.75
+     ]
+    ]
+   ],
+   [
+    "CYQX",
+    12,
+    [
+     [
+      "CYQX",
+      "Gander International",
+      48.94,
+      -54.57
+     ],
+     [
+      "CYQXA",
+      "Gander Seaplane",
+      48.95,
+      -54.6
+     ]
+    ]
+   ],
+   [
+    "gand",
+    12,
+    [
+     [
+      "CYQX",
+      "Gander International",
+      48.94,
+      -54.57
+     ],
+     [
+      "CYQXA",
+      "Gander Seaplane",
+      48.95,
+      -54.6
+     ],
+     [
+      "KGND",
+      "Gandy Field",
+      40.0,
+      -100.0
+     ]
+    ]
+   ],
+   [
+    "  ",
+    12,
+    []
+   ],
+   [
+    "C",
+    2,
+    [
+     [
+      "CYQX",
+      "Gander International",
+      48.94,
+      -54.57
+     ],
+     [
+      "CYQXA",
+      "Gander Seaplane",
+      48.95,
+      -54.6
+     ]
+    ]
+   ],
+   [
+    "zzz",
+    12,
+    []
+   ]
+  ],
+  "divert_row_label": [
+   [
+    [
+     "CYYR",
+     "Goose Bay",
+     53.32,
+     -60.43
+    ],
+    "CYYR · Goose Bay"
+   ],
+   [
+    [
+     "CYY",
+     "",
+     50.0,
+     -60.0
+    ],
+    "CYY"
+   ]
+  ],
+  "reload_line": [
+   [
+    {
+     "flight": "f",
+     "reload": "",
+     "diverted_to": ""
+    },
+    ""
+   ],
+   [
+    {
+     "flight": "f",
+     "reload": "scheduled",
+     "diverted_to": "CYQX"
+    },
+    "Scenery for CYQX reloads in 30 s."
+   ],
+   [
+    {
+     "flight": "f",
+     "reload": "offered",
+     "diverted_to": ""
+    },
+    "Scenery for the destination is ready: reload when you choose."
+   ],
+   [
+    {
+     "flight": "f",
+     "reload": "sent",
+     "diverted_to": "CYQX"
+    },
+    ""
+   ]
+  ],
+  "waiver_line": [
+   [
+    {
+     "flight": "f",
+     "waivable": []
+    },
+    ""
+   ],
+   [
+    {
+     "flight": "f",
+     "waivable": [
+      "+53-062",
+      "+53-063"
+     ]
+    },
+    "2 tile(s) en route need the internet."
    ]
   ]
  },

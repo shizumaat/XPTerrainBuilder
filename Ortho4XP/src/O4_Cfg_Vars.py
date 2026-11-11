@@ -213,6 +213,44 @@ cfg_app_vars = {
             "aircraft's position from it."
         ),
     },
+    # Build-ahead while flying (flight manager / World spec §5.5, §10, §17).
+    "world_intermediate": {
+        "type": str,
+        "default": "light",
+        "values": ("light", "drape"),
+        "value_labels": {
+            "light": "Built tiles (mesh at 90 m, no airport work)",
+            "drape": "Photo, quick (laid over X-Plane's own ground)",
+        },
+        "hint": (
+            "What the app builds ahead of the aircraft by itself for tiles "
+            "not built yet. Stays a setting until the drape test flight "
+            "decides (spec decision point D1)."
+        ),
+    },
+    "fly_build_slots": {
+        "type": int,
+        "default": 0,
+        "values": (0, 1, 2, 3, 4),
+        "value_labels": {0: "Auto — leave X-Plane its share", 1: "1",
+                         2: "2", 3: "3", 4: "4"},
+        "hint": (
+            "Tiles built at once while X-Plane flies. Auto: (cores - 6) / 3, "
+            "between 1 and 3."
+        ),
+    },
+    "fly_sim_priority": {
+        "type": str,
+        "default": "balanced",
+        "values": ("smooth", "balanced", "fast"),
+        "value_labels": {"smooth": "Smooth flying", "balanced": "Balanced",
+                         "fast": "Fast building"},
+        "hint": (
+            "While flying, building gives a slot back when X-Plane's frame "
+            "time rises 10 % (smooth) or 25 % (balanced) above its own; "
+            "fast never does."
+        ),
+    },
     "base_elevation_source": {
         "module": "DEM",
         "type": str,
@@ -1047,6 +1085,9 @@ list_app_vars = [
     "ondemand_lead_s",
     "ondemand_lands_per_s",
     "xplane_web_api_port",
+    "world_intermediate",
+    "fly_build_slots",
+    "fly_sim_priority",
     "custom_scenery_dir",
     "custom_overlay_src",
     "custom_overlay_src_alternate",

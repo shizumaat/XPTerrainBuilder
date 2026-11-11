@@ -22,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import O4_Fly_Divert_Text as DTEXT  # noqa: E402
 import O4_Fly_Layers as LAYERS  # noqa: E402
 import O4_Fly_Text as TEXT  # noqa: E402
 from o4_engine import aircraft_watch as WATCH  # noqa: E402
@@ -31,6 +32,14 @@ from o4_engine.jsonl import serialize_event  # noqa: E402
 CASES = Path(__file__).resolve().parent / "fixtures" / "fly_pane_cases.json"
 SWIFT_TEXT = (Path(__file__).resolve().parents[2] / "Sources" / "SceneryKit"
               / "FlyText.swift")
+SWIFT_DIVERT_TEXT = SWIFT_TEXT.with_name("FlyDivertText.swift")
+#: The airport search's rows ``[ident, name, lat, lon]`` (lane F2).
+AIRPORTS = [["CYQX", "Gander International", 48.94, -54.57],
+            ["CYYT", "St. John's International", 47.62, -52.75],
+            ["CYYR", "Goose Bay", 53.32, -60.43],
+            ["CYY", "", 50.0, -60.0],
+            ["KGND", "Gandy Field", 40.0, -100.0],
+            ["CYQXA", "Gander Seaplane", 48.95, -54.6]]
 
 # A FlightStatus as spec §5.3 freezes it (lane F1b emits it; until then
 # this is the shape both panes are built on).
@@ -50,7 +59,7 @@ FLIGHT_STATUS = {
              [[52, -59], "enroute", "light", "swapped", 0.0, 900.0],
              [[47, -53], "destination", "full", "staged", 0.0, 1080.0]],
     "route_km": 833.6, "done_km": 0.0, "eta_s": 6480.0, "late": [],
-    "shed": [], "reload": "", "diverted_to": "",
+    "shed": [], "reload": "", "diverted_to": "", "waivable": [],
 }
 WORLD_STATUS = {"state": "building", "reason": "", "building":
                 [["+53-060", "light", "mesh", 120.0]],
@@ -98,6 +107,19 @@ def _text_cases():
         "unknown_airport": [[" zzzz ", TEXT.unknown_airport(" zzzz ")]],
         "refusal": [[e, TEXT.refusal(e)] for e in (
             "", "unknown command: 'flight_create'", "No plan to build")],
+        "divert_airports": AIRPORTS,
+        "divert_matches": [[q, n, DTEXT.divert_matches(q, AIRPORTS, n)]
+                           for q, n in (("cyy", 12), ("CYQX", 12), ("gand", 12),
+                                        ("  ", 12), ("C", 2), ("zzz", 12))],
+        "divert_row_label": [[row, DTEXT.divert_row_label(row)]
+                             for row in AIRPORTS[2:4]],
+        "reload_line": [[{"flight": "f", "reload": r, "diverted_to": d},
+                         DTEXT.reload_line({"reload": r, "diverted_to": d})]
+                        for r, d in (("", ""), ("scheduled", "CYQX"),
+                                     ("offered", ""), ("sent", "CYQX"))],
+        "waiver_line": [[{"flight": "f", "waivable": w},
+                         DTEXT.waiver_line({"waivable": w})]
+                        for w in ([], ["+53-062", "+53-063"])],
     }
 
 
@@ -118,11 +140,17 @@ def _doc():
                                    on_ground=False, paused=True)
     wire = {k: v for k, v in serialize_event(position).items()
             if k not in ("seq", "ts")}
+    from o4_engine.flight_notices import notice
+    flight_notice = {k: v for k, v in serialize_event(EV.FlightNotice(
+        flight=FLIGHT_STATUS["flight"], **notice(
+            "diversion_ready", destination="CYQX"))).items()
+        if k not in ("seq", "ts")}
     return {"_comment": "Written by tests/test_fly_pane.py "
                         "(REGENERATE_FLY_PANE=1); read by "
                         "Tests/SceneryKitTests/FlyPaneTests.swift.",
             "events": {"AircraftPosition": wire, "FlightStatus": FLIGHT_STATUS,
-                       "WorldStatus": WORLD_STATUS},
+                       "WorldStatus": WORLD_STATUS,
+                       "FlightNotice": flight_notice},
             "text": _text_cases(),
             "track": _track_case(),
             "corridor": [[plan, 20, [], LAYERS.corridor_cells(plan, 20)],
@@ -163,7 +191,7 @@ def test_the_words_are_the_macs():
                  "PLAN_NONE", "SIMBRIEF_BUTTON", "QUICK_FROM", "QUICK_TO",
                  "QUICK_BUTTON", "PREPARE", "BUILD_ALTERNATE", "CRUISE_LABEL",
                  "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "LIVE_PREVIEW",
-                 "LIVE_PREVIEW_STUB", "DIVERT", "END_FLIGHT",
+                 "LIVE_PREVIEW_HELP", "DIVERT", "END_FLIGHT",
                  "NO_FLIGHT_MANAGER", "NO_STATUS"):
         camel = re.sub(r"_(\w)", lambda m: m.group(1).upper(), name.lower())
         said = re.search(r'static let %s = "([^"]+)"' % camel, swift)
@@ -174,6 +202,13 @@ def test_the_words_are_the_macs():
         assert '("%s", "%s")' % (key, words.replace('"', '\\"')) in swift, key
     for value, words in TEXT.SIM_PRIORITIES:
         assert '("%s", "%s")' % (value, words) in swift, value
+    divert = SWIFT_DIVERT_TEXT.read_text(encoding="utf-8")
+    for name in ("DIVERT_TITLE", "DIVERT_SEARCH", "DIVERT_ALTERNATE",
+                 "DIVERT_BUTTON", "RELOAD_NOW", "NOT_NOW", "WAIVE_OFFLINE"):
+        camel = re.sub(r"_(\w)", lambda m: m.group(1).upper(), name.lower())
+        said = re.search(r'static let %s = "([^"]+)"' % camel, divert)
+        assert said and said.group(1) == getattr(DTEXT, name), name
+    assert "static let searchLimit = %d" % DTEXT.SEARCH_LIMIT in divert
 
 
 def test_the_track_breaks_at_jumps_and_the_antimeridian():

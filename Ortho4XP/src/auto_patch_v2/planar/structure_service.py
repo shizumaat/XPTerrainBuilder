@@ -153,9 +153,15 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     # (a) EXTENDED TO THE PACK (owner RULINGS 2026-09-27a (3), issue #12
     # Q-12b): a bore entering a PACK building unit is refused like one
     # entering an OSM building
+    # a PORTAL over a bore end (``airport/portal_objects``) is that bore's
+    # own object, never a building it enters, as a corridor object is
+    # (#1949 OMDB ``tunner_5_1``: admitted over bore -5662's end, then
+    # refused here as a building standing 5.7 m over its zero)
     pack_bldg = _PackBuildings(airport, law,
                                getattr(on_field, "corridor_prints", ()) or (),
-                               getattr(on_field, "corridor_objects", ()) or (),
+                               set(getattr(on_field, "corridor_objects", ()) or ())
+                               | {oid for _e, oid, _r in
+                                  getattr(on_field, "portal_ends", ()) or ()},
                                getattr(on_field, "deck_objects", ()) or ())
     deck_polys = list(getattr(on_field, "deck_polys", ()) or ())
     # (a) AT GRADE (owner RULINGS 2026-11-07b (1), #1972): a roofed pack

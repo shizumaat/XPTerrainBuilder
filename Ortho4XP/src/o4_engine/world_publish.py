@@ -30,12 +30,14 @@ import queue
 import threading
 from typing import Any, Callable, Optional
 
+import O4_Build_Profile as PROFILE
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_World_Pack as WP
 
+from . import imagery_follow as FOLLOW
 from . import world_commands as WORLD
 
-__all__ = ["LAYOUT_KEY", "watch"]
+__all__ = ["LAYOUT_KEY", "watch", "write_layout"]
 
 #: The imagery-manifest key naming a published tile's pack folders (the
 #: index's reader owns the name).
@@ -47,7 +49,7 @@ def _manifest_path(build_dir: str, lat: int, lon: int) -> str:
                         % WP.tile_name(lat, lon))
 
 
-def _write_layout(build_dir: str, lat: int, lon: int,
+def write_layout(build_dir: str, lat: int, lon: int,
                  pack: Optional[str]) -> bool:
     """Name the pack's folders of the tile in its imagery manifest
     (``pack`` None: remove the name).  ``False`` without a manifest."""
@@ -82,7 +84,7 @@ def _after_swap(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
     import O4_Scenery_Links as LINKS
 
     from . import imagery_ondemand as ONDEMAND
-    _write_layout(build_dir, lat, lon, WORLD.pack_dir(scenery_dir))
+    write_layout(build_dir, lat, lon, WORLD.pack_dir(scenery_dir))
     with contextlib.suppress(Exception):     # the index is a cache
         ONDEMAND.register_tiles([(build_dir, lat, lon)])
     with contextlib.suppress(ValueError, OSError):
@@ -100,9 +102,11 @@ def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
     pack = WORLD.pack_dir(scenery_dir)
     if loaded is None:
         loaded = WORLD.tile_loaded(scenery_dir)
-    result = WP.publish(pack, build_dir, lat, lon,
-                        staging_root=WORLD.staging_root(), kind=kind,
-                        loaded=loaded)
+    # S7: the follow job waits for THIS tile only while it is swapped.
+    with FOLLOW.paused("world publish", tiles=[WP.tile_name(lat, lon)]):
+        result = WP.publish(pack, build_dir, lat, lon,
+                            staging_root=WORLD.staging_root(), kind=kind,
+                            loaded=loaded)
     if result["state"] == "swapped":
         _after_swap(scenery_dir, build_dir, lat, lon)
     WORLD.write_log({"publish": result["tile"], "kind": kind,
@@ -136,12 +140,12 @@ def watch(session: Any,
 
     def work() -> None:
         while True:
-            lat, lon, where = jobs.get()
+            lat, lon, where, kind = jobs.get()
             try:
                 result = _publish_built(where, session.tile_build_dir(lat, lon),
-                                       lat, lon)
+                                       lat, lon, kind)
                 if result is not None:
-                    swap = ((result["tile"], "full", _utc())
+                    swap = ((result["tile"], kind, _utc())
                             if result["state"] == "swapped" else ())
                     # Tiles staged earlier swap in now if they may (S3);
                     # the build-ahead job (W2) retries them on its own.
@@ -151,15 +155,31 @@ def watch(session: Any,
                 WORLD.write_log({"publish_error": repr(error)[:300],
                                  "tile": WP.tile_name(lat, lon)})
 
-    threading.Thread(target=work, daemon=True,
-                     name="o4-world-publish").start()
+    # The worker starts with the first job, not at subscription: a
+    # window that never builds holds no thread (CI leaked one per test
+    # window, 98 at #2004's crash, hiding the faulting thread's stack).
+    started = threading.Lock()
+    worker: list = []
+
+    def enqueue(job: tuple) -> None:
+        jobs.put(job)
+        with started:
+            if not worker:
+                worker.append(threading.Thread(
+                    target=work, daemon=True, name="o4-world-publish"))
+                worker[0].start()
 
     def on_event(event) -> None:
         if (type(event).__name__ == "BuildDone" and event.ok
                 and not getattr(session, "_stepwise_run", False)):
             # The Custom Scenery folder as configured NOW, on the
-            # emitting thread (not when the worker gets to it).
-            jobs.put((int(event.lat), int(event.lon), scenery_dir()))
+            # emitting thread (not when the worker gets to it), and the
+            # kind the build's profile makes (a light tile, World spec
+            # §8.4), read while the run still holds its overrides.
+            lat, lon = int(event.lat), int(event.lon)
+            overrides = getattr(session, "tile_overrides",
+                                lambda la, lo: {})(lat, lon)
+            enqueue((lat, lon, scenery_dir(), PROFILE.profile_of(overrides)))
     session.subscribe(on_event)
 
 

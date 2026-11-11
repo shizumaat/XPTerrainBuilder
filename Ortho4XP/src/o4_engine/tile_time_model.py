@@ -365,11 +365,16 @@ def _record_step_seconds(record: dict, step_key: str):
 def _same_tile_compatible(record: dict, features: dict, step_key: str) -> bool:
     """Whether a past record is comparable to the planned build for a step.
 
-    Only imagery is zoom-sensitive: a tile rebuilt at a different zoom
+    A record of another build profile (``light`` vs ``full``, World spec
+    §9; a record without one is ``full``) never is.  Only imagery is
+    zoom-sensitive: a tile rebuilt at a different zoom
     level fetches and converts a completely different number of textures,
     so its imagery time is not a valid predictor.  Every other step is
     zoom-independent, so any record of the same tile is compatible.
     """
+    if (((record.get("features") or {}).get("profile") or "full")
+            != ((features or {}).get("profile") or "full")):
+        return False
     if step_key != "imagery":
         return True
     record_zoom = (record.get("features") or {}).get("zoomlevel")

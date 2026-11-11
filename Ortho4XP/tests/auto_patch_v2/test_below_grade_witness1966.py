@@ -112,3 +112,39 @@ def test_a_portal_the_ground_stands_over_is_still_a_portal(tmp_path):
     """KBUF: the road at the portal's zero runs under the ground round it."""
     got, refused, grade = _portals(tmp_path, _Dem(rise=6.0, r=3.0))
     assert len(got) == 1 and not refused and grade == []
+
+
+def test_an_agl_row_states_its_own_depth_over_an_anchor_bump(tmp_path):
+    """#1949 OMDB ``tunner_5_1``: an AGL -4.8 portal whose anchor stands on
+    a surface-model bump (the DEM there 8.43 over a 4.21 ground round it)
+    still states its road 4.8 m under the ground it is drawn on — a portal,
+    not a building at grade."""
+    ground = BG.ground_of(_airport(_Dem()), [], O.ResourceCache(THICK), LAW)
+    o = _portal_placed(_portal(tmp_path))
+    o.kind, o.anchor_z, o.agl_m = "OBJECT_AGL", 104.0, -4.8
+    got, refused = P.read_portals([o], O.ResourceCache(THICK), LAW, [BORE], ground=ground)
+    assert len(got) == 1 and not refused
+
+
+def test_an_agl_zero_row_in_a_dem_trench_still_reads_the_trench(tmp_path):
+    """The deeper reading counts: an AGL-0 portal whose anchor stands in a
+    trench the DEM itself sees (the ground round it 6 m higher) is a portal."""
+    from shapely.geometry import box
+    g = BG._Ground(BG.author_ground([], O.ResourceCache(THICK), LAW, {}),
+                   _Dem(rise=6.0, r=3.0).z_many, {})
+    o = types.SimpleNamespace(kind="OBJECT", anchor_z=100.0, agl_m=0.0)
+    b = BG.row_depth_under(o, 0.0, box(-1, -1, 1, 1), set(), g, LAW)
+    assert abs(b.depth - 6.0) < 1e-9
+    o.agl_m = -3.0     # the anchor reading (9 m) is deeper than the statement (3 m)
+    assert abs(BG.row_depth_under(o, 0.0, box(-1, -1, 1, 1), set(), g, LAW).depth - 9.0) < 1e-9
+    o.anchor_z, o.agl_m = 110.0, -8.0     # an anchor bump: the statement is deeper
+    b = BG.row_depth_under(o, 0.1, box(-1, -1, 1, 1), set(), g, LAW)
+    assert abs(b.depth - 7.9) < 1e-9 and "its AGL -8.00" in b.why
+
+
+def test_an_msl_row_states_no_ground(tmp_path):
+    from shapely.geometry import box
+    g = BG._Ground(BG.author_ground([], O.ResourceCache(THICK), LAW, {}), _Dem().z_many,
+                   {"m": 99.0})
+    o = types.SimpleNamespace(kind="OBJECT_MSL", id="m", anchor_z=0.0, agl_m=-50.0)
+    assert abs(BG.row_depth_under(o, 0.0, box(-1, -1, 1, 1), set(), g, LAW).depth - 1.0) < 1e-9

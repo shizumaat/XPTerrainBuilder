@@ -7,12 +7,17 @@ top to bottom: name a flight (X-Plane's saved FMS plans, SimBrief, a plan
 file, a departure + arrival), the flight card, "Also build the alternate"
 (off, 10g), cruise speed and corridor, the readiness checklist and
 countdown, the World pack and follow lines, "While flying", "Live flight
-preview" (#2001; the imagery drawing is a stub), Divert… and End flight.
+preview" (#2001; the map's ``O4_Qt_Live_Preview`` draws it), Divert… and
+End flight.
+Lane F2 adds the offline waiver row (RULINGS 2026-11-10k Q3), the reload
+offer in the air (rule S6 (b): "Reload scenery now" / "Not now") and the
+"Divert…" airport search (``O4_Qt_Fly_Divert.DivertDialog``).
 
 Words and rules: :mod:`O4_Fly_Text`, :mod:`O4_Fly_Layers`.  Engine
 commands go through ``run(name, **arguments)`` (the window's command
-table, never re-spelled); the ``flight_*`` commands and ``FlightStatus``
-belong to lane F1b, and until an engine has them the pane says
+table, never re-spelled); the ``flight_*`` commands, ``FlightStatus`` and
+``FlightReady`` are the flight manager's (lane F1b, capability
+``flight_manager``); an engine without them makes the pane say
 :data:`O4_Fly_Text.NO_FLIGHT_MANAGER`.
 """
 
@@ -21,9 +26,11 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, Optional
 
 import O4_App_Modes as MODES
+import O4_Fly_Divert_Text as DTEXT
 import O4_Fly_Layers as LAYERS
 import O4_Fly_Text as TEXT
 import O4_Glossary as GLOSSARY
+import O4_Qt_Fly_Divert as DIVERT
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -120,6 +127,9 @@ class FlyPane(QWidget):
         layout.addWidget(self.corridor_edit)
         self.readiness_list = _caption(TEXT.NO_STATUS, gray=True)
         layout.addWidget(self.readiness_list)
+        self.offline_waiver_row, self.waiver_label = self._button_row(
+            ((DTEXT.WAIVE_OFFLINE, self.waive_offline),))
+        layout.addWidget(self.offline_waiver_row)
         self.countdown_label = _caption()
         self.countdown_label.setVisible(False)
         layout.addWidget(self.countdown_label)
@@ -139,11 +149,19 @@ class FlyPane(QWidget):
                                       self.sim_priority_combo.currentData()))
         layout.addWidget(self.sim_priority_combo)
         self.chk_live_preview = QCheckBox(TEXT.LIVE_PREVIEW)
-        self.chk_live_preview.setToolTip(TEXT.LIVE_PREVIEW_STUB)
+        self.chk_live_preview.setToolTip(TEXT.LIVE_PREVIEW_HELP)
         self.chk_live_preview.setChecked(bool(self.prefs.get(PREF_LIVE_PREVIEW)))
         self.chk_live_preview.toggled.connect(
             lambda on: self._remember(PREF_LIVE_PREVIEW, bool(on)))
         layout.addWidget(self.chk_live_preview)
+        self.reload_offer_row, self.reload_label = self._button_row(
+            ((DTEXT.RELOAD_NOW, lambda: self.reload(False)),
+             (DTEXT.NOT_NOW, lambda: self.reload(True))))
+        self.not_now_btn = self.reload_offer_row.buttons[1]
+        layout.addWidget(self.reload_offer_row)
+        self.notice_label = _caption(gray=True)
+        self.notice_label.setVisible(False)
+        layout.addWidget(self.notice_label)
         self.divert_btn = QPushButton(TEXT.DIVERT)
         self.divert_btn.clicked.connect(self._divert)
         layout.addWidget(self.divert_btn)
@@ -185,6 +203,25 @@ class FlyPane(QWidget):
         button.clicked.connect(self.use_quick_entry)
         h.addWidget(button)
         return row, edits[0], edits[1]
+
+    def _button_row(self, buttons):
+        """A line of words over buttons, hidden while the words are empty."""
+        row = QWidget()
+        v = QVBoxLayout(row)
+        v.setContentsMargins(0, 0, 0, 0)
+        label = _caption()
+        v.addWidget(label)
+        h = QHBoxLayout()
+        row.buttons = []
+        for words, slot in buttons:
+            button = QPushButton(words)
+            button.clicked.connect(slot)
+            h.addWidget(button)
+            row.buttons.append(button)
+        h.addStretch(1)
+        v.addLayout(h)
+        row.setVisible(False)
+        return row, label
 
     def _card(self):
         card = QFrame()
@@ -253,6 +290,14 @@ class FlyPane(QWidget):
                 "<b>%s</b>%s" % (TEXT.countdown_text(self.status.get("countdown_s")),
                                  "<br>" + line if line else ""))
         self.world_line.setText(TEXT.world_line(self.world))
+        for row, label, line in (
+                (self.offline_waiver_row, self.waiver_label,
+                 DTEXT.waiver_line(self.status)),
+                (self.reload_offer_row, self.reload_label,
+                 DTEXT.reload_line(self.status))):
+            label.setText(line)
+            row.setVisible(bool(line))
+        self.not_now_btn.setVisible((self.status or {}).get("reload") == "scheduled")
         for button in (self.divert_btn, self.end_flight_btn):
             button.setEnabled(self.status is not None)
         self.changed.emit()
@@ -278,9 +323,26 @@ class FlyPane(QWidget):
     # events (the window feeds them)
     # ------------------------------------------------------------------
     def show_status(self, event):
-        """A ``FlightStatus`` (lane F1b's event, or its dict)."""
+        """A ``FlightStatus`` (the flight manager's event, or its dict)."""
         self.status = _fields(event)
         self._show()
+
+    def show_ready(self, event):
+        """A ``FlightReady``: the SimBrief plan, or why there is none."""
+        if getattr(event, "error", ""):
+            self._say(TEXT.refusal(event.error))
+        elif isinstance(getattr(event, "result", None), dict):
+            self._say()
+            self.set_plan(event.result)
+
+    def show_notice(self, event):
+        """A ``FlightNotice`` (lane F2): the pane's last notice line (the
+        window posts the system notification)."""
+        fields = _fields(event) or {}
+        text = " — ".join(w for w in (fields.get("title"), fields.get("text"))
+                          if w)
+        self.notice_label.setText(text)
+        self.notice_label.setVisible(bool(text))
 
     def show_world(self, event):
         """A ``WorldStatus`` (lane W1's event, or its dict)."""
@@ -363,9 +425,31 @@ class FlyPane(QWidget):
                           **arguments)
 
     def _divert(self):
+        """"Divert…": the alternate first, then any airport by search."""
+        if not self.status:
+            return
+        dialog = DIVERT.DivertDialog(
+            self._airports, bool(self.plan and self.plan.get("alternate")),
+            self)
+        if dialog.exec() and dialog.choice() is not None:
+            self.divert_to(dialog.choice())
+
+    def divert_to(self, to):
+        """``flight_divert`` to ``"alternate"`` or ``{ident, lat, lon}``."""
         if self.status:
-            self._command("flight_divert", flight=self.status.get("flight"),
-                          to="alternate")
+            return self._command("flight_divert",
+                                 flight=self.status.get("flight"), to=to)
+        return None
+
+    def reload(self, not_now: bool):
+        """The reload in the air (S6 (b)): now, or "Not now"."""
+        if self.status:
+            self._command("flight_reload", flight=self.status.get("flight"),
+                          not_now=bool(not_now))
+
+    def waive_offline(self):
+        """"Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3)."""
+        self._update(waive_offline=True)
 
     def _end_flight(self):
         if self.status and self._command(

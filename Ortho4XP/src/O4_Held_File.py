@@ -79,7 +79,9 @@ def is_held_name_on_create(error: OSError) -> bool:
     is still held -- a file deleted while another handle is open stays
     "delete pending" until that handle closes?
 
-    For an ``os.open(..., O_CREAT | O_EXCL)`` only: the C runtime turns
+    For an ``os.open(..., O_CREAT | O_EXCL)``, and for a READ open of a
+    name another thread is ``os.replace``-ing onto (``O4_DDS_File.
+    is_whole``): the C runtime turns
     ``ERROR_ACCESS_DENIED`` into a bare ``EACCES`` with no ``winerror``,
     which in general could be any permission failure -- so this is never
     the default predicate.  At an exclusive create of a file the caller

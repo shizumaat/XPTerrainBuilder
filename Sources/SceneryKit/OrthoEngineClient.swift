@@ -354,6 +354,15 @@ public enum O4Event: Sendable, Equatable {
     /// X-Plane's aircraft once a second while `aircraftWatch(on:)` is on
     /// (capability `aircraft_position`, #2001). See `O4AircraftPosition`.
     case aircraftPosition(O4AircraftPosition)
+    /// The active flight's state every 2 s and on a change (capability
+    /// `flight_manager`, World spec §5.3). See `O4FlightStatus`.
+    case flightStatus(O4FlightStatus)
+    /// One notice of the active flight (capability `flight_notices`, World
+    /// spec F2): a system notification. See `O4FlightNotice`.
+    case flightNotice(O4FlightNotice)
+    /// An async flight command's completion no caller waits for
+    /// (`flight_plan_simbrief`: the plan, or `error`): the whole event.
+    case flightReady(O4JSON)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -540,6 +549,18 @@ public enum O4Event: Sendable, Equatable {
         // `class AircraftPosition` in Ortho4XP/src/o4_engine/events.py.
         case "AircraftPosition":
             return .aircraftPosition(O4AircraftPosition.parse(object))
+        // `class FlightStatus` in Ortho4XP/src/o4_engine/events.py.
+        case "FlightStatus":
+            guard let status = O4FlightStatus.parse(O4JSON.from(object)) else { return .unknown(event: type) }
+            return .flightStatus(status)
+        // `class FlightNotice` in Ortho4XP/src/o4_engine/events.py.
+        case "FlightNotice":
+            guard let notice = O4FlightNotice.parse(O4JSON.from(object)) else { return .unknown(event: type) }
+            return .flightNotice(notice)
+        // `class FlightReady` in Ortho4XP/src/o4_engine/events.py (when no
+        // waiter took it: see the completion switch in `handle`).
+        case "FlightReady":
+            return .flightReady(O4JSON.from(object))
         // `class SlowStep` in Ortho4XP/src/o4_engine/events.py.
         case "SlowStep":
             return .slowStep(O4SlowStep.parse(object))
@@ -977,6 +998,27 @@ public final class OrthoEngineClient: @unchecked Sendable {
         send(command: "imagery_follow_stop")
     }
 
+    // MARK: - Build-ahead (World spec W2, capability world_job)
+
+    /// Start build-ahead in track mode: tiles about to enter X-Plane's
+    /// window are built and swapped into the World pack before they load.
+    /// The engine also starts it by itself beside the follow job;
+    /// `worldStatus` events report it every 2 s. `completion` gets the
+    /// reply's status: "started", "running", "off", or nil on a refusal.
+    public func startWorldJob(port: Int? = nil,
+                              completion: (@Sendable (String?) -> Void)? = nil) {
+        var arguments: [String: Any] = ["mode": "track"]
+        if let port { arguments["port"] = port }
+        send(command: "world_job_start", arguments: arguments) { reply in
+            completion?(reply.ok ? reply.result?["status"]?.stringValue : nil)
+        }
+    }
+
+    /// Stop build-ahead (builds already queued finish).
+    public func stopWorldJob() {
+        send(command: "world_job_stop")
+    }
+
     // MARK: - Default airport index (protocol 1.6)
 
     /// Ask the engine for X-Plane's Global Airports index. The engine owns
@@ -1217,11 +1259,13 @@ public final class OrthoEngineClient: @unchecked Sendable {
         // ImageryFreshnessReady` and `class WorldReady` in
         // Ortho4XP/src/o4_engine/events.py, the completions of the
         // `pack_objects`, Library, `plan_estimate` (#820), `build_airports`
-        // (#818), `imagery_freshness` (#1666) and `world_regions_set`
-        // (World spec §5.2) commands whose id is `request`.
+        // (#818), `imagery_freshness` (#1666), `world_regions_set`
+        // (World spec §5.2), `world_migrate` (World spec M) and
+        // `flight_plan_simbrief` (`class FlightReady`, F1b) commands whose
+        // id is `request`.
         switch object["event"] as? String {
         case "PackObjectsReady", "LibraryReady", "PlanEstimateReady", "BuildAirportsReady",
-             "ImageryFreshnessReady", "WorldReady":
+             "ImageryFreshnessReady", "WorldReady", "FlightReady":
             if let request = (object["request"] as? NSNumber)?.intValue,
                let waiter = lock.withLock({ eventWaiters.removeValue(forKey: request) }) {
                 waiter(O4JSON.from(object))

@@ -32,7 +32,7 @@ public enum FlyText {
         ("fast", "Build fastest"),
     ]
     public static let livePreview = "Live flight preview"
-    public static let livePreviewStub = "Shows each square's installed imagery on the map; the drawing arrives in a later version."
+    public static let livePreviewHelp = "Shows the imagery installed for X-Plane on the map, square by square, as it arrives; zoom in to see it."
     public static let divert = "Divert…"
     public static let endFlight = "End flight"
     public static let noFlightManager = "This engine has no flight manager yet."

@@ -1264,11 +1264,18 @@ final class BuildModel: ObservableObject {
             imageryStatus[code] = status
         case .imageryFollowStatus(let status):
             imageryFollow.show(status) // the Fly pane's follow line (#1992 P4)
+            fly.preview.followLanded(status.landed) // a tier landed (#2001)
             appMode.observe(status)    // offers Fly, never switches (10j)
         case .worldStatus(let status):
             worldStatus = status
         case .aircraftPosition(let position):
             fly.show(position)         // the Fly map's aircraft (#2001)
+        case .flightStatus(let status):
+            fly.show(status)           // the Fly pane's flight (F1b)
+        case .flightNotice(let notice):
+            fly.show(notice)           // a system notification (F2)
+        case .flightReady(let reply):
+            fly.showReady(reply)       // flight_plan_simbrief's plan
         case .unknown:
             break // additive protocol: ignore unknown event types
         }

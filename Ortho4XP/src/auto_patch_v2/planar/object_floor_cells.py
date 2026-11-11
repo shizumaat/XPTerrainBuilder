@@ -153,6 +153,15 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats,
                                        scale=xplane_metre_scale(airport.frame.origin[0]))
     floors, deck_notes = floor_decks(floors, objects, cache, classification, airport, law)
     notes.extend(f"object floor {n}" for n in deck_notes)
+    # #1949: a roofed portal whose row stands off the road its roof states
+    from ..airport.portal_floor import read_portal_floors
+    more, p_notes = read_portal_floors(
+        getattr(tstats, "portals", ()) or (), objects, cache, law,
+        ground=lambda xs, ys: dem_z_many(airport.dem, xs, ys),
+        scale=xplane_metre_scale(airport.frame.origin[0]),
+        taken={pid for f in floors for pid, _r, _z in f.seats})
+    floors = list(floors) + more
+    notes.extend(p_notes)
     floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}
     if floor_ids:
         corridors = [c for c in corridors if not (set(c.objects) & floor_ids)]

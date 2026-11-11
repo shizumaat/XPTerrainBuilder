@@ -50,7 +50,7 @@ import O4_Path_Exchange as EXCHANGE
 
 from .xplane_root import xplane_running as _xplane_running
 
-__all__ = ["WORK_DIR_NAME", "convert", "converted_tiles", "dry_run",
+__all__ = ["WORK_DIR_NAME", "sibling_work_dir", "convert", "converted_tiles", "dry_run",
            "imagery_ondemand_convert", "revert"]
 
 #: Beside the Custom Scenery folder (same volume, so the exchange is one
@@ -76,10 +76,16 @@ class _Entry:
         return FNAMES.short_latlon(self.lat, self.lon)
 
 
+def sibling_work_dir(custom_scenery_dir: str, name: str) -> str:
+    """The work folder ``name`` beside a Custom Scenery folder (same
+    volume, outside what X-Plane scans); shared with ``world_migrate``."""
+    parent = os.path.dirname(os.path.abspath(custom_scenery_dir))
+    return os.path.join(parent, name)
+
+
 def _work_dir_for(custom_scenery_dir: str) -> str:
     """The default work folder of a Custom Scenery folder."""
-    parent = os.path.dirname(os.path.abspath(custom_scenery_dir))
-    return os.path.join(parent, WORK_DIR_NAME)
+    return sibling_work_dir(custom_scenery_dir, WORK_DIR_NAME)
 
 
 def _entries(custom_scenery_dir: str, names=None) -> "list[_Entry]":

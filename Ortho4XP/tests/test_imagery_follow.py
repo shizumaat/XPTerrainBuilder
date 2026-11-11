@@ -647,3 +647,32 @@ def test_the_terminal_shell_names_tiles_and_prints_a_status_line():
     text = tool.line(ImageryFollowStatus(state="paused", reason="Offline",
                                          slots=2, buffer_s=-1.0))
     assert "paused" in text and "buffer     -" in text and "(Offline)" in text
+
+
+def test_a_build_or_a_swap_holds_only_its_own_tiles(xplane, tmp_path):
+    """World spec §8.7 / S7: ``busy()`` names the tiles being built and
+    ``paused(tiles=)`` the tile being swapped; fetches for every other tile
+    go on, those of the held tile wait."""
+    building = {"tiles": set()}
+    job, events, clock, lander, _t, _i = _job(
+        xplane, tmp_path, busy=lambda: set(building["tiles"]))
+    job.open()
+    positions = REPLAY["pos"]
+    _fly(job, xplane, clock, positions[:60])
+    building["tiles"] = {"+00+000"}           # another tile builds
+    before = len(lander.calls)
+    _fly(job, xplane, clock, positions[60:120])
+    assert len(lander.calls) > before and job.state == "following"
+    building["tiles"] = {TILE}                # this tile builds
+    before = len(lander.calls)
+    _fly(job, xplane, clock, positions[120:180])
+    assert len(lander.calls) == before
+    building["tiles"] = set()
+    with FOLLOW.paused("world swap", tiles=[TILE]):
+        assert FOLLOW.held_tiles() == {TILE} and FOLLOW.pause_count() == 0
+        _fly(job, xplane, clock, positions[180:220])
+        assert len(lander.calls) == before
+    assert FOLLOW.held_tiles() == set()
+    _fly(job, xplane, clock, positions[220:])
+    assert len(lander.calls) > before
+    job.close()

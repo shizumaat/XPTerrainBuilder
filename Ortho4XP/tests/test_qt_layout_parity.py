@@ -76,22 +76,37 @@ FLY_PANE = (
     ("cruise_speed", "CruiseSpeedField(model:", "cruise_speed_edit"),
     ("corridor", "CorridorWidthField(model:", "corridor_edit"),
     ("readiness", "ReadinessChecklist(model:", "readiness_list"),
+    ("offline_waiver", "OfflineWaiverRow(model:", "offline_waiver_row"),  # F2, 10k Q3
     ("countdown", "FlightCountdown(model:", "countdown_label"),
     ("world_line", "WorldStatusLine(model:", "world_line"),
     ("follow_line", "ImageryFollowLine(model:", "follow_line"),
     ("sim_priority", "Picker(FlyText.simPriorityLabel", "sim_priority_combo"),
     ("live_preview", "Toggle(FlyText.livePreview", "chk_live_preview"),   # #2001
+    ("reload_offer", "ReloadOfferRow(model:", "reload_offer_row"),     # F2, S6 (b)
     ("divert", "Button(FlyText.divert)", "divert_btn"),
     ("end_flight", "Button(FlyText.endFlight)", "end_flight_btn"),
 )
 
 #: Library mode's pane, top to bottom (key, Swift marker in
 #: LibraryPane.swift, Qt ``LibraryPane`` attribute).  Spec §14's World
-#: regions, pack health and Convert sections join in their lanes.
+#: regions and pack health sections join in their lanes (Convert: lane M).
 LIBRARY_PANE = (
     ("tiles", "LibraryTilesSection(", "tiles_box"),
     ("storage", "StorageSection(", "storage"),
     ("patch_library", "PatchLibrarySection()", "patch_box"),
+    ("convert", "ConvertTilesSection(", "convert_box"),            # §13
+)
+
+#: Fly mode's map layers, bottom to top (key, Swift marker in
+#: FlyMapOverlay.swift, Qt marker in O4_Qt_Fly_Layer.py): "Live flight
+#: preview"'s installed imagery (#2001) lies under the corridor, the route,
+#: the track and the aircraft in both maps.
+FLY_MAP_LAYERS = (
+    ("live_preview", "drawPreview(cam", "self.preview.paint("),
+    ("corridor", "for cell in model.cells", "self._pane.cells()"),
+    ("route", "stroke(model.drawing", "FP.route_drawing("),
+    ("track", "stroke(model.track.parts", "track.parts()"),
+    ("aircraft", "drawAircraft(cam.point", "self._aircraft("),
 )
 
 #: The Build box's controls, top to bottom: (key, Swift label, Qt attribute).
@@ -795,3 +810,15 @@ def test_qt_offers_fly_and_never_switches(window, monkeypatch):
     assert window.mode() == "fly" and not window.fly_offer.isVisible()
     assert QTMODES.ModeSwitch("library").mode() == "library"
     assert QTMODES.ModeSwitch("nonsense").mode() == "build"
+
+
+def test_both_fly_maps_stack_the_layers_alike():
+    """The manifest's layers, in drawing order, in both apps (#2001)."""
+    swift = (SWIFT / "FlyMapOverlay.swift").read_text(encoding="utf-8")
+    swift = swift[swift.index("Canvas {"):]
+    qt = (Path(GUI.__file__).with_name("O4_Qt_Fly_Layer.py")
+          .read_text(encoding="utf-8"))
+    qt = qt[qt.index("def paint("):]
+    for source, column in ((swift, 1), (qt, 2)):
+        marks = [source.find(row[column]) for row in FLY_MAP_LAYERS]
+        assert -1 not in marks and marks == sorted(marks), (column, marks)

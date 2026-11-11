@@ -1,0 +1,10 @@
+{"event": "WorldReady", "seq": 0, "ts": 0.0, "request": 3, "error": "",
+ "result": {"action": "dry_run", "failed": [],
+  "summary": "2,590 tiles can move into the World pack (2,435 on another drive get a local on-demand copy; their files stay where they are). It needs 170.7 GB on this drive and takes about 6 min. 2 are left as they are; 0 were moved before.",
+  "totals": {"entries": 2592, "by_kind": {"dir": 155, "link": 2435, "link-unmounted": 2},
+   "by_action": {"copy": 2435, "skip: library not mounted": 2, "stage": 155},
+   "copy_bytes": 128670867189, "dsf_bytes": 42049790216, "linked_texture_bytes": 0,
+   "library_texture_bytes": 8051534368656, "new_bytes": 170720657405, "dsf_7z": 0,
+   "seconds_per_tile": {"copy": 0.55, "stage": 1.19}, "seconds_serial_est": 1524,
+   "seconds_est": 381, "sample": [{"action": "stage", "seconds": 0.13, "status": "migrated"}],
+   "seconds": 119.1}}}

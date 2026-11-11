@@ -24,7 +24,7 @@ __all__ = [
     "SIMBRIEF_PLACEHOLDER", "SIMBRIEF_BUTTON", "OPEN_PLAN", "QUICK_FROM",
     "QUICK_TO", "QUICK_BUTTON", "PREPARE", "BUILD_ALTERNATE", "CRUISE_LABEL",
     "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "SIM_PRIORITIES", "LIVE_PREVIEW",
-    "LIVE_PREVIEW_STUB", "DIVERT", "END_FLIGHT", "NO_FLIGHT_MANAGER",
+    "LIVE_PREVIEW_HELP", "DIVERT", "END_FLIGHT", "NO_FLIGHT_MANAGER",
     "NO_STATUS", "READINESS_LABELS", "STATE_MARKS", "LEGEND",
     "DEFAULT_CRUISE_KT", "DEFAULT_CORRIDOR_KM", "plan_row_label",
     "unknown_airport", "refusal", "quick_plan", "cruise_kt", "card_lines",
@@ -52,8 +52,8 @@ SIM_PRIORITIES = (("smooth", "Smooth flying first"),
                   ("balanced", "Balanced"),
                   ("fast", "Build fastest"))
 LIVE_PREVIEW = GLOSSARY.TERMS["live_flight_preview"]
-LIVE_PREVIEW_STUB = ("Shows each square's installed imagery on the map; "
-                     "the drawing arrives in a later version.")
+LIVE_PREVIEW_HELP = ("Shows the imagery installed for X-Plane on the map, "
+                     "square by square, as it arrives; zoom in to see it.")
 DIVERT = "Divert…"
 END_FLIGHT = "End flight"
 #: An engine that answers a ``flight_*`` command with a refusal.

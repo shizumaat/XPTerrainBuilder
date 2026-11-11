@@ -93,7 +93,7 @@ SPJC_TAGS = {"highway": "secondary", "lanes": "3", "tunnel": "yes"}
 
 
 def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (335.0, -100.0)),
-          tags=SPJC_TAGS, partition=None, extra_cells=(), dem=None):
+          tags=SPJC_TAGS, partition=None, extra_cells=(), dem=None, portals=()):
     """SPJC -5724's shape: a 35 m ``secondary`` bore on a plane falling
     0.53 m, the nearest classified cell off it, inside a fence."""
     frame = Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11)
@@ -120,7 +120,8 @@ def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (33
              # pav49 is 211 m away), so neither ramp is stopped by it
              Cell(1, "apron", "pav49", _rect(360, 40, 460, 140), (), None, None,
                   "airside", "apron", {})] + list(extra_cells)
-    return build_structures(airport, Classification(tuple(cells), (), {}, ()), law)
+    return build_structures(airport, Classification(tuple(cells), (), {}, ()), law,
+                            portals=portals)
 
 
 def _refusals(st):
@@ -364,3 +365,22 @@ def test_the_open_passage_reads_a_MULTIPOLYGON_corridor(law):
         frame=Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11))
     over = _PackBuildings(ap, law).passage(line, 10.0, 1.0)
     assert over is not None and over[0] == "Bridge.obj" and over[2] == pytest.approx(8.0)
+
+
+def test_a_PORTAL_over_the_bore_end_is_no_building_it_enters(law):
+    """#1949 OMDB ``tunner_5_1``: the roofed portal admitted over bore
+    -5662's end (``FieldRegion.portal_ends``) is that bore's own object, as
+    a corridor object is — never a pack building the bore enters."""
+    from auto_patch_v2.planar.structure_service import _PackBuildings
+    tun = _partition(("dsf:obj6680", "tunner_5_1.obj", "candidate",
+                      (_part(0.1, 5.6, EAST_END),)))
+    ap = types.SimpleNamespace(partition=tun,
+                               frame=Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11))
+    assert _PackBuildings(ap, law).at((335.0, -100.0)) is not None
+    _cl, _t, st = _spjc(law, partition=tun)
+    assert "-5724 ENTERS A PACK BUILDING" in " ".join(_refusals(st))
+    from auto_patch_v2.airport.portal_objects import Portal
+    pin = Portal("dsf:obj6680", "tunner_5_1.obj", (335.0, -100.0), -5724, 5.7, 300.0,
+                 (335.0, -100.0))
+    _cl, _t, st = _spjc(law, partition=tun, portals=[pin])
+    assert "ENTERS A PACK BUILDING" not in " ".join(_refusals(st) + list(st.refused))

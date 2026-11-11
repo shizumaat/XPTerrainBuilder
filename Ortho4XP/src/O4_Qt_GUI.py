@@ -125,8 +125,10 @@ import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
 import O4_Qt_Modes as QTMODES
+import O4_Qt_Fly_Divert as QTFLYDIVERT
 import O4_Qt_Fly_Layer as QTFLYLAYER
 import O4_Qt_Fly_Pane as QTFLYPANE
+import O4_Qt_Live_Preview as QTLIVEPREVIEW
 import O4_Qt_Patch_Library as QTPATCHLIB
 import O4_Qt_Activity_List as QTACT
 import O4_Qt_Step_Strip as QTSTRIP
@@ -951,6 +953,11 @@ class MainWindow(QMainWindow):
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
             EV.ImageryFollowStatus: self._on_imagery_follow_status,
             EV.AircraftPosition: self._on_aircraft_position,
+            # The flight manager (lane F1b): the Fly pane's state, and
+            # flight_plan_simbrief's plan.
+            EV.FlightStatus: self._on_flight_status,
+            EV.FlightReady: self._on_flight_ready,
+            EV.FlightNotice: self._on_flight_notice,
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
@@ -1986,7 +1993,9 @@ class MainWindow(QMainWindow):
             self.follow_line, run=self._fly_command,
             airports=lambda: self._airports, prefs=self.prefs,
             save_prefs=save_prefs)
-        self.fly_layer = QTFLYLAYER.FlyLayer(self.map, self.fly_pane)
+        self.live_preview = QTLIVEPREVIEW.LivePreview(self._fly_command, self)
+        self.fly_layer = QTFLYLAYER.FlyLayer(self.map, self.fly_pane,
+                                             self.live_preview)
         self.map.add_layer(self.fly_layer)
         self.library_pane = QTMODES.LibraryPane(
             self.working_dir(), CFG.custom_scenery_dir,
@@ -2076,6 +2085,19 @@ class MainWindow(QMainWindow):
 
     def _on_aircraft_position(self, event):
         self.fly_pane.show_position(event)
+
+    def _on_flight_status(self, event):
+        self.fly_pane.show_status(event)
+
+    def _on_flight_notice(self, event):
+        """One ``FlightNotice`` (lane F2): a system notification and the
+        Fly pane's notice line."""
+        self.fly_pane.show_notice(event)
+        QTFLYDIVERT.post_notice(self, event)
+
+    def _on_flight_ready(self, event):
+        """``flight_plan_simbrief``'s plan, or its refusal sentence."""
+        self.fly_pane.show_ready(event)
 
     def _rebuild_from_library(self, tiles):
         """Library ▸ Rebuild: select those tiles and press Build (built
@@ -2936,9 +2958,14 @@ class MainWindow(QMainWindow):
     def _start_imagery_follow(self):
         from o4_engine import imagery_commands as CMDS
         session = self._session            # never the window (see below)
+        # The follow job holds only the tiles a build has queued or is
+        # building; build-ahead starts beside it when it may (World spec
+        # §8.7, W2) -- as the JSONL imagery_follow_start does.
         CMDS.start_imagery_follow(session._emit,
-                                  busy=lambda: bool(session._building),
+                                  busy=session.building_tiles,
                                   working_dir=self.working_dir())
+        from o4_engine import world_job_run as WORLD_JOB
+        WORLD_JOB.autostart(session)
 
     def _stop_imagery_follow(self):
         from o4_engine import imagery_commands as CMDS
@@ -2958,6 +2985,7 @@ class MainWindow(QMainWindow):
 
     def _on_imagery_follow_status(self, event):
         self.follow_line.show_status(event)
+        self.live_preview.follow_landed(getattr(event, "landed", None))  # #2001
         self.follow_line.setVisible(True)
         self.fly_offer.observe(event, self.mode())
 

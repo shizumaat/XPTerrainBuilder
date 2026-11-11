@@ -67,6 +67,17 @@ _AIRSIDE_EDGE_CANDIDATES = ("parking_lot", "service_road", "service_junction",
 _ROAD_ROLES = ("service_road", "service_junction")
 
 
+def _road_neck(evid: dict) -> bool:
+    """#1900 (owner RULINGS 2026-11-10l, HECA ``dsf:objpav99``): a
+    corridor's road-wide NECK outside its route territory, no taxi
+    centreline on it and a mapped road beside it (``neck.road_arms``,
+    ``roles.classify``'s arm-road verdict), is a SERVICE ROAD and "§27
+    must not flip it to apron" — the taxiway it leaves at both mouths and
+    the pack strip along it are not an apron it sits against."""
+    return bool(evid.get("arm_road") and evid.get("corridor_road_arm")
+                and evid.get("neck_kind") == "neck")
+
+
 def _strip_axis_width(poly: Polygon,
                       cache: dict | None = None) -> tuple[tuple[float, float], float]:
     """``(unit axis, width)`` of ``poly`` read as a STRIP: the long side
@@ -406,6 +417,8 @@ def airside_edge_flip(final: list[list], cells, law: Law,
                 continue
             per = face.length
             if per <= 0.0 or face.area / per < _LOT_SLIVER_RADIUS_M:
+                continue
+            if _road_neck(evid):
                 continue
             across: list = []
             shared = _lateral_airside_m(face, was_road[i], tree, air, weld_m,

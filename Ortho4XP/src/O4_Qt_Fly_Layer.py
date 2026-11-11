@@ -1,8 +1,9 @@
 """Fly mode's map layer in the Qt window (spec flight-manager-and-world-
 20261110 §4.3, §14; #2001; lane U2): the corridor tiles by legend, the
 route, the aircraft's track and the aircraft, drawn in Fly mode only.
-The Mac app's ``FlyMapOverlay.swift`` is the same.  "Live flight preview"
-(each square's installed imagery) is a stub behind its checkbox.
+The Mac app's ``FlyMapOverlay.swift`` is the same.  Under them, while
+"Live flight preview" is checked, each visible square's installed imagery
+(``O4_Qt_Live_Preview``, #2001): asked again when the map moves.
 
 A map layer (``MapView.add_layer``): paints in viewport space and never
 takes the mouse.
@@ -29,15 +30,38 @@ class FlyLayer:
     """See the module docstring.  ``pane`` is the window's
     ``O4_Qt_Fly_Pane.FlyPane``; :attr:`shown` follows the mode."""
 
-    def __init__(self, map_view, pane) -> None:
+    def __init__(self, map_view, pane, preview=None) -> None:
         self._map = map_view
         self._pane = pane
+        self.preview = preview
         self.shown = False
         pane.changed.connect(self._repaint)
+        if preview is not None:
+            preview.changed.connect(self._repaint)
+            map_view.view_changed.connect(self._view_moved)
+            pane.chk_live_preview.toggled.connect(lambda _on: self._preview_on())
 
     def set_shown(self, shown: bool) -> None:
         self.shown = bool(shown)
+        self._preview_on()
         self._repaint()
+
+    def _preview_on(self) -> None:
+        if self.preview is None:
+            return
+        self._view_moved()
+        self.preview.set_enabled(self.shown and self._pane.chk_live_preview.isChecked())
+
+    def _view_moved(self) -> None:
+        """The viewport and its pixels per degree of longitude."""
+        if self.preview is None:
+            return
+        south, north, west, east = self._map.visible_bounds()
+        # clamped to the Mercator range: before the map is first laid out
+        # its bounds can reach a pole, where the projection is undefined
+        mid = max(-85.0, min(85.0, (south + north) / 2))
+        px = self._point(mid, west + 1).x() - self._point(mid, west).x()
+        self.preview.set_view(south, west, north, east, px)
 
     def _repaint(self) -> None:
         self._map.viewport().update()
@@ -48,6 +72,8 @@ class FlyLayer:
     def paint(self, painter) -> None:
         if not self.shown:
             return
+        if self.preview is not None:
+            self.preview.paint(painter, self._point)
         painter.setBrush(Qt.NoBrush)
         for lat, lon, key in self._pane.cells():
             pen = QPen(LEGEND_COLORS[key], 2)

@@ -19,6 +19,10 @@ follow job lands from them while they are mounted.
     venv/bin/python tools/ondemand_convert.py convert --swap
     # undo one swap
     venv/bin/python tools/ondemand_convert.py revert zOrtho4XP_+00+029
+    # World spec §13 M1: move the entries into the World pack instead
+    venv/bin/python tools/ondemand_convert.py world-dry-run --sample 6
+    venv/bin/python tools/ondemand_convert.py world-migrate [--tiles ...]
+    venv/bin/python tools/ondemand_convert.py world-revert [--tiles ...]
 
 Nothing on the source is ever written.  ``scenery_packs.ini`` is never
 edited (an entry keeps its name, so its order and enabled state hold).
@@ -67,6 +71,25 @@ def print_dry_run(result: dict, widths) -> None:
     print(f"dry run took {t['seconds']} s")
 
 
+def _world(args, scenery: str) -> dict:
+    """The World migration's subcommands (``o4_engine.world_migrate``)."""
+    from o4_engine import world_migrate as MIGRATE
+    if args.action == "world-dry-run":
+        from o4_engine.world_migrate_size import dry_run
+        result = dry_run(scenery, args.tiles, workers=args.workers,
+                         sample=args.sample)
+        action = "dry_run"
+        print(json.dumps(result["totals"], indent=1))
+    elif args.action == "world-migrate":
+        result, action = MIGRATE.migrate(scenery, args.tiles,
+                                         workers=args.workers), "migrate"
+        print(json.dumps(result["counts"]))
+    else:
+        result, action = MIGRATE.revert(scenery, args.tiles), "revert"
+    print(MIGRATE.summary(action, result))
+    return result
+
+
 def main(argv=None) -> int:
     import O4_Console_Encoding
     O4_Console_Encoding.configure_console_streams()
@@ -99,13 +122,26 @@ def main(argv=None) -> int:
     back = sub.add_parser("revert", help="swap an entry back")
     back.add_argument("name")
     back.add_argument("--work-dir", default="")
+    wdry = sub.add_parser("world-dry-run",
+                          help="World migration sizing + timed sample")
+    wdry.add_argument("--tiles", nargs="*", default=None)
+    wdry.add_argument("--sample", type=int, default=6)
+    wdry.add_argument("--workers", type=int, default=8)
+    wrun = sub.add_parser("world-migrate",
+                          help="move entries into the World pack")
+    wrun.add_argument("--tiles", nargs="*", default=None)
+    wrun.add_argument("--workers", type=int, default=4)
+    wback = sub.add_parser("world-revert", help="undo the World migration")
+    wback.add_argument("--tiles", nargs="*", default=None)
     args = parser.parse_args(argv)
     if args.data_root:
         import O4_File_Names as FNAMES
         FNAMES.set_data_root(args.data_root)
     from o4_engine import imagery_convert as CONVERT
     scenery = _custom_scenery(args.custom_scenery)
-    if args.action == "dry-run":
+    if args.action.startswith("world-"):
+        result = _world(args, scenery)
+    elif args.action == "dry-run":
         widths = tuple(int(p) for p in args.px.split(","))
         result = CONVERT.dry_run(scenery, args.tiles, widths=widths,
                                  workers=args.workers,

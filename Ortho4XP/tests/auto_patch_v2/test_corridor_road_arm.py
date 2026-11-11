@@ -68,3 +68,48 @@ def test_a_spike_stays_out_of_the_road():
     assert len(arms) == 1
     arm = [p for p, is_arm in split_at_necks(face, arms, rules) if is_arm]
     assert len(arm) == 1 and arm[0].bounds[2] < 200.0 + 9.0 + 2.0
+
+
+def _necked(road_y: float | None = 80.0):
+    """#1900 (owner RULINGS 2026-11-10l, HECA ``dsf:objpav99``): two
+    taxiway lobes (centrelines y=10) joined by a 9 m pavement NECK that
+    climbs out of their route territory and runs 500 m along y 60-69, no
+    centreline on it; a mapped road beside it at ``road_y`` (11 m off its
+    edge at 80), over the middle 200 m of its run."""
+    a, b = box(0.0, 0.0, 200.0, 20.0), box(600.0, 0.0, 800.0, 20.0)
+    neck = unary_union([box(150.0, 20.0, 159.0, 69.0),
+                        box(150.0, 60.0, 650.0, 69.0),
+                        box(641.0, 20.0, 650.0, 69.0)])
+    face = unary_union([a, b, neck])
+    centres = [LineString([(0.0, 10.0), (200.0, 10.0)]),
+               LineString([(600.0, 10.0), (800.0, 10.0)])]
+    roads = [] if road_y is None else \
+        [LineString([(300.0, road_y), (500.0, road_y)])]
+    return face, centres, roads
+
+
+def test_a_neck_a_road_runs_beside_is_the_road():
+    rules = load_rules()
+    face, centres, roads = _necked()
+    necks = road_arms(face, centres, roads, rules)
+    assert [n.kind for n in necks] == ["neck"]
+    pieces = split_at_necks(face, necks, rules)
+    assert sum(1 for _p, is_neck in pieces if is_neck) == 1
+
+
+def test_a_neck_with_no_road_beside_it_stays():
+    rules = load_rules()
+    face, centres, _ = _necked(road_y=None)
+    assert road_arms(face, centres, [], rules) == []
+    # a road more than one road width off the neck's far edge is not beside it
+    face, centres, roads = _necked(road_y=69.0 + 9.0 + rules.apron.arm_road_max_width_m + 5.0)
+    assert road_arms(face, centres, roads, rules) == []
+
+
+def test_a_road_neck_is_never_flipped_by_section_27():
+    """§27 must not flip the road neck to apron (RULINGS 2026-11-10l)."""
+    from auto_patch_v2.classify.airside_edge import _road_neck
+    neck = {"arm_road": 1.0, "corridor_road_arm": 1.0, "neck_kind": "neck"}
+    assert _road_neck(neck)
+    assert not _road_neck(dict(neck, neck_kind="arm"))     # #1728 unchanged
+    assert not _road_neck({"arm_road": 1.0, "neck_kind": "neck"})

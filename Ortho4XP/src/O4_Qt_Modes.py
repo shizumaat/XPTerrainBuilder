@@ -9,13 +9,14 @@ are the layout; ``tests/test_qt_layout_parity.py`` holds the two equal.
   the side pane in Build and Library; never switches by itself.
 - Fly mode's pane is ``O4_Qt_Fly_Pane.FlyPane`` (lane U2).
 - :class:`LibraryPane` — Library mode's pane: the built tiles, Storage
-  (moved from Settings) and the patch library.
+  (moved from Settings), the patch library and Convert existing tiles.
 """
 
 from __future__ import annotations
 
 import O4_App_Modes as MODES
 import O4_Glossary as GLOSSARY
+import O4_Qt_Convert_Tiles as QTCONVERT
 import O4_Qt_Library as QTLIB
 import O4_Qt_Settings_Storage as QTSTORAGE
 from PySide6.QtCore import Signal
@@ -113,8 +114,9 @@ class FlyOfferBanner(QFrame):
 
 class LibraryPane(QWidget):
     """Library mode's pane, top to bottom: the built tiles
-    (``tiles_box``), Storage (``storage``, from Settings) and the patch
-    library (``patch_box``)."""
+    (``tiles_box``), Storage (``storage``, from Settings), the patch
+    library (``patch_box``) and Convert existing tiles (``convert_box``,
+    World spec §13)."""
 
     def __init__(self, working_dir, scenery_dir, building=lambda: False,
                  on_rebuild=None, on_changed=None, restore_pack=None, parent=None):
@@ -131,6 +133,8 @@ class LibraryPane(QWidget):
         layout.addWidget(self.storage)
         self.patch_box = self.tiles_box.patch_box
         layout.addWidget(self.patch_box)
+        self.convert_box = QTCONVERT.ConvertTilesSection(scenery_dir)
+        layout.addWidget(self.convert_box)
 
     def refresh(self, working_dir, scenery_dir):
         """Read the tiles folder, the caches and the data folder again
@@ -138,6 +142,7 @@ class LibraryPane(QWidget):
         self.tiles_box.working_dir = working_dir
         self.tiles_box.scenery_dir = scenery_dir
         self.patch_box.working_dir = working_dir
+        self.convert_box.scenery_dir = scenery_dir
         self.tiles_box.refresh()
         self.storage.refresh()
 

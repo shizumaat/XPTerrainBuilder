@@ -40,6 +40,14 @@ public struct O4WorldStatus: Sendable, Equatable {
         public let tiles: Int
     }
 
+    /// One row of `building` (W2 build-ahead): a tile being built.
+    public struct Building: Sendable, Equatable {
+        public let tile: String
+        public let kind: String
+        public let step: String
+        public let remainingS: Int
+    }
+
     public let state: String
     public let reason: String
     public let installed: Bool
@@ -49,6 +57,7 @@ public struct O4WorldStatus: Sendable, Equatable {
     /// `placeholder`, `drape`, `light`, `full`, `staged` counts.
     public let tiles: [String: Int]
     public let queue: Int
+    public let building: [Building]
     public let loaded: [String]
     /// `[tile, kind, utc]`, empty before the first swap.
     public let lastSwap: [String]
@@ -72,6 +81,12 @@ public struct O4WorldStatus: Sendable, Equatable {
                 placeholders: (row["placeholders"] as? NSNumber)?.intValue ?? 0,
                 tiles: (row["tiles"] as? NSNumber)?.intValue ?? 0)
         }
+        let building = (object["building"] as? [Any] ?? []).compactMap { item -> Building? in
+            guard let row = item as? [Any], row.count >= 4 else { return nil }
+            return Building(tile: row[0] as? String ?? "", kind: row[1] as? String ?? "",
+                            step: row[2] as? String ?? "",
+                            remainingS: (row[3] as? NSNumber)?.intValue ?? 0)
+        }
         return O4WorldStatus(
             state: object["state"] as? String ?? "off",
             reason: object["reason"] as? String ?? "",
@@ -80,6 +95,7 @@ public struct O4WorldStatus: Sendable, Equatable {
             restartNeeded: (object["restart_needed"] as? NSNumber)?.boolValue ?? false,
             tiles: counts,
             queue: int("queue"),
+            building: building,
             loaded: (object["loaded"] as? [Any] ?? []).compactMap { $0 as? String },
             lastSwap: (object["last_swap"] as? [Any] ?? []).compactMap { $0 as? String },
             slots: int("slots"),

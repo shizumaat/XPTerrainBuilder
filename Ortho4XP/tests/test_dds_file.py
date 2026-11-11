@@ -74,6 +74,29 @@ def test_whole_truncated_empty_and_foreign_files(tmp_path):
     assert DDS.is_whole(str(tmp_path / "absent.dds")) is False
 
 
+def test_a_whole_file_mid_swap_reads_whole_on_windows(tmp_path, monkeypatch):
+    """Windows refuses an open of a name ``os.replace`` holds (a bare
+    EACCES, no winerror; CI run 42915398276 saw a whole texture read as
+    broken mid-swap): the refusal is retried, not taken as a short file."""
+    import errno
+
+    import O4_Held_File as HELD
+    path = tmp_path / "swapped.dds"
+    path.write_bytes(_dds())
+    refusals = [PermissionError(errno.EACCES, "held")]
+
+    def held_once(*args, **kwargs):
+        if refusals:
+            raise refusals.pop()
+        return open(*args, **kwargs)
+
+    monkeypatch.setattr(HELD, "RETRY_HELD_FILE", True)
+    monkeypatch.setattr(HELD, "HELD_FILE_FIRST_BACKOFF_S", 0.0)
+    monkeypatch.setattr(DDS, "open", held_once, raising=False)
+    assert DDS.is_whole(str(path)) is True and not refusals
+    assert DDS.is_whole(str(tmp_path / "absent.dds")) is False
+
+
 def test_a_partial_name_is_beside_the_texture_and_is_not_a_texture(tmp_path):
     final = str(tmp_path / "100_200_BI16.dds")
     partial = DDS.partial_name(final)

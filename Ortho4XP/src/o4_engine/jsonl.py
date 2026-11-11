@@ -157,7 +157,9 @@ def _ortho4xp_version() -> str:
 #: is given the command's ``id`` as ``request``.
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "plan_estimate",
                                "build_airports", "imagery_freshness",
-                               "world_regions_set", *_LIBRARY.COMMANDS})
+                               "world_regions_set", "flight_plan_simbrief",
+                               "world_migrate",
+                               *_LIBRARY.COMMANDS})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -177,10 +179,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
 
     from . import patch_commands, patch_drop, patch_insert
     from . import world_commands as WORLD
+    from . import world_job_run as WORLD_JOB
     from .aircraft_watch import aircraft_watch_handlers
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
-    from .flight_commands import flight_plan_handlers
+    from .flight_commands import flight_handlers, flight_plan_handlers
     from .imagery_commands import (
         imagery_freshness_discard,
         ondemand_handlers,
@@ -189,6 +192,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         start_imagery_source_status,
         stop_imagery_follow,
     )
+    from .live_preview_commands import live_preview_handlers
     from .mesh_commands import mesh_crop
     from .object_seat import object_seat
     from .object_seat_edit import object_seat_set
@@ -198,6 +202,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .plan_estimate import start_plan_estimate
     from .relief_commands import terrain_relief
     from .terrain_commands import terrain_sample
+    from .world_migrate import start_world_migrate
     return {
         "scan": session.scan,
         "build": session.build,
@@ -378,9 +383,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # follow job fetches finer tiers ahead of X-Plane's camera.  Start
         # replies {"status": "started"}; ImageryFollowStatus events follow
         # until imagery_follow_stop, which replies the job's counts.  No
-        # fetch starts while a build runs.
-        "imagery_follow_start": lambda **kw: start_imagery_follow(
-            session._emit, busy=lambda: bool(session._building), **kw),
+        # fetch starts for a tile a build has queued or is building, or a
+        # World-pack swap holds (World spec §8.7, S7).  The build-ahead
+        # job (world_job, capability world_job) starts beside it.
+        "imagery_follow_start": lambda **kw: _start_follow_and_world(
+            session, start_imagery_follow, WORLD_JOB.autostart, **kw),
         "imagery_follow_stop": stop_imagery_follow,
         # On-demand imagery (#1992 P2, capability imagery_ondemand): the
         # index scan, a tile's pin and "Make all low-res again"; pin and
@@ -395,15 +402,45 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "world_regions_set": lambda **kw: WORLD.start_world_regions_set(
             session._emit, **kw),
         "world_tile_set": WORLD.world_tile_set,
+        # Phase M (capability world_migrate): the per-tile packs moved
+        # into the World pack -- dry run, run, revert or stop; completes
+        # through WorldReady carrying this command's id.
+        "world_migrate": lambda **kw: start_world_migrate(session._emit, **kw),
         # Flight manager (spec flight-manager-and-world-20261110 §5.2):
         # flight_plans_list (X-Plane's Output/FMS plans, newest first) and
         # flight_plan_read, synchronous file reads.
         **flight_plan_handlers(),
+        # The flight manager (§5.2, capability flight_manager): flight_create
+        # replies {flight}; FlightStatus events follow while it runs;
+        # flight_plan_simbrief completes with FlightReady.
+        **flight_handlers(session),
         # The Fly map's aircraft (#2001, capability aircraft_position):
         # aircraft_watch {on} replies {"watching": bool}; AircraftPosition
         # events follow once a second while it is on.
         **aircraft_watch_handlers(session._emit),
+        # Build-ahead (World spec §8.5, capability world_job): start
+        # replies {"status": "started" | "running" | "off"}; WorldStatus
+        # events every 2 s until world_job_stop, which replies its counts.
+        "world_job_start": lambda **kw: WORLD_JOB.world_job_start(
+            session, **kw),
+        "world_job_stop": WORLD_JOB.world_job_stop,
+        # The map's "Live flight preview" (#2001, capability live_preview):
+        # live_preview_squares (the installed texture squares of a
+        # viewport, capped by zoom) and live_preview_mip (one square's
+        # small mip, base64), both synchronous file reads.
+        **live_preview_handlers(),
     }
+
+
+def _start_follow_and_world(session: EngineSession, start_follow: Callable,
+                            start_world: Callable, **kw) -> Dict[str, Any]:
+    """``imagery_follow_start``: the follow job, holding only the tiles
+    a build has queued or is building (``session.building_tiles``), then
+    the build-ahead job beside it when it may run (its own reply is not
+    the command's)."""
+    reply = start_follow(session._emit, busy=session.building_tiles, **kw)
+    start_world(session, port=kw.get("port"))
+    return reply
 
 
 def _library_handler(session: EngineSession, name: str) -> Callable:

@@ -258,19 +258,67 @@ def _estimated(job: Job) -> bool:
         v is not None and math.isfinite(v) for v in values)
 
 
-def countdown(jobs: Iterable[Job], slots: int) -> Optional[float]:
+def finish_times_split(jobs: Iterable[Job], slots: int, flight_slots: int,
+                       takeoff_s: float) -> List[Tuple[Job, float]]:
+    """:func:`finish_times` with ``slots`` slots until ``takeoff_s`` and
+    ``flight_slots`` after it (§10: the parked capacity while preparing,
+    the flight capacity in the air); a build started is never interrupted,
+    so builds started before takeoff run on past it."""
+    running: List[float] = []
+    t, out = 0.0, []
+    for job in _plan_order(jobs):
+        while True:
+            while running and running[0] <= t:
+                heapq.heappop(running)
+            cap = max(1, int(slots if t < takeoff_s else flight_slots))
+            if len(running) < cap:
+                end = t + job.left_hi
+                heapq.heappush(running, end)
+                out.append((job, end))
+                break
+            nxt = running[0]
+            t = takeoff_s if t < takeoff_s < nxt and flight_slots > slots else nxt
+    return out
+
+
+def _wait_for(ends: Sequence[Tuple[Job, float]], slack: float) -> float:
+    wait = 0.0
+    for job, end in ends:
+        wait = max(wait, end if job.klass == P0 else end - job.deadline_s + slack)
+    return wait
+
+
+def countdown(jobs: Iterable[Job], slots: int,
+              flight_slots: Optional[int] = None) -> Optional[float]:
     """Seconds until takeoff may be allowed (§9): every P0 job finished,
     and every later job finishing by takeoff + its deadline, the deadline
     side with one build's length of slack.  None when an open job has no
-    estimate (no defensible figure: the views show a dash)."""
+    estimate (no defensible figure: the views show a dash).
+
+    With ``flight_slots`` (the capacity in the air, §10) the builds run on
+    ``slots`` until takeoff and on ``flight_slots`` after it
+    (:func:`finish_times_split`): the smallest such wait, to the second."""
     jobs = list(jobs)
     if not all(_estimated(j) for j in jobs if j.open):
         return None
     slack = _slack_s(jobs)
-    wait = 0.0
-    for job, end in finish_times(jobs, slots):
-        wait = max(wait, end if job.klass == P0 else end - job.deadline_s + slack)
-    return wait
+    if flight_slots is None or int(flight_slots) == int(slots):
+        return _wait_for(finish_times(jobs, slots), slack)
+    hi = _wait_for(finish_times(jobs, min(slots, flight_slots)), slack)
+
+    def enough(wait: float) -> bool:
+        return _wait_for(finish_times_split(jobs, slots, flight_slots, wait),
+                         slack) <= wait
+    if enough(0.0):
+        return 0.0
+    lo = 0.0
+    while hi - lo > 1.0:
+        mid = (lo + hi) / 2.0
+        if enough(mid):
+            hi = mid
+        else:
+            lo = mid
+    return hi
 
 
 def feasible(jobs: Iterable[Job], slots: int, takeoff_s: float) -> bool:
@@ -336,12 +384,15 @@ class Facts:
     ``None`` = not known yet (the row is ``working``)."""
     jobs: Tuple[Job, ...]
     slots: int = 1
+    #: Build slots in the air (§10); None: the same as ``slots``.
+    flight_slots: Optional[int] = None
     world_installed: bool = False
     world_seen: Optional[bool] = None       # a World-pack line in Log.txt
     xplane_running: bool = False
     budget_fits: Optional[bool] = None
     budget_detail: str = ""
     network_ok: Optional[bool] = None
+    network_detail: str = ""                # what the network row is blocked on
     all_on_disk: bool = False               # nothing this flight needs is remote
     prefetch_done: Optional[bool] = None
     build_alternate: bool = False
@@ -365,7 +416,9 @@ def _flag_item(key: str, flag: Optional[bool], blocked: str) -> Item:
 
 def _jobs_item(key: str, jobs: List[Job], ends: Dict[int, float]) -> Item:
     """Done when every job is built; failed when one failed; else the
-    time until the last of them is built."""
+    time until the last of them is built.  A job given up (``shed``: the
+    offline waiver, a diversion) is not waited for."""
+    jobs = [j for j in jobs if j.state != "shed"]
     if all(j.state in DONE_STATES for j in jobs):
         return Item(key, "done", 0.0, "")
     if any(j.state == "failed" for j in jobs):
@@ -409,17 +462,21 @@ def readiness_items(facts: Facts) -> List[Item]:
     rows = [world,
             _flag_item("budget", facts.budget_fits, facts.budget_detail),
             _flag_item("network", True if facts.all_on_disk else facts.network_ok,
-                       "Needs internet"),
+                       facts.network_detail or "Needs internet"),
             Item("prefetch", "done", 0.0, "") if facts.prefetch_done
             else Item("prefetch", "working", None, ""),
             _jobs_item("departure", role("departure"), ends),
             _jobs_item("first_window", [j for j in role("enroute") if j.klass == P0],
                        ends)]
-    route = [j for j in role("enroute") if j.klass != P0 and id(j) in ends]
-    if all(ends[id(j)] <= j.deadline_s for j in route):
+    flying = facts.flight_slots or facts.slots
+    in_air = ({id(j): end for j, end in finish_times(jobs, flying)}
+              if flying != facts.slots else ends)
+    route = [j for j in role("enroute") if j.klass != P0 and id(j) in in_air]
+    if all(in_air[id(j)] <= j.deadline_s for j in route):
         rows.append(Item("route", "done", 0.0, ""))
     else:
-        rows.append(Item("route", "waiting", countdown(jobs, facts.slots), ""))
+        rows.append(Item("route", "waiting",
+                         countdown(jobs, facts.slots, facts.flight_slots), ""))
     rows.append(_deadline_item("destination", role("destination"), ends))
     if facts.build_alternate:
         rows.append(_deadline_item("alternate", role("alternate"), ends))

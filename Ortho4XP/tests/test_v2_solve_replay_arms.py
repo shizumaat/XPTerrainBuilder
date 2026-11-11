@@ -3,7 +3,9 @@ takes effect in the run and is named on stdout, or the run REFUSES.
 
 ``--replay PKL --from classify --rule apron.arm_reread_factor=0.0 --emit
 OUT`` printed no arm line and no refusal and emitted the UNARMED result
-(``--rule`` is read by ``--capture`` and ``--reclassify`` alone).  The
+(``--rule`` was read by ``--capture`` and ``--reclassify`` alone; since
+lane lshoulder it arms ``--replay --from classify`` too, and a later
+resume still refuses it).  The
 table in ``tools/replay_arms.py`` now decides every flag x run pairing;
 this file spells the table a second time, cell by cell, and asserts the
 gate agrees with it — and that the command line refuses BEFORE it opens
@@ -34,7 +36,7 @@ ARRANGE = {f"{m}/{s}" for m in ("replay", "pad-read", "stage1-dump")
 #: THE TABLE, spelled independently: flag -> the runs it takes effect in.
 #: Every other (flag, run) cell is a REFUSAL.
 EXPECT = {
-    "--rule": {"capture", "reclassify"},
+    "--rule": {"capture", "reclassify", "replay/classify"},
     "--placement": {"capture"} | ARRANGE,
     "--cifp-dir": {"capture"},
     "--data-overlay": {"capture"},
@@ -97,7 +99,7 @@ def test_each_cell_arms_by_name_or_refuses_by_name(flag, context):
 
 def test_one_inert_flag_refuses_the_whole_run():
     with pytest.raises(SystemExit) as exc:
-        A.arm_gate("replay/classify", {"--placement": "k=v", "--rule": "a.b=1",
+        A.arm_gate("replay/planar", {"--placement": "k=v", "--rule": "a.b=1",
                                        "--cifp-dir": "/x"})
     msg = str(exc.value)
     assert "--rule" in msg and "--cifp-dir" in msg and "--placement" not in msg
@@ -122,11 +124,11 @@ def _run(*argv):
 def test_the_issue_command_refuses_before_reading_the_capture(tmp_path):
     """The #321 command line.  The pickle does not exist: a refusal that
     names ``--rule`` proves the gate ran before the capture was opened."""
-    r = _run("--replay", str(tmp_path / "absent.pkl"), "--from", "classify",
+    r = _run("--replay", str(tmp_path / "absent.pkl"), "--from", "planar",
              "--rule", "apron.arm_reread_factor=0.0", "--emit", str(tmp_path))
     assert r.returncode != 0
     assert "REFUSED: --rule apron.arm_reread_factor=0.0" in r.stderr
-    assert "replay/classify" in r.stderr and "reclassify" in r.stderr
+    assert "replay/planar" in r.stderr and "reclassify" in r.stderr
     assert not list(tmp_path.iterdir())
 
 

@@ -270,6 +270,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.sources",
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
+        "auto_patch_v2.classify.taxi_shoulder",
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.geom",
@@ -418,6 +419,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.portal_floor",
         "auto_patch_v2.airport.portal_objects",
         "auto_patch_v2.airport.ramp_feet",
         "auto_patch_v2.airport.reader_work",
@@ -479,6 +481,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.sources",
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
+        "auto_patch_v2.classify.taxi_shoulder",
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.geom",
@@ -1161,6 +1164,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.sources",
         "auto_patch_v2.classify.storey_edge",
         "auto_patch_v2.classify.taxi_letter",
+        "auto_patch_v2.classify.taxi_shoulder",
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.constraints",
@@ -1814,7 +1818,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
-    classify.taxi_letter classify.wall_clip constraints constraints.apron constraints.apron_shelf
+    classify.taxi_letter classify.taxi_shoulder
+     classify.wall_clip constraints constraints.apron constraints.apron_shelf
     constraints.assembly constraints.ceiling constraints.channel constraints.cluster_pad
     constraints.contiguity constraints.eat
     constraints.edge_deck constraints.end_lip constraints.flat_site
@@ -1936,7 +1941,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
-    airport.walled_pit
+    airport.walled_pit airport.portal_floor
     geom.runway_contact
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
@@ -2001,7 +2006,8 @@ CODE_MODULES["solve"] = _mods("""
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules
-    classify.sources classify.taxi_letter classify.wall_clip constraints.apron
+    classify.sources classify.taxi_letter classify.taxi_shoulder
+     classify.wall_clip constraints.apron
     constraints.apron_shelf
     constraints.ceiling constraints.cluster_pad constraints.contiguity
     constraints.end_lip constraints.geometry constraints.groundside constraints.no_step
@@ -2078,7 +2084,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
-    airport.walled_pit constraints.airside_top
+    airport.walled_pit airport.portal_floor constraints.airside_top
     geom.runway_contact
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
@@ -2143,7 +2149,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.pad_cut_corridor classify.pad_touch
     classify.ramp_runout classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint
-    classify.roles classify.rules classify.sources classify.taxi_letter classify.wall_clip
+    classify.roles classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
+     classify.wall_clip
     constraints
     constraints.apron constraints.apron_shelf constraints.assembly constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
@@ -2290,7 +2297,8 @@ CODE_MODULES["emit"] = _mods("""
     classify.pad_cut_corridor classify.pad_touch
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
-    classify.rules classify.sources classify.taxi_letter classify.wall_clip constraints.apron
+    classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
+     classify.wall_clip constraints.apron
     constraints.apron_shelf constraints.apron_trend constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
     constraints.edge_floor constraints.end_lip constraints.flat_site constraints.geometry
@@ -2384,7 +2392,8 @@ CODE_MODULES["verify"] = _mods("""
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
-    classify.taxi_letter classify.wall_clip constraints.apron constraints.ceiling
+    classify.taxi_letter classify.taxi_shoulder
+     classify.wall_clip constraints.apron constraints.ceiling
     constraints.channel
     constraints.cluster_pad constraints.contiguity constraints.eat constraints.end_lip
     constraints.geometry constraints.groundside constraints.junction_mesh

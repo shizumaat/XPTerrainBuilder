@@ -28,7 +28,7 @@ import re
 from typing import Iterable, NamedTuple
 
 __all__ = [
-    "LOG_NAME", "DsfLoad", "parse_dsf_load", "parse_started", "pack_loads",
+    "LOG_NAME", "DsfLoad", "parse_dsf_load", "pack_loads",
     "log_path", "LogTail",
 ]
 
@@ -78,7 +78,7 @@ def parse_dsf_load(line: str) -> DsfLoad | None:
                    int(m.group("tris")))
 
 
-def parse_started(line: str) -> str | None:
+def _parse_started(line: str) -> str | None:
     """``Tue Nov 10 08:41:06 2026`` (local time, as written) from the
     header line ``X-Plane Started on …``, or ``None``."""
     m = _STARTED.search(line)
@@ -152,7 +152,7 @@ class LogTail:
 
     def _note(self, line: str) -> None:
         if self.started is None:
-            self.started = parse_started(line)
+            self.started = _parse_started(line)
         if _PACKAGES_HEAD in line:
             self.packages, self._in_packages = [], True
         elif self._in_packages:

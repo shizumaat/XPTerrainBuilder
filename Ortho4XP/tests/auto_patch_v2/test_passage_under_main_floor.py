@@ -134,3 +134,41 @@ def test_the_garden_beside_the_lot_stands_in_a_court_at_the_lot_floor(law, tmp_p
 def test_a_garden_beside_no_lot_has_no_court(law, tmp_path):
     _s, _out, reg, _c = _run(law, tmp_path, _garage(), extra=_garden())
     assert not any(v.get("piece_of") for v in reg.landings.values())
+
+
+SKIRT = (100.0, 0.0, 116.0, 60.0)        # a skirt beside the garage, walls deeper still
+
+
+def test_the_level_is_the_floor_of_the_walls_at_its_depth(law, tmp_path):
+    """§19 (owner RULINGS 2026-11-11e): a walled part standing on another
+    plane than the walls' (a skirt 2.3 m deeper) is in the seed's footprint
+    but no floor of its level -- the ground beside the garage keeps the main
+    floor (MEASURED KMCI unit 20: the kerbside under the skirt dropped to
+    the garage's base)."""
+    seeds, out, reg, _c = _run(law, tmp_path, _garage() + [_wall(*SKIRT, -12.7, 40)])
+    (s,) = seeds
+    SK = box(*SKIRT)
+    assert s.footprint.intersection(SK).area > 0.95 * SK.area
+    assert s.floor.intersection(SK).area < 1e-6
+    ref = next(k for k, v in reg.landings.items() if v.get("witness") == "passage")
+    lvl = unary_union([r.polygon for r in out if str(r.ref) == ref])
+    assert lvl.intersection(box(*GARAGE)).area > 0.8 * box(*GARAGE).area
+    assert lvl.intersection(SK).area < 0.3 * SK.area
+
+
+def test_a_piece_a_kept_floor_cuts_off_the_frontage_is_the_level(law):
+    """§19 S2: a piece of the host the level and another floor's ground (a
+    road kept at the main floor) cut off from the airside frontage grows
+    into the level (``low_level._with_orphans``)."""
+    from auto_patch_v2.geom.valid_area import valid_area
+    Pd = box(0.0, 0.0, 100.0, 100.0)
+    air = box(-40.0, 0.0, 0.0, 100.0)                    # the hall's airside frontage
+    L = box(60.0, 0.0, 100.0, 100.0)                     # the garage
+    road = box(30.0, 0.0, 40.0, 100.0)                   # kept at the main floor
+    grown = LL._with_orphans(L, Pd, air, road, 2.0, 3.0, 0.5, True)
+    aisle = box(43.0, 5.0, 57.0, 95.0)                   # between road and garage
+    assert grown.intersection(aisle).area > 0.95 * aisle.area
+    assert grown.intersection(road).area < 1e-6
+    assert grown.intersection(box(0.0, 0.0, 28.0, 100.0)).area < 1e-6  # the hall side stays
+    same = LL._with_orphans(L, Pd, air, None, 2.0, 3.0, 0.5, True)
+    assert valid_area(same).intersection(aisle).area < 1e-6  # no kept floor: one block

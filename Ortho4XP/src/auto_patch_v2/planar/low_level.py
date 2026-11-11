@@ -440,6 +440,13 @@ def _with_orphans(L, P, air, others, w: float, near: float, grid: float,
     ends of the cut, and the run-out two risers off them never met the
     level)."""
     H = valid_area(_overlay(P, valid_area(L.buffer(w, join_style=2)), "difference", grid))
+    if grow and others is not None and not others.is_empty:
+        # what another floor holds over the pad (a road kept at its main
+        # floor, §19 S1) joins no piece to the frontage: MEASURED KMCI
+        # ``building26``, the garage's west aisle hung on the hall across
+        # the kept arrivals road
+        H = valid_area(_overlay(H, valid_area(others.buffer(w, join_style=2)), "difference",
+                                grid))
     parts = nonempty_polygon_parts(H)
     keep = [q for q in parts if q.distance(air) <= near + w] if grow else parts
     if not keep or (grow and len(keep) == len(parts)):

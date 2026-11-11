@@ -1057,6 +1057,7 @@ class MainWindow(QMainWindow):
                     QByteArray.fromBase64(splitter_b64.encode("ascii"))
                 )
             )
+        self._library_layout(self.mode() == "library")
 
         if self._first_run:
             self._after(200, self.run_wizard)
@@ -1667,11 +1668,20 @@ class MainWindow(QMainWindow):
         self.panel_scroll = panel_scroll
         self._make_mode_panes()
 
+        # Library mode (#2007): the tiles table over the map (the Mac's
+        # ModeMainSplit); hidden in Build and Fly.
+        self.map_split = QSplitter(Qt.Vertical)
+        self.map_split.addWidget(self.library_pane.tiles_box)
+        self.map_split.addWidget(self.map)
+        self.map_split.setStretchFactor(0, 0)
+        self.map_split.setStretchFactor(1, 1)
+        self.map_split.setCollapsible(1, False)
+        self.library_pane.tiles_box.setVisible(False)
         center = QWidget()
         ch = QHBoxLayout(center)
         ch.setContentsMargins(0, 0, 0, 0)
         ch.setSpacing(0)
-        ch.addWidget(self.map, 1)
+        ch.addWidget(self.map_split, 1)
         ch.addWidget(self.side_panel)
 
         # Console drawer
@@ -2002,7 +2012,8 @@ class MainWindow(QMainWindow):
             building=lambda: self._building,
             on_rebuild=self._rebuild_from_library,
             on_changed=self.refresh_tiles,
-            restore_pack=self._session.reanchor_restore)
+            restore_pack=self._session.reanchor_restore,
+            scanned=self._session.scanned_tiles)
         self.mode_stack = QStackedWidget()
         for pane in (self.build_pane, self.fly_pane, self.library_pane):
             if pane is not self.build_pane:
@@ -2048,10 +2059,35 @@ class MainWindow(QMainWindow):
 
         index = QTMODES.MODES.MODES.index(mode)
         self.mode_stack.setCurrentIndex(index)
-        self.mode_stack.setFixedWidth(420 if mode == "library" else 280)
+        self.mode_stack.setFixedWidth(320 if mode == "library" else 280)
         if mode == "library":
             self.library_pane.refresh(self.working_dir(), CFG.custom_scenery_dir)
+        self._library_layout(mode == "library")
         self._fly_shown(mode == "fly")
+
+    _in_library_layout = False
+    _console_was_visible = True
+
+    def _library_layout(self, library):
+        """Library mode (#2007, owner 2026-11-11): the tiles table over the
+        map and no console; leaving it brings the console back as it was."""
+        split = getattr(self, "map_split", None)
+        drawer = getattr(self, "console_drawer", None)
+        if split is None or drawer is None:
+            return
+        self.library_pane.tiles_box.setVisible(library)
+        if library and not self._in_library_layout:
+            self._console_was_visible = drawer.isVisible()
+            if drawer.isVisible():
+                self._console_height = self.splitter.sizes()[1]
+            drawer.setVisible(False)
+        elif not library and self._in_library_layout:
+            self._in_library_layout = False
+            self.set_console_visible(self._console_was_visible)
+        self._in_library_layout = library
+        button = getattr(self, "console_btn", None)
+        if button is not None:
+            button.setVisible(not library)
 
     # ------------------------------------------------------------------
     # Fly mode (spec flight-manager-and-world-20261110 §4.3; lane U2)
@@ -5610,6 +5646,11 @@ class MainWindow(QMainWindow):
             self._console_defaulted = True
             # the patch library's check when the app opens (#1699 phase 2)
             QTPATCHLIB.check_at_launch(self.working_dir())
+            # No World folder at the start (#2007): made, then asked once.
+            import O4_Config_Utils as CFG
+            import O4_Qt_World_Onboard as QTONBOARD
+            self.world_onboarding = QTONBOARD.check_at_launch(
+                self, CFG.custom_scenery_dir)
             self._sync_console_button()
             if not self._layout_restored and self.console_drawer.isVisible():
                 self._apply_console_height(self._console_default_height())
@@ -5768,7 +5809,9 @@ class MainWindow(QMainWindow):
         self.prefs["splitter_state"] = bytes(
             self.splitter.saveState().toBase64()
         ).decode("ascii")
-        self.prefs["console_visible"] = self.console_drawer.isVisible()
+        self.prefs["console_visible"] = (
+            self._console_was_visible if self._in_library_layout
+            else self.console_drawer.isVisible())
         save_prefs(self.prefs)
         self._closed = True
         self._cancel_deferred()

@@ -34,8 +34,22 @@ public struct O4StorageBudget: Decodable, Equatable, Sendable {
     public let recommendedBytes: Int64
     public let underFloor: Bool
     public let overBudget: Bool
+    /// RULINGS 2026-11-11a: `budgetBytes` is the one set, else the default
+    /// (`defaultBytes`: the larger of `defaultBaseBytes`, 200 GB, and the
+    /// recommended minimum); a clearing stops at `lowWater` of it. nil
+    /// from an older engine.
+    public let budgetSet: Bool?
+    public let defaultBytes: Int64?
+    public let defaultBaseBytes: Int64?
+    public let lowWater: Double?
+    /// RULINGS 2026-11-11h (1): unconfirmed, what the default holds (the
+    /// install at the first run, raised when more is in use); 0 once set.
+    public let heldBytes: Int64?
 
     private enum CodingKeys: String, CodingKey {
+        case budgetSet = "budget_set", defaultBytes = "default_bytes"
+        case defaultBaseBytes = "default_base_bytes", lowWater = "low_water"
+        case heldBytes = "held_bytes"
         case budgetBytes = "budget_bytes", usedBytes = "used_bytes"
         case floorBytes = "floor_bytes", recommendedBytes = "recommended_bytes"
         case underFloor = "under_floor", overBudget = "over_budget"

@@ -90,12 +90,46 @@ FLY_PANE = (
 #: Library mode's pane, top to bottom (key, Swift marker in
 #: LibraryPane.swift, Qt ``LibraryPane`` attribute).  Spec §14's World
 #: regions and pack health sections join in their lanes (Convert: lane M).
+#: #2007 (owner 2026-11-11): the data folder, then the disk budget, the
+#: patch library and Convert near the top, then Caches as one line; the
+#: tiles table left the pane for the split above the map (LIBRARY_SPLIT).
 LIBRARY_PANE = (
-    ("tiles", "LibraryTilesSection(", "tiles_box"),
-    ("storage", "StorageSection(", "storage"),
+    ("data_folder", "DataFolderRow(", "folder_row"),
+    ("disk_budget", "DiskBudgetSection(", "budget_box"),
     ("patch_library", "PatchLibrarySection()", "patch_box"),
     ("convert", "ConvertTilesSection(", "convert_box"),            # §13
+    ("caches", "CachesLine(", "caches_box"),
 )
+
+#: Library mode's main split, top to bottom (#2007): the tiles table over
+#: the map, and no console.  (key, Swift marker in ``ModeMainSplit``'s
+#: library branch, Qt ``map_split`` widget attribute path).
+LIBRARY_SPLIT = (
+    ("tiles", "first: table", "library_pane.tiles_box"),
+    ("map", "second: map)", "map"),
+)
+
+#: The Caches line's two buttons and the start's World onboarding (#2007):
+#: (key, Swift file, Swift marker, Qt owner, Qt attribute).
+LIBRARY_STORAGE = (
+    ("caches_clear", "LibraryStorage.swift", "model.askClearAll()",
+     "caches_box", "clear_btn"),
+    ("caches_details", "LibraryStorage.swift", "StorageDetailsSheet(model:",
+     "caches_box", "details_btn"),
+    ("budget_field", "LibraryStorage.swift", "TextField(O4StorageText.budgetField",
+     "budget_box", "budget_edit"),
+    ("budget_downgrade", "LibraryStorage.swift", "O4StorageText.downgradeMessage(",
+     "budget_box", "_ask"),
+    # RULINGS 2026-11-11h (1): unconfirmed, Confirm records the default.
+    ("budget_confirm", "LibraryStorage.swift", "Button(O4StorageText.budgetConfirm)",
+     "budget_box", "confirm_btn"),
+    ("world_onboard", "MapMainView.swift", "WorldOnboardSheet(offer:",
+     "onboard", "OnboardDialog"),
+)
+
+#: Settings ▸ Storage rows that live in the Library pane ONLY (RULINGS
+#: 2026-11-11h (3)): neither app's Settings lists them.
+LIBRARY_ONLY_SETTINGS = ("storage_budget_gb",)
 
 #: Fly mode's map layers, bottom to top (key, Swift marker in
 #: FlyMapOverlay.swift, Qt marker in O4_Qt_Fly_Layer.py): "Live flight
@@ -173,8 +207,8 @@ IMAGERY_ON_DEMAND = (
      "storage", "ask_make_low_res"),
     # RULINGS 2026-11-10d and the owner's 1.0.480 feedback: the one disk
     # budget's line and X-Plane's installed tiles, in the Data Folder box.
-    ("disk_budget", "StorageSettingsView.swift", "O4StorageText.budgetLines(",
-     "storage", "budget_label"),
+    ("disk_budget", "LibraryStorage.swift", "O4StorageText.budgetLines(",
+     "budget_box", "budget_label"),
     ("installed_tiles", "StorageSettingsView.swift", "O4StorageText.installedLines(",
      "storage", "installed_label"),
 )
@@ -636,7 +670,8 @@ def test_imagery_on_demand_has_one_home_in_each_app(window):
 
     owners = {"window": window,
               "library_tiles": window.library_pane.tiles_box,
-              "storage": QTSTORE.StorageSection()}
+              "storage": QTSTORE.StorageSection(),
+              "budget_box": window.library_pane.budget_box}
     for key, swift_file, marker, owner, attr in IMAGERY_ON_DEMAND:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
@@ -754,6 +789,12 @@ def test_mac_mode_panes_are_the_manifest():
     assert -1 not in fly and fly == sorted(fly), fly
     library = _swift_rows("LibraryPane.swift", "struct LibraryPane", LIBRARY_PANE)
     assert -1 not in library and library == sorted(library), library
+    split = _swift_rows("MapMainView.swift", "if modes.mode == .library", LIBRARY_SPLIT)
+    assert -1 not in split and split == sorted(split), split
+    branch = (SWIFT / "MapMainView.swift").read_text(encoding="utf-8")
+    branch = branch[branch.index("if modes.mode == .library"):branch.index("} else {",
+                    branch.index("if modes.mode == .library"))]
+    assert "console" not in branch, "Library mode shows no console (#2007)"
 
 
 def _laid_out(widget) -> list:
@@ -776,6 +817,51 @@ def test_qt_mode_panes_are_the_manifest(window):
     library = _laid_out(window.library_pane)
     rows = [getattr(window.library_pane, attr) for _k, _m, attr in LIBRARY_PANE]
     assert [w for w in library if w in rows] == rows
+    assert window.library_pane.tiles_box not in library      # above the map
+
+
+def _attr_path(owner, path):
+    for name in path.split("."):
+        owner = getattr(owner, name)
+    return owner
+
+
+def test_qt_library_split_puts_the_table_over_the_map(window, monkeypatch):
+    """#2007: in Library the tiles table stands over the map and the
+    console is hidden; Build brings the console back as it was."""
+    monkeypatch.setattr(window.library_pane, "refresh", lambda *a: None)
+    monkeypatch.setattr(GUI, "save_prefs", lambda prefs: None)
+    split = window.map_split
+    assert [split.widget(i) for i in range(split.count())] == [
+        _attr_path(window, path) for _k, _m, path in LIBRARY_SPLIT]
+    window.show()
+    window.set_console_visible(True)
+    window.set_mode("library")
+    assert window.library_pane.tiles_box.isVisible()
+    assert not window.console_drawer.isVisible()
+    window.set_mode("build")
+    assert not window.library_pane.tiles_box.isVisible()
+    assert window.console_drawer.isVisible()
+
+
+def test_the_library_storage_rows_have_one_home_in_each_app(window):
+    import O4_Qt_World_Onboard as QTONBOARD
+
+    assert "QTONBOARD.check_at_launch(" in Path(GUI.__file__).read_text(encoding="utf-8")
+    owners = {"onboard": QTONBOARD,
+              "caches_box": window.library_pane.caches_box,
+              "budget_box": window.library_pane.budget_box}
+    for key, swift_file, marker, owner, attr in LIBRARY_STORAGE:
+        assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
+        assert getattr(owners[owner], attr, None) is not None, key
+
+
+def test_the_disk_budget_is_not_a_settings_row_in_either_app():
+    import O4_Settings_Model as SM
+    swift = (SWIFT / "SettingsLayout.swift").read_text(encoding="utf-8")
+    rows = {member[0] for _key, _title, members in SM._LAYOUT for member in members}
+    for name in LIBRARY_ONLY_SETTINGS:
+        assert name not in rows and 'SettingItem("%s"' % name not in swift, name
 
 
 def test_qt_modes_swap_the_pane_and_keep_the_selection(window, monkeypatch):

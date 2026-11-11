@@ -756,6 +756,9 @@ class EngineSession:
         self._lock = threading.Lock()
         self._seq = 0
         self._scan_generation = 0
+        # (working_dir, generation, {key: TileInfo}) of the last completed
+        # scan: the Library reuses it (scanned_tiles, #2006).
+        self._scanned = None
         self._building = False
         # Build display state (moved from the Qt view): current step plus
         # the three legacy bar values plus the auto-patch fold.
@@ -912,6 +915,7 @@ class EngineSession:
             installed_total = 0
             pending_built = {}
             pending_installed = []
+            scanned = {}
             last_flush = 0.0
 
             def live():
@@ -939,7 +943,7 @@ class EngineSession:
                             return
                         if key is not None:
                             built_total += 1
-                            pending_built[key] = info
+                            pending_built[key] = scanned[key] = info
                         flush(phase, done, total)
             except Exception as exc:
                 print("Tile scan failed:", exc)
@@ -958,11 +962,24 @@ class EngineSession:
             except Exception as exc:
                 print("Custom Scenery scan failed:", exc)
             if live():
+                self._scanned = (working_dir, generation, scanned)
                 flush("", 0, 0, force=True)
                 self._emit(ScanDone(built_count=built_total,
                                     installed_count=installed_total))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def scanned_tiles(self, working_dir: str):
+        """The built tiles (``{(lat, lon): TileInfo}``) of the last
+        completed :meth:`scan` of ``working_dir``, or None when none
+        completed or a newer scan is running -- the Library's rows start
+        from what the map already read instead of reading every tile
+        folder again (#2006)."""
+        last = self._scanned
+        if (last is None or last[0] != working_dir
+                or last[1] != self._scan_generation):
+            return None
+        return last[2]
 
     # ------------------------------------------------------------------
     # Command: build (worker moved from the Qt view 2026-07-15)

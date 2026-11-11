@@ -78,6 +78,32 @@ def test_scan_sums_sizes_and_reads_each_tile(data):
     assert caches == {"imagery": 500, "elevation": 50, "osm": 0}
 
 
+def test_scan_reuses_the_maps_tiles_and_can_leave_the_caches_out(data, monkeypatch):
+    """#2006: the map's last scan is not read again; no cache walk asked."""
+    import O4_Tile_Info as TINFO
+    infos = TINFO.scan_tiles(data["tiles"])
+    monkeypatch.setattr(TINFO, "scan_tiles", lambda *_a, **_k: pytest.fail("read twice"))
+    out = LIB.library_scan(data["tiles"], data["scenery"], caches=False, infos=infos)
+    assert [(r["lat"], r["lon"]) for r in out["tiles"]] == sorted([OURS, OTHER])
+    assert out["caches"] == []
+    assert out["tiles_bytes"] == sum(r["size_bytes"] for r in out["tiles"]) > 0
+
+
+def test_the_session_offers_its_last_scan_only_while_it_is_current(data):
+    from o4_engine.events import ScanDone
+    from o4_engine.session import EngineSession
+    done = threading.Event()
+    session = EngineSession()
+    session.subscribe(lambda e: isinstance(e, ScanDone) and done.set())
+    assert session.scanned_tiles(data["tiles"]) is None
+    session.scan(data["tiles"], data["scenery"])
+    assert done.wait(30)
+    assert set(session.scanned_tiles(data["tiles"])) == {OURS, OTHER}
+    assert session.scanned_tiles(data["scenery"]) is None      # another folder
+    session._scan_generation += 1                               # a newer scan runs
+    assert session.scanned_tiles(data["tiles"]) is None
+
+
 def test_a_tile_built_by_another_tool_is_read_only(data):
     rows = {(r["lat"], r["lon"]): r for r in LIB.library_scan(data["tiles"])["tiles"]}
     assert rows[OURS]["built_by"] == LIB.BUILT_HERE and not rows[OURS]["read_only"]

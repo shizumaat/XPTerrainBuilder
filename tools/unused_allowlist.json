@@ -338,5 +338,10 @@
   "path": "Ortho4XP/src/o4_engine/live_preview_commands.py",
   "name": "live_preview_mip",
   "reason": "JSONL command handler: registered by name through live_preview_handlers() in o4_engine.jsonl, reached by the command string"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/library.py",
+  "name": "free_cache",
+  "reason": "ENGINE COMMAND `free_cache`, dispatched by name through library.COMMANDS (JSONL) and SceneryKit's freeCache; the Library's own Free space buttons gave way to Library > Caches (#2007) but the command stays on the wire for released front ends"
  }
 ]

@@ -39,8 +39,40 @@ def test_unset_budget_clears_nothing_and_says_so(monkeypatch):
     assert TOTAL._budget_bytes({"storage_budget_gb": "1.5"}) == 1_500_000_000
     _budget(monkeypatch, 0)
     old = _write(str(data / "tmp" / "x.bin"), 5000, age_days=30)
-    assert TOTAL.hold(ST._Sweep(False, "t", None), time.time()) is None
+    # RULINGS 2026-11-11h (1): unconfirmed, the default holds what is in
+    # use, so it is never over the default and nothing is cleared.
+    monkeypatch.setattr(TOTAL, "DEFAULT_BUDGET_GB", 1e-9)
+    monkeypatch.setattr(TOTAL, "_recommended_bytes", lambda floor: 1)
+    out = TOTAL.hold(ST._Sweep(False, "t", None), time.time())
+    assert not out["budget_set"] and not out["over_budget"]
+    assert out["budget_bytes"] == out["default_bytes"] == out["held_bytes"]
+    assert out["held_bytes"] >= 5000
     assert os.path.exists(old)
+
+
+def test_the_default_is_200_gb_the_recommended_minimum_or_the_held_install():
+    assert TOTAL.DEFAULT_BUDGET_GB == 200
+    assert TOTAL._default_budget_bytes(10**9) == 200 * 10**9
+    assert TOTAL._default_budget_bytes(170 * 10**9) == 255 * 10**9
+    assert TOTAL._default_budget_bytes(10**9, 400 * 10**9) == 400 * 10**9
+
+
+def test_the_held_figure_is_measured_once_and_only_grows(monkeypatch):
+    """RULINGS 2026-11-11h (1): the first run's use (installed tiles and
+    caches) is recorded; less in use later keeps it, more raises it, and a
+    confirmed budget leaves it alone."""
+    _budget(monkeypatch, 0)
+    rows = ST.storage_scan()["stores"]
+    first = TOTAL.status(rows, installed_bytes=300 * 10**9)
+    assert first["held_bytes"] >= 300 * 10**9
+    assert first["default_bytes"] == first["held_bytes"] and not first["over_budget"]
+    assert TOTAL.status(rows)["held_bytes"] == first["held_bytes"]      # held
+    more = TOTAL.status(rows, installed_bytes=500 * 10**9)["held_bytes"]
+    assert more > first["held_bytes"]
+    _budget(monkeypatch, 10**9)
+    assert TOTAL.status(rows, installed_bytes=900 * 10**9)["held_bytes"] == 0
+    _budget(monkeypatch, 0)
+    assert TOTAL.status(rows)["held_bytes"] == more
 
 
 def test_tiers_go_cheapest_first_and_the_floor_stays(monkeypatch):

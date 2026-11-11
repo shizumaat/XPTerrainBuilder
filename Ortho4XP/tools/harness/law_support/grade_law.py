@@ -1655,6 +1655,23 @@ class PairContext:
     # every road pair at its longitudinal cap, exactly as before 25g.
     transverse_road: bool = False
 
+    def with_pair(self, dist: float, ring_adjacent: bool, a_seam: bool,
+                  b_seam: bool, both_road: bool) -> "PairContext":
+        """This context with the five per-pair fields replaced — the object
+        ``dataclasses.replace`` would build (equal, same hash), without
+        re-running 26 frozen ``__setattr__`` calls per pair: an all-pair
+        plane walk builds one per vertex pair (8.4 M on one KMCI ring,
+        #2008)."""
+        pc = object.__new__(PairContext)
+        d = pc.__dict__
+        d.update(self.__dict__)
+        d["dist"] = dist
+        d["ring_adjacent"] = ring_adjacent
+        d["a_seam"] = a_seam
+        d["b_seam"] = b_seam
+        d["both_road"] = both_road
+        return pc
+
 
 SKIP: Optional[Allowance] = None
 

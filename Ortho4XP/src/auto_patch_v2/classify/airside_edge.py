@@ -73,9 +73,11 @@ def _road_neck(evid: dict) -> bool:
     centreline on it and a mapped road beside it (``neck.road_arms``,
     ``roles.classify``'s arm-road verdict), is a SERVICE ROAD and "§27
     must not flip it to apron" — the taxiway it leaves at both mouths and
-    the pack strip along it are not an apron it sits against."""
+    the pack strip along it are not an apron it sits against.  The same
+    holds for an ARM a mapped road runs beside (``neck_road_beside``,
+    RULINGS 2026-11-11e (1a): HECA's crossing leg east of taxiway G)."""
     return bool(evid.get("arm_road") and evid.get("corridor_road_arm")
-                and evid.get("neck_kind") == "neck")
+                and (evid.get("neck_kind") == "neck" or evid.get("neck_road_beside")))
 
 
 def _strip_axis_width(poly: Polygon,

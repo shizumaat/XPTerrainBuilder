@@ -100,4 +100,5 @@ def test_tiles_queued_into_the_run_are_a_line_not_a_new_file(
     assert text.startswith("=== engine run ")
     assert "=== queued into this run " in text
     assert text.rstrip("\n").endswith("=== 1 tile: +39-009")
-    assert sorted(os.listdir(str(tmp_path / "logs"))) == ["engine-stderr.log"]
+    assert sorted(n for n in os.listdir(str(tmp_path / "logs"))
+                  if n.startswith("engine-stderr")) == ["engine-stderr.log"]

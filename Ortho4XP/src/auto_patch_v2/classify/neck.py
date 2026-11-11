@@ -93,7 +93,7 @@ from ..geom.parts import areal_part
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["Neck", "cover_arms", "necks_of", "road_arms", "split_at_necks"]
+__all__ = ["Neck", "cover_arms", "necks_of", "road_arms", "road_beside", "split_at_necks"]
 
 
 @_dc.dataclass(frozen=True)
@@ -125,6 +125,9 @@ class Neck:
     mouth_factor: float = 0.0
     #: found by the OWN-WIDTH re-read (#314), not at ``corridor.max_width_m``
     reread: bool = False
+    #: a mapped road runs BESIDE it (``road_beside``, RULINGS 2026-11-10l /
+    #: 2026-11-11e (1a)): its width is read against the free-road width
+    road_beside: bool = False
 
 
 def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
@@ -271,7 +274,12 @@ def road_arms(face: Polygon, taxi_lines: list, road_lines: list,
     beside a road where its pavement lies within one road width
     (``apron.arm_road_max_width_m``) of a road centreline beyond its own
     width, and that stretch is at least a neck long
-    (``apron.neck_length_m``).  No new number."""
+    (``apron.neck_length_m``) — ``road_beside``.  An ARM a road runs
+    beside is read the same way (#1900 HECA ``dsf:objpav99``: the 86.5 m x
+    12.3 m crossing leg east of taxiway G, the service road 8.5 m off its
+    edge), and a strip a road runs beside is read against the free-road
+    width, not the 12 m cap (owner RULINGS 2026-11-11e (1a)).  No new
+    number."""
     if not taxi_lines or not road_lines:
         return []
     grid = rules.cells.opening_grid_m
@@ -289,18 +297,37 @@ def road_arms(face: Polygon, taxi_lines: list, road_lines: list,
     for n in _cuts(face, face_g, lobes, lobes, rules, None)[0]:
         if n.kind == "arm":
             n = _without_spikes(n, face, rules)
-        if n.width_m > road_w:
-            continue
-        if n.kind == "arm":            # the road runs down it
-            along = n.polygon.intersection(roads.buffer(road_w / 2.0)).area
-            need = rules.lot.through_min_fraction * n.area_m2
-        else:                          # the road runs beside the neck
-            along = n.polygon.intersection(
-                roads.buffer(road_w + n.width_m)).area
-            need = rules.apron.neck_length_m * n.width_m
-        if along >= need:
-            out.append(n)
+        if n.kind == "arm" and _road_down(n.polygon, roads, rules):
+            if n.width_m <= road_w:    # the road runs down the arm (#1728)
+                out.append(n)
+        elif road_beside(n.polygon, n.width_m, roads, rules):
+            out.append(_dc.replace(n, road_beside=True))
     return out
+
+
+def _road_down(poly: Polygon, roads, rules: Rules) -> bool:
+    """A road runs DOWN ``poly`` (#1728): at least
+    ``lot.through_min_fraction`` of its area lies within half a road width
+    (``apron.arm_road_max_width_m``) of a road centreline."""
+    return poly.intersection(roads.buffer(
+        rules.apron.arm_road_max_width_m / 2.0)).area \
+        >= rules.lot.through_min_fraction * poly.area
+
+
+def road_beside(poly: Polygon, width_m: float, roads, rules: Rules) -> bool:
+    """A strip ``width_m`` wide that a mapped road runs BESIDE (RULINGS
+    2026-11-10l): at least a neck long (``apron.neck_length_m``) of its
+    pavement lies within one road width (``apron.arm_road_max_width_m``)
+    of a road centreline beyond its own width — and it is no wider than a
+    free road (``service.free_max_width_m``, owner RULINGS 2026-11-11e
+    (1a), HECA: "a pavement strip with a mapped road running beside it is
+    read against the free-road width (25 m) rather than the #1877 12 m
+    arm-road cap").  ``roads`` is one geometry or ``None``."""
+    if roads is None or roads.is_empty or width_m > rules.service.free_max_width_m:
+        return False
+    along = poly.intersection(
+        roads.buffer(rules.apron.arm_road_max_width_m + width_m)).area
+    return along >= rules.apron.neck_length_m * width_m
 
 
 def _without_spikes(n: Neck, face: Polygon, rules: Rules) -> Neck:

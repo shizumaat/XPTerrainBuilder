@@ -412,6 +412,8 @@ final class BuildModel: ObservableObject {
     let imageryFollow = ImageryFollowModel()
     /// Build · Fly · Library (RULINGS 2026-11-10j) and the Fly offer.
     let appMode = AppModeModel()
+    /// Library mode's table (#2006/#2007): kept across mode switches.
+    let library = LibraryModel()
     let console = BuildConsoleModel()
     /// The one date filter of the Build History list and the map (#1226).
     @Published var historyRange: BuildDateRange = .all
@@ -1035,6 +1037,7 @@ final class BuildModel: ObservableObject {
             // Settings shows the pre-migration ones (1.0.480: Detail Custom).
             reloadGlobalConfig()
             checkPatchLibraryAtLaunch()
+            checkWorldOnboardAtLaunch()
         case .stderr(let line):
             console.append(line)
         case .log(_, let line, let tile):
@@ -1634,6 +1637,9 @@ final class BuildModel: ObservableObject {
     @Published var patchLibraryCheck: O4PatchLibraryCheck?
     @Published var patchLibraryStatus = ""
     var patchLibraryCheckedAtLaunch = false
+    /// The start's World onboarding (#2007): asked once when shown.
+    @Published var worldOnboard: O4WorldOnboard?
+    var worldOnboardChecked = false
 
     @Published private(set) var planEstimate: O4PlanEstimate?
     /// Why the last estimate could not be made, for the panel's line.

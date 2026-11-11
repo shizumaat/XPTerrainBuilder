@@ -64,6 +64,7 @@ from . import pack_journal as _pj
 from . import placement_plan as _pp
 from . import split_guard as _sg
 from . import torn_pack as _tp
+from .pit_frame import shifted as _pit_shifted
 
 __all__ = ["PlacementWriteResult", "RestoreResult", "build_plan", "write_files",
            "restore_pack_objects", "apply_plan"]
@@ -273,6 +274,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
       runway end (``centreline_seat.centreline_seats``; no ``runway_ends``
       or a 0 reach disarms)."""
     _records = getattr(rebake_plan, "authored_seats", ()) or ()
+    # #1949: a walled pit's frame raised to the airside rail group meeting it
+    _records = _pit_shifted(_records, getattr(ss, "pit_shifts", None) or {})
     conversions, _kept = _dw.conversions_for_dump(
         dump, pack_root, convert_agl=_seat.reseated_rows(_records))
     kept_idx = _seat.kept_rows(_records)

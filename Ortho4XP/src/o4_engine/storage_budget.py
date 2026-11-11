@@ -2,9 +2,14 @@
 2026-11-10d, superseding 10c (2)'s separate ortho budget): the data
 folder's caches, the sharp imagery, rebuild data and the built tiles.
 
-* :data:`SETTING` -- ``storage_budget_gb`` (Settings > Storage, both
-  apps); 0 is "not set": then the sharp imagery keeps its own limit
-  (``imagery_on_demand_cap_gb``) and nothing else is cleared for space.
+* :data:`SETTING` -- ``storage_budget_gb`` (Library > Disk budget, both
+  apps); 0 is "not set" (not confirmed): then the DEFAULT applies
+  (RULINGS 2026-11-11a, refined by 11h (1)): :func:`_default_budget_bytes`,
+  the larger of :data:`DEFAULT_BUDGET_GB`, the recommended minimum and
+  the HELD figure -- what was in use at the first run (installed tiles
+  and caches), raised whenever more is in use (:func:`_held_bytes`, kept
+  under :data:`HELD_KEY` in the budget's own state file), so nothing is
+  cleared before the user confirms a budget.
 * The FLOOR, never cleared (10d (2)): the on-demand placeholders, the
   DSFs of every built tile, the user's patches and their own elevation
   files (``geotiffs``).  :func:`_recommended_bytes` is the floor plus
@@ -42,12 +47,18 @@ import O4_File_Names as FNAMES
 import O4_Imagery_OnDemand_Budget as BUDGET
 
 from . import storage as STORAGE
-from .storage_installed import write_json
+from .storage_installed import _read_cache, write_json
 
-__all__ = ["SETTING", "ROOM_SHARE", "ROOM_MIN_BYTES", "TIERS", "REBUILD_DATA",
-           "TIER_HOOKS", "status", "hold", "session_budget"]
+__all__ = ["SETTING", "DEFAULT_BUDGET_GB", "ROOM_SHARE", "ROOM_MIN_BYTES", "TIERS",
+           "REBUILD_DATA", "TIER_HOOKS", "HELD_KEY", "status", "hold",
+           "session_budget"]
 
 SETTING = "storage_budget_gb"
+#: The budget when none is set (RULINGS 2026-11-11a): 200 GB, or the
+#: recommended minimum when that is more (:func:`_default_budget_bytes`).
+DEFAULT_BUDGET_GB = 200
+#: The held figure's key in the state file (RULINGS 2026-11-11h (1)).
+HELD_KEY = "default_held_bytes"
 ROOM_SHARE = 0.5
 ROOM_MIN_BYTES = 50 * 10**9
 #: The per-tile rebuild data tier (10d (4)): the ``storage.REBUILD`` store,
@@ -103,34 +114,70 @@ def _recommended_bytes(floor: int) -> int:
     return int(floor + max(ROOM_MIN_BYTES, ROOM_SHARE * floor))
 
 
+def _default_budget_bytes(floor: int, held: int = 0) -> int:
+    """The budget that applies when none is confirmed (RULINGS 2026-11-11a,
+    11h (1)): the larger of :data:`DEFAULT_BUDGET_GB`, the recommended
+    minimum and the ``held`` figure (:func:`_held_bytes`)."""
+    return max(int(DEFAULT_BUDGET_GB * 1e9), _recommended_bytes(floor), int(held))
+
+
 def _last_path() -> str:
     return os.path.join(FNAMES.data_path("logs"), _LAST)
 
 
-def status(rows: "list[dict]", raw: "dict | None" = None) -> dict:
+def _held_bytes(in_use: int) -> int:
+    """The unconfirmed default's held figure (RULINGS 2026-11-11h (1)):
+    what was in use at the first run, raised to ``in_use`` when that is
+    more (so the default never stands below what is installed and nothing
+    is cleared unasked); recorded in the state file on change."""
+    last = _read_cache(_last_path())
+    held = int(last.get(HELD_KEY) or 0)
+    if in_use > held:
+        held = int(in_use)
+        write_json(_last_path(), dict(last, **{HELD_KEY: held}))
+    return held
+
+
+def status(rows: "list[dict]", raw: "dict | None" = None,
+           installed_bytes: int = 0) -> dict:
     """The budget's figures from a scan's store ``rows``:
-    ``{"budget_bytes", "used_bytes", "floor_bytes", "floor",
-    "recommended_bytes", "under_floor", "over_budget", "sharp_bytes"}``.
+    ``{"budget_bytes", "budget_set", "default_bytes", "default_base_bytes",
+    "held_bytes", "low_water",
+    "used_bytes", "floor_bytes", "floor", "recommended_bytes",
+    "under_floor", "over_budget", "sharp_bytes"}``.  ``budget_bytes`` is
+    the budget that applies: the one set (``budget_set``) or the default
+    (``default_bytes``); a clearing stops at ``low_water`` of it.
     ``used`` is every store plus the placeholders (no store row counts
     them); ``under_floor``: a budget set below the floor (the warning).
-    Writes nothing."""
+    Unconfirmed, ``held_bytes`` is :func:`_held_bytes` of ``used`` plus
+    ``installed_bytes`` (the per-tile packs measured in Custom Scenery,
+    ``storage_installed``) -- the only write; 0 once a budget is set."""
+    from . import imagery_downgrade as DOWNGRADE
     parts = _floor_parts(rows)
     floor = sum(parts.values())
     used = sum(int(row.get("bytes") or 0) for row in rows) + parts["placeholders"]
     sharp = sum(int(row.get("bytes") or 0) for row in rows
                 if row["kind"] == STORAGE.ONDEMAND)
-    budget = _budget_bytes(raw)
-    out = {"budget_bytes": budget, "used_bytes": used, "floor_bytes": floor,
+    chosen = _budget_bytes(raw)
+    held = 0 if chosen else _held_bytes(used + int(installed_bytes or 0))
+    default = _default_budget_bytes(floor, held)
+    budget = chosen or default
+    out = {"budget_bytes": budget, "budget_set": bool(chosen),
+           "default_bytes": default, "default_base_bytes": int(DEFAULT_BUDGET_GB * 1e9),
+           "held_bytes": held,
+           "low_water": DOWNGRADE.LOW_WATER,
+           "used_bytes": used, "floor_bytes": floor,
            "floor": parts, "recommended_bytes": _recommended_bytes(floor),
-           "under_floor": bool(budget and budget < floor),
-           "over_budget": bool(budget and used > budget), "sharp_bytes": sharp}
+           "under_floor": budget < floor, "over_budget": used > budget,
+           "sharp_bytes": sharp}
     return out
 
 
 def session_budget(conn, cap_bytes: int) -> BUDGET.Budget:
     """The follow job's budget: with the total budget set, its cap and
     the last scan's bytes other than the sharp imagery; else the sharp
-    imagery limit ``cap_bytes`` over the on-demand floor."""
+    imagery limit ``cap_bytes`` over the on-demand floor (the default
+    budget clears nothing the user has not confirmed, :func:`hold`)."""
     budget = _budget_bytes()
     if budget:
         try:
@@ -160,20 +207,19 @@ def _clear_sharp(over_by: int, cap: int, used: int, sweep, now: float) -> int:
 
 def hold(sweep, now: float,
          scan: "_t.Callable[[], dict] | None" = None) -> "dict | None":
-    """Over the budget, clear tier by tier until 90 % of it is used
-    (``imagery_downgrade.LOW_WATER``); None when the budget is not set
-    (the caller then holds the sharp imagery's own limit)."""
+    """Over a budget the user SET, clear tier by tier until 90 % of it
+    is used (``imagery_downgrade.LOW_WATER``); the figures.  Unconfirmed
+    (none set) nothing is cleared: the default holds what is in use
+    (RULINGS 2026-11-11h (1)) until the user confirms a budget."""
     from . import imagery_downgrade as DOWNGRADE
-    budget = _budget_bytes()
-    if not budget:
-        return None
     rows = (scan or STORAGE.storage_scan)()["stores"]
     figures = status(rows)
+    budget = figures["budget_bytes"]
     used = figures["used_bytes"]
-    write_json(_last_path(), {"budget_bytes": budget,
-                           "other_bytes": used - figures["sharp_bytes"]})
+    write_json(_last_path(), dict(_read_cache(_last_path()), budget_bytes=budget,
+                                  other_bytes=used - figures["sharp_bytes"]))
     over = used - int(budget * DOWNGRADE.LOW_WATER)
-    if used <= budget:
+    if used <= budget or not figures["budget_set"]:
         return figures
     for tier in TIERS:
         if over <= 0 or sweep.stopped:

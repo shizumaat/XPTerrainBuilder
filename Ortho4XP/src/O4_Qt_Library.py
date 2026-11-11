@@ -1,8 +1,9 @@
-"""Library mode's tiles section (#824; a window until RULINGS 2026-11-10j
-moved it into the Library pane, ``O4_Qt_Modes.LibraryPane``): every built
-tile with its size, zoom level, imagery source, built date, graded airports, modified packs and the
-"In X-Plane" switch, plus the disk panel (tiles total and each download
-cache, each with "Free space…").
+"""Library mode's tiles table (#824; a window until RULINGS 2026-11-10j;
+above the map since #2007, where the console is in Build -- the window's
+``map_split``): every built tile with its size, zoom level, imagery
+source, built date, graded airports, modified packs and the "In X-Plane"
+switch, its total, and the actions on the selection under it.  The
+caches are the side pane's Caches line (``O4_Qt_Library_Storage``).
 
 The Qt face of :mod:`o4_engine.library` — the Mac app's ``LibraryView``
 drives the same functions through the engine's ``library_*`` commands.
@@ -30,8 +31,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
-    QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -133,8 +132,12 @@ class LibraryTilesSection(QWidget):
     pinned = Signal(object)
 
     def __init__(self, parent, working_dir, scenery_dir, building=lambda: False,
-                 on_rebuild=None, on_changed=None, restore_pack=None):
+                 on_rebuild=None, on_changed=None, restore_pack=None,
+                 scanned=None):
         super().__init__(parent)
+        # ``scanned(working_dir)``: the map's last scan of the tiles
+        # (``EngineSession.scanned_tiles``), so the folders are read once.
+        self._scanned = scanned
         self.working_dir = working_dir
         self.scenery_dir = scenery_dir
         self._building = building
@@ -142,7 +145,9 @@ class LibraryTilesSection(QWidget):
         self._on_changed = on_changed
         self._restore_pack = restore_pack
         self.rows = []
-        self.caches = []
+        # Per row (``self.rows`` index): its cells' text, lower-cased, for
+        # the search (built once per scan, not per keystroke).
+        self._search_text = []
         self.tiles_bytes = 0
 
         layout = QVBoxLayout(self)
@@ -151,6 +156,8 @@ class LibraryTilesSection(QWidget):
         self.search_edit.setPlaceholderText("Search tiles, airports, imagery…")
         self.search_edit.textChanged.connect(self._apply_filter)
         top.addWidget(self.search_edit, 1)
+        self.tiles_total_label = QLabel("—")
+        top.addWidget(self.tiles_total_label)
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh)
         top.addWidget(self.refresh_btn)
@@ -172,8 +179,8 @@ class LibraryTilesSection(QWidget):
         self.table.customContextMenuRequested.connect(self._tile_menu)
         layout.addWidget(self.table, 1)
 
-        # Three buttons a row: the section lives in the side pane.
-        actions = QGridLayout()
+        # One row under the table (it spans the map's width).
+        actions = QHBoxLayout()
         self.install_btn = QPushButton("Install")
         self.install_btn.clicked.connect(lambda: self._set_installed(True))
         self.uninstall_btn = QPushButton("Uninstall")
@@ -204,11 +211,11 @@ class LibraryTilesSection(QWidget):
         self.pin_btn = QPushButton(ONDEMAND_TEXT.PIN_TITLE)
         self.pin_btn.setToolTip(ONDEMAND_TEXT.PIN_HELP)
         self.pin_btn.clicked.connect(self._toggle_pin)
-        for index, button in enumerate((
-                self.install_btn, self.uninstall_btn, self.rebuild_btn,
-                self.delete_btn, self.restore_btn, self.export_btn,
-                self.import_btn, self.publish_btn, self.pin_btn)):
-            actions.addWidget(button, index // 3, index % 3)
+        for button in (self.install_btn, self.uninstall_btn, self.rebuild_btn,
+                       self.delete_btn, self.restore_btn, self.export_btn,
+                       self.import_btn, self.publish_btn, self.pin_btn):
+            actions.addWidget(button)
+        actions.addStretch(1)
         layout.addLayout(actions)
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
@@ -216,26 +223,6 @@ class LibraryTilesSection(QWidget):
 
         # Not laid out here: the Library pane places it as its own section.
         self.patch_box = PATCHLIB.PatchLibraryBox(working_dir, building)
-
-        disk = QGroupBox("Disk")
-        self.disk_grid = QGridLayout(disk)
-        self.tiles_total_label = QLabel("—")
-        self.disk_grid.addWidget(QLabel("Tiles"), 0, 0)
-        self.disk_grid.addWidget(self.tiles_total_label, 0, 1)
-        self.cache_labels = {}
-        self.free_buttons = {}
-        for index, (kind, (label, redownload)) in enumerate(LIB.CACHE_KINDS.items(), 1):
-            self.disk_grid.addWidget(QLabel(label), index, 0)
-            size = QLabel("—")
-            self.disk_grid.addWidget(size, index, 1)
-            button = QPushButton("Free space…")
-            button.setToolTip(redownload)
-            button.clicked.connect(lambda _c=False, k=kind: self._free_cache(k))
-            self.disk_grid.addWidget(button, index, 2)
-            self.cache_labels[kind] = size
-            self.free_buttons[kind] = button
-        self.disk_grid.setColumnStretch(1, 1)
-        layout.addWidget(disk)
 
         self.loaded.connect(self._on_loaded)
         self.done.connect(self._on_done)
@@ -249,7 +236,9 @@ class LibraryTilesSection(QWidget):
     def refresh(self):
         self.status_label.setText("Reading tiles…")
         self.refresh_btn.setEnabled(False)
-        self._run(lambda: LIB.library_scan(self.working_dir, self.scenery_dir),
+        infos = self._scanned(self.working_dir) if self._scanned else None
+        self._run(lambda: LIB.library_scan(self.working_dir, self.scenery_dir,
+                                           caches=False, infos=infos),
                   self.loaded)
         self.patch_box.check()
 
@@ -263,16 +252,19 @@ class LibraryTilesSection(QWidget):
     def set_library(self, result):
         """Show one ``library_scan`` result (tests call it directly)."""
         self.rows = list(result["tiles"])
-        self.caches = list(result["caches"])
         self.tiles_bytes = result["tiles_bytes"]
+        self._search_text = []
         self.table.blockSignals(True)
+        self.table.setUpdatesEnabled(False)
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self.rows))
         for r, row in enumerate(self.rows):
+            texts = []
             for c, (_header, key) in enumerate(COLUMNS):
                 text, sort_value = _cell(row, key)
                 if key == "tile" and row.get("pinned"):
                     text = "%s · %s" % (text, ONDEMAND_TEXT.PINNED_BADGE)
+                texts.append(text)
                 item = _Item(text, sort_value)
                 item.setData(Qt.UserRole, r)
                 if key == "in_xplane":
@@ -282,14 +274,13 @@ class LibraryTilesSection(QWidget):
                     item.setToolTip("Built by another tool: listed read-only, "
                                     "never rebuilt or deleted here.")
                 self.table.setItem(r, c, item)
+            self._search_text.append(" ".join(texts).lower())
         self.table.setSortingEnabled(True)
+        self.table.setUpdatesEnabled(True)
         self.table.blockSignals(False)
         self.tiles_total_label.setText("%s in %d tile%s" % (
             fmt_size(self.tiles_bytes), len(self.rows),
             "" if len(self.rows) == 1 else "s"))
-        for cache in self.caches:
-            if cache["kind"] in self.cache_labels:
-                self.cache_labels[cache["kind"]].setText(fmt_size(cache["bytes"]))
         self.status_label.setText("")
         self._apply_filter()
         self._sync_buttons()
@@ -300,7 +291,7 @@ class LibraryTilesSection(QWidget):
         return self.rows[item.data(Qt.UserRole)] if item is not None else None
 
     def selected_rows(self):
-        indexes = sorted({i.row() for i in self.table.selectedIndexes()})
+        indexes = sorted(i.row() for i in self.table.selectionModel().selectedRows())
         return [row for row in (self._row_of(i) for i in indexes) if row is not None]
 
     def visible_tiles(self):
@@ -311,8 +302,8 @@ class LibraryTilesSection(QWidget):
     def _apply_filter(self):
         needle = self.search_edit.text().strip().lower()
         for i in range(self.table.rowCount()):
-            text = " ".join((self.table.item(i, c).text() if self.table.item(i, c) else "")
-                            for c in range(len(COLUMNS))).lower()
+            item = self.table.item(i, 0)
+            text = self._search_text[item.data(Qt.UserRole)] if item is not None else ""
             self.table.setRowHidden(i, bool(needle) and needle not in text)
 
     def _sync_buttons(self):
@@ -329,8 +320,6 @@ class LibraryTilesSection(QWidget):
         self.import_btn.setEnabled(not busy)
         self.publish_btn.setEnabled(len(rows) == 1 and writable and not busy
                                     and bool(rows[0]["airports"]))
-        for button in self.free_buttons.values():
-            button.setEnabled(not busy)
         pin = self._pin_target()
         self.pin_btn.setEnabled(pin is not None and not busy)
         self.pin_btn.setText(ONDEMAND_TEXT.UNPIN_TITLE
@@ -425,17 +414,6 @@ class LibraryTilesSection(QWidget):
         self._run(lambda: "Deleted %d tile(s), freed %s." % (
             len(tiles), fmt_size(LIB.library_delete(
                 tiles, self.working_dir, self.scenery_dir, confirm=True)["freed_bytes"])),
-            self.done)
-
-    def _free_cache(self, kind):
-        label, redownload = LIB.CACHE_KINDS[kind]
-        size = next((c["bytes"] for c in self.caches if c["kind"] == kind), 0)
-        if not self.confirm("Free space", "Free %s of %s cache? %s" % (
-                fmt_size(size), label.lower(), redownload)):
-            return
-        self.status_label.setText("Freeing space…")
-        self._run(lambda: "Freed %s of %s cache." % (
-            fmt_size(LIB.free_cache(kind, confirm=True)["freed_bytes"]), label.lower()),
             self.done)
 
     def _restore_originals(self):

@@ -37,6 +37,8 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// `world_migrate` (World spec §13 M1): the per-tile packs moved into
     /// the World pack; flag only.
     public static let worldMigrate = "world_migrate"
+    /// `world_onboard` (#2007): the World pack made at the start; flag only.
+    public static let worldOnboard = "world_onboard"
     /// `live_preview_squares` / `live_preview_mip` (#2001): flag only.
     public static let livePreview = "live_preview"
 

@@ -277,7 +277,7 @@ def _shipped(dest):
     d = dest.replace('\\', '/')
     if d.startswith('osgeo/data/proj/') and d.lower().endswith('.tif'):
         return False
-    for drop in ('Ortho4XP_Data/Utils/Earth/', 'Ortho4XP_Data/Previews/Earth/',
+    for drop in ('Ortho4XP_Data/Utils/Earth/', 'Ortho4XP_Data/Previews/',
                  'Ortho4XP_Data/Utils/src/', 'Ortho4XP_Data/Utils/toolchains/'):
         if d.startswith(drop):
             return False

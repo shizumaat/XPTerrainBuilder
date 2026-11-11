@@ -8,6 +8,9 @@ import SceneryKit
 /// Undo…. The engine writes every result sentence.
 struct ConvertTilesSection: View {
     @EnvironmentObject var buildModel: BuildModel
+    /// The start's onboarding (#2007) measures at once: its "Move…" shows
+    /// the dry run's numbers before anything moves.
+    var measureOnAppear = false
     @State private var status = ""
     @State private var running = false
     @State private var measured: O4WorldMigrateResult?
@@ -50,6 +53,7 @@ struct ConvertTilesSection: View {
                     .textSelection(.enabled)
             }
         }
+        .onAppear { if measureOnAppear, measured == nil { run(dryRun: true) } }
         .alert(item: $asking) { action in
             Alert(
                 title: Text(action == .convert ? O4WorldMigrateText.confirmTitle

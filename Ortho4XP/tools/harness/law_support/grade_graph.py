@@ -2537,6 +2537,12 @@ def plane_constraints(shape: GradeShape, ctx: GradeContext,
     station_of = (GL.runway_axis_station_indices(ring)
                   if (shape.role == "runway" and shape.single_poly)
                   else None)
+    # ONE context per shape; each pair replaces its five own fields
+    # (``PairContext.with_pair`` — the same object, built cheaply)
+    _base = GL.PairContext(
+        role=shape.role, dist=0.0, ring_adjacent=False,
+        a_seam=False, b_seam=False, a_building=False, b_building=False,
+        spine_caps=(), body_cap=cap, both_road=False)
     for i in range(n):
         xi, yi = ring[i]
         ki = keys[i]
@@ -2551,12 +2557,9 @@ def plane_constraints(shape: GradeShape, ctx: GradeContext,
             xj, yj = ring[j]
             d = math.hypot(xi - xj, yi - yj)
             both_road = bool(road_vert and road_vert[i] and road_vert[j])
-            _pc = GL.PairContext(
-                role=shape.role, dist=d,
-                ring_adjacent=(j == i + 1) or (i == 0 and j == n - 1),
-                a_seam=ki in seam, b_seam=kj in seam,
-                a_building=False, b_building=False,
-                spine_caps=(), body_cap=cap, both_road=both_road)
+            _pc = _base.with_pair(
+                d, (j == i + 1) or (i == 0 and j == n - 1),
+                ki in seam, kj in seam, both_road)
             allow = GL.classify_pair(_pc)
             if allow is None:
                 continue

@@ -25,7 +25,10 @@ own RIM:
 4. OPEN TOP — the frame's solids at or above the rim cover less than
    ``basin.basement_cover_min`` of the floor: a floor under its own roof is
    a building's (the basement test of ``planar/basins`` rule 4).
-5. THE SEAT — the rim lands on the ground around the pit (the author's
+5. SUNKEN — the floor, as authored, stands under the ground around it
+   (the author's plates near the design ground, else the DEM): a floor
+   over that ground is a roof or a deck in a building's frame (#2005).
+6. THE SEAT — the rim lands on the ground around the pit (the author's
    plates near the design ground, else the DEM; ``below_grade_witness
    .around``, the frame's own faces left out).  A rim standing 0 ..
    ``authored_crest_max_m`` over that ground keeps the authored seat
@@ -262,6 +265,18 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     if r.source == "none":
         notes.append(f"{what}: a walled pit with no ground read around it")
         return None
+    # A PIT IS SUNKEN: its floor, as authored, stands under the ground
+    # around it.  A floor standing over that ground is a roof or a deck
+    # inside a building, its "rim" a parapet or the storey above (#2005
+    # KMCI: ten plates of the rigid terminal group, 2.1-9.7 m OVER the
+    # ground around them, read as pits and sunk 7-13 m; OMDB's pit floor
+    # stands 1.6 m under the DEM around it)
+    if zero + floor_y >= r.z:
+        notes.append(f"{what}: walls round its floor, but the floor {zero + floor_y:.2f} "
+                     f"stands {zero + floor_y - r.z:+.2f} m over the ground around it ("
+                     + ("its plates" if r.source == "plates" else "NO PLATES: the DEM")
+                     + f" {r.z:.2f}): a roof or deck in its frame, not a pit")
+        return None
     proud = zero + rim_y - r.z
     lift = 0.0 if 0.0 <= proud <= ob.authored_crest_max_m else -proud
     faces = F.copy()
@@ -282,7 +297,9 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     seats = tuple((p.id, p.path, _zero(p, msl) + lift) for p in (o, *covers, *inside))
     return ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@pit{k}", o.id, o.path,
                        tuple(p.id for p in covers), zero + lift, fz, foot, faces, (note,),
-                       seats, rim_z=zero + rim_y + lift, lift=lift)
+                       seats, rim_z=zero + rim_y + lift, lift=lift,
+                       authored=tuple((p.id, _zero(p, msl)) for p in frame),
+                       rim_proud_m=proud + lift)
 
 
 def _in_pit(p, foot, cache, tk: float) -> bool:

@@ -155,8 +155,19 @@ def watch(session: Any,
                 WORLD.write_log({"publish_error": repr(error)[:300],
                                  "tile": WP.tile_name(lat, lon)})
 
-    threading.Thread(target=work, daemon=True,
-                     name="o4-world-publish").start()
+    # The worker starts with the first job, not at subscription: a
+    # window that never builds holds no thread (CI leaked one per test
+    # window, 98 at #2004's crash, hiding the faulting thread's stack).
+    started = threading.Lock()
+    worker: list = []
+
+    def enqueue(job: tuple) -> None:
+        jobs.put(job)
+        with started:
+            if not worker:
+                worker.append(threading.Thread(
+                    target=work, daemon=True, name="o4-world-publish"))
+                worker[0].start()
 
     def on_event(event) -> None:
         if (type(event).__name__ == "BuildDone" and event.ok
@@ -168,7 +179,7 @@ def watch(session: Any,
             lat, lon = int(event.lat), int(event.lon)
             overrides = getattr(session, "tile_overrides",
                                 lambda la, lo: {})(lat, lon)
-            jobs.put((lat, lon, scenery_dir(), PROFILE.profile_of(overrides)))
+            enqueue((lat, lon, scenery_dir(), PROFILE.profile_of(overrides)))
     session.subscribe(on_event)
 
 

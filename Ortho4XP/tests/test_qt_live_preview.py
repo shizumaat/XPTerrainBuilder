@@ -161,6 +161,9 @@ def test_a_refused_command_leaves_the_map_bare(qapp):
     preview.set_view(53, -61, 54, -60, 400)
     preview.set_enabled(True)
     assert preview.squares == [] and not preview.pending
-    painter = QPainter(QImage(10, 10, QImage.Format_ARGB32))
+    # The device is held: a QPainter over a temporary QImage paints into
+    # freed memory (the CI segfault, runs 42915398276 / 42922505498).
+    image = QImage(10, 10, QImage.Format_ARGB32)
+    painter = QPainter(image)
     preview.paint(painter, lambda la, lo: QPointF(0, 0))
     painter.end()

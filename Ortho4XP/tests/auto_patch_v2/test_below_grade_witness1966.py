@@ -148,3 +148,18 @@ def test_an_msl_row_states_no_ground(tmp_path):
                    {"m": 99.0})
     o = types.SimpleNamespace(kind="OBJECT_MSL", id="m", anchor_z=0.0, agl_m=-50.0)
     assert abs(BG.row_depth_under(o, 0.0, box(-1, -1, 1, 1), set(), g, LAW).depth - 1.0) < 1e-9
+
+
+def test_an_agl_zero_row_states_no_depth_from_its_buried_skirts():
+    """#2010 EGKK ``S_PAVEMENT_1``: a row drawn ON the ground (AGL 0) whose
+    solid runs 2 m under its zero (its skirts) states no depth: the anchor
+    reading counts (1.7 m under a ground 0.3 m lower around it), never the
+    2.0 m its skirts would state."""
+    from shapely.geometry import box
+    g = BG._Ground(BG.author_ground([], O.ResourceCache(THICK), LAW, {}),
+                   _Dem(z=100.0, rise=-0.3, r=3.0).z_many, {})
+    o = types.SimpleNamespace(kind="OBJECT", anchor_z=100.0, agl_m=0.0)
+    b = BG.row_depth_under(o, -2.0, box(-1, -1, 1, 1), set(), g, LAW)
+    assert abs(b.depth - 1.7) < 1e-9 and "AGL" not in b.why
+    o.agl_m = -0.5     # a SUNK row states its depth: 0.5 + 2.0 under the ground
+    assert abs(BG.row_depth_under(o, -2.0, box(-1, -1, 1, 1), set(), g, LAW).depth - 2.5) < 1e-9

@@ -339,3 +339,57 @@ def test_world_ready_matches_the_shared_swift_fixture(xp):
     assert set(wire) == set(fixture)
     assert set(wire["result"]) == set(fixture["result"])
     assert set(wire["result"]["totals"]) == set(fixture["result"]["totals"])
+
+
+def test_the_dry_run_and_the_move_count_their_tiles(xp):
+    """Owner 2026-11-11T15:32Z: a bar and a count while it runs.  The
+    measure counts every pack and then the timed sample, the move every
+    tile; the totals are known at the first event and the last is done."""
+    from o4_engine.events import WorldMigrateProgress
+    events = []
+    MIGRATE.run_command(True, scenery_dir=xp["scenery"], emit=events.append)
+    measure = [e for e in events if isinstance(e, WorldMigrateProgress)]
+    assert measure and {e.phase for e in measure} == {"measure"}
+    assert len({e.total for e in measure}) == 1
+    assert measure[0].done == 0 and measure[-1].done == measure[-1].total
+    assert measure[-1].total == 4 + 2          # four packs, a sample of two
+    assert [e.done for e in measure] == sorted(e.done for e in measure)
+    assert any(e.tile.startswith("zOrtho4XP_") for e in measure)
+    events.clear()
+    MIGRATE.run_command(False, scenery_dir=xp["scenery"], emit=events.append)
+    move = [e for e in events if isinstance(e, WorldMigrateProgress)]
+    assert move and {e.phase for e in move} == {"move"}
+    assert move[-1].done == move[-1].total == 4
+
+
+def test_cancel_stops_the_dry_run_and_moves_nothing(xp, monkeypatch):
+    """Cancel while measuring: the dry run ends with the sentence and no
+    sample folder is left; the X-Plane folder is unchanged."""
+    before = _hashes(xp["scenery"])
+    rows = _rows(xp["scenery"])
+
+    def cancel_at_first(done, total, name):
+        if done == 1:
+            MIGRATE.stop()
+    with pytest.raises(ValueError, match="cancelled"):
+        SIZE.dry_run(xp["scenery"], workers=1, progress=cancel_at_first)
+    assert _hashes(xp["scenery"]) == before and _rows(xp["scenery"]) == rows
+    # The next run starts afresh (Cancel does not stick).
+    assert SIZE.dry_run(xp["scenery"], sample=0)["totals"]["entries"] == 4
+
+
+FIXTURE_PROGRESS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "fixtures", "world",
+                                "world_migrate_progress_event.json")
+
+
+def test_world_migrate_progress_matches_the_shared_swift_fixture():
+    """The wire of ``WorldMigrateProgress`` is the fixture
+    ``WorldWireTests.swift`` decodes (``O4WorldMigrateProgress``)."""
+    from o4_engine.events import WorldMigrateProgress
+    from o4_engine.jsonl import serialize_event
+    wire = json.loads(json.dumps(serialize_event(WorldMigrateProgress(
+        phase="measure", done=3, total=12, tile="zOrtho4XP_+45+007",
+        seq=41, ts=1762874400.5))))
+    with open(FIXTURE_PROGRESS, encoding="utf-8") as handle:
+        assert wire == json.load(handle)

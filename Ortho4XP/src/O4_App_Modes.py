@@ -1,4 +1,5 @@
-"""The app's three modes, Build · Fly · Library (RULINGS 2026-11-10j).
+"""The app's two modes, Build and Fly (RULINGS 2026-11-11k; Library mode,
+10j's third, is retired: a remembered "library" restores Build).
 
 Pure: no Qt, no engine.  The Qt window (``O4_Qt_Modes``) reads it; the
 Mac app's ``AppMode.swift`` holds the same keys, words and offer rule, and
@@ -16,11 +17,11 @@ Mac app's ``AppMode.swift`` holds the same keys, words and offer rule, and
 from __future__ import annotations
 
 __all__ = ["MODES", "DEFAULT", "PREF_KEY", "FLY_PLACEHOLDER", "OFFER_TEXT",
-           "OFFER_OPEN", "OFFER_DISMISS", "STORAGE_POINTER",
-           "STORAGE_POINTER_BUTTON", "restore", "flight_loaded", "FlyOffer"]
+           "OFFER_OPEN", "OFFER_DISMISS", "restore", "flight_loaded",
+           "FlyOffer"]
 
 #: The modes, left to right in the segmented control.
-MODES = ("build", "fly", "library")
+MODES = ("build", "fly")
 DEFAULT = "build"
 #: The app preference that remembers the last mode (Mac: UserDefaults
 #: ``AppMode``; Qt: prefs ``app_mode``).
@@ -33,10 +34,6 @@ FLY_PLACEHOLDER = ("Name a flight and the app makes the scenery for it: the "
 OFFER_TEXT = "X-Plane has a flight loaded."
 OFFER_OPEN = "Open Fly"
 OFFER_DISMISS = "Not now"
-#: Settings ▸ Storage keeps a pointer to Library mode (10j).
-STORAGE_POINTER = ("The data folder's sizes, Clear and the disk budget's use "
-                   "are in Library.")
-STORAGE_POINTER_BUTTON = "Show in Library"
 
 #: Follow-job states in which X-Plane's positions arrive.
 _CONNECTED_STATES = ("following", "paused")

@@ -47,7 +47,7 @@ public enum O4WorldOnboardText {
     public static let title = "Let XPTerrainBuilder manage your ortho tiles?"
     public static let intro = "XPTerrainBuilder can move the {count} ortho tile(s) you already have into its World folder in Custom Scenery."
     public static let advantages = "One disk budget: everything the app keeps fits the space you give it.|Low-res placeholders: fly anywhere, sharp imagery arrives as you fly.|Build-ahead and the flight manager make the scenery for your flights.|Safe give-back: nothing is deleted, and Undo puts every tile back."
-    public static let note = "Quit X-Plane first. Not now: ask again from Library ▸ Convert existing tiles."
+    public static let note = "Quit X-Plane first. Not now: ask again from Settings ▸ Storage ▸ Convert existing tiles."
     public static let move = "Move…"
     public static let notNow = "Not now"
     public static let done = "Done"

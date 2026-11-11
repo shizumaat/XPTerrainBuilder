@@ -98,3 +98,117 @@ def test_a_foreign_world_folder_says_so_and_offers_nothing(app):
     box = QTONBOARD._foreign_box({"reason": "world_foreign", "target": "/kit/World"})
     assert box.text() == STORAGE_TEXT.WORLD_FOREIGN.format(target="/kit/World")
     assert "/kit/World" in box.text()
+
+
+def _hold_the_run(monkeypatch):
+    """``run_command`` held until the test releases it, its progress
+    events sent through the section's ``emit``."""
+    import threading
+
+    from o4_engine import world_migrate as MIGRATE
+    from o4_engine.events import WorldMigrateProgress
+    gate, calls = threading.Event(), []
+
+    def run_command(dry_run, undo=False, tiles=None, scenery_dir="",
+                    workers=4, emit=None):
+        calls.append(dry_run)
+        emit(WorldMigrateProgress(phase="measure", done=3, total=12,
+                                  tile="zOrtho4XP_+45+007"))
+        assert gate.wait(10), "TIMED_OUT"
+        return {"action": "dry_run", "summary": "3 tiles can move.",
+                "totals": {"by_action": {"copy": 3}}}
+    monkeypatch.setattr(MIGRATE, "run_command", run_command)
+    return gate, calls
+
+
+def _wait(app, predicate):
+    import time
+    deadline = time.monotonic() + 10
+    while not predicate():
+        assert time.monotonic() < deadline, "TIMED_OUT"
+        app.processEvents()
+        time.sleep(0.01)
+
+
+def test_the_measure_shows_a_count_and_holds_done(app, monkeypatch):
+    """Owner 2026-11-11T15:32Z: while Move… measures, a bar counts the
+    tiles and Done (and Escape) wait; Done comes back with the result."""
+    import O4_Qt_Convert_Tiles as QTCONVERT
+    gate, calls = _hold_the_run(monkeypatch)
+    dialog = QTONBOARD.OnboardDialog(12, "/cs")
+    dialog.show()
+    dialog.move_btn.click()
+    box = dialog.convert_box
+    _wait(app, lambda: box.bar.maximum() == 12)
+    assert calls == [True] and box.running
+    assert box.bar.isVisible() and box.bar.value() == 3
+    assert box.status_label.text() == QTCONVERT.progress_line(
+        "measure", 3, 12, "zOrtho4XP_+45+007") == \
+        "Measuring: 3 of 12 tiles · zOrtho4XP_+45+007"
+    assert box.stop_btn.isVisible() and box.stop_btn.text() == "Cancel"
+    assert not dialog.not_now_btn.isEnabled()
+    dialog.reject()                                  # Escape: held
+    assert dialog.isVisible()
+    gate.set()
+    _wait(app, lambda: not box.running)
+    assert not box.bar.isVisible()
+    assert box.status_label.text() == "3 tiles can move."
+    assert dialog.not_now_btn.isEnabled() and box.convert_btn.isEnabled()
+    dialog.not_now_btn.click()
+    assert not dialog.isVisible()
+
+
+def test_cancel_asks_the_engine_to_stop(app, monkeypatch):
+    from o4_engine import world_migrate as MIGRATE
+    gate, _calls = _hold_the_run(monkeypatch)
+    stopped = []
+    monkeypatch.setattr(MIGRATE, "stop", lambda: stopped.append(True))
+    import O4_Qt_Convert_Tiles as QTCONVERT
+    box = QTCONVERT.ConvertTilesSection("/cs")
+    box.run(dry_run=True)
+    box.stop_btn.click()
+    assert stopped == [True] and not box.stop_btn.isEnabled()
+    gate.set()
+    _wait(app, lambda: not box.running)
+
+
+def test_settings_holds_done_while_converting(app, monkeypatch, tmp_path):
+    """Settings ▸ Storage's Convert holds the dialog's Done too."""
+    import O4_Qt_Settings as QTSET
+    gate, _calls = _hold_the_run(monkeypatch)
+    monkeypatch.setattr(SM, "_default_global_cfg", lambda: str(tmp_path / "x.cfg"))
+    dialog = QTSET.SettingsWindow({}, [], "", None)
+    try:
+        box = dialog.storage_section.convert_box
+        box.run(dry_run=True)
+        assert not dialog.done_btn.isEnabled()
+        dialog.show()
+        dialog.reject()
+        assert dialog.isVisible()
+        gate.set()
+        _wait(app, lambda: not box.running)
+        assert dialog.done_btn.isEnabled()
+        dialog.done_btn.click()
+        assert not dialog.isVisible()
+    finally:
+        dialog.deleteLater()
+
+
+def test_both_convert_sections_say_the_same():
+    """``O4WorldMigrateText`` (SceneryKit) and ``O4_Qt_Convert_Tiles``:
+    the same words, Cancel included, and the same count line."""
+    import O4_Qt_Convert_Tiles as QTCONVERT
+    text = (SWIFT.parent / "WorldMigrate.swift").read_text(encoding="utf-8")
+    text = text[text.index("public enum O4WorldMigrateText"):]
+    swift = dict(re.findall(r'public static let (\w+) = "((?:[^"\\]|\\.)*)"', text))
+    qt = {"title": QTCONVERT.TITLE, "intro": QTCONVERT.INTRO,
+          "measure": QTCONVERT.MEASURE, "convert": QTCONVERT.CONVERT,
+          "stop": QTCONVERT.STOP, "undo": QTCONVERT.UNDO,
+          "measuring": QTCONVERT.MEASURING, "converting": QTCONVERT.CONVERTING,
+          "confirmTitle": QTCONVERT.CONFIRM_TITLE,
+          "confirmText": QTCONVERT.CONFIRM_TEXT,
+          "undoTitle": QTCONVERT.UNDO_TITLE, "undoText": QTCONVERT.UNDO_TEXT}
+    assert swift == qt
+    for piece in ('"Measuring"', '"Converting"', " of ", " tiles", '" · "'):
+        assert piece in text, piece
+    assert QTCONVERT.progress_line("move", 1, 4) == "Converting: 1 of 4 tiles"

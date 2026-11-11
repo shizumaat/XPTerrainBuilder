@@ -25,6 +25,27 @@ import Foundation
         #expect(!result.stopped)
     }
 
+    /// `WorldMigrateProgress` (owner 2026-11-11T15:32Z: a bar and a count
+    /// while Convert runs; `test_world_migrate.py` holds the fixture to the
+    /// engine's wire) decodes, and the count reads as the Qt window's.
+    @Test func worldMigrateProgressDecodesThePythonEvent() throws {
+        let url = Self.fixtures.appendingPathComponent("world/world_migrate_progress_event.json")
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        guard case .worldMigrateProgress(let count) = try #require(O4Event.parse(object: object)) else {
+            Issue.record("WorldMigrateProgress did not decode as .worldMigrateProgress")
+            return
+        }
+        #expect(count == O4WorldMigrateProgress(phase: "measure", done: 3, total: 12,
+                                                tile: "zOrtho4XP_+45+007"))
+        // The same line `test_world_onboard.py` asserts for the Qt window.
+        #expect(O4WorldMigrateText.progressLine(count)
+                == "Measuring: 3 of 12 tiles · zOrtho4XP_+45+007")
+        let moving = O4WorldMigrateProgress(phase: "move", done: 1, total: 4, tile: "")
+        #expect(O4WorldMigrateText.progressLine(moving) == "Converting: 1 of 4 tiles")
+        #expect(O4WorldMigrateText.stop == "Cancel")
+    }
+
     @Test func worldStatusDecodesThePythonEvent() throws {
         let url = Self.fixtures.appendingPathComponent("world/world_status_event.json")
         let object = try #require(

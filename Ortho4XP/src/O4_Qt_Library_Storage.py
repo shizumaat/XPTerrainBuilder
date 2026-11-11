@@ -1,12 +1,13 @@
-"""Library mode's storage rows in the Qt window (#2007, owner 2026-11-11;
-the Mac app's ``LibraryStorage.swift``): the data folder, then the ONE
-disk budget (RULINGS 2026-11-10d; its default 2026-11-11a) that
-everything the app keeps fits in, caches included, then -- after the
-patch library and Convert existing tiles -- the Caches line: one total,
-Clear… and Details…, the per-cache list in its own window
-(``O4_Qt_Settings_Storage.StorageSection``).  One section's scan feeds
-all three (its ``scan_shown`` signal).
+"""Settings ▸ Storage's rows in the Qt window (RULINGS 2026-11-11k (2);
+the Library pane's from #2007 until 11k retired Library mode; the Mac
+app's ``LibraryStorage.swift``): the data folder, then the ONE disk budget
+(RULINGS 2026-11-10d; its default 2026-11-11a/h) that everything the app
+keeps fits in, caches included, then Convert existing tiles and the
+Caches line: one total, Clear… and Details…, the per-cache list in its own
+window (``O4_Qt_Settings_Storage.StorageSection``).  One section's scan
+feeds all of them (its ``scan_shown`` signal).
 
+- :class:`StorageRows` -- the four, top to bottom, as Settings shows them.
 - :class:`DataFolderRow` -- the data folder.
 - :class:`DiskBudgetBox` -- the budget, visible and editable; unset, the
   default applies, holds the current install (RULINGS 2026-11-11h (1))
@@ -18,6 +19,8 @@ all three (its ``scan_shown`` signal).
 
 from __future__ import annotations
 
+import O4_Qt_Convert_Tiles as QTCONVERT
+import O4_Qt_Settings_Storage as QTSTORAGE
 import O4_Storage_Text as TEXT
 from O4_Qt_Library import fmt_size
 from PySide6.QtWidgets import (
@@ -33,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-__all__ = ["DataFolderRow", "DiskBudgetBox", "CachesLine"]
+__all__ = ["StorageRows"]
 
 NOTE_STYLE = "color: gray; font-size: 11px;"
 WARNING_STYLE = "color: #C0392B; font-size: 11px;"
@@ -196,8 +199,41 @@ class CachesLine(QWidget):
         return self.dialog
 
 
+class StorageRows(QWidget):
+    """Settings ▸ Storage, top to bottom (11k (2), in 11a's order): the
+    data folder (``folder_row``), the disk budget (``budget_box``),
+    Convert existing tiles (``convert_box``, World spec §13) and the
+    Caches line (``caches_box``; Details… opens ``storage``, the
+    per-cache list, in its own window).  Measured the first time it is
+    shown (:meth:`refresh`)."""
+
+    def __init__(self, scenery_dir, busy=lambda: False, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 4)
+        self.storage = QTSTORAGE.StorageSection(busy=busy)
+        self.folder_row = DataFolderRow(self.storage)
+        self.budget_box = DiskBudgetBox(self.storage)
+        self.convert_box = QTCONVERT.ConvertTilesSection(scenery_dir)
+        self.caches_box = CachesLine(self.storage)
+        for row in (self.folder_row, self.budget_box, self.convert_box,
+                    self.caches_box):
+            layout.addWidget(row)
+
+    @property
+    def scan(self):
+        return self.storage.scan
+
+    def refresh(self):
+        self.storage.refresh()
+
+    def matches(self, query: str) -> bool:
+        return self.storage.matches(query) or any(
+            word in query.lower() for word in ("budget", "convert", "tiles"))
+
+
 class _StorageDetailsDialog(QDialog):
-    """The window around the Library's ``StorageSection``."""
+    """The window around Settings ▸ Storage's ``StorageSection``."""
 
     def __init__(self, storage, parent=None):
         super().__init__(parent)

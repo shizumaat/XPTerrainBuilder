@@ -103,10 +103,6 @@ struct AppCommands: Commands {
                 openWindow(id: TerrainPreview.windowID, value: TerrainPreview.windowValue)
             }
             .keyboardShortcut("3", modifiers: .command)
-            // The Library is a mode of the main window (RULINGS
-            // 2026-11-10j; Qt: View ▸ Library, Ctrl+L).
-            Button(AppMode.library.title) { buildModel.appMode.mode = .library }
-                .keyboardShortcut("l", modifiers: .command)
             // View ▸ Bigger / Smaller / Actual Size text (#827).
             Divider()
             TextScaleCommands()

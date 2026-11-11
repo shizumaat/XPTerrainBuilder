@@ -38,7 +38,6 @@ public enum O4Glossary {
         "ondemand_region": "On demand in {region}?",
         "mode_build": "Build",
         "mode_fly": "Fly",
-        "mode_library": "Library",
         "live_flight_preview": "Live flight preview",
         "xplane_own_scenery": "X-Plane's own scenery",
     ]

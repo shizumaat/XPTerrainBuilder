@@ -409,16 +409,12 @@ struct MapMainView: View {
         // re-injected per pane). The package list is a NATIVE trailing
         // inspector spanning the full window height, with the standard
         // toolbar toggle.
-        // Build and Fly: the map over the console; Library: the tiles
-        // table over the map, no console (#2007, owner 2026-11-11).
-        ModeMainSplit(modes: buildModel.appMode) {
+        // Build and Fly: the map over the console (the tiles table is
+        // the developer tools' Tiles window, RULINGS 2026-11-11k).
+        ModeMainSplit {
             mapPane
         } console: {
             consolePane
-        } table: {
-            LibraryTilesSection(model: buildModel.library)
-                .environmentObject(buildModel)
-                .environmentObject(controller)
         }
         .inspector(isPresented: inspectorBinding) {
             // Hairline between the map/console and the inspector — the
@@ -431,7 +427,7 @@ struct MapMainView: View {
             }
             .inspectorColumnWidth(min: 240, ideal: 300, max: 520)
         }
-        // A mode chosen (the switch, View ▸ Library, "Open Fly") shows
+        // A mode chosen (the switch, "Open Fly") shows
         // its pane even when the side panel was hidden.
         .onReceive(buildModel.appMode.$mode.dropFirst().removeDuplicates()) { _ in
             inspectorBinding.wrappedValue = true
@@ -548,29 +544,20 @@ struct MapMainView: View {
     }
 }
 
-/// The main split of the current mode: the map over the console in Build
-/// and Fly; in Library the tiles table over the map and no console (#2007;
-/// the Qt window's `map_split` is the same). The map is one view either way.
-struct ModeMainSplit<Map: View, Console: View, Table: View>: View {
-    @ObservedObject var modes: AppModeModel
+/// The main split: the map over the console, in Build and Fly alike.
+struct ModeMainSplit<Map: View, Console: View>: View {
     @ViewBuilder let map: () -> Map
     @ViewBuilder let console: () -> Console
-    @ViewBuilder let table: () -> Table
 
     var body: some View {
-        if modes.mode == .library {
-            RestorableSplit(orientation: .vertical, autosaveName: "MainSplit.Library",
-                            firstMin: 160, secondMin: 240, first: table, second: map)
-        } else {
-            RestorableSplit(orientation: .vertical, autosaveName: "MainSplit.Vertical",
-                            firstMin: 300, secondMin: 180, first: map, second: console)
-        }
+        RestorableSplit(orientation: .vertical, autosaveName: "MainSplit.Vertical",
+                        firstMin: 300, secondMin: 180, first: map, second: console)
     }
 }
 
 /// The side pane of the current mode (RULINGS 2026-11-10j): one map and
 /// one selection; only this pane changes. The Fly offer sits above it in
-/// Build and Library.
+/// Build.
 struct ModePanes: View {
     @ObservedObject var modes: AppModeModel
 
@@ -580,7 +567,6 @@ struct ModePanes: View {
             switch modes.mode {
             case .build: BuildPane()
             case .fly: FlyPane()
-            case .library: LibraryPane()
             }
         }
     }

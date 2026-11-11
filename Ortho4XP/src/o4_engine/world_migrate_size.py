@@ -13,7 +13,10 @@ would do, write and take, with nothing written in Custom Scenery.
   removed after: the mean seconds per action, times the entries, over
   the workers.
 
-Reads headers and ``stat`` only, besides the sample.
+Reads headers and ``stat`` only, besides the sample.  ``progress(done,
+total, name)`` counts the packs read, then the sample's tiles; Cancel
+(``world_migrate.stop``) ends it before the sample with
+:data:`world_migrate.STOPPED_MEASURE`.
 """
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import O4_DSF_Compress as DSFC
 import O4_Imagery_OnDemand_Convert as CONVERT
@@ -88,14 +91,19 @@ def _size_row(entry, action: str, scenery_dir: str, px: int) -> dict:
     return row
 
 
-def _sample(chosen, scratch: str, px: int) -> list:
+def _sample(chosen, scratch: str, px: int, tick=None) -> list:
     """Migrate ``chosen`` into a scratch World pack under ``scratch``
-    (no ini, no index); ``[(action, seconds, status)]``."""
+    (no ini, no index); ``[(action, seconds, status)]``.  ``tick(name)``
+    before each tile; Cancel ends it early."""
     pack = os.path.join(scratch, WP.PACK_NAME)
     os.makedirs(pack)
     journal, lock = MIGRATE.Journal(scratch), threading.Lock()
     out = []
     for entry, action in chosen:
+        if MIGRATE.stopping():
+            break
+        if tick:
+            tick(entry.name)
         started = time.monotonic()
         try:
             row = MIGRATE.migrate_tile(
@@ -140,33 +148,66 @@ def _estimate(rows, timed, workers: int) -> dict:
                        for a, s, st in timed]}
 
 
+def _counter(progress, total: int):
+    """``tick(name)``: one more of ``total`` done, told to ``progress``."""
+    done, lock = [0], threading.Lock()
+
+    def tick(name: str) -> None:
+        with lock:
+            done[0] += 1
+            now = done[0]
+        if progress:
+            progress(now, total, name)
+    return tick
+
+
 def dry_run(scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX,
             workers: int = 8, sample: int = 6,
-            sample_root: Optional[str] = None) -> Dict[str, Any]:
+            sample_root: Optional[str] = None,
+            progress: Optional[Callable[[int, int, str], None]] = None
+            ) -> Dict[str, Any]:
     """``{"rows", "totals"}`` of a migration of every entry (or
     ``names``) of ``scenery_dir``; see the module docstring.
     ``sample_root``: where the timing sample is written (default: the
     system's temporary folder)."""
     from . import world_commands as WORLD
     started = time.monotonic()
+    MIGRATE._STOP.clear()
     pack = WORLD.pack_dir(scenery_dir)
     journal = MIGRATE.Journal(MIGRATE.work_dir_for(scenery_dir))
     found = MIGRATE.entries(scenery_dir, names)
     actions = [MIGRATE.classify(e, journal, pack) for e in found]
+    # The sample is picked by action alone, so the count's total (the
+    # packs, then the sample's tiles) is known from the start.
+    chosen = (_pick([{"action": a} for a in actions], found, sample)
+              if sample > 0 else [])
+    total = len(found) + len(chosen)
+    tick = _counter(progress, total)
+    if progress:
+        progress(0, total, "")
+
+    def size_one(pair) -> dict:
+        if MIGRATE.stopping():
+            return {}
+        row = _size_row(pair[0], pair[1], scenery_dir, px)
+        tick(pair[0].name)
+        return row
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        rows = list(pool.map(lambda pair: _size_row(pair[0], pair[1],
-                                                    scenery_dir, px),
-                             zip(found, actions, strict=False)))
+        rows = list(pool.map(size_one, zip(found, actions, strict=False)))
+    if MIGRATE.stopping():
+        raise ValueError(MIGRATE.STOPPED_MEASURE)
     timed = []
-    if sample > 0:
+    if chosen:
         if sample_root:
             os.makedirs(sample_root, exist_ok=True)
         scratch = tempfile.mkdtemp(prefix="o4_world_migrate_sample_",
                                    dir=sample_root)
         try:
-            timed = _sample(_pick(rows, found, sample), scratch, px)
+            timed = _sample(chosen, scratch, px, tick=tick)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
+        if MIGRATE.stopping():
+            raise ValueError(MIGRATE.STOPPED_MEASURE)
     totals: Dict[str, Any] = {
         "entries": len(rows),
         "by_kind": _tally(r["kind"] for r in rows),

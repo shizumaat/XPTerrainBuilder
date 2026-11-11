@@ -267,8 +267,8 @@ final class BuildModel: ObservableObject {
     /// Launch-time liveness per source code; absent = unknown (enabled).
     @Published private(set) var imageryStatus: [String: O4ImageryStatus] = [:]
     /// The World pack's last `WorldStatus` (capability `world_pack`,
-    /// World spec §5.3); nil before the engine sent one. The Fly and
-    /// Library panes read it.
+    /// World spec §5.3); nil before the engine sent one. The Fly pane
+    /// reads it.
     @Published private(set) var worldStatus: O4WorldStatus?
     private var imageryStatusChecked = false
     @Published private(set) var missingPackages: [String]?
@@ -412,7 +412,9 @@ final class BuildModel: ObservableObject {
     let imageryFollow = ImageryFollowModel()
     /// Build · Fly · Library (RULINGS 2026-11-10j) and the Fly offer.
     let appMode = AppModeModel()
-    /// Library mode's table (#2006/#2007): kept across mode switches.
+    /// Convert existing tiles' one run (onboarding and Settings ▸ Storage).
+    let worldMigrate = WorldMigrateRun()
+    /// The tiles table's model (#2006), parked with it (RULINGS 2026-11-11k).
     let library = LibraryModel()
     let console = BuildConsoleModel()
     /// The one date filter of the Build History list and the map (#1226).
@@ -1269,6 +1271,8 @@ final class BuildModel: ObservableObject {
             imageryFollow.show(status) // the Fly pane's follow line (#1992 P4)
             fly.preview.followLanded(status.landed) // a tier landed (#2001)
             appMode.observe(status)    // offers Fly, never switches (10j)
+        case .worldMigrateProgress(let count):
+            worldMigrate.show(count)   // Convert's bar (owner 2026-11-11)
         case .worldStatus(let status):
             worldStatus = status
             fly.showWorld(status)      // the Fly pane's World line and map
@@ -1419,7 +1423,7 @@ final class BuildModel: ObservableObject {
         return (client, base.path, customSceneryPath)
     }
 
-    /// Library ▸ Rebuild: select those tiles (adopting the active one's
+    /// The tiles table's Rebuild: select those tiles (adopting the active one's
     /// recorded source) and press Build.
     func rebuild(_ coords: [TileCoord]) {
         guard !coords.isEmpty else { return }

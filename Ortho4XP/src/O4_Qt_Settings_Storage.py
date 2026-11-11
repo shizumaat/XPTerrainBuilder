@@ -1,8 +1,8 @@
-"""Library ▸ Caches ▸ Details…: the data folder's sizes and Clear
-buttons, as the Mac app shows them (#1724; Settings ▸ Storage until 10j,
-its own window since #2007; ``StorageSettingsView.swift``'s
-``StorageSection``).  The Library pane's data folder, disk budget and
-Caches line read this section's scan (:attr:`StorageSection.scan_shown`,
+"""Settings ▸ Storage ▸ Caches ▸ Details…: the data folder's sizes and
+Clear buttons, as the Mac app shows them (#1724; its own window since
+#2007; ``StorageSettingsView.swift``'s ``StorageSection``).  Settings ▸
+Storage's data folder, disk budget and Caches line (RULINGS 2026-11-11k;
+the Library pane's until then) read this section's scan (:attr:`StorageSection.scan_shown`,
 ``O4_Qt_Library_Storage``).
 
 Every store of the data folder with the space deleting it frees and when
@@ -94,7 +94,7 @@ class StorageSection(_Section):
 
     title = "Data Folder"
     loaded = Signal(object)
-    #: Every scan shown (the Library pane's rows follow it).
+    #: Every scan shown (Settings ▸ Storage's rows follow it).
     scan_shown = Signal(object)
     cleared = Signal(object)
     previewed = Signal(object)

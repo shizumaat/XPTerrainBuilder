@@ -1,19 +1,20 @@
 import SwiftUI
 import SceneryKit
 
-/// Library ▸ Convert existing tiles (World spec §13 M1, §14
+/// Settings ▸ Storage ▸ Convert existing tiles (World spec §13 M1, §14
 /// `ConvertTilesSection`; Qt: `O4_Qt_Convert_Tiles.ConvertTilesSection`):
 /// the per-tile `zOrtho4XP_` packs moved into the World pack through the
-/// engine's `world_migrate` — Measure (the dry run), Convert…, Stop and
-/// Undo…. The engine writes every result sentence.
+/// engine's `world_migrate` — Measure (the dry run), Convert…, Cancel and
+/// Undo…. While a step runs a bar counts the tiles (owner
+/// 2026-11-11T15:32Z; `WorldMigrateRun`). The engine writes every result
+/// sentence.
 struct ConvertTilesSection: View {
     @EnvironmentObject var buildModel: BuildModel
+    /// `buildModel.worldMigrate`: one run, wherever it is shown.
+    @ObservedObject var run: WorldMigrateRun
     /// The start's onboarding (#2007) measures at once: its "Move…" shows
     /// the dry run's numbers before anything moves.
     var measureOnAppear = false
-    @State private var status = ""
-    @State private var running = false
-    @State private var measured: O4WorldMigrateResult?
     @State private var asking: Action?
 
     enum Action: Identifiable {
@@ -32,28 +33,37 @@ struct ConvertTilesSection: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
-                Button(O4WorldMigrateText.measure) { run(dryRun: true) }
-                    .disabled(running)
+                Button(O4WorldMigrateText.measure) { start(.measure) }
+                    .disabled(run.isRunning)
                 Button(O4WorldMigrateText.convert) { asking = .convert }
-                    .disabled(running || (measured?.toMove ?? 0) == 0)
-                if running {
+                    .disabled(run.isRunning || (run.measured?.toMove ?? 0) == 0)
+                if run.canCancel {
                     Button(O4WorldMigrateText.stop) {
+                        run.markCancelling()
                         buildModel.libraryContext()?.client.stopWorldMigrate()
                     }
+                    .disabled(run.cancelling)
                 }
                 Spacer()
                 Button(O4WorldMigrateText.undo) { asking = .undo }
-                    .disabled(running)
+                    .disabled(run.isRunning)
             }
             .disabled(!supported)
-            if !status.isEmpty {
-                Text(status)
+            if run.isRunning {
+                if let fraction = run.fraction {
+                    ProgressView(value: fraction)
+                } else {
+                    ProgressView().progressViewStyle(.linear)
+                }
+            }
+            if !run.status.isEmpty {
+                Text(run.status)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
         }
-        .onAppear { if measureOnAppear, measured == nil { run(dryRun: true) } }
+        .onAppear { if measureOnAppear, !run.isRunning { start(.measure) } }
         .alert(item: $asking) { action in
             Alert(
                 title: Text(action == .convert ? O4WorldMigrateText.confirmTitle
@@ -62,26 +72,14 @@ struct ConvertTilesSection: View {
                                                  : O4WorldMigrateText.undoText),
                 primaryButton: .default(Text(action == .convert ? O4WorldMigrateText.convert
                                                                 : O4WorldMigrateText.undo)) {
-                    run(dryRun: false, revert: action == .undo)
+                    start(action == .convert ? .convert : .undo)
                 },
                 secondaryButton: .cancel())
         }
     }
 
-    private func run(dryRun: Bool, revert: Bool = false) {
-        guard !running, let context = buildModel.libraryContext() else { return }
-        running = true
-        status = dryRun ? O4WorldMigrateText.measuring : O4WorldMigrateText.converting
-        Task { @MainActor in
-            defer { running = false }
-            do {
-                let result = try await context.client.worldMigrate(
-                    dryRun: dryRun, revert: revert, sceneryDir: context.sceneryDir)
-                status = result.summary
-                measured = dryRun ? result : nil
-            } catch {
-                status = error.localizedDescription
-            }
-        }
+    private func start(_ step: WorldMigrateRun.Step) {
+        guard let context = buildModel.libraryContext() else { return }
+        run.start(step, client: context.client, sceneryDir: context.sceneryDir)
     }
 }

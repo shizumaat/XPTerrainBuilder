@@ -29,14 +29,40 @@ public struct O4WorldMigrateResult: Sendable, Equatable {
     }
 }
 
-/// The Library ▸ Convert words (`O4_Qt_Convert_Tiles` in the Qt window:
+/// How far a running `world_migrate` is (`class WorldMigrateProgress` in
+/// `o4_engine/events.py`; owner 2026-11-11T15:32Z: a bar and a count while
+/// it runs): `phase` `measure` (the dry run) or `move`, `done` of `total`
+/// tiles, `tile` the pack in hand.
+public struct O4WorldMigrateProgress: Sendable, Equatable {
+    public let phase: String
+    public let done: Int
+    public let total: Int
+    public let tile: String
+
+    public init(phase: String, done: Int, total: Int, tile: String) {
+        self.phase = phase
+        self.done = done
+        self.total = total
+        self.tile = tile
+    }
+
+    public static func parse(_ object: [String: Any]) -> O4WorldMigrateProgress {
+        O4WorldMigrateProgress(
+            phase: object["phase"] as? String ?? "",
+            done: (object["done"] as? NSNumber)?.intValue ?? 0,
+            total: (object["total"] as? NSNumber)?.intValue ?? 0,
+            tile: object["tile"] as? String ?? "")
+    }
+}
+
+/// The Settings ▸ Storage ▸ Convert words (`O4_Qt_Convert_Tiles` in the Qt window:
 /// the same strings).
 public enum O4WorldMigrateText {
     public static let title = "Convert existing tiles"
     public static let intro = "Moves your per-tile ortho packs (zOrtho4XP_…) into the World pack, so X-Plane can take new tiles while it runs. Tiles on another drive get a small local copy and their files stay where they are. Nothing is deleted: Undo puts every tile back."
     public static let measure = "Measure"
     public static let convert = "Convert…"
-    public static let stop = "Stop"
+    public static let stop = "Cancel"
     public static let undo = "Undo…"
     public static let measuring = "Measuring (a few tiles are converted into a temporary folder to time it)…"
     public static let converting = "Converting…"
@@ -44,6 +70,13 @@ public enum O4WorldMigrateText {
     public static let confirmText = "Quit X-Plane first. Each tile's own pack is turned off in scenery_packs.ini (a copy of the file is kept) and the World pack draws it. You can stop at any time and convert again later."
     public static let undoTitle = "Put every converted tile back?"
     public static let undoText = "Quit X-Plane first. Each tile's own pack is turned on again and the World pack gives the tile back."
+
+    /// The count under the bar (Qt: `O4_Qt_Convert_Tiles.progress_line`).
+    public static func progressLine(_ progress: O4WorldMigrateProgress) -> String {
+        let verb = progress.phase == "measure" ? "Measuring" : "Converting"
+        let line = "\(verb): \(progress.done.formatted()) of \(progress.total.formatted()) tiles"
+        return progress.tile.isEmpty ? line : line + " · " + progress.tile
+    }
 }
 
 extension OrthoEngineClient {

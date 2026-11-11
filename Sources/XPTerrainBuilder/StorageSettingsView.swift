@@ -1,10 +1,10 @@
 import SwiftUI
 import SceneryKit
 
-/// Library ▸ Caches ▸ Details… (#1724; Settings ▸ Storage until 10j, its
+/// Settings ▸ Storage ▸ Caches ▸ Details… (#1724; RULINGS 2026-11-11k; its
 /// own window since #2007): every folder of the data folder with the
 /// space deleting it frees and when it was last used, a Clear button per
-/// cache, and "Clear files not used for…" across every cache. The pane's
+/// cache, and "Clear files not used for…" across every cache. Settings'
 /// data folder, disk budget and Caches line read the same model
 /// (`LibraryStorage.swift`). The engine's
 /// `storage_*` commands walk the folders and delete
@@ -201,7 +201,7 @@ struct StorageClearConfirm: ViewModifier {
     }
 }
 
-/// The details window's sections (Library ▸ Caches ▸ Details…).
+/// The details window's sections (Settings ▸ Storage ▸ Caches ▸ Details…).
 struct StorageSection: View {
     @EnvironmentObject var buildModel: BuildModel
     @ObservedObject var model: StorageModel

@@ -166,7 +166,7 @@ def flight_create(session, emit=None, plan=None, path: str = "", dep=None,
     flight_plan = _plan_of(plan, path, dep, arr)
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     if not WORLD.managed(scenery_dir):
-        raise ValueError("Install the World pack first (Library ▸ World): "
+        raise ValueError("Install the World pack first (XPTerrainBuilder makes it when it starts): "
                          "a flight's tiles go into it.")
     running = FLIGHT.current()
     if running is not None:

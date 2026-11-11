@@ -1,9 +1,10 @@
-"""Library mode's tiles table (#824; a window until RULINGS 2026-11-10j;
-above the map since #2007, where the console is in Build -- the window's
-``map_split``): every built tile with its size, zoom level, imagery
-source, built date, graded airports, modified packs and the "In X-Plane"
-switch, its total, and the actions on the selection under it.  The
-caches are the side pane's Caches line (``O4_Qt_Library_Storage``).
+"""The tiles table (#824; Library mode's from RULINGS 2026-11-10j until
+11k retired the mode).  PARKED (owner 2026-11-11T15:35Z: the developer
+tools of 11k (3) wait): no window shows it until its home is ruled; the
+code stays.  Every built tile with its size, zoom level, imagery source,
+built date, graded airports, modified packs and the "In X-Plane" switch,
+its total, and the actions on the selection under it.  The caches are
+Settings ▸ Storage's Caches line (``O4_Qt_Library_Storage``).
 
 The Qt face of :mod:`o4_engine.library` — the Mac app's ``LibraryView``
 drives the same functions through the engine's ``library_*`` commands.
@@ -15,8 +16,8 @@ never rebuilt or deleted.  Deleting and freeing space ask first.
 to another installation (#1699 phase 1, ``tile_bundle``; the Mac app's
 Library has the same two buttons).  The "Patch library" box and "Publish
 patch…" are the shared patch library (#1699 phase 2,
-``O4_Qt_Patch_Library``; the Mac app's ``PatchLibraryView``); the pane
-places the box (it is a section of its own there).
+``O4_Qt_Patch_Library``; the Mac app's ``PatchLibraryView``); its future
+home places the box.
 """
 
 import threading
@@ -221,7 +222,7 @@ class LibraryTilesSection(QWidget):
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
-        # Not laid out here: the Library pane places it as its own section.
+        # Not laid out here: the table's home places it (parked, 11k).
         self.patch_box = PATCHLIB.PatchLibraryBox(working_dir, building)
 
         self.loaded.connect(self._on_loaded)

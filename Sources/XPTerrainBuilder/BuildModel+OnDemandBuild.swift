@@ -7,7 +7,7 @@ import SceneryKit
 /// rebuilds a built tile: the Build box hides "When it's done" with its
 /// "Install in X-Plane automatically" and "Skip tiles already built", and
 /// both behave as on, whatever they were left at. An explicit rebuild
-/// (Library ▸ Rebuild, "Rebuild tile") still rebuilds. Qt mirror:
+/// (the tiles table's Rebuild, "Rebuild tile") still rebuilds. Qt mirror:
 /// `O4_Qt_Build_OnDemand`.
 extension BuildModel {
     /// Where to rebuild a built tile while the Skip switch is hidden (Qt:

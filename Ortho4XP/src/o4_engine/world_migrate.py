@@ -56,7 +56,8 @@ from .xplane_root import xplane_running as _xplane_running
 
 __all__ = ["WORK_DIR_NAME", "Journal", "work_dir_for", "entries",
            "classify", "migrate", "migrate_tile", "revert", "summary",
-           "stop", "run_command", "start_world_migrate"]
+           "stop", "run_command", "start_world_migrate", "stopping",
+           "STOPPED_MEASURE"]
 
 #: Beside the Custom Scenery folder (same volume, so textures hard-link;
 #: X-Plane does not scan it): the journal, the on-demand copies of linked
@@ -425,13 +426,40 @@ def revert(scenery_dir: str, names=None, *, work_dir: Optional[str] = None,
 # ------------------------------------------------------------ command
 
 
+#: The dry run's sentence when Cancel stopped it (nothing was moved).
+STOPPED_MEASURE = "Measuring cancelled: nothing was moved."
+
+
+def _count_events(emit: Callable[[Any], None], phase: str,
+                    every: float = 0.2):
+    """A ``progress(done, total, name)`` that emits a
+    ``WorldMigrateProgress`` of ``phase`` at most every ``every`` s (the
+    first and the last always)."""
+    from .events import WorldMigrateProgress
+    last = [None]
+    lock = threading.Lock()
+
+    def progress(done: int, total: int, name: str) -> None:
+        now = time.monotonic()
+        with lock:
+            if last[0] is not None and now - last[0] < every and done < total:
+                return
+            last[0] = now
+        emit(WorldMigrateProgress(phase=phase, done=int(done),
+                                  total=int(total), tile=name or ""))
+    return progress
+
+
 def _progress_events(emit: Callable[[Any], None], scenery_dir: str):
-    """A ``progress(done, total, name)`` that emits a ``WorldStatus``
-    (state ``building``) at most every 2 s."""
+    """A ``progress(done, total, name)`` for a migration: the
+    ``WorldMigrateProgress`` count, and a ``WorldStatus`` (state
+    ``building``) at most every 2 s."""
     from . import world_commands as WORLD
     last = [0.0]
+    count = _count_events(emit, "move")
 
-    def progress(done: int, total: int, _name: str) -> None:
+    def progress(done: int, total: int, name: str) -> None:
+        count(done, total, name)
         now = time.monotonic()
         if now - last[0] < 2.0 and done < total:
             return
@@ -481,8 +509,14 @@ def summary(action: str, result: Dict[str, Any]) -> str:
 
 
 def stop() -> None:
-    """Ask a running migration to stop after the tiles in hand."""
+    """Ask a running migration (or dry run) to stop after the tiles in
+    hand."""
     _STOP.set()
+
+
+def stopping() -> bool:
+    """Cancel was asked (``stop``) since the run began."""
+    return _STOP.is_set()
 
 
 def run_command(dry_run: bool, undo: bool = False, tiles=None,
@@ -490,8 +524,9 @@ def run_command(dry_run: bool, undo: bool = False, tiles=None,
                 emit: Optional[Callable[[Any], None]] = None) -> Dict[str, Any]:
     """The work of ``world_migrate`` on the caller's thread (the Qt window
     calls it on its own worker): the result with ``action``, ``summary``
-    and the ``failed`` rows only.  ``emit`` receives the progress
-    ``WorldStatus`` events of a migration."""
+    and the ``failed`` rows only.  ``emit`` receives the progress events:
+    ``WorldMigrateProgress`` of the dry run and of a migration (whose
+    ``WorldStatus`` it also receives)."""
     from . import world_commands as WORLD
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     if not scenery_dir or not os.path.isdir(scenery_dir):
@@ -499,7 +534,9 @@ def run_command(dry_run: bool, undo: bool = False, tiles=None,
     WORLD.refuse_foreign(scenery_dir)
     if dry_run:
         from .world_migrate_size import dry_run as size
-        result = size(scenery_dir, tiles, workers=max(1, int(workers)) * 2)
+        result = size(scenery_dir, tiles, workers=max(1, int(workers)) * 2,
+                      progress=(_count_events(emit, "measure")
+                                if emit else None))
         action = "dry_run"
     elif undo:
         result, action = revert(scenery_dir, tiles), "revert"

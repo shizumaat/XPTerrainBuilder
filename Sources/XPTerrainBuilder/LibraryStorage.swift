@@ -1,13 +1,27 @@
 import SwiftUI
 import SceneryKit
 
-/// Library mode's storage rows (#2007, owner 2026-11-11): the data folder,
-/// then the ONE disk budget (RULINGS 2026-11-10d; its default 11a) that
-/// everything the app keeps fits in, caches included, then — after the
-/// patch library and Convert existing tiles — the Caches line: one total,
-/// Clear… and Details…, the per-cache list in its own window
-/// (`StorageSection`). One `StorageModel` scan feeds all three. The Qt
-/// window's `O4_Qt_Library_Storage` holds the same rows.
+/// Settings ▸ Storage's rows (RULINGS 2026-11-11k (2); the Library pane's
+/// from #2007 until 11k retired Library mode): the data folder, then the
+/// ONE disk budget (RULINGS 2026-11-10d; its default 11a/11h) that
+/// everything the app keeps fits in, caches included, then Convert
+/// existing tiles and the Caches line: one total, Clear… and Details…, the
+/// per-cache list in its own window (`StorageSection`). One `StorageModel`
+/// scan feeds them all. The Qt window's `O4_Qt_Library_Storage` holds the
+/// same rows (`StorageRows`).
+struct StorageSettingsRows: View {
+    @EnvironmentObject var buildModel: BuildModel
+    @StateObject private var storage = StorageModel()
+
+    var body: some View {
+        Section { DataFolderRow(model: storage) }
+        Section { DiskBudgetSection(model: storage) }
+        Section { ConvertTilesSection(run: buildModel.worldMigrate) }
+        Section { CachesLine(model: storage) }
+            .onAppear { storage.refresh(buildModel) }
+    }
+}
+
 struct DataFolderRow: View {
     @ObservedObject var model: StorageModel
 

@@ -7,7 +7,7 @@ When no World folder exists at the start, the engine makes it
 into it and were never offered (RULINGS 2026-11-11h (2): the engine
 records the offer, Not now included), :class:`OnboardDialog` asks once what managing them gives and
 offers Move… (Convert existing tiles, its dry run's numbers first) or Not
-now (Library ▸ Convert existing tiles asks again).  Spec §13 M1 holds:
+now (Settings ▸ Storage ▸ Convert existing tiles asks again).  Spec §13 M1 holds:
 the packs' ``scenery_packs.ini`` rows are disabled, never removed.  A
 World folder the app did not make (``world_foreign``: a link) gets
 :func:`_foreign_box`'s sentence and no offer.
@@ -39,8 +39,8 @@ ADVANTAGES = ("One disk budget: everything the app keeps fits the space you "
               "arrives as you fly.|Build-ahead and the flight manager make the "
               "scenery for your flights.|Safe give-back: nothing is deleted, "
               "and Undo puts every tile back.")
-NOTE = ("Quit X-Plane first. Not now: ask again from Library ▸ Convert "
-        "existing tiles.")
+NOTE = ("Quit X-Plane first. Not now: ask again from Settings ▸ Storage ▸ "
+        "Convert existing tiles.")
 MOVE, NOT_NOW, DONE = "Move…", "Not now", "Done"
 NOTE_STYLE = "color: gray; font-size: 11px;"
 
@@ -80,13 +80,34 @@ class OnboardDialog(QDialog):
         self.resize(520, 0)
 
     def move(self):
-        """Convert existing tiles, measuring at once (the numbers first)."""
+        """Convert existing tiles, measuring at once (the numbers first).
+        Done waits for the step's result line (owner 2026-11-11T15:32Z);
+        while a step runs only its Cancel ends it."""
         if self.convert_box is None:
             self.convert_box = QTCONVERT.ConvertTilesSection(self.scenery_dir)
             self.body.insertWidget(self.body.count() - 1, self.convert_box)
+            self.convert_box.running_changed.connect(self._sync_done)
+            self.move_btn.setVisible(False)
+            self.not_now_btn.setText(DONE)
+            self.not_now_btn.setEnabled(False)
             self.convert_box.run(dry_run=True)
-        self.move_btn.setVisible(False)
-        self.not_now_btn.setText(DONE)
+
+    def busy(self) -> bool:
+        return bool(self.convert_box is not None and self.convert_box.running)
+
+    def _sync_done(self, _running=None):
+        box = self.convert_box
+        self.not_now_btn.setEnabled(not box.running and box.has_result)
+
+    def reject(self):
+        if not self.busy():                 # Escape and Done wait for it
+            super().reject()
+
+    def closeEvent(self, event):
+        if self.busy():
+            event.ignore()
+            return
+        super().closeEvent(event)
 
 
 def _foreign_box(result, parent=None) -> QMessageBox:

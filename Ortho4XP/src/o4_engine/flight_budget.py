@@ -76,5 +76,5 @@ def verdict(need: Tuple[float, float], figures: Optional[dict],
                       "imagery and caches." % ((need[1] - max(room, 0)) / GB))
     return False, ("This flight needs up to %.1f GB; the disk budget has "
                    "%.1f GB left beyond what is always kept. Raise the "
-                   "budget in Library ▸ Storage or narrow the corridor."
+                   "budget in Settings ▸ Storage or narrow the corridor."
                    % (need[1] / GB, max(0, room + clearable) / GB))

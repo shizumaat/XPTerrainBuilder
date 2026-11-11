@@ -6,7 +6,7 @@ extension BuildModel {
     /// exists the engine makes it (`world_onboard`), and when tiles could
     /// move into it that were never offered (RULINGS 2026-11-11h (2)) the
     /// onboarding sheet asks once. "Not now" leaves
-    /// Library ▸ Convert existing tiles to ask again.
+    /// Settings ▸ Storage ▸ Convert existing tiles to ask again.
     func checkWorldOnboardAtLaunch() {
         guard !worldOnboardChecked,
               engineCapabilities.supports(O4EngineCapabilities.worldOnboard),
@@ -21,15 +21,21 @@ extension BuildModel {
 }
 
 /// The onboarding: what managing the tiles gives, then Move… (the
-/// dry run's numbers first, then Convert…) or Not now. The Qt window's
-/// `O4_Qt_World_Onboard.OnboardDialog` is the same.
+/// dry run's numbers first, then Convert…) or Not now. While a step runs
+/// Done waits (and the sheet cannot be dismissed): only Cancel ends it;
+/// Done comes back with the step's result line (owner 2026-11-11T15:32Z).
+/// The Qt window's `O4_Qt_World_Onboard.OnboardDialog` is the same.
 struct WorldOnboardSheet: View {
     @EnvironmentObject var buildModel: BuildModel
     let offer: O4WorldOnboard
     @State private var moving = false
 
     var body: some View {
-        if offer.isForeign { foreign } else { asking }
+        if offer.isForeign {
+            foreign
+        } else {
+            AskingContent(offer: offer, moving: $moving, run: buildModel.worldMigrate)
+        }
     }
 
     /// The World folder is not one the app made: the sentence, nothing offered.
@@ -46,8 +52,16 @@ struct WorldOnboardSheet: View {
         .padding(20)
         .frame(width: 520)
     }
+}
 
-    private var asking: some View {
+/// The offer and, after Move…, Convert existing tiles with its run.
+private struct AskingContent: View {
+    @EnvironmentObject var buildModel: BuildModel
+    let offer: O4WorldOnboard
+    @Binding var moving: Bool
+    @ObservedObject var run: WorldMigrateRun
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(O4WorldOnboardText.title).font(.title3.weight(.semibold))
             Text(O4WorldOnboardText.introText(offer.offer))
@@ -61,13 +75,14 @@ struct WorldOnboardSheet: View {
             Text(O4WorldOnboardText.note).scaledFont(.caption).foregroundStyle(.secondary)
             if moving {
                 Divider()
-                ConvertTilesSection(measureOnAppear: true)
+                ConvertTilesSection(run: run, measureOnAppear: true)
             }
             HStack {
                 Spacer()
                 if moving {
                     Button(O4WorldOnboardText.done) { buildModel.worldOnboard = nil }
                         .keyboardShortcut(.defaultAction)
+                        .disabled(!WorldOnboardDone.enabled(moving: moving, run: run))
                 } else {
                     Button(O4WorldOnboardText.notNow) { buildModel.worldOnboard = nil }
                     Button(O4WorldOnboardText.move) { moving = true }
@@ -77,5 +92,15 @@ struct WorldOnboardSheet: View {
         }
         .padding(20)
         .frame(width: 520)
+        .interactiveDismissDisabled(run.isRunning)
+    }
+}
+
+/// When the sheet's Done is offered: before Move… (Not now stands there),
+/// or once the step has finished with its result line.
+enum WorldOnboardDone {
+    @MainActor
+    static func enabled(moving: Bool, run: WorldMigrateRun) -> Bool {
+        !moving || (!run.isRunning && run.hasResult)
     }
 }

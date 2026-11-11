@@ -346,7 +346,7 @@ def _flight_start(session, emit, flight, scenery_dir: str, port) -> dict:
     from . import flight_record as RECORD
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     if not WORLD.managed(scenery_dir):
-        raise ValueError("Install the World pack first (Library ▸ World): "
+        raise ValueError("Install the World pack first (XPTerrainBuilder makes it when it starts): "
                          "a flight's tiles go into it.")
     path = os.path.join(RECORD.flights_dir(), f"{flight}.json")
     try:

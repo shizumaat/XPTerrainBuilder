@@ -351,6 +351,8 @@ public enum O4Event: Sendable, Equatable {
     /// The World pack's state (capability `world_pack`, flight manager /
     /// World spec §5.3). See `O4WorldStatus`.
     case worldStatus(O4WorldStatus)
+    /// How far a running `world_migrate` is (`O4WorldMigrateProgress`).
+    case worldMigrateProgress(O4WorldMigrateProgress)
     /// X-Plane's aircraft once a second while `aircraftWatch(on:)` is on
     /// (capability `aircraft_position`, #2001). See `O4AircraftPosition`.
     case aircraftPosition(O4AircraftPosition)
@@ -546,6 +548,9 @@ public enum O4Event: Sendable, Equatable {
         // `class WorldStatus` in Ortho4XP/src/o4_engine/events.py.
         case "WorldStatus":
             return .worldStatus(O4WorldStatus.parse(object))
+        // `class WorldMigrateProgress` in Ortho4XP/src/o4_engine/events.py.
+        case "WorldMigrateProgress":
+            return .worldMigrateProgress(O4WorldMigrateProgress.parse(object))
         // `class AircraftPosition` in Ortho4XP/src/o4_engine/events.py.
         case "AircraftPosition":
             return .aircraftPosition(O4AircraftPosition.parse(object))

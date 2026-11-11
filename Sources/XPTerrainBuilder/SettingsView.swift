@@ -664,11 +664,12 @@ private struct CategoryPane: View {
         let overriddenNames = buildModel.selected.isEmpty ? [] : buildModel.overriddenNames()
         let overridden = known.filter { $0.scope == .tile && overriddenNames.contains($0.name) }
         Form {
-            // Storage (#1724): the data folder's sizes and Clear buttons
-            // live in Library mode (RULINGS 2026-11-10j); a pointer here
-            // above the cleanup settings (Qt: O4_Qt_Modes.LibraryPointer).
+            // Storage (RULINGS 2026-11-11k (2); Library mode's 10j-11k):
+            // the data folder, the disk budget, Convert existing tiles and
+            // the Caches line above the cleanup settings (Qt:
+            // O4_Qt_Library_Storage.StorageRows).
             if category.key == "storage" {
-                StoragePointer()
+                StorageSettingsRows()
             }
             // Imagery (#1985): the build zoom leads, moved from General.
             if category.key == "imagery" {

@@ -43,7 +43,8 @@ SWIFT = Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
 #: No refresh button in either app (#1258): both rescan Custom Scenery
 #: when it changes.
 TOOLBAR = (
-    # RULINGS 2026-11-10j: Build · Fly · Library leads (spec §14).
+    # RULINGS 2026-11-11k: Build · Fly leads (spec §14; 10j's Library
+    # retired).
     ("mode", "ModeSwitch(model:", "mode_switch"),
     ("imagery_preview", 'Picker("Imagery Preview"', "map_provider_combo"),
     ("scenery_filter", 'Picker("Scenery"', "scenery_filter_combo"),
@@ -51,13 +52,12 @@ TOOLBAR = (
     ("side_panel", 'Image(systemName: "sidebar.trailing")', "panel_toggle"),
 )
 
-#: The side pane per mode (RULINGS 2026-11-10j; spec §14): (key, Swift
+#: The side pane per mode (RULINGS 2026-11-11k; spec §14): (key, Swift
 #: marker in MapMainView.swift's ``ModePanes``, Qt window attribute).  One
 #: map and one selection; the Fly offer stands above the pane.
 MODE_PANES = (
     ("build", "BuildPane(", "build_pane"),
     ("fly", "FlyPane(", "fly_pane"),
-    ("library", "LibraryPane(", "library_pane"),
 )
 FLY_OFFER = ("FlyOfferBanner(model:", "fly_offer")
 
@@ -88,26 +88,16 @@ FLY_PANE = (
     ("end_flight", "Button(FlyText.endFlight)", "end_flight_btn"),
 )
 
-#: Library mode's pane, top to bottom (key, Swift marker in
-#: LibraryPane.swift, Qt ``LibraryPane`` attribute).  Spec §14's World
-#: regions and pack health sections join in their lanes (Convert: lane M).
-#: #2007 (owner 2026-11-11): the data folder, then the disk budget, the
-#: patch library and Convert near the top, then Caches as one line; the
-#: tiles table left the pane for the split above the map (LIBRARY_SPLIT).
-LIBRARY_PANE = (
+#: Settings ▸ Storage's rows, top to bottom, above the cleanup settings
+#: (RULINGS 2026-11-11k (2); the Library pane's from #2007 until 11k, in
+#: 11a's order without the patch library): (key, Swift marker in
+#: LibraryStorage.swift's ``StorageSettingsRows``, Qt
+#: ``O4_Qt_Library_Storage.StorageRows`` attribute).
+STORAGE_ROWS = (
     ("data_folder", "DataFolderRow(", "folder_row"),
     ("disk_budget", "DiskBudgetSection(", "budget_box"),
-    ("patch_library", "PatchLibrarySection()", "patch_box"),
     ("convert", "ConvertTilesSection(", "convert_box"),            # §13
     ("caches", "CachesLine(", "caches_box"),
-)
-
-#: Library mode's main split, top to bottom (#2007): the tiles table over
-#: the map, and no console.  (key, Swift marker in ``ModeMainSplit``'s
-#: library branch, Qt ``map_split`` widget attribute path).
-LIBRARY_SPLIT = (
-    ("tiles", "first: table", "library_pane.tiles_box"),
-    ("map", "second: map)", "map"),
 )
 
 #: The Caches line's two buttons and the start's World onboarding (#2007):
@@ -128,9 +118,10 @@ LIBRARY_STORAGE = (
      "onboard", "OnboardDialog"),
 )
 
-#: Settings ▸ Storage rows that live in the Library pane ONLY (RULINGS
-#: 2026-11-11h (3)): neither app's Settings lists them.
-LIBRARY_ONLY_SETTINGS = ("storage_budget_gb",)
+#: Settings that are no plain Settings row in either app: the disk budget
+#: is the Storage rows' ``DiskBudgetSection`` / ``DiskBudgetBox`` (RULINGS
+#: 2026-11-11h (3), its home Settings ▸ Storage since 11k (2)).
+STORAGE_BOX_SETTINGS = ("storage_budget_gb",)
 
 #: Fly mode's map layers, bottom to top (key, Swift marker in
 #: FlyMapOverlay.swift, Qt marker in O4_Qt_Fly_Layer.py): "Live flight
@@ -179,13 +170,15 @@ PATCH_EDIT_MENU = (
 
 #: The patch library's homes (#1699 phase 2), each in both apps:
 #: (key, Swift file, Swift marker, Qt owner, Qt attribute).  The match
-#: list sits in the Airports card under the airport list; Library mode
-#: carries the "Patch library" section and the tiles' "Publish Patch…".
+#: list sits in the Airports card under the airport list; the "Patch
+#: library" section and the tiles' "Publish Patch…" are PARKED with the
+#: tiles table (owner 2026-11-11T15:35Z, RULINGS 11k (3) waits): no window
+#: shows them, both apps keep them alike.
 PATCH_LIBRARY = (
     ("match_list", "BuildAirportsCard.swift", "LibraryMatchList(matches:",
      "airports_card", "library_match_list"),
-    ("library_section", "LibraryPane.swift", "PatchLibrarySection()",
-     "library_pane", "patch_box"),
+    ("library_section", "PatchLibraryView.swift", "struct PatchLibrarySection",
+     "library_tiles", "patch_box"),
     ("publish", "LibraryView.swift", 'Button("Publish Patch…")',
      "library_tiles", "publish_btn"),
 )
@@ -193,8 +186,8 @@ PATCH_LIBRARY = (
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
 #: Swift file, Swift marker, Qt owner, Qt attribute).  The follow line
 #: is in the Fly pane (RULINGS 2026-11-10j); the pin sits in the tile pane under the
-#: imagery check and in the Library's actions (and its tile menu); the
-#: Storage pane's ondemand row makes all low-res again.
+#: imagery check and in the (parked) tiles table's actions and tile menu;
+#: the Storage details' ondemand row makes all low-res again.
 IMAGERY_ON_DEMAND = (
     ("follow_line", "FlyPane.swift", "ImageryFollowLine(model:",
      "window", "follow_line"),
@@ -650,12 +643,19 @@ def test_both_patch_panels_say_checking_while_the_scan_runs(window):
     assert sentence in swift and sentence in panel
 
 
+def _parked_tiles_table():
+    """The tiles table, parked with the developer tools (11k (3) waits):
+    no window shows it, so the test makes one."""
+    import O4_Qt_Library as QTLIB
+
+    return QTLIB.LibraryTilesSection(None, "", "")
+
+
 def test_the_patch_library_has_one_home_in_each_app(window):
     """#1699 phase 2: every patch-library control the Mac app shows, the
     Qt window shows too (and the reverse, by the manifest)."""
     owners = {"airports_card": window.airports_card,
-              "library_pane": window.library_pane,
-              "library_tiles": window.library_pane.tiles_box}
+              "library_tiles": _parked_tiles_table()}
     for key, swift_file, marker, owner, attr in PATCH_LIBRARY:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
@@ -667,12 +667,14 @@ def test_the_patch_library_has_one_home_in_each_app(window):
 def test_imagery_on_demand_has_one_home_in_each_app(window):
     """#1992 P4: the follow line, the pins and "Make all low-res again"
     are in both apps (and, by the manifest, nowhere else)."""
+    import O4_Qt_Library_Storage as QTLIBSTORE
     import O4_Qt_Settings_Storage as QTSTORE
 
+    rows = QTLIBSTORE.StorageRows("")
     owners = {"window": window,
-              "library_tiles": window.library_pane.tiles_box,
+              "library_tiles": _parked_tiles_table(),
               "storage": QTSTORE.StorageSection(),
-              "budget_box": window.library_pane.budget_box}
+              "budget_box": rows.budget_box}
     for key, swift_file, marker, owner, attr in IMAGERY_ON_DEMAND:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
@@ -772,7 +774,7 @@ def test_on_demand_rebuild_hint_is_the_macs():
     assert said and said.group(1) == QTONDEMAND_BUILD.REBUILD_HINT
 
 
-# ─── the three modes (RULINGS 2026-11-10j, spec §14) ───────────────────────
+# ─── the two modes (RULINGS 2026-11-11k, spec §14) ─────────────────────────
 
 def _swift_rows(path: Path, start: str, rows) -> list:
     block = (SWIFT / path).read_text(encoding="utf-8")
@@ -788,14 +790,23 @@ def test_mac_mode_panes_are_the_manifest():
     assert -1 < offer < marks[0], "the Fly offer stands above the pane"
     fly = _swift_rows("FlyPane.swift", "struct FlyPane", FLY_PANE)
     assert -1 not in fly and fly == sorted(fly), fly
-    library = _swift_rows("LibraryPane.swift", "struct LibraryPane", LIBRARY_PANE)
-    assert -1 not in library and library == sorted(library), library
-    split = _swift_rows("MapMainView.swift", "if modes.mode == .library", LIBRARY_SPLIT)
-    assert -1 not in split and split == sorted(split), split
-    branch = (SWIFT / "MapMainView.swift").read_text(encoding="utf-8")
-    branch = branch[branch.index("if modes.mode == .library"):branch.index("} else {",
-                    branch.index("if modes.mode == .library"))]
-    assert "console" not in branch, "Library mode shows no console (#2007)"
+    main = (SWIFT / "MapMainView.swift").read_text(encoding="utf-8")
+    assert "LibraryPane(" not in main and "LibraryTilesSection(" not in main
+    assert not (SWIFT / "LibraryPane.swift").exists()
+
+
+def test_mac_settings_storage_holds_the_storage_rows():
+    """11k (2): the data folder, the budget, Convert and Caches lead
+    Settings ▸ Storage, above its cleanup settings."""
+    rows = _swift_rows("LibraryStorage.swift", "struct StorageSettingsRows",
+                       STORAGE_ROWS)
+    end = (SWIFT / "LibraryStorage.swift").read_text(encoding="utf-8")
+    end = end[end.index("struct StorageSettingsRows"):].index("struct DataFolderRow")
+    assert -1 not in rows and rows == sorted(rows) and rows[-1] < end, rows
+    pane = _block(SWIFT / "SettingsView.swift",
+                  "private struct CategoryPane", "private struct ExpertSection")
+    assert 'category.key == "storage"' in pane and "StorageSettingsRows()" in pane
+    assert "StoragePointer" not in pane
 
 
 def _laid_out(widget) -> list:
@@ -807,7 +818,7 @@ def _laid_out(widget) -> list:
 def test_qt_mode_panes_are_the_manifest(window):
     stack = window.mode_stack
     panes = [stack.widget(i) for i in range(stack.count())]
-    # Fly and Library scroll in their own area; Build is its scroll area.
+    # Fly scrolls in its own area; Build is its scroll area.
     shown = [panes[0]] + [scroll.widget() for scroll in panes[1:]]
     assert shown == [getattr(window, attr) for _k, _m, attr in MODE_PANES]
     side = _laid_out(window.side_panel)
@@ -815,43 +826,43 @@ def test_qt_mode_panes_are_the_manifest(window):
     fly = _laid_out(window.fly_pane)
     rows = [getattr(window.fly_pane, attr) for _k, _m, attr in FLY_PANE]
     assert [w for w in fly if w in rows] == rows
-    library = _laid_out(window.library_pane)
-    rows = [getattr(window.library_pane, attr) for _k, _m, attr in LIBRARY_PANE]
-    assert [w for w in library if w in rows] == rows
-    assert window.library_pane.tiles_box not in library      # above the map
+    assert not hasattr(window, "library_pane")
+    assert not hasattr(window, "map_split")
 
 
-def _attr_path(owner, path):
-    for name in path.split("."):
-        owner = getattr(owner, name)
-    return owner
+def test_qt_settings_storage_holds_the_storage_rows(window, monkeypatch):
+    """11k (2): Settings ▸ Storage shows the rows, in the manifest's order,
+    and measures the data folder the first time it is shown."""
+    import O4_Qt_Library_Storage as QTLIBSTORE
+    import O4_Qt_Settings as QTSET
 
-
-def test_qt_library_split_puts_the_table_over_the_map(window, monkeypatch):
-    """#2007: in Library the tiles table stands over the map and the
-    console is hidden; Build brings the console back as it was."""
-    monkeypatch.setattr(window.library_pane, "refresh", lambda *a: None)
-    monkeypatch.setattr(GUI, "save_prefs", lambda prefs: None)
-    split = window.map_split
-    assert [split.widget(i) for i in range(split.count())] == [
-        _attr_path(window, path) for _k, _m, path in LIBRARY_SPLIT]
-    window.show()
-    window.set_console_visible(True)
-    window.set_mode("library")
-    assert window.library_pane.tiles_box.isVisible()
-    assert not window.console_drawer.isVisible()
-    window.set_mode("build")
-    assert not window.library_pane.tiles_box.isVisible()
-    assert window.console_drawer.isVisible()
+    measured = []
+    monkeypatch.setattr(QTLIBSTORE.StorageRows, "refresh",
+                        lambda self: measured.append(True))
+    dialog = QTSET.SettingsWindow(window.prefs, [], window.output_dir(), window)
+    try:
+        section = dialog.storage_section
+        assert isinstance(section, QTLIBSTORE.StorageRows)
+        laid = _laid_out(section)
+        assert laid == [getattr(section, attr) for _k, _m, attr in STORAGE_ROWS]
+        dialog.show()
+        dialog.category_list.setCurrentRow(
+            [key for key, _title in QTSET.SM.CATEGORIES].index("storage"))
+        assert section.isVisible() and measured
+        assert section.matches("budget") and section.matches("cache")
+    finally:
+        dialog.deleteLater()
 
 
 def test_the_library_storage_rows_have_one_home_in_each_app(window):
+    import O4_Qt_Library_Storage as QTLIBSTORE
     import O4_Qt_World_Onboard as QTONBOARD
 
     assert "QTONBOARD.check_at_launch(" in Path(GUI.__file__).read_text(encoding="utf-8")
+    rows = QTLIBSTORE.StorageRows("")
     owners = {"onboard": QTONBOARD,
-              "caches_box": window.library_pane.caches_box,
-              "budget_box": window.library_pane.budget_box}
+              "caches_box": rows.caches_box,
+              "budget_box": rows.budget_box}
     for key, swift_file, marker, owner, attr in LIBRARY_STORAGE:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
@@ -861,18 +872,17 @@ def test_the_disk_budget_is_not_a_settings_row_in_either_app():
     import O4_Settings_Model as SM
     swift = (SWIFT / "SettingsLayout.swift").read_text(encoding="utf-8")
     rows = {member[0] for _key, _title, members in SM._LAYOUT for member in members}
-    for name in LIBRARY_ONLY_SETTINGS:
+    for name in STORAGE_BOX_SETTINGS:
         assert name not in rows and 'SettingItem("%s"' % name not in swift, name
 
 
 def test_qt_modes_swap_the_pane_and_keep_the_selection(window, monkeypatch):
     import O4_App_Modes as MODES
 
-    monkeypatch.setattr(window.library_pane, "refresh", lambda *a: None)
     monkeypatch.setattr(GUI, "save_prefs", lambda prefs: None)
     window.map.set_selection({(47, -123), (47, -122)})
     assert window.mode() == MODES.DEFAULT          # nothing remembered yet
-    for mode in ("fly", "library", "build"):
+    for mode in ("fly", "build"):
         window.set_mode(mode)
         assert window.mode() == mode
         assert window.mode_stack.currentIndex() == MODES.MODES.index(mode)
@@ -895,7 +905,8 @@ def test_qt_offers_fly_and_never_switches(window, monkeypatch):
     assert window.fly_offer.isVisible() and window.mode() == "build"
     window.fly_offer.open_btn.click()
     assert window.mode() == "fly" and not window.fly_offer.isVisible()
-    assert QTMODES.ModeSwitch("library").mode() == "library"
+    assert QTMODES.ModeSwitch("fly").mode() == "fly"
+    assert QTMODES.ModeSwitch("library").mode() == "build"   # retired (11k)
     assert QTMODES.ModeSwitch("nonsense").mode() == "build"
 
 

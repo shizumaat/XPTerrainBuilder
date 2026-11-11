@@ -1060,7 +1060,6 @@ class MainWindow(QMainWindow):
                     QByteArray.fromBase64(splitter_b64.encode("ascii"))
                 )
             )
-        self._library_layout(self.mode() == "library")
 
         if self._first_run:
             self._after(200, self.run_wizard)
@@ -1671,20 +1670,11 @@ class MainWindow(QMainWindow):
         self.panel_scroll = panel_scroll
         self._make_mode_panes()
 
-        # Library mode (#2007): the tiles table over the map (the Mac's
-        # ModeMainSplit); hidden in Build and Fly.
-        self.map_split = QSplitter(Qt.Vertical)
-        self.map_split.addWidget(self.library_pane.tiles_box)
-        self.map_split.addWidget(self.map)
-        self.map_split.setStretchFactor(0, 0)
-        self.map_split.setStretchFactor(1, 1)
-        self.map_split.setCollapsible(1, False)
-        self.library_pane.tiles_box.setVisible(False)
         center = QWidget()
         ch = QHBoxLayout(center)
         ch.setContentsMargins(0, 0, 0, 0)
         ch.setSpacing(0)
-        ch.addWidget(self.map_split, 1)
+        ch.addWidget(self.map, 1)
         ch.addWidget(self.side_panel)
 
         # Console drawer
@@ -1762,12 +1752,6 @@ class MainWindow(QMainWindow):
         console_action = QAction("Toggle console", self)
         console_action.triggered.connect(self.toggle_console)
         view_menu.addAction(console_action)
-        # Library (#824; Mac: View ▸ Library, ⌘L): every built tile with
-        # its size, and the download caches.
-        library_action = QAction(QTMODES.mode_title("library"), self)
-        library_action.setShortcut(QKeySequence("Ctrl+L"))
-        library_action.triggered.connect(lambda: self.set_mode("library"))
-        view_menu.addAction(library_action)
         # Text size (#827): Bigger / Smaller / Actual Size, remembered.
         view_menu.addSeparator()
         self._text_scale_actions = QTTEXT.make_actions(self, self.set_text_scale)
@@ -1995,12 +1979,10 @@ class MainWindow(QMainWindow):
         return self.flight_plan_dialog
 
     # ------------------------------------------------------------------
-    # Modes: Build · Fly · Library (RULINGS 2026-11-10j, O4_Qt_Modes)
+    # Modes: Build · Fly (RULINGS 2026-11-11k, O4_Qt_Modes)
     # ------------------------------------------------------------------
     def _make_mode_panes(self):
         """The side pane per mode in one stack, the Fly offer above it."""
-        import O4_Config_Utils as CFG
-
         self.build_pane = self.panel_scroll
         self.fly_pane = QTFLYPANE.FlyPane(
             self.follow_line, run=self._fly_command,
@@ -2010,15 +1992,8 @@ class MainWindow(QMainWindow):
         self.fly_layer = QTFLYLAYER.FlyLayer(self.map, self.fly_pane,
                                              self.live_preview)
         self.map.add_layer(self.fly_layer)
-        self.library_pane = QTMODES.LibraryPane(
-            self.working_dir(), CFG.custom_scenery_dir,
-            building=lambda: self._building,
-            on_rebuild=self._rebuild_from_library,
-            on_changed=self.refresh_tiles,
-            restore_pack=self._session.reanchor_restore,
-            scanned=self._session.scanned_tiles)
         self.mode_stack = QStackedWidget()
-        for pane in (self.build_pane, self.fly_pane, self.library_pane):
+        for pane in (self.build_pane, self.fly_pane):
             if pane is not self.build_pane:
                 scroll = QScrollArea()
                 scroll.setWidget(pane)
@@ -2042,8 +2017,8 @@ class MainWindow(QMainWindow):
         return self.mode_switch.mode()
 
     def set_mode(self, mode):
-        """Show ``mode``'s pane (the toolbar's switch, View ▸ Library and
-        the Fly offer); the side pane opens if it was hidden."""
+        """Show ``mode``'s pane (the toolbar's switch and the Fly offer);
+        the side pane opens if it was hidden."""
         self.mode_switch.set_mode(mode)
         if not self.panel_toggle.isChecked():
             self.panel_toggle.setChecked(True)
@@ -2056,41 +2031,10 @@ class MainWindow(QMainWindow):
             save_prefs(self.prefs)
 
     def _show_mode(self, mode):
-        """One map and one selection; only the side pane changes.  The
-        Library reads the tiles folder and the caches each time it shows."""
-        import O4_Config_Utils as CFG
-
-        index = QTMODES.MODES.MODES.index(mode)
-        self.mode_stack.setCurrentIndex(index)
-        self.mode_stack.setFixedWidth(320 if mode == "library" else 280)
-        if mode == "library":
-            self.library_pane.refresh(self.working_dir(), CFG.custom_scenery_dir)
-        self._library_layout(mode == "library")
+        """One map and one selection; only the side pane changes."""
+        self.mode_stack.setCurrentIndex(QTMODES.MODES.MODES.index(mode))
+        self.mode_stack.setFixedWidth(280)
         self._fly_shown(mode == "fly")
-
-    _in_library_layout = False
-    _console_was_visible = True
-
-    def _library_layout(self, library):
-        """Library mode (#2007, owner 2026-11-11): the tiles table over the
-        map and no console; leaving it brings the console back as it was."""
-        split = getattr(self, "map_split", None)
-        drawer = getattr(self, "console_drawer", None)
-        if split is None or drawer is None:
-            return
-        self.library_pane.tiles_box.setVisible(library)
-        if library and not self._in_library_layout:
-            self._console_was_visible = drawer.isVisible()
-            if drawer.isVisible():
-                self._console_height = self.splitter.sizes()[1]
-            drawer.setVisible(False)
-        elif not library and self._in_library_layout:
-            self._in_library_layout = False
-            self.set_console_visible(self._console_was_visible)
-        self._in_library_layout = library
-        button = getattr(self, "console_btn", None)
-        if button is not None:
-            button.setVisible(not library)
 
     # ------------------------------------------------------------------
     # Fly mode (spec flight-manager-and-world-20261110 §4.3; lane U2)
@@ -2139,7 +2083,8 @@ class MainWindow(QMainWindow):
         self.fly_pane.show_ready(event)
 
     def _rebuild_from_library(self, tiles):
-        """Library ▸ Rebuild: select those tiles and press Build (built
+        """The tiles table's Rebuild (``O4_Qt_Library``, parked with it,
+        RULINGS 2026-11-11k): select those tiles and press Build (built
         tiles stay in under imagery on demand)."""
         self.map.set_selection(tiles)
         self.start_build(rebuild=True)
@@ -5812,9 +5757,7 @@ class MainWindow(QMainWindow):
         self.prefs["splitter_state"] = bytes(
             self.splitter.saveState().toBase64()
         ).decode("ascii")
-        self.prefs["console_visible"] = (
-            self._console_was_visible if self._in_library_layout
-            else self.console_drawer.isVisible())
+        self.prefs["console_visible"] = self.console_drawer.isVisible()
         save_prefs(self.prefs)
         self._closed = True
         self._cancel_deferred()

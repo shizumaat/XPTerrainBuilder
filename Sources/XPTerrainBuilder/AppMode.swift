@@ -1,13 +1,13 @@
 import SwiftUI
 import SceneryKit
 
-/// The app's three modes, Build · Fly · Library (RULINGS 2026-11-10j;
-/// spec `flight-manager-and-world-20261110.md` §14). One map and one
-/// selection; the side pane follows the mode. The Qt window's
+/// The app's two modes, Build and Fly (RULINGS 2026-11-11k; 10j's third,
+/// Library, is retired; spec `flight-manager-and-world-20261110.md` §14).
+/// One map and one selection; the side pane follows the mode. The Qt window's
 /// `O4_App_Modes` / `O4_Qt_Modes` hold the same keys, words and offer rule
 /// (`Ortho4XP/tests/test_app_modes.py` keeps the two equal).
 enum AppMode: String, CaseIterable, Identifiable {
-    case build, fly, library
+    case build, fly
 
     var id: String { rawValue }
     /// The segment's word (the glossary's `mode_<mode>`).
@@ -25,8 +25,6 @@ enum AppModeText {
     static let offerText = "X-Plane has a flight loaded."
     static let offerOpen = "Open Fly"
     static let offerDismiss = "Not now"
-    static let storagePointer = "The data folder's sizes, Clear and the disk budget's use are in Library."
-    static let storagePointerButton = "Show in Library"
 }
 
 /// The current mode (remembered) and the "Open Fly" offer: when X-Plane
@@ -84,11 +82,11 @@ struct ModeSwitch: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .help("Build tiles, fly with the scenery made for your flight, or manage what you keep")
+        .help("Build tiles, or fly with the scenery made for your flight")
     }
 }
 
-/// The offer to open Fly, above the side pane in Build and Library.
+/// The offer to open Fly, above the side pane in Build.
 struct FlyOfferBanner: View {
     @ObservedObject var model: AppModeModel
 

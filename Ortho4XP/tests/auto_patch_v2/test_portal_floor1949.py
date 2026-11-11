@@ -56,3 +56,33 @@ def test_a_portal_on_its_road_or_with_no_floor_is_left_alone(tmp_path):
     assert floors == [] and "no floor of a plate's worth" in notes[0]
     floors, notes = _read([o], [_pin("dsf:obj1", 94.5)])
     assert floors == [] and notes == []
+
+
+def test_a_floor_of_several_planes_is_cut_one_face_per_plane():
+    """#1949 (owner 2026-11-10T23:07Z "as long as cut is fully beneath the
+    tunnel object floor"): a road and the ramp up to its open end are two
+    planes, so two cut faces — one face spans the crease with chords that
+    stand over the concave foot of the ramp.  A floor of one plane stays one
+    face, its ring densified as before."""
+    from shapely.geometry import box
+
+    from auto_patch_v2.airport.object_floor import ObjectFloor
+    from auto_patch_v2.planar.object_floor_cells import add_object_floor_cells
+
+    def quad(x0, x1, z0, z1):
+        a, b, c, d = (x0, 0.0, z0), (x1, 0.0, z1), (x1, 10.0, z1), (x0, 10.0, z0)
+        return [[a, b, c], [a, c, d]]
+
+    def cells_of(faces):
+        F = np.array(faces, float)
+        fl = ObjectFloor("object_floor:t.obj@portal0", "dsf:obj1", "t.obj", (), 0.0,
+                         float(F[:, :, 2].min()), box(0.0, 0.0, 80.0, 10.0), F)
+        cells: list = []
+        add_object_floor_cells([fl], LAW, cells, [], [], [], [], [], [])
+        return [c for c in cells if c[0] == "tunnel_trench"]
+
+    flat = cells_of(quad(0.0, 40.0, -2.0, -2.0) + quad(40.0, 80.0, -2.0, -2.0))
+    assert len(flat) == 1
+    ramp = cells_of(quad(0.0, 40.0, -2.0, -2.0) + quad(40.0, 80.0, -2.0, 3.0))
+    assert len(ramp) == 2 and abs(sum(c[2].area for c in ramp) - 800.0) < 1.0
+    assert {c[1] for c in ramp} == {"object_floor:t.obj@portal0", "object_floor:t.obj@portal0#1"}

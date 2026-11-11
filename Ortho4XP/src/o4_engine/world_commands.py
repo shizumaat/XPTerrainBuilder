@@ -43,7 +43,8 @@ import O4_File_Names as FNAMES
 import O4_World_Pack as WP
 
 __all__ = ["LOG_NAME", "S3_MARGIN_KM", "pack_dir", "staging_root", "scenery_dir_or_default",
-           "managed", "OFFERED_KEY",
+           "managed", "refuse_foreign",
+           "OFFERED_KEY",
            "tile_loaded", "world_status", "world_install", "world_onboard",
            "start_world_regions_set", "world_tile_set",
            "status_event", "write_log"]
@@ -71,6 +72,57 @@ def scenery_dir_or_default(scenery_dir: str = "") -> str:
 def pack_dir(scenery_dir: str) -> str:
     """The World pack's folder in a Custom Scenery folder."""
     return os.path.join(scenery_dir, WP.PACK_NAME)
+
+
+#: ``world_onboard``'s ``reason`` when the World folder is not the app's.
+_FOREIGN_REASON = "world_foreign"
+
+
+def _inside(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:                      # other drive (Windows)
+        return False
+
+
+def _foreign_target(scenery_dir: str) -> str:
+    """Where the World folder really is when it is NOT the app's own
+    World pack, else ``""``: a link (another tool's or a test kit's), or a
+    folder whose real path lies outside the Custom Scenery folder, inside
+    the app's data folder, or inside a ``.harness`` folder.  No command
+    makes, offers into, moves into or writes through such a folder."""
+    if not scenery_dir:
+        return ""
+    path = pack_dir(scenery_dir)
+    if not os.path.islink(path) and not os.path.isdir(path):
+        return ""                           # absent: world_install makes it
+    if os.path.islink(path):
+        return os.path.realpath(path)
+    real = os.path.realpath(path)
+    if not _inside(real, os.path.realpath(scenery_dir)):
+        return real
+    if ".harness" in real.split(os.sep):
+        return real
+    try:
+        data_root = os.path.realpath(FNAMES.current_data_root())
+    except Exception:                       # no data root resolved: no test
+        data_root = ""
+    if data_root and _inside(real, data_root):
+        return real
+    return ""
+
+
+def _foreign_sentence(target: str) -> str:
+    """The apps' sentence for a foreign World folder (``O4_Storage_Text``)."""
+    import O4_Storage_Text as TEXT
+    return TEXT.WORLD_FOREIGN.format(target=target)
+
+
+def refuse_foreign(scenery_dir: str) -> None:
+    """``ValueError`` (the sentence) when the World folder is foreign."""
+    target = _foreign_target(scenery_dir)
+    if target:
+        raise ValueError(_foreign_sentence(target))
 
 
 def staging_root() -> str:
@@ -185,9 +237,10 @@ def _staged_count() -> int:
 
 def managed(scenery_dir: str) -> bool:
     """Has ``world_install`` made the World pack in ``scenery_dir`` (its
-    :data:`WP.MARKER`)?  Only then do builds publish into it."""
+    :data:`WP.MARKER`)?  Only then do builds publish into it -- never
+    into a foreign folder (:func:`_foreign_target`), marker or not."""
     return bool(scenery_dir) and os.path.isfile(
-        os.path.join(pack_dir(scenery_dir), WP.MARKER))
+        os.path.join(pack_dir(scenery_dir), WP.MARKER)) and not _foreign_target(scenery_dir)
 
 
 def _status_fields(scenery_dir: str) -> dict:
@@ -209,7 +262,10 @@ def _status_fields(scenery_dir: str) -> dict:
                        for p in packages)
         loaded = tuple(sorted(WP.tile_name(*k) for k, rec in loads.items()
                               if rec.tris > 0))
-    if not installed:
+    foreign = _foreign_target(scenery_dir)
+    if foreign:
+        state, reason = "off", _foreign_sentence(foreign)
+    elif not installed:
         state, reason = "off", "The World pack is not installed."
     elif seen is False:
         state, reason = "idle", "Restart X-Plane once: it has not read the World pack."
@@ -253,6 +309,7 @@ def world_install(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
     if not scenery_dir or not os.path.isdir(scenery_dir):
         raise ValueError("world_install: no Custom Scenery folder "
                          f"({scenery_dir!r}).")
+    refuse_foreign(scenery_dir)
     os.makedirs(os.path.join(pack_dir(scenery_dir), "Earth nav data"),
                 exist_ok=True)
     marker = os.path.join(pack_dir(scenery_dir), WP.MARKER)
@@ -306,12 +363,18 @@ def world_onboard(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
     that ``world_migrate`` could move, which the apps then ask about.  It
     is non-zero ONCE per managed pack: answering it is recorded in the
     marker (:data:`OFFERED_KEY`), so Library > Convert existing tiles is
-    the way back."""
+    the way back.  A foreign World folder (:func:`_foreign_target`) is
+    left alone: no offer, ``reason`` :data:`_FOREIGN_REASON`, ``target``
+    and the apps' ``message``."""
     from .world_migrate import entries
     scenery_dir = scenery_dir_or_default(scenery_dir)
     out = {"created": False, "offer": 0, "restart_needed": False}
     if not scenery_dir or not os.path.isdir(scenery_dir):
         return out
+    foreign = _foreign_target(scenery_dir)
+    if foreign:
+        return {**out, "reason": _FOREIGN_REASON, "target": foreign,
+                "message": _foreign_sentence(foreign)}
     if not os.path.isdir(pack_dir(scenery_dir)):
         out["created"] = True
         out["restart_needed"] = world_install(scenery_dir)["restart_needed"]

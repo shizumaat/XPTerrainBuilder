@@ -9,11 +9,35 @@ public struct O4WorldOnboard: Decodable, Equatable, Sendable, Identifiable {
     public let created: Bool
     public let offer: Int
     public let restartNeeded: Bool
+    /// `world_foreign` when the World folder is not the app's own (a link,
+    /// or a folder outside Custom Scenery): no offer; `target` is where it
+    /// really is and `message` the sentence the apps show.
+    public let reason: String?
+    public let target: String?
+    public let message: String?
 
     public var id: Int { offer }
 
+    /// The World folder is not one the app made: say so, offer nothing.
+    public var isForeign: Bool { reason == "world_foreign" }
+
+    /// The foreign folder's sentence (the engine's, else `O4StorageText`'s).
+    public var foreignText: String {
+        message ?? O4StorageText.worldForeignText(target ?? "")
+    }
+
+    public init(created: Bool, offer: Int, restartNeeded: Bool,
+                reason: String? = nil, target: String? = nil, message: String? = nil) {
+        self.created = created
+        self.offer = offer
+        self.restartNeeded = restartNeeded
+        self.reason = reason
+        self.target = target
+        self.message = message
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case created, offer, restartNeeded = "restart_needed"
+        case created, offer, restartNeeded = "restart_needed", reason, target, message
     }
 }
 

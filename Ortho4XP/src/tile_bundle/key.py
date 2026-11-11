@@ -32,7 +32,7 @@ from . import FORMAT
 
 __all__ = ["NOT_PROFILE", "MATCHED_NOT_REFUSED", "LOCATION_ENVS", "mesh_profile",
            "profile_deviations", "without_locations", "xplane_root",
-           "pack_signature", "airport_signatures", "key_parts",
+           "pack_signature", "graded_airports", "airport_signatures", "key_parts",
            "bundle_key", "first_difference"]
 
 #: Settings in a step's key that are not part of the mesh profile: where
@@ -90,7 +90,8 @@ def xplane_root(tile) -> str | None:
     return xplane_root_from_cifp_path(cifp) if cifp else None
 
 
-def _graded_airports(tile) -> list:
+def graded_airports(tile) -> list:
+    """The ICAOs the tile's build grades (``build_airports.tile_airports``)."""
     from o4_engine.build_airports import tile_airports
     rows = tile_airports(tile.lat, tile.lon,
                          getattr(tile, "custom_build_dir", "") or "")
@@ -104,7 +105,7 @@ def airport_signatures(tile) -> dict:
     if not root:
         return {}
     return {icao: pack_signature(root, icao, tile.lat, tile.lon)
-            for icao in _graded_airports(tile)}
+            for icao in graded_airports(tile)}
 
 
 def key_parts(tile) -> dict:

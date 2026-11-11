@@ -1742,6 +1742,22 @@ class MainWindow(QMainWindow):
         self.flight_plan_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
         self.flight_plan_action.triggered.connect(self.open_flight_plan_dialog)
         file_menu.addAction(self.flight_plan_action)
+        # .xptb packages (#2014; Mac: File menu too): export the selected
+        # tiles' package, install one, combine several.
+        import O4_Qt_Tile_Package as QTPKG
+
+        file_menu.addSeparator()
+        self.export_package_action = QAction(QTPKG.EXPORT_TITLE, self)
+        self.export_package_action.triggered.connect(
+            lambda: QTPKG.export(self, sorted(self.map.selection())))
+        file_menu.addAction(self.export_package_action)
+        install_package = QAction("Install Package…", self)
+        install_package.triggered.connect(self._install_package)
+        file_menu.addAction(install_package)
+        combine = QAction(QTPKG.COMBINE_TITLE, self)
+        combine.triggered.connect(lambda: QTPKG.combine(self))
+        file_menu.addAction(combine)
+        file_menu.addSeparator()
         patch_actions = self.patch_editor.menu_actions(self)
         file_menu.addAction(patch_actions["save"])
         quit_action = QAction("Quit", self)
@@ -3109,8 +3125,20 @@ class MainWindow(QMainWindow):
         self.map.set_installed(self._installed)
         self._active_changed(self.map.active_tile())
 
+    def _install_package(self):
+        """File ▸ Install Package…: choose a package and offer it (#2014)."""
+        import O4_Qt_Tile_Package as QTPKG
+        from PySide6.QtWidgets import QFileDialog
+
+        path = QFileDialog.getOpenFileName(
+            self, "Install Package", "", "XPTerrainBuilder package (*.xptb *.xptbundle)")[0]
+        if path:
+            QTPKG.offer(self, [path])
+
     def _selection_changed(self):
         sel = self.map.selection()
+        if hasattr(self, "export_package_action"):
+            self.export_package_action.setEnabled(bool(sel))
         self._refresh_customized_tiles(sel)
         self._search_tags = {
             t: c for t, c in self._search_tags.items() if t in sel
@@ -3423,10 +3451,19 @@ class MainWindow(QMainWindow):
         at = self.patch_editor.lat_lon_at(pos.x(), pos.y())
         menu = QTTILEMENU.tile_menu(
             self, lat, lon, self._tile_folder((lat, lon)),
-            self.patch_editor.context_actions(at))
+            self.patch_editor.context_actions(at),
+            export_package=lambda: self._export_package_at((lat, lon)))
         self.patch_editor.add_copy_actions(menu, pos.x(), pos.y())
         self.patch_editor.add_to_menu(menu)
         menu.exec(global_pos)
+
+    def _export_package_at(self, tile):
+        """The tile menu's Export Package… (#2014): the selection when the
+        clicked tile is in it, else that tile."""
+        import O4_Qt_Tile_Package as QTPKG
+
+        selection = set(self.map.selection())
+        QTPKG.export(self, sorted(selection) if tile in selection else [tile])
 
     def _active_changed(self, tile):
         self._selection_changed()

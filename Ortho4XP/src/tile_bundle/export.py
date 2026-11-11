@@ -22,15 +22,15 @@ import os
 import tarfile
 import time
 
-from . import FORMAT, BundleRefused, contents
+from . import FORMAT, LEGACY_SUFFIX, BundleRefused, contents
 from . import key as _key
 from . import paths as _paths
 
-__all__ = ["BUNDLE_SUFFIX", "XZ_PRESET", "export_tile", "sources",
+__all__ = ["BUNDLE_SUFFIX", "XZ_PRESET", "export_tile", "sources", "gate",
            "load_tile"]
 
 #: A tile bundle's file name ends so.
-BUNDLE_SUFFIX = ".xptbundle"
+BUNDLE_SUFFIX = LEGACY_SUFFIX
 
 #: xz preset: 6 (the default) is a fifth smaller than 1 on a mesh.
 XZ_PRESET = 6
@@ -145,21 +145,27 @@ def _attribution(manifest: dict) -> bytes:
     return "\n".join(lines).encode("utf-8")
 
 
-def _sources_with_terms(tile) -> tuple:
-    """``(sources, licence)`` of the tile, each source with its terms
-    (``patch_library.terms``).
+def gate(found: list) -> tuple:
+    """``(sources, licence)``: ``found`` each with its terms
+    (``patch_library.terms``) and the licence they make — the licence
+    gate a bundle and a package both pass.
 
     :raises BundleRefused: the library's licence gate holds a source.
     """
     from patch_library import client as _client
     from patch_library import terms as _terms
     licences = _client.licences()
-    found = _terms.annotate(sources(tile), licences)
+    found = _terms.annotate(found, licences)
     held = _terms.held(found, licences)
     if held:
         raise BundleRefused("The tile was built from %s, whose terms do not "
                             "allow sharing it (%s); not exported" % held[0])
     return found, _terms.entry_licence(found)
+
+
+def _sources_with_terms(tile) -> tuple:
+    """:func:`gate` over the tile's :func:`sources`."""
+    return gate(sources(tile))
 
 
 def _info(name: str, size: int) -> tarfile.TarInfo:

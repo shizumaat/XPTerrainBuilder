@@ -182,11 +182,16 @@ Type=Application
 Name=XPTerrainBuilder
 GenericName=Ortho scenery builder
 Comment=Build X-Plane ortho scenery from imagery and elevation data
-Exec=XPTerrainBuilder
+Exec=XPTerrainBuilder %F
 Icon=$ICON_NAME
 Categories=Utility;
 Terminal=false
+MimeType=application/x-xptb;
 DESKTOP
+# The .xptb package type (#2014): opening one launches the app with it.
+mkdir -p "$APPDIR/usr/share/mime/packages"
+cp "$(dirname "$0")/linux/xpterrainbuilder-mime.xml" \
+   "$APPDIR/usr/share/mime/packages/$ICON_NAME.xml"
 cp "$APPDIR/usr/share/applications/$ICON_NAME.desktop" \
    "$APPDIR/$ICON_NAME.desktop"
 

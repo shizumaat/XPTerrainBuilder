@@ -95,7 +95,12 @@ struct MapCanvasView: View {
                                                                                   size: proxy.size),
                                            patch: buildModel.patchEdit,
                                            extra: buildModel.patchEdit.contextActions(lat: point.lat,
-                                                                                      lon: point.lon))
+                                                                                      lon: point.lon),
+                                           exportPackage: {
+                                               let tiles = buildModel.selected.contains(coord)
+                                                   ? Array(buildModel.selected) : [coord]
+                                               TilePackageModel.shared.startExport(tiles, build: buildModel)
+                                           })
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }

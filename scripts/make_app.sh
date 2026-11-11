@@ -171,6 +171,20 @@ cat > "$STAGE/Contents/Info.plist" <<PLIST
          install them. Alternate rank: never the default app for these. -->
     <key>CFBundleDocumentTypes</key>
     <array>
+        <!-- XPTerrainBuilder packages (#2014): double-click opens the
+             app's install sheet. Owner rank: this app made the type. -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>XPTerrainBuilder package</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.novemberlima.xptb</string>
+            </array>
+        </dict>
         <dict>
             <key>CFBundleTypeName</key>
             <string>Airport patch</string>
@@ -195,6 +209,30 @@ cat > "$STAGE/Contents/Info.plist" <<PLIST
                 <string>public.folder</string>
                 <string>public.zip-archive</string>
             </array>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.novemberlima.xptb</string>
+            <key>UTTypeDescription</key>
+            <string>XPTerrainBuilder package</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+                <string>public.archive</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>xptb</string>
+                    <string>xptbundle</string>
+                </array>
+                <key>public.mime-type</key>
+                <string>application/x-xptb</string>
+            </dict>
         </dict>
     </array>
     <key>NSAppTransportSecurity</key>

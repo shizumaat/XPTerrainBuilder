@@ -84,3 +84,27 @@ def test_a_drop_on_the_map_installs_on_install(window, dropped, monkeypatch):  #
 
 def test_launch_arguments_are_paths_only(dropped):
     assert QTDROP.launch_paths(["app", "--x", dropped, "/no/such"]) == [dropped]
+
+
+def test_a_package_dropped_on_the_map_goes_to_the_package_install(window, tmp_path,  # noqa: F811
+                                                                    monkeypatch):
+    """#2014: a .xptb drop is planned and installed by the package
+    commands with the dialog's choices, never read as a patch."""
+    import O4_Qt_Tile_Package as QTPKG
+
+    calls = []
+    plan = {"summary": ["Cairo"], "conflicts": [], "tiles": [{"tile": "+30+031"}],
+            "title": "Cairo", "downloads_left": {"+30+031": []}}
+    monkeypatch.setattr(QTPKG.LIB, "package_plan",
+                        lambda path, wd: calls.append(("plan", path)) or plan)
+    monkeypatch.setattr(QTPKG.LIB, "package_install",
+                        lambda path, wd, choices: calls.append(("install", choices)) or plan)
+    monkeypatch.setattr(QTPKG._InstallDialog, "ask", lambda self: {"HECA": "keep"})
+    path = tmp_path / "XPTerrainBuilder_+30+031.xptb"
+    path.write_bytes(b"package")
+    assert _drop(window.map.viewport(), str(path)) is True
+    assert calls == [("plan", str(path)), ("install", {"HECA": "keep"})]
+    monkeypatch.setattr(QTPKG._InstallDialog, "ask", lambda self: None)
+    calls.clear()
+    _drop(window.map.viewport(), str(path))
+    assert calls == [("plan", str(path))]

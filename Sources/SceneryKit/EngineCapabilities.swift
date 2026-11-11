@@ -41,6 +41,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     public static let worldOnboard = "world_onboard"
     /// `live_preview_squares` / `live_preview_mip` (#2001): flag only.
     public static let livePreview = "live_preview"
+    /// `package_save` / `package_airports` / `package_plan` /
+    /// `package_install` / `package_merge` (#2014, `.xptb`): flag only.
+    public static let tilePackage = "tile_package"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

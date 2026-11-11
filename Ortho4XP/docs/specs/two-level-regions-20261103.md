@@ -1386,3 +1386,53 @@ cap; delete scratch builds when reporting; report net lines and new public
 symbols; the report ends with a Process line.  Review scratch tools a lane may
 reuse (copy into its own scratch): map_all.png, samp.py, deckprof.py in the
 master's scratchpad.
+
+### 19.A As built (lane lkmci4, 2026-11-11) — deviations from 19.1, for the spec author
+
+- S1's witness. The covered run (OSM -11605, 247 m, 50 stations) stands
+  16.8 m off the garage's walled footprint: 0 of 50 stations in the passage
+  or within `pad_frontage_m` of the footprint, so the predicate as written
+  never fired. Every station stands under unit 20's PLAN (the union of all
+  its parts' rings: the departures deck is part of the unit), so
+  `viaduct_road._in_passage` reads "within `pad_frontage_m` of the unit's
+  plan" (`LevelSeed.plan`). The refusal is by name in `refused`;
+  `viaduct_road.passage_roads` hands the run's carriageway to the seed
+  (`LevelSeed.road`).
+- Answer B's "excludes the carriageway and its kerbside". The level's
+  footprint (`LevelSeed.footprint`) holds a 5,182 m2 skirt walled to y
+  -12.72 under the kerbside, so the kerbside (authored -8.0) fell into the
+  level. Kept out, at the single derivation site (`seed_levels`, handed to
+  `level_cut` as `others`, as another pad is): the carriageway a riser
+  clear, and the unit's SLABS (parts under `chain_min_height_m`) standing
+  from the main floor's plane (`z0 + y_lo` of the host's upper floor, less
+  two `PLANE_BAND_M`) up to the unit's zero, within the run's KERB ZONE
+  (the run, flat-capped, `dual_carriageway_max_separation_m` either side,
+  `LevelSeed.kerb_zone`). Only for a passage cut out of a main floor.
+  Refuted on the way (replays): the level read from the walls at the
+  `y_feet` plane alone (lost the north and south arms the road exits
+  through to the main floor: 90 pad rows relaxed, the garage ramp's top
+  dragged into p1); the whole mapped route kept (same arms lost).
+- The carriageway is kept a riser (`w`) clear: with its edge on the
+  riser's, zero-area ribbon slivers (`big_roads:-11605#7`) carried no pad
+  row and solved 9 m up to the DEM, which reads the deck.
+- S2 as written (`grow=True` for a main-floor host) did not take the aisle:
+  the aisle piece of the host joins the hall across the kept road.
+  `low_level._with_orphans` now splits the host's pieces by `others` too
+  (a road kept at another floor joins no piece to the frontage). Callers
+  whose `others` do not overlap the pad are unchanged.
+- S3: no code; the passage's run-out ends 8 (control) -> 9. S4: not needed
+  (the replay census fell). D0-D2: not done this round.
+- LFPG (registered capture lfpg6): both R6 runs (the T2 central road, unit
+  2) now stand under a passage seed's plan and are refused; unit 2's host is
+  its block alone, so the road takes the level's floor (y -7.42 under the
+  zero) instead of apron - 7.5. Reported for sign-off (19.3 item 9).
+- OPEN DEFECT (not fixed this round): with the trench refused, two
+  degenerate ribbon pieces of the kept road (`big_roads:-11605#7`, 4
+  vertices, zero area, mid-road at 39.29787..39.29827,-94.7184x;
+  `-11605#5`, 2 vertices at 39.2986,-94.7183) carry vertices no other face
+  shares. They solve to the DEM, which reads the departures deck: 310.87 -
+  311.41 and 305.7 m over a road at 302.45 (replay arm4). In the arm before
+  the kerb change they held 302.27. Keeping the carriageway a riser clear
+  did not remove them. The next round finds what emits them (the ribbon
+  cut at the old R6 run's ends, or the road ribbon split against the
+  kerb-slab edge) before any app build carries this branch.

@@ -91,6 +91,9 @@ class LevelSeed(_t.NamedTuple):
     road: _t.Any = None
     #: the unit's whole plan (every part's rings, frame xy), or ``None``
     plan: _t.Any = None
+    #: the walls' footprint at the ``y_feet`` plane (``footprint`` less the
+    #: walled parts standing on other planes), or ``None``
+    floor: _t.Any = None
 
 
 def level_seeds(airport, classification, law, cache=None
@@ -122,7 +125,7 @@ def level_seeds(airport, classification, law, cache=None
         got = _unit_seed(ui, parts, tree, air, stands, law, to_xy, step)
         if got is None:
             continue
-        F, z0, y_feet, n = got
+        F, z0, y_feet, n, at = got
         passage = roads(F)
         under = None
         if passage is not None:
@@ -132,7 +135,7 @@ def level_seeds(airport, classification, law, cache=None
         plan = valid_area(unary_union([g for p, _xy in parts for rg in p.rings
                                        if (g := _ring_poly(rg, to_xy)) is not None]))
         seeds.append(LevelSeed(F, ui, round(z0, 3), round(y_feet, 3), round(z0 - y_feet, 3), n,
-                               passage, under, plan=plan))
+                               passage, under, plan=plan, floor=at))
         notes.append(f"unit {ui} depth {z0 - y_feet:.2f} ({n} walled parts, {F.area:.0f} m2"
                      + (f", passage {passage.area:.0f} m2, soffit "
                         f"{(under or {}).get('soffit_y')}" if passage is not None else "")
@@ -182,7 +185,7 @@ def _unit_seed(ui, parts, tree, air, stands, law, to_xy, step: float):
             sf = stand_floor(parts, unary_union([air[int(j)] for j in hit]), stands, law, to_xy)
             if sf is not None:
                 z0 = float(sf[0])
-    low, feet = [], []
+    low, feet, planes = [], [], []
     for p, _xy in parts:
         rings = [g for rg in p.rings if (g := _ring_poly(rg, to_xy)) is not None]
         fy = sorted(float(f[2]) for f in (getattr(p, "feet", ()) or ()))
@@ -190,13 +193,19 @@ def _unit_seed(ui, parts, tree, air, stands, law, to_xy, step: float):
                 and not is_support(p, law) and _densest(fy, PLANE_BAND_M)[1] <= z0 - step):
             low.extend(rings)
             feet.extend(fy)
+            planes.append((_densest(fy, PLANE_BAND_M)[1], rings))
     if not low:
         return None
     F = valid_area(unary_union(low))
     if F.is_empty:
         return None
     _n, y_feet = _densest(sorted(feet), PLANE_BAND_M)
-    return F, z0, float(y_feet), len(low)
+    # the walls STANDING ON the level: their feet at its plane (the two-plane
+    # test of ``_upper_floors``), never a skirt below it or a hall's walls
+    # on the main floor above it
+    at = valid_area(unary_union([g for y, rs in planes
+                                 if abs(y - y_feet) <= 2.0 * PLANE_BAND_M for g in rs]))
+    return F, z0, float(y_feet), len(low), at
 
 
 def _ground(g, dem, step: float):
@@ -257,12 +266,16 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
         # passage cut out of a main floor runs at the main floor its
         # kerbside stands on -- kept out of the level as another pad is --
         # and the pieces of the host floors the level cuts off from the
-        # airside frontage are the level (S2, ``low_level._with_orphans``)
+        # airside frontage are the level (S2, ``low_level._with_orphans``);
+        # the level is the floor of the walls standing at its depth (``LevelSeed.floor``:
+        # MEASURED KMCI unit 20, a 5,182 m2 skirt at y -12.72 put the
+        # kerbside, authored at -8.0, into the garage's level at -10.36)
         main = len(host) > 1
         if main and s.road is not None:
             others.append(s.road)
+        L0 = s.floor if main and s.floor is not None and not s.floor.is_empty else s.footprint
         A = valid_area(air.intersection(P.buffer(50.0)))
-        cut = level_cut(P, s.footprint, A, valid_area(unary_union(others)), law, grid, 0.0,
+        cut = level_cut(P, L0, A, valid_area(unary_union(others)), law, grid, 0.0,
                         airport, grow=main, whole=True)
         if cut is None:
             notes.append(f"unit {s.unit}: no level left on {pref} off the airside")

@@ -29,14 +29,16 @@ the brief and why Opus is not enough, and waits for the yes. "The brief
 needs judgement" is not a reason; a brief with law in it is still an Opus
 brief. The approved launch's prompt carries the line
 `OWNER-APPROVED-FABLE: <date> "<the owner's words>"`, without which the
-hook refuses it. TWO-ROUND CAP (owner 2026-10-20, RULINGS 2026-10-20b):
-when two Opus rounds on a task fail to deliver, the master stops that lane
-and launches a Fable 5.1 reviewer — `subagent_type: "scout"` (read-only),
-prompt carrying `TWO-ROUND-CAP-REVIEW: <issue> <the two failed rounds>` —
-that reviews the two failed rounds and writes a new spec; it NEVER
-implements. A fresh Opus lane then runs the third round from that spec; if that
-round also misses, the task goes to the owner (park / ship / redesign) —
-never a fourth attempt (owner 2026-11-03, RULINGS 2026-11-03d).
+hook refuses it. ONE-MISS CAP (owner 2026-11-11, RULINGS 2026-11-11c; replaces the
+two-round cap of 2026-10-20b): the FIRST time an Opus round on a task
+fails to deliver, the master stops that lane and launches a Fable 5.1
+reviewer at once — `subagent_type: "scout"` (read-only), prompt carrying
+`TWO-ROUND-CAP-REVIEW: <issue> <the failed round(s)>` (the hook's marker
+keeps its old name) — that reviews the failed round and writes a new
+spec; it NEVER implements. Opus never retries a missed round on its own.
+A fresh Opus lane then runs the next round from that spec; if that round
+also misses, the task goes to the owner (park / ship / redesign) — never
+another attempt (owner 2026-11-03, RULINGS 2026-11-03d).
 This is the only Fable use that needs no per-launch yes. A Fable lane is
 never resumed (`SendMessage`) for a new
 piece of work — each round re-reads its whole context at Fable price; its

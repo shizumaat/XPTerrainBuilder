@@ -5,9 +5,12 @@ import UniformTypeIdentifiers
 
 /// `.xptb` packages in the app (#2014; Qt: `O4_Qt_Tile_Package.py`).
 ///
-/// * File ▸ Export Package… (and the map's tile menu) saves the selected
-///   tiles' package — whole tiles, or the airports picked in the sheet —
-///   with its maker's optional title, name, notes and link.
+/// * File ▸ Export Package… (and the map's tile menu) is AIRPORT-FIRST
+///   (owner 2026-11-11T16:10Z): pick one airport (it opens on the one with
+///   a custom patch), then a kind — Exact match, Airport patch only, or
+///   Whole tile (last) — each with its explanation, estimated size, and
+///   the recipient's downloads and build time (`package_estimate`), and
+///   the maker's optional title, name, notes and link.
 /// * A package opened on the app icon (double-click in Finder: the app
 ///   declares the `xptb` type, `make_app.sh`) or dropped on the map is
 ///   planned by the engine (`package_plan`) and shown in a sheet: its
@@ -29,12 +32,20 @@ final class TilePackageModel: ObservableObject {
     struct Export: Identifiable {
         let id = UUID()
         let tiles: [BuildModel.TileCoord]
-        let airports: [String: [String]]
-        var picked: Set<String> = []
+        let airports: [String]
+        let custom: Set<String>
+        /// The airport exported; "" exports the whole tiles.
+        var airport: String
+        /// "exact", "patch" or "tile" (`tile_bundle.kinds`).
+        var kind: String
+        var estimate: O4PackageEstimate?
         var title = ""
         var creator = ""
         var notes = ""
         var url = ""
+
+        /// The chosen kind's estimate row, when estimated.
+        var chosen: O4PackageKindEstimate? { estimate?.kinds.first { $0.kind == kind } }
     }
 
     @Published var install: Install?
@@ -101,14 +112,45 @@ final class TilePackageModel: ObservableObject {
 
     // MARK: Export
 
-    func startExport(_ tiles: [BuildModel.TileCoord], build: BuildModel) {
+    func startExport(_ tiles: [BuildModel.TileCoord], build: BuildModel, airport: String? = nil) {
         guard !tiles.isEmpty, let (client, dir) = client(build) else { return }
         let sorted = tiles.sorted()
         Task {
             do {
                 let found = try await client.packageAirports(
                     tiles: sorted.map { ($0.lat, $0.lon) }, workingDir: dir)
-                export = Export(tiles: sorted, airports: found.tiles)
+                let all = found.all
+                let start = airport.flatMap { all.contains($0) ? $0 : nil } ?? found.default ?? ""
+                export = Export(tiles: sorted, airports: all,
+                                custom: Set((found.custom ?? [:]).values.joined()),
+                                airport: start, kind: start.isEmpty ? "tile" : "exact")
+                estimate(build: build)
+            } catch {
+                message = "\(error)"
+            }
+        }
+    }
+
+    /// The export window's airport changed: every kind is estimated again.
+    func choose(airport: String, build: BuildModel) {
+        guard var request = export, request.airport != airport else { return }
+        request.airport = airport
+        request.kind = airport.isEmpty ? "tile" : "exact"
+        request.estimate = nil
+        export = request
+        estimate(build: build)
+    }
+
+    private func estimate(build: BuildModel) {
+        guard let request = export, let (client, dir) = client(build) else { return }
+        Task {
+            do {
+                let found = try await client.packageEstimate(
+                    tiles: request.tiles.map { ($0.lat, $0.lon) }, workingDir: dir,
+                    airport: request.airport)
+                if export?.id == request.id, export?.airport == request.airport {
+                    export?.estimate = found
+                }
             } catch {
                 message = "\(error)"
             }
@@ -127,7 +169,8 @@ final class TilePackageModel: ObservableObject {
             do {
                 let done = try await client.packageSave(
                     tiles: request.tiles.map { ($0.lat, $0.lon) }, workingDir: dir, out: url.path,
-                    airports: request.picked.sorted(), title: request.title,
+                    airports: request.kind == "tile" ? [] : [request.airport],
+                    kind: request.kind, title: request.title,
                     creator: request.creator, notes: request.notes, url: request.url)
                 build.console.append("Saved package \(url.lastPathComponent) "
                     + "(\(ByteCountFormatter.string(fromByteCount: done.bytes, countStyle: .file)))"
@@ -140,9 +183,9 @@ final class TilePackageModel: ObservableObject {
 
     static func defaultName(_ request: Export) -> String {
         let first = request.tiles.first?.key ?? "tiles"
-        let tail = request.picked.isEmpty
+        let tail = request.kind == "tile" || request.airport.isEmpty
             ? (request.tiles.count == 1 ? first : "\(first)_\(request.tiles.count)tiles")
-            : request.picked.sorted().joined(separator: "_")
+            : "\(request.airport)_\(request.kind)"
         return "XPTerrainBuilder_\(tail).\(O4TilePackage.fileExtension)"
     }
 
@@ -181,8 +224,8 @@ struct TilePackageSheets: ViewModifier {
             .sheet(item: $model.install) { request in
                 TilePackageInstallSheet(request: request) { model.confirm($0, build: buildModel) }
             }
-            .sheet(item: $model.export) { request in
-                TilePackageExportSheet(request: request) { model.save($0, build: buildModel) }
+            .sheet(item: $model.export) { _ in
+                TilePackageExportSheet(model: model, buildModel: buildModel)
             }
             .alert("Package", isPresented: Binding(
                 get: { model.message != nil },
@@ -239,49 +282,71 @@ struct TilePackageInstallSheet: View {
 }
 
 struct TilePackageExportSheet: View {
-    @State var request: TilePackageModel.Export
-    let onSave: (TilePackageModel.Export) -> Void
+    @ObservedObject var model: TilePackageModel
+    @ObservedObject var buildModel: BuildModel
     @Environment(\.dismiss) private var dismiss
 
+    private func field(_ path: WritableKeyPath<TilePackageModel.Export, String>) -> Binding<String> {
+        Binding(get: { model.export?[keyPath: path] ?? "" },
+                set: { model.export?[keyPath: path] = $0 })
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Export Package").font(.headline)
-            Text("Tiles \(request.tiles.map(\.key).joined(separator: ", ")). Imagery is never "
-                 + "included. Pick airports to export only them; none picked exports the "
-                 + "whole tiles.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            ScrollView {
-                VStack(alignment: .leading) {
-                    ForEach(request.airports.keys.sorted(), id: \.self) { tile in
-                        ForEach(request.airports[tile] ?? [], id: \.self) { icao in
-                            Toggle("\(icao) (tile \(tile))", isOn: Binding(
-                                get: { request.picked.contains(icao) },
-                                set: { on in
-                                    if on { request.picked.insert(icao) } else { request.picked.remove(icao) }
-                                }
-                            ))
-                        }
+        if let request = model.export {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Export Package").font(.headline)
+                Picker(O4TilePackageCopy.airportLabel, selection: Binding(
+                    get: { request.airport },
+                    set: { model.choose(airport: $0, build: buildModel) }
+                )) {
+                    ForEach(request.airports, id: \.self) { icao in
+                        Text(request.custom.contains(icao) ? "\(icao) (custom patch)" : icao).tag(icao)
                     }
+                    Text(O4TilePackageCopy.wholeTileOnly).tag("")
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                if let estimate = request.estimate {
+                    ForEach(estimate.kinds) { row in
+                        kindRow(row, chosen: row.kind == request.kind)
+                    }
+                } else {
+                    ProgressView("Estimating sizes…").controlSize(.small)
+                }
+                Text(O4TilePackageCopy.estimateNote).font(.caption).foregroundStyle(.secondary)
+                Form {
+                    TextField("Title", text: field(\.title))
+                    TextField("Made by", text: field(\.creator))
+                    TextField("Notes", text: field(\.notes), axis: .vertical)
+                    TextField("Link", text: field(\.url))
+                }
+                HStack {
+                    Spacer()
+                    Button("Cancel", role: .cancel) { dismiss() }
+                    Button("Save…") { model.save(request, build: buildModel) }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!(request.chosen?.available ?? false))
+                }
             }
-            .frame(maxHeight: 160)
-            Form {
-                TextField("Title", text: $request.title)
-                TextField("Made by", text: $request.creator)
-                TextField("Notes", text: $request.notes, axis: .vertical)
-                TextField("Link", text: $request.url)
-            }
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                Button("Save…") { onSave(request) }
-                    .keyboardShortcut(.defaultAction)
+            .padding(20)
+            .frame(width: 520)
+        }
+    }
+
+    private func kindRow(_ row: O4PackageKindEstimate, chosen: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
+                .foregroundStyle(row.available ? Color.accentColor : Color.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title).bold()
+                Text(row.explanation).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(row.available ? row.figures : row.why).font(.caption)
+                    .foregroundStyle(row.available ? Color.secondary : Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(20)
-        .frame(width: 480)
+        .contentShape(Rectangle())
+        .onTapGesture { if row.available { model.export?.kind = row.kind } }
+        .opacity(row.available ? 1 : 0.6)
     }
 }
 

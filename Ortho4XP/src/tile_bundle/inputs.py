@@ -18,17 +18,23 @@ identical engine (``key.key_parts``' code family).  Per tile:
   cells: the DEM is assembled over the 3x3 neighbourhood
   (``O4_DEM_Utils.build_combined_raster``) and a missing neighbour is a
   download;
-* ``patches/<tile>/…`` — the airport patches someone made by hand (any
-  ``*.patch.osm`` that is not an auto patch) and their editor sidecars.
+* ``patches/<tile>/…`` — the USER'S OWN airport files: the patches
+  someone made by hand (any ``*.patch.osm`` that is not an auto patch),
+  their editor sidecars, and the hand-set roles and object seats the
+  editor writes beside them (``o4_user_roles_<ICAO>.json``,
+  ``o4_user_object_seats_<ICAO>.json``: inputs of the airport's solve).
 
 AN AIRPORT PACKAGE (owner 2026-11-11T15:35Z: "a way to export just a
-specific airport") narrows two of these to the chosen airports: the
-tile's airport insets (and the inset index's rows for them; the tile's
-inset completion stamp is left out, since it settles the airports NOT
-carried too) and its hand-made patches.  The rest is what any rebuild of
-the tile reads whichever airport it grades — its OSM layers, base
-rasters and approach rings (ring cells are planned per tile, not per
-airport) — and is carried whole.
+specific airport"; 16:10Z: the kinds of :mod:`.kinds`) is of one of two
+kinds.  EXACT narrows three of these to the chosen airports: the tile's
+airport insets (and the inset index's rows for them; the tile's inset
+completion stamp is left out, since it settles the airports NOT carried
+too), the approach-ring cells the airports use (:mod:`.rings`), and the
+user's own airport files.  The rest — OSM layers, base rasters, band
+cells — is what any rebuild of the tile reads whichever airport it
+grades, and is carried whole.  PATCH carries only the chosen airports'
+own files.  Neither ever carries an auto patch or another airport's
+custom patch.
 
 NOT carried, and why: imagery (the user's own); auto patches, graded
 surfaces and object plans (solved again against the RECEIVING user's
@@ -49,8 +55,11 @@ import os
 
 import O4_File_Names as FNAMES
 
+from . import kinds as _kinds
+from . import rings as _rings
+
 __all__ = ["ALLOWED", "DATA_ROOTS", "INSET_INDEX", "INSET_STAMP", "files",
-           "destination"]
+           "destination", "member_icao", "user_files"]
 
 #: The file kinds a package may hold: OSM layers and patches, elevation
 #: rasters and JSON sidecars.  Nothing executable, no pickle, no mosaic.
@@ -139,9 +148,33 @@ def _keep_inset(path: str, airports) -> bool:
     return base == "index.json" or _airport_of_inset(base).upper() in airports
 
 
-def _manual_patches(lat: int, lon: int, airports=None) -> list:
-    """The tile's hand-made patches and their editor sidecars (of
-    ``airports`` only, when given)."""
+def _user_file_names() -> tuple:
+    """The editor's per-airport files beside the patches, as name
+    templates (``user_roles.ROLES_FILENAME``, ``user_seats.SEATS_FILENAME``)."""
+    from auto_patch_v2.airport import user_roles, user_seats
+    return (user_roles.ROLES_FILENAME, user_seats.SEATS_FILENAME)
+
+
+def member_icao(name: str) -> str:
+    """The airport one of the user's own files is for (a patch, its
+    ``.axes.json`` sidecar, its hand-set roles or seats); ``""`` else."""
+    base = os.path.basename(name)
+    if base.endswith(".axes.json"):
+        base = base[: -len(".axes.json")]
+    icao = FNAMES.patch_file_icao(base)
+    if icao:
+        return icao
+    for template in _user_file_names():
+        head, tail = template.split("{icao}")
+        if base.startswith(head) and base.endswith(tail) and len(base) > len(head + tail):
+            return base[len(head): -len(tail)].upper()
+    return ""
+
+
+def user_files(lat: int, lon: int, airports=None) -> list:
+    """The tile's user's own airport files (module doc; of ``airports``
+    only, when given): hand-made patches with their editor sidecars, and
+    hand-set roles and seats.  Never an auto patch."""
     folder = FNAMES.patch_dir(lat, lon)
     try:
         names = sorted(os.listdir(folder))
@@ -149,31 +182,58 @@ def _manual_patches(lat: int, lon: int, airports=None) -> list:
         return []
     keep = []
     for name in names:
-        if airports is not None and FNAMES.patch_file_icao(name) not in airports:
+        icao = member_icao(name)
+        if not icao or (airports is not None and icao not in airports):
             continue
         if FNAMES.is_manual_patch_name(name) and _allowed(name):
             keep += [name, name + ".axes.json"]
+        elif name.endswith(".json") and not name.endswith(".axes.json") and _allowed(name):
+            keep.append(name)
     return [os.path.join(folder, n) for n in keep
             if os.path.isfile(os.path.join(folder, n))]
 
 
-def files(lat: int, lon: int, airports=None) -> list:
+def _ring_regions(lat: int, lon: int, airports, kind: str):
+    """The grown inset boxes the kept ring cells must touch (EXACT), or
+    None (keep every cell)."""
+    if kind != _kinds.EXACT or airports is None:
+        return None
+    boxes = _rings.airport_boxes(lat, lon, airports)
+    if set(boxes) != set(airports):
+        return None                     # an airport with no box: keep all
+    return _rings.reach_boxes(boxes.values())
+
+
+def _keep_elevation(path: str, lat: int, lon: int, airports, regions) -> bool:
+    if not _keep_inset(path, airports):
+        return False
+    if regions is not None and FNAMES.APPROACH_RING_DIR_SUFFIX + os.sep in path:
+        return _rings.keep_cell(lat, lon, path, regions)
+    return True
+
+
+def files(lat: int, lon: int, airports=None, kind=None) -> list:
     """``[(member name, local path)]`` of tile (lat, lon), sorted; with
-    ``airports`` (ICAOs) an airport package's (module doc)."""
+    ``airports`` (ICAOs) an airport package's of ``kind``
+    (:data:`.kinds.EXACT`, the default, or :data:`.kinds.PATCH`)."""
     lat, lon = int(lat), int(lon)
     if airports is not None:
         airports = {str(a).upper() for a in airports}
-    out = [(_data_member(p, "OSM_data"), p)
-           for p in _walk(FNAMES.osm_dir(lat, lon))]
+    kind = _kinds.resolve(kind, airports)
+    key = FNAMES.short_latlon(lat, lon)
+    out = [("patches/%s/%s" % (key, os.path.basename(p)), p)
+           for p in user_files(lat, lon, airports)]
+    if kind == _kinds.PATCH:
+        return sorted(set(out))
+    out += [(_data_member(p, "OSM_data"), p)
+            for p in _walk(FNAMES.osm_dir(lat, lon))]
+    regions = _ring_regions(lat, lon, airports, kind)
     out += [(_data_member(p, "Elevation_data"), p)
             for p in _cell_entries(lat, lon, whole=True)
-            if _keep_inset(p, airports)]
+            if _keep_elevation(p, lat, lon, airports, regions)]
     for cell in _neighbours(lat, lon):
         out += [(_data_member(p, "Elevation_data"), p)
                 for p in _cell_entries(*cell, whole=False)]
-    key = FNAMES.short_latlon(lat, lon)
-    out += [("patches/%s/%s" % (key, os.path.basename(p)), p)
-            for p in _manual_patches(lat, lon, airports)]
     return sorted(set(out))
 
 

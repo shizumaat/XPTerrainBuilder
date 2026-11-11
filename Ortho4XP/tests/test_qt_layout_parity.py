@@ -13,6 +13,7 @@ exception).
 Offscreen (``QT_QPA_PLATFORM=offscreen``), no network, no engine.
 """
 
+import inspect
 import json
 import os
 import re
@@ -194,6 +195,14 @@ TILE_PACKAGE = (
      "window", "_export_package_at"),
     ("drop", "PatchDropInstall.swift", "TilePackageModel.shared.offer(",
      "window", "patch_drop"),
+    # The export window is airport-first (owner 2026-11-11T16:10Z): the
+    # airport picker, then each kind with the engine's estimate row.
+    ("export_airport", "TilePackageSheets.swift", "O4TilePackageCopy.airportLabel",
+     "package", "AIRPORT_LABEL"),
+    ("export_kinds", "TilePackageSheets.swift", "row.figures",
+     "package", "_ExportDialog"),
+    ("export_estimate", "TilePackageSheets.swift", "client.packageEstimate(",
+     "package", "export"),
 )
 
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
@@ -937,17 +946,23 @@ def test_both_fly_maps_stack_the_layers_alike():
 
 def test_the_package_actions_have_one_home_in_each_app(window):
     """#2014: Export Package… in both File menus and both tile menus, with
-    the same words; the install sheet's words are the Qt dialog's."""
+    the same words; the install sheet's and the airport-first export
+    window's words are the Qt dialog's (the kinds' names, explanations and
+    figures are the engine's, ``tile_bundle.kinds``, in both)."""
     import O4_Qt_Tile_Menu as QTTILEMENU
     import O4_Qt_Tile_Package as QTPKG
 
     for key, swift_file, marker, owner, attr in TILE_PACKAGE:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
-        assert getattr({"window": window}[owner], attr, None) is not None, key
+        assert getattr({"window": window, "package": QTPKG}[owner], attr, None) is not None, key
+    assert "LIB.package_estimate(" in inspect.getsource(QTPKG.export)
     kit = (SWIFT.parent / "SceneryKit" / "TilePackage.swift").read_text(encoding="utf-8")
     for name, qt in (("exportTitle", QTPKG.EXPORT_TITLE), ("installTitle", QTPKG.INSTALL_TITLE),
                      ("install", QTPKG.INSTALL), ("keepMine", QTPKG.KEEP_MINE),
-                     ("useTheirs", QTPKG.USE_THEIRS), ("combineTitle", QTPKG.COMBINE_TITLE)):
+                     ("useTheirs", QTPKG.USE_THEIRS), ("combineTitle", QTPKG.COMBINE_TITLE),
+                     ("airportLabel", QTPKG.AIRPORT_LABEL),
+                     ("wholeTileOnly", QTPKG.WHOLE_TILE_ONLY),
+                     ("estimateNote", QTPKG.ESTIMATE_NOTE)):
         said = re.search(r'static let %s = "([^"]+)"' % name, kit)
         assert said and said.group(1) == qt, name
     owners = window.export_package_action.associatedObjects()

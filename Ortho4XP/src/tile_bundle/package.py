@@ -38,8 +38,10 @@ import time
 import O4_File_Names as FNAMES
 
 from . import PACKAGE_FORMAT, PACKAGE_SUFFIX, BundleRefused, inputs
+from . import estimate as _estimate
 from . import export as _export
 from . import key as _key
+from . import kinds as _kinds
 from . import paths as _paths
 
 __all__ = ["XZ_PRESET", "BRANDING", "key_parts", "package_name",
@@ -64,14 +66,33 @@ def _schemas(tile) -> dict:
     return out
 
 
+def _custom_airports(lat: int, lon: int) -> list:
+    """The ICAOs with the user's own files (a custom patch, hand-set roles
+    or seats) in tile (lat, lon)'s patch folder."""
+    return sorted({inputs.member_icao(p) for p in inputs.user_files(lat, lon)})
+
+
+def _tile_airports(tile) -> set:
+    """The airports an airport package of ``tile`` may be of: those its
+    build grades and those with the user's own files there."""
+    return set(_key.airport_signatures(tile)) | set(_custom_airports(tile.lat, tile.lon))
+
+
 def airports_of(tiles, custom_build_dir: str = "") -> dict:
-    """``{tile key: [icao, …]}``: the airports each tile grades — what the
-    export dialog offers for an airport package."""
-    out = {}
+    """``{"tiles": {tile key: [icao, …]}, "custom": {tile key: [icao, …]},
+    "default": icao}``: the airports each tile grades or holds the user's
+    own files for — what the export window offers — the ones with the
+    user's own files, and the one it opens on (the first with a custom
+    patch, else the first offered; ``""`` for none)."""
+    out, custom = {}, {}
     for lat, lon in sorted({(int(a), int(b)) for a, b in tiles or ()}):
         tile = _export.load_tile(lat, lon, custom_build_dir)
-        out[FNAMES.short_latlon(lat, lon)] = sorted(_key.graded_airports(tile))
-    return out
+        key = FNAMES.short_latlon(lat, lon)
+        custom[key] = _custom_airports(lat, lon)
+        out[key] = sorted(set(_key.graded_airports(tile)) | set(custom[key]))
+    first = [i for k in sorted(custom) for i in custom[k]] or [
+        i for k in sorted(out) for i in out[k]]
+    return {"tiles": out, "custom": custom, "default": first[0] if first else ""}
 
 
 def key_parts(tiles) -> dict:
@@ -133,9 +154,11 @@ def _member_bytes(name: str, path: str, change, airports=None) -> bytes:
 
 def _tile_entry(tile, names, airports=None) -> dict:
     graded = _key.airport_signatures(tile)
+    if airports is not None:
+        graded = {icao: graded.get(icao) or {"pack": "", "custom": False, "signature": ""}
+                  for icao in sorted(airports & _tile_airports(tile))}
     return {"tile": FNAMES.short_latlon(tile.lat, tile.lon),
-            "airports": {icao: row for icao, row in graded.items()
-                         if airports is None or icao in airports},
+            "airports": graded,
             "data_snapshot": _export._snapshot(tile),
             "files": len(names)}
 
@@ -153,14 +176,14 @@ def _attribution(manifest: dict) -> bytes:
     return "\n".join(lines).encode("utf-8")
 
 
-def _collect(loaded, airports=None) -> tuple:
+def _collect(loaded, airports=None, kind=_kinds.TILE) -> tuple:
     """``(members, per-tile names)``: ``[(name, path, tile key)]`` once
     each (neighbour rasters are shared by adjacent tiles)."""
     members, seen, per_tile = [], set(), {}
     for tile in loaded:
         key = FNAMES.short_latlon(tile.lat, tile.lon)
-        names = inputs.files(tile.lat, tile.lon, airports)
-        if not any(n.startswith("data/OSM_data/") for n, _p in names):
+        names = inputs.files(tile.lat, tile.lon, airports, kind)
+        if kind != _kinds.PATCH and not any(n.startswith("data/OSM_data/") for n, _p in names):
             raise BundleRefused(
                 "Tile %s has no downloaded map data on this computer; build "
                 "it first, then save its package." % key)
@@ -169,18 +192,30 @@ def _collect(loaded, airports=None) -> tuple:
             if name not in seen:
                 seen.add(name)
                 members.append((name, path, key))
+    if kind == _kinds.PATCH and not members:
+        raise BundleRefused("%s has no custom patch or edits to export; choose "
+                            "Exact match instead." % ", ".join(sorted(airports)))
     return sorted(members), per_tile
 
 
 def _airport_tiles(loaded, airports) -> list:
-    """The loaded tiles that grade one of ``airports`` (all without)."""
+    """The loaded tiles that grade or hold one of ``airports`` (all
+    without)."""
     if airports is None:
         return loaded
-    keep = [t for t in loaded if set(_key.airport_signatures(t)) & airports]
+    keep = [t for t in loaded if _tile_airports(t) & airports]
     if not keep:
         raise BundleRefused("None of the chosen tiles grades %s."
                             % ", ".join(sorted(airports)))
     return keep
+
+
+def _still_needs(loaded, airports, kind) -> tuple:
+    """``(still_needs, estimate)`` the manifest records (:mod:`.estimate`)."""
+    rows = [_estimate.kind_figures(t.lat, t.lon, airports, kind) for t in loaded]
+    total = _estimate.sum_rows(rows)
+    return total["still_needs"], {"build_seconds": total["build_seconds"],
+                                  "download_bytes": total["download_bytes"]}
 
 
 def write(out_path: str, manifest: dict, blobs: dict) -> str:
@@ -207,12 +242,14 @@ def write(out_path: str, manifest: dict, blobs: dict) -> str:
 
 
 def save_package(tiles, out: str, custom_build_dir: str = "",
-                 airports=None, **fields) -> dict:
+                 airports=None, kind=None, **fields) -> dict:
     """ENGINE COMMAND ``package_save``: write the package of ``tiles``
     (``[(lat, lon)]``) to ``out`` (a ``.xptb`` path, or a folder it is
     written into under :func:`package_name`).  ``airports`` (ICAOs)
     makes an AIRPORT package (:mod:`.inputs`): only those airports'
-    insets and patches, and only the tiles that grade them.
+    data and own files, and only the tiles that grade or hold them;
+    ``kind`` (:mod:`.kinds`: ``"exact"``, the default with ``airports``,
+    ``"patch"``, or ``"tile"``, the default without) what it holds.
     ``fields``: the optional :data:`BRANDING` fields.
 
     :returns: ``{"path", "bytes", "data_bytes", "key", "files", "tiles",
@@ -227,9 +264,15 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
     if not pairs_in:
         raise BundleRefused("Choose at least one tile to save in a package.")
     chosen = ({str(a).upper() for a in airports} if airports else None)
+    try:
+        kind = _kinds.resolve(kind, chosen)
+    except ValueError as error:
+        raise BundleRefused(str(error)) from error
+    if kind == _kinds.TILE:
+        chosen = None
     loaded = _airport_tiles([_export.load_tile(lat, lon, custom_build_dir)
                              for lat, lon in pairs_in], chosen)
-    members, per_tile = _collect(loaded, chosen)
+    members, per_tile = _collect(loaded, chosen, kind)
     by_key = dict(zip(sorted(per_tile, key=FNAMES.parse_tile_key), loaded, strict=True))
     found, licence = _sources(loaded, [(n, p) for n, p, _k in members])
     home = os.path.expanduser("~")
@@ -249,7 +292,9 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
                        "sha256": hashlib.sha256(data).hexdigest(),
                        "mtime_ns": os.stat(path).st_mtime_ns}
     parts = key_parts(loaded)
+    needs, estimate = _still_needs(loaded, chosen, kind)
     manifest = {"format": PACKAGE_FORMAT, **branding(fields),
+                "kind": kind, "still_needs": needs, "estimate": estimate,
                 "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "engine_version": getattr(O4_Version, "version", ""),
                 "key": _key.bundle_key(parts), "key_parts": parts,
@@ -263,6 +308,6 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
     out_path = write(destination_path(out, per_tile), manifest, blobs)
     return {"path": out_path, "bytes": os.path.getsize(out_path),
             "data_bytes": manifest["data_bytes"], "key": manifest["key"],
-            "files": len(files), "tiles": sorted(per_tile),
+            "kind": kind, "files": len(files), "tiles": sorted(per_tile),
             "noncommercial": manifest["noncommercial"],
             "seconds": round(time.time() - t0, 1)}

@@ -1165,7 +1165,11 @@ d24a7f2fc / 20f546564).
 
 ## 19. Round 3 (lane lkmci4; two-round-cap review 2026-11-11; owner RULINGS 2026-11-10h, 10n, 2026-11-11b)
 
-OPEN OWNER QUESTION (asked 2026-11-11T01:1xZ; the lane reads the answer from the master's brief): the pack models no arrivals road deck, only the kerbside (sidewalk 2,393 m2, medians, a 3.4 m plate at y −8.0 = 302.7) along the hall face. A = the road sits at the garage base (300.34) and the kerbside stands ~2.3 m over it, ground meets it at its two ends (this spec as written). B = the road stays level with the kerbside (302.5, as 1.0.480); only the garage and its west aisle drop — then S1 sets the R6 floor to the main floor instead of refusing the run, and the corridor leaves the passage.
+OWNER ANSWER (RULINGS 2026-11-11e, 2026-11-11T01:10Z, "kmci, option b"): the pack models no arrivals road deck, only the kerbside (sidewalk 2,393 m2, medians, a 3.4 m plate at y −8.0 = 302.7) along the hall face. The road under the departures roadway STAYS LEVEL WITH THE KERBSIDE (≈302.5, as 1.0.480); only the garage and its west aisle drop to the garage base (300.34). This OVERRIDES the parts below that put the road at the garage base:
+- S1 (B branch): the covered R6 run under the departures roadway does not trench; its floor is the MAIN FLOOR / kerbside level (not the level's y_lo). Refuse the trench by name as written, but the corridor LEAVES the passage: the passage level (garage + aisle) excludes the carriageway and its kerbside, and the road meets the passage only where its exits run out (S3).
+- 19.3 site 1 becomes: road mid-garage 39.29817,−94.71846 within 0.10 m of the kerbside level (authored y −8.0 less the kerb, ≈302.5 at zero 310.696, confirm by D0), smooth (max − min ≤ 0.10 m from 39.29730,−94.71871 to 39.29901,−94.71822), no `viaduct-road:*` face; the kerbside parts seated 0.00 .. 0.15 m over it.
+- D (kerbside ends): no longer a dock; D1's end keep applies only to the departures roadway's ramp feet.
+- Sites 2–5, 7–9 unchanged (garage and aisle at the garage base; S2 orphan growth still takes the aisle).
 
 ### 19.R Why rounds 1 (lkmci2) and 2 (lkmci3) missed (review, read-only)
 

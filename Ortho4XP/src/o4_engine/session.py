@@ -1598,6 +1598,7 @@ class EngineSession:
                     lat, lon, custom_build_dir))
             step_seconds = {}
             autopatch_airports = 0
+            airport_seconds = {}
             self._tile_failures = []           # per-tile (H1, #562)
             try:
                 tile = CFG.Tile(lat, lon, custom_build_dir)
@@ -1669,6 +1670,8 @@ class EngineSession:
                         FASTPATH.after_step_recorded(tile, key)
                     if self._autopatch_state is not None:
                         autopatch_airports = self._autopatch_state["total"]
+                        airport_seconds = dict(
+                            self._autopatch_state.get("seconds") or {})
                     self._finish_step((lat, lon), key)
                     if (result == 0 and UI.red_flag
                             and self._failed_not_cancelled((lat, lon))):
@@ -1773,6 +1776,11 @@ class EngineSession:
                          "airports": autopatch_airports,
                          "autopatch_seconds":
                              self._autopatch_elapsed_seconds(),
+                         # Each airport's finish, seconds after the
+                         # airports began (they build in parallel): what
+                         # a package estimate prices one airport at
+                         # (``tile_time_model.airport_seconds_of``).
+                         "airport_seconds": airport_seconds,
                          # Cold/warm cache state, measured by build_dsf
                          # (zero when the imagery step did not run).
                          "textures_total": int(getattr(
@@ -2027,6 +2035,7 @@ class EngineSession:
             "finished": set(),
             "frac": {},
             "current": "",
+            "seconds": {},
         }
         self._autopatch_t0 = time.time()
         if self._eta:
@@ -2043,6 +2052,9 @@ class EngineSession:
             return
         fraction = min(float(done) / float(total), 1.0) if total else 0.0
         if status in ("done", "fail"):
+            if status == "done" and self._autopatch_t0:
+                state.setdefault("seconds", {})[str(airport)] = round(
+                    time.time() - self._autopatch_t0, 1)
             state["finished"].add(airport)
             state["frac"][airport] = 1.0
             if state["current"] == airport:

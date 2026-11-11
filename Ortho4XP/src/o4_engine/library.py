@@ -214,11 +214,18 @@ def _check_cache(kind: str, confirm: bool) -> str:
 
 def free_cache(kind: str, confirm: bool = False) -> dict:
     """ENGINE COMMAND ``free_cache``: empty one download cache (the folder
-    itself stays).  Refused without ``confirm``.
+    itself stays); the elevation and map caches write every built tile's
+    package first (``o4_engine.package_first``).  Refused without
+    ``confirm``.
 
     :returns: ``{"kind", "freed_bytes", "redownload"}``
     """
     path = _check_cache(kind, confirm)
+    if kind in ("elevation", "osm"):         # the built tiles' packages first
+        from . import package_first as FIRST
+        first = FIRST.Pass()
+        for lat, lon in sorted(FIRST.built_tiles()):
+            first.tile(lat, lon, built=True)
     freed = 0
     try:
         names = os.listdir(path)
@@ -275,14 +282,19 @@ def library_delete(tiles, working_dir: str, scenery_dir: str = "",
     removing their X-Plane link first.  Every tile is checked before any
     is deleted: one tile built by another tool refuses the whole call.
     Refused without ``confirm``.  The tile's rebuild data (RULINGS
-    2026-11-10d) goes with it; patches (the user's airport edits) and the
-    other caches stay.
+    2026-11-10d) goes with it, its package written first
+    (``o4_engine.package_first``); patches (the user's airport edits) and
+    the other caches stay.
 
     :returns: ``{"deleted": [[lat, lon], ...], "freed_bytes": int}``
     """
+    from . import package_first as FIRST
     checked = _check_delete(tiles, working_dir, confirm)
     deleted, freed = [], 0
+    first = FIRST.Pass()
     for lat, lon, build_dir in checked:
+        # its package first (owner 2026-11-11T16:45Z, ``package_first``)
+        first.tile(lat, lon, _custom_build_dir(working_dir), built=True)
         if scenery_dir:
             status = LINKS.link_status(lat, lon, build_dir, scenery_dir)
             if status in (LINKS.LinkStatus.INSTALLED, LINKS.LinkStatus.BROKEN):

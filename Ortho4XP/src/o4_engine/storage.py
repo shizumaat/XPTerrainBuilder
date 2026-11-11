@@ -377,9 +377,23 @@ class _Sweep:
         self.files = 0
         self.stopped = False
         self._log = None
+        self._first = None
+
+    @property
+    def first(self):
+        """The pass's package-first record (``o4_engine.package_first``):
+        a built tile's package is written before its rebuild data or
+        inputs go (owner 2026-11-11T16:45Z)."""
+        if self._first is None:
+            from . import package_first as FIRST
+            self._first = FIRST.Pass(self.dry_run)
+        return self._first
 
     def delete(self, store: Store, path: str, st: os.stat_result) -> int:
         size = DISK.freeable_bytes(path, st)
+        written = self.first.before_delete(store.kind, path)
+        if written:
+            self.freed[_PACKAGES.KIND] = self.freed.get(_PACKAGES.KIND, 0) - written
         if not self.dry_run:
             try:
                 os.remove(path)

@@ -23,8 +23,8 @@ that hold a custom airport, or make everything DYNAMIC.
   drive) is removed from Custom Scenery -- the choice retires it, the
   dialog says so -- and its target is journalled, so Undo makes it again;
   the drive's files are never touched.  A LOCAL entry stays where it is
-  (disabled) until :func:`purge` ("Free space…") deletes it; Undo brings
-  it back until then.
+  (disabled) until :func:`purge` ("Free space…") deletes it, writing its
+  package first when this app built it; Undo brings it back until then.
 * :func:`choice_totals` -- the dry run's figures for each choice, before
   anything moves: tiles kept and made dynamic, bytes this Mac gains back
   and bytes on each other drive no longer needed, the drives still
@@ -277,14 +277,30 @@ def restore_tile(scenery_dir: str, pack: str, name: str, record: dict,
     return True
 
 
+def _package_first(first, path: str, name: str) -> None:
+    """The entry's package before its folder goes, when this app built
+    it (``o4_engine.package_first``; owner 2026-11-11T16:45Z): its own
+    record says so, or the data folder's tiles folder lists it built."""
+    import O4_File_Names as FNAMES
+    import O4_Tile_Info as TINFO
+    pair = FNAMES.parse_tile_key(name.rsplit("_", 1)[-1])
+    if pair:            # not built here by its own record: the tiles folder's scan
+        first.tile(*pair, os.path.join(os.path.dirname(path), ""),
+                   built=TINFO.built_here(path, *pair))
+
+
 def purge(scenery_dir: str, records: Dict[str, dict],
           names: Optional[Iterable[str]] = None) -> Dict[str, object]:
     """"Free space…": delete the LOCAL entries made dynamic (a real
-    folder directly in ``scenery_dir``, never a link).  ``{"removed":
+    folder directly in ``scenery_dir``, never a link), each one this app
+    built packaged first (``o4_engine.package_first``).  ``{"removed":
     [names], "freed_bytes"}``; the caller marks their records purged."""
     import O4_Tile_Info as TINFO
+
+    from . import package_first as FIRST
     wanted = set(names) if names else None
     root = os.path.realpath(scenery_dir)
+    first = FIRST.Pass()
     out: Dict[str, object] = {"removed": [], "freed_bytes": 0}
     for name, record in sorted(records.items()):
         if record.get("state") != "dynamic" or record.get("purged"):
@@ -295,6 +311,7 @@ def purge(scenery_dir: str, records: Dict[str, dict],
         if (os.path.islink(path) or not os.path.isdir(path)
                 or os.path.dirname(os.path.realpath(path)) != root):
             continue
+        _package_first(first, path, name)
         size = TINFO.tree_size(path)
         shutil.rmtree(path)
         out["removed"].append(name)

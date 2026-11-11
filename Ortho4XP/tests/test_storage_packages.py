@@ -11,7 +11,8 @@ refuses any download.
 * its package is written in the local store, then its rebuild data, its
   own downloaded inputs and its sharp imagery go; its DSF, its patches
   and the neighbours' shared rasters stay;
-* the earlier elevation / map tier leaves those inputs for the package;
+* the earlier elevation / map tier leaves those inputs for the package,
+  and a built tile whose inputs it does clear is packaged first;
 * restoring before a build lays every input back, byte and time
   identical: the rebuild downloads nothing but imagery.
 """
@@ -146,14 +147,16 @@ def test_a_restore_lays_every_input_back_with_nothing_to_download(data, monkeypa
 def test_the_budget_packages_at_the_rebuild_tier_and_keeps_its_inputs(data, monkeypatch):
     """Over a SET budget by more than the caches hold: the elevation/map
     tier leaves the airport tiles' inputs; the rebuild tier packages the
-    oldest; the tile with no airport loses its downloads as before."""
+    oldest; the built tile with no airport is packaged before its
+    downloads go (package first, owner 2026-11-11T16:45Z)."""
     assert TOTAL.TIER_HOOKS[TOTAL.REBUILD_DATA] is TOTAL._package_rebuild
     used = TOTAL.status(ST.storage_scan()["stores"])["used_bytes"]
     monkeypatch.setattr(TOTAL, "_budget_bytes",
                         lambda raw=None: int((used - 450_000) / 0.9) + 1)
     TOTAL.hold(_sweep(), time.time())
-    assert not os.path.exists(data[BARE]["hgt"])          # no package for it
-    assert list(PACKAGES.packaged()) == ["+30+031"]
+    assert not os.path.exists(data[BARE]["hgt"])          # in its package
+    assert sorted(PACKAGES.packaged()) == ["+30+031", "+32+031"]
+    assert os.path.isfile(PACKAGES.packaged()["+32+031"]["path"])
     assert not os.path.exists(data[OLD]["hgt"])           # in its package
     assert os.path.exists(data[NEW]["hgt"])               # kept for its package
     assert os.path.exists(data[NEW]["cache"] + "/Data+31+031.mesh")

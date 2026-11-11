@@ -41,8 +41,8 @@ import typing as _t
 
 import O4_File_Names as FNAMES
 
-__all__ = ["KIND", "STORE_DIR", "store_dir", "packaged", "guarded_inputs",
-           "evict", "restore"]
+__all__ = ["KIND", "STORE_DIR", "store_dir", "packaged", "remember",
+           "guarded_inputs", "evict", "restore"]
 
 #: The store row of the packages (``storage.STORES``).
 KIND = "tile_packages"
@@ -77,6 +77,13 @@ def _write_record(data: dict) -> None:
     with open(temp, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(data, handle, indent=1, sort_keys=True)
     os.replace(temp, _record_path())
+
+
+def remember(key: str, **fields) -> None:
+    """Record (or update) tile ``key``'s row of :func:`packaged`."""
+    record = packaged()
+    record[key] = dict(record.get(key) or {}, **fields)
+    _write_record(record)
 
 
 def _favorites() -> set:
@@ -200,36 +207,33 @@ def _drop_sharp(lat: int, lon: int, sweep, now: float) -> int:
 def _package_tile(candidate: dict, sweep, now: float) -> "dict | None":
     """Shrink one :func:`_candidates` tile to its package (module doc);
     ``{"freed_bytes", "package_bytes", "path"}``, or ``None`` when it
-    cannot be packaged (nothing is dropped then)."""
-    from tile_bundle import BundleRefused
+    cannot be packaged (nothing is dropped then).  The package is written
+    through the sweep's package-first pass (``o4_engine.package_first``),
+    so the drops below do not package the tile again."""
     from tile_bundle import inputs as INPUTS
-    from tile_bundle import package as PACKAGE
 
     from . import storage as STORAGE
     lat, lon = candidate["lat"], candidate["lon"]
     key = FNAMES.short_latlon(lat, lon)
-    path, size = os.path.join(store_dir(), key + ".xptb"), 0
-    if not sweep.dry_run:
-        try:
-            done = PACKAGE.save_package([(lat, lon)], path)
-        except (BundleRefused, OSError, ValueError) as error:
-            STORAGE.write_log("not packaged %s: %s" % (key, error))
-            return None
-        path, size = done["path"], int(done["bytes"])
+    done = sweep.first.tile(lat, lon, built=True)
+    if done is None or done["action"] == "refused":
+        return None
+    path, size = done["path"], int(done["bytes"])
+    if done["action"] == "packaged":
         sweep.freed[KIND] = sweep.freed.get(KIND, 0) - size
+    elif done["action"] == "kept":
+        size = int((packaged().get(key) or {}).get("package_bytes") or 0)
     freed = _drop(_rebuild_files(candidate["cache"]), sweep, now)
     freed += _drop(INPUTS.own_files(lat, lon), sweep, now)
     freed += _drop_sharp(lat, lon, sweep, now)
     if not sweep.dry_run:
-        record = packaged()
-        record[key] = {"path": path, "package_bytes": size,
-                       "freed_bytes": freed, "airports": candidate["airports"],
-                       "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                       "restored": False}
-        _write_record(record)
+        remember(key, path=path, package_bytes=size, freed_bytes=freed,
+                 airports=candidate["airports"], restored=False,
+                 utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         STORAGE.write_log("packaged %s: %d bytes freed, package %d bytes"
                           % (key, freed, size))
-    return {"freed_bytes": freed - size, "package_bytes": size, "path": path}
+    return {"freed_bytes": freed - (size if done["action"] == "packaged" else 0),
+            "package_bytes": size, "path": path}
 
 
 def evict(over_by: int, sweep, now: float) -> int:

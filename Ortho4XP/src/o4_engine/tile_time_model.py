@@ -771,3 +771,15 @@ def airport_seconds_range(lat: int, lon: int) -> tuple:
         (low, high) = (middle * SINGLE_SAMPLE_SPREAD[0],
                        middle * SINGLE_SAMPLE_SPREAD[1])
     return (float(low), float(high))
+
+
+def tile_records(lat: int, lon: int) -> list:
+    """This tile's recorded builds, oldest first (``[]`` on any problem):
+    what a package estimate prices the recipient's steps from
+    (``tile_bundle.recipient_time``)."""
+    return _load_tile_records(lat, lon)
+
+
+def every_record() -> list:
+    """Every recorded build of every tile (``[]`` on any problem)."""
+    return _load_all_records()

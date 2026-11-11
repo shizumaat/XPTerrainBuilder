@@ -214,8 +214,8 @@ def _still_needs(loaded, airports, kind) -> tuple:
     """``(still_needs, estimate)`` the manifest records (:mod:`.estimate`)."""
     rows = [_estimate.kind_figures(t.lat, t.lon, airports, kind) for t in loaded]
     total = _estimate.sum_rows(rows)
-    return total["still_needs"], {"build_seconds": total["build_seconds"],
-                                  "download_bytes": total["download_bytes"]}
+    return total["still_needs"], {k: total[k] for k in (
+        "build_seconds", "build_low", "build_high", "download_bytes", "download_seconds")}
 
 
 def write(out_path: str, manifest: dict, blobs: dict) -> str:

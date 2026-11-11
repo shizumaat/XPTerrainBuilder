@@ -26,8 +26,10 @@ from tile_bundle import estimate as ESTIMATE  # noqa: E402
 from tile_bundle import export as EXPORT  # noqa: E402
 from tile_bundle import install as INSTALL  # noqa: E402
 from tile_bundle import key as KEY  # noqa: E402
+from tile_bundle import kinds as KINDS  # noqa: E402
 from tile_bundle import merge as MERGE  # noqa: E402
 from tile_bundle import package as PACKAGE  # noqa: E402
+from tile_bundle import recipient_time as RTIME  # noqa: E402
 
 LAT, LON = 30, 31
 SCHEMAS = {"osm:airports": "", "osm:big_roads": "2026-09-15", "insets": "2026-07-30"}
@@ -124,7 +126,9 @@ def machines(tmp_path, monkeypatch):
     monkeypatch.setattr(KEY, "xplane_root", lambda tile: None)
     monkeypatch.setattr(KEY, "airport_signatures", lambda tile: dict(AIRPORTS))
     monkeypatch.setattr(INSTALL, "_downloads_left", lambda tile: [])
-    monkeypatch.setattr(ESTIMATE, "_rebuild_seconds", lambda lat, lon: 600.0)
+    monkeypatch.setattr(ESTIMATE, "_processing", lambda lat, lon: [
+        RTIME._row("airports", "2 airports", 600.0, 500.0, 700.0)])
+    monkeypatch.setattr(RTIME, "grid_rate", lambda: 10.0)
     monkeypatch.setattr(O4_Version, "version", "1.50.1900", raising=False)
     a = _Machine(tmp_path / "A", monkeypatch).live()
     b = _Machine(tmp_path / "B", monkeypatch)
@@ -454,7 +458,8 @@ def test_the_install_sheet_says_what_still_downloads(machines, tmp_path):
     assert lines[1].startswith("Airport patch only: ")
     assert lines[2].startswith("Building still downloads: Elevation and map data for the "
                                "tile (about ") and lines[2].endswith("; Imagery.")
-    assert lines[3].startswith("Estimated build time (without imagery): about ")
+    assert lines[3].startswith("Estimated time to build, downloads included "
+                               "(imagery not): about ")
     exact_lines = INSTALL.plan(exact)["summary"]
     assert exact_lines[1].startswith("Exact match: ")
     assert exact_lines[2].startswith("Building still downloads: Elevation for the tile's "
@@ -497,8 +502,9 @@ def test_the_size_estimate_is_within_15_percent(machines, tmp_path):
         actual = PACKAGE.save_package([(LAT, LON)], str(tmp_path / (row["kind"] + ".xptb")),
                                       airports=airports, kind=row["kind"])["bytes"]
         assert abs(row["bytes"] - actual) <= 0.15 * actual, (row["kind"], row["bytes"], actual)
-        assert row["figures"].endswith("builds in about %d min (estimate)" % round(
-            (600.0 + row["download_bytes"] / ESTIMATE.DOWNLOAD_BYTES_PER_SECOND) / 60))
+        assert row["build_seconds"] >= 600.0
+        assert "builds in about %s (estimate)" % KINDS.span_text(
+            row["build_seconds"], row["build_low"], row["build_high"]) in row["figures"]
 
 
 def test_the_export_window_offers_custom_patch_airports_first(machines, monkeypatch):

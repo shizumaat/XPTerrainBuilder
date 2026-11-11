@@ -294,10 +294,12 @@ def _kind_lines(details: dict) -> list:
     needs = [n["text"] for n in details.get("still_needs") or []]
     if needs:
         lines.append("Building still downloads: " + "; ".join(needs) + ".")
-    seconds = (details.get("estimate") or {}).get("build_seconds")
-    if seconds:
-        lines.append("Estimated build time (without imagery): about %d min."
-                     % max(1, round(seconds / 60.0)))
+    estimate = details.get("estimate") or {}
+    if estimate.get("build_seconds"):
+        lines.append("Estimated time to build, downloads included (imagery not): "
+                     "about %s." % _kinds.span_text(estimate["build_seconds"],
+                                                    estimate.get("build_low"),
+                                                    estimate.get("build_high")))
     return lines
 
 

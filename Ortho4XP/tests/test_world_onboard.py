@@ -90,3 +90,11 @@ def test_move_measures_before_anything_moves(app, monkeypatch):
     dialog.move_btn.click()
     assert runs == [True] and dialog.convert_box is not None
     assert dialog.not_now_btn.text() == QTONBOARD.DONE
+
+
+def test_a_foreign_world_folder_says_so_and_offers_nothing(app):
+    """``world_foreign`` (a linked World folder): the sentence, no Move…."""
+    import O4_Storage_Text as STORAGE_TEXT
+    box = QTONBOARD._foreign_box({"reason": "world_foreign", "target": "/kit/World"})
+    assert box.text() == STORAGE_TEXT.WORLD_FOREIGN.format(target="/kit/World")
+    assert "/kit/World" in box.text()

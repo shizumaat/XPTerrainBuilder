@@ -8,18 +8,22 @@ into it and were never offered (RULINGS 2026-11-11h (2): the engine
 records the offer, Not now included), :class:`OnboardDialog` asks once what managing them gives and
 offers Move… (Convert existing tiles, its dry run's numbers first) or Not
 now (Library ▸ Convert existing tiles asks again).  Spec §13 M1 holds:
-the packs' ``scenery_packs.ini`` rows are disabled, never removed.
+the packs' ``scenery_packs.ini`` rows are disabled, never removed.  A
+World folder the app did not make (``world_foreign``: a link) gets
+:func:`_foreign_box`'s sentence and no offer.
 """
 
 from __future__ import annotations
 
 import O4_Qt_Convert_Tiles as QTCONVERT
+import O4_Storage_Text as STORAGE_TEXT
 from O4_Qt_Library import emit_from_thread
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
 )
@@ -85,6 +89,16 @@ class OnboardDialog(QDialog):
         self.not_now_btn.setText(DONE)
 
 
+def _foreign_box(result, parent=None) -> QMessageBox:
+    """The World folder is not one the app made (``world_foreign``): the
+    sentence (``O4_Storage_Text.WORLD_FOREIGN``), nothing offered."""
+    text = result.get("message") or STORAGE_TEXT.WORLD_FOREIGN.format(
+        target=result.get("target", ""))
+    box = QMessageBox(QMessageBox.Icon.Information, TITLE, text,
+                      QMessageBox.StandardButton.Ok, parent)
+    return box
+
+
 class _Onboarding(QObject):
     """``world_onboard`` on a thread; the dialog when it asks."""
 
@@ -104,7 +118,13 @@ class _Onboarding(QObject):
                          "o4-qt-world-onboard")
 
     def _ready(self, result):
-        if isinstance(result, Exception) or not result.get("offer"):
+        if isinstance(result, Exception):
+            return
+        if result.get("reason") == "world_foreign":
+            self.dialog = _foreign_box(result, self.window)
+            self.dialog.show()
+            return
+        if not result.get("offer"):
             return
         self.dialog = OnboardDialog(int(result["offer"]), self.scenery_dir, self.window)
         self.dialog.show()

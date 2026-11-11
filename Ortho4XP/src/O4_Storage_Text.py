@@ -20,7 +20,7 @@ import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
 __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "BUDGET_UNSET", "BUDGET_UNDER_FLOOR", "BUDGET_HELP",
            "BUDGET_DEFAULT", "BUDGET_FIELD", "BUDGET_SET", "BUDGET_USE_DEFAULT",
-           "BUDGET_OVER_DEFAULT", "BUDGET_FIT", "DOWNGRADE_TITLE",
+           "BUDGET_HELD", "BUDGET_CONFIRM", "DOWNGRADE_TITLE",
            "DOWNGRADE_TEXT", "DOWNGRADE_FLOOR", "DOWNGRADE_OK", "CACHES_TITLE",
            "CACHES_CLEAR", "CACHES_DETAILS", "CACHES_DETAILS_TITLE",
            "CLEAR_ALL_TITLE", "CLEAR_ALL_TEXT", "FOLDER_TITLE",
@@ -28,7 +28,7 @@ __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "INSTALLED_LINKED", "INSTALLED_UNMOUNTED", "INSTALLED_NONE",
            "INSTALLED_HELP", "size_text", "budget_lines", "installed_lines",
            "ondemand_warning", "cleanup_warning", "default_line",
-           "over_default_line", "needs_downgrade", "downgrade_text",
+           "held_line", "needs_downgrade", "downgrade_text",
            "clear_all_text"]
 
 #: The help of the "Caches" and "Your tiles and patches" rows.
@@ -56,9 +56,12 @@ BUDGET_DEFAULT = "Default {base} · recommended {recommended}"
 BUDGET_FIELD = "Budget (GB)"
 BUDGET_SET = "Set"
 BUDGET_USE_DEFAULT = "Use Default"
-BUDGET_OVER_DEFAULT = ("Over the default budget by {over}. Nothing is "
-                       "cleared until you set a budget or fit this one.")
-BUDGET_FIT = "Fit to Budget…"
+#: Unconfirmed (RULINGS 2026-11-11h (1)): the default is sized to the
+#: current install; Confirm records it as the budget.
+BUDGET_HELD = ("Until you confirm a budget, the default holds everything "
+               "installed now ({held}), so nothing is cleared. Confirm it or "
+               "set your own.")
+BUDGET_CONFIRM = "Confirm"
 #: A budget lowered below what is in use (owner 2026-11-11): asked first.
 DOWNGRADE_TITLE = "Downgrade scenery to low res to fit the new budget?"
 DOWNGRADE_TEXT = ("{used} is in use and the budget is {budget}: about {free} "
@@ -115,13 +118,12 @@ def default_line(budget: Mapping) -> str:
                                  recommended=size_text(budget.get("recommended_bytes")))
 
 
-def over_default_line(budget: Mapping) -> str:
-    """With no budget set and more in use than the default: the line
-    that says nothing is cleared until the user chooses; else ""."""
-    if budget.get("budget_set", True) or not budget.get("over_budget"):
+def held_line(budget: Mapping) -> str:
+    """Unconfirmed: the default holds the current install (RULINGS
+    2026-11-11h (1)) and the invitation to confirm it; else ""."""
+    if budget.get("budget_set", True):
         return ""
-    over = int(budget.get("used_bytes") or 0) - int(budget.get("budget_bytes") or 0)
-    return BUDGET_OVER_DEFAULT.format(over=size_text(over))
+    return BUDGET_HELD.format(held=size_text(budget.get("held_bytes")))
 
 
 def needs_downgrade(budget: Mapping, new_bytes: int) -> bool:

@@ -593,8 +593,10 @@ def storage_scan() -> dict:
     rows = [_measure(store, now) for store in STORES]
     days, caps = _settings()
     root = FNAMES.current_data_root()
-    return {"root": root, "stores": rows, "budget": TOTAL.status(rows),
-            "installed": INSTALLED.installed_tiles(_custom_scenery_dir()),
+    installed = INSTALLED.installed_tiles(_custom_scenery_dir())
+    return {"root": root, "stores": rows,
+            "budget": TOTAL.status(rows, installed_bytes=installed["local_bytes"]),
+            "installed": installed,
             "cache_bytes": sum(r["bytes"] for r in rows if r["policy"] == CACHE),
             "kept_bytes": sum(r["bytes"] for r in rows if r["policy"] == KEPT),
             "measured": ("private" if DISK.private_bytes(root) is not None

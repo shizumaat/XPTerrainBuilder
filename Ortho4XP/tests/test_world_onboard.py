@@ -46,7 +46,25 @@ def test_the_world_folder_is_made_once_and_the_tiles_are_offered(scenery):
     first = WORLD.world_onboard(str(scenery))
     assert first == {"created": True, "offer": 2, "restart_needed": False}
     assert os.path.isdir(WORLD.pack_dir(str(scenery)))
-    assert WORLD.world_onboard(str(scenery))["created"] is False      # exists: untouched
+    again = WORLD.world_onboard(str(scenery))
+    assert again["created"] is False and again["offer"] == 0          # asked once
+
+
+def test_an_existing_world_folder_offers_the_tiles_once(scenery):
+    """RULINGS 2026-11-11h (2): the World folder made before, per-tile packs
+    never offered: asked once; "Not now" counts as offered."""
+    WORLD.world_install(str(scenery))
+    (scenery / "zOrtho4XP_+45+007" / "Earth nav data").mkdir(parents=True)
+    assert WORLD.world_onboard(str(scenery)) == {
+        "created": False, "offer": 1, "restart_needed": False}
+    assert WORLD.world_onboard(str(scenery))["offer"] == 0
+
+
+def test_no_tiles_is_not_an_offer(scenery):
+    WORLD.world_install(str(scenery))
+    assert WORLD.world_onboard(str(scenery))["offer"] == 0
+    (scenery / "zOrtho4XP_+45+007" / "Earth nav data").mkdir(parents=True)
+    assert WORLD.world_onboard(str(scenery))["offer"] == 1
 
 
 def test_no_custom_scenery_folder_makes_nothing(tmp_path):

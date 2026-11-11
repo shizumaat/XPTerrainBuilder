@@ -1716,7 +1716,7 @@
   },
   "storage_budget_gb": {
    "default": 0.0,
-   "hint": "The one disk budget for everything XPTerrainBuilder stores (RULINGS 2026-11-10d): caches, sharp imagery, rebuild data and built tiles, in GB. Over it, what is cheapest to rebuild goes first, oldest first: temporary files, logs and previews; orthophotos already converted; scenery dumps and masks; elevation and map extracts; then sharp imagery (favorites last). Placeholders, scenery files, patches and your own elevation files are never cleared. 0: not set -- the default applies, the larger of 200 GB and the recommended minimum (RULINGS 2026-11-11a); over it nothing is cleared until you confirm (Library > Disk budget).",
+   "hint": "The one disk budget for everything XPTerrainBuilder stores (RULINGS 2026-11-10d): caches, sharp imagery, rebuild data and built tiles, in GB. Over it, what is cheapest to rebuild goes first, oldest first: temporary files, logs and previews; orthophotos already converted; scenery dumps and masks; elevation and map extracts; then sharp imagery (favorites last). Placeholders, scenery files, patches and your own elevation files are never cleared. 0: not confirmed -- the default applies, the larger of 200 GB, the recommended minimum and what is installed now (RULINGS 2026-11-11a, 11h), so nothing is cleared until you confirm a budget (Library > Disk budget, its only home).",
    "name": "storage_budget_gb",
    "type": "float"
   },

@@ -172,10 +172,11 @@ cfg_app_vars = {
             "orthophotos already converted; scenery dumps and masks; "
             "elevation and map extracts; then sharp imagery (favorites "
             "last). Placeholders, scenery files, patches and your own "
-            "elevation files are never cleared. 0: not set -- the default "
-            "applies, the larger of 200 GB and the recommended minimum "
-            "(RULINGS 2026-11-11a); over it nothing is cleared until you "
-            "confirm (Library > Disk budget)."
+            "elevation files are never cleared. 0: not confirmed -- the "
+            "default applies, the larger of 200 GB, the recommended minimum "
+            "and what is installed now (RULINGS 2026-11-11a, 11h), so "
+            "nothing is cleared until you confirm a budget (Library > Disk "
+            "budget, its only home)."
         ),
     },
     "imagery_on_demand_cap_gb": {

@@ -17,8 +17,8 @@ public enum O4StorageText {
     public static let budgetField = "Budget (GB)"
     public static let budgetSet = "Set"
     public static let budgetUseDefault = "Use Default"
-    public static let budgetOverDefault = "Over the default budget by {over}. Nothing is cleared until you set a budget or fit this one."
-    public static let budgetFit = "Fit to Budget…"
+    public static let budgetHeld = "Until you confirm a budget, the default holds everything installed now ({held}), so nothing is cleared. Confirm it or set your own."
+    public static let budgetConfirm = "Confirm"
     public static let downgradeTitle = "Downgrade scenery to low res to fit the new budget?"
     public static let downgradeText = "{used} is in use and the budget is {budget}: about {free} is cleared to fit. Caches go first, then the oldest sharp imagery is made low res (favorites last). Your tiles and patches stay."
     public static let downgradeFloor = " Even at low res your tiles need {floor}, more than this budget."
@@ -57,11 +57,11 @@ public enum O4StorageText {
                              "recommended": O4OnDemandText.sizeText(b.recommendedBytes)])
     }
 
-    /// No budget set and more in use than the default: nothing is cleared
-    /// until the user chooses; else "".
-    public static func overDefaultLine(_ b: O4StorageBudget) -> String {
-        guard b.budgetSet == false, b.overBudget else { return "" }
-        return fill(budgetOverDefault, ["over": O4OnDemandText.sizeText(b.usedBytes - b.budgetBytes)])
+    /// Unconfirmed: the default holds the current install (RULINGS
+    /// 2026-11-11h (1)) and the invitation to confirm it; else "".
+    public static func heldLine(_ b: O4StorageBudget) -> String {
+        guard b.budgetSet == false else { return "" }
+        return fill(budgetHeld, ["held": O4OnDemandText.sizeText(b.heldBytes ?? 0)])
     }
 
     /// A budget of `newBytes` is below what is in use: ask first.

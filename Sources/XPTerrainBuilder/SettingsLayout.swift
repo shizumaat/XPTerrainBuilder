@@ -219,7 +219,6 @@ enum SettingsLayout {
         // and the Clear buttons (StorageSection) above these rows.
         SettingCategory(key: "storage", title: "Storage", icon: "internaldrive", items: [
             SettingItem("storage_auto_clean_days", "Delete cache files no build has used for how long?", .app, summary: "Never keeps them. Built tiles and patches are never deleted."),
-            SettingItem("storage_budget_gb", "How much disk space may XPTerrainBuilder use (GB)?", .app, summary: "More space keeps downloads and rebuild data, so tiles rebuild in minutes."),
             SettingItem("imagery_on_demand_cap_gb", "How much space may sharp imagery use (GB)?", .app, expert: true),
             SettingItem("storage_cache_caps_gb", "Cache size limits (GB)", .app, expert: true),
         ]),

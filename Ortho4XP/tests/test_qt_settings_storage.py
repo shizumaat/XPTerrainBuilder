@@ -99,21 +99,29 @@ def test_the_library_budget_asks_before_it_downgrades(app, monkeypatch):
     caches = QTLIBSTORE.CachesLine(section)
     applied, asked = [], []
     monkeypatch.setattr(section, "apply_budget", applied.append)
-    budget = {"budget_bytes": 255e9, "budget_set": False, "default_bytes": 255e9,
+    # RULINGS 2026-11-11h (1): unconfirmed, the default holds the install.
+    budget = {"budget_bytes": 300e9, "budget_set": False, "default_bytes": 300e9,
               "default_base_bytes": 200e9, "recommended_bytes": 255e9,
-              "used_bytes": 300e9, "floor_bytes": 170e9, "over_budget": True,
-              "under_floor": False, "low_water": 0.9}
+              "held_bytes": 300e9, "used_bytes": 300e9, "floor_bytes": 170e9,
+              "over_budget": False, "under_floor": False, "low_water": 0.9}
+    written = []
+    import O4_Settings_Model as SM
+    monkeypatch.setattr(SM, "write_global", written.append)
+    monkeypatch.setattr(section, "refresh", lambda: None)
     try:
         section.set_scan(dict(SCAN, budget=budget))
-        assert box.budget_edit.text() == "255"                 # the default applies
+        assert box.budget_edit.text() == "300"                 # the default applies
         assert "200.00 GB" in box.default_label.text() and "255.00 GB" in box.default_label.text()
-        assert not box.fit_btn.isHidden() and box.default_btn.isHidden()
+        assert "holds everything installed now (300.00 GB)" in box.default_label.text()
+        assert not box.confirm_btn.isHidden() and box.default_btn.isHidden()
+        box.confirm_btn.click()                                # Confirm records it
+        assert written == [{QTSTORE.BUDGET_SETTING: "300.0"}]
         assert caches.total_label.text() == QTSTORE.fmt_size(3_000)
         box.confirm = lambda title, text: asked.append((title, text)) or False
         box.budget_edit.setText("150")
         box.submit()
         assert asked[0][0] == TEXT.DOWNGRADE_TITLE and "165.00 GB" in asked[0][1]
-        assert applied == [] and box.budget_edit.text() == "255"   # Cancel
+        assert applied == [] and box.budget_edit.text() == "300"   # Cancel
         box.confirm = lambda title, text: True
         box.budget_edit.setText("150")
         box.submit()

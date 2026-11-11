@@ -663,7 +663,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
             continue
         res.append(r)
     res = extend_levels(res, reg, air_all, airport, law, grid, counts, beyond)
-    res = _seeded(res, reg, seeds, air_all, airport, law, grid, counts, beyond)
+    res = _seeded(res, reg, seeds, air_all, airport, law, grid, counts, beyond, lots)
     # one region, one depth (``planar/level_regions.region_depths``, round 4)
     from .level_regions import region_depths
     res = region_depths(res, reg, law, grid, counts)
@@ -687,12 +687,13 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
 
 
 def _seeded(regs: list, reg: Registries, seeds, air_all, airport, law, grid: float,
-            counts: dict, beyond) -> list:
+            counts: dict, beyond, lots=()) -> list:
     """``regs`` with the seeds' lower levels (``planar/level_regions``)."""
     if not seeds:
         return regs
     from .level_regions import seed_levels
-    return seed_levels(regs, reg, seeds, air_all, airport, law, grid, counts, beyond)
+    return seed_levels(regs, reg, seeds, air_all, airport, law, grid, counts, beyond,
+                       lots=lots)
 
 
 def _group_floors(airport, air_polys, tree, law) -> _t.Callable[[int], _t.Any]:

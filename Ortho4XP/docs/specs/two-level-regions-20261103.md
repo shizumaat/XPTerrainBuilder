@@ -1046,3 +1046,68 @@ patched off, LFPG the round-4b head 5829e7731):
   run-out ends 0; verify 3164 -> 3166 (`pad_flat` 83 -> 85, the T1 level);
   census adjudicated 2403 -> 2403, 0 new rows; solve-owned airside movers
   1 x 0.01 m.
+
+## 18. A passage under a main floor, and its court (lane lkmci2, 2026-11-10; owner RULINGS 2026-11-10h)
+
+Owner, KMCI 1.0.480 sim read: "the garden level stays part of the group,
+shouldn't change relative to the terminal, it's just the terrain should be
+graded flat at the lot level under it so it's exposed, and the lower road
+level runs along the bottom of the parking garage smoothly".
+
+**Attribution (replay `--from planar`, capture `.harness/frames/lkmci/KMCI.pkl`,
+tree claude/lkmci 7f7479e34).** Once lkmci restored the hall's main floor
+(`building26/p1`, -2.43, `planar/low_level.plan_low`, 43,782 m2 cut out of
+the block and the garage beside it), the W1 seed of unit 20 (the garage's
+walls, feet -10.36 under the stand floor -5.73: depth 4.63) found 26,550 of
+its 31,718 m2 on `p1`, not on the block: `_pad_of` read "its passage stands
+on no pad" and the passage level was never minted (the guard "the pad is
+already split into levels" never fired: it tested the block's own ref). The
+garage and the roads along it stood on the main floor at 302.44, 2.2 m over
+the lot. The garden (planters, paths, rails at y -8.0 .. -8.3, 302.6 m) stands
+outside every pad, between `dsf:objpav405` / `objpav660` (300.10-300.16) and
+the hall's facade, on DEM 302.5-303.8 the patch never touched.
+
+**As built.**
+1. TWO FLOORS ONE OBJECT WITNESSES (`level_regions._upper_floors`): a lower
+   level of the seed's own zero (`top_y` within one `PLANE_BAND_M` of the
+   seed's `z0`) whose floor stands at least two `PLANE_BAND_M` over the
+   walls' is the unit's main floor; its area counts as its block's for
+   `_pad_of`, and the passage is cut out of the block AND it (each host
+   region keeps its ref beyond the level and its riser). A level already at
+   the walls' floor, or of another zero, is no host.
+2. A LEVEL CUT INTO ITS GROUND (`low_fill`): the fill band reads the lower of
+   the level's ground median and its predicted height (`datum_pred + y_lo`).
+   Read against the median (303.33), 6,863 m2 of the garage floor at 300.78
+   was "fill" and left the patch.
+3. THE COURT (`planar/passage_court`, minted by `level_regions._courts` as
+   pieces of the passage level, `_pieces`): the unit's parts with feet at or
+   under the main floor whose centre lies on no pad / lot / airside region,
+   clustered within two `pad_frontage_m`; a cluster within two
+   `pad_frontage_m` plus a riser of a lot: the convex hull of the parts and
+   the lot's edge within that reach, grown by `pad_frontage_m`, less pads +
+   riser, lots, carriageways and airside + `pad_frontage_m`. Riser pieces
+   that reach a lot join the court (`_to_lot`): no lot vertex is shared with
+   a riser. Only for a passage cut out of a main floor (host > 1 ref).
+
+**Consumer census (RULINGS 2026-08-30l).** The new geometry is one more
+`low_level` landing of a block at a different floor, and (court) a piece of
+it -- the shape #1306's extensions already have. Every reader of
+`Registries.landings` kind `low_level`:
+
+| reader | reads | ruling |
+|---|---|---|
+| `constraints/platform.landing_rows` | per record, `z = D + y_lo` | unchanged: p3/p4 held at D - 4.63 |
+| `constraints/riser` | low vs block; two floors (`_level_floors`) | unchanged: rows spanning p1/p3 withdrawn (#1306 path) |
+| `constraints/pads` (withdrawn sets) | `kind != low_level` | unchanged |
+| `constraints/group_level` | `air_xy` records only | not reached (block-held) |
+| `constraints/road_ramp` | `wall_strips` records | not reached |
+| `planar/low_extent.extend_levels` | runs before the seeds | unchanged (p2 kept) |
+| `planar/level_regions.region_depths` | same zero, touching, floors within 1 band | p1 -2.43 / p2 -3.57 / p3, p4 -4.63: no merge |
+| `planar/low_fill.cut_fill_bands` | each level | item 2 above |
+| `planar/cut_runout` (`_run_out`) | the passage's levels + pieces | 8 run-outs, the roads leaving p3 |
+| `airport/placement_read` | `plane_origin_ref` folds `/p<k>` to the block | unchanged: the unit seats as one body |
+| `pipeline/publication`, `emit/osm_adapter` | sidecar `landings` | evidence only |
+| `model/platform`, `planar/fill_riser`, `airport/riser_wall` | fill / deck kinds | not reached |
+
+Emittable: every new region is a flat pad face with a riser strip, as the
+round-4 levels.

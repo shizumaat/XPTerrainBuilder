@@ -948,6 +948,8 @@ class MainWindow(QMainWindow):
             EV.PackOptimise: self._on_pack_optimise,
             EV.PackAdjust: self._on_pack_adjust,
             EV.GatewayAirports: self._on_gateway_airports,
+            # RULINGS 2026-11-11m (4): a pack's shipped .xptb was applied.
+            EV.PackPackage: self._on_pack_package,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
@@ -2093,6 +2095,12 @@ class MainWindow(QMainWindow):
         Fly pane's notice line."""
         self.fly_pane.show_notice(event)
         QTFLYDIVERT.post_notice(self, event)
+
+    def _on_pack_package(self, event):
+        """RULINGS 2026-11-11m (4): a pack's shipped ``.xptb`` was applied
+        (or fell back, or asks) — ``O4_Qt_Tile_Package.on_pack_package``."""
+        import O4_Qt_Tile_Package as QTPKG
+        QTPKG.on_pack_package(self, event)
 
     def _on_flight_ready(self, event):
         """``flight_plan_simbrief``'s plan, or its refusal sentence."""

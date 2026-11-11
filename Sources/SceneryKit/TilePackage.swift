@@ -189,6 +189,55 @@ public struct O4PackageEstimate: Decodable, Equatable, Sendable {
     public let kinds: [O4PackageKindEstimate]
 }
 
+/// `package_developer` result (RULINGS 2026-11-11m (3)): the airport's
+/// pack and its author's choice for its objects — `objects` "" (the
+/// object stage splits and reseats them), "final" or "applied".
+public struct O4PackageDeveloper: Decodable, Equatable, Sendable {
+    public let icao: String
+    public let pack: String
+    public let packRoot: String
+    public let objects: String
+    /// The object stage has changed the pack ("Apply" makes it its own).
+    public let modified: Bool
+    /// The packages in the pack's own XPTerrainBuilder folder.
+    public let shipped: [String]
+    public let restored: Int
+    public let moved: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case icao, pack, objects, modified, shipped, restored, moved
+        case packRoot = "pack_root"
+    }
+}
+
+/// `PackPackage` (RULINGS 2026-11-11m (4)): a package an installed airport
+/// pack ships, as a tile holding the airport built. `state` "applied" (a
+/// notice), "fallback" (the pack is another version: built as usual) or
+/// "conflict" (its patch is newer than the user's: the install sheet
+/// opens on `path` once).
+public struct O4PackPackage: Sendable, Equatable {
+    public let pack: String
+    public let packRoot: String
+    public let path: String
+    public let icao: String
+    public let state: String
+    public let text: String
+    public let lat: Int
+    public let lon: Int
+
+    public init(pack: String, packRoot: String, path: String, icao: String,
+                state: String, text: String, lat: Int, lon: Int) {
+        self.pack = pack
+        self.packRoot = packRoot
+        self.path = path
+        self.icao = icao
+        self.state = state
+        self.text = text
+        self.lat = lat
+        self.lon = lon
+    }
+}
+
 /// The words both apps use (Qt: `O4_Qt_Tile_Package`).
 public enum O4TilePackageCopy {
     public static let exportTitle = "Export Package…"
@@ -200,6 +249,16 @@ public enum O4TilePackageCopy {
     public static let airportLabel = "Airport"
     public static let wholeTileOnly = "Whole tile (no airport)"
     public static let estimateNote = "Sizes and times are estimates; imagery is never included."
+    /// The export window's developer rows (RULINGS 2026-11-11m (3)).
+    public static let intoPack = "Save into this airport's pack folder"
+    public static let objectsLabel = "Objects of my pack"
+    public static let objectsDefault = "Let XPTerrainBuilder fit them"
+    public static let objectsFinal = "Objects are final"
+    public static let objectsApplied = "XPTerrainBuilder's fixes are applied"
+    public static let applyFixes = "Apply XPTerrainBuilder's object fixes into my pack…"
+    public static let applyConfirm = "The object stage's splits and seats become your pack's own "
+        + "files; the originals are moved to the pack's XPTerrainBuilder/backup folder, "
+        + "and recipients of a package saved from it leave its objects alone."
 
 
     public static func installed(_ plan: O4PackagePlan) -> String {
@@ -234,15 +293,27 @@ extension OrthoEngineClient {
 
     /// Writes the package of `tiles` (of `airports` only when given) to
     /// `out`, a `.xptb` path; `kind` "exact", "patch" or "tile".
+    /// `intoPack`: saved into the airport's own pack folder (`out` unused).
     public func packageSave(tiles: [(lat: Int, lon: Int)], workingDir: String, out: String,
                             airports: [String], kind: String = "", title: String,
                             creator: String, notes: String,
-                            url: String) async throws -> O4PackageSaved {
-        try await libraryRequest("package_save", [
+                            url: String, intoPack: Bool = false) async throws -> O4PackageSaved {
+        var arguments: [String: Any] = [
             "tiles": tiles.map { [$0.lat, $0.lon] }, "working_dir": workingDir, "out": out,
             "airports": airports, "kind": kind, "title": title, "creator": creator,
             "notes": notes, "url": url,
-        ])
+        ]
+        if intoPack { arguments["into_pack"] = true }
+        return try await libraryRequest("package_save", arguments)
+    }
+
+    /// The airport's pack and its author's objects choice; `action`
+    /// "read", "final", "default" or "apply" (RULINGS 2026-11-11m (3)).
+    public func packageDeveloper(icao: String, tiles: [(lat: Int, lon: Int)], workingDir: String,
+                                 action: String = "read") async throws -> O4PackageDeveloper {
+        try await libraryRequest("package_developer", [
+            "icao": icao, "tiles": tiles.map { [$0.lat, $0.lon] },
+            "working_dir": workingDir, "action": action])
     }
 
     /// What installing `path` would do; writes nothing.

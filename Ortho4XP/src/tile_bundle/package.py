@@ -42,11 +42,12 @@ from . import estimate as _estimate
 from . import export as _export
 from . import key as _key
 from . import kinds as _kinds
+from . import pack_dev as _dev
 from . import paths as _paths
 
 __all__ = ["XZ_PRESET", "BRANDING", "key_parts", "package_name",
-           "branding", "destination_path", "write", "save_package",
-           "airports_of"]
+           "branding", "destination_path", "write", "into_pack_path",
+           "save_package", "airports_of"]
 
 #: xz preset of a package (module doc: measured).
 XZ_PRESET = 9
@@ -152,11 +153,24 @@ def _member_bytes(name: str, path: str, change, airports=None) -> bytes:
     return _paths.transform_file_bytes(name, data, change)
 
 
+def _with_objects(tile, graded: dict) -> dict:
+    """Each airport row with its pack author's ``objects`` choice
+    (:mod:`.pack_dev`, RULINGS 2026-11-11m (3)) when there is one: a
+    recipient whose pack matches leaves those objects alone."""
+    for icao, row in graded.items():
+        if row.get("custom"):
+            mode = _dev.objects_mode(_key.pack_root(tile, icao))
+            if mode:
+                graded[icao] = dict(row, objects=mode)
+    return graded
+
+
 def _tile_entry(tile, names, airports=None) -> dict:
     graded = _key.airport_signatures(tile)
     if airports is not None:
         graded = {icao: graded.get(icao) or {"pack": "", "custom": False, "signature": ""}
                   for icao in sorted(airports & _tile_airports(tile))}
+    graded = _with_objects(tile, graded)
     return {"tile": FNAMES.short_latlon(tile.lat, tile.lon),
             "airports": graded,
             "data_snapshot": _export._snapshot(tile),
@@ -241,8 +255,28 @@ def write(out_path: str, manifest: dict, blobs: dict) -> str:
     return out_path
 
 
+def into_pack_path(tiles, airports, custom_build_dir: str = "") -> str:
+    """Export's "Save into this airport's pack folder" (RULINGS
+    2026-11-11m (3)): ``<pack>/XPTerrainBuilder/<ICAO>.xptb`` of the one
+    airport chosen.
+
+    :raises BundleRefused: not one airport, or its pack is not a Custom
+        Scenery pack of the user's."""
+    chosen = sorted({str(a).upper() for a in airports or ()})
+    if len(chosen) != 1:
+        raise BundleRefused("Choose the one airport whose pack the package "
+                            "is saved into.")
+    for lat, lon in sorted({(int(a), int(b)) for a, b in tiles or ()}):
+        root = _key.pack_root(_export.load_tile(lat, lon, custom_build_dir), chosen[0])
+        if root:
+            return _dev.package_path(root, chosen[0])
+    raise BundleRefused("%s is not served by a Custom Scenery pack of yours; "
+                        "save the package elsewhere." % chosen[0])
+
+
 def save_package(tiles, out: str, custom_build_dir: str = "",
-                 airports=None, kind=None, **fields) -> dict:
+                 airports=None, kind=None, into_pack: bool = False,
+                 **fields) -> dict:
     """ENGINE COMMAND ``package_save``: write the package of ``tiles``
     (``[(lat, lon)]``) to ``out`` (a ``.xptb`` path, or a folder it is
     written into under :func:`package_name`).  ``airports`` (ICAOs)
@@ -250,7 +284,10 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
     data and own files, and only the tiles that grade or hold them;
     ``kind`` (:mod:`.kinds`: ``"exact"``, the default with ``airports``,
     ``"patch"``, or ``"tile"``, the default without) what it holds.
-    ``fields``: the optional :data:`BRANDING` fields.
+    ``into_pack``: ``out`` is ignored and the package is saved into the
+    airport's own pack folder (:func:`into_pack_path`), where every
+    installation that has the pack applies it as its tiles build
+    (``pack_shipped``).  ``fields``: the optional :data:`BRANDING` fields.
 
     :returns: ``{"path", "bytes", "data_bytes", "key", "files", "tiles",
         "noncommercial", "seconds"}``
@@ -268,6 +305,11 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
         kind = _kinds.resolve(kind, chosen)
     except ValueError as error:
         raise BundleRefused(str(error)) from error
+    if into_pack:
+        if kind == _kinds.TILE:
+            raise BundleRefused("A package saved into a pack is one airport's: "
+                                "choose Exact match or Airport patch only.")
+        out = into_pack_path(pairs_in, chosen, custom_build_dir)
     if kind == _kinds.TILE:
         chosen = None
     loaded = _airport_tiles([_export.load_tile(lat, lon, custom_build_dir)

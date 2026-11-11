@@ -203,6 +203,12 @@ TILE_PACKAGE = (
      "package", "_ExportDialog"),
     ("export_estimate", "TilePackageSheets.swift", "client.packageEstimate(",
      "package", "export"),
+    # RULINGS 2026-11-11m: the pack author's rows in the export window, and
+    # a pack's shipped package noticed (and its conflict asked) on build.
+    ("export_pack_rows", "TilePackageSheets.swift", "O4TilePackageCopy.intoPack",
+     "package", "INTO_PACK"),
+    ("pack_package_notice", "BuildModel.swift", "case .packPackage",
+     "package", "on_pack_package"),
 )
 
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
@@ -962,7 +968,12 @@ def test_the_package_actions_have_one_home_in_each_app(window):
                      ("useTheirs", QTPKG.USE_THEIRS), ("combineTitle", QTPKG.COMBINE_TITLE),
                      ("airportLabel", QTPKG.AIRPORT_LABEL),
                      ("wholeTileOnly", QTPKG.WHOLE_TILE_ONLY),
-                     ("estimateNote", QTPKG.ESTIMATE_NOTE)):
+                     ("estimateNote", QTPKG.ESTIMATE_NOTE),
+                     ("intoPack", QTPKG.INTO_PACK), ("objectsLabel", QTPKG.OBJECTS_LABEL),
+                     ("objectsDefault", QTPKG.OBJECTS_DEFAULT),
+                     ("objectsFinal", QTPKG.OBJECTS_FINAL),
+                     ("objectsApplied", QTPKG.OBJECTS_APPLIED),
+                     ("applyFixes", QTPKG.APPLY_FIXES)):
         said = re.search(r'static let %s = "([^"]+)"' % name, kit)
         assert said and said.group(1) == qt, name
     owners = window.export_package_action.associatedObjects()

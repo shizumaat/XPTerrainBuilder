@@ -31,7 +31,7 @@ from auto_patch_v2.airport.pack_identity import pack_signature  # the one deriva
 from . import FORMAT
 
 __all__ = ["NOT_PROFILE", "MATCHED_NOT_REFUSED", "LOCATION_ENVS", "mesh_profile",
-           "profile_deviations", "without_locations", "xplane_root",
+           "profile_deviations", "without_locations", "xplane_root", "pack_root",
            "pack_signature", "graded_airports", "airport_signatures", "key_parts",
            "bundle_key", "first_difference"]
 
@@ -88,6 +88,16 @@ def xplane_root(tile) -> str | None:
     from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
     cifp = VMAP.resolve_cifp_dir_for_tile(tile)
     return xplane_root_from_cifp_path(cifp) if cifp else None
+
+
+def pack_root(tile, icao: str) -> str:
+    """The Custom Scenery pack folder serving ``icao`` for the tile's
+    build (``airport.pack.select_pack``), ``""`` for none or Global
+    Airports."""
+    from auto_patch_v2.airport.pack import select_pack
+    root = xplane_root(tile)
+    sel = select_pack(root, str(icao).upper()) if root else None
+    return sel.root if sel is not None and sel.custom else ""
 
 
 def graded_airports(tile) -> list:

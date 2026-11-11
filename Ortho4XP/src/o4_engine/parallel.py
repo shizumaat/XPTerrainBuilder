@@ -623,6 +623,8 @@ _FORWARDED_EVENT_TYPES = (
     "PackAdjust",
     # #1989: ... and the tile's Gateway airports to offer.
     "GatewayAirports",
+    # RULINGS 11m (4): ... and the packages the tile's packs ship.
+    "PackPackage",
     "Log",
 )
 

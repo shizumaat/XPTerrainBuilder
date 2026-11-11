@@ -49,6 +49,7 @@ from .events import (
     PackOptimise,
     PackAdjust,
     GatewayAirports,
+    PackPackage,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     SlowStep,
     StepProgress,
@@ -1144,6 +1145,7 @@ class EngineSession:
         airport photos already cached."""
         if key != "vector":
             return function(tile)
+        self._apply_pack_packages(tile)
         import functools
 
         import O4_Imagery_Prefetch as PREFETCH
@@ -1160,6 +1162,18 @@ class EngineSession:
         with PREFETCH.alongside(tile, on_done=downloads_done) as prefetch:
             tile.airport_imagery_fetch = prefetch.fetch_airports
             return function(tile)
+
+    def _apply_pack_packages(self, tile):
+        """RULINGS 2026-11-11m (4): before the vector step reads the
+        tile's patches, the packages its installed airport packs ship are
+        applied, each with its notice (``tile_bundle.pack_shipped``).
+        Never raises: the tile builds as usual."""
+        try:
+            from tile_bundle import pack_shipped
+            for row in pack_shipped.apply_for_tile(tile):
+                self._emit(PackPackage(**row))
+        except Exception as error:
+            UI.vprint(1, "  [pack package] not read (%s)" % error)
 
     def _seed_work_queue(self, tiles, provider, zoomlevel,
                          custom_build_dir, plan):

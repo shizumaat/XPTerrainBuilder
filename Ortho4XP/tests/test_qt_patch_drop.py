@@ -148,6 +148,7 @@ def test_the_export_dialog_is_airport_first(window, tmp_path, monkeypatch):  # n
     saved = {}
     monkeypatch.setattr(QTPKG.LIB, "package_airports", lambda tiles, wd: found)
     monkeypatch.setattr(QTPKG.LIB, "package_estimate", lambda tiles, wd, a: _kind_rows(a))
+    monkeypatch.setattr(QTPKG.LIB, "package_developer", lambda *a: _no_pack(a))
     monkeypatch.setattr(QTPKG._ExportDialog, "ask", lambda self: self.answer())
     monkeypatch.setattr(QTPKG, "_save_path", lambda w, name: saved.setdefault(
         "name", name) and str(tmp_path / name))
@@ -156,3 +157,61 @@ def test_the_export_dialog_is_airport_first(window, tmp_path, monkeypatch):  # n
     QTPKG.export(window, [(33, -119)])
     assert saved["name"] == "XPTerrainBuilder_KLAX_exact.xptb"
     assert (saved["airports"], saved["kind"]) == (["KLAX"], "exact")
+
+
+def _no_pack(_args):
+    raise ValueError("not served by a Custom Scenery pack of yours")
+
+
+def test_the_export_dialog_holds_the_pack_authors_rows(window, tmp_path, monkeypatch):  # noqa: F811
+    """RULINGS 2026-11-11m (3): an airport served by the user's own pack
+    shows its objects choice, the apply button and "Save into this
+    airport's pack folder"; a choice is sent as ``package_developer``; an
+    airport without one hides the rows."""
+    import O4_Qt_Tile_Package as QTPKG
+    found = {"tiles": {"+33-119": ["KLAX", "KSMO"]}, "custom": {}, "default": "KLAX"}
+    state = {"objects": "", "modified": True}
+    sent = []
+
+    def developer(airport, action):
+        sent.append((airport, action))
+        if airport != "KLAX":
+            raise ValueError("not yours")
+        if action in ("final", "default"):
+            state["objects"] = "final" if action == "final" else ""
+        if action == "apply":
+            state.update(objects="applied", modified=False)
+        return {"pack": "My KLAX", "pack_root": "/p", **state}
+
+    monkeypatch.setattr(QTPKG._ExportDialog, "_confirm_apply", lambda self: True)
+    dialog = QTPKG._ExportDialog(window, found, _kind_rows, developer)
+    assert not dialog.into_pack.isHidden() and dialog.apply.isEnabled()
+    assert dialog.pack_label.text() == "Your pack: My KLAX"
+    dialog.objects.setCurrentIndex(dialog.objects.findData("final"))
+    dialog._objects_chosen()
+    assert sent[-1] == ("KLAX", "final") and dialog.pack["objects"] == "final"
+    dialog._apply()
+    assert sent[-1] == ("KLAX", "apply") and dialog.objects.currentData() == "applied"
+    assert not dialog.apply.isEnabled()
+    dialog.into_pack.setChecked(True)
+    assert dialog.answer()["into_pack"] is True
+    dialog.airport.setCurrentIndex(dialog.airport.findData("KSMO"))
+    assert dialog.into_pack.isHidden() and dialog.answer()["into_pack"] is False
+
+
+def test_a_pack_package_notice_asks_its_conflict_once(window, monkeypatch):  # noqa: F811
+    """RULINGS 2026-11-11m (4): ``PackPackage`` is a tray notice once per
+    package and state; a conflict opens the install dialog on it."""
+    import types
+
+    import O4_Qt_Fly_Divert as QTFLYDIVERT
+    import O4_Qt_Tile_Package as QTPKG
+    posted, offered = [], []
+    monkeypatch.setattr(QTFLYDIVERT, "post_notice", lambda w, e: posted.append(e.text))
+    monkeypatch.setattr(QTPKG, "offer", lambda w, paths: offered.append(list(paths)))
+    monkeypatch.setattr(QTPKG, "_NOTICED", set())
+    event = types.SimpleNamespace(path="/p/XPTerrainBuilder/KLAX.xptb", state="conflict",
+                                  text="My KLAX ships a newer patch for KLAX than yours")
+    window._on_pack_package(event)
+    window._on_pack_package(event)
+    assert posted == [event.text] and offered == [[event.path]]

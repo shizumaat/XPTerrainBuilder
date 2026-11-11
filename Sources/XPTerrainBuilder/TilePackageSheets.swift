@@ -18,6 +18,12 @@ import UniformTypeIdentifiers
 ///   and, per airport that already has a patch, "Keep my patch" or "Back
 ///   up mine and use the package's". Install runs `package_install`.
 /// * File ▸ Combine Packages… merges several packages into one.
+/// * For an airport served by the user's own Custom Scenery pack, the
+///   export window also says what the pack's author wants for its
+///   objects — "Objects are final" or "Apply XPTerrainBuilder's object
+///   fixes into my pack…" (`package_developer`, RULINGS 2026-11-11m (3))
+///   — and can save the package into the pack's own folder, where every
+///   installation applies it as the airport's tiles build.
 @MainActor
 final class TilePackageModel: ObservableObject {
     static let shared = TilePackageModel()
@@ -43,6 +49,10 @@ final class TilePackageModel: ObservableObject {
         var creator = ""
         var notes = ""
         var url = ""
+        /// The airport's own pack (nil: Global Airports, or not read yet).
+        var developer: O4PackageDeveloper?
+        /// Save into `<pack>/XPTerrainBuilder/<ICAO>.xptb`.
+        var intoPack = false
 
         /// The chosen kind's estimate row, when estimated.
         var chosen: O4PackageKindEstimate? { estimate?.kinds.first { $0.kind == kind } }
@@ -125,6 +135,7 @@ final class TilePackageModel: ObservableObject {
                                 custom: Set((found.custom ?? [:]).values.joined()),
                                 airport: start, kind: start.isEmpty ? "tile" : "exact")
                 estimate(build: build)
+                developer(build: build)
             } catch {
                 message = "\(error)"
             }
@@ -137,8 +148,45 @@ final class TilePackageModel: ObservableObject {
         request.airport = airport
         request.kind = airport.isEmpty ? "tile" : "exact"
         request.estimate = nil
+        request.developer = nil
+        request.intoPack = false
         export = request
         estimate(build: build)
+        developer(build: build)
+    }
+
+    /// The chosen airport's pack and its author's objects choice; `action`
+    /// "final", "default" or "apply" changes it (RULINGS 2026-11-11m (3)).
+    func developer(build: BuildModel, action: String = "read") {
+        guard let request = export, !request.airport.isEmpty,
+              build.engineCapabilities.supports(O4EngineCapabilities.packPackages),
+              let (client, dir) = client(build) else { return }
+        if action == "apply" {
+            let alert = NSAlert()
+            alert.messageText = O4TilePackageCopy.applyFixes
+            alert.informativeText = O4TilePackageCopy.applyConfirm
+            alert.addButton(withTitle: "Apply")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        Task {
+            do {
+                let found = try await client.packageDeveloper(
+                    icao: request.airport, tiles: request.tiles.map { ($0.lat, $0.lon) },
+                    workingDir: dir, action: action)
+                if export?.id == request.id, export?.airport == request.airport {
+                    export?.developer = found
+                }
+                if action != "read" {
+                    build.console.append("\(found.pack): objects "
+                        + (found.objects.isEmpty ? "fitted by XPTerrainBuilder" : found.objects)
+                        + (found.moved > 0 ? " (\(found.moved) originals moved to its backup folder)" : "")
+                        + (found.restored > 0 ? " (\(found.restored) originals put back)" : "") + ".")
+                }
+            } catch {
+                if action != "read" { message = "\(error)" }   // no pack of yours: no row
+            }
+        }
     }
 
     private func estimate(build: BuildModel) {
@@ -159,11 +207,17 @@ final class TilePackageModel: ObservableObject {
 
     func save(_ request: Export, build: BuildModel) {
         guard let (client, dir) = client(build) else { return }
-        let panel = NSSavePanel()
-        panel.title = "Export Package"
-        panel.allowedContentTypes = [Self.packageType]
-        panel.nameFieldStringValue = Self.defaultName(request)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        var url = URL(fileURLWithPath: request.developer.map {
+            "\($0.packRoot)/XPTerrainBuilder/\(request.airport).\(O4TilePackage.fileExtension)"
+        } ?? "")
+        if !request.intoPack {
+            let panel = NSSavePanel()
+            panel.title = "Export Package"
+            panel.allowedContentTypes = [Self.packageType]
+            panel.nameFieldStringValue = Self.defaultName(request)
+            guard panel.runModal() == .OK, let chosen = panel.url else { return }
+            url = chosen
+        }
         export = nil
         Task {
             do {
@@ -171,7 +225,8 @@ final class TilePackageModel: ObservableObject {
                     tiles: request.tiles.map { ($0.lat, $0.lon) }, workingDir: dir, out: url.path,
                     airports: request.kind == "tile" ? [] : [request.airport],
                     kind: request.kind, title: request.title,
-                    creator: request.creator, notes: request.notes, url: request.url)
+                    creator: request.creator, notes: request.notes, url: request.url,
+                    intoPack: request.intoPack)
                 build.console.append("Saved package \(url.lastPathComponent) "
                     + "(\(ByteCountFormatter.string(fromByteCount: done.bytes, countStyle: .file)))"
                     + (done.noncommercial ? ", non-commercial." : "."))
@@ -312,6 +367,9 @@ struct TilePackageExportSheet: View {
                     ProgressView("Estimating sizes…").controlSize(.small)
                 }
                 Text(O4TilePackageCopy.estimateNote).font(.caption).foregroundStyle(.secondary)
+                if let pack = request.developer {
+                    developerRows(pack, request: request)
+                }
                 Form {
                     TextField("Title", text: field(\.title))
                     TextField("Made by", text: field(\.creator))
@@ -331,6 +389,30 @@ struct TilePackageExportSheet: View {
         }
     }
 
+    /// The pack author's rows (RULINGS 2026-11-11m (3); Qt: the same three
+    /// controls in `_ExportDialog`).
+    @ViewBuilder
+    private func developerRows(_ pack: O4PackageDeveloper, request: TilePackageModel.Export) -> some View {
+        Divider()
+        Text("Your pack: \(pack.pack)").bold()
+        Picker(O4TilePackageCopy.objectsLabel, selection: Binding(
+            get: { pack.objects },
+            set: { model.developer(build: buildModel, action: $0 == "final" ? "final" : "default") }
+        )) {
+            Text(O4TilePackageCopy.objectsDefault).tag("")
+            Text(O4TilePackageCopy.objectsFinal).tag("final")
+            if pack.objects == "applied" { Text(O4TilePackageCopy.objectsApplied).tag("applied") }
+        }
+        Button(O4TilePackageCopy.applyFixes) { model.developer(build: buildModel, action: "apply") }
+            .disabled(!pack.modified)
+        Toggle(O4TilePackageCopy.intoPack, isOn: Binding(
+            get: { request.intoPack },
+            set: { model.export?.intoPack = $0 }
+        ))
+        .disabled(request.kind == "tile")
+        Divider()
+    }
+
     private func kindRow(_ row: O4PackageKindEstimate, chosen: Bool) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
@@ -345,7 +427,11 @@ struct TilePackageExportSheet: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { if row.available { model.export?.kind = row.kind } }
+        .onTapGesture {
+            guard row.available else { return }
+            model.export?.kind = row.kind
+            if row.kind == "tile" { model.export?.intoPack = false }
+        }
         .opacity(row.available ? 1 : 0.6)
     }
 }

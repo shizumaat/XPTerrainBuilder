@@ -100,4 +100,29 @@ struct TilePackageTests {
         #expect(O4TilePackage.isPackage(URL(fileURLWithPath: "/a/b.xptbundle")))
         #expect(!O4TilePackage.isPackage(URL(fileURLWithPath: "/a/KXXX.patch.osm")))
     }
+
+    /// RULINGS 2026-11-11m: the pack author's choice as `package_developer`
+    /// sends it, and a pack's shipped package as `PackPackage`.
+    @Test func developerDecodes() throws {
+        let event = O4JSON.from(["event": "LibraryReady", "command": "package_developer", "error": "",
+                                 "result": ["icao": "HECA", "pack": "HECA Cairo",
+                                            "pack_root": "/cs/HECA Cairo", "objects": "applied",
+                                            "modified": false, "shipped": ["/cs/HECA Cairo/XPTerrainBuilder/HECA.xptb"],
+                                            "restored": 0, "moved": 4] as [String: Any]] as [String: Any])
+        let got: O4PackageDeveloper = try OrthoEngineClient.decodeLibraryReady(event).get()
+        #expect(got.objects == "applied" && got.moved == 4 && got.packRoot == "/cs/HECA Cairo")
+    }
+
+    @Test func packPackageParses() throws {
+        let object: [String: Any] = ["event": "PackPackage", "pack": "HECA Cairo", "pack_root": "/cs/HECA Cairo",
+                                     "path": "/cs/HECA Cairo/XPTerrainBuilder/HECA.xptb", "icao": "HECA",
+                                     "state": "conflict", "text": "HECA Cairo ships a newer patch",
+                                     "lat": 30, "lon": 31]
+        guard case .packPackage(let got)? = O4Event.parse(object: object) else {
+            Issue.record("PackPackage did not parse")
+            return
+        }
+        #expect(got.state == "conflict" && got.lat == 30 && got.icao == "HECA")
+        #expect(O4EngineCapabilities.packPackages == "pack_packages")
+    }
 }

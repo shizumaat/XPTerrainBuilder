@@ -43,6 +43,7 @@ import O4_File_Names as FNAMES
 from . import FORMAT, PACKAGE_FORMAT, BundleRefused, inputs
 from . import key as _key
 from . import kinds as _kinds
+from . import pack_dev as _dev
 from . import package as _package
 from . import paths as _paths
 from .export import load_tile
@@ -50,8 +51,9 @@ from .export import load_tile
 __all__ = ["REGISTRY", "CONFLICT_CHOICES", "SET_ASIDE", "read_manifest", "plan",
            "install", "version_tuple", "merge_index"]
 
-#: Per tile, in its patch folder: which package installed which patch.
-REGISTRY = "o4_installed_packages.json"
+#: Per tile, in its patch folder: which package installed which patch
+#: (``pack_dev`` reads it too, for the airports whose objects it carries).
+REGISTRY = _dev.REGISTRY
 
 #: The answers to "this airport already has a patch": keep the one
 #: installed (the default) or back it up and use the package's.
@@ -158,8 +160,9 @@ def merge_index(existing: bytes, incoming: bytes, newer: bool) -> bytes:
 class _Pass:
     """One read of the package: each member checked and decided."""
 
-    def __init__(self, manifest, tiles, choices, write):
+    def __init__(self, manifest, tiles, choices, write, source=""):
         self.manifest, self.tiles, self.write = manifest, tiles, write
+        self.source = source
         self.choices = {str(k).upper(): v for k, v in (choices or {}).items()
                         if v in CONFLICT_CHOICES}
         self.rows, self.asks, self.decided = [], [], {}
@@ -227,6 +230,8 @@ class _Pass:
         if existing is None:
             return "new", ""
         if (record.get("files") or {}).get(patch) == _sha(existing):
+            if self.source and record.get("source") == self.source:
+                return "replace", "an update of the package from the same pack"
             ours = version_tuple(record.get("engine_version"))
             theirs = version_tuple(self.manifest.get("engine_version"))
             if theirs != ours:          # two packages: the newer engine's wins
@@ -250,8 +255,9 @@ class _Pass:
         return "keep", "your choice" if choice else "kept (the default)"
 
 
-def _scan(path: str, manifest: dict, tiles: dict, choices, write: bool) -> _Pass:
-    run = _Pass(manifest, tiles, choices, write)
+def _scan(path: str, manifest: dict, tiles: dict, choices, write: bool,
+          source: str = "") -> _Pass:
+    run = _Pass(manifest, tiles, choices, write, source)
     names = set()
     try:
         with tarfile.open(path, "r:*") as tar:
@@ -407,10 +413,24 @@ def plan(path: str, custom_build_dir: str = "", choices=None) -> dict:
     return _details(path, manifest, tiles, _scan(path, manifest, tiles, choices, False))
 
 
+def _record_objects(doc: dict, manifest: dict, key: str) -> None:
+    """Each airport whose pack author's ``objects`` choice the package
+    records, with the pack signature it was made against (``pack_dev.
+    frozen_reason`` leaves that pack alone while it matches)."""
+    for entry in manifest.get("tiles") or []:
+        if entry.get("tile") != key:
+            continue
+        for icao, row in (entry.get("airports") or {}).items():
+            if (row or {}).get("objects"):
+                doc.setdefault(icao, {"files": {}}).update(
+                    objects=row["objects"], signature=row.get("signature", ""))
+
+
 def _record(run: _Pass, manifest: dict) -> None:
     """The tiles' :data:`REGISTRY`: the patches this package installed."""
     for key in run.tiles:
         doc = run.registries.get(key) or {}
+        _record_objects(doc, manifest, key)
         for row in run.rows:
             if row["tile"] != key or not row["name"].startswith("patches/") \
                     or row["action"] not in ("new", "same", "replace"):
@@ -420,7 +440,7 @@ def _record(run: _Pass, manifest: dict) -> None:
             entry = doc.setdefault(icao, {"files": {}})
             entry.update(package=manifest.get("key", ""), title=manifest.get("title", ""),
                          engine_version=manifest.get("engine_version", ""),
-                         created=manifest.get("created", ""))
+                         created=manifest.get("created", ""), source=run.source)
             entry["files"][base] = row["sha256"]
         if doc:
             folder = FNAMES.patch_dir(*FNAMES.parse_tile_key(key))
@@ -455,8 +475,13 @@ def _downloads_left(tile) -> list:
     return parallel.uncached_subsystems(tile, "vector")
 
 
-def install(path: str, custom_build_dir: str = "", choices=None) -> dict:
+def install(path: str, custom_build_dir: str = "", choices=None,
+            source: str = "") -> dict:
     """ENGINE COMMAND ``package_install``: install ``path`` (module doc).
+    ``source`` names where an automatic install's package came from
+    (``pack_shipped``: ``"pack:<pack>"``); the registry keeps it, and a
+    later package from the same source replaces the patch it installed
+    without asking (the pack's developer updated it).
 
     :returns: :func:`plan`'s details with ``"installed"`` (files placed),
         ``"downloads_left"`` (``{tile: [subsystem, …]}``, empty when the
@@ -472,7 +497,7 @@ def install(path: str, custom_build_dir: str = "", choices=None) -> dict:
         return details
     tiles = _tiles(manifest, custom_build_dir)
     _check_key(manifest, tiles)
-    run = _scan(path, manifest, tiles, choices, True)
+    run = _scan(path, manifest, tiles, choices, True, source)
     details = _details(path, manifest, tiles, run)
     details["installed"] = _place(run.rows)
     _record(run, manifest)

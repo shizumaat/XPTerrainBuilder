@@ -345,6 +345,9 @@ public enum O4Event: Sendable, Equatable {
     /// the report, or a `gateway_airports` command's outcome. See
     /// `O4GatewayAirports`.
     case gatewayAirports(O4GatewayAirports)
+    /// A package an airport pack ships, applied as a tile built
+    /// (capability `pack_packages`, RULINGS 2026-11-11m). See `O4PackPackage`.
+    case packPackage(O4PackPackage)
     /// The imagery follow job's state (capability `imagery_follow`,
     /// #1992 P3b). See `O4ImageryFollowStatus`.
     case imageryFollowStatus(O4ImageryFollowStatus)
@@ -609,6 +612,13 @@ public enum O4Event: Sendable, Equatable {
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
+        // Another STRING LITERAL match: `class PackPackage` in
+        // Ortho4XP/src/o4_engine/events.py.
+        case "PackPackage":
+            return .packPackage(O4PackPackage(
+                pack: string("pack"), packRoot: string("pack_root"), path: string("path"),
+                icao: string("icao"), state: object["state"] as? String ?? "applied",
+                text: string("text"), lat: int("lat"), lon: int("lon")))
         // Another STRING LITERAL match: `class GatewayAirports` in
         // Ortho4XP/src/o4_engine/events.py.
         case "GatewayAirports":

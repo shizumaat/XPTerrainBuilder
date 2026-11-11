@@ -34,6 +34,12 @@ installs it, combining with packages already installed.
 
 A ``.xptbundle`` is still read (:mod:`.install` dispatches it to
 :mod:`.importer`).
+
+DEVELOPER PACKAGES (RULINGS 2026-11-11m): a pack's author says, in the
+pack, whether its objects are final (:mod:`.pack_dev`), applies the
+object stage's fixes into it (:mod:`.pack_apply`), and ships packages in
+its ``XPTerrainBuilder`` folder, which every installation applies as the
+airport's tiles build (:mod:`.pack_shipped`).
 """
 from __future__ import annotations
 

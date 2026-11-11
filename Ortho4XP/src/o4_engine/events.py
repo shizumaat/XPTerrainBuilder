@@ -233,6 +233,7 @@ CAPABILITIES: tuple = (
     "live_preview",                 # 2026-11-10, #2001 live_preview_squares / live_preview_mip
     "world_onboard",                # 2026-11-11, #2007 world_onboard (World pack at the start)
     "tile_package",                 # 2026-11-11, #2014 package_save/plan/install/merge (.xptb)
+    "pack_packages",                # 2026-11-11, RULINGS 11m PackPackage + package_developer
 )
 
 
@@ -887,6 +888,39 @@ class GatewayAirports(EngineEvent):
     files: list = field(default_factory=list)
     state: str = "found"
     error: str = ""
+
+
+@dataclass(frozen=True)
+class PackPackage(EngineEvent):
+    """A package an installed airport pack ships in its ``XPTerrainBuilder``
+    folder, applied when a tile holding the airport built (RULINGS
+    2026-11-11m (4); capability ``pack_packages``; ``tile_bundle.
+    pack_shipped``).  Emitted at the start of the tile's vector step.
+    ``state``:
+
+    * ``"applied"`` — the build uses it: a notice, ``text`` "Using
+      <pack>'s XPTerrainBuilder data for <ICAO>";
+    * ``"fallback"`` — the installed pack is not the version the package
+      was made for: the airport is processed as usual (noticed once per
+      package);
+    * ``"conflict"`` — the package's patch is newer than the user's own,
+      which is kept: the app opens the install sheet on ``path`` once
+      (the "Keep my patch" / "Back up mine and use the package's"
+      question, RULINGS 2026-11-11l (3)).
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
+    pack: str = ""
+    pack_root: str = ""
+    path: str = ""
+    icao: str = ""
+    state: str = "applied"
+    text: str = ""
+    lat: int = 0
+    lon: int = 0
 
 
 @dataclass(frozen=True)

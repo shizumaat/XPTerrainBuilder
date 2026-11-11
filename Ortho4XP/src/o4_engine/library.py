@@ -51,7 +51,7 @@ __all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "ROW_WORKERS", "libra
            "cache_sizes", "free_cache", "library_delete",
            "library_export_bundle", "library_import_bundle",
            "package_save", "package_airports", "package_estimate", "package_plan",
-           "package_install", "package_merge",
+           "package_install", "package_merge", "package_developer",
            "PATCH_LIBRARY_COMMANDS", "COMMANDS", "patch_library_command", "start"]
 
 #: ``built_by`` of a tile this app built
@@ -357,15 +357,18 @@ def library_import_bundle(path: str, working_dir: str) -> dict:
 # ---------------------------------------------------------------------------
 def package_save(tiles, working_dir: str, out: str, airports=None,
                  title: str = "", creator: str = "", notes: str = "",
-                 url: str = "", kind: str = "") -> dict:
+                 url: str = "", kind: str = "", into_pack: bool = False) -> dict:
     """ENGINE COMMAND ``package_save``: the ``.xptb`` package of ``tiles``
     (``[[lat, lon], …]``; with ``airports``, of those airports only) at
     ``out`` — a ``.xptb`` path or a folder (``tile_bundle.package``);
     ``kind`` ``"exact"`` / ``"patch"`` / ``"tile"`` (``tile_bundle.kinds``;
-    empty: exact with airports, tile without)."""
+    empty: exact with airports, tile without); ``into_pack``: saved into
+    the airport's own pack folder instead of ``out`` (RULINGS 2026-11-11m
+    (3))."""
     from tile_bundle import package
     return package.save_package(tiles, out, _custom_build_dir(working_dir),
-                                airports or None, kind=kind or None, title=title,
+                                airports or None, kind=kind or None,
+                                into_pack=bool(into_pack), title=title,
                                 creator=creator, notes=notes, url=url)
 
 
@@ -406,6 +409,17 @@ def package_install(path: str, working_dir: str = "", choices=None) -> dict:
     "replace"}`` answers the plan's questions."""
     from tile_bundle import install
     return install.install(path, _custom_build_dir(working_dir), choices)
+
+
+def package_developer(icao: str, tiles, working_dir: str = "",
+                      action: str = "read") -> dict:
+    """ENGINE COMMAND ``package_developer`` (RULINGS 2026-11-11m (3)):
+    the airport's pack and its author's choice for its objects —
+    ``action`` ``"read"``, ``"final"`` ("Objects are final"),
+    ``"default"`` or ``"apply"`` ("Apply XPTerrainBuilder's object fixes
+    into my pack"), ``tile_bundle.pack_apply.developer``."""
+    from tile_bundle import pack_apply
+    return pack_apply.developer(icao, tiles, _custom_build_dir(working_dir), action)
 
 
 def package_merge(paths, out: str, title: str = "", creator: str = "",
@@ -476,6 +490,7 @@ _REFUSED_WHILE_BUILDING = {
     "library_export_bundle": "exporting a tile",
     "library_import_bundle": "importing a tile",
     "package_install": "installing a package",
+    "package_developer": "changing an airport pack",
     "library_apply": "laying a library patch down",
     "rebuild_migrate": "moving tiles' rebuild data"}
 
@@ -499,6 +514,7 @@ _COMMANDS: dict = {
     "package_plan": (package_plan, None),
     "package_install": (package_install, None),
     "package_merge": (package_merge, None),
+    "package_developer": (package_developer, None),
     **{name: (patch_library_command(name), None) for name in PATCH_LIBRARY_COMMANDS},
 }
 # Settings > Storage (#1724) runs through the same worker and refusals.
@@ -522,7 +538,8 @@ def start(emit: _t.Callable[[_t.Any], None], command: str,
     on the read loop, and is the command's ``ok: false`` reply."""
     from .events import LibraryReady
     function, check = _COMMANDS[command]
-    if command in _REFUSED_WHILE_BUILDING and busy():
+    reading = command == "package_developer" and kwargs.get("action", "read") == "read"
+    if command in _REFUSED_WHILE_BUILDING and not reading and busy():
         raise ValueError("A build is running; stop it or let it finish "
                          "before %s." % _REFUSED_WHILE_BUILDING[command])
     if check is not None:

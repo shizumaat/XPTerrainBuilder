@@ -104,7 +104,11 @@ def _roles(plan: "FP.FlightPlan", tiles: Iterable[Tile],
 def _job_for(role: str, have: Optional[str], intermediate: str
              ) -> Optional[Tuple[str, str]]:
     """``(kind, state)`` of a tile's job, or None when the flight leaves
-    it to X-Plane's own scenery (outside the regions, another pack's)."""
+    it to X-Plane's own scenery (outside the regions, another pack's).
+    ``stale`` (``flight_job_run.STALE``): a built tile a pack's package
+    changed for — a departure or destination builds again."""
+    if have == "stale":
+        return ("full", "queued") if role in FULL_ROLES else ("full", "swapped")
     if role in FULL_ROLES:
         if have == "external":
             return "external", "external"

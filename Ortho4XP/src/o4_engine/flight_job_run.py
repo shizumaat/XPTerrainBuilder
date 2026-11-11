@@ -65,18 +65,36 @@ _GUARD = threading.Lock()
 _RUNNER: "Optional[_Runner]" = None
 
 
+#: A built ``full`` tile an airport pack's package changed for since it
+#: was built (``tile_bundle.pack_shipped``, RULINGS 2026-11-11m (4)): a
+#: departure or destination is built again, any other tile is left as it is.
+STALE = "stale"
+
+
+def _package_stale(scenery_dir: str, tiles) -> set:
+    try:
+        from tile_bundle import pack_shipped
+        return pack_shipped.stale_tiles(scenery_dir, tiles) if tiles else set()
+    except Exception:                       # the flight plans without it
+        return set()
+
+
 def pack_state(scenery_dir: str) -> Callable[[Tuple[int, int]], Optional[str]]:
     """``state_of(tile)`` for :func:`flight_manager.flight_jobs`: the
     World pack's kind of the tile, ``external`` when another enabled pack
-    draws its mesh (spec §7.2), None when neither."""
+    draws its mesh (spec §7.2), :data:`STALE` for a built tile a pack's
+    package changed for, None when neither."""
     import O4_Mesh_Order as ORDER
     pack = WORLD.pack_dir(scenery_dir)
     kinds = WP.world_tiles(pack) if WORLD.managed(scenery_dir) else {}
     real_pack = os.path.normcase(os.path.realpath(pack))
+    stale = _package_stale(scenery_dir, [t for t, k in kinds.items() if k == "full"])
 
     def state_of(tile) -> Optional[str]:
         tile = (int(tile[0]), int(tile[1]))
         kind = kinds.get(tile)
+        if kind == "full" and tile in stale:
+            return STALE
         if kind not in (None, "placeholder"):
             return kind
         try:

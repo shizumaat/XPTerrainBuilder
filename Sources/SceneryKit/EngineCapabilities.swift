@@ -44,6 +44,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// `package_save` / `package_airports` / `package_plan` /
     /// `package_install` / `package_merge` (#2014, `.xptb`): flag only.
     public static let tilePackage = "tile_package"
+    /// RULINGS 2026-11-11m: `PackPackage` (a pack's shipped `.xptb` applied
+    /// on build) and `package_developer` (the pack author's objects choice).
+    public static let packPackages = "pack_packages"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

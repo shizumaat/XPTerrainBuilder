@@ -16,6 +16,14 @@
   already has a patch, "Keep my patch" or "Back up mine and use the
   package's".  Install runs ``package_install``.
 * File ▸ Combine Packages… merges several packages into one.
+* For an airport served by the user's own pack, the export window also
+  holds the pack author's rows (RULINGS 2026-11-11m (3); mac app:
+  ``developerRows``): "Objects are final", "Apply XPTerrainBuilder's
+  object fixes into my pack…" and "Save into this airport's pack folder"
+  (``o4_engine.library.package_developer``).
+* A package an installed pack ships (``PackPackage``, RULINGS 11m (4)) is
+  a log line every build and one tray notice per package and state; a
+  ``conflict`` opens the install dialog on it (:func:`on_pack_package`).
 
 ``O4_Qt_Patch_Drop`` hands this module every dropped package.
 """
@@ -26,6 +34,7 @@ import os
 from o4_engine import library as LIB
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -35,13 +44,16 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QRadioButton,
     QVBoxLayout,
 )
 
 __all__ = ["EXPORT_TITLE", "INSTALL_TITLE", "INSTALL", "KEEP_MINE", "USE_THEIRS",
            "COMBINE_TITLE", "AIRPORT_LABEL", "WHOLE_TILE_ONLY", "ESTIMATE_NOTE",
-           "SUFFIXES", "is_package", "offer", "export", "combine"]
+           "INTO_PACK", "OBJECTS_LABEL", "OBJECTS_DEFAULT", "OBJECTS_FINAL",
+           "OBJECTS_APPLIED", "APPLY_FIXES", "APPLY_CONFIRM", "SUFFIXES",
+           "is_package", "offer", "export", "combine", "on_pack_package"]
 
 #: The words both apps use (the Mac app: ``O4TilePackageCopy``).
 EXPORT_TITLE = "Export Package…"
@@ -53,6 +65,17 @@ COMBINE_TITLE = "Combine Packages…"
 AIRPORT_LABEL = "Airport"
 WHOLE_TILE_ONLY = "Whole tile (no airport)"
 ESTIMATE_NOTE = "Sizes and times are estimates; imagery is never included."
+#: The export window's developer rows (RULINGS 2026-11-11m (3)).
+INTO_PACK = "Save into this airport's pack folder"
+OBJECTS_LABEL = "Objects of my pack"
+OBJECTS_DEFAULT = "Let XPTerrainBuilder fit them"
+OBJECTS_FINAL = "Objects are final"
+OBJECTS_APPLIED = "XPTerrainBuilder's fixes are applied"
+APPLY_FIXES = "Apply XPTerrainBuilder's object fixes into my pack…"
+APPLY_CONFIRM = ("The object stage's splits and seats become your pack's own "
+                 "files; the originals are moved to the pack's "
+                 "XPTerrainBuilder/backup folder, and recipients of a package "
+                 "saved from it leave its objects alone.")
 
 #: A package's and a tile bundle's suffixes (``tile_bundle.SUFFIXES``).
 SUFFIXES = (".xptb", ".xptbundle")
@@ -134,14 +157,17 @@ def offer(window, paths) -> bool:
 
 
 class _ExportDialog(QDialog):
-    """The airport, a kind each with its explanation and estimate, and
-    the maker's fields.  ``estimate(airport)`` is the engine's
-    ``package_estimate`` for the dialog's tiles (a seam for tests)."""
+    """The airport, a kind each with its explanation and estimate, the
+    pack author's rows, and the maker's fields.  ``estimate(airport)`` is
+    the engine's ``package_estimate`` for the dialog's tiles and
+    ``developer(airport, action)`` its ``package_developer`` (seams for
+    tests; a refusal hides the pack rows)."""
 
-    def __init__(self, parent, found: dict, estimate):
+    def __init__(self, parent, found: dict, estimate, developer=None):
         super().__init__(parent)
         self.setWindowTitle(EXPORT_TITLE.rstrip("…"))
         self.estimate, self.rows = estimate, []
+        self.developer, self.pack = developer, None
         layout = QVBoxLayout(self)
         custom = {i for icaos in (found.get("custom") or {}).values() for i in icaos}
         self.airport = QComboBox()
@@ -157,6 +183,7 @@ class _ExportDialog(QDialog):
         self.group = QButtonGroup(self)
         layout.addLayout(self.kinds)
         layout.addWidget(QLabel(ESTIMATE_NOTE))
+        layout.addLayout(self._pack_rows())
         fields = QFormLayout()
         self.fields = {}
         for key, label in (("title", "Title"), ("creator", "Made by"),
@@ -170,7 +197,63 @@ class _ExportDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self.airport.currentIndexChanged.connect(self._estimate)
+        self.airport.currentIndexChanged.connect(lambda *_a: self._read_pack())
         self._estimate()
+        self._read_pack()
+
+    def _pack_rows(self) -> QFormLayout:
+        """The pack author's three controls (hidden without a pack)."""
+        rows = QFormLayout()
+        self.pack_label = QLabel("")
+        self.objects = QComboBox()
+        self.objects.addItem(OBJECTS_DEFAULT, "")
+        self.objects.addItem(OBJECTS_FINAL, "final")
+        self.objects.addItem(OBJECTS_APPLIED, "applied")
+        self.objects.activated.connect(self._objects_chosen)
+        self.apply = QPushButton(APPLY_FIXES)
+        self.apply.clicked.connect(self._apply)
+        self.into_pack = QCheckBox(INTO_PACK)
+        rows.addRow(self.pack_label)
+        rows.addRow(OBJECTS_LABEL, self.objects)
+        rows.addRow(self.apply)
+        rows.addRow(self.into_pack)
+        self.pack_widgets = (self.pack_label, self.objects, self.apply, self.into_pack)
+        return rows
+
+    def _read_pack(self, action: str = "read") -> None:
+        """The chosen airport's pack, after ``action``."""
+        self.pack = None
+        airport = self.airport.currentData() or ""
+        if airport and self.developer is not None:
+            try:
+                self.pack = self.developer(airport, action)
+            except (ValueError, OSError) as error:
+                if action != "read":
+                    QMessageBox.warning(self, EXPORT_TITLE, str(error))
+                    return self._read_pack()
+        for widget in self.pack_widgets:
+            widget.setVisible(self.pack is not None)
+        if self.pack is None:
+            self.into_pack.setChecked(False)
+            return
+        self.pack_label.setText("Your pack: %s" % self.pack["pack"])
+        self.objects.setCurrentIndex(max(0, self.objects.findData(self.pack["objects"])))
+        self.apply.setEnabled(bool(self.pack["modified"]))
+
+    def _objects_chosen(self, *_args) -> None:
+        mode = self.objects.currentData()
+        if self.pack is not None and mode != self.pack["objects"] and mode != "applied":
+            self._read_pack("final" if mode == "final" else "default")
+        elif self.pack is not None:
+            self._read_pack()
+
+    def _confirm_apply(self) -> bool:
+        """A seam for tests."""
+        return QMessageBox.question(self, APPLY_FIXES, APPLY_CONFIRM) == QMessageBox.Yes
+
+    def _apply(self) -> None:
+        if self.pack is not None and self._confirm_apply():
+            self._read_pack("apply")
 
     def _estimate(self, *_args) -> None:
         """Every kind estimated again for the airport chosen."""
@@ -203,7 +286,9 @@ class _ExportDialog(QDialog):
         kind = checked.property("kind") if checked is not None else "tile"
         airport = self.airport.currentData() or ""
         return {"airports": [airport] if airport and kind != "tile" else [],
-                "kind": kind, **{k: f.text() for k, f in self.fields.items()}}
+                "kind": kind, "into_pack": bool(self.pack is not None and kind != "tile"
+                                               and self.into_pack.isChecked()),
+                **{k: f.text() for k, f in self.fields.items()}}
 
     def ask(self):
         """The answer on Save, None on Cancel (a seam for tests)."""
@@ -235,11 +320,13 @@ def export(window, tiles) -> dict | None:
         QMessageBox.warning(window, EXPORT_TITLE, str(error))
         return None
     answer = _ExportDialog(window, found, lambda airport: LIB.package_estimate(
-        tiles, _tiles_dir(window), airport)).ask()
+        tiles, _tiles_dir(window), airport), lambda airport, action: LIB.package_developer(
+        airport, tiles, _tiles_dir(window), action)).ask()
     if answer is None:
         return None
-    out = _save_path(window, _default_name(found["tiles"], answer))
-    if not out:
+    out = "" if answer["into_pack"] else _save_path(
+        window, _default_name(found["tiles"], answer))
+    if not out and not answer["into_pack"]:
         return None
     try:
         done = LIB.package_save(tiles, _tiles_dir(window), out, **answer)
@@ -268,3 +355,26 @@ def combine(window) -> dict | None:
         return None
     print("Combined %d packages into %s." % (len(paths), os.path.basename(out)))
     return done
+
+
+#: The packages already noticed (one tray notice per package and state).
+_NOTICED: set = set()
+
+
+def on_pack_package(window, event) -> None:
+    """A ``PackPackage`` (RULINGS 2026-11-11m (4); mac app:
+    ``BuildModel.packPackage``): the log line every build, one tray notice
+    per package and state, and for a ``conflict`` the install dialog on the
+    package (the 11l (3) "Keep my patch" question)."""
+    import types
+
+    import O4_Qt_Fly_Divert as QTFLYDIVERT
+    print(event.text)
+    key = (event.path, event.state)
+    if key in _NOTICED:
+        return
+    _NOTICED.add(key)
+    QTFLYDIVERT.post_notice(window, types.SimpleNamespace(
+        title="XPTerrainBuilder", text=event.text, severity=""))
+    if event.state == "conflict":
+        offer(window, [event.path])

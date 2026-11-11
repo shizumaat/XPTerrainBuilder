@@ -971,6 +971,18 @@ def rebake_after_mesh(tile) -> dict:
                         counts["airports_skipped_stale_plan"] = \
                             counts.get("airports_skipped_stale_plan", 0) + 1
                         continue
+                # RULINGS 2026-11-11m (3): THE PACK'S AUTHOR SAID ITS
+                # OBJECTS ARE FINAL (or already carry the fixes): nothing
+                # of it is split, reseated or rewritten — the terrain is
+                # still graded to the patch.  Before every pack read below.
+                from tile_bundle import pack_dev as _dev
+                frozen = _dev.frozen_reason(tile, icao, plan_.pack_root)
+                if frozen:
+                    UI.vprint(0, f"  [v2 rebake] {icao}: {frozen} — its objects "
+                                 f"are left as they are")
+                    counts["airports_objects_final"] = \
+                        counts.get("airports_objects_final", 0) + 1
+                    continue
                 # #433: THE PACK'S MISSING ART, before its DSF is read or
                 # rewritten — and whether or not anything is placed
                 writes = bool(write_enabled and not measure_only
@@ -1171,6 +1183,8 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
     import O4_Unpatched_Airports as UNPATCHED
     from auto_patch_v2.airport import unpatched_pack as _up
     from . import dsf_reader as _DSFR
+    from tile_bundle import pack_dev as _dev
+
     from . import object_rebake as _OR
     from .post_mesh import _is_protected_scenery_root
 
@@ -1187,7 +1201,8 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
         for pack in _OR.modified_packs(scenery_dir, tile_name):
             pack_root = pack["pack_path"]
             if _is_protected_scenery_root(pack_root) \
-                    or not _SP.pack_enabled(pack_root):
+                    or not _SP.pack_enabled(pack_root) \
+                    or _dev.objects_frozen(pack_root):    # RULINGS 11m (3)
                 continue
             for record_path in _OR._v2_record_paths(pack_root):
                 dsf_path = os.path.join(os.path.dirname(record_path),

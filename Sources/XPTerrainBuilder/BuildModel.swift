@@ -1260,6 +1260,8 @@ final class BuildModel: ObservableObject {
             packAdjust(adjust)
         case .gatewayAirports(let offer):
             gatewayAirports(offer)
+        case .packPackage(let shipped):
+            packPackage(shipped)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -2262,6 +2264,23 @@ final class BuildModel: ObservableObject {
             gatewayAirportsPrompt = offer
         } else {
             gatewayAirportsQueue.append(offer)
+        }
+    }
+
+    /// Packages already noticed this session (one per package and state).
+    private var packPackagesSeen: Set<String> = []
+
+    /// A pack's shipped `.xptb` (RULINGS 2026-11-11m (4); parity with the
+    /// Qt window's `_on_pack_package`): the tile's log line every build, a
+    /// notification once per package and state, and for a "conflict" the
+    /// install sheet on the package (the 11l (3) question).
+    private func packPackage(_ shipped: O4PackPackage) {
+        console.append(shipped.text, tile: TileCoord(lat: shipped.lat, lon: shipped.lon).key)
+        guard packPackagesSeen.insert("\(shipped.path)|\(shipped.state)").inserted else { return }
+        FlightNotifier.post(title: "XPTerrainBuilder", body: shipped.text,
+                            id: "pack-\(shipped.pack)-\(shipped.state)")
+        if shipped.state == "conflict" {
+            TilePackageModel.shared.offer([URL(fileURLWithPath: shipped.path)], build: self)
         }
     }
 

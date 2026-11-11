@@ -16,7 +16,10 @@ A tile is STALE for an airport when its recorded pack
 * ``disabled``   — is disabled in ``scenery_packs.ini``;
 * ``superseded`` — is not the pack X-Plane draws for that airport any more
   (``airport.pack.select_pack``, the selector the build runs);
-* ``changed``    — has other content (its signature differs).
+* ``changed``    — has other content (its signature differs);
+* ``package``    — ships XPTerrainBuilder data (a ``.xptb`` in its
+  ``XPTerrainBuilder`` folder, RULINGS 2026-11-11m (4)) other than the one
+  the tile was last built with (``tile_bundle.pack_shipped``).
 
 A tile with no record of its packs (built before build logs, or by
 another tool) is not checkable: ``checked`` is False and it is never
@@ -40,7 +43,7 @@ __all__ = ["REASONS", "COMMANDS", "record_airports",
            "check_tiles"]
 
 #: Why a tile is stale for one airport, in the order they are judged.
-REASONS = ("gone", "disabled", "superseded", "changed")
+REASONS = ("gone", "disabled", "superseded", "changed", "package")
 
 #: A build's apt.dat choice (``auto_patch.build_support``).
 _PAV = re.compile(r"\[pav-builder\] ([A-Z0-9]{3,7}): apt\.dat (.+?)\s*$")
@@ -167,7 +170,7 @@ def _airport_staleness(icao: str, entry: dict, xp_root: str, lat: int,
 
 
 def _tile_staleness(build_dir: str, lat: int, lon: int, custom_scenery_dir: str,
-                   disabled: set | None = None) -> dict:
+                   disabled: set | None = None, shipped=()) -> dict:
     """One tile's verdict: ``{"lat", "lon", "checked", "stale",
     "airports": [stale airport, ...], "packs": {icao: pack}}``."""
     _row, recorded = _recorded_airports(build_dir, lat, lon)
@@ -185,6 +188,9 @@ def _tile_staleness(build_dir: str, lat: int, lon: int, custom_scenery_dir: str,
             verdict = None
         if verdict is not None:
             out["airports"].append(verdict)
+    if shipped:
+        from tile_bundle import pack_shipped
+        out["airports"] += pack_shipped.stale_rows(lat, lon, shipped)
     out["stale"] = bool(out["airports"])
     return out
 
@@ -202,13 +208,18 @@ def check_tiles(custom_scenery_dir: str, tiles=None, working_dir: str = "") -> d
         tiles = [(info.lat, info.lon, info.build_dir) for info in
                  TINFO.scan_tiles(working_dir).values()] if working_dir else []
     disabled = SCENERY_PACKS.disabled_pack_names(custom_scenery_dir or "")
+    try:
+        from tile_bundle import pack_shipped
+        shipped = pack_shipped.scan(custom_scenery_dir) if custom_scenery_dir else []
+    except Exception:                       # the pack check goes on without
+        shipped = []
     rows = []
     with SCENERY_PACKS.listing_snapshot():
         for lat, lon, build_dir in tiles:
             if not build_dir or not os.path.isdir(build_dir):
                 continue
             verdict = _tile_staleness(build_dir, int(lat), int(lon),
-                                     custom_scenery_dir, disabled)
+                                     custom_scenery_dir, disabled, shipped)
             if verdict["checked"]:
                 rows.append(verdict)
     rows.sort(key=lambda row: (row["lat"], row["lon"]))

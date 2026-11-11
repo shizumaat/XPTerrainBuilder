@@ -219,9 +219,10 @@ def tile_stage(tile, *, writes: bool, asked: set[str] | None = None,
         UI.vprint(1, f"  [pack] tile pack scan skipped ({exc})")
         UI.vprint(2, traceback.format_exc())
         return
+    from tile_bundle import pack_dev as _dev
     for root in roots:
-        if not _first_ask(root, asked):
-            continue
+        if _dev.objects_frozen(root) or not _first_ask(root, asked):
+            continue                        # RULINGS 11m (3): the author's
         plan_ = types.SimpleNamespace(pack_root=root)
         items = [_drapes_row(pd, key) for key, (state, pd)
                  in _drape_stages(plan_, tile, writes).items()

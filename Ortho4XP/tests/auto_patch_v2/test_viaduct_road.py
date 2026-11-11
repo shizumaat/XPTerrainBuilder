@@ -195,3 +195,27 @@ def test_a_half_opening_onto_level_b_does_not_climb():
     mid = [r for r in climb if isinstance(r, Linear) and r.terms[0][0] == 1]
     t = (60.0 - 40.0) / 60.0
     assert mid and abs(mid[0].hi - (t * 97.0 - (1.0 - t) * 7.5)) < 1e-9
+
+
+def test_a_run_in_a_level_seeds_passage_yields_to_the_object(law):
+    """§19 S1 (owner RULINGS 2026-11-10n (1), 2026-11-11e): a covered run
+    standing in a level seed's passage mints no trench -- refused by name --
+    and its carriageway is handed to the seed (``passage_roads``); a seed
+    the run stands clear of changes nothing."""
+    from auto_patch_v2.planar.level_regions import LevelSeed
+    from auto_patch_v2.planar.viaduct_road import passage_roads
+    from shapely.affinity import translate
+    cells, polys = _cells()
+    F = Polygon(((-150.0, -40.0), (150.0, -40.0), (150.0, 40.0), (-150.0, 40.0)))
+    lane = Polygon(((-150.0, -6.0), (150.0, -6.0), (150.0, 6.0), (-150.0, 6.0)))
+    seed = LevelSeed(F, 7, 0.0, -10.0, 10.0, 3, F.intersection(lane))
+    groups, notes, refused = viaduct_road_groups(_Field(_ways()), law, cells, polys, (seed,))
+    assert not groups and not notes
+    assert len(refused) == 1 and "unit 7's passage level" in refused[0]
+    kept = passage_roads(_Field(_ways()), law, (seed,))
+    assert set(kept) == {7} and kept[7].area > 0.0
+    far = seed._replace(footprint=translate(F, 0.0, 500.0),
+                        passage=translate(seed.passage, 0.0, 500.0))
+    groups, _n, refused = viaduct_road_groups(_Field(_ways()), law, cells, polys, (far,))
+    assert len(groups) == 2 and not refused
+    assert passage_roads(_Field(_ways()), law, (far,)) == {}

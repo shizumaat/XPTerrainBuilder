@@ -86,6 +86,9 @@ class LevelSeed(_t.NamedTuple):
     underside: _t.Any = None
     #: the witness kind (W1 ``"walls"``, the only one built)
     kind: str = "walls"
+    #: the carriageway of a covered R6 run standing in the passage
+    #: (``viaduct_road.passage_roads``, §19 S1), or ``None``
+    road: _t.Any = None
 
 
 def level_seeds(airport, classification, law, cache=None
@@ -129,6 +132,12 @@ def level_seeds(airport, classification, law, cache=None
                      + (f", passage {passage.area:.0f} m2, soffit "
                         f"{(under or {}).get('soffit_y')}" if passage is not None else "")
                      + ")")
+    if seeds:
+        from .viaduct_road import passage_roads
+        kept = passage_roads(airport, law, seeds)
+        seeds = [s._replace(road=kept.get(s.unit)) for s in seeds]
+        notes += [f"unit {u}: a covered road {g.area:.0f} m2 runs in its passage (R6 yields)"
+                  for u, g in kept.items()]
     return tuple(seeds), notes
 
 
@@ -237,11 +246,19 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
         host = {pref} | {k for k, b in upper.items() if b == pref and k in by_ref}
         P = valid_area(unary_union([r.polygon for k in host for r in by_ref[k]]))
         P1 = P.buffer(1.0)
-        others = valid_area(unary_union([g.polygon for k, rs in by_ref.items() if k not in host
-                                         for g in rs if g.polygon.intersects(P1)]))
+        others = [g.polygon for k, rs in by_ref.items() if k not in host
+                  for g in rs if g.polygon.intersects(P1)]
+        # TWO FLOORS (§19, owner RULINGS 2026-11-11e): a covered road in a
+        # passage cut out of a main floor runs at the main floor its
+        # kerbside stands on -- kept out of the level as another pad is --
+        # and the pieces of the host floors the level cuts off from the
+        # airside frontage are the level (S2, ``low_level._with_orphans``)
+        main = len(host) > 1
+        if main and s.road is not None:
+            others.append(s.road)
         A = valid_area(air.intersection(P.buffer(50.0)))
-        cut = level_cut(P, s.footprint, A, others, law, grid, 0.0, airport, grow=False,
-                        whole=True)
+        cut = level_cut(P, s.footprint, A, valid_area(unary_union(others)), law, grid, 0.0,
+                        airport, grow=main, whole=True)
         if cut is None:
             notes.append(f"unit {s.unit}: no level left on {pref} off the airside")
             continue

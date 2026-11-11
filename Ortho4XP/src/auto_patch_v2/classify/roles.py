@@ -778,7 +778,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     from .taxi_shoulder import join_taxi_shoulders
     stats.update(join_taxi_shoulders(
         final, TAXI_FAMILY, [ln for ln, _c in taxi_parts], rules,
-        lambda f: _holds_startup(f, start_tree)))
+        lambda f: _holds_startup(f, start_tree), road_lines))
 
     # ── §27: an airside edge makes a lot (and a road) airside ──────
     # (a contact across a unit's own storey is none, owner answer 47 #1099:

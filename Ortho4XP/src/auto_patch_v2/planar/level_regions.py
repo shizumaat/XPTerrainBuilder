@@ -86,9 +86,11 @@ class LevelSeed(_t.NamedTuple):
     underside: _t.Any = None
     #: the witness kind (W1 ``"walls"``, the only one built)
     kind: str = "walls"
-    #: the carriageway of a covered R6 run standing in the passage
+    #: the carriageway of a covered R6 run under the unit
     #: (``viaduct_road.passage_roads``, §19 S1), or ``None``
     road: _t.Any = None
+    #: the unit's whole plan (every part's rings, frame xy), or ``None``
+    plan: _t.Any = None
 
 
 def level_seeds(airport, classification, law, cache=None
@@ -126,8 +128,11 @@ def level_seeds(airport, classification, law, cache=None
         if passage is not None:
             from .level_underside import underside_over
             under = underside_over(u.members, cache, to_xy, passage, y_feet)
+        from .low_level import _ring_poly
+        plan = valid_area(unary_union([g for p, _xy in parts for rg in p.rings
+                                       if (g := _ring_poly(rg, to_xy)) is not None]))
         seeds.append(LevelSeed(F, ui, round(z0, 3), round(y_feet, 3), round(z0 - y_feet, 3), n,
-                               passage, under))
+                               passage, under, plan=plan))
         notes.append(f"unit {ui} depth {z0 - y_feet:.2f} ({n} walled parts, {F.area:.0f} m2"
                      + (f", passage {passage.area:.0f} m2, soffit "
                         f"{(under or {}).get('soffit_y')}" if passage is not None else "")

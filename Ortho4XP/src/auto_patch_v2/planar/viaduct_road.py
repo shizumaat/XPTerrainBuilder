@@ -322,7 +322,9 @@ def _covered_runs(airport, law: Law) -> list[tuple]:
 def _in_passage(run: LineString, seeds: _t.Sequence, near: float):
     """The level seed (``planar/level_regions.LevelSeed``) whose passage
     the covered ``run`` stands in -- at least half its stations in the
-    seed's passage or within ``near`` of its walled footprint -- or
+    seed's passage or within ``near`` of its unit's plan (the object over
+    the road; MEASURED KMCI unit 20: the covered road runs 16.8 m off the
+    garage's walls, every station under the unit's departures deck) -- or
     ``None``."""
     from shapely.prepared import prep
     n = max(2, int(run.length // _STEP_M) + 1)
@@ -330,7 +332,8 @@ def _in_passage(run: LineString, seeds: _t.Sequence, near: float):
     for s in seeds:
         if getattr(s, "passage", None) is None:
             continue
-        zone = prep(unary_union([s.passage, s.footprint.buffer(near)]))
+        plan = s.plan if getattr(s, "plan", None) is not None else s.footprint
+        zone = prep(unary_union([s.passage, plan.buffer(near)]))
         if 2 * sum(1 for p in pts if zone.covers(p)) >= n:
             return s
     return None

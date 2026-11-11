@@ -93,8 +93,7 @@ def add_object_floor_cells(floors: _t.Sequence[ObjectFloor], law, new_cells: lis
             else:
                 kept.append((role, ref, part, tid))
         new_cells[:] = kept
-        faces = _planes(fl, foot, law) if fl.kind == SHELL else \
-            [shapely.segmentize(q, float(ob.wall_sample_m)) for q in parts]
+        faces = _planes(fl, foot, law) if fl.kind == SHELL else _floor_faces(fl, foot, parts, law)
         for k, q in enumerate(faces):
             new_cells.append(("tunnel_trench", fl.id + (f"#{k}" if k else ""), q, fl.id))
         wall_ref = FLOOR_WALL_REF + fl.id[len(FLOOR_REF):]
@@ -109,6 +108,22 @@ def add_object_floor_cells(floors: _t.Sequence[ObjectFloor], law, new_cells: lis
                      f"outside it")
         n += 1
     return n
+
+
+def _floor_faces(fl: ObjectFloor, foot, parts, law) -> list:
+    """A floor's cut faces, each ring densified every ``wall_sample_m`` so it
+    carries the floor's own profile.  A floor of ONE plane is one face per
+    part; a floor of several (a road and the ramp up to its open end, a pit
+    floor and its ramps) is cut one face per PLANE, as a shell's (A5): one
+    face's interior spans its creases with chords, and on a concave crease
+    the chord stands OVER the floor (#1949 OMDB ``tunner_5_1``: the drawn
+    mesh 0.09 m over its ramp) — the cut lies under the floor everywhere
+    only when every face is one of its planes."""
+    ob = law.tables.structures.tunnel.object
+    step = float(ob.wall_sample_m)
+    if len(plane_groups(fl.faces, float(ob.crease_deg), float(ob.hollow_m))) > 1:
+        parts = _planes(fl, foot, law)
+    return [shapely.segmentize(q, step) for q in parts]
 
 
 def _planes(fl: ObjectFloor, foot, law) -> list:

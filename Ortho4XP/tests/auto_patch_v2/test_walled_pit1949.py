@@ -2,7 +2,8 @@
 area off one shared datum authors the floor AT the zero and the ground at the
 top of its retaining walls.  The walls' rim is the pit's ground: the floor is
 cut ``rim - floor`` under it, and a frame whose rim stands off the ground
-around it is moved so the rim lands there (``airport/walled_pit``)."""
+around it is moved so the rim lands there (``airport/walled_pit``).  A pit is
+sunken: a walled floor over the ground around it is a roof or deck (#2005)."""
 from __future__ import annotations
 
 import types
@@ -40,18 +41,28 @@ def _read(objs, ground):
 
 
 def test_a_frame_standing_proud_of_the_ground_lands_its_rim_on_it(tmp_path):
-    """OMDB: the walls' rim 12 m over the zero, the ground 10 m UNDER the
-    zero — the frame moves 22 m down and the floor is cut 12 m under the
-    ground."""
-    floors, notes = _read(_pit(tmp_path), 90.0)
+    """OMDB: the walls' rim 12 m over the zero, the ground 5 m over it (the
+    floor sunken under the ground, the rim 7 m proud) — the frame moves 7 m
+    down and the floor is cut 12 m under the ground."""
+    floors, notes = _read(_pit(tmp_path), 105.0)
     assert [f.object_id for f in floors] == ["dsf:obj2"], notes
     f = floors[0]
-    assert abs(f.lift + 22.0) < 0.05 and f.covers == ("dsf:obj1",)
-    assert abs(f.floor_z - 78.0) < 0.05 and abs(f.rim_z - 90.0) < 0.05
-    assert {pid: round(z, 2) for pid, _r, z in f.seats} == {"dsf:obj2": 78.0, "dsf:obj1": 78.0}
+    assert abs(f.lift + 7.0) < 0.05 and f.covers == ("dsf:obj1",)
+    assert abs(f.floor_z - 93.0) < 0.05 and abs(f.rim_z - 105.0) < 0.05
+    assert {pid: round(z, 2) for pid, _r, z in f.seats} == {"dsf:obj2": 93.0, "dsf:obj1": 93.0}
     recs = OF.seat_records(floors)
-    assert {r["id"]: r["elevation"] for r in recs} == {"dsf:obj2": 78.0, "dsf:obj1": 78.0}
+    assert {r["id"]: r["elevation"] for r in recs} == {"dsf:obj2": 93.0, "dsf:obj1": 93.0}
     assert abs(f.footprint.area - 2400.0) < 5.0
+
+
+def test_a_walled_floor_over_the_ground_is_a_roof_not_a_pit(tmp_path):
+    """#2005 (KMCI): a plate walled to a rim inside a building's frame — a
+    roof behind its parapet, a deck under the storey above — stands OVER
+    the ground around it.  A pit is sunken: no floor, no lift, the frame
+    keeps its seat."""
+    floors, notes = _read(_pit(tmp_path), 90.0)
+    assert floors == [] and any("a roof or deck in its frame, not a pit" in n
+                                for n in notes), notes
 
 
 def test_a_rim_at_the_ground_keeps_the_authored_seat(tmp_path):
@@ -85,7 +96,7 @@ def test_the_frames_placements_in_the_pit_move_with_it_and_the_rest_keep_their_s
                      encoding="utf-8", newline="\n")
     far = _write(tmp_path / "far.obj", [_box(500.0, 500.0, 30.0, 30.0, 8.0)])
     objs = _pit(tmp_path) + [_at(str(lamps), "dsf:obj3"), _at(far, "dsf:obj4")]
-    floors, notes = _read(objs, 90.0)
+    floors, notes = _read(objs, 105.0)
     assert len(floors) == 1, notes
     assert {pid for pid, _r, _z in floors[0].seats} == {"dsf:obj1", "dsf:obj2", "dsf:obj3"}
 

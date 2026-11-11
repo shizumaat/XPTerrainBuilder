@@ -6,9 +6,11 @@ The Mac app's ``FlyPane.swift`` / ``FlyModel.swift`` are the layout;
 top to bottom: name a flight (X-Plane's saved FMS plans, SimBrief, a plan
 file, a departure + arrival), the flight card, "Also build the alternate"
 (off, 10g), cruise speed and corridor, the readiness checklist and
-countdown, the World pack and follow lines, "While flying", "Live flight
-preview" (#2001; the map's ``O4_Qt_Live_Preview`` draws it), Divert… and
-End flight.
+countdown, the World pack and follow lines, "While flying", "Photo detail
+ahead" (the global ``drape_photo_px`` the World job's drapes are fetched
+at, RULINGS 2026-11-11j), "Live flight preview" (#2001; the map's
+``O4_Qt_Live_Preview`` draws it), Divert… and End flight.  With no flight
+and no plan the map shows build-ahead's drapes (``WorldStatus.jobs``).
 Lane F2 adds the offline waiver row (RULINGS 2026-11-10k Q3), the reload
 offer in the air (rule S6 (b): "Reload scenery now" / "Not now") and the
 "Divert…" airport search (``O4_Qt_Fly_Divert.DivertDialog``).

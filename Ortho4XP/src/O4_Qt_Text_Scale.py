@@ -88,7 +88,12 @@ def apply_text_scale(value) -> float:
     font.setPointSizeF(TS.scaled(base, scale))
     QApplication.setFont(font)
     for widget in QApplication.allWidgets():
-        _resize(widget, scale)
+        try:
+            _resize(widget, scale)
+        except RuntimeError:
+            # A snapshot widget deleted mid-walk (its window garbage-
+            # collected under us): nothing left to size.
+            pass
     return scale
 
 

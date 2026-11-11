@@ -28,10 +28,12 @@ INSTALL = "Install"
 
 
 def _local_paths(mime) -> list[str]:
-    """The local files and folders a drag carries."""
+    """The local files and folders a drag carries, in the platform's own
+    form (Qt gives ``C:/x`` on Windows; the user's path is ``C:\\x``)."""
     if mime is None or not mime.hasUrls():
         return []
-    return [u.toLocalFile() for u in mime.urls() if u.isLocalFile()]
+    return [os.path.normpath(u.toLocalFile()) for u in mime.urls()
+            if u.isLocalFile()]
 
 
 def launch_paths(argv) -> list[str]:

@@ -17,8 +17,10 @@ X-Plane folder in ``tmp_path`` (never the real install or a real drive):
 from __future__ import annotations
 
 import os
+import sys
 import textwrap
 
+import O4_Unmounted_Links as UL
 import O4_World_Pack as WP
 from o4_engine import world_migrate as MIGRATE
 from o4_engine import world_retire as RETIRE
@@ -54,9 +56,19 @@ def test_a_custom_airport_tile_holds_an_enabled_airport_pack(xp):  # noqa: F811
 
 
 def test_a_drive_is_named_by_its_mount_point(tmp_path):
-    assert RETIRE._drive_of(str(tmp_path)) == ""              # this Mac
-    assert RETIRE._drive_of("/Volumes/NoSuchDrive9/Tiles/zOrtho4XP_+45+007") \
-        == "NoSuchDrive9"                                    # not connected
+    assert RETIRE._drive_of(str(tmp_path)) == ""              # this computer
+    if sys.platform == "win32":
+        system = os.environ.get("SystemDrive", "C:").upper()
+        free = next(f"{c}:" for c in "QRSTUVWXYZ" if f"{c}:" != system
+                    and not os.path.exists(f"{c}:\\"))
+        assert RETIRE._drive_of(f"{free}\\Tiles\\zOrtho4XP_+45+007") == free
+        assert RETIRE._drive_of(f"\\\\?\\{free}\\Tiles") == free  # readlink form
+        return
+    gone = tmp_path / "NoSuchDrive9" / "Tiles" / "zOrtho4XP_+45+007"
+    assert RETIRE._drive_of(str(gone)) == "NoSuchDrive9"      # not connected
+    if sys.platform == "darwin":
+        assert RETIRE._drive_of("/Volumes/NoSuchDrive9/Tiles/zOrtho4XP_+45+007") \
+            == "NoSuchDrive9"
 
 
 def test_the_dry_run_gives_every_choice_before_anything_moves(xp, monkeypatch):  # noqa: F811
@@ -119,7 +131,8 @@ def test_keep_custom_moves_the_custom_tile_and_makes_the_rest_dynamic(xp):  # no
     back = MIGRATE.revert(scenery, index=xp["index"])
     assert sorted(back["reverted"]) == ["zOrtho4XP_+45+007", "zOrtho4XP_+46+008",
                                         "zOrtho4XP_+48+010"]
-    assert os.readlink(os.path.join(scenery, "zOrtho4XP_+48+010")) == target
+    assert UL.clean_target(os.readlink(os.path.join(scenery, "zOrtho4XP_+48+010"))) \
+        == target                    # Windows readlink: the \\?\ form
     rows = _rows(scenery)
     assert all(rows[n] == "SCENERY_PACK" for n in back["reverted"])
     assert WP.world_tiles(xp["pack"]) == {(45, 7): "placeholder"}

@@ -298,7 +298,8 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     return ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@pit{k}", o.id, o.path,
                        tuple(p.id for p in covers), zero + lift, fz, foot, faces, (note,),
                        seats, rim_z=zero + rim_y + lift, lift=lift,
-                       origin_xy=tuple(o.xy), agl_m=float(o.agl_m), rim_proud_m=proud + lift)
+                       authored=tuple((p.id, _zero(p, msl)) for p in frame),
+                       rim_proud_m=proud + lift)
 
 
 def _in_pit(p, foot, cache, tk: float) -> bool:

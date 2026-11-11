@@ -145,12 +145,12 @@ class ObjectFloor:
     #: #1949: the metres its whole frame was moved so a walled pit's rim
     #: lands on the ground around it (``airport/walled_pit``); 0 = authored
     lift: float = 0.0
-    #: #1949 (RULINGS 2026-11-11f): a walled pit's frame origin (frame xy),
-    #: its rows' authored lift and how far its rim stands over the ground
-    #: around it as seated -- what the rail group meeting it is read
-    #: against (``airport/pit_frame``); ``()`` for every other floor
-    origin_xy: tuple = ()
-    agl_m: float = 0.0
+    #: #1949 (RULINGS 2026-11-11f): a walled pit's AUTHORED zeros --
+    #: ``(placement id, zero as authored)`` of the floor and every placement
+    #: co-placed with it (one authored frame) -- and how far its rim stands
+    #: over the ground around it as seated: what the rail group meeting it
+    #: is read against (``airport/pit_frame``); ``()`` for every other floor
+    authored: tuple[tuple[str, float], ...] = ()
     rim_proud_m: float = 0.0
 
 
@@ -646,7 +646,7 @@ def seat_records(floors: _t.Iterable[ObjectFloor], to_ll=None) -> list[dict[str,
                    "elevation": round(float(z), 3)}
             if pid in rings:
                 rec[CUT_RING] = rings[pid]
-            if f.origin_xy:
+            if f.authored:
                 _pf.stamp(rec, f, to_ll if pid == f.object_id else None)
             out.append(rec)
     for pid, (res, z) in sorted(decks.items()):

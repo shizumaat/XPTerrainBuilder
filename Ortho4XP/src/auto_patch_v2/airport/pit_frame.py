@@ -15,10 +15,11 @@ two authored frames stood apart (OMDB ``duong_ray`` 0.95 m over the pit's
 platform frame).
 
 THE WITNESS (geometry, never a name): a ground-contact foot of one of the
-share's parts stands inside the pit's footprint, and the share is placed at
-the pit's own origin -- the pack stated both elevations in one authored
-frame, its two rows' lifts apart.  Grouped, the share and the pit stand
-RIGIDLY: share zero = pit zero + (share lift - pit lift).
+share's parts stands inside the pit's footprint, and that part's placement
+is co-placed with the pit's floor (``hanging_objects._co_placed``: one
+origin, one heading) -- the pack stated both elevations in one authored
+frame.  Grouped, the share and the pit stand RIGIDLY: share zero = pit zero
++ (the share's authored zero - the pit's authored zero).
 
 WHICH ONE MOVES -- "the one most visible from airside areas" (:func:`join_frame`):
 
@@ -35,7 +36,8 @@ WHICH ONE MOVES -- "the one most visible from airside areas" (:func:`join_frame`
   the most of its feet.
 
 The pit's records (patch half, :func:`stamp`) carry its frame's id, and the
-floor's own record its origin, lift, rim and footprint.  Nothing here names
+floor's own record the authored zeros of its co-placed placements, its rim
+and its footprint.  Nothing here names
 a pack or an airport.
 """
 from __future__ import annotations
@@ -43,30 +45,29 @@ from __future__ import annotations
 import math
 import typing as _t
 
-__all__ = ["PIT_OF", "PIT_RING", "Pit", "stamp", "pits_of", "join_frame", "shifted"]
+__all__ = ["PIT_OF", "PIT_RING", "PIT_AUTHORED", "Pit", "stamp", "pits_of", "join_frame", "shifted"]
 
 #: the ``authored_seats`` record key naming the walled pit a row's frame is
 PIT_OF = "pit_of"
 #: the floor record's footprint ring ``[[lat, lon], ...]``
 PIT_RING = "pit_ring"
+#: the floor record's ``{placement id: authored zero}`` of its frame
+PIT_AUTHORED = "pit_authored"
 #: the ring is written to this many metres (plan simplification)
 _RING_TOL_M = 0.5
-#: an origin within this of the pit's is the same authored origin
-#: (``adapted_riders.SAME_ORIGIN_M``'s reading)
-SAME_ORIGIN_M = 0.5
 _M_PER_DEG = 111_320.0
 
 
 class Pit(_t.NamedTuple):
     """One walled pit's frame as the object stage reads it: its id, written
-    zero, rows' authored lift, origin, rim proud of the ground and
+    zero, the zero its floor was authored at, the authored zeros of the
+    placements co-placed with it, its rim proud of the ground and its
     footprint (a shapely polygon in ``(lat, lon)``)."""
 
     id: str
     zero: float
-    agl_m: float
-    lat: float
-    lon: float
+    authored_zero: float
+    mates: _t.Mapping[str, float]
     proud_m: float
     ring: _t.Any
 
@@ -74,16 +75,15 @@ class Pit(_t.NamedTuple):
 def stamp(rec: dict, f: _t.Any, to_ll: "_t.Callable | None") -> None:
     """PATCH HALF: name ``f``'s pit on the seat record ``rec`` of one of its
     frame's rows; with ``to_ll`` (the floor object's own record) add the
-    frame's origin, authored lift, rim proud and footprint ring."""
+    frame's authored zeros, its rim proud and its footprint ring."""
     rec[PIT_OF] = f.id
     if to_ll is None:
         return
     fp = f.footprint
     part = max(getattr(fp, "geoms", [fp]), key=lambda q: q.area)
     part = part.simplify(_RING_TOL_M, preserve_topology=True)
-    la, lo = to_ll(float(f.origin_xy[0]), float(f.origin_xy[1]))
-    rec.update(lat=float(la), lon=float(lo), agl_m=float(f.agl_m),
-               rim_proud_m=round(float(f.rim_proud_m), 3))
+    rec[PIT_AUTHORED] = {str(pid): round(float(z), 6) for pid, z in f.authored}
+    rec["rim_proud_m"] = round(float(f.rim_proud_m), 3)
     rec[PIT_RING] = [[round(a, 9), round(b, 9)] for a, b in
                      (to_ll(x, y) for x, y in part.exterior.coords)]
 
@@ -97,17 +97,11 @@ def pits_of(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> list[Pit]:
             continue
         ring = Polygon([(float(a), float(b)) for a, b in r[PIT_RING]])
         ring = ring if ring.is_valid else ring.buffer(0)
-        if not ring.is_empty:
-            out.append(Pit(str(r[PIT_OF]), float(r["elevation"]), float(r.get("agl_m") or 0.0),
-                           float(r["lat"]), float(r["lon"]),
+        mates = {str(k): float(v) for k, v in (r.get(PIT_AUTHORED) or {}).items()}
+        if not ring.is_empty and str(r.get("id")) in mates:
+            out.append(Pit(str(r[PIT_OF]), float(r["elevation"]), mates[str(r["id"])], mates,
                            float(r.get("rim_proud_m") or 0.0), ring))
     return out
-
-
-def _same_origin(a: _t.Sequence[float], p: Pit) -> bool:
-    mo = _M_PER_DEG * math.cos(math.radians(p.lat))
-    return math.hypot((float(a[0]) - p.lat) * _M_PER_DEG,
-                      (float(a[1]) - p.lon) * mo) <= SAME_ORIGIN_M
 
 
 def _stand_m(p: Pit, stands: _t.Sequence[tuple[float, float]]) -> float:
@@ -115,27 +109,26 @@ def _stand_m(p: Pit, stands: _t.Sequence[tuple[float, float]]) -> float:
     if not stands:
         return math.inf
     from shapely.geometry import Point
-    mo = _M_PER_DEG * math.cos(math.radians(p.lat))
+    mo = _M_PER_DEG * math.cos(math.radians(p.ring.centroid.x))
     return min(p.ring.distance(Point(la, lo)) for la, lo in stands) * mo
 
 
 def _shares_in(u: _t.Any, plan_wide: _t.Mapping[int, tuple], merged: _t.Mapping[str, str],
-               pits: _t.Sequence[Pit]) -> dict[str, dict[int, int]]:
-    """``group key -> {pit index: feet}``: frame ``u``'s connected-unit
-    shares (keyed as ``open_frame_seat.group_zero`` reads them, through the
-    frame's root ``merged`` map) with ground-contact feet in a pit of the
-    frame's own origin."""
+               pits: _t.Sequence[Pit]) -> dict[str, dict[tuple[int, float], int]]:
+    """``group key -> {(pit index, rigid zero): feet}``: frame ``u``'s
+    connected-unit shares (keyed as ``open_frame_seat.group_zero`` reads
+    them, through the frame's root ``merged`` map) with ground-contact feet
+    of a placement co-placed with a pit inside its footprint, and the zero
+    that stands the share rigidly in the pit's frame."""
     from shapely import STRtree
     from shapely.geometry import Point
 
     from .open_frame_seat import group_key, unit_root
-    near = [k for k, p in enumerate(pits) if _same_origin(u.anchor, p)]
-    if not near:
-        return {}
-    tree = STRtree([pits[k].ring for k in near])
-    out: dict[str, dict[int, int]] = {}
+    tree = STRtree([p.ring for p in pits])
+    out: dict[str, dict[tuple[int, float], int]] = {}
     for m in u.members:
-        for p in m.parts:
+        mine = [k for k, p in enumerate(pits) if str(m.id) in p.mates]
+        for p in m.parts if mine else ():
             seat = plan_wide.get(p.pid)
             if not seat or not seat[0] or getattr(p, "line", False):
                 continue
@@ -143,8 +136,12 @@ def _shares_in(u: _t.Any, plan_wide: _t.Mapping[int, tuple], merged: _t.Mapping[
             key = group_key(merged.get(r, r), str(u.id))
             for f in getattr(p, "feet", ()) or ():
                 for j in tree.query(Point(float(f[0]), float(f[1])), predicate="intersects"):
+                    if int(j) not in mine:
+                        continue
+                    pit = pits[int(j)]
+                    z = round(pit.zero + pit.mates[str(m.id)] - pit.authored_zero, 3)
                     hit = out.setdefault(key, {})
-                    hit[near[int(j)]] = hit.get(near[int(j)], 0) + 1
+                    hit[(int(j), z)] = hit.get((int(j), z), 0) + 1
     return out
 
 
@@ -163,10 +160,12 @@ def join_frame(u: _t.Any, plan_wide: _t.Mapping[int, tuple], merged: _t.Mapping[
         if k not in zeros:
             continue
         zero, lift = zeros[k]
+        # the pit (and the rigid zero) most of the share's feet in it read
+        ranked = sorted(hits[k].items(), key=lambda kv: (-kv[1], kv[0]))
         if k in airside:
-            for i, _n in sorted(hits[k].items(), key=lambda kv: (-kv[1], kv[0])):
+            for (i, rigid), _n in ranked:
                 p = pits[i]
-                d = zero - (p.zero + lift - p.agl_m)
+                d = zero - rigid
                 ok = (p.id not in shifts and d >= 0.0
                       and p.proud_m + d <= crest_max_m)
                 key = "pit_frame_moved" if ok else "pit_frame_apart"
@@ -174,10 +173,10 @@ def join_frame(u: _t.Any, plan_wide: _t.Mapping[int, tuple], merged: _t.Mapping[
                 if ok:
                     shifts[p.id] = d
             continue
-        zs = {round(pits[i].zero + lift - pits[i].agl_m, 3) for i in hits[k]}
-        i = min(hits[k], key=lambda j: (_stand_m(pits[j], stands) if len(zs) > 1 else 0.0,
-                                        -hits[k][j], j))
-        zeros[k] = (pits[i].zero + lift - pits[i].agl_m, lift)
+        several = len({z for _i, z in hits[k]}) > 1
+        (_i, rigid), _n = min(ranked, key=lambda kv: (
+            _stand_m(pits[kv[0][0]], stands) if several else 0.0, -kv[1], kv[0]))
+        zeros[k] = (rigid, lift)
         counts["pit_frame_shares"] = counts.get("pit_frame_shares", 0) + 1
 
 

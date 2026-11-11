@@ -14,18 +14,20 @@ RING = box(25.0, 55.001, 25.001, 55.002)
 
 
 def _record(**kw):
+    """The pit floor's record: authored at -0.219, the rail row (co-placed)
+    at 13.469 -- OMDB's ``hamnen`` and ``duong_ray``."""
     rec = {"id": "dsf:obj1", "elevation": -12.4, "seat": "object floor",
-           PF.PIT_OF: "object_floor:pit@pit0", "lat": ORIGIN[0], "lon": ORIGIN[1],
-           "agl_m": 0.0, "rim_proud_m": 0.0,
+           PF.PIT_OF: "object_floor:pit@pit0", "rim_proud_m": 0.0,
+           PF.PIT_AUTHORED: {"dsf:obj1": -0.219, "dsf:obj9": 13.469},
            PF.PIT_RING: [list(q) for q in RING.exterior.coords]}
     rec.update(kw)
     return rec
 
 
-def _frame(feet, agl=13.7, anchor=ORIGIN):
+def _frame(feet, member="dsf:obj9"):
     part = types.SimpleNamespace(pid=7, feet=tuple(feet), line=False)
-    return types.SimpleNamespace(id="unit:4", anchor=anchor, agl_m=agl,
-                                 members=(types.SimpleNamespace(parts=(part,)),))
+    return types.SimpleNamespace(id="unit:4", anchor=ORIGIN, agl_m=13.7,
+                                 members=(types.SimpleNamespace(id=member, parts=(part,)),))
 
 
 IN_PIT = [(25.0005, 55.0015, -15.7)]
@@ -44,7 +46,7 @@ def test_a_share_on_no_airside_rides_the_pit_rigidly():
     zeros = {KEY: (2.2, 13.7)}
     shifts, counts = _join(_frame(IN_PIT), zeros)
     assert shifts == {} and counts == {"pit_frame_shares": 1}
-    assert abs(zeros[KEY][0] - (-12.4 + 13.7)) < 1e-9
+    assert abs(zeros[KEY][0] - (-12.4 + 13.469 + 0.219)) < 1e-9
 
 
 def test_an_airside_share_raises_the_pit_frame_to_it_within_the_crest_band():
@@ -52,7 +54,7 @@ def test_an_airside_share_raises_the_pit_frame_to_it_within_the_crest_band():
     the pit frame (-12.418, its rim on the ground) rises 0.945 to it."""
     zeros = {KEY: (2.215, 13.7)}
     shifts, counts = _join(_frame(IN_PIT), zeros, {KEY: (2.215, 68)},
-                           [_record(elevation=-12.418, agl_m=0.012)])
+                           [_record(elevation=-12.418)])
     assert zeros[KEY] == (2.215, 13.7)
     assert abs(shifts["object_floor:pit@pit0"] - 0.945) < 1e-9
     assert counts == {"pit_frame_moved": 1}
@@ -61,27 +63,27 @@ def test_an_airside_share_raises_the_pit_frame_to_it_within_the_crest_band():
 
 
 def test_the_two_stay_apart_where_the_pit_would_sink_or_its_rim_leave_the_band():
-    zeros = {KEY: (0.0, 13.7)}                      # the pit would sink 1.3 m
+    zeros = {KEY: (0.0, 13.7)}                      # the pit would sink 1.27 m
     assert _join(_frame(IN_PIT), zeros, {KEY: (0.0, 9)})[1] == {"pit_frame_apart": 1}
     zeros = {KEY: (6.0, 13.7)}                      # the rim 4.7 m proud > 3.0
     assert _join(_frame(IN_PIT), zeros, {KEY: (6.0, 9)})[1] == {"pit_frame_apart": 1}
 
 
-def test_no_foot_in_the_pit_or_another_origin_is_no_witness():
+def test_no_foot_in_the_pit_or_a_placement_not_co_placed_is_no_witness():
     zeros = {KEY: (2.2, 13.7)}
     assert _join(_frame([(25.0005, 55.003, 0.0)]), zeros) == ({}, {})
-    assert _join(_frame(IN_PIT, anchor=(25.01, 55.0)), zeros) == ({}, {})
+    assert _join(_frame(IN_PIT, member="dsf:obj77"), zeros) == ({}, {})
     assert zeros[KEY] == (2.2, 13.7)
 
 
 def test_the_floor_record_carries_the_pit_and_the_frame_rows_its_name():
-    f = types.SimpleNamespace(id="object_floor:pit@pit0", origin_xy=(0.0, 0.0), agl_m=0.5,
+    f = types.SimpleNamespace(id="object_floor:pit@pit0", authored=(("a", -0.2), ("b", 13.5)),
                               rim_proud_m=0.25, footprint=box(0.0, 0.0, 10.0, 10.0))
     floor, row = {"id": "a"}, {"id": "b"}
     PF.stamp(floor, f, lambda x, y: (25.0 + y * 1e-5, 55.0 + x * 1e-5))
     PF.stamp(row, f, None)
     assert row == {"id": "b", PF.PIT_OF: f.id}
-    assert floor["lat"] == 25.0 and floor["agl_m"] == 0.5 and floor["rim_proud_m"] == 0.25
+    assert floor[PF.PIT_AUTHORED] == {"a": -0.2, "b": 13.5} and floor["rim_proud_m"] == 0.25
     assert len(floor[PF.PIT_RING]) == 5
     [p] = PF.pits_of([{**floor, "elevation": -1.0}])
-    assert p.id == f.id and p.zero == -1.0
+    assert p.id == f.id and p.zero == -1.0 and p.authored_zero == -0.2

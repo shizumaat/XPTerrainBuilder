@@ -45,6 +45,56 @@ struct TilePackageTests {
         #expect(got.tiles == ["+30+031"] && got.files == 158)
     }
 
+    @Test func planCarriesKindAndStillNeeds() throws {
+        var plan = Self.plan
+        plan["kind"] = "patch"
+        plan["still_needs"] = [["what": "data", "text": "Elevation and map data for the tile (about 237.7 MB)",
+                                "bytes": 237_654_132] as [String: Any],
+                               ["what": "imagery", "text": "Imagery", "bytes": NSNull()] as [String: Any]]
+        plan["estimate"] = ["build_seconds": 634.3, "download_bytes": 237_654_132] as [String: Any]
+        let event = O4JSON.from(["event": "LibraryReady", "command": "package_plan",
+                                 "error": "", "result": plan] as [String: Any])
+        let got: O4PackagePlan = try OrthoEngineClient.decodeLibraryReady(event).get()
+        #expect(got.kind == "patch")
+        #expect(got.stillNeeds?.map(\.what) == ["data", "imagery"])
+        #expect(got.stillNeeds?.last?.bytes == nil)
+        #expect(got.estimate?.downloadBytes == 237_654_132)
+        // A package saved before kinds: empty kind, no rows, an empty estimate.
+        var old = Self.plan
+        old["kind"] = ""
+        old["still_needs"] = [] as [Any]
+        old["estimate"] = [:] as [String: Any]
+        let before: O4PackagePlan = try OrthoEngineClient.decodeLibraryReady(O4JSON.from(
+            ["event": "LibraryReady", "command": "package_plan", "error": "",
+             "result": old] as [String: Any])).get()
+        #expect(before.kind == "" && before.estimate == nil)
+    }
+
+    @Test func estimateAndAirportsDecode() throws {
+        let row: [String: Any] = ["kind": "exact", "title": "Exact match",
+                                  "explanation": "The airport with …", "available": true,
+                                  "why": "", "files": 40, "data_bytes": 120_000_000,
+                                  "bytes": 104_000_000, "download_bytes": 135_000_000,
+                                  "build_seconds": 583.1,
+                                  "still_needs": [["what": "imagery", "text": "Imagery",
+                                                   "bytes": NSNull()] as [String: Any]],
+                                  "figures": "about 104.0 MB · recipient downloads about 135.0 MB plus imagery · builds in about 10 min (estimate)"]
+        let patch: [String: Any] = row.merging(["kind": "patch", "available": false,
+                                                "why": "KLAX has no custom patch or edits on this tile."]) { $1 }
+        let event = O4JSON.from(["event": "LibraryReady", "command": "package_estimate", "error": "",
+                                 "result": ["airport": "KLAX", "tiles": ["+33-119"],
+                                            "kinds": [row, patch]] as [String: Any]] as [String: Any])
+        let got: O4PackageEstimate = try OrthoEngineClient.decodeLibraryReady(event).get()
+        #expect(got.kinds.map(\.kind) == ["exact", "patch"])
+        #expect(got.kinds[0].figures.hasSuffix("(estimate)") && !got.kinds[1].available)
+        let airports: O4PackageAirports = try OrthoEngineClient.decodeLibraryReady(O4JSON.from(
+            ["event": "LibraryReady", "command": "package_airports", "error": "",
+             "result": ["tiles": ["+33-119": ["KLAX", "KSMO"], "+34-119": ["KSMO"]],
+                        "custom": ["+33-119": ["KLAX"]], "default": "KLAX"] as [String: Any]]
+            as [String: Any])).get()
+        #expect(airports.all == ["KLAX", "KSMO"] && airports.default == "KLAX")
+    }
+
     @Test func packagesAreRoutedBySuffix() {
         #expect(O4TilePackage.isPackage(URL(fileURLWithPath: "/a/b.XPTB")))
         #expect(O4TilePackage.isPackage(URL(fileURLWithPath: "/a/b.xptbundle")))

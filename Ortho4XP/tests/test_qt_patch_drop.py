@@ -108,3 +108,51 @@ def test_a_package_dropped_on_the_map_goes_to_the_package_install(window, tmp_pa
     calls.clear()
     _drop(window.map.viewport(), str(path))
     assert calls == [("plan", str(path))]
+
+
+def _kind_rows(airport):
+    rows = [{"kind": "tile", "title": "Whole tile", "explanation": "All of it.",
+             "available": True, "why": "", "figures": "about 220.4 MB · …"}]
+    if airport:
+        rows = [{"kind": "exact", "title": "Exact match", "explanation": "Graded on.",
+                 "available": True, "why": "", "figures": "about 85.3 MB · …"},
+                {"kind": "patch", "title": "Airport patch only", "explanation": "Smallest.",
+                 "available": airport == "KLAX", "why": "no custom patch",
+                 "figures": "about 2.2 MB · …"}] + rows
+    return {"airport": airport, "tiles": ["+33-119"], "kinds": rows}
+
+
+def test_the_export_dialog_is_airport_first(window, tmp_path, monkeypatch):  # noqa: F811
+    """#2014 follow-up: the dialog opens on the custom-patch airport, shows
+    each kind's explanation and estimate, re-estimates on a new airport,
+    disables a kind that cannot be made, and saves the chosen kind."""
+    import O4_Qt_Tile_Package as QTPKG
+    found = {"tiles": {"+33-119": ["KLAX", "KSMO"]}, "custom": {"+33-119": ["KLAX"]},
+             "default": "KLAX"}
+    asked = []
+    dialog = QTPKG._ExportDialog(window, found, lambda a: asked.append(a) or _kind_rows(a))
+    assert asked == ["KLAX"] and dialog.airport.currentText() == "KLAX (custom patch)"
+    buttons = dialog.group.buttons()
+    assert [b.property("kind") for b in buttons] == ["exact", "patch", "tile"]
+    assert "Exact match — Graded on.\nabout 85.3 MB" in buttons[0].text()
+    assert dialog.answer()["kind"] == "exact" and dialog.answer()["airports"] == ["KLAX"]
+    buttons[1].setChecked(True)
+    assert dialog.answer()["kind"] == "patch"
+    dialog.airport.setCurrentIndex(dialog.airport.findData("KSMO"))
+    assert asked[-1] == "KSMO"
+    assert not dialog.group.buttons()[1].isEnabled()
+    assert "no custom patch" in dialog.group.buttons()[1].text()
+    dialog.airport.setCurrentIndex(dialog.airport.findData(""))
+    assert [b.property("kind") for b in dialog.group.buttons()] == ["tile"]
+    assert dialog.answer()["airports"] == []
+    saved = {}
+    monkeypatch.setattr(QTPKG.LIB, "package_airports", lambda tiles, wd: found)
+    monkeypatch.setattr(QTPKG.LIB, "package_estimate", lambda tiles, wd, a: _kind_rows(a))
+    monkeypatch.setattr(QTPKG._ExportDialog, "ask", lambda self: self.answer())
+    monkeypatch.setattr(QTPKG, "_save_path", lambda w, name: saved.setdefault(
+        "name", name) and str(tmp_path / name))
+    monkeypatch.setattr(QTPKG.LIB, "package_save", lambda tiles, wd, out, **kw: saved.update(
+        kw, path=out) or {"path": out, "bytes": 1, "noncommercial": False})
+    QTPKG.export(window, [(33, -119)])
+    assert saved["name"] == "XPTerrainBuilder_KLAX_exact.xptb"
+    assert (saved["airports"], saved["kind"]) == (["KLAX"], "exact")

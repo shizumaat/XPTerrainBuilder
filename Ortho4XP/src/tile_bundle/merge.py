@@ -22,6 +22,7 @@ import time
 from . import PACKAGE_FORMAT, BundleRefused, inputs
 from . import install as _install
 from . import key as _key
+from . import kinds as _kinds
 from . import package as _package
 
 __all__ = ["merge_packages"]
@@ -48,9 +49,10 @@ class _Union:
     def __init__(self):
         self.blobs, self.files, self.version = {}, {}, {}
         self.tiles, self.sources, self.schemas = {}, {}, {}
-        self.only, self.engine = set(), ()
+        self.only, self.engine, self.manifests = set(), (), []
 
     def add(self, path: str, manifest: dict) -> None:
+        self.manifests.append(manifest)
         version = _install.version_tuple(manifest.get("engine_version"))
         self.engine = max(self.engine, version)
         for name, value in ((manifest.get("key_parts") or {}).get("schemas") or {}).items():
@@ -110,6 +112,7 @@ def merge_packages(paths, out: str, **fields) -> dict:
     found = [union.sources[k] for k in sorted(union.sources)]
     parts = {"format": PACKAGE_FORMAT, "schemas": dict(sorted(union.schemas.items()))}
     manifest = {"format": PACKAGE_FORMAT, **_package.branding(fields),
+                **_kinds.combine(union.manifests),
                 "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "engine_version": ".".join(str(n) for n in union.engine),
                 "key": _key.bundle_key(parts), "key_parts": parts,

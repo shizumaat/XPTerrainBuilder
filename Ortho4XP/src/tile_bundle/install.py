@@ -42,6 +42,7 @@ import O4_File_Names as FNAMES
 
 from . import FORMAT, PACKAGE_FORMAT, BundleRefused, inputs
 from . import key as _key
+from . import kinds as _kinds
 from . import package as _package
 from . import paths as _paths
 from .export import load_tile
@@ -220,7 +221,7 @@ class _Pass:
 
     def _patch_decision(self, tile_key, patch, dest) -> tuple:
         """``(action, why)`` for a package patch where one already is."""
-        icao = FNAMES.patch_file_icao(patch) or ""
+        icao = inputs.member_icao(patch)
         record = (self.registries.get(tile_key) or {}).get(icao) or {}
         existing = _on_disk(dest)
         if existing is None:
@@ -239,9 +240,10 @@ class _Pass:
                 return "keep", "your own patch is newer"
             kind, installed = "custom", "your own patch"
         choice = self.choices.get(icao)
-        self.asks.append({"tile": tile_key, "icao": icao, "kind": kind,
-                          "installed": installed, "choice": choice or "keep",
-                          "backup": dest + SET_ASIDE})
+        if not any((a["tile"], a["icao"]) == (tile_key, icao) for a in self.asks):
+            self.asks.append({"tile": tile_key, "icao": icao, "kind": kind,
+                              "installed": installed, "choice": choice or "keep",
+                              "backup": dest + SET_ASIDE})
         if choice == "replace":
             return "replace", "your choice: backed up as %s" % (
                 os.path.basename(dest) + SET_ASIDE)
@@ -282,9 +284,27 @@ def _discard(rows) -> None:
             pass
 
 
+def _kind_lines(details: dict) -> list:
+    """What kind of package it is, what a build still downloads, and the
+    maker's estimate of the build (:mod:`.kinds`, :mod:`.estimate`)."""
+    kind = details.get("kind")
+    if kind not in _kinds.TITLES:
+        return []
+    lines = ["%s: %s" % (_kinds.TITLES[kind], _kinds.EXPLANATIONS[kind])]
+    needs = [n["text"] for n in details.get("still_needs") or []]
+    if needs:
+        lines.append("Building still downloads: " + "; ".join(needs) + ".")
+    seconds = (details.get("estimate") or {}).get("build_seconds")
+    if seconds:
+        lines.append("Estimated build time (without imagery): about %d min."
+                     % max(1, round(seconds / 60.0)))
+    return lines
+
+
 def _summary(details: dict) -> list:
     lines = ["%s%s" % (details["title"] or "XPTerrainBuilder package",
                        " by " + details["creator"] if details["creator"] else "")]
+    lines += _kind_lines(details)
     for tile in details["tiles"]:
         airports = ", ".join("%s (%s)" % (a["icao"], {
             "same": "matches your installed pack",
@@ -295,7 +315,7 @@ def _summary(details: dict) -> list:
     counts = details["counts"]
     lines.append("%d files, %s of map and elevation data (%d new, %d updated, "
                  "%d already here, %d kept)" % (
-                     details["files"], _size(details["data_bytes"]),
+                     details["files"], _kinds.size_text(details["data_bytes"]),
                      counts.get("new", 0), counts.get("update", 0)
                      + counts.get("merge", 0) + counts.get("replace", 0),
                      counts.get("same", 0), counts.get("keep", 0)))
@@ -312,10 +332,6 @@ def _summary(details: dict) -> list:
     return lines
 
 
-def _size(n: int) -> str:
-    return "%.1f MB" % (n / 1e6) if n >= 1e5 else "%d KB" % max(1, n // 1000)
-
-
 def _details(path: str, manifest: dict, tiles: dict, run: _Pass) -> dict:
     counts: dict = {}
     for row in run.rows:
@@ -326,6 +342,9 @@ def _details(path: str, manifest: dict, tiles: dict, run: _Pass) -> dict:
            "created": manifest.get("created", ""),
            "engine_version": manifest.get("engine_version", ""),
            "airports_only": manifest.get("airports_only"),
+           "kind": manifest.get("kind") or "",
+           "still_needs": manifest.get("still_needs") or [],
+           "estimate": manifest.get("estimate") or {},
            "tiles": [{"tile": e["tile"], "airports": _airport_rows(e, tiles[e["tile"]])}
                      for e in manifest.get("tiles") or []],
            "sources": manifest.get("sources") or [],
@@ -395,7 +414,7 @@ def _record(run: _Pass, manifest: dict) -> None:
                     or row["action"] not in ("new", "same", "replace"):
                 continue
             base = row["name"].rsplit("/", 1)[-1]
-            icao = FNAMES.patch_file_icao(base.replace(".axes.json", "")) or ""
+            icao = inputs.member_icao(base)
             entry = doc.setdefault(icao, {"files": {}})
             entry.update(package=manifest.get("key", ""), title=manifest.get("title", ""),
                          engine_version=manifest.get("engine_version", ""),

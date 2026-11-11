@@ -50,7 +50,8 @@ from . import storage as _storage
 __all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "ROW_WORKERS", "library_scan",
            "cache_sizes", "free_cache", "library_delete",
            "library_export_bundle", "library_import_bundle",
-           "package_save", "package_airports", "package_plan", "package_install", "package_merge",
+           "package_save", "package_airports", "package_estimate", "package_plan",
+           "package_install", "package_merge",
            "PATCH_LIBRARY_COMMANDS", "COMMANDS", "patch_library_command", "start"]
 
 #: ``built_by`` of a tile this app built
@@ -344,21 +345,38 @@ def library_import_bundle(path: str, working_dir: str) -> dict:
 # ---------------------------------------------------------------------------
 def package_save(tiles, working_dir: str, out: str, airports=None,
                  title: str = "", creator: str = "", notes: str = "",
-                 url: str = "") -> dict:
+                 url: str = "", kind: str = "") -> dict:
     """ENGINE COMMAND ``package_save``: the ``.xptb`` package of ``tiles``
     (``[[lat, lon], …]``; with ``airports``, of those airports only) at
-    ``out`` — a ``.xptb`` path or a folder (``tile_bundle.package``)."""
+    ``out`` — a ``.xptb`` path or a folder (``tile_bundle.package``);
+    ``kind`` ``"exact"`` / ``"patch"`` / ``"tile"`` (``tile_bundle.kinds``;
+    empty: exact with airports, tile without)."""
     from tile_bundle import package
     return package.save_package(tiles, out, _custom_build_dir(working_dir),
-                                airports or None, title=title, creator=creator,
-                                notes=notes, url=url)
+                                airports or None, kind=kind or None, title=title,
+                                creator=creator, notes=notes, url=url)
 
 
 def package_airports(tiles, working_dir: str = "") -> dict:
     """ENGINE COMMAND ``package_airports``: ``{"tiles": {tile key: [icao,
-    …]}}`` — the airports the export dialog offers for the tiles."""
+    …]}, "custom": {tile key: [icao, …]}, "default": icao}`` — the
+    airports the export window offers for the tiles, those with the
+    user's own files, and the one it opens on."""
     from tile_bundle import package
-    return {"tiles": package.airports_of(tiles, _custom_build_dir(working_dir))}
+    return package.airports_of(tiles, _custom_build_dir(working_dir))
+
+
+def package_estimate(tiles, working_dir: str = "", airport: str = "") -> dict:
+    """ENGINE COMMAND ``package_estimate``: per package kind, the
+    estimated size, the recipient's downloads and build time of exporting
+    ``airport`` (``tile_bundle.estimate``).  Writes nothing."""
+    from tile_bundle import estimate, package
+    pairs = sorted({(int(a), int(b)) for a, b in tiles or ()})
+    if airport:
+        held = package.airports_of(pairs, _custom_build_dir(working_dir))["tiles"]
+        pairs = [p for p in pairs if str(airport).upper()
+                 in held.get(FNAMES.short_latlon(*p), [])] or pairs
+    return estimate.estimate(pairs, airport)
 
 
 def package_plan(path: str, working_dir: str = "", choices=None) -> dict:
@@ -465,6 +483,7 @@ _COMMANDS: dict = {
     "library_import_bundle": (library_import_bundle, None),
     "package_save": (package_save, None),
     "package_airports": (package_airports, None),
+    "package_estimate": (package_estimate, None),
     "package_plan": (package_plan, None),
     "package_install": (package_install, None),
     "package_merge": (package_merge, None),

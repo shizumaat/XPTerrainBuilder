@@ -22,6 +22,7 @@ import O4_File_Names as FNAMES  # noqa: E402
 import O4_Version  # noqa: E402
 import pytest  # noqa: E402
 from tile_bundle import BundleRefused  # noqa: E402
+from tile_bundle import estimate as ESTIMATE  # noqa: E402
 from tile_bundle import export as EXPORT  # noqa: E402
 from tile_bundle import install as INSTALL  # noqa: E402
 from tile_bundle import key as KEY  # noqa: E402
@@ -123,6 +124,7 @@ def machines(tmp_path, monkeypatch):
     monkeypatch.setattr(KEY, "xplane_root", lambda tile: None)
     monkeypatch.setattr(KEY, "airport_signatures", lambda tile: dict(AIRPORTS))
     monkeypatch.setattr(INSTALL, "_downloads_left", lambda tile: [])
+    monkeypatch.setattr(ESTIMATE, "_rebuild_seconds", lambda lat, lon: 600.0)
     monkeypatch.setattr(O4_Version, "version", "1.50.1900", raising=False)
     a = _Machine(tmp_path / "A", monkeypatch).live()
     b = _Machine(tmp_path / "B", monkeypatch)
@@ -368,3 +370,157 @@ def test_a_member_outside_its_folders_is_refused():
                 "data/OSM_data/a/feed.cache"):
         with pytest.raises(ValueError):
             inputs.destination(bad)
+
+
+# ---------------------------------------------------------------------------
+# Package kinds (#2014 follow-up, owner 2026-11-11T16:10Z): airport-first
+# export — Exact match, Airport patch only, Whole tile.
+# ---------------------------------------------------------------------------
+RINGS = "Elevation_data/+30+030/N30E031_approach_rings/"
+
+
+def _boxes_and_rings(m):
+    """HECA near the tile's south-west, HEAZ near its north-east, a ring
+    cell beside each and the inset index rows' boxes."""
+    m.write(INSETS + "index.json", json.dumps({
+        "HECA": {"COPERNICUSGLO30": "ok", "bounding_box": [31.38, 30.10, 31.42, 30.14]},
+        "HEAZ": {"COPERNICUSGLO30": "ok", "bounding_box": [31.85, 30.85, 31.90, 30.90]},
+    }).encode())
+    m.write(RINGS + "cell_02_01_cop_30m.tif", b"ring by HECA")
+    m.write(RINGS + "cell_02_01_cop_30m.json", b"{}")
+    m.write(RINGS + "cell_08_08_cop_30m.tif", b"ring by HEAZ")
+
+
+def test_an_exact_package_trims_the_rings_to_its_airport(machines, tmp_path):
+    a, _b = machines
+    _boxes_and_rings(a)
+    rings = lambda path: sorted(os.path.basename(n) for n in _members(path)  # noqa: E731
+                                if "_approach_rings/" in n)
+    heca = _save(a, tmp_path, "heca.xptb", airports=["HECA"], kind="exact")
+    assert rings(heca) == ["cell_01_00_cop_30m.tif", "cell_02_01_cop_30m.json",
+                           "cell_02_01_cop_30m.tif", "index.json"]
+    heaz = _save(a, tmp_path, "heaz.xptb", airports=["HEAZ"])           # exact by default
+    assert rings(heaz) == ["cell_08_08_cop_30m.tif", "index.json"]
+    whole = _save(a, tmp_path, "whole.xptb")
+    assert "cell_01_00_cop_30m.tif" in rings(whole) and len(rings(whole)) == 5
+    assert INSTALL.read_manifest(heca)["kind"] == "exact"
+    assert INSTALL.read_manifest(whole)["kind"] == "tile"
+
+
+def test_an_airport_with_no_inset_box_keeps_every_ring(machines, tmp_path):
+    a, _b = machines
+    _boxes_and_rings(a)
+    a.write(INSETS + "index.json", b'{"HECA": {"COPERNICUSGLO30": "ok"}}')
+    names = _members(_save(a, tmp_path, "heca.xptb", airports=["HECA"]))
+    assert len([n for n in names if "_approach_rings/" in n]) == 5
+
+
+def test_a_patch_package_carries_only_the_airports_own_files(machines, tmp_path):
+    a, b = machines
+    a.write(PATCHES + "o4_user_roles_HECA.json", b'{"version": 1, "roles": []}')
+    a.write(PATCHES + "o4_user_object_seats_HECA.json", b'{"version": 1}')
+    a.write(PATCHES + "o4_user_roles_HEAZ.json", b'{"version": 1, "roles": []}')
+    a.write(PATCHES + "o4_v2_rebake_HECA.json", b"{}")
+    path = _save(a, tmp_path, "heca.xptb", airports=["HECA"], kind="patch")
+    assert sorted(n for n in _members(path) if n not in ("manifest.json", "ATTRIBUTION.txt")) == [
+        "patches/+30+031/HECA_edited.patch.osm",
+        "patches/+30+031/HECA_edited.patch.osm.axes.json",
+        "patches/+30+031/o4_user_object_seats_HECA.json",
+        "patches/+30+031/o4_user_roles_HECA.json"]
+    manifest = INSTALL.read_manifest(path)
+    assert manifest["kind"] == "patch"
+    assert [n["what"] for n in manifest["still_needs"]] == ["data", "imagery"]
+    b.live()
+    INSTALL.install(path)
+    assert (b.root / PATCHES / "o4_user_roles_HECA.json").is_file()
+    assert not (b.root / PATCHES / "HECA_auto.patch.osm").exists()
+    assert not (b.root / PATCHES / "HEAZ_edited.patch.osm").exists()
+    with pytest.raises(BundleRefused, match="no custom patch"):
+        a.live()
+        (a.root / PATCHES / "HEAZ_edited.patch.osm").unlink()
+        a.write(PATCHES + "HEAZ_auto.patch.osm", _patch(a))
+        (a.root / PATCHES / "o4_user_roles_HEAZ.json").unlink()
+        PACKAGE.save_package([(LAT, LON)], str(tmp_path / "heaz.xptb"), airports=["HEAZ"],
+                             kind="patch")
+
+
+def test_the_install_sheet_says_what_still_downloads(machines, tmp_path):
+    a, b = machines
+    patch = _save(a, tmp_path, "patch.xptb", airports=["HECA"], kind="patch")
+    exact = _save(a, tmp_path, "exact.xptb", airports=["HECA"], kind="exact")
+    whole = _save(a, tmp_path, "whole.xptb")
+    b.live()
+    lines = INSTALL.plan(patch)["summary"]
+    assert lines[1].startswith("Airport patch only: ")
+    assert lines[2].startswith("Building still downloads: Elevation and map data for the "
+                               "tile (about ") and lines[2].endswith("; Imagery.")
+    assert lines[3].startswith("Estimated build time (without imagery): about ")
+    exact_lines = INSTALL.plan(exact)["summary"]
+    assert exact_lines[1].startswith("Exact match: ")
+    assert exact_lines[2].startswith("Building still downloads: Elevation for the tile's "
+                                     "other airports (about ")
+    assert INSTALL.plan(whole)["summary"][2] == "Building still downloads: Imagery."
+    assert INSTALL.plan(exact)["kind"] == "exact"
+
+
+def _noise(n, seed=7) -> bytes:
+    import random
+    rng = random.Random(seed)
+    return bytes(rng.getrandbits(8) for _ in range(n))
+
+
+def _terrain(n) -> bytes:
+    """An SRTM-like big-endian int16 raster: smooth relief plus noise."""
+    import math
+    import random
+    import struct
+    rng = random.Random(5)
+    return b"".join(struct.pack(">%dh" % n, *(
+        int(200 + 80 * math.sin(r / 90.0) * math.cos(c / 70.0) + rng.randint(-3, 3))
+        for c in range(n))) for r in range(n))
+
+
+def test_the_size_estimate_is_within_15_percent(machines, tmp_path):
+    a, _b = machines
+    lines = "".join("<node id='%d' lat='30.%06d' lon='31.%06d'/>\n" % (i, i * 37 % 999983,
+                                                                      i * 91 % 999979)
+                    for i in range(40_000)).encode()
+    a.write(PATCHES + "HECA_edited.patch.osm", _patch(a, lines + b"</osm>\n"))
+    a.write(PATCHES + "HECA_edited.patch.osm.axes.json", json.dumps(
+        {"axes": [[i, i * 0.5, "taxiway"] for i in range(30_000)]}).encode())
+    a.write(INSETS + "HECA_copernicusglo30.tif", _noise(1_500_000))
+    a.write("Elevation_data/+30+030/N30E031.hgt", _terrain(1201))
+    found = ESTIMATE.estimate([(LAT, LON)], "HECA")
+    assert [r["kind"] for r in found["kinds"]] == ["exact", "patch", "tile"]
+    for row in found["kinds"]:
+        airports = None if row["kind"] == "tile" else ["HECA"]
+        actual = PACKAGE.save_package([(LAT, LON)], str(tmp_path / (row["kind"] + ".xptb")),
+                                      airports=airports, kind=row["kind"])["bytes"]
+        assert abs(row["bytes"] - actual) <= 0.15 * actual, (row["kind"], row["bytes"], actual)
+        assert row["figures"].endswith("builds in about %d min (estimate)" % round(
+            (600.0 + row["download_bytes"] / ESTIMATE.DOWNLOAD_BYTES_PER_SECOND) / 60))
+
+
+def test_the_export_window_offers_custom_patch_airports_first(machines, monkeypatch):
+    a, _b = machines
+    monkeypatch.setattr(KEY, "graded_airports", lambda tile: ["HEAZ", "HELX"])
+    (a.root / PATCHES / "HEAZ_edited.patch.osm").unlink()
+    found = PACKAGE.airports_of([(LAT, LON)])
+    assert found["tiles"] == {"+30+031": ["HEAZ", "HECA", "HELX"]}
+    assert found["custom"] == {"+30+031": ["HECA"]}
+    assert found["default"] == "HECA"
+    rows = ESTIMATE.estimate([(LAT, LON)], "HEAZ")["kinds"]
+    assert [(r["kind"], r["available"]) for r in rows] == [
+        ("exact", True), ("patch", False), ("tile", True)]
+    assert "no custom patch" in rows[1]["why"]
+    assert [r["kind"] for r in ESTIMATE.estimate([(LAT, LON)])["kinds"]] == ["tile"]
+
+
+def test_combined_airport_packages_say_their_kinds(machines, tmp_path):
+    a, _b = machines
+    heca = _save(a, tmp_path, "heca.xptb", airports=["HECA"], kind="patch")
+    heaz = _save(a, tmp_path, "heaz.xptb", airports=["HEAZ"], kind="exact")
+    done = MERGE.merge_packages([heca, heaz], str(tmp_path / "both.xptb"))
+    manifest = INSTALL.read_manifest(done["path"])
+    assert manifest["kind"] == "combined"
+    assert [n["what"] for n in manifest["still_needs"]][-1] == "imagery"

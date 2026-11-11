@@ -1,9 +1,13 @@
 """``.xptb`` packages in the Qt window (#2014; mac-app parity:
 ``TilePackageSheets.swift``).
 
-* File ▸ Export Package… (and the map's tile menu) saves the selected
-  tiles' package — whole tiles, or the airports ticked in the dialog —
-  with its maker's optional title, name, notes and link.
+* File ▸ Export Package… (and the map's tile menu) is AIRPORT-FIRST
+  (owner 2026-11-11T16:10Z): pick one airport (it opens on the one with a
+  custom patch), then a kind — Exact match, Airport patch only, or Whole
+  tile (last) — each with the engine's explanation, estimated size and
+  the recipient's downloads and build time
+  (``o4_engine.library.package_estimate``), and the maker's optional
+  title, name, notes and link.
 * A package dropped on the map or the window, opened on the app icon or
   given as a launch argument (Windows "Open with" and the file
   association, Linux desktop files) is planned by the engine
@@ -20,13 +24,24 @@ from __future__ import annotations
 import os
 
 from o4_engine import library as LIB
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QFileDialog, QFormLayout, QLabel, QLineEdit,
-                               QMessageBox, QPlainTextEdit, QVBoxLayout)
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QRadioButton,
+    QVBoxLayout,
+)
 
 __all__ = ["EXPORT_TITLE", "INSTALL_TITLE", "INSTALL", "KEEP_MINE", "USE_THEIRS",
-           "COMBINE_TITLE", "SUFFIXES", "is_package", "offer", "export",
-           "combine"]
+           "COMBINE_TITLE", "AIRPORT_LABEL", "WHOLE_TILE_ONLY", "ESTIMATE_NOTE",
+           "SUFFIXES", "is_package", "offer", "export", "combine"]
 
 #: The words both apps use (the Mac app: ``O4TilePackageCopy``).
 EXPORT_TITLE = "Export Package…"
@@ -35,6 +50,9 @@ INSTALL = "Install"
 KEEP_MINE = "Keep my patch"
 USE_THEIRS = "Back up mine and use the package's"
 COMBINE_TITLE = "Combine Packages…"
+AIRPORT_LABEL = "Airport"
+WHOLE_TILE_ONLY = "Whole tile (no airport)"
+ESTIMATE_NOTE = "Sizes and times are estimates; imagery is never included."
 
 #: A package's and a tile bundle's suffixes (``tile_bundle.SUFFIXES``).
 SUFFIXES = (".xptb", ".xptbundle")
@@ -116,41 +134,88 @@ def offer(window, paths) -> bool:
 
 
 class _ExportDialog(QDialog):
-    """The tiles, an airport tick box each, and the maker's fields."""
+    """The airport, a kind each with its explanation and estimate, and
+    the maker's fields.  ``estimate(airport)`` is the engine's
+    ``package_estimate`` for the dialog's tiles (a seam for tests)."""
 
-    def __init__(self, parent, tiles, airports: dict):
+    def __init__(self, parent, found: dict, estimate):
         super().__init__(parent)
         self.setWindowTitle(EXPORT_TITLE.rstrip("…"))
+        self.estimate, self.rows = estimate, []
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(
-            "Tiles %s. Imagery is never included. Tick airports to export only "
-            "them; none ticked exports the whole tiles." % ", ".join(sorted(airports))))
-        self.boxes = {}
-        for tile in sorted(airports):
-            for icao in airports[tile]:
-                box = QCheckBox("%s (tile %s)" % (icao, tile))
-                layout.addWidget(box)
-                self.boxes[icao] = box
+        custom = {i for icaos in (found.get("custom") or {}).values() for i in icaos}
+        self.airport = QComboBox()
+        for icao in sorted({i for icaos in found["tiles"].values() for i in icaos}):
+            self.airport.addItem("%s (custom patch)" % icao if icao in custom else icao, icao)
+        self.airport.addItem(WHOLE_TILE_ONLY, "")
+        start = self.airport.findData(found.get("default") or "")
+        self.airport.setCurrentIndex(max(0, start))
         form = QFormLayout()
+        form.addRow(AIRPORT_LABEL, self.airport)
+        layout.addLayout(form)
+        self.kinds = QVBoxLayout()
+        self.group = QButtonGroup(self)
+        layout.addLayout(self.kinds)
+        layout.addWidget(QLabel(ESTIMATE_NOTE))
+        fields = QFormLayout()
         self.fields = {}
         for key, label in (("title", "Title"), ("creator", "Made by"),
                            ("notes", "Notes"), ("url", "Link")):
             self.fields[key] = QLineEdit()
-            form.addRow(label, self.fields[key])
-        layout.addLayout(form)
+            fields.addRow(label, self.fields[key])
+        layout.addLayout(fields)
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
-        buttons.addButton("Save…", QDialogButtonBox.AcceptRole)
+        self.save = buttons.addButton("Save…", QDialogButtonBox.AcceptRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        self.airport.currentIndexChanged.connect(self._estimate)
+        self._estimate()
+
+    def _estimate(self, *_args) -> None:
+        """Every kind estimated again for the airport chosen."""
+        for button in self.group.buttons():
+            self.group.removeButton(button)
+        while self.kinds.count():
+            widget = self.kinds.takeAt(0).widget()
+            if widget is not None:
+                widget.deleteLater()
+        try:
+            self.rows = self.estimate(self.airport.currentData() or "")["kinds"]
+        except (ValueError, OSError) as error:
+            self.rows = []
+            self.kinds.addWidget(QLabel(str(error)))
+        for row in self.rows:
+            button = QRadioButton("%s — %s\n%s" % (row["title"], row["explanation"],
+                                                    row["figures"] if row["available"]
+                                                    else row["why"]))
+            button.setProperty("kind", row["kind"])
+            button.setEnabled(bool(row["available"]))
+            self.group.addButton(button)
+            self.kinds.addWidget(button)
+        first = next((b for b in self.group.buttons() if b.isEnabled()), None)
+        if first is not None:
+            first.setChecked(True)
+        self.save.setEnabled(first is not None)
 
     def answer(self) -> dict:
-        return {"airports": sorted(i for i, b in self.boxes.items() if b.isChecked()),
-                **{k: f.text() for k, f in self.fields.items()}}
+        checked = self.group.checkedButton()
+        kind = checked.property("kind") if checked is not None else "tile"
+        airport = self.airport.currentData() or ""
+        return {"airports": [airport] if airport and kind != "tile" else [],
+                "kind": kind, **{k: f.text() for k, f in self.fields.items()}}
 
     def ask(self):
         """The answer on Save, None on Cancel (a seam for tests)."""
         return self.answer() if self.exec() == QDialog.Accepted else None
+
+
+def _default_name(tile_airports: dict, answer: dict) -> str:
+    """``XPTerrainBuilder_<ICAO>_<kind>.xptb``, or the tiles' package name."""
+    from tile_bundle import package
+    if answer["airports"]:
+        return "XPTerrainBuilder_%s_%s.xptb" % (answer["airports"][0], answer["kind"])
+    return package.package_name(tile_airports)
 
 
 def _save_path(window, name: str) -> str:
@@ -165,15 +230,15 @@ def export(window, tiles) -> dict | None:
     if not tiles:
         return None
     try:
-        found = LIB.package_airports(tiles, _tiles_dir(window))["tiles"]
+        found = LIB.package_airports(tiles, _tiles_dir(window))
     except (ValueError, OSError) as error:
         QMessageBox.warning(window, EXPORT_TITLE, str(error))
         return None
-    answer = _ExportDialog(window, tiles, found).ask()
+    answer = _ExportDialog(window, found, lambda airport: LIB.package_estimate(
+        tiles, _tiles_dir(window), airport)).ask()
     if answer is None:
         return None
-    from tile_bundle import package
-    out = _save_path(window, package.package_name(found))
+    out = _save_path(window, _default_name(found["tiles"], answer))
     if not out:
         return None
     try:

@@ -339,27 +339,30 @@ def _in_passage(run: LineString, seeds: _t.Sequence, near: float):
     return None
 
 
-def passage_roads(airport, law: Law, seeds: _t.Sequence) -> dict[int, _t.Any]:
-    """``{seed unit: carriageway}`` -- R6 YIELDS TO AN OBJECT-WITNESSED
-    LEVEL (spec two-level-regions §19 S1; owner RULINGS 2026-11-10n (1),
-    2026-11-03b Q342 a "where no object sets level B's height",
-    2026-11-11e): a covered run standing in a level seed's passage
+def passage_roads(airport, law: Law, seeds: _t.Sequence) -> dict[int, tuple]:
+    """``{seed unit: (carriageway, kerb zone)}`` -- R6 YIELDS TO AN
+    OBJECT-WITNESSED LEVEL (spec two-level-regions §19 S1; owner RULINGS
+    2026-11-10n (1), 2026-11-03b Q342 a "where no object sets level B's
+    height", 2026-11-11e): a covered run standing in a level seed's passage
     (:func:`_in_passage`) mints no trench; the object states the road's
-    level, the MAIN FLOOR its kerbside stands on, so its carriageway -- the
-    whole mapped route, the run and its exits -- is kept out of the passage
-    level (the road meets the level only where the level's own roads run
-    out)."""
+    level, the MAIN FLOOR its kerbside stands on, so its carriageway along
+    the run is kept out of the passage level.  The kerb zone is the run's
+    span, ``dual_carriageway_max_separation_m`` either side (the road and
+    the kerbs beside it), flat at the run's ends."""
     from ..law.tables import design as design_law
     if not any(getattr(s, "passage", None) is not None for s in seeds):
         return {}
     near = float(design_law(law).pad_frontage_m)
+    sep = float(law.tables.structures.tunnel.dual_carriageway_max_separation_m)
     out: dict[int, list] = {}
     for route, s0, s1, half_w, _ids in _covered_runs(airport, law):
         run = substring(route, s0, s1)
         s = _in_passage(run, seeds, near)
         if s is not None:
-            out.setdefault(s.unit, []).append(route.buffer(half_w, cap_style="flat"))
-    return {u: unary_union(gs) for u, gs in out.items()}
+            out.setdefault(s.unit, []).append((run.buffer(half_w, cap_style="flat"),
+                                               run.buffer(sep, cap_style="flat")))
+    return {u: (unary_union([c for c, _z in gs]), unary_union([z for _c, z in gs]))
+            for u, gs in out.items()}
 
 
 def viaduct_road_groups(airport, law: Law, cells, polys, seeds: _t.Sequence = ()

@@ -86,14 +86,15 @@ class LevelSeed(_t.NamedTuple):
     underside: _t.Any = None
     #: the witness kind (W1 ``"walls"``, the only one built)
     kind: str = "walls"
-    #: the carriageway of a covered R6 run under the unit
-    #: (``viaduct_road.passage_roads``, §19 S1), or ``None``
+    #: the carriageway of a covered R6 run under the unit and the run's
+    #: kerb zone (``viaduct_road.passage_roads``, §19 S1), or ``None``
     road: _t.Any = None
+    kerb_zone: _t.Any = None
     #: the unit's whole plan (every part's rings, frame xy), or ``None``
     plan: _t.Any = None
-    #: the walls' footprint at the ``y_feet`` plane (``footprint`` less the
-    #: walled parts standing on other planes), or ``None``
-    floor: _t.Any = None
+    #: ``((y, plan), ...)``: the unit's slabs by the plane they stand on
+    #: (:func:`_slabs`)
+    slabs: tuple = ()
 
 
 def level_seeds(airport, classification, law, cache=None
@@ -125,7 +126,7 @@ def level_seeds(airport, classification, law, cache=None
         got = _unit_seed(ui, parts, tree, air, stands, law, to_xy, step)
         if got is None:
             continue
-        F, z0, y_feet, n, at = got
+        F, z0, y_feet, n = got
         passage = roads(F)
         under = None
         if passage is not None:
@@ -134,8 +135,9 @@ def level_seeds(airport, classification, law, cache=None
         from .low_level import _ring_poly
         plan = valid_area(unary_union([g for p, _xy in parts for rg in p.rings
                                        if (g := _ring_poly(rg, to_xy)) is not None]))
+        slabs = _slabs(parts, to_xy, float(law.tables.structures.placement.chain_min_height_m))
         seeds.append(LevelSeed(F, ui, round(z0, 3), round(y_feet, 3), round(z0 - y_feet, 3), n,
-                               passage, under, plan=plan, floor=at))
+                               passage, under, plan=plan, slabs=slabs))
         notes.append(f"unit {ui} depth {z0 - y_feet:.2f} ({n} walled parts, {F.area:.0f} m2"
                      + (f", passage {passage.area:.0f} m2, soffit "
                         f"{(under or {}).get('soffit_y')}" if passage is not None else "")
@@ -143,9 +145,10 @@ def level_seeds(airport, classification, law, cache=None
     if seeds:
         from .viaduct_road import passage_roads
         kept = passage_roads(airport, law, seeds)
-        seeds = [s._replace(road=kept.get(s.unit)) for s in seeds]
+        seeds = [s._replace(road=kept[s.unit][0], kerb_zone=kept[s.unit][1])
+                 if s.unit in kept else s for s in seeds]
         notes += [f"unit {u}: a covered road {g.area:.0f} m2 runs in its passage (R6 yields)"
-                  for u, g in kept.items()]
+                  for u, (g, _z) in kept.items()]
     return tuple(seeds), notes
 
 
@@ -185,7 +188,7 @@ def _unit_seed(ui, parts, tree, air, stands, law, to_xy, step: float):
             sf = stand_floor(parts, unary_union([air[int(j)] for j in hit]), stands, law, to_xy)
             if sf is not None:
                 z0 = float(sf[0])
-    low, feet, planes = [], [], []
+    low, feet = [], []
     for p, _xy in parts:
         rings = [g for rg in p.rings if (g := _ring_poly(rg, to_xy)) is not None]
         fy = sorted(float(f[2]) for f in (getattr(p, "feet", ()) or ()))
@@ -193,19 +196,30 @@ def _unit_seed(ui, parts, tree, air, stands, law, to_xy, step: float):
                 and not is_support(p, law) and _densest(fy, PLANE_BAND_M)[1] <= z0 - step):
             low.extend(rings)
             feet.extend(fy)
-            planes.append((_densest(fy, PLANE_BAND_M)[1], rings))
     if not low:
         return None
     F = valid_area(unary_union(low))
     if F.is_empty:
         return None
     _n, y_feet = _densest(sorted(feet), PLANE_BAND_M)
-    # the walls STANDING ON the level: their feet at its plane (the two-plane
-    # test of ``_upper_floors``), never a skirt below it or a hall's walls
-    # on the main floor above it
-    at = valid_area(unary_union([g for y, rs in planes
-                                 if abs(y - y_feet) <= 2.0 * PLANE_BAND_M for g in rs]))
-    return F, z0, float(y_feet), len(low), at
+    return F, z0, float(y_feet), len(low)
+
+
+def _slabs(parts, to_xy, wall_min: float) -> tuple:
+    """``((y, plan), ...)``: the unit's SLABS -- parts lower than a wall
+    (``wall_min``): a kerbside, a median, a plate -- grouped by the plane
+    they stand on (their densest feet, else their base)."""
+    from ..airport.airside_group_seat import PLANE_BAND_M
+    from .low_level import _densest, _ring_poly
+    by: dict[float, list] = {}
+    for p, _xy in parts:
+        if float(getattr(p, "height_m", 0.0) or 0.0) >= wall_min:
+            continue
+        fy = sorted(float(f[2]) for f in (getattr(p, "feet", ()) or ()))
+        y = _densest(fy, PLANE_BAND_M)[1] if fy else float(getattr(p, "base_y", 0.0) or 0.0)
+        by.setdefault(round(y, 2), []).extend(
+            g for rg in p.rings if (g := _ring_poly(rg, to_xy)) is not None)
+    return tuple((y, valid_area(unary_union(gs))) for y, gs in sorted(by.items()) if gs)
 
 
 def _ground(g, dem, step: float):
@@ -267,22 +281,21 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
         # kerbside stands on -- kept out of the level as another pad is --
         # and the pieces of the host floors the level cuts off from the
         # airside frontage are the level (S2, ``low_level._with_orphans``);
-        # a piece of the level the kept road parts from the walls standing
-        # at its depth (``LevelSeed.floor``) is the host's again (MEASURED
-        # KMCI unit 20: a 5,182 m2 skirt at y -12.72 put the kerbside,
-        # authored at -8.0, into the garage's level at -10.36)
+        # beside that road the slabs the object authors from the main
+        # floor's plane up to its zero (a kerbside, its medians, a plate)
+        # stand on the main floor, never on the level (MEASURED KMCI unit
+        # 20: the kerbside at y -8.0 over a skirt walled to -12.72 fell into
+        # the garage's level at -10.36)
         main = len(host) > 1
         if main and s.road is not None:
-            others.append(s.road)
+            from ..airport.airside_group_seat import PLANE_BAND_M
+            y_main = s.z0 + max(float(reg.landings[k]["y_lo"]) for k in host
+                                if k in reg.landings)
+            others += [s.road] + [valid_area(g.intersection(s.kerb_zone)) for y, g in s.slabs
+                                  if y_main - 2.0 * PLANE_BAND_M <= y <= s.z0]
         A = valid_area(air.intersection(P.buffer(50.0)))
         cut = level_cut(P, s.footprint, A, valid_area(unary_union(others)), law, grid, 0.0,
                         airport, grow=main, whole=True)
-        if cut is not None and main and s.road is not None and s.floor is not None:
-            apart = [q for q in nonempty_polygon_parts(cut[1])
-                     if q.distance(s.floor) > w]
-            if apart:
-                cut = level_cut(P, s.footprint, A, valid_area(unary_union(others + apart)),
-                                law, grid, 0.0, airport, grow=main, whole=True)
         if cut is None:
             notes.append(f"unit {s.unit}: no level left on {pref} off the airside")
             continue

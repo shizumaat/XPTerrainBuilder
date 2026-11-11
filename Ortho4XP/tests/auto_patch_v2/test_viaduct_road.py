@@ -213,7 +213,7 @@ def test_a_run_in_a_level_seeds_passage_yields_to_the_object(law):
     assert not groups and not notes
     assert len(refused) == 1 and "unit 7's passage level" in refused[0]
     kept = passage_roads(_Field(_ways()), law, (seed,))
-    assert set(kept) == {7} and kept[7].area > 0.0
+    assert set(kept) == {7} and kept[7][0].area > 0.0 and kept[7][1].covers(kept[7][0])
     far = seed._replace(footprint=translate(F, 0.0, 500.0),
                         passage=translate(seed.passage, 0.0, 500.0))
     groups, _n, refused = viaduct_road_groups(_Field(_ways()), law, cells, polys, (far,))

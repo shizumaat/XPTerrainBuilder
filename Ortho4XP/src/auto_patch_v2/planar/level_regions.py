@@ -291,8 +291,12 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
             from ..airport.airside_group_seat import PLANE_BAND_M
             y_main = s.z0 + max(float(reg.landings[k]["y_lo"]) for k in host
                                 if k in reg.landings)
-            others += [s.road] + [valid_area(g.intersection(s.kerb_zone)) for y, g in s.slabs
-                                  if y_main - 2.0 * PLANE_BAND_M <= y <= s.z0]
+            # the carriageway a riser clear: its ribbon's edge never runs on
+            # the riser's (MEASURED KMCI: the coincident edges left zero-area
+            # ribbon slivers no pad row held, solved 9 m up to the deck DEM)
+            others += [s.road.buffer(w, join_style=2)] + [
+                valid_area(g.intersection(s.kerb_zone)) for y, g in s.slabs
+                if y_main - 2.0 * PLANE_BAND_M <= y <= s.z0]
         A = valid_area(air.intersection(P.buffer(50.0)))
         cut = level_cut(P, s.footprint, A, valid_area(unary_union(others)), law, grid, 0.0,
                         airport, grow=main, whole=True)

@@ -15,7 +15,7 @@ extension BuildModel {
         Task { @MainActor [weak self] in
             guard let done = try? await context.client.worldOnboard(sceneryDir: context.sceneryDir)
             else { return }
-            if done.offer > 0 { self?.worldOnboard = done }
+            if done.offer > 0 || done.isForeign { self?.worldOnboard = done }
         }
     }
 }
@@ -29,6 +29,25 @@ struct WorldOnboardSheet: View {
     @State private var moving = false
 
     var body: some View {
+        if offer.isForeign { foreign } else { asking }
+    }
+
+    /// The World folder is not one the app made: the sentence, nothing offered.
+    private var foreign: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(offer.foreignText).fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            HStack {
+                Spacer()
+                Button(O4WorldOnboardText.done) { buildModel.worldOnboard = nil }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 520)
+    }
+
+    private var asking: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(O4WorldOnboardText.title).font(.title3.weight(.semibold))
             Text(O4WorldOnboardText.introText(offer.offer))

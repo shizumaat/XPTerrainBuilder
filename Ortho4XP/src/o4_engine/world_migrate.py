@@ -337,6 +337,8 @@ def migrate(scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX,
     if _xplane_running():
         raise ValueError("Quit X-Plane first: tiles move into the World "
                          "pack only while it is closed.")
+    from . import world_commands as WORLD
+    WORLD.refuse_foreign(scenery_dir)
     _STOP.clear()
     work = work_dir or work_dir_for(scenery_dir)
     os.makedirs(work, exist_ok=True)
@@ -363,7 +365,6 @@ def migrate(scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX,
         return row
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         rows = list(pool.map(one, found))
-    from . import world_commands as WORLD
     WORLD.write_log({"migrate": _counts(rows), "scenery_dir": scenery_dir})
     return {"rows": rows, "counts": _counts(rows), "ini_backup": backup,
             "seconds": round(time.monotonic() - started, 1),
@@ -407,6 +408,7 @@ def revert(scenery_dir: str, names=None, *, work_dir: Optional[str] = None,
         raise ValueError("Quit X-Plane first: tiles leave the World pack "
                          "only while it is closed.")
     from . import world_commands as WORLD
+    WORLD.refuse_foreign(scenery_dir)
     journal = Journal(work_dir or work_dir_for(scenery_dir))
     pack = WORLD.pack_dir(scenery_dir)
     wanted = set(names) if names else None
@@ -494,6 +496,7 @@ def run_command(dry_run: bool, undo: bool = False, tiles=None,
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     if not scenery_dir or not os.path.isdir(scenery_dir):
         raise ValueError(f"No Custom Scenery folder ({scenery_dir!r}).")
+    WORLD.refuse_foreign(scenery_dir)
     if dry_run:
         from .world_migrate_size import dry_run as size
         result = size(scenery_dir, tiles, workers=max(1, int(workers)) * 2)

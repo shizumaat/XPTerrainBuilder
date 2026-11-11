@@ -26,7 +26,7 @@ __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "CLEAR_ALL_TITLE", "CLEAR_ALL_TEXT", "FOLDER_TITLE",
            "ONDEMAND_FLOOR_WARNING", "INSTALLED_TITLE", "INSTALLED_LOCAL",
            "INSTALLED_LINKED", "INSTALLED_UNMOUNTED", "INSTALLED_NONE",
-           "INSTALLED_HELP", "size_text", "budget_lines", "installed_lines",
+           "INSTALLED_HELP", "WORLD_FOREIGN", "size_text", "budget_lines", "installed_lines",
            "ondemand_warning", "cleanup_warning", "default_line",
            "held_line", "needs_downgrade", "downgrade_text",
            "clear_all_text"]
@@ -147,6 +147,12 @@ def downgrade_text(budget: Mapping, new_bytes: int) -> str:
 def clear_all_text(cache_bytes) -> str:
     """The Caches line's Clear… confirmation."""
     return CLEAR_ALL_TEXT.format(bytes=size_text(cache_bytes))
+
+#: The World folder that is not the app's own (``world_commands._foreign_target``):
+#: onboarding offers nothing, Convert existing tiles refuses with this.
+WORLD_FOREIGN = ("Your World folder is a link to {target}, not a folder "
+                 "XPTerrainBuilder made. Remove the link or restore it before "
+                 "converting tiles.")
 
 
 def installed_lines(installed: Mapping) -> List[str]:

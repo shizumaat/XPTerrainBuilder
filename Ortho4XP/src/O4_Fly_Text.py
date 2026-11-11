@@ -23,7 +23,8 @@ __all__ = [
     "PLAN_SOURCE_LABEL", "PLAN_CHOOSE", "PLAN_SIMBRIEF", "PLAN_NONE",
     "SIMBRIEF_PLACEHOLDER", "SIMBRIEF_BUTTON", "OPEN_PLAN", "QUICK_FROM",
     "QUICK_TO", "QUICK_BUTTON", "PREPARE", "BUILD_ALTERNATE", "CRUISE_LABEL",
-    "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "SIM_PRIORITIES", "LIVE_PREVIEW",
+    "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "SIM_PRIORITIES",
+    "DRAPE_PX_LABEL", "DRAPE_PX_KEY", "DRAPE_PX_CHOICES", "LIVE_PREVIEW",
     "LIVE_PREVIEW_HELP", "DIVERT", "END_FLIGHT", "NO_FLIGHT_MANAGER",
     "NO_STATUS", "READINESS_LABELS", "STATE_MARKS", "LEGEND",
     "DEFAULT_CRUISE_KT", "DEFAULT_CORRIDOR_KM", "plan_row_label",
@@ -51,6 +52,12 @@ SIM_PRIORITY_LABEL = "While flying"
 SIM_PRIORITIES = (("smooth", "Smooth flying first"),
                   ("balanced", "Balanced"),
                   ("fast", "Build fastest"))
+DRAPE_PX_LABEL = "Photo detail ahead"
+#: ``drape_photo_px`` (RULINGS 2026-11-11j): (value, words).
+DRAPE_PX_KEY = "drape_photo_px"
+DRAPE_PX_CHOICES = ((512, "Quick"),
+                    (1024, "Sharper"),
+                    (4096, "Full detail (slow)"))
 LIVE_PREVIEW = GLOSSARY.TERMS["live_flight_preview"]
 LIVE_PREVIEW_HELP = ("Shows the imagery installed for X-Plane on the map, "
                      "square by square, as it arrives; zoom in to see it.")

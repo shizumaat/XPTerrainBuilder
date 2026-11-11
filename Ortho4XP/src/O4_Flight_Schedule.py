@@ -35,6 +35,7 @@ import O4_Flight_Plan as FP
 __all__ = [
     "P0", "P1", "P2", "P3", "P4", "Job", "Facts", "Item", "route_times",
     "margin_s", "tile_deadlines", "klass_for", "job_estimate", "rescale",
+    "DRAPE_SECONDS", "drape_seconds",
     "finish_times", "countdown", "feasible", "shed_order", "next_job",
     "readiness_items", "countdown_text", "DONE_STATES",
 ]
@@ -60,9 +61,15 @@ MARGIN_KM = 0.05 * math.pi * FP.EARTH_RADIUS_KM / 180.0
 MARGIN_MIN_S = 60.0
 #: Swaps are spaced at least this far apart (§10 Landings).
 SWAP_S = 10.0
-#: Seconds per tile before any build of the kind is recorded: the CYYR
-#: light tile (397 s cold, §2.1) and the ldrape figure (15-37 s, high end).
-PROFILE_SECONDS = {"light": 397.0, "drape": 37.0}
+#: Seconds one drape with its water copy takes cold, by photo width
+#: (``drape_photo_px``; lane ldrape2, 2026-11-11, cold caches, Labrador):
+#: 512 px 82-109 s (photos 29-70 s, the water read 47-102 s beside them,
+#: held to ``world_job_run.WATER_WAIT_S``), 1024 px 109 s, 4096 px 730 s
+#: (photos 445 s, masks 213 s; the masks now run beside the photos).
+DRAPE_SECONDS = {512: 80.0, 1024: 110.0, 4096: 730.0}
+#: Seconds per tile before any build of the kind is recorded: the drape,
+#: the one intermediate kind (spec §17, RULINGS 2026-11-11j).
+PROFILE_SECONDS = {"drape": DRAPE_SECONDS[512]}
 #: plan_estimate's spreads (TIME_SPREAD_KNOWN / _UNKNOWN), repeated so
 #: this module stays pure; tests/test_flight_schedule.py pins them equal.
 SPREAD_KNOWN = (0.75, 1.5)
@@ -196,6 +203,15 @@ def klass_for(role: str, first_window: bool = False) -> int:
     if role == "departure" or first_window:
         return P0
     return {"enroute": P1, "destination": P2, "alternate": P4}.get(role, P1)
+
+
+def drape_seconds(px) -> float:
+    """:data:`DRAPE_SECONDS` of a ``drape_photo_px`` value (512 px for a
+    width the table does not know)."""
+    try:
+        return DRAPE_SECONDS.get(int(px), DRAPE_SECONDS[512])
+    except (TypeError, ValueError):
+        return DRAPE_SECONDS[512]
 
 
 def job_estimate(kind: str, recorded_s: Optional[float] = None,

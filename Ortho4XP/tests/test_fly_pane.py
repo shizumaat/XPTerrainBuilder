@@ -55,14 +55,18 @@ FLIGHT_STATUS = {
               ["destination", "done", 0.0, "Ready 18 min before it loads"],
               ["loaded", "done", 0.0, ""]],
     "jobs": [[[53, -61], "departure", "full", "building", 412.0, None],
-             [[53, -60], "enroute", "light", "queued", 397.0, 1200.0],
-             [[52, -59], "enroute", "light", "swapped", 0.0, 900.0],
+             [[53, -60], "enroute", "drape", "queued", 80.0, 1200.0],
+             [[52, -59], "enroute", "drape", "swapped", 0.0, 900.0],
              [[47, -53], "destination", "full", "staged", 0.0, 1080.0]],
     "route_km": 833.6, "done_km": 0.0, "eta_s": 6480.0, "late": [],
     "shed": [], "reload": "", "diverted_to": "", "waivable": [],
 }
 WORLD_STATUS = {"state": "building", "reason": "", "building":
-                [["+53-060", "light", "mesh", 120.0]],
+                [["+53-060", "drape", "building", 80]],
+                # build-ahead's tiles in free flight (RULINGS 2026-11-11j)
+                "jobs": [[[53, -60], "ahead", "drape", "building"],
+                         [[53, -59], "ahead", "drape", "swapped"],
+                         [[54, -60], "ahead", "drape", "queued"]],
                 "loaded": ["+53-061", "+53-062"]}
 DEP = ("cyyr", 53.3192, -60.4258)
 ARR = ("CYYT", 47.6186, -52.7519)
@@ -101,7 +105,7 @@ def _text_cases():
                         [dict(FLIGHT_STATUS, reason="Building is 3 min behind"),
                          "Building is 3 min behind"]],
         "legend_key": [[k, s, TEXT.legend_key(k, s)]
-                       for k in ("full", "light", "drape", "placeholder")
+                       for k in ("full", "drape", "placeholder")
                        for s in ("queued", "fetching", "building", "staged",
                                  "swapped", "late", "shed", "failed")],
         "unknown_airport": [[" zzzz ", TEXT.unknown_airport(" zzzz ")]],
@@ -156,7 +160,10 @@ def _doc():
             "corridor": [[plan, 20, [], LAYERS.corridor_cells(plan, 20)],
                          [plan, 20, FLIGHT_STATUS["jobs"],
                           LAYERS.corridor_cells(plan, 20, FLIGHT_STATUS["jobs"])],
-                         [None, 20, [], LAYERS.corridor_cells(None, 20)]]}
+                         [None, 20, [], LAYERS.corridor_cells(None, 20)],
+                         # free flight: build-ahead's drapes on the map
+                         [None, 20, WORLD_STATUS["jobs"],
+                          LAYERS.corridor_cells(None, 20, WORLD_STATUS["jobs"])]]}
 
 
 def test_the_shared_fixture_is_current():
@@ -202,6 +209,10 @@ def test_the_words_are_the_macs():
         assert '("%s", "%s")' % (key, words.replace('"', '\\"')) in swift, key
     for value, words in TEXT.SIM_PRIORITIES:
         assert '("%s", "%s")' % (value, words) in swift, value
+    assert 'static let drapePxLabel = "%s"' % TEXT.DRAPE_PX_LABEL in swift
+    assert 'static let drapePxKey = "%s"' % TEXT.DRAPE_PX_KEY in swift
+    for value, words in TEXT.DRAPE_PX_CHOICES:
+        assert '(%d, "%s")' % (value, words) in swift, value
     divert = SWIFT_DIVERT_TEXT.read_text(encoding="utf-8")
     for name in ("DIVERT_TITLE", "DIVERT_SEARCH", "DIVERT_ALTERNATE",
                  "DIVERT_BUTTON", "RELOAD_NOW", "NOT_NOW", "WAIVE_OFFLINE"):
@@ -230,6 +241,20 @@ def test_the_corridor_follows_the_jobs_once_reported():
     after = LAYERS.corridor_cells(plan, 20, FLIGHT_STATUS["jobs"])
     assert after == [(47, -53, "built"), (52, -59, "quick"),
                      (53, -61, "building"), (53, -60, "own")]
+
+
+def test_free_flight_maps_the_drapes_ahead():
+    """No flight, no plan: the map draws build-ahead's tiles
+    (``WorldStatus.jobs``) by the same legend; a flight's jobs, or a plan's
+    corridor, win over them."""
+    ahead = WORLD_STATUS["jobs"]
+    jobs = LAYERS.map_jobs((), False, ahead)
+    assert LAYERS.corridor_cells(None, 20, jobs) == [
+        (53, -60, "building"), (53, -59, "quick"), (54, -60, "own")]
+    assert LAYERS.map_jobs(FLIGHT_STATUS["jobs"], False, ahead) == \
+        FLIGHT_STATUS["jobs"]
+    assert LAYERS.map_jobs((), True, ahead) == ()
+    assert set(EV.WorldStatus.__dataclass_fields__) >= {"jobs", "building"}
 
 
 # ─── aircraft_watch ────────────────────────────────────────────────────────

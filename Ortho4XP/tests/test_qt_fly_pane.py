@@ -206,3 +206,26 @@ def test_divert_waiver_reload_and_notice(qapp):
     pane.show_notice(notice)
     assert not pane.notice_label.isHidden()
     assert pane.notice_label.text().startswith("Diversion ready")
+
+
+def test_free_flight_draws_the_drapes_ahead_and_the_detail_is_the_global(
+        qapp, monkeypatch):
+    """RULINGS 2026-11-11j: with no flight and no plan the map's cells are
+    build-ahead's tiles (``WorldStatus.jobs``); "Photo detail ahead" reads
+    and writes the global ``drape_photo_px`` (the engine reads it per
+    tile), never the window's prefs."""
+    import O4_Settings_Model as SM
+    written = []
+    monkeypatch.setattr(SM, "read_global_raw", lambda *a: {"drape_photo_px": "1024"})
+    monkeypatch.setattr(SM, "write_global", lambda values, *a: written.append(values))
+    pane, saved = _pane(_Engine({}))
+    combo = pane.drape_px_combo
+    assert [combo.itemData(i) for i in range(combo.count())] == [
+        v for v, _w in TEXT.DRAPE_PX_CHOICES]
+    assert combo.currentData() == 1024 and not written
+    combo.setCurrentIndex(combo.findData(4096))
+    assert written == [{"drape_photo_px": 4096}] and not saved
+    world = CASES["events"]["WorldStatus"]
+    pane.show_world(world)
+    assert pane.cells() == [(53, -60, "building"), (53, -59, "quick"),
+                            (54, -60, "own")]

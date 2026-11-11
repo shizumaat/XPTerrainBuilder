@@ -484,6 +484,8 @@ Per the two-round cap, a lane that misses twice goes to a Fable review, not a th
 
 ## 17. Decision point D1: the intermediate kind
 
+**Decided 2026-11-11 (RULINGS 2026-11-11j): `drape`**, with the water copy on `airports -1` at 135/255 over open water; `light` and its build profile are deleted (lane ldrape2). The photo detail is the user's `drape_photo_px` (512 / 1024 / 4096 px, Fly pane and Settings).
+
 | | `light` (flown) | `drape` (committed, not flown) |
 |---|---|---|
 | Time per tile | 397 s cold [measured] | 15–37 s, download dominates [source] |

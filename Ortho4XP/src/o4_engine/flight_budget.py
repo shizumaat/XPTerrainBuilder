@@ -24,26 +24,29 @@ from .plan_estimate import GB, TERRAIN_DATA_BYTES, disk_verdict
 
 __all__ = ["TILE_BYTES", "SHARP_BYTES_PER_HOUR", "need_bytes", "verdict"]
 
-#: Bytes one built tile adds, by kind (spec §3): light 100-104 MB
-#: measured on the CYYR flight; drape ~39 MB (ldrape); full ~80 MB plus
-#: ~140 MB of rebuild data (memory-note figures, not re-measured: the
-#: high end doubled).
-TILE_BYTES = {"light": (100e6, 110e6), "drape": (30e6, 45e6),
-              "full": (220e6, 440e6)}
+#: Bytes one built tile adds, by kind: a 512 px drape 46 MB with no
+#: water, 91 MB when every square carries the water copy's DXT5 (lane
+#: ldrape2, +53-061, 2026-11-11), scaled by (px / 512)^2 for a sharper
+#: ``drape_photo_px``; full ~80 MB plus ~140 MB of rebuild data
+#: (memory-note figures, not re-measured: the high end doubled).
+TILE_BYTES = {"drape": (45e6, 95e6), "full": (220e6, 440e6)}
 #: Sharp imagery along the route, per flight hour at 250 kt (loader spec
 #: §4.3 estimate).
 SHARP_BYTES_PER_HOUR = (2.2e9, 4.6e9)
 
 
 def need_bytes(jobs: Iterable, flight_s: float,
-               uncached_tiles: int = 0) -> Tuple[float, float]:
+               uncached_tiles: int = 0, drape_px: int = 512
+               ) -> Tuple[float, float]:
     """``(lo, hi)`` bytes the flight adds (see the module); ``jobs`` are
-    ``O4_Flight_Schedule.Job``s (only the open ones count)."""
+    ``O4_Flight_Schedule.Job``s (only the open ones count); drapes at
+    ``drape_px``."""
     lo = hi = 0.0
+    scale = {"drape": (max(512, int(drape_px)) / 512.0) ** 2}
     for job in jobs:
         if job.open and job.kind in TILE_BYTES:
-            lo += TILE_BYTES[job.kind][0]
-            hi += TILE_BYTES[job.kind][1]
+            lo += TILE_BYTES[job.kind][0] * scale.get(job.kind, 1.0)
+            hi += TILE_BYTES[job.kind][1] * scale.get(job.kind, 1.0)
     lo += uncached_tiles * TERRAIN_DATA_BYTES[0]
     hi += uncached_tiles * TERRAIN_DATA_BYTES[1]
     hours = max(0.0, float(flight_s)) / 3600.0

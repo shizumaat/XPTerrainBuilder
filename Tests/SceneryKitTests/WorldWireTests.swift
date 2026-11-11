@@ -35,12 +35,20 @@ import Foundation
         }
         #expect(status.state == "idle" && status.installed)
         #expect(status.seenByXPlane == true && !status.restartNeeded)
-        #expect(status.tiles == ["placeholder": 3, "drape": 0, "light": 1, "full": 2, "staged": 1])
+        #expect(status.tiles == ["placeholder": 3, "drape": 1, "full": 2, "staged": 1])
         #expect(status.queue == 2 && status.slots == 1 && status.bytes == 1234)
         #expect(status.loaded == ["+53-063"])
-        #expect(status.building == [.init(tile: "+53-065", kind: "light", step: "building",
-                                          remainingS: 412)])
-        #expect(status.lastSwap == ["+53-064", "light", "2026-11-10T15:02:24Z"])
+        #expect(status.building == [.init(tile: "+53-065", kind: "drape", step: "building",
+                                          remainingS: 41)])
+        #expect(status.lastSwap == ["+53-064", "drape", "2026-11-10T15:02:24Z"])
+        // Build-ahead's tiles: the Fly map's cells in free flight (11j).
+        #expect(status.jobs.map { [$0.lat, $0.lon] } == [[53, -65], [53, -64]])
+        #expect(status.jobs.map(\.state) == ["building", "swapped"])
+        #expect(FlyLayers.corridorCells(plan: nil, corridorKm: 20,
+                                        jobs: FlyLayers.mapJobs(flight: [], planned: false,
+                                                                ahead: status.jobs))
+                == [FlyCell(lat: 53, lon: -65, key: "building"),
+                    FlyCell(lat: 53, lon: -64, key: "quick")])
         #expect(abs(status.frameMS - 21.8) < 1e-9 && status.governor == "ok")
     }
 

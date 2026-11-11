@@ -54,10 +54,13 @@ public struct O4WorldStatus: Sendable, Equatable {
     /// nil: unknown (X-Plane not running, or its log not read yet).
     public let seenByXPlane: Bool?
     public let restartNeeded: Bool
-    /// `placeholder`, `drape`, `light`, `full`, `staged` counts.
+    /// `placeholder`, `drape`, `full`, `staged` counts.
     public let tiles: [String: Int]
     public let queue: Int
     public let building: [Building]
+    /// Build-ahead's tiles in track mode, `FlightStatus.jobs`' rows
+    /// (`[[lat, lon], "ahead", kind, state]`): the Fly map in free flight.
+    public var jobs: [O4FlightStatus.Job] = []
     public let loaded: [String]
     /// `[tile, kind, utc]`, empty before the first swap.
     public let lastSwap: [String]
@@ -87,7 +90,7 @@ public struct O4WorldStatus: Sendable, Equatable {
                             step: row[2] as? String ?? "",
                             remainingS: (row[3] as? NSNumber)?.intValue ?? 0)
         }
-        return O4WorldStatus(
+        var status = O4WorldStatus(
             state: object["state"] as? String ?? "off",
             reason: object["reason"] as? String ?? "",
             installed: (object["installed"] as? NSNumber)?.boolValue ?? false,
@@ -103,5 +106,19 @@ public struct O4WorldStatus: Sendable, Equatable {
             governor: object["governor"] as? String ?? "ok",
             bytes: (object["bytes"] as? NSNumber)?.int64Value ?? 0,
             regions: regions)
+        status.jobs = jobRows(object["jobs"])
+        return status
+    }
+
+    /// `jobs` rows from the event's decoded JSON.
+    static func jobRows(_ value: Any?) -> [O4FlightStatus.Job] {
+        (value as? [Any] ?? []).compactMap { item in
+            guard let row = item as? [Any], row.count >= 4, let tile = row[0] as? [Any],
+                  tile.count == 2, let lat = (tile[0] as? NSNumber)?.intValue,
+                  let lon = (tile[1] as? NSNumber)?.intValue else { return nil }
+            return O4FlightStatus.Job(lat: lat, lon: lon, role: row[1] as? String ?? "",
+                                      kind: row[2] as? String ?? "", state: row[3] as? String ?? "",
+                                      remainingSeconds: nil, marginSeconds: nil)
+        }
     }
 }

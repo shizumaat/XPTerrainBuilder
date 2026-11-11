@@ -60,6 +60,22 @@ def _fields(event) -> Optional[Dict[str, Any]]:
     return {k: v for k, v in vars(event).items() if not k.startswith("_")}
 
 
+def _drape_px() -> int:
+    """The global ``drape_photo_px`` (512 when unread)."""
+    import O4_Settings_Model as SM
+    try:
+        return int(SM.read_global_raw().get(TEXT.DRAPE_PX_KEY) or 512)
+    except (OSError, TypeError, ValueError):
+        return 512
+
+
+def _set_drape_px(value) -> None:
+    """Write ``drape_photo_px`` to the global cfg (build-ahead reads it
+    per tile)."""
+    import O4_Settings_Model as SM
+    SM.write_global({TEXT.DRAPE_PX_KEY: int(value)})
+
+
 def _no_engine(name, **_arguments):
     raise KeyError("unknown command: %r" % (name,))
 
@@ -148,6 +164,15 @@ class FlyPane(QWidget):
             lambda _i: self._remember(PREF_SIM_PRIORITY,
                                       self.sim_priority_combo.currentData()))
         layout.addWidget(self.sim_priority_combo)
+        self.drape_px_combo = QComboBox()
+        self.drape_px_combo.setToolTip(TEXT.DRAPE_PX_LABEL)
+        for value, words in TEXT.DRAPE_PX_CHOICES:
+            self.drape_px_combo.addItem(words, value)
+        self.drape_px_combo.setCurrentIndex(
+            max(0, self.drape_px_combo.findData(_drape_px())))
+        self.drape_px_combo.currentIndexChanged.connect(
+            lambda _i: _set_drape_px(self.drape_px_combo.currentData()))
+        layout.addWidget(self.drape_px_combo)
         self.chk_live_preview = QCheckBox(TEXT.LIVE_PREVIEW)
         self.chk_live_preview.setToolTip(TEXT.LIVE_PREVIEW_HELP)
         self.chk_live_preview.setChecked(bool(self.prefs.get(PREF_LIVE_PREVIEW)))
@@ -261,7 +286,9 @@ class FlyPane(QWidget):
         return self.corridor_edit.spin.value()
 
     def cells(self):
-        jobs = (self.status or {}).get("jobs") or ()
+        jobs = LAYERS.map_jobs((self.status or {}).get("jobs") or (),
+                               self.plan is not None,
+                               (self.world or {}).get("jobs") or ())
         return LAYERS.corridor_cells(self.plan, self.corridor_km(), jobs)
 
     def _remember(self, key, value):
@@ -345,7 +372,8 @@ class FlyPane(QWidget):
         self.notice_label.setVisible(bool(text))
 
     def show_world(self, event):
-        """A ``WorldStatus`` (lane W1's event, or its dict)."""
+        """A ``WorldStatus`` (every 2 s while build-ahead runs): the World
+        line, and in free flight the tiles it lays ahead on the map."""
         self.world = _fields(event)
         self._show()
 

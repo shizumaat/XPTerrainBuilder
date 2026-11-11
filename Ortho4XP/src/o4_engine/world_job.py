@@ -10,8 +10,9 @@ is passed in:
 * ``builder`` -- ``start(tile, kind, deadline_in_s, klass)`` starts (or
   queues) a build and says whether it took it; ``poll(now)`` returns
   ``[(tile, ok)]`` for the builds finished since the last call
-  (``world_job_run.SessionBuilder``: the engine session's build queue
-  with ``overrides={"profile": kind}``, ``deadline``, ``klass="P1"``);
+  (``world_job_run._SessionBuilder``: a ``drape`` is fetched and written
+  on the builder's own thread; a ``full`` tile goes through the engine
+  session's build queue with its ``deadline`` and ``klass``);
 * ``publisher`` -- ``settle(tile, kind, held)`` stages / swaps a finished
   tile and returns its state (``swapped``, ``staged``, ``pending``,
   ``failed``); ``held`` is rule S3's verdict for that tile now;
@@ -53,20 +54,29 @@ import math
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Optional
 
+import O4_Flight_Schedule as SCHEDULE
 import O4_World_Ahead as AHEAD
 import O4_World_Governor as GOVERNOR
 import O4_World_Pack as WP
 import O4_World_Window as WINDOW
 from O4_Imagery_Follow_Motion import MotionTracker
 
-__all__ = ["KINDS", "ESTIMATE_S", "SPREAD", "MOVING_MS", "PARKED_ASSUMED_MS",
-           "SWAP_SPACING_S", "MAX_ATTEMPTS", "WorldJob"]
+__all__ = ["KINDS", "ESTIMATE_S", "SPREAD", "MOVING_MS",
+           "PARKED_ASSUMED_MS", "SWAP_SPACING_S", "MAX_ATTEMPTS", "WorldJob",
+           "drape_estimate"]
 
-#: The intermediate kinds the job builds (spec §3, §17: D1 picks one).
-KINDS = ("light", "drape")
-#: Seconds one tile takes before any is measured on this machine: light
-#: 397 s cold (the CYYR flight, §2.1), drape 37 s (ldrape, §3).
-ESTIMATE_S = {"light": 397.0, "drape": 37.0}
+#: The intermediate kind the job builds: D1 decided ``drape`` (spec §17,
+#: RULINGS 2026-11-11j); ``light`` is retired.
+KINDS = ("drape",)
+#: Seconds one tile takes before any is measured on this machine
+#: (``O4_Flight_Schedule.PROFILE_SECONDS``: a 512 px drape).
+ESTIMATE_S = dict(SCHEDULE.PROFILE_SECONDS)
+
+
+def drape_estimate(px) -> dict:
+    """``estimate_s`` for a job whose drapes are ``px`` wide
+    (``O4_Flight_Schedule.drape_seconds``)."""
+    return {"drape": SCHEDULE.drape_seconds(px)}
 #: An estimate's range (``plan_estimate.TIME_SPREAD_KNOWN``).
 SPREAD = (0.75, 1.5)
 #: Faster than this the aircraft has a track to run (spec §9: airborne
@@ -106,7 +116,7 @@ class WorldJob:
     """Build-ahead in track mode (see the module)."""
 
     def __init__(self, *, builder, publisher, wanted: Callable[[Tile], bool],
-                 kind: str = "light", capacity: int = 4, cores: int = 8,
+                 kind: str = "drape", capacity: int = 4, cores: int = 8,
                  fly_slots: int = 0, sim_priority: str = "balanced",
                  loads: Callable[[], Iterable[Tile]] = lambda: (),
                  estimate_s: Optional[dict] = None,
@@ -312,6 +322,15 @@ class WorldJob:
 
     # ----------------------------------------------------------- status
 
+    def job_rows(self) -> tuple:
+        """The map's rows, ``[[lat, lon], "ahead", kind, state]`` per tile
+        the job holds (``FlightStatus.jobs``' shape, so the Fly map's
+        corridor cells read both); a written drape is staged at once, so
+        ``built`` reads ``staged``."""
+        return tuple([list(j.tile), "ahead", j.kind,
+                      "staged" if j.state == "built" else j.state]
+                     for _t, j in sorted(self.jobs.items()))
+
     def status(self, now: float) -> dict:
         """The job's ``WorldStatus`` fields."""
         building = []
@@ -324,7 +343,8 @@ class WorldJob:
         return {"state": self.state, "reason": self.reason,
                 "queue": sum(1 for j in self.jobs.values()
                              if j.state == "queued"),
-                "building": tuple(building), "slots": self.slots(),
+                "building": tuple(building), "jobs": self.job_rows(),
+                "slots": self.slots(),
                 "frame_ms": self.governor.frame_ms(),
                 "governor": self.governor.state,
                 "last_swap": self.last_swap}

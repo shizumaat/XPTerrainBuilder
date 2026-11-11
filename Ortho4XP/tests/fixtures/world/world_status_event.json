@@ -7,8 +7,7 @@
  "restart_needed": false,
  "tiles": {
   "placeholder": 3,
-  "drape": 0,
-  "light": 1,
+  "drape": 1,
   "full": 2,
   "staged": 1
  },
@@ -16,9 +15,29 @@
  "building": [
   [
    "+53-065",
-   "light",
+   "drape",
    "building",
-   412
+   41
+  ]
+ ],
+ "jobs": [
+  [
+   [
+    53,
+    -65
+   ],
+   "ahead",
+   "drape",
+   "building"
+  ],
+  [
+   [
+    53,
+    -64
+   ],
+   "ahead",
+   "drape",
+   "swapped"
   ]
  ],
  "loaded": [
@@ -26,7 +45,7 @@
  ],
  "last_swap": [
   "+53-064",
-  "light",
+  "drape",
   "2026-11-10T15:02:24Z"
  ],
  "slots": 1,

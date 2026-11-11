@@ -1,13 +1,13 @@
-"""Twin of the build queue's class and deadline and of the ``profile``
-override (``src/o4_engine/build_order.py``, ``src/O4_Build_Profile.py``;
-flight manager / World spec 2026-11-10 §8.4, §2.1)."""
+"""Twin of the build queue's class and deadline
+(``src/o4_engine/build_order.py``; flight manager / World spec 2026-11-10
+§8.4).  The ``light`` build profile is retired (spec §17, RULINGS
+2026-11-11j): its old time records never predict a build."""
 from __future__ import annotations
 
 import os
 import time
 from collections import deque
 
-import O4_Build_Profile as PROFILE
 import pytest
 from o4_engine import build_order as ORDER
 from o4_engine.parallel import ParallelBuildRun
@@ -70,55 +70,23 @@ def test_the_in_process_queue_orders_by_rank():
         (4, 4), (2, 2), (1, 1), (3, 3)]
 
 
-def test_the_light_profile_is_the_cyyr_flights_settings():
-    light = PROFILE.profile_settings("light")
-    assert light["elevation_level"] == "90" and light["auto_patch"] == "None"
-    assert light["airport_elevation_insets"] == "None"
-    assert light["imagery_on_demand"] is True
-    assert light["placeholder_zl_drop"] == 3
-    assert PROFILE.profile_settings("full") == {}
-    assert PROFILE.profile_of({"profile": "light"}) == "light"
-    assert PROFILE.profile_of({}) == PROFILE.profile_of(None) == "full"
-    with pytest.raises(ValueError):
-        PROFILE.profile_settings("heavy")
-
-
-def test_a_profile_lands_on_the_tile_never_in_its_cfg(tmp_path, monkeypatch):
+def test_profile_is_no_build_override_any_more(tmp_path):
     import O4_Config_Utils as CFG
-    import O4_Settings_Model as SM
 
+    assert "profile" not in CFG.BUILD_OVERRIDE_KEYS
     tile = CFG.Tile(47, -123, str(tmp_path) + os.sep)
     tile.auto_patch, tile.elevation_level = "ICAO", "auto"
     tile.apply_build_overrides({"profile": "light"})
-    assert tile.auto_patch == "None" and tile.elevation_level == "90"
-    assert tile.cover_airports_with_highres == "False"
-    written = {}
-    monkeypatch.setattr(SM, "sparse_tile_values",
-                        lambda values, **kw: written.update(values) or {})
-    monkeypatch.setattr(SM, "write_tile_cfg", lambda path, out: None)
-    tile.write_to_config(str(tmp_path / "t.cfg"))
-    assert written["auto_patch"] == "ICAO"
-    assert written["elevation_level"] == "auto"
-
-
-def test_the_session_remembers_a_batchs_overrides_per_tile():
-    session = EngineSession.__new__(EngineSession)
-    session._tile_overrides = {}
-    session._note_overrides([(53, -64)], {"profile": "light"})
-    assert session.tile_overrides(53, -64) == {"profile": "light"}
-    assert session.tile_overrides(53, -65) == {}
+    assert tile.auto_patch == "ICAO" and tile.elevation_level == "auto"
 
 
 def test_a_light_record_never_predicts_a_full_build():
-    """World spec §9: the time model never mixes profiles (a record
-    without one is a full build)."""
+    """A record of the retired light profile never predicts a build (a
+    record without a profile is a normal build)."""
     from o4_engine import tile_time_model as TTM
 
     light = {"features": {"zoomlevel": 16, "profile": "light"}}
     old = {"features": {"zoomlevel": 16}}
     for step in ("vector", "imagery"):
         assert not TTM._same_tile_compatible(light, {"zoomlevel": 16}, step)
-        assert TTM._same_tile_compatible(
-            light, {"zoomlevel": 16, "profile": "light"}, step)
-        assert TTM._same_tile_compatible(
-            old, {"zoomlevel": 16, "profile": "full"}, step)
+        assert TTM._same_tile_compatible(old, {"zoomlevel": 16}, step)

@@ -456,8 +456,8 @@ def cmd_drape(a) -> int:
     work = os.path.join(kit.drapes, "work-water" if water else "work")
     rc, log = run_engine(
         kit, a.tile, [_fetch_script(), str(lat), str(lon), work, "--zl",
-                      str(a.zl), "--provider", a.provider, "--drop",
-                      str(a.drop), "--engine", kit.engine,
+                      str(a.zl), "--provider", a.provider, "--px",
+                      str(a.px), "--engine", kit.engine,
                       *(["--water-alpha"] if water else [])],
         f"drape_{a.tile}.log", a.max_minutes, a.nice, webapi, "draping")
     fetched = _last_json(log)
@@ -598,8 +598,8 @@ def main(argv=None) -> int:
                         "O4_World_Drape.WATER_LAYER_GROUP)")
     s.add_argument("--zl", type=int, default=16)
     s.add_argument("--provider", default="BI")
-    s.add_argument("--drop", type=int, default=3,
-                   help="zoom levels below --zl fetched (3 = 512 px)")
+    s.add_argument("--px", type=int, default=512, choices=(512, 1024, 4096),
+                   help="photo width per texture square (512 = ZL13 for ZL16)")
     s.add_argument("--max-minutes", type=float, default=15)
     s.add_argument("--nice", type=int, default=10)
     s.add_argument("--no-swap", action="store_true")

@@ -958,6 +958,9 @@ class MainWindow(QMainWindow):
             EV.FlightStatus: self._on_flight_status,
             EV.FlightReady: self._on_flight_ready,
             EV.FlightNotice: self._on_flight_notice,
+            # Build-ahead (W2): the Fly pane's World line and, in free
+            # flight, its drapes on the map (RULINGS 2026-11-11j).
+            EV.WorldStatus: lambda e: self.fly_pane.show_world(e),
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).

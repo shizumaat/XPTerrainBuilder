@@ -1271,6 +1271,7 @@ final class BuildModel: ObservableObject {
             appMode.observe(status)    // offers Fly, never switches (10j)
         case .worldStatus(let status):
             worldStatus = status
+            fly.showWorld(status)      // the Fly pane's World line and map
         case .aircraftPosition(let position):
             fly.show(position)         // the Fly map's aircraft (#2001)
         case .flightStatus(let status):

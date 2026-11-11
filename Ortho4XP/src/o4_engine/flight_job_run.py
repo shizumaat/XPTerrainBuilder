@@ -4,15 +4,18 @@ flight-manager-and-world-20261110 §4.3, §5.2, §7.5 S6 (a), §11, §12; lane
 F1b).  The logic is ``flight_manager.FlightManager``; this module gives it
 what it touches:
 
-* builds through the session's queue (``world_job_run._SessionBuilder``:
-  ``enqueue_build`` with ``overrides={"profile": kind}``, the job's
-  ``deadline`` and class, ``missing_art="leave"``; never interactive),
-  the World pack's publish and swap (``world_job_run._PackPublisher``);
+* builds through ``world_job_run._SessionBuilder``: the corridor's
+  drapes (spec §17, RULINGS 2026-11-11j) on its drape thread, the
+  departure and destination (``full``) through the session's queue with
+  the job's ``deadline`` and class, ``missing_art="leave"``; never
+  interactive), the World pack's publish and swap
+  (``world_job_run._PackPublisher``);
 * the tile's state in the pack (:func:`pack_state`), its time from the
   recorded ledger (:func:`estimate`: ``plan_estimate.tile_estimate`` for a
   ``full`` build, with ``tile_time_model.airport_seconds_range`` for its
-  graded airport when the tile has no history; the CYYR / ldrape
-  constants for the intermediate kinds until one is recorded);
+  graded airport when the tile has no history; a drape's measured
+  seconds at the user's ``drape_photo_px``,
+  ``O4_Flight_Schedule.drape_seconds``);
 * the readiness facts (:class:`_Facts`): the World pack and this X-Plane
   session's witness (``world_commands``), the budget pre-check
   (``flight_budget`` against ``storage_budget.status``), the corridor
@@ -92,6 +95,10 @@ def estimate(provider: str = "", zoomlevel: int = 0
     """``estimate(tile, kind, role)`` from the recorded times (see the
     module)."""
     def seconds(tile, kind, role) -> Tuple[float, float]:
+        if kind == "drape":
+            from .world_job_run import drape_px
+            return SCHEDULE.job_estimate(kind,
+                                         SCHEDULE.drape_seconds(drape_px()))
         if kind != "full":
             return SCHEDULE.job_estimate(kind)
         try:
@@ -150,7 +157,8 @@ class _Facts:
                              daemon=True, name="o4-flight-prefetch").start()
 
     def _budget(self, jobs, flight_s: float, uncached: int) -> None:
-        need = BUDGET.need_bytes(jobs, flight_s, uncached)
+        from .world_job_run import drape_px
+        need = BUDGET.need_bytes(jobs, flight_s, uncached, drape_px())
         try:
             import O4_File_Names as FNAMES
 
@@ -251,7 +259,7 @@ class _Runner:
             publisher=_PackPublisher(scenery_dir, session.tile_build_dir),
             facts=lambda: {}, state_of=pack_state(scenery_dir),
             estimate=estimate(provider, zoomlevel),
-            intermediate=values.get("world_intermediate") or "light",
+            intermediate="drape",
             parked_slots=GOVERNOR.parked_slots(SLOTS.session_capacity()),
             flight_slots=self.cap,
             ground_reload=self.reloader,

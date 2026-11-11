@@ -59,6 +59,9 @@ private struct FlyPaneRows: View {
                     Picker(FlyText.simPriorityLabel, selection: $fly.simPriority) {
                         ForEach(FlyText.simPriorities, id: \.0) { Text($0.1).tag($0.0) }
                     }
+                    Picker(FlyText.drapePxLabel, selection: $fly.drapePx) {
+                        ForEach(FlyText.drapePxChoices, id: \.0) { Text($0.1).tag($0.0) }
+                    }
                     Toggle(FlyText.livePreview, isOn: $fly.livePreview)
                         .help(FlyText.livePreviewHelp)
                     ReloadOfferRow(model: fly)

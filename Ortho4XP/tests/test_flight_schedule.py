@@ -16,7 +16,7 @@ PLANS = os.path.join(os.path.dirname(__file__), "fixtures", "flight_plan")
 
 
 def job(tile, role="enroute", klass=None, deadline=0.0, hi=100.0, state="queued",
-        kind="light", off=0.0, remaining=None):
+        kind="drape", off=0.0, remaining=None):
     if klass is None:
         klass = S.klass_for(role)
     return S.Job(tile=tile, role=role, kind=kind, klass=klass, deadline_s=deadline,
@@ -61,7 +61,9 @@ def test_estimates_and_spreads_match_plan_estimate():
     from o4_engine import plan_estimate
     assert S.SPREAD_KNOWN == plan_estimate.TIME_SPREAD_KNOWN
     assert S.SPREAD_UNKNOWN == plan_estimate.TIME_SPREAD_UNKNOWN
-    assert S.job_estimate("light") == (397 * 0.5, 397 * 2.5)
+    assert S.job_estimate("drape") == (80 * 0.5, 80 * 2.5)
+    assert S.drape_seconds(1024) == S.DRAPE_SECONDS[1024]
+    assert S.drape_seconds("junk") == S.drape_seconds(999) == S.DRAPE_SECONDS[512]
     assert S.job_estimate("full", 1000.0, known=True) == (750.0, 1500.0)
     with pytest.raises(ValueError):
         S.job_estimate("full")
@@ -70,9 +72,9 @@ def test_estimates_and_spreads_match_plan_estimate():
 def test_rescale_is_clamped_and_by_kind():
     jobs = [job((0, 0), hi=100.0), job((0, 1), hi=100.0, kind="full"),
             job((0, 2), hi=100.0, state="building")]
-    out = S.rescale(jobs, "light", measured_s=1000.0, predicted_s=100.0)
+    out = S.rescale(jobs, "drape", measured_s=1000.0, predicted_s=100.0)
     assert [j.est_s[1] for j in out] == [250.0, 100.0, 100.0]
-    assert S.rescale(jobs, "light", 10.0, 100.0)[0].est_s[1] == 50.0
+    assert S.rescale(jobs, "drape", 10.0, 100.0)[0].est_s[1] == 50.0
 
 
 # --- scheduling and the countdown -----------------------------------------------

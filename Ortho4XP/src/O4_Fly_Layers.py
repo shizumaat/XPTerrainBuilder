@@ -17,7 +17,7 @@ import O4_Flight_Plan as FP
 import O4_Fly_Text as TEXT
 
 __all__ = ["TRACK_MAX_POINTS", "TRACK_MIN_STEP_M", "TRACK_BREAK_KM",
-           "AircraftTrack", "corridor_cells"]
+           "AircraftTrack", "corridor_cells", "map_jobs"]
 
 #: One hour at one position a second.
 TRACK_MAX_POINTS = 3600
@@ -80,6 +80,17 @@ class AircraftTrack:
     def clear(self) -> None:
         self._parts = []
         self.last = None
+
+
+def map_jobs(flight: Sequence = (), planned: bool = False,
+             ahead: Sequence = ()) -> Sequence:
+    """The jobs the Fly map draws: the flight's once it reports any; with
+    no flight and no plan, build-ahead's tiles (``WorldStatus.jobs``, the
+    same rows) so free flight shows its drapes; else none (the plan's
+    corridor).  Swift: ``FlyLayers.mapJobs``."""
+    if flight:
+        return flight
+    return () if planned else (ahead or ())
 
 
 def corridor_cells(plan: Optional[Dict], corridor_km: float,

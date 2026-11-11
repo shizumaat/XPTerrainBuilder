@@ -49,9 +49,23 @@ final class FlyModel: ObservableObject {
             preview.setEnabled(watching && livePreview)
         }
     }
+    /// The drapes' photo width (`drape_photo_px`, the engine's global
+    /// setting, read per tile by build-ahead; RULINGS 2026-11-11j).
+    var drapePx: Int {
+        get {
+            guard let value = build?.configValue(for: FlyText.drapePxKey) else { return 512 }
+            return value.intValue ?? Int(value.cfgLiteral) ?? 512
+        }
+        set {
+            objectWillChange.send()
+            build?.setConfigValue(FlyText.drapePxKey, to: .int(newValue))
+        }
+    }
     let preview = LivePreviewModel()
     @Published private(set) var status: O4FlightStatus?
     @Published private(set) var worldStatus: O4JSON?
+    /// Build-ahead's tiles in free flight (`WorldStatus.jobs`).
+    @Published private(set) var worldJobs: [O4FlightStatus.Job] = []
     @Published private(set) var track = AircraftTrack()
     @Published private(set) var position: O4AircraftPosition?
     /// "Divert…": the airport search sheet and its query (lane F2).
@@ -89,7 +103,9 @@ final class FlyModel: ObservableObject {
     }
 
     var cells: [FlyCell] {
-        FlyLayers.corridorCells(plan: plan, corridorKm: Double(corridorKm), jobs: status?.jobs ?? [])
+        FlyLayers.corridorCells(plan: plan, corridorKm: Double(corridorKm),
+                                jobs: FlyLayers.mapJobs(flight: status?.jobs ?? [],
+                                                        planned: plan != nil, ahead: worldJobs))
     }
 
     // MARK: - Events
@@ -119,8 +135,16 @@ final class FlyModel: ObservableObject {
         FlightNotifier.post(notice)
     }
 
-    /// A `WorldStatus`'s fields (lane W1 calls this).
-    func showWorld(_ fields: O4JSON) { worldStatus = fields }
+    /// A `WorldStatus` (every 2 s while build-ahead runs): the World line's
+    /// fields and the tiles it lays ahead in free flight.
+    func showWorld(_ status: O4WorldStatus) {
+        worldStatus = .object([
+            "state": .string(status.state), "reason": .string(status.reason),
+            "building": .array(status.building.map { .string($0.tile) }),
+            "loaded": .array(status.loaded.map { .string($0) }),
+        ])
+        if worldJobs != status.jobs { worldJobs = status.jobs }
+    }
 
     /// Aircraft positions while Fly is shown (`aircraft_watch`).
     func setWatching(_ on: Bool) {

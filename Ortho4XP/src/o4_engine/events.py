@@ -1078,9 +1078,11 @@ class WorldStatus(EngineEvent):
     show.  ``installed``: the pack and its ``scenery_packs.ini`` row exist;
     ``seen_by_xplane``: this X-Plane session listed it (``None``: unknown);
     ``restart_needed``: installed while X-Plane runs without it.
-    ``tiles``: ``{placeholder, drape, light, full, staged}`` counts;
+    ``tiles``: ``{placeholder, drape, full, staged}`` counts;
     ``queue`` jobs waiting; ``building`` rows ``[tile, kind, step,
-    remaining_s]``; ``loaded`` tiles X-Plane loaded this session (the
+    remaining_s]``; ``jobs`` build-ahead's tiles in track mode,
+    ``[[lat, lon], "ahead", kind, state]`` (``FlightStatus.jobs``' shape:
+    the Fly map draws them in free flight); ``loaded`` tiles X-Plane loaded this session (the
     ``Log.txt`` witness); ``last_swap`` ``[tile, kind, utc]``; ``slots``,
     ``frame_ms``, ``governor`` (``ok``, ``reduced``) the CPU share (W2);
     ``bytes`` the pack's size.
@@ -1097,6 +1099,7 @@ class WorldStatus(EngineEvent):
     tiles: Any = None
     queue: int = 0
     building: tuple = ()
+    jobs: tuple = ()
     loaded: tuple = ()
     last_swap: tuple = ()
     slots: int = 0

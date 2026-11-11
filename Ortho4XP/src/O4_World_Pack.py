@@ -17,8 +17,11 @@ World spec 2026-11-10 §2.1).
 
 Every DSF in the pack says what it is through ``sim/creation_agent``
 (:func:`kind_of`, spec §18): a placeholder (:data:`PLACEHOLDER_AGENT`) is
-NOT a tile; a drape, light or full tile is a tile of that kind (the stage
-step stamps ``[world <kind>]`` onto the builder's agent, :func:`_stamp`).
+NOT a tile; a drape or full tile is a tile of that kind (the stage step
+stamps ``[world <kind>]`` onto the builder's agent, :func:`_stamp`).  The
+``light`` kind is retired (spec §17, RULINGS 2026-11-11j): a tile an
+earlier test app stamped ``[world light]`` is a mesh tile of ours and
+reads ``full``.
 
 Publishing a build (spec §7.3): :func:`_stage_tile` lays the build folder
 out in the pack's shape under a staging folder -- textures hard-linked,
@@ -66,14 +69,14 @@ MARKER = "XPTerrainBuilder_world.json"
 #: ``sim/creation_agent`` of a placeholder: how :func:`is_placeholder` knows one.
 PLACEHOLDER_AGENT = "XPTerrainBuilder world placeholder"
 #: The kinds of tile the pack holds (spec §3); ``placeholder`` is no tile.
-KINDS = ("placeholder", "drape", "light", "full")
+KINDS = ("placeholder", "drape", "full")
 #: A placeholder is 328 bytes; a DSF larger than this is never one, so a
 #: scan reads the head only of files this small.
 PLACEHOLDER_MAX_BYTES = 4096
 #: Staged tiles, under the data folder (never inside Custom Scenery).
 STAGING_DIR = "World_staging"
-_KIND_RE = re.compile(r"world (placeholder|drape|light|full)\b")
-_STAMP_RE = re.compile(r"\s*\[world (?:drape|light|full)\]$")
+_KIND_RE = re.compile(r"world (placeholder|drape|full)\b")
+_STAMP_RE = re.compile(r"\s*\[world \w+\]$")
 
 
 def tile_name(lat: int, lon: int) -> str:
@@ -166,9 +169,10 @@ def is_placeholder(path: str, size: int | None = None) -> bool:
 
 
 def kind_of(path: str) -> str | None:
-    """What a World-pack DSF is: ``placeholder``, ``drape``, ``light`` or
-    ``full`` (its ``sim/creation_agent``; a DSF of ours with no stamp is a
-    ``full`` tile); ``None`` when there is no readable DSF."""
+    """What a World-pack DSF is: ``placeholder``, ``drape`` or ``full``
+    (its ``sim/creation_agent``; a DSF of ours with no stamp, or a retired
+    ``light`` stamp, is a ``full`` tile); ``None`` when there is no
+    readable DSF."""
     import O4_DSF_Header as DSFH
     if is_placeholder(path):
         return "placeholder"

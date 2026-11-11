@@ -434,11 +434,6 @@ def reweight_plan_by_seconds(plan, estimated_seconds):
     return reweighted
 
 
-def _profile_of(overrides):
-    import O4_Build_Profile as PROFILE
-    return PROFILE.profile_of(overrides)
-
-
 def _record_tile_build(lat, lon, features, step_seconds):
     try:
         from . import tile_time_model
@@ -1017,8 +1012,6 @@ class EngineSession:
         switches, ``{"auto_patch": bool, "modify_custom_airports": bool}``
         (either key optional), landed on each tile after its cfg is read
         and never written back to it (``Tile.apply_build_overrides``).
-        ``{"profile": "light"}`` (World spec §8.4) names a set of them
-        (``O4_Build_Profile``).
 
         ``deadline`` (wall-clock seconds) and ``klass`` (``P0``..``P4``)
         rank this batch's tiles in the run's queue (World spec §8.4,
@@ -1185,12 +1178,6 @@ class EngineSession:
         if overrides:
             for tile in tiles:
                 self._tile_overrides[tuple(tile)] = dict(overrides)
-
-    def tile_overrides(self, lat, lon):
-        """The per-build switches the live run builds tile ``(lat, lon)``
-        with (``{}`` for none); a World-pack publish reads its
-        ``profile`` from them."""
-        return dict(self._tile_overrides.get((int(lat), int(lon))) or {})
 
     def _note_priority(self, tiles, priority):
         """Remember a batch's queue rank for each of its tiles (World spec
@@ -1783,9 +1770,6 @@ class EngineSession:
                     _record_tile_build(
                         lat, lon,
                         {"zoomlevel": zoomlevel, "provider": provider,
-                         # World spec §9: a light build's times never
-                         # predict a full one (tile_time_model).
-                         "profile": _profile_of(overrides),
                          "airports": autopatch_airports,
                          "autopatch_seconds":
                              self._autopatch_elapsed_seconds(),

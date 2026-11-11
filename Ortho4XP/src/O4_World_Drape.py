@@ -16,14 +16,15 @@ Global Scenery mesh, the way WED drapes an airport orthophoto:
   are Ortho4XP's own (``O4_Geo_Utils.st_coord``, Web Mercator), linear
   between corners (error under 1 m for a ZL16 square at 53 N, sub-pixel
   at 512 px);
-* with ``water_layer`` (``world.py drape --water-alpha``), a SECOND
-  ``.pol`` per square whose DDS carries a water mask in its alpha
-  (``O4_World_Drape_Water``): the same texture drawn with its alpha on
-  ``water_layer`` (default :data:`WATER_LAYER_GROUP`), over the opaque
-  one.  The opaque ``terrain +1`` photo is hidden wherever X-Plane draws
-  its water; the alpha copy is meant to show the photo there at the
-  regular build's ``ratio_water`` blend, opaque on land and on mapped
-  shore the default mesh calls water;
+* with ``water_layer`` (the World job always; ``world.py drape
+  --water-alpha``), a SECOND ``.pol`` per square whose DDS carries a water
+  mask in its alpha (``O4_World_Drape_Water``): the same texture drawn
+  with its alpha on ``water_layer`` (:data:`WATER_LAYER_GROUP`), over the
+  opaque one.  The opaque ``terrain +1`` photo is hidden wherever X-Plane
+  draws its water; the alpha copy shows the photo there at
+  ``O4_World_Drape_Water.OPEN_WATER_ALPHA``, opaque on land and on mapped
+  shore the default mesh calls water.  This is the fly-over tile kind
+  (RULINGS 2026-11-11j);
 * ``sim/overlay 1`` and ``sim/creation_agent`` :data:`DRAPE_AGENT`, so
   ``world.py`` can tell a drape from a placeholder and from a real tile.
 
@@ -31,8 +32,8 @@ Same pack layout as a real tile: ``terrain/<tile>/<name>.pol`` (texture
 ``../../textures/<tile>/<name>.dds``) and the DSF at
 ``Earth nav data/<block>/<tile>.dsf``; :func:`O4_World_Pack.swap_in`
 lands it unchanged.  The imagery itself is fetched by
-``O4_World_Drape_Fetch`` (the engine's download/convert at the
-placeholder tier).
+``O4_World_Drape_Fetch`` (the engine's download/convert at the drape's
+photo tier, setting ``drape_photo_px``).
 """
 from __future__ import annotations
 
@@ -54,12 +55,12 @@ DRAPE_AGENT = "XPTerrainBuilder world drape"
 #: Above the ground (default scenery puts its ground .pol at ``terrain +1``),
 #: below beaches, airport pavement and roads (OBJ8 ``ATTR_layer_group``).
 LAYER_GROUP = "terrain +1"
-#: The water copy's group: the highest below shoulders and pavement.
-#: X-Plane 12's own ``water_body_*.pol`` draw at ``beaches +1``, and its
-#: ``beaches 2`` lawn-track drapes carry ``SKIP_WATER`` (so a drape is laid
-#: on water triangles unless told not to).  Whether this group draws ABOVE
-#: X-Plane's water is what the owner's flight decides.
-WATER_LAYER_GROUP = "beaches +1"
+#: The water copy's group (RULINGS 2026-11-11j (1)): just under airport
+#: pavement.  Measured on the owner's CYYR drape flight (2026-11-11): this
+#: group draws ABOVE X-Plane 12's water (lakes show the photo, softened
+#: shores, no seam at a built|drape edge); ``beaches +1``, where X-Plane's
+#: own ``water_body_*.pol`` draw, stays UNDER it.
+WATER_LAYER_GROUP = "airports -1"
 _M_PER_DEG = 111_320.0
 #: ``sim/exclude_<class>`` of the DSF spec (all but forests are polygons;
 #: a whole-tile rectangle serves both).

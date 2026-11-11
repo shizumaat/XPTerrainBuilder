@@ -31,6 +31,14 @@ public enum FlyText {
         ("balanced", "Balanced"),
         ("fast", "Build fastest"),
     ]
+    public static let drapePxLabel = "Photo detail ahead"
+    /// `drape_photo_px` (RULINGS 2026-11-11j): (value, words).
+    public static let drapePxKey = "drape_photo_px"
+    public static let drapePxChoices: [(Int, String)] = [
+        (512, "Quick"),
+        (1024, "Sharper"),
+        (4096, "Full detail (slow)"),
+    ]
     public static let livePreview = "Live flight preview"
     public static let livePreviewHelp = "Shows the imagery installed for X-Plane on the map, square by square, as it arrives; zoom in to see it."
     public static let divert = "Divert…"

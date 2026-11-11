@@ -63,7 +63,6 @@ import time
 from collections import deque
 from typing import Optional
 
-import O4_Build_Profile as PROFILE
 import O4_Console_Encoding
 import O4_Edit_Cache as EDITCACHE
 import O4_File_Names as FNAMES
@@ -1081,7 +1080,6 @@ class ParallelBuildRun:
                 features = prediction_features(
                     tile[0], tile[1], provider, zoomlevel,
                     custom_build_dir)
-                features["profile"] = PROFILE.profile_of(overrides)
                 estimates = _predict_step_seconds(
                     tile[0], tile[1], features, program)
                 self._estimates[tile] = estimates

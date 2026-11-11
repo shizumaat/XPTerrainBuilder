@@ -1,7 +1,8 @@
 """Twin of ``tools/flight_schedule_replay.py`` (flight manager / World spec
 2026-11-10 §15 "Flight replay", W2): the build-ahead job driven by the
 CYYR World pack flight's recorded positions, a fake builder at the
-measured times (light 397 s, drape 37 s) and a fake clock.
+measured drape times (and a 397 s tile, the retired light build's) and a
+fake clock.
 
 Fixtures: ``tests/fixtures/world/cyyr_world_flight.replay.json`` (W0's
 extract: positions + every ``.dsf`` X-Plane opened) and
@@ -32,10 +33,11 @@ def flight():
 
 
 def test_every_world_tile_entered_was_published_before_it_loaded(flight):
-    """Light tiles at 397 s, as flown (157 m/s at 53°N): the 11 World
-    tiles X-Plane opened in flight were all swapped in before their first
-    open, and no tile was swapped after X-Plane had opened it."""
-    result = R.replay(*flight, kind="light")
+    """Slow tiles (397 s, the retired light build's time) as flown (157
+    m/s at 53°N): the 11 World tiles X-Plane opened in flight were all
+    swapped in before their first open, and no tile was swapped after
+    X-Plane had opened it."""
+    result = R.replay(*flight, build_s=397.0)
     assert result["ok"], result
     assert len(result["tiles"]) == 11
     assert all(row["margin_s"] > 0 for row in result["tiles"])
@@ -53,19 +55,24 @@ def test_as_flown_the_on_the_fly_tile_had_four_minutes_to_spare(flight):
     assert flown["margin_s"] == pytest.approx(250, abs=1)
 
 
-def test_where_light_tiles_stop_keeping_up_and_drapes_do_not(flight):
-    """Twice as fast (~610 kt) the light job is late from the first
-    column; drapes at 37 s keep up at 2x and 3x."""
-    double = R.replay(*flight, kind="light", speed=2.0)
+def test_where_slow_tiles_stop_keeping_up_and_drapes_do_not(flight):
+    """Twice as fast (~610 kt) a 397 s tile is late from the first
+    column; drapes keep up at 1x, 2x and 3x: the measured 512 px drape
+    and one held to the water wait (``WATER_WAIT_S``, RULINGS
+    2026-11-11j)."""
+    from o4_engine import world_job_run as RUN
+    double = R.replay(*flight, build_s=397.0, speed=2.0)
     assert not double["ok"] and "+53-063" in double["late"]
     assert not double["loaded_swaps"]
     for speed in (1.0, 2.0, 3.0):
-        drape = R.replay(*flight, kind="drape", speed=speed)
-        assert drape["ok"], (speed, drape["late"])
+        for build_s in (None, RUN.WATER_WAIT_S + 10.0):
+            drape = R.replay(*flight, build_s=build_s, speed=speed)
+            assert drape["ok"], (speed, build_s, drape["late"])
+            assert not drape["loaded_swaps"]
 
 
 def test_the_cli_prints_and_exits_by_the_verdict(flight, capsys):
     assert R.main(["--speed", "1"]) == 0
     out = capsys.readouterr().out
     assert "as flown: +53-064" in out and "OK" in out
-    assert R.main(["--speed", "3"]) == 1
+    assert R.main(["--speed", "3", "--build-s", "397"]) == 1

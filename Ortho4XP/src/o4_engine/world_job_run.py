@@ -14,13 +14,16 @@ gives it the session, the World pack and X-Plane.
   demand is on and the World pack is installed -- the active flight, when
   a record is still preparing, ready or flying.  :func:`world_job_stop`
   stops track mode (``flight_end`` stops a flight).
-* :class:`_SessionBuilder` -- a ``light`` tile is an ordinary build through
-  the session's queue (``enqueue_build`` with ``overrides={"profile":
-  "light"}``, its ``deadline`` and class ``P1``; never interactive:
-  ``missing_art="leave"``); ``world_publish.watch`` stages and publishes it
-  as every finished build.  A ``drape`` tile (setting
-  ``world_intermediate``, until D1) is fetched and written straight into
-  the staging folder (``O4_World_Drape_Fetch``, ``O4_World_Drape``).
+* :class:`_SessionBuilder` -- a ``drape`` tile, the kind build-ahead and a
+  flight's corridor make (spec §17, RULINGS 2026-11-11j), is fetched and
+  written straight into the staging folder on the builder's thread
+  (:func:`drape_tile`: ``O4_World_Drape_Fetch`` at the user's
+  ``drape_photo_px``, the water copy on ``airports -1``,
+  ``O4_World_Drape``).  A ``full`` tile (a flight's departure and
+  destination) is an ordinary build through the session's queue
+  (``enqueue_build`` with its ``deadline`` and class; never interactive:
+  ``missing_art="leave"``); ``world_publish.watch`` stages and publishes
+  it as every finished build.
 * :class:`_PackPublisher` -- swaps a staged tile when the job's rule S3
   allows, holding the follow job for that tile only (S7).
 """
@@ -36,7 +39,7 @@ from typing import Any, Callable, Optional
 import O4_World_Pack as WP
 
 from . import world_commands as WORLD
-from .world_job import KINDS, WorldJob
+from .world_job import WorldJob, drape_estimate
 
 __all__ = ["STATUS_EVERY_S", "world_job_start", "world_job_stop", "autostart"]
 
@@ -45,6 +48,11 @@ STATUS_EVERY_S = 2.0
 #: Seconds a finished build may wait to be staged by the publish worker
 #: before the job counts it failed.
 PENDING_S = 900.0
+#: A drape waits at most this long (from its start) for the tile's water
+#: before it goes without its water copy rather than late (lane ldrape2:
+#: a cold Overpass read took 47-187 s; the job keeps up on the CYYR
+#: replay at 1-3x up to ~90 s a tile, mask and write included).
+WATER_WAIT_S = 75.0
 #: Seconds between rereads of the pack's tiles and X-Plane's ``Log.txt``.
 REREAD_S = 10.0
 _GUARD = threading.Lock()
@@ -94,7 +102,7 @@ class _SessionBuilder:
             self._mine.add(tile)
         ok = self.session.enqueue_build(
             [tile], self.provider, self.zoomlevel, "",
-            missing_art="leave", overrides={"profile": kind},
+            missing_art="leave",
             deadline=time.time() + float(deadline_in_s), klass=klass)
         if not ok:
             with self._lock:
@@ -105,7 +113,9 @@ class _SessionBuilder:
         if self.drape is None:
             return False
         if self._pool is None:
-            self._pool = ThreadPoolExecutor(1, thread_name_prefix="o4-drape")
+            # as many at once as the job's slots dispatch (it was one: a
+            # 3-slot flight ran its drapes one after another)
+            self._pool = ThreadPoolExecutor(thread_name_prefix="o4-drape")
 
         def work() -> None:
             try:
@@ -125,10 +135,24 @@ class _SessionBuilder:
         return done
 
 
+def drape_px() -> int:
+    """The user's drape photo width now (``drape_photo_px``, read per tile
+    so a change in the Fly pane applies to the next drape)."""
+    try:
+        return int(_settings().get("drape_photo_px") or 512)
+    except (TypeError, ValueError):
+        return 512
+
+
 def drape_tile(tile, provider: str, zoomlevel: int) -> bool:
-    """Fetch a drape tile's imagery and write it, staged, in the World
-    pack's shape (``O4_World_Drape.write_drape``); True when it
+    """Fetch a drape tile's imagery at :func:`drape_px` with its water
+    masks, and write it, staged, in the World pack's shape: the opaque
+    photo plus the water-alpha copy on ``O4_World_Drape.WATER_LAYER_GROUP``
+    (``write_drape``, RULINGS 2026-11-11j).  The build folder goes once
+    the tile is staged (the DDS are hard-linked).  True when it
     verifies."""
+    import shutil
+
     import O4_File_Names as FNAMES
     import O4_World_Drape as DRAPE
     import O4_World_Drape_Fetch as FETCH
@@ -136,14 +160,21 @@ def drape_tile(tile, provider: str, zoomlevel: int) -> bool:
     engine = os.path.dirname(os.path.dirname(os.path.abspath(WP.__file__)))
     parent = FNAMES.data_path("World_build")
     fetched = FETCH.fetch(engine, lat, lon, parent, int(zoomlevel), provider,
-                          drop=3)
+                          drop=FETCH.drop_for_px(drape_px()), water_alpha=True,
+                          water_wait_s=WATER_WAIT_S)
     staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
     if os.path.exists(staged):
-        import shutil
         shutil.rmtree(staged)
     tool = WP.dsftool_path(engine)
     DRAPE.write_drape(lat, lon, int(zoomlevel), provider, fetched["textures"],
-                      staged, tool)
+                      staged, tool, water_layer=DRAPE.WATER_LAYER_GROUP)
+    WORLD.write_log({"drape": WP.tile_name(lat, lon), "px": drape_px(),
+                     **{k: fetched.get(k) for k in (
+                         "squares", "dds", "download_s", "convert_s",
+                         "masked", "water_late", "water_fetch_s",
+                         "water_wait_s")}})
+    with contextlib.suppress(OSError):
+        shutil.rmtree(fetched["tile"])
     return not DRAPE.verify_drape(staged, lat, lon, tool)["problems"]
 
 
@@ -231,8 +262,7 @@ class _Loads:
 
 
 class _Runner:
-    def __init__(self, emit, session, scenery_dir: str, kind: str,
-                 port=None) -> None:
+    def __init__(self, emit, session, scenery_dir: str, port=None) -> None:
         import O4_Machine_Slots as SLOTS
         import O4_XPlane_WebAPI as WEBAPI
 
@@ -248,7 +278,8 @@ class _Runner:
         self.job = WorldJob(
             builder=builder,
             publisher=_PackPublisher(scenery_dir, session.tile_build_dir),
-            wanted=_Wanted(scenery_dir), kind=kind,
+            wanted=_Wanted(scenery_dir), kind="drape",
+            estimate_s=drape_estimate(drape_px()),
             capacity=SLOTS.session_capacity(), cores=os.cpu_count() or 4,
             fly_slots=int(values.get("fly_build_slots") or 0),
             sim_priority=values.get("fly_sim_priority") or "balanced",
@@ -277,7 +308,7 @@ class _Runner:
 
 
 def world_job_start(session, emit=None, mode: str = "track", flight=None,
-                    kind: str = "", scenery_dir: str = "", port=None,
+                    scenery_dir: str = "", port=None,
                     if_enabled: bool = False, **_ignored) -> dict:
     """ENGINE COMMAND ``world_job_start``: ``{"status": "started" |
     "running" | "off"}`` ("off": ``if_enabled`` and on-demand is off or
@@ -292,10 +323,6 @@ def world_job_start(session, emit=None, mode: str = "track", flight=None,
     if FLIGHT.current() is not None:
         return {"status": "running", "mode": "flight"}
     values = _settings()
-    kind = kind or values.get("world_intermediate") or "light"
-    if kind not in KINDS:
-        raise ValueError(f"world_job_start: unknown kind {kind!r} "
-                         f"(known: {list(KINDS)}).")
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     on = str(values.get("imagery_on_demand", "True")).lower() not in (
         "false", "0", "no", "off")
@@ -306,10 +333,9 @@ def world_job_start(session, emit=None, mode: str = "track", flight=None,
     with _GUARD:
         if _RUNNER is not None and _RUNNER.thread.is_alive():
             return {"status": "running"}
-        _RUNNER = _Runner(emit or session._emit, session, scenery_dir, kind,
-                          port)
+        _RUNNER = _Runner(emit or session._emit, session, scenery_dir, port)
         _RUNNER.thread.start()
-    WORLD.write_log({"world_job": "start", "kind": kind, "mode": mode})
+    WORLD.write_log({"world_job": "start", "kind": "drape", "mode": mode})
     return {"status": "started"}
 
 

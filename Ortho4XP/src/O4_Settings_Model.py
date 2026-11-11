@@ -210,8 +210,8 @@ _LAYOUT: list = [
          "Low-res imagery detail (zoom levels below the build's)", "app", True, ""),
         ("ondemand_lead_s", "Start fetching this many seconds ahead", "app", True, ""),
         ("ondemand_lands_per_s", "Imagery swaps per second, at most", "app", True, ""),
-        # World spec §5.5 / §17: the intermediate kind, until D1 decides.
-        ("world_intermediate", "Tiles built ahead of the aircraft", "app", True, ""),
+        # RULINGS 2026-11-11j: the drapes built ahead; also in the Fly pane.
+        ("drape_photo_px", "Photo detail of tiles laid ahead", "app", True, ""),
     ]),
     ("mesh", "Ground Shape", [
         ("curvature_tol", "Curvature tolerance", "tile", True, ""),

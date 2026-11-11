@@ -30,7 +30,6 @@ import queue
 import threading
 from typing import Any, Callable, Optional
 
-import O4_Build_Profile as PROFILE
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_World_Pack as WP
 
@@ -140,12 +139,12 @@ def watch(session: Any,
 
     def work() -> None:
         while True:
-            lat, lon, where, kind = jobs.get()
+            lat, lon, where = jobs.get()
             try:
                 result = _publish_built(where, session.tile_build_dir(lat, lon),
-                                       lat, lon, kind)
+                                       lat, lon)
                 if result is not None:
-                    swap = ((result["tile"], kind, _utc())
+                    swap = ((result["tile"], "full", _utc())
                             if result["state"] == "swapped" else ())
                     # Tiles staged earlier swap in now if they may (S3);
                     # the build-ahead job (W2) retries them on its own.
@@ -173,13 +172,11 @@ def watch(session: Any,
         if (type(event).__name__ == "BuildDone" and event.ok
                 and not getattr(session, "_stepwise_run", False)):
             # The Custom Scenery folder as configured NOW, on the
-            # emitting thread (not when the worker gets to it), and the
-            # kind the build's profile makes (a light tile, World spec
-            # §8.4), read while the run still holds its overrides.
+            # emitting thread (not when the worker gets to it).  A session
+            # build is a full tile (drapes are written by the World job,
+            # never built; RULINGS 2026-11-11j).
             lat, lon = int(event.lat), int(event.lon)
-            overrides = getattr(session, "tile_overrides",
-                                lambda la, lo: {})(lat, lon)
-            enqueue((lat, lon, scenery_dir(), PROFILE.profile_of(overrides)))
+            enqueue((lat, lon, scenery_dir()))
     session.subscribe(on_event)
 
 

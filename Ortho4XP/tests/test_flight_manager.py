@@ -73,13 +73,13 @@ def _estimate(tile, kind, role):
 def test_a_flight_becomes_its_jobs(recording):
     """CYYR -> +53-064 over the kit's World pack: the departure is the
     user's own tile (external: ready as it is), the destination a full
-    build (P2), the corridor light tiles where the pack holds a
+    build (P2), the corridor drapes where the pack holds a
     placeholder -- the first window P0 (before the flight loads), the
     rest P1 with deadlines from where they enter the window; nothing
     outside the regions."""
     jobs, (_samples, times) = flight_jobs(
         _plan(), corridor_km=20, build_alternate=False,
-        cruise_ms=290 * SCHEDULE.KT_TO_MS, intermediate="light",
+        cruise_ms=290 * SCHEDULE.KT_TO_MS, intermediate="drape",
         state_of=_kit_state(recording[1]), estimate=_estimate)
     by = {WP.tile_name(*j.tile): j for j in jobs}
     assert by["+53-061"].role == "departure"
@@ -94,7 +94,7 @@ def test_a_flight_becomes_its_jobs(recording):
                      "+53-062", "+53-063", "+54-060", "+54-061", "+54-062",
                      "+54-063"}
     later = [j for j in jobs if j.klass == SCHEDULE.P1]
-    assert later and all(j.kind == "light" and j.deadline_s > 0 for j in later)
+    assert later and all(j.kind == "drape" and j.deadline_s > 0 for j in later)
     assert all(j.deadline_s <= times[-1] for j in jobs)
     assert "+51-060" not in by          # the kit has no placeholder there
 
@@ -104,7 +104,7 @@ def test_the_alternate_is_built_only_with_the_checkbox(recording):
     for on, expected in ((False, "enroute"), (True, "alternate")):
         jobs, _ = flight_jobs(_plan(alternate=alt), corridor_km=20,
                               build_alternate=on, cruise_ms=None,
-                              intermediate="light",
+                              intermediate="drape",
                               state_of=_kit_state(recording[1]),
                               estimate=_estimate)
         job = next(j for j in jobs if j.tile == (52, -63))
@@ -273,9 +273,9 @@ def test_the_countdown_runs_parked_slots_before_takeoff():
     """Builds run on the parked capacity until takeoff and the flight
     capacity after it: the countdown lies between the two one-capacity
     answers."""
-    jobs = [SCHEDULE.Job((0, i), "enroute", "light", SCHEDULE.P0, 0.0,
+    jobs = [SCHEDULE.Job((0, i), "enroute", "drape", SCHEDULE.P0, 0.0,
                          (100.0, 100.0)) for i in range(4)]
-    jobs += [SCHEDULE.Job((1, i), "enroute", "light", SCHEDULE.P1,
+    jobs += [SCHEDULE.Job((1, i), "enroute", "drape", SCHEDULE.P1,
                           50.0 * i, (100.0, 100.0)) for i in range(6)]
     wide = SCHEDULE.countdown(jobs, 4)
     narrow = SCHEDULE.countdown(jobs, 1)
@@ -288,13 +288,15 @@ def test_the_countdown_runs_parked_slots_before_takeoff():
 # ------------------------------------------------------------- the budget
 
 def test_the_budget_pre_check():
-    jobs = [SCHEDULE.Job((0, 0), "enroute", "light", SCHEDULE.P1, 0.0, (1, 2)),
+    jobs = [SCHEDULE.Job((0, 0), "enroute", "drape", SCHEDULE.P1, 0.0, (1, 2)),
             SCHEDULE.Job((0, 1), "destination", "full", SCHEDULE.P2, 0.0,
                          (1, 2)),
-            SCHEDULE.Job((0, 2), "enroute", "light", SCHEDULE.P1, 0.0, (1, 2),
+            SCHEDULE.Job((0, 2), "enroute", "drape", SCHEDULE.P1, 0.0, (1, 2),
                          state="swapped")]
     need = BUDGET.need_bytes(jobs, 3600.0, uncached_tiles=1)
-    assert need[0] == pytest.approx(100e6 + 220e6 + 0.05 * 1024 ** 3 + 2.2e9)
+    assert need[0] == pytest.approx(45e6 + 220e6 + 0.05 * 1024 ** 3 + 2.2e9)
+    sharp = BUDGET.need_bytes(jobs, 3600.0, uncached_tiles=1, drape_px=1024)
+    assert sharp[0] - need[0] == pytest.approx(3 * 45e6)    # (1024/512)^2
     assert BUDGET.verdict(need, None, None) == (True, "")
     fits = {"budget_bytes": 100e9, "used_bytes": 50e9, "floor_bytes": 20e9}
     assert BUDGET.verdict(need, fits, 500e9) == (True, "")
@@ -356,6 +358,9 @@ def engine(tmp_path, monkeypatch, recording):
                     "gs_ms": 0.0, "frame_s": 0.02}
     monkeypatch.setattr(FEED, "shared", lambda base=None: Feed())
     events, builds = [], []
+    # the corridor's drapes (RULINGS 2026-11-11j): no network in a twin
+    monkeypatch.setattr(WORLD_JOB, "drape_tile", lambda tile, p, z: bool(
+        builds.append(("drape", tile))))
 
     class Session:
         _emit = events.append
@@ -383,8 +388,8 @@ def _wait_for(predicate, seconds=15.0):
 
 def test_create_status_update_end(engine, monkeypatch):
     """``flight_create`` from a departure + arrival writes the record and
-    starts the flight in world_job's flight mode: builds queued through
-    the session (profile, class, never interactive), ``FlightStatus``
+    starts the flight in world_job's flight mode: full builds queued
+    through the session (class, never interactive), ``FlightStatus``
     events; track mode stays off while it runs; ``flight_update`` replans;
     ``flight_end`` closes it and track mode may start again."""
     session, events, builds, folder = engine
@@ -397,9 +402,11 @@ def test_create_status_update_end(engine, monkeypatch):
     assert os.path.isfile(os.path.join(folder, flight + ".json"))
     assert _wait_for(lambda: builds and any(
         isinstance(e, FlightStatus) for e in events))
-    _tiles, kw = builds[0]
-    assert kw["missing_art"] == "leave" and kw["klass"] in ("P0", "P2")
-    assert kw["overrides"]["profile"] in ("light", "full")
+    # the first window goes first, as drapes (the departure is external)
+    assert builds[0][0] == "drape" and builds[0][1][1] in range(-63, -59)
+    for _tiles, kw in (b for b in builds if b[0] != "drape"):
+        assert kw["missing_art"] == "leave" and kw["klass"] in ("P0", "P2")
+        assert "overrides" not in kw     # a full build: no profile (11j)
     with pytest.raises(ValueError, match="already active"):
         table["flight_create"](dep={"lat": 1, "lon": 1},
                                arr={"lat": 2, "lon": 2})

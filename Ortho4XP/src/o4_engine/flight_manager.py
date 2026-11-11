@@ -61,7 +61,7 @@ Tile = Tuple[int, int]
 
 #: World-pack kinds that are a built tile (``O4_World_Pack.KINDS`` less
 #: the placeholder).
-BUILT_KINDS = frozenset({"full", "light", "drape"})
+BUILT_KINDS = frozenset({"full", "drape"})
 #: Roles built ``full`` (graded airports, the user's settings).
 FULL_ROLES = ("departure", "destination", "alternate")
 #: Attempts per job (spec §11 convergence guard).
@@ -177,7 +177,7 @@ class FlightManager:
                  builder, publisher, facts: Callable[[], dict],
                  state_of: Callable[[Tile], Optional[str]],
                  estimate: Callable[[Tile, str, str], Tuple[float, float]],
-                 intermediate: str = "light", parked_slots: int = 1,
+                 intermediate: str = "drape", parked_slots: int = 1,
                  flight_slots: int = 1,
                  ground_reload: Callable[[List[Tile]], bool] = lambda t: False,
                  stamp: Callable[[], str] = lambda: "") -> None:

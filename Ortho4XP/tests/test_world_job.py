@@ -67,19 +67,24 @@ def test_parked_the_ring_is_built_nearest_first_on_the_parked_slots():
     for t in range(3):
         job.tick(float(t), {"lat": CYYR[0], "lon": CYYR[1]})
     assert [s[0][1] for s in builder.started] == [-63, -63]
-    assert all(s[1:] == ("light", s[2], "P1") for s in builder.started)
+    assert all(s[1:] == ("drape", s[2], "P1") for s in builder.started)
     status = job.status(2.0)
     assert status["state"] == "building" and status["slots"] == 2
     assert status["queue"] == len(job.jobs) - 2
-    assert [row[1:3] for row in status["building"]] == [["light", "building"]] * 2
+    assert [row[1:3] for row in status["building"]] == [["drape", "building"]] * 2
+    # The map's rows (WorldStatus.jobs): FlightStatus.jobs' shape.
+    rows = {tuple(r[0]): r[1:] for r in status["jobs"]}
+    assert len(rows) == len(job.jobs)
+    assert rows[builder.started[0][0]] == ["ahead", "drape", "building"]
+    assert {r[3] for r in status["jobs"]} == {"building", "queued"}
 
 
 def test_flying_the_job_builds_the_column_ahead_by_its_deadline():
     """Westbound at 150 m/s from lon -60.45: column -064 enters at lon
     -61.65, 80 km (533 s) on; its deadline is that less 60 s and the
-    swap."""
+    swap.  (A 2,000 s tile so the column is in the horizon at once.)"""
     job, builder, _ = _job(wanted=lambda tile: tile[1] == -64, cores=18,
-                           capacity=16)
+                           capacity=16, estimate_s={"drape": 300.0})
     job.flight_loaded(53.3, -60.45)
     _west(job, 0, 12)
     started = {s[0]: s[2] for s in builder.started}
@@ -90,14 +95,14 @@ def test_flying_the_job_builds_the_column_ahead_by_its_deadline():
 
 def test_a_tile_that_cannot_be_built_in_time_is_late_and_not_started():
     job, builder, _ = _job(wanted=lambda tile: tile[1] == -64, cores=18,
-                           estimate_s={"light": 2000.0})
+                           estimate_s={"drape": 2000.0})
     job.flight_loaded(53.3, -60.45)
     _west(job, 0, 12)
     assert not builder.started
     assert {j.state for j in job.jobs.values()} == {"late"}
     assert "faster than tiles can be built" in job.reason
     drape, builder, _ = _job(wanted=lambda tile: tile[1] == -64, cores=18,
-                             kind="drape")
+                             kind="drape", estimate_s={"drape": 37.0})
     drape.flight_loaded(53.3, -60.45)
     _west(drape, 0, 12)
     assert not builder.started                      # beyond its horizon yet
@@ -141,7 +146,7 @@ def test_finished_tiles_swap_when_s3_allows_spaced_unless_urgent():
     assert states == ["staged", "swapped"]          # one swap per 10 s
     job.tick(11.5, {"lat": CYYR[0], "lon": CYYR[1]})
     assert {job.jobs[t].state for t in far} == {"swapped"}
-    assert job.status(12.0)["last_swap"][1] == "light"
+    assert job.status(12.0)["last_swap"][1] == "drape"
     assert len(job.swaps) == 2 and job.swaps[1][1] - job.swaps[0][1] >= 10
 
 
@@ -241,11 +246,16 @@ def test_s5_a_merge_swap_never_removes_a_name(pack):
     assert not os.path.exists(texture)
 
 
-def test_a_published_build_takes_the_kind_its_profile_makes(monkeypatch):
+def test_a_published_session_build_is_a_full_tile(monkeypatch):
+    """Drapes never go through the session (RULINGS 2026-11-11j): what
+    the session builds is published as ``full``."""
     published = []
     monkeypatch.setattr(PUBLISH, "_publish_built",
-                        lambda where, build, lat, lon, kind:
-                        published.append((lat, lon, kind)))
+                        lambda where, build, lat, lon:
+                        published.append((lat, lon)) or {"tile": "t",
+                                                         "state": "staged"})
+    monkeypatch.setattr(PUBLISH, "_swap_waiting", lambda *a, **k: [])
+    monkeypatch.setattr(WORLD, "status_event", lambda *a, **k: None)
 
     class Session:
         _stepwise_run = False
@@ -256,8 +266,8 @@ def test_a_published_build_takes_the_kind_its_profile_makes(monkeypatch):
         def subscribe(self, callback):
             self.subscribers.append(callback)
 
-        def tile_overrides(self, lat, lon):
-            return {"profile": "light"} if lon == -64 else {}
+        def _emit(self, event):
+            pass
 
         def tile_build_dir(self, lat, lon):
             return "/build"
@@ -269,10 +279,10 @@ def test_a_published_build_takes_the_kind_its_profile_makes(monkeypatch):
     deadline = time.time() + 10
     while len(published) < 2 and time.time() < deadline:
         time.sleep(0.02)
-    assert published == [(53, -64, "light"), (53, -65, "full")]
+    assert published == [(53, -64), (53, -65)]
 
 
-def test_the_session_builder_queues_a_light_build_by_deadline():
+def test_the_session_builder_queues_a_full_build_by_deadline():
     calls, subscribers = [], []
 
     class Session:
@@ -285,10 +295,10 @@ def test_the_session_builder_queues_a_light_build_by_deadline():
 
     builder = RUN._SessionBuilder(Session(), "BI", 16)
     before = time.time()
-    assert builder.start((53, -64), "light", 600.0, "P1")
+    assert builder.start((53, -64), "full", 600.0, "P1")
     tiles, provider, zoomlevel, kw = calls[0]
     assert tiles == [(53, -64)] and (provider, zoomlevel) == ("BI", 16)
-    assert kw["overrides"] == {"profile": "light"} and kw["klass"] == "P1"
+    assert "overrides" not in kw and kw["klass"] == "P1"
     assert kw["missing_art"] == "leave"
     assert before + 599 <= kw["deadline"] <= time.time() + 601
     subscribers[0](BuildDone(lat=53, lon=-64, ok=True))
@@ -304,8 +314,6 @@ def test_the_commands_refuse_what_is_not_there(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="World pack"):       # F1b's mode
         RUN.world_job_start(object(), mode="flight", flight="x",
                             scenery_dir=str(tmp_path))
-    with pytest.raises(ValueError, match="kind"):
-        RUN.world_job_start(object(), kind="heavy")
     assert RUN.world_job_start(object(), scenery_dir=str(tmp_path),
                                if_enabled=True) == {"status": "off"}
     with pytest.raises(ValueError, match="not installed"):
@@ -346,12 +354,14 @@ def test_the_job_runs_in_the_engine_and_reports_world_status(pack,
             pass
 
         def enqueue_build(self, tiles, *args, **kw):
-            builds.append((tiles, kw["overrides"]))
-            return True
+            raise AssertionError("track mode builds drapes, never a session build")
 
         def tile_build_dir(self, lat, lon):
             return "/build"
 
+    monkeypatch.setattr(RUN, "drape_tile",
+                        lambda tile, provider, zl: builds.append(
+                            (tile, provider, zl)) or False)
     assert RUN.world_job_start(Session(), scenery_dir=scenery) == {
         "status": "started"}
     assert RUN.world_job_start(Session(), scenery_dir=scenery) == {
@@ -363,7 +373,7 @@ def test_the_job_runs_in_the_engine_and_reports_world_status(pack,
     assert stopped["status"] == "stopped"
     # The history is unknown (no flight load seen, no witness): the union
     # of the plausible windows holds column -063, so the ring starts at -064.
-    assert builds == [([(53, -64)], {"profile": "light"})]
+    assert builds[0] == ((53, -64), "BI", 16)
     status = events[-1]
     assert type(status).__name__ == "WorldStatus" and status.installed is False
     assert status.state == "off"                     # no ini row: the pack's own

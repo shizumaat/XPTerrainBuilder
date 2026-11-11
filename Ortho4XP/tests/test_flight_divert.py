@@ -79,7 +79,7 @@ def test_the_target_is_the_alternate_an_airport_a_place_or_an_ident():
         DIVERT.divert_target({"ident": "X", "lat": "?", "lon": 1}, plan)
 
 
-def _job(tile, role="enroute", kind="light", state="queued"):
+def _job(tile, role="enroute", kind="drape", state="queued"):
     return SCHEDULE.Job(tile=tile, role=role, kind=kind, klass=SCHEDULE.P1,
                         deadline_s=100.0, est_s=(10.0, 20.0), state=state)
 
@@ -101,7 +101,7 @@ def test_the_old_destination_stops_unless_the_new_leg_needs_it():
     assert merged[(52, -64)].state == "queued"
     # the new leg still crosses the old destination: its build goes on
     cancelled.clear()
-    kept = DIVERT.merge_after_divert(old, new + [_job((53, -64), kind="light")],
+    kept = DIVERT.merge_after_divert(old, new + [_job((53, -64), kind="drape")],
                                      (53, -64), cancelled.append)
     assert not cancelled
     row = next(j for j in kept if j.tile == (53, -64))

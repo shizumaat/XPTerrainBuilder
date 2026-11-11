@@ -6,8 +6,8 @@ tile the aircraft entered have been published before X-Plane opened it?
 The job (``o4_engine.world_job.WorldJob``, track mode) is driven by the
 recorded aircraft positions on a fake clock (the recording's own seconds,
 divided by ``--speed`` to fly the same track faster), with a fake builder
-that takes ``--build-s`` seconds a tile (default: the kind's measured
-estimate, light 397 s / drape 37 s) and a fake publisher that swaps a
+that takes ``--build-s`` seconds a tile (default: the measured 512 px
+drape, ``O4_Flight_Schedule.PROFILE_SECONDS``) and a fake publisher that swaps a
 finished tile whenever rule S3 allows.  The witness of X-Plane's loads is
 the recording's own ``.dsf`` opens of the World pack.
 
@@ -38,7 +38,7 @@ The result adds the notices posted (``FlightNotice`` codes), the reloads
 in the air and the diversion tile's margin.
 
 usage:
-  flight_schedule_replay.py [FIXTURE] [--kit KIT] [--kind light|drape]
+  flight_schedule_replay.py [FIXTURE] [--kit KIT] [--kind drape]
                             [--build-s S] [--speed K ...] [--capacity N]
                             [--cores N] [--json]
                             [--flight LAT,LON [--full-s S] [--cruise-kt K]
@@ -121,7 +121,7 @@ def _opens(flight: dict, pack: str) -> dict:
     return first
 
 
-def replay(flight: dict, kit: dict, kind: str = "light",
+def replay(flight: dict, kit: dict, kind: str = "drape",
            build_s: float | None = None, speed: float = 1.0,
            capacity: int = 16, cores: int = 18) -> dict:
     """Run the job over the flight; the per-tile outcome and the verdict."""
@@ -209,7 +209,7 @@ def approach_positions(last: list, airport: tuple, ground: float,
     return rows
 
 
-def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
+def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "drape",
                   build_s: float | None = None, full_s: float = 900.0,
                   cruise_kt: float = 290.0, corridor_km: float = 20.0,
                   capacity: int = 16, cores: int = 18,
@@ -396,7 +396,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("fixture", nargs="?", default=FIXTURE)
     ap.add_argument("--kit", default=KIT)
-    ap.add_argument("--kind", choices=JOB.KINDS, default="light")
+    ap.add_argument("--kind", choices=JOB.KINDS, default="drape")
     ap.add_argument("--build-s", type=float, default=None)
     ap.add_argument("--speed", type=float, nargs="+", default=[1.0])
     ap.add_argument("--capacity", type=int, default=16)

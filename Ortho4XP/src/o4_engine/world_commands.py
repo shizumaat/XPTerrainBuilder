@@ -17,7 +17,7 @@ holds every tile the app manages, placeholders where none is built.
   2026-11-10e (3): the ``imagery_on_demand_<region>`` switches) set, then
   placeholders written for the tiles of the regions turned on that X-Plane's
   own scenery holds, and the regions turned off given back (their drape
-  and light tiles swapped out, their placeholders removed; full tiles
+  tiles swapped out, their placeholders removed; full tiles
   stay).  Replies ``{"status": "started"}``; ``WorldReady`` completes it.
 * :func:`world_tile_set` -- "Give this tile back": the placeholder over the
   tile (``swap_out``, spec §7.4); its folders go only when X-Plane cannot
@@ -442,7 +442,7 @@ def _give_back_region(pack: str, scenery_dir: str, tiles: set,
             with contextlib.suppress(OSError):
                 os.remove(path)
                 out["removed"] += 1
-        elif kind in ("drape", "light"):
+        elif kind == "drape":
             _swap_out(pack, *key, held)
             out["swapped_out"] += 1
 

@@ -133,7 +133,7 @@ enum SettingsLayout {
             SettingItem("ondemand_lead_s", "Start fetching this many seconds ahead", .app, expert: true),
             SettingItem("ondemand_lands_per_s", "Imagery swaps per second, at most", .app, expert: true),
             // World spec §5.5 / §17: the intermediate kind, until D1 decides.
-            SettingItem("world_intermediate", "Tiles built ahead of the aircraft", .app, expert: true),
+            SettingItem("drape_photo_px", "Photo detail of tiles laid ahead", .app, expert: true),
         ]),
         SettingCategory(key: "mesh", title: "Ground Shape", icon: "triangle", items: [
             SettingItem("curvature_tol", "Curvature tolerance", .tile, expert: true),

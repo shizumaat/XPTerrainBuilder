@@ -55,6 +55,20 @@ public struct O4FlightStatus: Sendable, Equatable {
         public let state: String
         public let remainingSeconds: Double?
         public let marginSeconds: Double?
+
+        /// Rows `[[lat, lon], role, kind, state, remaining_s?, margin_s?]`
+        /// (`FlightStatus.jobs`, and `WorldStatus.jobs` in free flight).
+        public static func rows(_ json: O4JSON?) -> [Job] {
+            (json?.arrayValue ?? []).compactMap { row in
+                guard let r = row.arrayValue, r.count >= 4, let tile = r[0].arrayValue,
+                      tile.count == 2, let lat = tile[0].intValue, let lon = tile[1].intValue
+                else { return nil }
+                return Job(lat: lat, lon: lon, role: r[1].stringValue ?? "",
+                           kind: r[2].stringValue ?? "", state: r[3].stringValue ?? "",
+                           remainingSeconds: r.count > 4 ? r[4].doubleValue : nil,
+                           marginSeconds: r.count > 5 ? r[5].doubleValue : nil)
+            }
+        }
     }
 
     public let flight: String
@@ -82,15 +96,7 @@ public struct O4FlightStatus: Sendable, Equatable {
                         etaSeconds: r.count > 2 ? r[2].doubleValue : nil,
                         detail: r.count > 3 ? (r[3].stringValue ?? "") : "")
         }
-        let jobs: [Job] = (json["jobs"]?.arrayValue ?? []).compactMap { row in
-            guard let r = row.arrayValue, r.count >= 4, let tile = r[0].arrayValue,
-                  tile.count == 2, let lat = tile[0].intValue, let lon = tile[1].intValue
-            else { return nil }
-            return Job(lat: lat, lon: lon, role: r[1].stringValue ?? "",
-                       kind: r[2].stringValue ?? "", state: r[3].stringValue ?? "",
-                       remainingSeconds: r.count > 4 ? r[4].doubleValue : nil,
-                       marginSeconds: r.count > 5 ? r[5].doubleValue : nil)
-        }
+        let jobs = Job.rows(json["jobs"])
         var status = O4FlightStatus(
             flight: flight, state: json["state"]?.stringValue ?? "preparing",
             phase: json["phase"]?.stringValue ?? "",

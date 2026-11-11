@@ -232,12 +232,12 @@ def test_binary_rewrite_equals_the_dsftool_round_trip(tmp_path, fixture,
               else WP.write_placeholder(str(tmp_path / "ph"), lat, lon))
     build = _build_dir(tmp_path, source, lat, lon)
     staged = str(tmp_path / "staged")
-    WP.relayout_tile(build, staged, lat, lon, kind="light")
+    WP.relayout_tile(build, staged, lat, lon, kind="drape")
     got = _dsf2text(os.path.join(staged, WP.dsf_relpath(lat, lon)))
     want, _n = WP.rewrite_dsf_text(_dsf2text(source), WP.tile_name(lat, lon))
     agent = re.compile(r"^PROPERTY sim/creation_agent (.*)$", re.M)
     old = agent.search(want).group(1)
-    assert agent.search(got).group(1) == WP._stamp(old, "light")
+    assert agent.search(got).group(1) == WP._stamp(old, "drape")
     assert agent.sub("", got) == agent.sub("", want)
 
 
@@ -267,6 +267,10 @@ def test_kind_stamp_and_publish(tmp_path):
         "XPTerrainBuilder 1.0 [world full]"
     with pytest.raises(ValueError):
         WP._stamp("x", "placeholder")
+    with pytest.raises(ValueError):             # retired (RULINGS 2026-11-11j)
+        WP._stamp("x", "light")
+    # an earlier test app's light tile is a mesh tile of ours: it reads full
+    assert WP._KIND_RE.search("XPTerrainBuilder 1.0 [world light]") is None
 
 
 def test_publish_refuses_a_tile_that_does_not_verify(tmp_path):

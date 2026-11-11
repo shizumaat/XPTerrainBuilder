@@ -217,18 +217,22 @@ cfg_app_vars = {
         ),
     },
     # Build-ahead while flying (flight manager / World spec §5.5, §10, §17).
-    "world_intermediate": {
-        "type": str,
-        "default": "light",
-        "values": ("light", "drape"),
+    # RULINGS 2026-11-11j: the tiles built ahead are photo drapes; their
+    # photo detail is the user's (Fly pane and Settings, both apps).
+    "drape_photo_px": {
+        "type": int,
+        "default": 512,
+        "values": (512, 1024, 4096),
         "value_labels": {
-            "light": "Built tiles (mesh at 90 m, no airport work)",
-            "drape": "Photo, quick (laid over X-Plane's own ground)",
+            512: "Quick (512 px: about 1.5 min and 90 MB a tile)",
+            1024: "Sharper (1024 px: about 2 min and 350 MB a tile)",
+            4096: "Full detail (4096 px: about 12 min and 5 GB a tile)",
         },
         "hint": (
-            "What the app builds ahead of the aircraft by itself for tiles "
-            "not built yet. Stays a setting until the drape test flight "
-            "decides (spec decision point D1)."
+            "Photo detail of the tiles laid over X-Plane's own ground ahead "
+            "of the aircraft (tiles you have not built). Higher detail takes "
+            "longer to fetch, so fewer tiles are ready in time at speed; "
+            "airports you build stay full builds."
         ),
     },
     "fly_build_slots": {
@@ -1088,7 +1092,7 @@ list_app_vars = [
     "ondemand_lead_s",
     "ondemand_lands_per_s",
     "xplane_web_api_port",
-    "world_intermediate",
+    "drape_photo_px",
     "fly_build_slots",
     "fly_sim_priority",
     "custom_scenery_dir",
@@ -1274,6 +1278,10 @@ retired_cfg_keys = {
     # ``auto_patch_engine``, a user who never chose a solve must not be
     # told one went away.
     "solve_model": None,
+    # RULINGS 2026-11-11j: D1 decided; the tiles built ahead are always
+    # drapes (``drape_photo_px`` sets their detail).  Silent: a test-app
+    # choice, never a promise to the user.
+    "world_intermediate": None,
     # RULINGS 2026-09-05k-2: the declared register is the v2 law table.
     "flat_site_declared": (
         "flat_site_declared is RETIRED and IGNORED: an airport is declared "

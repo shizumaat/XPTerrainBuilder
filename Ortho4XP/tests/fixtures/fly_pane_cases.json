@@ -93,9 +93,9 @@
       -60
      ],
      "enroute",
-     "light",
+     "drape",
      "queued",
-     397.0,
+     80.0,
      1200.0
     ],
     [
@@ -104,7 +104,7 @@
       -59
      ],
      "enroute",
-     "light",
+     "drape",
      "swapped",
      0.0,
      900.0
@@ -136,9 +136,38 @@
    "building": [
     [
      "+53-060",
-     "light",
-     "mesh",
-     120.0
+     "drape",
+     "building",
+     80
+    ]
+   ],
+   "jobs": [
+    [
+     [
+      53,
+      -60
+     ],
+     "ahead",
+     "drape",
+     "building"
+    ],
+    [
+     [
+      53,
+      -59
+     ],
+     "ahead",
+     "drape",
+     "swapped"
+    ],
+    [
+     [
+      54,
+      -60
+     ],
+     "ahead",
+     "drape",
+     "queued"
     ]
    ],
    "loaded": [
@@ -554,9 +583,38 @@
      "building": [
       [
        "+53-060",
-       "light",
-       "mesh",
-       120.0
+       "drape",
+       "building",
+       80
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -60
+       ],
+       "ahead",
+       "drape",
+       "building"
+      ],
+      [
+       [
+        53,
+        -59
+       ],
+       "ahead",
+       "drape",
+       "swapped"
+      ],
+      [
+       [
+        54,
+        -60
+       ],
+       "ahead",
+       "drape",
+       "queued"
       ]
      ],
      "loaded": [
@@ -662,9 +720,9 @@
         -60
        ],
        "enroute",
-       "light",
+       "drape",
        "queued",
-       397.0,
+       80.0,
        1200.0
       ],
       [
@@ -673,7 +731,7 @@
         -59
        ],
        "enroute",
-       "light",
+       "drape",
        "swapped",
        0.0,
        900.0
@@ -784,9 +842,9 @@
         -60
        ],
        "enroute",
-       "light",
+       "drape",
        "queued",
-       397.0,
+       80.0,
        1200.0
       ],
       [
@@ -795,7 +853,7 @@
         -59
        ],
        "enroute",
-       "light",
+       "drape",
        "swapped",
        0.0,
        900.0
@@ -862,46 +920,6 @@
    ],
    [
     "full",
-    "failed",
-    "own"
-   ],
-   [
-    "light",
-    "queued",
-    "own"
-   ],
-   [
-    "light",
-    "fetching",
-    "building"
-   ],
-   [
-    "light",
-    "building",
-    "building"
-   ],
-   [
-    "light",
-    "staged",
-    "quick"
-   ],
-   [
-    "light",
-    "swapped",
-    "quick"
-   ],
-   [
-    "light",
-    "late",
-    "own"
-   ],
-   [
-    "light",
-    "shed",
-    "own"
-   ],
-   [
-    "light",
     "failed",
     "own"
    ],
@@ -1475,9 +1493,9 @@
       -60
      ],
      "enroute",
-     "light",
+     "drape",
      "queued",
-     397.0,
+     80.0,
      1200.0
     ],
     [
@@ -1486,7 +1504,7 @@
       -59
      ],
      "enroute",
-     "light",
+     "drape",
      "swapped",
      0.0,
      900.0
@@ -1531,6 +1549,56 @@
    20,
    [],
    []
+  ],
+  [
+   null,
+   20,
+   [
+    [
+     [
+      53,
+      -60
+     ],
+     "ahead",
+     "drape",
+     "building"
+    ],
+    [
+     [
+      53,
+      -59
+     ],
+     "ahead",
+     "drape",
+     "swapped"
+    ],
+    [
+     [
+      54,
+      -60
+     ],
+     "ahead",
+     "drape",
+     "queued"
+    ]
+   ],
+   [
+    [
+     53,
+     -60,
+     "building"
+    ],
+    [
+     53,
+     -59,
+     "quick"
+    ],
+    [
+     54,
+     -60,
+     "own"
+    ]
+   ]
   ]
  ]
 }

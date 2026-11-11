@@ -399,6 +399,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # unit — the pieces the pad-level and block passes cut put back together
     _gz_air: dict[str, tuple[float, int]] = {}           # 23e: airside wins
     _gz = _root_zeros(_pw or {}, plan, surface, counts, _gz_air)   # 22q: airside first
+    # #1949 (RULINGS 2026-11-11f): a rail group meeting a walled pit stays
+    # grouped with it; the more airside-visible of the two sets the frame
+    _pit_join = _pit_joiner(plan, _gz, _gz_air, counts)
+    _pit_shifts: dict[str, float] = {}
     # #1726: member id -> the zero of the terrain-adapted member it touches
     _az = _adapted_member_zeros(plan, surface)
     # a lifted footless piece a unit carries keeps its lift over the
@@ -1069,6 +1073,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # unit sinks to that group's level; never floats off the pad
             _rmerge = _pad_level_links(u, _pw or {}, _rmerge, _gz, _gz_air,
                                        counts)
+        if _pit_join is not None and _pw:
+            _pit_join(u, _pw, _rmerge, _pit_shifts)
         written_of: dict[int, bool] = {}
         # 14at: the FILE a carrier group was actually written as.  A
         # candidate's own ``resource`` is a body SLOT's id — it is
@@ -1300,9 +1306,26 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         counts[f"carrier_refused_{k}"] = v
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
                     tuple(fams), tuple(_seats), tuple(tilted_whole),
-                    plan_wide=_pw or {})
+                    plan_wide=_pw or {}, pit_shifts=_pit_shifts)
 
 
+
+
+def _pit_joiner(plan: RebakePlan, zeros: dict, airside: dict, counts: dict
+                ) -> "_t.Callable | None":
+    """``(u, plan_wide, merged, shifts) -> None``: ``pit_frame.join_frame``
+    over this plan's walled pits, its stands and the law's authored-crest
+    band; ``None`` for a plan with no walled pit."""
+    from ..law import Law
+    from . import pit_frame as _pf
+    from .airside_group_seat import stands_of
+    pits = _pf.pits_of(getattr(plan, "authored_seats", ()) or ())
+    if not pits:
+        return None
+    crest = float(Law.load().tables.structures.tunnel.object.authored_crest_max_m)
+    stands = stands_of(plan)
+    return lambda u, pw, merged, shifts: _pf.join_frame(
+        u, pw, merged, zeros, airside, pits, crest, shifts, counts, stands)
 
 
 def _row_of(record: Split, rows: "_t.Sequence | None") -> _t.Any:

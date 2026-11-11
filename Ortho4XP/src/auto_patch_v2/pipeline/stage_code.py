@@ -205,6 +205,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.partition_cache",
         "auto_patch_v2.airport.partition_code",
         "auto_patch_v2.airport.pavement_end_plate",
+        "auto_patch_v2.airport.pit_frame",
         "auto_patch_v2.airport.placement_atom",
         "auto_patch_v2.airport.placement_body",
         "auto_patch_v2.airport.placement_boxes",
@@ -394,6 +395,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.partition_cache",
         "auto_patch_v2.airport.partition_code",
         "auto_patch_v2.airport.pavement_end_plate",
+        "auto_patch_v2.airport.pit_frame",
         "auto_patch_v2.airport.placement_atom",
         "auto_patch_v2.airport.placement_body",
         "auto_patch_v2.airport.placement_boxes",
@@ -749,6 +751,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.partition_cache",
         "auto_patch_v2.airport.partition_code",
         "auto_patch_v2.airport.pavement_end_plate",
+        "auto_patch_v2.airport.pit_frame",
         "auto_patch_v2.airport.placement_atom",
         "auto_patch_v2.airport.placement_body",
         "auto_patch_v2.airport.placement_boxes",
@@ -901,6 +904,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.partition_cache",
         "auto_patch_v2.airport.partition_code",
         "auto_patch_v2.airport.pavement_end_plate",
+        "auto_patch_v2.airport.pit_frame",
         "auto_patch_v2.airport.placement_atom",
         "auto_patch_v2.airport.placement_body",
         "auto_patch_v2.airport.placement_boxes",
@@ -1099,6 +1103,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.partition_cache",
         "auto_patch_v2.airport.partition_code",
         "auto_patch_v2.airport.pavement_end_plate",
+        "auto_patch_v2.airport.pit_frame",
         "auto_patch_v2.airport.placement_atom",
         "auto_patch_v2.airport.placement_body",
         "auto_patch_v2.airport.placement_boxes",
@@ -1772,6 +1777,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    airport.pit_frame
     constraints.airside_top
     geom.runway_contact
     constraints.fill_bank
@@ -1872,6 +1878,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.taxi_route_yield
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
+    airport.pit_frame
     geom.runway_contact
     geom.exact
         law.inset_class law.runway_ends_schema law.terrain_witness_schema
@@ -1941,7 +1948,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
-    airport.walled_pit airport.portal_floor
+    airport.walled_pit airport.portal_floor airport.pit_frame
     geom.runway_contact
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
@@ -2084,7 +2091,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
-    airport.walled_pit airport.portal_floor constraints.airside_top
+    airport.walled_pit airport.portal_floor airport.pit_frame constraints.airside_top
     geom.runway_contact
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
@@ -2244,7 +2251,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["emit"] = _mods("""
-    airport.walled_pit constraints.airside_top
+    airport.walled_pit airport.pit_frame constraints.airside_top
     geom.runway_contact airport.centreline_seat
     geom.station_runs airport.bridge_ground
     geom.shape_class
@@ -2350,6 +2357,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.foot_lot
 """)
 CODE_MODULES["verify"] = _mods("""
+    airport.pit_frame
     geom.runway_contact
     geom.exact
         constraints.runway_end_report law.runway_ends_schema law.terrain_witness_schema

@@ -254,6 +254,12 @@ class SplitSet:
     #: Not serialised (``to_dict``): it is per part, and the plan has it.
     plan_wide: _t.Mapping[int, tuple] = _dc.field(default_factory=dict,
                                                   repr=False, compare=False)
+    #: #1949 (RULINGS 2026-11-11f): ``pit id -> metres`` each walled pit's
+    #: frame is raised by to stand with the airside rail group meeting it
+    #: (``pit_frame.join``); the writer moves the frame's rows
+    #: (``placement_write.dump_rows``).  Not serialised.
+    pit_shifts: _t.Mapping[str, float] = _dc.field(default_factory=dict,
+                                                   repr=False, compare=False)
 
     @property
     def all(self) -> tuple[Split, ...]:

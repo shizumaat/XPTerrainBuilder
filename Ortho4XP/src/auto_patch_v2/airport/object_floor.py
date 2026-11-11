@@ -81,6 +81,7 @@ from ..geom import shape_class as _shape
 from ..geom.lowest_face import floor_z_at  # noqa: F401  (re-exported)
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
+from . import pit_frame as _pf
 from . import terrain_shaped as _ts
 from . import walled_pit as _wp
 from .below_grade_witness import around as _around_ids
@@ -144,6 +145,13 @@ class ObjectFloor:
     #: #1949: the metres its whole frame was moved so a walled pit's rim
     #: lands on the ground around it (``airport/walled_pit``); 0 = authored
     lift: float = 0.0
+    #: #1949 (RULINGS 2026-11-11f): a walled pit's frame origin (frame xy),
+    #: its rows' authored lift and how far its rim stands over the ground
+    #: around it as seated -- what the rail group meeting it is read
+    #: against (``airport/pit_frame``); ``()`` for every other floor
+    origin_xy: tuple = ()
+    agl_m: float = 0.0
+    rim_proud_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -638,6 +646,8 @@ def seat_records(floors: _t.Iterable[ObjectFloor], to_ll=None) -> list[dict[str,
                    "elevation": round(float(z), 3)}
             if pid in rings:
                 rec[CUT_RING] = rings[pid]
+            if f.origin_xy:
+                _pf.stamp(rec, f, to_ll if pid == f.object_id else None)
             out.append(rec)
     for pid, (res, z) in sorted(decks.items()):
         out.append({"id": pid, "resource": res, "datum": "object_floor", "seat": FRAME_SEAT,

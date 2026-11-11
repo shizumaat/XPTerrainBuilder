@@ -23,6 +23,12 @@ import Foundation
         #expect(result.action == "dry_run" && result.toMove == 2590)
         #expect(result.summary.hasPrefix("2,590 tiles can move") && result.failed.isEmpty)
         #expect(!result.stopped)
+        // Convert's three choices (owner 2026-11-11T15:32Z; the fixture's
+        // choice figures are illustrative, its lines the engine's
+        // `world_retire.choice_line` of them).
+        #expect(result.choices.map(\.id) == O4WorldMigrateText.choices.map(\.id))
+        #expect(result.toMove(choice: "keep_custom") == 2592)
+        #expect(result.choices[2].line.hasSuffix("No other drive is needed afterwards."))
     }
 
     /// `WorldMigrateProgress` (owner 2026-11-11T15:32Z: a bar and a count

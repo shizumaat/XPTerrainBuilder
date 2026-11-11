@@ -10,7 +10,7 @@ import SceneryKit
 /// `O4_Qt_Convert_Tiles.ConvertTilesSection` holds the same states.
 @MainActor
 final class WorldMigrateRun: ObservableObject {
-    enum Step { case measure, convert, undo }
+    enum Step { case measure, convert, undo, freeSpace }
 
     /// The step running, nil when none.
     @Published private(set) var running: Step?
@@ -20,6 +20,8 @@ final class WorldMigrateRun: ObservableObject {
     @Published private(set) var status = ""
     /// The last dry run's result, Convert's numbers.
     @Published private(set) var measured: O4WorldMigrateResult?
+    /// The chosen `world_retire` choice (`O4WorldMigrateText.choices`).
+    @Published var choice = "keep_all"
     /// A step finished and its result line is shown (Done is offered).
     @Published private(set) var hasResult = false
     @Published private(set) var cancelling = false
@@ -68,14 +70,25 @@ final class WorldMigrateRun: ObservableObject {
 
     func markCancelling() { cancelling = true }
 
+    /// The engine's line for a choice after a measure, else its hint.
+    func line(for choice: String) -> String {
+        measured?.choices.first(where: { $0.id == choice })?.line
+            ?? O4WorldMigrateText.choices.first(where: { $0.id == choice })?.hint ?? ""
+    }
+
+    /// Tiles the chosen choice would move or make dynamic (0 before a measure).
+    var toMove: Int { measured?.toMove(choice: choice) ?? 0 }
+
     /// Start a step on `client` unless one runs.
     func start(_ step: Step, client: OrthoEngineClient, sceneryDir: String) {
         guard running == nil else { return }
         begin(step)
+        let choice = self.choice
         Task { @MainActor in
             do {
                 finish(.success(try await client.worldMigrate(
-                    dryRun: step == .measure, revert: step == .undo, sceneryDir: sceneryDir)))
+                    dryRun: step == .measure, revert: step == .undo,
+                    purge: step == .freeSpace, choice: choice, sceneryDir: sceneryDir)))
             } catch {
                 finish(.failure(error))
             }

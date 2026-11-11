@@ -1,8 +1,12 @@
 """Settings ▸ Storage ▸ Convert existing tiles in the Qt window (World spec §13 M1,
 §14 ``convert_box``; the Mac app's ``ConvertTilesSection.swift``, the same
 words): the per-tile ``zOrtho4XP_`` packs moved into the World pack by
-``o4_engine.world_migrate`` -- Measure (the dry run), Convert…, Stop and
-Undo….  The work runs on a daemon thread; the engine writes every result
+``o4_engine.world_migrate`` -- a choice of what to keep (owner
+2026-11-11T15:32Z, ``world_retire``: keep all, keep the tiles with custom
+airports, make everything dynamic; Measure shows each choice's figures
+before anything moves), Measure (the dry run), Convert…, Stop, Undo… and
+Free space… (removes the local tiles made dynamic).  The work runs on a
+daemon thread; the engine writes every result
 sentence.  While it runs (owner 2026-11-11T15:32Z) a bar counts the tiles
 (``WorldMigrateProgress``: "Measuring: N of M tiles · <tile>"), Cancel
 stops it cleanly, and :attr:`ConvertTilesSection.running_changed` lets
@@ -16,11 +20,13 @@ import contextlib
 from O4_Qt_Library import emit_from_thread
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -30,9 +36,32 @@ __all__ = ["ConvertTilesSection", "TITLE", "INTRO"]
 # The words of SceneryKit's ``O4WorldMigrateText`` (WorldMigrate.swift).
 TITLE = "Convert existing tiles"
 INTRO = ("Moves your per-tile ortho packs (zOrtho4XP_…) into the World pack, "
-         "so X-Plane can take new tiles while it runs. Tiles on another drive "
-         "get a small local copy and their files stay where they are. Nothing "
-         "is deleted: Undo puts every tile back.")
+         "so X-Plane can take new tiles while it runs. Choose what to keep; "
+         "Measure shows what each choice frees and still needs before "
+         "anything moves. Files on another drive are never deleted, and Undo "
+         "puts every tile back.")
+#: ``world_retire.CHOICES``: (id, title, the line shown before a measure).
+CHOICES = (
+    ("keep_all", "Keep all existing tiles",
+     "Every tile moves as it is; a drive that holds tiles stays required."),
+    ("keep_custom", "Keep tiles with custom airports, make the rest dynamic",
+     "Tiles holding an installed airport pack stay as they are; the rest "
+     "are draped ahead in flight or built when you fly there."),
+    ("dynamic", "Make everything dynamic",
+     "Every tile is draped ahead in flight or built when you fly there; no "
+     "other drive is needed."),
+)
+CONFIRM_DYNAMIC = ("Tiles made dynamic are drawn by the World pack, draped "
+                   "or built when you fly there; tiles not built by "
+                   "XPTerrainBuilder become our drape or build, not the same "
+                   "tile. Their links to another drive are removed from "
+                   "Custom Scenery (Undo puts them back).")
+FREE_SPACE = "Free space…"
+FREE_TITLE = "Remove the dynamic tiles from this Mac?"
+FREE_TEXT = ("Quit X-Plane first. The tiles made dynamic are deleted from "
+             "Custom Scenery and Undo can no longer bring them back; they are "
+             "draped or built when you fly there. Files on other drives are "
+             "never touched.")
 MEASURE, CONVERT, STOP, UNDO = "Measure", "Convert…", "Cancel", "Undo…"
 MEASURING = ("Measuring (a few tiles are converted into a temporary folder "
              "to time it)…")
@@ -77,6 +106,19 @@ class ConvertTilesSection(QWidget):
         intro.setWordWrap(True)
         intro.setStyleSheet(NOTE_STYLE)
         layout.addWidget(intro)
+        self.choice_group = QButtonGroup(self)
+        self.choice_notes = {}
+        for number, (key, title, hint) in enumerate(CHOICES):
+            button = QRadioButton(title)
+            button.setChecked(number == 0)
+            self.choice_group.addButton(button, number)
+            note = QLabel(hint)
+            note.setWordWrap(True)
+            note.setStyleSheet(NOTE_STYLE)
+            note.setContentsMargins(22, 0, 0, 0)
+            self.choice_notes[key] = note
+            layout.addWidget(button)
+            layout.addWidget(note)
         row = QHBoxLayout()
         self.measure_btn = QPushButton(MEASURE)
         self.measure_btn.clicked.connect(lambda: self.run(dry_run=True))
@@ -88,9 +130,12 @@ class ConvertTilesSection(QWidget):
         self.stop_btn.clicked.connect(self.stop)
         self.undo_btn = QPushButton(UNDO)
         self.undo_btn.clicked.connect(self.ask_undo)
+        self.free_btn = QPushButton(FREE_SPACE)
+        self.free_btn.clicked.connect(self.ask_free)
         for button in (self.measure_btn, self.convert_btn, self.stop_btn):
             row.addWidget(button)
         row.addStretch(1)
+        row.addWidget(self.free_btn)
         row.addWidget(self.undo_btn)
         layout.addLayout(row)
         self.bar = QProgressBar()
@@ -101,12 +146,17 @@ class ConvertTilesSection(QWidget):
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet(NOTE_STYLE)
         layout.addWidget(self.status_label)
+        self.choice_group.idToggled.connect(
+            lambda _id, _on: self.convert_btn.setEnabled(
+                not self.running and self._to_move() > 0))
         self.finished.connect(self._on_finished)
         self.progress.connect(self._on_progress)
 
     def _busy(self, on: bool, text: str = "", cancel: bool = True) -> None:
         self.running = on
-        for button in (self.measure_btn, self.undo_btn):
+        for button in (self.measure_btn, self.undo_btn, self.free_btn):
+            button.setEnabled(not on)
+        for button in self.choice_group.buttons():
             button.setEnabled(not on)
         self.convert_btn.setEnabled(not on and self._to_move() > 0)
         self.stop_btn.setVisible(on and cancel)
@@ -128,15 +178,26 @@ class ConvertTilesSection(QWidget):
             event.phase, event.done, event.total, event.tile))
 
     def _to_move(self) -> int:
+        """Tiles the chosen choice moves or makes dynamic (the last
+        measure's figures)."""
+        for row in (self.measured or {}).get("choices") or ():
+            if row.get("id") == self.choice():
+                return int(row.get("kept", 0)) + int(row.get("dynamic", 0))
         acts = ((self.measured or {}).get("totals") or {}).get("by_action", {})
         return sum(acts.get(a, 0) for a in ("copy", "stage", "resume"))
 
-    def run(self, dry_run: bool, revert: bool = False) -> None:
-        """Start the dry run, the migration or (``revert``) its undo."""
+    def choice(self) -> str:
+        """The chosen ``world_retire`` choice's id."""
+        return CHOICES[max(0, self.choice_group.checkedId())][0]
+
+    def run(self, dry_run: bool, revert: bool = False,
+            purge: bool = False) -> None:
+        """Start the dry run, the migration under the chosen choice,
+        (``revert``) its undo, or (``purge``) Free space."""
         from o4_engine import world_migrate as MIGRATE
         self._busy(True, MEASURING if dry_run else CONVERTING,
-                   cancel=not revert)
-        scenery = self.scenery_dir
+                   cancel=not (revert or purge))
+        scenery, choice = self.scenery_dir, self.choice()
 
         def counted(event):                 # on the worker: queued signal
             if type(event).__name__ == "WorldMigrateProgress":
@@ -144,7 +205,8 @@ class ConvertTilesSection(QWidget):
                     self.progress.emit(event)
         emit_from_thread(
             lambda: MIGRATE.run_command(dry_run, revert, None, scenery,
-                                        emit=counted),
+                                        emit=counted, choice=choice,
+                                        purge=purge),
             self.finished, "o4-qt-world-migrate")
 
     def stop(self) -> None:
@@ -154,9 +216,15 @@ class ConvertTilesSection(QWidget):
         MIGRATE.stop()
 
     def ask_convert(self) -> None:
-        if QMessageBox.question(self, CONFIRM_TITLE, CONFIRM_TEXT) == \
-                QMessageBox.Yes:
+        text = CONFIRM_TEXT
+        if self.choice() != CHOICES[0][0]:
+            text += " " + CONFIRM_DYNAMIC
+        if QMessageBox.question(self, CONFIRM_TITLE, text) == QMessageBox.Yes:
             self.run(dry_run=False)
+
+    def ask_free(self) -> None:
+        if QMessageBox.question(self, FREE_TITLE, FREE_TEXT) == QMessageBox.Yes:
+            self.run(dry_run=False, purge=True)
 
     def ask_undo(self) -> None:
         if QMessageBox.question(self, UNDO_TITLE, UNDO_TEXT) == QMessageBox.Yes:
@@ -169,5 +237,8 @@ class ConvertTilesSection(QWidget):
             self._busy(False, str(result))
             return
         self.measured = result if result.get("action") == "dry_run" else None
+        for row in (self.measured or {}).get("choices") or ():
+            if row.get("id") in self.choice_notes:
+                self.choice_notes[row["id"]].setText(row.get("line", ""))
         self.has_result = True
         self._busy(False, result.get("summary", ""))

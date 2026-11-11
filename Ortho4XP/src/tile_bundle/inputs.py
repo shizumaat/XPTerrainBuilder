@@ -50,7 +50,7 @@ import os
 import O4_File_Names as FNAMES
 
 __all__ = ["ALLOWED", "DATA_ROOTS", "INSET_INDEX", "INSET_STAMP", "files",
-           "destination"]
+           "own_files", "destination"]
 
 #: The file kinds a package may hold: OSM layers and patches, elevation
 #: rasters and JSON sidecars.  Nothing executable, no pickle, no mosaic.
@@ -175,6 +175,17 @@ def files(lat: int, lon: int, airports=None) -> list:
     out += [("patches/%s/%s" % (key, os.path.basename(p)), p)
             for p in _manual_patches(lat, lon, airports)]
     return sorted(set(out))
+
+
+def own_files(lat: int, lon: int) -> list:
+    """The local paths of what a package of tile (lat, lon) carries that
+    belongs to that tile alone: its OSM layers and its own cell's
+    elevation artefacts -- not the neighbours' base rasters (other tiles
+    read them) nor the patches (the user's).  The disk budget drops these
+    once the tile's package is written (``o4_engine.storage_packages``)."""
+    lat, lon = int(lat), int(lon)
+    return sorted(set(_walk(FNAMES.osm_dir(lat, lon))
+                      + _cell_entries(lat, lon, whole=True)))
 
 
 def destination(name: str) -> str:

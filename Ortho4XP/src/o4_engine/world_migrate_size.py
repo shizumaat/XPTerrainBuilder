@@ -11,7 +11,10 @@ would do, write and take, with nothing written in Custom Scenery.
 * the time, from a sample of up to ``sample`` tiles migrated for real
   into a scratch World pack in a temporary folder (no ini, no index) and
   removed after: the mean seconds per action, times the entries, over
-  the workers.
+  the workers;
+* per CHOICE (``world_retire.CHOICES``: keep all, keep the custom airport
+  tiles, make everything dynamic): ``choices``, each with its figures
+  (``world_retire.choice_totals``) and its sentence.
 
 Reads headers and ``stat`` only, besides the sample.  ``progress(done,
 total, name)`` counts the packs read, then the sample's tiles; Cancel
@@ -33,6 +36,7 @@ import O4_Imagery_OnDemand_Convert as CONVERT
 import O4_World_Pack as WP
 
 from . import world_migrate as MIGRATE
+from . import world_retire as RETIRE
 
 __all__ = ["SEVEN_ZIP_RATIO", "dry_run"]
 
@@ -84,6 +88,7 @@ def _size_row(entry, action: str, scenery_dir: str, px: int) -> dict:
     else:
         textures = _tree_bytes(os.path.join(entry.source, "textures"))
         row["copy_bytes"] = 0
+        row["texture_bytes"] = textures
         row["linked_texture_bytes"] = (
             0 if _same_volume(entry.source, scenery_dir) else textures)
     row["new_bytes"] = (row["copy_bytes"] + row["dsf_bytes"]
@@ -218,7 +223,17 @@ def dry_run(scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX,
     totals["dsf_7z"] = sum(1 for r in rows if r.get("dsf_7z"))
     totals.update(_estimate(rows, timed, max(1, workers // 2)))
     totals["seconds"] = round(time.monotonic() - started, 1)
-    return {"rows": rows, "totals": totals}
+    return {"rows": rows, "totals": totals,
+            "choices": _choices(rows, found, scenery_dir)}
+
+
+def _choices(rows, found, scenery_dir: str) -> list:
+    """``[{"id", "line", **figures}]`` of every choice, in order."""
+    figures = RETIRE.choice_totals(
+        rows, found, RETIRE.custom_airport_tiles(scenery_dir),
+        RETIRE.disabled_names(scenery_dir))
+    return [{"id": choice, "line": RETIRE.choice_line(choice, figures[choice]),
+             **figures[choice]} for choice in RETIRE.CHOICES]
 
 
 def _tally(values) -> Dict[str, int]:

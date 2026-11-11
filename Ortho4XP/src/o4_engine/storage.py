@@ -55,6 +55,8 @@ import O4_DDS_Cache as DDSC
 import O4_Disk_Usage as DISK
 import O4_File_Names as FNAMES
 
+from . import storage_packages as _PACKAGES
+
 __all__ = ["CACHE", "KEPT", "STORES", "AUTO_CLEAN_DAYS", "CAPS_SETTING",
            "ONDEMAND", "REBUILD", "storage_scan", "storage_clear", "storage_auto_clean",
            "parse_caps", "write_log", "COMMANDS", "REFUSED_WHILE_BUILDING"]
@@ -164,6 +166,13 @@ STORES: tuple = (
           "The meshes and elevation grids of built tiles: a tile without "
           "them rebuilds from its map and elevation data, which takes "
           "longer. X-Plane never reads them.", FNAMES.rebuild_root),
+    # Older airport tiles shrunk to their package by the disk budget
+    # (RULINGS 2026-11-11l item 5, ``storage_packages``): what rebuilds
+    # them with only imagery to download; never cleared here.
+    Store(_PACKAGES.KIND, "Packaged tiles", KEPT,
+          "Older airport tiles kept as small packages of their map and "
+          "elevation data: they rebuild with only imagery to download.",
+          _PACKAGES.store_dir),
     Store("tiles", "Built tiles", KEPT,
           "Your scenery. Delete tiles in the Library.",
           lambda: FNAMES.Tile_dir),
@@ -481,13 +490,17 @@ def _clear_store(store: Store, cutoff: float | None, sweep: _Sweep,
         _prune_empty_dirs(store.path())
 
 
-def _evict_oldest(stores, over_by: int, sweep: _Sweep, now: float) -> int:
+def _evict_oldest(stores, over_by: int, sweep: _Sweep, now: float,
+                  keep: "set | None" = None) -> int:
     """Delete the deletable files of ``stores`` together, least recently
     used first, until ``over_by`` bytes are freed; the bytes freed.  A
     protected file is never evicted (the ONDEMAND store has no files:
-    it is made low-res, ``imagery_downgrade``)."""
+    it is made low-res, ``imagery_downgrade``), nor one of ``keep``
+    (``os.path.normcase`` absolute paths)."""
+    keep = keep or set()
     rows = [(store, path, st) for store in stores if store.kind != ONDEMAND
-            for path, st, deletable in _files(store, now) if deletable]
+            for path, st, deletable in _files(store, now) if deletable
+            and os.path.normcase(os.path.abspath(path)) not in keep]
     rows.sort(key=lambda row: _last_used(row[2]))
     freed = 0
     for store, path, st in rows:

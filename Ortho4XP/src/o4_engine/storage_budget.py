@@ -22,8 +22,11 @@ folder's caches, the sharp imagery, rebuild data and the built tiles.
   -> scenery dumps, water masks, airport pack caches -> elevation and
   map extracts -> sharp imagery (``imagery_downgrade.sweep``: cores,
   then favorites last) -> per-tile rebuild data (:data:`REBUILD_DATA`,
-  the ``storage.REBUILD`` store, oldest first; :data:`TIER_HOOKS` stays
-  for a tier no store row holds).
+  oldest first, through :data:`TIER_HOOKS`: an older airport tile is
+  first shrunk to its ``.xptb`` package, ``storage_packages``, RULINGS
+  2026-11-11l item 5; the rest is the ``storage.REBUILD`` store's
+  eviction).  The elevation and map extract tier leaves the inputs those
+  packages will carry (``storage_packages.guarded_inputs``).
 * :func:`status` -- the budget's figures for the Storage pane (and the
   warning when the budget is under the floor); :func:`hold` -- the
   automatic cleanup's step (``storage.storage_auto_clean``);
@@ -69,9 +72,17 @@ TIERS: tuple = (("tmp", "logs", "previews"), ("imagery", "dds"),
                 ("dsf_dumps", "masks", "airport_mod"),
                 ("elevation", "osm_extracts", "osm"),
                 (STORAGE.ONDEMAND,), (REBUILD_DATA,))
-#: ``{tier kind: hook(over_by, sweep, now) -> bytes freed}`` for a tier
-#: no ``storage.STORES`` row holds yet (the rebuild data).
-TIER_HOOKS: dict = {}
+def _package_rebuild(over_by: int, sweep, now: float) -> int:
+    from . import storage_packages as PACKAGES
+    return PACKAGES.evict(over_by, sweep, now)
+
+
+#: ``{tier kind: hook(over_by, sweep, now) -> bytes freed}``: a tier
+#: cleared by more than its stores' oldest-first eviction (the rebuild
+#: data: older airport tiles become packages first).
+TIER_HOOKS: dict = {REBUILD_DATA: _package_rebuild}
+#: The tier whose eviction leaves the packages' inputs.
+_INPUTS_TIER = ("elevation", "osm_extracts", "osm")
 _LAST = "storage_budget.json"
 
 
@@ -205,6 +216,13 @@ def _clear_sharp(over_by: int, cap: int, used: int, sweep, now: float) -> int:
         conn.close()
 
 
+def _kept(tier: tuple) -> "set | None":
+    if tier != _INPUTS_TIER:
+        return None
+    from . import storage_packages as PACKAGES
+    return PACKAGES.guarded_inputs()
+
+
 def hold(sweep, now: float,
          scan: "_t.Callable[[], dict] | None" = None) -> "dict | None":
     """Over a budget the user SET, clear tier by tier until 90 % of it
@@ -230,7 +248,8 @@ def hold(sweep, now: float,
             freed = TIER_HOOKS[tier[0]](over, sweep, now)
         else:
             stores = [STORAGE._BY_KIND[k] for k in tier if k in STORAGE._BY_KIND]
-            freed = STORAGE._evict_oldest(stores, over, sweep, now)
+            freed = STORAGE._evict_oldest(stores, over, sweep, now,
+                                          keep=_kept(tier))
         over -= freed
         used -= freed
     return figures

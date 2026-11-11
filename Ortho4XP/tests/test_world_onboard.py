@@ -85,7 +85,8 @@ def test_move_measures_before_anything_moves(app, monkeypatch):
     import O4_Qt_Convert_Tiles as QTCONVERT
     runs = []
     monkeypatch.setattr(QTCONVERT.ConvertTilesSection, "run",
-                        lambda self, dry_run, revert=False: runs.append(dry_run))
+                        lambda self, dry_run, revert=False, purge=False:
+                        runs.append(dry_run))
     dialog = QTONBOARD.OnboardDialog(12, "/cs")
     dialog.move_btn.click()
     assert runs == [True] and dialog.convert_box is not None
@@ -110,7 +111,7 @@ def _hold_the_run(monkeypatch):
     gate, calls = threading.Event(), []
 
     def run_command(dry_run, undo=False, tiles=None, scenery_dir="",
-                    workers=4, emit=None):
+                    workers=4, emit=None, choice="keep_all", purge=False):
         calls.append(dry_run)
         emit(WorldMigrateProgress(phase="measure", done=3, total=12,
                                   tile="zOrtho4XP_+45+007"))
@@ -207,7 +208,15 @@ def test_both_convert_sections_say_the_same():
           "measuring": QTCONVERT.MEASURING, "converting": QTCONVERT.CONVERTING,
           "confirmTitle": QTCONVERT.CONFIRM_TITLE,
           "confirmText": QTCONVERT.CONFIRM_TEXT,
-          "undoTitle": QTCONVERT.UNDO_TITLE, "undoText": QTCONVERT.UNDO_TEXT}
+          "undoTitle": QTCONVERT.UNDO_TITLE, "undoText": QTCONVERT.UNDO_TEXT,
+          "confirmDynamic": QTCONVERT.CONFIRM_DYNAMIC,
+          "freeSpace": QTCONVERT.FREE_SPACE, "freeTitle": QTCONVERT.FREE_TITLE,
+          "freeText": QTCONVERT.FREE_TEXT}
+    for key, title, hint in QTCONVERT.CHOICES:
+        name = {"keep_all": "keepAll", "keep_custom": "keepCustom",
+                "dynamic": "dynamic"}[key]
+        qt[name + "Title"], qt[name + "Hint"] = title, hint
+        assert '("%s", %sTitle, %sHint)' % (key, name, name) in text
     assert swift == qt
     for piece in ('"Measuring"', '"Converting"', " of ", " tiles", '" · "'):
         assert piece in text, piece

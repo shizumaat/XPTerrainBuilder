@@ -1,5 +1,23 @@
 import Foundation
 
+/// One choice of Convert existing tiles (owner 2026-11-11T15:32Z,
+/// `o4_engine/world_retire.py`): `keep_all`, `keep_custom` or `dynamic`,
+/// with the dry run's sentence and counts.
+public struct O4WorldMigrateChoice: Sendable, Equatable, Identifiable {
+    public let id: String
+    /// The engine's sentence: what the choice keeps, frees and still needs.
+    public let line: String
+    public let kept: Int
+    public let dynamic: Int
+
+    public static func parse(_ row: O4JSON) -> O4WorldMigrateChoice {
+        O4WorldMigrateChoice(id: row["id"]?.stringValue ?? "",
+                             line: row["line"]?.stringValue ?? "",
+                             kept: row["kept"]?.intValue ?? 0,
+                             dynamic: row["dynamic"]?.intValue ?? 0)
+    }
+}
+
 /// The answer of `world_migrate` (World spec §13 M1, capability
 /// `world_migrate`, `Ortho4XP/src/o4_engine/world_migrate.py`): the
 /// per-tile `zOrtho4XP_` packs moved into the World pack. The engine
@@ -16,6 +34,15 @@ public struct O4WorldMigrateResult: Sendable, Equatable {
     public let stopped: Bool
     /// Dry run: entries that would move (copy + stage + resume).
     public let toMove: Int
+    /// Dry run: each choice's figures, in the order the apps list them.
+    public var choices: [O4WorldMigrateChoice] = []
+
+    /// Tiles `choice` moves or makes dynamic (the plain move count when
+    /// the engine sent no choices).
+    public func toMove(choice: String) -> Int {
+        guard let row = choices.first(where: { $0.id == choice }) else { return toMove }
+        return row.kept + row.dynamic
+    }
 
     public static func parse(_ result: O4JSON) -> O4WorldMigrateResult {
         let actions = result["totals"]?["by_action"]?.objectValue ?? [:]
@@ -25,7 +52,8 @@ public struct O4WorldMigrateResult: Sendable, Equatable {
             summary: result["summary"]?.stringValue ?? "",
             failed: (result["failed"]?.arrayValue ?? []).compactMap { $0["name"]?.stringValue },
             stopped: result["stopped"]?.boolValue ?? false,
-            toMove: move)
+            toMove: move,
+            choices: (result["choices"]?.arrayValue ?? []).map(O4WorldMigrateChoice.parse))
     }
 }
 
@@ -59,7 +87,25 @@ public struct O4WorldMigrateProgress: Sendable, Equatable {
 /// the same strings).
 public enum O4WorldMigrateText {
     public static let title = "Convert existing tiles"
-    public static let intro = "Moves your per-tile ortho packs (zOrtho4XP_…) into the World pack, so X-Plane can take new tiles while it runs. Tiles on another drive get a small local copy and their files stay where they are. Nothing is deleted: Undo puts every tile back."
+    public static let intro = "Moves your per-tile ortho packs (zOrtho4XP_…) into the World pack, so X-Plane can take new tiles while it runs. Choose what to keep; Measure shows what each choice frees and still needs before anything moves. Files on another drive are never deleted, and Undo puts every tile back."
+    public static let keepAllTitle = "Keep all existing tiles"
+    public static let keepAllHint = "Every tile moves as it is; a drive that holds tiles stays required."
+    public static let keepCustomTitle = "Keep tiles with custom airports, make the rest dynamic"
+    public static let keepCustomHint = "Tiles holding an installed airport pack stay as they are; the rest are draped ahead in flight or built when you fly there."
+    public static let dynamicTitle = "Make everything dynamic"
+    public static let dynamicHint = "Every tile is draped ahead in flight or built when you fly there; no other drive is needed."
+    public static let confirmDynamic = "Tiles made dynamic are drawn by the World pack, draped or built when you fly there; tiles not built by XPTerrainBuilder become our drape or build, not the same tile. Their links to another drive are removed from Custom Scenery (Undo puts them back)."
+    public static let freeSpace = "Free space…"
+    public static let freeTitle = "Remove the dynamic tiles from this Mac?"
+    public static let freeText = "Quit X-Plane first. The tiles made dynamic are deleted from Custom Scenery and Undo can no longer bring them back; they are draped or built when you fly there. Files on other drives are never touched."
+
+    /// The choices (`world_retire.CHOICES`; Qt `O4_Qt_Convert_Tiles.CHOICES`):
+    /// id, title, and the line shown before a measure.
+    public static let choices: [(id: String, title: String, hint: String)] = [
+        ("keep_all", keepAllTitle, keepAllHint),
+        ("keep_custom", keepCustomTitle, keepCustomHint),
+        ("dynamic", dynamicTitle, dynamicHint),
+    ]
     public static let measure = "Measure"
     public static let convert = "Convert…"
     public static let stop = "Cancel"
@@ -80,14 +126,17 @@ public enum O4WorldMigrateText {
 }
 
 extension OrthoEngineClient {
-    /// `world_migrate`: the dry run (`dryRun`), the migration, or its
-    /// undo (`revert`). Asynchronous on the engine side: the reply is
+    /// `world_migrate`: the dry run (`dryRun`, every choice's figures),
+    /// the migration under `choice`, its undo (`revert`), or Free space
+    /// (`purge`). Asynchronous on the engine side: the reply is
     /// `{"status": "started"}` and the `WorldReady` event naming this
     /// command's id carries the result.
-    public func worldMigrate(dryRun: Bool, revert: Bool = false,
+    public func worldMigrate(dryRun: Bool, revert: Bool = false, purge: Bool = false,
+                             choice: String = "keep_all",
                              sceneryDir: String) async throws -> O4WorldMigrateResult {
         let once = O4ResumeOnce<O4WorldMigrateResult>()
         let arguments: [String: Any] = ["dry_run": dryRun, "revert": revert,
+                                        "purge": purge, "choice": choice,
                                         "scenery_dir": sceneryDir]
         return try await withCheckedThrowingContinuation { continuation in
             once.set(continuation)

@@ -28,6 +28,24 @@ import Foundation
         #expect(WorldOnboardDone.enabled(moving: true, run: run))
     }
 
+    /// The three choices (owner 2026-11-11T15:32Z): each shows its hint
+    /// until a measure, then the engine's line; Convert counts the chosen
+    /// choice's tiles (kept + dynamic).
+    @Test func eachChoiceShowsItsHintThenTheMeasuredLine() {
+        let run = WorldMigrateRun()
+        #expect(run.choice == "keep_all" && run.toMove == 0)
+        #expect(run.line(for: "dynamic") == O4WorldMigrateText.dynamicHint)
+        run.begin(.measure)
+        let choices = [O4WorldMigrateChoice(id: "keep_all", line: "Keeps 2.", kept: 2, dynamic: 0),
+                       O4WorldMigrateChoice(id: "dynamic", line: "Makes all 3.", kept: 0, dynamic: 3)]
+        run.finish(.success(O4WorldMigrateResult(action: "dry_run", summary: "", failed: [],
+                                                 stopped: false, toMove: 2, choices: choices)))
+        #expect(run.line(for: "dynamic") == "Makes all 3." && run.toMove == 2)
+        run.choice = "dynamic"
+        #expect(run.toMove == 3)
+        #expect(run.line(for: "keep_custom") == O4WorldMigrateText.keepCustomHint)
+    }
+
     @Test func aCancelledMeasureEndsWithItsSentence() {
         let run = WorldMigrateRun()
         run.begin(.measure)

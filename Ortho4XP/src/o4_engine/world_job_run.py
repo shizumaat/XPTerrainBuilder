@@ -23,7 +23,8 @@ gives it the session, the World pack and X-Plane.
   destination) is an ordinary build through the session's queue
   (``enqueue_build`` with its ``deadline`` and class; never interactive:
   ``missing_art="leave"``); ``world_publish.watch`` stages and publishes
-  it as every finished build.
+  it as every finished build.  A tile the disk budget shrank to its
+  package has it installed first (``storage_packages.restore``).
 * :class:`_PackPublisher` -- swaps a staged tile when the job's rule S3
   allows, holding the follow job for that tile only (S7).
 """
@@ -71,6 +72,19 @@ def _utc() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _restore_package(tile) -> None:
+    """A tile the disk budget shrank to its package gets its inputs back
+    before its build (``storage_packages.restore``): only imagery is
+    downloaded.  A package that will not install is logged; the build
+    then downloads as any other."""
+    from . import storage_packages as PACKAGES
+    try:
+        PACKAGES.restore(*tile)
+    except Exception as error:
+        WORLD.write_log({"package_restore_error": repr(error)[:300],
+                         "tile": WP.tile_name(*tile)})
+
+
 class _SessionBuilder:
     """The job's builds through the engine session (see the module)."""
 
@@ -98,6 +112,7 @@ class _SessionBuilder:
         tile = (int(tile[0]), int(tile[1]))
         if kind == "drape":
             return self._start_drape(tile)
+        _restore_package(tile)
         with self._lock:
             self._mine.add(tile)
         ok = self.session.enqueue_build(

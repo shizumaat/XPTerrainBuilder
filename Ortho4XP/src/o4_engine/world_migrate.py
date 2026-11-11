@@ -51,13 +51,14 @@ import O4_DSF_Compress as DSFC
 import O4_Imagery_OnDemand_Convert as CONVERT
 import O4_World_Pack as WP
 
+from . import world_retire as RETIRE
 from .imagery_convert import sibling_work_dir
 from .xplane_root import xplane_running as _xplane_running
 
 __all__ = ["WORK_DIR_NAME", "Journal", "work_dir_for", "entries",
            "classify", "migrate", "migrate_tile", "revert", "summary",
            "stop", "run_command", "start_world_migrate", "stopping",
-           "STOPPED_MEASURE"]
+           "STOPPED_MEASURE", "free_space"]
 
 #: Beside the Custom Scenery folder (same volume, so textures hard-link;
 #: X-Plane does not scan it): the journal, the on-demand copies of linked
@@ -122,11 +123,13 @@ def entries(scenery_dir: str, names=None) -> list:
 
 def classify(entry, journal: Journal, pack: str) -> str:
     """What a migration does with ``entry``: ``migrated`` (journal done),
-    ``resume`` (half done), ``copy`` (a link: on-demand copy, then stage),
-    ``stage`` (local), or ``skip: <why>``."""
+    ``dynamic`` (made dynamic, ``world_retire``), ``resume`` (half done),
+    ``copy`` (a link: on-demand copy, then stage), ``stage`` (local), or
+    ``skip: <why>``."""
     record = journal.get(entry.name)
     if record:
-        return "migrated" if record.get("state") == "done" else "resume"
+        state = record.get("state")
+        return {"done": "migrated", "dynamic": "dynamic"}.get(state, "resume")
     if entry.kind == "link-unmounted":
         return "skip: library not mounted"
     if not entry.enabled:
@@ -327,14 +330,36 @@ def _counts(rows) -> Dict[str, int]:
     return counts
 
 
+def _one_tile(entry, choice: str, custom, disabled, **kw) -> dict:
+    """One entry under ``choice`` (``world_retire``): moved as it is,
+    made dynamic, or left (``migrate_tile``'s skip row)."""
+    action = classify(entry, kw["journal"], kw["pack"])
+    record = kw["journal"].get(entry.name)
+    # a half-done tile finishes the way it started, whatever the choice
+    if (record.get("state") in RETIRE.DYNAMIC_STATES if record
+            else RETIRE.fate(entry, action, choice, custom, disabled)
+            == "dynamic"):
+        if action == "dynamic":
+            return {"name": entry.name, "kind": entry.kind,
+                    "action": action, "status": "dynamic"}
+        return RETIRE.retire_tile(
+            entry, scenery_dir=kw["scenery_dir"], pack=kw["pack"],
+            journal=kw["journal"], swap_lock=kw["swap_lock"],
+            set_row=_set_row, index=kw.get("index"))
+    return migrate_tile(entry, **kw)
+
+
 def migrate(scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX,
             workers: int = 4, threads: int = 4, work_dir: Optional[str] = None,
-            index: Optional[str] = None,
+            index: Optional[str] = None, choice: str = RETIRE.KEEP_ALL,
             progress: Optional[Callable[[int, int, str], None]] = None
             ) -> Dict[str, Any]:
-    """Migrate every entry (or ``names``), ``workers`` tiles at a time.
-    Refused while X-Plane runs.  ``{"rows", "counts", "ini_backup",
-    "seconds", "stopped"}``."""
+    """Migrate every entry (or ``names``), ``workers`` tiles at a time,
+    under ``choice`` (``world_retire.CHOICES``; ``keep_all`` moves every
+    tile as it is).  Refused while X-Plane runs.  ``{"rows", "counts",
+    "ini_backup", "seconds", "stopped", "choice"}``."""
+    if choice not in RETIRE.CHOICES:
+        raise ValueError(f"world_migrate: unknown choice {choice!r}.")
     if _xplane_running():
         raise ValueError("Quit X-Plane first: tiles move into the World "
                          "pack only while it is closed.")
@@ -346,6 +371,9 @@ def migrate(scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX,
     pack = _ready_pack(scenery_dir)
     journal, lock = Journal(work), threading.Lock()
     found = entries(scenery_dir, names)
+    custom = (RETIRE.custom_airport_tiles(scenery_dir)
+              if choice == RETIRE.KEEP_CUSTOM else {})
+    disabled = RETIRE.disabled_names(scenery_dir)
     backup = _backup_ini(scenery_dir, work)
     started, done = time.monotonic(), [0]
 
@@ -353,9 +381,11 @@ def migrate(scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX,
         if _STOP.is_set():
             return {"name": entry.name, "kind": entry.kind, "status": "stopped"}
         try:
-            row = migrate_tile(entry, scenery_dir=scenery_dir, pack=pack,
-                               work=work, journal=journal, swap_lock=lock,
-                               px=px, threads=threads, index=index)
+            row = _one_tile(entry, choice, custom, disabled,
+                            scenery_dir=scenery_dir,
+                            pack=pack, work=work, journal=journal,
+                            swap_lock=lock, px=px, threads=threads,
+                            index=index)
         except (OSError, ValueError, DSFC.CompressError) as error:
             row = {"name": entry.name, "kind": entry.kind,
                    "status": "failed", "problems": [str(error)]}
@@ -366,10 +396,11 @@ def migrate(scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX,
         return row
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         rows = list(pool.map(one, found))
-    WORLD.write_log({"migrate": _counts(rows), "scenery_dir": scenery_dir})
+    WORLD.write_log({"migrate": _counts(rows), "choice": choice,
+                     "scenery_dir": scenery_dir})
     return {"rows": rows, "counts": _counts(rows), "ini_backup": backup,
             "seconds": round(time.monotonic() - started, 1),
-            "stopped": _STOP.is_set()}
+            "stopped": _STOP.is_set(), "choice": choice}
 
 
 def _give_back(pack: str, lat: int, lon: int, prior: Optional[str]) -> None:
@@ -386,7 +417,15 @@ def _give_back(pack: str, lat: int, lon: int, prior: Optional[str]) -> None:
 
 
 def _revert_one(scenery_dir: str, pack: str, name: str, record: dict,
-                index: Optional[str]) -> None:
+                index: Optional[str]) -> bool:
+    """Undo one journalled entry; False when it cannot come back (a
+    dynamic local tile Free space removed)."""
+    if record.get("state") in RETIRE.DYNAMIC_STATES:
+        back = RETIRE.restore_tile(scenery_dir, pack, name, record, _set_row)
+        if back and record.get("kind") not in ("link", "link-unmounted"):
+            lat, lon = WP.parse_tile(name[len(_TILE_PREFIX):])
+            _index(os.path.join(scenery_dir, name), lat, lon, None, index)
+        return back
     lat, lon = WP.parse_tile(name[len(_TILE_PREFIX):])
     _set_row(scenery_dir, name, enabled=True)
     if record.get("state") in ("swapped", "done"):
@@ -397,14 +436,18 @@ def _revert_one(scenery_dir: str, pack: str, name: str, record: dict,
             ONDEMAND.forget_tile(WP.tile_name(lat, lon), index)
         if record.get("kind") != "link":
             _index(record["config_dir"], lat, lon, None, index)
+    return True
 
 
 def revert(scenery_dir: str, names=None, *, work_dir: Optional[str] = None,
            index: Optional[str] = None) -> Dict[str, Any]:
     """Undo the migration of every journalled entry (or ``names``): its
     row enabled again, its World tile given back, its index rows at its
-    own folder.  The on-demand copies stay (a later run reuses them).
-    Refused while X-Plane runs.  ``{"reverted": [names]}``."""
+    own folder; a tile made dynamic gets its link or its row back
+    (``world_retire.restore_tile``).  The on-demand copies stay (a later
+    run reuses them).  Refused while X-Plane runs.  ``{"reverted":
+    [names], "gone": [names]}`` (``gone``: dynamic local tiles Free space
+    removed; they stay dynamic)."""
     if _xplane_running():
         raise ValueError("Quit X-Plane first: tiles leave the World pack "
                          "only while it is closed.")
@@ -413,14 +456,35 @@ def revert(scenery_dir: str, names=None, *, work_dir: Optional[str] = None,
     journal = Journal(work_dir or work_dir_for(scenery_dir))
     pack = WORLD.pack_dir(scenery_dir)
     wanted = set(names) if names else None
-    reverted = []
+    reverted, gone = [], []
     for name, record in sorted(journal.records.items()):
         if wanted is None or name in wanted:
-            _revert_one(scenery_dir, pack, name, record, index)
-            journal.drop(name)
-            reverted.append(name)
-    WORLD.write_log({"migrate_revert": len(reverted)})
-    return {"reverted": reverted}
+            if _revert_one(scenery_dir, pack, name, record, index):
+                journal.drop(name)
+                reverted.append(name)
+            else:
+                gone.append(name)
+    WORLD.write_log({"migrate_revert": len(reverted), "gone": len(gone)})
+    return {"reverted": reverted, "gone": gone}
+
+
+def free_space(scenery_dir: str, names=None, *,
+               work_dir: Optional[str] = None) -> Dict[str, Any]:
+    """"Free space…": delete the local entries made dynamic
+    (``world_retire.purge``); Undo can no longer bring them back.
+    Refused while X-Plane runs.  ``{"removed": [names], "freed_bytes"}``."""
+    if _xplane_running():
+        raise ValueError("Quit X-Plane first: tiles are removed only while "
+                         "it is closed.")
+    from . import world_commands as WORLD
+    WORLD.refuse_foreign(scenery_dir)
+    journal = Journal(work_dir or work_dir_for(scenery_dir))
+    out = RETIRE.purge(scenery_dir, journal.records, names)
+    for name in out["removed"]:
+        journal.set(name, purged=True)
+    WORLD.write_log({"migrate_free_space": len(out["removed"]),
+                     "freed_bytes": out["freed_bytes"]})
+    return out
 
 
 # ------------------------------------------------------------ command
@@ -481,13 +545,22 @@ def summary(action: str, result: Dict[str, Any]) -> str:
     """The one sentence both apps show for a ``world_migrate`` result
     (``action``: ``dry_run``, ``migrate`` or ``revert``)."""
     if action == "revert":
-        return (f"Put {len(result['reverted']):,} tiles back in their own "
+        text = (f"Put {len(result['reverted']):,} tiles back in their own "
                 "packs.")
+        if result.get("gone"):
+            text += (f" {len(result['gone']):,} dynamic tiles were removed by "
+                     "Free space and stay dynamic.")
+        return text
+    if action == "free_space":
+        return (f"Removed {len(result['removed']):,} dynamic tiles from this "
+                f"Mac, freeing {result['freed_bytes'] / 1e9:,.1f} GB.")
     if action == "migrate":
         c = result["counts"]
-        text = (f"Moved {c.get('migrated', 0):,} tiles into the World pack; "
-                f"{c.get('failed', 0):,} failed, {c.get('skip', 0):,} left "
-                "as they are.")
+        text = (f"Moved {c.get('migrated', 0):,} tiles into the World pack"
+                + (f", made {c['dynamic']:,} dynamic" if c.get("dynamic")
+                   else "")
+                + f"; {c.get('failed', 0):,} failed, {c.get('skip', 0):,} "
+                "left as they are.")
         if result.get("stopped"):
             text += " Stopped: Convert again to finish."
         return text
@@ -521,27 +594,34 @@ def stopping() -> bool:
 
 def run_command(dry_run: bool, undo: bool = False, tiles=None,
                 scenery_dir: str = "", workers: int = 4,
-                emit: Optional[Callable[[Any], None]] = None) -> Dict[str, Any]:
+                emit: Optional[Callable[[Any], None]] = None,
+                choice: str = RETIRE.KEEP_ALL,
+                purge: bool = False) -> Dict[str, Any]:
     """The work of ``world_migrate`` on the caller's thread (the Qt window
     calls it on its own worker): the result with ``action``, ``summary``
     and the ``failed`` rows only.  ``emit`` receives the progress events:
     ``WorldMigrateProgress`` of the dry run and of a migration (whose
-    ``WorldStatus`` it also receives)."""
+    ``WorldStatus`` it also receives).  The dry run answers every choice
+    (``choices``); the migration runs ``choice``; ``purge`` is Free
+    space (:func:`free_space`)."""
     from . import world_commands as WORLD
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     if not scenery_dir or not os.path.isdir(scenery_dir):
         raise ValueError(f"No Custom Scenery folder ({scenery_dir!r}).")
     WORLD.refuse_foreign(scenery_dir)
-    if dry_run:
+    if dry_run and not purge:
         from .world_migrate_size import dry_run as size
         result = size(scenery_dir, tiles, workers=max(1, int(workers)) * 2,
                       progress=(_count_events(emit, "measure")
                                 if emit else None))
         action = "dry_run"
+    elif purge:
+        result, action = free_space(scenery_dir, tiles), "free_space"
     elif undo:
         result, action = revert(scenery_dir, tiles), "revert"
     else:
         result = migrate(scenery_dir, tiles, workers=max(1, int(workers)),
+                         choice=choice or RETIRE.KEEP_ALL,
                          progress=(_progress_events(emit, scenery_dir)
                                    if emit else None))
         action = "migrate"
@@ -555,10 +635,13 @@ def run_command(dry_run: bool, undo: bool = False, tiles=None,
 def start_world_migrate(emit: Callable[[Any], None], request: Any = None,
                         dry_run: bool = True, tiles=None, revert: bool = False,
                         stop: bool = False, scenery_dir: str = "",
-                        workers: int = 4, **_ignored) -> dict:
-    """ENGINE COMMAND ``world_migrate`` (spec §5.2): the dry run (default),
-    the migration, or with ``revert`` its undo, of ``tiles`` (entry names;
-    all when omitted).  Replies ``{"status": "started"}``; ``WorldReady``
+                        workers: int = 4, choice: str = RETIRE.KEEP_ALL,
+                        purge: bool = False, **_ignored) -> dict:
+    """ENGINE COMMAND ``world_migrate`` (spec §5.2): the dry run (default,
+    with every choice's figures), the migration under ``choice``
+    (``world_retire.CHOICES``), with ``revert`` its undo, or with
+    ``purge`` Free space, of ``tiles`` (entry names; all when omitted).
+    Replies ``{"status": "started"}``; ``WorldReady``
     (``request`` = this command's id) carries the result.  ``stop`` asks
     a running migration to stop after the tiles in hand (it resumes on
     the next run) and replies ``{"status": "stopping"}``."""
@@ -573,7 +656,8 @@ def start_world_migrate(emit: Callable[[Any], None], request: Any = None,
     def work() -> None:
         try:
             result = run_command(bool(dry_run), bool(revert), tiles,
-                                 scenery_dir, workers, emit)
+                                 scenery_dir, workers, emit,
+                                 choice=choice, purge=bool(purge))
         except Exception as error:            # the sentence goes to the app
             emit(WorldReady(request=request, result=None,
                             error=str(error) or repr(error)))

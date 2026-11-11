@@ -112,4 +112,47 @@ def test_a_road_neck_is_never_flipped_by_section_27():
     neck = {"arm_road": 1.0, "corridor_road_arm": 1.0, "neck_kind": "neck"}
     assert _road_neck(neck)
     assert not _road_neck(dict(neck, neck_kind="arm"))     # #1728 unchanged
+    assert _road_neck(dict(neck, neck_kind="arm", neck_road_beside=1.0))  # 11e (1a)
     assert not _road_neck({"arm_road": 1.0, "neck_kind": "neck"})
+
+
+def test_a_neck_a_road_runs_beside_reads_the_free_road_width():
+    """RULINGS 2026-11-11e (1a), HECA: a strip a mapped road runs beside is
+    read against the free-road width (``service.free_max_width_m``), not
+    the #1877 12 m arm-road cap; with no road beside it the cap stands."""
+    from auto_patch_v2.classify.neck import road_beside
+    rules = load_rules()
+    cap, free = rules.apron.arm_road_max_width_m, rules.service.free_max_width_m
+    w = (cap + free) / 2.0                    # wider than the cap, a free road
+    strip = box(0.0, 0.0, 200.0, w)
+    road = LineString([(0.0, w + 5.0), (200.0, w + 5.0)])
+    assert road_beside(strip, w, road, rules)
+    assert not road_beside(strip, w, None, rules)
+    far = LineString([(0.0, 2 * w + cap + 5.0), (200.0, 2 * w + cap + 5.0)])
+    assert not road_beside(strip, w, far, rules)
+    wide = box(0.0, 0.0, 200.0, free + 1.0)
+    assert not road_beside(wide, free + 1.0, road, rules)
+
+
+def test_an_arm_a_road_runs_beside_reads_the_free_road_width():
+    """#1900 (RULINGS 2026-11-11e (1a)): an arm wider than the 12 m cap with
+    a mapped road BESIDE it (not down it) is a road arm, flagged so the
+    arm-road verdict reads it against the free-road width; a road running
+    DOWN an arm that wide still is not (#1728 unchanged)."""
+    rules = load_rules()
+    w = rules.apron.arm_road_max_width_m + 2.0
+    face, centre, _down = _page(arm_w=w)
+    beside = LineString([(200.0 + w + 6.0, 40.0), (200.0 + w + 6.0, 300.0)])
+    arms = road_arms(face, [centre], [beside], rules)
+    assert len(arms) == 1 and arms[0].kind == "arm" and arms[0].road_beside
+    assert road_arms(face, [centre], [_down], rules) == []
+
+
+def test_the_arm_road_width_bar():
+    from auto_patch_v2.classify.roles import _road_wide
+    rules = load_rules()
+    cap, free = rules.apron.arm_road_max_width_m, rules.service.free_max_width_m
+    assert _road_wide({"neck_width_m": cap}, rules)
+    assert not _road_wide({"neck_width_m": cap + 0.3}, rules)
+    assert _road_wide({"neck_width_m": cap + 0.3, "neck_road_beside": 1.0}, rules)
+    assert not _road_wide({"neck_width_m": free + 0.1, "neck_road_beside": 1.0}, rules)

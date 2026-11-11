@@ -41,8 +41,8 @@ import typing as _t
 
 import O4_File_Names as FNAMES
 
-__all__ = ["KIND", "STORE_DIR", "store_dir", "packaged", "candidates",
-           "guarded_inputs", "package_tile", "evict", "restore"]
+__all__ = ["KIND", "STORE_DIR", "store_dir", "packaged", "guarded_inputs",
+           "evict", "restore"]
 
 #: The store row of the packages (``storage.STORES``).
 KIND = "tile_packages"
@@ -94,14 +94,6 @@ def _favorites() -> set:
         conn.close()
 
 
-def _graded_airports(lat: int, lon: int) -> list:
-    try:
-        names = os.listdir(FNAMES.patch_dir(lat, lon))
-    except OSError:
-        return []
-    return sorted({icao for icao in map(FNAMES.patch_file_icao, names) if icao})
-
-
 def _last_used(folder: str) -> float:
     newest = 0.0
     for root, _dirs, names in os.walk(folder):
@@ -112,12 +104,14 @@ def _last_used(folder: str) -> float:
     return newest
 
 
-def candidates() -> list:
+def _candidates() -> list:
     """``[{"lat", "lon", "build_dir", "cache", "airports", "favorite",
     "last_used"}]``: the tiles of the data folder this app built that
     grade an airport and still hold rebuild data, not packaged yet;
     non-favorites oldest first, then the favorites oldest first."""
     import O4_Tile_Info as TINFO
+
+    from .library import _graded_airports
     done, favorites = packaged(), _favorites()
     out = []
     for (lat, lon), info in TINFO.scan_tiles(FNAMES.Tile_dir).items():
@@ -136,12 +130,12 @@ def candidates() -> list:
 
 
 def guarded_inputs() -> set:
-    """The own downloaded inputs of every :func:`candidates` tile, as
+    """The own downloaded inputs of every :func:`_candidates` tile, as
     ``os.path.normcase`` absolute paths: the elevation and map extract
     tier leaves them for the package."""
     from tile_bundle import inputs as INPUTS
     keep = set()
-    for c in candidates():
+    for c in _candidates():
         keep |= {os.path.normcase(os.path.abspath(p))
                  for p in INPUTS.own_files(c["lat"], c["lon"])}
     return keep
@@ -203,8 +197,8 @@ def _drop_sharp(lat: int, lon: int, sweep, now: float) -> int:
     return int(result.get("freed_bytes") or 0)
 
 
-def package_tile(candidate: dict, sweep, now: float) -> "dict | None":
-    """Shrink one :func:`candidates` tile to its package (module doc);
+def _package_tile(candidate: dict, sweep, now: float) -> "dict | None":
+    """Shrink one :func:`_candidates` tile to its package (module doc);
     ``{"freed_bytes", "package_bytes", "path"}``, or ``None`` when it
     cannot be packaged (nothing is dropped then)."""
     from tile_bundle import BundleRefused
@@ -244,13 +238,13 @@ def evict(over_by: int, sweep, now: float) -> int:
     store's own oldest-first eviction for the rest; the bytes freed."""
     from . import storage as STORAGE
     freed = 0
-    for candidate in candidates():
+    for candidate in _candidates():
         if freed >= over_by:
             break
         if sweep.abort():
             sweep.stopped = True
             return freed
-        done = package_tile(candidate, sweep, now)
+        done = _package_tile(candidate, sweep, now)
         if done is not None:
             freed += done["freed_bytes"]
     if freed < over_by:

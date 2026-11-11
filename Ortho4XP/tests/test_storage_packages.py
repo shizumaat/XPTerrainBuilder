@@ -98,7 +98,7 @@ def _sweep():
 
 
 def test_the_oldest_non_favorite_airport_tile_goes_first(data):
-    order = [(c["lat"], c["lon"]) for c in PACKAGES.candidates()]
+    order = [(c["lat"], c["lon"]) for c in PACKAGES._candidates()]
     assert order == [OLD, NEW, FAV]          # no airport: never; favorite: last
 
 
@@ -124,7 +124,7 @@ def test_a_tile_shrinks_to_its_package_and_keeps_its_floor(data):
     assert os.listdir(FNAMES.patch_dir(*OLD))
     assert os.path.exists(data[NEW]["cache"] + "/Data+31+031.mesh")
     assert sweep.result()["kinds"][PACKAGES.KIND] == -os.path.getsize(package)
-    assert [(c["lat"], c["lon"]) for c in PACKAGES.candidates()] == [NEW, FAV]
+    assert [(c["lat"], c["lon"]) for c in PACKAGES._candidates()] == [NEW, FAV]
 
 
 def test_a_restore_lays_every_input_back_with_nothing_to_download(data, monkeypatch):

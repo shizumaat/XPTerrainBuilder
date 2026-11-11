@@ -58,7 +58,7 @@ from .xplane_root import xplane_running as _xplane_running
 __all__ = ["WORK_DIR_NAME", "Journal", "work_dir_for", "entries",
            "classify", "migrate", "migrate_tile", "revert", "summary",
            "stop", "run_command", "start_world_migrate", "stopping",
-           "STOPPED_MEASURE", "free_space"]
+           "STOPPED_MEASURE"]
 
 #: Beside the Custom Scenery folder (same volume, so textures hard-link;
 #: X-Plane does not scan it): the journal, the on-demand copies of linked
@@ -468,7 +468,7 @@ def revert(scenery_dir: str, names=None, *, work_dir: Optional[str] = None,
     return {"reverted": reverted, "gone": gone}
 
 
-def free_space(scenery_dir: str, names=None, *,
+def _free_space(scenery_dir: str, names=None, *,
                work_dir: Optional[str] = None) -> Dict[str, Any]:
     """"Free space…": delete the local entries made dynamic
     (``world_retire.purge``); Undo can no longer bring them back.
@@ -603,7 +603,7 @@ def run_command(dry_run: bool, undo: bool = False, tiles=None,
     ``WorldMigrateProgress`` of the dry run and of a migration (whose
     ``WorldStatus`` it also receives).  The dry run answers every choice
     (``choices``); the migration runs ``choice``; ``purge`` is Free
-    space (:func:`free_space`)."""
+    space (:func:`_free_space`)."""
     from . import world_commands as WORLD
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     if not scenery_dir or not os.path.isdir(scenery_dir):
@@ -616,7 +616,7 @@ def run_command(dry_run: bool, undo: bool = False, tiles=None,
                                 if emit else None))
         action = "dry_run"
     elif purge:
-        result, action = free_space(scenery_dir, tiles), "free_space"
+        result, action = _free_space(scenery_dir, tiles), "free_space"
     elif undo:
         result, action = revert(scenery_dir, tiles), "revert"
     else:

@@ -54,15 +54,15 @@ def test_a_custom_airport_tile_holds_an_enabled_airport_pack(xp):  # noqa: F811
 
 
 def test_a_drive_is_named_by_its_mount_point(tmp_path):
-    assert RETIRE.drive_of(str(tmp_path)) == ""              # this Mac
-    assert RETIRE.drive_of("/Volumes/NoSuchDrive9/Tiles/zOrtho4XP_+45+007") \
+    assert RETIRE._drive_of(str(tmp_path)) == ""              # this Mac
+    assert RETIRE._drive_of("/Volumes/NoSuchDrive9/Tiles/zOrtho4XP_+45+007") \
         == "NoSuchDrive9"                                    # not connected
 
 
 def test_the_dry_run_gives_every_choice_before_anything_moves(xp, monkeypatch):  # noqa: F811
     _airport_pack(xp["scenery"])
-    real, lib = RETIRE.drive_of, os.path.realpath(xp["library"])
-    monkeypatch.setattr(RETIRE, "drive_of", lambda path: (
+    real, lib = RETIRE._drive_of, os.path.realpath(xp["library"])
+    monkeypatch.setattr(RETIRE, "_drive_of", lambda path: (
         "Library" if path.startswith(lib) else real(path)))
     before = _hashes(os.path.dirname(xp["scenery"]))
     result = MIGRATE.run_command(True, scenery_dir=xp["scenery"])

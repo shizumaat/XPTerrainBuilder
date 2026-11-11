@@ -43,7 +43,7 @@ from typing import Dict, Iterable, Optional
 import O4_World_Pack as WP
 
 __all__ = ["CHOICES", "KEEP_ALL", "KEEP_CUSTOM", "DYNAMIC", "DYNAMIC_STATES",
-           "custom_airport_tiles", "disabled_names", "drive_of", "fate",
+           "custom_airport_tiles", "disabled_names", "fate",
            "choice_totals",
            "choice_line", "retire_tile", "restore_tile", "purge"]
 
@@ -83,7 +83,7 @@ def disabled_names(scenery_dir: str) -> set:
     return SP.disabled_pack_names(scenery_dir)
 
 
-def drive_of(path: str) -> str:
+def _drive_of(path: str) -> str:
     """The name of the volume ``path`` lies on (its mount point's name;
     for a volume that is not mounted, the first missing folder under the
     deepest one that exists -- ``/Volumes/<name>``); ``""`` for the
@@ -136,7 +136,7 @@ def _tally_dynamic(t: dict, row: dict, entry, ours: dict) -> None:
     t["dynamic"] += 1
     if entry.kind in _LINKS:
         t["links_removed"] += 1
-        drive = drive_of(entry.source)
+        drive = _drive_of(entry.source)
         if drive:
             _add(t["released"], drive, _entry_bytes(row))
     else:
@@ -170,7 +170,7 @@ def choice_totals(rows: list, found: list, custom,
             t["kept" if what == "keep" else "left"] += 1
             if what == "keep":
                 t["new_bytes"] += int(row.get("new_bytes") or 0)
-            drive = drive_of(entry.source) if entry.kind in _LINKS else ""
+            drive = _drive_of(entry.source) if entry.kind in _LINKS else ""
             if drive and entry.name not in disabled:
                 _add(t["drives_needed"], drive, 1)
         out[choice] = t

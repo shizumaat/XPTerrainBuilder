@@ -187,9 +187,13 @@ def row_depth_under(o, low_y: float, foot, exclude: _t.AbstractSet[str], g: _Gro
     ``tunner_5_1``, AGL -4.8: the DEM at its anchor reads 8.43 over a
     4.21 ground around it — a surface model seeing a structure — and put
     its floor 0.48 m under the ground; a DEM that sees a real trench under
-    an AGL-0 row still reads it).  An ``OBJECT_MSL`` row states no ground."""
+    an AGL-0 row still reads it).  An ``OBJECT_MSL`` row states no ground.
+    Only a SUNK row states a depth: one drawn at or over the ground (AGL >= 0)
+    stands its zero on it, and solid under its zero is the author's burial
+    (#2010 EGKK ``S_PAVEMENT_1``, AGL 0: its 2 m skirts read 2.00 m under
+    the ground, a portal, where the anchor reads 1.72 m: a deck at grade)."""
     b = depth_under(zero_of(o, g.msl) + low_y, foot, exclude, g, law, what)
-    if o.kind == "OBJECT_MSL" or b.depth != b.depth:
+    if o.kind == "OBJECT_MSL" or b.depth != b.depth or not float(o.agl_m) < 0.0:
         return b
     stated = -(float(o.agl_m) + float(low_y))
     if not stated > b.depth:

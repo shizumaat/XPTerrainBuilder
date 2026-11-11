@@ -183,6 +183,19 @@ PATCH_LIBRARY = (
      "library_tiles", "publish_btn"),
 )
 
+#: The package actions' homes (#2014; owner 2026-11-11T15:35Z: a File
+#: menu item for the selected tiles, the tile menu a shortcut to it; the
+#: Library gets nothing new): (key, Swift file, Swift marker, Qt owner,
+#: Qt attribute).
+TILE_PACKAGE = (
+    ("file_menu", "XPTerrainBuilderApp.swift", "TilePackageCommands(buildModel:",
+     "window", "export_package_action"),
+    ("tile_menu", "TileContextMenu.swift", "Self.exportPackageTitle",
+     "window", "_export_package_at"),
+    ("drop", "PatchDropInstall.swift", "TilePackageModel.shared.offer(",
+     "window", "patch_drop"),
+)
+
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
 #: Swift file, Swift marker, Qt owner, Qt attribute).  The follow line
 #: is in the Fly pane (RULINGS 2026-11-10j); the pin sits in the tile pane under the
@@ -920,3 +933,24 @@ def test_both_fly_maps_stack_the_layers_alike():
     for source, column in ((swift, 1), (qt, 2)):
         marks = [source.find(row[column]) for row in FLY_MAP_LAYERS]
         assert -1 not in marks and marks == sorted(marks), (column, marks)
+
+
+def test_the_package_actions_have_one_home_in_each_app(window):
+    """#2014: Export Package… in both File menus and both tile menus, with
+    the same words; the install sheet's words are the Qt dialog's."""
+    import O4_Qt_Tile_Menu as QTTILEMENU
+    import O4_Qt_Tile_Package as QTPKG
+
+    for key, swift_file, marker, owner, attr in TILE_PACKAGE:
+        assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
+        assert getattr({"window": window}[owner], attr, None) is not None, key
+    kit = (SWIFT.parent / "SceneryKit" / "TilePackage.swift").read_text(encoding="utf-8")
+    for name, qt in (("exportTitle", QTPKG.EXPORT_TITLE), ("installTitle", QTPKG.INSTALL_TITLE),
+                     ("install", QTPKG.INSTALL), ("keepMine", QTPKG.KEEP_MINE),
+                     ("useTheirs", QTPKG.USE_THEIRS), ("combineTitle", QTPKG.COMBINE_TITLE)):
+        said = re.search(r'static let %s = "([^"]+)"' % name, kit)
+        assert said and said.group(1) == qt, name
+    owners = window.export_package_action.associatedObjects()
+    assert "&File" in [getattr(o, "title", lambda: "")() for o in owners]
+    menu = QTTILEMENU.tile_menu(window, 30, 31, "", export_package=lambda: None)
+    assert menu.actions()[-1].text() == QTPKG.EXPORT_TITLE

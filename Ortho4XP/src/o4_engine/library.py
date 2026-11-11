@@ -7,8 +7,11 @@ the custom packs the build modified, whether X-Plane loads it, and who
 built it.  ``cache_sizes`` sizes the three download caches, ``free_cache``
 empties one, and ``library_delete`` deletes built tiles.
 ``library_export_bundle`` and ``library_import_bundle`` carry a built
-tile to another installation as a tile bundle (#1699 phase 1,
-``tile_bundle``).  The ``library_check`` … ``library_signout`` commands
+tile to another installation (#1699 phase 1, ``tile_bundle``); since
+#2014 they make and install a ``.xptb`` PACKAGE, the format the
+``package_save`` / ``package_plan`` / ``package_install`` /
+``package_merge`` commands behind "Export Package…", the install sheet
+and combining packages read and write.  The ``library_check`` … ``library_signout`` commands
 are the shared PATCH LIBRARY's airport entries (#1699 phase 2,
 ``patch_library``): the check when the app opens, the build box's match
 list, laying an entry down, and "Publish patch" with its GitHub sign-in.
@@ -47,6 +50,7 @@ from . import storage as _storage
 __all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "ROW_WORKERS", "library_scan",
            "cache_sizes", "free_cache", "library_delete",
            "library_export_bundle", "library_import_bundle",
+           "package_save", "package_airports", "package_plan", "package_install", "package_merge",
            "PATCH_LIBRARY_COMMANDS", "COMMANDS", "patch_library_command", "start"]
 
 #: ``built_by`` of a tile this app built
@@ -300,34 +304,87 @@ def _custom_build_dir(working_dir: str) -> str:
 
 
 def library_export_bundle(lat, lon, working_dir: str, out_dir: str) -> dict:
-    """ENGINE COMMAND ``library_export_bundle`` (#1699 phase 1): write the
-    built tile's TILE BUNDLE into ``out_dir`` (``tile_bundle.export``).
-    Refused for a tile another tool built, one not current with its last
-    build, or one built with other than the default mesh settings.
+    """ENGINE COMMAND ``library_export_bundle`` (#1699 phase 1; a PACKAGE
+    since #2014): the built tile's ``.xptb`` package in ``out_dir``, made
+    by the same code as "Export Package…" (:func:`package_save`).
+    Refused for a tile another tool built.
 
-    :returns: ``{"path", "bytes", "key", "files", "seconds"}``
+    :returns: ``{"path", "bytes", "key", "files", "seconds", …}``
     """
     lat, lon = int(lat), int(lon)
     build_dir = FNAMES.build_dir(lat, lon, _custom_build_dir(working_dir))
     if _built_by(build_dir, lat, lon) != BUILT_HERE:
         raise ValueError("tile %s was not built by this app; it has no "
-                         "bundle to export" % FNAMES.short_latlon(lat, lon))
-    from tile_bundle import export
-    return export.export_tile(lat, lon, out_dir, _custom_build_dir(working_dir))
+                         "package to export" % FNAMES.short_latlon(lat, lon))
+    return package_save([[lat, lon]], working_dir, out_dir)
 
 
 def library_import_bundle(path: str, working_dir: str) -> dict:
-    """ENGINE COMMAND ``library_import_bundle`` (#1699 phase 1): import a
-    tile bundle into ``working_dir`` (``tile_bundle.importer``).  Nothing
-    is downloaded; refused when the bundle does not match this
-    installation's packs, mesh settings or engine.  The tile's next build
-    finishes it with the user's imagery.
+    """ENGINE COMMAND ``library_import_bundle`` (#1699 phase 1): install a
+    package or a tile bundle into ``working_dir`` (:func:`package_install`,
+    which reads both).  Nothing is downloaded but, at the next build,
+    imagery.
 
-    :returns: ``{"tile", "key", "airports", "bytes", "object_stage",
-        "reused", "stale", "seconds"}``
+    :returns: ``{"tile", "key", "airports", "bytes", "reused", "seconds",
+        …}`` — a package's install details with its first tile and its
+        airports.
     """
-    from tile_bundle import importer
-    return importer.import_bundle(path, _custom_build_dir(working_dir))
+    done = package_install(path, working_dir)
+    tiles = done.get("tiles") or [{}]
+    done.setdefault("tile", tiles[0].get("tile", ""))
+    done["airports"] = sorted(a["icao"] if isinstance(a, dict) else a
+                              for t in tiles for a in t.get("airports") or [])
+    done.setdefault("reused", [])
+    done.setdefault("seconds", 0.0)
+    return done
+
+
+# ---------------------------------------------------------------------------
+# Packages (#2014): "Export Package…", the install sheet, combining
+# ---------------------------------------------------------------------------
+def package_save(tiles, working_dir: str, out: str, airports=None,
+                 title: str = "", creator: str = "", notes: str = "",
+                 url: str = "") -> dict:
+    """ENGINE COMMAND ``package_save``: the ``.xptb`` package of ``tiles``
+    (``[[lat, lon], …]``; with ``airports``, of those airports only) at
+    ``out`` — a ``.xptb`` path or a folder (``tile_bundle.package``)."""
+    from tile_bundle import package
+    return package.save_package(tiles, out, _custom_build_dir(working_dir),
+                                airports or None, title=title, creator=creator,
+                                notes=notes, url=url)
+
+
+def package_airports(tiles, working_dir: str = "") -> dict:
+    """ENGINE COMMAND ``package_airports``: ``{"tiles": {tile key: [icao,
+    …]}}`` — the airports the export dialog offers for the tiles."""
+    from tile_bundle import package
+    return {"tiles": package.airports_of(tiles, _custom_build_dir(working_dir))}
+
+
+def package_plan(path: str, working_dir: str = "", choices=None) -> dict:
+    """ENGINE COMMAND ``package_plan``: what installing ``path`` would do —
+    its tiles, airports and packs, sources and terms, what it adds and
+    replaces, and the questions to ask (``tile_bundle.install.plan``).
+    Writes nothing; refused for a damaged or incompatible package."""
+    from tile_bundle import install
+    return install.plan(path, _custom_build_dir(working_dir), choices)
+
+
+def package_install(path: str, working_dir: str = "", choices=None) -> dict:
+    """ENGINE COMMAND ``package_install``: install ``path``
+    (``tile_bundle.install.install``); ``choices`` ``{icao: "keep" |
+    "replace"}`` answers the plan's questions."""
+    from tile_bundle import install
+    return install.install(path, _custom_build_dir(working_dir), choices)
+
+
+def package_merge(paths, out: str, title: str = "", creator: str = "",
+                  notes: str = "", url: str = "") -> dict:
+    """ENGINE COMMAND ``package_merge``: several packages combined into one
+    at ``out`` (``tile_bundle.merge``)."""
+    from tile_bundle import merge
+    return merge.merge_packages(paths, out, title=title, creator=creator,
+                                notes=notes, url=url)
 
 
 def _patch_library_commands() -> dict:
@@ -388,6 +445,7 @@ _REFUSED_WHILE_BUILDING = {
     "free_cache": "deleting anything", "library_delete": "deleting anything",
     "library_export_bundle": "exporting a tile",
     "library_import_bundle": "importing a tile",
+    "package_install": "installing a package",
     "library_apply": "laying a library patch down",
     "rebuild_migrate": "moving tiles' rebuild data"}
 
@@ -405,6 +463,11 @@ _COMMANDS: dict = {
                                                 bool(kw.get("confirm")))),
     "library_export_bundle": (library_export_bundle, None),
     "library_import_bundle": (library_import_bundle, None),
+    "package_save": (package_save, None),
+    "package_airports": (package_airports, None),
+    "package_plan": (package_plan, None),
+    "package_install": (package_install, None),
+    "package_merge": (package_merge, None),
     **{name: (patch_library_command(name), None) for name in PATCH_LIBRARY_COMMANDS},
 }
 # Settings > Storage (#1724) runs through the same worker and refusals.

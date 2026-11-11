@@ -10,11 +10,15 @@ import SceneryKit
 /// `PatchInsertShape.swift`). In patch Edit mode the menu
 /// starts with Slice (#1318; Qt `PatchEditor.add_to_menu`), enabled only
 /// for two nodes of one shape that are not neighbours, then "Duplicate
-/// shape" (#1963), enabled with a shape selected. The menu's items
+/// shape" (#1963), enabled with a shape selected. "Export Package…" ends
+/// it (#2014): the File menu's action for the selection, or the clicked
+/// tile when it is not selected. The menu's items
 /// target this object, so the caller keeps it alive while the menu is open.
 @MainActor
 final class TileContextMenu: NSObject {
     static let revealTitle = "Show in Finder"
+    /// File ▸ Export Package… for the clicked tile or the selection (#2014).
+    static let exportPackageTitle = O4TilePackageCopy.exportTitle
     static let sliceTitle = "Slice"
     /// "Duplicate shape" (#1963; Qt `DUPLICATE_SHAPE_TITLE`), after Slice.
     static let duplicateShapeTitle = "Duplicate shape"
@@ -29,12 +33,15 @@ final class TileContextMenu: NSObject {
     let menu = NSMenu()
     private weak var patch: PatchEditModel?
     private let extra: [(title: String, run: () -> Void)]
+    private let exportPackage: (() -> Void)?
 
     init(coord: BuildModel.TileCoord, folder: URL?, copies: [PatchCopyItem] = [],
-         patch: PatchEditModel? = nil, extra: [(title: String, run: () -> Void)] = []) {
+         patch: PatchEditModel? = nil, extra: [(title: String, run: () -> Void)] = [],
+         exportPackage: (() -> Void)? = nil) {
         self.folder = folder
         self.copies = copies
         self.extra = extra
+        self.exportPackage = exportPackage
         super.init()
         menu.autoenablesItems = false
         if let patch, patch.mode == .edit, patch.document != nil {
@@ -79,6 +86,16 @@ final class TileContextMenu: NSObject {
         item.toolTip = folder == nil
             ? "Tile \(coord.key) has no folder yet: build it first." : folder?.path
         menu.addItem(item)
+        if exportPackage != nil {
+            let export = NSMenuItem(title: Self.exportPackageTitle, action: #selector(runExport),
+                                    keyEquivalent: "")
+            export.target = self
+            menu.addItem(export)
+        }
+    }
+
+    @objc private func runExport() {
+        exportPackage?()
     }
 
     @objc private func sliceShape() {

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The .xptb package type (#2014), installed into the AppImage's
+     usr/share/mime/packages by scripts/make_appimage.sh.  An AppImage
+     integrator (appimaged, AppImageLauncher, Gear Lever) registers it with
+     the desktop; the .desktop file's MimeType line makes the app its
+     handler, and the file arrives as a launch argument. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-xptb">
+    <comment>XPTerrainBuilder package</comment>
+    <glob pattern="*.xptb"/>
+    <glob pattern="*.xptbundle"/>
+  </mime-type>
+</mime-info>

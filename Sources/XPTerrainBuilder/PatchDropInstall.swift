@@ -7,6 +7,9 @@ import UniformTypeIdentifiers
 /// goes (`patch_drop_plan`); the map asks with that plan's summary and
 /// installs on "Install" (`patch_drop_install`).
 ///
+/// A `.xptb` package dropped or opened the same ways goes to the package
+/// install instead (#2014, `TilePackageSheets.swift`).
+///
 /// Files opened on the Dock icon or with Finder's "Open With" arrive in
 /// `AppDelegate.application(_:open:)`, possibly before the map exists;
 /// they wait in `PatchDropInbox` until the map's `PatchDropTarget` takes them.
@@ -88,15 +91,16 @@ struct PatchDropTarget: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                Task { @MainActor in model.offer(await Self.urls(providers), build: buildModel) }
+                Task { @MainActor in route(await Self.urls(providers)) }
                 return true
             }
             .onChange(of: inbox.pending) { _, urls in
-                if !urls.isEmpty { model.offer(inbox.take(), build: buildModel) }
+                if !urls.isEmpty { route(inbox.take()) }
             }
             .onAppear {
-                if !inbox.pending.isEmpty { model.offer(inbox.take(), build: buildModel) }
+                if !inbox.pending.isEmpty { route(inbox.take()) }
             }
+            .modifier(TilePackageSheets(buildModel: buildModel))
             .alert(O4PatchDropCopy.title, isPresented: Binding(
                 get: { model.prompt != nil },
                 set: { if !$0 { model.prompt = nil } }
@@ -114,6 +118,15 @@ struct PatchDropTarget: ViewModifier {
             } message: {
                 Text(model.refusal ?? "")
             }
+    }
+
+    /// A `.xptb` package goes to the package install (#2014,
+    /// `TilePackageSheets.swift`); anything else is a patch drop.
+    private func route(_ urls: [URL]) {
+        let packages = urls.filter(O4TilePackage.isPackage)
+        if !packages.isEmpty { TilePackageModel.shared.offer(packages, build: buildModel) }
+        let rest = urls.filter { !O4TilePackage.isPackage($0) }
+        if !rest.isEmpty { model.offer(rest, build: buildModel) }
     }
 
     /// The file URLs the drag carries.

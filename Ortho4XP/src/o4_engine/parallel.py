@@ -575,16 +575,26 @@ def tile_inputs_are_cached(tile_configuration, step_key):
     all answer yes.  Anything else — a subsystem that cannot answer, a
     predicate that raises — is NOT cached.
     """
+    return not uncached_subsystems(tile_configuration, step_key, first=True)
+
+
+def uncached_subsystems(tile_configuration, step_key, first=False):
+    """The fetch subsystems (``STEP_FETCH_SUBSYSTEMS`` names) whose
+    predicate says this step of this tile WOULD download — or cannot
+    answer, which reads the same.  ``first`` stops at the first one.
+    An installed package (#2014) reports what its tiles still fetch."""
+    out = []
     for module_name in STEP_FETCH_SUBSYSTEMS.get(step_key, ()):
         predicate = _subsystem_is_cached(module_name)
-        if predicate is None:
-            return False
         try:
-            if not predicate(tile_configuration):
-                return False
+            cached = predicate is not None and bool(predicate(tile_configuration))
         except Exception:
-            return False
-    return True
+            cached = False
+        if not cached:
+            out.append(module_name)
+            if first:
+                break
+    return out
 
 
 # Event types forwarded verbatim (modulo remapping/suppression, spec

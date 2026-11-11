@@ -19,13 +19,39 @@ library, no server.
 Tile bundles are made only for the default mesh settings (owner Q301,
 2026-11-02: "Yes, and yes").  A bundle never carries imagery, a scenery
 pack's files or a raw OSM or elevation download.
+
+PACKAGES (#2014, format ``xptb-2``, suffix ``.xptb``) supersede the tile
+bundle for sharing: a package carries a tile's (or a region's, or one
+airport's) DOWNLOADED DATA instead of its products, so it builds with any
+engine that reads its cache schemas and installing it leaves nothing to
+download but imagery.  Anyone may make and share one ("Export
+Package…"); opening or dropping one on the app shows what it holds and
+installs it, combining with packages already installed.
+
+* :mod:`.inputs` — which downloaded files a package carries;
+* :mod:`.package` / :mod:`.install` / :mod:`.merge` — save, install,
+  and combine several packages into one.
+
+A ``.xptbundle`` is still read (:mod:`.install` dispatches it to
+:mod:`.importer`).
 """
 from __future__ import annotations
 
-__all__ = ["FORMAT", "BundleRefused"]
+__all__ = ["FORMAT", "PACKAGE_FORMAT", "PACKAGE_SUFFIX", "LEGACY_SUFFIX",
+           "SUFFIXES", "BundleRefused"]
 
-#: The bundle format this engine writes and reads.
+#: The tile bundle format this engine still reads (and the gate writes).
 FORMAT = "xptb-1"
+
+#: The package format this engine writes and reads.
+PACKAGE_FORMAT = "xptb-2"
+
+#: A package's file name ends so; a tile bundle's so.
+PACKAGE_SUFFIX = ".xptb"
+LEGACY_SUFFIX = ".xptbundle"
+
+#: Every suffix the apps hand to the package install.
+SUFFIXES = (PACKAGE_SUFFIX, LEGACY_SUFFIX)
 
 
 class BundleRefused(ValueError):

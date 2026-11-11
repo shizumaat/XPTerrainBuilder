@@ -19,10 +19,14 @@ checkout).  Subcommands:
   swapout TILE                 placeholder back over the DSF
   onthefly TILE                build TILE now (light settings, kit data
                                root), stage, verify, swap in; Ctrl-C safe
-  drape TILE [--exclude for]   DRAPED tile: the tile's orthophotos laid over
+  drape TILE [--exclude for] [--water-alpha [--water-layer G]]
+                               DRAPED tile: the tile's orthophotos laid over
                                X-Plane's default mesh by an overlay DSF (one
                                .pol per texture square), no OSM/DEM/mesh;
-                               fetch, write, verify, swap in (O4_World_Drape)
+                               fetch, write, verify, swap in (O4_World_Drape);
+                               --water-alpha adds the regular build's water
+                               mask as a translucent photo layer over water
+                               (O4_World_Drape_Water), staged in drapes/water
   status                       each tile's state and the aircraft's distance
   reload                       X-Plane's sim/operation/reload_scenery (Web API)
 
@@ -56,8 +60,9 @@ def _imports(engine: str):
     engine's src."""
     for path in (os.path.join(engine, "src"),
                  HERE if KIT_MODE else os.path.join(REPO_ENGINE, "src")):
-        if path not in sys.path:
-            sys.path.insert(0, path)
+        if path in sys.path:          # HERE is already sys.path[0]: move it
+            sys.path.remove(path)     # in front of the engine's src, or the
+        sys.path.insert(0, path)      # engine's copies win over the kit's
     import O4_Scenery_Packs as PACKS
     import O4_World_Drape as DRAPE
     import O4_World_Pack as WP
@@ -82,6 +87,7 @@ class Kit:
         self.pack = os.path.join(self.root, self.cfg["pack_name"])
         self.staged = os.path.join(self.root, "staged")
         self.drapes = os.path.join(self.root, "drapes")
+        self.drapes_water = os.path.join(self.drapes, "water")
         self.build_root = os.path.join(self.root, "build_root")
         self.tool = self.WP.dsftool_path(self.engine)
 
@@ -148,7 +154,7 @@ def cmd_make_kit(a) -> int:
     if KIT_MODE is False:                 # copy the files the kit runs
         shutil.copy2(os.path.abspath(__file__), os.path.join(root, "world.py"))
         for module in (WP.__file__, DRAPE.__file__, WP.DSFB.__file__,
-                       _fetch_script()):
+                       _fetch_script(), _water_module()):
             shutil.copy2(module, root)
     kit.log({"event": "make_kit", "placeholders": made, "skip": a.skip})
     return 0
@@ -225,15 +231,16 @@ def cmd_verify(a) -> int:
                   f"{res['pack_defs']} ters={res['ters_checked']} tex_refs="
                   f"{res['tex_refs']} problems={res['problems'][:3]} "
                   f"{'OK' if ok else 'BAD'}")
-    if os.path.isdir(kit.drapes):
-        for name in sorted(os.listdir(kit.drapes)):
-            if name.endswith(".new") or name == "work":
-                continue
-            res = kit.DRAPE.verify_drape(os.path.join(kit.drapes, name),
+    for root in (kit.drapes, kit.drapes_water):
+        for name in sorted(os.listdir(root)) if os.path.isdir(root) else ():
+            if not os.path.isdir(os.path.join(root, name, "Earth nav data")):
+                continue                     # work dirs, .new, water/
+            res = kit.DRAPE.verify_drape(os.path.join(root, name),
                                         *WP.parse_tile(name), kit.tool)
             ok = _drape_ok(res)
             bad += not ok
-            print(f"drape  {name} polygons={res['polygons']} pols="
+            kind = "water" if root == kit.drapes_water else "drape"
+            print(f"{kind:6s} {name} polygons={res['polygons']} pols="
                   f"{res['pols_checked']} excludes={res['excludes']} "
                   f"problems={res['problems'][:3]} {'OK' if ok else 'BAD'}")
     print("verify:", "OK" if not bad else f"{bad} BAD")
@@ -308,7 +315,10 @@ def swapin(kit: Kit, tile: str, force: bool, webapi: bool,
 
 
 def cmd_swapin(a) -> int:
-    swapin(Kit(a.kit), a.tile, a.force, not a.no_webapi)
+    kit = Kit(a.kit)
+    root = {"staged": kit.staged, "drape": kit.drapes,
+            "water": kit.drapes_water}[a.source]
+    swapin(kit, a.tile, a.force, not a.no_webapi, staged_root=root)
     return 0
 
 
@@ -413,6 +423,13 @@ def _fetch_script() -> str:
                         "O4_World_Drape_Fetch.py")
 
 
+def _water_module() -> str:
+    """``O4_World_Drape_Water.py`` beside the fetch script (the kit runs
+    its own copy, ``--water-alpha``)."""
+    return os.path.join(os.path.dirname(_fetch_script()),
+                        "O4_World_Drape_Water.py")
+
+
 def _last_json(log: str) -> dict | None:
     try:
         with open(log, encoding="utf-8", errors="replace") as h:
@@ -431,15 +448,17 @@ def cmd_drape(a) -> int:
     lat, lon = WP.parse_tile(a.tile)
     webapi = not a.no_webapi
     exclude = tuple(x for x in (a.exclude or "").split(",") if x)
+    water = (a.water_layer or DRAPE.WATER_LAYER_GROUP) if a.water_alpha else None
     start = kit.log({"event": "drape_start", "tile": a.tile,
-                     "exclude": exclude,
+                     "exclude": exclude, "water_layer": water,
                      **(aircraft(kit, (lat, lon)) if webapi else {})})
     t0 = time.time()
-    work = os.path.join(kit.drapes, "work")
+    work = os.path.join(kit.drapes, "work-water" if water else "work")
     rc, log = run_engine(
         kit, a.tile, [_fetch_script(), str(lat), str(lon), work, "--zl",
                       str(a.zl), "--provider", a.provider, "--drop",
-                      str(a.drop), "--engine", kit.engine],
+                      str(a.drop), "--engine", kit.engine,
+                      *(["--water-alpha"] if water else [])],
         f"drape_{a.tile}.log", a.max_minutes, a.nice, webapi, "draping")
     fetched = _last_json(log)
     t1 = time.time()
@@ -447,11 +466,13 @@ def cmd_drape(a) -> int:
         kit.log({"event": "drape_fetch_failed", "tile": a.tile, "rc": rc,
                  "log": log, "fetch": fetched})
         return 1
-    final = os.path.join(kit.drapes, a.tile)
+    staged_root = kit.drapes_water if water else kit.drapes
+    final = os.path.join(staged_root, a.tile)
     shutil.rmtree(final + ".new", ignore_errors=True)
+    os.makedirs(staged_root, exist_ok=True)
     counts = DRAPE.write_drape(lat, lon, a.zl, a.provider,
                                fetched["textures"], final + ".new", kit.tool,
-                               exclude)
+                               exclude, water_layer=water)
     check = DRAPE.verify_drape(final + ".new", lat, lon, kit.tool)
     head = WP.dsf_header(os.path.join(final + ".new", WP.dsf_relpath(lat, lon)))
     if not _drape_ok(check) or not (head["magic_ok"] and head["md5_ok"]):
@@ -467,7 +488,7 @@ def cmd_drape(a) -> int:
     if a.no_swap:
         return 0
     res = swapin(kit, a.tile, force=True, webapi=webapi,
-                 staged_root=kit.drapes)
+                 staged_root=staged_root)
     late = (res.get("window") or {}).get("in_window")
     kit.log({"event": "drape_done", "tile": a.tile, "start": start["utc"],
              "total_s": round(time.time() - t0, 1), "late_in_window": late,
@@ -491,7 +512,8 @@ def cmd_status(a) -> int:
         state = tile_state(kit, path).upper().replace("PLACEHOLDER",
                                                        "placeholder")
         staged = os.path.isdir(os.path.join(kit.staged, name))
-        staged = f"{staged} drape={os.path.isdir(os.path.join(kit.drapes, name))}"
+        staged = (f"{staged} drape={os.path.isdir(os.path.join(kit.drapes, name))}"
+                  f" water={os.path.isdir(os.path.join(kit.drapes_water, name))}")
         reach = (kit.WIN.reach(pos["cam_lat"], pos["cam_lon"], *t)
                  if "lat" in pos else "")
         print(f"  {name}  {state:11s} staged={staged}  {reach}")
@@ -546,6 +568,9 @@ def main(argv=None) -> int:
         s.set_defaults(fn=fn)
     s = sub.add_parser("swapin")
     s.add_argument("tile")
+    s.add_argument("--from", dest="source", default="staged",
+                   choices=("staged", "drape", "water"),
+                   help="staged (built tile), drape or water (drapes/water)")
     s.add_argument("--force", action="store_true")
     s.add_argument("--no-webapi", action="store_true")
     s.set_defaults(fn=cmd_swapin)
@@ -565,6 +590,12 @@ def main(argv=None) -> int:
                    help="default-scenery classes to hide under the tile, "
                         "comma-separated: for (forests), obj (objects/"
                         "autogen), net (roads), ...; default none")
+    s.add_argument("--water-alpha", action="store_true",
+                   help="also lay the photo with the regular build's water "
+                        "mask as alpha over water (staged in drapes/water)")
+    s.add_argument("--water-layer", default=None,
+                   help="layer group of the water copy (default "
+                        "O4_World_Drape.WATER_LAYER_GROUP)")
     s.add_argument("--zl", type=int, default=16)
     s.add_argument("--provider", default="BI")
     s.add_argument("--drop", type=int, default=3,

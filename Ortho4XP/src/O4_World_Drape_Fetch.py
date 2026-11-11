@@ -16,7 +16,11 @@ long-lived caller should not inherit)::
 
     cd ENGINE && ORTHO4XP_DATA_ROOT=ROOT venv/bin/python \\
         .../O4_World_Drape_Fetch.py LAT LON BUILD_PARENT/ [--zl 16] \\
-        [--provider BI] [--drop 3]
+        [--provider BI] [--drop 3] [--water-alpha]
+
+With ``--water-alpha`` every square that touches the tile's OSM water
+gets the regular build's inland water mask in its DDS alpha (DXT5,
+``O4_World_Drape_Water``) for the drape's water layer.
 
 The DDS land in ``BUILD_PARENT/zOrtho4XP_<tile>/textures/``.  The last
 stdout line is a JSON record: squares, downloaded, failed, dds, and the
@@ -50,7 +54,8 @@ def _engine_imports(engine: str):
 
 
 def fetch(engine: str, lat: int, lon: int, build_parent: str, zl: int,
-          provider: str, drop: int, convert_workers: int = 4) -> dict:
+          provider: str, drop: int, convert_workers: int = 4,
+          water_alpha: bool = False) -> dict:
     """Fetch and convert every texture square of tile (lat, lon); returns
     the record :func:`main` prints."""
     FNAMES, CFG, IMG, IMGPROGRESS, PAR, TILE = _engine_imports(engine)
@@ -77,6 +82,12 @@ def fetch(engine: str, lat: int, lon: int, build_parent: str, zl: int,
     t0 = time.time()
     TILE.download_textures(tile, downloads, converts, stats=stats)
     t1 = time.time()
+    water = {}
+    if water_alpha:
+        import O4_World_Drape_Water as WATER
+        water = WATER.write_masks(tile, squares, zl, provider, 4096 >> drop)
+        tile.imprint_masks_to_dds = True
+    t_conv = time.time()
     workers = PAR.parallel_launch(IMG.convert_texture, converts,
                                   convert_workers, progress={"done": 0, "bar": 3})
     for _ in workers:
@@ -90,7 +101,7 @@ def fetch(engine: str, lat: int, lon: int, build_parent: str, zl: int,
             "downloaded": getattr(tile, "imagery_downloads", None),
             "done": stats.get("done"), "failed": stats.get("failed"),
             "dds": dds, "download_s": round(t1 - t0, 1),
-            "convert_s": round(t2 - t1, 1)}
+            "convert_s": round(t2 - t_conv, 1), **water}
 
 
 def main(argv=None) -> int:
@@ -108,10 +119,11 @@ def main(argv=None) -> int:
     p.add_argument("--drop", type=int, default=3)
     p.add_argument("--engine", default=os.getcwd())
     p.add_argument("--convert-workers", type=int, default=4)
+    p.add_argument("--water-alpha", action="store_true")
     a = p.parse_args(argv)
     rec = fetch(os.path.abspath(a.engine), a.lat, a.lon,
                 os.path.abspath(a.build_parent), a.zl, a.provider, a.drop,
-                a.convert_workers)
+                a.convert_workers, a.water_alpha)
     print(json.dumps(rec), flush=True)
     return 0 if rec["dds"] == rec["squares"] else 1
 

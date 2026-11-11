@@ -41,7 +41,8 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     public let airports: [String]
     public let packsModified: [O4LibraryPack]
     public let linkStatus: String
-    public let inXPlane: Bool
+    /// Kept current from the map's installed set between scans (#2006).
+    public var inXPlane: Bool
     /// "XPTerrainBuilder", or "other" for a tile another tool built.
     public let builtBy: String
     /// Built by another tool: never rebuilt or deleted by the Library.
@@ -50,6 +51,9 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     /// from an engine that predates the fields.
     public let onDemand: Bool?
     public let pinned: Bool?
+    /// A row made from the map's scan before `library_scan` answered: its
+    /// size, airports and packs are not read yet (#2006).
+    public private(set) var detailsPending = false
 
     public var id: String { tile }
     /// Does the tile's pin apply (built on demand, or pinned, by this app)?
@@ -61,6 +65,29 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
         case buildDir = "build_dir", sizeBytes = "size_bytes"
         case packsModified = "packs_modified", linkStatus = "link_status"
         case inXPlane = "in_xplane", builtBy = "built_by", readOnly = "read_only"
+    }
+
+    /// The row the map's scan already knows (#2006: the Library shows the
+    /// tiles at once, `library_scan` fills in sizes, airports and packs).
+    /// Read-only until then unless the scan says this app built it.
+    public init(mapTile info: O4TileInfo, inXPlane: Bool) {
+        tile = TileMath.key(lat: info.lat, lon: info.lon)
+        lat = info.lat
+        lon = info.lon
+        buildDir = info.buildDir
+        sizeBytes = Int64(info.sizeBytes ?? 0)
+        zl = info.zl ?? info.detectedZL
+        provider = info.provider.isEmpty ? (info.detectedProvider ?? "") : info.provider
+        built = [info.meshDate, info.imageryDate].compactMap { $0 }.max()
+        airports = []
+        packsModified = []
+        linkStatus = ""
+        self.inXPlane = inXPlane
+        readOnly = info.origin != "xptb"
+        builtBy = readOnly ? "other" : "XPTerrainBuilder"
+        onDemand = info.onDemand
+        pinned = info.pinned
+        detailsPending = true
     }
 
     /// Sort keys for the Library table (a `Table` column sorts by a
@@ -154,8 +181,11 @@ extension OrthoEngineClient {
         return Result { try result.decode(T.self) }
     }
 
-    public func libraryScan(workingDir: String, sceneryDir: String) async throws -> O4LibraryScan {
-        try await libraryRequest("library_scan", ["working_dir": workingDir, "scenery_dir": sceneryDir])
+    /// `caches` false leaves the download caches' walk out (`caches: []`).
+    public func libraryScan(workingDir: String, sceneryDir: String,
+                            caches: Bool = true) async throws -> O4LibraryScan {
+        try await libraryRequest("library_scan", ["working_dir": workingDir, "scenery_dir": sceneryDir,
+                                                  "caches": caches])
     }
 
     /// Empties one cache; the app confirms with the user first.

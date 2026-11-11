@@ -30,17 +30,77 @@ enum Library {
     }
 }
 
+/// The Library's rows (#2006): indexed once per scan (`LibraryIndex`);
+/// the shown rows and the selection's rows are computed once per change
+/// (tiles, search, sort, the map's selection), never per redraw.
 @MainActor
 final class LibraryModel: ObservableObject {
-    @Published var tiles: [O4LibraryTile] = []
+    @Published private(set) var index = LibraryIndex()
     @Published var caches: [O4LibraryCache] = []
     @Published var tilesBytes: Int64 = 0
     @Published var isLoading = false
     @Published var status = ""
+    @Published var search = "" { didSet { if search != oldValue { reshow() } } }
+    @Published var sortOrder = [KeyPathComparator(\O4LibraryTile.tile)] { didSet { reshow() } }
+    /// The rows the search keeps, sorted.
+    @Published private(set) var shown: [O4LibraryTile] = []
+    /// The map's selection as the table's rows (one selection, 10j).
+    @Published private(set) var selectedIDs: Set<O4LibraryTile.ID> = []
+    @Published private(set) var selectedRows: [O4LibraryTile] = []
+    private var selectedCoords: Set<BuildModel.TileCoord> = []
+    private var refreshAgain = false
 
+    var tiles: [O4LibraryTile] { index.tiles }
+
+    /// The map's selection changed.
+    func select(_ coords: Set<BuildModel.TileCoord>) {
+        selectedCoords = coords
+        reselect()
+    }
+
+    /// The map's installed set changed (no folder walk).
+    func applyInstalled(_ installed: Set<BuildModel.TileCoord>) {
+        index.applyInstalled(installed)
+        reshow()
+        reselect()
+    }
+
+    /// Before the first `library_scan` answers: the tiles the map's scan
+    /// already read, so the table is full at once (#2006).
+    func seed(_ buildModel: BuildModel) {
+        guard index.tiles.isEmpty, !buildModel.built.isEmpty else { return }
+        setTiles(buildModel.built.keys.sorted().compactMap { coord in
+            buildModel.built[coord].map {
+                O4LibraryTile(mapTile: $0, inXPlane: buildModel.installed.contains(coord))
+            }
+        })
+    }
+
+    private func setTiles(_ tiles: [O4LibraryTile]) {
+        index = LibraryIndex(tiles)
+        reshow()
+        reselect()
+    }
+
+    private func reshow() {
+        shown = index.shown(query: search, sortOrder: sortOrder)
+    }
+
+    private func reselect() {
+        let ids = index.ids(of: selectedCoords)
+        if ids != selectedIDs { selectedIDs = ids }
+        selectedRows = index.rows(ids)
+    }
+
+    /// One scan at a time: a refresh asked for while one runs runs once
+    /// after it (the map's scan streams many changes).
     func refresh(_ buildModel: BuildModel) {
         guard let context = buildModel.libraryContext() else {
             status = "The engine is not running."
+            return
+        }
+        guard !isLoading else {
+            refreshAgain = true
             return
         }
         isLoading = true
@@ -49,7 +109,7 @@ final class LibraryModel: ObservableObject {
             do {
                 let scan = try await context.client.libraryScan(
                     workingDir: context.workingDir, sceneryDir: context.sceneryDir)
-                tiles = scan.tiles
+                setTiles(scan.tiles)
                 caches = scan.caches
                 tilesBytes = scan.tilesBytes
                 status = ""
@@ -57,6 +117,10 @@ final class LibraryModel: ObservableObject {
                 status = "\(error)"
             }
             isLoading = false
+            if refreshAgain {
+                refreshAgain = false
+                refresh(buildModel)
+            }
         }
     }
 
@@ -163,33 +227,19 @@ final class LibraryModel: ObservableObject {
 struct LibraryTilesSection: View {
     @EnvironmentObject private var buildModel: BuildModel
     @StateObject private var model = LibraryModel()
-    @State private var search = ""
-    @State private var sortOrder = [KeyPathComparator(\O4LibraryTile.tile)]
     @State private var confirmDelete = false
     @State private var confirmRestore = false
     @State private var cacheToFree: O4LibraryCache?
     @State private var publishing: O4LibraryTile?
 
-    private var shown: [O4LibraryTile] {
-        let query = search.lowercased()
-        return model.tiles.filter { $0.matches(query) }.sorted(using: sortOrder)
-    }
-
-    private var selectedRows: [O4LibraryTile] {
-        model.tiles.filter { selection.wrappedValue.contains($0.id) }
-    }
+    private var selectedRows: [O4LibraryTile] { model.selectedRows }
 
     /// The map's selection, as the table's rows (one selection, 10j).
     private var selection: Binding<Set<O4LibraryTile.ID>> {
         Binding(
-            get: {
-                Set(model.tiles.filter {
-                    buildModel.selected.contains(BuildModel.TileCoord(lat: $0.lat, lon: $0.lon))
-                }.map(\.id))
-            },
+            get: { model.selectedIDs },
             set: { ids in
-                let coords = model.tiles.filter { ids.contains($0.id) }
-                    .map { BuildModel.TileCoord(lat: $0.lat, lon: $0.lon) }
+                let coords = model.index.coords(ids)
                 buildModel.selected = Set(coords)
                 if let first = coords.first, !coords.contains(where: { $0 == buildModel.activeTile }) {
                     buildModel.activeTile = first
@@ -208,7 +258,7 @@ struct LibraryTilesSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                TextField("Search tiles, airports, imagery", text: $search)
+                TextField("Search tiles, airports, imagery", text: $model.search)
                     .textFieldStyle(.roundedBorder)
                 Button { model.refresh(buildModel) } label: {
                     Image(systemName: "arrow.clockwise")
@@ -227,9 +277,20 @@ struct LibraryTilesSection: View {
             Divider()
             diskPanel
         }
-        .onAppear { model.refresh(buildModel) }
+        .onAppear {
+            model.seed(buildModel)
+            model.select(buildModel.selected)
+            model.refresh(buildModel)
+        }
         .sheet(item: $publishing) { tile in PublishPatchSheet(tile: tile) }
-        .onChange(of: buildModel.installed) { _, _ in model.refresh(buildModel) }
+        // Cheap per change (#2006): the selection and the In X-Plane
+        // switches from the map; the folders are read again once the
+        // map's scan is done.
+        .onChange(of: buildModel.selected) { _, coords in model.select(coords) }
+        .onChange(of: buildModel.installed) { _, installed in model.applyInstalled(installed) }
+        .onChange(of: buildModel.isScanning) { _, scanning in
+            if !scanning { model.refresh(buildModel) }
+        }
         .confirmationDialog("Delete \(selectedRows.count) tile(s)?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) { model.delete(selectedRows, buildModel) }
         } message: {
@@ -267,7 +328,7 @@ struct LibraryTilesSection: View {
     // MARK: - Table (columns as O4_Qt_Library.COLUMNS)
 
     private var table: some View {
-        Table(shown, selection: selection, sortOrder: $sortOrder) {
+        Table(model.shown, selection: selection, sortOrder: $model.sortOrder) {
             TableColumn("Tile", value: \.tile) { row in
                 HStack(spacing: 4) {
                     Text(row.tile).monospacedDigit()
@@ -282,7 +343,7 @@ struct LibraryTilesSection: View {
                 }
             }
             TableColumn("Size", value: \.sizeBytes) { row in
-                Text(Library.size(row.sizeBytes)).monospacedDigit()
+                Text(row.detailsPending ? "…" : Library.size(row.sizeBytes)).monospacedDigit()
             }
             TableColumn("ZL", value: \.zlSortKey) { row in
                 Text(row.zl.map(String.init) ?? "")
@@ -306,7 +367,7 @@ struct LibraryTilesSection: View {
         }
         // The tile's menu (#1992 §7): its pin (the Qt Library: the same).
         .contextMenu(forSelectionType: O4LibraryTile.ID.self) { ids in
-            if ids.count == 1, let row = model.tiles.first(where: { ids.contains($0.id) }),
+            if ids.count == 1, let row = ids.first.flatMap(model.index.row),
                row.pinApplies {
                 Button(pinTitle(row)) { model.togglePin(row, buildModel) }
                     .disabled(buildModel.isBuilding)

@@ -2002,7 +2002,8 @@ class MainWindow(QMainWindow):
             building=lambda: self._building,
             on_rebuild=self._rebuild_from_library,
             on_changed=self.refresh_tiles,
-            restore_pack=self._session.reanchor_restore)
+            restore_pack=self._session.reanchor_restore,
+            scanned=self._session.scanned_tiles)
         self.mode_stack = QStackedWidget()
         for pane in (self.build_pane, self.fly_pane, self.library_pane):
             if pane is not self.build_pane:

@@ -450,6 +450,12 @@ def _library_handler(session: EngineSession, name: str) -> Callable:
         return bool(session._building)
     extra = ({"abort": building} if name in storage.REFUSED_WHILE_BUILDING
              else {})
+    if name == "library_scan":
+        # The map's last scan, so the tile folders are read once (#2006).
+        def scan(**kw):
+            kw.setdefault("infos", session.scanned_tiles(kw.get("working_dir", "")))
+            return _LIBRARY.start(session._emit, name, busy=building, **kw)
+        return scan
     return lambda **kw: _LIBRARY.start(
         session._emit, name, busy=building, **extra, **kw)
 

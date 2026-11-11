@@ -133,8 +133,12 @@ class LibraryTilesSection(QWidget):
     pinned = Signal(object)
 
     def __init__(self, parent, working_dir, scenery_dir, building=lambda: False,
-                 on_rebuild=None, on_changed=None, restore_pack=None):
+                 on_rebuild=None, on_changed=None, restore_pack=None,
+                 scanned=None):
         super().__init__(parent)
+        # ``scanned(working_dir)``: the map's last scan of the tiles
+        # (``EngineSession.scanned_tiles``), so the folders are read once.
+        self._scanned = scanned
         self.working_dir = working_dir
         self.scenery_dir = scenery_dir
         self._building = building
@@ -142,6 +146,9 @@ class LibraryTilesSection(QWidget):
         self._on_changed = on_changed
         self._restore_pack = restore_pack
         self.rows = []
+        # Per row (``self.rows`` index): its cells' text, lower-cased, for
+        # the search (built once per scan, not per keystroke).
+        self._search_text = []
         self.caches = []
         self.tiles_bytes = 0
 
@@ -249,7 +256,9 @@ class LibraryTilesSection(QWidget):
     def refresh(self):
         self.status_label.setText("Reading tiles…")
         self.refresh_btn.setEnabled(False)
-        self._run(lambda: LIB.library_scan(self.working_dir, self.scenery_dir),
+        infos = self._scanned(self.working_dir) if self._scanned else None
+        self._run(lambda: LIB.library_scan(self.working_dir, self.scenery_dir,
+                                           infos=infos),
                   self.loaded)
         self.patch_box.check()
 
@@ -265,14 +274,18 @@ class LibraryTilesSection(QWidget):
         self.rows = list(result["tiles"])
         self.caches = list(result["caches"])
         self.tiles_bytes = result["tiles_bytes"]
+        self._search_text = []
         self.table.blockSignals(True)
+        self.table.setUpdatesEnabled(False)
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self.rows))
         for r, row in enumerate(self.rows):
+            texts = []
             for c, (_header, key) in enumerate(COLUMNS):
                 text, sort_value = _cell(row, key)
                 if key == "tile" and row.get("pinned"):
                     text = "%s · %s" % (text, ONDEMAND_TEXT.PINNED_BADGE)
+                texts.append(text)
                 item = _Item(text, sort_value)
                 item.setData(Qt.UserRole, r)
                 if key == "in_xplane":
@@ -282,7 +295,9 @@ class LibraryTilesSection(QWidget):
                     item.setToolTip("Built by another tool: listed read-only, "
                                     "never rebuilt or deleted here.")
                 self.table.setItem(r, c, item)
+            self._search_text.append(" ".join(texts).lower())
         self.table.setSortingEnabled(True)
+        self.table.setUpdatesEnabled(True)
         self.table.blockSignals(False)
         self.tiles_total_label.setText("%s in %d tile%s" % (
             fmt_size(self.tiles_bytes), len(self.rows),
@@ -300,7 +315,7 @@ class LibraryTilesSection(QWidget):
         return self.rows[item.data(Qt.UserRole)] if item is not None else None
 
     def selected_rows(self):
-        indexes = sorted({i.row() for i in self.table.selectedIndexes()})
+        indexes = sorted(i.row() for i in self.table.selectionModel().selectedRows())
         return [row for row in (self._row_of(i) for i in indexes) if row is not None]
 
     def visible_tiles(self):
@@ -311,8 +326,8 @@ class LibraryTilesSection(QWidget):
     def _apply_filter(self):
         needle = self.search_edit.text().strip().lower()
         for i in range(self.table.rowCount()):
-            text = " ".join((self.table.item(i, c).text() if self.table.item(i, c) else "")
-                            for c in range(len(COLUMNS))).lower()
+            item = self.table.item(i, 0)
+            text = self._search_text[item.data(Qt.UserRole)] if item is not None else ""
             self.table.setRowHidden(i, bool(needle) and needle not in text)
 
     def _sync_buttons(self):

@@ -119,7 +119,8 @@ class LibraryPane(QWidget):
     World spec §13)."""
 
     def __init__(self, working_dir, scenery_dir, building=lambda: False,
-                 on_rebuild=None, on_changed=None, restore_pack=None, parent=None):
+                 on_rebuild=None, on_changed=None, restore_pack=None,
+                 scanned=None, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -127,7 +128,7 @@ class LibraryPane(QWidget):
         self.tiles_box = QTLIB.LibraryTilesSection(
             None, working_dir, scenery_dir, building=building,
             on_rebuild=on_rebuild, on_changed=on_changed,
-            restore_pack=restore_pack)
+            restore_pack=restore_pack, scanned=scanned)
         layout.addWidget(self.tiles_box, 1)
         self.storage = QTSTORAGE.StorageSection(busy=building)
         layout.addWidget(self.storage)

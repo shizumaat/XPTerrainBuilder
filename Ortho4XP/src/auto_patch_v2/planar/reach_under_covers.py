@@ -48,6 +48,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..airport.deck_signature import is_bridge_way
+from ..geom.collapsed_spike import without_collapsed_spikes
 from ..geom.parts import nonempty_polygon_parts
 from ..law.tables import role_side, taxi_half_width_m
 from .structure_approach import carriageway_width_m
@@ -161,16 +162,22 @@ def split_beyond(regions: list, lost: dict, law, key: str,
             out.append(r)
             continue
         # one region per part, as the pad cut leaves a page (a consumer
-        # reads ``polygon.exterior``)
-        out.extend(_dc.replace(r, polygon=q) for q in
-                   nonempty_polygon_parts(r.polygon.difference(unary_union(lost[i]))))
+        # reads ``polygon.exterior``); the cut leaves the shared edge's
+        # floating-point residue on the page as a zero-width spike, which
+        # the next densify carries across itself (MEASURED EGKK: the
+        # plateau cut's ``side location conflict``) -- dropped here
+        kept = (without_collapsed_spikes(q) for q in
+                nonempty_polygon_parts(r.polygon.difference(unary_union(lost[i]))))
+        out.extend(_dc.replace(r, polygon=q) for q in kept if not q.is_empty)
         k = 1
         for q in lost[i]:
             role, _evid = unclassified_groundside_role(q, rules, road_reached=False)
             parts = ([q] if keep_off is None else
                      [g for g in nonempty_polygon_parts(q.difference(keep_off))
                       if g.area >= rules.cells.min_area_m2])
-            for g in parts:
+            for g in (without_collapsed_spikes(g) for g in parts):
+                if g.is_empty:
+                    continue
                 while f"{r.ref}{BEYOND}{k}" in taken:
                     k += 1
                 ref = f"{r.ref}{BEYOND}{k}"

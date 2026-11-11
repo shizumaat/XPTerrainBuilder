@@ -490,6 +490,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.cluster_outline",
+        "auto_patch_v2.geom.collapsed_spike",
         "auto_patch_v2.geom.containment",
         "auto_patch_v2.geom.core_clamp",
         "auto_patch_v2.geom.coverage",
@@ -1949,7 +1950,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
     airport.walled_pit airport.portal_floor airport.pit_frame
-    geom.runway_contact
+    geom.runway_contact geom.collapsed_spike
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor geom.author_ground geom.lowest_face planar.object_floor_cells
@@ -2092,7 +2093,7 @@ CODE_MODULES["solve"] = _mods("""
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.walled_pit airport.portal_floor airport.pit_frame constraints.airside_top
-    geom.runway_contact
+    geom.runway_contact geom.collapsed_spike
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor constraints.object_floor planar.object_floor_cells

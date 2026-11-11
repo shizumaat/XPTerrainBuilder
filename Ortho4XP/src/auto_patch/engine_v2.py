@@ -624,8 +624,9 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                      xplat_quantise_m=_xq, stage_cache=stage_cache_enabled())
         res = build(icao, inputs, scratch, cfg, law, out=_out)
     except Exception as exc:
+        from auto_patch_v2.pipeline.raised_at import raised_at
         return {"icao": icao, "ok": False, "stage": "build", "engine": ENGINE_V2,
-                "error": f"[v2] {exc}", **_FAIL.record_fields(exc),
+                "error": f"[v2] {exc}{raised_at(exc)}", **_FAIL.record_fields(exc),
                 "traceback": traceback.format_exc() + "\n--- v2 build log ---\n"
                 + "\n".join(log_lines)}
     finally:

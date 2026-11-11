@@ -399,6 +399,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # this command's id; world_tile_set gives a tile back.
         "world_status": WORLD.world_status,
         "world_install": WORLD.world_install,
+        # The apps' start (capability world_onboard): the pack made when
+        # its folder is absent, and the tiles Convert could move.
+        "world_onboard": WORLD.world_onboard,
         "world_regions_set": lambda **kw: WORLD.start_world_regions_set(
             session._emit, **kw),
         "world_tile_set": WORLD.world_tile_set,

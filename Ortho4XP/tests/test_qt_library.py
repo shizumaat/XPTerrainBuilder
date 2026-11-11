@@ -63,7 +63,7 @@ def test_the_list_populates_and_sorts_by_size(app):
     dialog.table.sortItems(QTLIB.SIZE_COLUMN, Qt.AscendingOrder)
     assert dialog.visible_tiles() == ["+47-122", "+45-123", "+46-123"]
     assert dialog.tiles_total_label.text() == "8.4 GB in 3 tiles"
-    assert dialog.cache_labels["imagery"].text() == "1.0 KB"
+    assert not hasattr(dialog, "cache_labels")    # the caches: Library's Caches line (#2007)
 
 
 def test_the_search_field_filters(app):

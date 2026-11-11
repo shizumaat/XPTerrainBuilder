@@ -3,12 +3,13 @@ import SwiftUI
 import SceneryKit
 import UniformTypeIdentifiers
 
-/// Library mode's tiles section (#824; the Library window until RULINGS
-/// 2026-11-10j moved it into `LibraryPane`): every built tile with its size, zoom level,
-/// imagery source, built date, graded airports, modified packs and the
-/// "In X-Plane" switch, plus the disk panel (tiles total and each download
-/// cache with "Free space…"). The engine's `library_*` commands do the
-/// folder walks; the Qt app's `O4_Qt_Library` shows the same columns.
+/// Library mode's tiles table (#824; the Library window until RULINGS
+/// 2026-11-10j; above the map since #2007, where the console is in Build):
+/// every built tile with its size, zoom level, imagery source, built date,
+/// graded airports, modified packs and the "In X-Plane" switch, and the
+/// actions on the selection under it. The caches moved to the side pane's
+/// Caches line (`LibraryStorage.swift`). The engine's `library_*` commands
+/// do the folder walks; the Qt app's `O4_Qt_Library` shows the same columns.
 /// A tile built by another tool is read-only: it can be linked into
 /// X-Plane or out of it, never rebuilt or deleted. Deleting and freeing
 /// space ask first. Export / Import Library Bundle carry a built tile to
@@ -36,7 +37,6 @@ enum Library {
 @MainActor
 final class LibraryModel: ObservableObject {
     @Published private(set) var index = LibraryIndex()
-    @Published var caches: [O4LibraryCache] = []
     @Published var tilesBytes: Int64 = 0
     @Published var isLoading = false
     @Published var status = ""
@@ -108,9 +108,8 @@ final class LibraryModel: ObservableObject {
         Task {
             do {
                 let scan = try await context.client.libraryScan(
-                    workingDir: context.workingDir, sceneryDir: context.sceneryDir)
+                    workingDir: context.workingDir, sceneryDir: context.sceneryDir, caches: false)
                 setTiles(scan.tiles)
-                caches = scan.caches
                 tilesBytes = scan.tilesBytes
                 status = ""
             } catch {
@@ -147,20 +146,6 @@ final class LibraryModel: ObservableObject {
         Task {
             status = await buildModel.setImageryPinned(
                 BuildModel.TileCoord(lat: row.lat, lon: row.lon), row.pinned != true)
-            refresh(buildModel)
-        }
-    }
-
-    func freeCache(_ cache: O4LibraryCache, _ buildModel: BuildModel) {
-        guard let context = buildModel.libraryContext() else { return }
-        status = "Freeing space…"
-        Task {
-            do {
-                let freed = try await context.client.freeCache(kind: cache.kind)
-                status = "Freed \(Library.size(freed.freedBytes)) of \(cache.label.lowercased()) cache."
-            } catch {
-                status = "\(error)"
-            }
             refresh(buildModel)
         }
     }
@@ -226,10 +211,10 @@ final class LibraryModel: ObservableObject {
 
 struct LibraryTilesSection: View {
     @EnvironmentObject private var buildModel: BuildModel
-    @StateObject private var model = LibraryModel()
+    /// `buildModel.library`: one model across mode switches.
+    @ObservedObject var model: LibraryModel
     @State private var confirmDelete = false
     @State private var confirmRestore = false
-    @State private var cacheToFree: O4LibraryCache?
     @State private var publishing: O4LibraryTile?
 
     private var selectedRows: [O4LibraryTile] { model.selectedRows }
@@ -260,13 +245,15 @@ struct LibraryTilesSection: View {
             HStack {
                 TextField("Search tiles, airports, imagery", text: $model.search)
                     .textFieldStyle(.roundedBorder)
+                Text("\(Library.size(model.tilesBytes)) in \(model.tiles.count) tile\(model.tiles.count == 1 ? "" : "s")")
+                    .monospacedDigit().foregroundStyle(.secondary)
                 Button { model.refresh(buildModel) } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .help("Read the tiles folder and the caches again")
+                .help("Read the tiles folder again")
                 .disabled(model.isLoading)
             }
-            table.frame(minHeight: 240)
+            table.frame(minHeight: 120)
             actions
             if !model.status.isEmpty {
                 Text(model.status)
@@ -274,9 +261,8 @@ struct LibraryTilesSection: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Divider()
-            diskPanel
         }
+        .padding(8)
         .onAppear {
             model.seed(buildModel)
             model.select(buildModel.selected)
@@ -300,16 +286,6 @@ struct LibraryTilesSection: View {
             Button("Restore") { model.restoreOriginals(selectedPacks, buildModel) }
         } message: {
             Text("Put back the original object files of \(selectedPacks.map(\.packName).joined(separator: ", ")).")
-        }
-        .confirmationDialog("Free space?", isPresented: Binding(
-            get: { cacheToFree != nil }, set: { if !$0 { cacheToFree = nil } })) {
-            Button("Free Space", role: .destructive) {
-                if let cache = cacheToFree { model.freeCache(cache, buildModel) }
-            }
-        } message: {
-            if let cache = cacheToFree {
-                Text("Free \(Library.size(cache.bytes)) of \(cache.label.lowercased()) cache? \(cache.redownload)")
-            }
         }
     }
 
@@ -386,9 +362,9 @@ struct LibraryTilesSection: View {
 
     // MARK: - Actions
 
-    /// Three buttons a row: the section lives in the side pane.
+    /// One row under the table (it spans the map's width).
     private var actions: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3),
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), alignment: .leading)],
                   alignment: .leading, spacing: 6) {
             Button("Install") { setInstalled(true) }
                 .disabled(selectedRows.isEmpty)
@@ -428,28 +404,5 @@ struct LibraryTilesSection: View {
         for row in selectedRows where row.inXPlane != install {
             buildModel.setInstalled(BuildModel.TileCoord(lat: row.lat, lon: row.lon), install)
         }
-    }
-
-    // MARK: - Disk
-
-    private var diskPanel: some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
-            GridRow {
-                Text("Tiles").bold()
-                Text("\(Library.size(model.tilesBytes)) in \(model.tiles.count) tile\(model.tiles.count == 1 ? "" : "s")")
-                    .monospacedDigit()
-                Color.clear.frame(width: 1, height: 1)
-            }
-            ForEach(model.caches) { cache in
-                GridRow {
-                    Text(cache.label).bold()
-                    Text(Library.size(cache.bytes)).monospacedDigit()
-                    Button("Free Space…") { cacheToFree = cache }
-                        .help(cache.redownload)
-                        .disabled(buildModel.isBuilding || cache.bytes == 0)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

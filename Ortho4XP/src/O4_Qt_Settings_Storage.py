@@ -1,5 +1,9 @@
-"""Settings ▸ Storage's sizes and Clear buttons, as the Mac app shows them
-(#1724; ``StorageSettingsView.swift``'s ``StorageSection``).
+"""Library ▸ Caches ▸ Details…: the data folder's sizes and Clear
+buttons, as the Mac app shows them (#1724; Settings ▸ Storage until 10j,
+its own window since #2007; ``StorageSettingsView.swift``'s
+``StorageSection``).  The Library pane's data folder, disk budget and
+Caches line read this section's scan (:attr:`StorageSection.scan_shown`,
+``O4_Qt_Library_Storage``).
 
 Every store of the data folder with the space deleting it frees and when
 it was last used (``o4_engine.storage``), a Clear… button per cache, and
@@ -41,6 +45,8 @@ AGE_CHOICES = (30, 60, 90, 180, 365)
 NOTE_STYLE = "color: gray; font-size: 11px;"
 WARNING_STYLE = "color: #C0392B; font-size: 11px;"
 BUSY = "A build is running; stop it or let it finish before deleting anything."
+#: The one disk budget's setting (``storage_budget.SETTING``).
+BUDGET_SETTING = "storage_budget_gb"
 
 
 def _date(unix):
@@ -88,6 +94,8 @@ class StorageSection(_Section):
 
     title = "Data Folder"
     loaded = Signal(object)
+    #: Every scan shown (the Library pane's rows follow it).
+    scan_shown = Signal(object)
     cleared = Signal(object)
     previewed = Signal(object)
     low_res_previewed = Signal(object)
@@ -109,13 +117,6 @@ class StorageSection(_Section):
         self.installed_label = _value()
         self.installed_label.setToolTip(STORAGE_TEXT.INSTALLED_HELP)
         _row(self.layout_, STORAGE_TEXT.INSTALLED_TITLE, self.installed_label)
-        # The one disk budget (RULINGS 2026-11-10d) and its warning.
-        self.budget_label = _value()
-        self.budget_label.setToolTip(STORAGE_TEXT.BUDGET_HELP)
-        _row(self.layout_, STORAGE_TEXT.BUDGET_TITLE, self.budget_label)
-        self.budget_warning = _value(style=WARNING_STYLE)
-        self.budget_warning.setVisible(False)
-        self.layout_.addWidget(self.budget_warning)
         bar = QHBoxLayout()
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh)
@@ -168,10 +169,6 @@ class StorageSection(_Section):
         self.kept_label.setText(fmt_size(scan["kept_bytes"]))
         self.installed_label.setText("<br>".join(STORAGE_TEXT.installed_lines(
             scan.get("installed") or {})))
-        line, warning = STORAGE_TEXT.budget_lines(scan.get("budget") or {})
-        self.budget_label.setText(line)
-        self.budget_warning.setText(warning)
-        self.budget_warning.setVisible(bool(warning))
         while self.rows_layout.count():
             item = self.rows_layout.takeAt(0)
             if item.widget() is not None:
@@ -182,6 +179,7 @@ class StorageSection(_Section):
             for store in scan["stores"]:
                 if store["policy"] == policy:
                     self.rows_layout.addWidget(self._store_row(store))
+        self.scan_shown.emit(scan)
 
     def _store_row(self, store):
         row = QWidget()
@@ -232,6 +230,28 @@ class StorageSection(_Section):
                         "This frees up to %s. %s"
                         % (fmt_size(store["bytes"]), store["note"])):
             self._clear([store["kind"]], None)
+
+    def ask_clear_all(self):
+        """The Caches line's Clear…: every cache, its measured total."""
+        if self.busy():
+            self.status_label.setText(BUSY)
+            return
+        if self.scan and self.confirm(STORAGE_TEXT.CLEAR_ALL_TITLE,
+                                      STORAGE_TEXT.clear_all_text(self.scan["cache_bytes"])):
+            self._clear([], None)
+
+    def apply_budget(self, gigabytes):
+        """A budget confirmed (lowered below what is in use: asked by the
+        caller, #2007): set it, then the automatic cleanup's budget hold
+        (``storage_budget.hold``) clears to fit, caches first."""
+        import O4_Settings_Model as SM
+        SM.write_global({BUDGET_SETTING: str(float(gigabytes))})
+        if self.busy():
+            self.status_label.setText(BUSY)
+            self.refresh()
+            return
+        self.status_label.setText("Fitting the new budget…")
+        self._run(lambda: STORAGE.storage_auto_clean(abort=self.busy), self.cleared)
 
     def ask_clear_older(self):
         if self.busy():

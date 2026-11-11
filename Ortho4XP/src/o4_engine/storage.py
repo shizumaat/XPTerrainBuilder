@@ -639,11 +639,11 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
     (``o4_engine.storage_redundant``: texture-cache copies of what built
     tiles hold, caches of airport packs no longer installed), then the
     one disk budget (``storage_budget.hold``; when it is not set, the
-    sharp imagery's own limit).
+    sharp imagery's own limit: the default budget is only measured).
 
     :returns: :func:`storage_clear`'s reply plus ``"ran"`` (False when both
         settings are off and nothing was redundant), ``"budget"``
-        (``storage_budget.status`` when the budget is set) and
+        (``storage_budget.status``) and
         ``"ondemand_floor"`` (when it is not; ``_hold_ondemand_cap``) --
         what the apps' after-build warning reads
         (``O4_Storage_Text.cleanup_warning``)
@@ -670,7 +670,8 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
         # imagery's own limit.
         from . import storage_budget as TOTAL
         budget = TOTAL.hold(sweep, now)
-        if budget is None:
+        # The default budget (none set) clears nothing unasked (11a).
+        if budget is None or not budget.get("budget_set"):
             ondemand = _hold_ondemand_cap(sweep, now)
     out = sweep.result()
     out["budget"], out["ondemand_floor"] = budget, ondemand

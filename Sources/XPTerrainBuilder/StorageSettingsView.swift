@@ -1,9 +1,12 @@
 import SwiftUI
 import SceneryKit
 
-/// Settings ▸ Storage (#1724): every folder of the data folder with the
+/// Library ▸ Caches ▸ Details… (#1724; Settings ▸ Storage until 10j, its
+/// own window since #2007): every folder of the data folder with the
 /// space deleting it frees and when it was last used, a Clear button per
-/// cache, and "Clear files not used for…" across every cache. The engine's
+/// cache, and "Clear files not used for…" across every cache. The pane's
+/// data folder, disk budget and Caches line read the same model
+/// (`LibraryStorage.swift`). The engine's
 /// `storage_*` commands walk the folders and delete
 /// (`Ortho4XP/src/o4_engine/storage.py`); the Qt window's
 /// `O4_Qt_Settings_Storage.StorageSection` shows the same rows. Built
@@ -28,6 +31,37 @@ final class StorageModel: ObservableObject {
     }
 
     static let ageChoices: [Double] = [30, 60, 90, 180, 365]
+    /// The one disk budget's setting (`storage_budget.SETTING`).
+    static let budgetKey = "storage_budget_gb"
+
+    /// The Caches line's Clear…: every cache, its measured total.
+    func askClearAll() {
+        guard let scan else { return }
+        pending = PendingClear(title: O4StorageText.clearAllTitle,
+                               message: O4StorageText.clearAllMessage(scan.cacheBytes),
+                               kinds: [], olderThanDays: nil)
+    }
+
+    /// The disk budget lowered below what is in use, confirmed (#2007):
+    /// the budget is set, then the automatic cleanup's budget hold
+    /// (`storage_budget.hold`) clears to fit, caches first.
+    func applyBudget(gigabytes: Double, _ buildModel: BuildModel) {
+        buildModel.setConfigValue(Self.budgetKey, to: .double(gigabytes))
+        guard let client = buildModel.libraryContext()?.client else { return }
+        isWorking = true
+        status = "Fitting the new budget…"
+        Task {
+            do {
+                let done = try await client.storageAutoClean()
+                status = "Freed \(Library.size(done.freedBytes)) in \(done.files) file(s)."
+                    + (done.stopped ? " A build started, so the rest was kept." : "")
+            } catch {
+                status = "\(error)"
+            }
+            isWorking = false
+            refresh(buildModel)
+        }
+    }
 
     func refresh(_ buildModel: BuildModel) {
         guard let client = buildModel.libraryContext()?.client else {
@@ -148,10 +182,29 @@ extension StorageModel {
     }
 }
 
-/// The Storage pane's sections, above its two setting rows.
+/// The confirmation every clear asks first (the pane and the details).
+struct StorageClearConfirm: ViewModifier {
+    @ObservedObject var model: StorageModel
+    let buildModel: BuildModel
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(model.pending?.title ?? "", isPresented: Binding(
+            get: { model.pending != nil }, set: { if !$0 { model.pending = nil } }),
+            presenting: model.pending) { clear in
+            Button(clear.lowRes ? O4OnDemandText.makeLowResTitle : "Clear", role: .destructive) {
+                model.confirm(clear, buildModel)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { clear in
+            Text(clear.message)
+        }
+    }
+}
+
+/// The details window's sections (Library ▸ Caches ▸ Details…).
 struct StorageSection: View {
     @EnvironmentObject var buildModel: BuildModel
-    @StateObject private var model = StorageModel()
+    @ObservedObject var model: StorageModel
     @State private var olderThan: Double = 90
 
     var body: some View {
@@ -172,18 +225,6 @@ struct StorageSection: View {
                     }
                     .help(O4StorageText.installedHelp)
                 }
-                if let budget = scan.budget {
-                    // The one disk budget (RULINGS 2026-11-10d) and its warning.
-                    let lines = O4StorageText.budgetLines(budget)
-                    LabeledContent(O4StorageText.budgetTitle) {
-                        Text(lines.line).multilineTextAlignment(.trailing)
-                    }
-                    .help(O4StorageText.budgetHelp)
-                    if !lines.warning.isEmpty {
-                        Label(lines.warning, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption).foregroundStyle(.orange)
-                    }
-                }
                 if scan.measured != "private" {
                     Text("Sizes are allocated bytes: this disk cannot report shared (cloned) blocks.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -197,16 +238,6 @@ struct StorageSection: View {
             }
         }
         .onAppear { if model.scan == nil { model.refresh(buildModel) } }
-        .confirmationDialog(model.pending?.title ?? "", isPresented: Binding(
-            get: { model.pending != nil }, set: { if !$0 { model.pending = nil } }),
-            presenting: model.pending) { clear in
-            Button(clear.lowRes ? O4OnDemandText.makeLowResTitle : "Clear", role: .destructive) {
-                model.confirm(clear, buildModel)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { clear in
-            Text(clear.message)
-        }
         if let scan = model.scan {
             Section("Caches") {
                 ForEach(scan.stores.filter(\.isCache)) { store in

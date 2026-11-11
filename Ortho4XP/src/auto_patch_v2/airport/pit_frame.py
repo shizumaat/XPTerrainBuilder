@@ -45,7 +45,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
-__all__ = ["PIT_OF", "PIT_RING", "PIT_AUTHORED", "Pit", "stamp", "pits_of", "join_frame", "shifted"]
+__all__ = ["PIT_OF", "PIT_RING", "PIT_AUTHORED", "stamp", "pits_of", "join_frame", "shifted"]
 
 #: the ``authored_seats`` record key naming the walled pit a row's frame is
 PIT_OF = "pit_of"
@@ -58,7 +58,7 @@ _RING_TOL_M = 0.5
 _M_PER_DEG = 111_320.0
 
 
-class Pit(_t.NamedTuple):
+class _Pit(_t.NamedTuple):
     """One walled pit's frame as the object stage reads it: its id, written
     zero, the zero its floor was authored at, the authored zeros of the
     placements co-placed with it, its rim proud of the ground and its
@@ -88,7 +88,7 @@ def stamp(rec: dict, f: _t.Any, to_ll: "_t.Callable | None") -> None:
                      (to_ll(x, y) for x, y in part.exterior.coords)]
 
 
-def pits_of(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> list[Pit]:
+def pits_of(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> list[_Pit]:
     """Every pit a :func:`stamp`-ed floor record of ``authored_seats`` states."""
     from shapely.geometry import Polygon
     out = []
@@ -99,12 +99,12 @@ def pits_of(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> list[Pit]:
         ring = ring if ring.is_valid else ring.buffer(0)
         mates = {str(k): float(v) for k, v in (r.get(PIT_AUTHORED) or {}).items()}
         if not ring.is_empty and str(r.get("id")) in mates:
-            out.append(Pit(str(r[PIT_OF]), float(r["elevation"]), mates[str(r["id"])], mates,
+            out.append(_Pit(str(r[PIT_OF]), float(r["elevation"]), mates[str(r["id"])], mates,
                            float(r.get("rim_proud_m") or 0.0), ring))
     return out
 
 
-def _stand_m(p: Pit, stands: _t.Sequence[tuple[float, float]]) -> float:
+def _stand_m(p: _Pit, stands: _t.Sequence[tuple[float, float]]) -> float:
     """Metres (roughly) from the pit's footprint to the nearest stand."""
     if not stands:
         return math.inf
@@ -114,7 +114,7 @@ def _stand_m(p: Pit, stands: _t.Sequence[tuple[float, float]]) -> float:
 
 
 def _shares_in(u: _t.Any, plan_wide: _t.Mapping[int, tuple], merged: _t.Mapping[str, str],
-               pits: _t.Sequence[Pit]) -> dict[str, dict[tuple[int, float], int]]:
+               pits: _t.Sequence[_Pit]) -> dict[str, dict[tuple[int, float], int]]:
     """``group key -> {(pit index, rigid zero): feet}``: frame ``u``'s
     connected-unit shares (keyed as ``open_frame_seat.group_zero`` reads
     them, through the frame's root ``merged`` map) with ground-contact feet
@@ -147,7 +147,7 @@ def _shares_in(u: _t.Any, plan_wide: _t.Mapping[int, tuple], merged: _t.Mapping[
 
 def join_frame(u: _t.Any, plan_wide: _t.Mapping[int, tuple], merged: _t.Mapping[str, str],
                zeros: dict, airside: _t.Mapping[str, tuple[float, int]],
-               pits: _t.Sequence[Pit], crest_max_m: float, shifts: dict, counts: dict,
+               pits: _t.Sequence[_Pit], crest_max_m: float, shifts: dict, counts: dict,
                stands: _t.Sequence[tuple[float, float]] = ()) -> None:
     """Frame ``u``'s shares meeting a walled pit, grouped with it (module
     doc): a share riding a pit takes its zero in ``zeros`` (``root_zeros``'

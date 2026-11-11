@@ -281,6 +281,25 @@ def test_route_territory_keeps_tight_pockets_and_returns_the_rest():
     assert terr.is_empty and near == 0.0 and rem == 0.0
 
 
+def test_a_road_pocket_is_a_junction_only_between_routes():
+    """#1900 (owner 2026-11-10T23:12Z, HECA taxiway G: "a service road
+    crossing ... no horizontal taxiway shapes anywhere in this area"): on a
+    ROAD face a remainder pocket is a junction only within a corridor's half
+    width of TWO through-routes; beside one route it stays the road."""
+    from types import SimpleNamespace
+    from shapely.geometry import LineString, box
+    from auto_patch_v2.classify.roles import _route_territory
+    rules = load_rules()
+    band = box(0, 80, 1000, 120)
+    road = box(0, 0, 30, 200)                              # pockets 2,400 m² each
+    one = [SimpleNamespace(line=LineString([(0, 100), (1000, 100)]))]
+    terr, _near, rem = _route_territory(road, road, band, rules, one)
+    assert terr.area == pytest.approx(1_200.0) and rem == pytest.approx(4_800.0)
+    two = one + [SimpleNamespace(line=LineString([(15, -50), (15, 40)]))]
+    terr, _near, rem = _route_territory(road, road, band, rules, two)
+    assert terr.area == pytest.approx(3_600.0) and rem == pytest.approx(2_400.0)
+
+
 # ── §27 an airside edge makes a lot airside (RULINGS 2026-09-12c/12e,
 # ── roads and the mouth 2026-09-12f) ─────────────────────────────────────
 

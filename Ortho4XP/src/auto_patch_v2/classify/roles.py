@@ -651,8 +651,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             # taxi chain(s) it serves (RULINGS 2026-09-04q-2; measured
             # CYXY junction 103: letter-less at 1.5 % over 222 m while
             # taxiway G is 1202 code A at 3 %).
+            # a ROAD's pocket is a junction only BETWEEN two routes (#1900)
             territory, near_area, remainder_area = _route_territory(
-                face, prox, corridors, rules)
+                face, prox, corridors, rules,
+                through if rest == "service_road" else None)
             tfrac = territory.area / near_area if near_area > 0 else 0.0
             tev = dict(evid, territory_frac=tfrac, apron_remainder_m2=remainder_area)
             # Snap-round the cut on the slice's own grid: a corridor piece
@@ -1408,7 +1410,8 @@ def _route_corridors(through: list[Chain], ev: Evidence, rules: Rules):
     return unary_union(src) if src else Polygon()
 
 
-def _route_territory(face: Polygon, prox, corridors, rules: Rules
+def _route_territory(face: Polygon, prox, corridors, rules: Rules,
+                     road_routes: list[Chain] | None = None
                      ) -> tuple[_t.Any, float, float]:
     """THE BOUNDED ROUTE TERRITORY of an apron-derived face (RULINGS
     2026-09-05x): the part of the proximity contour that lies (i) in a
@@ -1416,7 +1419,17 @@ def _route_territory(face: Polygon, prox, corridors, rules: Rules
     at their intersections — a remainder part of at most
     ``junction.max_area_m2`` (the existing tight-junction test, applied to
     the pocket) — the rest of the contour being apron remainder.  Returns
-    ``(territory, contour area on the face, apron remainder area)``."""
+    ``(territory, contour area on the face, apron remainder area)``.
+
+    On a ROAD face (``road_routes``: the through-routes, given only for a
+    face the width rung made a service road) a pocket is an intersection's
+    only BETWEEN routes: within a corridor's half width (plus the contact
+    tolerance) of two through-routes; beside one route it is the road.  #1900 HECA taxiway G (owner
+    2026-11-10T23:12Z, 30.12699,31.41024: "a service road crossing from one
+    apron, over the taxiway, to the other apron, no horizontal taxiway
+    shapes anywhere in this area"): road page ``dsf:objpav115`` ends at G's
+    pavement, G's centreline runs outside it, and its 601 m2 end came out a
+    junction across the road."""
     near = face.intersection(prox)
     if near.is_empty:
         return Polygon(), 0.0, 0.0
@@ -1428,12 +1441,24 @@ def _route_territory(face: Polygon, prox, corridors, rules: Rules
     for p in polygon_parts(near.difference(corridors)):
         if p.area < rules.cells.min_area_m2:
             continue
-        if p.area <= rules.junction.max_area_m2:
+        if p.area <= rules.junction.max_area_m2 and _between_routes(
+                p, road_routes, rules):
             parts.append(p)                    # a tight pocket at an intersection
         else:
             remainder += p.area
     territory = unary_union(parts) if parts else Polygon()
     return territory, near.area, remainder
+
+
+def _between_routes(pocket: Polygon, road_routes: list[Chain] | None,
+                    rules: Rules) -> bool:
+    """A pocket lies between routes: always on an apron (``road_routes``
+    None), on a road only within a corridor's half width (plus the contact
+    tolerance) of two through-routes."""
+    if road_routes is None:
+        return True
+    reach = rules.junction.route_territory_half_width_m + rules.cells.on_tol_m
+    return sum(c.line.distance(pocket) <= reach for c in road_routes) >= 2
 
 
 def _junction_letter(part: Polygon, touching: list[Chain], through: list[Chain],

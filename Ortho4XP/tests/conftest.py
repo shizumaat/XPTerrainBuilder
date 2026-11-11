@@ -450,6 +450,33 @@ def _no_modal_first_run_wizard(monkeypatch):
     yield
 
 
+#: Every test MainWindow, held to the session's end (see below).
+_KEPT_WINDOWS: list = []
+
+
+@pytest.fixture(autouse=True)
+def _test_windows_outlive_their_test(monkeypatch):
+    """Each test ``MainWindow`` lives until the suite ends, never freed
+    by the garbage collector mid-suite.
+
+    A window most tests drop is otherwise collected at an arbitrary
+    allocation; one collected while Qt delivers a posted event (a
+    polish) to it or a child segfaults in ``QWidget::ensurePolished``
+    (#2004, ``test_qt_stop_resume``, once idle world-publish workers
+    stopped pinning each window through its session).  The app holds its
+    one window for the process; the suite now does the same, on purpose.
+    """
+    gui = sys.modules.get("O4_Qt_GUI")
+    if gui is not None and hasattr(gui, "MainWindow"):
+        build = gui.MainWindow.__init__
+
+        def kept(self, *args, **kwargs):
+            build(self, *args, **kwargs)
+            _KEPT_WINDOWS.append(self)
+        monkeypatch.setattr(gui.MainWindow, "__init__", kept)
+    yield
+
+
 _DDS_CACHE_BASE = None
 
 

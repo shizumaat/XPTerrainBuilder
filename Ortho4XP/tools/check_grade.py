@@ -962,20 +962,29 @@ def _road_frame_by_nid(nodes: Dict[str, Tuple[float, float]],
     return out
 
 
+#: the engine's §37 (7) reader, imported on first use
+_ROAD_PAIR_READER: list = []
+
+
 def _road_pair_reading_v2(cap_l: float, cap_t: float, fa, fb, chord=None):
     """THE ONE §37 (7) READING, imported from the engine
     (``auto_patch_v2.constraints.roads.road_pair_reading``) so the census
     pairs EXACTLY as the generator does — never re-spelled here (the
     census-wrapper precedent).  Falls back to the chord law (``"no_frame"``)
     when the engine is not importable."""
-    try:
-        for _p in (str(Path(__file__).resolve().parents[1] / "src"),):
-            if _p not in sys.path:
-                sys.path.insert(0, _p)
-        from auto_patch_v2.constraints.roads import (one_ribbon_m,
-                                                     road_pair_reading)
-    except Exception:                                   # pragma: no cover
-        return "no_frame"
+    got = _ROAD_PAIR_READER
+    if not got:
+        # resolved ONCE per run: a road ring asks for every pair (#2008)
+        try:
+            for _p in (str(Path(__file__).resolve().parents[1] / "src"),):
+                if _p not in sys.path:
+                    sys.path.insert(0, _p)
+            from auto_patch_v2.constraints.roads import (one_ribbon_m,
+                                                         road_pair_reading)
+        except Exception:                               # pragma: no cover
+            return "no_frame"
+        got.extend((one_ribbon_m, road_pair_reading))
+    one_ribbon_m, road_pair_reading = got
     # §37 (10) (2) (RULINGS 2026-09-13cs item 4): the ONE-RIBBON width is
     # the law's own key, read through the engine's accessor so the census
     # and the generator price one number.
@@ -7032,6 +7041,37 @@ def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
     return total
 
 
+def _terrace_steps_nonneg(terrace_joints_m) -> bool:
+    """Is every declared step of this joint list >= 0?  Then the terrace
+    term can only widen a pair's envelope (``_check_within_shape``)."""
+    cached = _JOINT_SEGMENTS.get("nonneg")
+    if cached is None or cached[0] is not terrace_joints_m:
+        cached = _JOINT_SEGMENTS["nonneg"] = (
+            terrace_joints_m,
+            all(float(step) >= 0.0 for _pts, step in terrace_joints_m))
+    return cached[1]
+
+
+def _pair_envelope(allowance: float, steps, late, weld, zone_cap,
+                   dist: float, tier_shift) -> float:
+    """A within-shape pair's allowance after the envelope terms, added in
+    the law's order (each ``None`` term is absent): the declared terrace
+    steps, the last stage's floor, the weld give, the fan-ramp zone cap
+    (``max``, relaxing only), the apron tier's cap shift.  Every step is
+    monotone in ``allowance`` and in ``steps``."""
+    if steps is not None:
+        allowance += steps
+    if late is not None:
+        allowance += late
+    if weld is not None:
+        allowance += weld
+    if zone_cap is not None:
+        allowance = max(allowance, zone_cap * dist)
+    if tier_shift is not None:
+        allowance += tier_shift
+    return allowance
+
+
 class DeclaredWallSteps:
     """THE DECLARED WALL STEP, read by the zone-strip step families (owner
     RULINGS 2026-10-15b).  A ``wall_terrace`` joint — a pack retaining
@@ -7691,7 +7731,52 @@ def _shore_index(shore_edges_ll, ll_to_m):
         except (TypeError, ValueError):
             lvl = 0.0
         segs.append((a, b, lvl))
-    return segs or None
+    return _ShoreSegments(segs) if segs else None
+
+
+class _ShoreSegments(list):
+    """The shore segments with a cell index over their boxes (#2008: every
+    ring edge of the patch against every shore segment).  ``near`` gives
+    the indices, ascending, of the segments whose box comes within
+    ``reach_m`` of a point — every segment that point can lie ON — so a
+    "first segment it lies on" walk over them finds the same one."""
+
+    CELL_M = 50.0
+    #: a segment spanning more cells than this is always a candidate
+    MAX_CELLS = 4096
+
+    def __init__(self, segs) -> None:
+        super().__init__(segs)
+        self._grid: Dict[Tuple[int, int], list] = defaultdict(list)
+        self._always: list = []
+        c = self.CELL_M
+        for k, ((ax, ay), (bx, by), _lvl) in enumerate(segs):
+            box = (min(ax, bx), min(ay, by), max(ax, bx), max(ay, by))
+            if not all(map(math.isfinite, box)):
+                self._always.append(k)
+                continue
+            gx0, gy0 = int(box[0] // c), int(box[1] // c)
+            gx1, gy1 = int(box[2] // c), int(box[3] // c)
+            if (gx1 - gx0 + 1) * (gy1 - gy0 + 1) > self.MAX_CELLS:
+                self._always.append(k)
+                continue
+            for gx in range(gx0, gx1 + 1):
+                for gy in range(gy0, gy1 + 1):
+                    self._grid[(gx, gy)].append(k)
+
+    def near(self, pt, reach_m: float):
+        """Candidate segment indices for ``pt``, ascending; ``None`` when
+        the point cannot be placed in the index (read every segment)."""
+        x, y = pt
+        r = float(reach_m) + 1.0
+        if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(r)):
+            return None
+        c = self.CELL_M
+        ks = set(self._always)
+        for gx in range(int((x - r) // c), int((x + r) // c) + 1):
+            for gy in range(int((y - r) // c), int((y + r) // c) + 1):
+                ks.update(self._grid.get((gx, gy), ()))
+        return sorted(ks)
 
 
 def _on_shore(pt, segs, tol_m: float) -> bool:
@@ -7703,7 +7788,9 @@ def _shore_level(pt, segs, tol_m: float):
     """The water line's level of the first of ``segs`` ``pt`` (metres) lies
     ON within ``tol_m``; ``None`` when it lies on none."""
     x, y = pt
-    for (ax, ay), (bx, by), lvl in segs:
+    near = segs.near(pt, tol_m) if isinstance(segs, _ShoreSegments) else None
+    for (ax, ay), (bx, by), lvl in (segs if near is None
+                                    else (segs[k] for k in near)):
         vx, vy = bx - ax, by - ay
         l2 = vx * vx + vy * vy
         t = 0.0 if l2 < 1e-18 else max(0.0, min(
@@ -8948,6 +9035,41 @@ except Exception:                                    # pragma: no cover
     _WALL_RETREAT_M = 0.6
 
 
+class _VertexBoxIndex:
+    """The vertices that CAN lie within ``reach_m`` of a polyline — the
+    candidate filter of ``_check_terrace_actual_step``'s straddle reading
+    (#2008: every vertex against every segment of every joint kept a
+    KMCI census busy for tens of minutes).  A vertex outside the
+    polyline's bounding box grown by ``reach_m`` plus a metre of margin is
+    farther than ``reach_m`` from every segment, so the exact distance
+    test would reject it; the rest come back in their original order, a
+    non-finite coordinate always among them."""
+
+    #: metres beyond ``reach_m``: far above any rounding of the distance
+    MARGIN_M = 1.0
+
+    def __init__(self, verts, reach_m: float) -> None:
+        import numpy as np
+        self.verts = verts
+        self.reach = float(reach_m) + self.MARGIN_M
+        xy = np.array([(v[0], v[1]) for v in verts], dtype=float).reshape(-1, 2)
+        self.x, self.y = xy[:, 0], xy[:, 1]
+        self.odd = ~(np.isfinite(self.x) & np.isfinite(self.y))
+
+    def candidates(self, pts) -> list:
+        if len(pts) < 2 or not self.verts:
+            return list(self.verts)
+        xs = [float(q[0]) for q in pts]
+        ys = [float(q[1]) for q in pts]
+        if not all(map(math.isfinite, xs + ys)):
+            return list(self.verts)
+        r = self.reach
+        keep = (((self.x >= min(xs) - r) & (self.x <= max(xs) + r)
+                 & (self.y >= min(ys) - r) & (self.y <= max(ys) + r))
+                | self.odd)
+        return [self.verts[i] for i in keep.nonzero()[0].tolist()]
+
+
 def _seg_point_distance(px: float, py: float, a, b) -> float:
     """Point-to-segment distance in the check's metre frame."""
     (ax, ay), (bx, by) = a, b
@@ -9081,10 +9203,11 @@ def _check_terrace_actual_step(terrace_joints_m, ways, nodes, ll_to_m,
             x, y = ll_to_m(*nodes[nid])
             verts.append((x, y, float(z), w))
     seen: set = set()
+    near_joint = _VertexBoxIndex(verts, _TERRACE_STRADDLE_PERP_M)
     for (jpts, step) in (terrace_joints_m or []):
         pos: List[Tuple[float, float, float, Way]] = []
         neg: List[Tuple[float, float, float, Way]] = []
-        for (x, y, z, w) in verts:
+        for (x, y, z, w) in near_joint.candidates(jpts):
             best_d = None
             best_k = 0
             for k in range(len(jpts) - 1):
@@ -9607,14 +9730,30 @@ class _StretchBox:
         near = self.nearest(x, y)
         if near is None:
             return []
-        d0 = None
-        out = []
-        ds = []
-        for ax, ay, ux, uy, L, cl, ct in self.segs:
-            t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
-            ds.append((math.hypot(x - (ax + t * ux), y - (ay + t * uy)), ux, uy, cl, ct))
+        # The segments of the 5 x 5 cell block first (#2008: the whole map
+        # per short taxi pair): every other segment lies farther than
+        # ``reach``, so when the block's nearest is clear of ``reach`` by
+        # more than ``tie_m`` (and a millimetre of margin) no outside
+        # segment can be the nearest or tie with it.  Else the whole map.
+        cx, cy = int(x // self.cell), int(y // self.cell)
+        ks = sorted({k for dx in (-2, -1, 0, 1, 2) for dy in (-2, -1, 0, 1, 2)
+                     for k in self.grid.get((cx + dx, cy + dy), ())})
+        reach = min(x - (cx - 2) * self.cell, (cx + 3) * self.cell - x,
+                    y - (cy - 2) * self.cell, (cy + 3) * self.cell - y)
+        ds = self._distances(x, y, ks)
+        if not ds or min(d for d, *_r in ds) + tie_m + 1e-3 >= reach:
+            ds = self._distances(x, y, range(len(self.segs)))
         d0 = min(d for d, *_r in ds)
         return [(ux, uy, cl, ct) for d, ux, uy, cl, ct in ds if abs(d - d0) <= tie_m]
+
+    def _distances(self, x: float, y: float, ks) -> list:
+        """``(distance, ux, uy, cL, cT)`` of the segments ``ks``, in order."""
+        ds = []
+        for k in ks:
+            ax, ay, ux, uy, L, cl, ct = self.segs[k]
+            t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
+            ds.append((math.hypot(x - (ax + t * ux), y - (ay + t * uy)), ux, uy, cl, ct))
+        return ds
 
     def _best(self, x: float, y: float, ks):
         best = None
@@ -9786,41 +9925,58 @@ def _check_within_shape(ways: List[Way],
                 allowance = _bb[0] + _pair_quant_noise_m(c.way)
                 c.cap = _bb[1]
                 _box = True
-        if terrace_joints_m:
-            # APRON TERRACE LAW (spec §5a): a within-pair edge crossing a
-            # DECLARED joint is judged by the step law, not by the grade
-            # cap alone — ``cap·d + Σ step``, the identical rule
-            # ``apron_terrace._rewrite_edges`` bound the solver to.  One
-            # law, both readers.  A pair crossing no joint is untouched,
-            # so an old patch (or the gate off) reads exactly as before.
-            allowance += _terrace_step_allowance(
-                terrace_joints_m, c.xa, c.ya, c.xb, c.yb)
-        if late_unknown and not c.transverse_road \
-                and c.nid_a in late_unknown and c.nid_b in late_unknown:
-            # THE LAST STAGE'S FLOOR (spec §55 (5), (15) rule B): a ceiling
-            # between two last-stage unknowns was WIDENED by the generator
-            # to ``cap·d + floor`` (``stage_one_map.late_constraints``) —
-            # the same inequality read back, by the stage's own number
-            allowance += late_floor_m
-        if not c.transverse_road:
-            allowance += _weld_give(weld_nodes, c.nid_a, c.nid_b, c.dist)
-        if fan_ramp_zones_m:
-            # FAN-RAMP LAW: a within-apron pair lying wholly inside a
-            # declared zone is judged at the ZONE's cap — the identical
-            # rule ``apron_terrace._rewrite_fan_edges`` bound the solver
-            # to.  RELAXING ONLY: ``max`` never tightens an allowance
-            # some other law already widened.
-            _zc = _fan_ramp_pair_cap(fan_ramp_zones_m,
-                                     c.xa, c.ya, c.xb, c.yb)
-            if _zc is not None:
-                allowance = max(allowance, _zc * c.dist)
+        # THE ENVELOPE TERMS AFTER THE SHAPE'S OWN BUDGET, in the law's
+        # order: Σ declared terrace steps, the last stage's floor, the weld
+        # give, the fan-ramp zone cap, the apron tier shift.  Each term is
+        # read here ONCE (the tier read tallies); ``_pair_envelope`` adds
+        # them up.  APRON TERRACE LAW (spec §5a): a within-pair edge
+        # crossing a DECLARED joint is judged by the step law, not by the
+        # grade cap alone — ``cap·d + Σ step``, the identical rule
+        # ``apron_terrace._rewrite_edges`` bound the solver to.  One law,
+        # both readers.  A pair crossing no joint is untouched, so an old
+        # patch (or the gate off) reads exactly as before.
+        _late = (late_floor_m if (late_unknown and not c.transverse_road
+                                  and c.nid_a in late_unknown
+                                  and c.nid_b in late_unknown) else None)
+        # THE LAST STAGE'S FLOOR (spec §55 (5), (15) rule B): a ceiling
+        # between two last-stage unknowns was WIDENED by the generator to
+        # ``cap·d + floor`` (``stage_one_map.late_constraints``) — the same
+        # inequality read back, by the stage's own number.
+        _wg = (None if c.transverse_road
+               else _weld_give(weld_nodes, c.nid_a, c.nid_b, c.dist))
+        # FAN-RAMP LAW: a within-apron pair lying wholly inside a declared
+        # zone is judged at the ZONE's cap — the identical rule
+        # ``apron_terrace._rewrite_fan_edges`` bound the solver to.
+        # RELAXING ONLY: ``max`` never tightens an allowance some other law
+        # already widened.
+        _zc = (_fan_ramp_pair_cap(fan_ramp_zones_m, c.xa, c.ya, c.xb, c.yb)
+               if fan_ramp_zones_m else None)
+        _tier = None
         if apron_tier and not _box and apron_tier.get("max") is not None \
                 and apron_tier.get("preferred") is not None \
                 and _apron_tier_pair(c, _APRON_MAX_GRADE, float(apron_tier["max"])):
             # THE TIERED APRON LAW (owner RULINGS 2026-09-06w): the pair is
             # judged at the HARD cap the sidecar declares and tallied
-            # against the PREFERRED cap (``_APRON_PREF_STATS``)
-            allowance = _apron_tier_read(c, de, allowance, apron_tier)
+            # against the PREFERRED cap (``_APRON_PREF_STATS``); read with
+            # a zero allowance it returns the cap shift alone.
+            _tier = _apron_tier_read(c, de, 0.0, apron_tier)
+        _terms = (_late, _wg, _zc, c.dist, _tier)
+        if terrace_joints_m:
+            # The step sum is the costly term (a chord against every
+            # declared joint segment).  When every declared step is >= 0
+            # the envelope only grows with it, so a pair already inside
+            # the envelope WITHOUT it is inside WITH it and the sum is
+            # never needed (#2008) — the same verdict, never computed.
+            _steps_nonneg = _terrace_steps_nonneg(terrace_joints_m)
+            if _steps_nonneg and de <= _pair_envelope(allowance, 0.0, *_terms):
+                if _box:
+                    _TAXI_BOX_STATS["inside"] += 1
+                continue
+            allowance = _pair_envelope(
+                allowance, _terrace_step_allowance(
+                    terrace_joints_m, c.xa, c.ya, c.xb, c.yb), *_terms)
+        else:
+            allowance = _pair_envelope(allowance, None, *_terms)
         if de <= allowance:
             if _box:
                 _TAXI_BOX_STATS["inside"] += 1

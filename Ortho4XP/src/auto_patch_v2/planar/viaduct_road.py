@@ -345,8 +345,10 @@ def passage_roads(airport, law: Law, seeds: _t.Sequence) -> dict[int, _t.Any]:
     2026-11-03b Q342 a "where no object sets level B's height",
     2026-11-11e): a covered run standing in a level seed's passage
     (:func:`_in_passage`) mints no trench; the object states the road's
-    level, the MAIN FLOOR its kerbside stands on, so its carriageway along
-    the run is kept out of the passage level."""
+    level, the MAIN FLOOR its kerbside stands on, so its carriageway -- the
+    whole mapped route, the run and its exits -- is kept out of the passage
+    level (the road meets the level only where the level's own roads run
+    out)."""
     from ..law.tables import design as design_law
     if not any(getattr(s, "passage", None) is not None for s in seeds):
         return {}
@@ -356,7 +358,7 @@ def passage_roads(airport, law: Law, seeds: _t.Sequence) -> dict[int, _t.Any]:
         run = substring(route, s0, s1)
         s = _in_passage(run, seeds, near)
         if s is not None:
-            out.setdefault(s.unit, []).append(run.buffer(half_w, cap_style="flat"))
+            out.setdefault(s.unit, []).append(route.buffer(half_w, cap_style="flat"))
     return {u: unary_union(gs) for u, gs in out.items()}
 
 

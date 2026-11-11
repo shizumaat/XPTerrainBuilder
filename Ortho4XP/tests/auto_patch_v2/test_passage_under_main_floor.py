@@ -57,7 +57,7 @@ def _garden():
             for i in range(4)]
 
 
-def _run(law, tmp_path, garage, main=None, roads=None, extra=(), lots=()):
+def _run(law, tmp_path, garage, main=None, roads=None, extra=(), lots=(), kept=None):
     A = _airport(_terminal() + garage + list(extra), tmp_path)
     A.osm_ways = [_road()] if roads is None else list(roads)
     A.frame.transformers = lambda: ((lambda lon, lat: (lon, lat)), (lambda x, y: (y, x)))
@@ -73,6 +73,8 @@ def _run(law, tmp_path, garage, main=None, roads=None, extra=(), lots=()):
     reg.landings["term/p1"] = {"block": "term", "y": rec["y_lo"], "deck": None,
                                "kind": LL.LOW_KIND, **rec}
     seeds, _n = LR.level_seeds(A, _cls(), law)
+    if kept is not None:
+        seeds = tuple(s._replace(road=kept) for s in seeds)
     counts: dict = {}
     out = LR.seed_levels(regs, reg, seeds, [AirRegion(AIR, "cell")], A, law, 0.5, counts,
                          lots=list(lots))
@@ -139,13 +141,16 @@ def test_a_garden_beside_no_lot_has_no_court(law, tmp_path):
 SKIRT = (100.0, 0.0, 116.0, 60.0)        # a skirt beside the garage, walls deeper still
 
 
-def test_the_level_is_the_floor_of_the_walls_at_its_depth(law, tmp_path):
+def test_a_level_piece_the_kept_road_parts_from_the_walls_is_the_hosts(law, tmp_path):
     """§19 (owner RULINGS 2026-11-11e): a walled part standing on another
-    plane than the walls' (a skirt 2.3 m deeper) is in the seed's footprint
-    but no floor of its level -- the ground beside the garage keeps the main
-    floor (MEASURED KMCI unit 20: the kerbside under the skirt dropped to
-    the garage's base)."""
-    seeds, out, reg, _c = _run(law, tmp_path, _garage() + [_wall(*SKIRT, -12.7, 40)])
+    plane than the walls' (a skirt 2.3 m deeper) is in the seed's footprint;
+    where the covered road kept at the main floor parts it from the walls
+    standing at the level's depth (``LevelSeed.floor``) it is no level --
+    the kerbside keeps the main floor (MEASURED KMCI unit 20: the kerbside
+    under the skirt dropped to the garage's base)."""
+    road = box(115.0, -5.0, 121.0, 75.0)
+    seeds, out, reg, _c = _run(law, tmp_path, _garage() + [_wall(*SKIRT, -12.7, 40)],
+                               kept=road)
     (s,) = seeds
     SK = box(*SKIRT)
     assert s.footprint.intersection(SK).area > 0.95 * SK.area
@@ -153,7 +158,11 @@ def test_the_level_is_the_floor_of_the_walls_at_its_depth(law, tmp_path):
     ref = next(k for k, v in reg.landings.items() if v.get("witness") == "passage")
     lvl = unary_union([r.polygon for r in out if str(r.ref) == ref])
     assert lvl.intersection(box(*GARAGE)).area > 0.8 * box(*GARAGE).area
-    assert lvl.intersection(SK).area < 0.3 * SK.area
+    assert lvl.intersection(SK).area < 0.05 * SK.area
+    assert lvl.intersection(road).area < 1e-6
+    main = unary_union([r.polygon for r in out if str(r.ref) == "term/p1"])
+    assert main.intersection(SK).area > 0.8 * SK.area       # the kerbside: main floor
+    assert main.intersection(road).area > 0.8 * road.intersection(box(0, 0, 200, 70)).area
 
 
 def test_a_piece_a_kept_floor_cuts_off_the_frontage_is_the_level(law):

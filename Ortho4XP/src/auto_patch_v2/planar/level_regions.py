@@ -267,16 +267,22 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
         # kerbside stands on -- kept out of the level as another pad is --
         # and the pieces of the host floors the level cuts off from the
         # airside frontage are the level (S2, ``low_level._with_orphans``);
-        # the level is the floor of the walls standing at its depth (``LevelSeed.floor``:
-        # MEASURED KMCI unit 20, a 5,182 m2 skirt at y -12.72 put the
-        # kerbside, authored at -8.0, into the garage's level at -10.36)
+        # a piece of the level the kept road parts from the walls standing
+        # at its depth (``LevelSeed.floor``) is the host's again (MEASURED
+        # KMCI unit 20: a 5,182 m2 skirt at y -12.72 put the kerbside,
+        # authored at -8.0, into the garage's level at -10.36)
         main = len(host) > 1
         if main and s.road is not None:
             others.append(s.road)
-        L0 = s.floor if main and s.floor is not None and not s.floor.is_empty else s.footprint
         A = valid_area(air.intersection(P.buffer(50.0)))
-        cut = level_cut(P, L0, A, valid_area(unary_union(others)), law, grid, 0.0,
+        cut = level_cut(P, s.footprint, A, valid_area(unary_union(others)), law, grid, 0.0,
                         airport, grow=main, whole=True)
+        if cut is not None and main and s.road is not None and s.floor is not None:
+            apart = [q for q in nonempty_polygon_parts(cut[1])
+                     if q.distance(s.floor) > w]
+            if apart:
+                cut = level_cut(P, s.footprint, A, valid_area(unary_union(others + apart)),
+                                law, grid, 0.0, airport, grow=main, whole=True)
         if cut is None:
             notes.append(f"unit {s.unit}: no level left on {pref} off the airside")
             continue
